@@ -1,5 +1,6 @@
 import type { Doc } from "@companybot/backend/convex/_generated/dataModel";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
+import { useQuery } from "convex-helpers/react/cache";
 import { useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../api";
 
@@ -26,7 +27,7 @@ export function Chat({ agent }: { agent: { id: string; name: string } }) {
 		bottom.current?.scrollIntoView({ block: "end" });
 	}, [messages]);
 
-	if (!messages) return null;
+	if (!messages) return <Loading />;
 
 	if (messages.length === 0) {
 		return (
@@ -128,6 +129,17 @@ function Composer({ onSend, busy, placeholder }: { onSend: (text: string) => voi
 				↑
 			</button>
 		</form>
+	);
+}
+
+/** Placeholder shown only on first load; later visits come from the cache. */
+export function Loading() {
+	return (
+		<div className="mx-auto flex w-full max-w-2xl animate-pulse flex-col gap-3 px-6 py-10">
+			<div className="h-4 w-1/3 rounded bg-neutral-100" />
+			<div className="h-4 w-2/3 rounded bg-neutral-100" />
+			<div className="h-4 w-1/2 rounded bg-neutral-100" />
+		</div>
 	);
 }
 

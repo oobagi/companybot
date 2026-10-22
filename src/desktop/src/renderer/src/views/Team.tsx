@@ -1,8 +1,9 @@
 import type { Role } from "@companybot/core";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
+import { useQuery } from "convex-helpers/react/cache";
 import { useState } from "react";
 import { api, errorMessage } from "../api";
-import { Notice } from "./Chat";
+import { Loading, Notice } from "./Chat";
 import { Page } from "./Memory";
 
 export function TeamView({ role }: { role: Role }) {
@@ -19,6 +20,8 @@ export function TeamView({ role }: { role: Role }) {
 			() => (setError(undefined), then?.()),
 			(e) => setError(errorMessage(e)),
 		);
+
+	if (!team) return <Loading />;
 
 	return (
 		<Page title="Team" subtitle="People in this workspace. Invited people join when they sign in with that email.">

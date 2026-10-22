@@ -1,8 +1,9 @@
 import type { Role, ToolAccess } from "@companybot/core";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
+import { useQuery } from "convex-helpers/react/cache";
 import { useState } from "react";
 import { api, errorMessage } from "../api";
-import { Notice } from "./Chat";
+import { Loading, Notice } from "./Chat";
 import { Page } from "./Memory";
 
 interface AgentAccess {
@@ -23,6 +24,8 @@ export function CustomizeView({ role, agents }: { role: Role; agents: AgentAcces
 			() => setError(undefined),
 			(e) => setError(errorMessage(e)),
 		);
+
+	if (!plugins || !skills) return <Loading />;
 
 	return (
 		<Page title="Customize" subtitle="Connect your tools and teach your agents new skills.">

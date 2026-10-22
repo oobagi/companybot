@@ -1,11 +1,13 @@
 import type { MemoryScope, Role } from "@companybot/core";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
+import { useQuery } from "convex-helpers/react/cache";
 import { useState } from "react";
 import { api, errorMessage } from "../api";
-import { Notice } from "./Chat";
+import { Loading, Notice } from "./Chat";
 
-type MemoryItem = NonNullable<ReturnType<typeof useQuery<typeof api.memory.list>>>[number];
+type MemoryItem = FunctionReturnType<typeof api.memory.list>[number];
 
 export function MemoryView({ role }: { role: Role }) {
 	const memories = useQuery(api.memory.list);
@@ -19,6 +21,9 @@ export function MemoryView({ role }: { role: Role }) {
 
 	const team = memories?.filter((m) => m.scope === "workspace") ?? [];
 	const personal = memories?.filter((m) => m.scope === "personal") ?? [];
+
+
+	if (!memories) return <Loading />;
 
 	return (
 		<Page title="Memory" subtitle="What your agents remember. Team memories are shared; personal ones are yours.">
