@@ -61,7 +61,8 @@ sh("npx convex deploy -y");
 pkg.version = next;
 writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
 sh(`git commit -q -m "Release v${next}" ${pkgPath}`);
-sh(`git tag v${next}`);
+// Annotated, so `--follow-tags` pushes it (it skips lightweight tags).
+sh(`git tag -a v${next} -m "Release v${next}"`);
 sh("git push -q origin main --follow-tags");
 
 console.log(`\n✓ Tagged v${next}. CI is building it: https://github.com/oobagi/companybot/actions/workflows/release.yml`);
