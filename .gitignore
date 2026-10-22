@@ -1,0 +1,16 @@
+node_modules/
+dist/
+out/
+build/
+release/
+coverage/
+*.tsbuildinfo
+.DS_Store
+
+# env — only .env.example is committed
+.env
+.env.*
+!.env.example
+
+.vercel
+.playwright-mcp/

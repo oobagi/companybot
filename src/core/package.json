@@ -1,0 +1,16 @@
+{
+  "name": "@companybot/core",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "ai": "^7.0.148",
+    "zod": "^4.6.7"
+  }
+}
