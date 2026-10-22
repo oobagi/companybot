@@ -1,10 +1,15 @@
 # Releases
 
 ## Cut a release
+Run **`/release`** (or `/release beta`, `/release patch`…) in Claude Code. The skill (`.claude/skills/release/SKILL.md`) writes user-facing notes from what was merged, asks you to approve them, releases, and watches the build.
+
+Under the hood:
 ```
 pnpm release patch   # or minor, major, 1.2.3
 pnpm release alpha   # or beta, 1.2.3-alpha.1
 ```
+Add `--notes file.md` to publish notes (committed as `release-notes/v<version>.md`, shown above GitHub's PR list); `--next` prints the version a bump would make.
+
 From a clean `main` that matches origin. It runs checks, deploys the prod backend, bumps `src/desktop/package.json`, tags `vX.Y.Z`, and pushes. `.github/workflows/release.yml` then builds, signs, notarizes, and publishes to GitHub Releases.
 
 Alpha/beta versions publish as GitHub prereleases. Installs on a prerelease update to newer prereleases and stable versions; stable installs ignore prereleases. `patch` from a prerelease ships that version as stable (0.2.0-alpha.3 → 0.2.0).

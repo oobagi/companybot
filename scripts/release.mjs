@@ -4,14 +4,23 @@
 //
 //   pnpm release patch | minor | major | alpha | beta | 1.2.3 | 1.2.3-alpha.1
 //
-// alpha/beta: the next prerelease (0.2.0-alpha.1 → 0.2.0-alpha.2), or the first
-// one for the next patch. Prereleases are marked as such on GitHub; only installs
+// alpha/beta: the next prerelease (0.2.0-alpha.1 → 0.2.0-alpha.2, → 0.2.0-beta.1),
+// or from a stable version, the first one for the next patch. Prereleases are marked as such on GitHub; only installs
 // already on a prerelease update to them.
+//
+//   --notes <file>  Release notes (Markdown). Committed as release-notes/v<version>.md;
+//                   the release build shows them above the automatic PR list.
+//   --next          Print the version this bump would make, then stop.
+//
+// The /release skill (.claude/skills/release) drives this end to end.
 
 import { execSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
-const bump = process.argv[2];
+const args = process.argv.slice(2);
+const bump = args.find((a) => !a.startsWith("--") && args[args.indexOf(a) - 1] !== "--notes");
+const notesFile = args.includes("--notes") ? args[args.indexOf("--notes") + 1] : undefined;
+const printNext = args.includes("--next");
 const sh = (cmd, opts = {}) => execSync(cmd, { encoding: "utf8", stdio: opts.quiet ? "pipe" : "inherit", ...opts });
 const out = (cmd) => sh(cmd, { quiet: true }).trim();
 const fail = (msg) => {
@@ -39,10 +48,20 @@ const next =
 				: bump === "alpha" || bump === "beta"
 					? channel === bump
 						? `${base}-${bump}.${number + 1}`
-						: `${major}.${minor}.${patch + 1}-${bump}.1`
+						: // alpha → beta stays on the same version; from stable, start the next patch.
+							pre
+							? `${base}-${bump}.1`
+							: `${major}.${minor}.${patch + 1}-${bump}.1`
 					: /^\d+\.\d+\.\d+(-(alpha|beta)\.\d+)?$/.test(bump)
 						? bump
 						: fail(`"${bump}" isn't patch, minor, major, alpha, beta, or a version like 1.2.3.`);
+
+if (printNext) {
+	console.log(next);
+	process.exit(0);
+}
+if (notesFile && !existsSync(notesFile)) fail(`No notes file at ${notesFile}.`);
+if (notesFile && !readFileSync(notesFile, "utf8").trim()) fail("The notes file is empty.");
 
 if (out("git branch --show-current") !== "main") fail("Release from main.");
 if (out("git status --porcelain")) fail("Commit or stash your changes first.");
@@ -60,7 +79,14 @@ sh("npx convex deploy -y");
 
 pkg.version = next;
 writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
-sh(`git commit -q -m "Release v${next}" ${pkgPath}`);
+const committed = [pkgPath];
+if (notesFile) {
+	mkdirSync("release-notes", { recursive: true });
+	copyFileSync(notesFile, `release-notes/v${next}.md`);
+	committed.push(`release-notes/v${next}.md`);
+}
+sh(`git add ${committed.join(" ")}`);
+sh(`git commit -q -m "Release v${next}"`);
 // Annotated, so `--follow-tags` pushes it (it skips lightweight tags).
 sh(`git tag -a v${next} -m "Release v${next}"`);
 sh("git push -q origin main --follow-tags");

@@ -2,7 +2,7 @@ node_modules/
 dist/
 out/
 build/
-release/
+src/desktop/release/
 coverage/
 *.tsbuildinfo
 .DS_Store

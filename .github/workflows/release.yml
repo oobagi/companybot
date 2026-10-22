@@ -81,9 +81,17 @@ jobs:
           chmod 600 "$APPLE_API_KEY"
           pnpm run package
 
+      - name: Find release notes
+        id: notes
+        run: |
+          file="release-notes/$GITHUB_REF_NAME.md"
+          [[ -f "$file" ]] && echo "path=$file" >> "$GITHUB_OUTPUT" || echo "No $file; using the PR list only."
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
+          # Our notes (release-notes/<tag>.md, written with /release), then GitHub's PR list.
+          body_path: ${{ steps.notes.outputs.path }}
           generate_release_notes: true
           # v1.2.0-alpha.1 → a GitHub prerelease. Only installs on a prerelease pick these up.
           prerelease: ${{ contains(github.ref_name, '-') }}
