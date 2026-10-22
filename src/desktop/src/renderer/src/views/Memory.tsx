@@ -5,7 +5,7 @@ import type { FunctionReturnType } from "convex/server";
 import { useQuery } from "convex-helpers/react/cache";
 import { useState } from "react";
 import { api } from "../api";
-import { ConflictNotice, Loading, Notice, Section, inputClass, primaryButton, timeAgo, useAction } from "../ui";
+import { ConflictNotice, Loading, Notice, Section, inputClass, primaryButton, timeAgo, useRun } from "../ui";
 
 type MemoryItem = FunctionReturnType<typeof api.memory.list>[number];
 type Agent = { _id: Id<"agents">; name: string; archived: boolean };
@@ -15,7 +15,7 @@ export function MemoryTab({ role }: { role: Role }) {
 	const agents = useQuery(api.agents.list);
 	const create = useMutation(api.memory.create);
 	const [filter, setFilter] = useState<Id<"agents"> | "all">("all");
-	const { error, run } = useAction();
+	const { error, run } = useRun();
 
 	if (!memories || !agents) return <Loading />;
 
@@ -82,7 +82,7 @@ function MemoryRow({ memory, agent }: { memory: MemoryItem; agent: string }) {
 	const remove = useMutation(api.memory.remove);
 	// Editing starts from the version on screen; if someone saves first, we say so.
 	const [draft, setDraft] = useState<{ content: string; base: number }>();
-	const { error, run } = useAction();
+	const { error, run } = useRun();
 	const id = memory.id as Id<"memories">;
 	const stale = draft !== undefined && draft.base !== memory.version;
 

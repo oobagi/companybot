@@ -15,7 +15,7 @@ import {
 	inputClass,
 	secondaryButton,
 	timeAgo,
-	useAction,
+	useRun,
 	useDraft,
 } from "../ui";
 
@@ -25,7 +25,7 @@ export function AgentsTab({ role }: { role: Role }) {
 	const agents = useQuery(api.agents.list);
 	const create = useMutation(api.agents.create);
 	const [openId, setOpenId] = useState<Id<"agents">>();
-	const { error, run } = useAction();
+	const { error, run } = useRun();
 	const isOwner = role === "owner";
 
 	if (!agents) return <Loading />;
@@ -96,10 +96,10 @@ function AgentEditor({ agent, isOwner, onBack }: { agent: Agent; isOwner: boolea
 	const update = useMutation(api.agents.update);
 	const setArchived = useMutation(api.agents.setArchived);
 	const draft = useDraft(configOf(agent), agent.version);
-	const { error, run } = useAction();
+	const { error, run } = useRun();
 	const config = draft.value;
 	const edit = (changes: Partial<AgentConfig>) => draft.set({ ...config, ...changes });
-	const canUse = new Map(agent.access.map((a) => [a.id, a.visible]));
+	const access = new Map(agent.access.map((a) => [a.id, a]));
 
 	if (!options) return <Loading />;
 
@@ -146,29 +146,9 @@ function AgentEditor({ agent, isOwner, onBack }: { agent: Agent; isOwner: boolea
 				</Field>
 				<div className="flex flex-col gap-1.5">
 					<span className="text-sm font-medium">Tools</span>
-					{options.tools.map((t) => {
-						const on = config.tools.includes(t.id);
-						return (
-							<label key={t.id} className="flex items-start gap-3 rounded-xl border border-neutral-200 px-3 py-2">
-								<input
-									type="checkbox"
-									className="mt-1"
-									checked={on}
-									onChange={() => edit({ tools: on ? config.tools.filter((x) => x !== t.id) : [...config.tools, t.id] })}
-								/>
-								<span className="flex flex-1 flex-col">
-									<span className="text-sm">
-										<code>{t.id}</code>
-										{t.ownersOnly && <span className="ml-2 text-xs text-neutral-400">owners only</span>}
-									</span>
-									<span className="text-xs text-neutral-500">{t.description}</span>
-								</span>
-								{on && !isOwner && (
-									<span className="text-xs text-neutral-400">{canUse.get(t.id) ? "You can use" : "Hidden from you"}</span>
-								)}
-							</label>
-						);
-					})}
+					{options.groups.map((g) => (
+						<ToolGroup key={g.id} group={g} grants={config.tools} isOwner={isOwner} access={access} onChange={(tools) => edit({ tools })} />
+					))}
 				</div>
 				<Field label="Instructions" hint="Changes apply from the agent's next reply.">
 					<textarea
@@ -192,6 +172,83 @@ function AgentEditor({ agent, isOwner, onBack }: { agent: Agent; isOwner: boolea
 	);
 }
 
+type Options = FunctionReturnType<typeof api.agents.options>;
+
+const hiddenReasons: Record<string, string> = {
+	role: "Hidden from your role",
+	not_installed: "Plugin not installed",
+	not_connected: "Not connected",
+	not_found: "Missing",
+};
+
+/**
+ * One group of tools. "All" grants the whole group ("memory.*"), which also
+ * covers tools added to it later. Plugins are always granted whole.
+ */
+function ToolGroup({
+	group,
+	grants,
+	isOwner,
+	access,
+	onChange,
+}: {
+	group: Options["groups"][number];
+	grants: string[];
+	isOwner: boolean;
+	access: Map<string, Agent["access"][number]>;
+	onChange: (tools: string[]) => void;
+}) {
+	// A one-tool group is granted by its tool id; bigger groups and plugins by "<group>.*".
+	const single = group.tools.length === 1 ? group.tools[0]?.id : undefined;
+	const all = single ?? `${group.id}.*`;
+	const whole = grants.includes(all) || grants.includes(`${group.id}.*`);
+	const inGroup = (id: string) => id === all || id.startsWith(`${group.id}.`);
+	const status = (id: string) => {
+		const a = access.get(id);
+		if (!a || isOwner) return null;
+		return <span className="text-xs text-neutral-400">{a.visible ? "You can use" : hiddenReasons[a.reason]}</span>;
+	};
+	return (
+		<div className="flex flex-col rounded-xl border border-neutral-200">
+			<label className="flex items-center gap-3 px-3 py-2">
+				<input
+					type="checkbox"
+					checked={whole}
+					onChange={() => onChange(whole ? grants.filter((x) => !inGroup(x)) : [...grants.filter((x) => !inGroup(x)), all])}
+				/>
+				<span className="flex-1 text-sm font-medium">
+					{group.plugin ? `${group.name} (plugin)` : group.name}
+					{group.tools.length > 1 && <span className="ml-2 font-normal text-neutral-400">all, including future ones</span>}
+				</span>
+				{status(all)}
+			</label>
+			{group.tools.length > 1 &&
+				group.tools.map((t) => {
+					const on = whole || grants.includes(t.id);
+					return (
+						<label key={t.id} className="flex items-start gap-3 border-t border-neutral-100 py-2 pr-3 pl-9">
+							<input
+								type="checkbox"
+								className="mt-1"
+								checked={on}
+								disabled={whole}
+								onChange={() => onChange(on ? grants.filter((x) => x !== t.id) : [...grants, t.id])}
+							/>
+							<span className="flex flex-1 flex-col">
+								<span className="text-sm">
+									<code>{t.id}</code>
+									{t.ownersOnly && <span className="ml-2 text-xs text-neutral-400">owners only</span>}
+								</span>
+								<span className="text-xs text-neutral-500">{t.description}</span>
+							</span>
+							{on && status(t.id)}
+						</label>
+					);
+				})}
+		</div>
+	);
+}
+
 const fieldLabels: Record<keyof AgentConfig, string> = {
 	name: "name",
 	description: "description",
@@ -204,7 +261,7 @@ function History({ agent, isOwner }: { agent: Agent; isOwner: boolean }) {
 	const versions = useQuery(api.agents.history, { agentId: agent._id });
 	const restore = useMutation(api.agents.restore);
 	const [openVersion, setOpenVersion] = useState<number>();
-	const { error, run } = useAction();
+	const { error, run } = useRun();
 	if (!versions) return null;
 
 	return (

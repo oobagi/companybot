@@ -1,8 +1,9 @@
 import { type ToolSet, tool } from "ai";
 import { builtinTools } from "./builtin-tools";
 import { models } from "./models";
-import type { ToolContext, ToolDef } from "./tools";
-import type { Actor } from "./types";
+import { findPlugin } from "./plugins";
+import { type ToolContext, type ToolDef, isGranted, modelToolName, toolGroup } from "./tools";
+import type { Actor, Role } from "./types";
 
 /** What an owner edits. Each workspace stores its own agents; saves are versioned. */
 export interface AgentConfig {
@@ -11,7 +12,10 @@ export interface AgentConfig {
 	instructions: string;
 	/** AI Gateway model id, e.g. "anthropic/claude-sonnet-5.5". */
 	model: string;
-	/** Built-in tool ids this agent may use, e.g. ["memory.search"]. */
+	/**
+	 * Tool grants: exact ids ("memory.search", "gmail.send") or whole groups
+	 * ("memory.*", "gmail.*"). See `isGranted`.
+	 */
 	tools: string[];
 }
 
@@ -21,6 +25,16 @@ export interface AgentDefinition extends AgentConfig {
 
 export const defineAgent = (agent: AgentConfig) => agent;
 
+const builtinGroups = new Set(builtinTools.map((t) => toolGroup(t.id)));
+
+/** A grant names a built-in tool, a built-in group, or a catalog plugin. */
+function isKnownGrant(grant: string) {
+	const group = toolGroup(grant);
+	if (!group) return false;
+	if (grant.endsWith(".*")) return builtinGroups.has(group) || !!findPlugin(group);
+	return builtinTools.some((t) => t.id === grant) || !!findPlugin(group);
+}
+
 /** Returns a message people can read, or null if the config is fine. */
 export function validateAgentConfig(config: AgentConfig): string | null {
 	const name = config.name.trim();
@@ -29,36 +43,74 @@ export function validateAgentConfig(config: AgentConfig): string | null {
 	if (config.description.length > 200) return "Keep the description under 200 characters.";
 	if (config.instructions.length > 20_000) return "Instructions are too long (20,000 characters max).";
 	if (!models.some((m) => m.id === config.model)) return "Pick a model from the list.";
-	const unknown = config.tools.find((id) => !builtinTools.some((t) => t.id === id));
+	const unknown = config.tools.find((id) => !isKnownGrant(id));
 	if (unknown) return `Unknown tool: ${unknown}`;
 	return null;
 }
 
-export type ToolAccess = { id: string; visible: true } | { id: string; visible: false; reason: "role" | "not_found" };
+/** Where a plugin stands for this person, from the backend. */
+export interface PluginState {
+	id: string;
+	/** Roles the workspace allows to use it. */
+	roles: Role[];
+	/** Has a usable connection for this person (theirs, or the workspace's). */
+	connected: boolean;
+}
+
+export type ToolAccess =
+	| { id: string; visible: true }
+	| { id: string; visible: false; reason: "role" | "not_found" | "not_installed" | "not_connected" };
 
 /**
- * Which of an agent's tools this person can use. A tool is visible only if the
- * agent grants it and the person's role allows it. Hidden tools never reach the model.
+ * For each of an agent's grants, whether this person can use it and why not.
+ * A tool reaches the model only if the agent grants it, the person's role allows
+ * it, and (for plugins) the plugin is installed, allowed, and connected.
  */
-export function describeToolAccess(agent: Pick<AgentConfig, "tools">, actor: Actor): ToolAccess[] {
-	return agent.tools.map((id): ToolAccess => {
-		const def = builtinTools.find((t) => t.id === id);
-		if (!def) return { id, visible: false, reason: "not_found" };
-		if (def.roles && !def.roles.includes(actor.role)) return { id, visible: false, reason: "role" };
-		return { id, visible: true };
+export function describeToolAccess(
+	agent: Pick<AgentConfig, "tools">,
+	actor: Actor,
+	plugins: PluginState[] = [],
+): ToolAccess[] {
+	return agent.tools.flatMap((id): ToolAccess[] => {
+		const group = toolGroup(id);
+		if (findPlugin(group)) {
+			const state = plugins.find((p) => p.id === group);
+			if (!state) return [{ id, visible: false, reason: "not_installed" }];
+			if (!state.roles.includes(actor.role)) return [{ id, visible: false, reason: "role" }];
+			if (!state.connected) return [{ id, visible: false, reason: "not_connected" }];
+			return [{ id, visible: true }];
+		}
+		// Built-in grants are listed tool by tool, so a group shows which of its tools are hidden.
+		const defs = builtinTools.filter((t) => (id.endsWith(".*") ? toolGroup(t.id) === group : t.id === id));
+		if (defs.length === 0) return [{ id, visible: false, reason: "not_found" }];
+		return defs.map((d) =>
+			d.roles && !d.roles.includes(actor.role) ? { id: d.id, visible: false, reason: "role" } : { id: d.id, visible: true },
+		);
 	});
 }
 
-export function resolveTools(agent: Pick<AgentConfig, "tools">, actor: Actor): ToolDef[] {
-	const visible = new Set(describeToolAccess(agent, actor).flatMap((a) => (a.visible ? [a.id] : [])));
-	return builtinTools.filter((t) => visible.has(t.id));
+/**
+ * The tools this agent can use for this person, out of `available` (built-ins plus
+ * whatever plugin tools were loaded for the turn). Plugin role checks happen when
+ * plugins are loaded; tool-level `roles` are checked here.
+ */
+export function resolveTools(
+	agent: Pick<AgentConfig, "tools">,
+	actor: Actor,
+	available: ToolDef[] = builtinTools,
+): ToolDef[] {
+	return available.filter((t) => isGranted(agent.tools, t.id) && (!t.roles || t.roles.includes(actor.role)));
 }
 
-/** Builds the AI SDK tool set for one run. Model-facing names use "_" (e.g. memory_search). */
-export function buildToolSet(agent: Pick<AgentConfig, "tools">, ctx: ToolContext): ToolSet {
+/** Builds the AI SDK tool set for one run. */
+export function buildToolSet(
+	agent: Pick<AgentConfig, "tools">,
+	ctx: ToolContext,
+	available: ToolDef[] = builtinTools,
+): ToolSet {
 	const tools: ToolSet = {};
-	for (const t of resolveTools(agent, ctx.actor)) {
-		tools[t.id.replace(".", "_")] = tool({
+	for (const t of resolveTools(agent, ctx.actor, available)) {
+		tools[modelToolName(t.id)] = tool({
 			description: t.description,
 			inputSchema: t.input,
 			execute: (input) => t.execute(input, ctx),
@@ -66,3 +118,7 @@ export function buildToolSet(agent: Pick<AgentConfig, "tools">, ctx: ToolContext
 	}
 	return tools;
 }
+
+/** Plugins an agent's grants reach, so the runner only connects to those. */
+export const grantedPluginIds = (agent: Pick<AgentConfig, "tools">) =>
+	[...new Set(agent.tools.map(toolGroup))].filter((group) => !!findPlugin(group));

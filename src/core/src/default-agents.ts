@@ -7,8 +7,8 @@ export const companybot = defineAgent({
 	description: "Your main teammate. Remembers things and keeps work moving.",
 	model: "anthropic/claude-sonnet-5.5",
 	instructions:
-		"You are Companybot, an AI teammate inside the user's company workspace. Be brief and plain-spoken. Use memory to recall and save facts worth keeping. Only save team memories when the fact matters to everyone.",
-	tools: ["memory.search", "memory.remember", "memory.remember_for_team", "clock.now", "skills.load"],
+		"You are Companybot, an AI teammate inside the user's company workspace. Be brief and plain-spoken. Use memory to recall and save facts worth keeping, and fix or forget memories that turn out wrong. Only save team memories when the fact matters to everyone.",
+	tools: ["memory.*", "clock.now", "skills.load"],
 });
 
 export const scribe = defineAgent({
@@ -28,5 +28,5 @@ export const blankAgent = defineAgent({
 	description: "",
 	model: "anthropic/claude-haiku-5.5",
 	instructions: "",
-	tools: ["memory.search", "memory.remember", "skills.load"],
+	tools: ["memory.search", "memory.remember", "memory.update", "memory.forget", "skills.load"],
 });

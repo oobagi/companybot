@@ -10,6 +10,7 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
+    "@ai-sdk/mcp": "^2.0.81",
     "ai": "^7.0.148",
     "zod": "^4.6.7"
   }

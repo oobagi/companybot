@@ -1,31 +1,38 @@
 {
   "name": "@companybot/desktop",
+  "productName": "Companybot",
+  "version": "0.1.0",
+  "description": "AI-first team chat. Agents are teammates.",
+  "author": "Jaden Watson",
+  "license": "UNLICENSED",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "package": "electron-vite build && electron-builder --config electron-builder.yml --publish never",
     "preview:web": "vite --config vite.web.config.ts",
     "typecheck": "tsc -p ."
   },
+  "//": "Everything is bundled by electron-vite, so the packaged app ships no node_modules. Keep all packages in devDependencies.",
   "devDependencies": {
+    "@companybot/backend": "workspace:*",
+    "@companybot/core": "workspace:*",
+    "@convex-dev/auth": "^0.0.96",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
-    "electron": "^45.0.0",
-    "electron-vite": "^6.0.0",
-    "tailwindcss": "^4.3.3",
-    "vite": "^8.3.5"
-  },
-  "dependencies": {
-    "@companybot/backend": "workspace:*",
-    "@companybot/core": "workspace:*",
-    "@convex-dev/auth": "^0.0.96",
     "convex": "1.47.0",
     "convex-helpers": "^0.1.128",
+    "electron": "^45.0.0",
+    "electron-builder": "^26.15.3",
+    "electron-updater": "^6.8.9",
+    "electron-vite": "^6.0.0",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.3.5"
   }
 }

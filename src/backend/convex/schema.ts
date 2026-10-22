@@ -74,10 +74,26 @@ export default defineSchema({
 		sendWith: v.union(v.literal("enter"), v.literal("mod-enter")),
 	}).index("by_user", ["userId"]),
 
+	// Plugins: an owner installs one and picks which roles may use it.
 	pluginInstalls: defineTable({
 		workspaceId: v.id("workspaces"),
 		pluginId: v.string(),
+		roles: v.array(role),
+		installedBy: v.id("users"),
 	}).index("by_workspace", ["workspaceId", "pluginId"]),
+
+	// An account connected to a plugin: the workspace's (userId null) or one person's.
+	// Credentials are AES-GCM encrypted with CONNECTIONS_KEY and never leave the server.
+	pluginConnections: defineTable({
+		workspaceId: v.id("workspaces"),
+		pluginId: v.string(),
+		userId: v.union(v.id("users"), v.null()),
+		credentials: v.string(),
+		connectedBy: v.id("users"),
+		/** Set when the last attempt to use it failed, so the app can say so. */
+		error: v.optional(v.string()),
+	})
+		.index("by_workspace", ["workspaceId", "pluginId", "userId"]),
 
 	skillInstalls: defineTable({
 		workspaceId: v.id("workspaces"),

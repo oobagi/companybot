@@ -1,7 +1,7 @@
 import { skillCatalog } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { getMember, installedSkills, requireOwner } from "./lib";
+import { getMember, installedSkills, requirePermission } from "./lib";
 
 export const list = query({
 	args: {},
@@ -22,7 +22,7 @@ export const list = query({
 export const setInstalled = mutation({
 	args: { skillId: v.string(), installed: v.boolean() },
 	handler: async (ctx, { skillId, installed }) => {
-		const { workspaceId } = await requireOwner(ctx);
+		const { workspaceId } = await requirePermission(ctx, "skills.manage");
 		if (!skillCatalog.some((s) => s.id === skillId)) throw new ConvexError("Unknown skill.");
 		const existing = await ctx.db
 			.query("skillInstalls")

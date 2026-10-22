@@ -3,7 +3,7 @@ import { useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache";
 import { useState } from "react";
 import { api } from "../api";
-import { Loading, Notice, inputClass, primaryButton, useAction } from "../ui";
+import { Loading, Notice, inputClass, primaryButton, useRun } from "../ui";
 
 export function MembersTab({ role }: { role: Role }) {
 	const team = useQuery(api.workspace.team);
@@ -13,7 +13,7 @@ export function MembersTab({ role }: { role: Role }) {
 	const setRole = useMutation(api.workspace.setRole);
 	const [email, setEmail] = useState("");
 	const [inviteRole, setInviteRole] = useState<Role>("member");
-	const { error, run } = useAction();
+	const { error, run } = useRun();
 	const isOwner = role === "owner";
 
 	if (!team) return <Loading />;

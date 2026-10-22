@@ -4,6 +4,7 @@ import { useConvexAuth, useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache";
 import { useEffect, useState } from "react";
 import { api, errorMessage } from "./api";
+import { desktop, useUpdates } from "./desktop";
 import { Notice } from "./ui";
 import { Chat } from "./views/Chat";
 import { type CustomizeTab, CustomizeView } from "./views/Customize";
@@ -43,6 +44,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	const [customizeTab, setCustomizeTab] = useState<CustomizeTab>("agents");
 	const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
 	const [agentId, setAgentId] = useState<string>();
+	const { status: update } = useUpdates();
 
 	const active = agents?.filter((a) => !a.archived) ?? [];
 	const agent = active.find((a) => a._id === agentId) ?? active[0];
@@ -65,7 +67,16 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 						</button>
 					))}
 				</nav>
-				<div className="no-drag mt-auto flex flex-col gap-1 px-2 text-xs text-neutral-500">
+				{update?.state === "ready" && (
+					<button
+						type="button"
+						onClick={() => void desktop?.updates.install()}
+						className="no-drag mt-auto mb-3 rounded-lg bg-neutral-900 px-3 py-2 text-left text-xs text-white"
+					>
+						Update ready · Restart
+					</button>
+				)}
+				<div className={`no-drag flex flex-col gap-1 px-2 text-xs text-neutral-500 ${update?.state === "ready" ? "" : "mt-auto"}`}>
 					<span className="truncate" title={email}>
 						{prefs?.displayName || email}
 					</span>

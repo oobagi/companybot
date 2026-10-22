@@ -1,15 +1,31 @@
-import { type MemoryStore, buildToolSet, skillsIndex } from "@companybot/core";
+import {
+	type AgentConfig,
+	type MemoryStore,
+	type PluginCredentials,
+	type PluginSession,
+	buildToolSet,
+	builtinTools,
+	findPlugin,
+	grantedPluginIds,
+	isGranted,
+	openPlugin,
+	skillsIndex,
+} from "@companybot/core";
 import { generateText, isStepCount, streamText } from "ai";
+import type { FunctionReturnType } from "convex/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { type ActionCtx, internalAction } from "./_generated/server";
+import { decrypt } from "./crypto";
 
 const SUMMARY_MODEL = "anthropic/claude-haiku-5.5";
 /** Summarize once this many messages pile up past the summary, keeping the newest KEEP verbatim. */
 const COMPACT_TRIGGER = 40;
 const COMPACT_KEEP = 20;
 const FLUSH_MS = 200;
+/** A plugin that doesn't connect this fast is skipped for the turn, not waited on. */
+const PLUGIN_CONNECT_MS = 10_000;
 
 type ToolStatus = { id: string; name: string; status: "running" | "done" | "error" };
 
@@ -30,18 +46,74 @@ export const respond = internalAction({
 
 async function runTurn(ctx: ActionCtx, conversationId: Id<"conversations">, replyId: Id<"messages">) {
 	const turn = await ctx.runQuery(internal.chat.turnContext, { conversationId, replyId });
-	const { agent, member } = turn;
-	const tools = buildToolSet(agent, {
-		actor: { userId: member.userId, role: member.role },
-		agentId: agent.id,
-		memory: memoryStore(ctx, member.userId, agent.id),
-		skills: turn.skills,
+	const plugins = await loadPlugins(ctx, turn.member.userId, turn.agent);
+	try {
+		await streamReply(ctx, turn, replyId, plugins);
+	} finally {
+		await Promise.allSettled(plugins.sessions.map((s) => s.close()));
+	}
+}
+
+type Turn = FunctionReturnType<typeof internal.chat.turnContext>;
+type LoadedPlugins = { sessions: PluginSession[]; unavailable: string[] };
+
+/**
+ * Connects to the plugins this agent's grants reach and this person may use.
+ * A failing plugin is skipped and the agent is told, so one bad connection never
+ * breaks the reply.
+ */
+async function loadPlugins(ctx: ActionCtx, userId: Id<"users">, agent: Pick<AgentConfig, "tools">): Promise<LoadedPlugins> {
+	const pluginIds = grantedPluginIds(agent);
+	if (pluginIds.length === 0) return { sessions: [], unavailable: [] };
+	const usable = await ctx.runQuery(internal.plugins.forTurn, { userId, pluginIds });
+	const results = await Promise.all(
+		usable.map(async ({ pluginId, connectionId, credentials }) => {
+			const plugin = findPlugin(pluginId)!;
+			try {
+				const creds: PluginCredentials = credentials ? await decrypt(credentials) : { type: "none" };
+				const session = await withTimeout(openPlugin(plugin, { credentials: creds }), PLUGIN_CONNECT_MS);
+				if (connectionId) await ctx.runMutation(internal.plugins.setConnectionError, { connectionId });
+				return { session };
+			} catch (e) {
+				const message = e instanceof Error ? e.message : String(e);
+				if (connectionId) await ctx.runMutation(internal.plugins.setConnectionError, { connectionId, error: message });
+				return { unavailable: plugin.name };
+			}
+		}),
+	);
+	return {
+		sessions: results.flatMap((r) => (r.session ? [r.session] : [])),
+		unavailable: results.flatMap((r) => (r.unavailable ? [r.unavailable] : [])),
+	};
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => reject(new Error("Timed out connecting.")), ms);
 	});
+	return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+async function streamReply(ctx: ActionCtx, turn: Turn, replyId: Id<"messages">, plugins: LoadedPlugins) {
+	const { agent, member } = turn;
+	const tools = buildToolSet(
+		agent,
+		{
+			actor: { userId: member.userId, role: member.role },
+			agentId: agent.id,
+			memory: memoryStore(ctx, member.userId, agent.id),
+			skills: turn.skills,
+		},
+		[...builtinTools, ...plugins.sessions.flatMap((s) => s.tools)],
+	);
 
 	const instructions = [
 		agent.instructions,
 		`You're talking with ${turn.name} <${turn.email}>, a workspace ${member.role}.`,
-		agent.tools.includes("skills.load") && skillsIndex(turn.skills),
+		isGranted(agent.tools, "skills.load") && skillsIndex(turn.skills),
+		plugins.unavailable.length > 0 &&
+			`These connected services are unavailable this turn, so you can't use them: ${plugins.unavailable.join(", ")}.`,
 		turn.summary && `Summary of your earlier conversation with them:\n${turn.summary}`,
 	]
 		.filter(Boolean)

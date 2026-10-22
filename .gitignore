@@ -7,10 +7,11 @@ coverage/
 *.tsbuildinfo
 .DS_Store
 
-# env — only .env.example is committed
+# env — only .env.example and .env.production (public URL) are committed
 .env
 .env.*
 !.env.example
+!.env.production
 
 .vercel
 .playwright-mcp/

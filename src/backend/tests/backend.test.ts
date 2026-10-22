@@ -2,6 +2,23 @@ import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import schema from "../convex/schema";
+import { decrypt } from "../convex/crypto";
+import { definePlugin, pluginCatalog } from "@companybot/core";
+
+// A test plugin, so plugin flows can run without a real connector in the catalog.
+const notes = definePlugin({
+	id: "notes",
+	name: "Notes",
+	description: "Test plugin",
+	version: "1.0.0",
+	publisher: "Test",
+	mcp: { url: "https://example.com/mcp", transport: "http" },
+	connection: "personal",
+	auth: { type: "api_key", header: "Authorization", prefix: "Bearer ", label: "API key" },
+});
+const crm = definePlugin({ ...notes, id: "crm", name: "CRM", connection: "workspace" });
+pluginCatalog.push(notes, crm);
+process.env.CONNECTIONS_KEY = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
 
 const modules = import.meta.glob(["../convex/**/*.ts", "../convex/_generated/*.js"]);
 
@@ -39,7 +56,7 @@ describe("workspaces", () => {
 	it("only lets owners invite", async () => {
 		const { member } = await ownerAndMember();
 		await expect(member.mutation(api.workspace.invite, { email: "x@co.com", role: "member" })).rejects.toThrow(
-			"Only owners",
+			"permission",
 		);
 	});
 });
@@ -50,7 +67,7 @@ describe("memory", () => {
 		const agentId = (await agentsOf(owner)).companybot._id;
 		await owner.mutation(api.memory.create, { agentId, scope: "workspace", content: "We close at 5pm." });
 		await expect(member.mutation(api.memory.create, { agentId, scope: "workspace", content: "x" })).rejects.toThrow(
-			"Only owners",
+			"permission",
 		);
 		await member.mutation(api.memory.create, { agentId, scope: "personal", content: "I like mornings." });
 
@@ -73,6 +90,18 @@ describe("memory", () => {
 		const userId = companybot.updatedBy;
 		const seen = await t.query(internal.memory.listFor, { userId, agentId: scribe._id });
 		expect(seen.map((m) => m.content)).toEqual(["Scribe fact"]);
+	});
+
+	it("lets agents fix and forget only what the person could", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		const agentId = (await agentsOf(owner)).companybot._id;
+		const team = await owner.mutation(api.memory.create, { agentId, scope: "workspace", content: "Office is in Austin." });
+		const memberId = (await member.query(api.workspace.me))!.userId;
+		const id = team.id as never;
+		await expect(t.mutation(internal.memory.removeFor, { userId: memberId, agentId, id })).rejects.toThrow("can't change");
+		await expect(
+			t.mutation(internal.memory.updateFor, { userId: memberId, agentId: (await agentsOf(owner)).scribe._id, id, content: "x" }),
+		).rejects.toThrow("not found");
 	});
 
 	it("refuses an edit made against an old version", async () => {
@@ -131,7 +160,7 @@ describe("agents", () => {
 		const { scribe } = await agentsOf(owner);
 		const config = { name: "X", description: "", instructions: "", model: scribe.model, tools: [] as string[] };
 		await expect(member.mutation(api.agents.update, { agentId: scribe._id, expectedVersion: 1, config })).rejects.toThrow(
-			"Only owners",
+			"permission",
 		);
 		await expect(
 			owner.mutation(api.agents.update, { agentId: scribe._id, expectedVersion: 1, config: { ...config, tools: ["x.y"] } }),
@@ -182,7 +211,7 @@ describe("customize", () => {
 	it("lets only owners install skills", async () => {
 		const { owner, member } = await ownerAndMember();
 		await expect(member.mutation(api.skills.setInstalled, { skillId: "meeting-notes", installed: true })).rejects.toThrow(
-			"Only owners",
+			"permission",
 		);
 		await owner.mutation(api.skills.setInstalled, { skillId: "meeting-notes", installed: true });
 		expect((await member.query(api.skills.list)).find((s) => s.id === "meeting-notes")?.installed).toBe(true);
@@ -212,5 +241,65 @@ describe("chat", () => {
 			["user", "done"],
 			["assistant", "streaming"],
 		]);
+	});
+});
+
+describe("plugins", () => {
+	it("lets only owners install, and members connect their own account", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		await expect(member.mutation(api.plugins.setInstalled, { pluginId: "notes", installed: true })).rejects.toThrow(
+			"permission",
+		);
+		await expect(
+			member.action(api.plugins.connect, { pluginId: "notes", credentials: { type: "api_key", key: "k" } }),
+		).rejects.toThrow("Install the plugin first");
+		await owner.mutation(api.plugins.setInstalled, { pluginId: "notes", installed: true });
+		await member.action(api.plugins.connect, { pluginId: "notes", credentials: { type: "api_key", key: "secret-1" } });
+
+		const mine = (await member.query(api.plugins.list)).find((p) => p.id === "notes")!;
+		expect(mine).toMatchObject({ installed: true, connected: true, canUse: true });
+		expect(JSON.stringify(mine)).not.toContain("secret-1");
+		// Personal: the owner hasn't connected their own account.
+		expect((await owner.query(api.plugins.list)).find((p) => p.id === "notes")?.connected).toBe(false);
+
+		const stored = await t.run((ctx) => ctx.db.query("pluginConnections").first());
+		expect(stored?.credentials).not.toContain("secret-1");
+		expect(await decrypt(stored!.credentials)).toEqual({ type: "api_key", key: "secret-1" });
+	});
+
+	it("needs an owner to connect a workspace account", async () => {
+		const { owner, member } = await ownerAndMember();
+		await owner.mutation(api.plugins.setInstalled, { pluginId: "crm", installed: true });
+		const creds = { type: "api_key" as const, key: "k" };
+		await expect(member.action(api.plugins.connect, { pluginId: "crm", credentials: creds })).rejects.toThrow("permission");
+		await owner.action(api.plugins.connect, { pluginId: "crm", credentials: creds });
+		// One shared connection covers everyone.
+		expect((await member.query(api.plugins.list)).find((p) => p.id === "crm")?.connected).toBe(true);
+	});
+
+	it("gives agents plugin tools only for allowed roles, read fresh each turn", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		await owner.mutation(api.plugins.setInstalled, { pluginId: "crm", installed: true });
+		await owner.action(api.plugins.connect, { pluginId: "crm", credentials: { type: "api_key", key: "k" } });
+		const { scribe } = await agentsOf(owner);
+		const config = { name: "Scribe", description: "", instructions: "", model: scribe.model, tools: ["crm.*"] };
+		await owner.mutation(api.agents.update, { agentId: scribe._id, expectedVersion: 1, config });
+
+		const memberId = (await member.query(api.workspace.me))!.userId;
+		const forTurn = () => t.query(internal.plugins.forTurn, { userId: memberId, pluginIds: ["crm"] });
+		expect(await forTurn()).toHaveLength(1);
+		expect((await agentsOf(member)).scribe.access).toEqual([{ id: "crm.*", visible: true }]);
+
+		await owner.mutation(api.plugins.setRoles, { pluginId: "crm", roles: ["owner"] });
+		expect(await forTurn()).toHaveLength(0);
+		expect((await agentsOf(member)).scribe.access).toEqual([{ id: "crm.*", visible: false, reason: "role" }]);
+	});
+
+	it("forgets connections when uninstalled", async () => {
+		const { t, owner } = await ownerAndMember();
+		await owner.mutation(api.plugins.setInstalled, { pluginId: "crm", installed: true });
+		await owner.action(api.plugins.connect, { pluginId: "crm", credentials: { type: "api_key", key: "k" } });
+		await owner.mutation(api.plugins.setInstalled, { pluginId: "crm", installed: false });
+		expect(await t.run((ctx) => ctx.db.query("pluginConnections").collect())).toHaveLength(0);
 	});
 });

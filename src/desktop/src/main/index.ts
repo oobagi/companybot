@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { BrowserWindow, app, shell } from "electron";
+import { setUpUpdater } from "./updater";
 
 function createWindow() {
 	const win = new BrowserWindow({
@@ -10,6 +11,7 @@ function createWindow() {
 		titleBarStyle: "hiddenInset",
 		backgroundColor: "#ffffff",
 		show: false,
+		webPreferences: { preload: join(import.meta.dirname, "../preload/index.cjs") },
 	});
 	win.once("ready-to-show", () => win.show());
 
@@ -24,6 +26,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+	setUpUpdater();
 	createWindow();
 	app.on("activate", () => BrowserWindow.getAllWindows().length === 0 && createWindow());
 });

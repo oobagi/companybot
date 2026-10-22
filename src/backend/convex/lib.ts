@@ -1,6 +1,5 @@
-import type { Actor } from "@companybot/core";
+import { type Actor, type Permission, can, deniedMessage, skillCatalog } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { skillCatalog } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
@@ -33,9 +32,10 @@ export async function requireMember(ctx: QueryCtx): Promise<Member> {
 	return member;
 }
 
-export async function requireOwner(ctx: QueryCtx): Promise<Member> {
+/** The signed-in member, if their role has `permission` (see core/permissions.ts). */
+export async function requirePermission(ctx: QueryCtx, permission: Permission): Promise<Member> {
 	const member = await requireMember(ctx);
-	if (member.role !== "owner") throw new ConvexError("Only owners can do that.");
+	if (!can(member.role, permission)) throw new ConvexError(deniedMessage(permission));
 	return member;
 }
 

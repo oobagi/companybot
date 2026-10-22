@@ -1,4 +1,11 @@
-import { type Memory, type MemoryScope, canCreateMemory, canEditMemory, canReadMemory } from "@companybot/core";
+import {
+	type Memory,
+	type MemoryScope,
+	canCreateMemory,
+	canEditMemory,
+	canReadMemory,
+	deniedMessage,
+} from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -43,7 +50,7 @@ export async function createMemory(
 	scope: MemoryScope,
 	content: string,
 ) {
-	if (!canCreateMemory(toActor(member), scope)) throw new ConvexError("Only owners can add team memories.");
+	if (!canCreateMemory(toActor(member), scope)) throw new ConvexError(deniedMessage("memory.team.write"));
 	await requireAgent(ctx, member, agentId);
 	if (!content.trim()) throw new ConvexError("Memory can't be empty.");
 	const id = await ctx.db.insert("memories", {

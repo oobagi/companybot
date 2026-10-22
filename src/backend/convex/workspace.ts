@@ -3,7 +3,7 @@ import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { type QueryCtx, mutation, query } from "./_generated/server";
 import { seedAgents } from "./agents";
-import { checkVersion, getMember, namesOf, normalizeEmail, requireOwner } from "./lib";
+import { checkVersion, getMember, namesOf, normalizeEmail, requirePermission } from "./lib";
 import { role } from "./schema";
 
 export const me = query({
@@ -83,7 +83,7 @@ export const team = query({
 export const invite = mutation({
 	args: { email: v.string(), role },
 	handler: async (ctx, args) => {
-		const { workspaceId } = await requireOwner(ctx);
+		const { workspaceId } = await requirePermission(ctx, "members.manage");
 		const email = normalizeEmail(args.email);
 		if (!/^\S+@\S+\.\S+$/.test(email)) throw new ConvexError("That doesn't look like an email.");
 		const existing = await ctx.db
@@ -98,7 +98,7 @@ export const invite = mutation({
 export const cancelInvite = mutation({
 	args: { id: v.id("invites") },
 	handler: async (ctx, { id }) => {
-		const { workspaceId } = await requireOwner(ctx);
+		const { workspaceId } = await requirePermission(ctx, "members.manage");
 		const invite = await ctx.db.get(id);
 		if (invite?.workspaceId === workspaceId) await ctx.db.delete(id);
 	},
@@ -107,7 +107,7 @@ export const cancelInvite = mutation({
 export const removeMember = mutation({
 	args: { id: v.id("members") },
 	handler: async (ctx, { id }) => {
-		const owner = await requireOwner(ctx);
+		const owner = await requirePermission(ctx, "members.manage");
 		const row = await ctx.db.get(id);
 		if (!row || row.workspaceId !== owner.workspaceId) return;
 		if (row.userId === owner.userId) throw new ConvexError("You can't remove yourself.");
@@ -119,7 +119,7 @@ export const removeMember = mutation({
 export const setRole = mutation({
 	args: { id: v.id("members"), role },
 	handler: async (ctx, { id, role }) => {
-		const owner = await requireOwner(ctx);
+		const owner = await requirePermission(ctx, "members.manage");
 		const row = await ctx.db.get(id);
 		if (!row || row.workspaceId !== owner.workspaceId) throw new ConvexError("Member not found.");
 		if (row.role === "owner" && role !== "owner" && (await ownerCount(ctx, owner.workspaceId)) <= 1) {
@@ -150,7 +150,7 @@ export const settings = query({
 export const updateSettings = mutation({
 	args: { name: v.string(), expectedVersion: v.number() },
 	handler: async (ctx, { name, expectedVersion }) => {
-		const { workspaceId } = await requireOwner(ctx);
+		const { workspaceId } = await requirePermission(ctx, "workspace.manage");
 		const workspace = (await ctx.db.get(workspaceId))!;
 		checkVersion(workspace.version ?? 0, expectedVersion);
 		if (!name.trim()) throw new ConvexError("Name can't be empty.");

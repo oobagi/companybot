@@ -85,7 +85,7 @@ export function Notice({ children }: { children: React.ReactNode }) {
 }
 
 /** Runs a mutation and keeps its error message for display. */
-export function useAction() {
+export function useRun() {
 	const [error, setError] = useState<string>();
 	const run = (action: Promise<unknown>, then?: () => void) =>
 		action.then(

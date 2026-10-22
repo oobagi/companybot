@@ -1,3 +1,4 @@
+import { can } from "./permissions";
 import type { Actor } from "./types";
 
 export type MemoryScope = "workspace" | "personal";
@@ -16,21 +17,25 @@ export interface Memory {
 	version: number;
 }
 
-// Owners can read and edit everything. Members read workspace memories and
-// read/edit only their own personal memories.
+// Team memories: everyone reads, only roles with "memory.team.write" change them.
+// Personal memories: the person reads and edits their own; "memory.all.read" sees all.
 export function canReadMemory(actor: Actor, memory: Memory): boolean {
-	return actor.role === "owner" || memory.scope === "workspace" || memory.ownerId === actor.userId;
+	return memory.scope === "workspace" || memory.ownerId === actor.userId || can(actor, "memory.all.read");
 }
 
 export function canEditMemory(actor: Actor, memory: Memory): boolean {
-	return actor.role === "owner" || (memory.scope === "personal" && memory.ownerId === actor.userId);
+	if (memory.scope === "workspace") return can(actor, "memory.team.write");
+	return memory.ownerId === actor.userId || can(actor, "memory.all.read");
 }
 
 export function canCreateMemory(actor: Actor, scope: MemoryScope): boolean {
-	return scope === "personal" || actor.role === "owner";
+	return scope === "personal" || can(actor, "memory.team.write");
 }
 
-/** One agent's memories, as seen by the person it's helping. */
+/**
+ * One agent's memories, as seen by the person it's helping. Implementations must
+ * enforce the rules above on every call; tools rely on that, not on their own checks.
+ */
 export interface MemoryStore {
 	list(actor: Actor): Promise<Memory[]>;
 	create(actor: Actor, input: { scope: MemoryScope; content: string }): Promise<Memory>;

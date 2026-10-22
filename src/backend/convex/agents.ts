@@ -4,13 +4,16 @@ import {
 	builtinTools,
 	defaultAgents,
 	describeToolAccess,
+	findPlugin,
 	models,
+	toolGroup,
 	validateAgentConfig,
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, mutation, query } from "./_generated/server";
-import { checkVersion, getMember, namesOf, requireAgent, requireMember, requireOwner, toActor } from "./lib";
+import { checkVersion, getMember, namesOf, requireAgent, requireMember, requirePermission, toActor } from "./lib";
+import { pluginStates } from "./plugins";
 import { agentConfig } from "./schema";
 
 // Agents live in the database, one set per workspace. Owners edit them; every save
@@ -29,8 +32,8 @@ function clean(config: AgentConfig): AgentConfig {
 	const tidy = { ...config, name: config.name.trim(), description: config.description.trim() };
 	const problem = validateAgentConfig(tidy);
 	if (problem) throw new ConvexError(problem);
-	// Keep tools in catalog order so versions compare cleanly.
-	return { ...tidy, tools: builtinTools.flatMap((t) => (tidy.tools.includes(t.id) ? [t.id] : [])) };
+	// Sorted and deduped so versions compare cleanly.
+	return { ...tidy, tools: [...new Set(tidy.tools)].sort() };
 }
 
 async function insertAgent(ctx: MutationCtx, workspaceId: Id<"workspaces">, userId: Id<"users">, config: AgentConfig) {
@@ -71,21 +74,39 @@ export const list = query({
 			ctx,
 			agents.map((a) => a.updatedBy),
 		);
+		const plugins = await pluginStates(ctx, member);
 		return agents.map((a) => ({
 			...a,
 			updatedByName: names.get(a.updatedBy) ?? "",
-			access: describeToolAccess(a, toActor(member)),
+			access: describeToolAccess(a, toActor(member), plugins),
 		}));
 	},
 });
 
-/** What owners can pick from when editing an agent. */
+/**
+ * What owners can pick from when editing an agent: models, and tool groups. Each
+ * group can be granted whole ("memory.*") or tool by tool. Installed plugins are
+ * granted whole, since their tools come from the plugin's server.
+ */
 export const options = query({
 	args: {},
-	handler: () => ({
-		models,
-		tools: builtinTools.map(({ id, description, roles }) => ({ id, description, ownersOnly: !!roles && !roles.includes("member") })),
-	}),
+	handler: async (ctx) => {
+		const member = await getMember(ctx);
+		const builtin = [...new Set(builtinTools.map((t) => toolGroup(t.id)))].map((group) => ({
+			id: group,
+			name: group.charAt(0).toUpperCase() + group.slice(1),
+			plugin: false,
+			tools: builtinTools
+				.filter((t) => toolGroup(t.id) === group)
+				.map(({ id, description, roles }) => ({ id, description, ownersOnly: !!roles && !roles.includes("member") })),
+		}));
+		const installed = member ? await pluginStates(ctx, member) : [];
+		const plugins = installed.flatMap((state) => {
+			const plugin = findPlugin(state.id);
+			return plugin ? [{ id: plugin.id, name: plugin.name, plugin: true, tools: [] }] : [];
+		});
+		return { models, groups: [...builtin, ...plugins] };
+	},
 });
 
 export const history = query({
@@ -115,7 +136,7 @@ export const history = query({
 export const create = mutation({
 	args: {},
 	handler: async (ctx) => {
-		const owner = await requireOwner(ctx);
+		const owner = await requirePermission(ctx, "agents.manage");
 		return insertAgent(ctx, owner.workspaceId, owner.userId, blankAgent);
 	},
 });
@@ -123,7 +144,7 @@ export const create = mutation({
 export const update = mutation({
 	args: { agentId: v.id("agents"), expectedVersion: v.number(), config: agentConfig },
 	handler: async (ctx, { agentId, expectedVersion, config }) => {
-		const owner = await requireOwner(ctx);
+		const owner = await requirePermission(ctx, "agents.manage");
 		const agent = await requireAgent(ctx, owner, agentId);
 		checkVersion(agent.version, expectedVersion);
 		await saveVersion(ctx, agent, clean(config), owner.userId);
@@ -134,7 +155,7 @@ export const update = mutation({
 export const restore = mutation({
 	args: { agentId: v.id("agents"), version: v.number(), expectedVersion: v.number() },
 	handler: async (ctx, { agentId, version, expectedVersion }) => {
-		const owner = await requireOwner(ctx);
+		const owner = await requirePermission(ctx, "agents.manage");
 		const agent = await requireAgent(ctx, owner, agentId);
 		checkVersion(agent.version, expectedVersion);
 		const old = await ctx.db
@@ -150,7 +171,7 @@ export const restore = mutation({
 export const setArchived = mutation({
 	args: { agentId: v.id("agents"), archived: v.boolean() },
 	handler: async (ctx, { agentId, archived }) => {
-		const owner = await requireOwner(ctx);
+		const owner = await requirePermission(ctx, "agents.manage");
 		const agent = await requireAgent(ctx, owner, agentId);
 		if (archived) {
 			const active = await ctx.db

@@ -1,0 +1,25 @@
+# Packages the app and describes where updates come from. CI publishes the
+# files to GitHub Releases (see .github/workflows/release.yml); the app's
+# updater reads latest-mac.yml from the newest release.
+appId: com.companybot.desktop
+productName: Companybot
+asar: true
+directories:
+  output: release
+files:
+  - out/**/*
+  - package.json
+publish:
+  provider: github
+  owner: oobagi
+  repo: companybot
+mac:
+  category: public.app-category.productivity
+  # Auto-update on macOS only works for signed, notarized apps.
+  notarize: true
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    # The updater downloads the zip.
+    - target: zip
+      arch: [arm64, x64]

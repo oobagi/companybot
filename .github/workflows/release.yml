@@ -1,0 +1,74 @@
+name: Release
+
+# Runs when `pnpm release` pushes a v* tag. Builds, signs, and notarizes the Mac
+# app, then publishes it to GitHub Releases, where the in-app updater finds it.
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  mac:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+
+      - name: Check tag matches app version
+        run: |
+          version=$(node -p "require('./src/desktop/package.json').version")
+          if [[ "v$version" != "$GITHUB_REF_NAME" ]]; then
+            echo "Tag $GITHUB_REF_NAME doesn't match src/desktop/package.json version $version" >&2
+            exit 1
+          fi
+
+      - name: Check signing secrets
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          missing=()
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER; do
+            [[ -n "${!name}" ]] || missing+=("$name")
+          done
+          if (( ${#missing[@]} > 0 )); then
+            echo "Missing secrets: ${missing[*]}. Auto-update needs a signed, notarized app. See wiki/releases.md." >&2
+            exit 1
+          fi
+
+      - name: Build, sign, and notarize
+        working-directory: src/desktop
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          # electron-builder wants a path to the .p8 key; the secret holds its contents.
+          export APPLE_API_KEY="$RUNNER_TEMP/AuthKey_$APPLE_API_KEY_ID.p8"
+          printf '%s\n' "$APPLE_API_KEY_CONTENT" > "$APPLE_API_KEY"
+          chmod 600 "$APPLE_API_KEY"
+          pnpm run package
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            src/desktop/release/*.dmg
+            src/desktop/release/*.zip
+            src/desktop/release/*.blockmap
+            src/desktop/release/latest-mac.yml
+          fail_on_unmatched_files: true

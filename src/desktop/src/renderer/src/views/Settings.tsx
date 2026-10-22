@@ -3,6 +3,7 @@ import { useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache";
 import { useState } from "react";
 import { api } from "../api";
+import { describeUpdate, desktop, useUpdates } from "../desktop";
 import {
 	ConflictNotice,
 	Field,
@@ -13,7 +14,7 @@ import {
 	Section,
 	Tabs,
 	inputClass,
-	useAction,
+	useRun,
 	useDraft,
 } from "../ui";
 import { MembersTab } from "./Members";
@@ -43,13 +44,47 @@ export function SettingsView({ role, tab, onTab }: { role: Role; tab: SettingsTa
 function GeneralTab({ role }: { role: Role }) {
 	const settings = useQuery(api.workspace.settings);
 	if (!settings) return <Loading />;
-	return <GeneralForm settings={settings} isOwner={role === "owner"} />;
+	return (
+		<>
+			<GeneralForm settings={settings} isOwner={role === "owner"} />
+			<AppVersion />
+		</>
+	);
+}
+
+function AppVersion() {
+	const { version, status } = useUpdates();
+	if (!desktop) return null;
+	return (
+		<Section title="App">
+			<div className="flex items-center gap-3 rounded-xl border border-neutral-200 px-4 py-3 text-sm">
+				<span className="flex-1">
+					Companybot {version}
+					{status && <span className="block text-neutral-500">{describeUpdate(status)}</span>}
+				</span>
+				{status?.state === "ready" ? (
+					<button type="button" onClick={() => void desktop?.updates.install()} className="font-medium hover:underline">
+						Restart
+					</button>
+				) : (
+					<button
+						type="button"
+						disabled={status?.state === "checking" || status?.state === "downloading"}
+						onClick={() => void desktop?.updates.check()}
+						className="text-neutral-600 hover:text-neutral-900 disabled:opacity-50"
+					>
+						Check for updates
+					</button>
+				)}
+			</div>
+		</Section>
+	);
 }
 
 function GeneralForm({ settings, isOwner }: { settings: { name: string; version: number }; isOwner: boolean }) {
 	const save = useMutation(api.workspace.updateSettings);
 	const draft = useDraft({ name: settings.name }, settings.version);
-	const { error, run } = useAction();
+	const { error, run } = useRun();
 	return (
 		<>
 			{draft.stale && <ConflictNotice onDiscard={draft.discard} onKeep={draft.keepMine} />}
@@ -77,7 +112,7 @@ function ProfileTab() {
 	const prefs = useQuery(api.preferences.get);
 	const update = useMutation(api.preferences.update);
 	const [name, setName] = useState<string>();
-	const { error, run } = useAction();
+	const { error, run } = useRun();
 	if (!prefs) return <Loading />;
 	const shownName = name ?? prefs.displayName;
 
