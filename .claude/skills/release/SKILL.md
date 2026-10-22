@@ -27,15 +27,16 @@ Markdown for the people using the app, not developers. Save to a temp file (`mkt
 
 ```
 ## What's new
-- **Connect Night Owl.** Agents can look up your leads and show them in a table.
+- **Connect Night Owl.** Agents can look up your leads and show them in a table. (#1)
 
 ## Fixes
-- Long tables no longer scroll inside the message; they show 10 rows with "Show all".
+- Long tables no longer scroll inside the message; they show 10 rows with "Show all". (#3)
 ```
 
 Rules:
 - Lead with what someone can now do or will notice. One line each, bold the feature.
-- Plain words. No PR numbers, file names, refactors, CI, tests, or dependency bumps (GitHub's PR list below the notes covers those).
+- End each bullet with its sources in parentheses: PR numbers (`#12`), or short commit SHAs (`5530e2e`) for work merged without a PR. GitHub turns both into links with previews.
+- Plain words. No file names, refactors, CI, tests, or dependency bumps (GitHub's PR list below the notes covers those).
 - Group as **What's new**, **Improvements**, **Fixes**. Omit empty groups.
 - Usually 2–8 bullets. If nothing user-facing changed, say so in one line ("Behind-the-scenes improvements.").
 - Prereleases: add a first line `Alpha build — expect rough edges.` (or Beta).
