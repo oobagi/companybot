@@ -1,14 +1,14 @@
-import { defaultAgents } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query, type QueryCtx } from "./_generated/server";
-import { getMember, installedSkills, requireMember } from "./lib";
+import { requireActiveAgent } from "./agents";
+import { getMember, installedSkills, memberOf, nameOf } from "./lib";
 
 /** A reply stuck this long (e.g. the action crashed) no longer blocks new messages. */
 const STALE_REPLY_MS = 5 * 60_000;
 
-async function findConversation(ctx: QueryCtx, userId: Id<"users">, agentId: string) {
+async function findConversation(ctx: QueryCtx, userId: Id<"users">, agentId: Id<"agents">) {
 	return ctx.db
 		.query("conversations")
 		.withIndex("by_user_agent", (q) => q.eq("userId", userId).eq("agentId", agentId))
@@ -19,7 +19,7 @@ const messagesOf = (ctx: QueryCtx, conversationId: Id<"conversations">) =>
 	ctx.db.query("messages").withIndex("by_conversation", (q) => q.eq("conversationId", conversationId));
 
 export const messages = query({
-	args: { agentId: v.string() },
+	args: { agentId: v.id("agents") },
 	handler: async (ctx, { agentId }) => {
 		const member = await getMember(ctx);
 		if (!member) return [];
@@ -30,10 +30,9 @@ export const messages = query({
 });
 
 export const send = mutation({
-	args: { agentId: v.string(), text: v.string() },
+	args: { agentId: v.id("agents"), text: v.string() },
 	handler: async (ctx, { agentId, text }) => {
-		const member = await requireMember(ctx);
-		if (!defaultAgents.some((a) => a.id === agentId)) throw new ConvexError("Unknown agent.");
+		const { member } = await requireActiveAgent(ctx, agentId);
 		if (!text.trim()) return;
 
 		let conversation = await findConversation(ctx, member.userId, agentId);
@@ -70,23 +69,33 @@ export const send = mutation({
 
 // ---- Internal: used by the agent runner ----
 
-/** Everything the agent needs for one turn: who it's helping, the summary, and recent messages. */
+/**
+ * Everything the agent needs for one turn: its current setup, who it's helping, the
+ * summary, and recent messages. Read at the start of each turn, so agent edits apply
+ * from the next reply.
+ */
 export const turnContext = internalQuery({
 	args: { conversationId: v.id("conversations"), replyId: v.id("messages") },
 	handler: async (ctx, { conversationId, replyId }) => {
 		const conversation = await ctx.db.get(conversationId);
 		if (!conversation) throw new Error("Conversation not found.");
-		const row = await ctx.db
-			.query("members")
-			.withIndex("by_user", (q) => q.eq("userId", conversation.userId))
-			.first();
-		if (!row || row.workspaceId !== conversation.workspaceId) throw new Error("Person is no longer a member.");
+		const member = await memberOf(ctx, conversation.userId);
+		if (member?.workspaceId !== conversation.workspaceId) throw new Error("This person is no longer in the workspace.");
+		const agent = await ctx.db.get(conversation.agentId);
+		if (!agent || agent.archived) throw new Error("This agent is archived.");
 		const user = await ctx.db.get(conversation.userId);
 		const recent = await unsummarized(ctx, conversation);
 		return {
-			member: { userId: row.userId, workspaceId: row.workspaceId, role: row.role },
+			member,
+			name: await nameOf(ctx, conversation.userId),
 			email: user?.email ?? "",
-			agentId: conversation.agentId,
+			agent: {
+				id: agent._id,
+				name: agent.name,
+				instructions: agent.instructions,
+				model: agent.model,
+				tools: agent.tools,
+			},
 			skills: await installedSkills(ctx, conversation.workspaceId),
 			summary: conversation.summary ?? null,
 			history: recent.filter((m) => m._id !== replyId && m.status === "done").map(({ role, text }) => ({ role, text })),

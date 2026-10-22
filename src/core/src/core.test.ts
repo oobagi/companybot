@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { buildToolSet, describeToolAccess } from "./agents";
+import { buildToolSet, describeToolAccess, validateAgentConfig } from "./agents";
 import { builtinTools } from "./builtin-tools";
-import { companybot, scribe } from "./default-agents";
+import { blankAgent, companybot, scribe } from "./default-agents";
 import { type Memory, type MemoryStore, canCreateMemory, canEditMemory, canReadMemory } from "./memory";
 import { skillCatalog, skillsIndex } from "./skills";
 import type { Actor } from "./types";
@@ -56,7 +56,16 @@ describe("skills", () => {
 });
 
 describe("memory permissions", () => {
-	const team: Memory = { id: "t", scope: "workspace", ownerId: null, content: "", updatedAt: "", updatedBy: "owner" };
+	const team: Memory = {
+		id: "t",
+		agentId: "a",
+		scope: "workspace",
+		ownerId: null,
+		content: "",
+		updatedAt: "",
+		updatedBy: "owner",
+		version: 1,
+	};
 	const mine: Memory = { ...team, id: "m", scope: "personal", ownerId: "member" };
 
 	it("lets members edit only their own personal memories", () => {
@@ -72,5 +81,17 @@ describe("memory permissions", () => {
 		expect(canReadMemory(other, team)).toBe(true);
 		expect(canReadMemory(owner, mine)).toBe(true);
 		expect(canEditMemory(owner, mine)).toBe(true);
+	});
+});
+
+describe("agent config", () => {
+	it("accepts the defaults", () => {
+		for (const agent of [companybot, scribe, blankAgent]) expect(validateAgentConfig(agent)).toBeNull();
+	});
+
+	it("rejects unknown models and tools", () => {
+		expect(validateAgentConfig({ ...scribe, model: "openai/gpt-x" })).toMatch("model");
+		expect(validateAgentConfig({ ...scribe, tools: ["files.delete"] })).toMatch("Unknown tool");
+		expect(validateAgentConfig({ ...scribe, name: "  " })).toMatch("name");
 	});
 });

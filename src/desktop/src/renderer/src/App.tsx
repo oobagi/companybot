@@ -1,15 +1,16 @@
+import type { Role } from "@companybot/core";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvexAuth, useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache";
 import { useEffect, useState } from "react";
 import { api, errorMessage } from "./api";
-import { Chat, Notice } from "./views/Chat";
-import { CustomizeView } from "./views/Customize";
-import { MemoryView } from "./views/Memory";
+import { Notice } from "./ui";
+import { Chat } from "./views/Chat";
+import { type CustomizeTab, CustomizeView } from "./views/Customize";
+import { type SettingsTab, SettingsView } from "./views/Settings";
 import { SignIn } from "./views/SignIn";
-import { TeamView } from "./views/Team";
 
-const views = ["chat", "memory", "customize", "team"] as const;
+const views = ["chat", "customize", "settings"] as const;
 type View = (typeof views)[number];
 
 export function App() {
@@ -33,12 +34,18 @@ function Workspace() {
 	return <Shell email={me.email} role={me.role} workspace={me.workspace ?? ""} />;
 }
 
-function Shell({ email, role, workspace }: { email: string; role: "owner" | "member"; workspace: string }) {
+function Shell({ email, role, workspace }: { email: string; role: Role; workspace: string }) {
 	const { signOut } = useAuthActions();
 	const agents = useQuery(api.agents.list);
+	const prefs = useQuery(api.preferences.get);
 	const [view, setView] = useState<View>("chat");
-	const [agentId, setAgentId] = useState("companybot");
-	const agent = agents?.find((a) => a.id === agentId);
+	// Kept here so each page reopens on the tab you left it on.
+	const [customizeTab, setCustomizeTab] = useState<CustomizeTab>("agents");
+	const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
+	const [agentId, setAgentId] = useState<string>();
+
+	const active = agents?.filter((a) => !a.archived) ?? [];
+	const agent = active.find((a) => a._id === agentId) ?? active[0];
 
 	return (
 		<div className="flex h-screen text-[15px] text-neutral-900">
@@ -60,7 +67,7 @@ function Shell({ email, role, workspace }: { email: string; role: "owner" | "mem
 				</nav>
 				<div className="no-drag mt-auto flex flex-col gap-1 px-2 text-xs text-neutral-500">
 					<span className="truncate" title={email}>
-						{email}
+						{prefs?.displayName || email}
 					</span>
 					<span className="capitalize">{role}</span>
 					<button type="button" onClick={() => void signOut()} className="mt-1 text-left text-neutral-400 hover:text-neutral-700">
@@ -71,16 +78,16 @@ function Shell({ email, role, workspace }: { email: string; role: "owner" | "mem
 
 			<main className="flex min-w-0 flex-1 flex-col">
 				<header className="drag flex h-12 shrink-0 items-center justify-center">
-					{view === "chat" && agents && (
+					{view === "chat" && active.length > 0 && (
 						<div className="no-drag flex gap-1 rounded-full bg-neutral-100 p-1">
-							{agents.map((a) => (
+							{active.map((a) => (
 								<button
 									type="button"
-									key={a.id}
+									key={a._id}
 									title={a.description}
-									onClick={() => setAgentId(a.id)}
+									onClick={() => setAgentId(a._id)}
 									className={`rounded-full px-3 py-1 text-sm ${
-										a.id === agentId ? "bg-white font-medium shadow-sm" : "text-neutral-500 hover:text-neutral-800"
+										a._id === agent?._id ? "bg-white font-medium shadow-sm" : "text-neutral-500 hover:text-neutral-800"
 									}`}
 								>
 									{a.name}
@@ -89,10 +96,9 @@ function Shell({ email, role, workspace }: { email: string; role: "owner" | "mem
 						</div>
 					)}
 				</header>
-				{view === "chat" && agent && <Chat key={agent.id} agent={agent} />}
-				{view === "memory" && <MemoryView role={role} />}
-				{view === "customize" && agents && <CustomizeView role={role} agents={agents} />}
-				{view === "team" && <TeamView role={role} />}
+				{view === "chat" && agent && <Chat key={agent._id} agent={agent} sendWith={prefs?.sendWith ?? "enter"} />}
+				{view === "customize" && <CustomizeView role={role} tab={customizeTab} onTab={setCustomizeTab} />}
+				{view === "settings" && <SettingsView role={role} tab={settingsTab} onTab={setSettingsTab} />}
 			</main>
 		</div>
 	);

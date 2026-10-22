@@ -1,10 +1,9 @@
-import { type MemoryStore, buildToolSet, defaultAgents, skillsIndex } from "@companybot/core";
+import { type MemoryStore, buildToolSet, skillsIndex } from "@companybot/core";
 import { generateText, isStepCount, streamText } from "ai";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { type ActionCtx, internalAction } from "./_generated/server";
-import type { Member } from "./lib";
 
 const SUMMARY_MODEL = "anthropic/claude-haiku-5.5";
 /** Summarize once this many messages pile up past the summary, keeping the newest KEEP verbatim. */
@@ -31,20 +30,17 @@ export const respond = internalAction({
 
 async function runTurn(ctx: ActionCtx, conversationId: Id<"conversations">, replyId: Id<"messages">) {
 	const turn = await ctx.runQuery(internal.chat.turnContext, { conversationId, replyId });
-	const agent = defaultAgents.find((a) => a.id === turn.agentId);
-	if (!agent) throw new Error(`Unknown agent: ${turn.agentId}`);
-
-	const actor = { userId: turn.member.userId, role: turn.member.role };
+	const { agent, member } = turn;
 	const tools = buildToolSet(agent, {
-		actor,
+		actor: { userId: member.userId, role: member.role },
 		agentId: agent.id,
-		memory: memoryStore(ctx, turn.member),
+		memory: memoryStore(ctx, member.userId, agent.id),
 		skills: turn.skills,
 	});
 
 	const instructions = [
 		agent.instructions,
-		`You're talking with ${turn.email} (${turn.member.role}).`,
+		`You're talking with ${turn.name} <${turn.email}>, a workspace ${member.role}.`,
 		agent.tools.includes("skills.load") && skillsIndex(turn.skills),
 		turn.summary && `Summary of your earlier conversation with them:\n${turn.summary}`,
 	]
@@ -85,15 +81,19 @@ async function runTurn(ctx: ActionCtx, conversationId: Id<"conversations">, repl
 	await flush();
 }
 
-/** Memory access for tools, routed through the same permission checks as the app. */
-function memoryStore(ctx: ActionCtx, member: Member): MemoryStore {
+/**
+ * This agent's memory, routed through the same permission checks as the app. Each
+ * call re-reads the person's role, so permission changes apply mid-reply.
+ */
+function memoryStore(ctx: ActionCtx, userId: Id<"users">, agentId: Id<"agents">): MemoryStore {
+	const who = { userId, agentId };
 	return {
-		list: () => ctx.runQuery(internal.memory.listFor, { member }),
-		create: (_actor, { scope, content }) => ctx.runMutation(internal.memory.createFor, { member, scope, content }),
+		list: () => ctx.runQuery(internal.memory.listFor, who),
+		create: (_actor, { scope, content }) => ctx.runMutation(internal.memory.createFor, { ...who, scope, content }),
 		update: (_actor, id, content) =>
-			ctx.runMutation(internal.memory.updateFor, { member, id: id as Id<"memories">, content }),
+			ctx.runMutation(internal.memory.updateFor, { ...who, id: id as Id<"memories">, content }),
 		remove: async (_actor, id) => {
-			await ctx.runMutation(internal.memory.removeFor, { member, id: id as Id<"memories"> });
+			await ctx.runMutation(internal.memory.removeFor, { ...who, id: id as Id<"memories"> });
 		},
 	};
 }

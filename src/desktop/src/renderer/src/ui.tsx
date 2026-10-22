@@ -1,0 +1,156 @@
+import { useState } from "react";
+import { errorMessage } from "./api";
+
+export function Page({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+	return (
+		<div className="flex-1 overflow-y-auto">
+			<div className="mx-auto flex max-w-2xl flex-col gap-6 px-6 py-10">
+				<header>
+					<h1 className="text-xl font-medium">{title}</h1>
+					{subtitle && <p className="text-sm text-neutral-500">{subtitle}</p>}
+				</header>
+				{children}
+			</div>
+		</div>
+	);
+}
+
+export function Tabs<T extends string>({
+	tabs,
+	value,
+	onChange,
+}: {
+	tabs: readonly { id: T; label: string }[];
+	value: T;
+	onChange: (tab: T) => void;
+}) {
+	return (
+		<nav className="-mt-2 flex gap-1 border-b border-neutral-200">
+			{tabs.map((t) => (
+				<button
+					type="button"
+					key={t.id}
+					onClick={() => onChange(t.id)}
+					className={`-mb-px border-b-2 px-3 py-2 text-sm ${
+						t.id === value ? "border-neutral-900 font-medium" : "border-transparent text-neutral-500 hover:text-neutral-800"
+					}`}
+				>
+					{t.label}
+				</button>
+			))}
+		</nav>
+	);
+}
+
+export function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+	return (
+		<section className="flex flex-col gap-2">
+			<div>
+				<h2 className="font-medium">{title}</h2>
+				{hint && <p className="text-sm text-neutral-500">{hint}</p>}
+			</div>
+			{children}
+		</section>
+	);
+}
+
+export function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+	return (
+		<label className="flex flex-col gap-1.5">
+			<span className="text-sm font-medium">{label}</span>
+			{children}
+			{hint && <span className="text-xs text-neutral-500">{hint}</span>}
+		</label>
+	);
+}
+
+export const inputClass =
+	"rounded-xl border border-neutral-200 px-3 py-2 outline-none focus:border-neutral-400 disabled:bg-neutral-50 disabled:text-neutral-500";
+export const primaryButton = "rounded-xl bg-neutral-900 px-4 py-2 text-sm text-white disabled:bg-neutral-300";
+export const secondaryButton = "rounded-xl border border-neutral-200 px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50";
+
+/** Placeholder shown only on first load; later visits come from the cache. */
+export function Loading() {
+	return (
+		<div className="mx-auto flex w-full max-w-2xl animate-pulse flex-col gap-3 px-6 py-10">
+			<div className="h-4 w-1/3 rounded bg-neutral-100" />
+			<div className="h-4 w-2/3 rounded bg-neutral-100" />
+			<div className="h-4 w-1/2 rounded bg-neutral-100" />
+		</div>
+	);
+}
+
+export function Notice({ children }: { children: React.ReactNode }) {
+	return <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{children}</p>;
+}
+
+/** Runs a mutation and keeps its error message for display. */
+export function useAction() {
+	const [error, setError] = useState<string>();
+	const run = (action: Promise<unknown>, then?: () => void) =>
+		action.then(
+			() => (setError(undefined), then?.()),
+			(e) => setError(errorMessage(e)),
+		);
+	return { error, run };
+}
+
+/**
+ * An edit form over shared, live data. You edit a private draft; the saved value keeps
+ * updating underneath. If someone else saves while you're editing, `stale` turns true so
+ * the form can ask whose change wins. Saves send `base`, and the server refuses stale ones.
+ */
+export function useDraft<T>(saved: T, version: number) {
+	const [draft, setDraft] = useState<{ value: T; base: number } | null>(null);
+	return {
+		value: draft?.value ?? saved,
+		set: (value: T) => setDraft({ value, base: draft?.base ?? version }),
+		dirty: draft !== null,
+		stale: draft !== null && draft.base !== version,
+		base: draft?.base ?? version,
+		discard: () => setDraft(null),
+		/** Overwrite their change on the next save. */
+		keepMine: () => draft && setDraft({ ...draft, base: version }),
+	};
+}
+
+export function ConflictNotice({ who, onDiscard, onKeep }: { who?: string; onDiscard: () => void; onKeep: () => void }) {
+	return (
+		<div className="flex items-center gap-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+			<p className="flex-1">{who || "Someone"} saved a change while you were editing.</p>
+			<button type="button" onClick={onDiscard} className="font-medium hover:underline">
+				Use theirs
+			</button>
+			<button type="button" onClick={onKeep} className="font-medium hover:underline">
+				Keep mine
+			</button>
+		</div>
+	);
+}
+
+export function SaveBar({ onSave, onDiscard }: { onSave: () => void; onDiscard: () => void }) {
+	return (
+		<div className="sticky bottom-4 flex justify-end gap-2 rounded-2xl border border-neutral-200 bg-white/90 p-2 shadow-sm backdrop-blur">
+			<button type="button" onClick={onDiscard} className={secondaryButton}>
+				Discard
+			</button>
+			<button type="button" onClick={onSave} className={primaryButton}>
+				Save
+			</button>
+		</div>
+	);
+}
+
+const relative = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+
+export function timeAgo(ms: number) {
+	const seconds = (ms - Date.now()) / 1000;
+	for (const [unit, size] of [
+		["day", 86400],
+		["hour", 3600],
+		["minute", 60],
+	] as const) {
+		if (Math.abs(seconds) >= size) return relative.format(Math.round(seconds / size), unit);
+	}
+	return "just now";
+}

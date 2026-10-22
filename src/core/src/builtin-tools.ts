@@ -5,7 +5,7 @@ import { type ToolDef, defineTool } from "./tools";
 export const builtinTools: ToolDef[] = [
 	defineTool({
 		id: "memory.search",
-		description: "Search memories visible to the current person. Empty query lists all.",
+		description: "Search your memories that the current person can see. Empty query lists all.",
 		input: z.object({ query: z.string().describe("Words to match; empty for all") }),
 		async execute({ query }, { actor, memory }) {
 			const q = query.trim().toLowerCase();

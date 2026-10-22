@@ -1,7 +1,9 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
-import { mutation, query } from "./_generated/server";
-import { getMember, normalizeEmail, requireOwner } from "./lib";
+import type { Id } from "./_generated/dataModel";
+import { type QueryCtx, mutation, query } from "./_generated/server";
+import { seedAgents } from "./agents";
+import { checkVersion, getMember, namesOf, normalizeEmail, requireOwner } from "./lib";
 import { role } from "./schema";
 
 export const me = query({
@@ -36,8 +38,9 @@ export const ensure = mutation({
 			return;
 		}
 
-		const workspaceId = await ctx.db.insert("workspaces", { name: "My company" });
+		const workspaceId = await ctx.db.insert("workspaces", { name: "My company", version: 1 });
 		await ctx.db.insert("members", { workspaceId, userId, role: "owner" });
+		await seedAgents(ctx, workspaceId, userId);
 	},
 });
 
@@ -50,8 +53,19 @@ export const team = query({
 			.query("members")
 			.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
 			.collect();
+		const names = await namesOf(
+			ctx,
+			rows.map((r) => r.userId),
+		);
 		const members = await Promise.all(
-			rows.map(async (r) => ({ id: r._id, userId: r.userId, role: r.role, email: (await ctx.db.get(r.userId))?.email ?? "" })),
+			rows.map(async (r) => ({
+				id: r._id,
+				userId: r.userId,
+				role: r.role,
+				name: names.get(r.userId) ?? "",
+				email: (await ctx.db.get(r.userId))?.email ?? "",
+				isYou: r.userId === member.userId,
+			})),
 		);
 		const invites =
 			member.role === "owner"
@@ -101,11 +115,45 @@ export const removeMember = mutation({
 	},
 });
 
-export const rename = mutation({
-	args: { name: v.string() },
-	handler: async (ctx, { name }) => {
+/** Takes effect at once, including for replies already running. */
+export const setRole = mutation({
+	args: { id: v.id("members"), role },
+	handler: async (ctx, { id, role }) => {
+		const owner = await requireOwner(ctx);
+		const row = await ctx.db.get(id);
+		if (!row || row.workspaceId !== owner.workspaceId) throw new ConvexError("Member not found.");
+		if (row.role === "owner" && role !== "owner" && (await ownerCount(ctx, owner.workspaceId)) <= 1) {
+			throw new ConvexError("A workspace needs at least one owner.");
+		}
+		await ctx.db.patch(id, { role });
+	},
+});
+
+async function ownerCount(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
+	const rows = await ctx.db
+		.query("members")
+		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+		.collect();
+	return rows.filter((r) => r.role === "owner").length;
+}
+
+/** Shared workspace settings. */
+export const settings = query({
+	args: {},
+	handler: async (ctx) => {
+		const member = await getMember(ctx);
+		const workspace = member && (await ctx.db.get(member.workspaceId));
+		return workspace ? { name: workspace.name, version: workspace.version ?? 0 } : null;
+	},
+});
+
+export const updateSettings = mutation({
+	args: { name: v.string(), expectedVersion: v.number() },
+	handler: async (ctx, { name, expectedVersion }) => {
 		const { workspaceId } = await requireOwner(ctx);
+		const workspace = (await ctx.db.get(workspaceId))!;
+		checkVersion(workspace.version ?? 0, expectedVersion);
 		if (!name.trim()) throw new ConvexError("Name can't be empty.");
-		await ctx.db.patch(workspaceId, { name: name.trim() });
+		await ctx.db.patch(workspaceId, { name: name.trim(), version: (workspace.version ?? 0) + 1 });
 	},
 });

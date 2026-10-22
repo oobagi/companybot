@@ -1,8 +1,9 @@
-import type { Doc } from "@companybot/backend/convex/_generated/dataModel";
+import type { Doc, Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache";
 import { useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../api";
+import { Loading, Notice } from "../ui";
 
 const suggestions = [
 	"What do you remember about our team?",
@@ -10,8 +11,10 @@ const suggestions = [
 	"What time is it?",
 ];
 
-export function Chat({ agent }: { agent: { id: string; name: string } }) {
-	const messages = useQuery(api.chat.messages, { agentId: agent.id });
+type SendWith = "enter" | "mod-enter";
+
+export function Chat({ agent, sendWith }: { agent: { _id: Id<"agents">; name: string }; sendWith: SendWith }) {
+	const messages = useQuery(api.chat.messages, { agentId: agent._id });
 	const sendMessage = useMutation(api.chat.send);
 	const [error, setError] = useState<string>();
 	const busy = messages?.at(-1)?.status === "streaming";
@@ -19,7 +22,7 @@ export function Chat({ agent }: { agent: { id: string; name: string } }) {
 	const send = (text: string) => {
 		if (busy || !text.trim()) return;
 		setError(undefined);
-		sendMessage({ agentId: agent.id, text }).catch((e) => setError(errorMessage(e)));
+		sendMessage({ agentId: agent._id, text }).catch((e) => setError(errorMessage(e)));
 	};
 
 	const bottom = useRef<HTMLDivElement>(null);
@@ -33,7 +36,7 @@ export function Chat({ agent }: { agent: { id: string; name: string } }) {
 		return (
 			<div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 pb-24">
 				<h1 className="text-2xl font-medium tracking-tight">What can {agent.name} do for you?</h1>
-				<Composer onSend={send} busy={busy} placeholder={`Message ${agent.name}`} />
+				<Composer onSend={send} busy={busy} sendWith={sendWith} placeholder={`Message ${agent.name}`} />
 				<div className="flex max-w-xl flex-wrap justify-center gap-2">
 					{suggestions.map((s) => (
 						<button
@@ -63,7 +66,7 @@ export function Chat({ agent }: { agent: { id: string; name: string } }) {
 				</div>
 			</div>
 			<div className="mx-auto w-full max-w-2xl px-6 pb-6">
-				<Composer onSend={send} busy={busy} placeholder={`Message ${agent.name}`} />
+				<Composer onSend={send} busy={busy} sendWith={sendWith} placeholder={`Message ${agent.name}`} />
 			</div>
 		</div>
 	);
@@ -91,7 +94,17 @@ function Message({ message }: { message: Doc<"messages"> }) {
 	);
 }
 
-function Composer({ onSend, busy, placeholder }: { onSend: (text: string) => void; busy: boolean; placeholder: string }) {
+function Composer({
+	onSend,
+	busy,
+	sendWith,
+	placeholder,
+}: {
+	onSend: (text: string) => void;
+	busy: boolean;
+	sendWith: SendWith;
+	placeholder: string;
+}) {
 	const [text, setText] = useState("");
 	const submit = () => {
 		if (busy || !text.trim()) return;
@@ -112,7 +125,8 @@ function Composer({ onSend, busy, placeholder }: { onSend: (text: string) => voi
 				autoFocus
 				onChange={(e) => setText(e.target.value)}
 				onKeyDown={(e) => {
-					if (e.key === "Enter" && !e.shiftKey) {
+					const mod = e.metaKey || e.ctrlKey;
+					if (e.key === "Enter" && (sendWith === "enter" ? !e.shiftKey && !mod : mod)) {
 						e.preventDefault();
 						submit();
 					}
@@ -130,19 +144,4 @@ function Composer({ onSend, busy, placeholder }: { onSend: (text: string) => voi
 			</button>
 		</form>
 	);
-}
-
-/** Placeholder shown only on first load; later visits come from the cache. */
-export function Loading() {
-	return (
-		<div className="mx-auto flex w-full max-w-2xl animate-pulse flex-col gap-3 px-6 py-10">
-			<div className="h-4 w-1/3 rounded bg-neutral-100" />
-			<div className="h-4 w-2/3 rounded bg-neutral-100" />
-			<div className="h-4 w-1/2 rounded bg-neutral-100" />
-		</div>
-	);
-}
-
-export function Notice({ children }: { children: React.ReactNode }) {
-	return <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{children}</p>;
 }

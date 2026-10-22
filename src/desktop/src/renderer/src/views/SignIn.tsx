@@ -1,7 +1,7 @@
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useState } from "react";
 import { errorMessage } from "../api";
-import { Notice } from "./Chat";
+import { Notice } from "../ui";
 
 export function SignIn() {
 	const { signIn } = useAuthActions();

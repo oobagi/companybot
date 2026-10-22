@@ -1,7 +1,8 @@
 import { defineAgent } from "./agents";
 
+// Every new workspace starts with copies of these. Owners can edit them in the app.
+
 export const companybot = defineAgent({
-	id: "companybot",
 	name: "Companybot",
 	description: "Your main teammate. Remembers things and keeps work moving.",
 	model: "anthropic/claude-sonnet-5.5",
@@ -11,7 +12,6 @@ export const companybot = defineAgent({
 });
 
 export const scribe = defineAgent({
-	id: "scribe",
 	name: "Scribe",
 	description: "Drafts and edits writing. Can read memory, can't change it.",
 	model: "anthropic/claude-haiku-5.5",
@@ -21,3 +21,12 @@ export const scribe = defineAgent({
 });
 
 export const defaultAgents = [companybot, scribe];
+
+/** Starting point for an agent an owner creates from scratch. */
+export const blankAgent = defineAgent({
+	name: "New agent",
+	description: "",
+	model: "anthropic/claude-haiku-5.5",
+	instructions: "",
+	tools: ["memory.search", "memory.remember", "skills.load"],
+});
