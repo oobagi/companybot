@@ -3,6 +3,18 @@
 /* Streamdown ships Tailwind classes; let Tailwind see them. */
 @source "../../../node_modules/streamdown/dist/*.js";
 
+/* The shadcn-style color names Streamdown's classes use, mapped to our neutrals. */
+@theme inline {
+	--color-background: var(--color-white);
+	--color-foreground: var(--color-neutral-900);
+	--color-muted: var(--color-neutral-50);
+	--color-muted-foreground: var(--color-neutral-500);
+	--color-border: var(--color-neutral-200);
+	--color-sidebar: var(--color-neutral-50);
+	--color-primary: var(--color-neutral-900);
+	--color-primary-foreground: var(--color-white);
+}
+
 html,
 body {
 	font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;

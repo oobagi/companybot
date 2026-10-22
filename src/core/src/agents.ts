@@ -113,11 +113,18 @@ export function buildToolSet(
 		tools[modelToolName(t.id)] = tool({
 			description: t.description,
 			inputSchema: t.input,
-			execute: (input) => t.execute(input, ctx),
+			execute: t.returnsData ? (input) => withRef(t.execute(input, ctx), ctx) : (input) => t.execute(input, ctx),
 			...(t.toModelOutput && { toModelOutput: t.toModelOutput }),
 		});
 	}
 	return tools;
+}
+
+/** Wraps a data tool's result as `{ ref, data }`. Errors pass through unchanged. */
+async function withRef(output: Promise<unknown>, ctx: ToolContext) {
+	const data = await output;
+	if (data && typeof data === "object" && "error" in data) return data;
+	return { ref: ctx.results.save(data), data };
 }
 
 /** Plugins an agent's grants reach, so the runner only connects to those. */

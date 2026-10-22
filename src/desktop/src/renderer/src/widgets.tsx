@@ -1,4 +1,4 @@
-import type { StatsProps, TableProps } from "@companybot/core";
+import type { CardProps, StatsProps, TableProps } from "@companybot/core";
 
 // Components for widgets agents place in replies. Types and props are defined in
 // core/src/widgets.ts; add a component here for each one. Unknown types (from a
@@ -7,6 +7,7 @@ import type { StatsProps, TableProps } from "@companybot/core";
 const registry: Record<string, (props: { props: any }) => React.ReactNode> = {
 	table: TableWidget,
 	stats: StatsWidget,
+	card: CardWidget,
 };
 
 export function WidgetView({ widget }: { widget: { type: string; props: unknown } }) {
@@ -81,5 +82,24 @@ function StatsWidget({ props }: { props: StatsProps }) {
 				))}
 			</div>
 		</Frame>
+	);
+}
+
+function CardWidget({ props }: { props: CardProps }) {
+	return (
+		<figure className="max-w-md overflow-hidden rounded-xl border border-neutral-200">
+			<figcaption className="border-b border-neutral-200 bg-neutral-50 px-4 py-2.5">
+				<p className="font-medium">{props.title}</p>
+				{props.subtitle && <p className="text-sm text-neutral-500">{props.subtitle}</p>}
+			</figcaption>
+			<dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 px-4 py-3 text-sm">
+				{props.fields.map((f, i) => (
+					<div key={i} className="contents">
+						<dt className="text-neutral-500">{f.label}</dt>
+						<dd className="break-words">{f.value}</dd>
+					</div>
+				))}
+			</dl>
+		</figure>
 	);
 }

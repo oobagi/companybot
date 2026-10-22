@@ -4,12 +4,13 @@ import { builtinTools } from "./builtin-tools";
 import { blankAgent, companybot, scribe } from "./default-agents";
 import { type Memory, type MemoryStore, canCreateMemory, canEditMemory, canReadMemory } from "./memory";
 import { openPlugin } from "./mcp";
+import { PluginOAuth } from "./oauth";
 import { can, permissions } from "./permissions";
 import { type Plugin, definePlugin, pluginCatalog, pluginHeaders, validateCredentials, validatePlugin } from "./plugins";
 import { skillCatalog, skillsIndex } from "./skills";
 import { fakeMcpServer } from "./test-mcp-server";
 import { platformGuide } from "./guide";
-import { isGranted, modelToolName } from "./tools";
+import { createResultStore, isGranted, modelToolName } from "./tools";
 import { describeWidget, isWidgetResult, widgetTools } from "./widgets";
 import type { Actor } from "./types";
 
@@ -18,7 +19,13 @@ const member: Actor = { userId: "member", role: "member" };
 const other: Actor = { userId: "other", role: "member" };
 
 const visible = (access: ReturnType<typeof describeToolAccess>) => access.filter((a) => a.visible).map((a) => a.id);
-const ctx = (actor: Actor) => ({ actor, agentId: "companybot", memory: {} as MemoryStore, skills: skillCatalog });
+const ctx = (actor: Actor) => ({
+	actor,
+	agentId: "companybot",
+	memory: {} as MemoryStore,
+	skills: skillCatalog,
+	results: createResultStore(),
+});
 
 describe("tool visibility", () => {
 	it("gives owners every tool the agent grants", () => {
@@ -32,6 +39,7 @@ describe("tool visibility", () => {
 			"skills.load",
 			"widgets.table",
 			"widgets.stats",
+			"widgets.card",
 		]);
 		expect(resolveTools(companybot, owner).map((t) => t.id)).toContain("memory.forget");
 	});
@@ -49,7 +57,7 @@ describe("tool visibility", () => {
 	});
 
 	it("limits an agent to the tools it was granted", () => {
-		expect(visible(describeToolAccess(scribe, owner))).toEqual(["memory.search", "skills.load", "widgets.table", "widgets.stats"]);
+		expect(visible(describeToolAccess(scribe, owner))).toEqual(["memory.search", "skills.load", "widgets.table", "widgets.stats", "widgets.card"]);
 	});
 
 	it("only sends visible tools to the model", () => {
@@ -62,6 +70,7 @@ describe("tool visibility", () => {
 			"skills_load",
 			"widgets_table",
 			"widgets_stats",
+			"widgets_card",
 		]);
 	});
 
@@ -182,9 +191,32 @@ describe("plugins", () => {
 		]);
 		const tools = buildToolSet({ tools: ["notes.find"] }, ctx(owner), session.tools);
 		expect(Object.keys(tools)).toEqual(["notes_find"]);
-		expect(await session.tools[0]!.execute({ text: "hi" }, ctx(owner))).toEqual({ result: 'find:{"text":"hi"}' });
+		expect(await session.tools[0]!.execute({ text: "hi" }, ctx(owner))).toBe('find:{"text":"hi"}');
 		await session.close();
 		expect(server.closed).toBe(true);
+	});
+});
+
+describe("plugin oauth", () => {
+	it("keeps what the SDK saves, and drops one-time sign-in values when stored", async () => {
+		const oauth = new PluginOAuth({}, "https://x.convex.site/oauth/callback", true);
+		oauth.saveClientInformation({ client_id: "c1" });
+		oauth.saveCodeVerifier("v");
+		oauth.saveState("s");
+		oauth.saveTokens({ access_token: "a", token_type: "Bearer", refresh_token: "r" });
+		expect(oauth.changed).toBe(true);
+		expect(oauth.storedState()).toBe("s");
+		expect(oauth.stored).toEqual({
+			client: { client_id: "c1" },
+			tokens: { access_token: "a", token_type: "Bearer", refresh_token: "r" },
+		});
+		oauth.invalidateCredentials("tokens");
+		expect(oauth.tokens()).toBeUndefined();
+	});
+
+	it("refuses to start a sign-in during an agent turn", () => {
+		const oauth = new PluginOAuth({}, "https://x.convex.site/oauth/callback", false);
+		expect(() => oauth.redirectToAuthorization(new URL("https://auth.example.com"))).toThrow("Connect the plugin again");
 	});
 });
 
@@ -199,6 +231,45 @@ describe("widgets", () => {
 		const receipt = await table.toModelOutput!({ toolCallId: "1", input: props, output } as never);
 		expect(receipt).toMatchObject({ type: "text" });
 		expect(describeWidget({ type: "table", props })).toBe('[You showed a table "Leads" with 1 rows (Name, Stage) widget]');
+	});
+
+	it("shows a tool result by ref without copying rows", async () => {
+		const c = ctx(owner);
+		const leads = [
+			{ name: "Ada", stage: "Won", owner: { email: "a@x.co" }, hot: true },
+			{ name: "Grace", stage: "New", owner: null, hot: false },
+		];
+		// Data tools' results reach the model as { ref, data }.
+		const server = fakeMcpServer([{ name: "find" }], () => JSON.stringify({ leads }));
+		const crm = definePlugin({
+			id: "notes",
+			name: "CRM",
+			description: "Test",
+			version: "1.0.0",
+			publisher: "Test",
+			mcp: { url: "https://example.com/mcp", transport: "http" },
+			connection: "personal",
+			auth: { type: "none" },
+		});
+		const session = await openPlugin(crm, { transport: server });
+		const tools = buildToolSet({ tools: ["notes.find"] }, c, session.tools);
+		const found = await tools.notes_find!.execute!({}, { toolCallId: "1", messages: [] } as never);
+		expect(found).toEqual({ ref: "r1", data: { leads } });
+		await session.close();
+
+		const from = { ref: "r1", path: "leads", fields: ["name", "owner.email", "hot"] };
+		expect(await table.execute({ columns: ["Name", "Owner", "Hot"], from }, c)).toEqual({
+			widget: {
+				type: "table",
+				props: { columns: ["Name", "Owner", "Hot"], rows: [["Ada", "a@x.co", "Yes"], ["Grace", null, "No"]] },
+			},
+		});
+		expect(await table.execute({ columns: ["Name"], from: { ...from, path: undefined, fields: ["name"] } }, c)).toEqual({
+			error: "r1 isn't a list. Its keys: leads.",
+		});
+		expect(await table.execute({ columns: ["Name"], from: { ref: "r9", fields: ["name"] } }, c)).toMatchObject({
+			error: expect.stringContaining('No result "r9"'),
+		});
 	});
 
 	it("sends the model a fixable error for ragged rows", async () => {

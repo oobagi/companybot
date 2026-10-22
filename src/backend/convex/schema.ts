@@ -104,6 +104,18 @@ export default defineSchema({
 	})
 		.index("by_workspace", ["workspaceId", "pluginId", "userId"]),
 
+	// A plugin sign-in in progress: started in the app, finished by /oauth/callback.
+	// `data` holds the encrypted OAuthState (client, PKCE verifier). One use; expires.
+	pluginOAuthFlows: defineTable({
+		state: v.string(),
+		pluginId: v.string(),
+		userId: v.id("users"),
+		data: v.string(),
+		expiresAt: v.number(),
+	})
+		.index("by_state", ["state"])
+		.index("by_user", ["userId"]),
+
 	skillInstalls: defineTable({
 		workspaceId: v.id("workspaces"),
 		skillId: v.string(),

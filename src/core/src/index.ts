@@ -5,6 +5,7 @@ export * from "./guide";
 export * from "./mcp";
 export * from "./memory";
 export * from "./models";
+export * from "./oauth";
 export * from "./permissions";
 export * from "./plugins";
 export * from "./skills";

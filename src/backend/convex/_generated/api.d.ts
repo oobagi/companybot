@@ -17,6 +17,7 @@ import type * as http from "../http.js";
 import type * as lib from "../lib.js";
 import type * as memory from "../memory.js";
 import type * as memoryOps from "../memoryOps.js";
+import type * as oauth from "../oauth.js";
 import type * as plugins from "../plugins.js";
 import type * as preferences from "../preferences.js";
 import type * as skills from "../skills.js";
@@ -38,6 +39,7 @@ declare const fullApi: ApiFromModules<{
   lib: typeof lib;
   memory: typeof memory;
   memoryOps: typeof memoryOps;
+  oauth: typeof oauth;
   plugins: typeof plugins;
   preferences: typeof preferences;
   skills: typeof skills;
