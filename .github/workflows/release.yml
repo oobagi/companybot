@@ -66,9 +66,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          # v1.2.0-alpha.1 → a GitHub prerelease. Only installs on a prerelease pick these up.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             src/desktop/release/*.dmg
             src/desktop/release/*.zip
             src/desktop/release/*.blockmap
-            src/desktop/release/latest-mac.yml
+            src/desktop/release/*-mac.yml
           fail_on_unmatched_files: true

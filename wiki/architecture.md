@@ -29,7 +29,7 @@ New workspaces get copies of the default agents: **Companybot** (`memory.*`, clo
 - **Agents:** stored per workspace. Owners create, edit, archive, and restore them. Every save writes an `agentVersions` row; restoring saves an old version as the newest. Replies read the agent fresh each turn, so edits apply from the next reply.
 - **Three kinds of data:** shared content (chat, memory) is fully live. Shared settings (agents, workspace name) are edited as a draft and saved; each has a `version`, and a save from an old version is refused as a conflict (`checkVersion`), with a "Use theirs / Keep mine" prompt in the app. Personal preferences (`preferences` table) are per person and sync across their devices.
 - **Permissions apply at once:** agent memory and plugin calls re-read the person's membership and role, so removals and role changes take effect mid-reply.
-- **Plugins:** `pluginInstalls` (roles allowed) and `pluginConnections` (AES-GCM encrypted with `CONNECTIONS_KEY`, encrypted in an action). The runner connects only to plugins the agent's grants reach, skips any that fail or take over 10s, and tells the agent.
+- **Plugins:** `pluginInstalls` (roles allowed) and `pluginConnections` (AES-GCM encrypted with `CONNECTIONS_KEY`, encrypted in an action). OAuth sign-ins in progress sit in `pluginOAuthFlows` (one use, 15 min) until `/oauth/callback` finishes them. The runner connects only to plugins the agent's grants reach, skips any that fail or take over 10s, and tells the agent.
 - **Compaction:** past 40 messages, older ones fold into a running summary (newest 20 kept verbatim). The app still shows everything.
 
 ## Secrets (Convex env, `npx convex env set`)
@@ -53,3 +53,4 @@ If Electron crashes on launch from T3 Code's terminal: `env -u ELECTRON_RUN_AS_N
 ## Before launch
 - Sign-in emails send from `signin@callnightowl.com` and AI bills to the Night Owl Vercel team ($25/mo cap). Swap both to Companybot accounts.
 - Convex Auth is beta — re-check before real customers.
+- The plugin catalog lists **Night Owl** (our own MCP server) for internal testing. Remove it.

@@ -13,6 +13,7 @@ export const builtinTools: ToolDef[] = [
 		description: "Search your memories that the current person can see. Empty query lists all.",
 		input: z.object({ query: z.string().describe("Words to match; empty for all") }),
 		readOnly: true,
+		returnsData: true,
 		async execute({ query }, { actor, memory }) {
 			const words = query.toLowerCase().split(/\s+/).filter(Boolean);
 			const all = await memory.list(actor);

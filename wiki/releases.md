@@ -3,8 +3,11 @@
 ## Cut a release
 ```
 pnpm release patch   # or minor, major, 1.2.3
+pnpm release alpha   # or beta, 1.2.3-alpha.1
 ```
 From a clean `main` that matches origin. It runs checks, deploys the prod backend, bumps `src/desktop/package.json`, tags `vX.Y.Z`, and pushes. `.github/workflows/release.yml` then builds, signs, notarizes, and publishes to GitHub Releases.
+
+Alpha/beta versions publish as GitHub prereleases. Installs on a prerelease update to newer prereleases and stable versions; stable installs ignore prereleases. `patch` from a prerelease ships that version as stable (0.2.0-alpha.3 → 0.2.0).
 
 The backend deploys before the app ships, so backend changes must keep the previous app version working.
 

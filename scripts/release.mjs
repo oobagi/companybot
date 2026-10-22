@@ -2,7 +2,11 @@
 // Cuts a release: checks, deploys the production backend, bumps the app version,
 // tags, and pushes. CI (.github/workflows/release.yml) builds and publishes the app.
 //
-//   pnpm release patch | minor | major | 1.2.3
+//   pnpm release patch | minor | major | alpha | beta | 1.2.3 | 1.2.3-alpha.1
+//
+// alpha/beta: the next prerelease (0.2.0-alpha.1 → 0.2.0-alpha.2), or the first
+// one for the next patch. Prereleases are marked as such on GitHub; only installs
+// already on a prerelease update to them.
 
 import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -15,21 +19,30 @@ const fail = (msg) => {
 	process.exit(1);
 };
 
-if (!bump) fail("Say how to bump: pnpm release patch | minor | major | 1.2.3");
+if (!bump) fail("Say how to bump: pnpm release patch | minor | major | alpha | beta | 1.2.3");
 
 const pkgPath = "src/desktop/package.json";
 const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-const [major, minor, patch] = pkg.version.split(".").map(Number);
+const [base, pre] = pkg.version.split("-");
+const [major, minor, patch] = base.split(".").map(Number);
+const [channel, number] = pre ? [pre.split(".")[0], Number(pre.split(".")[1])] : [];
 const next =
 	bump === "major"
 		? `${major + 1}.0.0`
 		: bump === "minor"
 			? `${major}.${minor + 1}.0`
 			: bump === "patch"
-				? `${major}.${minor}.${patch + 1}`
-				: /^\d+\.\d+\.\d+$/.test(bump)
-					? bump
-					: fail(`"${bump}" isn't patch, minor, major, or a version like 1.2.3.`);
+				? // From a prerelease, "patch" ships that version for real.
+					pre
+					? base
+					: `${major}.${minor}.${patch + 1}`
+				: bump === "alpha" || bump === "beta"
+					? channel === bump
+						? `${base}-${bump}.${number + 1}`
+						: `${major}.${minor}.${patch + 1}-${bump}.1`
+					: /^\d+\.\d+\.\d+(-(alpha|beta)\.\d+)?$/.test(bump)
+						? bump
+						: fail(`"${bump}" isn't patch, minor, major, alpha, beta, or a version like 1.2.3.`);
 
 if (out("git branch --show-current") !== "main") fail("Release from main.");
 if (out("git status --porcelain")) fail("Commit or stash your changes first.");

@@ -10,6 +10,30 @@ export interface ToolContext {
 	memory: MemoryStore;
 	/** Skills installed in the workspace. */
 	skills: Skill[];
+	/** This turn's data results, by ref, so widgets can show them. */
+	results: ResultStore;
+}
+
+/**
+ * Data tools' results for one turn. Each gets a short ref ("r1") that the model
+ * sees with the result; a widget can then point at it ("show r1's leads") instead
+ * of copying every row back out, which is slow, costly, and can drift from the data.
+ */
+export interface ResultStore {
+	save(data: unknown): string;
+	get(ref: string): unknown;
+}
+
+export function createResultStore(): ResultStore {
+	const results = new Map<string, unknown>();
+	return {
+		save(data) {
+			const ref = `r${results.size + 1}`;
+			results.set(ref, data);
+			return ref;
+		},
+		get: (ref) => results.get(ref),
+	};
 }
 
 export type ToolSource = { type: "builtin" } | { type: "plugin"; pluginId: string };
@@ -30,6 +54,8 @@ export interface ToolDef<Input = any> {
 	roles?: Role[];
 	/** True when the tool only reads. Unknown counts as a write. */
 	readOnly?: boolean;
+	/** Returns data worth showing. Results get a ref widgets can point at; see ResultStore. */
+	returnsData?: boolean;
 	source: ToolSource;
 	execute(input: Input, ctx: ToolContext): Promise<unknown>;
 	/** What the model sees instead of the raw result, e.g. a short receipt for widgets. */

@@ -19,13 +19,17 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 - Tools are discovered each turn (`openPlugin`) as `<plugin>.<tool>`. Agents usually grant `<plugin>.*`.
 - Credentials: `PluginCredentials`, encrypted in an **action** (`crypto.ts`) and decrypted only by the agent runner. Never return them from a query.
 - Access = installed + role allowed (`pluginInstalls.roles`) + connected. Checked fresh each turn (`plugins.forTurn`).
-- Not built yet: OAuth sign-in (`auth.type: "oauth"`), approvals for write tools (use `readOnly`), per-tool policy.
+- Auth: `none`, `api_key` (pasted in), or `oauth` (MCP OAuth: discovery, dynamic client registration, PKCE, refresh — all via `@ai-sdk/mcp`). OAuth flow: `plugins.startOAuth` → browser → `GET /oauth/callback` (`backend/convex/oauth.ts`) → `saveConnection`. State lives in `OAuthState` (`core/src/oauth.ts`), encrypted like any credentials. The runner saves refreshed tokens after each turn.
+- Plugin results keep structure (`structuredContent`, or JSON text) so widgets can show them by ref.
+- Not built yet: approvals for write tools (use `readOnly`), per-tool policy, pre-registered OAuth clients (servers without dynamic registration).
 - Test with `fakeMcpServer` (`core/src/test-mcp-server.ts`), or push a test plugin into `pluginCatalog` (see backend tests).
 
 ## Widgets — `core/src/widgets.ts`, `desktop/src/renderer/src/widgets.tsx`
-- Add one: `defineWidget` (type, description, zod `props`, `summary`, optional `check`) in `widgetCatalog`, then a component in the desktop `registry`. That's all; the tool `widgets.<type>` appears automatically.
-- `description` and `.describe()` on props are how the model learns to use it. Write them for the model.
-- Props are stored as-is and rendered by the app, so keep them plain data. Older apps show a placeholder for unknown types.
+- Add one: `defineWidget` (type, description, zod `input`, `summary`, optional `prepare`) in `widgetCatalog`, then a component in the desktop `registry`. That's all; the tool `widgets.<type>` appears automatically.
+- `description` and `.describe()` on input are how the model learns to use it. Write them for the model.
+- **Refs:** tools with `returnsData` (plugin tools, `memory.search`) reach the model as `{ ref: "r1", data }`, and their data is kept for the turn (`ResultStore`). A widget's `prepare` can look a ref up, so the model points at data instead of copying it (see `table`'s `from`). The model still sees the data; it just doesn't re-type it.
+- `prepare` returns concrete props, which are stored and rendered by the app, so keep them plain data. Older apps show a placeholder for unknown types.
+- Widgets are generic UI, not tied to a skill or plugin. Skills and plugins produce data; any widget can show it.
 - Plugin-provided UI later: MCP Apps (`@ai-sdk/mcp` supports them) in a sandboxed frame, not this registry.
 
 ## Teaching agents — `core/src/guide.ts`

@@ -3,8 +3,10 @@ import {
 	type MemoryStore,
 	type PluginCredentials,
 	type PluginSession,
+	PluginOAuth,
 	buildToolSet,
 	builtinTools,
+	createResultStore,
 	findPlugin,
 	grantedPluginIds,
 	isGranted,
@@ -19,7 +21,8 @@ import { type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { type ActionCtx, internalAction } from "./_generated/server";
-import { decrypt } from "./crypto";
+import { decrypt, encrypt } from "./crypto";
+import { oauthRedirectUrl } from "./plugins";
 import type { messagePart } from "./schema";
 
 const SUMMARY_MODEL = "anthropic/claude-haiku-5.5";
@@ -52,11 +55,25 @@ async function runTurn(ctx: ActionCtx, conversationId: Id<"conversations">, repl
 		await streamReply(ctx, turn, replyId, plugins);
 	} finally {
 		await Promise.allSettled(plugins.sessions.map((s) => s.close()));
+		await saveRefreshedTokens(ctx, plugins);
 	}
 }
 
 type Turn = FunctionReturnType<typeof internal.chat.turnContext>;
-type LoadedPlugins = { sessions: PluginSession[]; unavailable: string[] };
+type LoadedPlugins = {
+	sessions: PluginSession[];
+	unavailable: string[];
+	/** OAuth sign-ins in use, to save if the SDK refreshed their tokens. */
+	oauth: { connectionId: Id<"pluginConnections">; provider: PluginOAuth }[];
+};
+
+async function saveRefreshedTokens(ctx: ActionCtx, plugins: LoadedPlugins) {
+	for (const { connectionId, provider } of plugins.oauth) {
+		if (!provider.changed) continue;
+		const credentials = await encrypt({ type: "oauth", oauth: provider.stored } satisfies PluginCredentials);
+		await ctx.runMutation(internal.plugins.updateCredentials, { connectionId, credentials });
+	}
+}
 
 /**
  * Connects to the plugins this agent's grants reach and this person may use.
@@ -65,14 +82,20 @@ type LoadedPlugins = { sessions: PluginSession[]; unavailable: string[] };
  */
 async function loadPlugins(ctx: ActionCtx, userId: Id<"users">, agent: Pick<AgentConfig, "tools">): Promise<LoadedPlugins> {
 	const pluginIds = grantedPluginIds(agent);
-	if (pluginIds.length === 0) return { sessions: [], unavailable: [] };
+	const oauth: LoadedPlugins["oauth"] = [];
+	if (pluginIds.length === 0) return { sessions: [], unavailable: [], oauth };
 	const usable = await ctx.runQuery(internal.plugins.forTurn, { userId, pluginIds });
 	const results = await Promise.all(
 		usable.map(async ({ pluginId, connectionId, credentials }) => {
 			const plugin = findPlugin(pluginId)!;
 			try {
 				const creds: PluginCredentials = credentials ? await decrypt(credentials) : { type: "none" };
-				const session = await withTimeout(openPlugin(plugin, { credentials: creds }), PLUGIN_CONNECT_MS);
+				let authProvider: PluginOAuth | undefined;
+				if (creds.type === "oauth" && connectionId) {
+					authProvider = new PluginOAuth(creds.oauth, oauthRedirectUrl(), false);
+					oauth.push({ connectionId, provider: authProvider });
+				}
+				const session = await withTimeout(openPlugin(plugin, { credentials: creds, authProvider }), PLUGIN_CONNECT_MS);
 				if (connectionId) await ctx.runMutation(internal.plugins.setConnectionError, { connectionId });
 				return { session };
 			} catch (e) {
@@ -85,6 +108,7 @@ async function loadPlugins(ctx: ActionCtx, userId: Id<"users">, agent: Pick<Agen
 	return {
 		sessions: results.flatMap((r) => (r.session ? [r.session] : [])),
 		unavailable: results.flatMap((r) => (r.unavailable ? [r.unavailable] : [])),
+		oauth,
 	};
 }
 
@@ -105,6 +129,7 @@ async function streamReply(ctx: ActionCtx, turn: Turn, replyId: Id<"messages">, 
 			agentId: agent.id,
 			memory: memoryStore(ctx, member.userId, agent.id),
 			skills: turn.skills,
+			results: createResultStore(),
 		},
 		[...builtinTools, ...plugins.sessions.flatMap((s) => s.tools)],
 	);

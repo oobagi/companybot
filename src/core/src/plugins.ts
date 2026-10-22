@@ -1,3 +1,4 @@
+import type { OAuthState } from "./oauth";
 import type { Role } from "./types";
 
 /**
@@ -32,16 +33,28 @@ export type PluginAuth =
 	| { type: "none" }
 	/** A key the person pastes in. Sent as `${prefix}${key}` in `header`. */
 	| { type: "api_key"; header: string; prefix?: string; label: string; help?: string }
-	/** MCP OAuth. Declared so the catalog can describe it; the sign-in flow isn't built yet. */
+	/** MCP OAuth: the person signs in in their browser. See oauth.ts. */
 	| { type: "oauth"; scopes?: string[] };
 
 /** What's stored (encrypted) for a connection. Never sent to the app. */
-export type PluginCredentials = { type: "none" } | { type: "api_key"; key: string };
+export type PluginCredentials = { type: "none" } | { type: "api_key"; key: string } | { type: "oauth"; oauth: OAuthState };
 
 export const definePlugin = (plugin: Plugin) => plugin;
 
-/** The plugin marketplace. Empty until the first connector ships. */
-export const pluginCatalog: Plugin[] = [];
+/** The plugin marketplace. */
+export const pluginCatalog: Plugin[] = [
+	// Internal testing only: our own product's MCP server. Remove before launch (wiki/product.md).
+	definePlugin({
+		id: "night-owl",
+		name: "Night Owl",
+		description: "Leads, calls, campaigns, and clients from Night Owl.",
+		version: "1.0.0",
+		publisher: "Night Owl",
+		mcp: { url: "https://callnightowl.com/api/mcp", transport: "http" },
+		connection: "personal",
+		auth: { type: "oauth" },
+	}),
+];
 
 export const findPlugin = (id: string) => pluginCatalog.find((p) => p.id === id);
 
@@ -55,7 +68,7 @@ export function validatePlugin(plugin: Plugin): string | null {
 
 /** Checks pasted-in credentials against what the plugin expects. */
 export function validateCredentials(plugin: Plugin, credentials: PluginCredentials): string | null {
-	if (plugin.auth.type === "oauth") return "This plugin signs in with OAuth, which isn't supported yet.";
+	if (plugin.auth.type === "oauth") return "This plugin signs in through your browser. Use Connect in the app.";
 	if (credentials.type !== plugin.auth.type) return "Those aren't the right kind of credentials for this plugin.";
 	if (credentials.type === "api_key" && !credentials.key.trim()) return "Paste the key first.";
 	return null;

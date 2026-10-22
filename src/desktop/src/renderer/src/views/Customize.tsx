@@ -47,6 +47,7 @@ function PluginCard({ plugin, isOwner }: { plugin: PluginItem; isOwner: boolean 
 	const setInstalled = useMutation(api.plugins.setInstalled);
 	const setRoles = useMutation(api.plugins.setRoles);
 	const connect = useAction(api.plugins.connect);
+	const startOAuth = useAction(api.plugins.startOAuth);
 	const disconnect = useMutation(api.plugins.disconnect);
 	const [key, setKey] = useState("");
 	const { error, run } = useRun();
@@ -81,9 +82,7 @@ function PluginCard({ plugin, isOwner }: { plugin: PluginItem; isOwner: boolean 
 						</select>
 					</label>
 					<p className="text-neutral-500">{whose}</p>
-					{plugin.auth.type === "oauth" ? (
-						<p className="text-neutral-400">Signing in to this plugin isn't supported yet.</p>
-					) : plugin.auth.type === "none" ? (
+					{plugin.auth.type === "none" ? (
 						<p className="text-emerald-700">Ready. No account needed.</p>
 					) : plugin.connected ? (
 						<div className="flex items-center gap-3">
@@ -100,6 +99,19 @@ function PluginCard({ plugin, isOwner }: { plugin: PluginItem; isOwner: boolean 
 								</button>
 							)}
 						</div>
+					) : plugin.canUse && plugin.canConnect && plugin.auth.type === "oauth" ? (
+						<div className="flex items-center gap-3">
+							<button
+								type="button"
+								className={`${primaryButton} self-start`}
+								// Opens in the browser (main process routes window.open there). The app
+								// flips to Connected on its own once the sign-in finishes.
+								onClick={() => run(startOAuth({ pluginId: plugin.id }).then((url) => window.open(url)))}
+							>
+								Connect with {plugin.name}
+							</button>
+							<span className="text-neutral-400">Opens your browser to sign in.</span>
+						</div>
 					) : plugin.canUse && plugin.canConnect ? (
 						<form
 							className="flex gap-2"
@@ -112,7 +124,7 @@ function PluginCard({ plugin, isOwner }: { plugin: PluginItem; isOwner: boolean 
 								type="password"
 								value={key}
 								onChange={(e) => setKey(e.target.value)}
-								placeholder={plugin.auth.label}
+								placeholder={plugin.auth.type === "api_key" ? plugin.auth.label : ""}
 								className={`${inputClass} flex-1`}
 							/>
 							<button type="submit" className={primaryButton}>

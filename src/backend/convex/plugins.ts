@@ -7,6 +7,7 @@ import {
 	findPlugin,
 	pluginCatalog,
 	pluginRoles,
+	startSignIn,
 	validateCredentials,
 } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
@@ -131,6 +132,65 @@ export const setRoles = mutation({
 
 const credentials = v.union(v.object({ type: v.literal("none") }), v.object({ type: v.literal("api_key"), key: v.string() }));
 
+/** Where OAuth providers send people back to. Registered with each provider on first sign-in. */
+export const oauthRedirectUrl = () => `${process.env.CONVEX_SITE_URL}/oauth/callback`;
+const OAUTH_FLOW_MS = 15 * 60_000;
+
+/**
+ * Starts signing in to an OAuth plugin. Returns the page to open in the browser;
+ * the provider sends the person back to /oauth/callback (http.ts → finishOAuth).
+ */
+export const startOAuth = action({
+	args: { pluginId: v.string() },
+	handler: async (ctx, { pluginId }): Promise<string> => {
+		const userId = await getAuthUserId(ctx);
+		if (!userId) throw new ConvexError("Not signed in.");
+		const plugin = requirePlugin(pluginId);
+		if (plugin.auth.type !== "oauth") throw new ConvexError("This plugin doesn't sign in through the browser.");
+		await ctx.runQuery(internal.plugins.connectTarget, { userId, pluginId });
+		let started: Awaited<ReturnType<typeof startSignIn>>;
+		try {
+			started = await startSignIn(plugin, oauthRedirectUrl());
+		} catch (e) {
+			throw new ConvexError(`Couldn't start signing in to ${plugin.name}: ${e instanceof Error ? e.message : e}`);
+		}
+		await ctx.runMutation(internal.plugins.saveOAuthFlow, {
+			userId,
+			pluginId,
+			state: started.state.state!,
+			data: await encrypt(started.state),
+		});
+		return started.url;
+	},
+});
+
+export const saveOAuthFlow = internalMutation({
+	args: { userId: v.id("users"), pluginId: v.string(), state: v.string(), data: v.string() },
+	handler: async (ctx, args) => {
+		// Only the newest sign-in per person counts; drop abandoned ones.
+		const old = await ctx.db
+			.query("pluginOAuthFlows")
+			.withIndex("by_user", (q) => q.eq("userId", args.userId))
+			.collect();
+		for (const flow of old) await ctx.db.delete(flow._id);
+		await ctx.db.insert("pluginOAuthFlows", { ...args, expiresAt: Date.now() + OAUTH_FLOW_MS });
+	},
+});
+
+/** Claims a sign-in by its state. One use: a replayed callback finds nothing. */
+export const takeOAuthFlow = internalMutation({
+	args: { state: v.string() },
+	handler: async (ctx, { state }) => {
+		const flow = await ctx.db
+			.query("pluginOAuthFlows")
+			.withIndex("by_state", (q) => q.eq("state", state))
+			.first();
+		if (!flow) return null;
+		await ctx.db.delete(flow._id);
+		return flow.expiresAt > Date.now() ? flow : null;
+	},
+});
+
 /** Saves an account for a plugin. An action, because encryption needs real randomness. */
 export const connect = action({
 	args: { pluginId: v.string(), credentials },
@@ -163,6 +223,14 @@ export const connectTarget = internalQuery({
 	args: { userId: v.id("users"), pluginId: v.string() },
 	handler: async (ctx, { userId, pluginId }) => {
 		await requireConnectTarget(ctx, userId, pluginId);
+	},
+});
+
+/** Replaces stored credentials, e.g. after the runner refreshed an OAuth token. */
+export const updateCredentials = internalMutation({
+	args: { connectionId: v.id("pluginConnections"), credentials: v.string() },
+	handler: async (ctx, { connectionId, credentials }) => {
+		if (await ctx.db.get(connectionId)) await ctx.db.patch(connectionId, { credentials, error: undefined });
 	},
 });
 
