@@ -1,7 +1,7 @@
-import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, type UIMessage, getToolName, isToolUIPart } from "ai";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { type Agent, SERVER_URL, useApi } from "../api";
+import type { Doc } from "@companybot/backend/convex/_generated/dataModel";
+import { useMutation, useQuery } from "convex/react";
+import { useEffect, useRef, useState } from "react";
+import { api, errorMessage } from "../api";
 
 const suggestions = [
 	"What do you remember about our team?",
@@ -9,31 +9,24 @@ const suggestions = [
 	"What time is it?",
 ];
 
-/** Loads the saved conversation, then mounts the live chat. */
-export function Chat({ agent, userId }: { agent: Agent; userId: string }) {
-	const { data: history, error } = useApi<UIMessage[]>(userId, `/agents/${agent.id}/messages`);
-	if (error) return <Notice>{error}</Notice>;
-	if (!history) return null;
-	return <Conversation key={`${userId}:${agent.id}`} agent={agent} userId={userId} history={history} />;
-}
+export function Chat({ agent }: { agent: { id: string; name: string } }) {
+	const messages = useQuery(api.chat.messages, { agentId: agent.id });
+	const sendMessage = useMutation(api.chat.send);
+	const [error, setError] = useState<string>();
+	const busy = messages?.at(-1)?.status === "streaming";
 
-function Conversation({ agent, userId, history }: { agent: Agent; userId: string; history: UIMessage[] }) {
-	const transport = useMemo(
-		() =>
-			new DefaultChatTransport({
-				api: `${SERVER_URL}/agents/${agent.id}/chat`,
-				headers: { "x-user-id": userId },
-				// The server keeps the full history; send only the newest message.
-				prepareSendMessagesRequest: ({ messages }) => ({ body: { message: messages.at(-1) } }),
-			}),
-		[agent.id, userId],
-	);
-	const { messages, sendMessage, status, error } = useChat({ transport, messages: history });
-	const busy = status === "submitted" || status === "streaming";
-	const send = (text: string) => !busy && text.trim() && sendMessage({ text: text.trim() });
+	const send = (text: string) => {
+		if (busy || !text.trim()) return;
+		setError(undefined);
+		sendMessage({ agentId: agent.id, text }).catch((e) => setError(errorMessage(e)));
+	};
 
 	const bottom = useRef<HTMLDivElement>(null);
-	useEffect(() => bottom.current?.scrollIntoView({ block: "end" }), [messages]);
+	useEffect(() => {
+		bottom.current?.scrollIntoView({ block: "end" });
+	}, [messages]);
+
+	if (!messages) return null;
 
 	if (messages.length === 0) {
 		return (
@@ -52,6 +45,7 @@ function Conversation({ agent, userId, history }: { agent: Agent; userId: string
 						</button>
 					))}
 				</div>
+				{error && <Notice>{error}</Notice>}
 			</div>
 		);
 	}
@@ -61,10 +55,9 @@ function Conversation({ agent, userId, history }: { agent: Agent; userId: string
 			<div className="flex-1 overflow-y-auto">
 				<div className="mx-auto flex max-w-2xl flex-col gap-5 px-6 py-8">
 					{messages.map((m) => (
-						<Message key={m.id} message={m} />
+						<Message key={m._id} message={m} />
 					))}
-					{status === "submitted" && <p className="text-sm text-neutral-400">Thinking…</p>}
-					{error && <Notice>{error.message}</Notice>}
+					{error && <Notice>{error}</Notice>}
 					<div ref={bottom} />
 				</div>
 			</div>
@@ -75,29 +68,24 @@ function Conversation({ agent, userId, history }: { agent: Agent; userId: string
 	);
 }
 
-function Message({ message }: { message: UIMessage }) {
-	const mine = message.role === "user";
-	return (
-		<div className={mine ? "flex justify-end" : ""}>
-			<div className={mine ? "max-w-[80%] rounded-2xl bg-neutral-100 px-4 py-2.5" : "flex flex-col gap-1.5"}>
-				{message.parts.map((part, i) => {
-					if (part.type === "text") {
-						return (
-							<p key={i} className="whitespace-pre-wrap leading-relaxed">
-								{part.text}
-							</p>
-						);
-					}
-					if (isToolUIPart(part)) {
-						return (
-							<p key={i} className="text-xs text-neutral-400">
-								{part.state === "output-error" ? "Failed" : "Used"} {getToolName(part)}
-							</p>
-						);
-					}
-					return null;
-				})}
+function Message({ message }: { message: Doc<"messages"> }) {
+	if (message.role === "user") {
+		return (
+			<div className="flex justify-end">
+				<p className="max-w-[80%] whitespace-pre-wrap rounded-2xl bg-neutral-100 px-4 py-2.5 leading-relaxed">{message.text}</p>
 			</div>
+		);
+	}
+	return (
+		<div className="flex flex-col gap-1.5">
+			{message.tools.map((t) => (
+				<p key={t.id} className="text-xs text-neutral-400">
+					{t.status === "running" ? "Using" : t.status === "error" ? "Failed" : "Used"} {t.name}
+				</p>
+			))}
+			{message.text && <p className="whitespace-pre-wrap leading-relaxed">{message.text}</p>}
+			{message.status === "streaming" && !message.text && <p className="text-sm text-neutral-400">Thinking…</p>}
+			{message.status === "error" && <Notice>{message.error ?? "Something went wrong."}</Notice>}
 		</div>
 	);
 }

@@ -20,9 +20,10 @@
     "vite": "^8.3.5"
   },
   "dependencies": {
-    "@ai-sdk/react": "^4.0.152",
+    "@companybot/backend": "workspace:*",
     "@companybot/core": "workspace:*",
-    "ai": "^7.0.148",
+    "@convex-dev/auth": "^0.0.96",
+    "convex": "1.47.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   }

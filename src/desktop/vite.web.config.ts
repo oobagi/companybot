@@ -7,5 +7,6 @@ import { defineConfig } from "vite";
 export default defineConfig({
 	root: resolve(__dirname, "src/renderer"),
 	envDir: resolve(__dirname, "../.."),
+	envPrefix: ["VITE_", "CONVEX_URL"],
 	plugins: [react(), tailwindcss()],
 });

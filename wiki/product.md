@@ -7,12 +7,13 @@ Companybot: AI-first team chat. Agents are teammates, not bots. Companybot is al
 - Memory: team memories (shared) + personal memories. Editable in the app. Owners edit all; members edit only their own personal memories.
 - Agents reply when @mentioned or DM'd. Otherwise a 👀 reaction and an offer to help — never butt in.
 - One continuous conversation per agent; it auto-compacts. No separate sessions. Channels keep normal threads.
-- Plugins store: workspace installs plugins; agents get only the tools they're granted.
+- Customize tab: **Plugins** (connectors to outside services via MCP — Gmail, Calendar…) and **Skills** (a marketplace of installable instructions). Memory and clock are built in, not plugins.
 - Built-in automations and schedules.
 
 ## Platform
 - Desktop app first (Electron). Standalone mobile app later. No web app.
-- Cloud backend: agents run server-side so schedules work when nobody's online.
+- Cloud backend on Convex: agents run server-side so schedules work when nobody's online.
+- Sign-in: email code only.
 
 ## UI
 - Clean home: a few starter suggestions + chat box (Ollama-style).

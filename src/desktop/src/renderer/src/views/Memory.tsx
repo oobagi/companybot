@@ -1,23 +1,31 @@
-import type { MemoryScope } from "@companybot/core";
+import type { MemoryScope, Role } from "@companybot/core";
+import type { Id } from "@companybot/backend/convex/_generated/dataModel";
+import { useMutation, useQuery } from "convex/react";
 import { useState } from "react";
-import { type MemoryItem, type User, memoryApi, useApi } from "../api";
+import { api, errorMessage } from "../api";
 import { Notice } from "./Chat";
 
-export function MemoryView({ user }: { user: User }) {
-	const { data, error, reload } = useApi<MemoryItem[]>(user.id, "/memory");
-	const [actionError, setActionError] = useState<string>();
-	const run = (action: Promise<unknown>) =>
-		action.then(() => (setActionError(undefined), reload()), (e: Error) => setActionError(e.message));
+type MemoryItem = NonNullable<ReturnType<typeof useQuery<typeof api.memory.list>>>[number];
 
-	const team = data?.filter((m) => m.scope === "workspace") ?? [];
-	const personal = data?.filter((m) => m.scope === "personal") ?? [];
+export function MemoryView({ role }: { role: Role }) {
+	const memories = useQuery(api.memory.list);
+	const create = useMutation(api.memory.create);
+	const [error, setError] = useState<string>();
+	const run = (action: Promise<unknown>) =>
+		action.then(
+			() => setError(undefined),
+			(e) => setError(errorMessage(e)),
+		);
+
+	const team = memories?.filter((m) => m.scope === "workspace") ?? [];
+	const personal = memories?.filter((m) => m.scope === "personal") ?? [];
 
 	return (
 		<Page title="Memory" subtitle="What your agents remember. Team memories are shared; personal ones are yours.">
-			{(error || actionError) && <Notice>{error ?? actionError}</Notice>}
-			<AddMemory canAddTeam={user.role === "owner"} onAdd={(scope, content) => run(memoryApi.create(user.id, scope, content))} />
-			<Section title="Team" empty="No team memories yet." items={team} user={user} run={run} />
-			<Section title="Personal" empty="No personal memories yet." items={personal} user={user} run={run} />
+			{error && <Notice>{error}</Notice>}
+			<AddMemory canAddTeam={role === "owner"} onAdd={(scope, content) => run(create({ scope, content }))} />
+			<Section title="Team" empty="No team memories yet." items={team} run={run} />
+			<Section title="Personal" empty="No personal memories yet." items={personal} run={run} />
 		</Page>
 	);
 }
@@ -26,13 +34,11 @@ function Section({
 	title,
 	empty,
 	items,
-	user,
 	run,
 }: {
 	title: string;
 	empty: string;
 	items: MemoryItem[];
-	user: User;
 	run: (p: Promise<unknown>) => void;
 }) {
 	return (
@@ -40,23 +46,22 @@ function Section({
 			<h2 className="text-sm font-medium text-neutral-500">{title}</h2>
 			{items.length === 0 && <p className="text-sm text-neutral-400">{empty}</p>}
 			{items.map((m) => (
-				<MemoryRow key={m.id} memory={m} user={user} run={run} />
+				<MemoryRow key={m.id} memory={m} run={run} />
 			))}
 		</section>
 	);
 }
 
-function MemoryRow({ memory, user, run }: { memory: MemoryItem; user: User; run: (p: Promise<unknown>) => void }) {
+function MemoryRow({ memory, run }: { memory: MemoryItem; run: (p: Promise<unknown>) => void }) {
+	const update = useMutation(api.memory.update);
+	const remove = useMutation(api.memory.remove);
 	const [draft, setDraft] = useState<string>();
-	const someoneElses = memory.scope === "personal" && memory.ownerId !== user.id;
+	const id = memory.id as Id<"memories">;
 
 	return (
-		<div className="group flex items-start gap-3 rounded-xl border border-neutral-200 px-4 py-3">
+		<div className="flex items-start gap-3 rounded-xl border border-neutral-200 px-4 py-3">
 			{draft === undefined ? (
-				<p className="flex-1 leading-relaxed">
-					{memory.content}
-					{someoneElses && <span className="ml-2 text-xs text-neutral-400">({memory.ownerId})</span>}
-				</p>
+				<p className="flex-1 leading-relaxed">{memory.content}</p>
 			) : (
 				<textarea
 					autoFocus
@@ -72,7 +77,7 @@ function MemoryRow({ memory, user, run }: { memory: MemoryItem; user: User; run:
 							<button type="button" onClick={() => setDraft(memory.content)} className="hover:text-neutral-900">
 								Edit
 							</button>
-							<button type="button" onClick={() => run(memoryApi.remove(user.id, memory.id))} className="hover:text-red-600">
+							<button type="button" onClick={() => run(remove({ id }))} className="hover:text-red-600">
 								Delete
 							</button>
 						</>
@@ -80,7 +85,7 @@ function MemoryRow({ memory, user, run }: { memory: MemoryItem; user: User; run:
 						<>
 							<button
 								type="button"
-								onClick={() => (run(memoryApi.update(user.id, memory.id, draft)), setDraft(undefined))}
+								onClick={() => (run(update({ id, content: draft })), setDraft(undefined))}
 								className="font-medium text-neutral-900"
 							>
 								Save

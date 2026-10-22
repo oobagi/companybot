@@ -4,34 +4,39 @@ pnpm monorepo. Each folder in `src/` is a package.
 
 | Package | What |
 |---|---|
-| `src/core` | Agent framework: agents, plugins, tools, memory, permissions. No I/O. |
-| `src/server` | Hono API. Runs agents with AI SDK 7 + AI Gateway. |
-| `src/desktop` | Electron app (electron-vite + React + Tailwind). Talks to the server over HTTP. |
+| `src/core` | Agent framework: agents, built-in tools, plugins, skills, memory rules. Pure logic, no I/O. |
+| `src/backend` | Convex: database, sign-in, live updates, and the agent runner (`convex/`). |
+| `src/desktop` | Electron app (electron-vite + React + Tailwind). Talks to Convex directly. |
 
 ## Concepts (`src/core`)
-- **Plugin** — a bundle of tools plus a connection type (`none` / `api_key` / `oauth`). Lives in the catalog; the workspace installs it.
-- **Tool** — `plugin.tool` id (e.g. `memory.save`). Optional `roles` limits who can trigger it.
-- **Agent** — instructions, model, and the tool ids it's granted.
-- **Tool visibility** — a tool reaches the model only if: agent grants it, plugin is installed, actor's role is allowed. See `describeToolAccess`.
-- **Memory** — `workspace` or `personal` scope. Rules live in `memory.ts`; the store enforces them.
+- **Built-in tools** — always on, no outside service: memory, clock, `skills.load`. Optional `roles` limits who can trigger one.
+- **Agent** — instructions, model, and the built-in tool ids it's granted. A tool reaches the model only if the agent grants it and the person's role allows it (`describeToolAccess`).
+- **Plugin** — a connector to an outside service through an MCP server (Gmail, Calendar…). Workspace installs it. Catalog is empty; runtime MCP loading gets built with the first connector.
+- **Skill** — installable instructions. Agents see installed skills' one-line descriptions and call `skills_load` for the full text when needed.
+- **Memory** — `workspace` (team) or `personal`. Owners edit all; members edit only their own personal memories.
 
-Default agents: **Companybot** (all built-in tools) and **Scribe** (`memory.search` only). Built-in plugins: Memory, Clock.
+Default agents: **Companybot** (all built-in tools) and **Scribe** (`memory.search`, `skills.load`).
 
-## Add things
-- Plugin: `definePlugin` + `defineTool`, add to the registry catalog.
-- Agent: `defineAgent`, list its tool ids.
+## Backend (`src/backend/convex`)
+- **Sign-in:** Convex Auth (beta) with a 6-digit email code sent through Resend.
+- **Workspaces:** first sign-in creates a workspace as owner. Invited emails join as members on sign-in.
+- **Chat:** one conversation per person per agent. `chat.send` stores the message and schedules `agent.respond`, which streams the reply into the database; the app sees it live. One reply at a time per conversation.
+- **Compaction:** past 40 messages, older ones fold into a running summary (newest 20 kept verbatim). The app still shows everything.
+
+## Secrets (Convex env, `npx convex env set`)
+`AI_GATEWAY_API_KEY`, `AUTH_RESEND_KEY`, `AUTH_EMAIL_FROM`, `JWT_PRIVATE_KEY`, `JWKS`, `SITE_URL`.
 
 ## Run
 ```
 pnpm install
-pnpm dev:server    # needs AI_GATEWAY_API_KEY in .env.local
+npx convex dev          # syncs backend, writes CONVEX_URL to .env.local
 pnpm dev:desktop
 pnpm test && pnpm typecheck
 ```
-`pnpm --filter @companybot/desktop preview:web` runs the UI in a browser.
+`pnpm --filter @companybot/desktop preview:web` runs the UI in a browser on port 5173.
 
-## Temporary shortcuts (replace before real users)
-- Storage is in-memory; restarts wipe everything.
-- Auth is a dev `x-user-id` header with two seeded users (owner, member).
-- No conversation compaction yet.
-- Electron fails if `ELECTRON_RUN_AS_NODE=1` is set in your shell (T3 Code sets it): `env -u ELECTRON_RUN_AS_NODE pnpm dev:desktop`.
+If Electron crashes on launch from T3 Code's terminal: `env -u ELECTRON_RUN_AS_NODE pnpm dev:desktop`.
+
+## Before launch
+- Sign-in emails send from `signin@callnightowl.com` and AI bills to the Night Owl Vercel team ($25/mo cap). Swap both to Companybot accounts.
+- Convex Auth is beta — re-check before real customers.

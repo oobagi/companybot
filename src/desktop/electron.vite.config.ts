@@ -6,8 +6,9 @@ import { defineConfig } from "electron-vite";
 export default defineConfig({
 	main: {},
 	renderer: {
-		// Read VITE_* vars from the repo-root .env.local.
+		// Read env from the repo-root .env.local (CONVEX_URL is written by `npx convex dev`).
 		envDir: resolve(__dirname, "../.."),
+		envPrefix: ["VITE_", "CONVEX_URL"],
 		plugins: [react(), tailwindcss()],
 	},
 });

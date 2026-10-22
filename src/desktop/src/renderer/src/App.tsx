@@ -1,29 +1,40 @@
-import { useState } from "react";
-import { type Agent, type User, useApi } from "./api";
+import { useAuthActions } from "@convex-dev/auth/react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useEffect, useState } from "react";
+import { api, errorMessage } from "./api";
 import { Chat, Notice } from "./views/Chat";
+import { CustomizeView } from "./views/Customize";
 import { MemoryView } from "./views/Memory";
-import { PluginsView } from "./views/Plugins";
+import { SignIn } from "./views/SignIn";
+import { TeamView } from "./views/Team";
 
-type View = "chat" | "memory" | "plugins";
+const views = ["chat", "memory", "customize", "team"] as const;
+type View = (typeof views)[number];
 
 export function App() {
-	const { data: users, error } = useApi<User[]>("", "/users");
-	const [userId, setUserId] = useState("jaden");
-	const user = users?.find((u) => u.id === userId);
-
-	if (error) {
-		return (
-			<div className="flex h-screen items-center justify-center p-8">
-				<Notice>Can't reach the server ({error}). Start it with `pnpm dev:server`.</Notice>
-			</div>
-		);
-	}
-	if (!users || !user) return null;
-	return <Workspace key={user.id} user={user} users={users} onSwitchUser={setUserId} />;
+	const { isLoading, isAuthenticated } = useConvexAuth();
+	if (isLoading) return null;
+	return isAuthenticated ? <Workspace /> : <SignIn />;
 }
 
-function Workspace({ user, users, onSwitchUser }: { user: User; users: User[]; onSwitchUser: (id: string) => void }) {
-	const { data: agents, reload: reloadAgents } = useApi<Agent[]>(user.id, "/agents");
+function Workspace() {
+	const me = useQuery(api.workspace.me);
+	const ensure = useMutation(api.workspace.ensure);
+	const [error, setError] = useState<string>();
+
+	// First sign-in: join the workspace you were invited to, or start one.
+	useEffect(() => {
+		if (me && !me.role) ensure().catch((e) => setError(errorMessage(e)));
+	}, [me, ensure]);
+
+	if (error) return <Centered><Notice>{error}</Notice></Centered>;
+	if (!me?.role) return null;
+	return <Shell email={me.email} role={me.role} workspace={me.workspace ?? ""} />;
+}
+
+function Shell({ email, role, workspace }: { email: string; role: "owner" | "member"; workspace: string }) {
+	const { signOut } = useAuthActions();
+	const agents = useQuery(api.agents.list);
 	const [view, setView] = useState<View>("chat");
 	const [agentId, setAgentId] = useState("companybot");
 	const agent = agents?.find((a) => a.id === agentId);
@@ -31,9 +42,9 @@ function Workspace({ user, users, onSwitchUser }: { user: User; users: User[]; o
 	return (
 		<div className="flex h-screen text-[15px] text-neutral-900">
 			<aside className="drag flex w-56 shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 px-3 pt-12 pb-3">
-				<p className="px-2 pb-4 text-sm font-semibold">Companybot</p>
+				<p className="px-2 pb-4 text-sm font-semibold">{workspace}</p>
 				<nav className="no-drag flex flex-col gap-0.5">
-					{(["chat", "memory", "plugins"] as const).map((v) => (
+					{views.map((v) => (
 						<button
 							type="button"
 							key={v}
@@ -46,20 +57,15 @@ function Workspace({ user, users, onSwitchUser }: { user: User; users: User[]; o
 						</button>
 					))}
 				</nav>
-				<label className="no-drag mt-auto flex flex-col gap-1 px-2 text-xs text-neutral-400">
-					Viewing as (dev)
-					<select
-						value={user.id}
-						onChange={(e) => onSwitchUser(e.target.value)}
-						className="rounded-lg border border-neutral-200 bg-white px-2 py-1 text-sm text-neutral-700"
-					>
-						{users.map((u) => (
-							<option key={u.id} value={u.id}>
-								{u.name} · {u.role}
-							</option>
-						))}
-					</select>
-				</label>
+				<div className="no-drag mt-auto flex flex-col gap-1 px-2 text-xs text-neutral-500">
+					<span className="truncate" title={email}>
+						{email}
+					</span>
+					<span className="capitalize">{role}</span>
+					<button type="button" onClick={() => void signOut()} className="mt-1 text-left text-neutral-400 hover:text-neutral-700">
+						Sign out
+					</button>
+				</div>
 			</aside>
 
 			<main className="flex min-w-0 flex-1 flex-col">
@@ -82,10 +88,15 @@ function Workspace({ user, users, onSwitchUser }: { user: User; users: User[]; o
 						</div>
 					)}
 				</header>
-				{view === "chat" && agent && <Chat agent={agent} userId={user.id} />}
-				{view === "memory" && <MemoryView user={user} />}
-				{view === "plugins" && agents && <PluginsView user={user} agents={agents} onChange={reloadAgents} />}
+				{view === "chat" && agent && <Chat key={agent.id} agent={agent} />}
+				{view === "memory" && <MemoryView role={role} />}
+				{view === "customize" && agents && <CustomizeView role={role} agents={agents} />}
+				{view === "team" && <TeamView role={role} />}
 			</main>
 		</div>
 	);
+}
+
+function Centered({ children }: { children: React.ReactNode }) {
+	return <div className="flex h-screen items-center justify-center p-8">{children}</div>;
 }
