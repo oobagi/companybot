@@ -3,8 +3,7 @@ import { useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache";
 import { useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../api";
-import { code } from "@streamdown/code";
-import { Streamdown } from "streamdown";
+import { Markdown } from "../markdown";
 import { Loading, Notice } from "../ui";
 import { WidgetView } from "../widgets";
 
@@ -15,9 +14,6 @@ const suggestions = [
 ];
 
 type SendWith = "enter" | "mod-enter";
-
-/** Syntax highlighting for code blocks (Shiki, loaded per language on demand). */
-const markdownPlugins = { code };
 
 export function Chat({ agent, sendWith }: { agent: { _id: Id<"agents">; name: string }; sendWith: SendWith }) {
 	const messages = useQuery(api.chat.messages, { agentId: agent._id });
@@ -92,9 +88,9 @@ function Message({ message }: { message: Doc<"messages"> }) {
 		<div className="flex flex-col gap-3">
 			{message.parts.map((part, i) =>
 				part.type === "text" ? (
-					<Streamdown key={i} className="leading-relaxed" plugins={markdownPlugins} isAnimating={streaming && i === lastText}>
+					<Markdown key={i} className="leading-relaxed" isAnimating={streaming && i === lastText}>
 						{part.text}
-					</Streamdown>
+					</Markdown>
 				) : part.type === "tool" ? (
 					<p key={part.id} className="text-xs text-neutral-400">
 						{part.status === "running" ? "Using" : part.status === "error" ? "Failed" : "Used"} {part.name}

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { CardProps, StatsProps, TableProps } from "@companybot/core";
 
 // Components for widgets agents place in replies. Types and props are defined in
@@ -27,27 +28,35 @@ function Frame({ title, children }: { title?: string; children: React.ReactNode 
 	);
 }
 
+/** Long tables start collapsed to this many rows. */
+const COLLAPSED_ROWS = 10;
+
 function TableWidget({ props }: { props: TableProps }) {
-	// Right-align columns where every value is a number.
-	const numeric = props.columns.map((_, c) => props.rows.length > 0 && props.rows.every((r) => typeof r[c] === "number" || r[c] == null));
+	// Number columns (including text like "8,258,035" or "$12.4k") hug their content and right-align.
+	const numeric = props.columns.map(
+		(_, c) => props.rows.length > 0 && props.rows.every((r) => r[c] == null || isNumberLike(r[c]!)),
+	);
+	const [expanded, setExpanded] = useState(false);
+	const rows = expanded ? props.rows : props.rows.slice(0, COLLAPSED_ROWS);
 	return (
 		<Frame title={props.title}>
-			<div className="max-h-96 overflow-auto">
+			{/* Grows with its rows; scrolls sideways only if the columns don't fit. */}
+			<div className="overflow-x-auto">
 				<table className="w-full text-left text-sm">
-					<thead className="sticky top-0 bg-white text-neutral-500">
+					<thead className="text-neutral-500">
 						<tr>
 							{props.columns.map((c, i) => (
-								<th key={i} className={`px-4 py-2 font-medium whitespace-nowrap ${numeric[i] ? "text-right" : ""}`}>
+								<th key={i} className={`px-4 py-2 font-medium whitespace-nowrap ${numeric[i] ? "w-px text-right" : ""}`}>
 									{c}
 								</th>
 							))}
 						</tr>
 					</thead>
 					<tbody>
-						{props.rows.map((row, r) => (
+						{rows.map((row, r) => (
 							<tr key={r} className="border-t border-neutral-100">
 								{row.map((cell, c) => (
-									<td key={c} className={`px-4 py-2 ${numeric[c] ? "text-right tabular-nums" : ""}`}>
+									<td key={c} className={`px-4 py-2 ${numeric[c] ? "text-right whitespace-nowrap tabular-nums" : ""}`}>
 										{cell ?? <span className="text-neutral-300">—</span>}
 									</td>
 								))}
@@ -57,9 +66,21 @@ function TableWidget({ props }: { props: TableProps }) {
 				</table>
 				{props.rows.length === 0 && <p className="px-4 py-3 text-sm text-neutral-400">No rows.</p>}
 			</div>
+			{props.rows.length > COLLAPSED_ROWS && (
+				<button
+					type="button"
+					onClick={() => setExpanded(!expanded)}
+					className="w-full border-t border-neutral-100 px-4 py-2 text-left text-sm text-neutral-500 hover:bg-neutral-50 hover:text-neutral-800"
+				>
+					{expanded ? "Show less" : `Show all ${props.rows.length} rows`}
+				</button>
+			)}
 		</Frame>
 	);
 }
+
+const isNumberLike = (value: string | number) =>
+	typeof value === "number" || /^[-+]?[$€£]?\d[\d,]*(\.\d+)?\s?(%|[kKmMbB])?$/.test(value.trim());
 
 const trendColor = { up: "text-emerald-700", down: "text-red-700", flat: "text-neutral-500" };
 const trendArrow = { up: "↑", down: "↓", flat: "→" };
