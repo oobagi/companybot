@@ -11,6 +11,7 @@ import {
 	grantedPluginIds,
 	isGranted,
 	isWidgetResult,
+	isWidgetToolName,
 	openPlugin,
 	platformGuide,
 	skillsIndex,
@@ -95,7 +96,7 @@ async function loadPlugins(ctx: ActionCtx, userId: Id<"users">, agent: Pick<Agen
 					authProvider = new PluginOAuth(creds.oauth, oauthRedirectUrl(), false);
 					oauth.push({ connectionId, provider: authProvider });
 				}
-				const session = await withTimeout(openPlugin(plugin, { credentials: creds, authProvider }), PLUGIN_CONNECT_MS);
+				const session = await openWithTimeout(openPlugin(plugin, { credentials: creds, authProvider }));
 				if (connectionId) await ctx.runMutation(internal.plugins.setConnectionError, { connectionId });
 				return { session };
 			} catch (e) {
@@ -112,12 +113,16 @@ async function loadPlugins(ctx: ActionCtx, userId: Id<"users">, agent: Pick<Agen
 	};
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+/** Gives up after PLUGIN_CONNECT_MS. A session that connects later anyway is closed, not leaked. */
+function openWithTimeout(opening: Promise<PluginSession>): Promise<PluginSession> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const timeout = new Promise<never>((_, reject) => {
-		timer = setTimeout(() => reject(new Error("Timed out connecting.")), ms);
+		timer = setTimeout(() => {
+			reject(new Error("Timed out connecting."));
+			opening.then((s) => s.close()).catch(() => {});
+		}, PLUGIN_CONNECT_MS);
 	});
-	return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+	return Promise.race([opening, timeout]).finally(() => clearTimeout(timer));
 }
 
 async function streamReply(ctx: ActionCtx, turn: Turn, replyId: Id<"messages">, plugins: LoadedPlugins) {
@@ -160,7 +165,6 @@ async function streamReply(ctx: ActionCtx, turn: Turn, replyId: Id<"messages">, 
 	let lastFlush = 0;
 	const text = () => parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("\n\n");
 	const flush = () => ctx.runMutation(internal.chat.updateReply, { replyId, text: text(), parts });
-	const isWidgetTool = (name: string) => name.startsWith("widgets_");
 	const setTool = (id: string, name: string, status: "running" | "done" | "error") => {
 		const existing = parts.find((p) => p.type === "tool" && p.id === id);
 		if (existing?.type === "tool") existing.status = status;
@@ -173,13 +177,13 @@ async function streamReply(ctx: ActionCtx, turn: Turn, replyId: Id<"messages">, 
 			if (last?.type === "text") last.text += part.text;
 			else parts.push({ type: "text", text: part.text });
 		} else if (part.type === "tool-call") {
-			if (!isWidgetTool(part.toolName)) setTool(part.toolCallId, part.toolName, "running");
+			if (!isWidgetToolName(part.toolName)) setTool(part.toolCallId, part.toolName, "running");
 		} else if (part.type === "tool-result") {
-			if (isWidgetTool(part.toolName)) {
+			if (isWidgetToolName(part.toolName)) {
 				if (isWidgetResult(part.output)) parts.push({ type: "widget", id: part.toolCallId, widget: part.output.widget });
 			} else setTool(part.toolCallId, part.toolName, "done");
 		} else if (part.type === "tool-error") {
-			if (!isWidgetTool(part.toolName)) setTool(part.toolCallId, part.toolName, "error");
+			if (!isWidgetToolName(part.toolName)) setTool(part.toolCallId, part.toolName, "error");
 		} else if (part.type === "error") throw part.error instanceof Error ? part.error : new Error(String(part.error));
 		else continue;
 		if (Date.now() - lastFlush > FLUSH_MS) {

@@ -20,14 +20,6 @@ import { agentConfig } from "./schema";
 // is kept in agentVersions so changes can be reviewed and restored. Replies read the
 // agent fresh at the start of each turn, so edits apply from the next reply.
 
-const configOf = (a: Doc<"agents">): AgentConfig => ({
-	name: a.name,
-	description: a.description,
-	instructions: a.instructions,
-	model: a.model,
-	tools: a.tools,
-});
-
 function clean(config: AgentConfig): AgentConfig {
 	const tidy = { ...config, name: config.name.trim(), description: config.description.trim() };
 	const problem = validateAgentConfig(tidy);

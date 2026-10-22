@@ -1,6 +1,5 @@
 import {
 	type Plugin,
-	type PluginCredentials,
 	type PluginState,
 	can,
 	deniedMessage,
@@ -138,7 +137,7 @@ const OAUTH_FLOW_MS = 15 * 60_000;
 
 /**
  * Starts signing in to an OAuth plugin. Returns the page to open in the browser;
- * the provider sends the person back to /oauth/callback (http.ts → finishOAuth).
+ * the provider sends the person back to /oauth/callback (oauth.ts), which saves the connection.
  */
 export const startOAuth = action({
 	args: { pluginId: v.string() },
@@ -297,6 +296,3 @@ export const setConnectionError = internalMutation({
 		if (connection && connection.error !== error) await ctx.db.patch(connectionId, { error });
 	},
 });
-
-/** Decrypted credentials for the runner. Kept here so the type travels with the encryption. */
-export type StoredCredentials = PluginCredentials;

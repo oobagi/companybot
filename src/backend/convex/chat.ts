@@ -35,7 +35,8 @@ export const send = mutation({
 	args: { agentId: v.id("agents"), text: v.string() },
 	handler: async (ctx, { agentId, text }) => {
 		const { member } = await requireActiveAgent(ctx, agentId);
-		if (!text.trim()) return;
+		text = text.trim();
+		if (!text) return;
 
 		let conversation = await findConversation(ctx, member.userId, agentId);
 		if (!conversation) {
@@ -59,8 +60,8 @@ export const send = mutation({
 		await ctx.db.insert("messages", {
 			conversationId: conversation._id,
 			role: "user",
-			text: text.trim(),
-			parts: [{ type: "text", text: text.trim() }],
+			text,
+			parts: [{ type: "text", text }],
 			status: "done",
 		});
 		const replyId = await ctx.db.insert("messages", {

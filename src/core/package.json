@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./agent-config": "./src/agent-config.ts",
+    "./permissions": "./src/permissions.ts"
   },
   "scripts": {
     "test": "vitest run",

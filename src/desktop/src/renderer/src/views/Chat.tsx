@@ -13,7 +13,7 @@ const suggestions = [
 	"Remember that I prefer mornings for meetings.",
 ];
 
-type SendWith = "enter" | "mod-enter";
+type SendWith = Doc<"preferences">["sendWith"];
 
 export function Chat({ agent, sendWith }: { agent: { _id: Id<"agents">; name: string }; sendWith: SendWith }) {
 	const messages = useQuery(api.chat.messages, { agentId: agent._id });

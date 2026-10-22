@@ -1,5 +1,6 @@
-import type { MemoryScope, Role } from "@companybot/core";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
+import type { MemoryScope, Role } from "@companybot/core";
+import { can } from "@companybot/core/permissions";
 import { useMutation } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { useQuery } from "convex-helpers/react/cache";
@@ -32,7 +33,7 @@ export function MemoryTab({ role }: { role: Role }) {
 			{error && <Notice>{error}</Notice>}
 			<AddMemory
 				agents={agents.filter((a) => !a.archived)}
-				canAddTeam={role === "owner"}
+				canAddTeam={can(role, "memory.team.write")}
 				onAdd={(agentId, scope, content) => run(create({ agentId, scope, content }))}
 			/>
 			<div className="flex items-center gap-2 text-sm">

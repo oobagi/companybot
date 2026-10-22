@@ -1,5 +1,7 @@
-import type { AgentConfig, Role } from "@companybot/core";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
+import type { Role } from "@companybot/core";
+import { type AgentConfig, agentConfigKeys, pickAgentConfig } from "@companybot/core/agent-config";
+import { can } from "@companybot/core/permissions";
 import { useMutation } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { useQuery } from "convex-helpers/react/cache";
@@ -26,7 +28,7 @@ export function AgentsTab({ role }: { role: Role }) {
 	const create = useMutation(api.agents.create);
 	const [openId, setOpenId] = useState<Id<"agents">>();
 	const { error, run } = useRun();
-	const isOwner = role === "owner";
+	const isOwner = can(role, "agents.manage");
 
 	if (!agents) return <Loading />;
 	const open = agents.find((a) => a._id === openId);
@@ -83,19 +85,11 @@ function AgentRow({ agent, onOpen }: { agent: Agent; onOpen: () => void }) {
 	);
 }
 
-const configOf = (a: Agent): AgentConfig => ({
-	name: a.name,
-	description: a.description,
-	instructions: a.instructions,
-	model: a.model,
-	tools: a.tools,
-});
-
 function AgentEditor({ agent, isOwner, onBack }: { agent: Agent; isOwner: boolean; onBack: () => void }) {
 	const options = useQuery(api.agents.options);
 	const update = useMutation(api.agents.update);
 	const setArchived = useMutation(api.agents.setArchived);
-	const draft = useDraft(configOf(agent), agent.version);
+	const draft = useDraft(pickAgentConfig(agent), agent.version);
 	const { error, run } = useRun();
 	const config = draft.value;
 	const edit = (changes: Partial<AgentConfig>) => draft.set({ ...config, ...changes });
@@ -249,14 +243,6 @@ function ToolGroup({
 	);
 }
 
-const fieldLabels: Record<keyof AgentConfig, string> = {
-	name: "name",
-	description: "description",
-	instructions: "instructions",
-	model: "model",
-	tools: "tools",
-};
-
 function History({ agent, isOwner }: { agent: Agent; isOwner: boolean }) {
 	const versions = useQuery(api.agents.history, { agentId: agent._id });
 	const restore = useMutation(api.agents.restore);
@@ -270,9 +256,7 @@ function History({ agent, isOwner }: { agent: Agent; isOwner: boolean }) {
 			{versions.map((v, i) => {
 				const previous = versions[i + 1]?.config;
 				const changed = previous
-					? (Object.keys(fieldLabels) as (keyof AgentConfig)[]).filter(
-							(k) => JSON.stringify(v.config[k]) !== JSON.stringify(previous[k]),
-						)
+					? agentConfigKeys.filter((k) => JSON.stringify(v.config[k]) !== JSON.stringify(previous[k]))
 					: [];
 				return (
 					<div key={v.version} className="rounded-xl border border-neutral-200 px-4 py-2.5 text-sm">
@@ -281,7 +265,7 @@ function History({ agent, isOwner }: { agent: Agent; isOwner: boolean }) {
 								<span className="font-medium">v{v.version}</span>{" "}
 								<span className="text-neutral-500">
 									· {v.savedByName} · {timeAgo(v.savedAt)}
-									{previous ? ` · changed ${changed.map((k) => fieldLabels[k]).join(", ") || "nothing"}` : " · created"}
+									{previous ? ` · changed ${changed.join(", ") || "nothing"}` : " · created"}
 								</span>
 							</span>
 							<button

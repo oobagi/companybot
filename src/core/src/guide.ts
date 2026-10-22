@@ -1,4 +1,4 @@
-import type { AgentConfig } from "./agents";
+import type { AgentConfig } from "./agent-config";
 import { isGranted } from "./tools";
 import { widgetCatalog } from "./widgets";
 

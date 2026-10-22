@@ -2,6 +2,10 @@ import { join } from "node:path";
 import { BrowserWindow, app, shell } from "electron";
 import { setUpUpdater } from "./updater";
 
+function openOutside(url: string) {
+	if (/^(https?|mailto):/i.test(url)) void shell.openExternal(url);
+}
+
 function createWindow() {
 	const win = new BrowserWindow({
 		width: 1200,
@@ -15,10 +19,15 @@ function createWindow() {
 	});
 	win.once("ready-to-show", () => win.show());
 
-	// Open external links in the browser, not inside the app.
+	// Links go to the browser, never into the app window, and only web links at
+	// that: a reply could contain any URL, and file: or app schemes stay shut.
 	win.webContents.setWindowOpenHandler(({ url }) => {
-		shell.openExternal(url);
+		openOutside(url);
 		return { action: "deny" };
+	});
+	win.webContents.on("will-navigate", (event, url) => {
+		event.preventDefault();
+		openOutside(url);
 	});
 
 	if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL);

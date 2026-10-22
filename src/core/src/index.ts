@@ -1,3 +1,4 @@
+export * from "./agent-config";
 export * from "./agents";
 export * from "./builtin-tools";
 export * from "./default-agents";
