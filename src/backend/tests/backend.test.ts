@@ -1,6 +1,7 @@
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import { api, internal } from "../convex/_generated/api";
+import type { Id } from "../convex/_generated/dataModel";
 import schema from "../convex/schema";
 import { decrypt } from "../convex/crypto";
 import { definePlugin, pluginCatalog } from "@companybot/core";
@@ -252,6 +253,73 @@ describe("chat", () => {
 			["user", "done"],
 			["assistant", "streaming"],
 		]);
+	});
+});
+
+describe("reply stats and compaction", () => {
+	const usage = (costUsd: number) => ({
+		model: "anthropic/claude-haiku-5.5",
+		steps: 1,
+		inputTokens: 100,
+		cachedInputTokens: 0,
+		outputTokens: 20,
+		contextTokens: 120,
+		costUsd,
+		durationMs: 900,
+	});
+
+	/** Sends a message and finishes the reply as the runner would. */
+	async function exchange(t: ReturnType<typeof convexTest>, as: Awaited<ReturnType<typeof signIn>>, agentId: Id<"agents">, cost: number) {
+		await as.mutation(api.chat.send, { agentId, text: "hi" });
+		const reply = (await as.query(api.chat.messages, { agentId })).at(-1)!;
+		await t.mutation(internal.chat.finishReply, { conversationId: reply.conversationId, replyId: reply._id, usage: usage(cost) });
+		return reply.conversationId;
+	}
+
+	it("keeps each reply's cost and the running total", async () => {
+		const { t, owner } = await ownerAndMember();
+		const { companybot } = await agentsOf(owner);
+		await exchange(t, owner, companybot._id, 0.01);
+		await exchange(t, owner, companybot._id, 0.02);
+		const stats = (await owner.query(api.chat.messages, { agentId: companybot._id })).flatMap((m) => (m.stats ? [m.stats] : []));
+		expect(stats.map((s) => [s.costUsd, s.conversationCostUsd])).toEqual([
+			[0.01, 0.01],
+			[0.02, 0.03],
+		]);
+	});
+
+	it("folds older messages, adds the summary's cost, and shows compacting meanwhile", async () => {
+		const { t, owner } = await ownerAndMember();
+		const { companybot } = await agentsOf(owner);
+		let conversationId!: Id<"conversations">;
+		for (let i = 0; i < 3; i++) conversationId = await exchange(t, owner, companybot._id, 0.01);
+
+		const input = await t.mutation(internal.chat.startCompaction, { conversationId, keep: 2 });
+		expect(input?.messages).toHaveLength(4);
+		expect((await owner.query(api.chat.conversation, { agentId: companybot._id }))?.compacting).toBe(true);
+		// A second compaction can't start while one runs.
+		expect(await t.mutation(internal.chat.startCompaction, { conversationId, keep: 2 })).toBeNull();
+
+		await t.mutation(internal.chat.finishCompaction, {
+			conversationId,
+			result: { summary: "- Said hi", upTo: input!.upTo, costUsd: 0.005 },
+		});
+		const conversation = await owner.query(api.chat.conversation, { agentId: companybot._id });
+		expect(conversation).toMatchObject({ summary: "- Said hi", summarizedUpTo: input!.upTo, compacting: false });
+		expect(conversation?.costUsd).toBeCloseTo(0.035);
+	});
+
+	it("clears compacting when the summary fails, changing nothing else", async () => {
+		const { t, owner } = await ownerAndMember();
+		const { companybot } = await agentsOf(owner);
+		const conversationId = await exchange(t, owner, companybot._id, 0.01);
+		await exchange(t, owner, companybot._id, 0.01);
+		await t.mutation(internal.chat.startCompaction, { conversationId, keep: 1 });
+		await t.mutation(internal.chat.finishCompaction, { conversationId });
+		expect(await owner.query(api.chat.conversation, { agentId: companybot._id })).toMatchObject({
+			summary: null,
+			compacting: false,
+		});
 	});
 });
 

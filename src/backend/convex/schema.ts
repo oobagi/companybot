@@ -21,6 +21,25 @@ export const messagePart = v.union(
 	v.object({ type: v.literal("widget"), id: v.string(), widget: v.object({ type: v.string(), props: v.any() }) }),
 );
 
+/** What a reply used, as the runner reports it. Tokens and cost are summed over its model calls. */
+export const replyUsage = v.object({
+	model: v.string(),
+	steps: v.number(),
+	inputTokens: v.number(),
+	cachedInputTokens: v.number(),
+	outputTokens: v.number(),
+	contextTokens: v.number(),
+	costUsd: v.number(),
+	durationMs: v.number(),
+	firstTokenMs: v.optional(v.number()),
+});
+
+export const replyStats = v.object({
+	...replyUsage.fields,
+	/** The conversation's running total once this reply finished, summaries included. */
+	conversationCostUsd: v.number(),
+});
+
 // Shared settings carry a `version` that goes up on every save. A save sends the
 // version it started from; if someone saved in between, it's refused as a conflict.
 
@@ -131,6 +150,10 @@ export default defineSchema({
 		/** Running summary of messages older than `summarizedUpTo`. */
 		summary: v.optional(v.string()),
 		summarizedUpTo: v.optional(v.number()),
+		/** True while older messages are being folded into the summary. */
+		compacting: v.optional(v.boolean()),
+		/** USD spent on this conversation: replies plus summaries. */
+		costUsd: v.optional(v.number()),
 	}).index("by_user_agent", ["userId", "agentId"]),
 
 	// A message is ordered parts: text, tool activity, and widgets, as the app shows them.
@@ -142,5 +165,7 @@ export default defineSchema({
 		parts: v.array(messagePart),
 		status: v.union(v.literal("streaming"), v.literal("done"), v.literal("error")),
 		error: v.optional(v.string()),
+		/** Replies only, once finished. */
+		stats: v.optional(replyStats),
 	}).index("by_conversation", ["conversationId"]),
 });

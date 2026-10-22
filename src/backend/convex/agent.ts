@@ -4,10 +4,14 @@ import {
 	type PluginCredentials,
 	type PluginSession,
 	PluginOAuth,
+	type ReplyUsage,
+	addStep,
 	buildToolSet,
 	builtinTools,
 	createResultStore,
+	emptyUsage,
 	findPlugin,
+	gatewayCost,
 	grantedPluginIds,
 	isGranted,
 	isWidgetResult,
@@ -27,9 +31,9 @@ import { oauthRedirectUrl } from "./plugins";
 import type { messagePart } from "./schema";
 
 const SUMMARY_MODEL = "anthropic/claude-haiku-5.5";
-/** Summarize once this many messages pile up past the summary, keeping the newest KEEP verbatim. */
-const COMPACT_TRIGGER = 40;
-const COMPACT_KEEP = 20;
+/** Summarize once the conversation's context passes this many tokens, keeping the newest KEEP messages verbatim. */
+const COMPACT_TOKENS = 40_000;
+const COMPACT_KEEP = 10;
 const FLUSH_MS = 200;
 /** A plugin that doesn't connect this fast is skipped for the turn, not waited on. */
 const PLUGIN_CONNECT_MS = 10_000;
@@ -37,23 +41,34 @@ const PLUGIN_CONNECT_MS = 10_000;
 export const respond = internalAction({
 	args: { conversationId: v.id("conversations"), replyId: v.id("messages") },
 	handler: async (ctx, { conversationId, replyId }) => {
+		const started = Date.now();
+		const usage: TurnUsage = emptyUsage("");
 		let error: string | undefined;
 		try {
-			await runTurn(ctx, conversationId, replyId);
+			await runTurn(ctx, conversationId, replyId, usage);
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 		} finally {
-			await ctx.runMutation(internal.chat.finishReply, { conversationId, replyId, error });
+			// Failed replies still cost what their finished calls cost.
+			await ctx.runMutation(internal.chat.finishReply, {
+				conversationId,
+				replyId,
+				error,
+				usage: usage.steps > 0 ? { ...usage, durationMs: Date.now() - started } : undefined,
+			});
 		}
-		if (!error) await compact(ctx, conversationId);
+		if (!error && usage.contextTokens > COMPACT_TOKENS) await compact(ctx, conversationId);
 	},
 });
 
-async function runTurn(ctx: ActionCtx, conversationId: Id<"conversations">, replyId: Id<"messages">) {
+/** Filled in as the reply streams, so a failed reply still reports what it used. */
+type TurnUsage = ReplyUsage & { firstTokenMs?: number };
+
+async function runTurn(ctx: ActionCtx, conversationId: Id<"conversations">, replyId: Id<"messages">, usage: TurnUsage) {
 	const turn = await ctx.runQuery(internal.chat.turnContext, { conversationId, replyId });
 	const plugins = await loadPlugins(ctx, turn.member.userId, turn.agent);
 	try {
-		await streamReply(ctx, turn, replyId, plugins);
+		await streamReply(ctx, turn, replyId, plugins, usage);
 	} finally {
 		await Promise.allSettled(plugins.sessions.map((s) => s.close()));
 		await saveRefreshedTokens(ctx, plugins);
@@ -125,8 +140,15 @@ function openWithTimeout(opening: Promise<PluginSession>): Promise<PluginSession
 	return Promise.race([opening, timeout]).finally(() => clearTimeout(timer));
 }
 
-async function streamReply(ctx: ActionCtx, turn: Turn, replyId: Id<"messages">, plugins: LoadedPlugins) {
+async function streamReply(
+	ctx: ActionCtx,
+	turn: Turn,
+	replyId: Id<"messages">,
+	plugins: LoadedPlugins,
+	usage: TurnUsage,
+) {
 	const { agent, member } = turn;
+	usage.model = agent.model;
 	const tools = buildToolSet(
 		agent,
 		{
@@ -151,12 +173,14 @@ async function streamReply(ctx: ActionCtx, turn: Turn, replyId: Id<"messages">, 
 		.filter(Boolean)
 		.join("\n\n");
 
+	const started = Date.now();
 	const result = streamText({
 		model: agent.model,
 		instructions,
 		messages: turn.history.map((m) => ({ role: m.role, content: m.text })),
 		tools,
 		stopWhen: isStepCount(5),
+		providerOptions: { gateway: { caching: "auto" } },
 	});
 
 	// Stream into the reply as ordered parts; clients see it live through their query.
@@ -173,6 +197,7 @@ async function streamReply(ctx: ActionCtx, turn: Turn, replyId: Id<"messages">, 
 
 	for await (const part of result.stream) {
 		if (part.type === "text-delta") {
+			usage.firstTokenMs ??= Date.now() - started;
 			const last = parts.at(-1);
 			if (last?.type === "text") last.text += part.text;
 			else parts.push({ type: "text", text: part.text });
@@ -184,6 +209,9 @@ async function streamReply(ctx: ActionCtx, turn: Turn, replyId: Id<"messages">, 
 			} else setTool(part.toolCallId, part.toolName, "done");
 		} else if (part.type === "tool-error") {
 			if (!isWidgetToolName(part.toolName)) setTool(part.toolCallId, part.toolName, "error");
+		} else if (part.type === "finish-step") {
+			addStep(usage, part.usage, part.providerMetadata);
+			continue;
 		} else if (part.type === "error") throw part.error instanceof Error ? part.error : new Error(String(part.error));
 		else continue;
 		if (Date.now() - lastFlush > FLUSH_MS) {
@@ -213,18 +241,20 @@ function memoryStore(ctx: ActionCtx, userId: Id<"users">, agentId: Id<"agents">)
 
 /** Folds older messages into a running summary so context stays small. The UI still shows everything. */
 async function compact(ctx: ActionCtx, conversationId: Id<"conversations">) {
-	const input = await ctx.runQuery(internal.chat.compactionInput, {
-		conversationId,
-		keep: COMPACT_KEEP,
-		trigger: COMPACT_TRIGGER,
-	});
+	const input = await ctx.runMutation(internal.chat.startCompaction, { conversationId, keep: COMPACT_KEEP });
 	if (!input) return;
-	const transcript = input.messages.map((m) => `${m.role === "user" ? "Person" : "Agent"}: ${m.text}`).join("\n");
-	const { text } = await generateText({
-		model: SUMMARY_MODEL,
-		instructions:
-			"Merge the previous summary and the new transcript into one short summary. Keep facts, decisions, preferences, and open tasks. Drop small talk. Plain bullet points.",
-		prompt: `Previous summary:\n${input.summary ?? "(none)"}\n\nNew transcript:\n${transcript}`,
-	});
-	await ctx.runMutation(internal.chat.saveSummary, { conversationId, summary: text, upTo: input.upTo });
+	let result: { summary: string; upTo: number; costUsd: number } | undefined;
+	try {
+		const transcript = input.messages.map((m) => `${m.role === "user" ? "Person" : "Agent"}: ${m.text}`).join("\n");
+		const { text, providerMetadata } = await generateText({
+			model: SUMMARY_MODEL,
+			instructions:
+				"Merge the previous summary and the new transcript into one short summary. Keep facts, decisions, preferences, and open tasks. Drop small talk. Plain bullet points.",
+			providerOptions: { gateway: { caching: "auto" } },
+			prompt: `Previous summary:\n${input.summary ?? "(none)"}\n\nNew transcript:\n${transcript}`,
+		});
+		result = { summary: text, upTo: input.upTo, costUsd: gatewayCost(providerMetadata) };
+	} finally {
+		await ctx.runMutation(internal.chat.finishCompaction, { conversationId, result });
+	}
 }

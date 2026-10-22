@@ -5,7 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query, type QueryCtx } from "./_generated/server";
 import { requireActiveAgent } from "./agents";
 import { getMember, installedSkills, memberOf, nameOf } from "./lib";
-import { messagePart } from "./schema";
+import { messagePart, replyUsage } from "./schema";
 
 /** A reply stuck this long (e.g. the action crashed) no longer blocks new messages. */
 const STALE_REPLY_MS = 5 * 60_000;
@@ -28,6 +28,23 @@ export const messages = query({
 		const conversation = await findConversation(ctx, member.userId, agentId);
 		if (!conversation) return [];
 		return (await messagesOf(ctx, conversation._id).order("desc").take(200)).reverse();
+	},
+});
+
+/** What the app shows about the conversation itself: its summary and running cost. */
+export const conversation = query({
+	args: { agentId: v.id("agents") },
+	handler: async (ctx, { agentId }) => {
+		const member = await getMember(ctx);
+		if (!member) return null;
+		const conversation = await findConversation(ctx, member.userId, agentId);
+		if (!conversation) return null;
+		return {
+			summary: conversation.summary ?? null,
+			summarizedUpTo: conversation.summarizedUpTo ?? null,
+			compacting: conversation.compacting ?? false,
+			costUsd: conversation.costUsd ?? 0,
+		};
 	},
 });
 
@@ -139,22 +156,31 @@ export const finishReply = internalMutation({
 		conversationId: v.id("conversations"),
 		replyId: v.id("messages"),
 		error: v.optional(v.string()),
+		/** Left out when no model call finished. */
+		usage: v.optional(replyUsage),
 	},
-	handler: async (ctx, { conversationId, replyId, error }) => {
-		await ctx.db.patch(replyId, error ? { status: "error", error } : { status: "done" });
-		await ctx.db.patch(conversationId, { busy: false });
+	handler: async (ctx, { conversationId, replyId, error, usage }) => {
+		const conversation = await ctx.db.get(conversationId);
+		const costUsd = (conversation?.costUsd ?? 0) + (usage?.costUsd ?? 0);
+		const stats = usage && { ...usage, conversationCostUsd: costUsd };
+		await ctx.db.patch(replyId, error ? { status: "error", error, stats } : { status: "done", stats });
+		await ctx.db.patch(conversationId, { busy: false, costUsd });
 	},
 });
 
-/** Messages to fold into the summary, oldest first, leaving the newest `keep` untouched. */
-export const compactionInput = internalQuery({
-	args: { conversationId: v.id("conversations"), keep: v.number(), trigger: v.number() },
-	handler: async (ctx, { conversationId, keep, trigger }) => {
+/**
+ * Marks the conversation as compacting and returns the messages to fold into the
+ * summary, oldest first, leaving the newest `keep` untouched. Null if there's nothing to fold.
+ */
+export const startCompaction = internalMutation({
+	args: { conversationId: v.id("conversations"), keep: v.number() },
+	handler: async (ctx, { conversationId, keep }) => {
 		const conversation = await ctx.db.get(conversationId);
-		if (!conversation) return null;
+		if (!conversation || conversation.compacting) return null;
 		const recent = (await unsummarized(ctx, conversation)).filter((m) => m.status === "done");
-		if (recent.length <= trigger) return null;
+		if (recent.length <= keep) return null;
 		const old = recent.slice(0, recent.length - keep);
+		await ctx.db.patch(conversationId, { compacting: true });
 		return {
 			summary: conversation.summary ?? null,
 			messages: old.map(forModel),
@@ -163,9 +189,21 @@ export const compactionInput = internalQuery({
 	},
 });
 
-export const saveSummary = internalMutation({
-	args: { conversationId: v.id("conversations"), summary: v.string(), upTo: v.number() },
-	handler: async (ctx, { conversationId, summary, upTo }) => {
-		await ctx.db.patch(conversationId, { summary, summarizedUpTo: upTo });
+/** Ends compaction. Without `result` (the summary call failed) nothing else changes. */
+export const finishCompaction = internalMutation({
+	args: {
+		conversationId: v.id("conversations"),
+		result: v.optional(v.object({ summary: v.string(), upTo: v.number(), costUsd: v.number() })),
+	},
+	handler: async (ctx, { conversationId, result }) => {
+		const conversation = await ctx.db.get(conversationId);
+		if (!conversation) return;
+		if (!result) return await ctx.db.patch(conversationId, { compacting: false });
+		await ctx.db.patch(conversationId, {
+			compacting: false,
+			summary: result.summary,
+			summarizedUpTo: result.upTo,
+			costUsd: (conversation.costUsd ?? 0) + result.costUsd,
+		});
 	},
 });
