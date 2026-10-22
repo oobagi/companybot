@@ -22,6 +22,16 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 - Not built yet: OAuth sign-in (`auth.type: "oauth"`), approvals for write tools (use `readOnly`), per-tool policy.
 - Test with `fakeMcpServer` (`core/src/test-mcp-server.ts`), or push a test plugin into `pluginCatalog` (see backend tests).
 
+## Widgets — `core/src/widgets.ts`, `desktop/src/renderer/src/widgets.tsx`
+- Add one: `defineWidget` (type, description, zod `props`, `summary`, optional `check`) in `widgetCatalog`, then a component in the desktop `registry`. That's all; the tool `widgets.<type>` appears automatically.
+- `description` and `.describe()` on props are how the model learns to use it. Write them for the model.
+- Props are stored as-is and rendered by the app, so keep them plain data. Older apps show a placeholder for unknown types.
+- Plugin-provided UI later: MCP Apps (`@ai-sdk/mcp` supports them) in a sandboxed frame, not this registry.
+
+## Teaching agents — `core/src/guide.ts`
+- App-wide rules for how replies render live in `platformGuide`, added after each agent's own instructions. Change them there, never in default agent instructions.
+- Add a section only when the agent has the matching tools, so prompts stay small.
+
 ## Skills — `core/src/skills.ts`
 - Add one with `defineSkill` to `skillCatalog`. Owners install per workspace.
 - Agents with `skills.load` see installed skills' one-line descriptions and load full text on demand. Keep descriptions short; they're in every prompt.

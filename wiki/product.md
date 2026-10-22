@@ -6,6 +6,7 @@ Companybot: AI-first team chat. Agents are teammates, not bots. Companybot is al
 - `#` text channels, threads, DMs, reactions, per-channel permissions.
 - Memory: each agent has its own. Team memories (shared) + personal memories. Editable in Settings → Memory. Owners edit all; members edit only their own personal memories.
 - Agents reply only when @mentioned or DM'd — never butt in. They can react to messages that @mention them, and only those.
+- Replies render Markdown and **widgets**: real UI under the message (tables, stat tiles; more later), e.g. "last 10 leads" → a table.
 - One continuous conversation per agent; it auto-compacts. No separate sessions. Channels keep normal threads.
 - Settings: General (workspace name), Members, Memory, Your preferences (name, send key). Shared settings are saved explicitly, with a conflict warning.
 - Customize tab: **Agents** (owners edit; every save is versioned and restorable), **Plugins** (connectors to outside services via MCP — Gmail, Calendar…) and **Skills** (a marketplace of installable instructions). Memory and clock are built in, not plugins.

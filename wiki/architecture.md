@@ -15,6 +15,8 @@ How to extend each one: [Extending](extending.md).
 - **Agent** — name, instructions, model, tool grants. A tool reaches the model only if granted, the person's role allows it, and (plugins) it's installed, allowed, and connected.
 - **Plugin** — a remote MCP server. Tools are discovered each turn as `<plugin>.<tool>` (`mcp.ts`). Workspace or personal connections; credentials encrypted. Catalog is empty; OAuth sign-in isn't built.
 - **Skill** — installable instructions. Agents see one-line descriptions and call `skills_load` for the full text.
+- **Widgets** — UI agents place in replies. Each is a tool (`widgets.table`) with a zod schema; the runner stores the result as a widget part; the app renders the matching component. The model gets a short receipt, not the data back.
+- **Platform guide** — `platformGuide()` adds how-replies-render rules (Markdown, widgets) to every agent's prompt after its own instructions. Owners write who the agent is; the platform explains the app.
 - **Memory** — each agent has its own. Scope is `workspace` (team) or `personal`. Agents can search, save, fix, and forget, under the same rules as people.
 
 New workspaces get copies of the default agents: **Companybot** (`memory.*`, clock, skills) and **Scribe** (`memory.search`, `skills.load`).
@@ -22,6 +24,7 @@ New workspaces get copies of the default agents: **Companybot** (`memory.*`, clo
 ## Backend (`src/backend/convex`)
 - **Sign-in:** Convex Auth (beta) with a 6-digit email code sent through Resend.
 - **Workspaces:** first sign-in creates a workspace as owner. Invited emails join as members on sign-in.
+- **Messages** are ordered `parts` (text, tool activity, widget) plus `text` (plain text only, for history and summaries). History shows the agent a one-line note for each widget it showed.
 - **Chat:** one conversation per person per agent. `chat.send` stores the message and schedules `agent.respond`, which streams the reply into the database; the app sees it live. One reply at a time per conversation.
 - **Agents:** stored per workspace. Owners create, edit, archive, and restore them. Every save writes an `agentVersions` row; restoring saves an old version as the newest. Replies read the agent fresh each turn, so edits apply from the next reply.
 - **Three kinds of data:** shared content (chat, memory) is fully live. Shared settings (agents, workspace name) are edited as a draft and saved; each has a `version`, and a save from an old version is refused as a conflict (`checkVersion`), with a "Use theirs / Keep mine" prompt in the app. Personal preferences (`preferences` table) are per person and sync across their devices.

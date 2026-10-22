@@ -12,6 +12,15 @@ export const agentConfig = v.object({
 	tools: v.array(v.string()),
 });
 
+export const toolStatus = v.union(v.literal("running"), v.literal("done"), v.literal("error"));
+
+export const messagePart = v.union(
+	v.object({ type: v.literal("text"), text: v.string() }),
+	v.object({ type: v.literal("tool"), id: v.string(), name: v.string(), status: toolStatus }),
+	/** Props were validated against the widget's schema when the agent placed it. */
+	v.object({ type: v.literal("widget"), id: v.string(), widget: v.object({ type: v.string(), props: v.any() }) }),
+);
+
 // Shared settings carry a `version` that goes up on every save. A save sends the
 // version it started from; if someone saved in between, it's refused as a conflict.
 
@@ -112,17 +121,13 @@ export default defineSchema({
 		summarizedUpTo: v.optional(v.number()),
 	}).index("by_user_agent", ["userId", "agentId"]),
 
+	// A message is ordered parts: text, tool activity, and widgets, as the app shows them.
+	// `text` is the plain text alone, for history, summaries, and search.
 	messages: defineTable({
 		conversationId: v.id("conversations"),
 		role: v.union(v.literal("user"), v.literal("assistant")),
 		text: v.string(),
-		tools: v.array(
-			v.object({
-				id: v.string(),
-				name: v.string(),
-				status: v.union(v.literal("running"), v.literal("done"), v.literal("error")),
-			}),
-		),
+		parts: v.array(messagePart),
 		status: v.union(v.literal("streaming"), v.literal("done"), v.literal("error")),
 		error: v.optional(v.string()),
 	}).index("by_conversation", ["conversationId"]),

@@ -1,9 +1,11 @@
+import { describeWidget } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query, type QueryCtx } from "./_generated/server";
 import { requireActiveAgent } from "./agents";
 import { getMember, installedSkills, memberOf, nameOf } from "./lib";
+import { messagePart } from "./schema";
 
 /** A reply stuck this long (e.g. the action crashed) no longer blocks new messages. */
 const STALE_REPLY_MS = 5 * 60_000;
@@ -54,12 +56,18 @@ export const send = mutation({
 			if (last?.status === "streaming") await ctx.db.patch(last._id, { status: "error", error: "Reply timed out." });
 		}
 
-		await ctx.db.insert("messages", { conversationId: conversation._id, role: "user", text: text.trim(), tools: [], status: "done" });
+		await ctx.db.insert("messages", {
+			conversationId: conversation._id,
+			role: "user",
+			text: text.trim(),
+			parts: [{ type: "text", text: text.trim() }],
+			status: "done",
+		});
 		const replyId = await ctx.db.insert("messages", {
 			conversationId: conversation._id,
 			role: "assistant",
 			text: "",
-			tools: [],
+			parts: [],
 			status: "streaming",
 		});
 		await ctx.db.patch(conversation._id, { busy: true });
@@ -98,10 +106,16 @@ export const turnContext = internalQuery({
 			},
 			skills: await installedSkills(ctx, conversation.workspaceId),
 			summary: conversation.summary ?? null,
-			history: recent.filter((m) => m._id !== replyId && m.status === "done").map(({ role, text }) => ({ role, text })),
+			history: recent.filter((m) => m._id !== replyId && m.status === "done").map(forModel),
 		};
 	},
 });
+
+/** What the agent sees of a past message: its text, plus a note for each widget it showed. */
+function forModel(m: Doc<"messages">) {
+	const widgets = m.parts.flatMap((p) => (p.type === "widget" ? [describeWidget(p.widget)] : []));
+	return { role: m.role, text: [m.text, ...widgets].filter(Boolean).join("\n") };
+}
 
 async function unsummarized(ctx: QueryCtx, conversation: Doc<"conversations">) {
 	return ctx.db
@@ -113,19 +127,9 @@ async function unsummarized(ctx: QueryCtx, conversation: Doc<"conversations">) {
 }
 
 export const updateReply = internalMutation({
-	args: {
-		replyId: v.id("messages"),
-		text: v.string(),
-		tools: v.array(
-			v.object({
-				id: v.string(),
-				name: v.string(),
-				status: v.union(v.literal("running"), v.literal("done"), v.literal("error")),
-			}),
-		),
-	},
-	handler: async (ctx, { replyId, text, tools }) => {
-		await ctx.db.patch(replyId, { text, tools });
+	args: { replyId: v.id("messages"), text: v.string(), parts: v.array(messagePart) },
+	handler: async (ctx, { replyId, text, parts }) => {
+		await ctx.db.patch(replyId, { text, parts });
 	},
 });
 
@@ -152,7 +156,7 @@ export const compactionInput = internalQuery({
 		const old = recent.slice(0, recent.length - keep);
 		return {
 			summary: conversation.summary ?? null,
-			messages: old.map(({ role, text }) => ({ role, text })),
+			messages: old.map(forModel),
 			upTo: old.at(-1)!._creationTime,
 		};
 	},

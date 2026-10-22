@@ -1,4 +1,7 @@
 @import "tailwindcss";
+@import "streamdown/styles.css";
+/* Streamdown ships Tailwind classes; let Tailwind see them. */
+@source "../../../node_modules/streamdown/dist/*.js";
 
 html,
 body {

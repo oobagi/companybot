@@ -1,6 +1,7 @@
 export * from "./agents";
 export * from "./builtin-tools";
 export * from "./default-agents";
+export * from "./guide";
 export * from "./mcp";
 export * from "./memory";
 export * from "./models";
@@ -9,3 +10,4 @@ export * from "./plugins";
 export * from "./skills";
 export * from "./tools";
 export * from "./types";
+export * from "./widgets";

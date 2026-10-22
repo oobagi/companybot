@@ -114,6 +114,7 @@ export function buildToolSet(
 			description: t.description,
 			inputSchema: t.input,
 			execute: (input) => t.execute(input, ctx),
+			...(t.toModelOutput && { toModelOutput: t.toModelOutput }),
 		});
 	}
 	return tools;

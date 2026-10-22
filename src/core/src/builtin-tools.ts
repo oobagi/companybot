@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { type ToolDef, defineTool } from "./tools";
+import { widgetTools } from "./widgets";
 
 /**
  * Tools every workspace has. Not plugins: no outside service involved.
@@ -76,4 +77,5 @@ export const builtinTools: ToolDef[] = [
 			return skill ? { instructions: skill.instructions } : { error: `No installed skill "${id}".` };
 		},
 	}),
+	...widgetTools,
 ];

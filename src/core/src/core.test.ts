@@ -8,7 +8,9 @@ import { can, permissions } from "./permissions";
 import { type Plugin, definePlugin, pluginCatalog, pluginHeaders, validateCredentials, validatePlugin } from "./plugins";
 import { skillCatalog, skillsIndex } from "./skills";
 import { fakeMcpServer } from "./test-mcp-server";
+import { platformGuide } from "./guide";
 import { isGranted, modelToolName } from "./tools";
+import { describeWidget, isWidgetResult, widgetTools } from "./widgets";
 import type { Actor } from "./types";
 
 const owner: Actor = { userId: "owner", role: "owner" };
@@ -28,6 +30,8 @@ describe("tool visibility", () => {
 			"memory.forget",
 			"clock.now",
 			"skills.load",
+			"widgets.table",
+			"widgets.stats",
 		]);
 		expect(resolveTools(companybot, owner).map((t) => t.id)).toContain("memory.forget");
 	});
@@ -45,7 +49,7 @@ describe("tool visibility", () => {
 	});
 
 	it("limits an agent to the tools it was granted", () => {
-		expect(visible(describeToolAccess(scribe, owner))).toEqual(["memory.search", "skills.load"]);
+		expect(visible(describeToolAccess(scribe, owner))).toEqual(["memory.search", "skills.load", "widgets.table", "widgets.stats"]);
 	});
 
 	it("only sends visible tools to the model", () => {
@@ -56,6 +60,8 @@ describe("tool visibility", () => {
 			"memory_forget",
 			"clock_now",
 			"skills_load",
+			"widgets_table",
+			"widgets_stats",
 		]);
 	});
 
@@ -179,5 +185,30 @@ describe("plugins", () => {
 		expect(await session.tools[0]!.execute({ text: "hi" }, ctx(owner))).toEqual({ result: 'find:{"text":"hi"}' });
 		await session.close();
 		expect(server.closed).toBe(true);
+	});
+});
+
+describe("widgets", () => {
+	const table = widgetTools.find((t) => t.id === "widgets.table")!;
+
+	it("returns a widget for the app and a short receipt for the model", async () => {
+		const props = { title: "Leads", columns: ["Name", "Stage"], rows: [["Ada", "Won"]] };
+		const output = await table.execute(props, ctx(owner));
+		expect(output).toEqual({ widget: { type: "table", props } });
+		expect(isWidgetResult(output)).toBe(true);
+		const receipt = await table.toModelOutput!({ toolCallId: "1", input: props, output } as never);
+		expect(receipt).toMatchObject({ type: "text" });
+		expect(describeWidget({ type: "table", props })).toBe('[You showed a table "Leads" with 1 rows (Name, Stage) widget]');
+	});
+
+	it("sends the model a fixable error for ragged rows", async () => {
+		const output = await table.execute({ columns: ["A", "B"], rows: [["only one"]] }, ctx(owner));
+		expect(output).toEqual({ error: "Row 1 has 1 cells but there are 2 columns." });
+	});
+
+	it("teaches widgets only to agents that have them", () => {
+		expect(platformGuide({ tools: ["widgets.*"] })).toContain("## Widgets");
+		expect(platformGuide({ tools: ["memory.search"] })).not.toContain("## Widgets");
+		expect(platformGuide({ tools: [] })).toContain("Markdown");
 	});
 });

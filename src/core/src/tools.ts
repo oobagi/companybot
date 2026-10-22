@@ -1,4 +1,4 @@
-import type { FlexibleSchema } from "ai";
+import type { FlexibleSchema, Tool } from "ai";
 import type { MemoryStore } from "./memory";
 import type { Skill } from "./skills";
 import type { Actor, Role } from "./types";
@@ -32,6 +32,8 @@ export interface ToolDef<Input = any> {
 	readOnly?: boolean;
 	source: ToolSource;
 	execute(input: Input, ctx: ToolContext): Promise<unknown>;
+	/** What the model sees instead of the raw result, e.g. a short receipt for widgets. */
+	toModelOutput?: Tool["toModelOutput"];
 }
 
 export const defineTool = <Input>(tool: Omit<ToolDef<Input>, "source">): ToolDef<Input> => ({

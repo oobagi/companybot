@@ -3,12 +3,14 @@ import { useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache";
 import { useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../api";
+import { Streamdown } from "streamdown";
 import { Loading, Notice } from "../ui";
+import { WidgetView } from "../widgets";
 
 const suggestions = [
-	"What do you remember about our team?",
+	"What do you remember about me?",
+	"Show the 5 largest US cities in a table",
 	"Remember that I prefer mornings for meetings.",
-	"What time is it?",
 ];
 
 type SendWith = "enter" | "mod-enter";
@@ -80,15 +82,24 @@ function Message({ message }: { message: Doc<"messages"> }) {
 			</div>
 		);
 	}
+	const streaming = message.status === "streaming";
+	const lastText = message.parts.findLastIndex((p) => p.type === "text");
 	return (
-		<div className="flex flex-col gap-1.5">
-			{message.tools.map((t) => (
-				<p key={t.id} className="text-xs text-neutral-400">
-					{t.status === "running" ? "Using" : t.status === "error" ? "Failed" : "Used"} {t.name}
-				</p>
-			))}
-			{message.text && <p className="whitespace-pre-wrap leading-relaxed">{message.text}</p>}
-			{message.status === "streaming" && !message.text && <p className="text-sm text-neutral-400">Thinking…</p>}
+		<div className="flex flex-col gap-3">
+			{message.parts.map((part, i) =>
+				part.type === "text" ? (
+					<Streamdown key={i} className="leading-relaxed" isAnimating={streaming && i === lastText}>
+						{part.text}
+					</Streamdown>
+				) : part.type === "tool" ? (
+					<p key={part.id} className="text-xs text-neutral-400">
+						{part.status === "running" ? "Using" : part.status === "error" ? "Failed" : "Used"} {part.name}
+					</p>
+				) : (
+					<WidgetView key={part.id} widget={part.widget} />
+				),
+			)}
+			{streaming && message.parts.length === 0 && <p className="text-sm text-neutral-400">Thinking…</p>}
 			{message.status === "error" && <Notice>{message.error ?? "Something went wrong."}</Notice>}
 		</div>
 	);

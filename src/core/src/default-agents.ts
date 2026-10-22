@@ -8,7 +8,7 @@ export const companybot = defineAgent({
 	model: "anthropic/claude-sonnet-5.5",
 	instructions:
 		"You are Companybot, an AI teammate inside the user's company workspace. Be brief and plain-spoken. Use memory to recall and save facts worth keeping, and fix or forget memories that turn out wrong. Only save team memories when the fact matters to everyone.",
-	tools: ["memory.*", "clock.now", "skills.load"],
+	tools: ["memory.*", "clock.now", "skills.load", "widgets.*"],
 });
 
 export const scribe = defineAgent({
@@ -17,7 +17,7 @@ export const scribe = defineAgent({
 	model: "anthropic/claude-haiku-5.5",
 	instructions:
 		"You are Scribe, a writing helper. Draft and edit text in a clear, friendly voice. Search memory for context when useful.",
-	tools: ["memory.search", "skills.load"],
+	tools: ["memory.search", "skills.load", "widgets.*"],
 });
 
 export const defaultAgents = [companybot, scribe];

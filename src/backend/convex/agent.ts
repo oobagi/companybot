@@ -8,16 +8,19 @@ import {
 	findPlugin,
 	grantedPluginIds,
 	isGranted,
+	isWidgetResult,
 	openPlugin,
+	platformGuide,
 	skillsIndex,
 } from "@companybot/core";
 import { generateText, isStepCount, streamText } from "ai";
 import type { FunctionReturnType } from "convex/server";
-import { v } from "convex/values";
+import { type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { type ActionCtx, internalAction } from "./_generated/server";
 import { decrypt } from "./crypto";
+import type { messagePart } from "./schema";
 
 const SUMMARY_MODEL = "anthropic/claude-haiku-5.5";
 /** Summarize once this many messages pile up past the summary, keeping the newest KEEP verbatim. */
@@ -26,8 +29,6 @@ const COMPACT_KEEP = 20;
 const FLUSH_MS = 200;
 /** A plugin that doesn't connect this fast is skipped for the turn, not waited on. */
 const PLUGIN_CONNECT_MS = 10_000;
-
-type ToolStatus = { id: string; name: string; status: "running" | "done" | "error" };
 
 export const respond = internalAction({
 	args: { conversationId: v.id("conversations"), replyId: v.id("messages") },
@@ -110,6 +111,7 @@ async function streamReply(ctx: ActionCtx, turn: Turn, replyId: Id<"messages">, 
 
 	const instructions = [
 		agent.instructions,
+		platformGuide(agent),
 		`You're talking with ${turn.name} <${turn.email}>, a workspace ${member.role}.`,
 		isGranted(agent.tools, "skills.load") && skillsIndex(turn.skills),
 		plugins.unavailable.length > 0 &&
@@ -127,23 +129,33 @@ async function streamReply(ctx: ActionCtx, turn: Turn, replyId: Id<"messages">, 
 		stopWhen: isStepCount(5),
 	});
 
-	// Stream into the reply message; clients see it live through their query.
-	let text = "";
-	const toolsUsed: ToolStatus[] = [];
+	// Stream into the reply as ordered parts; clients see it live through their query.
+	// Widget tools become widget parts; their tool activity isn't shown.
+	const parts: Infer<typeof messagePart>[] = [];
 	let lastFlush = 0;
-	const flush = () => ctx.runMutation(internal.chat.updateReply, { replyId, text, tools: toolsUsed });
-	const setTool = (id: string, name: string, status: ToolStatus["status"]) => {
-		const existing = toolsUsed.find((t) => t.id === id);
-		if (existing) existing.status = status;
-		else toolsUsed.push({ id, name, status });
+	const text = () => parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("\n\n");
+	const flush = () => ctx.runMutation(internal.chat.updateReply, { replyId, text: text(), parts });
+	const isWidgetTool = (name: string) => name.startsWith("widgets_");
+	const setTool = (id: string, name: string, status: "running" | "done" | "error") => {
+		const existing = parts.find((p) => p.type === "tool" && p.id === id);
+		if (existing?.type === "tool") existing.status = status;
+		else parts.push({ type: "tool", id, name, status });
 	};
 
 	for await (const part of result.stream) {
-		if (part.type === "text-delta") text += part.text;
-		else if (part.type === "tool-call") setTool(part.toolCallId, part.toolName, "running");
-		else if (part.type === "tool-result") setTool(part.toolCallId, part.toolName, "done");
-		else if (part.type === "tool-error") setTool(part.toolCallId, part.toolName, "error");
-		else if (part.type === "error") throw part.error instanceof Error ? part.error : new Error(String(part.error));
+		if (part.type === "text-delta") {
+			const last = parts.at(-1);
+			if (last?.type === "text") last.text += part.text;
+			else parts.push({ type: "text", text: part.text });
+		} else if (part.type === "tool-call") {
+			if (!isWidgetTool(part.toolName)) setTool(part.toolCallId, part.toolName, "running");
+		} else if (part.type === "tool-result") {
+			if (isWidgetTool(part.toolName)) {
+				if (isWidgetResult(part.output)) parts.push({ type: "widget", id: part.toolCallId, widget: part.output.widget });
+			} else setTool(part.toolCallId, part.toolName, "done");
+		} else if (part.type === "tool-error") {
+			if (!isWidgetTool(part.toolName)) setTool(part.toolCallId, part.toolName, "error");
+		} else if (part.type === "error") throw part.error instanceof Error ? part.error : new Error(String(part.error));
 		else continue;
 		if (Date.now() - lastFlush > FLUSH_MS) {
 			lastFlush = Date.now();
