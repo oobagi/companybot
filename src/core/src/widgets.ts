@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type ToolContext, type ToolDef, defineTool } from "./tools";
+import { type ToolContext, type ToolDef, defineTool, modelToolName } from "./tools";
 
 /**
  * Widgets are UI the agent places in its reply: tables, stat tiles, and so on.
@@ -169,6 +169,9 @@ export const widgetTools: ToolDef[] = widgetCatalog.map((w) =>
 
 export const isWidgetResult = (output: unknown): output is { widget: Widget } =>
 	!!output && typeof output === "object" && "widget" in output;
+
+/** Whether a tool name as the model sees it ("widgets_table") is a widget tool. */
+export const isWidgetToolName = (modelName: string) => modelName.startsWith(modelToolName("widgets."));
 
 // ---- Reading tool results by ref ----
 

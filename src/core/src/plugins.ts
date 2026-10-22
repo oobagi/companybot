@@ -43,7 +43,7 @@ export const definePlugin = (plugin: Plugin) => plugin;
 
 /** The plugin marketplace. */
 export const pluginCatalog: Plugin[] = [
-	// Internal testing only: our own product's MCP server. Remove before launch (wiki/product.md).
+	// Internal testing only: our own product's MCP server. Remove before launch (wiki/architecture.md).
 	definePlugin({
 		id: "night-owl",
 		name: "Night Owl",

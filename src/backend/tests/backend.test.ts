@@ -59,6 +59,17 @@ describe("workspaces", () => {
 			"permission",
 		);
 	});
+
+	it("doesn't invite people who are already in", async () => {
+		const { owner } = await ownerAndMember();
+		await expect(owner.mutation(api.workspace.invite, { email: "MEMBER@co.com", role: "owner" })).rejects.toThrow(
+			"already a member",
+		);
+		await owner.mutation(api.workspace.invite, { email: "new@co.com", role: "member" });
+		await expect(owner.mutation(api.workspace.invite, { email: "new@co.com", role: "member" })).rejects.toThrow(
+			"already has an invite",
+		);
+	});
 });
 
 describe("memory", () => {

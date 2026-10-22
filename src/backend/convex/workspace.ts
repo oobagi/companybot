@@ -1,3 +1,4 @@
+import { can } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
@@ -49,10 +50,7 @@ export const team = query({
 	handler: async (ctx) => {
 		const member = await getMember(ctx);
 		if (!member) return null;
-		const rows = await ctx.db
-			.query("members")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
-			.collect();
+		const rows = await membersOf(ctx, member.workspaceId);
 		const names = await namesOf(
 			ctx,
 			rows.map((r) => r.userId),
@@ -68,7 +66,7 @@ export const team = query({
 			})),
 		);
 		const invites =
-			member.role === "owner"
+			can(member.role, "members.manage")
 				? (
 						await ctx.db
 							.query("invites")
@@ -86,6 +84,7 @@ export const invite = mutation({
 		const { workspaceId } = await requirePermission(ctx, "members.manage");
 		const email = normalizeEmail(args.email);
 		if (!/^\S+@\S+\.\S+$/.test(email)) throw new ConvexError("That doesn't look like an email.");
+		if (await isMemberEmail(ctx, workspaceId, email)) throw new ConvexError("That person is already a member.");
 		const existing = await ctx.db
 			.query("invites")
 			.withIndex("by_email", (q) => q.eq("email", email))
@@ -129,12 +128,23 @@ export const setRole = mutation({
 	},
 });
 
-async function ownerCount(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
-	const rows = await ctx.db
+const membersOf = (ctx: QueryCtx, workspaceId: Id<"workspaces">) =>
+	ctx.db
 		.query("members")
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
 		.collect();
-	return rows.filter((r) => r.role === "owner").length;
+
+async function ownerCount(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
+	return (await membersOf(ctx, workspaceId)).filter((r) => r.role === "owner").length;
+}
+
+/** Whether someone with this (normalized) email is already in the workspace. */
+async function isMemberEmail(ctx: QueryCtx, workspaceId: Id<"workspaces">, email: string) {
+	for (const row of await membersOf(ctx, workspaceId)) {
+		const user = await ctx.db.get(row.userId);
+		if (user?.email && normalizeEmail(user.email) === email) return true;
+	}
+	return false;
 }
 
 /** Shared workspace settings. */

@@ -1,27 +1,10 @@
 import { type ToolSet, tool } from "ai";
+import type { AgentConfig } from "./agent-config";
 import { builtinTools } from "./builtin-tools";
 import { models } from "./models";
 import { findPlugin } from "./plugins";
 import { type ToolContext, type ToolDef, isGranted, modelToolName, toolGroup } from "./tools";
 import type { Actor, Role } from "./types";
-
-/** What an owner edits. Each workspace stores its own agents; saves are versioned. */
-export interface AgentConfig {
-	name: string;
-	description: string;
-	instructions: string;
-	/** AI Gateway model id, e.g. "anthropic/claude-sonnet-5.5". */
-	model: string;
-	/**
-	 * Tool grants: exact ids ("memory.search", "gmail.send") or whole groups
-	 * ("memory.*", "gmail.*"). See `isGranted`.
-	 */
-	tools: string[];
-}
-
-export interface AgentDefinition extends AgentConfig {
-	id: string;
-}
 
 export const defineAgent = (agent: AgentConfig) => agent;
 

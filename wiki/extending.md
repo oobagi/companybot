@@ -3,7 +3,7 @@
 Rules each system relies on. Break one and something leaks or breaks silently.
 
 ## Permissions — `core/src/permissions.ts`
-- Every workspace action has a permission listing the roles allowed. Backend mutations call `requirePermission(ctx, "x.y")`; UI reads the same table.
+- Every workspace action has a permission listing the roles allowed. Backend mutations call `requirePermission(ctx, "x.y")`; the app calls `can(role, "x.y")`.
 - New feature that needs a gate → add a permission first. Never check `role === "owner"` directly.
 - New role → add it to `Role` (`types.ts`) and to `role` in `backend/convex/schema.ts`, then to each permission it should have.
 
@@ -46,8 +46,11 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 - Edits from the app send `expectedVersion`; agents edit the latest.
 
 ## Agents — `core/src/agents.ts`, `backend/convex/agents.ts`
-- Stored per workspace, versioned on every save. `validateAgentConfig` runs on save; add checks there.
+- `AgentConfig` is the editable shape (`core/src/agent-config.ts`). Stored per workspace, versioned on every save. `validateAgentConfig` runs on save; add checks there.
 - The runner reads the agent fresh each turn. Anything that changes how a reply runs belongs in `chat.turnContext` + `agent.ts`.
+
+## The app and `core`
+- The app imports only dependency-free modules from core, by deep path: `@companybot/core/permissions`, `@companybot/core/agent-config`. Importing the barrel would bundle the agent runtime (`ai`, zod) into the renderer. To expose another module, add it to `exports` in `core/package.json`.
 
 ## Shared settings
 - Editable shared data gets a `version` field. Saves send the version they started from; `checkVersion` refuses stale ones. In the app, use `useDraft` + `ConflictNotice`.

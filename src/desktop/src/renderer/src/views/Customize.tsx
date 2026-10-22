@@ -1,9 +1,10 @@
 import type { Role } from "@companybot/core";
+import { can } from "@companybot/core/permissions";
 import { useAction, useMutation } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { useQuery } from "convex-helpers/react/cache";
-import { api } from "../api";
 import { useState } from "react";
+import { api } from "../api";
 import { Loading, Notice, Page, Tabs, inputClass, primaryButton, useRun } from "../ui";
 import { AgentsTab } from "./Agents";
 
@@ -35,7 +36,7 @@ function PluginsTab({ role }: { role: Role }) {
 			</p>
 			{plugins.length === 0 && <p className="text-sm text-neutral-400">No plugins available yet.</p>}
 			{plugins.map((p) => (
-				<PluginCard key={p.id} plugin={p} isOwner={role === "owner"} />
+				<PluginCard key={p.id} plugin={p} isOwner={can(role, "plugins.manage")} />
 			))}
 		</>
 	);
@@ -161,7 +162,7 @@ function SkillsTab({ role }: { role: Role }) {
 					meta={`v${s.version}`}
 					description={s.description}
 					installed={s.installed}
-					canManage={role === "owner"}
+					canManage={can(role, "skills.manage")}
 					onToggle={() => run(setSkill({ skillId: s.id, installed: !s.installed }))}
 				/>
 			))}

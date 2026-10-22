@@ -1,4 +1,5 @@
 import type { Role } from "@companybot/core";
+import { can } from "@companybot/core/permissions";
 import { useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache";
 import { useState } from "react";
@@ -14,7 +15,7 @@ export function MembersTab({ role }: { role: Role }) {
 	const [email, setEmail] = useState("");
 	const [inviteRole, setInviteRole] = useState<Role>("member");
 	const { error, run } = useRun();
-	const isOwner = role === "owner";
+	const isOwner = can(role, "members.manage");
 
 	if (!team) return <Loading />;
 

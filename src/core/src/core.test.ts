@@ -11,7 +11,7 @@ import { skillCatalog, skillsIndex } from "./skills";
 import { fakeMcpServer } from "./test-mcp-server";
 import { platformGuide } from "./guide";
 import { createResultStore, isGranted, modelToolName } from "./tools";
-import { describeWidget, isWidgetResult, widgetTools } from "./widgets";
+import { describeWidget, isWidgetResult, isWidgetToolName, widgetTools } from "./widgets";
 import type { Actor } from "./types";
 
 const owner: Actor = { userId: "owner", role: "owner" };
@@ -76,6 +76,8 @@ describe("tool visibility", () => {
 
 	it("gives model-safe tool names", () => {
 		expect(modelToolName("gmail.send.v2")).toBe("gmail_send_v2");
+		expect(isWidgetToolName(modelToolName("widgets.table"))).toBe(true);
+		expect(isWidgetToolName("memory_search")).toBe(false);
 	});
 });
 

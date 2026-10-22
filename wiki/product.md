@@ -2,6 +2,8 @@
 
 Companybot: AI-first team chat. Agents are teammates, not bots. Companybot is also the name of the main agent.
 
+This page is the vision. What's built today: [Architecture](architecture.md).
+
 ## Core
 - `#` text channels, threads, DMs, reactions, per-channel permissions.
 - Memory: each agent has its own. Team memories (shared) + personal memories. Editable in Settings → Memory. Owners edit all; members edit only their own personal memories.
