@@ -10,6 +10,7 @@ import { type Plugin, definePlugin, pluginCatalog, pluginHeaders, validateCreden
 import { skillCatalog, skillsIndex } from "./skills";
 import { fakeMcpServer } from "./test-mcp-server";
 import { platformGuide } from "./guide";
+import { addStep, emptyUsage, gatewayCost } from "./usage";
 import { createResultStore, isGranted, modelToolName } from "./tools";
 import { describeWidget, isWidgetResult, isWidgetToolName, widgetTools } from "./widgets";
 import type { Actor } from "./types";
@@ -283,5 +284,24 @@ describe("widgets", () => {
 		expect(platformGuide({ tools: ["widgets.*"] })).toContain("## Widgets");
 		expect(platformGuide({ tools: ["memory.search"] })).not.toContain("## Widgets");
 		expect(platformGuide({ tools: [] })).toContain("Markdown");
+	});
+});
+
+describe("usage", () => {
+	const step = (inputTokens: number, outputTokens: number, cacheReadTokens = 0) =>
+		({ inputTokens, outputTokens, inputTokenDetails: { cacheReadTokens } }) as Parameters<typeof addStep>[1];
+
+	it("sums calls, and counts context as the first input plus all output", () => {
+		const usage = emptyUsage("anthropic/claude-haiku-5.5");
+		addStep(usage, step(1000, 50), { gateway: { cost: "0.0012" } });
+		addStep(usage, step(1800, 200, 1000), { gateway: { cost: "0.0008" } });
+		expect(usage).toMatchObject({ steps: 2, inputTokens: 2800, cachedInputTokens: 1000, outputTokens: 250 });
+		expect(usage.contextTokens).toBe(1250);
+		expect(usage.costUsd).toBeCloseTo(0.002);
+	});
+
+	it("treats a missing or odd cost as zero", () => {
+		expect(gatewayCost(undefined)).toBe(0);
+		expect(gatewayCost({ gateway: { cost: "n/a" } })).toBe(0);
 	});
 });

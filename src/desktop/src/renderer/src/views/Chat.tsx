@@ -1,7 +1,7 @@
 import type { Doc, Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../api";
 import { Markdown } from "../markdown";
 import { Loading, Notice } from "../ui";
@@ -17,6 +17,7 @@ type SendWith = Doc<"preferences">["sendWith"];
 
 export function Chat({ agent, sendWith }: { agent: { _id: Id<"agents">; name: string }; sendWith: SendWith }) {
 	const messages = useQuery(api.chat.messages, { agentId: agent._id });
+	const conversation = useQuery(api.chat.conversation, { agentId: agent._id });
 	const sendMessage = useMutation(api.chat.send);
 	const [error, setError] = useState<string>();
 	const busy = messages?.at(-1)?.status === "streaming";
@@ -60,9 +61,17 @@ export function Chat({ agent, sendWith }: { agent: { _id: Id<"agents">; name: st
 		<div className="flex min-h-0 flex-1 flex-col">
 			<div className="flex-1 overflow-y-auto">
 				<div className="mx-auto flex max-w-2xl flex-col gap-5 px-6 py-8">
-					{messages.map((m) => (
-						<Message key={m._id} message={m} />
+					{messages.map((m, i) => (
+						<Fragment key={m._id}>
+							<Message message={m} />
+							{conversation?.summary && isLastSummarized(messages, i, conversation.summarizedUpTo) && (
+								<SummaryDivider agentName={agent.name} summary={conversation.summary} />
+							)}
+						</Fragment>
 					))}
+					{conversation?.compacting && (
+						<p className="text-center text-xs text-neutral-400">Summarizing earlier messages…</p>
+					)}
 					{error && <Notice>{error}</Notice>}
 					<div ref={bottom} />
 				</div>
@@ -101,9 +110,73 @@ function Message({ message }: { message: Doc<"messages"> }) {
 			)}
 			{streaming && message.parts.length === 0 && <p className="text-sm text-neutral-400">Thinking…</p>}
 			{message.status === "error" && <Notice>{message.error ?? "Something went wrong."}</Notice>}
+			{message.stats && <ReplyDetails stats={message.stats} />}
 		</div>
 	);
 }
+
+/** The divider goes after the newest summarized message, if anything newer follows it. */
+function isLastSummarized(messages: Doc<"messages">[], i: number, upTo: number | null) {
+	const [m, next] = [messages[i], messages[i + 1]];
+	return upTo !== null && m !== undefined && next !== undefined && m._creationTime <= upTo && next._creationTime > upTo;
+}
+
+function SummaryDivider({ agentName, summary }: { agentName: string; summary: string }) {
+	const [open, setOpen] = useState(false);
+	return (
+		<div className="flex flex-col gap-2">
+			<div className="flex items-center gap-3 text-xs text-neutral-400">
+				<div className="h-px flex-1 bg-neutral-200" />
+				<button type="button" onClick={() => setOpen(!open)} className="hover:text-neutral-600">
+					{agentName} sees a summary of the messages above · {open ? "Hide" : "Show"} summary
+				</button>
+				<div className="h-px flex-1 bg-neutral-200" />
+			</div>
+			{open && (
+				<Markdown className="rounded-xl bg-neutral-50 px-4 py-3 text-sm leading-relaxed text-neutral-600">{summary}</Markdown>
+			)}
+		</div>
+	);
+}
+
+type Stats = NonNullable<Doc<"messages">["stats"]>;
+
+function ReplyDetails({ stats }: { stats: Stats }) {
+	const [open, setOpen] = useState(false);
+	const rows: [string, string][] = [
+		["Model", stats.model],
+		["Time", `${seconds(stats.durationMs)}${stats.firstTokenMs !== undefined ? `, first words after ${seconds(stats.firstTokenMs)}` : ""}`],
+		["Context", `${tokens(stats.contextTokens)} tokens`],
+		["Input", `${tokens(stats.inputTokens)} tokens${stats.cachedInputTokens ? `, ${tokens(stats.cachedInputTokens)} cached` : ""}`],
+		["Output", `${tokens(stats.outputTokens)} tokens`],
+		["Model calls", String(stats.steps)],
+		["This reply", usd(stats.costUsd)],
+		["Conversation so far", usd(stats.conversationCostUsd)],
+	];
+	return (
+		<div className="flex flex-col gap-1.5 text-xs text-neutral-400">
+			<button type="button" onClick={() => setOpen(!open)} className="self-start tabular-nums hover:text-neutral-600">
+				{shortModel(stats.model)} · {seconds(stats.durationMs)} · {tokens(stats.contextTokens)} context · {usd(stats.costUsd)} ·{" "}
+				{usd(stats.conversationCostUsd)} total
+			</button>
+			{open && (
+				<dl className="grid w-fit grid-cols-[auto_auto] gap-x-4 gap-y-0.5 tabular-nums">
+					{rows.map(([label, value]) => (
+						<Fragment key={label}>
+							<dt>{label}</dt>
+							<dd className="text-neutral-600">{value}</dd>
+						</Fragment>
+					))}
+				</dl>
+			)}
+		</div>
+	);
+}
+
+const shortModel = (id: string) => id.split("/").at(-1) ?? id;
+const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
+const tokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+const usd = (n: number) => `$${n.toFixed(n < 0.01 ? 4 : n < 1 ? 3 : 2)}`;
 
 function Composer({
 	onSend,

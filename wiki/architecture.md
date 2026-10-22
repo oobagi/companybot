@@ -30,7 +30,8 @@ New workspaces get copies of the default agents: **Companybot** (`memory.*`, clo
 - **Three kinds of data:** shared content (chat, memory) is fully live. Shared settings (agents, workspace name) are edited as a draft and saved; each has a `version`, and a save from an old version is refused as a conflict (`checkVersion`), with a "Use theirs / Keep mine" prompt in the app. Personal preferences (`preferences` table) are per person and sync across their devices.
 - **Permissions apply at once:** agent memory and plugin calls re-read the person's membership and role, so removals and role changes take effect mid-reply.
 - **Plugins:** `pluginInstalls` (roles allowed) and `pluginConnections` (AES-GCM encrypted with `CONNECTIONS_KEY`, encrypted in an action). OAuth sign-ins in progress sit in `pluginOAuthFlows` (one use, 15 min) until `/oauth/callback` finishes them. The runner connects only to plugins the agent's grants reach, skips any that fail or take over 10s, and tells the agent.
-- **Compaction:** past 40 messages, older ones fold into a running summary (newest 20 kept verbatim). The app still shows everything.
+- **Usage:** each reply stores `stats` (model, tokens, time, AI Gateway's `cost`), plus the conversation's running total (`conversations.costUsd`, summaries included). The app shows them under each reply. Prompt caching is on for every model call (AI Gateway `caching: "auto"`).
+- **Compaction:** once a reply leaves the context over 40k tokens, older messages fold into a running summary (newest 10 kept verbatim). The app still shows everything, with a divider where the summary starts.
 
 ## Secrets (Convex env, `npx convex env set`)
 `AI_GATEWAY_API_KEY`, `AUTH_RESEND_KEY`, `AUTH_EMAIL_FROM`, `JWT_PRIVATE_KEY`, `JWKS`, `SITE_URL`, `CONNECTIONS_KEY`. Dev and prod each have their own; never copy `CONNECTIONS_KEY` between them.
