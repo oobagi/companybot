@@ -47,11 +47,30 @@ jobs:
             exit 1
           fi
 
-      - name: Build, sign, and notarize
-        working-directory: src/desktop
+      # Our own keychain instead of electron-builder's: its temporary keychain
+      # fails to unlock on current macOS runners. Same method as GitHub's docs.
+      - name: Import signing certificate
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password=$(openssl rand -hex 16)
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          printf '%s' "$CSC_LINK" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security import "$RUNNER_TEMP/signing.p12" -k "$keychain" -P "$CSC_KEY_PASSWORD" -f pkcs12 -A -t cert
+          rm "$RUNNER_TEMP/signing.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$keychain" | grep "Developer ID Application"
+
+      - name: Build, sign, and notarize
+        working-directory: src/desktop
+        env:
+          # Signs with the Developer ID now in the keychain.
+          CSC_NAME: "Jaden Watson (792PGAG6C5)"
           APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
@@ -74,3 +93,7 @@ jobs:
             src/desktop/release/*.blockmap
             src/desktop/release/*-mac.yml
           fail_on_unmatched_files: true
+
+      - name: Remove signing keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
