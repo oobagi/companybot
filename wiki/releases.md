@@ -10,13 +10,16 @@ pnpm release alpha   # or beta, 1.2.3-alpha.1
 ```
 Add `--notes file.md` to publish notes (committed as `release-notes/v<version>.md`, shown above GitHub's PR list); `--next` prints the version a bump would make.
 
-From a clean `main` that matches origin. It runs checks, deploys the prod backend, bumps `src/desktop/package.json`, tags `vX.Y.Z`, and pushes. `.github/workflows/release.yml` then builds, signs, notarizes, and publishes to GitHub Releases.
+From a clean `main` that matches origin. It runs checks, snapshots prod, deploys the prod backend, runs pending migrations, bumps `src/desktop/package.json`, tags `vX.Y.Z`, and pushes. `.github/workflows/release.yml` then builds, signs, notarizes, and publishes to GitHub Releases.
 
 Alpha/beta versions publish as GitHub prereleases. Installs on a prerelease update to newer prereleases and stable versions; stable installs ignore prereleases. `patch` from a prerelease ships that version as stable (0.2.0-alpha.3 → 0.2.0).
 
 The backend deploys before the app ships, and installed apps update within hours, so backend changes must keep the previous app version working:
 - **Add, don't remove.** New tables and optional fields are safe. To replace a public function, keep the old one working on top of the new data and delete it once installs have updated.
-- **Data moves are separate.** Deploying never changes existing rows. Move data with a one-off internal mutation, run once per deployment after the deploy (`npx convex run <file>:<name> --prod`), safe to re-run.
+- **Data moves are migrations.** Deploying never changes existing rows. To change stored data, add a migration to `convex/migrations.ts` (Convex's migrations component). `pnpm release` runs every pending one on prod right after deploying and waits for them; the component remembers which finished, so each runs once. Run them on dev with `npx convex run migrations:runAll`.
+
+## Snapshots
+`pnpm release` saves a full export of prod to `backups/` (gitignored) before deploying. To undo a bad deploy or migration: `npx convex import --prod --replace-all backups/<file>.zip`. That replaces all prod data, so take a fresh export first. Scheduled backups in the Convex dashboard need the Pro plan; the free plan keeps up to 2 manual backups.
 
 ## In-app updates
 The installed app checks GitHub Releases on launch and every 4 hours, downloads in the background, and shows **Update ready · Restart** in the sidebar. Settings → General → App has "Check for updates". macOS only updates signed, notarized apps.

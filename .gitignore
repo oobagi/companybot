@@ -4,6 +4,7 @@ out/
 build/
 src/desktop/release/
 coverage/
+backups/
 *.tsbuildinfo
 .DS_Store
 

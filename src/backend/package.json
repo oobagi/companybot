@@ -10,6 +10,7 @@
     "@auth/core": "^0.41.3",
     "@companybot/core": "workspace:*",
     "@convex-dev/auth": "^0.0.96",
+    "@convex-dev/migrations": "^0.3.7",
     "ai": "^7.0.148",
     "convex": "1.47.0",
     "resend": "^6.34.1",
