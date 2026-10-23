@@ -1,4 +1,6 @@
 import type { AgentConfig } from "./agent-config";
+import { grantedPluginIds } from "./agents";
+import { chatTools } from "./chat";
 import { isGranted } from "./tools";
 import { widgetCatalog } from "./widgets";
 
@@ -23,6 +25,24 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">): string {
 			"- Tool results that return data come as `{ ref, data }`. To show a list from one in a table, pass `from: { ref, path, fields }` instead of copying rows. It's faster and always exact.",
 			"- One widget per idea. Small things (1–2 rows) fit better in a sentence or list.",
 		);
+	}
+	if (grantedPluginIds(agent).length > 0) {
+		lines.push(
+			"",
+			"## Connected services",
+			"Tools for outside services aren't loaded up front. When a message lists connected services and you need one, call plugins_search: with an empty query first if you haven't used that service yet in this conversation (it lists every tool and the service's usage notes; follow them), then with a few words or exact tool ids to get input schemas. Run tools with plugins_call. Reuse what you found earlier in this conversation instead of searching again.",
+		);
+	}
+	if (chatTools.some((t) => isGranted(agent.tools, t.id))) {
+		lines.push(
+			"",
+			"## Chat",
+			"You work in a team chat of channels, DMs, and threads. Each new message to you says where you are and lists what was said there since your last reply, labeled `[Name time]`, then the message to answer. Your reply is posted right there. Don't start it with your name or a label. Your earlier replies end with the tools you used in them; trust that record.",
+		);
+		if (isGranted(agent.tools, "chat.read") || isGranted(agent.tools, "chat.search")) {
+			lines.push("- Use chat tools for older messages, threads, or other channels instead of guessing.");
+		}
+		if (isGranted(agent.tools, "chat.react")) lines.push("- A reaction (chat_react) can acknowledge a message; still reply when there's something to say.");
 	}
 	return lines.join("\n");
 }

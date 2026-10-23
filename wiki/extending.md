@@ -10,13 +10,14 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 ## Tools — `core/src/tools.ts`, `builtin-tools.ts`
 - One shape (`ToolDef`) for built-ins and plugin tools. Ids are `group.name`; model names come from `modelToolName`.
 - Add a built-in: `defineTool` in `builtin-tools.ts`. Set `roles` if not everyone may trigger it, and `readOnly: true` if it changes nothing.
-- Tools reach data only through `ToolContext` (`memory`, `skills`), which enforce permissions. Don't do permission checks inside tools.
+- Tools reach data only through `ToolContext` (`memory`, `chat`, `skills`), which enforce permissions. Don't do permission checks inside tools.
 - Agents grant exact ids or whole groups (`memory.*`). `resolveTools` is the only place that decides what the model sees.
 
 ## Plugins — `core/src/plugins.ts`, `mcp.ts`, `backend/convex/plugins.ts`
 - A plugin is a catalog entry pointing at a remote MCP server. Add it with `definePlugin` to `pluginCatalog`; `validatePlugin` must pass (https only).
 - `connection: "workspace"` = one shared account, set by owners. `"personal"` = each person connects their own; agents use the account of the person they're helping.
 - Tools are discovered each turn (`openPlugin`) as `<plugin>.<tool>`. Agents usually grant `<plugin>.*`.
+- Plugin tools load on demand (`plugin-tools.ts`): the model gets two fixed tools, `plugins_search` (an empty query lists every tool plus the server's usage notes; words or exact ids return input schemas) and `plugins_call`. Never hand plugin schemas to the model up front: one server can be 50k+ tokens per call, and a changing tool list breaks prompt caching.
 - Credentials: `PluginCredentials`, encrypted in an **action** (`crypto.ts`) and decrypted only by the agent runner. Never return them from a query.
 - Access = installed + role allowed (`pluginInstalls.roles`) + connected. Checked fresh each turn (`plugins.forTurn`).
 - Auth: `none`, `api_key` (pasted in), or `oauth` (MCP OAuth: discovery, dynamic client registration, PKCE, refresh — all via `@ai-sdk/mcp`). OAuth flow: `plugins.startOAuth` → browser → `GET /oauth/callback` (`backend/convex/oauth.ts`) → `saveConnection`. State lives in `OAuthState` (`core/src/oauth.ts`), encrypted like any credentials. The runner saves refreshed tokens after each turn.
@@ -47,7 +48,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 
 ## Agents — `core/src/agents.ts`, `backend/convex/agents.ts`
 - `AgentConfig` is the editable shape (`core/src/agent-config.ts`). Stored per workspace, versioned on every save. `validateAgentConfig` runs on save; add checks there.
-- The runner reads the agent fresh each turn. Anything that changes how a reply runs belongs in `chat.turnContext` + `agent.ts`.
+- The runner reads the agent fresh each turn. Anything that changes how a reply runs belongs in `turns.turnContext` + `agent.ts`; what the model is fed belongs in `core/src/turn-input.ts`.
 
 ## The app and `core`
 - The app imports only dependency-free modules from core, by deep path: `@companybot/core/permissions`, `@companybot/core/agent-config`. Importing the barrel would bundle the agent runtime (`ai`, zod) into the renderer. To expose another module, add it to `exports` in `core/package.json`.

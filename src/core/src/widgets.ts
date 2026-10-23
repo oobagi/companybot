@@ -142,10 +142,10 @@ export const widgetCatalog: WidgetDef[] = [tableWidget, statsWidget, cardWidget]
 
 export const findWidget = (type: string) => widgetCatalog.find((w) => w.type === type);
 
-/** History line for a widget the agent showed earlier. */
-export const describeWidget = (widget: Widget) => {
+/** History line for a widget shown earlier, by the agent itself or by `who`. */
+export const describeWidget = (widget: Widget, who = "You") => {
 	const def = findWidget(widget.type);
-	return `[You showed a ${def ? def.summary(widget.props) : widget.type} widget]`;
+	return `[${who} showed a ${def ? def.summary(widget.props) : widget.type} widget]`;
 };
 
 /** The tools that place widgets. Results go to the app; the model only sees a short receipt. */

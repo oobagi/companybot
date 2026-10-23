@@ -1,3 +1,4 @@
+import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import type { Role } from "@companybot/core";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvexAuth, useMutation } from "convex/react";
@@ -6,13 +7,13 @@ import { useEffect, useState } from "react";
 import { api, errorMessage } from "./api";
 import { desktop, useUpdates } from "./desktop";
 import { Notice } from "./ui";
-import { Chat } from "./views/Chat";
+import { ChatView } from "./views/chat/ChatView";
+import { ChatNav, Item } from "./views/chat/Sidebar";
 import { type CustomizeTab, CustomizeView } from "./views/Customize";
 import { type SettingsTab, SettingsView } from "./views/Settings";
 import { SignIn } from "./views/SignIn";
 
-const views = ["chat", "customize", "settings"] as const;
-type View = (typeof views)[number];
+type View = "chat" | "customize" | "settings";
 
 export function App() {
 	const { isLoading, isAuthenticated } = useConvexAuth();
@@ -37,46 +38,45 @@ function Workspace() {
 
 function Shell({ email, role, workspace }: { email: string; role: Role; workspace: string }) {
 	const { signOut } = useAuthActions();
-	const agents = useQuery(api.agents.list);
+	const chats = useQuery(api.chats.list);
 	const prefs = useQuery(api.preferences.get);
 	const [view, setView] = useState<View>("chat");
-	// Kept here so each page reopens on the tab you left it on.
+	// Kept here so each page reopens where you left it.
+	const [chatId, setChatId] = useState<Id<"chats">>();
 	const [customizeTab, setCustomizeTab] = useState<CustomizeTab>("agents");
 	const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
-	const [agentId, setAgentId] = useState<string>();
+	const [error, setError] = useState<string>();
 	const { status: update } = useUpdates();
 
-	const active = agents?.filter((a) => !a.archived) ?? [];
-	const agent = active.find((a) => a._id === agentId) ?? active[0];
+	const openId = chatId ?? (chats?.channels.find((c) => c.isDefault) ?? chats?.channels[0] ?? chats?.dms[0])?._id;
+	const open = (id: Id<"chats">) => {
+		setChatId(id);
+		setView("chat");
+		setError(undefined);
+	};
 
 	return (
 		<div className="flex h-screen text-[15px] text-neutral-900">
-			<aside className="drag flex w-56 shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 px-3 pt-12 pb-3">
-				<p className="px-2 pb-4 text-sm font-semibold">{workspace}</p>
-				<nav className="no-drag flex flex-col gap-0.5">
-					{views.map((v) => (
-						<button
-							type="button"
-							key={v}
-							onClick={() => setView(v)}
-							className={`rounded-lg px-2 py-1.5 text-left text-sm capitalize ${
-								view === v ? "bg-neutral-200/70 font-medium" : "text-neutral-600 hover:bg-neutral-100"
-							}`}
-						>
-							{v}
-						</button>
+			<aside className="drag flex w-60 shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 px-3 pt-12 pb-3">
+				<p className="truncate px-2 pb-4 text-sm font-semibold">{workspace}</p>
+				<ChatNav chats={chats} openId={view === "chat" ? openId : undefined} onOpen={open} onError={(e) => setError(errorMessage(e))} />
+				<nav className="no-drag flex flex-col gap-px border-t border-neutral-200 pt-3">
+					{(["customize", "settings"] as const).map((v) => (
+						<Item key={v} active={view === v} onClick={() => setView(v)}>
+							<span className="capitalize">{v}</span>
+						</Item>
 					))}
 				</nav>
 				{update?.state === "ready" && (
 					<button
 						type="button"
 						onClick={() => void desktop?.updates.install()}
-						className="no-drag mt-auto mb-3 rounded-lg bg-neutral-900 px-3 py-2 text-left text-xs text-white"
+						className="no-drag mt-3 rounded-lg bg-neutral-900 px-3 py-2 text-left text-xs text-white"
 					>
 						Update ready · Restart
 					</button>
 				)}
-				<div className={`no-drag flex flex-col gap-1 px-2 text-xs text-neutral-500 ${update?.state === "ready" ? "" : "mt-auto"}`}>
+				<div className="no-drag mt-3 flex flex-col gap-1 px-2 text-xs text-neutral-500">
 					<span className="truncate" title={email}>
 						{prefs?.displayName || email}
 					</span>
@@ -88,26 +88,14 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 			</aside>
 
 			<main className="flex min-w-0 flex-1 flex-col">
-				<header className="drag flex h-12 shrink-0 items-center justify-center">
-					{view === "chat" && active.length > 0 && (
-						<div className="no-drag flex gap-1 rounded-full bg-neutral-100 p-1">
-							{active.map((a) => (
-								<button
-									type="button"
-									key={a._id}
-									title={a.description}
-									onClick={() => setAgentId(a._id)}
-									className={`rounded-full px-3 py-1 text-sm ${
-										a._id === agent?._id ? "bg-white font-medium shadow-sm" : "text-neutral-500 hover:text-neutral-800"
-									}`}
-								>
-									{a.name}
-								</button>
-							))}
-						</div>
-					)}
-				</header>
-				{view === "chat" && agent && <Chat key={agent._id} agent={agent} sendWith={prefs?.sendWith ?? "enter"} />}
+				{error && <Notice>{error}</Notice>}
+				{view === "chat" &&
+					(openId ? (
+						<ChatView key={openId} chatId={openId} sendWith={prefs?.sendWith ?? "enter"} onLeft={() => setChatId(undefined)} />
+					) : (
+						<div className="drag h-12 shrink-0" />
+					))}
+				{view !== "chat" && <header className="drag h-12 shrink-0" />}
 				{view === "customize" && <CustomizeView role={role} tab={customizeTab} onTab={setCustomizeTab} />}
 				{view === "settings" && <SettingsView role={role} tab={settingsTab} onTab={setSettingsTab} />}
 			</main>

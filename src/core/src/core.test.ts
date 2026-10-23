@@ -2,16 +2,20 @@ import { describe, expect, it } from "vitest";
 import { buildToolSet, describeToolAccess, grantedPluginIds, resolveTools, validateAgentConfig } from "./agents";
 import { builtinTools } from "./builtin-tools";
 import { blankAgent, companybot, scribe } from "./default-agents";
+import type { ChatStore, Participant } from "./chat";
 import { type Memory, type MemoryStore, canCreateMemory, canEditMemory, canReadMemory } from "./memory";
 import { openPlugin } from "./mcp";
 import { PluginOAuth } from "./oauth";
-import { can, permissions } from "./permissions";
+import { can, canManageChannel, permissions } from "./permissions";
 import { type Plugin, definePlugin, pluginCatalog, pluginHeaders, validateCredentials, validatePlugin } from "./plugins";
 import { skillCatalog, skillsIndex } from "./skills";
 import { fakeMcpServer } from "./test-mcp-server";
 import { platformGuide } from "./guide";
 import { addStep, emptyUsage, gatewayCost } from "./usage";
-import { createResultStore, isGranted, modelToolName } from "./tools";
+import { type ToolDef, createResultStore, isGranted, modelToolName } from "./tools";
+import { pluginMetaTools } from "./plugin-tools";
+import { z } from "zod";
+import { type PlaceMessage, type TurnPromptInput, buildTurnInput, buildTurnPrompt } from "./turn-input";
 import { describeWidget, isWidgetResult, isWidgetToolName, widgetTools } from "./widgets";
 import type { Actor } from "./types";
 
@@ -24,6 +28,7 @@ const ctx = (actor: Actor) => ({
 	actor,
 	agentId: "companybot",
 	memory: {} as MemoryStore,
+	chat: {} as ChatStore,
 	skills: skillCatalog,
 	results: createResultStore(),
 });
@@ -41,6 +46,9 @@ describe("tool visibility", () => {
 			"widgets.table",
 			"widgets.stats",
 			"widgets.card",
+			"chat.react",
+			"chat.read",
+			"chat.search",
 		]);
 		expect(resolveTools(companybot, owner).map((t) => t.id)).toContain("memory.forget");
 	});
@@ -58,7 +66,15 @@ describe("tool visibility", () => {
 	});
 
 	it("limits an agent to the tools it was granted", () => {
-		expect(visible(describeToolAccess(scribe, owner))).toEqual(["memory.search", "skills.load", "widgets.table", "widgets.stats", "widgets.card"]);
+		expect(visible(describeToolAccess(scribe, owner))).toEqual([
+			"memory.search",
+			"skills.load",
+			"widgets.table",
+			"widgets.stats",
+			"widgets.card",
+			"chat.react",
+			"chat.read",
+		]);
 	});
 
 	it("only sends visible tools to the model", () => {
@@ -72,6 +88,9 @@ describe("tool visibility", () => {
 			"widgets_table",
 			"widgets_stats",
 			"widgets_card",
+			"chat_react",
+			"chat_read",
+			"chat_search",
 		]);
 	});
 
@@ -145,6 +164,14 @@ describe("permissions", () => {
 		expect(can(member, "plugins.connect")).toBe(true);
 		expect(can(member, "agents.manage")).toBe(false);
 	});
+
+	it("lets members create channels and manage only the ones they created", () => {
+		expect(can(member, "channels.create")).toBe(true);
+		expect(can(member, "channels.manage")).toBe(false);
+		expect(canManageChannel(member, { createdBy: "member" })).toBe(true);
+		expect(canManageChannel(member, { createdBy: "owner" })).toBe(false);
+		expect(canManageChannel(owner, { createdBy: "member" })).toBe(true);
+	});
 });
 
 describe("plugins", () => {
@@ -192,11 +219,45 @@ describe("plugins", () => {
 			["notes.find", true, { type: "plugin", pluginId: "notes" }],
 			["notes.write", false, { type: "plugin", pluginId: "notes" }],
 		]);
+		// Plugin tools load on demand: the model gets search + call, not each tool.
 		const tools = buildToolSet({ tools: ["notes.find"] }, ctx(owner), session.tools);
-		expect(Object.keys(tools)).toEqual(["notes_find"]);
+		expect(Object.keys(tools)).toEqual(["plugins_search", "plugins_call"]);
+		const call = (name: string, input: unknown) => tools[name]!.execute!(input, { toolCallId: "1", messages: [] } as never);
+		const found = (await call("plugins_search", { query: "notes" })) as { tools: { tool: string; input: unknown }[] };
+		expect(found.tools.map((t) => t.tool)).toEqual(["notes.find"]);
+		expect(found.tools[0]!.input).toMatchObject({ type: "object" });
+		expect(await call("plugins_call", { tool: "notes.write", input: {} })).toEqual({
+			error: 'No connected tool "notes.write". Use plugins_search first.',
+		});
+		expect(await call("plugins_call", { tool: "notes.find", input: { text: "hi" } })).toEqual({ ref: "r1", data: 'find:{"text":"hi"}' });
 		expect(await session.tools[0]!.execute({ text: "hi" }, ctx(owner))).toBe('find:{"text":"hi"}');
 		await session.close();
 		expect(server.closed).toBe(true);
+	});
+});
+
+describe("plugin tool search", () => {
+	const def = (name: string, description: string): ToolDef => ({
+		id: `crm.crm_${name}`,
+		description,
+		input: z.object({}),
+		source: { type: "plugin", pluginId: "crm" },
+		execute: async () => name,
+	});
+	const tools = [def("leads", "Find leads in the crm"), def("calls", "List calls in the crm"), def("send", "Send an sms from the crm")];
+	const meta = pluginMetaTools(tools, [{ id: "crm", name: "CRM", instructions: "Call crm_me first." }], (t) => t.execute({}, {} as never));
+	const search = async (query: string) =>
+		(await meta.plugins_search!.execute!({ query }, { toolCallId: "1", messages: [] } as never)) as {
+			tools: { tool: string }[];
+			services?: unknown;
+		};
+
+	it("ranks by words that tell tools apart, and lists everything with notes on an empty query", async () => {
+		expect((await search("crm leads")).tools.map((t) => t.tool)[0]).toBe("crm.crm_leads");
+		expect((await search("crm.crm_send")).tools.map((t) => t.tool)[0]).toBe("crm.crm_send");
+		const all = await search("");
+		expect(all.tools).toHaveLength(3);
+		expect(all.services).toEqual([{ name: "CRM", notes: "Call crm_me first." }]);
 	});
 });
 
@@ -256,7 +317,7 @@ describe("widgets", () => {
 		});
 		const session = await openPlugin(crm, { transport: server });
 		const tools = buildToolSet({ tools: ["notes.find"] }, c, session.tools);
-		const found = await tools.notes_find!.execute!({}, { toolCallId: "1", messages: [] } as never);
+		const found = await tools.plugins_call!.execute!({ tool: "notes.find", input: {} }, { toolCallId: "1", messages: [] } as never);
 		expect(found).toEqual({ ref: "r1", data: { leads } });
 		await session.close();
 
@@ -284,6 +345,8 @@ describe("widgets", () => {
 		expect(platformGuide({ tools: ["widgets.*"] })).toContain("## Widgets");
 		expect(platformGuide({ tools: ["memory.search"] })).not.toContain("## Widgets");
 		expect(platformGuide({ tools: [] })).toContain("Markdown");
+		expect(platformGuide({ tools: ["chat.*"] })).toContain("## Chat");
+		expect(platformGuide({ tools: [] })).not.toContain("## Chat");
 	});
 });
 
@@ -303,5 +366,89 @@ describe("usage", () => {
 	it("treats a missing or odd cost as zero", () => {
 		expect(gatewayCost(undefined)).toBe(0);
 		expect(gatewayCost({ gateway: { cost: "n/a" } })).toBe(0);
+	});
+});
+
+describe("turn input", () => {
+	const ada = { type: "user" as const, id: "u1", name: "Ada" };
+	const ben = { type: "user" as const, id: "u2", name: "Ben" };
+	const bot = { type: "agent" as const, id: "a1", name: "Companybot" };
+	const scribeP = { type: "agent" as const, id: "a2", name: "Scribe" };
+	const at = (minute: number) => Date.UTC(2026, 9, 22, 15, minute);
+	const msg = (id: string, author: Participant, text: string, minute: number, extra: Partial<PlaceMessage> = {}): PlaceMessage => ({
+		id,
+		author,
+		text,
+		time: at(minute),
+		...extra,
+	});
+	const base: TurnPromptInput = {
+		agentId: "a1",
+		place: { kind: "channel", name: "sales", private: false, topic: "Deals", thread: null, members: [ada, ben, bot, scribeP] },
+		actor: { name: "Ada", email: "ada@co.com", role: "owner" },
+		memory: "team",
+		plugins: { connected: [], unavailable: [] },
+		messages: [
+			msg("m1", ben, "Morning", 1, { replyCount: 3 }),
+			msg("m2", scribeP, "Draft is up", 2, { edited: true }),
+			msg("m3", ada, "@Companybot status?", 3),
+			msg("m4", ben, "Also this", 4),
+		],
+		triggerId: "m3",
+	};
+
+	it("says where you are, lists what's new, and marks the trigger last", () => {
+		expect(buildTurnPrompt(base)).toBe(
+			[
+				"Where you are: #sales, a public channel. Topic: Deals.",
+				"Here: Ada, Ben (people); Scribe (agents).",
+				"Ada <ada@co.com>, a workspace owner, asked for you. You act with their access.",
+				"Memory: team memories only. 2+ people can read this chat, so personal memories are off.",
+				"",
+				"New here since your last reply (times UTC):",
+				"[Ben 10-22 15:01] Morning (3 replies in thread m1)",
+				"[Scribe 10-22 15:02] Draft is up (edited)",
+				"[Ben 10-22 15:04] Also this",
+				"",
+				"Reply to this message from Ada:",
+				"[Ada 10-22 15:03] @Companybot status?",
+			].join("\n"),
+		);
+	});
+
+	it("names DMs, starts a thread's first turn with its parent, and caps long backlogs", () => {
+		const many = Array.from({ length: 60 }, (_, i) => msg(`x${i}`, ben, `n${i}`, i % 60));
+		const prompt = buildTurnPrompt({
+			...base,
+			place: { kind: "dm", name: null, private: true, topic: null, members: [ben, bot], thread: { parent: msg("p", ben, "Plan", 0), first: true } },
+			memory: "personal",
+			plugins: { connected: [], unavailable: ["CRM"] },
+			messages: [...many, msg("t", ben, "Go", 59)],
+			triggerId: "t",
+		});
+		expect(prompt).toContain("Where you are: a DM with Ben, in a thread.");
+		expect(prompt).toContain("Memory: personal and team memories.");
+		expect(prompt).toContain("Unavailable this turn, so you can't use them: CRM.");
+		expect(prompt).toContain("The thread is under this message:\n[Ben 10-22 15:00] Plan");
+		expect(prompt).toContain("(10 earlier messages not shown. Use chat_read for them.)");
+		expect(prompt).not.toContain("] n9\n");
+		expect(prompt).toContain("] n10\n");
+	});
+
+	it("replays past turns exactly and keeps the system prompt free of per-turn content", () => {
+		const input = buildTurnInput({
+			agent: { instructions: "Be brief.", tools: ["chat.*"] },
+			skills: [],
+			session: { summary: "- Talked about Q4", turns: [{ prompt: "P1", reply: "R1" }, { prompt: "P2", reply: "" }] },
+			prompt: "P3",
+		});
+		expect(input.instructions).toBe(`Be brief.\n\n${platformGuide({ tools: ["chat.*"] })}`);
+		expect(input.messages).toEqual([
+			{ role: "user", content: "Summary of your earlier turns here:\n- Talked about Q4\n\nP1" },
+			{ role: "assistant", content: "R1" },
+			{ role: "user", content: "P2" },
+			{ role: "assistant", content: "(No reply.)" },
+			{ role: "user", content: "P3" },
+		]);
 	});
 });
