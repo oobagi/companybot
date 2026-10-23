@@ -555,6 +555,24 @@ describe("memory in shared chats", () => {
 	});
 });
 
+describe("legacy chat API (apps before team chat)", () => {
+	it("reads and writes the person's agent DM, so old and new apps see one conversation", async () => {
+		const { t, owner } = await ownerAndMember();
+		const { companybot } = await agentsOf(owner);
+		expect(await owner.query(api.chat.messages, { agentId: companybot._id })).toEqual([]);
+		await owner.mutation(api.chat.send, { agentId: companybot._id, text: "hi from the old app" });
+		const [turn] = await turnsOf(t);
+		expect(turn).toMatchObject({ agentId: companybot._id, status: "running" });
+		const old = await owner.query(api.chat.messages, { agentId: companybot._id });
+		expect(old.map((m) => [m.role, m.text, m.status])).toEqual([
+			["user", "hi from the old app", "done"],
+			["assistant", "", "streaming"],
+		]);
+		const dmId = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
+		expect((await owner.query(api.messages.list, { chatId: dmId })).map((m) => m.text)).toEqual(["hi from the old app", ""]);
+	});
+});
+
 describe("migration", () => {
 	it("copies legacy conversations into agent DMs once, and grants chat tools once", async () => {
 		const { t, owner } = await ownerAndMember();
