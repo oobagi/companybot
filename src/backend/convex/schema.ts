@@ -276,36 +276,4 @@ export default defineSchema({
 	})
 		.index("by_workspace", ["workspaceId", "automationId"])
 		.index("by_enabled", ["enabled"]),
-
-	// ---- Legacy: one conversation per person per agent. Copied into agent DMs by
-	// migrations.conversationsToChats; remove once every deployment has run it. ----
-	conversations: defineTable({
-		workspaceId: v.id("workspaces"),
-		userId: v.id("users"),
-		agentId: v.id("agents"),
-		/** True while the agent is replying. Blocks overlapping turns. */
-		busy: v.boolean(),
-		/** Running summary of messages older than `summarizedUpTo`. */
-		summary: v.optional(v.string()),
-		summarizedUpTo: v.optional(v.number()),
-		/** True while older messages are being folded into the summary. */
-		compacting: v.optional(v.boolean()),
-		/** USD spent on this conversation: replies plus summaries. */
-		costUsd: v.optional(v.number()),
-		/** Set once copied into an agent DM, so the migration runs once per conversation. */
-		migratedTo: v.optional(v.id("chats")),
-	}).index("by_user_agent", ["userId", "agentId"]),
-
-	// A message is ordered parts: text, tool activity, and widgets, as the app shows them.
-	// `text` is the plain text alone, for history, summaries, and search.
-	messages: defineTable({
-		conversationId: v.id("conversations"),
-		role: v.union(v.literal("user"), v.literal("assistant")),
-		text: v.string(),
-		parts: v.array(messagePart),
-		status: v.union(v.literal("streaming"), v.literal("done"), v.literal("error")),
-		error: v.optional(v.string()),
-		/** Replies only, once finished. */
-		stats: v.optional(replyStats),
-	}).index("by_conversation", ["conversationId"]),
 });
