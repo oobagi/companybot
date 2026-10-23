@@ -2,6 +2,7 @@ import { type ToolSet, tool } from "ai";
 import type { AgentConfig } from "./agent-config";
 import { builtinTools } from "./builtin-tools";
 import { models } from "./models";
+import { type PluginService, pluginMetaTools } from "./plugin-tools";
 import { findPlugin } from "./plugins";
 import { type ToolContext, type ToolDef, isGranted, modelToolName, toolGroup } from "./tools";
 import type { Actor, Role } from "./types";
@@ -90,16 +91,24 @@ export function buildToolSet(
 	agent: Pick<AgentConfig, "tools">,
 	ctx: ToolContext,
 	available: ToolDef[] = builtinTools,
+	/** Connected plugins' names and usage notes, shown by plugins_search. */
+	services: PluginService[] = [],
 ): ToolSet {
 	const tools: ToolSet = {};
-	for (const t of resolveTools(agent, ctx.actor, available)) {
+	const run = (t: ToolDef, input: unknown) => (t.returnsData ? withRef(t.execute(input, ctx), ctx) : t.execute(input, ctx));
+	const resolved = resolveTools(agent, ctx.actor, available);
+	for (const t of resolved.filter((t) => t.source.type === "builtin")) {
 		tools[modelToolName(t.id)] = tool({
 			description: t.description,
 			inputSchema: t.input,
-			execute: t.returnsData ? (input) => withRef(t.execute(input, ctx), ctx) : (input) => t.execute(input, ctx),
+			execute: (input) => run(t, input),
 			...(t.toModelOutput && { toModelOutput: t.toModelOutput }),
 		});
 	}
+	// Plugin tools load on demand (see plugin-tools.ts). Present whenever the agent is
+	// granted a plugin, connected or not, so the tool list stays the same turn to turn.
+	const pluginTools = resolved.filter((t) => t.source.type === "plugin");
+	if (pluginTools.length > 0 || grantedPluginIds(agent).length > 0) Object.assign(tools, pluginMetaTools(pluginTools, services, run));
 	return tools;
 }
 

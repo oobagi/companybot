@@ -16,3 +16,4 @@ export * from "./turn-input";
 export * from "./types";
 export * from "./usage";
 export * from "./widgets";
+export * from "./plugin-tools";

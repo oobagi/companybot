@@ -1,4 +1,5 @@
 import type { AgentConfig } from "./agent-config";
+import { grantedPluginIds } from "./agents";
 import { isGranted } from "./tools";
 import { widgetCatalog } from "./widgets";
 
@@ -22,6 +23,13 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">): string {
 			"- Write one short sentence, then call the widget. Don't repeat what it shows. You can keep writing after it; it appears where you placed it.",
 			"- Tool results that return data come as `{ ref, data }`. To show a list from one in a table, pass `from: { ref, path, fields }` instead of copying rows. It's faster and always exact.",
 			"- One widget per idea. Small things (1–2 rows) fit better in a sentence or list.",
+		);
+	}
+	if (grantedPluginIds(agent).length > 0) {
+		lines.push(
+			"",
+			"## Connected services",
+			"Tools for outside services aren't loaded up front. When a message lists connected services and you need one, call plugins_search: with an empty query first if you haven't used that service yet in this conversation (it lists every tool and the service's usage notes; follow them), then with a few words or exact tool ids to get input schemas. Run tools with plugins_call. Reuse what you found earlier in this conversation instead of searching again.",
 		);
 	}
 	if (["chat.react", "chat.read", "chat.search"].some((id) => isGranted(agent.tools, id))) {

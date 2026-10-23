@@ -6,7 +6,9 @@ import {
 	type PluginSession,
 	PluginOAuth,
 	type ReplyUsage,
+	PLUGIN_CALL,
 	addStep,
+	calledPluginTool,
 	buildToolSet,
 	buildTurnInput,
 	buildTurnPrompt,
@@ -164,10 +166,15 @@ async function streamReply(
 			results: createResultStore(),
 		},
 		[...builtinTools, ...pluginTools],
+		plugins.sessions.map((s) => ({ ...s.plugin, instructions: s.instructions })),
 	);
 
 	// Stored before the call: later turns replay this exact text, so the cache keeps hitting.
-	const prompt = buildTurnPrompt({ ...turn, agentId: agent.id, unavailablePlugins: plugins.unavailable });
+	const connected = plugins.sessions.flatMap(({ plugin }) => {
+		const entry = findPlugin(plugin.id);
+		return entry ? [{ name: entry.name, description: entry.description }] : [];
+	});
+	const prompt = buildTurnPrompt({ ...turn, agentId: agent.id, plugins: { connected, unavailable: plugins.unavailable } });
 	await ctx.runMutation(internal.turns.savePrompt, { turnId, prompt });
 	const input = buildTurnInput({ agent, skills: turn.skills, session: turn.session, prompt });
 
@@ -177,7 +184,8 @@ async function streamReply(
 		instructions: input.instructions,
 		messages: input.messages,
 		tools,
-		stopWhen: isStepCount(5),
+		// Room for plugins_search + plugins_call + a widget + the answer.
+		stopWhen: isStepCount(10),
 		headers: { "x-session-affinity": turn.session.id },
 		providerOptions: { gateway: { caching: "auto" } },
 	});
@@ -201,7 +209,9 @@ async function streamReply(
 			if (last?.type === "text") last.text += part.text;
 			else parts.push({ type: "text", text: part.text });
 		} else if (part.type === "tool-call") {
-			if (!isWidgetToolName(part.toolName)) setTool(part.toolCallId, part.toolName, "running");
+			// A plugins_call shows as the tool it ran.
+			const name = part.toolName === PLUGIN_CALL ? (calledPluginTool(part.input) ?? part.toolName) : part.toolName;
+			if (!isWidgetToolName(part.toolName)) setTool(part.toolCallId, name, "running");
 		} else if (part.type === "tool-result") {
 			if (isWidgetToolName(part.toolName)) {
 				if (isWidgetResult(part.output)) parts.push({ type: "widget", id: part.toolCallId, widget: part.output.widget });

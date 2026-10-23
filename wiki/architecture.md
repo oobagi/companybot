@@ -11,7 +11,7 @@ pnpm monorepo. Each folder in `src/` is a package.
 ## Concepts (`src/core`)
 What each piece is. The rules for changing them: [Extending](extending.md).
 - **Permission** — a workspace action and the roles allowed to take it (`permissions.ts`). Backend and app both read this table.
-- **Tool** — something an agent can call. Built-ins live in code; plugin tools are discovered from the plugin's MCP server each turn. Ids are `group.name`.
+- **Tool** — something an agent can call. Built-ins live in code; plugin tools are discovered from the plugin's MCP server each turn and reach the model on demand through `plugins_search` / `plugins_call`, not up front. Ids are `group.name`.
 - **Agent** — name, instructions, model, tool grants. A tool reaches the model only if granted, allowed for the person's role, and (plugins) installed, allowed, and connected.
 - **Plugin** — a catalog entry for a remote MCP server, with a workspace or personal connection and encrypted credentials. The catalog has one entry, Night Owl, for internal testing.
 - **Skill** — installable instructions. Agents see one-line descriptions and load the full text on demand.

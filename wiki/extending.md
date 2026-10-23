@@ -17,6 +17,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 - A plugin is a catalog entry pointing at a remote MCP server. Add it with `definePlugin` to `pluginCatalog`; `validatePlugin` must pass (https only).
 - `connection: "workspace"` = one shared account, set by owners. `"personal"` = each person connects their own; agents use the account of the person they're helping.
 - Tools are discovered each turn (`openPlugin`) as `<plugin>.<tool>`. Agents usually grant `<plugin>.*`.
+- Plugin tools load on demand (`plugin-tools.ts`): the model gets two fixed tools, `plugins_search` (an empty query lists every tool plus the server's usage notes; words or exact ids return input schemas) and `plugins_call`. Never hand plugin schemas to the model up front: one server can be 50k+ tokens per call, and a changing tool list breaks prompt caching.
 - Credentials: `PluginCredentials`, encrypted in an **action** (`crypto.ts`) and decrypted only by the agent runner. Never return them from a query.
 - Access = installed + role allowed (`pluginInstalls.roles`) + connected. Checked fresh each turn (`plugins.forTurn`).
 - Auth: `none`, `api_key` (pasted in), or `oauth` (MCP OAuth: discovery, dynamic client registration, PKCE, refresh — all via `@ai-sdk/mcp`). OAuth flow: `plugins.startOAuth` → browser → `GET /oauth/callback` (`backend/convex/oauth.ts`) → `saveConnection`. State lives in `OAuthState` (`core/src/oauth.ts`), encrypted like any credentials. The runner saves refreshed tokens after each turn.

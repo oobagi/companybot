@@ -12,7 +12,9 @@ import { skillCatalog, skillsIndex } from "./skills";
 import { fakeMcpServer } from "./test-mcp-server";
 import { platformGuide } from "./guide";
 import { addStep, emptyUsage, gatewayCost } from "./usage";
-import { createResultStore, isGranted, modelToolName } from "./tools";
+import { type ToolDef, createResultStore, isGranted, modelToolName } from "./tools";
+import { pluginMetaTools } from "./plugin-tools";
+import { z } from "zod";
 import { type PlaceMessage, type TurnPromptInput, buildTurnInput, buildTurnPrompt } from "./turn-input";
 import { describeWidget, isWidgetResult, isWidgetToolName, widgetTools } from "./widgets";
 import type { Actor } from "./types";
@@ -217,11 +219,45 @@ describe("plugins", () => {
 			["notes.find", true, { type: "plugin", pluginId: "notes" }],
 			["notes.write", false, { type: "plugin", pluginId: "notes" }],
 		]);
+		// Plugin tools load on demand: the model gets search + call, not each tool.
 		const tools = buildToolSet({ tools: ["notes.find"] }, ctx(owner), session.tools);
-		expect(Object.keys(tools)).toEqual(["notes_find"]);
+		expect(Object.keys(tools)).toEqual(["plugins_search", "plugins_call"]);
+		const call = (name: string, input: unknown) => tools[name]!.execute!(input, { toolCallId: "1", messages: [] } as never);
+		const found = (await call("plugins_search", { query: "notes" })) as { tools: { tool: string; input: unknown }[] };
+		expect(found.tools.map((t) => t.tool)).toEqual(["notes.find"]);
+		expect(found.tools[0]!.input).toMatchObject({ type: "object" });
+		expect(await call("plugins_call", { tool: "notes.write", input: {} })).toEqual({
+			error: 'No connected tool "notes.write". Use plugins_search first.',
+		});
+		expect(await call("plugins_call", { tool: "notes.find", input: { text: "hi" } })).toEqual({ ref: "r1", data: 'find:{"text":"hi"}' });
 		expect(await session.tools[0]!.execute({ text: "hi" }, ctx(owner))).toBe('find:{"text":"hi"}');
 		await session.close();
 		expect(server.closed).toBe(true);
+	});
+});
+
+describe("plugin tool search", () => {
+	const def = (name: string, description: string): ToolDef => ({
+		id: `crm.crm_${name}`,
+		description,
+		input: z.object({}),
+		source: { type: "plugin", pluginId: "crm" },
+		execute: async () => name,
+	});
+	const tools = [def("leads", "Find leads in the crm"), def("calls", "List calls in the crm"), def("send", "Send an sms from the crm")];
+	const meta = pluginMetaTools(tools, [{ id: "crm", name: "CRM", instructions: "Call crm_me first." }], (t) => t.execute({}, {} as never));
+	const search = async (query: string) =>
+		(await meta.plugins_search!.execute!({ query }, { toolCallId: "1", messages: [] } as never)) as {
+			tools: { tool: string }[];
+			services?: unknown;
+		};
+
+	it("ranks by words that tell tools apart, and lists everything with notes on an empty query", async () => {
+		expect((await search("crm leads")).tools.map((t) => t.tool)[0]).toBe("crm.crm_leads");
+		expect((await search("crm.crm_send")).tools.map((t) => t.tool)[0]).toBe("crm.crm_send");
+		const all = await search("");
+		expect(all.tools).toHaveLength(3);
+		expect(all.services).toEqual([{ name: "CRM", notes: "Call crm_me first." }]);
 	});
 });
 
@@ -281,7 +317,7 @@ describe("widgets", () => {
 		});
 		const session = await openPlugin(crm, { transport: server });
 		const tools = buildToolSet({ tools: ["notes.find"] }, c, session.tools);
-		const found = await tools.notes_find!.execute!({}, { toolCallId: "1", messages: [] } as never);
+		const found = await tools.plugins_call!.execute!({ tool: "notes.find", input: {} }, { toolCallId: "1", messages: [] } as never);
 		expect(found).toEqual({ ref: "r1", data: { leads } });
 		await session.close();
 
@@ -351,7 +387,7 @@ describe("turn input", () => {
 		place: { kind: "channel", name: "sales", private: false, topic: "Deals", thread: null, members: [ada, ben, bot, scribeP] },
 		actor: { name: "Ada", email: "ada@co.com", role: "owner" },
 		memory: "team",
-		unavailablePlugins: [],
+		plugins: { connected: [], unavailable: [] },
 		messages: [
 			msg("m1", ben, "Morning", 1, { replyCount: 3 }),
 			msg("m2", scribeP, "Draft is up", 2, { edited: true }),
@@ -386,7 +422,7 @@ describe("turn input", () => {
 			...base,
 			place: { kind: "dm", name: null, private: true, topic: null, members: [ben, bot], thread: { parent: msg("p", ben, "Plan", 0), first: true } },
 			memory: "personal",
-			unavailablePlugins: ["CRM"],
+			plugins: { connected: [], unavailable: ["CRM"] },
 			messages: [...many, msg("t", ben, "Go", 59)],
 			triggerId: "t",
 		});

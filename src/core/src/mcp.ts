@@ -4,6 +4,7 @@ import { type Plugin, type PluginCredentials, pluginHeaders } from "./plugins";
 import type { ToolDef } from "./tools";
 
 export interface PluginSession {
+	plugin: { id: string; name: string };
 	tools: ToolDef[];
 	/** The server's own usage notes, if it sends any. */
 	instructions?: string;
@@ -36,6 +37,7 @@ export async function openPlugin(
 	try {
 		const { tools } = await client.listTools();
 		return {
+			plugin: { id: plugin.id, name: plugin.name },
 			instructions: client.instructions,
 			close: () => client.close(),
 			tools: tools.map(
