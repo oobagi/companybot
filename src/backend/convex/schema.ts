@@ -40,17 +40,6 @@ export const replyStats = v.object({
 	conversationCostUsd: v.number(),
 });
 
-/** Running cost on chats and thread parents. The summary fields here are unused (compaction is per agent session). */
-const compaction = v.object({
-	/** Summary of messages created at or before `summarizedUpTo`. */
-	summary: v.optional(v.string()),
-	summarizedUpTo: v.optional(v.number()),
-	/** True while older messages are being folded into the summary. */
-	compacting: v.optional(v.boolean()),
-	/** USD spent on agent replies and summaries here. */
-	costUsd: v.optional(v.number()),
-});
-
 // Shared settings carry a `version` that goes up on every save. A save sends the
 // version it started from; if someone saved in between, it's refused as a conflict.
 
@@ -169,7 +158,8 @@ export default defineSchema({
 		archived: v.boolean(),
 		createdBy: v.id("users"),
 		lastMessageAt: v.number(),
-		...compaction.fields,
+		/** USD spent on agent replies and summaries here (main timeline). */
+		costUsd: v.optional(v.number()),
 	})
 		.index("by_workspace", ["workspaceId", "kind"])
 		.index("by_dm_key", ["workspaceId", "dmKey"])
@@ -210,8 +200,8 @@ export default defineSchema({
 		/** Thread parents only. */
 		replyCount: v.optional(v.number()),
 		lastReplyAt: v.optional(v.number()),
-		/** Thread parents only: the thread's own summary, like a chat's. */
-		...compaction.fields,
+		/** Thread parents only: USD spent on agent replies and summaries in the thread. */
+		costUsd: v.optional(v.number()),
 	})
 		.index("by_chat_thread", ["chatId", "threadId"])
 		.index("by_workspace", ["workspaceId"])
