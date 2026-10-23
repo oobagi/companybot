@@ -1,13 +1,44 @@
 import { useState } from "react";
 import { errorMessage } from "./api";
+import { navigate } from "./router";
 
-export function Page({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+/**
+ * A screen. `back` makes it a pushed screen: a link back to the one it came from.
+ * `actions` sit on the right of the title.
+ */
+export function Page({
+	title,
+	subtitle,
+	back,
+	actions,
+	children,
+}: {
+	title: string;
+	subtitle?: string;
+	back?: { label: string; to: string[] };
+	actions?: React.ReactNode;
+	children: React.ReactNode;
+}) {
 	return (
 		<div className="flex-1 overflow-y-auto">
 			<div className="mx-auto flex max-w-2xl flex-col gap-6 px-6 py-10">
-				<header>
-					<h1 className="text-xl font-medium">{title}</h1>
-					{subtitle && <p className="text-sm text-neutral-500">{subtitle}</p>}
+				<header className="flex flex-col gap-3">
+					{back && (
+						<button
+							type="button"
+							onClick={() => navigate(...back.to)}
+							className="self-start text-sm text-neutral-500 hover:text-neutral-900"
+						>
+							← {back.label}
+						</button>
+					)}
+					<div className="flex items-start justify-between gap-4">
+						<div>
+							<h1 className="text-xl font-medium">{title}</h1>
+							{subtitle && <p className="text-sm text-neutral-500">{subtitle}</p>}
+						</div>
+						{actions}
+					</div>
 				</header>
 				{children}
 			</div>

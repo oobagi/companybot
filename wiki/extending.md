@@ -41,6 +41,11 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 - Add one with `defineSkill` to `skillCatalog`. Owners install per workspace.
 - Agents with `skills.load` see installed skills' one-line descriptions and load full text on demand. Keep descriptions short; they're in every prompt.
 
+## Automations — `core/src/automations.ts`, `backend/convex/automations.ts`
+- Add one with `defineAutomation` to `automationCatalog`: trigger, `plugins` it needs (must be installed first), and the `prompt` the agent gets. `details` is the Markdown on its detail page.
+- New event: add it to `AutomationEvent` and the `fire` validator, then call `internal.automations.fire` from the source (webhook, plugin) with the person it's about.
+- Runs post into the person's agent DM (`findOrCreateDm` + `insertMessage`) and queue a turn with `enqueueTurn`, acting as that person, the same path as a message they send. Don't give automations their own permission path.
+
 ## Memory — `core/src/memory.ts`, `backend/convex/memoryOps.ts`
 - Each memory belongs to one agent; scope `workspace` or `personal`. Rules live in `canReadMemory` / `canEditMemory` / `canCreateMemory`.
 - App and agents both go through `memoryOps.ts`, so they can't drift. Agent calls re-read membership each call.

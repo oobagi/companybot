@@ -3,17 +3,19 @@ import type { Role } from "@companybot/core";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvexAuth, useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "./api";
 import { desktop, useUpdates } from "./desktop";
+import { navigate, useRoute } from "./router";
 import { Notice } from "./ui";
 import { ChatView } from "./views/chat/ChatView";
 import { ChatNav, Item } from "./views/chat/Sidebar";
-import { type CustomizeTab, CustomizeView } from "./views/Customize";
-import { type SettingsTab, SettingsView } from "./views/Settings";
+import { CustomizeView, customizeTabs } from "./views/Customize";
+import { SettingsView, settingsTabs } from "./views/Settings";
 import { SignIn } from "./views/SignIn";
 
-type View = "chat" | "customize" | "settings";
+const views = ["chat", "customize", "settings"] as const;
+type View = (typeof views)[number];
 
 export function App() {
 	const { isLoading, isAuthenticated } = useConvexAuth();
@@ -40,18 +42,21 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	const { signOut } = useAuthActions();
 	const chats = useQuery(api.chats.list);
 	const prefs = useQuery(api.preferences.get);
-	const [view, setView] = useState<View>("chat");
-	// Kept here so each page reopens where you left it.
-	const [chatId, setChatId] = useState<Id<"chats">>();
-	const [customizeTab, setCustomizeTab] = useState<CustomizeTab>("agents");
-	const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
+	// Screens are paths: /chat[/<chat>], /customize/<tab>[/<item>], /settings/<tab>.
+	const route = useRoute();
+	const view: View = views.find((v) => v === route[0]) ?? "chat";
+	const customizeTab = customizeTabs.find((t) => t.id === route[1])?.id ?? "agents";
+	const settingsTab = settingsTabs.find((t) => t.id === route[1])?.id ?? "general";
+	// Each section reopens where you left it.
+	const lastPath = useRef<Partial<Record<View, string[]>>>({});
+	lastPath.current[view] = route;
 	const [error, setError] = useState<string>();
 	const { status: update } = useUpdates();
 
+	const chatId = view === "chat" ? (route[1] as Id<"chats"> | undefined) : undefined;
 	const openId = chatId ?? (chats?.channels.find((c) => c.isDefault) ?? chats?.channels[0] ?? chats?.dms[0])?._id;
 	const open = (id: Id<"chats">) => {
-		setChatId(id);
-		setView("chat");
+		navigate("chat", id);
 		setError(undefined);
 	};
 
@@ -62,7 +67,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 				<ChatNav chats={chats} openId={view === "chat" ? openId : undefined} onOpen={open} onError={(e) => setError(errorMessage(e))} />
 				<nav className="no-drag flex flex-col gap-px border-t border-neutral-200 pt-3">
 					{(["customize", "settings"] as const).map((v) => (
-						<Item key={v} active={view === v} onClick={() => setView(v)}>
+						<Item key={v} active={view === v} onClick={() => navigate(...(lastPath.current[v] ?? [v]))}>
 							<span className="capitalize">{v}</span>
 						</Item>
 					))}
@@ -91,13 +96,13 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 				{error && <Notice>{error}</Notice>}
 				{view === "chat" &&
 					(openId ? (
-						<ChatView key={openId} chatId={openId} sendWith={prefs?.sendWith ?? "enter"} onLeft={() => setChatId(undefined)} />
+						<ChatView key={openId} chatId={openId} sendWith={prefs?.sendWith ?? "enter"} onLeft={() => navigate("chat")} />
 					) : (
 						<div className="drag h-12 shrink-0" />
 					))}
 				{view !== "chat" && <header className="drag h-12 shrink-0" />}
-				{view === "customize" && <CustomizeView role={role} tab={customizeTab} onTab={setCustomizeTab} />}
-				{view === "settings" && <SettingsView role={role} tab={settingsTab} onTab={setSettingsTab} />}
+				{view === "customize" && <CustomizeView role={role} tab={customizeTab} itemId={route[2]} />}
+				{view === "settings" && <SettingsView role={role} tab={settingsTab} onTab={(t) => navigate("settings", t)} />}
 			</main>
 		</div>
 	);

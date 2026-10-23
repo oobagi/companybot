@@ -77,6 +77,7 @@ export const list = query({
 					version: plugin.version,
 					publisher: plugin.publisher,
 					connection: plugin.connection,
+					server: plugin.mcp.url,
 					// Labels only; nothing secret lives in the catalog.
 					auth: plugin.auth,
 					installed: !!state,

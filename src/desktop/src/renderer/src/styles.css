@@ -28,3 +28,19 @@ body {
 .no-drag {
 	-webkit-app-region: no-drag;
 }
+
+/* One rule for everything clickable: pointer when it works, not-allowed when it doesn't.
+   Tailwind's reset gives buttons the default arrow. */
+@layer base {
+	button,
+	[role="button"],
+	a[href],
+	select,
+	summary {
+		cursor: pointer;
+	}
+	:disabled,
+	fieldset:disabled * {
+		cursor: not-allowed;
+	}
+}

@@ -11,8 +11,11 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 - Replies render Markdown and **widgets**: real UI under the message (tables, stat tiles; more later), e.g. "last 10 leads" → a table.
 - One continuous conversation per agent; it auto-compacts. No separate sessions. Channels keep normal threads.
 - Settings: General (workspace name), Members, Memory, Your preferences (name, send key). Shared settings are saved explicitly, with a conflict warning.
-- Customize tab: **Agents** (owners edit; every save is versioned and restorable), **Plugins** (connectors to outside services via MCP — Gmail, Calendar…) and **Skills** (a marketplace of installable instructions). Memory and clock are built in, not plugins.
-- Built-in automations and schedules.
+- Customize tab: **Agents** (owners edit; every save is versioned and restorable), **Plugins** (connectors to outside services via MCP — Gmail, Calendar…), **Skills** (a marketplace of installable instructions) and **Automations** (below). Memory and clock are built in, not plugins.
+- Plugins, Skills and Automations are libraries: browse, install what you want, turn it off anytime. Click any item to open its detail page — what it does, who made it, version, what it needs (plugins, permissions, account), and for skills the full instructions.
+- **Automations**: short, ready-made jobs that run on their own, from a trigger (event or schedule) to an agent action. Install one, pick its agent and where results go, toggle on/off. Each shows when it last ran and what it did. Examples:
+  - **After-call summary** — when a call ends (needs a calls plugin, e.g. Night Owl), post a summary with next steps and action items.
+  - **Morning brief** — every weekday at 8am, DM each person their meetings, open tasks, and anything that changed overnight.
 
 ## Platform
 - Desktop app first (Electron). Standalone mobile app later. No web app.

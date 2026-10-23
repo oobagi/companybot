@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildToolSet, describeToolAccess, grantedPluginIds, resolveTools, validateAgentConfig } from "./agents";
 import { builtinTools } from "./builtin-tools";
+import { describeTrigger, findAutomation, isValidTimeZone, scheduleDue } from "./automations";
 import { blankAgent, companybot, scribe } from "./default-agents";
 import type { ChatStore, Participant } from "./chat";
 import { type Memory, type MemoryStore, canCreateMemory, canEditMemory, canReadMemory } from "./memory";
@@ -450,5 +451,29 @@ describe("turn input", () => {
 			{ role: "assistant", content: "(No reply.)" },
 			{ role: "user", content: "P3" },
 		]);
+	});
+});
+
+describe("automations", () => {
+	const brief = findAutomation("morning-brief")!;
+	// Thu 2026-10-22, 15:30 UTC = 08:30 in Los Angeles.
+	const thursday = Date.UTC(2026, 9, 22, 15, 30);
+	const la = "America/Los_Angeles";
+
+	it("runs a schedule once a day, after its time, on its days", () => {
+		expect(scheduleDue(brief.trigger, thursday, la, undefined)).toBe("2026-10-22");
+		expect(scheduleDue(brief.trigger, thursday, la, "2026-10-22")).toBeNull();
+		expect(scheduleDue(brief.trigger, thursday - 60 * 60_000, la, undefined)).toBeNull(); // 7:30
+		expect(scheduleDue(brief.trigger, thursday + 2 * 86_400_000, la, undefined)).toBeNull(); // Saturday
+	});
+
+	it("never schedules event automations", () => {
+		expect(scheduleDue(findAutomation("after-call-summary")!.trigger, thursday, la, undefined)).toBeNull();
+	});
+
+	it("describes triggers plainly", () => {
+		expect(describeTrigger(brief.trigger)).toBe("Weekdays at 8:00 AM");
+		expect(isValidTimeZone(la)).toBe(true);
+		expect(isValidTimeZone("Mars/Base")).toBe(false);
 	});
 });

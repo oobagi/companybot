@@ -8,7 +8,7 @@ import {
 	addToChat,
 	agentOfDm,
 	chatMembersOf,
-	dmKeyOf,
+	findOrCreateDm,
 	markChatRead,
 	membership,
 	namer,
@@ -261,25 +261,7 @@ export const openDm = mutation({
 		const agentIds = [...new Set(args.agentIds)];
 		await requireWorkspaceUsers(ctx, member.workspaceId, userIds);
 		await requireActiveAgents(ctx, member.workspaceId, agentIds);
-		const dmKey = dmKeyOf(userIds, agentIds);
-		const existing = await ctx.db
-			.query("chats")
-			.withIndex("by_dm_key", (q) => q.eq("workspaceId", member.workspaceId).eq("dmKey", dmKey))
-			.first();
-		if (existing) return existing._id;
-		const chatId = await ctx.db.insert("chats", {
-			workspaceId: member.workspaceId,
-			kind: "dm",
-			private: true,
-			dmKey,
-			archived: false,
-			createdBy: member.userId,
-			lastMessageAt: Date.now(),
-		});
-		const chat = (await ctx.db.get(chatId))!;
-		for (const userId of userIds) await addToChat(ctx, chat, { userId });
-		for (const agentId of agentIds) await addToChat(ctx, chat, { agentId });
-		return chatId;
+		return findOrCreateDm(ctx, member.workspaceId, member.userId, userIds, agentIds);
 	},
 });
 

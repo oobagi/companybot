@@ -5,6 +5,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./agent-config": "./src/agent-config.ts",
+    "./local-auth": "./src/local-auth.ts",
     "./permissions": "./src/permissions.ts"
   },
   "scripts": {

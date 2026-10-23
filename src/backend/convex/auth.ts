@@ -1,5 +1,9 @@
 import { Email } from "@convex-dev/auth/providers/Email";
 import { convexAuth } from "@convex-dev/auth/server";
+import { v } from "convex/values";
+import { isLocalBackend } from "@companybot/core";
+import { internal } from "./_generated/api";
+import { type ActionCtx, internalMutation, query } from "./_generated/server";
 import { Resend } from "resend";
 
 // Sign in with a 6-digit code sent by email. No passwords.
@@ -10,7 +14,12 @@ const EmailCode = Email({
 	async generateVerificationToken() {
 		return randomDigits(6);
 	},
-	async sendVerificationRequest({ identifier: email, provider, token }) {
+	// Convex Auth passes ctx too; the Auth.js type it also satisfies doesn't, hence optional.
+	async sendVerificationRequest(
+		{ identifier: email, provider, token }: { identifier: string; provider: { apiKey?: string }; token: string },
+		ctx?: ActionCtx,
+	) {
+		if (isLocal() && ctx) return void (await ctx.runMutation(internal.auth.saveLocalCode, { email, code: token }));
 		const { error } = await new Resend(provider.apiKey).emails.send({
 			from: process.env.AUTH_EMAIL_FROM ?? "Companybot <onboarding@resend.dev>",
 			to: [email],
@@ -30,6 +39,35 @@ function randomDigits(length: number) {
 	}
 	return code;
 }
+
+const isLocal = () => isLocalBackend(process.env.CONVEX_CLOUD_URL);
+
+// ---- Local backends only (`pnpm dev`): no email; the app reads the code and signs in. ----
+
+export const saveLocalCode = internalMutation({
+	args: { email: v.string(), code: v.string() },
+	handler: async (ctx, { email, code }) => {
+		if (!isLocal()) return;
+		const existing = await ctx.db
+			.query("localSignInCodes")
+			.withIndex("by_email", (q) => q.eq("email", email))
+			.first();
+		if (existing) await ctx.db.patch(existing._id, { code });
+		else await ctx.db.insert("localSignInCodes", { email, code });
+	},
+});
+
+export const localCode = query({
+	args: { email: v.string() },
+	handler: async (ctx, { email }) => {
+		if (!isLocal()) return null;
+		const row = await ctx.db
+			.query("localSignInCodes")
+			.withIndex("by_email", (q) => q.eq("email", email))
+			.first();
+		return row?.code ?? null;
+	},
+});
 
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
 	providers: [EmailCode],

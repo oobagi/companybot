@@ -9,11 +9,12 @@ export const list = query({
 		const member = await getMember(ctx);
 		if (!member) return [];
 		const installed = new Set((await installedSkills(ctx, member.workspaceId)).map((s) => s.id));
-		return skillCatalog.map(({ id, name, description, version }) => ({
+		return skillCatalog.map(({ id, name, description, version, instructions }) => ({
 			id,
 			name,
 			description,
 			version,
+			instructions,
 			installed: installed.has(id),
 		}));
 	},

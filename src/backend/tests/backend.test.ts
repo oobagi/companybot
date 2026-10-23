@@ -1,5 +1,5 @@
 import { convexTest } from "convex-test";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import schema from "../convex/schema";
@@ -657,5 +657,68 @@ describe("plugins", () => {
 		await owner.action(api.plugins.connect, { pluginId: "crm", credentials: { type: "api_key", key: "k" } });
 		await owner.mutation(api.plugins.setInstalled, { pluginId: "crm", installed: false });
 		expect(await t.run((ctx) => ctx.db.query("pluginConnections").collect())).toHaveLength(0);
+	});
+});
+
+describe("automations", () => {
+	const tz = "America/Los_Angeles";
+	/** Who wrote each message in this person's DM with the agent, and which automation sent it. */
+	const dmWith = async (as: Awaited<ReturnType<typeof signIn>>, agentId: Id<"agents">) => {
+		const dmId = (await as.query(api.chats.list))?.agents.find((a) => a._id === agentId)?.dmId;
+		const messages = dmId ? await as.query(api.messages.list, { chatId: dmId }) : [];
+		return messages.map((m) => [m.author.type, m.automation?.name ?? null]);
+	};
+
+	it("lets only owners install, and needs required plugins first", async () => {
+		const { owner, member } = await ownerAndMember();
+		await expect(
+			member.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: true, timeZone: tz }),
+		).rejects.toThrow("permission");
+		await expect(
+			owner.mutation(api.automations.setInstalled, { automationId: "after-call-summary", installed: true, timeZone: tz }),
+		).rejects.toThrow("Install the Night Owl plugin first");
+		await owner.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: true, timeZone: tz });
+		const brief = (await member.query(api.automations.list)).find((a) => a.id === "morning-brief")!;
+		expect([brief.installed, brief.enabled, brief.agentName, brief.trigger]).toEqual([
+			true,
+			true,
+			"Companybot",
+			"Weekdays at 8:00 AM",
+		]);
+	});
+
+	it("runs a schedule for everyone once a day, marked as the automation's", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		await owner.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: true, timeZone: tz });
+		// Pretend it last ran long ago, then let the tick find it due (on a weekday after 8am).
+		await t.run(async (ctx) => {
+			const install = (await ctx.db.query("automationInstalls").first())!;
+			await ctx.db.patch(install._id, { lastRunDate: "2000-01-01" });
+		});
+		vi.useFakeTimers({ now: Date.UTC(2026, 9, 22, 16), toFake: ["Date"] }); // Thu 9am in LA
+		try {
+			await t.mutation(internal.automations.tick);
+			await t.mutation(internal.automations.tick);
+		} finally {
+			vi.useRealTimers();
+		}
+		const { companybot } = await agentsOf(member);
+		expect(await dmWith(member, companybot._id)).toEqual([
+			["user", "Morning brief"],
+			["agent", null],
+		]);
+		const brief = (await owner.query(api.automations.list)).find((a) => a.id === "morning-brief")!;
+		expect(brief.lastResult).toBe("Sent to 2 people.");
+	});
+
+	it("skips turned-off automations and runs now for the owner alone", async () => {
+		const { owner, member } = await ownerAndMember();
+		await owner.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: true, timeZone: tz });
+		await owner.mutation(api.automations.update, { automationId: "morning-brief", enabled: false });
+		await owner.mutation(api.automations.runNow, { automationId: "morning-brief" });
+		const { companybot } = await agentsOf(owner);
+		expect(await dmWith(owner, companybot._id)).toHaveLength(2);
+		expect(await dmWith(member, companybot._id)).toHaveLength(0);
+		await expect(member.mutation(api.automations.runNow, { automationId: "morning-brief" })).rejects.toThrow("permission");
 	});
 });

@@ -15,6 +15,7 @@ export const permissions = {
 	/** Connect your own account to a plugin that uses personal connections. */
 	"plugins.connect": { roles: ["owner", "member"], label: "connect plugins" },
 	"skills.manage": { roles: ["owner"], label: "manage skills" },
+	"automations.manage": { roles: ["owner"], label: "manage automations" },
 	"memory.team.write": { roles: ["owner"], label: "change team memories" },
 	"memory.all.read": { roles: ["owner"], label: "read everyone's memories" },
 	"channels.create": { roles: ["owner", "member"], label: "create channels" },

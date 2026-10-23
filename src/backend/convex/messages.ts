@@ -39,6 +39,8 @@ export type Message = {
 	/** Up to 3 people or agents who replied in the thread, most recent first. */
 	replyAuthors: Participant[];
 	reactions: { emoji: string; count: number; mine: boolean; names: string[] }[];
+	/** Set when an automation posted this for its author. */
+	automation: { id: string; name: string } | null;
 };
 
 const LIST_LIMIT = 200;
@@ -102,6 +104,7 @@ async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, 
 		lastReplyAt: m.lastReplyAt ?? null,
 		replyAuthors,
 		reactions,
+		automation: m.automation ?? null,
 	};
 }
 

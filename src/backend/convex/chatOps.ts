@@ -128,6 +128,35 @@ export async function requireActiveAgents(ctx: QueryCtx, workspaceId: Id<"worksp
 	}
 }
 
+/** The DM between exactly these people and agents, created if it doesn't exist yet. */
+export async function findOrCreateDm(
+	ctx: MutationCtx,
+	workspaceId: Id<"workspaces">,
+	createdBy: Id<"users">,
+	userIds: Id<"users">[],
+	agentIds: Id<"agents">[],
+): Promise<Id<"chats">> {
+	const dmKey = dmKeyOf(userIds, agentIds);
+	const existing = await ctx.db
+		.query("chats")
+		.withIndex("by_dm_key", (q) => q.eq("workspaceId", workspaceId).eq("dmKey", dmKey))
+		.first();
+	if (existing) return existing._id;
+	const chatId = await ctx.db.insert("chats", {
+		workspaceId,
+		kind: "dm",
+		private: true,
+		dmKey,
+		archived: false,
+		createdBy,
+		lastMessageAt: Date.now(),
+	});
+	const chat = (await ctx.db.get(chatId))!;
+	for (const userId of userIds) await addToChat(ctx, chat, { userId });
+	for (const agentId of agentIds) await addToChat(ctx, chat, { agentId });
+	return chatId;
+}
+
 /**
  * Stores a message and updates its place: the chat's `lastMessageAt` for the main
  * timeline, the parent's reply count for a thread.

@@ -1,22 +1,25 @@
+import { isLocalBackend } from "@companybot/core/local-auth";
 import { useAuthActions } from "@convex-dev/auth/react";
+import { useConvex } from "convex/react";
 import { useState } from "react";
-import { errorMessage } from "../api";
+import { api, errorMessage } from "../api";
 import { Notice } from "../ui";
 
 export function SignIn() {
 	const { signIn } = useAuthActions();
+	const convex = useConvex();
 	const [email, setEmail] = useState("");
 	const [code, setCode] = useState("");
 	const [sentTo, setSentTo] = useState<string>();
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string>();
 
-	const run = async (fields: Record<string, string>, then?: () => void) => {
+	const run = async (fields: Record<string, string>, then?: () => unknown) => {
 		setBusy(true);
 		setError(undefined);
 		try {
 			await signIn("email-code", fields);
-			then?.();
+			await then?.();
 		} catch (e) {
 			setError(sentTo ? "That code didn't work. Try again." : errorMessage(e));
 		} finally {
@@ -30,8 +33,15 @@ export function SignIn() {
 				className="no-drag flex w-80 flex-col gap-3"
 				onSubmit={(e) => {
 					e.preventDefault();
+					const to = email.trim();
 					if (sentTo) run({ email: sentTo, code: code.trim() });
-					else run({ email: email.trim() }, () => setSentTo(email.trim()));
+					else if (isLocalBackend(import.meta.env.CONVEX_URL)) {
+						// Local backend: no email is sent, so read the code back and sign straight in.
+						run({ email: to }, async () => {
+							const localCode = await convex.query(api.auth.localCode, { email: to });
+							if (localCode) await signIn("email-code", { email: to, code: localCode });
+						});
+					} else run({ email: to }, () => setSentTo(to));
 				}}
 			>
 				<h1 className="text-xl font-medium">Sign in to Companybot</h1>

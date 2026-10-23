@@ -7,6 +7,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "dev": "node scripts/dev.mjs",
     "dev:backend": "convex dev",
     "dev:desktop": "pnpm --filter @companybot/desktop dev",
     "test": "pnpm -r test",
