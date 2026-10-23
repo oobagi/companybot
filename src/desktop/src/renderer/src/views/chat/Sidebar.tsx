@@ -136,15 +136,7 @@ export function Item({
 			type="button"
 			title={title}
 			onClick={onClick}
-			className={`flex items-center gap-2 rounded-lg px-2 py-1 text-left text-sm ${
-				active
-					? "bg-neutral-200/70 font-medium text-neutral-900"
-					: unread
-						? "font-semibold text-neutral-900 hover:bg-neutral-100"
-						: muted
-							? "text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700"
-							: "text-neutral-600 hover:bg-neutral-100"
-			}`}
+			className={`flex items-center gap-2 rounded-lg px-2 py-1 text-left text-sm ${itemTone({ active, unread, muted })}`}
 		>
 			{children}
 			{mentioned && !active && (
@@ -154,4 +146,11 @@ export function Item({
 			)}
 		</button>
 	);
+}
+
+function itemTone({ active, unread, muted }: { active?: boolean; unread?: boolean; muted?: boolean }) {
+	if (active) return "bg-neutral-200/70 font-medium text-neutral-900";
+	if (unread) return "font-semibold text-neutral-900 hover:bg-neutral-100";
+	if (muted) return "text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700";
+	return "text-neutral-600 hover:bg-neutral-100";
 }

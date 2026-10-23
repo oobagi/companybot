@@ -2,7 +2,7 @@ import { describeWidget } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { type Member, memberOf, nameOf } from "./lib";
+import { type Member, getMember, memberOf, nameOf } from "./lib";
 
 // Shared by the app's chat functions (chats.ts, messages.ts) and the agent runner
 // (turns.ts), so both follow the same visibility rules. See wiki/chat.md.
@@ -53,6 +53,14 @@ export async function canSee(ctx: QueryCtx, chat: Doc<"chats">, member: Member) 
 	return !!(await membership(ctx, chat._id, member.userId));
 }
 
+/** You and the chat, if you can see it. For queries, which show nothing rather than fail. */
+export async function visibleChat(ctx: QueryCtx, chatId: Id<"chats">) {
+	const member = await getMember(ctx);
+	const chat = member && (await ctx.db.get(chatId));
+	if (!member || !chat || !(await canSee(ctx, chat, member))) return null;
+	return { member, chat };
+}
+
 /** A chat the person can see. Others look like they don't exist. */
 export async function requireChat(ctx: QueryCtx, member: Member, chatId: Id<"chats">) {
 	const chat = await ctx.db.get(chatId);
@@ -75,6 +83,12 @@ export async function addToChat(ctx: MutationCtx, chat: Doc<"chats">, who: { use
 		...who,
 		...(who.userId && { lastReadAt: Date.now() }),
 	});
+}
+
+/** Sets the person's `lastReadAt` to now, if they're in the chat. */
+export async function markChatRead(ctx: MutationCtx, chatId: Id<"chats">, userId: Id<"users">) {
+	const row = await membership(ctx, chatId, userId);
+	if (row) await ctx.db.patch(row._id, { lastReadAt: Date.now() });
 }
 
 /** The workspace's #general, created if missing. */
@@ -130,6 +144,33 @@ export async function insertMessage(
 		if (parent) await ctx.db.patch(parent._id, { replyCount: (parent.replyCount ?? 0) + 1, lastReplyAt: now });
 	} else await ctx.db.patch(chat._id, { lastMessageAt: now });
 	return id;
+}
+
+export const reactionsOf = (ctx: QueryCtx, messageId: Id<"chatMessages">) =>
+	ctx.db
+		.query("reactions")
+		.withIndex("by_message", (q) => q.eq("messageId", messageId))
+		.collect();
+
+/** Toggles one person's or agent's reaction. Returns whether it's now on. */
+export async function toggleReaction(
+	ctx: MutationCtx,
+	message: Doc<"chatMessages">,
+	emoji: string,
+	who: { userId: Id<"users"> } | { agentId: Id<"agents"> },
+) {
+	const existing = (
+		await ctx.db
+			.query("reactions")
+			.withIndex("by_message", (q) => q.eq("messageId", message._id).eq("emoji", emoji))
+			.collect()
+	).find((r) => ("userId" in who ? r.userId === who.userId : r.agentId === who.agentId));
+	if (existing) {
+		await ctx.db.delete(existing._id);
+		return false;
+	}
+	await ctx.db.insert("reactions", { messageId: message._id, chatId: message.chatId, emoji, ...who });
+	return true;
 }
 
 /** Display names for people and agents, cached for one query. */

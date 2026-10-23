@@ -6,7 +6,7 @@ import { api, errorMessage } from "../../api";
 import { Loading, Notice } from "../../ui";
 import { AgentBadge, AvatarStack } from "./common";
 import { Composer, type SendWith } from "./Composer";
-import { type ChatDetails, type Mentions, chatTitle, dmAgent, useDirectory } from "./data";
+import { type ChatDetails, type Mentions, chatTitle, useDirectory } from "./data";
 import { ChannelDetails } from "./dialogs";
 import { MessageList } from "./MessageList";
 import { ThreadPanel } from "./Thread";
@@ -46,7 +46,8 @@ function OpenChat({ chat, sendWith, onLeft }: { chat: ChatDetails; sendWith: Sen
 		if (unread) markRead({ chatId: chat._id }).catch(() => {});
 	}, [unread, chat._id, markRead]);
 
-	const agent = dmAgent(chat);
+	/** Set in an agent DM (you and one agent). */
+	const agent = chat.agentId ? chat.members.find((m) => m.id === chat.agentId) : undefined;
 	const title = chatTitle(chat);
 	const candidates = [...directory.people, ...directory.agents];
 	const send = (text: string, mentions: Mentions) => {

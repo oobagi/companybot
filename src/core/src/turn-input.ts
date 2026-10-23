@@ -60,18 +60,14 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 		place.members.filter((m) => m.type === type && m.id !== input.agentId).map((m) => m.name);
 	const people = others("user");
 	const agents = others("agent");
-
-	const where =
-		place.kind === "channel"
-			? `#${place.name}, a ${place.private ? "private" : "public"} channel${place.topic ? `. Topic: ${place.topic.replace(/\.$/, "")}` : ""}`
-			: people.length === 1 && agents.length === 0
-				? `a DM with ${people[0]}`
-				: `a group DM`;
-	const header = [
-		`Where you are: ${where}${place.thread ? ", in a thread" : ""}.`,
-		`Here: ${[people.length > 0 && `${people.join(", ")} (people)`, agents.length > 0 && `${agents.join(", ")} (agents)`]
+	const here =
+		[people.length > 0 && `${people.join(", ")} (people)`, agents.length > 0 && `${agents.join(", ")} (agents)`]
 			.filter(Boolean)
-			.join("; ") || "just you"}.`,
+			.join("; ") || "just you";
+
+	const header = [
+		`Where you are: ${describePlace(place, people, agents)}${place.thread ? ", in a thread" : ""}.`,
+		`Here: ${here}.`,
 		`${actor.name} <${actor.email}>, a workspace ${actor.role}, asked for you. You act with their access.`,
 		input.memory === "personal"
 			? "Memory: personal and team memories."
@@ -102,6 +98,15 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 	}
 	if (trigger) sections.push(`Reply to this message from ${trigger.author.name}:\n${line(trigger)}`);
 	return sections.join("\n\n");
+}
+
+/** "#sales, a public channel. Topic: …", "a DM with Ada", or "a group DM". */
+function describePlace(place: TurnPlace, people: string[], agents: string[]) {
+	if (place.kind === "channel") {
+		const topic = place.topic ? `. Topic: ${place.topic.replace(/\.$/, "")}` : "";
+		return `#${place.name}, a ${place.private ? "private" : "public"} channel${topic}`;
+	}
+	return people.length === 1 && agents.length === 0 ? `a DM with ${people[0]}` : "a group DM";
 }
 
 /** `[Ada 10-22 15:04] text`, plus edit and thread notes. */

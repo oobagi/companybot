@@ -6,15 +6,17 @@ import {
 	type Participant,
 	addToChat,
 	agentOfDm,
-	canSee,
 	insertMessage,
-	membership,
+	markChatRead,
 	namer,
+	reactionsOf,
 	requireChat,
+	toggleReaction,
+	visibleChat,
 } from "./chatOps";
-import { type Member, getMember, memberOf, requireMember } from "./lib";
+import { type Member, memberOf, requireMember } from "./lib";
 import type { messagePart, replyStats } from "./schema";
-import { enqueueTurn, toggleReaction } from "./turns";
+import { enqueueTurn } from "./turns";
 
 // Messages in a chat's main timeline or a thread. See wiki/chat.md.
 
@@ -45,9 +47,8 @@ const LIST_LIMIT = 200;
 export const list = query({
 	args: { chatId: v.id("chats"), threadId: v.optional(v.id("chatMessages")) },
 	handler: async (ctx, { chatId, threadId }): Promise<Message[]> => {
-		const member = await getMember(ctx);
-		const chat = member && (await ctx.db.get(chatId));
-		if (!member || !chat || !(await canSee(ctx, chat, member))) return [];
+		const visible = await visibleChat(ctx, chatId);
+		if (!visible) return [];
 		const parent = threadId && (await ctx.db.get(threadId));
 		if (threadId && (!parent || parent.chatId !== chatId)) return [];
 		const docs = (
@@ -58,16 +59,13 @@ export const list = query({
 				.take(LIST_LIMIT)
 		).reverse();
 		const names = namer(ctx);
-		return Promise.all((parent ? [parent, ...docs] : docs).map((m) => toMessage(ctx, m, member, names)));
+		return Promise.all((parent ? [parent, ...docs] : docs).map((m) => toMessage(ctx, m, visible.member, names)));
 	},
 });
 
 async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, names: Namer): Promise<Message> {
 	const reactions: Message["reactions"] = [];
-	for (const r of await ctx.db
-		.query("reactions")
-		.withIndex("by_message", (q) => q.eq("messageId", m._id))
-		.collect()) {
+	for (const r of await reactionsOf(ctx, m._id)) {
 		let group = reactions.find((g) => g.emoji === r.emoji);
 		if (!group) reactions.push((group = { emoji: r.emoji, count: 0, mine: false, names: [] }));
 		group.count++;
@@ -152,10 +150,7 @@ export const send = mutation({
 			mentions: { userIds, agentIds },
 			status: "done",
 		});
-		if (!threadId) {
-			const row = await membership(ctx, chatId, member.userId);
-			if (row) await ctx.db.patch(row._id, { lastReadAt: Date.now() });
-		}
+		if (!threadId) await markChatRead(ctx, chatId, member.userId);
 
 		// Channels gain mentioned agents as members. DMs are a fixed set, so only their own agents answer.
 		let responders: Id<"agents">[];
@@ -198,12 +193,7 @@ export const remove = mutation({
 	handler: async (ctx, { messageId }) => {
 		const message = await requireOwn(ctx, await requireMember(ctx), messageId);
 		await ctx.db.patch(message._id, { text: "", parts: [], deleted: true });
-		for (const r of await ctx.db
-			.query("reactions")
-			.withIndex("by_message", (q) => q.eq("messageId", messageId))
-			.collect()) {
-			await ctx.db.delete(r._id);
-		}
+		for (const r of await reactionsOf(ctx, messageId)) await ctx.db.delete(r._id);
 	},
 });
 

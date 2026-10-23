@@ -4,8 +4,7 @@ import { useQuery } from "convex-helpers/react/cache";
 import { api } from "../../api";
 
 export type ChatList = NonNullable<FunctionReturnType<typeof api.chats.list>>;
-export type ChatItem = ChatList["channels"][number];
-export type AgentItem = ChatList["agents"][number];
+type ChatItem = ChatList["channels"][number];
 export type ChatDetails = NonNullable<FunctionReturnType<typeof api.chats.get>>;
 export type Message = FunctionReturnType<typeof api.messages.list>[number];
 export type Participant = Message["author"];
@@ -24,14 +23,6 @@ export function useDirectory() {
 		/** Everyone's names, for highlighting @mentions in text. */
 		names: [...people, ...agents].map((p) => p.name).filter(Boolean),
 	};
-}
-
-/** An agent DM: you and exactly one agent. */
-export function dmAgent(chat: Pick<ChatItem, "kind" | "members">) {
-	if (chat.kind !== "dm") return undefined;
-	const agents = chat.members.filter((m) => m.type === "agent");
-	const people = chat.members.filter((m) => m.type === "user");
-	return agents.length === 1 && people.length <= 1 ? agents[0] : undefined;
 }
 
 export const chatTitle = (chat: Pick<ChatItem, "kind" | "name" | "title">) =>

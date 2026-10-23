@@ -150,8 +150,7 @@ async function streamReply(
 	plugins: LoadedPlugins,
 	usage: TurnUsage,
 ) {
-	const { agent, member } = turn;
-	const { replyId } = turn;
+	const { agent, member, replyId } = turn;
 	usage.model = agent.model;
 	// Plugin tools sorted by id, so the tool list is identical every turn and caches.
 	const pluginTools = plugins.sessions.flatMap((s) => s.tools).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));

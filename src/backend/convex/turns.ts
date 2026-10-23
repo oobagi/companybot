@@ -12,8 +12,10 @@ import {
 	insertMessage,
 	namer,
 	normalizeChannelName,
+	reactionsOf,
 	replyForModel,
 	textForModel,
+	toggleReaction,
 } from "./chatOps";
 import { type Member, installedSkills, memberOf } from "./lib";
 import { messagePart, replyUsage } from "./schema";
@@ -45,6 +47,13 @@ const turnsAt = (ctx: QueryCtx, place: Place, status: Doc<"agentTurns">["status"
 			q.eq("agentId", place.agentId).eq("chatId", place.chatId).eq("threadId", place.threadId).eq("status", status),
 		);
 
+/** The agent's session in a place, if it has one. */
+export const sessionAt = (ctx: QueryCtx, place: Place) =>
+	ctx.db
+		.query("agentSessions")
+		.withIndex("by_place", (q) => q.eq("agentId", place.agentId).eq("chatId", place.chatId).eq("threadId", place.threadId))
+		.first();
+
 /** Starts the oldest queued turn in a place, unless one is running (a stale one is failed first). */
 async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place) {
 	const place = { agentId, chatId, threadId };
@@ -61,13 +70,8 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 	if (!chat) return await ctx.db.patch(next._id, { status: "error" });
 
 	const session =
-		(await ctx.db
-			.query("agentSessions")
-			.withIndex("by_place", (q) => q.eq("agentId", place.agentId).eq("chatId", place.chatId).eq("threadId", place.threadId))
-			.first()) ??
-		(await ctx.db.get(
-			await ctx.db.insert("agentSessions", { workspaceId: chat.workspaceId, ...place }),
-		))!;
+		(await sessionAt(ctx, place)) ??
+		(await ctx.db.get(await ctx.db.insert("agentSessions", { workspaceId: chat.workspaceId, ...place })))!;
 	const replyId = await insertMessage(ctx, chat, {
 		threadId: place.threadId,
 		authorAgentId: place.agentId,
@@ -80,18 +84,19 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 	await ctx.scheduler.runAfter(0, internal.agent.respond, { turnId: next._id });
 }
 
-/** A session's finished turns that were sent to the model, oldest first. */
+/** A session's finished, unsummarized turns as they replay to the model, oldest first. */
 async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">) {
 	const turns = await ctx.db
 		.query("agentTurns")
 		.withIndex("by_session", (q) => q.eq("sessionId", session._id).gt("_creationTime", session.summarizedUpTo ?? 0))
 		.collect();
-	return turns.filter((t) => (t.status === "done" || t.status === "error") && t.prompt !== undefined);
-}
-
-async function replyText(ctx: QueryCtx, turn: Doc<"agentTurns">) {
-	const reply = turn.replyId && (await ctx.db.get(turn.replyId));
-	return reply ? replyForModel(reply) : "";
+	const finished = turns.filter((t) => (t.status === "done" || t.status === "error") && t.prompt !== undefined);
+	return Promise.all(
+		finished.map(async (t) => {
+			const reply = t.replyId && (await ctx.db.get(t.replyId));
+			return { prompt: t.prompt!, reply: reply ? replyForModel(reply) : "", time: t._creationTime };
+		}),
+	);
 }
 
 /** The running turn, its person (read fresh), and the chat, if they can still see it. */
@@ -119,8 +124,8 @@ export const turnContext = internalQuery({
 		const reply = (await ctx.db.get(turn.replyId))!;
 		const names = namer(ctx);
 
-		const past = (await sessionTurns(ctx, session)).filter((t) => t._id !== turnId);
-		const turns = await Promise.all(past.map(async (t) => ({ prompt: t.prompt!, reply: await replyText(ctx, t) })));
+		// Finished turns only, so never this (running) one.
+		const turns = (await sessionTurns(ctx, session)).map(({ prompt, reply }) => ({ prompt, reply }));
 
 		// What's new: everything in the place after the last turn's reply started.
 		const last = (
@@ -252,13 +257,7 @@ export const startCompaction = internalMutation({
 	handler: async (ctx, { sessionId, keepTokens = KEEP_TOKENS }) => {
 		const session = await ctx.db.get(sessionId);
 		if (!session || session.compacting) return null;
-		const turns = await Promise.all(
-			(await sessionTurns(ctx, session)).map(async (t) => ({
-				prompt: t.prompt!,
-				reply: await replyText(ctx, t),
-				time: t._creationTime,
-			})),
-		);
+		const turns = await sessionTurns(ctx, session);
 		let keep = 0;
 		let tokens = 0;
 		for (const t of turns.toReversed()) {
@@ -295,27 +294,6 @@ export const finishCompaction = internalMutation({
 
 // ---- Chat tools (core's ChatStore), acting as the turn's person ----
 
-/** Toggles one person's or agent's reaction. Returns whether it's now on. */
-export async function toggleReaction(
-	ctx: MutationCtx,
-	message: Doc<"chatMessages">,
-	emoji: string,
-	who: { userId: Id<"users"> } | { agentId: Id<"agents"> },
-) {
-	const existing = (
-		await ctx.db
-			.query("reactions")
-			.withIndex("by_message", (q) => q.eq("messageId", message._id).eq("emoji", emoji))
-			.collect()
-	).find((r) => ("userId" in who ? r.userId === who.userId : r.agentId === who.agentId));
-	if (existing) {
-		await ctx.db.delete(existing._id);
-		return false;
-	}
-	await ctx.db.insert("reactions", { messageId: message._id, chatId: message.chatId, emoji, ...who });
-	return true;
-}
-
 export const reactFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), emoji: v.string() },
 	handler: async (ctx, { turnId, emoji }): Promise<{ reacted: boolean } | { error: string }> => {
@@ -340,7 +318,7 @@ async function channelNamed(ctx: QueryCtx, member: Member, name: string) {
 async function toLine(ctx: QueryCtx, m: Doc<"chatMessages">, names: Namer, label: string): Promise<ChatLine> {
 	const author = (await names.of(m)).name;
 	const reactions = new Map<string, string[]>();
-	for (const r of await ctx.db.query("reactions").withIndex("by_message", (q) => q.eq("messageId", m._id)).collect()) {
+	for (const r of await reactionsOf(ctx, m._id)) {
 		reactions.set(r.emoji, [...(reactions.get(r.emoji) ?? []), (await names.of(r)).name]);
 	}
 	return {
@@ -415,17 +393,18 @@ export const searchFor = internalQuery({
 			})
 			.take(60);
 		const names = namer(ctx);
-		const chats = new Map<Id<"chats">, { label: string } | null>();
+		/** Each chat's label, or null if the person can't see it. */
+		const labels = new Map<Id<"chats">, string | null>();
 		const lines: ChatLine[] = [];
 		for (const m of found) {
 			if (m.deleted || lines.length >= 20) continue;
-			if (!chats.has(m.chatId)) {
+			if (!labels.has(m.chatId)) {
 				const chat = await ctx.db.get(m.chatId);
 				const ok = chat && !chat.archived && (await canSee(ctx, chat, member));
-				chats.set(m.chatId, ok ? { label: await chatLabel(ctx, chat, names, turn.agentId) } : null);
+				labels.set(m.chatId, ok ? await chatLabel(ctx, chat, names, turn.agentId) : null);
 			}
-			const place = chats.get(m.chatId);
-			if (place) lines.push(await toLine(ctx, m, names, place.label));
+			const label = labels.get(m.chatId);
+			if (label) lines.push(await toLine(ctx, m, names, label));
 		}
 		return { messages: lines };
 	},

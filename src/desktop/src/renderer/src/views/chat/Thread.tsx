@@ -5,7 +5,7 @@ import { useState } from "react";
 import { api, errorMessage } from "../../api";
 import { Loading, Notice } from "../../ui";
 import { Composer, type SendWith } from "./Composer";
-import type { ChatDetails, Participant } from "./data";
+import { type ChatDetails, type Participant, chatTitle } from "./data";
 import { MessageList } from "./MessageList";
 
 export function ThreadPanel({
@@ -32,7 +32,7 @@ export function ThreadPanel({
 		<aside className="flex w-[26rem] shrink-0 flex-col border-l border-neutral-200">
 			<header className="drag flex h-12 shrink-0 items-center gap-2 border-b border-neutral-200 px-5">
 				<h2 className="font-semibold">Thread</h2>
-				<span className="truncate text-sm text-neutral-400">{chat.kind === "channel" ? `#${chat.name}` : chat.title}</span>
+				<span className="truncate text-sm text-neutral-400">{chatTitle(chat)}</span>
 				<button
 					type="button"
 					onClick={onClose}

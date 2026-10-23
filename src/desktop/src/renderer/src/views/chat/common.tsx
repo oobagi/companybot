@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-export const initials = (name: string) =>
+const initials = (name: string) =>
 	name
 		.split(/[\s@._-]+/)
 		.filter(Boolean)
@@ -59,7 +59,7 @@ export function useDismiss<T extends HTMLElement>(onClose: () => void, active = 
 	return ref;
 }
 
-export const EMOJI = ["👍", "❤️", "😂", "🎉", "👀", "🙏", "✅", "🔥"];
+const EMOJI = ["👍", "❤️", "😂", "🎉", "👀", "🙏", "✅", "🔥"];
 
 export function EmojiPicker({ onPick, onClose, className = "" }: { onPick: (emoji: string) => void; onClose: () => void; className?: string }) {
 	return (

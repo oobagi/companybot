@@ -7,17 +7,19 @@ import {
 	type Participant,
 	addToChat,
 	agentOfDm,
-	canSee,
 	chatMembersOf,
 	dmKeyOf,
+	markChatRead,
 	membership,
 	namer,
 	normalizeChannelName,
 	requireActiveAgents,
 	requireChat,
 	requireWorkspaceUsers,
+	visibleChat,
 } from "./chatOps";
 import { type Member, getMember, requireMember, requirePermission, toActor } from "./lib";
+import { sessionAt } from "./turns";
 
 // Channels and DMs. Queries return display-ready data so the app never joins tables.
 // See wiki/chat.md.
@@ -149,9 +151,9 @@ export const browse = query({
 export const get = query({
 	args: { chatId: v.id("chats") },
 	handler: async (ctx, { chatId }): Promise<(ChatItem & { canManage: boolean }) | null> => {
-		const member = await getMember(ctx);
-		const chat = member && (await ctx.db.get(chatId));
-		if (!member || !chat || !(await canSee(ctx, chat, member))) return null;
+		const visible = await visibleChat(ctx, chatId);
+		if (!visible) return null;
+		const { member, chat } = visible;
 		return {
 			...(await toChatItem(ctx, chat, member, namer(ctx))),
 			canManage: chat.kind === "channel" && canManageChannel(toActor(member), chat),
@@ -285,8 +287,7 @@ export const markRead = mutation({
 	args: { chatId: v.id("chats") },
 	handler: async (ctx, { chatId }) => {
 		const member = await requireMember(ctx);
-		const row = await membership(ctx, chatId, member.userId);
-		if (row) await ctx.db.patch(row._id, { lastReadAt: Date.now() });
+		await markChatRead(ctx, chatId, member.userId);
 	},
 });
 
@@ -300,19 +301,13 @@ export const place = query({
 		ctx,
 		{ chatId, threadId },
 	): Promise<{ summary: string | null; summarizedUpTo: number | null; compacting: boolean; costUsd: number } | null> => {
-		const member = await getMember(ctx);
-		const chat = member && (await ctx.db.get(chatId));
-		if (!member || !chat || !(await canSee(ctx, chat, member))) return null;
+		const chat = (await visibleChat(ctx, chatId))?.chat;
+		if (!chat) return null;
 		const parent = threadId && (await ctx.db.get(threadId));
 		if (threadId && parent?.chatId !== chatId) return null;
 		const costUsd = (parent ? parent.costUsd : chat.costUsd) ?? 0;
 		const agentId = agentOfDm(chat);
-		const session =
-			agentId &&
-			(await ctx.db
-				.query("agentSessions")
-				.withIndex("by_place", (q) => q.eq("agentId", agentId).eq("chatId", chatId).eq("threadId", threadId))
-				.first());
+		const session = agentId && (await sessionAt(ctx, { agentId, chatId, threadId }));
 		return {
 			summary: session?.summary ?? null,
 			summarizedUpTo: session?.summarizedUpTo ?? null,

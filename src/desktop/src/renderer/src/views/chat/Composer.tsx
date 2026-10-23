@@ -22,7 +22,6 @@ export function Composer({
 	placeholder,
 	hint,
 	candidates,
-	autoFocus = true,
 }: {
 	onSend: (text: string, mentions: Mentions) => void;
 	sendWith: SendWith;
@@ -30,7 +29,6 @@ export function Composer({
 	hint?: string;
 	/** People and agents offered by @mention autocomplete. */
 	candidates: Participant[];
-	autoFocus?: boolean;
 }) {
 	const [text, setText] = useState("");
 	const [caret, setCaret] = useState(0);
@@ -101,7 +99,7 @@ export function Composer({
 					ref={input}
 					rows={1}
 					value={text}
-					autoFocus={autoFocus}
+					autoFocus
 					onChange={(e) => {
 						setText(e.target.value);
 						track(e.target);

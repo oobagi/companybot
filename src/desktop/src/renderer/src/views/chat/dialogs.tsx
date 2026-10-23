@@ -5,7 +5,7 @@ import { useState } from "react";
 import { api } from "../../api";
 import { Field, Loading, Notice, inputClass, primaryButton, secondaryButton, useRun } from "../../ui";
 import { AgentBadge, Avatar, Modal } from "./common";
-import { type ChatDetails, type Participant, useDirectory } from "./data";
+import { type ChatDetails, type Participant, chatTitle, useDirectory } from "./data";
 
 export function CreateChannel({ onClose, onOpen }: { onClose: () => void; onOpen: (chatId: Id<"chats">) => void }) {
 	const create = useMutation(api.chats.createChannel);
@@ -142,7 +142,7 @@ export function ChannelDetails({ chat, onClose, onLeft }: { chat: ChatDetails; o
 	const [adding, setAdding] = useState(false);
 	const isChannel = chat.kind === "channel";
 	return (
-		<Modal title={isChannel ? `#${chat.name}` : chat.title} onClose={onClose}>
+		<Modal title={chatTitle(chat)} onClose={onClose}>
 			{adding ? (
 				<AddMembers chat={chat} onDone={() => setAdding(false)} />
 			) : (
