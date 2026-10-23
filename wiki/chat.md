@@ -64,6 +64,3 @@ Queries return display-ready data (names resolved) so the app never joins tables
 
 ## Permissions
 `channels.create` (owner, member), `channels.manage` (owner: rename, archive, add members to any channel; members can manage channels they created).
-
-## Migration
-`migrations.conversationsToChats` gives every workspace `#general` with all members, copies each legacy conversation into an agent DM (its summary seeds the agent's session), marks it `migratedTo`, and adds `chat.*` to agents with no chat tools (as a new version). Idempotent. Run once per deployment: `npx convex run migrations:conversationsToChats` (dev) and with `--prod` after a release deploys. Then the legacy tables can be dropped.

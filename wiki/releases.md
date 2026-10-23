@@ -15,10 +15,8 @@ From a clean `main` that matches origin. It runs checks, deploys the prod backen
 Alpha/beta versions publish as GitHub prereleases. Installs on a prerelease update to newer prereleases and stable versions; stable installs ignore prereleases. `patch` from a prerelease ships that version as stable (0.2.0-alpha.3 → 0.2.0).
 
 The backend deploys before the app ships, and installed apps update within hours, so backend changes must keep the previous app version working:
-- **Add, don't remove.** New tables and optional fields are safe. To replace a public function, keep the old one working on top of the new data (e.g. `convex/chat.ts`, the pre-team-chat API) and delete it a release later.
-- **Data moves are separate.** Deploying never changes existing rows. A migration (`convex/migrations.ts`) runs once per deployment, after the deploy: `npx convex run migrations:<name> --prod`. Make it safe to re-run.
-
-Pending cleanup: once every install is on v0.1.0-alpha.3 or later, delete `convex/chat.ts` and the legacy `conversations` / `messages` tables.
+- **Add, don't remove.** New tables and optional fields are safe. To replace a public function, keep the old one working on top of the new data and delete it once installs have updated.
+- **Data moves are separate.** Deploying never changes existing rows. Move data with a one-off internal mutation, run once per deployment after the deploy (`npx convex run <file>:<name> --prod`), safe to re-run.
 
 ## In-app updates
 The installed app checks GitHub Releases on launch and every 4 hours, downloads in the background, and shows **Update ready · Restart** in the sidebar. Settings → General → App has "Check for updates". macOS only updates signed, notarized apps.

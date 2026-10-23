@@ -555,69 +555,6 @@ describe("memory in shared chats", () => {
 	});
 });
 
-describe("legacy chat API (apps before team chat)", () => {
-	it("reads and writes the person's agent DM, so old and new apps see one conversation", async () => {
-		const { t, owner } = await ownerAndMember();
-		const { companybot } = await agentsOf(owner);
-		expect(await owner.query(api.chat.messages, { agentId: companybot._id })).toEqual([]);
-		await owner.mutation(api.chat.send, { agentId: companybot._id, text: "hi from the old app" });
-		const [turn] = await turnsOf(t);
-		expect(turn).toMatchObject({ agentId: companybot._id, status: "running" });
-		const old = await owner.query(api.chat.messages, { agentId: companybot._id });
-		expect(old.map((m) => [m.role, m.text, m.status])).toEqual([
-			["user", "hi from the old app", "done"],
-			["assistant", "", "streaming"],
-		]);
-		const dmId = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
-		expect((await owner.query(api.messages.list, { chatId: dmId })).map((m) => m.text)).toEqual(["hi from the old app", ""]);
-	});
-});
-
-describe("migration", () => {
-	it("copies legacy conversations into agent DMs once, and grants chat tools once", async () => {
-		const { t, owner } = await ownerAndMember();
-		const { companybot } = await agentsOf(owner);
-		const userId = await meOf(owner);
-		await t.run(async (ctx) => {
-			const workspaceId = (await ctx.db.get(companybot._id))!.workspaceId;
-			const tools = ["memory.search"];
-			await ctx.db.patch(companybot._id, { tools });
-			// A pre-chat workspace: no #general yet.
-			for (const c of await ctx.db.query("chatMembers").collect()) await ctx.db.delete(c._id);
-			for (const c of await ctx.db.query("chats").collect()) await ctx.db.delete(c._id);
-			const conversationId = await ctx.db.insert("conversations", {
-				workspaceId,
-				userId,
-				agentId: companybot._id,
-				busy: false,
-				summary: "- Old stuff",
-				costUsd: 0.5,
-			});
-			for (const [role, text] of [["user", "hi"], ["assistant", "hello"], ["user", "bye"]] as const) {
-				await ctx.db.insert("messages", { conversationId, role, text, parts: [{ type: "text", text }], status: "done" });
-			}
-		});
-		const first = await t.mutation(internal.migrations.conversationsToChats, {});
-		const second = await t.mutation(internal.migrations.conversationsToChats, {});
-		expect(first).toMatchObject({ conversations: 1, messages: 3 });
-		expect(second).toMatchObject({ conversations: 0, messages: 0, agents: 0 });
-
-		const list = (await owner.query(api.chats.list))!;
-		expect(list.channels.map((c) => c.name)).toEqual(["general"]);
-		const dmId = list.agents.find((a) => a._id === companybot._id)!.dmId!;
-		const messages = await owner.query(api.messages.list, { chatId: dmId });
-		expect(messages.map((m) => [m.author.type, m.text])).toEqual([
-			["user", "hi"],
-			["agent", "hello"],
-			["user", "bye"],
-		]);
-		expect(await owner.query(api.chats.place, { chatId: dmId })).toMatchObject({ summary: "- Old stuff", costUsd: 0.5 });
-		const agent = (await agentsOf(owner)).companybot;
-		expect(agent.tools).toEqual(["chat.*", "memory.search"]);
-		expect(agent.version).toBe(2);
-	});
-});
-
 describe("plugins", () => {
 	it("lets only owners install, and members connect their own account", async () => {
 		const { t, owner, member } = await ownerAndMember();
