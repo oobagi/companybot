@@ -15,6 +15,7 @@ What each piece is. The rules for changing them: [Extending](extending.md).
 - **Agent** — name, instructions, model, tool grants. A tool reaches the model only if granted, allowed for the person's role, and (plugins) installed, allowed, and connected.
 - **Plugin** — a catalog entry for a remote MCP server, with a workspace or personal connection and encrypted credentials. The catalog has one entry, Night Owl, for internal testing.
 - **Skill** — installable instructions. Agents see one-line descriptions and load the full text on demand.
+- **Automation** — a trigger (schedule or event) plus a prompt. Each run posts the prompt in the chosen agent's DM with each person it runs for, as them, so the reply uses their permissions and plugin accounts.
 - **Widget** — UI an agent places in a reply (table, stats, card). Each is a tool; the app renders the stored props; the model gets a short receipt, not the data back.
 - **Platform guide** — how replies render, added to every agent's prompt after its own instructions.
 - **Memory** — per agent, scoped `workspace` (team) or `personal`. Agents and people follow the same rules. In chats with 2+ people, agents get team memories only.
@@ -34,6 +35,7 @@ New workspaces get copies of the default agents: **Companybot** (`memory.*`, clo
 - **Three kinds of data:** shared content (chat, memory) is fully live. Shared settings (agents, workspace name) are edited as a draft and saved; each has a `version`, and a save from an old version is refused as a conflict (`checkVersion`), with a "Use theirs / Keep mine" prompt in the app. Personal preferences (`preferences` table) are per person and sync across their devices.
 - **Permissions apply at once:** agent memory and plugin calls re-read the person's membership and role, so removals and role changes take effect mid-reply.
 - **Plugins:** `pluginInstalls` (roles allowed) and `pluginConnections` (AES-GCM encrypted with `CONNECTIONS_KEY`, encrypted in an action). OAuth sign-ins in progress sit in `pluginOAuthFlows` (one use, 15 min) until `/oauth/callback` finishes them. The runner connects only to plugins the agent's grants reach, skips any that fail or take over 10s, and tells the agent.
+- **Automations:** `automationInstalls` (agent, on/off, time zone, last run). A cron (`crons.ts`, every 5 min) runs due schedules for every member, once per local day. Each run posts the prompt in the person's agent DM as them (tagged `automation`, shown collapsed in chat) and queues a turn acting as them. Event triggers run through `automations.fire` for one person; no event source calls it yet. Owners can "Run now" for themselves.
 - **Usage:** each reply stores `stats` (model, tokens, time, AI Gateway's `cost`), plus its place's running total (`costUsd` on the chat or thread parent, summaries included). The app shows them under each reply. Prompt caching is on for every model call (AI Gateway `caching: "auto"`).
 - **Compaction:** once a reply leaves a session's context over 40k tokens, older turns fold into the session's summary (a ~15k-token tail kept verbatim). The app still shows everything; agent DMs show a divider where the summary starts.
 
@@ -46,14 +48,12 @@ New workspaces get copies of the default agents: **Companybot** (`memory.*`, clo
 
 ## Run
 ```
-pnpm install
-npx convex dev          # syncs backend, writes CONVEX_URL to .env.local
-pnpm dev:desktop
+pnpm dev                # this checkout's own local backend + the desktop app
 pnpm test && pnpm typecheck
 ```
-`pnpm --filter @companybot/desktop preview:web` runs the UI in a browser on port 5173.
+`pnpm dev` (`scripts/dev.mjs`, the `/dev` skill) gives each checkout its own local Convex backend and data, so worktrees never fight over the cloud dev deployment. Sign in with any email; local backends send no code (`auth.ts`). `--reset` wipes local data. Local backends have no public URL, so plugin OAuth only works on cloud dev (`npx convex dev` against `exciting-guanaco-266`, `pnpm dev:desktop`).
 
-If Electron crashes on launch from T3 Code's terminal: `env -u ELECTRON_RUN_AS_NODE pnpm dev:desktop`.
+The app's screens are hash paths (`router.ts`): `#/chat`, `#/customize/<tab>[/<item>]`, `#/settings/<tab>`. Opening an item pushes its own screen; back returns to the list. `pnpm --filter @companybot/desktop preview:web` serves the UI in a browser on port 5173.
 
 ## Before launch
 - Sign-in emails send from `signin@callnightowl.com` and AI bills to the Night Owl Vercel team ($25/mo cap). Swap both to Companybot accounts.

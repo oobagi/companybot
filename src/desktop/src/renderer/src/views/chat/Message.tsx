@@ -47,6 +47,9 @@ export function MessageRow({
 					<div className="flex items-baseline gap-2">
 						<span className="font-semibold">{message.author.name}</span>
 						{isAgent && <AgentBadge />}
+						{message.automation && (
+							<span className="rounded bg-amber-50 px-1.5 text-xs text-amber-800">⚡ {message.automation.name}</span>
+						)}
 						<span className="text-xs text-neutral-400 tabular-nums">{clock(message._creationTime)}</span>
 					</div>
 				)}
@@ -54,6 +57,8 @@ export function MessageRow({
 					<p className="text-neutral-400 italic">This message was deleted.</p>
 				) : editing ? (
 					<EditForm message={message} onDone={() => setEditing(false)} onError={onError} />
+				) : message.automation ? (
+					<AutomationPrompt prompt={message.text} />
 				) : isAgent ? (
 					<AgentBody message={message} />
 				) : (
@@ -258,3 +263,16 @@ const shortModel = (id: string) => id.split("/").at(-1) ?? id;
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 const tokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 const usd = (n: number) => `$${n.toFixed(n < 0.01 ? 4 : n < 1 ? 3 : 2)}`;
+
+/** A message an automation posted for its author: collapsed, since they didn't type it. */
+function AutomationPrompt({ prompt }: { prompt: string }) {
+	const [open, setOpen] = useState(false);
+	return (
+		<div className="flex flex-col gap-1">
+			<button type="button" onClick={() => setOpen(!open)} className="self-start text-sm text-neutral-500 hover:text-neutral-800">
+				Ran automatically · {open ? "Hide" : "Show"} what it asked
+			</button>
+			{open && <p className="text-sm leading-relaxed whitespace-pre-wrap text-neutral-600">{prompt}</p>}
+		</div>
+	);
+}

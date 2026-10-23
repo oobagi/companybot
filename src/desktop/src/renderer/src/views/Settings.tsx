@@ -21,18 +21,18 @@ import {
 import { MembersTab } from "./Members";
 import { MemoryTab } from "./Memory";
 
-const tabs = [
+export const settingsTabs = [
 	{ id: "general", label: "General" },
 	{ id: "members", label: "Members" },
 	{ id: "memory", label: "Memory" },
 	{ id: "profile", label: "Your preferences" },
 ] as const;
-export type SettingsTab = (typeof tabs)[number]["id"];
+export type SettingsTab = (typeof settingsTabs)[number]["id"];
 
 export function SettingsView({ role, tab, onTab }: { role: Role; tab: SettingsTab; onTab: (tab: SettingsTab) => void }) {
 	return (
 		<Page title="Settings">
-			<Tabs tabs={tabs} value={tab} onChange={onTab} />
+			<Tabs tabs={settingsTabs} value={tab} onChange={onTab} />
 			{tab === "general" && <GeneralTab role={role} />}
 			{tab === "members" && <MembersTab role={role} />}
 			{tab === "memory" && <MemoryTab role={role} />}

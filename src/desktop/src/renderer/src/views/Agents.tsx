@@ -7,11 +7,13 @@ import type { FunctionReturnType } from "convex/server";
 import { useQuery } from "convex-helpers/react/cache";
 import { useState } from "react";
 import { api } from "../api";
+import { navigate } from "../router";
 import {
 	ConflictNotice,
 	Field,
 	Loading,
 	Notice,
+	Page,
 	SaveBar,
 	Section,
 	inputClass,
@@ -26,13 +28,11 @@ type Agent = FunctionReturnType<typeof api.agents.list>[number];
 export function AgentsTab({ role }: { role: Role }) {
 	const agents = useQuery(api.agents.list);
 	const create = useMutation(api.agents.create);
-	const [openId, setOpenId] = useState<Id<"agents">>();
 	const { error, run } = useRun();
 	const isOwner = can(role, "agents.manage");
+	const open = (id: Id<"agents">) => navigate("customize", "agents", id);
 
 	if (!agents) return <Loading />;
-	const open = agents.find((a) => a._id === openId);
-	if (open) return <AgentEditor key={open._id} agent={open} isOwner={isOwner} onBack={() => setOpenId(undefined)} />;
 
 	const active = agents.filter((a) => !a.archived);
 	const archived = agents.filter((a) => a.archived);
@@ -47,7 +47,7 @@ export function AgentsTab({ role }: { role: Role }) {
 					<button
 						type="button"
 						className={secondaryButton}
-						onClick={() => run(create().then(setOpenId))}
+						onClick={() => run(create().then(open))}
 					>
 						New agent
 					</button>
@@ -55,12 +55,12 @@ export function AgentsTab({ role }: { role: Role }) {
 			</div>
 			{error && <Notice>{error}</Notice>}
 			{active.map((a) => (
-				<AgentRow key={a._id} agent={a} onOpen={() => setOpenId(a._id)} />
+				<AgentRow key={a._id} agent={a} onOpen={() => open(a._id)} />
 			))}
 			{archived.length > 0 && (
 				<Section title="Archived" hint="Hidden from chat. Their conversations and memories are kept.">
 					{archived.map((a) => (
-						<AgentRow key={a._id} agent={a} onOpen={() => setOpenId(a._id)} />
+						<AgentRow key={a._id} agent={a} onOpen={() => open(a._id)} />
 					))}
 				</Section>
 			)}
@@ -85,7 +85,21 @@ function AgentRow({ agent, onOpen }: { agent: Agent; onOpen: () => void }) {
 	);
 }
 
-function AgentEditor({ agent, isOwner, onBack }: { agent: Agent; isOwner: boolean; onBack: () => void }) {
+/** One agent's own screen, pushed over the agents list. */
+export function AgentScreen({ role, agentId }: { role: Role; agentId: Id<"agents"> }) {
+	const agent = useQuery(api.agents.list)?.find((a) => a._id === agentId);
+	const back = { label: "Agents", to: ["customize", "agents"] };
+	if (!agent) {
+		return (
+			<Page title="" back={back}>
+				<Loading />
+			</Page>
+		);
+	}
+	return <AgentEditor key={agent._id} agent={agent} isOwner={can(role, "agents.manage")} back={back} />;
+}
+
+function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean; back: { label: string; to: string[] } }) {
 	const options = useQuery(api.agents.options);
 	const update = useMutation(api.agents.update);
 	const setArchived = useMutation(api.agents.setArchived);
@@ -95,15 +109,21 @@ function AgentEditor({ agent, isOwner, onBack }: { agent: Agent; isOwner: boolea
 	const edit = (changes: Partial<AgentConfig>) => draft.set({ ...config, ...changes });
 	const access = new Map(agent.access.map((a) => [a.id, a]));
 
-	if (!options) return <Loading />;
+	if (!options) {
+		return (
+			<Page title={agent.name} back={back}>
+				<Loading />
+			</Page>
+		);
+	}
 
 	return (
-		<>
-			<div className="flex items-center justify-between">
-				<button type="button" onClick={onBack} className="text-sm text-neutral-500 hover:text-neutral-900">
-					← All agents
-				</button>
-				{isOwner && (
+		<Page
+			title={agent.name}
+			subtitle={`v${agent.version} · edited by ${agent.updatedByName} ${timeAgo(agent.updatedAt)}`}
+			back={back}
+			actions={
+				isOwner && (
 					<button
 						type="button"
 						onClick={() => run(setArchived({ agentId: agent._id, archived: !agent.archived }))}
@@ -111,8 +131,9 @@ function AgentEditor({ agent, isOwner, onBack }: { agent: Agent; isOwner: boolea
 					>
 						{agent.archived ? "Restore agent" : "Archive agent"}
 					</button>
-				)}
-			</div>
+				)
+			}
+		>
 
 			{agent.archived && <p className="rounded-lg bg-neutral-100 px-3 py-2 text-sm">This agent is archived and hidden from chat.</p>}
 			{draft.stale && <ConflictNotice who={agent.updatedByName} onDiscard={draft.discard} onKeep={draft.keepMine} />}
@@ -162,7 +183,7 @@ function AgentEditor({ agent, isOwner, onBack }: { agent: Agent; isOwner: boolea
 			)}
 
 			<History agent={agent} isOwner={isOwner} />
-		</>
+		</Page>
 	);
 }
 

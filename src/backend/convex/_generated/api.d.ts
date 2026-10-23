@@ -13,6 +13,8 @@ import type * as agents from "../agents.js";
 import type * as auth from "../auth.js";
 import type * as chatOps from "../chatOps.js";
 import type * as chats from "../chats.js";
+import type * as automations from "../automations.js";
+import type * as crons from "../crons.js";
 import type * as crypto from "../crypto.js";
 import type * as http from "../http.js";
 import type * as lib from "../lib.js";
@@ -39,6 +41,8 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   chatOps: typeof chatOps;
   chats: typeof chats;
+  automations: typeof automations;
+  crons: typeof crons;
   crypto: typeof crypto;
   http: typeof http;
   lib: typeof lib;

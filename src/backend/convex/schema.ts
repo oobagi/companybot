@@ -46,6 +46,9 @@ export const replyStats = v.object({
 export default defineSchema({
 	...authTables,
 
+	// Local backends only (`pnpm dev`): the latest sign-in code per email, read back by the app.
+	localSignInCodes: defineTable({ email: v.string(), code: v.string() }).index("by_email", ["email"]),
+
 	workspaces: defineTable({ name: v.string(), version: v.optional(v.number()) }),
 
 	members: defineTable({
@@ -202,6 +205,8 @@ export default defineSchema({
 		lastReplyAt: v.optional(v.number()),
 		/** Thread parents only: USD spent on agent replies and summaries in the thread. */
 		costUsd: v.optional(v.number()),
+		/** Set when an automation sent this message for the person. */
+		automation: v.optional(v.object({ id: v.string(), name: v.string() })),
 	})
 		.index("by_chat_thread", ["chatId", "threadId"])
 		.index("by_workspace", ["workspaceId"])
@@ -253,6 +258,24 @@ export default defineSchema({
 		/** USD spent on this session's replies and summaries. */
 		costUsd: v.optional(v.number()),
 	}).index("by_place", ["agentId", "chatId", "threadId"]),
+
+	// Automations: an owner installs one and picks the agent that runs it.
+	automationInstalls: defineTable({
+		workspaceId: v.id("workspaces"),
+		automationId: v.string(),
+		agentId: v.id("agents"),
+		enabled: v.boolean(),
+		/** Schedules run in this time zone; set from the installer's computer. */
+		timeZone: v.string(),
+		installedBy: v.id("users"),
+		/** Local date of the last scheduled run, so a schedule runs once a day. */
+		lastRunDate: v.optional(v.string()),
+		lastRunAt: v.optional(v.number()),
+		/** What the last run did, in a line, e.g. "Sent to 3 people". */
+		lastResult: v.optional(v.string()),
+	})
+		.index("by_workspace", ["workspaceId", "automationId"])
+		.index("by_enabled", ["enabled"]),
 
 	// ---- Legacy: one conversation per person per agent. Copied into agent DMs by
 	// migrations.conversationsToChats; remove once every deployment has run it. ----
