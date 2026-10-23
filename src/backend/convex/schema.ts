@@ -40,6 +40,17 @@ export const replyStats = v.object({
 	conversationCostUsd: v.number(),
 });
 
+/** A running summary of older messages, so context stays small. On chats and thread parents. */
+const compaction = v.object({
+	/** Summary of messages created at or before `summarizedUpTo`. */
+	summary: v.optional(v.string()),
+	summarizedUpTo: v.optional(v.number()),
+	/** True while older messages are being folded into the summary. */
+	compacting: v.optional(v.boolean()),
+	/** USD spent on agent replies and summaries here. */
+	costUsd: v.optional(v.number()),
+});
+
 // Shared settings carry a `version` that goes up on every save. A save sends the
 // version it started from; if someone saved in between, it's refused as a conflict.
 
@@ -140,7 +151,101 @@ export default defineSchema({
 		skillId: v.string(),
 	}).index("by_workspace", ["workspaceId", "skillId"]),
 
-	// One continuous conversation per person per agent.
+	// ---- Chat: channels, DMs (people and agents), threads, reactions. See wiki/chat.md. ----
+
+	// A channel (named, public or private) or a DM (fixed set of people and agents).
+	chats: defineTable({
+		workspaceId: v.id("workspaces"),
+		kind: v.union(v.literal("channel"), v.literal("dm")),
+		/** Channels only: lowercase, no "#", unique per workspace. */
+		name: v.optional(v.string()),
+		topic: v.optional(v.string()),
+		/** Private channels are visible to their members only. DMs are always private. */
+		private: v.boolean(),
+		/** DMs only: sorted participant keys ("u:<id>", "a:<id>") joined by ",", to find an existing DM. */
+		dmKey: v.optional(v.string()),
+		/** The channel everyone joins (#general). Can't be left or made private. */
+		isDefault: v.optional(v.boolean()),
+		archived: v.boolean(),
+		createdBy: v.id("users"),
+		lastMessageAt: v.number(),
+		...compaction.fields,
+	})
+		.index("by_workspace", ["workspaceId", "kind"])
+		.index("by_dm_key", ["workspaceId", "dmKey"])
+		.index("by_name", ["workspaceId", "name"]),
+
+	// Who's in a chat: one person or one agent per row.
+	chatMembers: defineTable({
+		chatId: v.id("chats"),
+		workspaceId: v.id("workspaces"),
+		userId: v.optional(v.id("users")),
+		agentId: v.optional(v.id("agents")),
+		/** People only: newest message time they've seen in the main timeline. */
+		lastReadAt: v.optional(v.number()),
+	})
+		.index("by_chat", ["chatId"])
+		.index("by_user", ["userId", "chatId"])
+		.index("by_agent", ["agentId", "chatId"]),
+
+	// A message in a chat's main timeline, or in a thread (threadId = the parent message).
+	// Written by a person (authorUserId) or an agent (authorAgentId), never both.
+	chatMessages: defineTable({
+		chatId: v.id("chats"),
+		workspaceId: v.id("workspaces"),
+		threadId: v.optional(v.id("chatMessages")),
+		authorUserId: v.optional(v.id("users")),
+		authorAgentId: v.optional(v.id("agents")),
+		text: v.string(),
+		parts: v.array(messagePart),
+		/** Who was @mentioned. Mentioned agents get a turn. */
+		mentions: v.object({ userIds: v.array(v.id("users")), agentIds: v.array(v.id("agents")) }),
+		status: v.union(v.literal("streaming"), v.literal("done"), v.literal("error")),
+		error: v.optional(v.string()),
+		/** Agent replies only, once finished. `conversationCostUsd` is the chat's (or thread's) running total. */
+		stats: v.optional(replyStats),
+		editedAt: v.optional(v.number()),
+		/** Deleted messages keep their row (threads hang off them) but lose their content. */
+		deleted: v.optional(v.boolean()),
+		/** Thread parents only. */
+		replyCount: v.optional(v.number()),
+		lastReplyAt: v.optional(v.number()),
+		/** Thread parents only: the thread's own summary, like a chat's. */
+		...compaction.fields,
+	})
+		.index("by_chat_thread", ["chatId", "threadId"])
+		.index("by_workspace", ["workspaceId"])
+		.searchIndex("search_text", { searchField: "text", filterFields: ["workspaceId", "chatId"] }),
+
+	// One emoji from one person or agent on one message.
+	reactions: defineTable({
+		messageId: v.id("chatMessages"),
+		chatId: v.id("chats"),
+		emoji: v.string(),
+		userId: v.optional(v.id("users")),
+		agentId: v.optional(v.id("agents")),
+	}).index("by_message", ["messageId", "emoji"]),
+
+	// Queue of agent replies. One `running` per agent per place (chat + thread); the rest wait.
+	agentTurns: defineTable({
+		workspaceId: v.id("workspaces"),
+		chatId: v.id("chats"),
+		threadId: v.optional(v.id("chatMessages")),
+		agentId: v.id("agents"),
+		/** The message that mentioned the agent (or any message, in an agent DM). */
+		triggerId: v.id("chatMessages"),
+		/** The agent acts as this person: their role, plugin connections, and access. */
+		actorId: v.id("users"),
+		/** The streaming reply, once running. */
+		replyId: v.optional(v.id("chatMessages")),
+		status: v.union(v.literal("queued"), v.literal("running"), v.literal("done"), v.literal("error")),
+		startedAt: v.optional(v.number()),
+	})
+		.index("by_place", ["agentId", "chatId", "threadId", "status"])
+		.index("by_status", ["status"]),
+
+	// ---- Legacy: one conversation per person per agent. Copied into agent DMs by
+	// migrations.conversationsToChats; remove once every deployment has run it. ----
 	conversations: defineTable({
 		workspaceId: v.id("workspaces"),
 		userId: v.id("users"),
