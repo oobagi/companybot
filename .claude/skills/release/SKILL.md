@@ -5,7 +5,7 @@ description: Cut a Companybot desktop release end to end — write user-facing r
 
 # Release
 
-Ships the desktop app: notes → approval → `pnpm release` (prod backend deploy, version bump, tag) → CI builds, signs, notarizes, and publishes. Background: [wiki/releases.md](../../../wiki/releases.md).
+Ships the desktop app: notes → approval → `pnpm release` (prod snapshot, backend deploy, migrations, version bump, tag) → CI builds, signs, notarizes, and publishes. Background: [wiki/releases.md](../../../wiki/releases.md).
 
 The argument is the bump: `alpha`, `beta`, `patch`, `minor`, `major`, or an exact version. No argument: `alpha` while the version is below 1.0, otherwise ask.
 
@@ -49,7 +49,7 @@ Show the version and the notes in chat. Wait for the user's OK or edits. Skip th
 ```
 pnpm release <bump> --notes <temp file>
 ```
-It runs typecheck and tests, deploys the prod Convex backend, commits the version bump and `release-notes/v<version>.md`, tags, and pushes. If it fails before pushing, fix the cause and rerun; nothing was published.
+It runs typecheck and tests, snapshots prod to `backups/`, deploys the prod Convex backend, runs pending migrations, commits the version bump and `release-notes/v<version>.md`, tags, and pushes. If it fails before pushing, fix the cause and rerun; nothing was published.
 
 ## 6. Watch the build
 - `gh run list -w release.yml -L 1`, then `gh run watch <id>` in the background (takes ~10–15 min; notarization is the slow part).

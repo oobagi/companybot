@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Cuts a release: checks, deploys the production backend, bumps the app version,
-// tags, and pushes. CI (.github/workflows/release.yml) builds and publishes the app.
+// Cuts a release: checks, snapshots prod, deploys the production backend, runs pending
+// migrations, bumps the app version, tags, and pushes. CI (.github/workflows/release.yml) builds and publishes the app.
 //
 //   pnpm release patch | minor | major | alpha | beta | 1.2.3 | 1.2.3-alpha.1
 //
@@ -73,9 +73,29 @@ console.log(`Releasing Companybot ${pkg.version} → ${next}\n`);
 sh("pnpm typecheck");
 sh("pnpm test");
 
+// Snapshot prod first, so a bad deploy or migration can be undone with
+// `npx convex import --prod --replace-all <file>`. Kept locally in backups/ (gitignored).
+mkdirSync("backups", { recursive: true });
+const snapshot = `backups/prod-before-v${next}-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.zip`;
+sh(`npx convex export --prod --path ${snapshot}`);
+
 // Backend first: the new app may need new functions. Old installs keep working
 // because backend changes must stay compatible with the previous app version.
-sh("npx convex deploy -y");
+// Codegen is off so the deploy uses the committed convex/_generated as-is.
+sh("npx convex deploy -y --codegen disable");
+
+// Then data: every pending migration (convex/migrations.ts), waiting until they finish.
+sh("npx convex run migrations:runAll --prod", { quiet: true });
+for (let i = 0; ; i++) {
+	const statuses = JSON.parse(out("npx convex run migrations:status --prod"));
+	const failed = statuses.filter((m) => m.state === "failed" || m.state === "canceled");
+	if (failed.length > 0) {
+		fail(`Migration failed: ${failed.map((m) => `${m.name}: ${m.error ?? m.state}`).join("; ")}. Nothing was tagged. Fix it, or restore ${snapshot}.`);
+	}
+	if (!statuses.some((m) => m.state === "inProgress")) break;
+	if (i >= 60) fail("Migrations still running after 10 minutes. Check the Convex dashboard, then rerun.");
+	execSync("sleep 10");
+}
 
 pkg.version = next;
 writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
