@@ -12,6 +12,7 @@ import {
 	insertMessage,
 	namer,
 	normalizeChannelName,
+	replyForModel,
 	textForModel,
 } from "./chatOps";
 import { type Member, installedSkills, memberOf } from "./lib";
@@ -90,7 +91,7 @@ async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">) {
 
 async function replyText(ctx: QueryCtx, turn: Doc<"agentTurns">) {
 	const reply = turn.replyId && (await ctx.db.get(turn.replyId));
-	return reply ? textForModel(reply) : "";
+	return reply ? replyForModel(reply) : "";
 }
 
 /** The running turn, its person (read fresh), and the chat, if they can still see it. */
@@ -336,8 +337,12 @@ async function channelNamed(ctx: QueryCtx, member: Member, name: string) {
 	return chat && !chat.archived && (await canSee(ctx, chat, member)) ? chat : null;
 }
 
-async function toLine(m: Doc<"chatMessages">, names: Namer, label: string): Promise<ChatLine> {
+async function toLine(ctx: QueryCtx, m: Doc<"chatMessages">, names: Namer, label: string): Promise<ChatLine> {
 	const author = (await names.of(m)).name;
+	const reactions = new Map<string, string[]>();
+	for (const r of await ctx.db.query("reactions").withIndex("by_message", (q) => q.eq("messageId", m._id)).collect()) {
+		reactions.set(r.emoji, [...(reactions.get(r.emoji) ?? []), (await names.of(r)).name]);
+	}
 	return {
 		id: m._id,
 		chat: label,
@@ -346,6 +351,7 @@ async function toLine(m: Doc<"chatMessages">, names: Namer, label: string): Prom
 		time: new Date(m._creationTime).toISOString(),
 		text: textForModel(m, author),
 		...(!m.threadId && m.replyCount && { replies: m.replyCount }),
+		...(reactions.size > 0 && { reactions: [...reactions].map(([emoji, by]) => ({ emoji, by })) }),
 	};
 }
 
@@ -387,7 +393,7 @@ export const readFor = internalQuery({
 		const names = namer(ctx);
 		const label = await chatLabel(ctx, chat, names, turn.agentId);
 		const all = parent && !parent.deleted && parent._creationTime < before ? [parent, ...docs] : docs;
-		return { messages: await Promise.all(all.map((m) => toLine(m, names, label))) };
+		return { messages: await Promise.all(all.map((m) => toLine(ctx, m, names, label))) };
 	},
 });
 
@@ -419,7 +425,7 @@ export const searchFor = internalQuery({
 				chats.set(m.chatId, ok ? { label: await chatLabel(ctx, chat, names, turn.agentId) } : null);
 			}
 			const place = chats.get(m.chatId);
-			if (place) lines.push(await toLine(m, names, place.label));
+			if (place) lines.push(await toLine(ctx, m, names, place.label));
 		}
 		return { messages: lines };
 	},

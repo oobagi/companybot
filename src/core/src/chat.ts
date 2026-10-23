@@ -21,6 +21,8 @@ export interface ChatLine {
 	text: string;
 	/** Thread parents only. */
 	replies?: number;
+	/** Emoji and who added each. */
+	reactions?: { emoji: string; by: string[] }[];
 }
 
 export interface ChatReadInput {

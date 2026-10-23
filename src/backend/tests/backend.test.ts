@@ -464,13 +464,21 @@ describe("agent turns", () => {
 		expect(context.memory).toBe("personal");
 		expect(context.messages.map((m) => m.text)).toEqual(["first"]);
 		await t.mutation(internal.turns.savePrompt, { turnId: turn!._id, prompt: "PROMPT 1" });
-		await t.mutation(internal.turns.updateReply, { replyId: turn!.replyId!, text: "answer", parts: [{ type: "text", text: "answer" }] });
+		await t.mutation(internal.turns.updateReply, {
+			replyId: turn!.replyId!,
+			text: "answer",
+			parts: [
+				{ type: "tool", id: "c1", name: "chat_react", status: "done" },
+				{ type: "text", text: "answer" },
+			],
+		});
 		await t.mutation(internal.turns.finishReply, { turnId: turn!._id });
 
 		await owner.mutation(api.messages.send, { chatId, text: "second", mentions: noMentions });
 		turn = (await turnsOf(t))[1];
 		context = await t.query(internal.turns.turnContext, { turnId: turn!._id });
-		expect(context.session.turns).toEqual([{ prompt: "PROMPT 1", reply: "answer" }]);
+		// Tools it used replay too, so later it knows it really acted.
+		expect(context.session.turns).toEqual([{ prompt: "PROMPT 1", reply: "answer\n[Tools you used: chat_react (done)]" }]);
 		expect(context.messages.map((m) => m.text)).toEqual(["second"]);
 		expect(context.triggerId).toBe(context.messages[0]!.id);
 	});
@@ -522,6 +530,8 @@ describe("agent turns", () => {
 		expect(await t.mutation(internal.turns.reactFor, { turnId: turn!._id, emoji: "👀" })).toEqual({ reacted: true });
 		const [m] = (await member.query(api.messages.list, { chatId })).filter((x) => x._id === trigger);
 		expect(m!.reactions).toEqual([{ emoji: "👀", count: 1, mine: false, names: ["Companybot"] }]);
+		const after = await t.query(internal.turns.readFor, { turnId: turn!._id });
+		expect("messages" in after && after.messages[0]?.reactions).toEqual([{ emoji: "👀", by: ["Companybot"] }]);
 	});
 });
 

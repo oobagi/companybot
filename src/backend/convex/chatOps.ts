@@ -168,6 +168,15 @@ export async function chatLabel(ctx: QueryCtx, chat: Doc<"chats">, names: Namer,
 	return `DM with ${others.join(", ") || "yourself"}`;
 }
 
+/**
+ * An agent's own past reply as it replays in its session: the text, widget notes, and
+ * the tools it used. Without the tools, the agent can't tell later that it really did act.
+ */
+export function replyForModel(m: Doc<"chatMessages">) {
+	const tools = m.parts.flatMap((p) => (p.type === "tool" ? [`${p.name} (${p.status === "error" ? "failed" : "done"})`] : []));
+	return [textForModel(m), tools.length > 0 && `[Tools you used: ${tools.join(", ")}]`].filter(Boolean).join("\n");
+}
+
 /** A message's text plus a note for each widget it showed, for agents. */
 export function textForModel(m: Doc<"chatMessages">, who = "You") {
 	const widgets = m.parts.flatMap((p) => (p.type === "widget" ? [describeWidget(p.widget, who)] : []));
