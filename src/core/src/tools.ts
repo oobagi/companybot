@@ -1,4 +1,5 @@
 import type { FlexibleSchema, Tool } from "ai";
+import type { ChatStore } from "./chat";
 import type { MemoryStore } from "./memory";
 import type { Skill } from "./skills";
 import type { Actor, Role } from "./types";
@@ -8,6 +9,8 @@ export interface ToolContext {
 	actor: Actor;
 	agentId: string;
 	memory: MemoryStore;
+	/** The chats the actor can see, and the message this turn answers. */
+	chat: ChatStore;
 	/** Skills installed in the workspace. */
 	skills: Skill[];
 	/** This turn's data results, by ref, so widgets can show them. */

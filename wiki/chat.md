@@ -1,6 +1,6 @@
 # Chat
 
-Channels, DMs (people and agents), threads, and reactions. One model for all of them. Tables: `chats`, `chatMembers`, `chatMessages`, `reactions`, `agentTurns` (`backend/convex/schema.ts`).
+Channels, DMs (people and agents), threads, and reactions. One model for all of them. Tables: `chats`, `chatMembers`, `chatMessages`, `reactions`, `agentTurns`, `agentSessions` (`backend/convex/schema.ts`).
 
 ## Kinds
 - **Channel** — named (`#sales`), public or private. Public: any member can read, and posting joins you. Private: members only; members add others. Every workspace has `#general` (`isDefault`): everyone is in it, it can't be left or made private.
@@ -10,7 +10,7 @@ Channels, DMs (people and agents), threads, and reactions. One model for all of 
 
 ## When agents reply
 - **Agent DM** (one person + one agent): every message the person sends.
-- **Everywhere else:** only when @mentioned. Mentioning an agent in a channel adds it to the channel's members.
+- **Everywhere else:** only when @mentioned. Mentioning an agent in a channel adds it to the channel's members. In a DM, only agents already in it answer (a DM's participants are fixed).
 - The reply goes **where it was mentioned**: the main timeline, or the thread.
 - **Agents never trigger agents.** An agent's @mention of another agent is just text.
 - **One turn per agent per place** (chat + thread). Extra mentions queue in `agentTurns`; a person's message always posts. A turn stuck `running` over 5 minutes is failed and the queue moves on.
@@ -21,10 +21,18 @@ Channels, DMs (people and agents), threads, and reactions. One model for all of 
 - Chat tools (`chat.read`, `chat.search`) only see chats the actor can see.
 
 ## What an agent is fed each turn
-1. **System prompt** — agent instructions + platform guide (+ skills index). Stable across turns, so prompt caching hits.
-2. **Where you are** — chat kind and name, who's in it, who triggered you, memory mode. Built per turn.
-3. **History of the place** — a thread: parent + all replies. A main timeline: recent messages, each thread folded to one line ("3 replies"). Other people's (and agents') messages are `user` messages prefixed `[Name]`; the agent's own are `assistant`. Older messages are folded into the place's `summary` (compaction, same thresholds as before).
-4. **Chat tools** — `chat.react` (react to the trigger message), `chat.read` (older history or another place), `chat.search` (search chats the actor can see). Granted like other built-ins (`chat.*`).
+Built for prompt caching: the cache matches an exact prefix, so nothing earlier in the prompt may change between turns. Same pattern as OpenClaw and Hermes Agent.
+
+1. **System prompt** — agent instructions + platform guide (+ skills index). Nothing per-chat or per-turn, so it's byte-identical in every chat and caches across all of them. Tools in a fixed order.
+2. **A session per agent per place** (`agentSessions`: agent + chat + thread) — append-only. Each past turn replays exactly as sent: the stored user message (`agentTurns.prompt`), then the agent's reply as `assistant`. Never rebuilt from current messages, so edits elsewhere can't break the cache.
+3. **One new user message per turn**, appended at the end:
+   - Where you are: chat, who's in it, who triggered you, memory mode.
+   - Everything said in the place since the agent's last reply, including messages not addressed to it, each labeled `[Name]`. A thread's first turn starts with its parent. Capped at ~50 messages; past that, a note says to use `chat.read`.
+   - The trigger message, marked as the one to answer.
+4. **Compaction** — once the session passes ~40k tokens, older turns fold into the session's summary and a ~15k-token tail stays verbatim. One cache miss, then append-only again.
+5. **Chat tools** — `chat.react` (react to the trigger message), `chat.read` (older history or another place), `chat.search` (search chats the actor can see). Granted like other built-ins (`chat.*`).
+
+Code: `core/src/turn-input.ts` builds all of it (`systemPrompt`, `buildTurnPrompt`, `buildTurnInput`); change the strategy there. `backend/convex/turns.ts` runs the queue and reads the data; `agent.ts` streams the reply.
 
 Not a skill: chat is the platform, so every agent has it.
 
@@ -32,28 +40,30 @@ Not a skill: chat is the platform, so every agent has it.
 Queries return display-ready data (names resolved) so the app never joins tables.
 
 **`chats.ts`**
-- `list()` → `{ channels: ChatItem[], dms: ChatItem[], agents: AgentItem[] }`. Only chats you're in (plus all public channels you've joined). `agents` are active agents, each with `dmId` (their agent DM with you, or null).
-  - `ChatItem`: `{ _id, kind, name, topic, private, isDefault, title, members: Participant[], unread: boolean, mentioned: boolean, lastMessageAt }`. `title` is `name` for channels, other participants' names for DMs.
-  - `Participant`: `{ type: "user" | "agent", id, name }`.
+- `list()` → `{ me, channels: ChatItem[], dms: ChatItem[], agents: AgentItem[] }`, or null before you're in a workspace. Only chats you're in; `dms` includes agent DMs. `me` is your user id.
+  - `ChatItem`: `{ _id, kind, name, topic, private, isDefault, title, agentId, members: Participant[], unread: boolean, mentioned: boolean, lastMessageAt }`. `title` is `name` for channels, other participants' names for DMs. `agentId` is set for agent DMs, else null.
+  - `AgentItem`: `{ _id, name, description, dmId, unread, mentioned, lastMessageAt }` for each active agent. `dmId` is its agent DM with you, or null; the rest come from that DM.
+  - `Participant`: `{ type: "user", id: Id<"users">, name } | { type: "agent", id: Id<"agents">, name }`.
+  - Unread: the chat's newest main-timeline message is after your `lastReadAt`. `mentioned`: an unread main-timeline message mentions you.
 - `browse()` → public channels you're not in: `{ _id, name, topic, memberCount }[]`.
 - `get({ chatId })` → `ChatItem` plus `canManage: boolean`, or null if you can't see it.
 - `createChannel({ name, topic?, private })` → chatId. Name normalized to lowercase-dashed; refused if taken.
 - `updateChannel({ chatId, name?, topic? })`.
-- `join({ chatId })`, `leave({ chatId })` — public channels; can't leave `#general`.
-- `addMembers({ chatId, userIds, agentIds })` — channels only.
+- `join({ chatId })` — public channels. `leave({ chatId })` — any channel you're in, except `#general`.
+- `addMembers({ chatId, userIds, agentIds })` — channels only; by its members, or anyone who can manage it.
 - `openDm({ userIds, agentIds })` → chatId. Finds or creates. You're always included.
 - `markRead({ chatId })` — sets your `lastReadAt` to now.
-- `place({ chatId, threadId? })` → `{ summary, summarizedUpTo, compacting, costUsd }` for the summary divider.
+- `place({ chatId, threadId? })` → `{ summary, summarizedUpTo, compacting, costUsd }`, or null. Summaries belong to agent sessions, so only agent DMs have one (`summarizedUpTo` is a turn time); elsewhere summary is null. `costUsd` is the chat's (or thread's) running total.
 
 **`messages.ts`**
 - `list({ chatId, threadId? })` → newest 200 of the main timeline (or the thread, parent first), oldest first. Each `Message`:
   `{ _id, _creationTime, chatId, threadId, author: Participant, text, parts, status, error, stats, editedAt, deleted, mine: boolean, replyCount, lastReplyAt, replyAuthors: Participant[] (up to 3), reactions: { emoji, count, mine, names: string[] }[] }`.
-- `send({ chatId, threadId?, text, mentions: { userIds, agentIds } })` → messageId. The app sends mention ids picked from autocomplete; the server validates them. Schedules agent turns.
-- `edit({ messageId, text })`, `remove({ messageId })` — your own messages.
+- `send({ chatId, threadId?, text, mentions: { userIds, agentIds } })` → messageId. The app sends mention ids picked from autocomplete; the server drops ids outside the workspace and archived agents. Schedules agent turns.
+- `edit({ messageId, text })`, `remove({ messageId })` — your own messages. Removing keeps the row (threads hang off it) and clears text, parts, and reactions.
 - `react({ messageId, emoji })` — toggles your reaction.
 
 ## Permissions
 `channels.create` (owner, member), `channels.manage` (owner: rename, archive, add members to any channel; members can manage channels they created).
 
 ## Migration
-`migrations.conversationsToChats` copies each legacy conversation into an agent DM. Run once per deployment: `npx convex run migrations:conversationsToChats` (dev) and with `--prod` after a release deploys. Then the legacy tables can be dropped.
+`migrations.conversationsToChats` gives every workspace `#general` with all members, copies each legacy conversation into an agent DM (its summary seeds the agent's session), marks it `migratedTo`, and adds `chat.*` to agents with no chat tools (as a new version). Idempotent. Run once per deployment: `npx convex run migrations:conversationsToChats` (dev) and with `--prod` after a release deploys. Then the legacy tables can be dropped.

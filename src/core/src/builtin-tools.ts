@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { chatTools } from "./chat";
 import { type ToolDef, defineTool } from "./tools";
 import { widgetTools } from "./widgets";
 
@@ -79,4 +80,5 @@ export const builtinTools: ToolDef[] = [
 		},
 	}),
 	...widgetTools,
+	...chatTools,
 ];

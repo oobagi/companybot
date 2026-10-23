@@ -10,7 +10,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 ## Tools — `core/src/tools.ts`, `builtin-tools.ts`
 - One shape (`ToolDef`) for built-ins and plugin tools. Ids are `group.name`; model names come from `modelToolName`.
 - Add a built-in: `defineTool` in `builtin-tools.ts`. Set `roles` if not everyone may trigger it, and `readOnly: true` if it changes nothing.
-- Tools reach data only through `ToolContext` (`memory`, `skills`), which enforce permissions. Don't do permission checks inside tools.
+- Tools reach data only through `ToolContext` (`memory`, `chat`, `skills`), which enforce permissions. Don't do permission checks inside tools.
 - Agents grant exact ids or whole groups (`memory.*`). `resolveTools` is the only place that decides what the model sees.
 
 ## Plugins — `core/src/plugins.ts`, `mcp.ts`, `backend/convex/plugins.ts`
@@ -47,7 +47,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 
 ## Agents — `core/src/agents.ts`, `backend/convex/agents.ts`
 - `AgentConfig` is the editable shape (`core/src/agent-config.ts`). Stored per workspace, versioned on every save. `validateAgentConfig` runs on save; add checks there.
-- The runner reads the agent fresh each turn. Anything that changes how a reply runs belongs in `chat.turnContext` + `agent.ts`.
+- The runner reads the agent fresh each turn. Anything that changes how a reply runs belongs in `turns.turnContext` + `agent.ts`; what the model is fed belongs in `core/src/turn-input.ts`.
 
 ## The app and `core`
 - The app imports only dependency-free modules from core, by deep path: `@companybot/core/permissions`, `@companybot/core/agent-config`. Importing the barrel would bundle the agent runtime (`ai`, zod) into the renderer. To expose another module, add it to `exports` in `core/package.json`.

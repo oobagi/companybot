@@ -53,33 +53,52 @@ async function actingFor(ctx: QueryCtx, userId: Id<"users">) {
 	return member;
 }
 
-const forArgs = { userId: v.id("users"), agentId: v.id("agents") };
+const forArgs = {
+	userId: v.id("users"),
+	agentId: v.id("agents"),
+	/** Set in chats with 2+ people: only team memories, so personal facts never land in a shared chat. */
+	teamOnly: v.optional(v.boolean()),
+};
+
+const SHARED_CHAT = "Personal memories are off in chats with 2+ people. Only team memories work here.";
+
+/** Refuses personal memories in shared chats. */
+async function requireTeamMemory(ctx: QueryCtx, id: Id<"memories">, teamOnly?: boolean) {
+	if (teamOnly && (await ctx.db.get(id))?.scope === "personal") throw new ConvexError(SHARED_CHAT);
+}
 
 export const listFor = internalQuery({
 	args: forArgs,
-	handler: async (ctx, { userId, agentId }) => listMemories(ctx, await actingFor(ctx, userId), agentId),
+	handler: async (ctx, { userId, agentId, teamOnly }) => {
+		const memories = await listMemories(ctx, await actingFor(ctx, userId), agentId);
+		return teamOnly ? memories.filter((m) => m.scope === "workspace") : memories;
+	},
 });
 
 export const createFor = internalMutation({
 	args: { ...forArgs, scope, content: v.string() },
-	handler: async (ctx, { userId, agentId, scope, content }) =>
-		createMemory(ctx, await actingFor(ctx, userId), agentId, scope, content),
+	handler: async (ctx, { userId, agentId, teamOnly, scope, content }) => {
+		if (teamOnly && scope === "personal") throw new ConvexError(SHARED_CHAT);
+		return createMemory(ctx, await actingFor(ctx, userId), agentId, scope, content);
+	},
 });
 
 export const updateFor = internalMutation({
 	args: { ...forArgs, id: v.id("memories"), content: v.string() },
-	handler: async (ctx, { userId, agentId, id, content }) => {
+	handler: async (ctx, { userId, agentId, teamOnly, id, content }) => {
 		const memory = await ctx.db.get(id);
 		if (memory?.agentId !== agentId) throw new ConvexError("Memory not found.");
+		await requireTeamMemory(ctx, id, teamOnly);
 		return updateMemory(ctx, await actingFor(ctx, userId), id, content);
 	},
 });
 
 export const removeFor = internalMutation({
 	args: { ...forArgs, id: v.id("memories") },
-	handler: async (ctx, { userId, agentId, id }) => {
+	handler: async (ctx, { userId, agentId, teamOnly, id }) => {
 		const memory = await ctx.db.get(id);
 		if (memory?.agentId !== agentId) throw new ConvexError("Memory not found.");
+		await requireTeamMemory(ctx, id, teamOnly);
 		await removeMemory(ctx, await actingFor(ctx, userId), id);
 	},
 });

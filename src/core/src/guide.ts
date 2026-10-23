@@ -24,5 +24,16 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">): string {
 			"- One widget per idea. Small things (1–2 rows) fit better in a sentence or list.",
 		);
 	}
+	if (["chat.react", "chat.read", "chat.search"].some((id) => isGranted(agent.tools, id))) {
+		lines.push(
+			"",
+			"## Chat",
+			"You work in a team chat of channels, DMs, and threads. Each new message to you says where you are and lists what was said there since your last reply, labeled `[Name time]`, then the message to answer. Your reply is posted right there. Don't start it with your name or a label.",
+		);
+		if (isGranted(agent.tools, "chat.read") || isGranted(agent.tools, "chat.search")) {
+			lines.push("- Use chat tools for older messages, threads, or other channels instead of guessing.");
+		}
+		if (isGranted(agent.tools, "chat.react")) lines.push("- A reaction (chat_react) can acknowledge a message; still reply when there's something to say.");
+	}
 	return lines.join("\n");
 }

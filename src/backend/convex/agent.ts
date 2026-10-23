@@ -1,5 +1,6 @@
 import {
 	type AgentConfig,
+	type ChatStore,
 	type MemoryStore,
 	type PluginCredentials,
 	type PluginSession,
@@ -7,18 +8,17 @@ import {
 	type ReplyUsage,
 	addStep,
 	buildToolSet,
+	buildTurnInput,
+	buildTurnPrompt,
 	builtinTools,
 	createResultStore,
 	emptyUsage,
 	findPlugin,
 	gatewayCost,
 	grantedPluginIds,
-	isGranted,
 	isWidgetResult,
 	isWidgetToolName,
 	openPlugin,
-	platformGuide,
-	skillsIndex,
 } from "@companybot/core";
 import { generateText, isStepCount, streamText } from "ai";
 import type { FunctionReturnType } from "convex/server";
@@ -31,51 +31,52 @@ import { oauthRedirectUrl } from "./plugins";
 import type { messagePart } from "./schema";
 
 const SUMMARY_MODEL = "anthropic/claude-haiku-5.5";
-/** Summarize once the conversation's context passes this many tokens, keeping the newest KEEP messages verbatim. */
+/** Summarize once a session's context passes this many tokens (turns.startCompaction keeps a ~15k-token tail). */
 const COMPACT_TOKENS = 40_000;
-const COMPACT_KEEP = 10;
 const FLUSH_MS = 200;
 /** A plugin that doesn't connect this fast is skipped for the turn, not waited on. */
 const PLUGIN_CONNECT_MS = 10_000;
 
+/** Runs one agent turn (see turns.ts): streams the reply into the database, then starts the next queued turn. */
 export const respond = internalAction({
-	args: { conversationId: v.id("conversations"), replyId: v.id("messages") },
-	handler: async (ctx, { conversationId, replyId }) => {
+	args: { turnId: v.id("agentTurns") },
+	handler: async (ctx, { turnId }) => {
 		const started = Date.now();
 		const usage: TurnUsage = emptyUsage("");
 		let error: string | undefined;
+		let sessionId: Id<"agentSessions"> | undefined;
 		try {
-			await runTurn(ctx, conversationId, replyId, usage);
+			sessionId = await runTurn(ctx, turnId, usage);
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 		} finally {
 			// Failed replies still cost what their finished calls cost.
-			await ctx.runMutation(internal.chat.finishReply, {
-				conversationId,
-				replyId,
+			await ctx.runMutation(internal.turns.finishReply, {
+				turnId,
 				error,
 				usage: usage.steps > 0 ? { ...usage, durationMs: Date.now() - started } : undefined,
 			});
 		}
-		if (!error && usage.contextTokens > COMPACT_TOKENS) await compact(ctx, conversationId);
+		if (!error && sessionId && usage.contextTokens > COMPACT_TOKENS) await compact(ctx, sessionId);
 	},
 });
 
 /** Filled in as the reply streams, so a failed reply still reports what it used. */
 type TurnUsage = ReplyUsage & { firstTokenMs?: number };
 
-async function runTurn(ctx: ActionCtx, conversationId: Id<"conversations">, replyId: Id<"messages">, usage: TurnUsage) {
-	const turn = await ctx.runQuery(internal.chat.turnContext, { conversationId, replyId });
+async function runTurn(ctx: ActionCtx, turnId: Id<"agentTurns">, usage: TurnUsage) {
+	const turn = await ctx.runQuery(internal.turns.turnContext, { turnId });
 	const plugins = await loadPlugins(ctx, turn.member.userId, turn.agent);
 	try {
-		await streamReply(ctx, turn, replyId, plugins, usage);
+		await streamReply(ctx, turnId, turn, plugins, usage);
 	} finally {
 		await Promise.allSettled(plugins.sessions.map((s) => s.close()));
 		await saveRefreshedTokens(ctx, plugins);
 	}
+	return turn.session.id;
 }
 
-type Turn = FunctionReturnType<typeof internal.chat.turnContext>;
+type Turn = FunctionReturnType<typeof internal.turns.turnContext>;
 type LoadedPlugins = {
 	sessions: PluginSession[];
 	unavailable: string[];
@@ -142,44 +143,42 @@ function openWithTimeout(opening: Promise<PluginSession>): Promise<PluginSession
 
 async function streamReply(
 	ctx: ActionCtx,
+	turnId: Id<"agentTurns">,
 	turn: Turn,
-	replyId: Id<"messages">,
 	plugins: LoadedPlugins,
 	usage: TurnUsage,
 ) {
 	const { agent, member } = turn;
+	const { replyId } = turn;
 	usage.model = agent.model;
+	// Plugin tools sorted by id, so the tool list is identical every turn and caches.
+	const pluginTools = plugins.sessions.flatMap((s) => s.tools).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 	const tools = buildToolSet(
 		agent,
 		{
 			actor: { userId: member.userId, role: member.role },
 			agentId: agent.id,
-			memory: memoryStore(ctx, member.userId, agent.id),
+			memory: memoryStore(ctx, member.userId, agent.id, turn.memory === "team"),
+			chat: chatStore(ctx, turnId),
 			skills: turn.skills,
 			results: createResultStore(),
 		},
-		[...builtinTools, ...plugins.sessions.flatMap((s) => s.tools)],
+		[...builtinTools, ...pluginTools],
 	);
 
-	const instructions = [
-		agent.instructions,
-		platformGuide(agent),
-		`You're talking with ${turn.name} <${turn.email}>, a workspace ${member.role}.`,
-		isGranted(agent.tools, "skills.load") && skillsIndex(turn.skills),
-		plugins.unavailable.length > 0 &&
-			`These connected services are unavailable this turn, so you can't use them: ${plugins.unavailable.join(", ")}.`,
-		turn.summary && `Summary of your earlier conversation with them:\n${turn.summary}`,
-	]
-		.filter(Boolean)
-		.join("\n\n");
+	// Stored before the call: later turns replay this exact text, so the cache keeps hitting.
+	const prompt = buildTurnPrompt({ ...turn, agentId: agent.id, unavailablePlugins: plugins.unavailable });
+	await ctx.runMutation(internal.turns.savePrompt, { turnId, prompt });
+	const input = buildTurnInput({ agent, skills: turn.skills, session: turn.session, prompt });
 
 	const started = Date.now();
 	const result = streamText({
 		model: agent.model,
-		instructions,
-		messages: turn.history.map((m) => ({ role: m.role, content: m.text })),
+		instructions: input.instructions,
+		messages: input.messages,
 		tools,
 		stopWhen: isStepCount(5),
+		headers: { "x-session-affinity": turn.session.id },
 		providerOptions: { gateway: { caching: "auto" } },
 	});
 
@@ -188,7 +187,7 @@ async function streamReply(
 	const parts: Infer<typeof messagePart>[] = [];
 	let lastFlush = 0;
 	const text = () => parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("\n\n");
-	const flush = () => ctx.runMutation(internal.chat.updateReply, { replyId, text: text(), parts });
+	const flush = () => ctx.runMutation(internal.turns.updateReply, { replyId, text: text(), parts });
 	const setTool = (id: string, name: string, status: "running" | "done" | "error") => {
 		const existing = parts.find((p) => p.type === "tool" && p.id === id);
 		if (existing?.type === "tool") existing.status = status;
@@ -224,10 +223,11 @@ async function streamReply(
 
 /**
  * This agent's memory, routed through the same permission checks as the app. Each
- * call re-reads the person's role, so permission changes apply mid-reply.
+ * call re-reads the person's role, so permission changes apply mid-reply. In chats
+ * with 2+ people (`teamOnly`), the backend refuses personal memories.
  */
-function memoryStore(ctx: ActionCtx, userId: Id<"users">, agentId: Id<"agents">): MemoryStore {
-	const who = { userId, agentId };
+function memoryStore(ctx: ActionCtx, userId: Id<"users">, agentId: Id<"agents">, teamOnly: boolean): MemoryStore {
+	const who = { userId, agentId, teamOnly };
 	return {
 		list: () => ctx.runQuery(internal.memory.listFor, who),
 		create: (_actor, { scope, content }) => ctx.runMutation(internal.memory.createFor, { ...who, scope, content }),
@@ -239,22 +239,32 @@ function memoryStore(ctx: ActionCtx, userId: Id<"users">, agentId: Id<"agents">)
 	};
 }
 
-/** Folds older messages into a running summary so context stays small. The UI still shows everything. */
-async function compact(ctx: ActionCtx, conversationId: Id<"conversations">) {
-	const input = await ctx.runMutation(internal.chat.startCompaction, { conversationId, keep: COMPACT_KEEP });
+/** Chats as the turn's person sees them; turns.ts re-checks access on every call. */
+function chatStore(ctx: ActionCtx, turnId: Id<"agentTurns">): ChatStore {
+	return {
+		react: (emoji) => ctx.runMutation(internal.turns.reactFor, { turnId, emoji }),
+		read: (input) => ctx.runQuery(internal.turns.readFor, { turnId, ...input }),
+		search: (input) => ctx.runQuery(internal.turns.searchFor, { turnId, ...input }),
+	};
+}
+
+/** Folds a session's older turns into its summary so context stays small. The UI still shows everything. */
+async function compact(ctx: ActionCtx, sessionId: Id<"agentSessions">) {
+	const input = await ctx.runMutation(internal.turns.startCompaction, { sessionId });
 	if (!input) return;
 	let result: { summary: string; upTo: number; costUsd: number } | undefined;
 	try {
-		const transcript = input.messages.map((m) => `${m.role === "user" ? "Person" : "Agent"}: ${m.text}`).join("\n");
+		const transcript = input.turns.map((t) => `Sent to you:\n${t.prompt}\n\nYou replied:\n${t.reply}`).join("\n\n---\n\n");
 		const { text, providerMetadata } = await generateText({
 			model: SUMMARY_MODEL,
 			instructions:
-				"Merge the previous summary and the new transcript into one short summary. Keep facts, decisions, preferences, and open tasks. Drop small talk. Plain bullet points.",
+				"Merge the previous summary and the new transcript into one short summary. Keep facts, decisions, preferences, open tasks, and who said what. Drop small talk. Plain bullet points.",
+			headers: { "x-session-affinity": sessionId },
 			providerOptions: { gateway: { caching: "auto" } },
 			prompt: `Previous summary:\n${input.summary ?? "(none)"}\n\nNew transcript:\n${transcript}`,
 		});
 		result = { summary: text, upTo: input.upTo, costUsd: gatewayCost(providerMetadata) };
 	} finally {
-		await ctx.runMutation(internal.chat.finishCompaction, { conversationId, result });
+		await ctx.runMutation(internal.turns.finishCompaction, { sessionId, result });
 	}
 }

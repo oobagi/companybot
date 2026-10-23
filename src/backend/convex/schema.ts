@@ -40,7 +40,7 @@ export const replyStats = v.object({
 	conversationCostUsd: v.number(),
 });
 
-/** A running summary of older messages, so context stays small. On chats and thread parents. */
+/** Running cost on chats and thread parents. The summary fields here are unused (compaction is per agent session). */
 const compaction = v.object({
 	/** Summary of messages created at or before `summarizedUpTo`. */
 	summary: v.optional(v.string()),
@@ -238,11 +238,31 @@ export default defineSchema({
 		actorId: v.id("users"),
 		/** The streaming reply, once running. */
 		replyId: v.optional(v.id("chatMessages")),
+		/** The agent's session for this place, once running. */
+		sessionId: v.optional(v.id("agentSessions")),
+		/** The exact user message sent to the model this turn. Replayed as-is in later turns. */
+		prompt: v.optional(v.string()),
 		status: v.union(v.literal("queued"), v.literal("running"), v.literal("done"), v.literal("error")),
 		startedAt: v.optional(v.number()),
 	})
 		.index("by_place", ["agentId", "chatId", "threadId", "status"])
-		.index("by_status", ["status"]),
+		.index("by_status", ["status"])
+		.index("by_session", ["sessionId"]),
+
+	// One agent's ongoing context in one place (chat + thread). Append-only: past turns
+	// replay exactly as sent, so prompt caching hits. Older turns fold into `summary`.
+	agentSessions: defineTable({
+		workspaceId: v.id("workspaces"),
+		agentId: v.id("agents"),
+		chatId: v.id("chats"),
+		threadId: v.optional(v.id("chatMessages")),
+		/** Summary of turns created at or before `summarizedUpTo` (a turn's _creationTime). */
+		summary: v.optional(v.string()),
+		summarizedUpTo: v.optional(v.number()),
+		compacting: v.optional(v.boolean()),
+		/** USD spent on this session's replies and summaries. */
+		costUsd: v.optional(v.number()),
+	}).index("by_place", ["agentId", "chatId", "threadId"]),
 
 	// ---- Legacy: one conversation per person per agent. Copied into agent DMs by
 	// migrations.conversationsToChats; remove once every deployment has run it. ----
@@ -259,6 +279,8 @@ export default defineSchema({
 		compacting: v.optional(v.boolean()),
 		/** USD spent on this conversation: replies plus summaries. */
 		costUsd: v.optional(v.number()),
+		/** Set once copied into an agent DM, so the migration runs once per conversation. */
+		migratedTo: v.optional(v.id("chats")),
 	}).index("by_user_agent", ["userId", "agentId"]),
 
 	// A message is ordered parts: text, tool activity, and widgets, as the app shows them.

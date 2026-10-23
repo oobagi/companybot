@@ -1,6 +1,7 @@
 export * from "./agent-config";
 export * from "./agents";
 export * from "./builtin-tools";
+export * from "./chat";
 export * from "./default-agents";
 export * from "./guide";
 export * from "./mcp";
@@ -11,6 +12,7 @@ export * from "./permissions";
 export * from "./plugins";
 export * from "./skills";
 export * from "./tools";
+export * from "./turn-input";
 export * from "./types";
 export * from "./usage";
 export * from "./widgets";

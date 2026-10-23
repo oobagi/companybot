@@ -11,16 +11,20 @@
 import type * as agent from "../agent.js";
 import type * as agents from "../agents.js";
 import type * as auth from "../auth.js";
-import type * as chat from "../chat.js";
+import type * as chatOps from "../chatOps.js";
+import type * as chats from "../chats.js";
 import type * as crypto from "../crypto.js";
 import type * as http from "../http.js";
 import type * as lib from "../lib.js";
 import type * as memory from "../memory.js";
 import type * as memoryOps from "../memoryOps.js";
+import type * as messages from "../messages.js";
+import type * as migrations from "../migrations.js";
 import type * as oauth from "../oauth.js";
 import type * as plugins from "../plugins.js";
 import type * as preferences from "../preferences.js";
 import type * as skills from "../skills.js";
+import type * as turns from "../turns.js";
 import type * as workspace from "../workspace.js";
 
 import type {
@@ -33,16 +37,20 @@ declare const fullApi: ApiFromModules<{
   agent: typeof agent;
   agents: typeof agents;
   auth: typeof auth;
-  chat: typeof chat;
+  chatOps: typeof chatOps;
+  chats: typeof chats;
   crypto: typeof crypto;
   http: typeof http;
   lib: typeof lib;
   memory: typeof memory;
   memoryOps: typeof memoryOps;
+  messages: typeof messages;
+  migrations: typeof migrations;
   oauth: typeof oauth;
   plugins: typeof plugins;
   preferences: typeof preferences;
   skills: typeof skills;
+  turns: typeof turns;
   workspace: typeof workspace;
 }>;
 

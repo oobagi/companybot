@@ -183,8 +183,8 @@ describe("agents", () => {
 		const { owner } = await ownerAndMember();
 		const { companybot, scribe } = await agentsOf(owner);
 		await owner.mutation(api.agents.setArchived, { agentId: scribe._id, archived: true });
-		await expect(owner.mutation(api.chat.send, { agentId: scribe._id, text: "hi" })).rejects.toThrow(
-			"archived",
+		await expect(owner.mutation(api.chats.openDm, { userIds: [], agentIds: [scribe._id] })).rejects.toThrow(
+			"isn't available",
 		);
 		await expect(owner.mutation(api.agents.setArchived, { agentId: companybot._id, archived: true })).rejects.toThrow(
 			"at least one",
@@ -238,88 +238,355 @@ describe("customize", () => {
 	});
 });
 
-describe("chat", () => {
-	it("allows one reply at a time per conversation", async () => {
-		const { owner } = await ownerAndMember();
-		const { companybot, scribe } = await agentsOf(owner);
-		await owner.mutation(api.chat.send, { agentId: companybot._id, text: "hi" });
-		await expect(owner.mutation(api.chat.send, { agentId: companybot._id, text: "again" })).rejects.toThrow(
-			"Still replying",
+type As = Awaited<ReturnType<typeof signIn>>;
+const noMentions = { userIds: [], agentIds: [] };
+/** Read times are in ms; let the clock move so "after" means after. */
+const tick = () => new Promise((r) => setTimeout(r, 3));
+const meOf = async (as: As) => (await as.query(api.workspace.me))!.userId;
+const generalOf = async (as: As) => (await as.query(api.chats.list))!.channels.find((c) => c.isDefault)!;
+const turnsOf = (t: ReturnType<typeof convexTest>) => t.run((ctx) => ctx.db.query("agentTurns").collect());
+const usage = (costUsd: number) => ({
+	model: "anthropic/claude-haiku-5.5",
+	steps: 1,
+	inputTokens: 100,
+	cachedInputTokens: 0,
+	outputTokens: 20,
+	contextTokens: 120,
+	costUsd,
+	durationMs: 900,
+});
+
+describe("chats", () => {
+	it("puts everyone in #general, which can't be left", async () => {
+		const { owner, member } = await ownerAndMember();
+		const general = await generalOf(owner);
+		expect(general).toMatchObject({ name: "general", title: "general", private: false, agentId: null });
+		expect(general.members.map((m) => m.type)).toEqual(["user", "user"]);
+		expect((await generalOf(member))._id).toBe(general._id);
+		await expect(member.mutation(api.chats.leave, { chatId: general._id })).rejects.toThrow("Everyone stays");
+	});
+
+	it("shows public channels to everyone and private ones to members only", async () => {
+		const { owner, member } = await ownerAndMember();
+		const open = await owner.mutation(api.chats.createChannel, { name: "  Sales Team!", private: false });
+		const secret = await owner.mutation(api.chats.createChannel, { name: "#Board", private: true });
+		expect((await owner.query(api.chats.get, { chatId: open }))?.name).toBe("sales-team");
+		expect((await member.query(api.chats.browse)).map((c) => c.name)).toEqual(["sales-team"]);
+		expect(await member.query(api.chats.get, { chatId: secret })).toBeNull();
+		await owner.mutation(api.messages.send, { chatId: secret, text: "Q4 numbers", mentions: noMentions });
+		expect(await member.query(api.messages.list, { chatId: secret })).toEqual([]);
+		await expect(member.mutation(api.messages.send, { chatId: secret, text: "hi", mentions: noMentions })).rejects.toThrow(
+			"not found",
 		);
-		// Other agents have their own conversation.
-		await owner.mutation(api.chat.send, { agentId: scribe._id, text: "hi" });
-		const messages = await owner.query(api.chat.messages, { agentId: companybot._id });
-		expect(messages.map((m) => [m.role, m.status])).toEqual([
-			["user", "done"],
-			["assistant", "streaming"],
-		]);
+		await expect(member.mutation(api.chats.join, { chatId: secret })).rejects.toThrow("not found");
+
+		// Posting in a public channel joins it.
+		await member.mutation(api.messages.send, { chatId: open, text: "hello", mentions: noMentions });
+		expect((await member.query(api.chats.list))!.channels.map((c) => c.name)).toEqual(["general", "sales-team"]);
+		await expect(owner.mutation(api.chats.createChannel, { name: "sales team", private: false })).rejects.toThrow(
+			"already exists",
+		);
+	});
+
+	it("lets members manage only channels they created", async () => {
+		const { owner, member } = await ownerAndMember();
+		const theirs = await member.mutation(api.chats.createChannel, { name: "design", private: false });
+		const ours = await owner.mutation(api.chats.createChannel, { name: "ops", private: false });
+		await member.mutation(api.chats.updateChannel, { chatId: theirs, topic: "Pixels" });
+		expect((await member.query(api.chats.get, { chatId: theirs }))?.canManage).toBe(true);
+		expect((await member.query(api.chats.get, { chatId: ours }))?.canManage).toBe(false);
+		await expect(member.mutation(api.chats.updateChannel, { chatId: ours, name: "x" })).rejects.toThrow("creator or an owner");
+		await owner.mutation(api.chats.updateChannel, { chatId: theirs, name: "Design Team" });
+		expect(await member.query(api.chats.get, { chatId: theirs })).toMatchObject({ name: "design-team", topic: "Pixels" });
+	});
+
+	it("finds an existing DM instead of making another", async () => {
+		const { owner, member } = await ownerAndMember();
+		const memberId = await meOf(member);
+		const ownerId = await meOf(owner);
+		const dm = await owner.mutation(api.chats.openDm, { userIds: [memberId], agentIds: [] });
+		expect(await member.mutation(api.chats.openDm, { userIds: [ownerId, memberId], agentIds: [] })).toBe(dm);
+		expect((await member.query(api.chats.get, { chatId: dm }))?.title).toBe("owner@co.com");
+
+		const { companybot } = await agentsOf(owner);
+		const agentDm = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
+		const list = (await owner.query(api.chats.list))!;
+		expect(list.me).toBe(ownerId);
+		expect(list.dms.find((d) => d._id === agentDm)).toMatchObject({ agentId: companybot._id, title: "Companybot" });
+		expect(list.agents.find((a) => a._id === companybot._id)?.dmId).toBe(agentDm);
+		expect(list.agents.find((a) => a.name === "Scribe")?.dmId).toBeNull();
+		expect(await member.query(api.chats.get, { chatId: agentDm })).toBeNull();
+	});
+
+	it("tracks unread and mentions, and clears them on read", async () => {
+		const { owner, member } = await ownerAndMember();
+		const general = await generalOf(owner);
+		await tick();
+		await owner.mutation(api.messages.send, { chatId: general._id, text: "hi all", mentions: noMentions });
+		expect(await generalOf(member)).toMatchObject({ unread: true, mentioned: false });
+		expect(await generalOf(owner)).toMatchObject({ unread: false });
+		const memberId = await meOf(member);
+		await owner.mutation(api.messages.send, { chatId: general._id, text: "@member look", mentions: { userIds: [memberId], agentIds: [] } });
+		expect(await generalOf(member)).toMatchObject({ unread: true, mentioned: true });
+		await tick();
+		await member.mutation(api.chats.markRead, { chatId: general._id });
+		expect(await generalOf(member)).toMatchObject({ unread: false, mentioned: false });
 	});
 });
 
-describe("reply stats and compaction", () => {
-	const usage = (costUsd: number) => ({
-		model: "anthropic/claude-haiku-5.5",
-		steps: 1,
-		inputTokens: 100,
-		cachedInputTokens: 0,
-		outputTokens: 20,
-		contextTokens: 120,
-		costUsd,
-		durationMs: 900,
-	});
-
-	/** Sends a message and finishes the reply as the runner would. */
-	async function exchange(t: ReturnType<typeof convexTest>, as: Awaited<ReturnType<typeof signIn>>, agentId: Id<"agents">, cost: number) {
-		await as.mutation(api.chat.send, { agentId, text: "hi" });
-		const reply = (await as.query(api.chat.messages, { agentId })).at(-1)!;
-		await t.mutation(internal.chat.finishReply, { conversationId: reply.conversationId, replyId: reply._id, usage: usage(cost) });
-		return reply.conversationId;
-	}
-
-	it("keeps each reply's cost and the running total", async () => {
-		const { t, owner } = await ownerAndMember();
-		const { companybot } = await agentsOf(owner);
-		await exchange(t, owner, companybot._id, 0.01);
-		await exchange(t, owner, companybot._id, 0.02);
-		const stats = (await owner.query(api.chat.messages, { agentId: companybot._id })).flatMap((m) => (m.stats ? [m.stats] : []));
-		expect(stats.map((s) => [s.costUsd, s.conversationCostUsd])).toEqual([
-			[0.01, 0.01],
-			[0.02, 0.03],
+describe("messages", () => {
+	it("threads, edits, deletes, and toggles reactions", async () => {
+		const { owner, member } = await ownerAndMember();
+		const chatId = (await generalOf(owner))._id;
+		const parent = await owner.mutation(api.messages.send, { chatId, text: "Plan?", mentions: noMentions });
+		await member.mutation(api.messages.send, { chatId, threadId: parent, text: "Yes", mentions: noMentions });
+		await owner.mutation(api.messages.send, { chatId, threadId: parent, text: "Good", mentions: noMentions });
+		const [top] = await owner.query(api.messages.list, { chatId });
+		expect(top).toMatchObject({ text: "Plan?", replyCount: 2, mine: true });
+		expect(top!.replyAuthors.map((a) => a.name)).toEqual(["owner@co.com", "member@co.com"]);
+		expect((await owner.query(api.messages.list, { chatId, threadId: parent })).map((m) => m.text)).toEqual([
+			"Plan?",
+			"Yes",
+			"Good",
 		]);
-	});
 
-	it("folds older messages, adds the summary's cost, and shows compacting meanwhile", async () => {
+		await owner.mutation(api.messages.react, { messageId: parent, emoji: "👍" });
+		await member.mutation(api.messages.react, { messageId: parent, emoji: "👍" });
+		let [m] = await member.query(api.messages.list, { chatId });
+		expect(m!.reactions).toEqual([{ emoji: "👍", count: 2, mine: true, names: ["owner@co.com", "member@co.com"] }]);
+		await member.mutation(api.messages.react, { messageId: parent, emoji: "👍" });
+		[m] = await member.query(api.messages.list, { chatId });
+		expect(m!.reactions).toEqual([{ emoji: "👍", count: 1, mine: false, names: ["owner@co.com"] }]);
+
+		await expect(member.mutation(api.messages.edit, { messageId: parent, text: "x" })).rejects.toThrow("your own");
+		await owner.mutation(api.messages.edit, { messageId: parent, text: "Plan!" });
+		expect((await owner.query(api.messages.list, { chatId }))[0]?.editedAt).not.toBeNull();
+		await owner.mutation(api.messages.remove, { messageId: parent });
+		expect((await owner.query(api.messages.list, { chatId }))[0]).toMatchObject({ deleted: true, text: "", parts: [], replyCount: 2 });
+	});
+});
+
+describe("agent turns", () => {
+	it("replies to mentions in channels, adding the agent to the channel", async () => {
 		const { t, owner } = await ownerAndMember();
 		const { companybot } = await agentsOf(owner);
-		let conversationId!: Id<"conversations">;
-		for (let i = 0; i < 3; i++) conversationId = await exchange(t, owner, companybot._id, 0.01);
-
-		const input = await t.mutation(internal.chat.startCompaction, { conversationId, keep: 2 });
-		expect(input?.messages).toHaveLength(4);
-		expect((await owner.query(api.chat.conversation, { agentId: companybot._id }))?.compacting).toBe(true);
-		// A second compaction can't start while one runs.
-		expect(await t.mutation(internal.chat.startCompaction, { conversationId, keep: 2 })).toBeNull();
-
-		await t.mutation(internal.chat.finishCompaction, {
-			conversationId,
-			result: { summary: "- Said hi", upTo: input!.upTo, costUsd: 0.005 },
+		const chatId = (await generalOf(owner))._id;
+		await owner.mutation(api.messages.send, { chatId, text: "no mention", mentions: noMentions });
+		expect(await turnsOf(t)).toHaveLength(0);
+		const trigger = await owner.mutation(api.messages.send, {
+			chatId,
+			text: "@Companybot hi",
+			mentions: { userIds: [], agentIds: [companybot._id] },
 		});
-		const conversation = await owner.query(api.chat.conversation, { agentId: companybot._id });
-		expect(conversation).toMatchObject({ summary: "- Said hi", summarizedUpTo: input!.upTo, compacting: false });
-		expect(conversation?.costUsd).toBeCloseTo(0.035);
+		const [turn] = await turnsOf(t);
+		expect(turn).toMatchObject({ status: "running", triggerId: trigger, agentId: companybot._id });
+		expect((await generalOf(owner)).members.some((m) => m.id === companybot._id)).toBe(true);
+		const messages = await owner.query(api.messages.list, { chatId });
+		expect(messages.at(-1)).toMatchObject({ _id: turn!.replyId, author: { type: "agent", name: "Companybot" }, status: "streaming" });
 	});
 
-	it("clears compacting when the summary fails, changing nothing else", async () => {
+	it("answers every message in an agent DM, one at a time", async () => {
+		const { t, owner } = await ownerAndMember();
+		const { scribe } = await agentsOf(owner);
+		const chatId = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [scribe._id] });
+		await owner.mutation(api.messages.send, { chatId, text: "one", mentions: noMentions });
+		await owner.mutation(api.messages.send, { chatId, text: "two", mentions: noMentions });
+		let turns = await turnsOf(t);
+		expect(turns.map((x) => x.status)).toEqual(["running", "queued"]);
+
+		await t.mutation(internal.turns.finishReply, { turnId: turns[0]!._id, usage: usage(0.01) });
+		turns = await turnsOf(t);
+		expect(turns.map((x) => x.status)).toEqual(["done", "running"]);
+		await t.mutation(internal.turns.finishReply, { turnId: turns[1]!._id, usage: usage(0.02) });
+		const stats = (await owner.query(api.messages.list, { chatId })).flatMap((m) => (m.stats ? [m.stats.conversationCostUsd] : []));
+		expect(stats).toEqual([0.01, 0.03]);
+		expect((await owner.query(api.chats.place, { chatId }))?.costUsd).toBeCloseTo(0.03);
+	});
+
+	it("never lets agents trigger agents, and drops mentions of archived agents", async () => {
+		const { t, owner } = await ownerAndMember();
+		const { companybot, scribe } = await agentsOf(owner);
+		const chatId = (await generalOf(owner))._id;
+		await owner.mutation(api.messages.send, { chatId, text: "@Companybot", mentions: { userIds: [], agentIds: [companybot._id] } });
+		const [turn] = await turnsOf(t);
+		await t.mutation(internal.turns.updateReply, { replyId: turn!.replyId!, text: "@Scribe help", parts: [{ type: "text", text: "@Scribe help" }] });
+		await t.mutation(internal.turns.finishReply, { turnId: turn!._id });
+		expect((await turnsOf(t)).map((x) => x.agentId)).toEqual([companybot._id]);
+
+		await owner.mutation(api.agents.setArchived, { agentId: scribe._id, archived: true });
+		await owner.mutation(api.messages.send, { chatId, text: "@Scribe", mentions: { userIds: [], agentIds: [scribe._id] } });
+		expect(await turnsOf(t)).toHaveLength(1);
+	});
+
+	it("fails a turn stuck over 5 minutes and moves the queue on", async () => {
 		const { t, owner } = await ownerAndMember();
 		const { companybot } = await agentsOf(owner);
-		const conversationId = await exchange(t, owner, companybot._id, 0.01);
-		await exchange(t, owner, companybot._id, 0.01);
-		await t.mutation(internal.chat.startCompaction, { conversationId, keep: 1 });
-		await t.mutation(internal.chat.finishCompaction, { conversationId });
-		expect(await owner.query(api.chat.conversation, { agentId: companybot._id })).toMatchObject({
-			summary: null,
-			compacting: false,
+		const chatId = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
+		await owner.mutation(api.messages.send, { chatId, text: "one", mentions: noMentions });
+		const [stuck] = await turnsOf(t);
+		await t.run((ctx) => ctx.db.patch(stuck!._id, { startedAt: Date.now() - 6 * 60_000 }));
+		await owner.mutation(api.messages.send, { chatId, text: "two", mentions: noMentions });
+		expect((await turnsOf(t)).map((x) => x.status)).toEqual(["error", "running"]);
+		const reply = await t.run((ctx) => ctx.db.get(stuck!.replyId!));
+		expect(reply).toMatchObject({ status: "error", error: "Reply timed out." });
+	});
+
+	it("replies in the thread it was mentioned in", async () => {
+		const { t, owner } = await ownerAndMember();
+		const { companybot } = await agentsOf(owner);
+		const chatId = (await generalOf(owner))._id;
+		const parent = await owner.mutation(api.messages.send, { chatId, text: "Plan", mentions: noMentions });
+		await owner.mutation(api.messages.send, {
+			chatId,
+			threadId: parent,
+			text: "@Companybot thoughts?",
+			mentions: { userIds: [], agentIds: [companybot._id] },
 		});
+		const [turn] = await turnsOf(t);
+		expect(turn?.threadId).toBe(parent);
+		expect((await owner.query(api.messages.list, { chatId, threadId: parent })).map((m) => m.author.type)).toEqual([
+			"user",
+			"user",
+			"agent",
+		]);
+		const context = await t.query(internal.turns.turnContext, { turnId: turn!._id });
+		expect(context.place.thread).toMatchObject({ first: true, parent: { text: "Plan" } });
+		expect(context.memory).toBe("team");
+	});
+
+	it("feeds new messages since the last reply and replays past turns as sent", async () => {
+		const { t, owner } = await ownerAndMember();
+		const { companybot } = await agentsOf(owner);
+		const chatId = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
+		await owner.mutation(api.messages.send, { chatId, text: "first", mentions: noMentions });
+		let [turn] = await turnsOf(t);
+		let context = await t.query(internal.turns.turnContext, { turnId: turn!._id });
+		expect(context.memory).toBe("personal");
+		expect(context.messages.map((m) => m.text)).toEqual(["first"]);
+		await t.mutation(internal.turns.savePrompt, { turnId: turn!._id, prompt: "PROMPT 1" });
+		await t.mutation(internal.turns.updateReply, { replyId: turn!.replyId!, text: "answer", parts: [{ type: "text", text: "answer" }] });
+		await t.mutation(internal.turns.finishReply, { turnId: turn!._id });
+
+		await owner.mutation(api.messages.send, { chatId, text: "second", mentions: noMentions });
+		turn = (await turnsOf(t))[1];
+		context = await t.query(internal.turns.turnContext, { turnId: turn!._id });
+		expect(context.session.turns).toEqual([{ prompt: "PROMPT 1", reply: "answer" }]);
+		expect(context.messages.map((m) => m.text)).toEqual(["second"]);
+		expect(context.triggerId).toBe(context.messages[0]!.id);
+	});
+
+	it("compacts a session's older turns, keeping a recent tail", async () => {
+		const { t, owner } = await ownerAndMember();
+		const { companybot } = await agentsOf(owner);
+		const chatId = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
+		for (const text of ["a", "b", "c"]) {
+			await owner.mutation(api.messages.send, { chatId, text, mentions: noMentions });
+			const turn = (await turnsOf(t)).at(-1)!;
+			await t.mutation(internal.turns.savePrompt, { turnId: turn._id, prompt: `prompt ${text}`.repeat(10) });
+			await t.mutation(internal.turns.finishReply, { turnId: turn._id, usage: usage(0.01) });
+		}
+		const sessionId = (await turnsOf(t))[0]!.sessionId!;
+		const input = await t.mutation(internal.turns.startCompaction, { sessionId, keepTokens: 1 });
+		expect(input?.turns).toHaveLength(2);
+		expect((await owner.query(api.chats.place, { chatId }))?.compacting).toBe(true);
+		expect(await t.mutation(internal.turns.startCompaction, { sessionId })).toBeNull();
+		await t.mutation(internal.turns.finishCompaction, { sessionId, result: { summary: "- Said a, b", upTo: input!.upTo, costUsd: 0.005 } });
+		const place = await owner.query(api.chats.place, { chatId });
+		expect(place).toMatchObject({ summary: "- Said a, b", summarizedUpTo: input!.upTo, compacting: false });
+		expect(place?.costUsd).toBeCloseTo(0.035);
+
+		await owner.mutation(api.messages.send, { chatId, text: "d", mentions: noMentions });
+		const context = await t.query(internal.turns.turnContext, { turnId: (await turnsOf(t)).at(-1)!._id });
+		expect(context.session.summary).toBe("- Said a, b");
+		expect(context.session.turns.map((x) => x.prompt.slice(0, 8))).toEqual(["prompt c"]);
+	});
+
+	it("lets chat tools see only what the person can, and react to the trigger", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		const { companybot } = await agentsOf(owner);
+		await owner.mutation(api.chats.createChannel, { name: "board", private: true });
+		const chatId = (await generalOf(member))._id;
+		const trigger = await member.mutation(api.messages.send, {
+			chatId,
+			text: "@Companybot what's on #board?",
+			mentions: { userIds: [], agentIds: [companybot._id] },
+		});
+		const [turn] = await turnsOf(t);
+		expect(await t.query(internal.turns.readFor, { turnId: turn!._id, chat: "#board" })).toEqual({
+			error: 'No channel "#board" you can see.',
+		});
+		const here = await t.query(internal.turns.readFor, { turnId: turn!._id });
+		expect("messages" in here && here.messages.map((m) => [m.chat, m.author, m.text])).toEqual([
+			["#general", "member@co.com", "@Companybot what's on #board?"],
+		]);
+		expect(await t.mutation(internal.turns.reactFor, { turnId: turn!._id, emoji: "👀" })).toEqual({ reacted: true });
+		const [m] = (await member.query(api.messages.list, { chatId })).filter((x) => x._id === trigger);
+		expect(m!.reactions).toEqual([{ emoji: "👀", count: 1, mine: false, names: ["Companybot"] }]);
+	});
+});
+
+describe("memory in shared chats", () => {
+	it("refuses personal memories when 2+ people can read the chat", async () => {
+		const { t, owner } = await ownerAndMember();
+		const { companybot } = await agentsOf(owner);
+		const agentId = companybot._id;
+		const mine = await owner.mutation(api.memory.create, { agentId, scope: "personal", content: "I'm vegan." });
+		await owner.mutation(api.memory.create, { agentId, scope: "workspace", content: "We close at 5." });
+		const userId = await meOf(owner);
+		const shared = { userId, agentId, teamOnly: true };
+		expect((await t.query(internal.memory.listFor, shared)).map((m) => m.content)).toEqual(["We close at 5."]);
+		await expect(t.mutation(internal.memory.createFor, { ...shared, scope: "personal", content: "x" })).rejects.toThrow(
+			"Personal memories are off",
+		);
+		await expect(t.mutation(internal.memory.removeFor, { ...shared, id: mine.id as Id<"memories"> })).rejects.toThrow(
+			"Personal memories are off",
+		);
+		expect(await t.query(internal.memory.listFor, { userId, agentId })).toHaveLength(2);
+	});
+});
+
+describe("migration", () => {
+	it("copies legacy conversations into agent DMs once, and grants chat tools once", async () => {
+		const { t, owner } = await ownerAndMember();
+		const { companybot } = await agentsOf(owner);
+		const userId = await meOf(owner);
+		await t.run(async (ctx) => {
+			const workspaceId = (await ctx.db.get(companybot._id))!.workspaceId;
+			const tools = ["memory.search"];
+			await ctx.db.patch(companybot._id, { tools });
+			// A pre-chat workspace: no #general yet.
+			for (const c of await ctx.db.query("chatMembers").collect()) await ctx.db.delete(c._id);
+			for (const c of await ctx.db.query("chats").collect()) await ctx.db.delete(c._id);
+			const conversationId = await ctx.db.insert("conversations", {
+				workspaceId,
+				userId,
+				agentId: companybot._id,
+				busy: false,
+				summary: "- Old stuff",
+				costUsd: 0.5,
+			});
+			for (const [role, text] of [["user", "hi"], ["assistant", "hello"], ["user", "bye"]] as const) {
+				await ctx.db.insert("messages", { conversationId, role, text, parts: [{ type: "text", text }], status: "done" });
+			}
+		});
+		const first = await t.mutation(internal.migrations.conversationsToChats, {});
+		const second = await t.mutation(internal.migrations.conversationsToChats, {});
+		expect(first).toMatchObject({ conversations: 1, messages: 3 });
+		expect(second).toMatchObject({ conversations: 0, messages: 0, agents: 0 });
+
+		const list = (await owner.query(api.chats.list))!;
+		expect(list.channels.map((c) => c.name)).toEqual(["general"]);
+		const dmId = list.agents.find((a) => a._id === companybot._id)!.dmId!;
+		const messages = await owner.query(api.messages.list, { chatId: dmId });
+		expect(messages.map((m) => [m.author.type, m.text])).toEqual([
+			["user", "hi"],
+			["agent", "hello"],
+			["user", "bye"],
+		]);
+		expect(await owner.query(api.chats.place, { chatId: dmId })).toMatchObject({ summary: "- Old stuff", costUsd: 0.5 });
+		const agent = (await agentsOf(owner)).companybot;
+		expect(agent.tools).toEqual(["chat.*", "memory.search"]);
+		expect(agent.version).toBe(2);
 	});
 });
 

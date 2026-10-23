@@ -46,7 +46,7 @@ export async function seedAgents(ctx: MutationCtx, workspaceId: Id<"workspaces">
 	for (const config of defaultAgents) await insertAgent(ctx, workspaceId, userId, config);
 }
 
-async function saveVersion(ctx: MutationCtx, agent: Doc<"agents">, config: AgentConfig, userId: Id<"users">) {
+export async function saveVersion(ctx: MutationCtx, agent: Doc<"agents">, config: AgentConfig, userId: Id<"users">) {
 	const version = agent.version + 1;
 	await ctx.db.patch(agent._id, { ...config, version, updatedAt: Date.now(), updatedBy: userId });
 	await ctx.db.insert("agentVersions", { agentId: agent._id, version, config, savedBy: userId });
