@@ -4,8 +4,8 @@
 //   // COMPAT(0.1.0-alpha.6): what it keeps working, and what to do when removing it.
 //
 // The version is the first release that no longer needs it: once that release is out,
-// installs update within hours, so the next release can delete the code. `pnpm release`
-// prints the ones that are due; `node scripts/compat.mjs` lists them all.
+// installs update within hours, so the next release must delete the code. `pnpm release`
+// refuses while any are due; `node scripts/compat.mjs` lists them all.
 
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";

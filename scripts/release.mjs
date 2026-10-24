@@ -70,13 +70,14 @@ sh("git fetch origin main --tags", { quiet: true });
 if (out("git rev-parse HEAD") !== out("git rev-parse origin/main")) fail("main isn't in sync with origin. Pull or push first.");
 if (out(`git tag -l v${next}`)) fail(`v${next} already exists.`);
 
-console.log(`Releasing Companybot ${pkg.version} → ${next}\n`);
+// Expired compat code blocks the release, so it gets deleted instead of piling up.
 const due = dueMarkers(pkg.version);
-if (due.length > 0) {
-	console.log("Backward-compat code that installs no longer need (delete it in a follow-up PR):");
-	for (const m of due) console.log(`  ${m.where}  ${m.note}`);
-	console.log();
-}
+if (due.length > 0)
+	fail(
+		`Delete the backward-compat code installs no longer need first (follow each note), or bump a marker's version to keep it:\n${due.map((m) => `  ${m.where}  ${m.note}`).join("\n")}`,
+	);
+
+console.log(`Releasing Companybot ${pkg.version} → ${next}\n`);
 sh("pnpm typecheck");
 sh("pnpm test");
 

@@ -16,7 +16,7 @@ Alpha/beta versions publish as GitHub prereleases. Installs on a prerelease upda
 
 The backend deploys before the app ships, and installed apps update within hours, so backend changes must keep the previous app version working:
 - **Add, don't remove.** New tables and optional fields are safe. To replace a public function, keep the old one working on top of the new data and delete it once installs have updated.
-- **Mark it for removal.** Put `// COMPAT(<version>): <what to delete>` on code kept only for older apps or old data, where `<version>` is the first release that no longer needs it (usually the next one). `pnpm release` lists the ones that are due; `node scripts/compat.mjs` lists all. Delete due ones in a follow-up PR.
+- **Mark it for removal.** Put `// COMPAT(<version>): <what to delete>` on code kept only for older apps or old data, where `<version>` is the first release that no longer needs it (usually the next one). `pnpm release` refuses to run while any are due; `node scripts/compat.mjs` lists all. Delete due ones before releasing.
 - **Data moves are migrations.** Deploying never changes existing rows. To change stored data, add a migration to `convex/migrations.ts` (Convex's migrations component). `pnpm release` runs every pending one on prod right after deploying and waits for them; the component remembers which finished, so each runs once. Run them on dev with `npx convex run migrations:runAll`.
 
 ## Snapshots
