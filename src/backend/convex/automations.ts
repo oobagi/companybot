@@ -368,11 +368,12 @@ export const update = mutation({
 		enabled: v.optional(v.boolean()),
 		agentId: v.optional(v.id("agents")),
 		audience: v.optional(audience),
-		/** Needed with audience "channel". */
-		channelId: v.optional(v.id("chats")),
+		/** Needed with audience "channel". Apps before audiences send only this: a channel, or null for DMs. */
+		channelId: v.optional(v.union(v.id("chats"), v.null())),
 	},
 	handler: async (ctx, { automationId, enabled, agentId, audience, channelId }) => {
 		const { member, install } = await requireEditable(ctx, automationId);
+		if (audience === undefined && channelId !== undefined) audience = channelId ? "channel" : "subscribers";
 		if (agentId) {
 			const agent = await requireAgent(ctx, member, agentId);
 			if (agent.archived) throw new ConvexError("That agent is archived.");
@@ -387,7 +388,7 @@ export const update = mutation({
 			...(agentId && { agentId }),
 			...(audience && {
 				audience,
-				channelId: audience === "channel" ? channelId : undefined,
+				channelId: audience === "channel" ? (channelId ?? undefined) : undefined,
 				channelSetBy: audience === "channel" ? member.userId : undefined,
 			}),
 		});
