@@ -1255,6 +1255,11 @@ describe("approvals", () => {
 	async function holdCall(t: ReturnType<typeof convexTest>, as: As, chatId: Id<"chats">, finish = true) {
 		const { companybot } = await agentsOf(as);
 		await as.mutation(api.messages.send, { chatId, text: "@Companybot text Bob", mentions: { userIds: [], agentIds: [companybot._id] } });
+		// The test plays the runner, so the real one (a model call) must not race it.
+		await t.run(async (ctx) => {
+			for (const job of await ctx.db.system.query("_scheduled_functions").collect())
+				if (job.state.kind === "pending") await ctx.scheduler.cancel(job._id);
+		});
 		const turn = (await turnsOf(t)).at(-1)!;
 		// What the runner stores before calling the model; set here so no model call is needed.
 		await t.mutation(internal.turns.savePrompt, { turnId: turn._id, prompt: "Reply to this message: text Bob" });
