@@ -10,13 +10,14 @@ import type { ChatStore, Participant } from "./chat";
 import { type Memory, type MemoryStore, canCreateMemory, canEditMemory, canReadMemory } from "./memory";
 import { openConnector } from "./mcp";
 import { ConnectorOAuth } from "./oauth";
-import { can, canManageChannel, permissions } from "./permissions";
+import { can, canEditSkill, canManageChannel, permissions } from "./permissions";
 import { type Connector, defineConnector, connectorCatalog, connectorHeaders, validateCredentials, validateConnector } from "./connectors";
 import {
 	SKILL_DESCRIPTION_MAX,
 	SKILL_NAME_MAX,
 	customSkill,
 	customSkillError,
+	type SkillStore,
 	skillCatalog,
 	skillsIndex,
 } from "./skills";
@@ -43,6 +44,7 @@ const ctx = (actor: Actor) => ({
 	skills: skillCatalog,
 	results: createResultStore(),
 	automations: {} as AutomationStore,
+	skillStore: {} as SkillStore,
 });
 
 describe("tool visibility", () => {
@@ -55,6 +57,7 @@ describe("tool visibility", () => {
 			"memory.forget",
 			"clock.now",
 			"skills.load",
+			"skills.create",
 			"widgets.table",
 			"widgets.stats",
 			"widgets.card",
@@ -100,6 +103,7 @@ describe("tool visibility", () => {
 			"memory_forget",
 			"clock_now",
 			"skills_load",
+			"skills_create",
 			"widgets_table",
 			"widgets_stats",
 			"widgets_card",
@@ -205,6 +209,14 @@ describe("permissions", () => {
 		expect(canManageChannel(member, { createdBy: "member" })).toBe(true);
 		expect(canManageChannel(member, { createdBy: "owner" })).toBe(false);
 		expect(canManageChannel(owner, { createdBy: "member" })).toBe(true);
+	});
+
+	it("lets members make skills and edit only the ones they made", () => {
+		expect(can(member, "skills.create")).toBe(true);
+		expect(canEditSkill(member, { createdBy: "member" })).toBe(true);
+		expect(canEditSkill(member, { createdBy: "owner" })).toBe(false);
+		expect(canEditSkill(member, {})).toBe(false);
+		expect(canEditSkill(owner, { createdBy: "member" })).toBe(true);
 	});
 });
 

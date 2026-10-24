@@ -241,7 +241,7 @@ describe("customize", () => {
 		expect((await member.query(api.skills.list)).find((s) => s.id === "meeting-notes")?.installed).toBe(true);
 	});
 
-	describe("skills made by owners", () => {
+	describe("skills people make", () => {
 		const quote = {
 			name: "Quote follow-up",
 			description: "Chase a quote nobody answered. Use when asked to follow up on a quote.",
@@ -255,14 +255,31 @@ describe("customize", () => {
 			return { ...ctx, skillId, find };
 		}
 
-		it("lets only owners make one, installed for the workspace", async () => {
+		it("lets anyone make one, on for the whole workspace", async () => {
 			const { member, skillId, find } = await made();
-			await expect(member.mutation(api.skills.create, { config: quote })).rejects.toThrow("permission");
 			expect(skillId).toMatch(/^custom-[0-9a-f]{12}$/);
 			const list = await member.query(api.skills.list);
-			expect(list[0]).toMatchObject({ id: skillId, name: "Quote follow-up", installed: true, version: "1" });
+			expect(list[0]).toMatchObject({ id: skillId, name: "Quote follow-up", installed: true, version: "1", canEdit: false });
 			expect((await find(member))?.custom).toMatchObject({ version: 1, updatedByName: "owner@co.com" });
 			expect(list.filter((s) => s.custom)).toHaveLength(1);
+			const mine = await member.mutation(api.skills.create, { config: { ...quote, name: "Mine" } });
+			expect((await member.query(api.skills.list)).find((s) => s.id === mine)).toMatchObject({
+				canEdit: true,
+				createdByName: "member@co.com",
+			});
+		});
+
+		it("lets the maker or an owner change or delete it, nobody else", async () => {
+			const { owner, member } = await made();
+			const skillId = await member.mutation(api.skills.create, { config: quote });
+			const config = { ...quote, description: "Mine now." };
+			await member.mutation(api.skills.save, { skillId, config, expectedVersion: 1 });
+			await owner.mutation(api.skills.save, { skillId, config: quote, expectedVersion: 2 });
+			const row = (await member.query(api.skills.list)).find((s) => s.id === skillId);
+			expect(row).toMatchObject({ canEdit: true, createdByName: "member@co.com", custom: { version: 3, updatedByName: "owner@co.com" } });
+			await owner.mutation(api.skills.setInstalled, { skillId, installed: false });
+			expect((await member.query(api.skills.list)).some((s) => s.id === skillId)).toBe(false);
+			await expect(member.mutation(api.skills.setInstalled, { skillId: "meeting-notes", installed: true })).rejects.toThrow("permission");
 		});
 
 		it("refuses bad skills", async () => {
@@ -280,7 +297,7 @@ describe("customize", () => {
 		it("saves edits with version checks", async () => {
 			const { owner, member, skillId, find } = await made();
 			const config = { ...quote, description: "Chase an unanswered quote." };
-			await expect(member.mutation(api.skills.save, { skillId, config, expectedVersion: 1 })).rejects.toThrow("permission");
+			await expect(member.mutation(api.skills.save, { skillId, config, expectedVersion: 1 })).rejects.toThrow("Only the person who made");
 			await owner.mutation(api.skills.save, { skillId, config, expectedVersion: 1 });
 			await expect(owner.mutation(api.skills.save, { skillId, config, expectedVersion: 1 })).rejects.toThrow(
 				"Someone else saved a change",
@@ -294,12 +311,31 @@ describe("customize", () => {
 			);
 		});
 
-		it("deletes like an uninstall, owners only", async () => {
+		it("deletes like an uninstall", async () => {
 			const { owner, member, skillId, find } = await made();
-			await expect(member.mutation(api.skills.setInstalled, { skillId, installed: false })).rejects.toThrow("permission");
+			await expect(member.mutation(api.skills.setInstalled, { skillId, installed: false })).rejects.toThrow("Only the person who made");
+			await expect(owner.mutation(api.skills.setInstalled, { skillId, installed: true })).rejects.toThrow("always on");
 			await owner.mutation(api.skills.setInstalled, { skillId, installed: false });
 			expect(await find()).toBeUndefined();
-			await expect(owner.mutation(api.skills.setInstalled, { skillId, installed: true })).rejects.toThrow("Unknown skill.");
+			await expect(owner.mutation(api.skills.setInstalled, { skillId, installed: false })).rejects.toThrow("Skill not found.");
+		});
+
+		it("lets an agent save one from chat as the person it's helping", async () => {
+			const { t, owner, member } = await ownerAndMember();
+			const { companybot } = await agentsOf(owner);
+			await member.mutation(api.messages.send, {
+				chatId: (await generalOf(member))._id,
+				text: "@Companybot save how we chase quotes",
+				mentions: { userIds: [], agentIds: [companybot._id] },
+			});
+			const turnId = (await turnsOf(t))[0]!._id;
+			expect(await t.mutation(internal.skills.createFor, { turnId, config: { ...quote, name: "" } })).toEqual({ error: "Give it a name." });
+			const made = (await t.mutation(internal.skills.createFor, { turnId, config: quote })) as { created: string; name: string };
+			expect(made.name).toBe("Quote follow-up");
+			expect((await member.query(api.skills.list)).find((s) => s.id === made.created)).toMatchObject({
+				canEdit: true,
+				createdByName: "member@co.com",
+			});
 		});
 
 		it("reaches agents like a library skill: description in the prompt, full text through skills.load", async () => {

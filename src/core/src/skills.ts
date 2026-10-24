@@ -16,7 +16,7 @@ export const defineSkill = (skill: Skill) => skill;
 // ---- Skills people make ----
 
 /**
- * What an owner writes when they make their own skill. Field names and limits follow
+ * What someone writes when they make their own skill. Field names and limits follow
  * Claude's Agent Skills (SKILL.md `name` / `description` frontmatter, body loaded on
  * demand): https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview
  */
@@ -51,6 +51,11 @@ export function customSkillError(config: CustomSkillConfig): string | null {
 	if (instructions.length > SKILL_INSTRUCTIONS_MAX)
 		return `Keep the instructions under ${SKILL_INSTRUCTIONS_MAX.toLocaleString("en-US")} characters.`;
 	return null;
+}
+
+/** Agents make skills for the person they're helping, with the same rules as the app. */
+export interface SkillStore {
+	create(config: CustomSkillConfig): Promise<{ created: string; name: string } | { error: string }>;
 }
 
 /** A custom skill as the same shape the catalog uses, so agents load both the same way. */

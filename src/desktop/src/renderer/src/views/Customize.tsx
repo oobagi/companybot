@@ -252,7 +252,7 @@ function SkillsTab({ role }: { role: Role }) {
 					Instructions your agents load when a task calls for them. Agents see each skill's description, and read the rest only
 					when they need it.
 				</p>
-				{canManage && (
+				{can(role, "skills.create") && (
 					<button type="button" className={`${primaryButton} shrink-0`} onClick={() => navigate("customize", "skills", "new")}>
 						New skill
 					</button>
@@ -273,7 +273,7 @@ function SkillsTab({ role }: { role: Role }) {
 
 type SkillConfig = { name: string; description: string; instructions: string };
 
-/** Name, description, and instructions: the parts of a skill an owner writes. */
+/** Name, description, and instructions: the parts of a skill someone writes. */
 function SkillFields({ value, onChange }: { value: SkillConfig; onChange: (value: SkillConfig) => void }) {
 	const left = SKILL_DESCRIPTION_MAX - value.description.trim().length;
 	return (
@@ -332,15 +332,8 @@ function NewSkill() {
 	);
 }
 
-function CustomSkillDetail({
-	skill: s,
-	custom,
-	canManage,
-}: {
-	skill: SkillItem;
-	custom: NonNullable<SkillItem["custom"]>;
-	canManage: boolean;
-}) {
+function CustomSkillDetail({ skill: s, custom }: { skill: SkillItem; custom: NonNullable<SkillItem["custom"]> }) {
+	const canManage = s.canEdit;
 	const save = useMutation(api.skills.save);
 	const setSkill = useMutation(api.skills.setInstalled);
 	const saved: SkillConfig = { name: s.name, description: s.description, instructions: s.instructions };
@@ -350,7 +343,7 @@ function CustomSkillDetail({
 	return (
 		<Page
 			title={s.name}
-			subtitle={`Made by your team · v${custom.version} · edited by ${custom.updatedByName} ${timeAgo(custom.updatedAt)}`}
+			subtitle={`Made by ${s.createdByName ?? "your team"} · v${custom.version} · edited by ${custom.updatedByName} ${timeAgo(custom.updatedAt)}`}
 			back={{ label: "Skills", to: ["customize", "skills"] }}
 			actions={
 				canManage && (
@@ -369,10 +362,11 @@ function CustomSkillDetail({
 		>
 			{draft.stale && <ConflictNotice who={custom.updatedByName} onDiscard={draft.discard} onKeep={draft.keepMine} />}
 			{error && <Notice>{error}</Notice>}
+			{!canManage && <p className="text-sm text-neutral-500">Only the person who made it or an owner can change it.</p>}
 			<fieldset disabled={!canManage} className="flex flex-col gap-5">
 				<SkillFields value={draft.value} onChange={draft.set} />
 			</fieldset>
-			<Facts rows={[["Used by", 'Agents granted "skills.load", when a task calls for it']]} />
+			<Facts rows={[["Used by", 'Everyone\'s agents granted "skills.load", when a task calls for it']]} />
 			{draft.dirty && (
 				<SaveBar
 					onDiscard={draft.discard}
@@ -391,7 +385,7 @@ function SkillScreen({ role, id }: { role: Role; id: string }) {
 	if (id === "new") return <NewSkill />;
 	const open = skills?.find((s) => s.id === id);
 	if (!open) return <Missing tab="skills" />;
-	if (open.custom) return <CustomSkillDetail skill={open} custom={open.custom} canManage={canManage} />;
+	if (open.custom) return <CustomSkillDetail skill={open} custom={open.custom} />;
 	return (
 		<Detail
 			tab="skills"

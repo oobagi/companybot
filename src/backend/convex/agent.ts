@@ -166,6 +166,9 @@ async function streamReply(
 			agentId: agent.id,
 			memory: memoryStore(ctx, member.userId, agent.id, turn.memory === "team"),
 			chat: chatStore(ctx, turnId),
+			skillStore: {
+				create: (config) => ctx.runMutation(internal.skills.createFor, { turnId, config }),
+			},
 			automations: {
 				list: () => ctx.runQuery(internal.automations.listFor, { turnId }),
 				create: (input) => ctx.runMutation(internal.automations.createFor, { turnId, input }),

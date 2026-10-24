@@ -182,10 +182,12 @@ export default defineSchema({
 	skillInstalls: defineTable({
 		workspaceId: v.id("workspaces"),
 		skillId: v.string(),
-		/** Set for skills an owner made (id "custom-…"); library ones come from the catalog. Shared setting: versioned. */
+		/** Set for skills people made (id "custom-…"); library ones come from the catalog. Shared setting: versioned. */
 		custom: v.optional(
 			v.object({
 				name: v.string(),
+				/** Who made it; they can always edit it (`canEditSkill`). */
+				createdBy: v.optional(v.id("users")),
 				description: v.string(),
 				instructions: v.string(),
 				version: v.number(),
