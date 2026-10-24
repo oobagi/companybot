@@ -22,8 +22,16 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 - Access = installed + role allowed (`connectorInstalls.roles`) + connected. Checked fresh each turn (`connectors.forTurn`).
 - Auth: `none`, `api_key` (pasted in), or `oauth` (MCP OAuth: discovery, dynamic client registration, PKCE, refresh — all via `@ai-sdk/mcp`). OAuth flow: `connectors.startOAuth` → browser → `GET /oauth/callback` (`backend/convex/oauth.ts`) → `saveConnection`. State lives in `OAuthState` (`core/src/oauth.ts`), encrypted like any credentials. The runner saves refreshed tokens after each turn.
 - Connector results keep structure (`structuredContent`, or JSON text) so widgets can show them by ref.
-- Not built yet: approvals for write tools (use `readOnly`), per-tool policy, pre-registered OAuth clients (servers without dynamic registration).
+- Writes need approval: connector tools without `readOnlyHint` wait for a yes in the chat (see Approvals). Not built yet: per-tool policy, pre-registered OAuth clients (servers without dynamic registration).
 - Test with `fakeMcpServer` (`core/src/test-mcp-server.ts`), or push a test connector into `connectorCatalog` (see backend tests).
+
+## Approvals — `core/src/approvals.ts`, `backend/convex/approvals.ts`
+- Which calls wait: `needsApproval(tool)`. Default: connector tools not marked read-only. A built-in with outside impact sets `needsApproval: true`; none do today.
+- How: the runner passes `toolApprovalPolicy` as the AI SDK's `toolApproval`, so the run stops at the call, unexecuted. The runner saves the exact call (`approvals.request`) and puts an `approval` part in the reply where the tool line would be.
+- Lock: `approvalHash` = SHA-256 of canonical JSON of tool id + input. The app sends back the hash it showed; `decide` refuses any other; `claim` re-hashes the stored call before it runs. Compare nothing else: unrelated changes must never block or void an approval.
+- Who: only the person the agent acts for (`canDecideApproval`), while they can see the chat, within 24h. Owners can't approve for others; the call runs with that person's access and accounts.
+- After a decision: `decide` queues a normal turn in the same place with `approvalId` (so one turn per place still holds). That turn runs the approved call first (approved only), then the agent is told the outcome in its new prompt (`approval` in `buildTurnPrompt`). Replies note held calls without their outcome, so replays stay byte-identical.
+- Automations need nothing special: their runs act as a real member, so the card lands in that person's DM (or the channel, for the owner who picked it).
 
 ## Widgets — `core/src/widgets.ts`, `desktop/src/renderer/src/widgets.tsx`
 - Add one: `defineWidget` (type, description, zod `input`, `summary`, optional `prepare`) in `widgetCatalog`, then a component in the desktop `registry`. That's all; the tool `widgets.<type>` appears automatically.
