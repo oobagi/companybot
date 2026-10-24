@@ -1256,6 +1256,8 @@ describe("approvals", () => {
 		const { companybot } = await agentsOf(as);
 		await as.mutation(api.messages.send, { chatId, text: "@Companybot text Bob", mentions: { userIds: [], agentIds: [companybot._id] } });
 		const turn = (await turnsOf(t)).at(-1)!;
+		// What the runner stores before calling the model; set here so no model call is needed.
+		await t.mutation(internal.turns.savePrompt, { turnId: turn._id, prompt: "Reply to this message: text Bob" });
 		const approvalId = await t.mutation(internal.approvals.request, {
 			turnId: turn._id,
 			callId: "c1",
@@ -1284,6 +1286,11 @@ describe("approvals", () => {
 		expect(card.hash).toBe(await approvalHash(call.tool, call.input));
 		const [theirs] = await owner.query(api.approvals.forReply, { replyId: turn.replyId! });
 		expect(theirs).toMatchObject({ canDecide: false, input: card.input });
+
+		// Apps from before approvals can't draw the card, so they get a line of text instead.
+		const reply = (await owner.query(api.messages.list, { chatId })).find((m) => m._id === turn.replyId)!;
+		expect(reply.parts).toEqual([{ type: "text", text: expect.stringContaining("Waiting for approval to run crm.send_sms") }]);
+		expect(reply.fullParts).toMatchObject([{ type: "approval", tool: call.tool }]);
 
 		// Owners can't approve for someone else: the call would run as them.
 		await expect(owner.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true })).rejects.toThrow(
