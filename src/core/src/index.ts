@@ -1,3 +1,4 @@
+export * from "./activity";
 export * from "./agent-config";
 export * from "./agents";
 export * from "./automations";
