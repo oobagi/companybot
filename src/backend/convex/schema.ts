@@ -167,7 +167,8 @@ export default defineSchema({
 		.index("by_user", ["userId"]),
 
 	// Legacy: the connector tables' names before "plugins" became "connectors". Emptied by
-	// the `connector*` migrations (migrations.ts); drop these once it has run on prod.
+	// the `connector*` migrations (migrations.ts).
+	// COMPAT(0.1.0-alpha.6): once those migrations have run on prod, drop these three tables and the migrations.
 	pluginInstalls: defineTable({
 		workspaceId: v.id("workspaces"),
 		pluginId: v.string(),
@@ -197,7 +198,7 @@ export default defineSchema({
 		custom: v.optional(
 			v.object({
 				name: v.string(),
-				/** Who made it; they can always edit it (`canEditSkill`). */
+				/** Who made it; they can always edit it (`canEditSkill`). Missing on skills owners made before members could. */
 				createdBy: v.optional(v.id("users")),
 				description: v.string(),
 				instructions: v.string(),
@@ -274,7 +275,6 @@ export default defineSchema({
 		automation: v.optional(v.object({ id: v.string(), name: v.string() })),
 	})
 		.index("by_chat_thread", ["chatId", "threadId"])
-		.index("by_workspace", ["workspaceId"])
 		.searchIndex("search_text", { searchField: "text", filterFields: ["workspaceId", "chatId"] }),
 
 	// One emoji from one person or agent on one message.
@@ -308,7 +308,6 @@ export default defineSchema({
 		approvalId: v.optional(v.id("approvals")),
 	})
 		.index("by_place", ["agentId", "chatId", "threadId", "status"])
-		.index("by_status", ["status"])
 		.index("by_session", ["sessionId"]),
 
 	// One agent's ongoing context in one place (chat + thread). Append-only: past turns
@@ -376,13 +375,13 @@ export default defineSchema({
 		error: v.optional(v.string()),
 	}).index("by_reply", ["replyId"]),
 
-	// Automations: an owner installs one and picks the agent that runs it.
+	// Automations: an owner installs a library one, or anyone makes their own, and picks the agent that runs it.
 	automationInstalls: defineTable({
 		workspaceId: v.id("workspaces"),
 		automationId: v.string(),
 		agentId: v.id("agents"),
 		enabled: v.boolean(),
-		/** Schedules run in this time zone; set from the installer's computer. */
+		/** Schedules run in this time zone: the maker's or installer's, when they set it up. */
 		timeZone: v.string(),
 		installedBy: v.id("users"),
 		/** Local date of the last scheduled run, so a schedule runs once a day. */
@@ -394,11 +393,11 @@ export default defineSchema({
 		audience: v.optional(audience),
 		/** Audience "channel": post each run here, once. */
 		channelId: v.optional(v.id("chats")),
-		/** The owner who picked the channel; channel runs act as them (or another owner if they've left). */
+		/** Who picked the channel. Library automations' channel runs act as them (or another owner if they've left); ones people make act as their maker. */
 		channelSetBy: v.optional(v.id("users")),
-		/** Event automations: the secret in their webhook URL (`/automations/<token>`). */
+		/** Webhook automations: the secret in their URL (`/automations/<token>`). */
 		webhookToken: v.optional(v.string()),
-		/** Set for automations an owner made (id "custom-…"); library ones come from the catalog. Shared setting: versioned. */
+		/** Set for automations people made (id "custom-…"); library ones come from the catalog. Shared setting: versioned. */
 		custom: v.optional(
 			v.object({
 				name: v.string(),

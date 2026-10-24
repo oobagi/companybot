@@ -15,6 +15,7 @@ Stop and say why if any fails:
 - Latest CI on `main` passed: `gh run list -w ci.yml -b main -L 1`.
 - Nothing half-done: no open PRs the user said should go in (`gh pr list`). Mention any open ones.
 - Next version: `node scripts/release.mjs <bump> --next`.
+- Backward-compat code that's due: `node scripts/compat.mjs` (lines marked DUE). Mention them; after the release, offer a cleanup PR that deletes them (follow each marker's note).
 
 ## 2. Gather what changed
 - Last published release: `gh release list -L 1` (tags whose build failed have no release; skip them).

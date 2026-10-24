@@ -2,7 +2,7 @@ import { type CustomSkillConfig, can, canEditSkill, customSkillError, deniedMess
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation, mutation, query } from "./_generated/server";
-import { type Member, checkVersion, getMember, nameOf, requireMember, requirePermission } from "./lib";
+import { type Member, checkVersion, getMember, nameOf, newCustomId, requireMember, requirePermission } from "./lib";
 import { runningTurn } from "./turns";
 
 // Library skills come from core's catalog and are installed per workspace (owners). Anyone
@@ -66,16 +66,12 @@ const trimmed = (config: CustomSkillConfig): CustomSkillConfig => ({
 	instructions: config.instructions.trim(),
 });
 
-function newSkillId() {
-	const bytes = crypto.getRandomValues(new Uint8Array(6));
-	return `custom-${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
-}
-
 /** Makes a skill for the workspace, as `member`. Throws a ConvexError with the problem. */
 async function createSkill(ctx: MutationCtx, member: Member, config: CustomSkillConfig) {
+	if (!can(member, "skills.create")) throw new ConvexError(deniedMessage("skills.create"));
 	const problem = customSkillError(config);
 	if (problem) throw new ConvexError(problem);
-	const skillId = newSkillId();
+	const skillId = newCustomId();
 	await ctx.db.insert("skillInstalls", {
 		workspaceId: member.workspaceId,
 		skillId,
@@ -87,7 +83,7 @@ async function createSkill(ctx: MutationCtx, member: Member, config: CustomSkill
 /** Someone makes their own skill, on for the workspace. Returns its id. */
 export const create = mutation({
 	args: { config: customConfig },
-	handler: async (ctx, { config }) => createSkill(ctx, await requirePermission(ctx, "skills.create"), config),
+	handler: async (ctx, { config }) => createSkill(ctx, await requireMember(ctx), config),
 });
 
 /** A skill someone made, if `member` can change it. */
@@ -140,7 +136,6 @@ export const createFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), config: customConfig },
 	handler: async (ctx, { turnId, config }) => {
 		const { member } = await runningTurn(ctx, turnId);
-		if (!can(member, "skills.create")) return { error: deniedMessage("skills.create") };
 		try {
 			const created = await createSkill(ctx, member, config);
 			return { created, name: config.name.trim() };

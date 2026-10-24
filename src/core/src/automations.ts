@@ -1,5 +1,5 @@
 /**
- * An automation is a short, ready-made job: a trigger (a schedule or a webhook) that
+ * An automation is a short job: a trigger (a schedule, something in the app, or a webhook) that
  * sends an agent a prompt. The agent replies in its chat with each person the
  * automation runs for, with that person's permissions, as if they'd asked.
  *
@@ -116,7 +116,7 @@ export const defineAutomation = (automation: Automation) => automation;
 
 // ---- Automations people make ----
 
-/** What an owner sets when they make their own automation. */
+/** What someone sets when they make their own automation. */
 export interface CustomAutomationConfig {
 	name: string;
 	prompt: string;

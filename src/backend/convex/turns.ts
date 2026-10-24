@@ -54,6 +54,21 @@ export const sessionAt = (ctx: QueryCtx, place: Place) =>
 		.withIndex("by_place", (q) => q.eq("agentId", place.agentId).eq("chatId", place.chatId).eq("threadId", place.threadId))
 		.first();
 
+/**
+ * When a turn ends, an approval it was meant to run can't stay approved or running: the
+ * card would say "running…" forever and nobody could decide again.
+ */
+async function settleApproval(ctx: MutationCtx, turn: Doc<"agentTurns">) {
+	const approval = turn.approvalId && (await ctx.db.get(turn.approvalId));
+	if (approval?.status === "approved")
+		await ctx.db.patch(approval._id, { status: "failed", error: "The reply stopped before running it. Ask again if you still want it." });
+	if (approval?.status === "running")
+		await ctx.db.patch(approval._id, {
+			status: "failed",
+			error: "The reply stopped while it was running, so it may or may not have happened. Check before trying again.",
+		});
+}
+
 /** Starts the oldest queued turn in a place, unless one is running (a stale one is failed first). */
 async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place) {
 	const place = { agentId, chatId, threadId };
@@ -61,13 +76,17 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 	if (running) {
 		if (Date.now() - (running.startedAt ?? running._creationTime) < STALE_TURN_MS) return;
 		await ctx.db.patch(running._id, { status: "error" });
+		await settleApproval(ctx, running);
 		const reply = running.replyId && (await ctx.db.get(running.replyId));
 		if (reply?.status === "streaming") await ctx.db.patch(reply._id, { status: "error", error: "Reply timed out." });
 	}
 	const next = await turnsAt(ctx, place, "queued").first();
 	if (!next) return;
 	const chat = await ctx.db.get(next.chatId);
-	if (!chat) return await ctx.db.patch(next._id, { status: "error" });
+	if (!chat) {
+		await ctx.db.patch(next._id, { status: "error" });
+		return await settleApproval(ctx, next);
+	}
 
 	const session =
 		(await sessionAt(ctx, place)) ??
@@ -254,6 +273,7 @@ export const finishReply = internalMutation({
 		}
 		if (reply) await ctx.db.patch(reply._id, error ? { status: "error", error, stats } : { status: "done", stats });
 		await ctx.db.patch(turnId, { status: error ? "error" : "done" });
+		await settleApproval(ctx, turn);
 		await startNext(ctx, turn);
 	},
 });

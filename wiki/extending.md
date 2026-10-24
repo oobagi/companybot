@@ -10,7 +10,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 ## Tools — `core/src/tools.ts`, `builtin-tools.ts`
 - One shape (`ToolDef`) for built-ins and connector tools. Ids are `group.name`; model names come from `modelToolName`.
 - Add a built-in: `defineTool` in `builtin-tools.ts`. Set `roles` if not everyone may trigger it, and `readOnly: true` if it changes nothing.
-- Tools reach data only through `ToolContext` (`memory`, `chat`, `skills`), which enforce permissions. Don't do permission checks inside tools.
+- Tools reach data only through `ToolContext` (`memory`, `chat`, `skills`, `skillStore`, `automations`), which enforce permissions. Don't do permission checks inside tools.
 - Agents grant exact ids or whole groups (`memory.*`). `resolveTools` is the only place that decides what the model sees.
 
 ## Connectors — `core/src/connectors.ts`, `mcp.ts`, `backend/convex/connectors.ts`
@@ -31,7 +31,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 - Lock: `approvalHash` = SHA-256 of canonical JSON of tool id + input. The app sends back the hash it showed; `decide` refuses any other; `claim` re-hashes the stored call before it runs. Compare nothing else: unrelated changes must never block or void an approval.
 - Who: only the person the agent acts for (`canDecideApproval`), while they can see the chat, within 24h. Owners can't approve for others; the call runs with that person's access and accounts.
 - After a decision: `decide` queues a normal turn in the same place with `approvalId` (so one turn per place still holds). That turn runs the approved call first (approved only), then the agent is told the outcome in its new prompt (`approval` in `buildTurnPrompt`). Replies note held calls without their outcome, so replays stay byte-identical.
-- Automations need nothing special: their runs act as a real member, so the card lands in that person's DM (or the channel, for the owner who picked it).
+- Automations need nothing special: their runs act as a real member, so the card lands in that person's DM (or the channel, for whoever it acts as there).
 
 ## Widgets — `core/src/widgets.ts`, `desktop/src/renderer/src/widgets.tsx`
 - Add one: `defineWidget` (type, description, zod `input`, `summary`, optional `prepare`) in `widgetCatalog`, then a component in the desktop `registry`. That's all; the tool `widgets.<type>` appears automatically.
@@ -52,7 +52,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 
 ## Automations — `core/src/automations.ts`, `backend/convex/automations.ts`
 - Add one with `defineAutomation` to `automationCatalog`: trigger, `connectors` it needs (must be installed first), and the `prompt` the agent gets. `details` is the Markdown on its detail page.
-- Triggers: `schedule`, `event` (in-app: add it to `appEvents` and call `fireEvent` where it happens), or `webhook`. A library automation can require a named event (add it to `automationEvents`, set `event` on the trigger); owner-made ones take any webhook. Give webhook triggers a `sample` ("Run now" sends it). Senders POST to the install's URL; there's no other way in.
+- Triggers: `schedule`, `event` (in-app: add it to `appEvents` and call `fireEvent` where it happens), or `webhook`. A library automation can require a named event (add it to `automationEvents`, set `event` on the trigger); ones people make take any webhook. Give webhook triggers a `sample` ("Run now" sends it). Senders POST to the install's URL; there's no other way in.
 - Member-made automations: `CustomAutomationConfig`, checked by `customAutomationError` on create and save, turned into an `Automation` by `customAutomation`. Saves send `expectedVersion`.
 - Webhook data is untrusted: it only ever reaches the model inside `eventPrompt`'s fenced block, never as instructions or as who to act as. `person.email` must match a workspace member.
 - Runs go to the audience: each opted-in person's agent DM (`findOrCreateDm` + `insertMessage`), or the picked channel. Never message people who didn't opt in. Each run queues a turn with `enqueueTurn`, acting as a real member, the same path as a message they send. Don't give automations their own permission path.

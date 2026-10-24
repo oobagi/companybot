@@ -45,6 +45,7 @@ const toolInput = z.object({
 		.describe("When it runs"),
 	runsFor: z
 		.string()
+		.optional()
 		.describe('"me" (just the person; default), "anyone" (each person who turns it on), or a channel like "#sales" to post there'),
 });
 export type AutomationToolInput = z.infer<typeof toolInput>;

@@ -55,6 +55,11 @@ export interface TurnPromptInput {
 	triggerId: string;
 	/** Set when this turn follows an approval decision: it answers that instead of a message. */
 	approval?: ApprovalOutcome;
+	/**
+	 * The copy stored for later turns, which may act for someone else: an approved call's
+	 * result and error are left out, since only the person who approved it may see them.
+	 */
+	forReplay?: boolean;
 }
 
 /** The new user message for one turn. Stored as `agentTurns.prompt` and replayed byte-identical later. */
@@ -101,16 +106,17 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 				.join("\n"),
 		);
 	}
-	if (input.approval) sections.push(approvalSection(input.approval));
+	if (input.approval) sections.push(approvalSection(input.approval, input.forReplay ?? false));
 	else if (trigger) sections.push(`Reply to this message from ${trigger.author.name}:\n${line(trigger)}`);
 	return sections.join("\n\n");
 }
 
 /** What the agent hears after someone decides on a call it held for approval. */
-function approvalSection({ tool, by, decision, result, error }: ApprovalOutcome) {
+function approvalSection({ tool, by, decision, result, error }: ApprovalOutcome, forReplay: boolean) {
 	if (decision === "denied") {
 		return `${by} denied your ${tool} call, so it didn't run. Don't try it again unless they ask. Acknowledge briefly, or ask what to change if that's unclear.`;
 	}
+	if (forReplay) return `${by} approved your ${tool} call. What came back was for ${by} only, so it isn't repeated here.`;
 	if (error !== undefined) return `${by} approved your ${tool} call, but it failed: ${error}\nTell them briefly and suggest a next step.`;
 	return `${by} approved your ${tool} call and it ran with exactly the input you sent. Result:\n\`\`\`json\n${result ?? "null"}\n\`\`\`\nTell them briefly what happened, then finish what they asked.`;
 }

@@ -120,6 +120,14 @@ export const removeMember = mutation({
 		if (!row || row.workspaceId !== owner.workspaceId) return;
 		if (row.userId === owner.userId) throw new ConvexError("You can't remove yourself.");
 		await ctx.db.delete(id);
+		// Automations they turned on here stop counting them.
+		for (const sub of await ctx.db
+			.query("automationSubscriptions")
+			.withIndex("by_user", (q) => q.eq("userId", row.userId))
+			.collect()) {
+			const install = await ctx.db.get(sub.installId);
+			if (install?.workspaceId === owner.workspaceId) await ctx.db.delete(sub._id);
+		}
 	},
 });
 
