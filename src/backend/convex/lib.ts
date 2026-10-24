@@ -1,4 +1,13 @@
-import { type Actor, type Permission, can, deniedMessage, resolveTimeZone, skillCatalog } from "@companybot/core";
+import {
+	type Actor,
+	type Permission,
+	type Skill,
+	can,
+	customSkill,
+	deniedMessage,
+	resolveTimeZone,
+	skillCatalog,
+} from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError } from "convex/values";
 import type { Id } from "./_generated/dataModel";
@@ -53,14 +62,18 @@ export function checkVersion(current: number, expected: number) {
 	}
 }
 
-/** Skills this workspace installed, in catalog order. */
-export async function installedSkills(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
+/** Skills this workspace installed: library ones in catalog order, then ones owners made, oldest first. */
+export async function installedSkills(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<Skill[]> {
 	const installs = await ctx.db
 		.query("skillInstalls")
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
 		.collect();
-	const ids = new Set(installs.map((i) => i.skillId));
-	return skillCatalog.filter((s) => ids.has(s.id));
+	const ids = new Set(installs.filter((i) => !i.custom).map((i) => i.skillId));
+	const custom = installs
+		.filter((i) => i.custom)
+		.sort((a, b) => a._creationTime - b._creationTime)
+		.map((i) => customSkill(i.skillId, i.custom!, i.custom!.version));
+	return [...skillCatalog.filter((s) => ids.has(s.id)), ...custom];
 }
 
 /** Display names for a set of people, falling back to email. */

@@ -13,6 +13,57 @@ export interface Skill {
 
 export const defineSkill = (skill: Skill) => skill;
 
+// ---- Skills people make ----
+
+/**
+ * What an owner writes when they make their own skill. Field names and limits follow
+ * Claude's Agent Skills (SKILL.md `name` / `description` frontmatter, body loaded on
+ * demand): https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview
+ */
+export interface CustomSkillConfig {
+	name: string;
+	/** What it does and when to use it. Agents see it in every prompt, so it stays short. */
+	description: string;
+	/** Markdown, loaded only when an agent calls `skills.load`. */
+	instructions: string;
+}
+
+/** Claude's limit for `name`. */
+export const SKILL_NAME_MAX = 64;
+/** Stricter than Claude's 1,024: every installed skill's description is in every agent prompt. */
+export const SKILL_DESCRIPTION_MAX = 200;
+/** About 5k tokens, Claude's guidance for a SKILL.md body. */
+export const SKILL_INSTRUCTIONS_MAX = 20_000;
+
+const xmlTag = /<\/?[a-zA-Z][^>]*>/;
+
+/** The first problem with a custom skill, in a line, or null. */
+export function customSkillError(config: CustomSkillConfig): string | null {
+	const name = config.name.trim();
+	if (!name) return "Give it a name.";
+	if (name.length > SKILL_NAME_MAX) return `Keep the name under ${SKILL_NAME_MAX} characters.`;
+	const description = config.description.trim();
+	if (!description) return "Say what it does and when to use it.";
+	if (description.length > SKILL_DESCRIPTION_MAX) return `Keep the description under ${SKILL_DESCRIPTION_MAX} characters.`;
+	if (xmlTag.test(name) || xmlTag.test(description)) return "The name and description can't contain tags like <this>.";
+	const instructions = config.instructions.trim();
+	if (!instructions) return "Write the instructions.";
+	if (instructions.length > SKILL_INSTRUCTIONS_MAX)
+		return `Keep the instructions under ${SKILL_INSTRUCTIONS_MAX.toLocaleString("en-US")} characters.`;
+	return null;
+}
+
+/** A custom skill as the same shape the catalog uses, so agents load both the same way. */
+export function customSkill(id: string, config: CustomSkillConfig, version: number): Skill {
+	return {
+		id,
+		name: config.name.trim(),
+		description: config.description.trim(),
+		version: String(version),
+		instructions: config.instructions.trim(),
+	};
+}
+
 /** The skills marketplace. */
 export const skillCatalog: Skill[] = [
 	defineSkill({

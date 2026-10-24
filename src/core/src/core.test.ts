@@ -12,7 +12,14 @@ import { openConnector } from "./mcp";
 import { ConnectorOAuth } from "./oauth";
 import { can, canManageChannel, permissions } from "./permissions";
 import { type Connector, defineConnector, connectorCatalog, connectorHeaders, validateCredentials, validateConnector } from "./connectors";
-import { skillCatalog, skillsIndex } from "./skills";
+import {
+	SKILL_DESCRIPTION_MAX,
+	SKILL_NAME_MAX,
+	customSkill,
+	customSkillError,
+	skillCatalog,
+	skillsIndex,
+} from "./skills";
 import { fakeMcpServer } from "./test-mcp-server";
 import { platformGuide } from "./guide";
 import { addStep, emptyUsage, gatewayCost } from "./usage";
@@ -124,6 +131,22 @@ describe("skills", () => {
 	it("lists skills for the agent, or nothing when none are installed", () => {
 		expect(skillsIndex([])).toBe("");
 		expect(skillsIndex(skillCatalog)).toContain("- meeting-notes:");
+	});
+
+	it("checks skills people make, and shapes them like catalog ones", () => {
+		const ok = { name: " Quotes ", description: "Chase quotes.", instructions: "Be brief. " };
+		expect(customSkillError(ok)).toBeNull();
+		expect(customSkillError({ ...ok, name: "a".repeat(SKILL_NAME_MAX) })).toBeNull();
+		expect(customSkillError({ ...ok, description: "a".repeat(SKILL_DESCRIPTION_MAX + 1) })).toContain("description");
+		expect(customSkillError({ ...ok, name: "<b>Quotes</b>" })).toContain("tags");
+		expect(customSkillError({ ...ok, description: "Use when 2 < 3" })).toBeNull();
+		expect(customSkill("custom-1", ok, 3)).toEqual({
+			id: "custom-1",
+			name: "Quotes",
+			description: "Chase quotes.",
+			version: "3",
+			instructions: "Be brief.",
+		});
 	});
 });
 

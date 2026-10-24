@@ -182,6 +182,17 @@ export default defineSchema({
 	skillInstalls: defineTable({
 		workspaceId: v.id("workspaces"),
 		skillId: v.string(),
+		/** Set for skills an owner made (id "custom-…"); library ones come from the catalog. Shared setting: versioned. */
+		custom: v.optional(
+			v.object({
+				name: v.string(),
+				description: v.string(),
+				instructions: v.string(),
+				version: v.number(),
+				updatedBy: v.id("users"),
+				updatedAt: v.number(),
+			}),
+		),
 	}).index("by_workspace", ["workspaceId", "skillId"]),
 
 	// ---- Chat: channels, DMs (people and agents), threads, reactions. See wiki/chat.md. ----
