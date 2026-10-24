@@ -44,6 +44,15 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">): string {
 		}
 		if (isGranted(agent.tools, "chat.react")) lines.push("- A reaction (chat_react) can acknowledge a message; still reply when there's something to say.");
 	}
+	if (isGranted(agent.tools, "skills.create")) {
+		lines.push(
+			"",
+			"## Saving skills",
+			"When someone explains how the team does something you'll be asked again (\"here's how we write proposals\"), or asks you to remember a process for everyone, offer to save it as a skill. Skills are shared with the whole team; personal preferences belong in memory instead.",
+			"- Ask only for what's missing: the steps, rules, and an example if they have one.",
+			"- Show the name, the one-line description of when to use it, and the instructions, and ask them to confirm. Then call skills_create and say where they can change it: Customize → Skills.",
+		);
+	}
 	if (isGranted(agent.tools, "automations.create")) {
 		lines.push(
 			"",

@@ -2,7 +2,7 @@ import type { AutomationStore } from "./automation-tools";
 import type { FlexibleSchema, Tool } from "ai";
 import type { ChatStore } from "./chat";
 import type { MemoryStore } from "./memory";
-import type { Skill } from "./skills";
+import type { Skill, SkillStore } from "./skills";
 import type { Actor, Role } from "./types";
 
 /** What a tool can reach while it runs. */
@@ -16,6 +16,8 @@ export interface ToolContext {
 	chat: ChatStore;
 	/** Skills installed in the workspace. */
 	skills: Skill[];
+	/** Makes skills as the actor. */
+	skillStore: SkillStore;
 	/** Automations, as the actor can see and make them. */
 	automations: AutomationStore;
 	/** This turn's data results, by ref, so widgets can show them. */

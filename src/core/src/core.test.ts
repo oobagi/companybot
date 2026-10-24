@@ -10,9 +10,17 @@ import type { ChatStore, Participant } from "./chat";
 import { type Memory, type MemoryStore, canCreateMemory, canEditMemory, canReadMemory } from "./memory";
 import { openConnector } from "./mcp";
 import { ConnectorOAuth } from "./oauth";
-import { can, canManageChannel, permissions } from "./permissions";
+import { can, canEditSkill, canManageChannel, permissions } from "./permissions";
 import { type Connector, defineConnector, connectorCatalog, connectorHeaders, validateCredentials, validateConnector } from "./connectors";
-import { skillCatalog, skillsIndex } from "./skills";
+import {
+	SKILL_DESCRIPTION_MAX,
+	SKILL_NAME_MAX,
+	customSkill,
+	customSkillError,
+	type SkillStore,
+	skillCatalog,
+	skillsIndex,
+} from "./skills";
 import { fakeMcpServer } from "./test-mcp-server";
 import { platformGuide } from "./guide";
 import { addStep, emptyUsage, gatewayCost } from "./usage";
@@ -36,6 +44,7 @@ const ctx = (actor: Actor) => ({
 	skills: skillCatalog,
 	results: createResultStore(),
 	automations: {} as AutomationStore,
+	skillStore: {} as SkillStore,
 });
 
 describe("tool visibility", () => {
@@ -48,6 +57,7 @@ describe("tool visibility", () => {
 			"memory.forget",
 			"clock.now",
 			"skills.load",
+			"skills.create",
 			"widgets.table",
 			"widgets.stats",
 			"widgets.card",
@@ -93,6 +103,7 @@ describe("tool visibility", () => {
 			"memory_forget",
 			"clock_now",
 			"skills_load",
+			"skills_create",
 			"widgets_table",
 			"widgets_stats",
 			"widgets_card",
@@ -124,6 +135,22 @@ describe("skills", () => {
 	it("lists skills for the agent, or nothing when none are installed", () => {
 		expect(skillsIndex([])).toBe("");
 		expect(skillsIndex(skillCatalog)).toContain("- meeting-notes:");
+	});
+
+	it("checks skills people make, and shapes them like catalog ones", () => {
+		const ok = { name: " Quotes ", description: "Chase quotes.", instructions: "Be brief. " };
+		expect(customSkillError(ok)).toBeNull();
+		expect(customSkillError({ ...ok, name: "a".repeat(SKILL_NAME_MAX) })).toBeNull();
+		expect(customSkillError({ ...ok, description: "a".repeat(SKILL_DESCRIPTION_MAX + 1) })).toContain("description");
+		expect(customSkillError({ ...ok, name: "<b>Quotes</b>" })).toContain("tags");
+		expect(customSkillError({ ...ok, description: "Use when 2 < 3" })).toBeNull();
+		expect(customSkill("custom-1", ok, 3)).toEqual({
+			id: "custom-1",
+			name: "Quotes",
+			description: "Chase quotes.",
+			version: "3",
+			instructions: "Be brief.",
+		});
 	});
 });
 
@@ -182,6 +209,14 @@ describe("permissions", () => {
 		expect(canManageChannel(member, { createdBy: "member" })).toBe(true);
 		expect(canManageChannel(member, { createdBy: "owner" })).toBe(false);
 		expect(canManageChannel(owner, { createdBy: "member" })).toBe(true);
+	});
+
+	it("lets members make skills and edit only the ones they made", () => {
+		expect(can(member, "skills.create")).toBe(true);
+		expect(canEditSkill(member, { createdBy: "member" })).toBe(true);
+		expect(canEditSkill(member, { createdBy: "owner" })).toBe(false);
+		expect(canEditSkill(member, {})).toBe(false);
+		expect(canEditSkill(owner, { createdBy: "member" })).toBe(true);
 	});
 });
 
