@@ -233,6 +233,22 @@ async function checkConfig(ctx: QueryCtx, member: Member, config: CustomAutomati
 	}
 }
 
+/**
+ * Why an automation can't post in `destination`, or null. One that watches a private
+ * channel posts only back into it: anywhere else would show its messages to people
+ * who can't see that channel.
+ */
+async function postingProblem(ctx: QueryCtx, trigger: CustomAutomationConfig["trigger"] | undefined, destination: Id<"chats">) {
+	if (trigger?.type !== "event" || trigger.event !== "message.posted" || trigger.channelId === destination) return null;
+	const source = await ctx.db.get(trigger.channelId as Id<"chats">);
+	return source?.private ? `It watches #${source.name}, which is private, so it can only post there or to people who turn it on.` : null;
+}
+
+async function checkPosting(ctx: QueryCtx, trigger: CustomAutomationConfig["trigger"] | undefined, destination?: Id<"chats">) {
+	const problem = destination && (await postingProblem(ctx, trigger, destination));
+	if (problem) throw new ConvexError(problem);
+}
+
 const trimmed = (config: CustomAutomationConfig): CustomAutomationConfig => ({
 	name: config.name.trim(),
 	prompt: config.prompt.trim(),
@@ -274,6 +290,7 @@ export async function createAutomation(
 	if (audience === "channel") {
 		if (!channelId) throw new ConvexError("Pick a channel to post in.");
 		await requireVisibleChannel(ctx, member, channelId);
+		await checkPosting(ctx, config.trigger, channelId);
 	}
 	const automationId = `custom-${newToken().slice(0, 12)}`;
 	const now = localTime(Date.now(), timeZone);
@@ -304,6 +321,7 @@ export const save = mutation({
 		if (!install.custom) throw new ConvexError("Library automations can't be edited.");
 		checkVersion(install.custom.version, expectedVersion);
 		await checkConfig(ctx, member, config);
+		if (audienceOf(install) === "channel") await checkPosting(ctx, config.trigger, install.channelId);
 		const webhook = config.trigger.type === "webhook";
 		await ctx.db.patch(install._id, {
 			custom: { ...trimmed(config), version: install.custom.version + 1, updatedBy: member.userId, updatedAt: Date.now() },
@@ -388,6 +406,12 @@ export const update = mutation({
 		if (audience === "channel") {
 			if (!channelId) throw new ConvexError("Pick a channel to post in.");
 			await requireVisibleChannel(ctx, member, channelId);
+			await checkPosting(ctx, install.custom?.trigger, channelId);
+			// Ones people make run as their maker, so the maker has to be able to see it too.
+			const maker = install.custom && (await memberOf(ctx, install.installedBy));
+			const chat = (await ctx.db.get(channelId))!;
+			if (install.custom && !(maker && (await canSee(ctx, chat, maker))))
+				throw new ConvexError(`${await nameOf(ctx, install.installedBy)} made it and can't see #${chat.name}, so it can't post there.`);
 		}
 		await ctx.db.patch(install._id, {
 			...(enabled !== undefined && { enabled }),
@@ -447,8 +471,9 @@ export const runNow = mutation({
 
 /** Runs every few minutes (crons.ts): starts the scheduled automations that are due. */
 export const tick = internalMutation({
-	args: {},
-	handler: async (ctx) => {
+	/** `now` is for tests: faking Date doesn't reach functions run by convex-test. */
+	args: { now: v.optional(v.number()) },
+	handler: async (ctx, { now = Date.now() }) => {
 		const installs = await ctx.db
 			.query("automationInstalls")
 			.withIndex("by_enabled", (q) => q.eq("enabled", true))
@@ -456,7 +481,7 @@ export const tick = internalMutation({
 		for (const install of installs) {
 			const automation = await definitionOf(ctx, install);
 			if (!automation) continue;
-			const due = scheduleDue(automation.trigger, Date.now(), install.timeZone, install.lastRunDate);
+			const due = scheduleDue(automation.trigger, now, install.timeZone, install.lastRunDate);
 			if (!due) continue;
 			await ctx.db.patch(install._id, { lastRunDate: due });
 			await runFor(ctx, install, automation, automation.prompt, {});
@@ -758,9 +783,10 @@ async function runInDms(
 
 /**
  * Posts the prompt once in the install's channel (under `thread`'s message if it's in
- * that channel) and queues the agent's reply there, acting as whoever picked the
- * channel, or an owner who can see it if they've left, so a run never depends on one
- * person staying.
+ * that channel) and queues the agent's reply there. Ones people make act as their maker,
+ * who must still see the channel: falling back to anyone else would run the maker's
+ * prompt with someone else's access. Library ones act as whoever picked the channel, or
+ * an owner who can see it if they've left, so a run never depends on one person staying.
  */
 async function runInChannel(
 	ctx: MutationCtx,
@@ -774,15 +800,19 @@ async function runInChannel(
 	const chat = install.channelId && (await ctx.db.get(install.channelId));
 	if (!chat || chat.archived)
 		return { ran: false, summary: await finish(ctx, install, "Didn't run: its channel was archived or deleted. Pick another.") };
-	const preferred = install.channelSetBy ?? install.installedBy;
+	const problem = await postingProblem(ctx, install.custom?.trigger, chat._id);
+	if (problem) return { ran: false, summary: await finish(ctx, install, `Didn't run: ${problem}`) };
+	const preferred = install.custom ? install.installedBy : (install.channelSetBy ?? install.installedBy);
 	const candidates = [
 		await memberOf(ctx, preferred),
-		...(
-			await ctx.db
-				.query("members")
-				.withIndex("by_workspace", (q) => q.eq("workspaceId", install.workspaceId))
-				.collect()
-		).filter((m) => m.role === "owner" && m.userId !== preferred),
+		...(install.custom
+			? []
+			: (
+					await ctx.db
+						.query("members")
+						.withIndex("by_workspace", (q) => q.eq("workspaceId", install.workspaceId))
+						.collect()
+				).filter((m) => m.role === "owner" && m.userId !== preferred)),
 	];
 	let actorId: Id<"users"> | null = null;
 	for (const m of candidates) {
@@ -791,8 +821,10 @@ async function runInChannel(
 			break;
 		}
 	}
-	if (!actorId)
-		return { ran: false, summary: await finish(ctx, install, `Didn't run: nobody who can run it is in #${chat.name}. Pick another channel.`) };
+	if (!actorId) {
+		const who = install.custom ? `${await nameOf(ctx, install.installedBy)}, who made it, isn't` : "nobody who can run it is";
+		return { ran: false, summary: await finish(ctx, install, `Didn't run: ${who} in #${chat.name}. Pick another channel.`) };
+	}
 	const threadId = thread?.chatId === chat._id ? thread.messageId : undefined;
 	await addToChat(ctx, chat, { agentId: agent._id });
 	const triggerId = await insertMessage(ctx, chat, {

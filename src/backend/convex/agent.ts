@@ -124,8 +124,21 @@ async function loadConnectors(ctx: ActionCtx, userId: Id<"users">, agent: Pick<A
 					authProvider = new ConnectorOAuth(creds.oauth, oauthRedirectUrl(), false);
 					oauth.push({ connectionId, provider: authProvider });
 				}
-				const session = await openWithTimeout(openConnector(connector, { credentials: creds, authProvider }));
+				const opened = await openWithTimeout(openConnector(connector, { credentials: creds, authProvider }));
 				if (connectionId) await ctx.runMutation(internal.connectors.setConnectionError, { connectionId });
+				// Access is read fresh before every call, so a role change or disconnect applies mid-reply.
+				const stillAllowed = async () =>
+					(await ctx.runQuery(internal.connectors.forTurn, { userId, connectorIds: [connectorId] }))[0]?.connectionId === connectionId;
+				const session: ConnectorSession = {
+					...opened,
+					tools: opened.tools.map((tool) => ({
+						...tool,
+						execute: async (input, toolCtx) =>
+							(await stillAllowed())
+								? tool.execute(input, toolCtx)
+								: { error: `${connector.name} isn't available to this person anymore, so this didn't run.` },
+					})),
+				};
 				return { session };
 			} catch (e) {
 				const message = e instanceof Error ? e.message : String(e);
@@ -211,13 +224,16 @@ async function streamReply(
 		const entry = findConnector(connector.id);
 		return entry ? [{ name: entry.name, description: entry.description }] : [];
 	});
-	const prompt = buildTurnPrompt({
+	const promptInput = {
 		...turn,
 		agentId: agent.id,
 		connectors: { connected, unavailable: connectors.unavailable },
 		approval: approval ?? undefined,
-	});
-	await ctx.runMutation(internal.turns.savePrompt, { turnId, prompt });
+	};
+	const prompt = buildTurnPrompt(promptInput);
+	// Later turns replay what's stored. They can act for someone else, so an approved call's
+	// result stays out of it (only its approver may see it); this turn alone gets it.
+	await ctx.runMutation(internal.turns.savePrompt, { turnId, prompt: approval ? buildTurnPrompt({ ...promptInput, forReplay: true }) : prompt });
 	const input = buildTurnInput({ agent, skills: turn.skills, session: turn.session, prompt });
 
 	const started = Date.now();

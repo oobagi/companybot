@@ -767,12 +767,7 @@ describe("automations", () => {
 		await t.run(async (ctx) => {
 			for (const install of await ctx.db.query("automationInstalls").collect()) await ctx.db.patch(install._id, { lastRunDate: "2000-01-01" });
 		});
-		vi.useFakeTimers({ now: Date.UTC(2026, 9, 22, 17), toFake: ["Date"] });
-		try {
-			await t.mutation(internal.automations.tick);
-		} finally {
-			vi.useRealTimers();
-		}
+		await t.mutation(internal.automations.tick, { now: Date.UTC(2026, 9, 22, 17) });
 	}
 	const install = (as: As, automationId: string) => as.mutation(api.automations.setInstalled, { automationId, installed: true, timeZone: tz });
 
@@ -1063,6 +1058,42 @@ describe("automations", () => {
 				["agent", null],
 			]);
 			expect(replies[0]!.text).toContain("My invoice is wrong");
+		});
+
+		it("posts what a private channel says only back into that channel", async () => {
+			const { owner } = await ownerAndMember();
+			const board = await owner.mutation(api.chats.createChannel, { name: "board", private: true });
+			const general = (await generalOf(owner))._id;
+			const { companybot } = await agentsOf(owner);
+			const watchBoard = { name: "Relay", prompt: "Repeat it.", trigger: { type: "event" as const, event: "message.posted" as const, channelId: board } };
+			const base = { config: watchBoard, agentId: companybot._id, timeZone: tz };
+			await expect(owner.mutation(api.automations.create, { ...base, audience: "channel", channelId: general })).rejects.toThrow(
+				"which is private, so it can only post there",
+			);
+			const id = await owner.mutation(api.automations.create, { ...base, audience: "subscribers" });
+			await expect(owner.mutation(api.automations.update, { automationId: id, audience: "channel", channelId: general })).rejects.toThrow(
+				"which is private",
+			);
+			await owner.mutation(api.automations.update, { automationId: id, audience: "channel", channelId: board });
+		});
+
+		it("runs ones people make only as their maker, never falling back to an owner", async () => {
+			const { t, owner, member } = await ownerAndMember();
+			const ops = await member.mutation(api.chats.createChannel, { name: "ops", private: true });
+			await member.mutation(api.chats.addMembers, { chatId: ops, userIds: [await meOf(owner)], agentIds: [] });
+			const { companybot } = await agentsOf(member);
+			const id = await member.mutation(api.automations.create, {
+				config: { name: "Hook", prompt: "Act on it.", trigger: { type: "webhook" } },
+				agentId: companybot._id,
+				audience: "channel",
+				channelId: ops,
+				timeZone: tz,
+			});
+			const token = (await find(member, id))!.webhookUrl!.split("/").at(-1)!;
+			await member.mutation(api.chats.leave, { chatId: ops });
+			await t.mutation(internal.automations.receive, { token, body: JSON.stringify({ id: "e1", data: {} }) });
+			expect((await find(member, id))!.lastResult).toBe("Didn't run: member@co.com, who made it, isn't in #ops. Pick another channel.");
+			expect((await owner.query(api.messages.list, { chatId: ops })).some((m) => m.automation)).toBe(false);
 		});
 
 		it("gives people only events from chats they can see", async () => {
@@ -1374,6 +1405,22 @@ describe("approvals", () => {
 		expect(await t.mutation(internal.approvals.claim, { approvalId, turnId: next._id })).toBeNull();
 		const row = await t.run((ctx) => ctx.db.get(approvalId));
 		expect(row).toMatchObject({ status: "failed", error: "The stored action no longer matches what was approved." });
+	});
+
+	it("doesn't leave an approval running when its turn ends without finishing it", async () => {
+		const { t, member } = await ownerAndMember();
+		const chatId = (await generalOf(member))._id;
+		const first = await holdCall(t, member, chatId);
+		await member.mutation(api.approvals.decide, { approvalId: first.approvalId, hash: first.card.hash, approve: true });
+		await t.mutation(internal.turns.finishReply, { turnId: (await turnsOf(t)).at(-1)!._id, error: "Boom" });
+		expect(await t.run((ctx) => ctx.db.get(first.approvalId))).toMatchObject({ status: "failed", error: expect.stringContaining("before running it") });
+
+		const second = await holdCall(t, member, chatId);
+		await member.mutation(api.approvals.decide, { approvalId: second.approvalId, hash: second.card.hash, approve: true });
+		const next = (await turnsOf(t)).at(-1)!;
+		await t.mutation(internal.approvals.claim, { approvalId: second.approvalId, turnId: next._id });
+		await t.mutation(internal.turns.finishReply, { turnId: next._id, error: "Timed out" });
+		expect(await t.run((ctx) => ctx.db.get(second.approvalId))).toMatchObject({ status: "failed", error: expect.stringContaining("may or may not have happened") });
 	});
 
 	it("tells the agent about a denial and runs nothing", async () => {
