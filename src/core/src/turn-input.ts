@@ -1,4 +1,5 @@
 import type { AgentConfig } from "./agent-config";
+import type { ApprovalOutcome } from "./approvals";
 import type { Participant } from "./chat";
 import { platformGuide } from "./guide";
 import { type Skill, skillsIndex } from "./skills";
@@ -52,6 +53,8 @@ export interface TurnPromptInput {
 	/** Everything said in the place since the agent's last reply, oldest first, trigger included. */
 	messages: PlaceMessage[];
 	triggerId: string;
+	/** Set when this turn follows an approval decision: it answers that instead of a message. */
+	approval?: ApprovalOutcome;
 }
 
 /** The new user message for one turn. Stored as `agentTurns.prompt` and replayed byte-identical later. */
@@ -98,8 +101,18 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 				.join("\n"),
 		);
 	}
-	if (trigger) sections.push(`Reply to this message from ${trigger.author.name}:\n${line(trigger)}`);
+	if (input.approval) sections.push(approvalSection(input.approval));
+	else if (trigger) sections.push(`Reply to this message from ${trigger.author.name}:\n${line(trigger)}`);
 	return sections.join("\n\n");
+}
+
+/** What the agent hears after someone decides on a call it held for approval. */
+function approvalSection({ tool, by, decision, result, error }: ApprovalOutcome) {
+	if (decision === "denied") {
+		return `${by} denied your ${tool} call, so it didn't run. Don't try it again unless they ask. Acknowledge briefly, or ask what to change if that's unclear.`;
+	}
+	if (error !== undefined) return `${by} approved your ${tool} call, but it failed: ${error}\nTell them briefly and suggest a next step.`;
+	return `${by} approved your ${tool} call and it ran with exactly the input you sent. Result:\n\`\`\`json\n${result ?? "null"}\n\`\`\`\nTell them briefly what happened, then finish what they asked.`;
 }
 
 /** "#sales, a public channel. Topic: …", "a DM with Ada", or "a group DM". */

@@ -6,6 +6,7 @@ import { Markdown } from "../../markdown";
 import { Notice, timeAgo } from "../../ui";
 import { WidgetView } from "../../widgets";
 import { CallDetails } from "../Activity";
+import { ApprovalCard } from "./Approval";
 import { AgentBadge, Avatar, AvatarStack, EmojiPicker, clock, useDismiss } from "./common";
 import type { Message } from "./data";
 
@@ -204,28 +205,32 @@ function EditForm({ message, onDone, onError }: { message: Message; onDone: () =
 
 function AgentBody({ message }: { message: Message }) {
 	const streaming = message.status === "streaming";
-	const lastText = message.parts.findLastIndex((p) => p.type === "text");
+	const lastText = message.fullParts.findLastIndex((p) => p.type === "text");
+	const held = message.fullParts.some((p) => p.type === "approval");
+	const approvals = useQuery(api.approvals.forReply, held ? { replyId: message._id } : "skip");
 	return (
 		<div className="flex flex-col gap-3">
-			{message.parts.map((part, i) =>
+			{message.fullParts.map((part, i) =>
 				part.type === "text" ? (
 					<Markdown key={i} className="leading-relaxed" isAnimating={streaming && i === lastText}>
 						{part.text}
 					</Markdown>
 				) : part.type === "tool" ? (
 					<ToolPart key={part.id} replyId={message._id} part={part} />
-				) : (
+				) : part.type === "approval" ? (
+					<ApprovalCard key={part.id} part={part} approval={approvals?.find((a) => a.callId === part.id)} />
+				) : part.type === "widget" ? (
 					<WidgetView key={part.id} widget={part.widget} />
-				),
+				) : null,
 			)}
-			{streaming && message.parts.length === 0 && <p className="text-sm text-neutral-400">Thinking…</p>}
+			{streaming && message.fullParts.length === 0 && <p className="text-sm text-neutral-400">Thinking…</p>}
 			{message.status === "error" && <Notice>{message.error ?? "Something went wrong."}</Notice>}
 			{message.stats && <ReplyDetails stats={message.stats} />}
 		</div>
 	);
 }
 
-type ToolPart = Extract<Message["parts"][number], { type: "tool" }>;
+type ToolPart = Extract<Message["fullParts"][number], { type: "tool" }>;
 
 /** "Used memory_create"; click to see what went in and came out (from the activity log). */
 function ToolPart({ replyId, part }: { replyId: Message["_id"]; part: ToolPart }) {

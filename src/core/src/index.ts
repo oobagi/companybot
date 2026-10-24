@@ -1,6 +1,7 @@
 export * from "./activity";
 export * from "./agent-config";
 export * from "./agents";
+export * from "./approvals";
 export * from "./automations";
 export * from "./builtin-tools";
 export * from "./chat";

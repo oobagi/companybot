@@ -244,7 +244,15 @@ export async function chatLabel(ctx: QueryCtx, chat: Doc<"chats">, names: Namer,
  */
 export function replyForModel(m: Doc<"chatMessages">) {
 	const tools = m.parts.flatMap((p) => (p.type === "tool" ? [`${p.name} (${p.status === "error" ? "failed" : "done"})`] : []));
-	return [textForModel(m), tools.length > 0 && `[Tools you used: ${tools.join(", ")}]`].filter(Boolean).join("\n");
+	// Held calls are noted without their outcome, so this text never changes once the reply is done (prompt caching).
+	const held = m.parts.flatMap((p) => (p.type === "approval" ? [p.tool] : []));
+	return [
+		textForModel(m),
+		tools.length > 0 && `[Tools you used: ${tools.join(", ")}]`,
+		held.length > 0 && `[Held for approval: ${held.join(", ")}]`,
+	]
+		.filter(Boolean)
+		.join("\n");
 }
 
 /** A message's text plus a note for each widget it showed, for agents. */

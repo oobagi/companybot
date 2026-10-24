@@ -1,8 +1,19 @@
 import type { AutomationStore } from "./automation-tools";
 import { describe, expect, it } from "vitest";
+import { simulateReadableStream, streamText } from "ai";
+import { MockLanguageModelV4 } from "ai/test";
+import { APPROVAL_TTL_MS, approvalHash, approvalStatus, canDecideApproval, canonicalJson, needsApproval } from "./approvals";
 import { ACTIVITY_MAX_CHARS, clipJson, describeCall } from "./activity";
 import { formatLocalTime, resolveTimeZone, shortStamp } from "./time";
-import { buildToolSet, describeToolAccess, grantedConnectorIds, resolveTools, validateAgentConfig } from "./agents";
+import {
+	buildToolSet,
+	describeToolAccess,
+	grantedConnectorIds,
+	heldCall,
+	resolveTools,
+	toolApprovalPolicy,
+	validateAgentConfig,
+} from "./agents";
 import { builtinTools } from "./builtin-tools";
 import { describeTrigger, findAutomation, isValidTimeZone, scheduleDue } from "./automations";
 import { blankAgent, companybot, scribe } from "./default-agents";
@@ -581,5 +592,137 @@ describe("time zones", () => {
 		const result = (await clock.execute({}, { ...ctx(owner), timeZone: la })) as { local: string; timeZone: string };
 		expect(result.timeZone).toBe(la);
 		expect(result.local).toMatch(/P[DS]T$/);
+	});
+});
+
+describe("approvals", () => {
+	const connectorTool = (name: string, extra: Partial<ToolDef> = {}): ToolDef => ({
+		id: `crm.${name}`,
+		description: name,
+		input: z.object({ to: z.string(), body: z.string() }),
+		source: { type: "connector", connectorId: "crm" },
+		execute: async () => ({ ok: name }),
+		...extra,
+	});
+	const send = connectorTool("send_sms");
+	const find = connectorTool("find_leads", { readOnly: true, input: z.object({}) });
+
+	it("holds connector writes, not reads or built-ins, unless a tool says otherwise", () => {
+		expect(needsApproval(send)).toBe(true);
+		expect(needsApproval(find)).toBe(false);
+		expect(needsApproval(builtinTools.find((t) => t.id === "memory.remember")!)).toBe(false);
+		expect(needsApproval({ ...builtinTools[0]!, needsApproval: true })).toBe(true);
+		expect(needsApproval({ ...send, needsApproval: false })).toBe(false);
+		// Every built-in today stays inside the workspace.
+		expect(builtinTools.filter(needsApproval)).toEqual([]);
+	});
+
+	it("locks to the exact tool and input: key order doesn't matter, any other change does", async () => {
+		const input = { to: "+15550100", body: "See you at 3", meta: { a: 1, b: [1, 2] } };
+		const hash = await approvalHash("crm.send_sms", input);
+		expect(hash).toMatch(/^[0-9a-f]{64}$/);
+		expect(await approvalHash("crm.send_sms", { meta: { b: [1, 2], a: 1 }, body: "See you at 3", to: "+15550100" })).toBe(hash);
+		expect(canonicalJson({ b: 1, a: { d: 1, c: undefined } })).toBe('{"a":{"d":1},"b":1}');
+		for (const changed of [
+			{ ...input, body: "See you at 4" },
+			{ ...input, body: "See you at 3 " },
+			{ ...input, to: "+15550101" },
+			{ ...input, meta: { a: 1, b: [2, 1] } },
+			{ ...input, cc: "boss@co.com" },
+		]) {
+			expect(await approvalHash("crm.send_sms", changed)).not.toBe(hash);
+		}
+		expect(await approvalHash("crm.send_email", input)).not.toBe(hash);
+	});
+
+	it("lets only the person the agent acts for decide, owners included", () => {
+		const approval = { actorId: member.userId };
+		expect(canDecideApproval(member, approval)).toBe(true);
+		expect(canDecideApproval(owner, approval)).toBe(false);
+		expect(canDecideApproval(other, approval)).toBe(false);
+		expect(canDecideApproval(owner, { actorId: owner.userId })).toBe(true);
+	});
+
+	it("expires pending approvals after a day, and only pending ones", () => {
+		const made = Date.UTC(2026, 9, 22);
+		const pending = { status: "pending" as const, expiresAt: made + APPROVAL_TTL_MS };
+		expect(approvalStatus(pending, made + APPROVAL_TTL_MS - 1)).toBe("pending");
+		expect(approvalStatus(pending, made + APPROVAL_TTL_MS)).toBe("expired");
+		expect(approvalStatus({ ...pending, status: "done" }, made + 2 * APPROVAL_TTL_MS)).toBe("done");
+	});
+
+	it("holds a connectors_call as the tool it runs, once its input is valid", async () => {
+		const tools = [send, find];
+		const call = (tool: string, input: unknown) => heldCall("connectors_call", { tool, input }, tools);
+		expect(await call("crm.send_sms", { body: "Hi", to: "+1" })).toEqual({ tool: "crm.send_sms", input: { body: "Hi", to: "+1" } });
+		expect(await call("crm.find_leads", {})).toBeNull();
+		// Bad input or an unknown tool runs, so the model gets the error back instead of a card.
+		expect(await call("crm.send_sms", { to: "+1" })).toBeNull();
+		expect(await call("crm.nope", {})).toBeNull();
+		expect(await heldCall("memory_remember", { content: "x" }, builtinTools)).toBeNull();
+		const custom = { ...builtinTools.find((t) => t.id === "memory.remember")!, needsApproval: true };
+		expect(await heldCall("memory_remember", { content: "x" }, [custom])).toEqual({ tool: "memory.remember", input: { content: "x" } });
+	});
+
+	it("stops the run at a held call without running it, and runs the rest", async () => {
+		const ran: string[] = [];
+		const track = (t: ToolDef): ToolDef => ({ ...t, execute: async (input) => (ran.push(t.id), { ok: input }) });
+		const available = [...builtinTools, track(send), track(find)];
+		const agent = { tools: ["crm.*"] };
+		const tools = buildToolSet(agent, ctx(owner), available, [{ id: "crm", name: "CRM" }]);
+		const usage = { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } };
+		const call = (id: string, tool: string, input: unknown) => ({
+			type: "tool-call" as const,
+			toolCallId: id,
+			toolName: "connectors_call",
+			input: JSON.stringify({ tool, input }),
+		});
+		const model = new MockLanguageModelV4({
+			doStream: async () => ({
+				stream: simulateReadableStream({
+					chunks: [
+						call("c1", "crm.send_sms", { to: "+1", body: "Hi" }),
+						call("c2", "crm.find_leads", {}),
+						{ type: "finish" as const, finishReason: { unified: "tool-calls" as const, raw: undefined }, usage },
+					],
+				}),
+			}),
+		});
+		const result = streamText({
+			model,
+			prompt: "text Bob and find leads",
+			tools,
+			toolApproval: toolApprovalPolicy(resolveTools(agent, owner, available)),
+		});
+		const parts: { type: string; toolCallId?: string; toolCall?: { toolCallId: string } }[] = [];
+		for await (const part of result.stream) parts.push(part as never);
+		expect(parts.filter((p) => p.type === "tool-approval-request").map((p) => p.toolCall?.toolCallId)).toEqual(["c1"]);
+		expect(parts.filter((p) => p.type === "tool-result").map((p) => p.toolCallId)).toEqual(["c2"]);
+		expect(ran).toEqual(["crm.find_leads"]);
+		expect(model.doStreamCalls).toHaveLength(1);
+	});
+
+	it("tells the agent the outcome instead of asking it to reply to a message", () => {
+		const input: TurnPromptInput = {
+			agentId: "a1",
+			place: { kind: "dm", name: null, private: true, topic: null, thread: null, members: [] },
+			actor: { name: "Ada", email: "ada@co.com", role: "member", timeZone: "UTC" },
+			memory: "personal",
+			connectors: { connected: [], unavailable: [] },
+			messages: [],
+			triggerId: "m1",
+		};
+		const approved = buildTurnPrompt({ ...input, approval: { tool: "crm.send_sms", by: "Ada", decision: "approved", result: '{"sent":true}' } });
+		expect(approved).toContain('Ada approved your crm.send_sms call and it ran with exactly the input you sent. Result:\n```json\n{"sent":true}\n```');
+		expect(approved).not.toContain("Reply to this message");
+		const failed = buildTurnPrompt({ ...input, approval: { tool: "crm.send_sms", by: "Ada", decision: "approved", error: "Bad number" } });
+		expect(failed).toContain("but it failed: Bad number");
+		const denied = buildTurnPrompt({ ...input, approval: { tool: "crm.send_sms", by: "Ada", decision: "denied" } });
+		expect(denied).toContain("Ada denied your crm.send_sms call, so it didn't run. Don't try it again unless they ask.");
+	});
+
+	it("explains approvals only to agents with connectors", () => {
+		expect(platformGuide({ tools: [`${connectorCatalog[0]!.id}.*`] })).toContain("approve them in the chat");
+		expect(platformGuide({ tools: ["memory.*"] })).not.toContain("approve");
 	});
 });

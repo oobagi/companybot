@@ -28,7 +28,7 @@ Built for prompt caching: the cache matches an exact prefix, so nothing earlier 
 3. **One new user message per turn**, appended at the end:
    - Where you are: chat, who's in it, who triggered you, memory mode.
    - Everything said in the place since the agent's last reply, including messages not addressed to it, each labeled `[Name]`. A thread's first turn starts with its parent. Capped at ~50 messages; past that, a note says to use `chat.read`.
-   - The trigger message, marked as the one to answer.
+   - The trigger message, marked as the one to answer. A turn queued by an approval decision gets the outcome (approved + result, failed, or denied) here instead.
 4. **Compaction** — once the session passes ~40k tokens, older turns fold into the session's summary and a ~15k-token tail stays verbatim. One cache miss, then append-only again.
 5. **Chat tools** — `chat.react` (react to the trigger message), `chat.read` (older history or another place), `chat.search` (search chats the actor can see). Granted like other built-ins (`chat.*`).
 
