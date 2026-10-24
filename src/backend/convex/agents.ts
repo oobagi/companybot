@@ -4,7 +4,7 @@ import {
 	builtinTools,
 	defaultAgents,
 	describeToolAccess,
-	findPlugin,
+	findConnector,
 	models,
 	toolGroup,
 	validateAgentConfig,
@@ -13,7 +13,7 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, mutation, query } from "./_generated/server";
 import { checkVersion, getMember, namesOf, requireAgent, requireMember, requirePermission, toActor } from "./lib";
-import { pluginStates } from "./plugins";
+import { connectorStates } from "./connectors";
 import { agentConfig } from "./schema";
 
 // Agents live in the database, one set per workspace. Owners edit them; every save
@@ -66,19 +66,19 @@ export const list = query({
 			ctx,
 			agents.map((a) => a.updatedBy),
 		);
-		const plugins = await pluginStates(ctx, member);
+		const connectors = await connectorStates(ctx, member);
 		return agents.map((a) => ({
 			...a,
 			updatedByName: names.get(a.updatedBy) ?? "",
-			access: describeToolAccess(a, toActor(member), plugins),
+			access: describeToolAccess(a, toActor(member), connectors),
 		}));
 	},
 });
 
 /**
  * What owners can pick from when editing an agent: models, and tool groups. Each
- * group can be granted whole ("memory.*") or tool by tool. Installed plugins are
- * granted whole, since their tools come from the plugin's server.
+ * group can be granted whole ("memory.*") or tool by tool. Installed connectors are
+ * granted whole, since their tools come from the connector's server.
  */
 export const options = query({
 	args: {},
@@ -87,17 +87,17 @@ export const options = query({
 		const builtin = [...new Set(builtinTools.map((t) => toolGroup(t.id)))].map((group) => ({
 			id: group,
 			name: group.charAt(0).toUpperCase() + group.slice(1),
-			plugin: false,
+			connector: false,
 			tools: builtinTools
 				.filter((t) => toolGroup(t.id) === group)
 				.map(({ id, description, roles }) => ({ id, description, ownersOnly: !!roles && !roles.includes("member") })),
 		}));
-		const installed = member ? await pluginStates(ctx, member) : [];
-		const plugins = installed.flatMap((state) => {
-			const plugin = findPlugin(state.id);
-			return plugin ? [{ id: plugin.id, name: plugin.name, plugin: true, tools: [] }] : [];
+		const installed = member ? await connectorStates(ctx, member) : [];
+		const connectors = installed.flatMap((state) => {
+			const connector = findConnector(state.id);
+			return connector ? [{ id: connector.id, name: connector.name, connector: true, tools: [] }] : [];
 		});
-		return { models, groups: [...builtin, ...plugins] };
+		return { models, groups: [...builtin, ...connectors] };
 	},
 });
 

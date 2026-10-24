@@ -17,8 +17,8 @@ export interface Automation {
 	version: string;
 	publisher: string;
 	trigger: AutomationTrigger;
-	/** Plugins that must be installed first, and that the agent should be granted. */
-	plugins: string[];
+	/** Connectors that must be installed first, and that the agent should be granted. */
+	connectors: string[];
 	/** What the agent is asked to do each run. */
 	prompt: string;
 }
@@ -143,7 +143,7 @@ export function customAutomation(id: string, config: CustomAutomationConfig, ver
 		version: String(version),
 		publisher: "Your team",
 		trigger,
-		plugins: [],
+		connectors: [],
 		prompt: config.prompt.trim(),
 	};
 }
@@ -159,11 +159,11 @@ export const automationCatalog: Automation[] = [
 - **Open tasks** — follow-ups and action items still waiting on them.
 - **Overnight** — anything that changed since yesterday.
 
-It uses the agent's memory and whatever plugins the agent is granted, so it gets better as you connect more.`,
+It uses the agent's memory and whatever connectors the agent is granted, so it gets better as you connect more.`,
 		version: "0.1.0",
 		publisher: "Companybot",
 		trigger: { type: "schedule", time: "08:00", weekdays: [1, 2, 3, 4, 5] },
-		plugins: [],
+		connectors: [],
 		prompt: `Morning brief. Give me my day at a glance, in this order:
 1. **Today** — meetings, deadlines, and anything time-sensitive.
 2. **Open tasks** — follow-ups and action items still waiting on me.
@@ -199,7 +199,7 @@ Use your memory and any tools you have. Skip a section if there's nothing for it
 				},
 			},
 		},
-		plugins: [],
+		connectors: [],
 		prompt: `A call just ended. Using the call details below, write:
 1. **Summary** — two or three sentences: who called and why.
 2. **Next steps** — what was agreed.

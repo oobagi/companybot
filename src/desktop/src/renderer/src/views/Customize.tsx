@@ -28,7 +28,7 @@ import { AgentScreen, AgentsTab } from "./Agents";
 
 export const customizeTabs = [
 	{ id: "agents", label: "Agents" },
-	{ id: "plugins", label: "Plugins" },
+	{ id: "connectors", label: "Connectors" },
 	{ id: "skills", label: "Skills" },
 	{ id: "automations", label: "Automations" },
 ] as const;
@@ -38,7 +38,7 @@ export type CustomizeTab = (typeof customizeTabs)[number]["id"];
 export function CustomizeView({ role, tab, itemId }: { role: Role; tab: CustomizeTab; itemId?: string }) {
 	if (itemId) {
 		if (tab === "agents") return <AgentScreen role={role} agentId={itemId as Id<"agents">} />;
-		if (tab === "plugins") return <PluginScreen role={role} id={itemId} />;
+		if (tab === "connectors") return <ConnectorScreen role={role} id={itemId} />;
 		if (tab === "skills") return <SkillScreen role={role} id={itemId} />;
 		return <AutomationScreen role={role} id={itemId} />;
 	}
@@ -46,96 +46,96 @@ export function CustomizeView({ role, tab, itemId }: { role: Role; tab: Customiz
 		<Page title="Customize" subtitle="Shape your agents, connect your tools, teach new skills, and automate routine work.">
 			<Tabs tabs={customizeTabs} value={tab} onChange={(t) => navigate("customize", t)} />
 			{tab === "agents" && <AgentsTab role={role} />}
-			{tab === "plugins" && <PluginsTab role={role} />}
+			{tab === "connectors" && <ConnectorsTab role={role} />}
 			{tab === "skills" && <SkillsTab role={role} />}
 			{tab === "automations" && <AutomationsTab role={role} />}
 		</Page>
 	);
 }
 
-// ---- Plugins ----
+// ---- Connectors ----
 
-type PluginItem = FunctionReturnType<typeof api.plugins.list>[number];
+type ConnectorItem = FunctionReturnType<typeof api.connectors.list>[number];
 
-function PluginsTab({ role }: { role: Role }) {
-	const plugins = useQuery(api.plugins.list);
-	const setInstalled = useMutation(api.plugins.setInstalled);
+function ConnectorsTab({ role }: { role: Role }) {
+	const connectors = useQuery(api.connectors.list);
+	const setInstalled = useMutation(api.connectors.setInstalled);
 	const { error, run } = useRun();
-	if (!plugins) return <Loading />;
-	const isOwner = can(role, "plugins.manage");
-	const toggle = (p: PluginItem) => run(setInstalled({ pluginId: p.id, installed: !p.installed }));
+	if (!connectors) return <Loading />;
+	const isOwner = can(role, "connectors.manage");
+	const toggle = (p: ConnectorItem) => run(setInstalled({ connectorId: p.id, installed: !p.installed }));
 
 	return (
 		<>
 			<p className="text-sm text-neutral-500">
-				Connect outside services like Gmail or Calendar. Agents granted a plugin use it for the person they're helping.
+				Connect outside services like Gmail or Calendar. Agents granted a connector use it for the person they're helping.
 			</p>
 			{error && <Notice>{error}</Notice>}
-			{plugins.length === 0 && <p className="text-sm text-neutral-400">No plugins available yet.</p>}
-			{plugins.map((p) => (
+			{connectors.length === 0 && <p className="text-sm text-neutral-400">No connectors available yet.</p>}
+			{connectors.map((p) => (
 				<Card
 					key={p.id}
 					title={p.name}
 					meta={`${p.publisher} · v${p.version}`}
 					description={p.description}
-					status={p.installed ? pluginStatus(p) : undefined}
+					status={p.installed ? connectorStatus(p) : undefined}
 					installed={p.installed}
 					canManage={isOwner}
 					onToggle={() => toggle(p)}
-					onOpen={() => navigate("customize", "plugins", p.id)}
+					onOpen={() => navigate("customize", "connectors", p.id)}
 				/>
 			))}
 		</>
 	);
 }
 
-function pluginStatus(p: PluginItem) {
+function connectorStatus(p: ConnectorItem) {
 	if (!p.canUse) return "Your role can't use it";
 	if (p.auth.type === "none") return "Ready";
 	if (p.error) return "Connection failing";
 	return p.connected ? "Connected" : "Not connected";
 }
 
-function PluginScreen({ role, id }: { role: Role; id: string }) {
-	const plugin = useQuery(api.plugins.list)?.find((p) => p.id === id);
-	if (!plugin) return <Missing tab="plugins" />;
-	return <PluginDetail plugin={plugin} isOwner={can(role, "plugins.manage")} />;
+function ConnectorScreen({ role, id }: { role: Role; id: string }) {
+	const connector = useQuery(api.connectors.list)?.find((p) => p.id === id);
+	if (!connector) return <Missing tab="connectors" />;
+	return <ConnectorDetail connector={connector} isOwner={can(role, "connectors.manage")} />;
 }
 
-function PluginDetail({ plugin, isOwner }: { plugin: PluginItem; isOwner: boolean }) {
-	const setInstalled = useMutation(api.plugins.setInstalled);
-	const setRoles = useMutation(api.plugins.setRoles);
+function ConnectorDetail({ connector, isOwner }: { connector: ConnectorItem; isOwner: boolean }) {
+	const setInstalled = useMutation(api.connectors.setInstalled);
+	const setRoles = useMutation(api.connectors.setRoles);
 	const { error, run } = useRun();
-	const signIn = { none: "None needed", api_key: "API key", oauth: "Sign in through your browser" }[plugin.auth.type];
+	const signIn = { none: "None needed", api_key: "API key", oauth: "Sign in through your browser" }[connector.auth.type];
 
 	return (
 		<Detail
-			tab="plugins"
-			title={plugin.name}
-			meta={`${plugin.publisher} · v${plugin.version}`}
-			description={plugin.description}
-			installed={plugin.installed}
+			tab="connectors"
+			title={connector.name}
+			meta={`${connector.publisher} · v${connector.version}`}
+			description={connector.description}
+			installed={connector.installed}
 			canManage={isOwner}
-			onToggle={() => run(setInstalled({ pluginId: plugin.id, installed: !plugin.installed }))}
+			onToggle={() => run(setInstalled({ connectorId: connector.id, installed: !connector.installed }))}
 		>
 			{error && <Notice>{error}</Notice>}
 			<Facts
 				rows={[
-					["Account", plugin.connection === "personal" ? "Each person connects their own" : "One shared account for the workspace"],
+					["Account", connector.connection === "personal" ? "Each person connects their own" : "One shared account for the workspace"],
 					["Sign-in", signIn],
-					["Tools", `Discovered from the plugin each turn. Grant "${plugin.id}.*" to an agent to use them.`],
-					["Server", plugin.server],
+					["Tools", `Discovered from the connector each turn. Grant "${connector.id}.*" to an agent to use them.`],
+					["Server", connector.server],
 				]}
 			/>
-			{plugin.installed && (
+			{connector.installed && (
 				<Section title="Access">
 					<label className="flex items-center gap-2 text-sm">
 						<span className="text-neutral-500">Who can use it</span>
 						<select
 							disabled={!isOwner}
-							value={plugin.roles.includes("member") ? "everyone" : "owners"}
+							value={connector.roles.includes("member") ? "everyone" : "owners"}
 							onChange={(e) =>
-								run(setRoles({ pluginId: plugin.id, roles: e.target.value === "everyone" ? ["owner", "member"] : ["owner"] }))
+								run(setRoles({ connectorId: connector.id, roles: e.target.value === "everyone" ? ["owner", "member"] : ["owner"] }))
 							}
 							className="rounded-lg border border-neutral-200 px-2 py-1"
 						>
@@ -143,66 +143,66 @@ function PluginDetail({ plugin, isOwner }: { plugin: PluginItem; isOwner: boolea
 							<option value="owners">Owners only</option>
 						</select>
 					</label>
-					<Connection plugin={plugin} />
+					<Connection connector={connector} />
 				</Section>
 			)}
 		</Detail>
 	);
 }
 
-function Connection({ plugin }: { plugin: PluginItem }) {
-	const connect = useAction(api.plugins.connect);
-	const startOAuth = useAction(api.plugins.startOAuth);
-	const disconnect = useMutation(api.plugins.disconnect);
+function Connection({ connector }: { connector: ConnectorItem }) {
+	const connect = useAction(api.connectors.connect);
+	const startOAuth = useAction(api.connectors.startOAuth);
+	const disconnect = useMutation(api.connectors.disconnect);
 	const [key, setKey] = useState("");
 	const { error, run } = useRun();
 
 	return (
 		<div className="flex flex-col gap-2 text-sm">
 			{error && <Notice>{error}</Notice>}
-			{plugin.auth.type === "none" ? (
+			{connector.auth.type === "none" ? (
 				<p className="text-emerald-700">Ready. No account needed.</p>
-			) : plugin.connected ? (
+			) : connector.connected ? (
 				<div className="flex items-center gap-3">
-					<span className={plugin.error ? "text-amber-700" : "text-emerald-700"}>
-						{plugin.error ? `Connected, but the last try failed: ${plugin.error}` : "Connected"}
+					<span className={connector.error ? "text-amber-700" : "text-emerald-700"}>
+						{connector.error ? `Connected, but the last try failed: ${connector.error}` : "Connected"}
 					</span>
-					{plugin.canConnect && (
+					{connector.canConnect && (
 						<button
 							type="button"
-							onClick={() => run(disconnect({ pluginId: plugin.id }))}
+							onClick={() => run(disconnect({ connectorId: connector.id }))}
 							className="text-neutral-500 hover:text-red-600"
 						>
 							Disconnect
 						</button>
 					)}
 				</div>
-			) : plugin.canUse && plugin.canConnect && plugin.auth.type === "oauth" ? (
+			) : connector.canUse && connector.canConnect && connector.auth.type === "oauth" ? (
 				<div className="flex items-center gap-3">
 					<button
 						type="button"
 						className={`${primaryButton} self-start`}
 						// Opens in the browser (main process routes window.open there). The app
 						// flips to Connected on its own once the sign-in finishes.
-						onClick={() => run(startOAuth({ pluginId: plugin.id }).then((url) => window.open(url)))}
+						onClick={() => run(startOAuth({ connectorId: connector.id }).then((url) => window.open(url)))}
 					>
-						Connect with {plugin.name}
+						Connect with {connector.name}
 					</button>
 					<span className="text-neutral-400">Opens your browser to sign in.</span>
 				</div>
-			) : plugin.canUse && plugin.canConnect ? (
+			) : connector.canUse && connector.canConnect ? (
 				<form
 					className="flex gap-2"
 					onSubmit={(e) => {
 						e.preventDefault();
-						run(connect({ pluginId: plugin.id, credentials: { type: "api_key", key } }), () => setKey(""));
+						run(connect({ connectorId: connector.id, credentials: { type: "api_key", key } }), () => setKey(""));
 					}}
 				>
 					<input
 						type="password"
 						value={key}
 						onChange={(e) => setKey(e.target.value)}
-						placeholder={plugin.auth.type === "api_key" ? plugin.auth.label : ""}
+						placeholder={connector.auth.type === "api_key" ? connector.auth.label : ""}
 						className={`${inputClass} flex-1`}
 					/>
 					<button type="submit" className={primaryButton}>
@@ -210,10 +210,10 @@ function Connection({ plugin }: { plugin: PluginItem }) {
 					</button>
 				</form>
 			) : (
-				<p className="text-neutral-400">{plugin.canUse ? "An owner needs to connect it." : "Your role can't use this plugin."}</p>
+				<p className="text-neutral-400">{connector.canUse ? "An owner needs to connect it." : "Your role can't use this connector."}</p>
 			)}
-			{plugin.auth.type === "api_key" && plugin.auth.help && !plugin.connected && (
-				<p className="text-xs text-neutral-400">{plugin.auth.help}</p>
+			{connector.auth.type === "api_key" && connector.auth.help && !connector.connected && (
+				<p className="text-xs text-neutral-400">{connector.auth.help}</p>
 			)}
 		</div>
 	);
@@ -360,12 +360,15 @@ function AutomationFields({ value, onChange }: { value: CustomConfig; onChange: 
 					onChange={(e) => onChange({ ...value, name: e.target.value })}
 				/>
 			</Field>
-			<Field label="When">
+			{/* Not a Field: a <label> around buttons would press the first one when its text is clicked. */}
+			<div role="group" aria-label="When" className="flex flex-col gap-1.5">
+				<span className="text-sm font-medium">When</span>
 				<div className="flex flex-col gap-3">
 					<div className="flex gap-2">
 						<button
 							type="button"
 							className={option(trigger.type === "schedule")}
+							aria-pressed={trigger.type === "schedule"}
 							onClick={() => trigger.type !== "schedule" && onChange({ ...value, trigger: defaultSchedule })}
 						>
 							On a schedule
@@ -373,6 +376,7 @@ function AutomationFields({ value, onChange }: { value: CustomConfig; onChange: 
 						<button
 							type="button"
 							className={option(trigger.type === "webhook")}
+							aria-pressed={trigger.type === "webhook"}
 							onClick={() => onChange({ ...value, trigger: { type: "webhook" } })}
 						>
 							When another app sends a webhook
@@ -416,7 +420,7 @@ function AutomationFields({ value, onChange }: { value: CustomConfig; onChange: 
 						</p>
 					)}
 				</div>
-			</Field>
+			</div>
 			<Field label="What to ask the agent" hint="Sent to the agent each run, as if the person asked it.">
 				<textarea
 					className={`${inputClass} min-h-32`}
@@ -560,7 +564,7 @@ function AutomationDetail({ automation: a, canManage }: { automation: Automation
 				rows={[
 					["When", a.scheduled && a.timeZone ? `${a.trigger} (${a.timeZone})` : a.trigger],
 					["Runs for", a.runsFor],
-					["Needs", a.needs.length ? a.needs.map((n) => `${n.name} plugin${n.installed ? "" : " (not installed)"}`).join(", ") : "Nothing extra"],
+					["Needs", a.needs.length ? a.needs.map((n) => `${n.name} connector${n.installed ? "" : " (not installed)"}`).join(", ") : "Nothing extra"],
 				]}
 			/>
 			{a.installed && <AutomationSettings automation={a} canManage={canManage} />}

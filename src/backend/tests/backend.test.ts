@@ -1,27 +1,28 @@
+import migrationsTest from "@convex-dev/migrations/test";
 import { convexTest } from "convex-test";
 import { describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import schema from "../convex/schema";
 import { decrypt } from "../convex/crypto";
-import { automationCatalog, defineAutomation, definePlugin, pluginCatalog } from "@companybot/core";
+import { automationCatalog, defineAutomation, defineConnector, connectorCatalog } from "@companybot/core";
 
-// A test plugin, so plugin flows can run without a real connector in the catalog.
-const notes = definePlugin({
+// A test connector, so connector flows can run without a real connector in the catalog.
+const notes = defineConnector({
 	id: "notes",
 	name: "Notes",
-	description: "Test plugin",
+	description: "Test connector",
 	version: "1.0.0",
 	publisher: "Test",
 	mcp: { url: "https://example.com/mcp", transport: "http" },
 	connection: "personal",
 	auth: { type: "api_key", header: "Authorization", prefix: "Bearer ", label: "API key" },
 });
-const crm = definePlugin({ ...notes, id: "crm", name: "CRM", connection: "workspace" });
-pluginCatalog.push(notes, crm);
-// An automation that needs a plugin, for the install check.
+const crm = defineConnector({ ...notes, id: "crm", name: "CRM", connection: "workspace" });
+connectorCatalog.push(notes, crm);
+// An automation that needs a connector, for the install check.
 automationCatalog.push(
-	defineAutomation({ ...automationCatalog[0]!, id: "crm-digest", name: "CRM digest", plugins: ["crm"] }),
+	defineAutomation({ ...automationCatalog[0]!, id: "crm-digest", name: "CRM digest", connectors: ["crm"] }),
 );
 process.env.CONNECTIONS_KEY = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
 
@@ -559,63 +560,63 @@ describe("memory in shared chats", () => {
 	});
 });
 
-describe("plugins", () => {
+describe("connectors", () => {
 	it("lets only owners install, and members connect their own account", async () => {
 		const { t, owner, member } = await ownerAndMember();
-		await expect(member.mutation(api.plugins.setInstalled, { pluginId: "notes", installed: true })).rejects.toThrow(
+		await expect(member.mutation(api.connectors.setInstalled, { connectorId: "notes", installed: true })).rejects.toThrow(
 			"permission",
 		);
 		await expect(
-			member.action(api.plugins.connect, { pluginId: "notes", credentials: { type: "api_key", key: "k" } }),
-		).rejects.toThrow("Install the plugin first");
-		await owner.mutation(api.plugins.setInstalled, { pluginId: "notes", installed: true });
-		await member.action(api.plugins.connect, { pluginId: "notes", credentials: { type: "api_key", key: "secret-1" } });
+			member.action(api.connectors.connect, { connectorId: "notes", credentials: { type: "api_key", key: "k" } }),
+		).rejects.toThrow("Install the connector first");
+		await owner.mutation(api.connectors.setInstalled, { connectorId: "notes", installed: true });
+		await member.action(api.connectors.connect, { connectorId: "notes", credentials: { type: "api_key", key: "secret-1" } });
 
-		const mine = (await member.query(api.plugins.list)).find((p) => p.id === "notes")!;
+		const mine = (await member.query(api.connectors.list)).find((p) => p.id === "notes")!;
 		expect(mine).toMatchObject({ installed: true, connected: true, canUse: true });
 		expect(JSON.stringify(mine)).not.toContain("secret-1");
 		// Personal: the owner hasn't connected their own account.
-		expect((await owner.query(api.plugins.list)).find((p) => p.id === "notes")?.connected).toBe(false);
+		expect((await owner.query(api.connectors.list)).find((p) => p.id === "notes")?.connected).toBe(false);
 
-		const stored = await t.run((ctx) => ctx.db.query("pluginConnections").first());
+		const stored = await t.run((ctx) => ctx.db.query("connectorConnections").first());
 		expect(stored?.credentials).not.toContain("secret-1");
 		expect(await decrypt(stored!.credentials)).toEqual({ type: "api_key", key: "secret-1" });
 	});
 
 	it("needs an owner to connect a workspace account", async () => {
 		const { owner, member } = await ownerAndMember();
-		await owner.mutation(api.plugins.setInstalled, { pluginId: "crm", installed: true });
+		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
 		const creds = { type: "api_key" as const, key: "k" };
-		await expect(member.action(api.plugins.connect, { pluginId: "crm", credentials: creds })).rejects.toThrow("permission");
-		await owner.action(api.plugins.connect, { pluginId: "crm", credentials: creds });
+		await expect(member.action(api.connectors.connect, { connectorId: "crm", credentials: creds })).rejects.toThrow("permission");
+		await owner.action(api.connectors.connect, { connectorId: "crm", credentials: creds });
 		// One shared connection covers everyone.
-		expect((await member.query(api.plugins.list)).find((p) => p.id === "crm")?.connected).toBe(true);
+		expect((await member.query(api.connectors.list)).find((p) => p.id === "crm")?.connected).toBe(true);
 	});
 
-	it("gives agents plugin tools only for allowed roles, read fresh each turn", async () => {
+	it("gives agents connector tools only for allowed roles, read fresh each turn", async () => {
 		const { t, owner, member } = await ownerAndMember();
-		await owner.mutation(api.plugins.setInstalled, { pluginId: "crm", installed: true });
-		await owner.action(api.plugins.connect, { pluginId: "crm", credentials: { type: "api_key", key: "k" } });
+		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
+		await owner.action(api.connectors.connect, { connectorId: "crm", credentials: { type: "api_key", key: "k" } });
 		const { scribe } = await agentsOf(owner);
 		const config = { name: "Scribe", description: "", instructions: "", model: scribe.model, tools: ["crm.*"] };
 		await owner.mutation(api.agents.update, { agentId: scribe._id, expectedVersion: 1, config });
 
 		const memberId = (await member.query(api.workspace.me))!.userId;
-		const forTurn = () => t.query(internal.plugins.forTurn, { userId: memberId, pluginIds: ["crm"] });
+		const forTurn = () => t.query(internal.connectors.forTurn, { userId: memberId, connectorIds: ["crm"] });
 		expect(await forTurn()).toHaveLength(1);
 		expect((await agentsOf(member)).scribe.access).toEqual([{ id: "crm.*", visible: true }]);
 
-		await owner.mutation(api.plugins.setRoles, { pluginId: "crm", roles: ["owner"] });
+		await owner.mutation(api.connectors.setRoles, { connectorId: "crm", roles: ["owner"] });
 		expect(await forTurn()).toHaveLength(0);
 		expect((await agentsOf(member)).scribe.access).toEqual([{ id: "crm.*", visible: false, reason: "role" }]);
 	});
 
 	it("forgets connections when uninstalled", async () => {
 		const { t, owner } = await ownerAndMember();
-		await owner.mutation(api.plugins.setInstalled, { pluginId: "crm", installed: true });
-		await owner.action(api.plugins.connect, { pluginId: "crm", credentials: { type: "api_key", key: "k" } });
-		await owner.mutation(api.plugins.setInstalled, { pluginId: "crm", installed: false });
-		expect(await t.run((ctx) => ctx.db.query("pluginConnections").collect())).toHaveLength(0);
+		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
+		await owner.action(api.connectors.connect, { connectorId: "crm", credentials: { type: "api_key", key: "k" } });
+		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: false });
+		expect(await t.run((ctx) => ctx.db.query("connectorConnections").collect())).toHaveLength(0);
 	});
 });
 
@@ -628,14 +629,14 @@ describe("automations", () => {
 		return messages.map((m) => [m.author.type, m.automation?.name ?? null]);
 	};
 
-	it("lets only owners install, and needs required plugins first", async () => {
+	it("lets only owners install, and needs required connectors first", async () => {
 		const { owner, member } = await ownerAndMember();
 		await expect(
 			member.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: true, timeZone: tz }),
 		).rejects.toThrow("permission");
 		await expect(
 			owner.mutation(api.automations.setInstalled, { automationId: "crm-digest", installed: true, timeZone: tz }),
-		).rejects.toThrow("Install the CRM plugin first");
+		).rejects.toThrow("Install the CRM connector first");
 		await owner.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: true, timeZone: tz });
 		const brief = (await member.query(api.automations.list)).find((a) => a.id === "morning-brief")!;
 		expect([brief.installed, brief.enabled, brief.agentName, brief.trigger]).toEqual([
@@ -958,4 +959,40 @@ describe("time zones", () => {
 		await expect(owner.mutation(api.preferences.update, { timeZone: "Mars/Base" })).rejects.toThrow("Unknown time zone");
 	});
 
+});
+
+describe("migrations", () => {
+	it("moves rows from the old plugin tables to the connector tables", async () => {
+		const t = convexTest(schema, modules);
+		migrationsTest.register(t);
+		const owner = await signIn(t, "owner@co.com");
+		await t.run(async (ctx) => {
+			const { userId, workspaceId } = (await ctx.db.query("members").first())!;
+			await ctx.db.insert("pluginInstalls", { workspaceId, pluginId: "crm", roles: ["owner"], installedBy: userId });
+			await ctx.db.insert("pluginConnections", { workspaceId, pluginId: "crm", userId: null, credentials: "enc", connectedBy: userId });
+			await ctx.db.insert("pluginOAuthFlows", { state: "s", pluginId: "crm", userId, data: "d", expiresAt: 1 });
+		});
+		vi.useFakeTimers();
+		try {
+			await t.mutation(internal.migrations.runAll);
+			await t.finishAllScheduledFunctions(vi.runAllTimers);
+		} finally {
+			vi.useRealTimers();
+		}
+		const rows = await t.run(async (ctx) => ({
+			old: [
+				...(await ctx.db.query("pluginInstalls").collect()),
+				...(await ctx.db.query("pluginConnections").collect()),
+				...(await ctx.db.query("pluginOAuthFlows").collect()),
+			].length,
+			installs: await ctx.db.query("connectorInstalls").collect(),
+			connections: await ctx.db.query("connectorConnections").collect(),
+			flows: await ctx.db.query("connectorOAuthFlows").collect(),
+		}));
+		expect(rows.old).toBe(0);
+		expect(rows.installs.map((r) => [r.connectorId, r.roles])).toEqual([["crm", ["owner"]]]);
+		expect(rows.connections.map((r) => [r.connectorId, r.credentials])).toEqual([["crm", "enc"]]);
+		expect(rows.flows.map((r) => [r.connectorId, r.state])).toEqual([["crm", "s"]]);
+		expect(await owner.query(api.connectors.list)).toContainEqual(expect.objectContaining({ id: "crm", installed: true }));
+	});
 });

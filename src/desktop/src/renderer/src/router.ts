@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-// A tiny hash router. Each screen has a path ("/customize/plugins/night-owl");
+// A tiny hash router. Each screen has a path ("/customize/connectors/night-owl");
 // navigate() pushes a history entry, so back (button, mouse, swipe) returns to the
 // screen before. Hash-based so it works from the packaged app's file:// page.
 
@@ -11,7 +11,7 @@ const subscribe = (onChange: () => void) => {
 	return () => window.removeEventListener("hashchange", onChange);
 };
 
-/** The current path, split into segments: "/customize/plugins" → ["customize", "plugins"]. */
+/** The current path, split into segments: "/customize/connectors" → ["customize", "connectors"]. */
 export function useRoute(): string[] {
 	const path = useSyncExternalStore(subscribe, read);
 	return path.split("/").filter(Boolean).map(decodeURIComponent);

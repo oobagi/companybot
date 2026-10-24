@@ -191,14 +191,14 @@ type Options = FunctionReturnType<typeof api.agents.options>;
 
 const hiddenReasons: Record<string, string> = {
 	role: "Hidden from your role",
-	not_installed: "Plugin not installed",
+	not_installed: "Connector not installed",
 	not_connected: "Not connected",
 	not_found: "Missing",
 };
 
 /**
  * One group of tools. "All" grants the whole group ("memory.*"), which also
- * covers tools added to it later. Plugins are always granted whole.
+ * covers tools added to it later. Connectors are always granted whole.
  */
 function ToolGroup({
 	group,
@@ -213,7 +213,7 @@ function ToolGroup({
 	access: Map<string, Agent["access"][number]>;
 	onChange: (tools: string[]) => void;
 }) {
-	// A one-tool group is granted by its tool id; bigger groups and plugins by "<group>.*".
+	// A one-tool group is granted by its tool id; bigger groups and connectors by "<group>.*".
 	const single = group.tools.length === 1 ? group.tools[0]?.id : undefined;
 	const all = single ?? `${group.id}.*`;
 	const whole = grants.includes(all) || grants.includes(`${group.id}.*`);
@@ -232,7 +232,7 @@ function ToolGroup({
 					onChange={() => onChange(whole ? grants.filter((x) => !inGroup(x)) : [...grants.filter((x) => !inGroup(x)), all])}
 				/>
 				<span className="flex-1 text-sm font-medium">
-					{group.plugin ? `${group.name} (plugin)` : group.name}
+					{group.connector ? `${group.name} (connector)` : group.name}
 					{group.tools.length > 1 && <span className="ml-2 font-normal text-neutral-400">all, including future ones</span>}
 				</span>
 				{status(all)}

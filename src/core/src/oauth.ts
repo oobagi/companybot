@@ -6,10 +6,10 @@ import {
 	type OAuthTokens,
 	auth,
 } from "@ai-sdk/mcp";
-import type { Plugin } from "./plugins";
+import type { Connector } from "./connectors";
 
 /**
- * MCP OAuth for plugins. The AI SDK runs the protocol (discovery, dynamic client
+ * MCP OAuth for connectors. The AI SDK runs the protocol (discovery, dynamic client
  * registration, PKCE, refresh); this keeps what it needs to remember in one plain
  * object, so the backend can encrypt it, store it, and pick it up in another request.
  *
@@ -28,7 +28,7 @@ export interface OAuthState {
 	state?: string;
 }
 
-export class PluginOAuth implements OAuthClientProvider {
+export class ConnectorOAuth implements OAuthClientProvider {
 	/** Set when the SDK stored something new, e.g. refreshed tokens. */
 	changed = false;
 	/** Where to send the person to approve access. Set during sign-in. */
@@ -81,7 +81,7 @@ export class PluginOAuth implements OAuthClientProvider {
 	};
 
 	redirectToAuthorization(url: URL) {
-		if (!this.interactive) throw new Error("The sign-in expired. Connect the plugin again in Customize → Plugins.");
+		if (!this.interactive) throw new Error("The sign-in expired. Connect the connector again in Customize → Connectors.");
 		this.authorizationUrl = url;
 	}
 
@@ -93,24 +93,24 @@ export class PluginOAuth implements OAuthClientProvider {
 }
 
 /** Begins sign-in. Store `state` (encrypted) under `state.state` until the callback. */
-export async function startSignIn(plugin: Plugin, redirectUrl: string): Promise<{ url: string; state: OAuthState }> {
-	const provider = new PluginOAuth({}, redirectUrl, true);
-	const scope = plugin.auth.type === "oauth" ? plugin.auth.scopes?.join(" ") : undefined;
-	await auth(provider, { serverUrl: plugin.mcp.url, scope });
-	if (!provider.authorizationUrl || !provider.data.state) throw new Error(`${plugin.name} didn't ask to sign in.`);
+export async function startSignIn(connector: Connector, redirectUrl: string): Promise<{ url: string; state: OAuthState }> {
+	const provider = new ConnectorOAuth({}, redirectUrl, true);
+	const scope = connector.auth.type === "oauth" ? connector.auth.scopes?.join(" ") : undefined;
+	await auth(provider, { serverUrl: connector.mcp.url, scope });
+	if (!provider.authorizationUrl || !provider.data.state) throw new Error(`${connector.name} didn't ask to sign in.`);
 	return { url: provider.authorizationUrl.href, state: provider.data };
 }
 
 /** Exchanges the callback's code for tokens. Returns what to store for the connection. */
 export async function finishSignIn(
-	plugin: Plugin,
+	connector: Connector,
 	saved: OAuthState,
 	redirectUrl: string,
 	callback: { code: string; state: string; issuer?: string },
 ): Promise<OAuthState> {
-	const provider = new PluginOAuth(saved, redirectUrl, false);
+	const provider = new ConnectorOAuth(saved, redirectUrl, false);
 	await auth(provider, {
-		serverUrl: plugin.mcp.url,
+		serverUrl: connector.mcp.url,
 		authorizationCode: callback.code,
 		callbackState: callback.state,
 		callbackIssuer: callback.issuer,

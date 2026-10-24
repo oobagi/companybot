@@ -9,8 +9,8 @@ import {
 	eventMismatch,
 	eventPrompt,
 	findAutomation,
-	findPlugin,
-	grantedPluginIds,
+	findConnector,
+	grantedConnectorIds,
 	isValidTimeZone,
 	localTime,
 	parseEventBody,
@@ -27,7 +27,7 @@ import { enqueueTurn } from "./turns";
 
 // Install → pick the agent → it runs on its trigger. Each run posts the automation's
 // prompt in the agent's DM with each person it runs for and queues a turn acting as
-// them, so the reply uses their permissions and plugin accounts (wiki/chat.md). With a
+// them, so the reply uses their permissions and connector accounts (wiki/chat.md). With a
 // channel picked, a run posts there once instead, acting as the owner who picked it.
 // Library automations come from core's catalog; ones owners make live on their install
 // (`custom`, id "custom-…") and run through the same code.
@@ -51,12 +51,12 @@ const installOf = (ctx: QueryCtx, workspaceId: Id<"workspaces">, automationId: s
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId).eq("automationId", automationId))
 		.first();
 
-async function installedPluginIds(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
+async function installedConnectorIds(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
 	const installs = await ctx.db
-		.query("pluginInstalls")
+		.query("connectorInstalls")
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
 		.collect();
-	return new Set(installs.map((i) => i.pluginId));
+	return new Set(installs.map((i) => i.connectorId));
 }
 
 /** The secret in a webhook automation's URL. */
@@ -73,7 +73,7 @@ export const list = query({
 		const member = await getMember(ctx);
 		if (!member) return [];
 		const canManage = can(member.role, "automations.manage");
-		const plugins = await installedPluginIds(ctx, member.workspaceId);
+		const connectors = await installedConnectorIds(ctx, member.workspaceId);
 		const installs = await ctx.db
 			.query("automationInstalls")
 			.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
@@ -87,7 +87,7 @@ export const list = query({
 			[...custom.map((install) => ({ automation: definitionOf(install)!, install })), ...library].map(
 				async ({ automation, install }) => {
 					const agent = install && (await ctx.db.get(install.agentId));
-					const granted = agent ? grantedPluginIds(agent) : [];
+					const granted = agent ? grantedConnectorIds(agent) : [];
 					const channel = install?.channelId && (await ctx.db.get(install.channelId));
 					const scheduled = automation.trigger.type === "schedule";
 					return {
@@ -105,10 +105,10 @@ export const list = query({
 								? "Everyone in the workspace, in their chat with the agent"
 								: "The person each webhook names, in their chat with the agent",
 						prompt: automation.prompt,
-						needs: automation.plugins.map((id) => ({
+						needs: automation.connectors.map((id) => ({
 							id,
-							name: findPlugin(id)?.name ?? id,
-							installed: plugins.has(id),
+							name: findConnector(id)?.name ?? id,
+							installed: connectors.has(id),
 							granted: granted.includes(id),
 						})),
 						/** Set for automations an owner made: what they can edit, and who last did. */
@@ -229,9 +229,9 @@ export const setInstalled = mutation({
 		if (existing) return;
 		const automation = requireAutomation(automationId);
 		if (!isValidTimeZone(timeZone)) throw new ConvexError("Unknown time zone.");
-		const plugins = await installedPluginIds(ctx, owner.workspaceId);
-		const missing = automation.plugins.filter((id) => !plugins.has(id)).map((id) => findPlugin(id)?.name ?? id);
-		if (missing.length > 0) throw new ConvexError(`Install the ${missing.join(", ")} plugin first.`);
+		const connectors = await installedConnectorIds(ctx, owner.workspaceId);
+		const missing = automation.connectors.filter((id) => !connectors.has(id)).map((id) => findConnector(id)?.name ?? id);
+		if (missing.length > 0) throw new ConvexError(`Install the ${missing.join(", ")} connector first.`);
 		const agent = await ctx.db
 			.query("agents")
 			.withIndex("by_workspace", (q) => q.eq("workspaceId", owner.workspaceId))

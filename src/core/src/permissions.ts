@@ -11,9 +11,9 @@ export const permissions = {
 	"workspace.manage": { roles: ["owner"], label: "change workspace settings" },
 	"members.manage": { roles: ["owner"], label: "manage members" },
 	"agents.manage": { roles: ["owner"], label: "change agents" },
-	"plugins.manage": { roles: ["owner"], label: "manage plugins" },
-	/** Connect your own account to a plugin that uses personal connections. */
-	"plugins.connect": { roles: ["owner", "member"], label: "connect plugins" },
+	"connectors.manage": { roles: ["owner"], label: "manage connectors" },
+	/** Connect your own account to a connector that uses personal connections. */
+	"connectors.connect": { roles: ["owner", "member"], label: "connect connectors" },
 	"skills.manage": { roles: ["owner"], label: "manage skills" },
 	"automations.manage": { roles: ["owner"], label: "manage automations" },
 	"memory.team.write": { roles: ["owner"], label: "change team memories" },

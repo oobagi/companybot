@@ -11,11 +11,12 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 - Replies render Markdown and **widgets**: real UI under the message (tables, stat tiles; more later), e.g. "last 10 leads" → a table.
 - One continuous conversation per agent; it auto-compacts. No separate sessions. Channels keep normal threads.
 - Settings: General (workspace name), Members, Memory, Your preferences (name, time zone, send key). Time zone defaults to automatic (the computer's). Shared settings are saved explicitly, with a conflict warning.
-- Customize tab: **Agents** (owners edit; every save is versioned and restorable), **Plugins** (connectors to outside services via MCP — Gmail, Calendar…), **Skills** (a marketplace of installable instructions) and **Automations** (below). Memory and clock are built in, not plugins.
-- Plugins, Skills and Automations are libraries: browse, install what you want, turn it off anytime. Click any item to open its detail page — what it does, who made it, version, what it needs (plugins, permissions, account), and for skills the full instructions.
-- **Automations**: short, ready-made jobs that run on their own, from a trigger (event or schedule) to an agent action. Install one, pick its agent and where results go, toggle on/off. Each shows when it last ran and what it did. Examples:
-  - **After-call summary** — when a call ends (needs a calls plugin, e.g. Night Owl), post a summary with next steps and action items.
+- Customize tab: **Agents** (owners edit; every save is versioned and restorable), **Connectors** (links to outside services over MCP — Gmail, Calendar…), **Skills** (a marketplace of installable instructions) and **Automations** (below). Memory and clock are built in, not connectors.
+- Connectors, Skills and Automations are libraries: browse, install what you want, turn it off anytime. Click any item to open its detail page — what it does, who made it, version, what it needs (connectors, permissions, account), and for skills the full instructions.
+- **Automations**: short jobs that run on their own: a trigger (a schedule, or a webhook from another app), a prompt, an agent, and where the reply goes (each person's DM or one channel). Install one from the library or make your own (owners), toggle on/off. Each shows when it last ran and what it did. Library examples:
+  - **After-call summary** — when a phone system's webhook says a call ended, post a summary with next steps and action items.
   - **Morning brief** — every weekday at 8am, DM each person their meetings, open tasks, and anything that changed overnight.
+- **Naming** follows Claude and ChatGPT: a **connector** links to an outside service (an MCP server); a **skill** is instructions; a **plugin** (later) bundles connectors, skills, and automations into one install. Triggers are **schedule** or **webhook**; "event" is kept for future in-app triggers (a message posted, someone joined).
 
 ## Platform
 - Desktop app first (Electron). Standalone mobile app later. No web app.

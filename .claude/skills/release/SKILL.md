@@ -40,7 +40,7 @@ Rules:
 - Group as **What's new**, **Improvements**, **Fixes**. Omit empty groups.
 - Usually 2–8 bullets. If nothing user-facing changed, say so in one line ("Behind-the-scenes improvements.").
 - Prereleases: add a first line `Alpha build — expect rough edges.` (or Beta).
-- Never mention internal-only items listed under "Before launch" in wiki/architecture.md as features (e.g. the Night Owl test plugin) unless the user says to.
+- Never mention internal-only items listed under "Before launch" in wiki/architecture.md as features (e.g. the Night Owl test connector) unless the user says to.
 
 ## 4. Get approval
 Show the version and the notes in chat. Wait for the user's OK or edits. Skip this only if they already said to ship without review.

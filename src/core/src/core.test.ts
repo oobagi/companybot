@@ -1,22 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { ACTIVITY_MAX_CHARS, clipJson, describeCall } from "./activity";
 import { formatLocalTime, resolveTimeZone, shortStamp } from "./time";
-import { buildToolSet, describeToolAccess, grantedPluginIds, resolveTools, validateAgentConfig } from "./agents";
+import { buildToolSet, describeToolAccess, grantedConnectorIds, resolveTools, validateAgentConfig } from "./agents";
 import { builtinTools } from "./builtin-tools";
 import { describeTrigger, findAutomation, isValidTimeZone, scheduleDue } from "./automations";
 import { blankAgent, companybot, scribe } from "./default-agents";
 import type { ChatStore, Participant } from "./chat";
 import { type Memory, type MemoryStore, canCreateMemory, canEditMemory, canReadMemory } from "./memory";
-import { openPlugin } from "./mcp";
-import { PluginOAuth } from "./oauth";
+import { openConnector } from "./mcp";
+import { ConnectorOAuth } from "./oauth";
 import { can, canManageChannel, permissions } from "./permissions";
-import { type Plugin, definePlugin, pluginCatalog, pluginHeaders, validateCredentials, validatePlugin } from "./plugins";
+import { type Connector, defineConnector, connectorCatalog, connectorHeaders, validateCredentials, validateConnector } from "./connectors";
 import { skillCatalog, skillsIndex } from "./skills";
 import { fakeMcpServer } from "./test-mcp-server";
 import { platformGuide } from "./guide";
 import { addStep, emptyUsage, gatewayCost } from "./usage";
 import { type ToolDef, createResultStore, isGranted, modelToolName } from "./tools";
-import { pluginMetaTools } from "./plugin-tools";
+import { connectorMetaTools } from "./connector-tools";
 import { z } from "zod";
 import { type PlaceMessage, type TurnPromptInput, buildTurnInput, buildTurnPrompt } from "./turn-input";
 import { describeWidget, isWidgetResult, isWidgetToolName, widgetTools } from "./widgets";
@@ -164,7 +164,7 @@ describe("agent config", () => {
 describe("permissions", () => {
 	it("gives owners everything and members only what's listed", () => {
 		for (const p of Object.keys(permissions) as (keyof typeof permissions)[]) expect(can(owner, p)).toBe(true);
-		expect(can(member, "plugins.connect")).toBe(true);
+		expect(can(member, "connectors.connect")).toBe(true);
 		expect(can(member, "agents.manage")).toBe(false);
 	});
 
@@ -177,11 +177,11 @@ describe("permissions", () => {
 	});
 });
 
-describe("plugins", () => {
-	const notes: Plugin = definePlugin({
+describe("connectors", () => {
+	const notes: Connector = defineConnector({
 		id: "notes",
 		name: "Notes",
-		description: "Test plugin",
+		description: "Test connector",
 		version: "1.0.0",
 		publisher: "Test",
 		mcp: { url: "https://example.com/mcp", transport: "http" },
@@ -190,20 +190,20 @@ describe("plugins", () => {
 		defaultRoles: ["owner"],
 	});
 
-	it("validates plugins and credentials", () => {
-		expect(validatePlugin(notes)).toBeNull();
-		expect(validatePlugin({ ...notes, id: "Not OK" })).toMatch("lowercase");
-		expect(validatePlugin({ ...notes, mcp: { ...notes.mcp, url: "http://evil.com" } })).toMatch("https");
+	it("validates connectors and credentials", () => {
+		expect(validateConnector(notes)).toBeNull();
+		expect(validateConnector({ ...notes, id: "Not OK" })).toMatch("lowercase");
+		expect(validateConnector({ ...notes, mcp: { ...notes.mcp, url: "http://evil.com" } })).toMatch("https");
 		expect(validateCredentials(notes, { type: "api_key", key: " " })).toMatch("Paste");
-		expect(pluginHeaders(notes, { type: "api_key", key: "abc" })).toEqual({ Authorization: "Bearer abc" });
+		expect(connectorHeaders(notes, { type: "api_key", key: "abc" })).toEqual({ Authorization: "Bearer abc" });
 	});
 
-	it("checks install, role, and connection before showing plugin tools", () => {
-		pluginCatalog.push(notes);
+	it("checks install, role, and connection before showing connector tools", () => {
+		connectorCatalog.push(notes);
 		try {
 			const agent = { tools: ["notes.*", "clock.now"] };
 			expect(validateAgentConfig({ ...scribe, tools: agent.tools })).toBeNull();
-			expect(grantedPluginIds(agent)).toEqual(["notes"]);
+			expect(grantedConnectorIds(agent)).toEqual(["notes"]);
 			const reason = (actor: Actor, state?: { roles: Actor["role"][]; connected: boolean }) =>
 				describeToolAccess(agent, actor, state ? [{ id: "notes", ...state }] : [])[0];
 			expect(reason(owner)).toMatchObject({ reason: "not_installed" });
@@ -211,46 +211,46 @@ describe("plugins", () => {
 			expect(reason(owner, { roles: ["owner"], connected: false })).toMatchObject({ reason: "not_connected" });
 			expect(reason(owner, { roles: ["owner"], connected: true })).toMatchObject({ visible: true });
 		} finally {
-			pluginCatalog.pop();
+			connectorCatalog.pop();
 		}
 	});
 
 	it("loads tools from an MCP server and calls them", async () => {
 		const server = fakeMcpServer([{ name: "find", description: "Find notes", readOnly: true }, { name: "write" }]);
-		const session = await openPlugin(notes, { transport: server });
+		const session = await openConnector(notes, { transport: server });
 		expect(session.tools.map((t) => [t.id, t.readOnly, t.source])).toEqual([
-			["notes.find", true, { type: "plugin", pluginId: "notes" }],
-			["notes.write", false, { type: "plugin", pluginId: "notes" }],
+			["notes.find", true, { type: "connector", connectorId: "notes" }],
+			["notes.write", false, { type: "connector", connectorId: "notes" }],
 		]);
-		// Plugin tools load on demand: the model gets search + call, not each tool.
+		// Connector tools load on demand: the model gets search + call, not each tool.
 		const tools = buildToolSet({ tools: ["notes.find"] }, ctx(owner), session.tools);
-		expect(Object.keys(tools)).toEqual(["plugins_search", "plugins_call"]);
+		expect(Object.keys(tools)).toEqual(["connectors_search", "connectors_call"]);
 		const call = (name: string, input: unknown) => tools[name]!.execute!(input, { toolCallId: "1", messages: [] } as never);
-		const found = (await call("plugins_search", { query: "notes" })) as { tools: { tool: string; input: unknown }[] };
+		const found = (await call("connectors_search", { query: "notes" })) as { tools: { tool: string; input: unknown }[] };
 		expect(found.tools.map((t) => t.tool)).toEqual(["notes.find"]);
 		expect(found.tools[0]!.input).toMatchObject({ type: "object" });
-		expect(await call("plugins_call", { tool: "notes.write", input: {} })).toEqual({
-			error: 'No connected tool "notes.write". Use plugins_search first.',
+		expect(await call("connectors_call", { tool: "notes.write", input: {} })).toEqual({
+			error: 'No connected tool "notes.write". Use connectors_search first.',
 		});
-		expect(await call("plugins_call", { tool: "notes.find", input: { text: "hi" } })).toEqual({ ref: "r1", data: 'find:{"text":"hi"}' });
+		expect(await call("connectors_call", { tool: "notes.find", input: { text: "hi" } })).toEqual({ ref: "r1", data: 'find:{"text":"hi"}' });
 		expect(await session.tools[0]!.execute({ text: "hi" }, ctx(owner))).toBe('find:{"text":"hi"}');
 		await session.close();
 		expect(server.closed).toBe(true);
 	});
 });
 
-describe("plugin tool search", () => {
+describe("connector tool search", () => {
 	const def = (name: string, description: string): ToolDef => ({
 		id: `crm.crm_${name}`,
 		description,
 		input: z.object({}),
-		source: { type: "plugin", pluginId: "crm" },
+		source: { type: "connector", connectorId: "crm" },
 		execute: async () => name,
 	});
 	const tools = [def("leads", "Find leads in the crm"), def("calls", "List calls in the crm"), def("send", "Send an sms from the crm")];
-	const meta = pluginMetaTools(tools, [{ id: "crm", name: "CRM", instructions: "Call crm_me first." }], (t) => t.execute({}, {} as never));
+	const meta = connectorMetaTools(tools, [{ id: "crm", name: "CRM", instructions: "Call crm_me first." }], (t) => t.execute({}, {} as never));
 	const search = async (query: string) =>
-		(await meta.plugins_search!.execute!({ query }, { toolCallId: "1", messages: [] } as never)) as {
+		(await meta.connectors_search!.execute!({ query }, { toolCallId: "1", messages: [] } as never)) as {
 			tools: { tool: string }[];
 			services?: unknown;
 		};
@@ -264,9 +264,9 @@ describe("plugin tool search", () => {
 	});
 });
 
-describe("plugin oauth", () => {
+describe("connector oauth", () => {
 	it("keeps what the SDK saves, and drops one-time sign-in values when stored", async () => {
-		const oauth = new PluginOAuth({}, "https://x.convex.site/oauth/callback", true);
+		const oauth = new ConnectorOAuth({}, "https://x.convex.site/oauth/callback", true);
 		oauth.saveClientInformation({ client_id: "c1" });
 		oauth.saveCodeVerifier("v");
 		oauth.saveState("s");
@@ -282,8 +282,8 @@ describe("plugin oauth", () => {
 	});
 
 	it("refuses to start a sign-in during an agent turn", () => {
-		const oauth = new PluginOAuth({}, "https://x.convex.site/oauth/callback", false);
-		expect(() => oauth.redirectToAuthorization(new URL("https://auth.example.com"))).toThrow("Connect the plugin again");
+		const oauth = new ConnectorOAuth({}, "https://x.convex.site/oauth/callback", false);
+		expect(() => oauth.redirectToAuthorization(new URL("https://auth.example.com"))).toThrow("Connect the connector again");
 	});
 });
 
@@ -308,7 +308,7 @@ describe("widgets", () => {
 		];
 		// Data tools' results reach the model as { ref, data }.
 		const server = fakeMcpServer([{ name: "find" }], () => JSON.stringify({ leads }));
-		const crm = definePlugin({
+		const crm = defineConnector({
 			id: "notes",
 			name: "CRM",
 			description: "Test",
@@ -318,9 +318,9 @@ describe("widgets", () => {
 			connection: "personal",
 			auth: { type: "none" },
 		});
-		const session = await openPlugin(crm, { transport: server });
+		const session = await openConnector(crm, { transport: server });
 		const tools = buildToolSet({ tools: ["notes.find"] }, c, session.tools);
-		const found = await tools.plugins_call!.execute!({ tool: "notes.find", input: {} }, { toolCallId: "1", messages: [] } as never);
+		const found = await tools.connectors_call!.execute!({ tool: "notes.find", input: {} }, { toolCallId: "1", messages: [] } as never);
 		expect(found).toEqual({ ref: "r1", data: { leads } });
 		await session.close();
 
@@ -390,7 +390,7 @@ describe("turn input", () => {
 		place: { kind: "channel", name: "sales", private: false, topic: "Deals", thread: null, members: [ada, ben, bot, scribeP] },
 		actor: { name: "Ada", email: "ada@co.com", role: "owner", timeZone: "America/Los_Angeles" },
 		memory: "team",
-		plugins: { connected: [], unavailable: [] },
+		connectors: { connected: [], unavailable: [] },
 		messages: [
 			msg("m1", ben, "Morning", 1, { replyCount: 3 }),
 			msg("m2", scribeP, "Draft is up", 2, { edited: true }),
@@ -425,7 +425,7 @@ describe("turn input", () => {
 			...base,
 			place: { kind: "dm", name: null, private: true, topic: null, members: [ben, bot], thread: { parent: msg("p", ben, "Plan", 0), first: true } },
 			memory: "personal",
-			plugins: { connected: [], unavailable: ["CRM"] },
+			connectors: { connected: [], unavailable: ["CRM"] },
 			messages: [...many, msg("t", ben, "Go", 59)],
 			triggerId: "t",
 		});
@@ -486,29 +486,29 @@ describe("activity log", () => {
 		description: "Find notes",
 		input: z.object({}),
 		readOnly: true,
-		source: { type: "plugin", pluginId: "notes" },
+		source: { type: "connector", connectorId: "notes" },
 		execute: async () => [],
 	};
 	const tools = [...builtinTools, notesFind];
 
-	it("logs calls by tool id, and plugin calls as the tool they ran", () => {
+	it("logs calls by tool id, and connector calls as the tool they ran", () => {
 		expect(describeCall(modelToolName("memory.remember"), { content: "x" }, tools)).toEqual({
 			tool: "memory.remember",
 			input: { content: "x" },
 			changes: true,
 		});
 		expect(describeCall(modelToolName("clock.now"), {}, tools)?.changes).toBe(false);
-		expect(describeCall("plugins_call", { tool: "notes.find", input: { q: "a" } }, tools)).toEqual({
+		expect(describeCall("connectors_call", { tool: "notes.find", input: { q: "a" } }, tools)).toEqual({
 			tool: "notes.find",
 			input: { q: "a" },
 			changes: false,
 		});
-		expect(describeCall("plugins_call", { tool: "notes.gone", input: {} }, tools)?.changes).toBe(true);
+		expect(describeCall("connectors_call", { tool: "notes.gone", input: {} }, tools)?.changes).toBe(true);
 	});
 
 	it("skips widgets and tool search", () => {
 		expect(describeCall(modelToolName("widgets.table"), {}, tools)).toBeNull();
-		expect(describeCall("plugins_search", { query: "" }, tools)).toBeNull();
+		expect(describeCall("connectors_search", { query: "" }, tools)).toBeNull();
 	});
 
 	it("cuts long values", () => {

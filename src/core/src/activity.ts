@@ -1,4 +1,4 @@
-import { PLUGIN_CALL, PLUGIN_SEARCH, calledPluginTool } from "./plugin-tools";
+import { CONNECTOR_CALL, CONNECTOR_SEARCH, calledConnectorTool } from "./connector-tools";
 import { type ToolDef, modelToolName } from "./tools";
 import { isWidgetToolName } from "./widgets";
 
@@ -11,7 +11,7 @@ import { isWidgetToolName } from "./widgets";
 export const ACTIVITY_MAX_CHARS = 4_000;
 
 export interface LoggedCall {
-	/** The tool's id ("memory.create", "<plugin>.<tool>"), or the model's name for it if unknown. */
+	/** The tool's id ("memory.create", "<connector>.<tool>"), or the model's name for it if unknown. */
 	tool: string;
 	input: unknown;
 	/** False only for tools marked read-only. */
@@ -19,14 +19,14 @@ export interface LoggedCall {
 }
 
 /**
- * What to log for a call by model tool name. A plugins_call logs as the tool it ran,
- * with that tool's input. Widgets (shown in the reply) and plugins_search (finding
+ * What to log for a call by model tool name. A connectors_call logs as the tool it ran,
+ * with that tool's input. Widgets (shown in the reply) and connectors_search (finding
  * tools) aren't actions, so they return null.
  */
 export function describeCall(modelName: string, input: unknown, tools: ToolDef[]): LoggedCall | null {
-	if (isWidgetToolName(modelName) || modelName === PLUGIN_SEARCH) return null;
-	if (modelName === PLUGIN_CALL) {
-		const id = calledPluginTool(input) ?? PLUGIN_CALL;
+	if (isWidgetToolName(modelName) || modelName === CONNECTOR_SEARCH) return null;
+	if (modelName === CONNECTOR_CALL) {
+		const id = calledConnectorTool(input) ?? CONNECTOR_CALL;
 		const t = tools.find((x) => x.id === id);
 		const inner = input && typeof input === "object" && "input" in input ? input.input : input;
 		return { tool: id, input: inner, changes: t?.readOnly !== true };

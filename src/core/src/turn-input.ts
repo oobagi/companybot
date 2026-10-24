@@ -47,8 +47,8 @@ export interface TurnPromptInput {
 	actor: { name: string; email: string; role: Role; timeZone: string };
 	/** "personal" only in a DM with exactly one person. */
 	memory: "personal" | "team";
-	/** Services the agent can reach this turn through plugins_search, and ones that failed to connect. */
-	plugins: { connected: { name: string; description: string }[]; unavailable: string[] };
+	/** Services the agent can reach this turn through connectors_search, and ones that failed to connect. */
+	connectors: { connected: { name: string; description: string }[]; unavailable: string[] };
 	/** Everything said in the place since the agent's last reply, oldest first, trigger included. */
 	messages: PlaceMessage[];
 	triggerId: string;
@@ -73,10 +73,10 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 		input.memory === "personal"
 			? "Memory: personal and team memories."
 			: "Memory: team memories only. 2+ people can read this chat, so personal memories are off.",
-		input.plugins.connected.length > 0 &&
-			`Connected services (find their tools with plugins_search): ${input.plugins.connected.map((p) => `${p.name}: ${p.description}`).join(" ")}`,
-		input.plugins.unavailable.length > 0 &&
-			`Unavailable this turn, so you can't use them: ${input.plugins.unavailable.join(", ")}.`,
+		input.connectors.connected.length > 0 &&
+			`Connected services (find their tools with connectors_search): ${input.connectors.connected.map((p) => `${p.name}: ${p.description}`).join(" ")}`,
+		input.connectors.unavailable.length > 0 &&
+			`Unavailable this turn, so you can't use them: ${input.connectors.unavailable.join(", ")}.`,
 	];
 
 	const trigger = messages.find((m) => m.id === input.triggerId);

@@ -1,10 +1,10 @@
 import { type MCPTransport, type OAuthClientProvider, createMCPClient } from "@ai-sdk/mcp";
 import { jsonSchema } from "ai";
-import { type Plugin, type PluginCredentials, pluginHeaders } from "./plugins";
+import { type Connector, type ConnectorCredentials, connectorHeaders } from "./connectors";
 import type { ToolDef } from "./tools";
 
-export interface PluginSession {
-	plugin: { id: string; name: string };
+export interface ConnectorSession {
+	connector: { id: string; name: string };
 	tools: ToolDef[];
 	/** The server's own usage notes, if it sends any. */
 	instructions?: string;
@@ -12,43 +12,43 @@ export interface PluginSession {
 }
 
 /**
- * Connects to a plugin's MCP server and turns its tools into ToolDefs named
- * "<plugin id>.<tool name>". Call `close()` when the turn ends.
+ * Connects to a connector's MCP server and turns its tools into ToolDefs named
+ * "<connector id>.<tool name>". Call `close()` when the turn ends.
  *
  * Pass `transport` to talk to a server in-process (tests); otherwise it uses the
- * plugin's URL with the connection's credentials. OAuth plugins also need an
- * `authProvider` (a PluginOAuth), which sends the token and refreshes it.
+ * connector's URL with the connection's credentials. OAuth connectors also need an
+ * `authProvider` (a ConnectorOAuth), which sends the token and refreshes it.
  */
-export async function openPlugin(
-	plugin: Plugin,
-	connection: { credentials: PluginCredentials; authProvider?: OAuthClientProvider } | { transport: MCPTransport },
-): Promise<PluginSession> {
+export async function openConnector(
+	connector: Connector,
+	connection: { credentials: ConnectorCredentials; authProvider?: OAuthClientProvider } | { transport: MCPTransport },
+): Promise<ConnectorSession> {
 	const client = await createMCPClient({
 		transport:
 			"transport" in connection
 				? connection.transport
 				: {
-						type: plugin.mcp.transport,
-						url: plugin.mcp.url,
-						headers: pluginHeaders(plugin, connection.credentials),
+						type: connector.mcp.transport,
+						url: connector.mcp.url,
+						headers: connectorHeaders(connector, connection.credentials),
 						authProvider: connection.authProvider,
 					},
 	});
 	try {
 		const { tools } = await client.listTools();
 		return {
-			plugin: { id: plugin.id, name: plugin.name },
+			connector: { id: connector.id, name: connector.name },
 			instructions: client.instructions,
 			close: () => client.close(),
 			tools: tools.map(
 				(t): ToolDef => ({
-					id: `${plugin.id}.${t.name}`,
+					id: `${connector.id}.${t.name}`,
 					description: t.description ?? t.annotations?.title ?? t.name,
 					input: jsonSchema(t.inputSchema as Parameters<typeof jsonSchema>[0]),
-					// Servers report this themselves; we only trust plugins we list in the catalog.
+					// Servers report this themselves; we only trust connectors we list in the catalog.
 					readOnly: t.annotations?.readOnlyHint === true,
 					returnsData: true,
-					source: { type: "plugin", pluginId: plugin.id },
+					source: { type: "connector", connectorId: connector.id },
 					async execute(input) {
 						const result = await client.callTool({ name: t.name, arguments: input as Record<string, unknown> });
 						return summarizeResult(result);

@@ -1,5 +1,5 @@
 import type { AgentConfig } from "./agent-config";
-import { grantedPluginIds } from "./agents";
+import { grantedConnectorIds } from "./agents";
 import { chatTools } from "./chat";
 import { isGranted } from "./tools";
 import { widgetCatalog } from "./widgets";
@@ -26,11 +26,11 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">): string {
 			"- One widget per idea. Small things (1–2 rows) fit better in a sentence or list.",
 		);
 	}
-	if (grantedPluginIds(agent).length > 0) {
+	if (grantedConnectorIds(agent).length > 0) {
 		lines.push(
 			"",
 			"## Connected services",
-			"Tools for outside services aren't loaded up front. When a message lists connected services and you need one, call plugins_search: with an empty query first if you haven't used that service yet in this conversation (it lists every tool and the service's usage notes; follow them), then with a few words or exact tool ids to get input schemas. Run tools with plugins_call. Reuse what you found earlier in this conversation instead of searching again.",
+			"Tools for outside services aren't loaded up front. When a message lists connected services and you need one, call connectors_search: with an empty query first if you haven't used that service yet in this conversation (it lists every tool and the service's usage notes; follow them), then with a few words or exact tool ids to get input schemas. Run tools with connectors_call. Reuse what you found earlier in this conversation instead of searching again.",
 		);
 	}
 	if (chatTools.some((t) => isGranted(agent.tools, t.id))) {
