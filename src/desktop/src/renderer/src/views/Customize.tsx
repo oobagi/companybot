@@ -307,8 +307,11 @@ function AutomationDetail({ automation: a, canManage }: { automation: Automation
 	const agents = useQuery(api.agents.list);
 	const update = useMutation(api.automations.update);
 	const runNow = useMutation(api.automations.runNow);
+	const resetWebhook = useMutation(api.automations.resetWebhook);
+	const channels = useQuery(api.chats.list)?.channels ?? [];
 	const { error, run } = useRun();
 	const [ran, setRan] = useState(false);
+	const [copied, setCopied] = useState(false);
 	const active = agents?.filter((x) => !x.archived) ?? [];
 	const ungranted = a.installed ? a.needs.filter((n) => !n.granted) : [];
 
@@ -361,6 +364,56 @@ function AutomationDetail({ automation: a, canManage }: { automation: Automation
 								))}
 							</select>
 						</label>
+						<label className="flex items-center gap-2">
+							<span className="w-16 text-neutral-500">Posts to</span>
+							<select
+								disabled={!canManage}
+								value={a.channelId ?? ""}
+								onChange={(e) => run(update({ automationId: a.id, channelId: (e.target.value || null) as Id<"chats"> | null }))}
+								className="rounded-lg border border-neutral-200 px-2 py-1"
+							>
+								<option value="">{a.scheduled ? "Each person's chat with the agent" : "The person's chat with the agent"}</option>
+								{a.channelId && !channels.some((c) => c._id === a.channelId) && (
+									<option value={a.channelId}>
+										#{a.channelName}
+										{a.channelArchived ? " (archived)" : ""}
+									</option>
+								)}
+								{channels.map((c) => (
+									<option key={c._id} value={c._id}>
+										#{c.title}
+									</option>
+								))}
+							</select>
+						</label>
+						{a.webhookUrl && (
+							<div className="flex flex-col gap-1">
+								<div className="flex items-center gap-2">
+									<span className="w-16 shrink-0 text-neutral-500">Webhook</span>
+									<input readOnly value={a.webhookUrl} onFocus={(e) => e.target.select()} className={`${inputClass} min-w-0 flex-1 py-1 font-mono text-xs`} />
+									<button
+										type="button"
+										className={secondaryButton}
+										onClick={() => navigator.clipboard.writeText(a.webhookUrl!).then(() => setCopied(true))}
+									>
+										{copied ? "Copied" : "Copy"}
+									</button>
+									<button
+										type="button"
+										className={secondaryButton}
+										onClick={() =>
+											confirm("Make a new URL? The current one stops working right away.") &&
+											run(resetWebhook({ automationId: a.id }), () => setCopied(false))
+										}
+									>
+										New URL
+									</button>
+								</div>
+								<p className="pl-[4.5rem] text-neutral-400">
+									Paste this into the app that sends the event. Keep it secret: anyone with it can trigger this automation.
+								</p>
+							</div>
+						)}
 						{ungranted.length > 0 && (
 							<p className="rounded-lg bg-amber-50 px-3 py-2 text-amber-900">
 								{a.agentName} isn't granted {ungranted.map((n) => n.name).join(", ")}. Grant it in Agents, or pick another agent.
@@ -379,7 +432,11 @@ function AutomationDetail({ automation: a, canManage }: { automation: Automation
 									Run now
 								</button>
 								<span className="text-neutral-400">
-									{ran ? `Sent. Check your chat with ${a.agentName}.` : "Runs once, just for you."}
+									{ran
+										? `Sent. Check your chat with ${a.agentName}.`
+										: a.scheduled
+											? "Runs once, just for you."
+											: "Runs once with a sample event, just for you."}
 								</span>
 							</div>
 						)}

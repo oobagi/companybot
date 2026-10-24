@@ -4,7 +4,7 @@ import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import schema from "../convex/schema";
 import { decrypt } from "../convex/crypto";
-import { definePlugin, pluginCatalog } from "@companybot/core";
+import { automationCatalog, defineAutomation, definePlugin, pluginCatalog } from "@companybot/core";
 
 // A test plugin, so plugin flows can run without a real connector in the catalog.
 const notes = definePlugin({
@@ -19,6 +19,10 @@ const notes = definePlugin({
 });
 const crm = definePlugin({ ...notes, id: "crm", name: "CRM", connection: "workspace" });
 pluginCatalog.push(notes, crm);
+// An automation that needs a plugin, for the install check.
+automationCatalog.push(
+	defineAutomation({ ...automationCatalog[0]!, id: "crm-digest", name: "CRM digest", plugins: ["crm"] }),
+);
 process.env.CONNECTIONS_KEY = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
 
 const modules = import.meta.glob(["../convex/**/*.ts", "../convex/_generated/*.js"]);
@@ -630,8 +634,8 @@ describe("automations", () => {
 			member.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: true, timeZone: tz }),
 		).rejects.toThrow("permission");
 		await expect(
-			owner.mutation(api.automations.setInstalled, { automationId: "after-call-summary", installed: true, timeZone: tz }),
-		).rejects.toThrow("Install the Night Owl plugin first");
+			owner.mutation(api.automations.setInstalled, { automationId: "crm-digest", installed: true, timeZone: tz }),
+		).rejects.toThrow("Install the CRM plugin first");
 		await owner.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: true, timeZone: tz });
 		const brief = (await member.query(api.automations.list)).find((a) => a.id === "morning-brief")!;
 		expect([brief.installed, brief.enabled, brief.agentName, brief.trigger]).toEqual([
@@ -675,5 +679,108 @@ describe("automations", () => {
 		expect(await dmWith(owner, companybot._id)).toHaveLength(2);
 		expect(await dmWith(member, companybot._id)).toHaveLength(0);
 		await expect(member.mutation(api.automations.runNow, { automationId: "morning-brief" })).rejects.toThrow("permission");
+	});
+
+	it("posts a schedule once in its channel, as the owner who picked it", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		await owner.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: true, timeZone: tz });
+		const sales = await owner.mutation(api.chats.createChannel, { name: "sales", private: false });
+		await expect(member.mutation(api.automations.update, { automationId: "morning-brief", channelId: sales })).rejects.toThrow(
+			"permission",
+		);
+		await owner.mutation(api.automations.update, { automationId: "morning-brief", channelId: sales });
+		await t.run(async (ctx) => {
+			const install = (await ctx.db.query("automationInstalls").first())!;
+			await ctx.db.patch(install._id, { lastRunDate: "2000-01-01" });
+		});
+		vi.useFakeTimers({ now: Date.UTC(2026, 9, 22, 16), toFake: ["Date"] });
+		try {
+			await t.mutation(internal.automations.tick);
+		} finally {
+			vi.useRealTimers();
+		}
+		const messages = await member.query(api.messages.list, { chatId: sales });
+		expect(messages.map((m) => [m.author.type, m.author.name, m.automation?.name ?? null])).toEqual([
+			["user", "owner@co.com", "Morning brief"],
+			["agent", "Companybot", null],
+		]);
+		const { companybot } = await agentsOf(member);
+		expect(await dmWith(member, companybot._id)).toHaveLength(0);
+		const brief = (await owner.query(api.automations.list)).find((a) => a.id === "morning-brief")!;
+		expect([brief.lastResult, brief.runsFor]).toEqual(["Posted in #sales.", "Posts once in #sales"]);
+	});
+
+	describe("webhooks", () => {
+		const call = (id: string, extra: object = {}) =>
+			JSON.stringify({ event: "call.ended", id, data: { summary: "Leaky water heater." }, ...extra });
+
+		async function installed() {
+			const ctx = await ownerAndMember();
+			await ctx.owner.mutation(api.automations.setInstalled, { automationId: "after-call-summary", installed: true, timeZone: tz });
+			const find = async (as: typeof ctx.owner) =>
+				(await as.query(api.automations.list)).find((a) => a.id === "after-call-summary")!;
+			const url = (await find(ctx.owner)).webhookUrl!;
+			const post = async (body: string, path = new URL(url, "http://x").pathname) => {
+				const res = await ctx.t.fetch(path, { method: "POST", body });
+				return [res.status, ((await res.json()) as { message: string }).message] as const;
+			};
+			return { ...ctx, find, url, post };
+		}
+
+		it("gives owners alone a secret URL, and a new one on reset", async () => {
+			const { owner, member, find, url, post } = await installed();
+			expect(url).toMatch(/\/automations\/[0-9a-f]{48}$/);
+			expect((await find(member)).webhookUrl).toBeNull();
+			await expect(member.mutation(api.automations.resetWebhook, { automationId: "after-call-summary" })).rejects.toThrow(
+				"permission",
+			);
+			await owner.mutation(api.automations.resetWebhook, { automationId: "after-call-summary" });
+			expect((await find(owner)).webhookUrl).not.toBe(url);
+			expect(await post(call("1"))).toEqual([404, "Unknown webhook URL."]);
+		});
+
+		it("runs for the person the event names, once per event id, with its data", async () => {
+			const { member, find, post } = await installed();
+			const person = { person: { email: "MEMBER@co.com" } };
+			expect(await post(call("c1", person))).toEqual([200, "Sent to 1 person."]);
+			expect(await post(call("c1", person))).toEqual([200, "Already received."]);
+			const { companybot } = await agentsOf(member);
+			expect(await dmWith(member, companybot._id)).toEqual([
+				["user", "After-call summary"],
+				["agent", null],
+			]);
+			const dmId = (await member.query(api.chats.list))!.agents.find((a) => a._id === companybot._id)!.dmId!;
+			const [prompt] = await member.query(api.messages.list, { chatId: dmId });
+			expect(prompt!.text).toContain("Leaky water heater.");
+
+			expect(await post(call("c2", { person: { email: "nobody@co.com" } }))).toEqual([
+				200,
+				"Didn't run: nobody here has the email nobody@co.com. Pick a channel to post every event there.",
+			]);
+			expect(await post(call("c3"))).toEqual([
+				200,
+				"Didn't run: the event didn't say who it's for. Pick a channel to post events there.",
+			]);
+			expect((await find(member)).lastResult).toContain("didn't say who");
+		});
+
+		it("posts in the channel when one is picked", async () => {
+			const { owner, member, post } = await installed();
+			const calls = await owner.mutation(api.chats.createChannel, { name: "calls", private: false });
+			await owner.mutation(api.automations.update, { automationId: "after-call-summary", channelId: calls });
+			expect(await post(call("c1"))).toEqual([200, "Posted in #calls."]);
+			expect(await member.query(api.messages.list, { chatId: calls })).toHaveLength(2);
+		});
+
+		it("refuses bad bodies and skips when turned off", async () => {
+			const { owner, post } = await installed();
+			expect(await post("nope")).toEqual([400, "Body isn't JSON."]);
+			expect(await post(JSON.stringify({ event: "call.started", id: "1" }))).toEqual([400, "Unknown event."]);
+			expect(await post(JSON.stringify({ event: "call.ended" }))).toEqual([400, "id must be a string of 1-200 characters."]);
+			expect(await post(call("1"), "/automations/wrong")).toEqual([404, "Unknown webhook URL."]);
+			expect(await post(call("1".repeat(40_000)))).toEqual([413, "Body is over 32 KB."]);
+			await owner.mutation(api.automations.update, { automationId: "after-call-summary", enabled: false });
+			expect(await post(call("1"))).toEqual([200, "Not run: the automation is off."]);
+		});
 	});
 });

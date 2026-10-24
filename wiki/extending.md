@@ -43,8 +43,9 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 
 ## Automations — `core/src/automations.ts`, `backend/convex/automations.ts`
 - Add one with `defineAutomation` to `automationCatalog`: trigger, `plugins` it needs (must be installed first), and the `prompt` the agent gets. `details` is the Markdown on its detail page.
-- New event: add it to `AutomationEvent` and the `fire` validator, then call `internal.automations.fire` from the source (webhook, plugin) with the person it's about.
-- Runs post into the person's agent DM (`findOrCreateDm` + `insertMessage`) and queue a turn with `enqueueTurn`, acting as that person, the same path as a message they send. Don't give automations their own permission path.
+- New event: add it to `AutomationEvent` and `parseEventBody`, with a `sample` on the trigger ("Run now" uses it). Senders POST it to the install's webhook URL; there's no other way in.
+- Webhook data is untrusted: it only ever reaches the model inside `eventPrompt`'s fenced block, never as instructions or as who to act as. `person.email` must match a workspace member.
+- Runs post into the person's agent DM (`findOrCreateDm` + `insertMessage`), or the picked channel, and queue a turn with `enqueueTurn`, acting as a real member, the same path as a message they send. Don't give automations their own permission path.
 
 ## Memory — `core/src/memory.ts`, `backend/convex/memoryOps.ts`
 - Each memory belongs to one agent; scope `workspace` or `personal`. Rules live in `canReadMemory` / `canEditMemory` / `canCreateMemory`.
