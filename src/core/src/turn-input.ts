@@ -2,6 +2,7 @@ import type { AgentConfig } from "./agent-config";
 import type { Participant } from "./chat";
 import { platformGuide } from "./guide";
 import { type Skill, skillsIndex } from "./skills";
+import { shortStamp } from "./time";
 import { isGranted } from "./tools";
 import type { Role } from "./types";
 
@@ -42,8 +43,8 @@ export interface TurnPlace {
 export interface TurnPromptInput {
 	agentId: string;
 	place: TurnPlace;
-	/** The person the agent acts for. */
-	actor: { name: string; email: string; role: Role };
+	/** The person the agent acts for. `timeZone` is resolved (see resolveTimeZone). */
+	actor: { name: string; email: string; role: Role; timeZone: string };
 	/** "personal" only in a DM with exactly one person. */
 	memory: "personal" | "team";
 	/** Services the agent can reach this turn through plugins_search, and ones that failed to connect. */
@@ -68,7 +69,7 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 	const header = [
 		`Where you are: ${describePlace(place, people, agents)}${place.thread ? ", in a thread" : ""}.`,
 		`Here: ${here}.`,
-		`${actor.name} <${actor.email}>, a workspace ${actor.role}, asked for you. You act with their access.`,
+		`${actor.name} <${actor.email}>, a workspace ${actor.role}, asked for you. You act with their access. Their time zone: ${actor.timeZone}.`,
 		input.memory === "personal"
 			? "Memory: personal and team memories."
 			: "Memory: team memories only. 2+ people can read this chat, so personal memories are off.",
@@ -84,11 +85,12 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 	const hidden = rest.length - shown.length;
 
 	const sections = [header.filter(Boolean).join("\n")];
+	const line = (m: PlaceMessage) => chatLine(m, actor.timeZone);
 	if (place.thread?.first) sections.push(`The thread is under this message:\n${line(place.thread.parent)}`);
 	if (shown.length > 0) {
 		sections.push(
 			[
-				`New here since your last reply (times UTC):`,
+				`New here since your last reply (times in ${actor.timeZone}):`,
 				hidden > 0 && `(${hidden} earlier messages not shown. Use chat_read for them.)`,
 				...shown.map(line),
 			]
@@ -109,14 +111,13 @@ function describePlace(place: TurnPlace, people: string[], agents: string[]) {
 	return people.length === 1 && agents.length === 0 ? `a DM with ${people[0]}` : "a group DM";
 }
 
-/** `[Ada 10-22 15:04] text`, plus edit and thread notes. */
-function line(m: PlaceMessage) {
-	const iso = new Date(m.time).toISOString();
+/** `[Ada 10-22 15:04] text` (time in `timeZone`), plus edit and thread notes. */
+function chatLine(m: PlaceMessage, timeZone: string) {
 	const notes = [
 		m.edited && "(edited)",
 		m.replyCount && `(${m.replyCount} ${m.replyCount === 1 ? "reply" : "replies"} in thread ${m.id})`,
 	].filter(Boolean);
-	return [`[${m.author.name} ${iso.slice(5, 10)} ${iso.slice(11, 16)}] ${m.text}`, ...notes].join(" ");
+	return [`[${m.author.name} ${shortStamp(m.time, timeZone)}] ${m.text}`, ...notes].join(" ");
 }
 
 /** The agent's system prompt. Nothing per chat or per turn goes here. */

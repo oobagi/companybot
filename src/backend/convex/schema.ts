@@ -105,6 +105,10 @@ export default defineSchema({
 		/** What agents and teammates call you. */
 		displayName: v.string(),
 		sendWith: v.union(v.literal("enter"), v.literal("mod-enter")),
+		/** The time zone they picked. Left out means automatic: `deviceTimeZone`. */
+		timeZone: v.optional(v.string()),
+		/** Their computer's time zone, reported by the app. */
+		deviceTimeZone: v.optional(v.string()),
 	}).index("by_user", ["userId"]),
 
 	// Plugins: an owner installs one and picks which roles may use it.

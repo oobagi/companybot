@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { chatTools } from "./chat";
+import { formatLocalTime } from "./time";
 import { type ToolDef, defineTool } from "./tools";
 import { widgetTools } from "./widgets";
 
@@ -62,11 +63,12 @@ export const builtinTools: ToolDef[] = [
 	}),
 	defineTool({
 		id: "clock.now",
-		description: "Get the current date and time (ISO 8601, UTC).",
+		description: "Get the current date and time, in the person's time zone and as ISO 8601 UTC.",
 		input: z.object({}),
 		readOnly: true,
-		async execute() {
-			return { now: new Date().toISOString() };
+		async execute(_input, { timeZone = "UTC" }) {
+			const now = new Date();
+			return { local: formatLocalTime(now, timeZone), timeZone, utc: now.toISOString() };
 		},
 	}),
 	defineTool({

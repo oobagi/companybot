@@ -5,7 +5,7 @@ import type { Id } from "./_generated/dataModel";
 import { type QueryCtx, mutation, query } from "./_generated/server";
 import { seedAgents } from "./agents";
 import { addToChat, ensureGeneral } from "./chatOps";
-import { checkVersion, getMember, namesOf, normalizeEmail, requirePermission } from "./lib";
+import { checkVersion, getMember, namesOf, normalizeEmail, requirePermission, timeZoneOf } from "./lib";
 import { role } from "./schema";
 
 export const me = query({
@@ -66,6 +66,8 @@ export const team = query({
 				name: names.get(r.userId) ?? "",
 				email: (await ctx.db.get(r.userId))?.email ?? "",
 				isYou: r.userId === member.userId,
+				/** For profiles: the zone they picked, else their computer's. */
+				timeZone: await timeZoneOf(ctx, r.userId),
 			})),
 		);
 		const invites =

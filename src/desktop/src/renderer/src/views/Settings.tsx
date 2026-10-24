@@ -111,6 +111,11 @@ function GeneralForm({ settings, isOwner }: { settings: { name: string; version:
 	);
 }
 
+const deviceTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const timeZones = Intl.supportedValuesOf("timeZone");
+/** "America/Los_Angeles" → "America/Los Angeles". */
+const zoneLabel = (zone: string) => zone.replaceAll("_", " ");
+
 /** Personal: only you see these, and they follow you to every device. */
 function ProfileTab() {
 	const prefs = useQuery(api.preferences.get);
@@ -122,7 +127,7 @@ function ProfileTab() {
 
 	return (
 		<>
-			<p className="text-sm text-neutral-500">Only you see these. They follow you to every device.</p>
+			<p className="text-sm text-neutral-500">Only you see these, except your time zone. They follow you to every device.</p>
 			{error && <Notice>{error}</Notice>}
 			<form
 				className="flex items-end gap-2"
@@ -142,6 +147,20 @@ function ProfileTab() {
 					</button>
 				)}
 			</form>
+			<Field label="Time zone" hint="Agents use it for dates and times. Teammates will see it on your profile.">
+				<select
+					className={inputClass}
+					value={prefs.timeZone ?? "auto"}
+					onChange={(e) => run(update({ timeZone: e.target.value === "auto" ? null : e.target.value }))}
+				>
+					<option value="auto">Automatic ({zoneLabel(deviceTimeZone)})</option>
+					{timeZones.map((zone) => (
+						<option key={zone} value={zone}>
+							{zoneLabel(zone)}
+						</option>
+					))}
+				</select>
+			</Field>
 			<Section title="Send messages with">
 				{(
 					[

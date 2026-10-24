@@ -1,3 +1,4 @@
+import { isValidTimeZone } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
@@ -6,6 +7,7 @@ import { type QueryCtx, mutation, query } from "./_generated/server";
 // Personal preferences: only you see them, and they follow you to every device.
 
 const defaults = { displayName: "", sendWith: "enter" as const };
+const unset = { timeZone: null, deviceTimeZone: null };
 const sendWith = v.union(v.literal("enter"), v.literal("mod-enter"));
 
 const find = (ctx: QueryCtx, userId: Id<"users">) =>
@@ -18,17 +20,34 @@ export const get = query({
 	args: {},
 	handler: async (ctx) => {
 		const userId = await getAuthUserId(ctx);
-		if (!userId) return defaults;
+		if (!userId) return { ...defaults, ...unset };
 		const prefs = await find(ctx, userId);
-		return prefs ? { displayName: prefs.displayName, sendWith: prefs.sendWith } : defaults;
+		if (!prefs) return { ...defaults, ...unset };
+		return {
+			displayName: prefs.displayName,
+			sendWith: prefs.sendWith,
+			/** Null means automatic. */
+			timeZone: prefs.timeZone ?? null,
+			deviceTimeZone: prefs.deviceTimeZone ?? null,
+		};
 	},
 });
 
 export const update = mutation({
-	args: { displayName: v.optional(v.string()), sendWith: v.optional(sendWith) },
-	handler: async (ctx, changes) => {
+	args: {
+		displayName: v.optional(v.string()),
+		sendWith: v.optional(sendWith),
+		/** Null switches back to automatic. */
+		timeZone: v.optional(v.union(v.string(), v.null())),
+		deviceTimeZone: v.optional(v.string()),
+	},
+	handler: async (ctx, { timeZone, ...rest }) => {
 		const userId = await getAuthUserId(ctx);
 		if (!userId) throw new ConvexError("Not signed in.");
+		const changes = { ...rest, ...(timeZone !== undefined && { timeZone: timeZone ?? undefined }) };
+		for (const zone of [changes.timeZone, changes.deviceTimeZone]) {
+			if (zone !== undefined && !isValidTimeZone(zone)) throw new ConvexError("Unknown time zone.");
+		}
 		if (changes.displayName !== undefined) {
 			changes.displayName = changes.displayName.trim();
 			if (changes.displayName.length > 60) throw new ConvexError("Keep your name under 60 characters.");
