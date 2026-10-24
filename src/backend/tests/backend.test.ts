@@ -6,8 +6,11 @@ import type { Id } from "../convex/_generated/dataModel";
 import schema from "../convex/schema";
 import { decrypt } from "../convex/crypto";
 import {
+	APPROVAL_TTL_MS,
+	approvalHash,
 	automationCatalog,
 	builtinTools,
+	canonicalJson,
 	connectorCatalog,
 	defineAutomation,
 	defineConnector,
@@ -1242,5 +1245,133 @@ describe("migrations", () => {
 			subs: (await ctx.db.query("automationSubscriptions").collect()).map((s) => [s.installId, s.userId]),
 		}));
 		expect(after).toEqual({ dms: "subscribers", channel: "channel", subs: [[ids.dms, ids.userId]] });
+	});
+});
+
+describe("approvals", () => {
+	const call = { tool: "crm.send_sms", input: { to: "+15550100", body: "See you at 3" } };
+
+	/** The member asks Companybot in `chatId`; the reply holds `call` for approval. Returns the asking turn and approval. */
+	async function holdCall(t: ReturnType<typeof convexTest>, as: As, chatId: Id<"chats">, finish = true) {
+		const { companybot } = await agentsOf(as);
+		await as.mutation(api.messages.send, { chatId, text: "@Companybot text Bob", mentions: { userIds: [], agentIds: [companybot._id] } });
+		const turn = (await turnsOf(t)).at(-1)!;
+		const approvalId = await t.mutation(internal.approvals.request, {
+			turnId: turn._id,
+			callId: "c1",
+			tool: call.tool,
+			input: canonicalJson(call.input),
+		});
+		const parts = [{ type: "approval" as const, id: "c1", approvalId, tool: call.tool }];
+		await t.mutation(internal.turns.updateReply, { replyId: turn.replyId!, text: "", parts });
+		if (finish) await t.mutation(internal.turns.finishReply, { turnId: turn._id });
+		const [card] = await as.query(api.approvals.forReply, { replyId: turn.replyId! });
+		return { turn, approvalId, card: card! };
+	}
+
+	it("shows the exact call to the chat, and lets only the person the agent acts for decide", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		const chatId = (await generalOf(owner))._id;
+		const { turn, approvalId, card } = await holdCall(t, member, chatId);
+		expect(card).toMatchObject({
+			service: "CRM",
+			action: "send_sms",
+			input: canonicalJson(call.input),
+			status: "pending",
+			approver: "member@co.com",
+			canDecide: true,
+		});
+		expect(card.hash).toBe(await approvalHash(call.tool, call.input));
+		const [theirs] = await owner.query(api.approvals.forReply, { replyId: turn.replyId! });
+		expect(theirs).toMatchObject({ canDecide: false, input: card.input });
+
+		// Owners can't approve for someone else: the call would run as them.
+		await expect(owner.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true })).rejects.toThrow(
+			"Only member@co.com can decide this",
+		);
+		expect((await member.query(api.approvals.forReply, { replyId: turn.replyId! }))[0]?.status).toBe("pending");
+	});
+
+	it("refuses a hash other than the stored call's, and decided or expired requests", async () => {
+		const { t, member } = await ownerAndMember();
+		const chatId = (await generalOf(member))._id;
+		const { approvalId, card } = await holdCall(t, member, chatId);
+		const otherHash = await approvalHash(call.tool, { ...call.input, body: "See you at 4" });
+		await expect(member.mutation(api.approvals.decide, { approvalId, hash: otherHash, approve: true })).rejects.toThrow(
+			"isn't the one you were shown",
+		);
+		await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: false });
+		await expect(member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true })).rejects.toThrow("already decided");
+		await t.mutation(internal.turns.finishReply, { turnId: (await turnsOf(t)).at(-1)!._id });
+
+		const second = await holdCall(t, member, chatId);
+		vi.useFakeTimers({ now: Date.now() + APPROVAL_TTL_MS + 1, toFake: ["Date"] });
+		try {
+			expect(second.card.status).toBe("pending");
+			const [now] = await member.query(api.approvals.forReply, { replyId: second.turn.replyId! });
+			expect(now?.status).toBe("expired");
+			await expect(
+				member.mutation(api.approvals.decide, { approvalId: second.approvalId, hash: second.card.hash, approve: true }),
+			).rejects.toThrow("expired");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("can't be decided once the person can't see the chat", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		const chatId = await owner.mutation(api.chats.createChannel, { name: "board", private: true });
+		await owner.mutation(api.chats.addMembers, { chatId, userIds: [await meOf(member)], agentIds: [] });
+		const { approvalId, card } = await holdCall(t, member, chatId);
+		await member.mutation(api.chats.leave, { chatId });
+		await expect(member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true })).rejects.toThrow("not found");
+	});
+
+	it("queues an approved call behind the running turn, then runs exactly what was approved, once", async () => {
+		const { t, member } = await ownerAndMember();
+		const chatId = (await generalOf(member))._id;
+		const { turn, approvalId, card } = await holdCall(t, member, chatId, false);
+
+		// Decided while the asking reply is still running: it waits its turn in the place.
+		await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true });
+		expect((await turnsOf(t)).map((x) => x.status)).toEqual(["running", "queued"]);
+		await t.mutation(internal.turns.finishReply, { turnId: turn._id });
+		const next = (await turnsOf(t))[1]!;
+		expect(next).toMatchObject({ status: "running", approvalId, triggerId: turn.triggerId });
+
+		const context = await t.query(internal.turns.turnContext, { turnId: next._id });
+		expect(context.approval).toMatchObject({ id: approvalId, tool: call.tool, status: "approved", by: "member@co.com" });
+		// The held call replays the same way whatever happens to it (prompt caching), and no message is re-asked.
+		expect(context.session.turns.at(-1)?.reply).toBe("[Held for approval: crm.send_sms]");
+		expect(context.messages.some((m) => m.id === turn.triggerId)).toBe(false);
+
+		expect(await t.mutation(internal.approvals.claim, { approvalId, turnId: next._id })).toEqual(call);
+		expect(await t.mutation(internal.approvals.claim, { approvalId, turnId: next._id })).toBeNull();
+		await t.mutation(internal.approvals.finish, { approvalId, result: '{"sent":true}' });
+		const [mine] = await member.query(api.approvals.forReply, { replyId: turn.replyId! });
+		expect(mine).toMatchObject({ status: "done", result: '{"sent":true}' });
+	});
+
+	it("runs nothing if the stored call no longer matches what was approved", async () => {
+		const { t, member } = await ownerAndMember();
+		const chatId = (await generalOf(member))._id;
+		const { approvalId, card } = await holdCall(t, member, chatId);
+		await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true });
+		const next = (await turnsOf(t)).at(-1)!;
+		await t.run((ctx) => ctx.db.patch(approvalId, { input: canonicalJson({ ...call.input, to: "+15550199" }) }));
+		expect(await t.mutation(internal.approvals.claim, { approvalId, turnId: next._id })).toBeNull();
+		const row = await t.run((ctx) => ctx.db.get(approvalId));
+		expect(row).toMatchObject({ status: "failed", error: "The stored action no longer matches what was approved." });
+	});
+
+	it("tells the agent about a denial and runs nothing", async () => {
+		const { t, member } = await ownerAndMember();
+		const chatId = (await generalOf(member))._id;
+		const { approvalId, card } = await holdCall(t, member, chatId);
+		await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: false });
+		const next = (await turnsOf(t)).at(-1)!;
+		expect(next).toMatchObject({ status: "running", approvalId });
+		expect((await t.query(internal.turns.turnContext, { turnId: next._id })).approval?.status).toBe("denied");
+		expect(await t.mutation(internal.approvals.claim, { approvalId, turnId: next._id })).toBeNull();
 	});
 });

@@ -19,6 +19,17 @@ export const messagePart = v.union(
 	v.object({ type: v.literal("tool"), id: v.string(), name: v.string(), status: toolStatus }),
 	/** Props were validated against the widget's schema when the agent placed it. */
 	v.object({ type: v.literal("widget"), id: v.string(), widget: v.object({ type: v.string(), props: v.any() }) }),
+	/** A tool call held for approval (`id` is the tool call's id). The app reads its state from `approvals`. */
+	v.object({ type: v.literal("approval"), id: v.string(), approvalId: v.id("approvals"), tool: v.string() }),
+);
+
+export const approvalStatus = v.union(
+	v.literal("pending"),
+	v.literal("approved"),
+	v.literal("running"),
+	v.literal("done"),
+	v.literal("failed"),
+	v.literal("denied"),
 );
 
 /** What a reply used, as the runner reports it. Tokens and cost are summed over its model calls. */
@@ -293,6 +304,8 @@ export default defineSchema({
 		prompt: v.optional(v.string()),
 		status: v.union(v.literal("queued"), v.literal("running"), v.literal("done"), v.literal("error")),
 		startedAt: v.optional(v.number()),
+		/** Set when the turn follows a decision on this approval: it runs the call if approved, then tells the agent. */
+		approvalId: v.optional(v.id("approvals")),
 	})
 		.index("by_place", ["agentId", "chatId", "threadId", "status"])
 		.index("by_status", ["status"])
@@ -336,6 +349,32 @@ export default defineSchema({
 	})
 		.index("by_workspace", ["workspaceId"])
 		.index("by_reply", ["replyId"]),
+
+	// A tool call an agent held for approval, shown as a card in its reply (see core approvals.ts).
+	// Locked to `hash` (SHA-256 of the exact tool + input): the approver confirms that hash,
+	// and the runner re-checks it before running, so only the approved content can run.
+	approvals: defineTable({
+		workspaceId: v.id("workspaces"),
+		agentId: v.id("agents"),
+		/** The person the agent acted for. Only they can decide, and the call runs as them. */
+		actorId: v.id("users"),
+		chatId: v.id("chats"),
+		threadId: v.optional(v.id("chatMessages")),
+		/** The turn that asked, and its reply holding the card. */
+		turnId: v.id("agentTurns"),
+		replyId: v.id("chatMessages"),
+		callId: v.string(),
+		tool: v.string(),
+		/** Canonical JSON (approvals.canonicalJson) of the exact input. Never clipped: this is what runs. */
+		input: v.string(),
+		hash: v.string(),
+		status: approvalStatus,
+		expiresAt: v.number(),
+		decidedAt: v.optional(v.number()),
+		/** Approved calls: the result (JSON, clipped) or error. Shown only to the actor, like the activity log. */
+		result: v.optional(v.string()),
+		error: v.optional(v.string()),
+	}).index("by_reply", ["replyId"]),
 
 	// Automations: an owner installs one and picks the agent that runs it.
 	automationInstalls: defineTable({

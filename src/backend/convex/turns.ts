@@ -34,7 +34,7 @@ type Place = { agentId: Id<"agents">; chatId: Id<"chats">; threadId?: Id<"chatMe
 export async function enqueueTurn(
 	ctx: MutationCtx,
 	chat: Doc<"chats">,
-	turn: Place & { triggerId: Id<"chatMessages">; actorId: Id<"users"> },
+	turn: Place & { triggerId: Id<"chatMessages">; actorId: Id<"users">; approvalId?: Id<"approvals"> },
 ) {
 	await ctx.db.insert("agentTurns", { ...turn, workspaceId: chat.workspaceId, status: "queued" });
 	await startNext(ctx, turn);
@@ -146,7 +146,9 @@ export const turnContext = internalQuery({
 				.order("desc")
 				.take(200)
 		).reverse();
-		if (!recent.some((m) => m._id === turn.triggerId)) {
+		// A turn after an approval answers the decision, not a message.
+		const approval = turn.approvalId && (await ctx.db.get(turn.approvalId));
+		if (!approval && !recent.some((m) => m._id === turn.triggerId)) {
 			const trigger = await ctx.db.get(turn.triggerId);
 			if (trigger) recent.push(trigger);
 		}
@@ -184,6 +186,10 @@ export const turnContext = internalQuery({
 			},
 			messages,
 			triggerId: turn.triggerId as string,
+			/** The approval this turn follows: the runner runs it if approved, then tells the agent. */
+			approval: approval
+				? { id: approval._id, tool: approval.tool, status: approval.status, by: (await names.user(approval.actorId)).name }
+				: null,
 		};
 	},
 });

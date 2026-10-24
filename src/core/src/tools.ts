@@ -64,6 +64,8 @@ export interface ToolDef<Input = any> {
 	roles?: Role[];
 	/** True when the tool only reads. Unknown counts as a write. */
 	readOnly?: boolean;
+	/** Calls wait for the person's approval in the chat. Default: connector tools not marked read-only (see approvals.ts). */
+	needsApproval?: boolean;
 	/** Returns data worth showing. Results get a ref widgets can point at; see ResultStore. */
 	returnsData?: boolean;
 	source: ToolSource;

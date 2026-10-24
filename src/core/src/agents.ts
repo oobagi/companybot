@@ -1,8 +1,9 @@
-import { type ToolSet, tool } from "ai";
+import { type ToolSet, asSchema, tool } from "ai";
 import type { AgentConfig } from "./agent-config";
+import { needsApproval } from "./approvals";
 import { builtinTools } from "./builtin-tools";
 import { models } from "./models";
-import { type ConnectorService, connectorMetaTools } from "./connector-tools";
+import { CONNECTOR_CALL, type ConnectorService, calledConnectorTool, connectorMetaTools } from "./connector-tools";
 import { findConnector } from "./connectors";
 import { type ToolContext, type ToolDef, isGranted, modelToolName, toolGroup } from "./tools";
 import type { Actor, Role } from "./types";
@@ -122,3 +123,28 @@ async function withRef(output: Promise<unknown>, ctx: ToolContext) {
 /** Connectors an agent's grants reach, so the runner only connects to those. */
 export const grantedConnectorIds = (agent: Pick<AgentConfig, "tools">) =>
 	[...new Set(agent.tools.map(toolGroup))].filter((group) => !!findConnector(group));
+
+/**
+ * The exact call to hold for approval, or null to run it now. `modelName` and `input`
+ * are what the model sent; `tools` are the ones this person can use (resolveTools). A
+ * connectors_call is held as the tool it runs, with that tool's input, once the input
+ * matches the tool's schema (a bad one runs, so the model gets the schema error back).
+ */
+export async function heldCall(modelName: string, input: unknown, tools: ToolDef[]): Promise<{ tool: string; input: unknown } | null> {
+	if (modelName === CONNECTOR_CALL) {
+		const t = tools.find((x) => x.id === calledConnectorTool(input));
+		if (!t || !needsApproval(t)) return null;
+		const inner = (input as { input?: unknown }).input ?? {};
+		const check = await asSchema(t.input).validate?.(inner);
+		if (check && !check.success) return null;
+		return { tool: t.id, input: check?.success ? check.value : inner };
+	}
+	const t = tools.find((x) => modelToolName(x.id) === modelName);
+	return t && needsApproval(t) ? { tool: t.id, input } : null;
+}
+
+/** The AI SDK `toolApproval` setting for one run: calls that need approval stop the run there. */
+export const toolApprovalPolicy =
+	(tools: ToolDef[]) =>
+	async ({ toolCall }: { toolCall: { toolName: string; input: unknown } }) =>
+		(await heldCall(toolCall.toolName, toolCall.input, tools)) ? ("user-approval" as const) : undefined;

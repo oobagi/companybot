@@ -11,6 +11,7 @@
 import type * as activity from "../activity.js";
 import type * as agent from "../agent.js";
 import type * as agents from "../agents.js";
+import type * as approvals from "../approvals.js";
 import type * as auth from "../auth.js";
 import type * as automations from "../automations.js";
 import type * as chatOps from "../chatOps.js";
@@ -41,6 +42,7 @@ declare const fullApi: ApiFromModules<{
   activity: typeof activity;
   agent: typeof agent;
   agents: typeof agents;
+  approvals: typeof approvals;
   auth: typeof auth;
   automations: typeof automations;
   chatOps: typeof chatOps;

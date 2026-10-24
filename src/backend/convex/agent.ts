@@ -1,5 +1,8 @@
 import {
 	type AgentConfig,
+	type ApprovalOutcome,
+	type ToolContext,
+	type ToolDef,
 	type ChatStore,
 	type LoggedCall,
 	type MemoryStore,
@@ -16,14 +19,18 @@ import {
 	buildTurnInput,
 	buildTurnPrompt,
 	builtinTools,
+	canonicalJson,
 	createResultStore,
 	emptyUsage,
 	findConnector,
 	gatewayCost,
 	grantedConnectorIds,
+	heldCall,
 	isWidgetResult,
 	isWidgetToolName,
 	openConnector,
+	resolveTools,
+	toolApprovalPolicy,
 } from "@companybot/core";
 import { generateText, isStepCount, streamText } from "ai";
 import type { FunctionReturnType } from "convex/server";
@@ -158,35 +165,58 @@ async function streamReply(
 	// Connector tools sorted by id, so the tool list is identical every turn and caches.
 	const connectorTools = connectors.sessions.flatMap((s) => s.tools).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 	const available = [...builtinTools, ...connectorTools];
+	const toolCtx: ToolContext = {
+		actor: { userId: member.userId, role: member.role },
+		timeZone: turn.actor.timeZone,
+		agentId: agent.id,
+		memory: memoryStore(ctx, member.userId, agent.id, turn.memory === "team"),
+		chat: chatStore(ctx, turnId),
+		skillStore: {
+			create: (config) => ctx.runMutation(internal.skills.createFor, { turnId, config }),
+		},
+		automations: {
+			list: () => ctx.runQuery(internal.automations.listFor, { turnId }),
+			create: (input) => ctx.runMutation(internal.automations.createFor, { turnId, input }),
+			setMine: (input) => ctx.runMutation(internal.automations.setMineFor, { turnId, ...input }),
+		},
+		skills: turn.skills,
+		results: createResultStore(),
+	};
 	const tools = buildToolSet(
 		agent,
-		{
-			actor: { userId: member.userId, role: member.role },
-			timeZone: turn.actor.timeZone,
-			agentId: agent.id,
-			memory: memoryStore(ctx, member.userId, agent.id, turn.memory === "team"),
-			chat: chatStore(ctx, turnId),
-			skillStore: {
-				create: (config) => ctx.runMutation(internal.skills.createFor, { turnId, config }),
-			},
-			automations: {
-				list: () => ctx.runQuery(internal.automations.listFor, { turnId }),
-				create: (input) => ctx.runMutation(internal.automations.createFor, { turnId, input }),
-				setMine: (input) => ctx.runMutation(internal.automations.setMineFor, { turnId, ...input }),
-			},
-			skills: turn.skills,
-			results: createResultStore(),
-		},
+		toolCtx,
 		available,
 		connectors.sessions.map((s) => ({ ...s.connector, instructions: s.instructions })),
 	);
+	/** What this person can run now; calls that need approval are held (approvals.ts). */
+	const usable = resolveTools(agent, toolCtx.actor, available);
+
+	// Stream into the reply as ordered parts; clients see it live through their query.
+	// Widget tools become widget parts; their tool activity isn't shown.
+	const parts: Infer<typeof messagePart>[] = [];
+	let lastFlush = 0;
+	const text = () => parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("\n\n");
+	const flush = () => ctx.runMutation(internal.turns.updateReply, { replyId, text: text(), parts });
+	const setTool = (id: string, name: string, status: "running" | "done" | "error") => {
+		const existing = parts.find((p) => p.type === "tool" && p.id === id);
+		if (existing?.type === "tool") existing.status = status;
+		else parts.push({ type: "tool", id, name, status });
+	};
+
+	// A turn after an approval runs the approved call first, so its outcome goes in the prompt.
+	const approval = turn.approval && (await runApproval(ctx, turnId, turn.approval, usable, toolCtx, setTool));
 
 	// Stored before the call: later turns replay this exact text, so the cache keeps hitting.
 	const connected = connectors.sessions.flatMap(({ connector }) => {
 		const entry = findConnector(connector.id);
 		return entry ? [{ name: entry.name, description: entry.description }] : [];
 	});
-	const prompt = buildTurnPrompt({ ...turn, agentId: agent.id, connectors: { connected, unavailable: connectors.unavailable } });
+	const prompt = buildTurnPrompt({
+		...turn,
+		agentId: agent.id,
+		connectors: { connected, unavailable: connectors.unavailable },
+		approval: approval ?? undefined,
+	});
 	await ctx.runMutation(internal.turns.savePrompt, { turnId, prompt });
 	const input = buildTurnInput({ agent, skills: turn.skills, session: turn.session, prompt });
 
@@ -200,19 +230,9 @@ async function streamReply(
 		stopWhen: isStepCount(10),
 		headers: { "x-session-affinity": turn.session.id },
 		providerOptions: { gateway: { caching: "auto" } },
+		// Calls that need approval stop the run there, unexecuted; we hold them below.
+		toolApproval: toolApprovalPolicy(usable),
 	});
-
-	// Stream into the reply as ordered parts; clients see it live through their query.
-	// Widget tools become widget parts; their tool activity isn't shown.
-	const parts: Infer<typeof messagePart>[] = [];
-	let lastFlush = 0;
-	const text = () => parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("\n\n");
-	const flush = () => ctx.runMutation(internal.turns.updateReply, { replyId, text: text(), parts });
-	const setTool = (id: string, name: string, status: "running" | "done" | "error") => {
-		const existing = parts.find((p) => p.type === "tool" && p.id === id);
-		if (existing?.type === "tool") existing.status = status;
-		else parts.push({ type: "tool", id, name, status });
-	};
 
 	// Each tool call goes to the activity log once it finishes (activity.ts).
 	const calls = new Map<string, LoggedCall>();
@@ -251,6 +271,23 @@ async function streamReply(
 			} else if (part.type === "tool-error") {
 				if (!isWidgetToolName(part.toolName)) setTool(part.toolCallId, part.toolName, "error");
 				await logCall(part.toolCallId, { error: part.error instanceof Error ? part.error.message : String(part.error) });
+			} else if (part.type === "tool-approval-request") {
+				// Held, not run: save the exact call and show a card in its place. Logged only if it runs later.
+				const { toolCallId, toolName, input } = part.toolCall;
+				calls.delete(toolCallId);
+				const held = await heldCall(toolName, input, usable);
+				const at = parts.findIndex((p) => p.type === "tool" && p.id === toolCallId);
+				if (held) {
+					const approvalId = await ctx.runMutation(internal.approvals.request, {
+						turnId,
+						callId: toolCallId,
+						tool: held.tool,
+						input: canonicalJson(held.input),
+					});
+					const card = { type: "approval" as const, id: toolCallId, approvalId, tool: held.tool };
+					if (at >= 0) parts[at] = card;
+					else parts.push(card);
+				} else setTool(toolCallId, toolName, "error");
 			} else if (part.type === "finish-step") {
 				addStep(usage, part.usage, part.providerMetadata);
 				continue;
@@ -265,6 +302,42 @@ async function streamReply(
 		for (const callId of [...calls.keys()]) await logCall(callId, { error: "The reply stopped before this finished." });
 	}
 	await flush();
+}
+
+/**
+ * Runs the call a decision approved, exactly as stored (approvals.claim re-checks the
+ * hash), as this turn's person with their access now. Denied calls don't run. Shows
+ * up in this reply as a tool line and in the activity log, like any call.
+ */
+async function runApproval(
+	ctx: ActionCtx,
+	turnId: Id<"agentTurns">,
+	approval: NonNullable<Turn["approval"]>,
+	usable: ToolDef[],
+	toolCtx: ToolContext,
+	setTool: (id: string, name: string, status: "running" | "done" | "error") => void,
+): Promise<ApprovalOutcome | null> {
+	const { id: approvalId, tool, by } = approval;
+	if (approval.status === "denied") return { tool, by, decision: "denied" };
+	const call = await ctx.runMutation(internal.approvals.claim, { approvalId, turnId });
+	if (!call) return { tool, by, decision: "approved", error: "It didn't run: it was already handled, or no longer matches what was approved." };
+	const callId = `approval-${approvalId}`;
+	setTool(callId, tool, "running");
+	const t = usable.find((x) => x.id === call.tool);
+	let end: { output: unknown } | { error: string };
+	try {
+		if (!t) throw new Error(`${tool} isn't available to ${by} right now (disconnected, or access changed).`);
+		const output = await t.execute(call.input, toolCtx);
+		end = output && typeof output === "object" && "error" in output ? { error: String(output.error) } : { output };
+	} catch (e) {
+		end = { error: e instanceof Error ? e.message : String(e) };
+	}
+	setTool(callId, tool, "error" in end ? "error" : "done");
+	const result = "output" in end ? clipJson(end.output) : undefined;
+	const error = "error" in end ? end.error : undefined;
+	await ctx.runMutation(internal.approvals.finish, { approvalId, result, error });
+	await ctx.runMutation(internal.activity.log, { turnId, callId, tool, changes: true, input: clipJson(call.input), output: result, error });
+	return { tool, by, decision: "approved", result, error };
 }
 
 /**

@@ -6,6 +6,7 @@ import { Markdown } from "../../markdown";
 import { Notice, timeAgo } from "../../ui";
 import { WidgetView } from "../../widgets";
 import { CallDetails } from "../Activity";
+import { ApprovalCard } from "./Approval";
 import { AgentBadge, Avatar, AvatarStack, EmojiPicker, clock, useDismiss } from "./common";
 import type { Message } from "./data";
 
@@ -205,6 +206,8 @@ function EditForm({ message, onDone, onError }: { message: Message; onDone: () =
 function AgentBody({ message }: { message: Message }) {
 	const streaming = message.status === "streaming";
 	const lastText = message.parts.findLastIndex((p) => p.type === "text");
+	const held = message.parts.some((p) => p.type === "approval");
+	const approvals = useQuery(api.approvals.forReply, held ? { replyId: message._id } : "skip");
 	return (
 		<div className="flex flex-col gap-3">
 			{message.parts.map((part, i) =>
@@ -214,9 +217,11 @@ function AgentBody({ message }: { message: Message }) {
 					</Markdown>
 				) : part.type === "tool" ? (
 					<ToolPart key={part.id} replyId={message._id} part={part} />
-				) : (
+				) : part.type === "approval" ? (
+					<ApprovalCard key={part.id} part={part} approval={approvals?.find((a) => a.callId === part.id)} />
+				) : part.type === "widget" ? (
 					<WidgetView key={part.id} widget={part.widget} />
-				),
+				) : null,
 			)}
 			{streaming && message.parts.length === 0 && <p className="text-sm text-neutral-400">Thinking…</p>}
 			{message.status === "error" && <Notice>{message.error ?? "Something went wrong."}</Notice>}
