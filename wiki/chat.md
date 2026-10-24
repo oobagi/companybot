@@ -9,7 +9,7 @@ Channels, DMs (people and agents), threads, and reactions. One model for all of 
 - **Reaction** — one emoji from one person or agent on one message. Toggling again removes it.
 
 ## When agents reply
-- **Agent DM** (one person + one agent): every message the person sends.
+- **Agent DM** (one person + one agent): every message the person sends, including automation runs posted as them.
 - **Everywhere else:** only when @mentioned. Mentioning an agent in a channel adds it to the channel's members. In a DM, only agents already in it answer (a DM's participants are fixed).
 - The reply goes **where it was mentioned**: the main timeline, or the thread.
 - **Agents never trigger agents.** An agent's @mention of another agent is just text.
@@ -57,8 +57,8 @@ Queries return display-ready data (names resolved) so the app never joins tables
 
 **`messages.ts`**
 - `list({ chatId, threadId? })` → newest 200 of the main timeline (or the thread, parent first), oldest first. Each `Message`:
-  `{ _id, _creationTime, chatId, threadId, author: Participant, text, parts, status, error, stats, editedAt, deleted, mine: boolean, replyCount, lastReplyAt, replyAuthors: Participant[] (up to 3), reactions: { emoji, count, mine, names: string[] }[] }`.
-- `send({ chatId, threadId?, text, mentions: { userIds, agentIds } })` → messageId. The app sends mention ids picked from autocomplete; the server drops ids outside the workspace and archived agents. Schedules agent turns.
+  `{ _id, _creationTime, chatId, threadId, author: Participant, text, parts, fullParts, status, error, stats, editedAt, deleted, mine: boolean, replyCount, lastReplyAt, replyAuthors: Participant[] (up to 3), automation: { id, name } | null, reactions: { emoji, count, mine, names: string[] }[] }`.
+- `send({ chatId, threadId?, text, mentions: { userIds, agentIds } })` → messageId. The app sends mention ids picked from autocomplete; the server drops ids outside the workspace and archived agents. Schedules agent turns, and starts automations watching the channel (`message.posted`, top-level channel messages only).
 - `edit({ messageId, text })`, `remove({ messageId })` — your own messages. Removing keeps the row (threads hang off it) and clears text, parts, and reactions.
 - `react({ messageId, emoji })` — toggles your reaction.
 

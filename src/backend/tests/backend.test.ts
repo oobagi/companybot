@@ -967,13 +967,30 @@ describe("automations", () => {
 			expect(await dmWith(owner, companybot._id)).toHaveLength(0);
 		});
 
+		it("lets an owner rename one watching a channel they're not in, but not make it just for them", async () => {
+			const { t, owner, member } = await ownerAndMember();
+			const ops = await member.mutation(api.chats.createChannel, { name: "ops", private: true });
+			const { companybot } = await agentsOf(member);
+			const config = { name: "Ops log", prompt: "Log it.", trigger: { type: "event" as const, event: "message.posted" as const, channelId: ops } };
+			const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "subscribers", timeZone: tz });
+			await owner.mutation(api.automations.save, { automationId: id, config: { ...config, name: "Ops diary" }, expectedVersion: 1 });
+			await expect(owner.mutation(api.automations.update, { automationId: id, audience: "creator" })).rejects.toThrow(
+				"Only the person who made it can make it just for them.",
+			);
+			// Turning it into a schedule after today's time starts tomorrow, not on the next tick.
+			const schedule = { type: "schedule" as const, time: "00:00", weekdays: [0, 1, 2, 3, 4, 5, 6] };
+			await member.mutation(api.automations.save, { automationId: id, config: { ...config, trigger: schedule }, expectedVersion: 2 });
+			await t.mutation(internal.automations.tick, {});
+			expect((await find(member, id))!.lastRunAt).toBeNull();
+		});
+
 		it("lets the creator or an owner change it, nobody else", async () => {
 			const { t, owner, member } = await ownerAndMember();
 			await owner.mutation(api.workspace.invite, { email: "other@co.com", role: "member" });
 			const other = await signIn(t, "other@co.com");
 			const id = await make(member, { name: "Leads", prompt: "Post the lead.", trigger: daily }, "subscribers");
 			const config = { name: "New leads", prompt: "Post the lead.", trigger: { type: "webhook" as const } };
-			await expect(other.mutation(api.automations.save, { automationId: id, config, expectedVersion: 1 })).rejects.toThrow("permission");
+			await expect(other.mutation(api.automations.save, { automationId: id, config, expectedVersion: 1 })).rejects.toThrow("Only the person who made");
 			expect((await find(other, id))!.canEdit).toBe(false);
 			await owner.mutation(api.automations.save, { automationId: id, config, expectedVersion: 1 });
 			await expect(member.mutation(api.automations.save, { automationId: id, config, expectedVersion: 1 })).rejects.toThrow();
@@ -983,7 +1000,7 @@ describe("automations", () => {
 			await member.mutation(api.automations.save, { automationId: id, config: { ...config, trigger: daily }, expectedVersion: 2 });
 			expect((await find(member, id))!.webhookUrl).toBeNull();
 			await expect(other.mutation(api.automations.setInstalled, { automationId: id, installed: false, timeZone: tz })).rejects.toThrow(
-				"permission",
+				"Only the person who made",
 			);
 			await member.mutation(api.automations.setInstalled, { automationId: id, installed: false, timeZone: tz });
 			expect(await find(member, id)).toBeUndefined();
@@ -1276,6 +1293,32 @@ describe("migrations", () => {
 			subs: (await ctx.db.query("automationSubscriptions").collect()).map((s) => [s.installId, s.userId]),
 		}));
 		expect(after).toEqual({ dms: "subscribers", channel: "channel", subs: [[ids.dms, ids.userId]] });
+	});
+});
+
+describe("migrations: Companybot chat tools", () => {
+	it("adds the make-skills and automations tools to existing Companybots, as a new version", async () => {
+		const t = convexTest(schema, modules);
+		migrationsTest.register(t);
+		await signIn(t, "owner@co.com");
+		const ids = await t.run(async (ctx) => {
+			const agents = await ctx.db.query("agents").collect();
+			const bot = agents.find((a) => a.name === "Companybot")!;
+			const scribe = agents.find((a) => a.name === "Scribe")!;
+			await ctx.db.patch(bot._id, { tools: ["memory.*", "skills.load", "chat.*"] });
+			return { bot: bot._id, scribe: scribe._id, version: bot.version };
+		});
+		vi.useFakeTimers();
+		try {
+			await t.mutation(internal.migrations.runAll);
+			await t.finishAllScheduledFunctions(vi.runAllTimers);
+		} finally {
+			vi.useRealTimers();
+		}
+		const after = await t.run(async (ctx) => ({ bot: (await ctx.db.get(ids.bot))!, scribe: (await ctx.db.get(ids.scribe))! }));
+		expect(after.bot.tools).toEqual(["memory.*", "skills.load", "chat.*", "skills.create", "automations.*"]);
+		expect(after.bot.version).toBe(ids.version + 1);
+		expect(after.scribe.tools).not.toContain("skills.create");
 	});
 });
 

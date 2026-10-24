@@ -62,7 +62,7 @@ export function checkVersion(current: number, expected: number) {
 	}
 }
 
-/** Skills this workspace installed: library ones in catalog order, then ones owners made, oldest first. */
+/** Skills this workspace installed: library ones in catalog order, then ones people made, oldest first. */
 export async function installedSkills(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<Skill[]> {
 	const installs = await ctx.db
 		.query("skillInstalls")
@@ -102,3 +102,9 @@ export async function timeZoneOf(ctx: QueryCtx, userId: Id<"users">) {
 }
 
 export const normalizeEmail = (email: string) => email.trim().toLowerCase();
+
+/** `bytes` random bytes as hex. */
+export const randomHex = (bytes: number) => Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (b) => b.toString(16).padStart(2, "0")).join("");
+
+/** The id of something a person made (a skill or automation): "custom-" and 12 hex characters. */
+export const newCustomId = () => `custom-${randomHex(6)}`;

@@ -98,8 +98,9 @@ function connectorStatus(p: ConnectorItem) {
 }
 
 function ConnectorScreen({ role, id }: { role: Role; id: string }) {
-	const connector = useQuery(api.connectors.list)?.find((p) => p.id === id);
-	if (!connector) return <Missing tab="connectors" />;
+	const connectors = useQuery(api.connectors.list);
+	const connector = connectors?.find((p) => p.id === id);
+	if (!connector) return <Missing tab="connectors" loaded={!!connectors} />;
 	return <ConnectorDetail connector={connector} isOwner={can(role, "connectors.manage")} />;
 }
 
@@ -384,7 +385,7 @@ function SkillScreen({ role, id }: { role: Role; id: string }) {
 	const canManage = can(role, "skills.manage");
 	if (id === "new") return <NewSkill />;
 	const open = skills?.find((s) => s.id === id);
-	if (!open) return <Missing tab="skills" />;
+	if (!open) return <Missing tab="skills" loaded={!!skills} />;
 	if (open.custom) return <CustomSkillDetail skill={open} custom={open.custom} />;
 	return (
 		<Detail
@@ -500,7 +501,7 @@ function AutomationScreen({ role, id }: { role: Role; id: string }) {
 	const automations = useQuery(api.automations.list);
 	if (id === "new") return <NewAutomation />;
 	const automation = automations?.find((a) => a.id === id);
-	if (!automation) return <Missing tab="automations" />;
+	if (!automation) return <Missing tab="automations" loaded={!!automations} />;
 	if (automation.custom) return <CustomAutomationDetail automation={automation} custom={automation.custom} />;
 	return <AutomationDetail automation={automation} canManage={can(role, "automations.manage")} />;
 }
@@ -627,6 +628,10 @@ function AutomationFields({
 									value={trigger.channelId}
 									onChange={(e) => setTrigger({ ...trigger, channelId: e.target.value })}
 								>
+									{/* One it already watches that you can't see (an owner editing someone's): keep it selectable. */}
+									{!channels.some((c) => c._id === trigger.channelId) && (
+										<option value={trigger.channelId}>a channel you're not in</option>
+									)}
 									{channels.map((c) => (
 										<option key={c._id} value={c._id}>
 											#{c.title}
@@ -709,8 +714,14 @@ function NewAutomation() {
 	const [config, setConfig] = useState<CustomConfig>({ name: "", prompt: "", trigger: defaultSchedule });
 	const [agentId, setAgentId] = useState<string>("");
 	const [audience, setAudience] = useState<{ audience: Audience; channelId?: Id<"chats"> }>({ audience: "creator" });
-	if (!agents) return <Missing tab="automations" />;
+	if (!agents) return <Missing tab="automations" loaded={false} />;
 	const agent = agentId || agents[0]?._id || "";
+	if (!agent)
+		return (
+			<Page title="New automation" back={{ label: "Automations", to: ["customize", "automations"] }}>
+				<Notice>Automations need an agent to run them. Ask an owner to create one in Agents.</Notice>
+			</Page>
+		);
 
 	return (
 		<Page title="New automation" back={{ label: "Automations", to: ["customize", "automations"] }}>
@@ -1060,11 +1071,12 @@ function Detail(props: {
 }
 
 /** Loading, or a link that no longer points at anything. */
-function Missing({ tab }: { tab: CustomizeTab }) {
+/** Loading while `loaded` is false; after that, the item is gone (deleted, or a stale link). */
+function Missing({ tab, loaded }: { tab: CustomizeTab; loaded: boolean }) {
 	const label = customizeTabs.find((t) => t.id === tab)!.label;
 	return (
-		<Page title="" back={{ label, to: ["customize", tab] }}>
-			<Loading />
+		<Page title={loaded ? "Not found" : ""} back={{ label, to: ["customize", tab] }}>
+			{loaded ? <p className="text-sm text-neutral-500">It may have been deleted.</p> : <Loading />}
 		</Page>
 	);
 }

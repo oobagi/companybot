@@ -9,7 +9,7 @@ const http = httpRouter();
 auth.addHttpRoutes(http);
 http.route({ path: "/oauth/callback", method: "GET", handler: callback });
 
-/** Event automations' webhook URLs: POST /automations/<token> (automations.receive). */
+/** Webhook automations' URLs: POST /automations/<token> (automations.receive). */
 http.route({
 	pathPrefix: "/automations/",
 	method: "POST",

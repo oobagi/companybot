@@ -120,7 +120,8 @@ async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, 
 
 /**
  * Posts a message (joining a public channel if needed) and queues agent turns:
- * every message in an agent DM, otherwise each @mentioned agent.
+ * every message in an agent DM, otherwise each @mentioned agent. A top-level channel
+ * message also starts automations watching that channel.
  */
 export const send = mutation({
 	args: {

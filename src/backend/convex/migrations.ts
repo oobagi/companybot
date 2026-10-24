@@ -51,12 +51,30 @@ export const automationAudiences = migrations.define({
 	},
 });
 
+// Companybot got tools to make skills and automations from chat. New workspaces get them
+// from default-agents.ts; this adds them to each existing Companybot that still has its
+// default skills.load grant (so one an owner rebuilt on purpose is left alone). Saved as a
+// new version, like an edit, so it shows in the agent's history.
+export const companybotChatTools = migrations.define({
+	table: "agents",
+	migrateOne: async (ctx, agent) => {
+		if (agent.name !== "Companybot" || !agent.tools.includes("skills.load")) return;
+		const missing = ["skills.create", "automations.*"].filter((t) => !agent.tools.includes(t));
+		if (missing.length === 0) return;
+		const config = { name: agent.name, description: agent.description, instructions: agent.instructions, model: agent.model, tools: [...agent.tools, ...missing] };
+		const version = agent.version + 1;
+		await ctx.db.patch(agent._id, { tools: config.tools, version, updatedAt: Date.now() });
+		await ctx.db.insert("agentVersions", { agentId: agent._id, version, config, savedBy: agent.updatedBy });
+	},
+});
+
 /** Every migration, oldest first. Never reorder or remove entries that have shipped. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.connectorInstalls,
 	internal.migrations.connectorConnections,
 	internal.migrations.connectorOAuthFlows,
 	internal.migrations.automationAudiences,
+	internal.migrations.companybotChatTools,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */
