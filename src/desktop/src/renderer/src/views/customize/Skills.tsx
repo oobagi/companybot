@@ -16,6 +16,7 @@ type SkillItem = FunctionReturnType<typeof api.skills.list>[number];
 export function SkillsTab({ role }: { role: Role }) {
 	const skills = useQuery(api.skills.list);
 	const setSkill = useMutation(api.skills.setInstalled);
+	const removeSkill = useMutation(api.skills.remove);
 	const { error, run } = useRun();
 	if (!skills) return <Loading />;
 	const canManage = can(role, "skills.manage");
@@ -29,7 +30,7 @@ export function SkillsTab({ role }: { role: Role }) {
 			description={s.description}
 			installed={s.installed}
 			canManage={s.custom ? s.canEdit : canManage}
-			onToggle={s.custom ? undefined : () => run(setSkill({ skillId: s.id, installed: !s.installed }))}
+			onToggle={s.custom ? undefined : () => run(s.installed ? removeSkill({ skillId: s.id }) : setSkill({ skillId: s.id, installed: true }))}
 			onOpen={() => navigate("customize", "skills", s.id)}
 		/>
 	);
@@ -118,7 +119,7 @@ function NewSkill() {
 
 function CustomSkillDetail({ skill: s, custom }: { skill: SkillItem; custom: NonNullable<SkillItem["custom"]> }) {
 	const save = useMutation(api.skills.save);
-	const setSkill = useMutation(api.skills.setInstalled);
+	const remove = useMutation(api.skills.remove);
 
 	return (
 		<MadeItemDetail<SkillConfig>
@@ -129,7 +130,7 @@ function CustomSkillDetail({ skill: s, custom }: { skill: SkillItem; custom: Non
 			custom={custom}
 			saved={{ name: s.name, description: s.description, instructions: s.instructions }}
 			deleteWarning="Agents stop seeing it, and it can't be restored."
-			onDelete={() => setSkill({ skillId: s.id, installed: false })}
+			onDelete={() => remove({ skillId: s.id })}
 			onSave={(config, expectedVersion) => save({ skillId: s.id, config, expectedVersion })}
 			fields={(value, onChange) => <SkillFields value={value} onChange={onChange} />}
 		>
@@ -141,6 +142,7 @@ function CustomSkillDetail({ skill: s, custom }: { skill: SkillItem; custom: Non
 export function SkillScreen({ role, id }: { role: Role; id: string }) {
 	const skills = useQuery(api.skills.list);
 	const setSkill = useMutation(api.skills.setInstalled);
+	const removeSkill = useMutation(api.skills.remove);
 	const { error, run } = useRun();
 	const canManage = can(role, "skills.manage");
 	if (id === "new") return <NewSkill />;
@@ -155,7 +157,7 @@ export function SkillScreen({ role, id }: { role: Role; id: string }) {
 			description={open.description}
 			installed={open.installed}
 			canManage={canManage}
-			onToggle={() => run(setSkill({ skillId: open.id, installed: !open.installed }))}
+			onToggle={() => run(open.installed ? removeSkill({ skillId: open.id }) : setSkill({ skillId: open.id, installed: true }))}
 		>
 			{error && <Notice>{error}</Notice>}
 			<Facts rows={[["Used by", 'Agents granted "skills.load", when a task calls for it']]} />

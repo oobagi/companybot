@@ -21,6 +21,7 @@ const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 export function AutomationsTab({ role }: { role: Role }) {
 	const automations = useQuery(api.automations.list);
 	const setInstalled = useMutation(api.automations.setInstalled);
+	const remove = useMutation(api.automations.remove);
 	const subscribe = useMutation(api.automations.subscribe);
 	const { error, run } = useRun();
 	if (!automations) return <Loading />;
@@ -38,7 +39,7 @@ export function AutomationsTab({ role }: { role: Role }) {
 				status={a.installed ? statusLine(a) : undefined}
 				installed={a.installed}
 				canManage={a.custom ? a.canEdit : canManage}
-				onToggle={a.custom || offered ? undefined : () => run(setInstalled({ automationId: a.id, installed: !a.installed, timeZone }))}
+				onToggle={a.custom || offered ? undefined : () => run(a.installed ? remove({ automationId: a.id }) : setInstalled({ automationId: a.id, installed: true, timeZone }))}
 				action={offered ? <SubscribeButton on={a.subscribed} onToggle={() => run(subscribe({ automationId: a.id, on: !a.subscribed }))} /> : undefined}
 				onOpen={() => navigate("customize", "automations", a.id)}
 			/>
@@ -357,7 +358,7 @@ function NewAutomation() {
 
 function CustomAutomationDetail({ automation: a, custom }: { automation: AutomationItem; custom: NonNullable<AutomationItem["custom"]> }) {
 	const save = useMutation(api.automations.save);
-	const setInstalled = useMutation(api.automations.setInstalled);
+	const remove = useMutation(api.automations.remove);
 	const channels = useQuery(api.chats.list)?.channels ?? [];
 
 	return (
@@ -369,7 +370,7 @@ function CustomAutomationDetail({ automation: a, custom }: { automation: Automat
 			custom={custom}
 			saved={{ name: custom.name, prompt: custom.prompt, trigger: custom.trigger }}
 			deleteWarning="It stops running and can't be restored."
-			onDelete={() => setInstalled({ automationId: a.id, installed: false, timeZone })}
+			onDelete={() => remove({ automationId: a.id })}
 			onSave={(config, expectedVersion) => save({ automationId: a.id, config, expectedVersion })}
 			fields={(value, onChange) => <AutomationFields value={value} onChange={onChange} channels={channels} />}
 		>
@@ -380,6 +381,7 @@ function CustomAutomationDetail({ automation: a, custom }: { automation: Automat
 
 function AutomationDetail({ automation: a, canManage }: { automation: AutomationItem; canManage: boolean }) {
 	const setInstalled = useMutation(api.automations.setInstalled);
+	const remove = useMutation(api.automations.remove);
 	const { error, run } = useRun();
 
 	return (
@@ -390,7 +392,7 @@ function AutomationDetail({ automation: a, canManage }: { automation: Automation
 			description={a.description}
 			installed={a.installed}
 			canManage={canManage}
-			onToggle={() => run(setInstalled({ automationId: a.id, installed: !a.installed, timeZone }))}
+			onToggle={() => run(a.installed ? remove({ automationId: a.id }) : setInstalled({ automationId: a.id, installed: true, timeZone }))}
 		>
 			{error && <Notice>{error}</Notice>}
 			<Markdown className="text-sm leading-relaxed text-neutral-700">{a.details}</Markdown>
