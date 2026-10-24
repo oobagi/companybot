@@ -198,7 +198,7 @@ export default defineSchema({
 		custom: v.optional(
 			v.object({
 				name: v.string(),
-				/** Who made it; they can always edit it (`canEditSkill`). Missing on skills owners made before members could. */
+				/** Who made it; they can always edit it (`canEditMade`). Missing on skills owners made before members could. */
 				createdBy: v.optional(v.id("users")),
 				description: v.string(),
 				instructions: v.string(),
@@ -421,7 +421,7 @@ export default defineSchema({
 		.index("by_install", ["installId", "userId"])
 		.index("by_user", ["userId"]),
 
-	// Webhook events already run, by the sender's event id, so a retried delivery runs once.
+	// Webhook delivery ids. Keep the automationEvents table name to avoid a migration.
 	automationEvents: defineTable({
 		installId: v.id("automationInstalls"),
 		eventId: v.string(),

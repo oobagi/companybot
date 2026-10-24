@@ -27,10 +27,10 @@ export type AutomationTrigger =
 	| { type: "schedule"; time: string; weekdays: number[] }
 	/**
 	 * Fired when another app POSTs to the install's webhook URL (backend
-	 * `automations.receive`). With `event`, only bodies naming that event run; without,
+	 * `automations.receive`). With `webhookEvent`, only bodies naming that event run; without,
 	 * any body does. `sample` is what "Run now" sends.
 	 */
-	| { type: "webhook"; event?: AutomationEvent; label: string; sample: AutomationEventBody }
+	| { type: "webhook"; webhookEvent?: WebhookEvent; label: string; sample: WebhookBody }
 	/** Something happened inside Companybot (backend `automations.fireEvent`). */
 	| { type: "event"; event: AppEvent; label: string; channelId?: string };
 
@@ -50,15 +50,15 @@ export const appEvents = {
 export type AppEvent = keyof typeof appEvents;
 
 /** Named events a webhook can carry. Add one here, then a library automation can require it. */
-export const automationEvents = ["call.ended"] as const;
-export type AutomationEvent = (typeof automationEvents)[number];
+export const webhookEvents = ["call.ended"] as const;
+export type WebhookEvent = (typeof webhookEvents)[number];
 
 /**
  * What a sender POSTs to an automation's webhook URL. `id` is unique per event, so a
  * retried delivery runs once. `person` is who it's about, if anyone; `data` is handed
  * to the agent as-is. Contract for senders: oobagi/ai-agency#1052.
  */
-export interface AutomationEventBody {
+export interface WebhookBody {
 	/** Required, and must match, when the trigger names an event. */
 	event?: string;
 	id: string;
@@ -67,10 +67,10 @@ export interface AutomationEventBody {
 }
 
 /** Largest webhook body accepted, in bytes. */
-export const MAX_EVENT_BYTES = 32_000;
+export const MAX_WEBHOOK_BYTES = 32_000;
 
 /** Checks a webhook body's shape; returns it or a one-line reason. */
-export function parseEventBody(body: unknown): AutomationEventBody | string {
+export function parseWebhookBody(body: unknown): WebhookBody | string {
 	if (!body || typeof body !== "object" || Array.isArray(body)) return "Body must be a JSON object.";
 	const { event, id, person, data } = body as Record<string, unknown>;
 	if (event !== undefined && (typeof event !== "string" || event.length > 100)) return "event must be a short string.";
@@ -87,7 +87,7 @@ export function parseEventBody(body: unknown): AutomationEventBody | string {
 }
 
 /** The prompt for one webhook or event run: the automation's prompt plus the event's data, fenced as data. */
-export function eventPrompt(automation: Automation, data: Record<string, unknown> | undefined) {
+export function triggerPrompt(automation: Automation, data: Record<string, unknown> | undefined) {
 	if (!data || Object.keys(data).length === 0) return automation.prompt;
 	return `${automation.prompt}
 
@@ -98,9 +98,9 @@ ${JSON.stringify(data, null, 2)}
 }
 
 /** Whether a webhook body's event is one this trigger takes, or a one-line reason. */
-export function eventMismatch(trigger: Extract<AutomationTrigger, { type: "webhook" }>, event: string | undefined) {
-	if (!trigger.event || event === trigger.event) return null;
-	return `This URL takes ${trigger.event} events.`;
+export function webhookMismatch(trigger: Extract<AutomationTrigger, { type: "webhook" }>, event: string | undefined) {
+	if (!trigger.webhookEvent || event === trigger.webhookEvent) return null;
+	return `This URL takes ${trigger.webhookEvent} events.`;
 }
 
 /** What "Run now" hands the agent in place of a real event. */
@@ -134,12 +134,19 @@ export type CustomTrigger =
 export const CUSTOM_NAME_MAX = 60;
 export const CUSTOM_PROMPT_MAX = 4000;
 
+export const normalizeCustomAutomation = (config: CustomAutomationConfig): CustomAutomationConfig => ({
+	name: config.name.trim(),
+	prompt: config.prompt.trim(),
+	trigger: config.trigger.type === "schedule"
+		? { ...config.trigger, weekdays: [...config.trigger.weekdays].sort((a, b) => a - b) }
+		: config.trigger,
+});
+
 /** The first problem with a custom automation, in a line, or null. */
 export function customAutomationError(config: CustomAutomationConfig): string | null {
-	const name = config.name.trim();
+	const { name, prompt } = normalizeCustomAutomation(config);
 	if (!name) return "Give it a name.";
 	if (name.length > CUSTOM_NAME_MAX) return `Keep the name under ${CUSTOM_NAME_MAX} characters.`;
-	const prompt = config.prompt.trim();
 	if (!prompt) return "Say what the agent should do.";
 	if (prompt.length > CUSTOM_PROMPT_MAX) return `Keep what the agent is asked under ${CUSTOM_PROMPT_MAX} characters.`;
 	const { trigger } = config;
@@ -158,6 +165,7 @@ export function customAutomationError(config: CustomAutomationConfig): string | 
  * `channelName` names the channel a "message.posted" trigger watches, for its label.
  */
 export function customAutomation(id: string, config: CustomAutomationConfig, version: number, channelName?: string): Automation {
+	config = normalizeCustomAutomation(config);
 	const t = config.trigger;
 	const trigger: AutomationTrigger =
 		t.type === "schedule"
@@ -173,14 +181,14 @@ export function customAutomation(id: string, config: CustomAutomationConfig, ver
 					: { type: "event", event: t.event, label: appEvents[t.event].label };
 	return {
 		id,
-		name: config.name.trim(),
+		name: config.name,
 		description: describeTrigger(trigger),
 		details: "",
 		version: String(version),
 		publisher: "Your team",
 		trigger,
 		connectors: [],
-		prompt: config.prompt.trim(),
+		prompt: config.prompt,
 	};
 }
 
@@ -220,7 +228,7 @@ Use your memory and any tools you have. Skip a section if there's nothing for it
 		publisher: "Companybot",
 		trigger: {
 			type: "webhook",
-			event: "call.ended",
+			webhookEvent: "call.ended",
 			label: "When a call ends",
 			sample: {
 				event: "call.ended",

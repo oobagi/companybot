@@ -37,17 +37,21 @@ export const SKILL_INSTRUCTIONS_MAX = 20_000;
 
 const xmlTag = /<\/?[a-zA-Z][^>]*>/;
 
+export const normalizeCustomSkill = (config: CustomSkillConfig): CustomSkillConfig => ({
+	name: config.name.trim(),
+	description: config.description.trim(),
+	instructions: config.instructions.trim(),
+});
+
 /** The first problem with a custom skill, in a line, or null. */
 export function customSkillError(config: CustomSkillConfig): string | null {
-	const name = config.name.trim();
+	const { name, description, instructions } = normalizeCustomSkill(config);
 	if (!name) return "Give it a name.";
 	if (name.length > SKILL_NAME_MAX) return `Keep the name under ${SKILL_NAME_MAX} characters.`;
-	const description = config.description.trim();
 	if (!description) return "Say what it does and when to use it.";
 	if (description.length > SKILL_DESCRIPTION_MAX) return `Keep the description under ${SKILL_DESCRIPTION_MAX} characters.`;
 	if (xmlTag.test(name) || xmlTag.test(description)) return "The name and description can't contain tags like <this>.";
 	if (/[\r\n]/.test(name) || /[\r\n]/.test(description)) return "Keep the name and description to one line each.";
-	const instructions = config.instructions.trim();
 	if (!instructions) return "Write the instructions.";
 	if (instructions.length > SKILL_INSTRUCTIONS_MAX)
 		return `Keep the instructions under ${SKILL_INSTRUCTIONS_MAX.toLocaleString("en-US")} characters.`;
@@ -56,6 +60,7 @@ export function customSkillError(config: CustomSkillConfig): string | null {
 
 /** Agents make skills for the person they're helping, with the same rules as the app. */
 export interface SkillStore {
+	list: Skill[];
 	create(config: CustomSkillConfig): Promise<{ created: string; name: string } | { error: string }>;
 }
 
@@ -63,10 +68,8 @@ export interface SkillStore {
 export function customSkill(id: string, config: CustomSkillConfig, version: number): Skill {
 	return {
 		id,
-		name: config.name.trim(),
-		description: config.description.trim(),
+		...normalizeCustomSkill(config),
 		version: String(version),
-		instructions: config.instructions.trim(),
 	};
 }
 

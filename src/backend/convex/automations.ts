@@ -3,26 +3,28 @@ import {
 	type Automation,
 	type AutomationSummary,
 	type AutomationToolInput,
-	weekdayIndex,
 	type AutomationAudience,
 	type CustomAutomationConfig,
 	automationCatalog,
 	can,
-	deniedMessage,
-	canEditAutomation,
+	canEditMade,
 	customAutomation,
 	customAutomationError,
+	deniedMessage,
 	describeTrigger,
-	eventMismatch,
-	eventPrompt,
 	findAutomation,
 	findConnector,
 	grantedConnectorIds,
 	isValidTimeZone,
 	localTime,
-	parseEventBody,
+	madeEditDenied,
+	normalizeCustomAutomation,
+	parseWebhookBody,
 	sampleData,
 	scheduleDue,
+	triggerPrompt,
+	webhookMismatch,
+	weekdayIndex,
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
@@ -31,8 +33,9 @@ import { type MutationCtx, type QueryCtx, internalMutation, internalQuery, mutat
 import { addToChat, canSee, findOrCreateDm, insertMessage } from "./chatOps";
 import {
 	type Member,
-	checkVersion,
+	asToolResult,
 	getMember,
+	madeCustom,
 	memberOf,
 	nameOf,
 	newCustomId,
@@ -41,6 +44,7 @@ import {
 	requireAgent,
 	requireMember,
 	requirePermission,
+	saveMade,
 	timeZoneOf,
 } from "./lib";
 import { audience, customTrigger } from "./schema";
@@ -82,8 +86,6 @@ async function definitionOf(ctx: QueryCtx, install: Doc<"automationInstalls">): 
 export const audienceOf = (install: Doc<"automationInstalls">): AutomationAudience =>
 	install.audience ?? (install.channelId ? "channel" : "subscribers");
 
-const forEdit = (install: Doc<"automationInstalls">) => ({ createdBy: install.installedBy, custom: !!install.custom });
-
 /** Automations that run just for their creator are theirs alone; the rest are visible to the workspace. */
 const canView = (member: Member, install: Doc<"automationInstalls">) =>
 	!install.custom || audienceOf(install) !== "creator" || install.installedBy === member.userId;
@@ -93,10 +95,8 @@ async function requireEditable(ctx: QueryCtx, automationId: string) {
 	const member = await requireMember(ctx);
 	const install = await installOf(ctx, member.workspaceId, automationId);
 	if (!install || !canView(member, install)) throw new ConvexError("Automation not found.");
-	if (!canEditAutomation(member, forEdit(install)))
-		throw new ConvexError(
-			install.custom ? "Only the person who made this automation or an owner can change it." : deniedMessage("automations.manage"),
-		);
+	if (!canEditMade(member, "automations.manage", install.custom ? install.installedBy : undefined))
+		throw new ConvexError(install.custom ? madeEditDenied : deniedMessage("automations.manage"));
 	return { member, install };
 }
 
@@ -158,7 +158,7 @@ export const list = query({
 				const channel = (install?.channelId && (await ctx.db.get(install.channelId))) || null;
 				const scheduled = automation.trigger.type === "schedule";
 				const audience = install ? audienceOf(install) : null;
-				const canEdit = install ? canEditAutomation(member, forEdit(install)) : can(member, "automations.manage");
+				const canEdit = install ? canEditMade(member, "automations.manage", install.custom ? install.installedBy : undefined) : can(member, "automations.manage");
 				const subscribers = install ? await subscribersOf(ctx, install._id) : [];
 				const creatorName = install ? await nameOf(ctx, install.installedBy) : "";
 				return {
@@ -263,15 +263,6 @@ function firstRunDate(trigger: Automation["trigger"] | CustomAutomationConfig["t
 	return now.time >= trigger.time ? now.date : undefined;
 }
 
-const trimmed = (config: CustomAutomationConfig): CustomAutomationConfig => ({
-	name: config.name.trim(),
-	prompt: config.prompt.trim(),
-	trigger:
-		config.trigger.type === "schedule"
-			? { ...config.trigger, weekdays: [...config.trigger.weekdays].sort((a, b) => a - b) }
-			: config.trigger,
-});
-
 const customConfig = v.object({ name: v.string(), prompt: v.string(), trigger: customTrigger });
 const audienceArgs = { audience, channelId: v.optional(v.id("chats")) };
 
@@ -297,8 +288,9 @@ export async function createAutomation(
 	}: { config: CustomAutomationConfig; agentId: Id<"agents">; audience: AutomationAudience; channelId?: Id<"chats">; timeZone: string },
 ) {
 	if (!can(member, "automations.create")) throw new ConvexError(deniedMessage("automations.create"));
+	config = normalizeCustomAutomation(config);
 	await checkConfig(ctx, member, config);
-	if (!isValidTimeZone(timeZone)) throw new ConvexError("Unknown time zone.");
+	if (!timeZone || !isValidTimeZone(timeZone)) throw new ConvexError("Unknown time zone.");
 	const agent = await requireAgent(ctx, member, agentId);
 	if (agent.archived) throw new ConvexError("That agent is archived.");
 	if (audience === "channel") {
@@ -319,7 +311,7 @@ export async function createAutomation(
 		webhookToken: trigger.type === "webhook" ? newToken() : undefined,
 		audience,
 		...(audience === "channel" && { channelId, channelSetBy: member.userId }),
-		custom: { ...trimmed(config), version: 1, updatedBy: member.userId, updatedAt: Date.now() },
+		custom: madeCustom(config, member.userId),
 	});
 	if (audience === "subscribers") await ctx.db.insert("automationSubscriptions", { installId, userId: member.userId });
 	return automationId;
@@ -331,35 +323,50 @@ export const save = mutation({
 	handler: async (ctx, { automationId, config, expectedVersion }) => {
 		const { member, install } = await requireEditable(ctx, automationId);
 		if (!install.custom) throw new ConvexError("Library automations can't be edited.");
-		checkVersion(install.custom.version, expectedVersion);
-		await checkConfig(ctx, member, config, install.custom.trigger);
-		if (audienceOf(install) === "channel") await checkPosting(ctx, config.trigger, install.channelId);
-		const webhook = config.trigger.type === "webhook";
-		await ctx.db.patch(install._id, {
-			...(config.trigger.type === "schedule" && { lastRunDate: firstRunDate(config.trigger, install.timeZone) ?? install.lastRunDate }),
-			custom: { ...trimmed(config), version: install.custom.version + 1, updatedBy: member.userId, updatedAt: Date.now() },
-			// Becoming a webhook gets a URL; leaving webhooks drops it, so the old URL stops working.
-			webhookToken: webhook ? (install.webhookToken ?? newToken()) : undefined,
+		await saveMade({
+			current: install.custom,
+			expectedVersion,
+			config: normalizeCustomAutomation(config),
+			userId: member.userId,
+			validate: async () => {
+				await checkConfig(ctx, member, config, install.custom!.trigger);
+				if (audienceOf(install) === "channel") await checkPosting(ctx, config.trigger, install.channelId);
+			},
+			patch: (custom) => ctx.db.patch(install._id, {
+				...(config.trigger.type === "schedule" && { lastRunDate: firstRunDate(config.trigger, install.timeZone) ?? install.lastRunDate }),
+				custom,
+				// Becoming a webhook gets a URL; leaving webhooks drops it.
+				webhookToken: config.trigger.type === "webhook" ? (install.webhookToken ?? newToken()) : undefined,
+			}),
 		});
 	},
 });
 
-/** Installs or removes a library automation (owners), or deletes one someone made (its creator or owners). */
+async function removeAutomation(ctx: MutationCtx, automationId: string) {
+	const member = await requireMember(ctx);
+	const install = await installOf(ctx, member.workspaceId, automationId);
+	if (!install) return;
+	await requireEditable(ctx, automationId);
+	await removeInstall(ctx, install);
+}
+
+export const remove = mutation({
+	args: { automationId: v.string() },
+	handler: (ctx, { automationId }) => removeAutomation(ctx, automationId),
+});
+
+/** Installs a library automation (owners). */
 export const setInstalled = mutation({
-	args: { automationId: v.string(), installed: v.boolean(), timeZone: v.string() },
+	args: { automationId: v.string(), installed: v.boolean(), timeZone: v.optional(v.string()) },
 	handler: async (ctx, { automationId, installed, timeZone }) => {
+		// COMPAT(0.1.0-alpha.6): drop removal through setInstalled; apps use remove.
+		if (!installed) return removeAutomation(ctx, automationId);
 		const member = await requireMember(ctx);
 		const existing = await installOf(ctx, member.workspaceId, automationId);
-		if (!installed) {
-			if (!existing) return;
-			await requireEditable(ctx, automationId);
-			await removeInstall(ctx, existing);
-			return;
-		}
 		const owner = await requirePermission(ctx, "automations.manage");
 		if (existing) return;
 		const automation = requireAutomation(automationId);
-		if (!isValidTimeZone(timeZone)) throw new ConvexError("Unknown time zone.");
+		if (!timeZone || !isValidTimeZone(timeZone)) throw new ConvexError("Unknown time zone.");
 		const connectors = await installedConnectorIds(ctx, owner.workspaceId);
 		const missing = automation.connectors.filter((id) => !connectors.has(id)).map((id) => findConnector(id)?.name ?? id);
 		if (missing.length > 0) throw new ConvexError(`Install the ${missing.join(", ")} connector first.`);
@@ -392,8 +399,8 @@ async function removeInstall(ctx: MutationCtx, install: Doc<"automationInstalls"
 	await ctx.db.delete(install._id);
 	const subs = ctx.db.query("automationSubscriptions").withIndex("by_install", (q) => q.eq("installId", install._id));
 	for await (const sub of subs) await ctx.db.delete(sub._id);
-	const events = ctx.db.query("automationEvents").withIndex("by_install", (q) => q.eq("installId", install._id));
-	for await (const event of events) await ctx.db.delete(event._id);
+	const deliveries = ctx.db.query("automationEvents").withIndex("by_install", (q) => q.eq("installId", install._id));
+	for await (const delivery of deliveries) await ctx.db.delete(delivery._id);
 }
 
 export const update = mutation({
@@ -482,7 +489,7 @@ export const runNow = mutation({
 		const { member, install } = await requireEditable(ctx, automationId);
 		const automation = await definitionOf(ctx, install);
 		if (!automation) throw new ConvexError("Install it first.");
-		const result = await runInDms(ctx, install, automation, [member.userId], eventPrompt(automation, sampleData(automation.trigger)));
+		const result = await runInDms(ctx, install, automation, [member.userId], triggerPrompt(automation, sampleData(automation.trigger)));
 		if (!result.ran) throw new ConvexError(result.summary);
 	},
 });
@@ -530,27 +537,27 @@ export const receive = internalMutation({
 		} catch {
 			return { status: 400, ok: false, message: "Body isn't JSON." };
 		}
-		const event = parseEventBody(json);
-		if (typeof event === "string") return { status: 400, ok: false, message: event };
-		const mismatch = eventMismatch(automation.trigger, event.event);
+		const delivery = parseWebhookBody(json);
+		if (typeof delivery === "string") return { status: 400, ok: false, message: delivery };
+		const mismatch = webhookMismatch(automation.trigger, delivery.event);
 		if (mismatch) return { status: 400, ok: false, message: mismatch };
 		if (!install.enabled) return { status: 200, ok: true, message: "Not run: the automation is off." };
 
 		const seen = await ctx.db
 			.query("automationEvents")
-			.withIndex("by_install", (q) => q.eq("installId", install._id).eq("eventId", event.id))
+			.withIndex("by_install", (q) => q.eq("installId", install._id).eq("eventId", delivery.id))
 			.first();
 		if (seen) return { status: 200, ok: true, message: "Already received." };
-		await ctx.db.insert("automationEvents", { installId: install._id, eventId: event.id });
+		await ctx.db.insert("automationEvents", { installId: install._id, eventId: delivery.id });
 
 		let person: Id<"users"> | undefined;
-		if (event.person) {
-			const found = await workspaceUserByEmail(ctx, install.workspaceId, event.person.email);
+		if (delivery.person) {
+			const found = await workspaceUserByEmail(ctx, install.workspaceId, delivery.person.email);
 			if (!found && audienceOf(install) === "subscribers")
-				return { status: 200, ok: true, message: await finish(ctx, install, `Didn't run: nobody here has the email ${event.person.email}.`) };
+				return { status: 200, ok: true, message: await finish(ctx, install, `Didn't run: nobody here has the email ${delivery.person.email}.`) };
 			person = found ?? undefined;
 		}
-		const result = await runFor(ctx, install, automation, eventPrompt(automation, event.data), { person });
+		const result = await runFor(ctx, install, automation, triggerPrompt(automation, delivery.data), { person });
 		return { status: 200, ok: true, message: result.summary };
 	},
 });
@@ -576,7 +583,7 @@ export async function fireEvent(
 		const trigger = automation?.trigger;
 		if (!automation || trigger?.type !== "event" || trigger.event !== event) continue;
 		if (trigger.event === "message.posted" && trigger.channelId !== details.channelId) continue;
-		await runFor(ctx, install, automation, eventPrompt(automation, details.data), {
+		await runFor(ctx, install, automation, triggerPrompt(automation, details.data), {
 			// Reply under the message when posting back into the channel it came from.
 			thread: details.channelId && details.messageId ? { chatId: details.channelId, messageId: details.messageId } : undefined,
 			// Only people who can see where it happened get it.
@@ -595,19 +602,19 @@ async function workspaceUserByEmail(ctx: QueryCtx, workspaceId: Id<"workspaces">
 	return member?.workspaceId === workspaceId ? user._id : null;
 }
 
-/** Event ids are kept this long: far past any sender's retries. */
-export const EVENT_MEMORY_MS = 7 * 24 * 60 * 60 * 1000;
+/** Webhook delivery ids outlive sender retries. */
+export const WEBHOOK_MEMORY_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Runs hourly (crons.ts): deletes event ids older than EVENT_MEMORY_MS, in batches. */
-export const forgetOldEvents = internalMutation({
+/** Runs hourly (crons.ts): deletes webhook delivery ids older than WEBHOOK_MEMORY_MS, in batches. */
+export const forgetOldWebhooks = internalMutation({
 	args: {},
 	handler: async (ctx) => {
 		const old = await ctx.db
 			.query("automationEvents")
-			.withIndex("by_creation_time", (q) => q.lt("_creationTime", Date.now() - EVENT_MEMORY_MS))
+			.withIndex("by_creation_time", (q) => q.lt("_creationTime", Date.now() - WEBHOOK_MEMORY_MS))
 			.take(500);
-		for (const event of old) await ctx.db.delete(event._id);
-		if (old.length === 500) await ctx.scheduler.runAfter(0, internal.automations.forgetOldEvents);
+		for (const delivery of old) await ctx.db.delete(delivery._id);
+		if (old.length === 500) await ctx.scheduler.runAfter(0, internal.automations.forgetOldWebhooks);
 	},
 });
 
@@ -658,7 +665,7 @@ export const createFor = internalMutation({
 	handler: async (ctx, { turnId, input }) => {
 		const { turn, member } = await runningTurn(ctx, turnId);
 		const { name, prompt, trigger: t, runsFor } = input as AutomationToolInput;
-		try {
+		return asToolResult(async () => {
 			let trigger: CustomAutomationConfig["trigger"];
 			if (t.type === "schedule") trigger = { type: "schedule", time: t.time, weekdays: [...new Set(t.days.map(weekdayIndex))] };
 			else if (t.type === "webhook") trigger = { type: "webhook" };
@@ -696,10 +703,7 @@ export const createFor = internalMutation({
 				runsFor: runsForLabel(audience, channel, trigger.type === "schedule", await nameOf(ctx, member.userId)),
 				...(install.webhookToken && { webhookUrl: webhookUrl(install.webhookToken) }),
 			};
-		} catch (e) {
-			if (e instanceof ConvexError) return { error: String(e.data) };
-			throw e;
-		}
+		});
 	},
 });
 

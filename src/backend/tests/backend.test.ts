@@ -285,6 +285,23 @@ describe("customize", () => {
 			await expect(member.mutation(api.skills.setInstalled, { skillId: "meeting-notes", installed: true })).rejects.toThrow("permission");
 		});
 
+		it("removes custom skills for their maker or an owner, and library skills for owners", async () => {
+			const { t, owner, member, skillId, find } = await made();
+			await expect(member.mutation(api.skills.remove, { skillId })).rejects.toThrow("Only the person who made");
+			expect(await find()).toBeDefined();
+			const mine = await member.mutation(api.skills.create, { config: quote });
+			await member.mutation(api.skills.remove, { skillId: mine });
+			await owner.mutation(api.skills.remove, { skillId });
+			expect(await find()).toBeUndefined();
+			await expect(owner.mutation(api.skills.remove, { skillId })).rejects.toThrow("Skill not found.");
+			await owner.mutation(api.skills.setInstalled, { skillId: "meeting-notes", installed: true });
+			await expect(member.mutation(api.skills.remove, { skillId: "meeting-notes" })).rejects.toThrow("permission");
+			await owner.mutation(api.skills.remove, { skillId: "meeting-notes" });
+			await owner.mutation(api.skills.remove, { skillId: "meeting-notes" });
+			expect((await owner.query(api.skills.list)).find((s) => s.id === "meeting-notes")!.installed).toBe(false);
+			expect(await t.run((ctx) => ctx.db.query("skillInstalls").collect())).toHaveLength(0);
+		});
+
 		it("refuses bad skills", async () => {
 			const { owner } = await made();
 			const make = (patch: Partial<typeof quote>) => owner.mutation(api.skills.create, { config: { ...quote, ...patch } });
@@ -299,10 +316,13 @@ describe("customize", () => {
 
 		it("saves edits with version checks", async () => {
 			const { owner, member, skillId, find } = await made();
-			const config = { ...quote, description: "Chase an unanswered quote." };
+			const config = { ...quote, description: "  Chase an unanswered quote.  " };
 			await expect(member.mutation(api.skills.save, { skillId, config, expectedVersion: 1 })).rejects.toThrow("Only the person who made");
 			await owner.mutation(api.skills.save, { skillId, config, expectedVersion: 1 });
 			await expect(owner.mutation(api.skills.save, { skillId, config, expectedVersion: 1 })).rejects.toThrow(
+				"Someone else saved a change",
+			);
+			await expect(owner.mutation(api.skills.save, { skillId, config: { ...config, name: "" }, expectedVersion: 1 })).rejects.toThrow(
 				"Someone else saved a change",
 			);
 			await expect(owner.mutation(api.skills.save, { skillId, config: { ...config, name: "" }, expectedVersion: 2 })).rejects.toThrow(
@@ -333,7 +353,7 @@ describe("customize", () => {
 			});
 			const turnId = (await turnsOf(t))[0]!._id;
 			expect(await t.mutation(internal.skills.createFor, { turnId, config: { ...quote, name: "" } })).toEqual({ error: "Give it a name." });
-			const made = (await t.mutation(internal.skills.createFor, { turnId, config: quote })) as { created: string; name: string };
+			const made = (await t.mutation(internal.skills.createFor, { turnId, config: { ...quote, name: "  Quote follow-up  " } })) as { created: string; name: string };
 			expect(made.name).toBe("Quote follow-up");
 			expect((await member.query(api.skills.list)).find((s) => s.id === made.created)).toMatchObject({
 				canEdit: true,
@@ -352,7 +372,7 @@ describe("customize", () => {
 			expect(context.skills.map((s) => s.id)).toEqual(["meeting-notes", skillId]);
 			expect(systemPrompt(context.agent, context.skills)).toContain(`- ${skillId}: ${quote.description}`);
 			const load = builtinTools.find((x) => x.id === "skills.load")!;
-			expect(await load.execute({ id: skillId }, { skills: context.skills } as never)).toEqual({ instructions: quote.instructions });
+			expect(await load.execute({ id: skillId }, { skills: { list: context.skills } } as never)).toEqual({ instructions: quote.instructions });
 		});
 	});
 
@@ -912,7 +932,7 @@ describe("automations", () => {
 			vi.useFakeTimers({ now: Date.now() + 8 * 24 * 60 * 60 * 1000, toFake: ["Date"] });
 			try {
 				await post(call("new"));
-				await t.mutation(internal.automations.forgetOldEvents);
+				await t.mutation(internal.automations.forgetOldWebhooks);
 			} finally {
 				vi.useRealTimers();
 			}
@@ -989,13 +1009,16 @@ describe("automations", () => {
 			await owner.mutation(api.workspace.invite, { email: "other@co.com", role: "member" });
 			const other = await signIn(t, "other@co.com");
 			const id = await make(member, { name: "Leads", prompt: "Post the lead.", trigger: daily }, "subscribers");
-			const config = { name: "New leads", prompt: "Post the lead.", trigger: { type: "webhook" as const } };
+			const config = { name: "  New leads  ", prompt: "  Post the lead.  ", trigger: { type: "webhook" as const } };
 			await expect(other.mutation(api.automations.save, { automationId: id, config, expectedVersion: 1 })).rejects.toThrow("Only the person who made");
 			expect((await find(other, id))!.canEdit).toBe(false);
 			await owner.mutation(api.automations.save, { automationId: id, config, expectedVersion: 1 });
-			await expect(member.mutation(api.automations.save, { automationId: id, config, expectedVersion: 1 })).rejects.toThrow();
+			await expect(member.mutation(api.automations.save, { automationId: id, config: { ...config, name: "" }, expectedVersion: 1 })).rejects.toThrow("Someone else saved a change");
+			await expect(member.mutation(api.automations.save, { automationId: id, config: { ...config, name: "" }, expectedVersion: 2 })).rejects.toThrow("Give it a name.");
 			const saved = (await find(member, id))!;
 			expect([saved.name, saved.trigger, saved.custom!.version]).toEqual(["New leads", "When another app sends a webhook", 2]);
+			expect(saved.custom).toMatchObject({ prompt: "Post the lead.", updatedByName: "owner@co.com", updatedAt: expect.any(Number) });
+			expect(saved.createdByName).toBe("member@co.com");
 			expect(saved.webhookUrl).toMatch(/\/automations\/[0-9a-f]{48}$/);
 			await member.mutation(api.automations.save, { automationId: id, config: { ...config, trigger: daily }, expectedVersion: 2 });
 			expect((await find(member, id))!.webhookUrl).toBeNull();
@@ -1004,6 +1027,48 @@ describe("automations", () => {
 			);
 			await member.mutation(api.automations.setInstalled, { automationId: id, installed: false, timeZone: tz });
 			expect(await find(member, id)).toBeUndefined();
+		});
+
+		it.each([false, true])("removes custom automations and related rows (legacy: %s)", async (legacy) => {
+			const { t, owner, member } = await ownerAndMember();
+			await owner.mutation(api.workspace.invite, { email: "other@co.com", role: "member" });
+			const other = await signIn(t, "other@co.com");
+			const id = await make(member, { name: "Forms", prompt: "Post it.", trigger: { type: "webhook" } }, "subscribers");
+			const path = new URL((await find(member, id))!.webhookUrl!, "http://x").pathname;
+			await t.fetch(path, { method: "POST", body: JSON.stringify({ id: "delivery-1" }) });
+			await other.mutation(api.automations.subscribe, { automationId: id, on: true });
+			const remove = (as: typeof owner) => legacy
+				? as.mutation(api.automations.setInstalled, { automationId: id, installed: false })
+				: as.mutation(api.automations.remove, { automationId: id });
+			await expect(remove(other)).rejects.toThrow("Only the person who made");
+			expect(await find(member, id)).toBeDefined();
+			await remove(member);
+			await remove(member);
+			expect(await find(member, id)).toBeUndefined();
+			const rows = await t.run(async (ctx) => ({
+				installs: await ctx.db.query("automationInstalls").collect(),
+				subscriptions: await ctx.db.query("automationSubscriptions").collect(),
+				deliveries: await ctx.db.query("automationEvents").collect(),
+			}));
+			expect(rows).toEqual({ installs: [], subscriptions: [], deliveries: [] });
+			expect((await t.fetch(path, { method: "POST", body: JSON.stringify({ id: "delivery-2" }) })).status).toBe(404);
+			const shared = await make(member, { name: "Shared", prompt: "Ask.", trigger: daily }, "subscribers");
+			await owner.mutation(api.automations.remove, { automationId: shared });
+			expect(await find(member, shared)).toBeUndefined();
+		});
+
+		it("only lets owners uninstall library automations, without a time zone", async () => {
+			const { t, owner, member } = await ownerAndMember();
+			await install(owner, "morning-brief");
+			await expect(member.mutation(api.automations.remove, { automationId: "morning-brief" })).rejects.toThrow("permission");
+			await owner.mutation(api.automations.remove, { automationId: "morning-brief" });
+			await owner.mutation(api.automations.remove, { automationId: "morning-brief" });
+			expect((await find(owner, "morning-brief"))!.installed).toBe(false);
+			expect(await t.run((ctx) => ctx.db.query("automationSubscriptions").collect())).toHaveLength(0);
+			await install(owner, "morning-brief");
+			await owner.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: false });
+			expect((await find(owner, "morning-brief"))!.installed).toBe(false);
+			await expect(owner.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: true })).rejects.toThrow("Unknown time zone.");
 		});
 
 		it("takes any webhook body when it has no named event", async () => {

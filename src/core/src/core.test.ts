@@ -21,7 +21,7 @@ import type { ChatStore, Participant } from "./chat";
 import { type Memory, type MemoryStore, canCreateMemory, canEditMemory, canReadMemory } from "./memory";
 import { openConnector } from "./mcp";
 import { ConnectorOAuth } from "./oauth";
-import { can, canEditSkill, canManageChannel, permissions } from "./permissions";
+import { can, canEditMade, canManageChannel, permissions } from "./permissions";
 import { type Connector, defineConnector, connectorCatalog, connectorHeaders, validateCredentials, validateConnector } from "./connectors";
 import {
 	SKILL_DESCRIPTION_MAX,
@@ -52,10 +52,9 @@ const ctx = (actor: Actor) => ({
 	agentId: "companybot",
 	memory: {} as MemoryStore,
 	chat: {} as ChatStore,
-	skills: skillCatalog,
+	skills: { list: skillCatalog } as SkillStore,
 	results: createResultStore(),
 	automations: {} as AutomationStore,
-	skillStore: {} as SkillStore,
 });
 
 describe("tool visibility", () => {
@@ -138,9 +137,21 @@ describe("skills", () => {
 	const load = builtinTools.find((t) => t.id === "skills.load")!;
 
 	it("loads only installed skills", async () => {
-		const installed = { ...ctx(owner), skills: skillCatalog.slice(0, 1) };
+		const installed = { ...ctx(owner), skills: { ...ctx(owner).skills, list: skillCatalog.slice(0, 1) } };
 		expect(await load.execute({ id: "meeting-notes" }, installed)).toHaveProperty("instructions");
 		expect(await load.execute({ id: "email-reply" }, installed)).toHaveProperty("error");
+	});
+
+	it("creates through the same skills store", async () => {
+		const config = { name: "Quotes", description: "Chase quotes.", instructions: "Be brief." };
+		let received: unknown;
+		const context = ctx(member);
+		context.skills.create = async (input) => {
+			received = input;
+			return { created: "custom-1", name: input.name };
+		};
+		expect(await builtinTools.find((t) => t.id === "skills.create")!.execute(config, context)).toEqual({ created: "custom-1", name: "Quotes" });
+		expect(received).toEqual(config);
 	});
 
 	it("lists skills for the agent, or nothing when none are installed", () => {
@@ -226,12 +237,13 @@ describe("permissions", () => {
 		expect(canManageChannel(owner, { createdBy: "member" })).toBe(true);
 	});
 
-	it("lets members make skills and edit only the ones they made", () => {
-		expect(can(member, "skills.create")).toBe(true);
-		expect(canEditSkill(member, { createdBy: "member" })).toBe(true);
-		expect(canEditSkill(member, { createdBy: "owner" })).toBe(false);
-		expect(canEditSkill(member, {})).toBe(false);
-		expect(canEditSkill(owner, { createdBy: "member" })).toBe(true);
+	it.each(["skills.manage", "automations.manage"] as const)("lets makers and managers edit through %s", (permission) => {
+		expect(canEditMade(member, permission, member.userId)).toBe(true);
+		expect(canEditMade(member, permission, owner.userId)).toBe(false);
+		expect(canEditMade(member, permission)).toBe(false);
+		expect(canEditMade(member, permission, "")).toBe(false);
+		expect(canEditMade(owner, permission, member.userId)).toBe(true);
+		expect(canEditMade(owner, permission)).toBe(true);
 	});
 });
 

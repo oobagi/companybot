@@ -184,7 +184,8 @@ async function streamReply(
 		agentId: agent.id,
 		memory: memoryStore(ctx, member.userId, agent.id, turn.memory === "team"),
 		chat: chatStore(ctx, turnId),
-		skillStore: {
+		skills: {
+			list: turn.skills,
 			create: (config) => ctx.runMutation(internal.skills.createFor, { turnId, config }),
 		},
 		automations: {
@@ -192,7 +193,6 @@ async function streamReply(
 			create: (input) => ctx.runMutation(internal.automations.createFor, { turnId, input }),
 			setMine: (input) => ctx.runMutation(internal.automations.setMineFor, { turnId, ...input }),
 		},
-		skills: turn.skills,
 		results: createResultStore(),
 	};
 	const tools = buildToolSet(
