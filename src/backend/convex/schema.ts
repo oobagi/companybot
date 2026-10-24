@@ -43,6 +43,12 @@ export const replyStats = v.object({
 // Shared settings carry a `version` that goes up on every save. A save sends the
 // version it started from; if someone saved in between, it's refused as a conflict.
 
+/** core's CustomTrigger. */
+export const customTrigger = v.union(
+	v.object({ type: v.literal("schedule"), time: v.string(), weekdays: v.array(v.number()) }),
+	v.object({ type: v.literal("webhook") }),
+);
+
 export default defineSchema({
 	...authTables,
 
@@ -309,6 +315,17 @@ export default defineSchema({
 		channelSetBy: v.optional(v.id("users")),
 		/** Event automations: the secret in their webhook URL (`/automations/<token>`). */
 		webhookToken: v.optional(v.string()),
+		/** Set for automations an owner made (id "custom-…"); library ones come from the catalog. Shared setting: versioned. */
+		custom: v.optional(
+			v.object({
+				name: v.string(),
+				prompt: v.string(),
+				trigger: customTrigger,
+				version: v.number(),
+				updatedBy: v.id("users"),
+				updatedAt: v.number(),
+			}),
+		),
 	})
 		.index("by_workspace", ["workspaceId", "automationId"])
 		.index("by_enabled", ["enabled"])

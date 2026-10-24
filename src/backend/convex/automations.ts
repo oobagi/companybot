@@ -1,8 +1,12 @@
 import {
 	type Automation,
+	type CustomAutomationConfig,
 	automationCatalog,
 	can,
+	customAutomation,
+	customAutomationError,
 	describeTrigger,
+	eventMismatch,
 	eventPrompt,
 	findAutomation,
 	findPlugin,
@@ -17,18 +21,28 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { type MutationCtx, type QueryCtx, internalMutation, mutation, query } from "./_generated/server";
 import { addToChat, canSee, findOrCreateDm, insertMessage } from "./chatOps";
-import { getMember, normalizeEmail, requireAgent, requirePermission } from "./lib";
+import { checkVersion, getMember, nameOf, normalizeEmail, requireAgent, requirePermission } from "./lib";
+import { customTrigger } from "./schema";
 import { enqueueTurn } from "./turns";
 
 // Install → pick the agent → it runs on its trigger. Each run posts the automation's
 // prompt in the agent's DM with each person it runs for and queues a turn acting as
 // them, so the reply uses their permissions and plugin accounts (wiki/chat.md). With a
 // channel picked, a run posts there once instead, acting as the owner who picked it.
+// Library automations come from core's catalog; ones owners make live on their install
+// (`custom`, id "custom-…") and run through the same code.
 
 function requireAutomation(automationId: string): Automation {
 	const automation = findAutomation(automationId);
 	if (!automation) throw new ConvexError("Unknown automation.");
 	return automation;
+}
+
+/** What an install runs: its own definition if an owner made it, else the catalog's. */
+function definitionOf(install: Doc<"automationInstalls">): Automation | undefined {
+	return install.custom
+		? customAutomation(install.automationId, install.custom, install.custom.version)
+		: findAutomation(install.automationId);
 }
 
 const installOf = (ctx: QueryCtx, workspaceId: Id<"workspaces">, automationId: string) =>
@@ -45,7 +59,7 @@ async function installedPluginIds(ctx: QueryCtx, workspaceId: Id<"workspaces">) 
 	return new Set(installs.map((i) => i.pluginId));
 }
 
-/** The secret in an event automation's webhook URL. */
+/** The secret in a webhook automation's URL. */
 function newWebhookToken() {
 	const bytes = crypto.getRandomValues(new Uint8Array(24));
 	return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -60,59 +74,150 @@ export const list = query({
 		if (!member) return [];
 		const canManage = can(member.role, "automations.manage");
 		const plugins = await installedPluginIds(ctx, member.workspaceId);
+		const installs = await ctx.db
+			.query("automationInstalls")
+			.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
+			.collect();
+		const custom = installs.filter((i) => i.custom).sort((a, b) => b._creationTime - a._creationTime);
+		const library = automationCatalog.map((automation) => ({
+			automation,
+			install: installs.find((i) => i.automationId === automation.id && !i.custom) ?? null,
+		}));
 		return Promise.all(
-			automationCatalog.map(async (automation) => {
-				const install = await installOf(ctx, member.workspaceId, automation.id);
-				const agent = install && (await ctx.db.get(install.agentId));
-				const granted = agent ? grantedPluginIds(agent) : [];
-				const channel = install?.channelId && (await ctx.db.get(install.channelId));
-				const scheduled = automation.trigger.type === "schedule";
-				return {
-					id: automation.id,
-					name: automation.name,
-					description: automation.description,
-					details: automation.details,
-					version: automation.version,
-					publisher: automation.publisher,
-					trigger: describeTrigger(automation.trigger),
-					scheduled,
-					runsFor: channel
-						? `Posts once in #${channel.name}`
-						: scheduled
-							? "Everyone in the workspace, in their chat with the agent"
-							: "The person each event is about, in their chat with the agent",
-					prompt: automation.prompt,
-					needs: automation.plugins.map((id) => ({
-						id,
-						name: findPlugin(id)?.name ?? id,
-						installed: plugins.has(id),
-						granted: granted.includes(id),
-					})),
-					installed: !!install,
-					enabled: install?.enabled ?? false,
-					agentId: install?.agentId ?? null,
-					agentName: agent?.name ?? null,
-					agentArchived: agent?.archived ?? false,
-					channelId: install?.channelId ?? null,
-					channelName: channel ? channel.name! : null,
-					channelArchived: channel ? channel.archived : false,
-					/** Secret: owners only. */
-					webhookUrl: canManage && install?.webhookToken ? webhookUrl(install.webhookToken) : null,
-					timeZone: install?.timeZone ?? null,
-					lastRunAt: install?.lastRunAt ?? null,
-					lastResult: install?.lastResult ?? null,
-				};
-			}),
+			[...custom.map((install) => ({ automation: definitionOf(install)!, install })), ...library].map(
+				async ({ automation, install }) => {
+					const agent = install && (await ctx.db.get(install.agentId));
+					const granted = agent ? grantedPluginIds(agent) : [];
+					const channel = install?.channelId && (await ctx.db.get(install.channelId));
+					const scheduled = automation.trigger.type === "schedule";
+					return {
+						id: automation.id,
+						name: automation.name,
+						description: automation.description,
+						details: automation.details,
+						version: automation.version,
+						publisher: automation.publisher,
+						trigger: describeTrigger(automation.trigger),
+						scheduled,
+						runsFor: channel
+							? `Posts once in #${channel.name}`
+							: scheduled
+								? "Everyone in the workspace, in their chat with the agent"
+								: "The person each webhook names, in their chat with the agent",
+						prompt: automation.prompt,
+						needs: automation.plugins.map((id) => ({
+							id,
+							name: findPlugin(id)?.name ?? id,
+							installed: plugins.has(id),
+							granted: granted.includes(id),
+						})),
+						/** Set for automations an owner made: what they can edit, and who last did. */
+						custom: install?.custom
+							? {
+									name: install.custom.name,
+									prompt: install.custom.prompt,
+									trigger: install.custom.trigger,
+									version: install.custom.version,
+									updatedByName: await nameOf(ctx, install.custom.updatedBy),
+									updatedAt: install.custom.updatedAt,
+								}
+							: null,
+						installed: !!install,
+						enabled: install?.enabled ?? false,
+						agentId: install?.agentId ?? null,
+						agentName: agent?.name ?? null,
+						agentArchived: agent?.archived ?? false,
+						channelId: install?.channelId ?? null,
+						channelName: channel ? channel.name! : null,
+						channelArchived: channel ? channel.archived : false,
+						/** Secret: owners only. */
+						webhookUrl: canManage && install?.webhookToken ? webhookUrl(install.webhookToken) : null,
+						timeZone: install?.timeZone ?? null,
+						lastRunAt: install?.lastRunAt ?? null,
+						lastResult: install?.lastResult ?? null,
+					};
+				},
+			),
 		);
 	},
 });
+
+const customConfig = v.object({ name: v.string(), prompt: v.string(), trigger: customTrigger });
+
+/** An owner makes their own automation. Returns its id. */
+export const create = mutation({
+	args: {
+		config: customConfig,
+		agentId: v.id("agents"),
+		channelId: v.union(v.id("chats"), v.null()),
+		timeZone: v.string(),
+	},
+	handler: async (ctx, { config, agentId, channelId, timeZone }) => {
+		const owner = await requirePermission(ctx, "automations.manage");
+		const problem = customAutomationError(config);
+		if (problem) throw new ConvexError(problem);
+		if (!isValidTimeZone(timeZone)) throw new ConvexError("Unknown time zone.");
+		const agent = await requireAgent(ctx, owner, agentId);
+		if (agent.archived) throw new ConvexError("That agent is archived.");
+		if (channelId) await requirePostableChannel(ctx, owner, channelId);
+		const automationId = `custom-${newWebhookToken().slice(0, 12)}`;
+		const now = localTime(Date.now(), timeZone);
+		const { trigger } = config;
+		await ctx.db.insert("automationInstalls", {
+			workspaceId: owner.workspaceId,
+			automationId,
+			agentId,
+			enabled: true,
+			timeZone,
+			installedBy: owner.userId,
+			// Made after today's time: start tomorrow rather than firing right away.
+			lastRunDate: trigger.type === "schedule" && now.time >= trigger.time ? now.date : undefined,
+			webhookToken: trigger.type === "webhook" ? newWebhookToken() : undefined,
+			...(channelId && { channelId, channelSetBy: owner.userId }),
+			custom: { ...trimmed(config), version: 1, updatedBy: owner.userId, updatedAt: Date.now() },
+		});
+		return automationId;
+	},
+});
+
+/** Saves an owner-made automation's name, prompt, and trigger. Refused if someone saved since `expectedVersion`. */
+export const save = mutation({
+	args: { automationId: v.string(), config: customConfig, expectedVersion: v.number() },
+	handler: async (ctx, { automationId, config, expectedVersion }) => {
+		const owner = await requirePermission(ctx, "automations.manage");
+		const install = await installOf(ctx, owner.workspaceId, automationId);
+		if (!install?.custom) throw new ConvexError("Automation not found.");
+		checkVersion(install.custom.version, expectedVersion);
+		const problem = customAutomationError(config);
+		if (problem) throw new ConvexError(problem);
+		const webhook = config.trigger.type === "webhook";
+		await ctx.db.patch(install._id, {
+			custom: { ...trimmed(config), version: install.custom.version + 1, updatedBy: owner.userId, updatedAt: Date.now() },
+			// Becoming a webhook gets a URL; leaving webhooks drops it, so the old URL stops working.
+			webhookToken: webhook ? (install.webhookToken ?? newWebhookToken()) : undefined,
+		});
+	},
+});
+
+const trimmed = (config: CustomAutomationConfig): CustomAutomationConfig => ({
+	name: config.name.trim(),
+	prompt: config.prompt.trim(),
+	trigger: config.trigger.type === "schedule" ? { ...config.trigger, weekdays: [...config.trigger.weekdays].sort((a, b) => a - b) } : config.trigger,
+});
+
+/** A channel the owner can see and post to. */
+async function requirePostableChannel(ctx: QueryCtx, owner: Awaited<ReturnType<typeof requirePermission>>, channelId: Id<"chats">) {
+	const chat = await ctx.db.get(channelId);
+	if (!chat || chat.kind !== "channel" || chat.archived || !(await canSee(ctx, chat, owner)))
+		throw new ConvexError("That channel isn't available.");
+}
 
 export const setInstalled = mutation({
 	args: { automationId: v.string(), installed: v.boolean(), timeZone: v.string() },
 	handler: async (ctx, { automationId, installed, timeZone }) => {
 		const owner = await requirePermission(ctx, "automations.manage");
-		const automation = requireAutomation(automationId);
 		const existing = await installOf(ctx, owner.workspaceId, automationId);
+		// Removing also deletes automations owners made: they live only on their install.
 		if (!installed) {
 			if (existing) {
 				await ctx.db.delete(existing._id);
@@ -122,6 +227,7 @@ export const setInstalled = mutation({
 			return;
 		}
 		if (existing) return;
+		const automation = requireAutomation(automationId);
 		if (!isValidTimeZone(timeZone)) throw new ConvexError("Unknown time zone.");
 		const plugins = await installedPluginIds(ctx, owner.workspaceId);
 		const missing = automation.plugins.filter((id) => !plugins.has(id)).map((id) => findPlugin(id)?.name ?? id);
@@ -143,7 +249,7 @@ export const setInstalled = mutation({
 			timeZone,
 			installedBy: owner.userId,
 			lastRunDate: startsTomorrow ? now.date : undefined,
-			webhookToken: automation.trigger.type === "event" ? newWebhookToken() : undefined,
+			webhookToken: automation.trigger.type === "webhook" ? newWebhookToken() : undefined,
 		});
 	},
 });
@@ -164,11 +270,7 @@ export const update = mutation({
 			const agent = await requireAgent(ctx, owner, agentId);
 			if (agent.archived) throw new ConvexError("That agent is archived.");
 		}
-		if (channelId) {
-			const chat = await ctx.db.get(channelId);
-			if (!chat || chat.kind !== "channel" || chat.archived || !(await canSee(ctx, chat, owner)))
-				throw new ConvexError("That channel isn't available.");
-		}
+		if (channelId) await requirePostableChannel(ctx, owner, channelId);
 		await ctx.db.patch(install._id, {
 			...(enabled !== undefined && { enabled }),
 			...(agentId && { agentId }),
@@ -188,15 +290,15 @@ export const resetWebhook = mutation({
 	},
 });
 
-/** Runs it once now, for the owner alone (events use a sample), so they can see what it does. */
+/** Runs it once now, for the owner alone (webhooks use a sample), so they can see what it does. */
 export const runNow = mutation({
 	args: { automationId: v.string() },
 	handler: async (ctx, { automationId }) => {
 		const owner = await requirePermission(ctx, "automations.manage");
-		const automation = requireAutomation(automationId);
 		const install = await installOf(ctx, owner.workspaceId, automationId);
-		if (!install) throw new ConvexError("Install it first.");
-		const prompt = automation.trigger.type === "event" ? eventPrompt(automation, automation.trigger.sample.data) : automation.prompt;
+		const automation = install && definitionOf(install);
+		if (!install || !automation) throw new ConvexError("Install it first.");
+		const prompt = automation.trigger.type === "webhook" ? eventPrompt(automation, automation.trigger.sample.data) : automation.prompt;
 		const result = await runInDms(ctx, install, automation, [owner.userId], prompt);
 		if (!result.ran) throw new ConvexError(result.summary);
 	},
@@ -213,7 +315,7 @@ export const tick = internalMutation({
 			.withIndex("by_enabled", (q) => q.eq("enabled", true))
 			.collect();
 		for (const install of installs) {
-			const automation = findAutomation(install.automationId);
+			const automation = definitionOf(install);
 			if (!automation) continue;
 			const due = scheduleDue(automation.trigger, Date.now(), install.timeZone, install.lastRunDate);
 			if (!due) continue;
@@ -238,7 +340,7 @@ export const tick = internalMutation({
 });
 
 /**
- * A webhook delivery (http.ts): runs the event automation whose URL this is. Repeats
+ * A webhook delivery (http.ts): runs the automation whose URL this is. Repeats
  * of an event id are ignored, so senders can retry safely. Returns the HTTP reply.
  */
 export const receive = internalMutation({
@@ -250,8 +352,8 @@ export const receive = internalMutation({
 					.withIndex("by_webhook", (q) => q.eq("webhookToken", token))
 					.first()
 			: null;
-		const automation = install && findAutomation(install.automationId);
-		if (!install || automation?.trigger.type !== "event") return { status: 404, ok: false, message: "Unknown webhook URL." };
+		const automation = install && definitionOf(install);
+		if (!install || automation?.trigger.type !== "webhook") return { status: 404, ok: false, message: "Unknown webhook URL." };
 		let json: unknown;
 		try {
 			json = JSON.parse(body);
@@ -260,8 +362,8 @@ export const receive = internalMutation({
 		}
 		const event = parseEventBody(json);
 		if (typeof event === "string") return { status: 400, ok: false, message: event };
-		if (event.event !== automation.trigger.event)
-			return { status: 400, ok: false, message: `This URL takes ${automation.trigger.event} events.` };
+		const mismatch = eventMismatch(automation.trigger, event.event);
+		if (mismatch) return { status: 400, ok: false, message: mismatch };
 		if (!install.enabled) return { status: 200, ok: true, message: "Not run: the automation is off." };
 
 		const seen = await ctx.db
@@ -276,8 +378,8 @@ export const receive = internalMutation({
 		const userId = event.person && (await workspaceUserByEmail(ctx, install.workspaceId, event.person.email));
 		if (!userId) {
 			const summary = event.person
-				? `Didn't run: nobody here has the email ${event.person.email}. Pick a channel to post every event there.`
-				: "Didn't run: the event didn't say who it's for. Pick a channel to post events there.";
+				? `Didn't run: nobody here has the email ${event.person.email}. Pick a channel to post every webhook there.`
+				: "Didn't run: the webhook didn't say who it's for. Pick a channel to post them there.";
 			return { status: 200, ok: true, message: await finish(ctx, install, summary) };
 		}
 		return { status: 200, ok: true, message: (await runInDms(ctx, install, automation, [userId], prompt)).summary };

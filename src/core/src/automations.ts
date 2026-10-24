@@ -1,5 +1,5 @@
 /**
- * An automation is a short, ready-made job: a trigger (a schedule or an event) that
+ * An automation is a short, ready-made job: a trigger (a schedule or a webhook) that
  * sends an agent a prompt. The agent replies in its chat with each person the
  * automation runs for, with that person's permissions, as if they'd asked.
  *
@@ -27,12 +27,13 @@ export type AutomationTrigger =
 	/** Local time in the workspace's time zone. Weekdays: 0 = Sunday. */
 	| { type: "schedule"; time: string; weekdays: number[] }
 	/**
-	 * Fired when another service POSTs the event to the install's webhook URL
-	 * (backend `automations.receive`). `sample` is the event "Run now" uses.
+	 * Fired when another app POSTs to the install's webhook URL (backend
+	 * `automations.receive`). With `event`, only bodies naming that event run; without,
+	 * any body does. `sample` is what "Run now" sends.
 	 */
-	| { type: "event"; event: AutomationEvent; label: string; sample: AutomationEventBody };
+	| { type: "webhook"; event?: AutomationEvent; label: string; sample: AutomationEventBody };
 
-/** Events a webhook can send. Add one here, then automations can trigger on it. */
+/** Named events a webhook can carry. Add one here, then a library automation can require it. */
 export const automationEvents = ["call.ended"] as const;
 export type AutomationEvent = (typeof automationEvents)[number];
 
@@ -42,7 +43,8 @@ export type AutomationEvent = (typeof automationEvents)[number];
  * to the agent as-is. Contract for senders: oobagi/ai-agency#1052.
  */
 export interface AutomationEventBody {
-	event: AutomationEvent;
+	/** Required, and must match, when the trigger names an event. */
+	event?: string;
 	id: string;
 	person?: { email: string };
 	data?: Record<string, unknown>;
@@ -55,13 +57,13 @@ export const MAX_EVENT_BYTES = 32_000;
 export function parseEventBody(body: unknown): AutomationEventBody | string {
 	if (!body || typeof body !== "object" || Array.isArray(body)) return "Body must be a JSON object.";
 	const { event, id, person, data } = body as Record<string, unknown>;
-	if (!automationEvents.includes(event as AutomationEvent)) return "Unknown event.";
+	if (event !== undefined && (typeof event !== "string" || event.length > 100)) return "event must be a short string.";
 	if (typeof id !== "string" || !id || id.length > 200) return "id must be a string of 1-200 characters.";
 	if (person !== undefined && (typeof person !== "object" || !person || typeof (person as { email?: unknown }).email !== "string"))
 		return "person must be { email }.";
 	if (data !== undefined && (typeof data !== "object" || !data || Array.isArray(data))) return "data must be an object.";
 	return {
-		event: event as AutomationEvent,
+		...(event !== undefined ? { event: event as string } : {}),
 		id,
 		...(person ? { person: { email: (person as { email: string }).email } } : {}),
 		...(data ? { data: data as Record<string, unknown> } : {}),
@@ -79,7 +81,72 @@ ${JSON.stringify(data, null, 2)}
 \`\`\``;
 }
 
+/** Whether a webhook body's event is one this trigger takes, or a one-line reason. */
+export function eventMismatch(trigger: Extract<AutomationTrigger, { type: "webhook" }>, event: string | undefined) {
+	if (!trigger.event || event === trigger.event) return null;
+	return `This URL takes ${trigger.event} events.`;
+}
+
 export const defineAutomation = (automation: Automation) => automation;
+
+// ---- Automations people make ----
+
+/** What an owner sets when they make their own automation. */
+export interface CustomAutomationConfig {
+	name: string;
+	prompt: string;
+	trigger: CustomTrigger;
+}
+
+export type CustomTrigger =
+	| { type: "schedule"; time: string; weekdays: number[] }
+	/** Any app POSTs to its webhook URL. */
+	| { type: "webhook" };
+
+export const CUSTOM_NAME_MAX = 60;
+export const CUSTOM_PROMPT_MAX = 4000;
+
+/** The first problem with a custom automation, in a line, or null. */
+export function customAutomationError(config: CustomAutomationConfig): string | null {
+	const name = config.name.trim();
+	if (!name) return "Give it a name.";
+	if (name.length > CUSTOM_NAME_MAX) return `Keep the name under ${CUSTOM_NAME_MAX} characters.`;
+	const prompt = config.prompt.trim();
+	if (!prompt) return "Say what the agent should do.";
+	if (prompt.length > CUSTOM_PROMPT_MAX) return `Keep what the agent is asked under ${CUSTOM_PROMPT_MAX} characters.`;
+	const { trigger } = config;
+	if (trigger.type === "schedule") {
+		if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(trigger.time)) return "Pick a time.";
+		const days = new Set(trigger.weekdays);
+		if (days.size === 0) return "Pick at least one day.";
+		if (days.size !== trigger.weekdays.length || trigger.weekdays.some((d) => !Number.isInteger(d) || d < 0 || d > 6))
+			return "Those days don't look right.";
+	}
+	return null;
+}
+
+/** A custom automation as the same shape the library uses, so one runner handles both. */
+export function customAutomation(id: string, config: CustomAutomationConfig, version: number): Automation {
+	const trigger: AutomationTrigger =
+		config.trigger.type === "schedule"
+			? config.trigger
+			: {
+					type: "webhook",
+					label: "When another app sends a webhook",
+					sample: { id: "sample", data: { note: "A sample event. Real ones carry whatever the sending app puts here." } },
+				};
+	return {
+		id,
+		name: config.name.trim(),
+		description: describeTrigger(trigger),
+		details: "",
+		version: String(version),
+		publisher: "Your team",
+		trigger,
+		plugins: [],
+		prompt: config.prompt.trim(),
+	};
+}
 
 /** The automations library. */
 export const automationCatalog: Automation[] = [
@@ -116,7 +183,7 @@ Use your memory and any tools you have. Skip a section if there's nothing for it
 		version: "0.2.0",
 		publisher: "Companybot",
 		trigger: {
-			type: "event",
+			type: "webhook",
 			event: "call.ended",
 			label: "When a call ends",
 			sample: {
@@ -147,7 +214,7 @@ const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /** "Weekdays at 8:00 AM", "When a call ends". */
 export function describeTrigger(trigger: AutomationTrigger): string {
-	if (trigger.type === "event") return trigger.label;
+	if (trigger.type === "webhook") return trigger.label;
 	const [h, m] = trigger.time.split(":").map(Number) as [number, number];
 	const time = `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
 	const days = [...trigger.weekdays].sort().join();
