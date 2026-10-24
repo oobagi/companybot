@@ -14,11 +14,11 @@ export const permissions = {
 	"connectors.manage": { roles: ["owner"], label: "manage connectors" },
 	/** Connect your own account to a connector that uses personal connections. */
 	"connectors.connect": { roles: ["owner", "member"], label: "connect connectors" },
-	/** Install library skills, and change or delete anyone's (`canEditSkill`). */
+	/** Install library skills, and change or delete anyone's (`canEditMade`). */
 	"skills.manage": { roles: ["owner"], label: "manage skills" },
 	/** Make your own skills. You can always change and delete the ones you made. */
 	"skills.create": { roles: ["owner", "member"], label: "make skills" },
-	/** Install library automations, and change or delete anyone's (`canEditAutomation`). */
+	/** Install library automations, and change or delete anyone's (`canEditMade`). */
 	"automations.manage": { roles: ["owner"], label: "manage automations" },
 	/** Make your own automations. You can always change and delete the ones you made. */
 	"automations.create": { roles: ["owner", "member"], label: "make automations" },
@@ -45,12 +45,9 @@ export function canManageChannel(who: Actor, channel: { createdBy: string }): bo
 	return can(who, "channels.manage") || channel.createdBy === who.userId;
 }
 
-/** Whether someone can change or delete a skill people made: `skills.manage`, or they made it. */
-export function canEditSkill(who: Actor, skill: { createdBy?: string }): boolean {
-	return can(who, "skills.manage") || (!!skill.createdBy && skill.createdBy === who.userId);
+/** Makers can edit their own; managers can edit anyone's or library installs. */
+export function canEditMade(who: Actor, managePermission: "skills.manage" | "automations.manage", createdBy?: string): boolean {
+	return can(who, managePermission) || (!!createdBy && createdBy === who.userId);
 }
 
-/** Whether someone can change or delete an automation: `automations.manage`, or they made it. */
-export function canEditAutomation(who: Actor, automation: { createdBy: string; custom: boolean }): boolean {
-	return can(who, "automations.manage") || (automation.custom && automation.createdBy === who.userId);
-}
+export const madeEditDenied = "Only the person who made this or an owner can change it.";

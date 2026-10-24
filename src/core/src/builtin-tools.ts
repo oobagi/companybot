@@ -79,7 +79,7 @@ export const builtinTools: ToolDef[] = [
 		input: z.object({ id: z.string() }),
 		readOnly: true,
 		async execute({ id }, { skills }) {
-			const skill = skills.find((s) => s.id === id);
+			const skill = skills.list.find((s) => s.id === id);
 			return skill ? { instructions: skill.instructions } : { error: `No installed skill "${id}".` };
 		},
 	}),
@@ -94,7 +94,7 @@ export const builtinTools: ToolDef[] = [
 				.describe(`What it does and when to use it, in one line under ${SKILL_DESCRIPTION_MAX} characters. Agents see only this until they load it.`),
 			instructions: z.string().describe("The steps, rules, and examples, in Markdown, written to an agent"),
 		}),
-		execute: (input, { skillStore }) => skillStore.create(input),
+		execute: (input, { skills }) => skills.create(input),
 	}),
 	...widgetTools,
 	...chatTools,

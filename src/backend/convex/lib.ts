@@ -62,6 +62,42 @@ export function checkVersion(current: number, expected: number) {
 	}
 }
 
+/** Metadata shared by skills and automations people make. */
+export function madeCustom<Config>(config: Config, userId: Id<"users">) {
+	return { ...config, version: 1, updatedBy: userId, updatedAt: Date.now() };
+}
+
+/** Check the version before validation, then save once. */
+export async function saveMade<Config, Custom extends { version: number }>({
+	current,
+	expectedVersion,
+	config,
+	userId,
+	validate,
+	patch,
+}: {
+	current: Custom;
+	expectedVersion: number;
+	config: Config;
+	userId: Id<"users">;
+	validate: () => void | Promise<void>;
+	patch: (custom: Custom & Config & ReturnType<typeof madeCustom<Config>>) => Promise<void>;
+}) {
+	checkVersion(current.version, expectedVersion);
+	await validate();
+	await patch({ ...current, ...madeCustom(config, userId), version: current.version + 1 });
+}
+
+/** Agent tools return expected problems to the model. */
+export async function asToolResult<Result>(fn: () => Promise<Result>): Promise<Result | { error: string }> {
+	try {
+		return await fn();
+	} catch (e) {
+		if (e instanceof ConvexError) return { error: String(e.data) };
+		throw e;
+	}
+}
+
 /** Skills this workspace installed: library ones in catalog order, then ones people made, oldest first. */
 export async function installedSkills(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<Skill[]> {
 	const installs = await ctx.db
