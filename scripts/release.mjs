@@ -16,6 +16,7 @@
 
 import { execSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dueMarkers } from "./compat.mjs";
 
 const args = process.argv.slice(2);
 const bump = args.find((a) => !a.startsWith("--") && args[args.indexOf(a) - 1] !== "--notes");
@@ -70,6 +71,12 @@ if (out("git rev-parse HEAD") !== out("git rev-parse origin/main")) fail("main i
 if (out(`git tag -l v${next}`)) fail(`v${next} already exists.`);
 
 console.log(`Releasing Companybot ${pkg.version} → ${next}\n`);
+const due = dueMarkers(pkg.version);
+if (due.length > 0) {
+	console.log("Backward-compat code that installs no longer need (delete it in a follow-up PR):");
+	for (const m of due) console.log(`  ${m.where}  ${m.note}`);
+	console.log();
+}
 sh("pnpm typecheck");
 sh("pnpm test");
 

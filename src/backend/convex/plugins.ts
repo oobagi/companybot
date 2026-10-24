@@ -5,7 +5,7 @@ import { role } from "./schema";
 
 // Old names for connectors.ts, from before plugins were renamed connectors. Installed
 // apps keep calling these until they update (wiki/releases.md: add, don't remove).
-// Delete once every install runs a version that calls connectors.*.
+// COMPAT(0.1.0-alpha.6): apps before the connectors rename call plugins.*. Delete this file.
 
 export { list } from "./connectors";
 

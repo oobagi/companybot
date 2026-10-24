@@ -28,7 +28,10 @@ export type Message = {
 	threadId: Id<"chatMessages"> | null;
 	author: Participant;
 	text: string;
-	/** Without approval cards, which apps from before approvals can't show (they get a line of text instead). */
+	/**
+	 * Without approval cards, which apps from before approvals can't show (they get a line of text instead).
+	 * COMPAT(0.1.0-alpha.6): once installs are past it, send approval cards in `parts` too and switch the app to `parts`; delete `fullParts` one release later.
+	 */
 	parts: Infer<typeof messagePart>[];
 	/** Every part, approval cards included. Apps that know approvals read this. */
 	fullParts: Infer<typeof messagePart>[];

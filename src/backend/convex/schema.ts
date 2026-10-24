@@ -167,7 +167,8 @@ export default defineSchema({
 		.index("by_user", ["userId"]),
 
 	// Legacy: the connector tables' names before "plugins" became "connectors". Emptied by
-	// the `connector*` migrations (migrations.ts); drop these once it has run on prod.
+	// the `connector*` migrations (migrations.ts).
+	// COMPAT(0.1.0-alpha.6): once those migrations have run on prod, drop these three tables and the migrations.
 	pluginInstalls: defineTable({
 		workspaceId: v.id("workspaces"),
 		pluginId: v.string(),

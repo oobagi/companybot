@@ -72,7 +72,10 @@ async function definitionOf(ctx: QueryCtx, install: Doc<"automationInstalls">): 
 	return customAutomation(install.automationId, install.custom, install.custom.version, channel?.name);
 }
 
-/** Installs from before audiences: a channel if one was picked, else people who turn it on. */
+/**
+ * Installs from before audiences: a channel if one was picked, else people who turn it on.
+ * COMPAT(0.1.0-alpha.6): the automationAudiences migration sets `audience` on every install. After it has run on prod, make `audience` required and drop this fallback.
+ */
 export const audienceOf = (install: Doc<"automationInstalls">): AutomationAudience =>
 	install.audience ?? (install.channelId ? "channel" : "subscribers");
 
@@ -368,7 +371,10 @@ export const update = mutation({
 		enabled: v.optional(v.boolean()),
 		agentId: v.optional(v.id("agents")),
 		audience: v.optional(audience),
-		/** Needed with audience "channel". Apps before audiences send only this: a channel, or null for DMs. */
+		/**
+		 * Needed with audience "channel".
+		 * COMPAT(0.1.0-alpha.6): apps before audiences send only this, a channel or null for DMs. Drop `null` and the line that turns it into an audience.
+		 */
 		channelId: v.optional(v.union(v.id("chats"), v.null())),
 	},
 	handler: async (ctx, { automationId, enabled, agentId, audience, channelId }) => {
