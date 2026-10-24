@@ -303,7 +303,20 @@ export default defineSchema({
 		lastRunAt: v.optional(v.number()),
 		/** What the last run did, in a line, e.g. "Sent to 3 people". */
 		lastResult: v.optional(v.string()),
+		/** Post each run here, once, instead of in each person's DM. */
+		channelId: v.optional(v.id("chats")),
+		/** The owner who picked the channel; channel runs act as them (or another owner if they've left). */
+		channelSetBy: v.optional(v.id("users")),
+		/** Event automations: the secret in their webhook URL (`/automations/<token>`). */
+		webhookToken: v.optional(v.string()),
 	})
 		.index("by_workspace", ["workspaceId", "automationId"])
-		.index("by_enabled", ["enabled"]),
+		.index("by_enabled", ["enabled"])
+		.index("by_webhook", ["webhookToken"]),
+
+	// Webhook events already run, by the sender's event id, so a retried delivery runs once.
+	automationEvents: defineTable({
+		installId: v.id("automationInstalls"),
+		eventId: v.string(),
+	}).index("by_install", ["installId", "eventId"]),
 });
