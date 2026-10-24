@@ -10,7 +10,7 @@ import { navigate, useRoute } from "./router";
 import { Notice } from "./ui";
 import { ChatView } from "./views/chat/ChatView";
 import { ChatNav, Item } from "./views/chat/Sidebar";
-import { CustomizeView, customizeTabs } from "./views/Customize";
+import { CustomizeView, customizeTabs } from "./views/customize";
 import { SettingsView, settingsTabs } from "./views/Settings";
 import { SignIn } from "./views/SignIn";
 
