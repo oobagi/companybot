@@ -3,9 +3,8 @@
  * sends an agent a prompt. The agent replies in its chat with each person the
  * automation runs for, with that person's permissions, as if they'd asked.
  *
- * Lifecycle: an owner installs it → picks the agent → it runs on its trigger until
- * turned off. Schedules run for every member; events run for the person they're about.
- * Either can post to one channel instead, once per run.
+ * Who it runs for (`AutomationAudience`): just the person who made it, each person who
+ * turned it on, or one channel. Nobody gets messages they didn't ask for.
  */
 export interface Automation {
 	id: string;
@@ -31,7 +30,24 @@ export type AutomationTrigger =
 	 * `automations.receive`). With `event`, only bodies naming that event run; without,
 	 * any body does. `sample` is what "Run now" sends.
 	 */
-	| { type: "webhook"; event?: AutomationEvent; label: string; sample: AutomationEventBody };
+	| { type: "webhook"; event?: AutomationEvent; label: string; sample: AutomationEventBody }
+	/** Something happened inside Companybot (backend `automations.fireEvent`). */
+	| { type: "event"; event: AppEvent; label: string; channelId?: string };
+
+/**
+ * Who an automation runs for:
+ * - `creator`: just the person who made it, in their chat with the agent.
+ * - `subscribers`: each person who turned it on, in their own chat, as them.
+ * - `channel`: one post in a channel per run.
+ */
+export type AutomationAudience = "creator" | "subscribers" | "channel";
+
+/** Things that happen inside Companybot that an automation can run on. */
+export const appEvents = {
+	"message.posted": { label: "When someone posts in a channel" },
+	"member.joined": { label: "When someone joins the workspace" },
+} as const;
+export type AppEvent = keyof typeof appEvents;
 
 /** Named events a webhook can carry. Add one here, then a library automation can require it. */
 export const automationEvents = ["call.ended"] as const;
@@ -70,7 +86,7 @@ export function parseEventBody(body: unknown): AutomationEventBody | string {
 	};
 }
 
-/** The prompt for one event run: the automation's prompt plus the event's data, fenced as data. */
+/** The prompt for one webhook or event run: the automation's prompt plus the event's data, fenced as data. */
 export function eventPrompt(automation: Automation, data: Record<string, unknown> | undefined) {
 	if (!data || Object.keys(data).length === 0) return automation.prompt;
 	return `${automation.prompt}
@@ -87,6 +103,15 @@ export function eventMismatch(trigger: Extract<AutomationTrigger, { type: "webho
 	return `This URL takes ${trigger.event} events.`;
 }
 
+/** What "Run now" hands the agent in place of a real event. */
+export function sampleData(trigger: AutomationTrigger): Record<string, unknown> | undefined {
+	if (trigger.type === "webhook") return trigger.sample.data;
+	if (trigger.type !== "event") return undefined;
+	return trigger.event === "message.posted"
+		? { sample: true, channel: trigger.label.replace("When someone posts in ", ""), author: "A teammate", text: "Has anyone heard back from Acme about the renewal?" }
+		: { sample: true, name: "New teammate", email: "new@example.com" };
+}
+
 export const defineAutomation = (automation: Automation) => automation;
 
 // ---- Automations people make ----
@@ -101,7 +126,10 @@ export interface CustomAutomationConfig {
 export type CustomTrigger =
 	| { type: "schedule"; time: string; weekdays: number[] }
 	/** Any app POSTs to its webhook URL. */
-	| { type: "webhook" };
+	| { type: "webhook" }
+	/** A top-level message (not an agent's or an automation's) in this channel. */
+	| { type: "event"; event: "message.posted"; channelId: string }
+	| { type: "event"; event: "member.joined" };
 
 export const CUSTOM_NAME_MAX = 60;
 export const CUSTOM_PROMPT_MAX = 4000;
@@ -125,16 +153,24 @@ export function customAutomationError(config: CustomAutomationConfig): string | 
 	return null;
 }
 
-/** A custom automation as the same shape the library uses, so one runner handles both. */
-export function customAutomation(id: string, config: CustomAutomationConfig, version: number): Automation {
+/**
+ * A custom automation as the same shape the library uses, so one runner handles both.
+ * `channelName` names the channel a "message.posted" trigger watches, for its label.
+ */
+export function customAutomation(id: string, config: CustomAutomationConfig, version: number, channelName?: string): Automation {
+	const t = config.trigger;
 	const trigger: AutomationTrigger =
-		config.trigger.type === "schedule"
-			? config.trigger
-			: {
-					type: "webhook",
-					label: "When another app sends a webhook",
-					sample: { id: "sample", data: { note: "A sample event. Real ones carry whatever the sending app puts here." } },
-				};
+		t.type === "schedule"
+			? t
+			: t.type === "webhook"
+				? {
+						type: "webhook",
+						label: "When another app sends a webhook",
+						sample: { id: "sample", data: { note: "A sample event. Real ones carry whatever the sending app puts here." } },
+					}
+				: t.event === "message.posted"
+					? { type: "event", event: t.event, channelId: t.channelId, label: `When someone posts in #${channelName ?? "a channel"}` }
+					: { type: "event", event: t.event, label: appEvents[t.event].label };
 	return {
 		id,
 		name: config.name.trim(),
@@ -214,7 +250,7 @@ const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /** "Weekdays at 8:00 AM", "When a call ends". */
 export function describeTrigger(trigger: AutomationTrigger): string {
-	if (trigger.type === "webhook") return trigger.label;
+	if (trigger.type !== "schedule") return trigger.label;
 	const [h, m] = trigger.time.split(":").map(Number) as [number, number];
 	const time = `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
 	const days = [...trigger.weekdays].sort().join();

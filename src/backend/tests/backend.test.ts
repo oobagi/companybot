@@ -622,93 +622,93 @@ describe("connectors", () => {
 
 describe("automations", () => {
 	const tz = "America/Los_Angeles";
+	type As = Awaited<ReturnType<typeof signIn>>;
 	/** Who wrote each message in this person's DM with the agent, and which automation sent it. */
-	const dmWith = async (as: Awaited<ReturnType<typeof signIn>>, agentId: Id<"agents">) => {
+	const dmWith = async (as: As, agentId: Id<"agents">) => {
 		const dmId = (await as.query(api.chats.list))?.agents.find((a) => a._id === agentId)?.dmId;
 		const messages = dmId ? await as.query(api.messages.list, { chatId: dmId }) : [];
 		return messages.map((m) => [m.author.type, m.automation?.name ?? null]);
 	};
-
-	it("lets only owners install, and needs required connectors first", async () => {
-		const { owner, member } = await ownerAndMember();
-		await expect(
-			member.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: true, timeZone: tz }),
-		).rejects.toThrow("permission");
-		await expect(
-			owner.mutation(api.automations.setInstalled, { automationId: "crm-digest", installed: true, timeZone: tz }),
-		).rejects.toThrow("Install the CRM connector first");
-		await owner.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: true, timeZone: tz });
-		const brief = (await member.query(api.automations.list)).find((a) => a.id === "morning-brief")!;
-		expect([brief.installed, brief.enabled, brief.agentName, brief.trigger]).toEqual([
-			true,
-			true,
-			"Companybot",
-			"Weekdays at 8:00 AM",
-		]);
-	});
-
-	it("runs a schedule for everyone once a day, marked as the automation's", async () => {
-		const { t, owner, member } = await ownerAndMember();
-		await owner.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: true, timeZone: tz });
-		// Pretend it last ran long ago, then let the tick find it due (on a weekday after 8am).
+	const find = async (as: As, id: string) => (await as.query(api.automations.list)).find((a) => a.id === id);
+	/** Runs the scheduler on a Thursday 10am in LA, with every schedule due. */
+	async function tickThursday(t: ReturnType<typeof convexTest>) {
 		await t.run(async (ctx) => {
-			const install = (await ctx.db.query("automationInstalls").first())!;
-			await ctx.db.patch(install._id, { lastRunDate: "2000-01-01" });
+			for (const install of await ctx.db.query("automationInstalls").collect()) await ctx.db.patch(install._id, { lastRunDate: "2000-01-01" });
 		});
-		vi.useFakeTimers({ now: Date.UTC(2026, 9, 22, 16), toFake: ["Date"] }); // Thu 9am in LA
-		try {
-			await t.mutation(internal.automations.tick);
-			await t.mutation(internal.automations.tick);
-		} finally {
-			vi.useRealTimers();
-		}
-		const { companybot } = await agentsOf(member);
-		expect(await dmWith(member, companybot._id)).toEqual([
-			["user", "Morning brief"],
-			["agent", null],
-		]);
-		const brief = (await owner.query(api.automations.list)).find((a) => a.id === "morning-brief")!;
-		expect(brief.lastResult).toBe("Sent to 2 people.");
-	});
-
-	it("skips turned-off automations and runs now for the owner alone", async () => {
-		const { owner, member } = await ownerAndMember();
-		await owner.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: true, timeZone: tz });
-		await owner.mutation(api.automations.update, { automationId: "morning-brief", enabled: false });
-		await owner.mutation(api.automations.runNow, { automationId: "morning-brief" });
-		const { companybot } = await agentsOf(owner);
-		expect(await dmWith(owner, companybot._id)).toHaveLength(2);
-		expect(await dmWith(member, companybot._id)).toHaveLength(0);
-		await expect(member.mutation(api.automations.runNow, { automationId: "morning-brief" })).rejects.toThrow("permission");
-	});
-
-	it("posts a schedule once in its channel, as the owner who picked it", async () => {
-		const { t, owner, member } = await ownerAndMember();
-		await owner.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: true, timeZone: tz });
-		const sales = await owner.mutation(api.chats.createChannel, { name: "sales", private: false });
-		await expect(member.mutation(api.automations.update, { automationId: "morning-brief", channelId: sales })).rejects.toThrow(
-			"permission",
-		);
-		await owner.mutation(api.automations.update, { automationId: "morning-brief", channelId: sales });
-		await t.run(async (ctx) => {
-			const install = (await ctx.db.query("automationInstalls").first())!;
-			await ctx.db.patch(install._id, { lastRunDate: "2000-01-01" });
-		});
-		vi.useFakeTimers({ now: Date.UTC(2026, 9, 22, 16), toFake: ["Date"] });
+		vi.useFakeTimers({ now: Date.UTC(2026, 9, 22, 17), toFake: ["Date"] });
 		try {
 			await t.mutation(internal.automations.tick);
 		} finally {
 			vi.useRealTimers();
 		}
-		const messages = await member.query(api.messages.list, { chatId: sales });
-		expect(messages.map((m) => [m.author.type, m.author.name, m.automation?.name ?? null])).toEqual([
-			["user", "owner@co.com", "Morning brief"],
-			["agent", "Companybot", null],
-		]);
-		const { companybot } = await agentsOf(member);
-		expect(await dmWith(member, companybot._id)).toHaveLength(0);
-		const brief = (await owner.query(api.automations.list)).find((a) => a.id === "morning-brief")!;
-		expect([brief.lastResult, brief.runsFor]).toEqual(["Posted in #sales.", "Posts once in #sales"]);
+	}
+	const install = (as: As, automationId: string) => as.mutation(api.automations.setInstalled, { automationId, installed: true, timeZone: tz });
+
+	describe("library", () => {
+		it("lets only owners install, needs connectors first, and turns it on for the installer only", async () => {
+			const { owner, member } = await ownerAndMember();
+			await expect(install(member, "morning-brief")).rejects.toThrow("permission");
+			await expect(install(owner, "crm-digest")).rejects.toThrow("Install the CRM connector first");
+			await install(owner, "morning-brief");
+			const brief = (await find(member, "morning-brief"))!;
+			expect([brief.installed, brief.audience, brief.subscribed, brief.subscriberCount, brief.trigger]).toEqual([
+				true,
+				"subscribers",
+				false,
+				1,
+				"Weekdays at 8:00 AM",
+			]);
+			expect((await find(owner, "morning-brief"))!.subscribed).toBe(true);
+		});
+
+		it("runs a schedule only for people who turned it on", async () => {
+			const { t, owner, member } = await ownerAndMember();
+			await install(owner, "morning-brief");
+			await tickThursday(t);
+			const { companybot } = await agentsOf(member);
+			expect(await dmWith(member, companybot._id)).toHaveLength(0);
+			expect(await dmWith(owner, companybot._id)).toEqual([
+				["user", "Morning brief"],
+				["agent", null],
+			]);
+
+			await member.mutation(api.automations.subscribe, { automationId: "morning-brief", on: true });
+			await tickThursday(t);
+			expect(await dmWith(member, companybot._id)).toHaveLength(2);
+			expect((await find(owner, "morning-brief"))!.lastResult).toBe("Sent to 2 people.");
+			await member.mutation(api.automations.subscribe, { automationId: "morning-brief", on: false });
+			expect((await find(member, "morning-brief"))!.subscribed).toBe(false);
+		});
+
+		it("posts once in a channel when an owner picks one; members can't change it", async () => {
+			const { t, owner, member } = await ownerAndMember();
+			await install(owner, "morning-brief");
+			const sales = await owner.mutation(api.chats.createChannel, { name: "sales", private: false });
+			const toSales = { automationId: "morning-brief", audience: "channel" as const, channelId: sales };
+			await expect(member.mutation(api.automations.update, toSales)).rejects.toThrow("permission");
+			await owner.mutation(api.automations.update, toSales);
+			await expect(member.mutation(api.automations.subscribe, { automationId: "morning-brief", on: true })).rejects.toThrow(
+				"isn't one people turn on",
+			);
+			await tickThursday(t);
+			const messages = await member.query(api.messages.list, { chatId: sales });
+			expect(messages.map((m) => [m.author.type, m.author.name, m.automation?.name ?? null])).toEqual([
+				["user", "owner@co.com", "Morning brief"],
+				["agent", "Companybot", null],
+			]);
+			const brief = (await find(owner, "morning-brief"))!;
+			expect([brief.lastResult, brief.runsFor]).toEqual(["Posted in #sales.", "Posts once in #sales"]);
+		});
+
+		it("runs now just for the person who clicked, if they can change it", async () => {
+			const { owner, member } = await ownerAndMember();
+			await install(owner, "morning-brief");
+			await owner.mutation(api.automations.update, { automationId: "morning-brief", enabled: false });
+			await owner.mutation(api.automations.runNow, { automationId: "morning-brief" });
+			const { companybot } = await agentsOf(owner);
+			expect(await dmWith(owner, companybot._id)).toHaveLength(2);
+			await expect(member.mutation(api.automations.runNow, { automationId: "morning-brief" })).rejects.toThrow("permission");
+		});
 	});
 
 	describe("webhooks", () => {
@@ -717,70 +717,64 @@ describe("automations", () => {
 
 		async function installed() {
 			const ctx = await ownerAndMember();
-			await ctx.owner.mutation(api.automations.setInstalled, { automationId: "after-call-summary", installed: true, timeZone: tz });
-			const find = async (as: typeof ctx.owner) =>
-				(await as.query(api.automations.list)).find((a) => a.id === "after-call-summary")!;
-			const url = (await find(ctx.owner)).webhookUrl!;
+			await install(ctx.owner, "after-call-summary");
+			const url = (await find(ctx.owner, "after-call-summary"))!.webhookUrl!;
 			const post = async (body: string, path = new URL(url, "http://x").pathname) => {
 				const res = await ctx.t.fetch(path, { method: "POST", body });
 				return [res.status, ((await res.json()) as { message: string }).message] as const;
 			};
-			return { ...ctx, find, url, post };
+			return { ...ctx, url, post };
 		}
 
-		it("gives owners alone a secret URL, and a new one on reset", async () => {
-			const { owner, member, find, url, post } = await installed();
+		it("shows the secret URL only to people who can change it, and resets it", async () => {
+			const { owner, member, url, post } = await installed();
 			expect(url).toMatch(/\/automations\/[0-9a-f]{48}$/);
-			expect((await find(member)).webhookUrl).toBeNull();
+			expect((await find(member, "after-call-summary"))!.webhookUrl).toBeNull();
 			await expect(member.mutation(api.automations.resetWebhook, { automationId: "after-call-summary" })).rejects.toThrow(
 				"permission",
 			);
 			await owner.mutation(api.automations.resetWebhook, { automationId: "after-call-summary" });
-			expect((await find(owner)).webhookUrl).not.toBe(url);
+			expect((await find(owner, "after-call-summary"))!.webhookUrl).not.toBe(url);
 			expect(await post(call("1"))).toEqual([404, "Unknown webhook URL."]);
 		});
 
-		it("runs for the person the event names, once per event id, with its data", async () => {
-			const { member, find, post } = await installed();
-			const person = { person: { email: "MEMBER@co.com" } };
-			expect(await post(call("c1", person))).toEqual([200, "Sent to 1 person."]);
-			expect(await post(call("c1", person))).toEqual([200, "Already received."]);
+		it("runs for the person named only if they turned it on, once per event id, with its data", async () => {
+			const { member, post } = await installed();
+			const named = { person: { email: "MEMBER@co.com" } };
+			expect(await post(call("c1", named))).toEqual([200, "Didn't run: the person it's for hasn't turned it on."]);
+			await member.mutation(api.automations.subscribe, { automationId: "after-call-summary", on: true });
+			expect(await post(call("c2", named))).toEqual([200, "Sent to 1 person."]);
+			expect(await post(call("c2", named))).toEqual([200, "Already received."]);
 			const { companybot } = await agentsOf(member);
 			expect(await dmWith(member, companybot._id)).toEqual([
 				["user", "After-call summary"],
 				["agent", null],
 			]);
 			const dmId = (await member.query(api.chats.list))!.agents.find((a) => a._id === companybot._id)!.dmId!;
-			const [prompt] = await member.query(api.messages.list, { chatId: dmId });
-			expect(prompt!.text).toContain("Leaky water heater.");
-
-			expect(await post(call("c2", { person: { email: "nobody@co.com" } }))).toEqual([
+			expect((await member.query(api.messages.list, { chatId: dmId }))[0]!.text).toContain("Leaky water heater.");
+			expect(await post(call("c3", { person: { email: "nobody@co.com" } }))).toEqual([
 				200,
-				"Didn't run: nobody here has the email nobody@co.com. Pick a channel to post every webhook there.",
+				"Didn't run: nobody here has the email nobody@co.com.",
 			]);
-			expect(await post(call("c3"))).toEqual([
-				200,
-				"Didn't run: the webhook didn't say who it's for. Pick a channel to post them there.",
-			]);
-			expect((await find(member)).lastResult).toContain("didn't say who");
+			// Naming nobody: everyone who turned it on.
+			expect(await post(call("c4"))).toEqual([200, "Sent to 2 people."]);
 		});
 
 		it("posts in the channel when one is picked", async () => {
 			const { owner, member, post } = await installed();
 			const calls = await owner.mutation(api.chats.createChannel, { name: "calls", private: false });
-			await owner.mutation(api.automations.update, { automationId: "after-call-summary", channelId: calls });
+			await owner.mutation(api.automations.update, { automationId: "after-call-summary", audience: "channel", channelId: calls });
 			expect(await post(call("c1"))).toEqual([200, "Posted in #calls."]);
 			expect(await member.query(api.messages.list, { chatId: calls })).toHaveLength(2);
 		});
 
 		it("forgets event ids after a week, and when uninstalled", async () => {
 			const { t, owner, post } = await installed();
-			const person = { person: { email: "member@co.com" } };
-			await post(call("old", person));
+			await post(call("old"));
 			const events = () => t.run((ctx) => ctx.db.query("automationEvents").collect());
 			vi.useFakeTimers({ now: Date.now() + 8 * 24 * 60 * 60 * 1000, toFake: ["Date"] });
 			try {
-				await post(call("new", person));
+				await post(call("new"));
 				await t.mutation(internal.automations.forgetOldEvents);
 			} finally {
 				vi.useRealTimers();
@@ -801,92 +795,147 @@ describe("automations", () => {
 			expect(await post(call("1"))).toEqual([200, "Not run: the automation is off."]);
 		});
 	});
-	describe("made by owners", () => {
-		const daily = { type: "schedule" as const, time: "09:00", weekdays: [5, 1, 2, 3, 4] };
 
-		async function made(config: { name: string; prompt: string; trigger: typeof daily | { type: "webhook" } }) {
-			const ctx = await ownerAndMember();
-			const { companybot } = await agentsOf(ctx.owner);
-			const automationId = await ctx.owner.mutation(api.automations.create, {
-				config,
+	describe("made by anyone", () => {
+		const daily = { type: "schedule" as const, time: "09:00", weekdays: [5, 1, 2, 3, 4] };
+		async function make(as: As, config: { name: string; prompt: string; trigger: unknown }, audience: "creator" | "subscribers" | "channel" = "creator", channelId?: Id<"chats">) {
+			const { companybot } = await agentsOf(as);
+			return as.mutation(api.automations.create, {
+				config: config as never,
 				agentId: companybot._id,
-				channelId: null,
+				audience,
+				channelId,
 				timeZone: tz,
 			});
-			const find = async () => (await ctx.owner.query(api.automations.list)).find((a) => a.id === automationId)!;
-			return { ...ctx, companybot, automationId, find };
 		}
 
-		it("lets only owners make one, and checks what they wrote", async () => {
-			const { member, companybot } = await made({ name: "Standup", prompt: "Ask what I'm on today.", trigger: daily });
-			const make = (config: { name: string; prompt: string; trigger: typeof daily }) =>
-				member.mutation(api.automations.create, { config, agentId: companybot._id, channelId: null, timeZone: tz });
-			await expect(make({ name: "Mine", prompt: "Hi", trigger: daily })).rejects.toThrow("permission");
-			const list = await member.query(api.automations.list);
-			expect(list[0]).toMatchObject({ name: "Standup", publisher: "Your team", trigger: "Weekdays at 9:00 AM", installed: true });
-			expect(list[0]!.custom).toMatchObject({ version: 1, trigger: { weekdays: [1, 2, 3, 4, 5] } });
-		});
+		it("lets members make their own, private to them, and checks what they wrote", async () => {
+			const { t, owner, member } = await ownerAndMember();
+			const id = await make(member, { name: "Standup", prompt: "Ask what I'm on today.", trigger: daily });
+			expect(await find(owner, id)).toBeUndefined();
+			const mine = (await find(member, id))!;
+			expect(mine).toMatchObject({ name: "Standup", publisher: "Your team", trigger: "Weekdays at 9:00 AM", audience: "creator", canEdit: true });
+			expect(mine.custom).toMatchObject({ version: 1, trigger: { weekdays: [1, 2, 3, 4, 5] } });
+			await expect(make(member, { name: " ", prompt: "y", trigger: daily })).rejects.toThrow("Give it a name.");
+			await expect(make(member, { name: "x", prompt: "", trigger: daily })).rejects.toThrow("Say what the agent should do.");
+			await expect(make(member, { name: "x", prompt: "y", trigger: { ...daily, time: "25:00" } })).rejects.toThrow("Pick a time.");
+			await expect(make(member, { name: "x", prompt: "y", trigger: { ...daily, weekdays: [] } })).rejects.toThrow("Pick at least one day.");
 
-		it("refuses bad configs", async () => {
-			const { owner, companybot } = await made({ name: "x", prompt: "y", trigger: daily });
-			const make = (config: { name: string; prompt: string; trigger: typeof daily }) =>
-				owner.mutation(api.automations.create, { config, agentId: companybot._id, channelId: null, timeZone: tz });
-			await expect(make({ name: " ", prompt: "y", trigger: daily })).rejects.toThrow("Give it a name.");
-			await expect(make({ name: "x", prompt: "", trigger: daily })).rejects.toThrow("Say what the agent should do.");
-			await expect(make({ name: "x", prompt: "y", trigger: { ...daily, time: "25:00" } })).rejects.toThrow("Pick a time.");
-			await expect(make({ name: "x", prompt: "y", trigger: { ...daily, weekdays: [] } })).rejects.toThrow("Pick at least one day.");
-		});
-
-		it("runs on its schedule with its own prompt", async () => {
-			const { t, member, companybot, automationId } = await made({ name: "Standup", prompt: "Ask what I'm on today.", trigger: daily });
-			await t.run(async (ctx) => {
-				const install = (await ctx.db.query("automationInstalls").first())!;
-				await ctx.db.patch(install._id, { lastRunDate: "2000-01-01" });
-			});
-			vi.useFakeTimers({ now: Date.UTC(2026, 9, 22, 17), toFake: ["Date"] }); // Thu 10am in LA
-			try {
-				await t.mutation(internal.automations.tick);
-			} finally {
-				vi.useRealTimers();
-			}
+			await tickThursday(t);
+			const { companybot } = await agentsOf(member);
 			expect(await dmWith(member, companybot._id)).toEqual([
 				["user", "Standup"],
 				["agent", null],
 			]);
-			expect(automationId).toMatch(/^custom-/);
+			expect(await dmWith(owner, companybot._id)).toHaveLength(0);
 		});
 
-		it("saves edits with version checks, and a webhook URL only while it's a webhook", async () => {
-			const { owner, member, automationId, find } = await made({ name: "Leads", prompt: "Post the lead.", trigger: daily });
-			expect((await find()).webhookUrl).toBeNull();
+		it("lets the creator or an owner change it, nobody else", async () => {
+			const { t, owner, member } = await ownerAndMember();
+			await owner.mutation(api.workspace.invite, { email: "other@co.com", role: "member" });
+			const other = await signIn(t, "other@co.com");
+			const id = await make(member, { name: "Leads", prompt: "Post the lead.", trigger: daily }, "subscribers");
 			const config = { name: "New leads", prompt: "Post the lead.", trigger: { type: "webhook" as const } };
-			await expect(member.mutation(api.automations.save, { automationId, config, expectedVersion: 1 })).rejects.toThrow(
+			await expect(other.mutation(api.automations.save, { automationId: id, config, expectedVersion: 1 })).rejects.toThrow("permission");
+			expect((await find(other, id))!.canEdit).toBe(false);
+			await owner.mutation(api.automations.save, { automationId: id, config, expectedVersion: 1 });
+			await expect(member.mutation(api.automations.save, { automationId: id, config, expectedVersion: 1 })).rejects.toThrow();
+			const saved = (await find(member, id))!;
+			expect([saved.name, saved.trigger, saved.custom!.version]).toEqual(["New leads", "When another app sends a webhook", 2]);
+			expect(saved.webhookUrl).toMatch(/\/automations\/[0-9a-f]{48}$/);
+			await member.mutation(api.automations.save, { automationId: id, config: { ...config, trigger: daily }, expectedVersion: 2 });
+			expect((await find(member, id))!.webhookUrl).toBeNull();
+			await expect(other.mutation(api.automations.setInstalled, { automationId: id, installed: false, timeZone: tz })).rejects.toThrow(
 				"permission",
 			);
-			await owner.mutation(api.automations.save, { automationId, config, expectedVersion: 1 });
-			await expect(owner.mutation(api.automations.save, { automationId, config, expectedVersion: 1 })).rejects.toThrow();
-			const saved = await find();
-			expect([saved.name, saved.trigger, saved.custom!.version]).toEqual(["New leads", "When another app sends a webhook", 2]);
-			const url = saved.webhookUrl!;
-
-			expect(url).toMatch(/\/automations\/[0-9a-f]{48}$/);
-			await owner.mutation(api.automations.save, { automationId, config: { ...config, trigger: daily }, expectedVersion: 2 });
-			expect((await find()).webhookUrl).toBeNull();
+			await member.mutation(api.automations.setInstalled, { automationId: id, installed: false, timeZone: tz });
+			expect(await find(member, id)).toBeUndefined();
 		});
 
-		it("takes any webhook body, and deletes like an uninstall", async () => {
-			const { t, owner, automationId, find } = await made({ name: "Forms", prompt: "Post the form.", trigger: { type: "webhook" } });
+		it("takes any webhook body when it has no named event", async () => {
+			const { t, owner } = await ownerAndMember();
 			const sales = await owner.mutation(api.chats.createChannel, { name: "sales", private: false });
-			await owner.mutation(api.automations.update, { automationId, channelId: sales });
-			const path = new URL((await find()).webhookUrl!, "http://x").pathname;
+			const id = await make(owner, { name: "Forms", prompt: "Post the form.", trigger: { type: "webhook" } }, "channel", sales);
+			const path = new URL((await find(owner, id))!.webhookUrl!, "http://x").pathname;
 			const post = async (body: object) => (await t.fetch(path, { method: "POST", body: JSON.stringify(body) })).status;
 			expect(await post({ id: "f1", data: { email: "a@b.com" } })).toBe(200);
 			expect(await post({ event: "form.submitted", id: "f2" })).toBe(200);
 			const posted = (await owner.query(api.messages.list, { chatId: sales })).filter((m) => m.automation);
 			expect(posted.map((m) => m.automation!.name)).toEqual(["Forms", "Forms"]);
-			await owner.mutation(api.automations.setInstalled, { automationId, installed: false, timeZone: tz });
-			expect((await owner.query(api.automations.list)).some((a) => a.id === automationId)).toBe(false);
-			expect(await post({ id: "f3" })).toBe(404);
+		});
+	});
+
+	describe("in-app events", () => {
+		it("replies in the thread of a message posted in the channel it watches", async () => {
+			const { owner, member } = await ownerAndMember();
+			const support = await owner.mutation(api.chats.createChannel, { name: "support", private: false });
+			const other = await owner.mutation(api.chats.createChannel, { name: "random", private: false });
+			const { companybot } = await agentsOf(owner);
+			await owner.mutation(api.automations.create, {
+				config: { name: "Triage", prompt: "Tag the request.", trigger: { type: "event", event: "message.posted", channelId: support } },
+				agentId: companybot._id,
+				audience: "channel",
+				channelId: support,
+				timeZone: tz,
+			});
+			expect((await find(owner, (await owner.query(api.automations.list))[0]!.id))!.trigger).toBe("When someone posts in #support");
+			const send = (chatId: Id<"chats">, text: string) =>
+				member.mutation(api.messages.send, { chatId, text, mentions: { userIds: [], agentIds: [] } });
+			await send(other, "unrelated");
+			const messageId = await send(support, "My invoice is wrong");
+			const top = await member.query(api.messages.list, { chatId: support });
+			expect(top.map((m) => m.text)).toEqual(["My invoice is wrong"]);
+			const [, ...replies] = await member.query(api.messages.list, { chatId: support, threadId: messageId });
+			expect(replies.map((m) => [m.author.type, m.automation?.name ?? null])).toEqual([
+				["user", "Triage"],
+				["agent", null],
+			]);
+			expect(replies[0]!.text).toContain("My invoice is wrong");
+		});
+
+		it("gives people only events from chats they can see", async () => {
+			const { owner, member } = await ownerAndMember();
+			const board = await owner.mutation(api.chats.createChannel, { name: "board", private: true });
+			const { companybot } = await agentsOf(member);
+			await expect(
+				member.mutation(api.automations.create, {
+					config: { name: "Spy", prompt: "x", trigger: { type: "event", event: "message.posted", channelId: board } },
+					agentId: companybot._id,
+					audience: "creator",
+					timeZone: tz,
+				}),
+			).rejects.toThrow("That channel isn't available.");
+			await owner.mutation(api.automations.create, {
+				config: { name: "Board notes", prompt: "Note it.", trigger: { type: "event", event: "message.posted", channelId: board } },
+				agentId: companybot._id,
+				audience: "subscribers",
+				timeZone: tz,
+			});
+			const id = (await owner.query(api.automations.list))[0]!.id;
+			await member.mutation(api.automations.subscribe, { automationId: id, on: true });
+			await owner.mutation(api.messages.send, { chatId: board, text: "Raise prices", mentions: { userIds: [], agentIds: [] } });
+			expect(await dmWith(member, companybot._id)).toHaveLength(0);
+			expect(await dmWith(owner, companybot._id)).toEqual([
+				["user", "Board notes"],
+				["agent", null],
+			]);
+		});
+
+		it("runs when someone joins the workspace", async () => {
+			const { t, owner } = await ownerAndMember();
+			const { companybot } = await agentsOf(owner);
+			await owner.mutation(api.automations.create, {
+				config: { name: "Welcome", prompt: "Welcome them.", trigger: { type: "event", event: "member.joined" } },
+				agentId: companybot._id,
+				audience: "creator",
+				timeZone: tz,
+			});
+			await owner.mutation(api.workspace.invite, { email: "new@co.com", role: "member" });
+			await signIn(t, "new@co.com");
+			expect(await dmWith(owner, companybot._id)).toEqual([
+				["user", "Welcome"],
+				["agent", null],
+			]);
 		});
 	});
 });
@@ -994,5 +1043,35 @@ describe("migrations", () => {
 		expect(rows.connections.map((r) => [r.connectorId, r.credentials])).toEqual([["crm", "enc"]]);
 		expect(rows.flows.map((r) => [r.connectorId, r.state])).toEqual([["crm", "s"]]);
 		expect(await owner.query(api.connectors.list)).toContainEqual(expect.objectContaining({ id: "crm", installed: true }));
+	});
+
+	it("gives old automation installs an audience, keeping channels and subscribing the installer", async () => {
+		const t = convexTest(schema, modules);
+		migrationsTest.register(t);
+		await signIn(t, "owner@co.com");
+		const ids = await t.run(async (ctx) => {
+			const { userId, workspaceId } = (await ctx.db.query("members").first())!;
+			const agentId = (await ctx.db.query("agents").first())!._id;
+			const channelId = (await ctx.db.query("chats").first())!._id;
+			const base = { workspaceId, agentId, enabled: true, timeZone: "UTC", installedBy: userId };
+			return {
+				userId,
+				dms: await ctx.db.insert("automationInstalls", { ...base, automationId: "morning-brief" }),
+				channel: await ctx.db.insert("automationInstalls", { ...base, automationId: "after-call-summary", channelId }),
+			};
+		});
+		vi.useFakeTimers();
+		try {
+			await t.mutation(internal.migrations.runAll);
+			await t.finishAllScheduledFunctions(vi.runAllTimers);
+		} finally {
+			vi.useRealTimers();
+		}
+		const after = await t.run(async (ctx) => ({
+			dms: (await ctx.db.get(ids.dms))!.audience,
+			channel: (await ctx.db.get(ids.channel))!.audience,
+			subs: (await ctx.db.query("automationSubscriptions").collect()).map((s) => [s.installId, s.userId]),
+		}));
+		expect(after).toEqual({ dms: "subscribers", channel: "channel", subs: [[ids.dms, ids.userId]] });
 	});
 });

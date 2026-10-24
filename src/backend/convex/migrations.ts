@@ -38,11 +38,25 @@ export const connectorOAuthFlows = migrations.define({
 	},
 });
 
+// Automations got audiences: installs from before ran for everyone (or a channel). Keep
+// channels; the rest now run for people who turn them on, starting with whoever set it up.
+export const automationAudiences = migrations.define({
+	table: "automationInstalls",
+	migrateOne: async (ctx, install) => {
+		if (install.audience) return;
+		const audience = install.channelId ? "channel" : "subscribers";
+		await ctx.db.patch(install._id, { audience });
+		if (audience === "subscribers")
+			await ctx.db.insert("automationSubscriptions", { installId: install._id, userId: install.installedBy });
+	},
+});
+
 /** Every migration, oldest first. Never reorder or remove entries that have shipped. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.connectorInstalls,
 	internal.migrations.connectorConnections,
 	internal.migrations.connectorOAuthFlows,
+	internal.migrations.automationAudiences,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

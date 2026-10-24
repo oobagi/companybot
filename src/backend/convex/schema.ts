@@ -47,7 +47,12 @@ export const replyStats = v.object({
 export const customTrigger = v.union(
 	v.object({ type: v.literal("schedule"), time: v.string(), weekdays: v.array(v.number()) }),
 	v.object({ type: v.literal("webhook") }),
+	v.object({ type: v.literal("event"), event: v.literal("message.posted"), channelId: v.string() }),
+	v.object({ type: v.literal("event"), event: v.literal("member.joined") }),
 );
+
+/** core's AutomationAudience. */
+export const audience = v.union(v.literal("creator"), v.literal("subscribers"), v.literal("channel"));
 
 export default defineSchema({
 	...authTables,
@@ -333,7 +338,9 @@ export default defineSchema({
 		lastRunAt: v.optional(v.number()),
 		/** What the last run did, in a line, e.g. "Sent to 3 people". */
 		lastResult: v.optional(v.string()),
-		/** Post each run here, once, instead of in each person's DM. */
+		/** Who it runs for. Unset on installs from before audiences: read with `audienceOf`. */
+		audience: v.optional(audience),
+		/** Audience "channel": post each run here, once. */
 		channelId: v.optional(v.id("chats")),
 		/** The owner who picked the channel; channel runs act as them (or another owner if they've left). */
 		channelSetBy: v.optional(v.id("users")),
@@ -354,6 +361,14 @@ export default defineSchema({
 		.index("by_workspace", ["workspaceId", "automationId"])
 		.index("by_enabled", ["enabled"])
 		.index("by_webhook", ["webhookToken"]),
+
+	// People who turned on an automation whose audience is "subscribers".
+	automationSubscriptions: defineTable({
+		installId: v.id("automationInstalls"),
+		userId: v.id("users"),
+	})
+		.index("by_install", ["installId", "userId"])
+		.index("by_user", ["userId"]),
 
 	// Webhook events already run, by the sender's event id, so a retried delivery runs once.
 	automationEvents: defineTable({

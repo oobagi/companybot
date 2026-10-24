@@ -1,3 +1,4 @@
+import { fireEvent } from "./automations";
 import { can } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
@@ -5,7 +6,7 @@ import type { Id } from "./_generated/dataModel";
 import { type QueryCtx, mutation, query } from "./_generated/server";
 import { seedAgents } from "./agents";
 import { addToChat, ensureGeneral } from "./chatOps";
-import { checkVersion, getMember, namesOf, normalizeEmail, requirePermission, timeZoneOf } from "./lib";
+import { checkVersion, getMember, nameOf, namesOf, normalizeEmail, requirePermission, timeZoneOf } from "./lib";
 import { role } from "./schema";
 
 export const me = query({
@@ -38,6 +39,9 @@ export const ensure = mutation({
 			await ctx.db.insert("members", { workspaceId: invite.workspaceId, userId, role: invite.role });
 			await ctx.db.delete(invite._id);
 			await addToChat(ctx, await ensureGeneral(ctx, invite.workspaceId, userId), { userId });
+			await fireEvent(ctx, invite.workspaceId, "member.joined", {
+				data: { name: await nameOf(ctx, userId), email, role: invite.role },
+			});
 			return;
 		}
 

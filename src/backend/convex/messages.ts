@@ -1,3 +1,4 @@
+import { fireEvent } from "./automations";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, mutation, query } from "./_generated/server";
@@ -14,7 +15,7 @@ import {
 	toggleReaction,
 	visibleChat,
 } from "./chatOps";
-import { type Member, memberOf, requireMember } from "./lib";
+import { type Member, memberOf, nameOf, requireMember } from "./lib";
 import type { messagePart, replyStats } from "./schema";
 import { enqueueTurn } from "./turns";
 
@@ -167,6 +168,15 @@ export const send = mutation({
 		}
 		for (const agentId of responders) {
 			await enqueueTurn(ctx, chat, { agentId, chatId, threadId, triggerId: messageId, actorId: member.userId });
+		}
+		// People's top-level channel messages can start automations. Agents' and automations'
+		// posts don't go through here, so automations can't set each other off.
+		if (chat.kind === "channel" && !threadId) {
+			await fireEvent(ctx, chat.workspaceId, "message.posted", {
+				channelId: chatId,
+				messageId,
+				data: { channel: `#${chat.name}`, author: await nameOf(ctx, member.userId), text },
+			});
 		}
 		return messageId;
 	},
