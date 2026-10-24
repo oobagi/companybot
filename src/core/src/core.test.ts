@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ACTIVITY_MAX_CHARS, clipJson, describeCall } from "./activity";
 import { buildToolSet, describeToolAccess, grantedPluginIds, resolveTools, validateAgentConfig } from "./agents";
 import { builtinTools } from "./builtin-tools";
 import { describeTrigger, findAutomation, isValidTimeZone, scheduleDue } from "./automations";
@@ -475,5 +476,42 @@ describe("automations", () => {
 		expect(describeTrigger(brief.trigger)).toBe("Weekdays at 8:00 AM");
 		expect(isValidTimeZone(la)).toBe(true);
 		expect(isValidTimeZone("Mars/Base")).toBe(false);
+	});
+});
+
+describe("activity log", () => {
+	const notesFind: ToolDef = {
+		id: "notes.find",
+		description: "Find notes",
+		input: z.object({}),
+		readOnly: true,
+		source: { type: "plugin", pluginId: "notes" },
+		execute: async () => [],
+	};
+	const tools = [...builtinTools, notesFind];
+
+	it("logs calls by tool id, and plugin calls as the tool they ran", () => {
+		expect(describeCall(modelToolName("memory.remember"), { content: "x" }, tools)).toEqual({
+			tool: "memory.remember",
+			input: { content: "x" },
+			changes: true,
+		});
+		expect(describeCall(modelToolName("clock.now"), {}, tools)?.changes).toBe(false);
+		expect(describeCall("plugins_call", { tool: "notes.find", input: { q: "a" } }, tools)).toEqual({
+			tool: "notes.find",
+			input: { q: "a" },
+			changes: false,
+		});
+		expect(describeCall("plugins_call", { tool: "notes.gone", input: {} }, tools)?.changes).toBe(true);
+	});
+
+	it("skips widgets and tool search", () => {
+		expect(describeCall(modelToolName("widgets.table"), {}, tools)).toBeNull();
+		expect(describeCall("plugins_search", { query: "" }, tools)).toBeNull();
+	});
+
+	it("cuts long values", () => {
+		expect(clipJson({ a: 1 })).toBe('{\n  "a": 1\n}');
+		expect(clipJson("x".repeat(ACTIVITY_MAX_CHARS + 10))).toHaveLength(ACTIVITY_MAX_CHARS + "\n… (cut)".length);
 	});
 });

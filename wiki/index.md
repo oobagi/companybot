@@ -8,4 +8,4 @@ One line per page: `- [Title](path.md) — what it covers`. Keep this file a tab
 - [Extending](extending.md) — how to add tools, plugins, skills, permissions, roles, memory rules; invariants to keep
 - [Releases](releases.md) — cutting a release, CI, signing secrets, in-app updates
 - [Lessons](lessons.md) — what failed in Cottonwood/Night Owl and the rules that follow
-- [Competitors](competitors.md) — Dust, Lindy, Viktor, Polsia, Cofounder, Whop; gaps and what to copy
+- [Competitors](competitors.md) — Dust, Lindy, Viktor, Polsia, Cofounder, Whop, Buzz; gaps, what to copy, threat

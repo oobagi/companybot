@@ -18,6 +18,7 @@ import {
 	useRun,
 	useDraft,
 } from "../ui";
+import { ActivityTab } from "./Activity";
 import { MembersTab } from "./Members";
 import { MemoryTab } from "./Memory";
 
@@ -25,6 +26,7 @@ export const settingsTabs = [
 	{ id: "general", label: "General" },
 	{ id: "members", label: "Members" },
 	{ id: "memory", label: "Memory" },
+	{ id: "activity", label: "Activity" },
 	{ id: "profile", label: "Your preferences" },
 ] as const;
 export type SettingsTab = (typeof settingsTabs)[number]["id"];
@@ -36,6 +38,7 @@ export function SettingsView({ role, tab, onTab }: { role: Role; tab: SettingsTa
 			{tab === "general" && <GeneralTab role={role} />}
 			{tab === "members" && <MembersTab role={role} />}
 			{tab === "memory" && <MemoryTab role={role} />}
+			{tab === "activity" && <ActivityTab />}
 			{tab === "profile" && <ProfileTab />}
 		</Page>
 	);

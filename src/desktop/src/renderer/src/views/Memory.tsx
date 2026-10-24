@@ -143,7 +143,9 @@ function MemoryRow({ memory, agent }: { memory: MemoryItem; agent: string }) {
 				)}
 			</div>
 			<p className="text-xs text-neutral-400">
-				<span className="rounded bg-neutral-100 px-1.5 py-0.5 text-neutral-600">{agent}</span> · {memory.updatedByName} ·{" "}
+				<span className="rounded bg-neutral-100 px-1.5 py-0.5 text-neutral-600">{agent}</span> ·{" "}
+				{memory.updatedByName}
+				{memory.updatedByAgent && ", via agent"} ·{" "}
 				{timeAgo(Date.parse(memory.updatedAt))}
 			</p>
 		</div>

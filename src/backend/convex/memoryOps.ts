@@ -22,6 +22,7 @@ export const toMemory = (d: Doc<"memories">): Memory => ({
 	content: d.content,
 	updatedAt: new Date(d.updatedAt).toISOString(),
 	updatedBy: d.updatedBy,
+	...(d.updatedByAgent && { updatedByAgent: true }),
 	version: d.version,
 });
 
@@ -49,6 +50,7 @@ export async function createMemory(
 	agentId: Id<"agents">,
 	scope: MemoryScope,
 	content: string,
+	byAgent = false,
 ) {
 	if (!canCreateMemory(toActor(member), scope)) throw new ConvexError(deniedMessage("memory.team.write"));
 	await requireAgent(ctx, member, agentId);
@@ -61,6 +63,7 @@ export async function createMemory(
 		content: content.trim(),
 		updatedAt: Date.now(),
 		updatedBy: member.userId,
+		...(byAgent && { updatedByAgent: true }),
 		version: 1,
 	});
 	return toMemory((await ctx.db.get(id))!);
@@ -77,13 +80,17 @@ async function requireEditable(ctx: QueryCtx, member: Member, id: Id<"memories">
 	return doc;
 }
 
-/** `expectedVersion` comes from the app's edit form. Agents edit the latest, so they skip it. */
+/**
+ * `expectedVersion` comes from the app's edit form. Agents edit the latest, so they
+ * skip it; `byAgent` marks the change as theirs.
+ */
 export async function updateMemory(
 	ctx: MutationCtx,
 	member: Member,
 	id: Id<"memories">,
 	content: string,
 	expectedVersion?: number,
+	byAgent = false,
 ) {
 	const doc = await requireEditable(ctx, member, id);
 	if (expectedVersion !== undefined) checkVersion(doc.version, expectedVersion);
@@ -92,6 +99,7 @@ export async function updateMemory(
 		content: content.trim(),
 		updatedAt: Date.now(),
 		updatedBy: member.userId,
+		updatedByAgent: byAgent || undefined,
 		version: doc.version + 1,
 	});
 	return toMemory((await ctx.db.get(id))!);

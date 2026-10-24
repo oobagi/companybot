@@ -92,6 +92,8 @@ export default defineSchema({
 		content: v.string(),
 		updatedAt: v.number(),
 		updatedBy: v.id("users"),
+		/** Set when the agent made the last change, acting for `updatedBy`. */
+		updatedByAgent: v.optional(v.boolean()),
 		version: v.number(),
 	})
 		.index("by_workspace", ["workspaceId"])
@@ -258,6 +260,30 @@ export default defineSchema({
 		/** USD spent on this session's replies and summaries. */
 		costUsd: v.optional(v.number()),
 	}).index("by_place", ["agentId", "chatId", "threadId"]),
+
+	// The activity log: every tool call an agent made, acting for `actorId`. Readable by
+	// whoever can see the chat it happened in; `output` only by the person it acted for.
+	agentActivity: defineTable({
+		workspaceId: v.id("workspaces"),
+		agentId: v.id("agents"),
+		actorId: v.id("users"),
+		turnId: v.id("agentTurns"),
+		chatId: v.id("chats"),
+		threadId: v.optional(v.id("chatMessages")),
+		replyId: v.id("chatMessages"),
+		/** Same id as the reply's tool part, so the app can open one from the other. */
+		callId: v.string(),
+		tool: v.string(),
+		/** False only for read-only tools. */
+		changes: v.boolean(),
+		/** JSON, cut to ACTIVITY_MAX_CHARS. */
+		input: v.string(),
+		output: v.optional(v.string()),
+		error: v.optional(v.string()),
+		status: v.union(v.literal("done"), v.literal("error")),
+	})
+		.index("by_workspace", ["workspaceId"])
+		.index("by_reply", ["replyId"]),
 
 	// Automations: an owner installs one and picks the agent that runs it.
 	automationInstalls: defineTable({
