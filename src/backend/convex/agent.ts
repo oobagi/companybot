@@ -162,6 +162,7 @@ async function streamReply(
 		agent,
 		{
 			actor: { userId: member.userId, role: member.role },
+			timeZone: turn.actor.timeZone,
 			agentId: agent.id,
 			memory: memoryStore(ctx, member.userId, agent.id, turn.memory === "team"),
 			chat: chatStore(ctx, turnId),

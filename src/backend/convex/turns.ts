@@ -17,7 +17,7 @@ import {
 	textForModel,
 	toggleReaction,
 } from "./chatOps";
-import { type Member, installedSkills, memberOf } from "./lib";
+import { type Member, installedSkills, memberOf, timeZoneOf } from "./lib";
 import { messagePart, replyUsage } from "./schema";
 
 // The agent turn queue and everything the runner (agent.ts) reads and writes.
@@ -166,7 +166,12 @@ export const turnContext = internalQuery({
 			session: { id: session._id, summary: session.summary ?? null, turns },
 			/** Personal memories only in a DM with exactly one person. */
 			memory: chat.kind === "dm" && people === 1 ? ("personal" as const) : ("team" as const),
-			actor: { name: (await names.user(member.userId)).name, email: user?.email ?? "", role: member.role },
+			actor: {
+				name: (await names.user(member.userId)).name,
+				email: user?.email ?? "",
+				role: member.role,
+				timeZone: await timeZoneOf(ctx, member.userId),
+			},
 			place: {
 				kind: chat.kind,
 				name: chat.name ?? null,

@@ -1,4 +1,4 @@
-import { type Actor, type Permission, can, deniedMessage, skillCatalog } from "@companybot/core";
+import { type Actor, type Permission, can, deniedMessage, resolveTimeZone, skillCatalog } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError } from "convex/values";
 import type { Id } from "./_generated/dataModel";
@@ -77,6 +77,15 @@ export async function nameOf(ctx: QueryCtx, userId: Id<"users">) {
 		.first();
 	if (prefs?.displayName) return prefs.displayName;
 	return (await ctx.db.get(userId))?.email ?? "Someone";
+}
+
+/** Someone's time zone: the one they picked, else their computer's, else UTC. */
+export async function timeZoneOf(ctx: QueryCtx, userId: Id<"users">) {
+	const prefs = await ctx.db
+		.query("preferences")
+		.withIndex("by_user", (q) => q.eq("userId", userId))
+		.first();
+	return resolveTimeZone(prefs?.timeZone, prefs?.deviceTimeZone);
 }
 
 export const normalizeEmail = (email: string) => email.trim().toLowerCase();

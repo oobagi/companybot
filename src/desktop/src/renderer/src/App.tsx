@@ -42,6 +42,12 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	const { signOut } = useAuthActions();
 	const chats = useQuery(api.chats.list);
 	const prefs = useQuery(api.preferences.get);
+	const updatePrefs = useMutation(api.preferences.update);
+	// Automatic time zone: keep the backend's copy of this computer's zone current.
+	const deviceTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+	useEffect(() => {
+		if (prefs && prefs.deviceTimeZone !== deviceTimeZone) updatePrefs({ deviceTimeZone }).catch(() => {});
+	}, [prefs, deviceTimeZone, updatePrefs]);
 	// Screens are paths: /chat[/<chat>], /customize/<tab>[/<item>], /settings/<tab>.
 	const route = useRoute();
 	const view: View = views.find((v) => v === route[0]) ?? "chat";
