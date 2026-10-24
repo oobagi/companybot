@@ -1,11 +1,12 @@
 import { z } from "zod";
+import { automationTools } from "./automation-tools";
 import { chatTools } from "./chat";
 import { formatLocalTime } from "./time";
 import { type ToolDef, defineTool } from "./tools";
 import { widgetTools } from "./widgets";
 
 /**
- * Tools every workspace has. Not plugins: no outside service involved.
+ * Tools every workspace has. Not connectors: no outside service involved.
  * Memory tools go through ctx.memory, which enforces memory permissions, so a
  * tool never needs its own permission check.
  */
@@ -83,4 +84,5 @@ export const builtinTools: ToolDef[] = [
 	}),
 	...widgetTools,
 	...chatTools,
+	...automationTools,
 ];

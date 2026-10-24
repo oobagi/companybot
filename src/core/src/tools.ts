@@ -1,3 +1,4 @@
+import type { AutomationStore } from "./automation-tools";
 import type { FlexibleSchema, Tool } from "ai";
 import type { ChatStore } from "./chat";
 import type { MemoryStore } from "./memory";
@@ -15,6 +16,8 @@ export interface ToolContext {
 	chat: ChatStore;
 	/** Skills installed in the workspace. */
 	skills: Skill[];
+	/** Automations, as the actor can see and make them. */
+	automations: AutomationStore;
 	/** This turn's data results, by ref, so widgets can show them. */
 	results: ResultStore;
 }
@@ -41,14 +44,14 @@ export function createResultStore(): ResultStore {
 	};
 }
 
-export type ToolSource = { type: "builtin" } | { type: "plugin"; pluginId: string };
+export type ToolSource = { type: "builtin" } | { type: "connector"; connectorId: string };
 
 /**
- * A tool an agent can call. Built-in tools are defined in code; plugin tools are
- * discovered from the plugin's MCP server each turn (see mcp.ts). Both go through
+ * A tool an agent can call. Built-in tools are defined in code; connector tools are
+ * discovered from the connector's MCP server each turn (see mcp.ts). Both go through
  * the same grant and role checks in agents.ts.
  *
- * Ids are "group.name": "memory.search", or "<pluginId>.<toolName>" for plugins.
+ * Ids are "group.name": "memory.search", or "<connectorId>.<toolName>" for connectors.
  */
 export interface ToolDef<Input = any> {
 	id: string;
@@ -77,7 +80,7 @@ export const toolGroup = (id: string) => id.slice(0, id.indexOf("."));
 
 /**
  * Whether an agent's grants cover a tool. A grant is an exact id ("memory.search")
- * or a whole group ("memory.*", "gmail.*"), so new plugin tools are covered automatically.
+ * or a whole group ("memory.*", "gmail.*"), so new connector tools are covered automatically.
  */
 export const isGranted = (grants: readonly string[], toolId: string) =>
 	grants.includes(toolId) || grants.includes(`${toolGroup(toolId)}.*`);

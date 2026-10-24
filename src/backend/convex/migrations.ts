@@ -1,5 +1,5 @@
 import { type MigrationFunctionReference, Migrations } from "@convex-dev/migrations";
-import { components } from "./_generated/api";
+import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
 
@@ -12,8 +12,52 @@ import { internalMutation, internalQuery } from "./_generated/server";
 
 export const migrations = new Migrations<DataModel>(components.migrations);
 
+// "Plugins" became "connectors": move each row to its renamed table. Copy-then-delete,
+// so a re-run finds nothing left to move.
+export const connectorInstalls = migrations.define({
+	table: "pluginInstalls",
+	migrateOne: async (ctx, { _id, _creationTime, pluginId, ...rest }) => {
+		await ctx.db.insert("connectorInstalls", { ...rest, connectorId: pluginId });
+		await ctx.db.delete(_id);
+	},
+});
+
+export const connectorConnections = migrations.define({
+	table: "pluginConnections",
+	migrateOne: async (ctx, { _id, _creationTime, pluginId, ...rest }) => {
+		await ctx.db.insert("connectorConnections", { ...rest, connectorId: pluginId });
+		await ctx.db.delete(_id);
+	},
+});
+
+export const connectorOAuthFlows = migrations.define({
+	table: "pluginOAuthFlows",
+	migrateOne: async (ctx, { _id, _creationTime, pluginId, ...rest }) => {
+		await ctx.db.insert("connectorOAuthFlows", { ...rest, connectorId: pluginId });
+		await ctx.db.delete(_id);
+	},
+});
+
+// Automations got audiences: installs from before ran for everyone (or a channel). Keep
+// channels; the rest now run for people who turn them on, starting with whoever set it up.
+export const automationAudiences = migrations.define({
+	table: "automationInstalls",
+	migrateOne: async (ctx, install) => {
+		if (install.audience) return;
+		const audience = install.channelId ? "channel" : "subscribers";
+		await ctx.db.patch(install._id, { audience });
+		if (audience === "subscribers")
+			await ctx.db.insert("automationSubscriptions", { installId: install._id, userId: install.installedBy });
+	},
+});
+
 /** Every migration, oldest first. Never reorder or remove entries that have shipped. */
-const all: MigrationFunctionReference[] = [];
+const all: MigrationFunctionReference[] = [
+	internal.migrations.connectorInstalls,
+	internal.migrations.connectorConnections,
+	internal.migrations.connectorOAuthFlows,
+	internal.migrations.automationAudiences,
+];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */
 export const runAll = internalMutation({

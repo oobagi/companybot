@@ -1,5 +1,5 @@
 import type { AgentConfig } from "./agent-config";
-import { grantedPluginIds } from "./agents";
+import { grantedConnectorIds } from "./agents";
 import { chatTools } from "./chat";
 import { isGranted } from "./tools";
 import { widgetCatalog } from "./widgets";
@@ -26,11 +26,11 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">): string {
 			"- One widget per idea. Small things (1–2 rows) fit better in a sentence or list.",
 		);
 	}
-	if (grantedPluginIds(agent).length > 0) {
+	if (grantedConnectorIds(agent).length > 0) {
 		lines.push(
 			"",
 			"## Connected services",
-			"Tools for outside services aren't loaded up front. When a message lists connected services and you need one, call plugins_search: with an empty query first if you haven't used that service yet in this conversation (it lists every tool and the service's usage notes; follow them), then with a few words or exact tool ids to get input schemas. Run tools with plugins_call. Reuse what you found earlier in this conversation instead of searching again.",
+			"Tools for outside services aren't loaded up front. When a message lists connected services and you need one, call connectors_search: with an empty query first if you haven't used that service yet in this conversation (it lists every tool and the service's usage notes; follow them), then with a few words or exact tool ids to get input schemas. Run tools with connectors_call. Reuse what you found earlier in this conversation instead of searching again.",
 		);
 	}
 	if (chatTools.some((t) => isGranted(agent.tools, t.id))) {
@@ -43,6 +43,18 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">): string {
 			lines.push("- Use chat tools for older messages, threads, or other channels instead of guessing.");
 		}
 		if (isGranted(agent.tools, "chat.react")) lines.push("- A reaction (chat_react) can acknowledge a message; still reply when there's something to say.");
+	}
+	if (isGranted(agent.tools, "automations.create")) {
+		lines.push(
+			"",
+			"## Setting up automations",
+			"People can ask you to do something on a schedule, when something happens here, or when another app sends a webhook. Most aren't technical: never say \"trigger\", \"webhook\", or \"audience\" unless they do.",
+			"- Ask only for what's missing, one short question at a time: what you should do each time, when (time and days, or which channel to watch, or when someone joins), and who gets it (just them by default; \"anyone who turns it on\"; or a channel).",
+			"- Write the prompt as them asking you, specific enough to run alone later.",
+			"- Before creating it, show a 3-line summary (what, when, who gets it) and ask them to confirm. Then call automations_create and say where they can change it: Customize → Automations.",
+			"- Only offer a webhook if they mention an outside app that can send one; give them the URL it returns and say to keep it secret.",
+			"- To turn on an existing one for them (\"I want the morning brief too\"), find it with automations_list and use automations_set_mine.",
+		);
 	}
 	return lines.join("\n");
 }

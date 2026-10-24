@@ -16,7 +16,7 @@ Channels, DMs (people and agents), threads, and reactions. One model for all of 
 - **One turn per agent per place** (chat + thread). Extra mentions queue in `agentTurns`; a person's message always posts. A turn stuck `running` over 5 minutes is failed and the queue moves on.
 
 ## Whose access
-- The agent acts as **the person who triggered it** (`agentTurns.actorId`): their role, plugin connections, and what chats they can see. Re-read each call, as before.
+- The agent acts as **the person who triggered it** (`agentTurns.actorId`): their role, connector connections, and what chats they can see. Re-read each call, as before.
 - **Personal memories only in DMs with exactly one person.** Anywhere with 2+ people, agents read and write team memories only, so one person's private facts never land in a shared chat.
 - Chat tools (`chat.read`, `chat.search`) only see chats the actor can see.
 

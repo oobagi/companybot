@@ -1,4 +1,4 @@
-// Encrypts plugin credentials at rest with AES-GCM. The key lives only in the
+// Encrypts connector credentials at rest with AES-GCM. The key lives only in the
 // CONNECTIONS_KEY env var (32 random bytes, base64). Use from actions only:
 // mutations get deterministic randomness, which would repeat IVs.
 

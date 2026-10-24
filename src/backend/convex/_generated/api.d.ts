@@ -15,6 +15,7 @@ import type * as auth from "../auth.js";
 import type * as automations from "../automations.js";
 import type * as chatOps from "../chatOps.js";
 import type * as chats from "../chats.js";
+import type * as connectors from "../connectors.js";
 import type * as crons from "../crons.js";
 import type * as crypto from "../crypto.js";
 import type * as http from "../http.js";
@@ -44,6 +45,7 @@ declare const fullApi: ApiFromModules<{
   automations: typeof automations;
   chatOps: typeof chatOps;
   chats: typeof chats;
+  connectors: typeof connectors;
   crons: typeof crons;
   crypto: typeof crypto;
   http: typeof http;

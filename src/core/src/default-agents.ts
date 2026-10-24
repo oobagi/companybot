@@ -8,7 +8,7 @@ export const companybot = defineAgent({
 	model: "anthropic/claude-sonnet-5.5",
 	instructions:
 		"You are Companybot, an AI teammate inside the user's company workspace. Be brief and plain-spoken. Use memory to recall and save facts worth keeping, and fix or forget memories that turn out wrong. Only save team memories when the fact matters to everyone.",
-	tools: ["memory.*", "clock.now", "skills.load", "widgets.*", "chat.*"],
+	tools: ["memory.*", "clock.now", "skills.load", "widgets.*", "chat.*", "automations.*"],
 });
 
 export const scribe = defineAgent({

@@ -3,13 +3,13 @@ import {
 	type ChatStore,
 	type LoggedCall,
 	type MemoryStore,
-	type PluginCredentials,
-	type PluginSession,
-	PluginOAuth,
+	type ConnectorCredentials,
+	type ConnectorSession,
+	ConnectorOAuth,
 	type ReplyUsage,
-	PLUGIN_CALL,
+	CONNECTOR_CALL,
 	addStep,
-	calledPluginTool,
+	calledConnectorTool,
 	clipJson,
 	describeCall,
 	buildToolSet,
@@ -18,12 +18,12 @@ import {
 	builtinTools,
 	createResultStore,
 	emptyUsage,
-	findPlugin,
+	findConnector,
 	gatewayCost,
-	grantedPluginIds,
+	grantedConnectorIds,
 	isWidgetResult,
 	isWidgetToolName,
-	openPlugin,
+	openConnector,
 } from "@companybot/core";
 import { generateText, isStepCount, streamText } from "ai";
 import type { FunctionReturnType } from "convex/server";
@@ -32,15 +32,15 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { type ActionCtx, internalAction } from "./_generated/server";
 import { decrypt, encrypt } from "./crypto";
-import { oauthRedirectUrl } from "./plugins";
+import { oauthRedirectUrl } from "./connectors";
 import type { messagePart } from "./schema";
 
 const SUMMARY_MODEL = "anthropic/claude-haiku-5.5";
 /** Summarize once a session's context passes this many tokens (turns.startCompaction keeps a ~15k-token tail). */
 const COMPACT_TOKENS = 40_000;
 const FLUSH_MS = 200;
-/** A plugin that doesn't connect this fast is skipped for the turn, not waited on. */
-const PLUGIN_CONNECT_MS = 10_000;
+/** A connector that doesn't connect this fast is skipped for the turn, not waited on. */
+const CONNECTOR_CONNECT_MS = 10_000;
 
 /** Runs one agent turn (see turns.ts): streams the reply into the database, then starts the next queued turn. */
 export const respond = internalAction({
@@ -71,59 +71,59 @@ type TurnUsage = ReplyUsage & { firstTokenMs?: number };
 
 async function runTurn(ctx: ActionCtx, turnId: Id<"agentTurns">, usage: TurnUsage) {
 	const turn = await ctx.runQuery(internal.turns.turnContext, { turnId });
-	const plugins = await loadPlugins(ctx, turn.member.userId, turn.agent);
+	const connectors = await loadConnectors(ctx, turn.member.userId, turn.agent);
 	try {
-		await streamReply(ctx, turnId, turn, plugins, usage);
+		await streamReply(ctx, turnId, turn, connectors, usage);
 	} finally {
-		await Promise.allSettled(plugins.sessions.map((s) => s.close()));
-		await saveRefreshedTokens(ctx, plugins);
+		await Promise.allSettled(connectors.sessions.map((s) => s.close()));
+		await saveRefreshedTokens(ctx, connectors);
 	}
 	return turn.session.id;
 }
 
 type Turn = FunctionReturnType<typeof internal.turns.turnContext>;
-type LoadedPlugins = {
-	sessions: PluginSession[];
+type LoadedConnectors = {
+	sessions: ConnectorSession[];
 	unavailable: string[];
 	/** OAuth sign-ins in use, to save if the SDK refreshed their tokens. */
-	oauth: { connectionId: Id<"pluginConnections">; provider: PluginOAuth }[];
+	oauth: { connectionId: Id<"connectorConnections">; provider: ConnectorOAuth }[];
 };
 
-async function saveRefreshedTokens(ctx: ActionCtx, plugins: LoadedPlugins) {
-	for (const { connectionId, provider } of plugins.oauth) {
+async function saveRefreshedTokens(ctx: ActionCtx, connectors: LoadedConnectors) {
+	for (const { connectionId, provider } of connectors.oauth) {
 		if (!provider.changed) continue;
-		const credentials = await encrypt({ type: "oauth", oauth: provider.stored } satisfies PluginCredentials);
-		await ctx.runMutation(internal.plugins.updateCredentials, { connectionId, credentials });
+		const credentials = await encrypt({ type: "oauth", oauth: provider.stored } satisfies ConnectorCredentials);
+		await ctx.runMutation(internal.connectors.updateCredentials, { connectionId, credentials });
 	}
 }
 
 /**
- * Connects to the plugins this agent's grants reach and this person may use.
- * A failing plugin is skipped and the agent is told, so one bad connection never
+ * Connects to the connectors this agent's grants reach and this person may use.
+ * A failing connector is skipped and the agent is told, so one bad connection never
  * breaks the reply.
  */
-async function loadPlugins(ctx: ActionCtx, userId: Id<"users">, agent: Pick<AgentConfig, "tools">): Promise<LoadedPlugins> {
-	const pluginIds = grantedPluginIds(agent);
-	const oauth: LoadedPlugins["oauth"] = [];
-	if (pluginIds.length === 0) return { sessions: [], unavailable: [], oauth };
-	const usable = await ctx.runQuery(internal.plugins.forTurn, { userId, pluginIds });
+async function loadConnectors(ctx: ActionCtx, userId: Id<"users">, agent: Pick<AgentConfig, "tools">): Promise<LoadedConnectors> {
+	const connectorIds = grantedConnectorIds(agent);
+	const oauth: LoadedConnectors["oauth"] = [];
+	if (connectorIds.length === 0) return { sessions: [], unavailable: [], oauth };
+	const usable = await ctx.runQuery(internal.connectors.forTurn, { userId, connectorIds });
 	const results = await Promise.all(
-		usable.map(async ({ pluginId, connectionId, credentials }) => {
-			const plugin = findPlugin(pluginId)!;
+		usable.map(async ({ connectorId, connectionId, credentials }) => {
+			const connector = findConnector(connectorId)!;
 			try {
-				const creds: PluginCredentials = credentials ? await decrypt(credentials) : { type: "none" };
-				let authProvider: PluginOAuth | undefined;
+				const creds: ConnectorCredentials = credentials ? await decrypt(credentials) : { type: "none" };
+				let authProvider: ConnectorOAuth | undefined;
 				if (creds.type === "oauth" && connectionId) {
-					authProvider = new PluginOAuth(creds.oauth, oauthRedirectUrl(), false);
+					authProvider = new ConnectorOAuth(creds.oauth, oauthRedirectUrl(), false);
 					oauth.push({ connectionId, provider: authProvider });
 				}
-				const session = await openWithTimeout(openPlugin(plugin, { credentials: creds, authProvider }));
-				if (connectionId) await ctx.runMutation(internal.plugins.setConnectionError, { connectionId });
+				const session = await openWithTimeout(openConnector(connector, { credentials: creds, authProvider }));
+				if (connectionId) await ctx.runMutation(internal.connectors.setConnectionError, { connectionId });
 				return { session };
 			} catch (e) {
 				const message = e instanceof Error ? e.message : String(e);
-				if (connectionId) await ctx.runMutation(internal.plugins.setConnectionError, { connectionId, error: message });
-				return { unavailable: plugin.name };
+				if (connectionId) await ctx.runMutation(internal.connectors.setConnectionError, { connectionId, error: message });
+				return { unavailable: connector.name };
 			}
 		}),
 	);
@@ -134,14 +134,14 @@ async function loadPlugins(ctx: ActionCtx, userId: Id<"users">, agent: Pick<Agen
 	};
 }
 
-/** Gives up after PLUGIN_CONNECT_MS. A session that connects later anyway is closed, not leaked. */
-function openWithTimeout(opening: Promise<PluginSession>): Promise<PluginSession> {
+/** Gives up after CONNECTOR_CONNECT_MS. A session that connects later anyway is closed, not leaked. */
+function openWithTimeout(opening: Promise<ConnectorSession>): Promise<ConnectorSession> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const timeout = new Promise<never>((_, reject) => {
 		timer = setTimeout(() => {
 			reject(new Error("Timed out connecting."));
 			opening.then((s) => s.close()).catch(() => {});
-		}, PLUGIN_CONNECT_MS);
+		}, CONNECTOR_CONNECT_MS);
 	});
 	return Promise.race([opening, timeout]).finally(() => clearTimeout(timer));
 }
@@ -150,14 +150,14 @@ async function streamReply(
 	ctx: ActionCtx,
 	turnId: Id<"agentTurns">,
 	turn: Turn,
-	plugins: LoadedPlugins,
+	connectors: LoadedConnectors,
 	usage: TurnUsage,
 ) {
 	const { agent, member, replyId } = turn;
 	usage.model = agent.model;
-	// Plugin tools sorted by id, so the tool list is identical every turn and caches.
-	const pluginTools = plugins.sessions.flatMap((s) => s.tools).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-	const available = [...builtinTools, ...pluginTools];
+	// Connector tools sorted by id, so the tool list is identical every turn and caches.
+	const connectorTools = connectors.sessions.flatMap((s) => s.tools).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+	const available = [...builtinTools, ...connectorTools];
 	const tools = buildToolSet(
 		agent,
 		{
@@ -166,19 +166,24 @@ async function streamReply(
 			agentId: agent.id,
 			memory: memoryStore(ctx, member.userId, agent.id, turn.memory === "team"),
 			chat: chatStore(ctx, turnId),
+			automations: {
+				list: () => ctx.runQuery(internal.automations.listFor, { turnId }),
+				create: (input) => ctx.runMutation(internal.automations.createFor, { turnId, input }),
+				setMine: (input) => ctx.runMutation(internal.automations.setMineFor, { turnId, ...input }),
+			},
 			skills: turn.skills,
 			results: createResultStore(),
 		},
 		available,
-		plugins.sessions.map((s) => ({ ...s.plugin, instructions: s.instructions })),
+		connectors.sessions.map((s) => ({ ...s.connector, instructions: s.instructions })),
 	);
 
 	// Stored before the call: later turns replay this exact text, so the cache keeps hitting.
-	const connected = plugins.sessions.flatMap(({ plugin }) => {
-		const entry = findPlugin(plugin.id);
+	const connected = connectors.sessions.flatMap(({ connector }) => {
+		const entry = findConnector(connector.id);
 		return entry ? [{ name: entry.name, description: entry.description }] : [];
 	});
-	const prompt = buildTurnPrompt({ ...turn, agentId: agent.id, plugins: { connected, unavailable: plugins.unavailable } });
+	const prompt = buildTurnPrompt({ ...turn, agentId: agent.id, connectors: { connected, unavailable: connectors.unavailable } });
 	await ctx.runMutation(internal.turns.savePrompt, { turnId, prompt });
 	const input = buildTurnInput({ agent, skills: turn.skills, session: turn.session, prompt });
 
@@ -188,7 +193,7 @@ async function streamReply(
 		instructions: input.instructions,
 		messages: input.messages,
 		tools,
-		// Room for plugins_search + plugins_call + a widget + the answer.
+		// Room for connectors_search + connectors_call + a widget + the answer.
 		stopWhen: isStepCount(10),
 		headers: { "x-session-affinity": turn.session.id },
 		providerOptions: { gateway: { caching: "auto" } },
@@ -230,8 +235,8 @@ async function streamReply(
 				if (last?.type === "text") last.text += part.text;
 				else parts.push({ type: "text", text: part.text });
 			} else if (part.type === "tool-call") {
-				// A plugins_call shows as the tool it ran.
-				const name = part.toolName === PLUGIN_CALL ? (calledPluginTool(part.input) ?? part.toolName) : part.toolName;
+				// A connectors_call shows as the tool it ran.
+				const name = part.toolName === CONNECTOR_CALL ? (calledConnectorTool(part.input) ?? part.toolName) : part.toolName;
 				if (!isWidgetToolName(part.toolName)) setTool(part.toolCallId, name, "running");
 				const call = describeCall(part.toolName, part.input, available);
 				if (call) calls.set(part.toolCallId, call);

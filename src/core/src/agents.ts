@@ -2,8 +2,8 @@ import { type ToolSet, tool } from "ai";
 import type { AgentConfig } from "./agent-config";
 import { builtinTools } from "./builtin-tools";
 import { models } from "./models";
-import { type PluginService, pluginMetaTools } from "./plugin-tools";
-import { findPlugin } from "./plugins";
+import { type ConnectorService, connectorMetaTools } from "./connector-tools";
+import { findConnector } from "./connectors";
 import { type ToolContext, type ToolDef, isGranted, modelToolName, toolGroup } from "./tools";
 import type { Actor, Role } from "./types";
 
@@ -11,12 +11,12 @@ export const defineAgent = (agent: AgentConfig) => agent;
 
 const builtinGroups = new Set(builtinTools.map((t) => toolGroup(t.id)));
 
-/** A grant names a built-in tool, a built-in group, or a catalog plugin. */
+/** A grant names a built-in tool, a built-in group, or a catalog connector. */
 function isKnownGrant(grant: string) {
 	const group = toolGroup(grant);
 	if (!group) return false;
-	if (grant.endsWith(".*")) return builtinGroups.has(group) || !!findPlugin(group);
-	return builtinTools.some((t) => t.id === grant) || !!findPlugin(group);
+	if (grant.endsWith(".*")) return builtinGroups.has(group) || !!findConnector(group);
+	return builtinTools.some((t) => t.id === grant) || !!findConnector(group);
 }
 
 /** Returns a message people can read, or null if the config is fine. */
@@ -32,8 +32,8 @@ export function validateAgentConfig(config: AgentConfig): string | null {
 	return null;
 }
 
-/** Where a plugin stands for this person, from the backend. */
-export interface PluginState {
+/** Where a connector stands for this person, from the backend. */
+export interface ConnectorState {
 	id: string;
 	/** Roles the workspace allows to use it. */
 	roles: Role[];
@@ -48,17 +48,17 @@ export type ToolAccess =
 /**
  * For each of an agent's grants, whether this person can use it and why not.
  * A tool reaches the model only if the agent grants it, the person's role allows
- * it, and (for plugins) the plugin is installed, allowed, and connected.
+ * it, and (for connectors) the connector is installed, allowed, and connected.
  */
 export function describeToolAccess(
 	agent: Pick<AgentConfig, "tools">,
 	actor: Actor,
-	plugins: PluginState[] = [],
+	connectors: ConnectorState[] = [],
 ): ToolAccess[] {
 	return agent.tools.flatMap((id): ToolAccess[] => {
 		const group = toolGroup(id);
-		if (findPlugin(group)) {
-			const state = plugins.find((p) => p.id === group);
+		if (findConnector(group)) {
+			const state = connectors.find((p) => p.id === group);
 			if (!state) return [{ id, visible: false, reason: "not_installed" }];
 			if (!state.roles.includes(actor.role)) return [{ id, visible: false, reason: "role" }];
 			if (!state.connected) return [{ id, visible: false, reason: "not_connected" }];
@@ -75,8 +75,8 @@ export function describeToolAccess(
 
 /**
  * The tools this agent can use for this person, out of `available` (built-ins plus
- * whatever plugin tools were loaded for the turn). Plugin role checks happen when
- * plugins are loaded; tool-level `roles` are checked here.
+ * whatever connector tools were loaded for the turn). Connector role checks happen when
+ * connectors are loaded; tool-level `roles` are checked here.
  */
 export function resolveTools(
 	agent: Pick<AgentConfig, "tools">,
@@ -91,8 +91,8 @@ export function buildToolSet(
 	agent: Pick<AgentConfig, "tools">,
 	ctx: ToolContext,
 	available: ToolDef[] = builtinTools,
-	/** Connected plugins' names and usage notes, shown by plugins_search. */
-	services: PluginService[] = [],
+	/** Connected connectors' names and usage notes, shown by connectors_search. */
+	services: ConnectorService[] = [],
 ): ToolSet {
 	const tools: ToolSet = {};
 	const run = (t: ToolDef, input: unknown) => (t.returnsData ? withRef(t.execute(input, ctx), ctx) : t.execute(input, ctx));
@@ -105,10 +105,10 @@ export function buildToolSet(
 			...(t.toModelOutput && { toModelOutput: t.toModelOutput }),
 		});
 	}
-	// Plugin tools load on demand (see plugin-tools.ts). Present whenever the agent is
-	// granted a plugin, connected or not, so the tool list stays the same turn to turn.
-	const pluginTools = resolved.filter((t) => t.source.type === "plugin");
-	if (pluginTools.length > 0 || grantedPluginIds(agent).length > 0) Object.assign(tools, pluginMetaTools(pluginTools, services, run));
+	// Connector tools load on demand (see connector-tools.ts). Present whenever the agent is
+	// granted a connector, connected or not, so the tool list stays the same turn to turn.
+	const connectorTools = resolved.filter((t) => t.source.type === "connector");
+	if (connectorTools.length > 0 || grantedConnectorIds(agent).length > 0) Object.assign(tools, connectorMetaTools(connectorTools, services, run));
 	return tools;
 }
 
@@ -119,6 +119,6 @@ async function withRef(output: Promise<unknown>, ctx: ToolContext) {
 	return { ref: ctx.results.save(data), data };
 }
 
-/** Plugins an agent's grants reach, so the runner only connects to those. */
-export const grantedPluginIds = (agent: Pick<AgentConfig, "tools">) =>
-	[...new Set(agent.tools.map(toolGroup))].filter((group) => !!findPlugin(group));
+/** Connectors an agent's grants reach, so the runner only connects to those. */
+export const grantedConnectorIds = (agent: Pick<AgentConfig, "tools">) =>
+	[...new Set(agent.tools.map(toolGroup))].filter((group) => !!findConnector(group));

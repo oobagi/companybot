@@ -11,11 +11,14 @@ export const permissions = {
 	"workspace.manage": { roles: ["owner"], label: "change workspace settings" },
 	"members.manage": { roles: ["owner"], label: "manage members" },
 	"agents.manage": { roles: ["owner"], label: "change agents" },
-	"plugins.manage": { roles: ["owner"], label: "manage plugins" },
-	/** Connect your own account to a plugin that uses personal connections. */
-	"plugins.connect": { roles: ["owner", "member"], label: "connect plugins" },
+	"connectors.manage": { roles: ["owner"], label: "manage connectors" },
+	/** Connect your own account to a connector that uses personal connections. */
+	"connectors.connect": { roles: ["owner", "member"], label: "connect connectors" },
 	"skills.manage": { roles: ["owner"], label: "manage skills" },
+	/** Install library automations, and change or delete anyone's (`canEditAutomation`). */
 	"automations.manage": { roles: ["owner"], label: "manage automations" },
+	/** Make your own automations. You can always change and delete the ones you made. */
+	"automations.create": { roles: ["owner", "member"], label: "make automations" },
 	"memory.team.write": { roles: ["owner"], label: "change team memories" },
 	"memory.all.read": { roles: ["owner"], label: "read everyone's memories" },
 	"channels.create": { roles: ["owner", "member"], label: "create channels" },
@@ -37,4 +40,9 @@ export const deniedMessage = (permission: Permission) =>
 /** Whether someone can rename a channel or add people to it: `channels.manage`, or they created it. */
 export function canManageChannel(who: Actor, channel: { createdBy: string }): boolean {
 	return can(who, "channels.manage") || channel.createdBy === who.userId;
+}
+
+/** Whether someone can change or delete an automation: `automations.manage`, or they made it. */
+export function canEditAutomation(who: Actor, automation: { createdBy: string; custom: boolean }): boolean {
+	return can(who, "automations.manage") || (automation.custom && automation.createdBy === who.userId);
 }

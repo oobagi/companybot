@@ -43,6 +43,17 @@ export const replyStats = v.object({
 // Shared settings carry a `version` that goes up on every save. A save sends the
 // version it started from; if someone saved in between, it's refused as a conflict.
 
+/** core's CustomTrigger. */
+export const customTrigger = v.union(
+	v.object({ type: v.literal("schedule"), time: v.string(), weekdays: v.array(v.number()) }),
+	v.object({ type: v.literal("webhook") }),
+	v.object({ type: v.literal("event"), event: v.literal("message.posted"), channelId: v.string() }),
+	v.object({ type: v.literal("event"), event: v.literal("member.joined") }),
+);
+
+/** core's AutomationAudience. */
+export const audience = v.union(v.literal("creator"), v.literal("subscribers"), v.literal("channel"));
+
 export default defineSchema({
 	...authTables,
 
@@ -111,38 +122,62 @@ export default defineSchema({
 		deviceTimeZone: v.optional(v.string()),
 	}).index("by_user", ["userId"]),
 
-	// Plugins: an owner installs one and picks which roles may use it.
-	pluginInstalls: defineTable({
+	// Connectors: an owner installs one and picks which roles may use it.
+	connectorInstalls: defineTable({
 		workspaceId: v.id("workspaces"),
-		pluginId: v.string(),
+		connectorId: v.string(),
 		roles: v.array(role),
 		installedBy: v.id("users"),
-	}).index("by_workspace", ["workspaceId", "pluginId"]),
+	}).index("by_workspace", ["workspaceId", "connectorId"]),
 
-	// An account connected to a plugin: the workspace's (userId null) or one person's.
+	// An account connected to a connector: the workspace's (userId null) or one person's.
 	// Credentials are AES-GCM encrypted with CONNECTIONS_KEY and never leave the server.
-	pluginConnections: defineTable({
+	connectorConnections: defineTable({
 		workspaceId: v.id("workspaces"),
-		pluginId: v.string(),
+		connectorId: v.string(),
 		userId: v.union(v.id("users"), v.null()),
 		credentials: v.string(),
 		connectedBy: v.id("users"),
 		/** Set when the last attempt to use it failed, so the app can say so. */
 		error: v.optional(v.string()),
 	})
-		.index("by_workspace", ["workspaceId", "pluginId", "userId"]),
+		.index("by_workspace", ["workspaceId", "connectorId", "userId"]),
 
-	// A plugin sign-in in progress: started in the app, finished by /oauth/callback.
+	// A connector sign-in in progress: started in the app, finished by /oauth/callback.
 	// `data` holds the encrypted OAuthState (client, PKCE verifier). One use; expires.
-	pluginOAuthFlows: defineTable({
+	connectorOAuthFlows: defineTable({
 		state: v.string(),
-		pluginId: v.string(),
+		connectorId: v.string(),
 		userId: v.id("users"),
 		data: v.string(),
 		expiresAt: v.number(),
 	})
 		.index("by_state", ["state"])
 		.index("by_user", ["userId"]),
+
+	// Legacy: the connector tables' names before "plugins" became "connectors". Emptied by
+	// the `connector*` migrations (migrations.ts); drop these once it has run on prod.
+	pluginInstalls: defineTable({
+		workspaceId: v.id("workspaces"),
+		pluginId: v.string(),
+		roles: v.array(role),
+		installedBy: v.id("users"),
+	}),
+	pluginConnections: defineTable({
+		workspaceId: v.id("workspaces"),
+		pluginId: v.string(),
+		userId: v.union(v.id("users"), v.null()),
+		credentials: v.string(),
+		connectedBy: v.id("users"),
+		error: v.optional(v.string()),
+	}),
+	pluginOAuthFlows: defineTable({
+		state: v.string(),
+		pluginId: v.string(),
+		userId: v.id("users"),
+		data: v.string(),
+		expiresAt: v.number(),
+	}),
 
 	skillInstalls: defineTable({
 		workspaceId: v.id("workspaces"),
@@ -235,7 +270,7 @@ export default defineSchema({
 		agentId: v.id("agents"),
 		/** The message that mentioned the agent (or any message, in an agent DM). */
 		triggerId: v.id("chatMessages"),
-		/** The agent acts as this person: their role, plugin connections, and access. */
+		/** The agent acts as this person: their role, connector connections, and access. */
 		actorId: v.id("users"),
 		/** The streaming reply, once running. */
 		replyId: v.optional(v.id("chatMessages")),
@@ -303,16 +338,37 @@ export default defineSchema({
 		lastRunAt: v.optional(v.number()),
 		/** What the last run did, in a line, e.g. "Sent to 3 people". */
 		lastResult: v.optional(v.string()),
-		/** Post each run here, once, instead of in each person's DM. */
+		/** Who it runs for. Unset on installs from before audiences: read with `audienceOf`. */
+		audience: v.optional(audience),
+		/** Audience "channel": post each run here, once. */
 		channelId: v.optional(v.id("chats")),
 		/** The owner who picked the channel; channel runs act as them (or another owner if they've left). */
 		channelSetBy: v.optional(v.id("users")),
 		/** Event automations: the secret in their webhook URL (`/automations/<token>`). */
 		webhookToken: v.optional(v.string()),
+		/** Set for automations an owner made (id "custom-…"); library ones come from the catalog. Shared setting: versioned. */
+		custom: v.optional(
+			v.object({
+				name: v.string(),
+				prompt: v.string(),
+				trigger: customTrigger,
+				version: v.number(),
+				updatedBy: v.id("users"),
+				updatedAt: v.number(),
+			}),
+		),
 	})
 		.index("by_workspace", ["workspaceId", "automationId"])
 		.index("by_enabled", ["enabled"])
 		.index("by_webhook", ["webhookToken"]),
+
+	// People who turned on an automation whose audience is "subscribers".
+	automationSubscriptions: defineTable({
+		installId: v.id("automationInstalls"),
+		userId: v.id("users"),
+	})
+		.index("by_install", ["installId", "userId"])
+		.index("by_user", ["userId"]),
 
 	// Webhook events already run, by the sender's event id, so a retried delivery runs once.
 	automationEvents: defineTable({

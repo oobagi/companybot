@@ -45,4 +45,4 @@ The renderer is also served at `http://localhost:5173` (vite prints the port; it
 - **`Electron uninstall`**: Electron's download was skipped. `pnpm dev` fixes this on the next start; if not, run `node install.js` in Electron's package folder.
 - **App can't connect**: check that `.env.local` has `CONVEX_DEPLOYMENT=local:…` and `CONVEX_URL=http://127.0.0.1:<port>`. If not, `pnpm dev --setup`.
 - **Schema push fails on old local data**: `pnpm dev --reset`.
-- **Plugin sign-in (OAuth) doesn't finish**: expected. Local backends have no public URL for the callback. Test plugin sign-in on cloud dev, on purpose.
+- **Connector sign-in (OAuth) doesn't finish**: expected. Local backends have no public URL for the callback. Test connector sign-in on cloud dev, on purpose.
