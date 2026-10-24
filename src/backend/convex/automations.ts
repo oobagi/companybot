@@ -14,6 +14,7 @@ import {
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
 import { type MutationCtx, type QueryCtx, internalMutation, mutation, query } from "./_generated/server";
 import { addToChat, canSee, findOrCreateDm, insertMessage } from "./chatOps";
 import { getMember, normalizeEmail, requireAgent, requirePermission } from "./lib";
@@ -113,7 +114,11 @@ export const setInstalled = mutation({
 		const automation = requireAutomation(automationId);
 		const existing = await installOf(ctx, owner.workspaceId, automationId);
 		if (!installed) {
-			if (existing) await ctx.db.delete(existing._id);
+			if (existing) {
+				await ctx.db.delete(existing._id);
+				const events = ctx.db.query("automationEvents").withIndex("by_install", (q) => q.eq("installId", existing._id));
+				for await (const event of events) await ctx.db.delete(event._id);
+			}
 			return;
 		}
 		if (existing) return;
@@ -276,6 +281,22 @@ export const receive = internalMutation({
 			return { status: 200, ok: true, message: await finish(ctx, install, summary) };
 		}
 		return { status: 200, ok: true, message: (await runInDms(ctx, install, automation, [userId], prompt)).summary };
+	},
+});
+
+/** Event ids are kept this long: far past any sender's retries. */
+export const EVENT_MEMORY_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Runs hourly (crons.ts): deletes event ids older than EVENT_MEMORY_MS, in batches. */
+export const forgetOldEvents = internalMutation({
+	args: {},
+	handler: async (ctx) => {
+		const old = await ctx.db
+			.query("automationEvents")
+			.withIndex("by_creation_time", (q) => q.lt("_creationTime", Date.now() - EVENT_MEMORY_MS))
+			.take(500);
+		for (const event of old) await ctx.db.delete(event._id);
+		if (old.length === 500) await ctx.scheduler.runAfter(0, internal.automations.forgetOldEvents);
 	},
 });
 

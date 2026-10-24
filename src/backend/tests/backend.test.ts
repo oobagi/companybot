@@ -772,6 +772,23 @@ describe("automations", () => {
 			expect(await member.query(api.messages.list, { chatId: calls })).toHaveLength(2);
 		});
 
+		it("forgets event ids after a week, and when uninstalled", async () => {
+			const { t, owner, post } = await installed();
+			const person = { person: { email: "member@co.com" } };
+			await post(call("old", person));
+			const events = () => t.run((ctx) => ctx.db.query("automationEvents").collect());
+			vi.useFakeTimers({ now: Date.now() + 8 * 24 * 60 * 60 * 1000, toFake: ["Date"] });
+			try {
+				await post(call("new", person));
+				await t.mutation(internal.automations.forgetOldEvents);
+			} finally {
+				vi.useRealTimers();
+			}
+			expect((await events()).map((e) => e.eventId)).toEqual(["new"]);
+			await owner.mutation(api.automations.setInstalled, { automationId: "after-call-summary", installed: false, timeZone: tz });
+			expect(await events()).toHaveLength(0);
+		});
+
 		it("refuses bad bodies and skips when turned off", async () => {
 			const { owner, post } = await installed();
 			expect(await post("nope")).toEqual([400, "Body isn't JSON."]);
