@@ -1,9 +1,11 @@
 import { useMutation } from "convex/react";
+import { useQuery } from "convex-helpers/react/cache";
 import { Fragment, useState } from "react";
 import { api } from "../../api";
 import { Markdown } from "../../markdown";
 import { Notice, timeAgo } from "../../ui";
 import { WidgetView } from "../../widgets";
+import { CallDetails } from "../Activity";
 import { AgentBadge, Avatar, AvatarStack, EmojiPicker, clock, useDismiss } from "./common";
 import type { Message } from "./data";
 
@@ -211,9 +213,7 @@ function AgentBody({ message }: { message: Message }) {
 						{part.text}
 					</Markdown>
 				) : part.type === "tool" ? (
-					<p key={part.id} className="text-xs text-neutral-400">
-						{part.status === "running" ? "Using" : part.status === "error" ? "Failed" : "Used"} {part.name}
-					</p>
+					<ToolPart key={part.id} replyId={message._id} part={part} />
 				) : (
 					<WidgetView key={part.id} widget={part.widget} />
 				),
@@ -221,6 +221,29 @@ function AgentBody({ message }: { message: Message }) {
 			{streaming && message.parts.length === 0 && <p className="text-sm text-neutral-400">Thinking…</p>}
 			{message.status === "error" && <Notice>{message.error ?? "Something went wrong."}</Notice>}
 			{message.stats && <ReplyDetails stats={message.stats} />}
+		</div>
+	);
+}
+
+type ToolPart = Extract<Message["parts"][number], { type: "tool" }>;
+
+/** "Used memory_create"; click to see what went in and came out (from the activity log). */
+function ToolPart({ replyId, part }: { replyId: Message["_id"]; part: ToolPart }) {
+	const [open, setOpen] = useState(false);
+	const calls = useQuery(api.activity.forReply, open ? { replyId } : "skip");
+	const call = calls?.find((c) => c.callId === part.id);
+	const label = `${part.status === "running" ? "Using" : part.status === "error" ? "Failed" : "Used"} ${part.name}`;
+	return (
+		<div className="flex flex-col gap-1.5">
+			<button
+				type="button"
+				disabled={part.status === "running"}
+				onClick={() => setOpen(!open)}
+				className="self-start text-xs text-neutral-400 enabled:hover:text-neutral-600"
+			>
+				{label}
+			</button>
+			{open && calls && (call ? <CallDetails entry={call} /> : <p className="text-xs text-neutral-400">No details saved.</p>)}
 		</div>
 	);
 }

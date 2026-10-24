@@ -1,6 +1,7 @@
 import {
 	type AgentConfig,
 	type ChatStore,
+	type LoggedCall,
 	type MemoryStore,
 	type PluginCredentials,
 	type PluginSession,
@@ -9,6 +10,8 @@ import {
 	PLUGIN_CALL,
 	addStep,
 	calledPluginTool,
+	clipJson,
+	describeCall,
 	buildToolSet,
 	buildTurnInput,
 	buildTurnPrompt,
@@ -154,17 +157,19 @@ async function streamReply(
 	usage.model = agent.model;
 	// Plugin tools sorted by id, so the tool list is identical every turn and caches.
 	const pluginTools = plugins.sessions.flatMap((s) => s.tools).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+	const available = [...builtinTools, ...pluginTools];
 	const tools = buildToolSet(
 		agent,
 		{
 			actor: { userId: member.userId, role: member.role },
+			timeZone: turn.actor.timeZone,
 			agentId: agent.id,
 			memory: memoryStore(ctx, member.userId, agent.id, turn.memory === "team"),
 			chat: chatStore(ctx, turnId),
 			skills: turn.skills,
 			results: createResultStore(),
 		},
-		[...builtinTools, ...pluginTools],
+		available,
 		plugins.sessions.map((s) => ({ ...s.plugin, instructions: s.instructions })),
 	);
 
@@ -201,31 +206,55 @@ async function streamReply(
 		else parts.push({ type: "tool", id, name, status });
 	};
 
-	for await (const part of result.stream) {
-		if (part.type === "text-delta") {
-			usage.firstTokenMs ??= Date.now() - started;
-			const last = parts.at(-1);
-			if (last?.type === "text") last.text += part.text;
-			else parts.push({ type: "text", text: part.text });
-		} else if (part.type === "tool-call") {
-			// A plugins_call shows as the tool it ran.
-			const name = part.toolName === PLUGIN_CALL ? (calledPluginTool(part.input) ?? part.toolName) : part.toolName;
-			if (!isWidgetToolName(part.toolName)) setTool(part.toolCallId, name, "running");
-		} else if (part.type === "tool-result") {
-			if (isWidgetToolName(part.toolName)) {
-				if (isWidgetResult(part.output)) parts.push({ type: "widget", id: part.toolCallId, widget: part.output.widget });
-			} else setTool(part.toolCallId, part.toolName, "done");
-		} else if (part.type === "tool-error") {
-			if (!isWidgetToolName(part.toolName)) setTool(part.toolCallId, part.toolName, "error");
-		} else if (part.type === "finish-step") {
-			addStep(usage, part.usage, part.providerMetadata);
-			continue;
-		} else if (part.type === "error") throw part.error instanceof Error ? part.error : new Error(String(part.error));
-		else continue;
-		if (Date.now() - lastFlush > FLUSH_MS) {
-			lastFlush = Date.now();
-			await flush();
+	// Each tool call goes to the activity log once it finishes (activity.ts).
+	const calls = new Map<string, LoggedCall>();
+	const logCall = async (callId: string, end: { output: unknown } | { error: string }) => {
+		const call = calls.get(callId);
+		if (!call) return;
+		calls.delete(callId);
+		await ctx.runMutation(internal.activity.log, {
+			turnId,
+			callId,
+			tool: call.tool,
+			changes: call.changes,
+			input: clipJson(call.input),
+			...("output" in end ? { output: clipJson(end.output) } : { error: end.error }),
+		});
+	};
+
+	try {
+		for await (const part of result.stream) {
+			if (part.type === "text-delta") {
+				usage.firstTokenMs ??= Date.now() - started;
+				const last = parts.at(-1);
+				if (last?.type === "text") last.text += part.text;
+				else parts.push({ type: "text", text: part.text });
+			} else if (part.type === "tool-call") {
+				// A plugins_call shows as the tool it ran.
+				const name = part.toolName === PLUGIN_CALL ? (calledPluginTool(part.input) ?? part.toolName) : part.toolName;
+				if (!isWidgetToolName(part.toolName)) setTool(part.toolCallId, name, "running");
+				const call = describeCall(part.toolName, part.input, available);
+				if (call) calls.set(part.toolCallId, call);
+			} else if (part.type === "tool-result") {
+				if (isWidgetToolName(part.toolName)) {
+					if (isWidgetResult(part.output)) parts.push({ type: "widget", id: part.toolCallId, widget: part.output.widget });
+				} else setTool(part.toolCallId, part.toolName, "done");
+				await logCall(part.toolCallId, { output: part.output });
+			} else if (part.type === "tool-error") {
+				if (!isWidgetToolName(part.toolName)) setTool(part.toolCallId, part.toolName, "error");
+				await logCall(part.toolCallId, { error: part.error instanceof Error ? part.error.message : String(part.error) });
+			} else if (part.type === "finish-step") {
+				addStep(usage, part.usage, part.providerMetadata);
+				continue;
+			} else if (part.type === "error") throw part.error instanceof Error ? part.error : new Error(String(part.error));
+			else continue;
+			if (Date.now() - lastFlush > FLUSH_MS) {
+				lastFlush = Date.now();
+				await flush();
+			}
 		}
+	} finally {
+		for (const callId of [...calls.keys()]) await logCall(callId, { error: "The reply stopped before this finished." });
 	}
 	await flush();
 }

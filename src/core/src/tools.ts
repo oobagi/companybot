@@ -7,6 +7,8 @@ import type { Actor, Role } from "./types";
 /** What a tool can reach while it runs. */
 export interface ToolContext {
 	actor: Actor;
+	/** The actor's IANA time zone (see resolveTimeZone). UTC when left out. */
+	timeZone?: string;
 	agentId: string;
 	memory: MemoryStore;
 	/** The chats the actor can see, and the message this turn answers. */

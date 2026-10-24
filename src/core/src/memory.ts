@@ -13,6 +13,8 @@ export interface Memory {
 	content: string;
 	updatedAt: string;
 	updatedBy: string;
+	/** True when the agent made the last change, acting for `updatedBy`. */
+	updatedByAgent?: boolean;
 	/** Goes up on every edit. Saves send the version they started from, so edits don't overwrite each other silently. */
 	version: number;
 }

@@ -10,7 +10,7 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 - Agents reply only when @mentioned or DM'd — never butt in. They can react to messages that @mention them, and only those.
 - Replies render Markdown and **widgets**: real UI under the message (tables, stat tiles; more later), e.g. "last 10 leads" → a table.
 - One continuous conversation per agent; it auto-compacts. No separate sessions. Channels keep normal threads.
-- Settings: General (workspace name), Members, Memory, Your preferences (name, send key). Shared settings are saved explicitly, with a conflict warning.
+- Settings: General (workspace name), Members, Memory, Your preferences (name, time zone, send key). Time zone defaults to automatic (the computer's). Shared settings are saved explicitly, with a conflict warning.
 - Customize tab: **Agents** (owners edit; every save is versioned and restorable), **Plugins** (connectors to outside services via MCP — Gmail, Calendar…), **Skills** (a marketplace of installable instructions) and **Automations** (below). Memory and clock are built in, not plugins.
 - Plugins, Skills and Automations are libraries: browse, install what you want, turn it off anytime. Click any item to open its detail page — what it does, who made it, version, what it needs (plugins, permissions, account), and for skills the full instructions.
 - **Automations**: short, ready-made jobs that run on their own, from a trigger (event or schedule) to an agent action. Install one, pick its agent and where results go, toggle on/off. Each shows when it last ran and what it did. Examples:
@@ -23,6 +23,7 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 - Sign-in: email code only.
 
 ## UI
+- Profile cards (planned): click a person's name or avatar to see their details, like GitHub. Show their time zone and local time.
 - Clean home: a few starter suggestions + chat box (Ollama-style).
 - Sidebar for navigation. Agent switcher at the top.
 

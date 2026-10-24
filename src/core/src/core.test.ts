@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { ACTIVITY_MAX_CHARS, clipJson, describeCall } from "./activity";
+import { formatLocalTime, resolveTimeZone, shortStamp } from "./time";
 import { buildToolSet, describeToolAccess, grantedPluginIds, resolveTools, validateAgentConfig } from "./agents";
 import { builtinTools } from "./builtin-tools";
 import { describeTrigger, findAutomation, isValidTimeZone, scheduleDue } from "./automations";
@@ -386,7 +388,7 @@ describe("turn input", () => {
 	const base: TurnPromptInput = {
 		agentId: "a1",
 		place: { kind: "channel", name: "sales", private: false, topic: "Deals", thread: null, members: [ada, ben, bot, scribeP] },
-		actor: { name: "Ada", email: "ada@co.com", role: "owner" },
+		actor: { name: "Ada", email: "ada@co.com", role: "owner", timeZone: "America/Los_Angeles" },
 		memory: "team",
 		plugins: { connected: [], unavailable: [] },
 		messages: [
@@ -403,16 +405,16 @@ describe("turn input", () => {
 			[
 				"Where you are: #sales, a public channel. Topic: Deals.",
 				"Here: Ada, Ben (people); Scribe (agents).",
-				"Ada <ada@co.com>, a workspace owner, asked for you. You act with their access.",
+				"Ada <ada@co.com>, a workspace owner, asked for you. You act with their access. Their time zone: America/Los_Angeles.",
 				"Memory: team memories only. 2+ people can read this chat, so personal memories are off.",
 				"",
-				"New here since your last reply (times UTC):",
-				"[Ben 10-22 15:01] Morning (3 replies in thread m1)",
-				"[Scribe 10-22 15:02] Draft is up (edited)",
-				"[Ben 10-22 15:04] Also this",
+				"New here since your last reply (times in America/Los_Angeles):",
+				"[Ben 10-22 08:01] Morning (3 replies in thread m1)",
+				"[Scribe 10-22 08:02] Draft is up (edited)",
+				"[Ben 10-22 08:04] Also this",
 				"",
 				"Reply to this message from Ada:",
-				"[Ada 10-22 15:03] @Companybot status?",
+				"[Ada 10-22 08:03] @Companybot status?",
 			].join("\n"),
 		);
 	});
@@ -430,7 +432,7 @@ describe("turn input", () => {
 		expect(prompt).toContain("Where you are: a DM with Ben, in a thread.");
 		expect(prompt).toContain("Memory: personal and team memories.");
 		expect(prompt).toContain("Unavailable this turn, so you can't use them: CRM.");
-		expect(prompt).toContain("The thread is under this message:\n[Ben 10-22 15:00] Plan");
+		expect(prompt).toContain("The thread is under this message:\n[Ben 10-22 08:00] Plan");
 		expect(prompt).toContain("(10 earlier messages not shown. Use chat_read for them.)");
 		expect(prompt).not.toContain("] n9\n");
 		expect(prompt).toContain("] n10\n");
@@ -475,5 +477,66 @@ describe("automations", () => {
 		expect(describeTrigger(brief.trigger)).toBe("Weekdays at 8:00 AM");
 		expect(isValidTimeZone(la)).toBe(true);
 		expect(isValidTimeZone("Mars/Base")).toBe(false);
+	});
+});
+
+describe("activity log", () => {
+	const notesFind: ToolDef = {
+		id: "notes.find",
+		description: "Find notes",
+		input: z.object({}),
+		readOnly: true,
+		source: { type: "plugin", pluginId: "notes" },
+		execute: async () => [],
+	};
+	const tools = [...builtinTools, notesFind];
+
+	it("logs calls by tool id, and plugin calls as the tool they ran", () => {
+		expect(describeCall(modelToolName("memory.remember"), { content: "x" }, tools)).toEqual({
+			tool: "memory.remember",
+			input: { content: "x" },
+			changes: true,
+		});
+		expect(describeCall(modelToolName("clock.now"), {}, tools)?.changes).toBe(false);
+		expect(describeCall("plugins_call", { tool: "notes.find", input: { q: "a" } }, tools)).toEqual({
+			tool: "notes.find",
+			input: { q: "a" },
+			changes: false,
+		});
+		expect(describeCall("plugins_call", { tool: "notes.gone", input: {} }, tools)?.changes).toBe(true);
+	});
+
+	it("skips widgets and tool search", () => {
+		expect(describeCall(modelToolName("widgets.table"), {}, tools)).toBeNull();
+		expect(describeCall("plugins_search", { query: "" }, tools)).toBeNull();
+	});
+
+	it("cuts long values", () => {
+		expect(clipJson({ a: 1 })).toBe('{\n  "a": 1\n}');
+		expect(clipJson("x".repeat(ACTIVITY_MAX_CHARS + 10))).toHaveLength(ACTIVITY_MAX_CHARS + "\n… (cut)".length);
+	});
+});
+
+describe("time zones", () => {
+	const la = "America/Los_Angeles";
+	const t = Date.UTC(2026, 9, 23, 3, 27);
+
+	it("uses the picked zone, else the computer's, else UTC", () => {
+		expect(resolveTimeZone(la, "Europe/Paris")).toBe(la);
+		expect(resolveTimeZone(null, "Europe/Paris")).toBe("Europe/Paris");
+		expect(resolveTimeZone("Mars/Base", undefined)).toBe("UTC");
+	});
+
+	it("formats times in the person's zone", () => {
+		expect(formatLocalTime(t, la)).toBe("Thursday, October 22, 2026 at 8:27 PM PDT");
+		expect(shortStamp(t, la)).toBe("10-22 20:27");
+		expect(shortStamp(t, "UTC")).toBe("10-23 03:27");
+	});
+
+	it("tells the time in the person's zone", async () => {
+		const clock = builtinTools.find((x) => x.id === "clock.now")!;
+		const result = (await clock.execute({}, { ...ctx(owner), timeZone: la })) as { local: string; timeZone: string };
+		expect(result.timeZone).toBe(la);
+		expect(result.local).toMatch(/P[DS]T$/);
 	});
 });

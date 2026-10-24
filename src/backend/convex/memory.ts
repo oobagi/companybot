@@ -79,7 +79,7 @@ export const createFor = internalMutation({
 	args: { ...forArgs, scope, content: v.string() },
 	handler: async (ctx, { userId, agentId, teamOnly, scope, content }) => {
 		if (teamOnly && scope === "personal") throw new ConvexError(SHARED_CHAT);
-		return createMemory(ctx, await actingFor(ctx, userId), agentId, scope, content);
+		return createMemory(ctx, await actingFor(ctx, userId), agentId, scope, content, true);
 	},
 });
 
@@ -89,7 +89,7 @@ export const updateFor = internalMutation({
 		const memory = await ctx.db.get(id);
 		if (memory?.agentId !== agentId) throw new ConvexError("Memory not found.");
 		await requireTeamMemory(ctx, id, teamOnly);
-		return updateMemory(ctx, await actingFor(ctx, userId), id, content);
+		return updateMemory(ctx, await actingFor(ctx, userId), id, content, undefined, true);
 	},
 });
 

@@ -32,7 +32,9 @@ export type AutomationTrigger =
 	 */
 	| { type: "event"; event: AutomationEvent; label: string; sample: AutomationEventBody };
 
-export type AutomationEvent = "call.ended";
+/** Events a webhook can send. Add one here, then automations can trigger on it. */
+export const automationEvents = ["call.ended"] as const;
+export type AutomationEvent = (typeof automationEvents)[number];
 
 /**
  * What a sender POSTs to an automation's webhook URL. `id` is unique per event, so a
@@ -53,13 +55,13 @@ export const MAX_EVENT_BYTES = 32_000;
 export function parseEventBody(body: unknown): AutomationEventBody | string {
 	if (!body || typeof body !== "object" || Array.isArray(body)) return "Body must be a JSON object.";
 	const { event, id, person, data } = body as Record<string, unknown>;
-	if (event !== "call.ended") return "Unknown event.";
+	if (!automationEvents.includes(event as AutomationEvent)) return "Unknown event.";
 	if (typeof id !== "string" || !id || id.length > 200) return "id must be a string of 1-200 characters.";
 	if (person !== undefined && (typeof person !== "object" || !person || typeof (person as { email?: unknown }).email !== "string"))
 		return "person must be { email }.";
 	if (data !== undefined && (typeof data !== "object" || !data || Array.isArray(data))) return "data must be an object.";
 	return {
-		event,
+		event: event as AutomationEvent,
 		id,
 		...(person ? { person: { email: (person as { email: string }).email } } : {}),
 		...(data ? { data: data as Record<string, unknown> } : {}),
