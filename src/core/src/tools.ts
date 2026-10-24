@@ -1,3 +1,4 @@
+import type { AutomationStore } from "./automation-tools";
 import type { FlexibleSchema, Tool } from "ai";
 import type { ChatStore } from "./chat";
 import type { MemoryStore } from "./memory";
@@ -15,6 +16,8 @@ export interface ToolContext {
 	chat: ChatStore;
 	/** Skills installed in the workspace. */
 	skills: Skill[];
+	/** Automations, as the actor can see and make them. */
+	automations: AutomationStore;
 	/** This turn's data results, by ref, so widgets can show them. */
 	results: ResultStore;
 }

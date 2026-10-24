@@ -100,7 +100,7 @@ async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">) {
 }
 
 /** The running turn, its person (read fresh), and the chat, if they can still see it. */
-async function runningTurn(ctx: QueryCtx, turnId: Id<"agentTurns">) {
+export async function runningTurn(ctx: QueryCtx, turnId: Id<"agentTurns">) {
 	const turn = await ctx.db.get(turnId);
 	if (!turn || turn.status !== "running" || !turn.replyId || !turn.sessionId) throw new Error("This reply was stopped.");
 	const member = await memberOf(ctx, turn.actorId);

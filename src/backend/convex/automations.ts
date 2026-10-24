@@ -1,6 +1,9 @@
 import {
 	type AppEvent,
 	type Automation,
+	type AutomationSummary,
+	type AutomationToolInput,
+	weekdayIndex,
 	type AutomationAudience,
 	type CustomAutomationConfig,
 	automationCatalog,
@@ -23,7 +26,7 @@ import {
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type MutationCtx, type QueryCtx, internalMutation, mutation, query } from "./_generated/server";
+import { type MutationCtx, type QueryCtx, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { addToChat, canSee, findOrCreateDm, insertMessage } from "./chatOps";
 import {
 	type Member,
@@ -35,9 +38,10 @@ import {
 	requireAgent,
 	requireMember,
 	requirePermission,
+	timeZoneOf,
 } from "./lib";
 import { audience, customTrigger } from "./schema";
-import { enqueueTurn } from "./turns";
+import { enqueueTurn, runningTurn } from "./turns";
 
 // An automation is a trigger (schedule, webhook, or something happening in the app), a
 // prompt, an agent, and who it runs for (`AutomationAudience`): just its creator, each
@@ -551,6 +555,113 @@ export const forgetOldEvents = internalMutation({
 			.take(500);
 		for (const event of old) await ctx.db.delete(event._id);
 		if (old.length === 500) await ctx.scheduler.runAfter(0, internal.automations.forgetOldEvents);
+	},
+});
+
+// ---- Agent tools (core's AutomationStore), acting as the turn's person ----
+
+/** A channel by name ("#sales" or "sales") that the person can see. */
+async function channelNamed(ctx: QueryCtx, member: Member, name: string) {
+	const clean = name.trim().replace(/^#/, "").toLowerCase();
+	const chat = await ctx.db
+		.query("chats")
+		.withIndex("by_name", (q) => q.eq("workspaceId", member.workspaceId).eq("name", clean))
+		.first();
+	return chat && chat.kind === "channel" && !chat.archived && (await canSee(ctx, chat, member)) ? chat : null;
+}
+
+export const listFor = internalQuery({
+	args: { turnId: v.id("agentTurns") },
+	handler: async (ctx, { turnId }): Promise<AutomationSummary[]> => {
+		const { member } = await runningTurn(ctx, turnId);
+		const installs = (
+			await ctx.db
+				.query("automationInstalls")
+				.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
+				.collect()
+		).filter((i) => canView(member, i));
+		return Promise.all(
+			installs.map(async (install) => {
+				const automation = (await definitionOf(ctx, install))!;
+				const audience = audienceOf(install);
+				const channel = (install.channelId && (await ctx.db.get(install.channelId))) || null;
+				return {
+					id: install.automationId,
+					name: automation.name,
+					when: describeTrigger(automation.trigger),
+					runsFor: runsForLabel(audience, channel, automation.trigger.type === "schedule", await nameOf(ctx, install.installedBy)),
+					onForYou: audience === "subscribers" ? (await subscribersOf(ctx, install._id)).includes(member.userId) : null,
+					madeByYou: !!install.custom && install.installedBy === member.userId,
+				};
+			}),
+		);
+	},
+});
+
+export const createFor = internalMutation({
+	args: { turnId: v.id("agentTurns"), input: v.any() },
+	handler: async (ctx, { turnId, input }) => {
+		const { turn, member } = await runningTurn(ctx, turnId);
+		const { name, prompt, trigger: t, runsFor } = input as AutomationToolInput;
+		try {
+			let trigger: CustomAutomationConfig["trigger"];
+			if (t.type === "schedule") trigger = { type: "schedule", time: t.time, weekdays: [...new Set(t.days.map(weekdayIndex))] };
+			else if (t.type === "webhook") trigger = { type: "webhook" };
+			else if (t.type === "member_joined") trigger = { type: "event", event: "member.joined" };
+			else {
+				const chat = await channelNamed(ctx, member, t.channel);
+				if (!chat) return { error: `There's no channel ${t.channel} they can see.` };
+				trigger = { type: "event", event: "message.posted", channelId: chat._id };
+			}
+			const who = (runsFor ?? "me").trim().toLowerCase();
+			let audience: AutomationAudience = "creator";
+			let channelId: Id<"chats"> | undefined;
+			if (who === "anyone") audience = "subscribers";
+			else if (who.startsWith("#")) {
+				const chat = await channelNamed(ctx, member, who);
+				if (!chat) return { error: `There's no channel ${runsFor} they can see.` };
+				audience = "channel";
+				channelId = chat._id;
+			} else if (who !== "me" && who !== "") return { error: 'runsFor must be "me", "anyone", or a channel like "#sales".' };
+			const timeZone = await timeZoneOf(ctx, member.userId);
+			const id = await createAutomation(ctx, member, {
+				config: { name, prompt, trigger },
+				agentId: turn.agentId,
+				audience,
+				channelId,
+				timeZone,
+			});
+			const install = (await installOf(ctx, member.workspaceId, id))!;
+			const automation = (await definitionOf(ctx, install))!;
+			const channel = channelId ? await ctx.db.get(channelId) : null;
+			return {
+				created: id,
+				name: automation.name,
+				when: describeTrigger(automation.trigger) + (trigger.type === "schedule" ? ` (${timeZone})` : ""),
+				runsFor: runsForLabel(audience, channel, trigger.type === "schedule", await nameOf(ctx, member.userId)),
+				...(install.webhookToken && { webhookUrl: webhookUrl(install.webhookToken) }),
+			};
+		} catch (e) {
+			if (e instanceof ConvexError) return { error: String(e.data) };
+			throw e;
+		}
+	},
+});
+
+export const setMineFor = internalMutation({
+	args: { turnId: v.id("agentTurns"), id: v.string(), on: v.boolean() },
+	handler: async (ctx, { turnId, id, on }) => {
+		const { member } = await runningTurn(ctx, turnId);
+		const install = await installOf(ctx, member.workspaceId, id);
+		if (!install || !canView(member, install)) return { error: "No automation with that id." };
+		if (audienceOf(install) !== "subscribers") return { error: "That one isn't turned on per person." };
+		const existing = await ctx.db
+			.query("automationSubscriptions")
+			.withIndex("by_install", (q) => q.eq("installId", install._id).eq("userId", member.userId))
+			.first();
+		if (on && !existing) await ctx.db.insert("automationSubscriptions", { installId: install._id, userId: member.userId });
+		if (!on && existing) await ctx.db.delete(existing._id);
+		return { id, on };
 	},
 });
 

@@ -1,3 +1,4 @@
+import type { AutomationStore } from "./automation-tools";
 import { describe, expect, it } from "vitest";
 import { ACTIVITY_MAX_CHARS, clipJson, describeCall } from "./activity";
 import { formatLocalTime, resolveTimeZone, shortStamp } from "./time";
@@ -34,6 +35,7 @@ const ctx = (actor: Actor) => ({
 	chat: {} as ChatStore,
 	skills: skillCatalog,
 	results: createResultStore(),
+	automations: {} as AutomationStore,
 });
 
 describe("tool visibility", () => {
@@ -52,6 +54,9 @@ describe("tool visibility", () => {
 			"chat.react",
 			"chat.read",
 			"chat.search",
+			"automations.list",
+			"automations.create",
+			"automations.set_mine",
 		]);
 		expect(resolveTools(companybot, owner).map((t) => t.id)).toContain("memory.forget");
 	});
@@ -94,6 +99,9 @@ describe("tool visibility", () => {
 			"chat_react",
 			"chat_read",
 			"chat_search",
+			"automations_list",
+			"automations_create",
+			"automations_set_mine",
 		]);
 	});
 

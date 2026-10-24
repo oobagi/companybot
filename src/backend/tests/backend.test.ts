@@ -865,6 +865,36 @@ describe("automations", () => {
 		});
 	});
 
+	describe("from chat", () => {
+		it("lets an agent set one up for the person it's helping, with their rules", async () => {
+			const { t, owner, member } = await ownerAndMember();
+			const { companybot } = await agentsOf(owner);
+			await owner.mutation(api.chats.createChannel, { name: "board", private: true });
+			await member.mutation(api.messages.send, {
+				chatId: (await generalOf(member))._id,
+				text: "@Companybot every Monday send me quiet deals",
+				mentions: { userIds: [], agentIds: [companybot._id] },
+			});
+			const turnId = (await turnsOf(t))[0]!._id;
+			const create = (input: object) => t.mutation(internal.automations.createFor, { turnId, input });
+			const weekly = { name: "Quiet deals", prompt: "List deals with no activity in 2 weeks.", trigger: { type: "schedule", time: "09:00", days: ["mon"] } };
+
+			const made = await create({ ...weekly, runsFor: "me" });
+			expect(made).toMatchObject({ name: "Quiet deals", when: "Mon at 9:00 AM (UTC)", runsFor: "Just member@co.com, in their chat with the agent" });
+			const listed = await t.query(internal.automations.listFor, { turnId });
+			expect(listed).toEqual([expect.objectContaining({ name: "Quiet deals", madeByYou: true, onForYou: null })]);
+			expect(await create({ ...weekly, runsFor: "#board" })).toEqual({ error: "There's no channel #board they can see." });
+			expect(await create({ ...weekly, runsFor: "everyone" })).toEqual({ error: 'runsFor must be "me", "anyone", or a channel like "#sales".' });
+			expect(await create({ ...weekly, name: "" })).toEqual({ error: "Give it a name." });
+			const hook = await create({ name: "Forms", prompt: "Post it.", trigger: { type: "webhook" }, runsFor: "me" });
+			expect(hook).toMatchObject({ webhookUrl: expect.stringMatching(/\/automations\/[0-9a-f]{48}$/) });
+
+			await install(owner, "morning-brief");
+			expect(await t.mutation(internal.automations.setMineFor, { turnId, id: "morning-brief", on: true })).toEqual({ id: "morning-brief", on: true });
+			expect((await find(member, "morning-brief"))!.subscribed).toBe(true);
+		});
+	});
+
 	describe("in-app events", () => {
 		it("replies in the thread of a message posted in the channel it watches", async () => {
 			const { owner, member } = await ownerAndMember();

@@ -44,5 +44,17 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">): string {
 		}
 		if (isGranted(agent.tools, "chat.react")) lines.push("- A reaction (chat_react) can acknowledge a message; still reply when there's something to say.");
 	}
+	if (isGranted(agent.tools, "automations.create")) {
+		lines.push(
+			"",
+			"## Setting up automations",
+			"People can ask you to do something on a schedule, when something happens here, or when another app sends a webhook. Most aren't technical: never say \"trigger\", \"webhook\", or \"audience\" unless they do.",
+			"- Ask only for what's missing, one short question at a time: what you should do each time, when (time and days, or which channel to watch, or when someone joins), and who gets it (just them by default; \"anyone who turns it on\"; or a channel).",
+			"- Write the prompt as them asking you, specific enough to run alone later.",
+			"- Before creating it, show a 3-line summary (what, when, who gets it) and ask them to confirm. Then call automations_create and say where they can change it: Customize → Automations.",
+			"- Only offer a webhook if they mention an outside app that can send one; give them the URL it returns and say to keep it secret.",
+			"- To turn on an existing one for them (\"I want the morning brief too\"), find it with automations_list and use automations_set_mine.",
+		);
+	}
 	return lines.join("\n");
 }

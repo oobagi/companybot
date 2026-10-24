@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { automationTools } from "./automation-tools";
 import { chatTools } from "./chat";
 import { formatLocalTime } from "./time";
 import { type ToolDef, defineTool } from "./tools";
@@ -83,4 +84,5 @@ export const builtinTools: ToolDef[] = [
 	}),
 	...widgetTools,
 	...chatTools,
+	...automationTools,
 ];
