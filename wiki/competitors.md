@@ -8,10 +8,11 @@
 | Polsia | Solo-founder dashboard, nightly agents | No teams; spam, unapproved sends |
 | Cofounder | Dashboard, agents by department | Team plan is waitlist-only |
 | Whop | Commerce platform + agent CLI/MCP | Not a workspace; possible connector |
+| Buzz (Block) | Free, open-source team chat for people + agents (Nostr), with git hosting | Self-host + BYO agents and models; built for coding, not business tools; approvals unfinished, no mobile yet |
 
 ## Gaps
-- Nobody is an AI-first team chat.
-- Nobody supports bring-your-own keys.
+- Only Buzz is an AI-first team chat, and it's for dev teams who self-host. Nobody offers a hosted one with AI included that works out of the box.
+- Only Buzz supports bring-your-own models, and you have to run the agents yourself.
 - Everyone gets complaints about unpredictable credit bills.
 
 ## Worth copying
@@ -19,3 +20,7 @@
 - Viktor: per-workspace pricing.
 - Polsia: morning plan / evening summary — but post it to a channel.
 - All: named approver for actions with outside impact.
+- Buzz: a full record of what each agent did. We have it now (Settings → Activity); Buzz's is also cryptographically signed, which we don't need yet.
+
+## Threat
+Buzz is free and backed by Block, so "team chat with agents" alone won't sell. Sell zero setup, AI included, and business tools.
