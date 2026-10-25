@@ -1,5 +1,5 @@
 import type { AutomationStore } from "./automation-tools";
-import type { RecordFindInput, RecordPage, RecordStore } from "./record-tools";
+import { MODEL_OUTPUT_MAX, type RecordFindInput, type RecordPage, type RecordStore, forModel } from "./record-tools";
 import { describe, expect, it } from "vitest";
 import { isStepCount, simulateReadableStream, streamText } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
@@ -1073,7 +1073,7 @@ describe("approvals", () => {
 
 describe("records tools", () => {
 	const tool = (id: string) => builtinTools.find((t) => t.id === id)!;
-	const deal = (n: number) => ({ id: `d${n}`, name: `Deal ${n}`, value: `$${n},000.00` });
+	const deal = (n: number) => ({ _id: `d${n}`, name: `Deal ${n}`, value: `$${n},000.00` });
 	/** A store whose list comes back in short pages, as the backend's can. */
 	const store = (pages: RecordPage[]) => {
 		const calls: (RecordFindInput & { numItems: number })[] = [];
@@ -1174,6 +1174,34 @@ describe("records tools", () => {
 			minutes: 12,
 		});
 		expect(displayValues(fields, { owner: "u9" })).toEqual({ owner: "u9" });
+	});
+
+	it("trim what the model sees of a big result, but keep it whole for widgets", async () => {
+		const notes = Object.fromEntries(Array.from({ length: 30 }, (_, f) => [`notes_${f}`, "x".repeat(10_000)]));
+		const big = Array.from({ length: 50 }, (_, i) => ({ _id: `d${i}`, name: `Deal ${i}`, ...notes }));
+		const records = { find: async () => ({ type: "Deals", rows: big, more: false }) } as unknown as RecordStore;
+		const c = { ...ctx(member), records };
+		const find = buildToolSet(companybot, c).records_find!;
+		const output = await (find.execute as (input: unknown, options: unknown) => Promise<unknown>)({ type: "deal", limit: 50 }, { toolCallId: "1", messages: [] });
+		expect(c.results.get("r1")).toEqual({ type: "Deals", rows: big, more: false });
+		const seen = (await find.toModelOutput!({ toolCallId: "1", input: {}, output } as never)) as { type: string; value: any };
+		expect(JSON.stringify(seen.value).length).toBeLessThanOrEqual(MODEL_OUTPUT_MAX + 400);
+		expect(seen.value.ref).toBe("r1");
+		expect(seen.value.data.rows[0].notes_0).toMatch(/^x+… \(cut from 10000 characters\)$/);
+		expect(seen.value.data.rows.length).toBeLessThan(50);
+		expect(seen.value.data.trimmed).toMatch(/\d+ long values cut to 80 characters; showing \d+ of 50 rows\. Widgets using r1 show everything/);
+		// Widgets read the whole result by ref.
+		const table = await widgetTools.find((t) => t.id === "widgets.table")!.execute({ columns: ["Deal"], from: { ref: "r1", path: "rows", fields: ["name"] } }, c);
+		expect((table as any).widget.props.rows).toHaveLength(50);
+		// Small results and errors reach the model as they are.
+		const small = { ref: "r2", data: { type: "Deals", rows: [deal(1)], more: false } };
+		expect(forModel(small, 300)).toBe(small);
+		expect(forModel({ error: "Nope" }, 300)).toEqual({ error: "Nope" });
+		// One huge record: text cut shorter until it fits.
+		const record = { ref: "r3", data: { id: "x", values: Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`f${i}`, "y".repeat(5_000)])) } };
+		const fitted = forModel(record, 2_000) as any;
+		expect(JSON.stringify(fitted).length).toBeLessThanOrEqual(MODEL_OUTPUT_MAX + 400);
+		expect(fitted.data.trimmed).toMatch("60 long values cut");
 	});
 
 	it("teach agents records only when granted", () => {

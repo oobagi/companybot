@@ -4,7 +4,10 @@ import {
 	type RecordPage,
 	type RecordSaveInput,
 	type RecordTypesResult,
+	MULTI_MAX,
+	NAME_KEY,
 	displayValues,
+	indexEntries,
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -27,7 +30,7 @@ import {
 	updateField,
 	updateRecord,
 } from "./recordOps";
-import { type Condition, findRecords } from "./recordQuery";
+import { ANY_OF_MAX, CONDITIONS_MAX, type Condition, findRecords } from "./recordQuery";
 import { runningTurn } from "./turns";
 
 // Records tools (core's RecordStore), acting as the turn's person: their role, read fresh
@@ -49,38 +52,99 @@ async function acting(ctx: QueryCtx, turnId: Id<"agentTurns">) {
 const liveTypes = async (ctx: QueryCtx, member: Member) =>
 	(await typesOf(ctx, member.workspaceId)).filter((t) => !t.archived).sort((a, b) => a._creationTime - b._creationTime);
 
-/** A type by key, name, plural or id ("deal", "Deals"). */
+/** Pick one by name, or say which ones it could be. */
+function pickOne<T>(matches: T[], what: string, describe: (m: T) => string) {
+	if (matches.length > 1) throw new ConvexError(`“${what}” could be ${matches.map(describe).join(" or ")}. Use the exact key.`);
+	return matches[0];
+}
+
+/** A type by id or key, else by name or plural ("deal", "Deals"). Ambiguous names are refused. */
 async function typeNamed(ctx: QueryCtx, member: Member, name: string) {
 	const types = await liveTypes(ctx, member);
-	const n = name.trim().toLowerCase();
-	const type = types.find((t) => t._id === name || [t.key, t.name, t.plural].some((x) => x.toLowerCase() === n));
+	const raw = name.trim();
+	const n = raw.toLowerCase();
+	const type =
+		types.find((t) => t._id === raw || t.key === raw) ??
+		types.find((t) => t.key === n) ??
+		pickOne(
+			types.filter((t) => [t.name, t.plural].some((x) => x.toLowerCase() === n)),
+			raw,
+			(t) => `${t.plural} (${t.key})`,
+		);
 	if (!type) throw new ConvexError(`There's no record type “${name}”. Types: ${types.map((t) => t.key).join(", ")}.`);
 	return type;
 }
 
-/** A live field by key or label. */
+/** A live field by exact key, else by label. A label two fields could match is refused. */
 function fieldNamed(fields: Doc<"recordFields">[], name: string, type: Doc<"recordTypes">) {
-	const n = name.trim().toLowerCase();
-	const field = fields.find((f) => !f.archived && (f.key === n || f.label.toLowerCase() === n));
+	const live = fields.filter((f) => !f.archived);
+	const raw = name.trim();
+	const n = raw.toLowerCase();
+	const field =
+		live.find((f) => f.key === raw) ??
+		live.find((f) => f.key === n) ??
+		pickOne(
+			live.filter((f) => f.label.toLowerCase() === n),
+			raw,
+			(f) => `${f.label} (${f.key})`,
+		);
 	if (!field) throw new ConvexError(`${type.plural} have no field “${name}”. records_types lists them.`);
 	return field;
 }
 
-/** A teammate or linked record as people name them ("me", "Ana", "Acme Roofing"), as its id. Ids pass through. */
-async function idFor(ctx: QueryCtx, member: Member, field: Doc<"recordFields">, raw: unknown) {
-	if (typeof raw !== "string" || !raw.trim()) return raw;
-	const text = raw.trim();
-	const lower = text.toLowerCase();
-	if (field.kind === "user") {
-		if (ctx.db.normalizeId("users", text)) return text;
-		if (lower === "me") return member.userId;
-		const rows = await ctx.db
+/** Distinct names one call may look up; ids don't count. Each lookup is a couple of index rows. */
+const LOOKUPS_MAX = 100;
+
+/**
+ * Turns teammates and linked records as people name them ("me", "Ana", "Acme Roofing") into
+ * ids, for one call. Ids pass through. Linked names are an exact lookup of the target type's
+ * name field in the index (live records only), so each costs two index rows. Lookups are
+ * memoized and capped, and the team is read once.
+ */
+class Names {
+	private cache = new Map<string, Promise<string>>();
+	private team?: Promise<{ id: Id<"users">; name: string; email: string }[]>;
+	constructor(
+		private ctx: QueryCtx,
+		private member: Member,
+	) {}
+
+	/** One value, or each item of a list (checked against the field's limits first). */
+	async ids(field: Doc<"recordFields">, raw: unknown, max = MULTI_MAX) {
+		if (!Array.isArray(raw)) return this.id(field, raw);
+		if (raw.length > max) throw new ConvexError(`“${field.label}” takes up to ${max} values.`);
+		const out = [];
+		for (const x of raw) out.push(await this.id(field, x));
+		return out;
+	}
+
+	id(field: Doc<"recordFields">, raw: unknown): Promise<unknown> | unknown {
+		if (typeof raw !== "string" || !raw.trim() || (field.kind !== "user" && field.kind !== "link")) return raw;
+		const text = raw.trim();
+		if (this.ctx.db.normalizeId(field.kind === "user" ? "users" : "records", text)) return text;
+		const key = `${field.kind === "user" ? "user" : field.linkTypeId}:${text.toLowerCase()}`;
+		let found = this.cache.get(key);
+		if (!found) {
+			if (this.cache.size >= LOOKUPS_MAX) throw new ConvexError(`That's more than ${LOOKUPS_MAX} names to look up at once. Use ids, or fewer at a time.`);
+			found = field.kind === "user" ? this.user(text) : this.record(field.linkTypeId!, text);
+			this.cache.set(key, found);
+		}
+		return found;
+	}
+
+	private async user(text: string) {
+		const lower = text.toLowerCase();
+		if (lower === "me") return this.member.userId;
+		this.team ??= this.ctx.db
 			.query("members")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
-			.collect();
-		const team = await Promise.all(
-			rows.map(async (m) => ({ id: m.userId, name: await nameOf(ctx, m.userId), email: (await ctx.db.get(m.userId))?.email ?? "" })),
-		);
+			.withIndex("by_workspace", (q) => q.eq("workspaceId", this.member.workspaceId))
+			.collect()
+			.then((rows) =>
+				Promise.all(
+					rows.map(async (m) => ({ id: m.userId, name: await nameOf(this.ctx, m.userId), email: (await this.ctx.db.get(m.userId))?.email ?? "" })),
+				),
+			);
+		const team = await this.team;
 		const matches = team.filter((p) => p.name.toLowerCase() === lower || p.email.toLowerCase() === lower);
 		if (matches.length === 1) return matches[0]!.id;
 		throw new ConvexError(
@@ -89,46 +153,49 @@ async function idFor(ctx: QueryCtx, member: Member, field: Doc<"recordFields">, 
 				: `No teammate “${text}”. Teammates: ${team.map((p) => p.name).join(", ")}.`,
 		);
 	}
-	if (field.kind === "link" && field.linkTypeId) {
-		if (ctx.db.normalizeId("records", text)) return text;
-		const typeId = field.linkTypeId;
-		const found = await ctx.db
-			.query("records")
-			.withSearchIndex("search", (q) =>
-				q.search("searchText", text).eq("workspaceId", member.workspaceId).eq("archived", false).eq("typeId", typeId),
-			)
-			.take(SEARCH_MAX);
-		const exact = found.filter((r) => r.title.toLowerCase() === lower);
-		if (exact.length === 1) return exact[0]!._id;
+
+	/** The live record of `typeId` named exactly `text` (case-insensitive). */
+	private async record(typeId: Id<"recordTypes">, text: string) {
+		const ctx = this.ctx;
 		const type = (await ctx.db.get(typeId))!;
-		if (exact.length > 1)
-			throw new ConvexError(`Several ${type.plural.toLowerCase()} are named “${text}”. Use an id: ${exact.map((r) => r._id).join(", ")}.`);
-		const close = found.slice(0, 5).map((r) => `${r.title} (${r._id})`);
-		throw new ConvexError(`No ${type.name.toLowerCase()} named “${text}”.${close.length ? ` Close: ${close.join(", ")}.` : ""}`);
+		const nameField = (await fieldsOf(ctx, typeId)).find((f) => f.key === NAME_KEY)!;
+		const entry = indexEntries(toField(nameField), text)[0] as { str: string };
+		const rows = await ctx.db
+			.query("recordValues")
+			.withIndex("by_field_str", (q) => q.eq("fieldId", nameField._id).eq("str", entry.str))
+			.take(2);
+		// Long names share an index key only by hash; check the one match really is it.
+		if (rows.length === 1) {
+			const record = await ctx.db.get(rows[0]!.recordId);
+			if (record && !record.archived && record.title.toLowerCase() === text.toLowerCase()) return record._id;
+		}
+		if (rows.length > 1)
+			throw new ConvexError(`Several ${type.plural.toLowerCase()} are named “${text}”. Find them with records_find and use an id.`);
+		throw new ConvexError(`No ${type.name.toLowerCase()} named “${text}”. Find it with records_find, or use its id.`);
 	}
-	return raw;
 }
 
-const idsFor = (ctx: QueryCtx, member: Member, field: Doc<"recordFields">, raw: unknown) =>
-	Array.isArray(raw) ? Promise.all(raw.map((x) => idFor(ctx, member, field, x))) : idFor(ctx, member, field, raw);
-
 /** Values by field key or label → by key, with teammates and links named as ids. */
-async function valuesFor(ctx: QueryCtx, member: Member, type: Doc<"recordTypes">, fields: Doc<"recordFields">[], values: Record<string, unknown>) {
+async function valuesFor(names: Names, type: Doc<"recordTypes">, fields: Doc<"recordFields">[], values: Record<string, unknown>) {
 	const out: Record<string, unknown> = {};
 	for (const [name, raw] of Object.entries(values)) {
 		const field = fieldNamed(fields, name, type);
-		out[field.key] = await idsFor(ctx, member, field, raw);
+		if (Array.isArray(raw) && !field.multiple) throw new ConvexError(`“${field.label}” holds one value.`);
+		out[field.key] = await names.ids(field, raw);
 	}
 	return out;
 }
 
-/** Records as tools return them: id, then values as people read them. */
+/**
+ * Records as list tools return them: `_id` (and `_type` across types), then values as people
+ * read them by field key. Field keys always start with a letter (keyOf), so they never clash.
+ */
 async function rowsOf(ctx: QueryCtx, member: Member, items: { record: Doc<"records">; fields: Doc<"recordFields">[] }[], withType?: Map<Id<"recordTypes">, string>) {
 	const rows = await toRows(ctx, member.workspaceId, items);
 	return rows.map((row, i) => ({
+		_id: row._id,
+		...(withType && { _type: withType.get(row.typeId) ?? "" }),
 		...displayValues(items[i]!.fields.filter((f) => !f.archived).map(toField), row.values, row.refs),
-		id: row._id,
-		...(withType && { type: withType.get(row.typeId) ?? "" }),
 	}));
 }
 
@@ -136,8 +203,8 @@ async function recordOut(ctx: QueryCtx, member: Member, recordId: Id<"records">)
 	const record = (await ctx.db.get(recordId))!;
 	const type = (await ctx.db.get(record.typeId))!;
 	const [row] = await rowsOf(ctx, member, [{ record, fields: await fieldsOf(ctx, record.typeId) }]);
-	const { id, ...values } = row!;
-	return { id, type: type.key, name: record.title, ...(record.archived && { archived: true }), values };
+	const { _id, ...values } = row!;
+	return { id: _id, type: type.key, name: record.title, ...(record.archived && { archived: true }), values };
 }
 
 export const typesFor = internalQuery({
@@ -194,12 +261,14 @@ export const findFor = internalQuery({
 			if (!typeName) throw new ConvexError("Say which record type to list, or search.");
 			const type = await typeNamed(ctx, member, typeName);
 			const fields = await fieldsOf(ctx, type._id);
+			if (filters.length > CONDITIONS_MAX) throw new ConvexError(`Use up to ${CONDITIONS_MAX} filters.`);
+			const names = new Names(ctx, member);
 			const conditions: Condition[] = [];
 			for (const { field: name, ...test } of filters) {
 				const field = fieldNamed(fields, name, type);
 				const c: Condition = { ...test, field: field.key };
-				if (c.eq !== undefined) c.eq = await idFor(ctx, member, field, c.eq);
-				if (c.in) c.in = await Promise.all(c.in.map((x) => idFor(ctx, member, field, x)));
+				if (c.eq !== undefined) c.eq = await names.id(field, c.eq);
+				if (c.in) c.in = (await names.ids(field, c.in, ANY_OF_MAX)) as unknown[];
 				conditions.push(c);
 			}
 			const sortBy = sort && {
@@ -297,14 +366,14 @@ export const saveFor = internalMutation({
 				else if (hasValues) {
 					const type = (await ctx.db.get(record.typeId))!;
 					const fields = await fieldsOf(ctx, type._id);
-					change = await updateRecord(ctx, who, recordId, await valuesFor(ctx, member, type, fields, values));
+					change = await updateRecord(ctx, who, recordId, await valuesFor(new Names(ctx, member), type, fields, values));
 				} else throw new ConvexError("Nothing to change: give values, or archived.");
 			} else {
 				if (archived !== undefined) throw new ConvexError("Create the record first.");
 				if (!typeName) throw new ConvexError("Say which record type to create.");
 				const type = await typeNamed(ctx, member, typeName);
 				const fields = await fieldsOf(ctx, type._id);
-				recordId = await createRecord(ctx, who, type._id, await valuesFor(ctx, member, type, fields, values));
+				recordId = await createRecord(ctx, who, type._id, await valuesFor(new Names(ctx, member), type, fields, values));
 				change = (await ctx.db
 					.query("recordHistory")
 					.withIndex("by_record", (q) => q.eq("recordId", recordId))

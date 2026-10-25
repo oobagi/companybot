@@ -30,8 +30,11 @@ export interface RecordTypesResult {
 	}[];
 }
 
-/** A record as list tools return it: its id, then each field's value as people read it, by key. */
-export type RecordRow = { id: string; type?: string } & Record<string, string | number>;
+/**
+ * A record as list tools return it: `_id` (and `_type` in a search across types), then each
+ * field's value as people read it, by key. Field keys start with a letter, so they never clash.
+ */
+export type RecordRow = { _id: string; _type?: string; [key: string]: string | number | undefined };
 
 export interface RecordPage {
 	/** The type's plural ("Deals"), or "Records" for a search across types. */
@@ -106,6 +109,60 @@ export type FieldSaveInput = z.infer<typeof fieldInput>;
 /** Requests one records_find call makes to fill its page, since a page can come back short. */
 const FIND_REQUESTS = 5;
 
+/**
+ * What the model sees of a data result, in JSON characters: a page of 50 records with long
+ * text can be megabytes, every byte of it billed and kept in the conversation. The full
+ * result stays in the ResultStore, so widgets showing the ref get everything.
+ */
+export const MODEL_OUTPUT_MAX = 24_000;
+/** Longest text value the model sees, at first: in a list, and on one record. */
+const ROW_TEXT_MAX = 300;
+const RECORD_TEXT_MAX = 2_000;
+const TEXT_MIN = 80;
+
+/**
+ * Fits a data tool's `{ ref, data }` into MODEL_OUTPUT_MAX: cuts long text (shorter and shorter
+ * until it fits, down to TEXT_MIN), then drops rows from the end, and says what it trimmed.
+ * Errors pass through.
+ */
+export function forModel(output: unknown, textMax: number): unknown {
+	if (!output || typeof output !== "object" || !("ref" in output) || !("data" in output)) return output;
+	const { ref, data } = output as { ref: string; data: unknown };
+	let cut = 0;
+	const clip = (v: unknown, max: number): unknown => {
+		if (typeof v === "string" && v.length > max) {
+			cut++;
+			return `${v.slice(0, max)}… (cut from ${v.length} characters)`;
+		}
+		if (Array.isArray(v)) return v.map((x) => clip(x, max));
+		if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, clip(x, max)]));
+		return v;
+	};
+	const size = (v: unknown) => JSON.stringify(v).length;
+	let max = textMax;
+	let view = clip(data, max) as Record<string, unknown>;
+	while (size(view) > MODEL_OUTPUT_MAX && max > TEXT_MIN) {
+		max = Math.max(TEXT_MIN, Math.floor(max / 2));
+		cut = 0;
+		view = clip(data, max) as Record<string, unknown>;
+	}
+	const notes = cut ? [`${cut} long values cut to ${max} characters`] : [];
+	const rows = view && typeof view === "object" && Array.isArray(view.rows) ? (view.rows as unknown[]) : null;
+	if (rows && size(view) > MODEL_OUTPUT_MAX) {
+		let room = MODEL_OUTPUT_MAX - size({ ...view, rows: [] }) - 300;
+		const kept = [];
+		for (const row of rows) {
+			room -= size(row) + 1;
+			if (room < 0) break;
+			kept.push(row);
+		}
+		notes.push(`showing ${kept.length} of ${rows.length} rows`);
+		view = { ...view, rows: kept };
+	}
+	if (notes.length === 0) return output;
+	return { ref, data: { ...view, trimmed: `Trimmed to save space: ${notes.join("; ")}. Widgets using ${ref} show everything; ask for fewer rows, or open one record, to read more.` } };
+}
+
 export const recordTools: ToolDef[] = [
 	defineTool({
 		id: "records.types",
@@ -120,7 +177,7 @@ export const recordTools: ToolDef[] = [
 		id: "records.find",
 		title: "Find records",
 		description:
-			"List one type's records with filters and a sort, or search names and text. Rows have the record's id and each field's value as people read it, by field key. If more is true there are more matches: call again with cursor before saying how many there are.",
+			"List one type's records with filters and a sort, or search names and text. Rows have the record's `_id` and each field's value as people read it, by field key. If more is true there are more matches: call again with cursor before saying how many there are. Long results are trimmed for you (it says so); widgets showing the ref still get every row in full.",
 		input: findInput,
 		readOnly: true,
 		returnsData: true,
@@ -139,6 +196,7 @@ export const recordTools: ToolDef[] = [
 			}
 			return { type, rows, more, ...(more && { cursor }) };
 		},
+		toModelOutput: ({ output }) => ({ type: "json", value: forModel(output, ROW_TEXT_MAX) as never }),
 	}),
 	defineTool({
 		id: "records.get",
@@ -149,6 +207,7 @@ export const recordTools: ToolDef[] = [
 		readOnly: true,
 		returnsData: true,
 		execute: (input, { records }) => records.get(input),
+		toModelOutput: ({ output }) => ({ type: "json", value: forModel(output, RECORD_TEXT_MAX) as never }),
 	}),
 	defineTool({
 		id: "records.save",
