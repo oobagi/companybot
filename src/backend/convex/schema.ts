@@ -594,11 +594,14 @@ export default defineSchema({
 		at: v.optional(v.number()),
 	})
 		.index("by_record", ["recordId", "fieldId"])
-		.index("by_field_str", ["fieldId", "str", "at"])
-		.index("by_field_num", ["fieldId", "num", "at"])
+		// Ending in `at` then `recordId`, so records sharing a value and creation time still page in a fixed order.
+		.index("by_field_str", ["fieldId", "str", "at", "recordId"])
+		.index("by_field_num", ["fieldId", "num", "at", "recordId"])
 		// Currency: `str` is the code and `num` the amount in its smallest unit, so amounts sort within their currency.
-		.index("by_field_money", ["fieldId", "str", "num", "at"])
-		.index("by_ref", ["ref", "fieldId", "at"]),
+		.index("by_field_money", ["fieldId", "str", "num", "at", "recordId"])
+		// A field's rows by creation time: the name field's lists every live record, newest first.
+		.index("by_field_at", ["fieldId", "at", "recordId"])
+		.index("by_ref", ["ref", "fieldId", "at", "recordId"]),
 
 	// Every change to a record or field, oldest to newest: who (or which agent, acting
 	// for whom), and each value's old → new. Undo applies a change in reverse.

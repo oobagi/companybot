@@ -818,22 +818,48 @@ describe("records: list edge cases", () => {
 		expect((await next({}, member)).page.map((r) => r.title)).toEqual(["A"]);
 	});
 
-	it("pages through records that share a creation time, in id order", async () => {
+	it("pages through records that share a creation time, in id order, however many", async () => {
 		const { t, owner, task } = await setup();
-		const ids = await seed(t, owner.userId, task._id, Array.from({ length: 5 }, (_, i) => ({ name: `T${i}`, status: "done" })));
-		// Same `at` on every row, as if they were created at once.
+		const ids = await seed(t, owner.userId, task._id, Array.from({ length: 12 }, (_, i) => ({ name: `T${i}`, status: "done" })));
+		// Same `at` on every row, as an import that kept creation times could make.
 		await t.run(async (ctx) => {
 			for (const row of await ctx.db.query("recordValues").collect()) await ctx.db.patch(row._id, { at: 1 });
 		});
-		const seen: string[] = [];
-		let cursor: string | null = null;
-		for (;;) {
-			const r = await owner.query(api.records.list, { typeId: task._id, filters: [{ field: "status", eq: "done" }], paginationOpts: { numItems: 2, cursor } });
-			seen.push(...r.page.map((x) => x._id));
-			if (r.isDone) break;
-			cursor = r.continueCursor;
-		}
-		expect(seen).toEqual([...ids].sort().reverse());
+		const pages = async (filters: FunctionArgs<typeof api.records.list>["filters"], numItems: number) => {
+			const seen: string[] = [];
+			let cursor: string | null = null;
+			for (;;) {
+				const r = await owner.query(api.records.list, { typeId: task._id, filters, paginationOpts: { numItems, cursor } });
+				seen.push(...r.page.map((x) => x._id));
+				if (r.isDone) break;
+				cursor = r.continueCursor;
+			}
+			return seen;
+		};
+		const expected = [...ids].sort().reverse();
+		expect(await pages([{ field: "status", eq: "done" }], 1)).toEqual(expected);
+		expect(await pages([{ field: "status", in: ["done", "to_do"] }], 2)).toEqual(expected);
+		expect(await pages([], 5)).toEqual(expected);
+	});
+
+	it("refuses a cursor once the workspace's currency changes what a filter means", async () => {
+		const { owner, deal } = await setup();
+		for (const [name, value] of [["EUR old", "EUR 100"], ["USD old", "USD 100"], ["EUR new", "EUR 100"], ["USD new", "USD 100"]])
+			await owner.mutation(api.records.create, { typeId: deal._id, values: { name, value } });
+		const args = { typeId: deal._id, filters: [{ field: "value", eq: 100 }] };
+		const first = await owner.query(api.records.list, { ...args, paginationOpts: { numItems: 1, cursor: null } });
+		expect(first.page.map((r) => r.title)).toEqual(["USD new"]);
+		const settings = (await owner.query(api.workspace.settings))!;
+		await owner.mutation(api.workspace.updateSettings, { name: settings.name, currency: "EUR", expectedVersion: settings.version });
+		await expect(owner.query(api.records.list, { ...args, paginationOpts: { numItems: 1, cursor: first.continueCursor } })).rejects.toThrow(
+			"out of date",
+		);
+		// Naming the currency keeps meaning the same, so its cursors carry on.
+		const usd = { typeId: deal._id, filters: [{ field: "value", eq: "USD 100" }] };
+		const before = await owner.query(api.records.list, { ...usd, paginationOpts: { numItems: 1, cursor: null } });
+		await owner.mutation(api.workspace.updateSettings, { name: settings.name, currency: "GBP", expectedVersion: settings.version + 1 });
+		const after = await owner.query(api.records.list, { ...usd, paginationOpts: { numItems: 1, cursor: before.continueCursor } });
+		expect(after.page.map((r) => r.title)).toEqual(["USD old"]);
 	});
 
 	it("treats links to archived records as empty, one or several", async () => {
@@ -849,6 +875,32 @@ describe("records: list edge cases", () => {
 		expect(await list("client", false)).toEqual(["Mixed"]);
 		expect(await list("partners", true)).toEqual(["To gone"]);
 		expect(await list("partners", false)).toEqual(["Mixed"]);
+	});
+
+	it("backfills index rows of big records in batches that fit a transaction", { timeout: 300_000 }, async () => {
+		const { t, owner, task } = await setup();
+		migrationsTest.register(t);
+		const big = await bigValues(owner, task._id);
+		const ids: Id<"records">[] = [];
+		for (let batch = 0; batch < 4; batch++) ids.push(...(await seed(t, owner.userId, task._id, Array.from({ length: 25 }, () => ({ ...big, status: "done" })))));
+		// A bulk edit of one field rewrites its rows together at the end of the table: 100 rows in a row, each of a big record.
+		for (let batch = 0; batch < 4; batch++)
+			await t.run(async (ctx) => {
+				const who = { member: (await memberOf(ctx, owner.userId))! };
+				for (const id of ids.slice(batch * 25, batch * 25 + 25)) await updateRecord(ctx, who, id, { status: "to_do" });
+			});
+		await t.run(async (ctx) => {
+			for (const row of await ctx.db.query("recordValues").collect()) await ctx.db.patch(row._id, { at: undefined });
+		});
+		vi.useFakeTimers();
+		try {
+			await t.mutation(internal.migrations.runAll);
+			await t.finishAllScheduledFunctions(vi.runAllTimers);
+		} finally {
+			vi.useRealTimers();
+		}
+		expect(await t.run(async (ctx) => (await ctx.db.query("recordValues").collect()).every((r) => r.at !== undefined))).toBe(true);
+		expect((await owner.query(api.records.list, { typeId: task._id, filters: [{ field: "status", eq: "to_do" }], paginationOpts: { numItems: 5, cursor: null } })).page).toHaveLength(5);
 	});
 
 	it("backfills index rows from before `at`, and says to wait until then", async () => {
