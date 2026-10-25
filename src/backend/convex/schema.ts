@@ -175,7 +175,11 @@ export default defineSchema({
 		version: v.number(),
 	})
 		.index("by_workspace", ["workspaceId"])
-		.index("by_agent", ["agentId"]),
+		// Newest first within a scope, across owners (lists), or one owner's personal memories.
+		.index("by_agent_scope", ["agentId", "scope"])
+		.index("by_agent_owner", ["agentId", "scope", "ownerId"])
+		// Agent search over every memory, however many (memoryOps.searchMemories).
+		.searchIndex("search_content", { searchField: "content", filterFields: ["agentId", "scope", "ownerId"] }),
 
 	// Personal preferences: only the person sees them; they follow them across devices.
 	preferences: defineTable({

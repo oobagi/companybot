@@ -14,7 +14,6 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
 import { type Member, asToolResult, nameOf } from "./lib";
 import {
-	type Who,
 	createField,
 	createRecord,
 	currencyOf,
@@ -43,11 +42,6 @@ const SEARCH_MAX = 20;
 /** Records that link here, and recent changes, shown by records_get. */
 const LINKED_MAX = 10;
 const CHANGES_MAX = 5;
-
-async function acting(ctx: QueryCtx, turnId: Id<"agentTurns">) {
-	const { turn, member } = await runningTurn(ctx, turnId);
-	return { member, who: { member, agentId: turn.agentId } satisfies Who };
-}
 
 const liveTypes = async (ctx: QueryCtx, member: Member) =>
 	(await typesOf(ctx, member.workspaceId)).filter((t) => !t.archived).sort((a, b) => a._creationTime - b._creationTime);
@@ -210,7 +204,7 @@ async function recordOut(ctx: QueryCtx, member: Member, recordId: Id<"records">)
 export const typesFor = internalQuery({
 	args: { turnId: v.id("agentTurns") },
 	handler: async (ctx, { turnId }): Promise<RecordTypesResult> => {
-		const { member } = await acting(ctx, turnId);
+		const { member } = await runningTurn(ctx, turnId);
 		const types = await liveTypes(ctx, member);
 		const keys = new Map(types.map((t) => [t._id, t.key]));
 		return {
@@ -239,7 +233,7 @@ export const typesFor = internalQuery({
 export const findFor = internalQuery({
 	args: { turnId: v.id("agentTurns"), input: v.any() },
 	handler: async (ctx, { turnId, input }) => {
-		const { member } = await acting(ctx, turnId);
+		const { member } = await runningTurn(ctx, turnId);
 		const { type: typeName, search, filters = [], sort, archived = false, cursor, numItems } = input as RecordFindInput & { numItems: number };
 		return asToolResult(async (): Promise<RecordPage> => {
 			if (search?.trim()) {
@@ -282,7 +276,7 @@ export const findFor = internalQuery({
 export const getFor = internalQuery({
 	args: { turnId: v.id("agentTurns"), id: v.string() },
 	handler: async (ctx, { turnId, id }) => {
-		const { member } = await acting(ctx, turnId);
+		const { member } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
 			const recordId = ctx.db.normalizeId("records", id);
 			if (!recordId) throw new ConvexError("Record not found.");
@@ -332,7 +326,7 @@ export const getFor = internalQuery({
 export const saveFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), input: v.any() },
 	handler: async (ctx, { turnId, input }) => {
-		const { member, who } = await acting(ctx, turnId);
+		const { member, who } = await runningTurn(ctx, turnId);
 		const { id, type: typeName, values = {}, archived } = input as RecordSaveInput;
 		return asToolResult(async () => {
 			const hasValues = Object.keys(values).length > 0;
@@ -365,7 +359,7 @@ export const saveFor = internalMutation({
 export const undoFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), change: v.string() },
 	handler: async (ctx, { turnId, change }) => {
-		const { member, who } = await acting(ctx, turnId);
+		const { member, who } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
 			const historyId = ctx.db.normalizeId("recordHistory", change);
 			if (!historyId) throw new ConvexError("Change not found.");
@@ -379,7 +373,7 @@ export const undoFor = internalMutation({
 export const saveFieldFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), input: v.any() },
 	handler: async (ctx, { turnId, input }) => {
-		const { member, who } = await acting(ctx, turnId);
+		const { member, who } = await runningTurn(ctx, turnId);
 		const { type: typeName, field: name, label, kind, options, linksTo, multiple } = input as FieldSaveInput;
 		return asToolResult(async () => {
 			const type = await typeNamed(ctx, member, typeName);

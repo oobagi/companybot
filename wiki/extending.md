@@ -64,7 +64,8 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 
 ## Memory — `core/src/memory.ts`, `backend/convex/memoryOps.ts`
 - Each memory belongs to one agent; scope `workspace` or `personal`. Rules live in `canReadMemory` / `canEditMemory` / `canCreateMemory`.
-- App and agents both go through `memoryOps.ts`, so they can't drift. Agent calls re-read membership each call.
+- App and agents both go through `memoryOps.ts` with a `Who` (member + optional agent), so they can't drift. Agent calls take the `turnId` and act through `runningTurn`, like every other agent tool; whether personal memories work is read from the chat on each call (`personalMemoryHere`).
+- Agent search (`memory.search`) uses the `search_content` search index, filtered by agent, scope and owner, so it finds matches anywhere in the history; at most 50 back, oldest first. It matches words and prefixes, not substrings: "aus" finds "Austin", "ustin" doesn't; every word must match (`memoryMatches`). An empty query lists the newest 50.
 - Edits from the app send `expectedVersion`; agents edit the latest.
 
 ## Agents — `core/src/agents.ts`, `backend/convex/agents.ts`
@@ -83,7 +84,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 ## Records — `core/src/records.ts`, `backend/convex/recordOps.ts`
 - Add a built-in type or field: `recordTypeCatalog`. New workspaces get it; existing ones need a migration that calls `seedRecordTypes` (it only adds types that are missing, so new fields on an existing type need their own migration).
 - New field kind: add it to `fieldKinds` and `fieldKind` (`schema.ts`), then `normalizeValue` and `indexEntries`.
-- Every change goes through `recordOps` (`Who` = member + optional agent), so permissions, history and the index can't drift. Never write `records` or `recordValues` directly.
+- Every change goes through `recordOps` (`Who` in `lib.ts`: member + optional agent), so permissions, history and the index can't drift. Never write `records` or `recordValues` directly.
 - Reads the app and agents share (lists, search, "what links here") live in `recordReads.ts`; use them instead of querying the indexes again.
 - Heavy data for a type (recordings, transcripts, line items) gets its own table keyed by `recordId`, not a field.
 - Agent tools (`core/src/record-tools.ts`, `backend/convex/recordTools.ts`) are the same `recordOps` calls with `agentId`, acting through `runningTurn` (role read fresh each call). Keep the list at six fixed tools: grow inputs, not tools, since every tool is sent every turn. Expected problems return `{ error }` (`asToolResult`); resolve names before any write so a refused call writes nothing.
