@@ -9,6 +9,7 @@
     "./automations": "./src/automations.ts",
     "./local-auth": "./src/local-auth.ts",
     "./permissions": "./src/permissions.ts",
+    "./records": "./src/records.ts",
     "./skills": "./src/skills.ts"
   },
   "scripts": {

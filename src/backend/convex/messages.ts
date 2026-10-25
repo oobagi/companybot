@@ -16,6 +16,7 @@ import {
 	visibleChat,
 } from "./chatOps";
 import { type Member, memberOf, nameOf, requireMember } from "./lib";
+import { noteMentions, workspaceRecords } from "./recordOps";
 import type { messagePart, replyStats } from "./schema";
 import { enqueueTurn } from "./turns";
 
@@ -128,7 +129,12 @@ export const send = mutation({
 		chatId: v.id("chats"),
 		threadId: v.optional(v.id("chatMessages")),
 		text: v.string(),
-		mentions: v.object({ userIds: v.array(v.id("users")), agentIds: v.array(v.id("agents")) }),
+		/** `recordIds`: records the message references, so they can show where they were discussed. */
+		mentions: v.object({
+			userIds: v.array(v.id("users")),
+			agentIds: v.array(v.id("agents")),
+			recordIds: v.optional(v.array(v.id("records"))),
+		}),
 	},
 	handler: async (ctx, { chatId, threadId, text, mentions }): Promise<Id<"chatMessages">> => {
 		const member = await requireMember(ctx);
@@ -153,6 +159,8 @@ export const send = mutation({
 			if (agent?.workspaceId === member.workspaceId && !agent.archived) agentIds.push(id);
 		}
 
+		const recordIds = await workspaceRecords(ctx, member.workspaceId, mentions.recordIds ?? []);
+
 		const dmAgent = agentOfDm(chat);
 		if (dmAgent && (await ctx.db.get(dmAgent))?.archived) throw new ConvexError("This agent is archived.");
 
@@ -161,9 +169,10 @@ export const send = mutation({
 			authorUserId: member.userId,
 			text,
 			parts: [{ type: "text", text }],
-			mentions: { userIds, agentIds },
+			mentions: { userIds, agentIds, ...(recordIds.length > 0 && { recordIds }) },
 			status: "done",
 		});
+		await noteMentions(ctx, { _id: messageId, chatId }, recordIds);
 		if (!threadId) await markChatRead(ctx, chatId, member.userId);
 
 		// Channels gain mentioned agents as members. DMs are a fixed set, so only their own agents answer.

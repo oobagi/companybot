@@ -5,6 +5,7 @@ import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { type QueryCtx, mutation, query } from "./_generated/server";
 import { seedAgents } from "./agents";
+import { seedRecordTypes } from "./recordOps";
 import { addToChat, ensureGeneral } from "./chatOps";
 import { checkVersion, getMember, nameOf, namesOf, normalizeEmail, requirePermission, timeZoneOf } from "./lib";
 import { role } from "./schema";
@@ -48,6 +49,7 @@ export const ensure = mutation({
 		const workspaceId = await ctx.db.insert("workspaces", { name: "My company", version: 1 });
 		await ctx.db.insert("members", { workspaceId, userId, role: "owner" });
 		await seedAgents(ctx, workspaceId, userId);
+		await seedRecordTypes(ctx, workspaceId, userId);
 		await addToChat(ctx, await ensureGeneral(ctx, workspaceId, userId), { userId });
 	},
 });

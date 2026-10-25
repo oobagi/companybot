@@ -11,12 +11,13 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 - **Companybot owns the data.** Business records live in Companybot, not in HubSpot or a spreadsheet reached through a connector. Connectors bring data in; they aren't where it lives. Because of that, "who hasn't paid?" or "move Acme to won" works with zero setup.
 - **Companybot absorbs Night Owl.** Everything Night Owl does for clients moves in, rebuilt around the records, agents and automations.
 
-## CRM (not built yet)
+## CRM (data layer built; screens not yet)
 - Records: clients, deals/pipeline, jobs or projects, tasks, invoices. Each type gets its own tab (e.g. Clients) and lives next to the chat about it.
+- **Built:** the data layer ([Data](data.md)): Clients, Deals, Tasks and Calls ship as built-in types; owners can add more. Custom fields, links between records, filtering and sorting on any field, history with undo, and chat messages that reference records. The app has Clients, Deals, Tasks, Calls and Campaigns tabs, each "Coming soon".
 - **Custom fields from the start.** A field is one piece of info on a record (name, phone, "Roof type", "Monthly retainer"). Each business adds its own, so the facts that matter aren't buried in notes. Designing for this up front is cheap; adding it later means migrating every record.
 - **Agents are wired in natively.** They can read and change any field and add new ones ("start tracking roof type on clients"), limited to what the person who asked may do. Every change is in the activity log, and records keep history so changes can be undone.
 - Record changes are automation triggers ("deal moved to Won" → welcome email + onboarding tasks).
-- Still open: which record types ship first.
+- Next: record screens, agent tools for records, record triggers for automations.
 
 ## Calls (not built yet)
 - Voice agents (like Night Owl's receptionist) run from Companybot.

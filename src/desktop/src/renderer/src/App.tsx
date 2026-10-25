@@ -11,10 +11,11 @@ import { Notice } from "./ui";
 import { ChatView } from "./views/chat/ChatView";
 import { ChatNav, Item } from "./views/chat/Sidebar";
 import { CustomizeView, customizeTabs } from "./views/customize";
+import { RecordsView, recordTabs } from "./views/Records";
 import { SettingsView, settingsTabs } from "./views/Settings";
 import { SignIn } from "./views/SignIn";
 
-const views = ["chat", "customize", "settings"] as const;
+const views = ["chat", ...recordTabs.map((t) => t.id), "customize", "settings"] as const;
 type View = (typeof views)[number];
 
 export function App() {
@@ -48,11 +49,12 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	useEffect(() => {
 		if (prefs && prefs.deviceTimeZone !== deviceTimeZone) updatePrefs({ deviceTimeZone }).catch(() => {});
 	}, [prefs, deviceTimeZone, updatePrefs]);
-	// Screens are paths: /chat[/<chat>], /customize/<tab>[/<item>], /settings/<tab>.
+	// Screens are paths: /chat[/<chat>], /clients (and other record tabs), /customize/<tab>[/<item>], /settings/<tab>.
 	const route = useRoute();
 	const view: View = views.find((v) => v === route[0]) ?? "chat";
 	const customizeTab = customizeTabs.find((t) => t.id === route[1])?.id ?? "agents";
 	const settingsTab = settingsTabs.find((t) => t.id === route[1])?.id ?? "general";
+	const recordTab = recordTabs.find((t) => t.id === view)?.id;
 	// Each section reopens where you left it.
 	const lastPath = useRef<Partial<Record<View, string[]>>>({});
 	lastPath.current[view] = route;
@@ -70,6 +72,13 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 		<div className="flex h-screen text-[15px] text-neutral-900">
 			<aside className="drag flex w-60 shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 px-3 pt-12 pb-3">
 				<p className="truncate px-2 pb-4 text-sm font-semibold">{workspace}</p>
+				<nav className="no-drag mb-3 flex flex-col gap-px border-b border-neutral-200 pb-3">
+					{recordTabs.map((t) => (
+						<Item key={t.id} active={view === t.id} onClick={() => navigate(t.id)}>
+							{t.label}
+						</Item>
+					))}
+				</nav>
 				<ChatNav chats={chats} openId={view === "chat" ? openId : undefined} onOpen={open} onError={(e) => setError(errorMessage(e))} />
 				<nav className="no-drag flex flex-col gap-px border-t border-neutral-200 pt-3">
 					{(["customize", "settings"] as const).map((v) => (
@@ -107,6 +116,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 						<div className="drag h-12 shrink-0" />
 					))}
 				{view !== "chat" && <header className="drag h-12 shrink-0" />}
+				{recordTab && <RecordsView tab={recordTab} />}
 				{view === "customize" && <CustomizeView role={role} tab={customizeTab} itemId={route[2]} />}
 				{view === "settings" && <SettingsView role={role} tab={settingsTab} onTab={(t) => navigate("settings", t)} />}
 			</main>

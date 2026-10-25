@@ -22,6 +22,16 @@ import { type Memory, type MemoryStore, canCreateMemory, canEditMemory, canReadM
 import { openConnector } from "./mcp";
 import { ConnectorOAuth } from "./oauth";
 import { can, canEditMade, canManageChannel, permissions } from "./permissions";
+import {
+	type Field,
+	fieldConfigError,
+	indexEntries,
+	keyOf,
+	normalizeFieldConfig,
+	normalizeValue,
+	recordTypeCatalog,
+	searchTextOf,
+} from "./records";
 import { type Connector, defineConnector, connectorCatalog, connectorHeaders, validateCredentials, validateConnector } from "./connectors";
 import {
 	SKILL_DESCRIPTION_MAX,
@@ -237,13 +247,87 @@ describe("permissions", () => {
 		expect(canManageChannel(owner, { createdBy: "member" })).toBe(true);
 	});
 
-	it.each(["skills.manage", "automations.manage"] as const)("lets makers and managers edit through %s", (permission) => {
+	it("lets members change records and add fields, but not manage record types", () => {
+		expect(can(member, "records.edit")).toBe(true);
+		expect(can(member, "fields.create")).toBe(true);
+		expect(can(member, "fields.manage")).toBe(false);
+	});
+
+	it.each(["skills.manage", "automations.manage", "fields.manage"] as const)("lets makers and managers edit through %s", (permission) => {
 		expect(canEditMade(member, permission, member.userId)).toBe(true);
 		expect(canEditMade(member, permission, owner.userId)).toBe(false);
 		expect(canEditMade(member, permission)).toBe(false);
 		expect(canEditMade(member, permission, "")).toBe(false);
 		expect(canEditMade(owner, permission, member.userId)).toBe(true);
 		expect(canEditMade(owner, permission)).toBe(true);
+	});
+});
+
+describe("records", () => {
+	const field = (kind: Field["kind"], extra: Partial<Field> = {}): Field => ({ key: "f", label: "F", kind, ...extra });
+	const value = (f: Field, raw: unknown) => normalizeValue(f, raw);
+
+	it("makes keys from labels that are safe, stable and unique", () => {
+		expect(keyOf("Roof type", [])).toBe("roof_type");
+		expect(keyOf("Roof type", ["roof_type", "roof_type_2"])).toBe("roof_type_3");
+		expect(keyOf("2nd phone", [])).toBe("f_2nd_phone");
+		expect(keyOf("!!!", [])).toBe("field");
+		expect(keyOf("_secret", [])).toBe("secret");
+	});
+
+	it("checks field setups", () => {
+		expect(fieldConfigError(normalizeFieldConfig({ label: " Roof ", kind: "choice", options: [{ label: "Flat" }] }))).toBeNull();
+		expect(fieldConfigError({ label: "", kind: "text" })).toMatch("name");
+		expect(fieldConfigError({ label: "x".repeat(61), kind: "text" })).toMatch("under 60");
+		expect(fieldConfigError({ label: "A", kind: "choice", options: [{ id: "a", label: "A" }, { id: "b", label: "a" }] })).toMatch("same name");
+		expect(fieldConfigError({ label: "A", kind: "text", options: [{ id: "a", label: "A" }] })).toMatch("Only choice");
+		expect(fieldConfigError({ label: "A", kind: "text", multiple: true })).toMatch("several");
+		expect(fieldConfigError({ label: "A", kind: "link" })).toMatch("record type");
+		expect(fieldConfigError({ label: "A", kind: "blob" as Field["kind"] })).toMatch("one of");
+	});
+
+	it("normalizes values, and empty ones clear", () => {
+		expect(value(field("text"), "  hi ")).toEqual({ value: "hi" });
+		expect(value(field("text"), "")).toEqual({ value: null });
+		expect(value(field("number"), "1,200")).toEqual({ value: 1200 });
+		expect(value(field("currency"), 19.999)).toEqual({ value: 20 });
+		expect(value(field("date"), "2026-10-25T10:00:00Z")).toEqual({ value: "2026-10-25" });
+		expect(value(field("date"), "10/25/2026")).toHaveProperty("error");
+		expect(value(field("checkbox"), true)).toEqual({ value: true });
+		expect(value(field("checkbox"), false)).toEqual({ value: null });
+		expect(value(field("email"), " A@B.co ")).toEqual({ value: "a@b.co" });
+		expect(value(field("phone"), "12")).toHaveProperty("error");
+		expect(value(field("url"), "javascript:alert(1)")).toHaveProperty("error");
+		expect(value(field("url"), "acme.com/x")).toEqual({ value: "https://acme.com/x" });
+		const stage = field("choice", { options: [{ id: "won", label: "Won" }] });
+		expect(value(stage, "WON")).toEqual({ value: "won" });
+		expect(value(stage, ["won"])).toHaveProperty("error");
+		expect(value({ ...stage, multiple: true }, ["Won", "won"])).toEqual({ value: ["won"] });
+		expect(value({ ...stage, multiple: true }, [])).toEqual({ value: null });
+	});
+
+	it("indexes values for sorting and exact matches", () => {
+		expect(indexEntries(field("text"), "Acme ROOFING")).toEqual([{ str: "acme roofing" }]);
+		expect(indexEntries(field("phone"), "(555) 123-4567")).toEqual([{ str: "5551234567" }]);
+		expect(indexEntries(field("currency"), 12.5)).toEqual([{ num: 12.5 }]);
+		expect(indexEntries(field("link", { multiple: true }), ["a", "b"])).toEqual([{ ref: "a" }, { ref: "b" }]);
+		expect(indexEntries(field("text"), undefined)).toEqual([]);
+	});
+
+	it("searches text-like values only", () => {
+		const fields = [field("text", { key: "name" }), field("number", { key: "n" }), field("email", { key: "e" })];
+		expect(searchTextOf(fields, { name: "Acme", n: 3, e: "a@b.co" })).toBe("Acme\na@b.co");
+	});
+
+	it("ships built-in types whose fields are valid and links point at other built-ins", () => {
+		const keys = recordTypeCatalog.map((t) => t.key);
+		for (const type of recordTypeCatalog) {
+			expect(type.fields[0]?.key).toBe("name");
+			for (const f of type.fields) {
+				expect(fieldConfigError(f)).toBeNull();
+				if (f.linkType) expect(keys).toContain(f.linkType);
+			}
+		}
 	});
 });
 

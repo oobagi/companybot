@@ -24,6 +24,12 @@ export const permissions = {
 	"automations.create": { roles: ["owner", "member"], label: "make automations" },
 	"memory.team.write": { roles: ["owner"], label: "change team memories" },
 	"memory.all.read": { roles: ["owner"], label: "read everyone's memories" },
+	/** Add, change, archive and restore records (clients, deals, tasks…), and undo changes. */
+	"records.edit": { roles: ["owner", "member"], label: "change records" },
+	/** Add fields to a record type. You can always change and archive the ones you added. */
+	"fields.create": { roles: ["owner", "member"], label: "add fields" },
+	/** Add record types, and change or archive anyone's fields (`canEditMade`). */
+	"fields.manage": { roles: ["owner"], label: "manage fields and record types" },
 	"channels.create": { roles: ["owner", "member"], label: "create channels" },
 	/** Rename, archive, and add members to any channel. Creators can always manage their own (`canManageChannel`). */
 	"channels.manage": { roles: ["owner"], label: "manage channels" },
@@ -46,7 +52,7 @@ export function canManageChannel(who: Actor, channel: { createdBy: string }): bo
 }
 
 /** Makers can edit their own; managers can edit anyone's or library installs. */
-export function canEditMade(who: Actor, managePermission: "skills.manage" | "automations.manage", createdBy?: string): boolean {
+export function canEditMade(who: Actor, managePermission: "skills.manage" | "automations.manage" | "fields.manage", createdBy?: string): boolean {
 	return can(who, managePermission) || (!!createdBy && createdBy === who.userId);
 }
 
