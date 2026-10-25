@@ -14,7 +14,6 @@ export const recordTabs = [
 	{ id: "calls", label: "Calls" },
 	{ id: "campaigns", label: "Campaigns" },
 ] as const;
-export type RecordTab = (typeof recordTabs)[number]["id"];
 
 /** Types owners added, which get their own tabs under /records/<key>. */
 export function useAddedTypes() {

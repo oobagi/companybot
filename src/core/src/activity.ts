@@ -56,6 +56,15 @@ export function callLabel(
 /** A data tool's result is `{ ref, data }` (agents.ts `withRef`); labels read the data. */
 const dataOf = (output: unknown) => (output && typeof output === "object" && "ref" in output && "data" in output ? output.data : output);
 
+/**
+ * How a finished call ended. Tools report expected problems as `{ error }` instead of
+ * throwing (asToolResult, connector errors), so the model can read them; the reply's
+ * tool line and the activity log still count those as failed.
+ */
+export function callEnd(output: unknown): { output: unknown } | { error: string } {
+	return output && typeof output === "object" && "error" in output ? { error: String(output.error) } : { output };
+}
+
 /** A value as JSON, cut to ACTIVITY_MAX_CHARS. */
 export function clipJson(value: unknown): string {
 	let text: string;

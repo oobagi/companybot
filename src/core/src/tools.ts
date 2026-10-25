@@ -5,7 +5,8 @@ import type { MemoryStore } from "./memory";
 import type { RecordStore } from "./record-tools";
 import type { SkillStore } from "./skills";
 import type { Risk } from "./approvals";
-import type { Actor, Role } from "./types";
+import type { Permission } from "./permissions";
+import type { Actor } from "./types";
 
 /** What a tool can reach while it runs. */
 export interface ToolContext {
@@ -64,8 +65,8 @@ export interface ToolDef<Input = any> {
 	description: string;
 	/** A zod schema, or `jsonSchema(...)` for tools described by an MCP server. */
 	input: FlexibleSchema<Input>;
-	/** Roles allowed to use this tool. Omit for everyone. */
-	roles?: Role[];
+	/** Only roles with this permission may use it (permissions.ts). Omit for everyone. */
+	permission?: Permission;
 	/** True when the tool only reads. Unknown counts as a write. */
 	readOnly?: boolean;
 	/**

@@ -33,9 +33,6 @@ export function toolRisk(tool: { risk?: Risk; readOnly?: boolean; source: { type
 	return tool.risk ?? (tool.source.type === "connector" && tool.readOnly !== true ? "outside" : "none");
 }
 
-/** Whether a call to this tool asks by default, before anyone's rules. */
-export const needsApproval = (tool: Parameters<typeof toolRisk>[0]) => toolRisk(tool) !== "none";
-
 /**
  * A person's rule for one action: Always (runs without asking) or Never (blocked).
  * No rule means Ask, the default.

@@ -17,6 +17,10 @@ async function signIn(t: ReturnType<typeof convexTest>, email: string) {
 
 type As = Awaited<ReturnType<typeof signIn>>;
 
+/** A tool's answer, read as any outcome: the success shape, with `error` set when it refused and `change` unset when nothing changed. */
+type Result<T> = Exclude<T, { error: string }> & { error?: string; change?: Id<"recordHistory">; unchanged?: boolean };
+const result = <T,>(answer: Promise<T>) => answer as Promise<Result<T>>;
+
 /** A running Companybot turn for `as`, started by mentioning it in #general. */
 async function turnFor(t: ReturnType<typeof convexTest>, as: As) {
 	const general = (await as.query(api.chats.list))!.channels.find((c) => c.isDefault)!;
@@ -27,11 +31,11 @@ async function turnFor(t: ReturnType<typeof convexTest>, as: As) {
 	const turnId = turns.find((x) => !before.some((b) => b._id === x._id))!._id;
 	const tools = {
 		types: () => t.query(internal.recordTools.typesFor, { turnId }),
-		find: (input: object) => t.query(internal.recordTools.findFor, { turnId, input: { numItems: 20, ...input } }) as Promise<any>,
-		get: (id: string) => t.query(internal.recordTools.getFor, { turnId, id }) as Promise<any>,
-		save: (input: object) => t.mutation(internal.recordTools.saveFor, { turnId, input }) as Promise<any>,
-		undo: (change: string) => t.mutation(internal.recordTools.undoFor, { turnId, change }) as Promise<any>,
-		saveField: (input: object) => t.mutation(internal.recordTools.saveFieldFor, { turnId, input }) as Promise<any>,
+		find: (input: object) => result(t.query(internal.recordTools.findFor, { turnId, input: { numItems: 20, ...input } })),
+		get: (id: string) => result(t.query(internal.recordTools.getFor, { turnId, id })),
+		save: (input: object) => result(t.mutation(internal.recordTools.saveFor, { turnId, input })),
+		undo: (change: string) => result(t.mutation(internal.recordTools.undoFor, { turnId, change })),
+		saveField: (input: object) => result(t.mutation(internal.recordTools.saveFieldFor, { turnId, input })),
 	};
 	return { turnId, ...tools };
 }
@@ -106,7 +110,7 @@ describe("records tools", () => {
 		expect(deal.values.value).toBe("€1,250.50");
 		const yen = await tools.save({ type: "deal", values: { name: "Tokyo", value: { amount: 99.5, currency: "JPY" } } });
 		expect(yen.values.value).toBe("¥100");
-		expect((await tools.find({ type: "deal", filters: [{ field: "value", gte: "EUR 1000" }] })).rows.map((r: any) => r.name)).toEqual(["Berlin"]);
+		expect((await tools.find({ type: "deal", filters: [{ field: "value", gte: "EUR 1000" }] })).rows.map((r) => r.name)).toEqual(["Berlin"]);
 	});
 
 	it("explain what's wrong instead of failing the reply", async () => {
@@ -130,16 +134,16 @@ describe("records tools", () => {
 			{ field: "Stage", in: ["Proposal", "won"] },
 		];
 		const first = await tools.find({ type: "deal", filters, sort: { field: "value", order: "desc" }, numItems: 2 });
-		expect(first.rows.map((r: any) => [r.name, r.value])).toEqual([
+		expect(first.rows.map((r) => [r.name, r.value])).toEqual([
 			["Deal 4", "$5,000.00"],
 			["Deal 3", "$4,000.00"],
 		]);
 		expect(first.more).toBe(true);
 		const next = await tools.find({ type: "deal", filters, sort: { field: "value", order: "desc" }, numItems: 2, cursor: first.cursor });
-		expect(next.rows.map((r: any) => r.name)).toEqual(["Deal 2", "Deal 1"]);
+		expect(next.rows.map((r) => r.name)).toEqual(["Deal 2", "Deal 1"]);
 		expect((await tools.find({ type: "deal", filters, sort: { field: "value", order: "asc" }, cursor: first.cursor })).error).toMatch("out of date");
 		const mine = await tools.find({ type: "deal", filters: [{ field: "owner", eq: "me" }] });
-		expect(mine.rows.map((r: any) => r.name)).toEqual(["Deal 3", "Deal 1"]);
+		expect(mine.rows.map((r) => r.name)).toEqual(["Deal 3", "Deal 1"]);
 		expect(mine.rows[0]).toMatchObject({ _id: expect.any(String), owner: "member@co.com", stage: "Won" });
 		const found = await tools.find({ search: "deal" });
 		expect(found).toMatchObject({ type: "Records", typeName: "Record", more: false });
@@ -246,18 +250,18 @@ describe("records tools", () => {
 		const tools = await turnFor(t, member);
 		const client = await tools.save({ type: "client", values: { name: "Acme", status: "Lead" } });
 		const changed = await tools.save({ id: client.id, values: { status: "Active" } });
-		const undone = await tools.undo(changed.change);
+		const undone = await tools.undo(changed.change!);
 		expect(undone).toMatchObject({ undone: changed.change, id: client.id, values: { status: "Lead" } });
-		expect(await tools.undo(changed.change)).toEqual({ error: "That change was already undone." });
+		expect(await tools.undo(changed.change!)).toEqual({ error: "That change was already undone." });
 		const archived = await tools.save({ id: client.id, archived: true });
 		expect(archived).toMatchObject({ archived: true });
 		expect((await tools.find({ type: "client" })).rows).toEqual([]);
-		expect((await tools.find({ type: "client", archived: true })).rows.map((r: any) => r.name)).toEqual(["Acme"]);
-		expect(await tools.undo(archived.change)).not.toHaveProperty("archived");
+		expect((await tools.find({ type: "client", archived: true })).rows.map((r) => r.name)).toEqual(["Acme"]);
+		expect(await tools.undo(archived.change!)).not.toHaveProperty("archived");
 		expect(await tools.save({ id: client.id, archived: true, values: { status: "Past" } })).toEqual({ error: expect.stringContaining("on its own") });
 		// Undoing a new record archives it.
 		const extra = await tools.save({ type: "client", values: { name: "Oops" } });
-		expect(await tools.undo(extra.change)).toMatchObject({ name: "Oops", archived: true });
+		expect(await tools.undo(extra.change!)).toMatchObject({ name: "Oops", archived: true });
 	});
 
 	it("show a record's links and what links to it", async () => {
@@ -295,7 +299,7 @@ describe("records tools", () => {
 		const secret = await theirs.save({ type: "client", values: { name: "Their client" } });
 		expect(await tools.get(secret.id)).toEqual({ error: "Record not found." });
 		expect(await tools.save({ id: secret.id, values: { name: "Mine now" } })).toEqual({ error: "Record not found." });
-		expect(await tools.undo(secret.change)).toEqual({ error: "Change not found." });
+		expect(await tools.undo(secret.change!)).toEqual({ error: "Change not found." });
 		expect((await tools.find({ search: "Their client" })).rows).toEqual([]);
 		expect(await tools.save({ type: "deal", values: { name: "x", client: secret.id } })).toEqual({ error: expect.stringContaining("doesn't exist") });
 		const otherType = (await other.query(api.recordTypes.list))[0]!._id;
