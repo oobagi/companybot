@@ -75,6 +75,24 @@ export const customTrigger = v.union(
 	v.object({ type: v.literal("event"), event: v.literal("member.joined") }),
 );
 
+/** core's FieldValue. Empty values aren't stored. */
+export const fieldValue = v.union(v.string(), v.number(), v.boolean(), v.array(v.string()));
+
+/** core's FieldKind. */
+export const fieldKind = v.union(
+	v.literal("text"),
+	v.literal("number"),
+	v.literal("currency"),
+	v.literal("date"),
+	v.literal("checkbox"),
+	v.literal("choice"),
+	v.literal("email"),
+	v.literal("phone"),
+	v.literal("url"),
+	v.literal("user"),
+	v.literal("link"),
+);
+
 /** core's AutomationAudience. */
 export const audience = v.union(v.literal("creator"), v.literal("subscribers"), v.literal("channel"));
 
@@ -84,7 +102,12 @@ export default defineSchema({
 	// Local backends only (`pnpm dev`): the latest sign-in code per email, read back by the app.
 	localSignInCodes: defineTable({ email: v.string(), code: v.string() }).index("by_email", ["email"]),
 
-	workspaces: defineTable({ name: v.string(), version: v.optional(v.number()) }),
+	workspaces: defineTable({
+		name: v.string(),
+		version: v.optional(v.number()),
+		/** ISO 4217 code for currency fields. Unset means DEFAULT_CURRENCY. */
+		currency: v.optional(v.string()),
+	}),
 
 	members: defineTable({
 		workspaceId: v.id("workspaces"),
@@ -270,8 +293,12 @@ export default defineSchema({
 		authorAgentId: v.optional(v.id("agents")),
 		text: v.string(),
 		parts: v.array(messagePart),
-		/** Who was @mentioned. Mentioned agents get a turn. */
-		mentions: v.object({ userIds: v.array(v.id("users")), agentIds: v.array(v.id("agents")) }),
+		/** Who was @mentioned. Mentioned agents get a turn. `recordIds`: records the message references. */
+		mentions: v.object({
+			userIds: v.array(v.id("users")),
+			agentIds: v.array(v.id("agents")),
+			recordIds: v.optional(v.array(v.id("records"))),
+		}),
 		status: v.union(v.literal("streaming"), v.literal("done"), v.literal("error")),
 		error: v.optional(v.string()),
 		/** Agent replies only, once finished. `conversationCostUsd` is the chat's (or thread's) running total. */
@@ -489,4 +516,109 @@ export default defineSchema({
 		installId: v.id("automationInstalls"),
 		eventId: v.string(),
 	}).index("by_install", ["installId", "eventId"]),
+
+	// ---- Records: clients, deals, tasks, calls, and types people add. See wiki/data.md. ----
+
+	// A kind of record. Built-ins come from core's recordTypeCatalog (`key` "client", "deal"…).
+	recordTypes: defineTable({
+		workspaceId: v.id("workspaces"),
+		/** Stable, unique per workspace. */
+		key: v.string(),
+		name: v.string(),
+		plural: v.string(),
+		archived: v.boolean(),
+		createdBy: v.id("users"),
+		updatedAt: v.number(),
+	}).index("by_workspace", ["workspaceId", "key"]),
+
+	// A field on a record type: built-in or added by the workspace. Its values live on
+	// `records.values[key]`; `key` never changes, so renaming is free.
+	recordFields: defineTable({
+		workspaceId: v.id("workspaces"),
+		typeId: v.id("recordTypes"),
+		key: v.string(),
+		label: v.string(),
+		kind: fieldKind,
+		/** Removed options stay, `retired`, so records using them keep their meaning. */
+		options: v.optional(v.array(v.object({ id: v.string(), label: v.string(), retired: v.optional(v.boolean()) }))),
+		linkTypeId: v.optional(v.id("recordTypes")),
+		multiple: v.optional(v.boolean()),
+		/** Display order. */
+		position: v.number(),
+		/** Archived fields keep their values but can't be set, filtered or sorted. */
+		archived: v.boolean(),
+		createdBy: v.id("users"),
+		updatedAt: v.number(),
+	}).index("by_type", ["typeId", "key"]),
+
+	records: defineTable({
+		workspaceId: v.id("workspaces"),
+		typeId: v.id("recordTypes"),
+		/** `values.name`, kept here for display. */
+		title: v.string(),
+		values: v.record(v.string(), fieldValue),
+		/** Title and other text values, for the search index. */
+		searchText: v.string(),
+		archived: v.boolean(),
+		createdBy: v.id("users"),
+		updatedAt: v.number(),
+		updatedBy: v.id("users"),
+		/** Set when an agent made the last change, acting for `updatedBy`. */
+		updatedByAgent: v.optional(v.id("agents")),
+	})
+		.index("by_type", ["typeId", "archived"])
+		.index("by_type_updated", ["typeId", "archived", "updatedAt"])
+		.searchIndex("search", { searchField: "searchText", filterFields: ["workspaceId", "typeId", "archived"] }),
+
+	// The index behind filtering and sorting on any field: one row per value of a live
+	// record (core's indexEntries). Archived records have none. Never read for display.
+	// Rows linking to an archived record stay; queries treat that target as gone.
+	recordValues: defineTable({
+		recordId: v.id("records"),
+		fieldId: v.id("recordFields"),
+		str: v.optional(v.string()),
+		num: v.optional(v.number()),
+		/** Link fields: the record linked to. Also answers "what links here". */
+		ref: v.optional(v.id("records")),
+	})
+		.index("by_record", ["recordId", "fieldId"])
+		.index("by_field_str", ["fieldId", "str"])
+		.index("by_field_num", ["fieldId", "num"])
+		.index("by_ref", ["ref", "fieldId"]),
+
+	// Every change to a record or field, oldest to newest: who (or which agent, acting
+	// for whom), and each value's old → new. Undo applies a change in reverse.
+	recordHistory: defineTable({
+		workspaceId: v.id("workspaces"),
+		typeId: v.id("recordTypes"),
+		recordId: v.optional(v.id("records")),
+		fieldId: v.optional(v.id("recordFields")),
+		action: v.union(
+			v.literal("created"),
+			v.literal("updated"),
+			v.literal("archived"),
+			v.literal("restored"),
+			v.literal("field.created"),
+			v.literal("field.updated"),
+			v.literal("field.archived"),
+			v.literal("field.restored"),
+		),
+		/** Records: changed values by field key. Fields: changed settings ("label", "options"). */
+		changes: v.array(v.object({ key: v.string(), old: v.optional(fieldValue), new: v.optional(fieldValue) })),
+		userId: v.id("users"),
+		agentId: v.optional(v.id("agents")),
+		/** Set on an undo: the change it reversed. */
+		undoes: v.optional(v.id("recordHistory")),
+		/** Set once this change has been undone. */
+		undoneBy: v.optional(v.id("recordHistory")),
+	})
+		.index("by_record", ["recordId"])
+		.index("by_workspace", ["workspaceId"]),
+
+	// A chat message that references a record, so the record can show where it was discussed.
+	recordMentions: defineTable({
+		recordId: v.id("records"),
+		messageId: v.id("chatMessages"),
+		chatId: v.id("chats"),
+	}).index("by_record", ["recordId"]),
 });

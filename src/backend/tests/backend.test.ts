@@ -54,7 +54,7 @@ async function agentsOf(as: Awaited<ReturnType<typeof signIn>>) {
 }
 
 async function ownerAndMember() {
-	const t = convexTest(schema, modules);
+	const t = convexTest({ schema, modules, transactionLimits: true });
 	const owner = await signIn(t, "owner@co.com");
 	await owner.mutation(api.workspace.invite, { email: "Member@Co.com", role: "member" });
 	const member = await signIn(t, "member@co.com");
@@ -1297,7 +1297,7 @@ describe("time zones", () => {
 
 describe("migrations", () => {
 	it("moves rows from the old plugin tables to the connector tables", async () => {
-		const t = convexTest(schema, modules);
+		const t = convexTest({ schema, modules, transactionLimits: true });
 		migrationsTest.register(t);
 		const owner = await signIn(t, "owner@co.com");
 		await t.run(async (ctx) => {
@@ -1331,7 +1331,7 @@ describe("migrations", () => {
 	});
 
 	it("gives old automation installs an audience, keeping channels and subscribing the installer", async () => {
-		const t = convexTest(schema, modules);
+		const t = convexTest({ schema, modules, transactionLimits: true });
 		migrationsTest.register(t);
 		await signIn(t, "owner@co.com");
 		const ids = await t.run(async (ctx) => {
@@ -1363,7 +1363,7 @@ describe("migrations", () => {
 
 describe("migrations: Companybot chat tools", () => {
 	it("adds the make-skills and automations tools to existing Companybots, as a new version", async () => {
-		const t = convexTest(schema, modules);
+		const t = convexTest({ schema, modules, transactionLimits: true });
 		migrationsTest.register(t);
 		await signIn(t, "owner@co.com");
 		const ids = await t.run(async (ctx) => {

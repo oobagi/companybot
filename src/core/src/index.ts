@@ -13,6 +13,7 @@ export * from "./memory";
 export * from "./models";
 export * from "./oauth";
 export * from "./permissions";
+export * from "./records";
 export * from "./connector-tools";
 export * from "./connectors";
 export * from "./skills";

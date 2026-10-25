@@ -2,6 +2,7 @@ import { type MigrationFunctionReference, Migrations } from "@convex-dev/migrati
 import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
+import { seedRecordTypes } from "./recordOps";
 
 // Data migrations. Deploys never change stored rows; these do, once per deployment.
 // `pnpm release` runs every pending one on prod right after deploying, and the
@@ -68,6 +69,20 @@ export const companybotChatTools = migrations.define({
 	},
 });
 
+// Records arrived: give workspaces from before them the built-in types (clients, deals,
+// tasks, calls). New workspaces get them in workspace.ensure. Seeding skips types that exist.
+export const recordTypes = migrations.define({
+	table: "workspaces",
+	migrateOne: async (ctx, workspace) => {
+		const owner = await ctx.db
+			.query("members")
+			.withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
+			.filter((q) => q.eq(q.field("role"), "owner"))
+			.first();
+		if (owner) await seedRecordTypes(ctx, workspace._id, owner.userId);
+	},
+});
+
 /** Every migration, oldest first. Never reorder or remove entries that have shipped. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.connectorInstalls,
@@ -75,6 +90,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.connectorOAuthFlows,
 	internal.migrations.automationAudiences,
 	internal.migrations.companybotChatTools,
+	internal.migrations.recordTypes,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

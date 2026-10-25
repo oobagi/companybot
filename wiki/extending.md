@@ -79,6 +79,12 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 - Delete custom items or uninstall library ones with `skills.remove` / `automations.remove`. `setInstalled(false)` stays for older apps; automation removal needs no time zone. New installs still need one.
 - `ToolContext.skills` holds the installed `list` and `create`, like the automations store.
 
+## Records — `core/src/records.ts`, `backend/convex/recordOps.ts`
+- Add a built-in type or field: `recordTypeCatalog`. New workspaces get it; existing ones need a migration that calls `seedRecordTypes` (it only adds types that are missing, so new fields on an existing type need their own migration).
+- New field kind: add it to `fieldKinds` and `fieldKind` (`schema.ts`), then `normalizeValue` and `indexEntries`.
+- Every change goes through `recordOps` (`Who` = member + optional agent), so permissions, history and the index can't drift. Never write `records` or `recordValues` directly.
+- Heavy data for a type (recordings, transcripts, line items) gets its own table keyed by `recordId`, not a field.
+
 ## Shared settings
 - Editable shared data gets a `version` field. Saves send the version they started from; `checkVersion` refuses stale ones. In the app, use `useDraft` + `ConflictNotice`.
 
