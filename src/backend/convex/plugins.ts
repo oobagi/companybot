@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { api } from "./_generated/api";
-import { action, mutation } from "./_generated/server";
+import { action, mutation } from "./functions";
 import { role } from "./schema";
 
 // Old names for connectors.ts, from before plugins were renamed connectors. Installed

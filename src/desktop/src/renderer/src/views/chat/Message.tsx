@@ -1,8 +1,7 @@
 import { actionLabel, toolLine } from "@companybot/core/approvals";
-import { useMutation } from "convex/react";
-import { useQuery } from "convex-helpers/react/cache";
 import { Fragment, useState } from "react";
 import { api } from "../../api";
+import { useMutation, useQuery } from "../../convex";
 import { Markdown } from "../../markdown";
 import { Notice, timeAgo } from "../../ui";
 import { WidgetView } from "../../widgets";

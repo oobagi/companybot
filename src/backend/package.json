@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc -p convex"
+    "test:scale": "SCALE=1 vitest run",
+    "typecheck": "tsc -p convex && tsc -p tests"
   },
   "dependencies": {
     "@auth/core": "^0.41.3",
@@ -13,6 +14,7 @@
     "@convex-dev/migrations": "^0.3.7",
     "ai": "^7.0.148",
     "convex": "1.47.0",
+    "convex-helpers": "^0.1.128",
     "resend": "^6.34.1",
     "zod": "^4.6.7"
   },

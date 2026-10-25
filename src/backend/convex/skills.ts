@@ -10,7 +10,8 @@ import {
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type MutationCtx, type QueryCtx, internalMutation, mutation, query } from "./_generated/server";
+import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
+import { mutation, query } from "./functions";
 import {
 	type Member,
 	asToolResult,

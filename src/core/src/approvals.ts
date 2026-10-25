@@ -33,9 +33,6 @@ export function toolRisk(tool: { risk?: Risk; readOnly?: boolean; source: { type
 	return tool.risk ?? (tool.source.type === "connector" && tool.readOnly !== true ? "outside" : "none");
 }
 
-/** Whether a call to this tool asks by default, before anyone's rules. */
-export const needsApproval = (tool: Parameters<typeof toolRisk>[0]) => toolRisk(tool) !== "none";
-
 /**
  * A person's rule for one action: Always (runs without asking) or Never (blocked).
  * No rule means Ask, the default.
@@ -204,7 +201,7 @@ const VERBS: Record<string, [string, string]> = {
 	...Object.fromEntries(
 		(
 			"add archive assign book call cancel charge check create delete draft edit email export fetch forward import invite list load look " +
-			"mark move open post react refund remember remove reply save schedule search share start sync text turn update upload"
+			"mark move open post react refund remember remove reply restore save schedule search share start sync text turn update upload"
 		)
 			.split(" ")
 			.map((v) => {

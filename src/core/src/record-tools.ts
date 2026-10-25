@@ -39,6 +39,8 @@ export type RecordRow = { _id: string; _type?: string; [key: string]: string | n
 export interface RecordPage {
 	/** The type's plural ("Deals"), or "Records" for a search across types. */
 	type: string;
+	/** Its singular ("Deal", "Record"). */
+	typeName: string;
 	rows: RecordRow[];
 	more: boolean;
 	cursor?: string;
@@ -66,7 +68,7 @@ const filter = z.object({
 	gt: scalar.optional(),
 	gte: scalar.optional(),
 	lt: scalar.optional(),
-	lte: scalar.optional().describe("Ranges work on number, amount and date fields"),
+	lte: scalar.optional().describe('Ranges work on number, amount and date fields. Dates as "YYYY-MM-DD".'),
 	empty: z.boolean().optional().describe("true: has no value; false: has one"),
 });
 
@@ -163,6 +165,46 @@ export function forModel(output: unknown, textMax: number): unknown {
 	return { ref, data: { ...view, trimmed: `Trimmed to save space: ${notes.join("; ")}. Widgets using ${ref} show everything; ask for fewer rows, or open one record, to read more.` } };
 }
 
+/** A string at `key` of a tool's input or result, if there is one. */
+function text(from: unknown, key: string) {
+	const v = from && typeof from === "object" ? (from as Record<string, unknown>)[key] : undefined;
+	return typeof v === "string" && v.trim() ? v.trim() : undefined;
+}
+
+/** A result that's an `{ error }`: labels fall back to the tool's title. */
+const failed = (output: unknown) => text(output, "error") !== undefined;
+
+/** "Find 1 deal", "Find 20+ clients", "Find no records". */
+function foundLabel(output: unknown) {
+	const page = output as Partial<RecordPage> | undefined;
+	if (!page || failed(page) || !Array.isArray(page.rows) || !page.type || !page.typeName) return;
+	const n = page.rows.length;
+	return `Find ${n || "no"}${page.more ? "+" : ""} ${(n === 1 && !page.more ? page.typeName : page.type).toLowerCase()}`;
+}
+
+/** "Create deal Reroof main warehouse", "Save Acme Roofing", "Archive Acme Roofing". */
+function savedLabel(input: RecordSaveInput, output: unknown) {
+	if (failed(output)) return;
+	const name = text(output, "name");
+	if (!input.id) {
+		const type = text(output, "typeName") ?? input.type;
+		const values = input.values ?? {};
+		const given = name ?? text(values, "name") ?? text(values, "Name");
+		return type && given ? `Create ${type.toLowerCase()} ${given}` : undefined;
+	}
+	if (!name) return;
+	return `${input.archived === undefined ? "Save" : input.archived ? "Archive" : "Restore"} ${name}`;
+}
+
+/** "Add field Roof type to Clients", "Update field Stage on Deals". */
+function fieldLabel(input: FieldSaveInput, output: unknown) {
+	if (failed(output)) return;
+	const label = text(output, "label") ?? (input.field ? undefined : input.label);
+	const types = text(output, "typePlural");
+	if (!label) return;
+	return input.field ? `Update field ${label}${types ? ` on ${types}` : ""}` : `Add field ${label}${types ? ` to ${types}` : ""}`;
+}
+
 export const recordTools: ToolDef[] = [
 	defineTool({
 		id: "records.types",
@@ -177,7 +219,7 @@ export const recordTools: ToolDef[] = [
 		id: "records.find",
 		title: "Find records",
 		description:
-			"List one type's records with filters and a sort, or search names and text. Rows have the record's `_id` and each field's value as people read it, by field key. If more is true there are more matches: call again with cursor before saying how many there are. Long results are trimmed for you (it says so); widgets showing the ref still get every row in full.",
+			"List one type's records with filters and a sort, or search names and text. Rows have the record's `_id` and each field's value as people read it, by field key (dates like \"Nov 15, 2026\"; filter and save them as \"YYYY-MM-DD\"). If more is true there are more matches: call again with cursor before saying how many there are. Long results are trimmed for you (it says so); widgets showing the ref still get every row in full.",
 		input: findInput,
 		readOnly: true,
 		returnsData: true,
@@ -185,6 +227,7 @@ export const recordTools: ToolDef[] = [
 			const limit = input.limit ?? 20;
 			const rows: RecordRow[] = [];
 			let type = "";
+			let typeName = "";
 			let cursor = input.cursor;
 			let more = true;
 			// A rare combination of filters can take several requests to fill a page.
@@ -192,11 +235,12 @@ export const recordTools: ToolDef[] = [
 				const page = await records.find({ ...input, cursor, numItems: limit - rows.length });
 				if ("error" in page) return page;
 				rows.push(...page.rows);
-				({ type, more, cursor } = page);
+				({ type, typeName, more, cursor } = page);
 			}
-			return { type, rows, more, ...(more && { cursor }) };
+			return { type, typeName, rows, more, ...(more && { cursor }) };
 		},
 		toModelOutput: ({ output }) => ({ type: "json", value: forModel(output, ROW_TEXT_MAX) as never }),
+		label: (_input, output) => foundLabel(output),
 	}),
 	defineTool({
 		id: "records.get",
@@ -208,6 +252,7 @@ export const recordTools: ToolDef[] = [
 		returnsData: true,
 		execute: (input, { records }) => records.get(input),
 		toModelOutput: ({ output }) => ({ type: "json", value: forModel(output, RECORD_TEXT_MAX) as never }),
+		label: (_input, output) => (failed(output) || !text(output, "name") ? undefined : `Open ${text(output, "name")}`),
 	}),
 	defineTool({
 		id: "records.save",
@@ -216,6 +261,7 @@ export const recordTools: ToolDef[] = [
 			"Create a record, change some of its fields, or archive or restore it. Runs right away and is logged with your name and the person's; returns a change id records_undo takes. Find first so you don't create a duplicate.",
 		input: saveInput,
 		execute: (input, { records }) => records.save(input),
+		label: savedLabel,
 	}),
 	defineTool({
 		id: "records.undo",
@@ -224,6 +270,7 @@ export const recordTools: ToolDef[] = [
 			"Reverse one change by its change id (from records_save or records_get): old values back, an archive restored, a new record archived. Refused if what it changed has changed again since.",
 		input: z.object({ change: z.string() }),
 		execute: (input, { records }) => records.undo(input),
+		label: (_input, output) => (failed(output) || !text(output, "name") ? undefined : `Undo a change to ${text(output, "name")}`),
 	}),
 	defineTool({
 		id: "records.save_field",
@@ -232,5 +279,6 @@ export const recordTools: ToolDef[] = [
 			'Add a field to a record type ("start tracking roof type on clients"), or rename one or change its choice options. Only after the person asked for it or confirmed it.',
 		input: fieldInput,
 		execute: (input, { records }) => records.saveField(input),
+		label: fieldLabel,
 	}),
 ];

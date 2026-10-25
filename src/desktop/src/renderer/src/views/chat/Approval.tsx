@@ -1,9 +1,8 @@
 import { readableValue } from "@companybot/core/approvals";
 import type { FunctionReturnType } from "convex/server";
-import { useMutation } from "convex/react";
-import { useQuery } from "convex-helpers/react/cache";
 import { useState } from "react";
 import { api } from "../../api";
+import { useMutation, useQuery } from "../../convex";
 import { Notice, primaryButton, secondaryButton, timeAgo, useRun } from "../../ui";
 import { AgentBadge, Avatar, clock } from "./common";
 import type { Message } from "./data";
@@ -47,7 +46,7 @@ function ApprovalCard({ part, approval }: { part: ApprovalPart; approval: Approv
 	const send = (approve: boolean, always = false) => {
 		if (!approval) return;
 		setBusy(true);
-		run(decide({ approvalId: approval._id, hash: approval.hash, approve, ...(always && { always }) })).finally(() => setBusy(false));
+		run(decide({ approvalId: approval._id, hash: approval.hash, approve, always: !!always })).finally(() => setBusy(false));
 	};
 	const service = approval ? [approval.service, approval.action].filter(Boolean).join(" · ") : part.tool;
 

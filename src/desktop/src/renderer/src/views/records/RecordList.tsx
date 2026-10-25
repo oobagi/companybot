@@ -1,12 +1,11 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import type { Role } from "@companybot/core";
 import { can } from "@companybot/core/permissions";
-import { useMutation } from "convex/react";
-import { usePaginatedQuery, useQuery } from "convex-helpers/react/cache";
-import { Component, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../../api";
+import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { Loading, Notice, Page, inputClass, primaryButton, timeAgo } from "../../ui";
+import { ErrorBoundary, Loading, Notice, Page, inputClass, primaryButton, timeAgo } from "../../ui";
 import { Modal, useDismiss } from "../chat/common";
 import { type RecordType, type Row, useRefs } from "./data";
 import { RecordPicker, useOptions } from "./fields";
@@ -427,15 +426,4 @@ function NewRecord({ type, onClose }: { type: RecordType; onClose: () => void })
 			</form>
 		</Modal>
 	);
-}
-
-/** Shows a query's error in place of what failed, plainly. Remount (new `key`) to try again. */
-export class ErrorBoundary extends Component<{ children: React.ReactNode }, { error?: unknown }> {
-	state: { error?: unknown } = {};
-	static getDerivedStateFromError(error: unknown) {
-		return { error };
-	}
-	render() {
-		return this.state.error !== undefined ? <Notice>{errorMessage(this.state.error)}</Notice> : this.props.children;
-	}
 }

@@ -2,6 +2,7 @@ import {
 	type AgentConfig,
 	blankAgent,
 	builtinTools,
+	canUseTool,
 	defaultAgents,
 	describeToolAccess,
 	findConnector,
@@ -11,7 +12,8 @@ import {
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type MutationCtx, mutation, query } from "./_generated/server";
+import { type MutationCtx } from "./_generated/server";
+import { mutation, query } from "./functions";
 import { checkVersion, getMember, namesOf, requireAgent, requireMember, requirePermission, toActor } from "./lib";
 import { connectorStates } from "./connectors";
 import { agentConfig } from "./schema";
@@ -90,7 +92,7 @@ export const options = query({
 			connector: false,
 			tools: builtinTools
 				.filter((t) => toolGroup(t.id) === group)
-				.map(({ id, description, roles }) => ({ id, description, ownersOnly: !!roles && !roles.includes("member") })),
+				.map((t) => ({ id: t.id, description: t.description, ownersOnly: !canUseTool("member", t) })),
 		}));
 		const installed = member ? await connectorStates(ctx, member) : [];
 		const connectors = installed.flatMap((state) => {

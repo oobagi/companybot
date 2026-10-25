@@ -1,8 +1,7 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { useMutation } from "convex/react";
-import { useQuery } from "convex-helpers/react/cache";
 import { useState } from "react";
 import { api } from "../api";
+import { useMutation, useQuery, useWorkspace } from "../convex";
 import { navigate } from "../router";
 import { Notice, useRun } from "../ui";
 import { useDismiss } from "./chat/common";
@@ -10,7 +9,6 @@ import { useDismiss } from "./chat/common";
 /** The workspace name at the top of the sidebar: switch workspaces, answer invites, or leave. */
 export function WorkspaceMenu({ name }: { name: string }) {
 	const mine = useQuery(api.workspace.mine);
-	const switchTo = useMutation(api.workspace.switchTo);
 	const accept = useMutation(api.workspace.acceptInvite);
 	const decline = useMutation(api.workspace.declineInvite);
 	const leave = useMutation(api.workspace.leave);
@@ -20,7 +18,8 @@ export function WorkspaceMenu({ name }: { name: string }) {
 	const invitations = mine?.invitations ?? [];
 	// Chats and records belong to one workspace, so a switch starts from the chat list.
 	const opened = () => (setOpen(false), navigate("chat"));
-	const goTo = (workspaceId: Id<"workspaces">) => run(switchTo({ workspaceId }), opened);
+	const current = useWorkspace();
+	const goTo = (workspaceId: Id<"workspaces">) => (current?.open(workspaceId), opened());
 
 	return (
 		<div ref={ref} className="no-drag relative pb-4">
@@ -39,11 +38,11 @@ export function WorkspaceMenu({ name }: { name: string }) {
 						<button
 							type="button"
 							key={w.id}
-							onClick={() => (w.open ? setOpen(false) : goTo(w.id))}
+							onClick={() => (w.id === current?.id ? setOpen(false) : goTo(w.id))}
 							className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-neutral-100"
 						>
 							<span className="flex-1 truncate">{w.name}</span>
-							{w.open && <span className="text-neutral-500">✓</span>}
+							{w.id === current?.id && <span className="text-neutral-500">✓</span>}
 						</button>
 					))}
 					{invitations.map((i) => (
@@ -53,7 +52,7 @@ export function WorkspaceMenu({ name }: { name: string }) {
 								<span className="font-medium">{i.workspace}</span>
 							</p>
 							<div className="flex gap-3 text-xs font-medium">
-								<button type="button" onClick={() => run(accept({ id: i.id }), opened)} className="text-sky-800 hover:underline">
+								<button type="button" onClick={() => run(accept({ id: i.id }).then(goTo))} className="text-sky-800 hover:underline">
 									Join
 								</button>
 								<button type="button" onClick={() => run(decline({ id: i.id }))} className="text-neutral-500 hover:underline">

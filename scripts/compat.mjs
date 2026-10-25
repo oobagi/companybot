@@ -11,7 +11,7 @@ import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 /** -1, 0, or 1. Handles x.y.z and x.y.z-alpha.n / -beta.n (a prerelease sorts before its release). */
-export function compareVersions(a, b) {
+function compareVersions(a, b) {
 	const parse = (v) => {
 		const [base, pre] = v.replace(/^v/, "").split("-");
 		const [channel, n] = pre ? pre.split(".") : ["~", "0"]; // "~" sorts after "alpha"/"beta"
@@ -23,7 +23,7 @@ export function compareVersions(a, b) {
 }
 
 /** Every COMPAT marker in src/: { version, where, note }. */
-export function compatMarkers() {
+function compatMarkers() {
 	let lines = "";
 	try {
 		lines = execSync(`git grep -n -E "COMPAT\\([^)]+\\)" -- src ':!**/_generated/**'`, { encoding: "utf8" });

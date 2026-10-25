@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Component, useState } from "react";
 import { errorMessage } from "./api";
 import { navigate } from "./router";
 
@@ -115,6 +115,17 @@ export function Loading() {
 
 export function Notice({ children }: { children: React.ReactNode }) {
 	return <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{children}</p>;
+}
+
+/** Shows a query's error in place of what failed, plainly. Remount (new `key`) to try again. */
+export class ErrorBoundary extends Component<{ children: React.ReactNode }, { error?: unknown }> {
+	state: { error?: unknown } = {};
+	static getDerivedStateFromError(error: unknown) {
+		return { error };
+	}
+	render() {
+		return this.state.error !== undefined ? <Notice>{errorMessage(this.state.error)}</Notice> : this.props.children;
+	}
 }
 
 /** Runs a mutation and keeps its error message for display. */

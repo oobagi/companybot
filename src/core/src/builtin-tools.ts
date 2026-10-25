@@ -43,7 +43,7 @@ export const builtinTools: ToolDef[] = [
 		title: "Remember for the team",
 		description: "Save a memory the whole workspace can see.",
 		input: z.object({ content: z.string() }),
-		roles: ["owner"],
+		permission: "memory.team.write",
 		async execute({ content }, { actor, memory }) {
 			const saved = await memory.create(actor, { scope: "workspace", content });
 			return { saved: saved.id };

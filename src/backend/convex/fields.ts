@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation } from "./_generated/server";
+import { mutation } from "./functions";
 import { requireMember } from "./lib";
 import { createField, setFieldArchived, toField, updateField } from "./recordOps";
 import { fieldKind } from "./schema";

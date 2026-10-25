@@ -2,11 +2,10 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import type { Role } from "@companybot/core";
 import { type AgentConfig, agentConfigKeys, pickAgentConfig } from "@companybot/core/agent-config";
 import { can } from "@companybot/core/permissions";
-import { useMutation } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { useQuery } from "convex-helpers/react/cache";
 import { useState } from "react";
 import { api } from "../api";
+import { useMutation, useQuery } from "../convex";
 import { navigate } from "../router";
 import {
 	ConflictNotice,

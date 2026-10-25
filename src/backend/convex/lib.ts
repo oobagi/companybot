@@ -10,7 +10,8 @@ import {
 } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
+import type { Requested } from "./functions";
 import type { QueryCtx } from "./_generated/server";
 
 export interface Member {
@@ -33,26 +34,31 @@ export async function memberOf(ctx: QueryCtx, userId: Id<"users">, workspaceId: 
 	return row ? { userId, workspaceId, role: row.role } : null;
 }
 
-/** The workspace they have open (Your preferences), else the first they joined. */
-export async function activeMemberOf(ctx: QueryCtx, userId: Id<"users">): Promise<Member | null> {
-	const prefs = await ctx.db
-		.query("preferences")
-		.withIndex("by_user", (q) => q.eq("userId", userId))
-		.first();
-	const open = prefs?.workspaceId && (await memberOf(ctx, userId, prefs.workspaceId));
-	if (open) return open;
-	const row = await ctx.db
-		.query("members")
-		.withIndex("by_user", (q) => q.eq("userId", userId))
-		.first();
-	return row ? { userId, workspaceId: row.workspaceId, role: row.role } : null;
+/**
+ * The first workspace they joined: where apps from before workspace switching act, since
+ * they send no workspace. Stable, so another device switching can't move their requests.
+ * COMPAT(0.1.0-alpha.7): once installs send `workspaceId` (alpha.6), require it and delete this.
+ */
+export async function legacyMemberOf(ctx: QueryCtx, userId: Id<"users">): Promise<Member | null> {
+	let first: Doc<"members"> | null = null;
+	for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId)))
+		if (!first || row._creationTime < first._creationTime) first = row;
+	return first ? { userId, workspaceId: first.workspaceId, role: first.role } : null;
 }
 
-/** The signed-in person in the workspace they have open. */
+/**
+ * The signed-in person in the workspace this request is for (`functions.ts` puts it on ctx).
+ * Null if they're not in it: a request can only act where its sender is a member.
+ */
 export async function getMember(ctx: QueryCtx): Promise<Member | null> {
 	const userId = await getAuthUserId(ctx);
-	return userId ? activeMemberOf(ctx, userId) : null;
+	if (!userId) return null;
+	return memberFor(ctx, userId, (ctx as QueryCtx & Partial<Requested>).workspaceId);
 }
+
+/** Their membership in the requested workspace; with none (older apps), their first. */
+export const memberFor = (ctx: QueryCtx, userId: Id<"users">, workspaceId: Id<"workspaces"> | undefined) =>
+	workspaceId ? memberOf(ctx, userId, workspaceId) : legacyMemberOf(ctx, userId);
 
 export async function requireMember(ctx: QueryCtx): Promise<Member> {
 	const member = await getMember(ctx);

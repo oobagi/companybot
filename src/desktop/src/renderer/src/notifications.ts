@@ -1,19 +1,22 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { useQuery } from "convex-helpers/react/cache";
 import { useEffect, useRef } from "react";
 import { api } from "./api";
+import { type OpenWorkspace, useQuery, useWorkspace } from "./convex";
 import { desktop } from "./desktop";
+import { navigate } from "./router";
 
 /**
  * Unread DMs and mentions (by your setting in Your preferences) reach you outside the app:
  * a desktop notification for each new one while the window isn't in front, and a dock badge
- * with how many chats have one. Clicking a notification opens its chat.
+ * with how many chats have one. Clicking a notification opens its chat, in its workspace,
+ * even if this window has switched to another since.
  */
-export function useAlerts(onOpen: (chatId: Id<"chats">) => void) {
+export function useAlerts() {
 	const alerts = useQuery(api.chats.alerts);
 	const seen = useRef<Set<string>>(null);
-	const open = useRef(onOpen);
-	open.current = onOpen;
+	const current = useWorkspace();
+	const workspace = useRef(current);
+	workspace.current = current;
 
 	const count = alerts?.length ?? 0;
 	useEffect(() => desktop?.setBadge(count), [count]);
@@ -36,8 +39,15 @@ export function useAlerts(onOpen: (chatId: Id<"chats">) => void) {
 			notification.onclick = () => {
 				desktop?.focus();
 				window.focus();
-				open.current(alert.chatId);
+				openAlert(alert, workspace.current);
 			};
 		}
 	}, [alerts]);
+}
+
+/** Opens the alert's workspace if another is open (the gate checks you're still in it), then its chat. */
+export function openAlert(alert: { workspaceId: Id<"workspaces">; chatId: Id<"chats"> }, workspace: OpenWorkspace | null) {
+	if (!workspace) return;
+	if (workspace.id !== alert.workspaceId && !workspace.open(alert.workspaceId)) return;
+	navigate("chat", alert.chatId);
 }

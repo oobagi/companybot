@@ -13,9 +13,10 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type QueryCtx, action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
+import { action, mutation, query } from "./functions";
 import { encrypt } from "./crypto";
-import { type Member, activeMemberOf, getMember, memberOf, requireMember, requirePermission } from "./lib";
+import { type Member, getMember, memberFor, memberOf, requireMember, requirePermission } from "./lib";
 import { forgetConnector } from "./permissions";
 import { role } from "./schema";
 
@@ -150,7 +151,7 @@ export const startOAuth = action({
 		if (!userId) throw new ConvexError("Not signed in.");
 		const connector = requireConnector(connectorId);
 		if (connector.auth.type !== "oauth") throw new ConvexError("This connector doesn't sign in through the browser.");
-		const workspaceId = await ctx.runQuery(internal.connectors.connectTarget, { userId, connectorId });
+		const workspaceId = await ctx.runQuery(internal.connectors.connectTarget, { userId, workspaceId: ctx.workspaceId, connectorId });
 		let started: Awaited<ReturnType<typeof startSignIn>>;
 		try {
 			started = await startSignIn(connector, oauthRedirectUrl());
@@ -205,15 +206,15 @@ export const connect = action({
 		const problem = validateCredentials(connector, args.credentials);
 		if (problem) throw new ConvexError(problem);
 		// Check permission before encrypting, then again when saving.
-		const workspaceId = await ctx.runQuery(internal.connectors.connectTarget, { userId, connectorId: connector.id });
+		const workspaceId = await ctx.runQuery(internal.connectors.connectTarget, { userId, workspaceId: ctx.workspaceId, connectorId: connector.id });
 		const sealed = await encrypt(args.credentials);
 		await ctx.runMutation(internal.connectors.saveConnection, { userId, workspaceId, connectorId: connector.id, credentials: sealed });
 	},
 });
 
-/** `workspaceId` pins where it connects; without one, the workspace they have open. */
+/** `workspaceId` is where it connects; without one (older apps), their first workspace. */
 async function requireConnectTarget(ctx: QueryCtx, userId: Id<"users">, workspaceId: Id<"workspaces"> | undefined, connectorId: string) {
-	const member = workspaceId ? await memberOf(ctx, userId, workspaceId) : await activeMemberOf(ctx, userId);
+	const member = await memberFor(ctx, userId, workspaceId);
 	if (!member) throw new ConvexError("Sign in to a workspace first.");
 	const connector = requireConnector(connectorId);
 	const install = await installOf(ctx, member.workspaceId, connectorId);
@@ -225,10 +226,10 @@ async function requireConnectTarget(ctx: QueryCtx, userId: Id<"users">, workspac
 }
 
 export const connectTarget = internalQuery({
-	args: { userId: v.id("users"), connectorId: v.string() },
-	/** The workspace it would connect in, so the save lands there even if they switch meanwhile. */
-	handler: async (ctx, { userId, connectorId }): Promise<Id<"workspaces">> =>
-		(await requireConnectTarget(ctx, userId, undefined, connectorId)).member.workspaceId,
+	args: { userId: v.id("users"), workspaceId: v.optional(v.id("workspaces")), connectorId: v.string() },
+	/** The workspace it connects in, so the save (maybe an OAuth callback later) lands there. */
+	handler: async (ctx, { userId, workspaceId, connectorId }): Promise<Id<"workspaces">> =>
+		(await requireConnectTarget(ctx, userId, workspaceId, connectorId)).member.workspaceId,
 });
 
 /** Replaces stored credentials, e.g. after the runner refreshed an OAuth token. */
