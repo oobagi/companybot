@@ -2,6 +2,8 @@ import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+export const notify = v.union(v.literal("all"), v.literal("mentions"), v.literal("off"));
+
 export const role = v.union(v.literal("owner"), v.literal("member"));
 
 export const agentConfig = v.object({
@@ -181,6 +183,8 @@ export default defineSchema({
 		/** What agents and teammates call you. */
 		displayName: v.string(),
 		sendWith: v.union(v.literal("enter"), v.literal("mod-enter")),
+		/** Desktop notifications and the dock badge: DMs and mentions (default), mentions only, or off. */
+		notify: v.optional(notify),
 		/** The time zone they picked. Left out means automatic: `deviceTimeZone`. */
 		timeZone: v.optional(v.string()),
 		/** Their computer's time zone, reported by the app. */

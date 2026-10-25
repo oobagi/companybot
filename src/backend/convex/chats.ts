@@ -127,6 +127,58 @@ export const list = query({
 	},
 });
 
+/** A chat's alert: its newest unread message meant for you. */
+export type Alert = { chatId: Id<"chats">; messageId: Id<"chatMessages">; title: string; text: string };
+
+/**
+ * What should reach you outside the app, by your notification setting: unread DMs
+ * (agents' replies once finished) and unread @mentions, main timelines only. `latest` is
+ * each such chat's newest one, for desktop notifications; its length is the dock badge.
+ */
+export const alerts = query({
+	args: {},
+	handler: async (ctx): Promise<Alert[] | null> => {
+		const member = await getMember(ctx);
+		if (!member) return null;
+		const prefs = await ctx.db
+			.query("preferences")
+			.withIndex("by_user", (q) => q.eq("userId", member.userId))
+			.first();
+		const notify = prefs?.notify ?? "all";
+		if (notify === "off") return [];
+		const names = namer(ctx);
+		const alerts: Alert[] = [];
+		for (const row of await ctx.db
+			.query("chatMembers")
+			.withIndex("by_user", (q) => q.eq("userId", member.userId))
+			.collect()) {
+			const since = row.lastReadAt ?? 0;
+			const chat = await ctx.db.get(row.chatId);
+			if (!chat || chat.archived || chat.workspaceId !== member.workspaceId || chat.lastMessageAt <= since) continue;
+			const unread = await ctx.db
+				.query("chatMessages")
+				.withIndex("by_chat_thread", (q) => q.eq("chatId", chat._id).eq("threadId", undefined).gt("_creationTime", since))
+				.order("desc")
+				.take(50);
+			const forYou = (m: Doc<"chatMessages">) =>
+				!m.deleted &&
+				m.status === "done" &&
+				m.authorUserId !== member.userId &&
+				((chat.kind === "dm" && notify === "all") || m.mentions.userIds.includes(member.userId));
+			const message = unread.find(forYou);
+			if (!message) continue;
+			const author = (await names.of(message)).name;
+			alerts.push({
+				chatId: chat._id,
+				messageId: message._id,
+				title: chat.kind === "channel" ? `${author} in #${chat.name}` : author,
+				text: message.text.slice(0, 200),
+			});
+		}
+		return alerts;
+	},
+});
+
 /** Public channels you're not in. */
 export const browse = query({
 	args: {},

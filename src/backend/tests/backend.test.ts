@@ -358,7 +358,13 @@ describe("settings", () => {
 	it("keeps preferences personal", async () => {
 		const { owner, member } = await ownerAndMember();
 		await owner.mutation(api.preferences.update, { displayName: "Jaden", sendWith: "mod-enter" });
-		expect(await owner.query(api.preferences.get)).toEqual({ displayName: "Jaden", sendWith: "mod-enter", timeZone: null, deviceTimeZone: null });
+		expect(await owner.query(api.preferences.get)).toEqual({
+			displayName: "Jaden",
+			sendWith: "mod-enter",
+			notify: "all",
+			timeZone: null,
+			deviceTimeZone: null,
+		});
 		expect((await member.query(api.preferences.get)).displayName).toBe("");
 		expect((await member.query(api.workspace.team))?.members.map((m) => m.name)).toContain("Jaden");
 	});
@@ -608,6 +614,35 @@ describe("chats", () => {
 		await tick();
 		await member.mutation(api.chats.markRead, { chatId: general._id });
 		expect(await generalOf(member)).toMatchObject({ unread: false, mentioned: false });
+	});
+
+	it("alerts people to unread DMs and mentions, by their notification setting", async () => {
+		const { owner, member } = await ownerAndMember();
+		await owner.mutation(api.preferences.update, { displayName: "Jaden" });
+		const general = await generalOf(owner);
+		const memberId = await meOf(member);
+		const dm = await owner.mutation(api.chats.openDm, { userIds: [memberId], agentIds: [] });
+		await tick();
+		await owner.mutation(api.messages.send, { chatId: general._id, text: "hi all", mentions: noMentions });
+		await owner.mutation(api.messages.send, { chatId: dm, text: "got a sec?", mentions: noMentions });
+		await owner.mutation(api.messages.send, { chatId: general._id, text: "@member look", mentions: { userIds: [memberId], agentIds: [] } });
+		// Plain channel chatter doesn't alert; your own messages never do.
+		expect((await member.query(api.chats.alerts))!.map((a) => [a.title, a.text]).sort()).toEqual([
+			["Jaden in #general", "@member look"],
+			["Jaden", "got a sec?"],
+		]);
+		expect(await owner.query(api.chats.alerts)).toEqual([]);
+
+		expect((await member.query(api.preferences.get)).notify).toBe("all");
+		await member.mutation(api.preferences.update, { notify: "mentions" });
+		expect((await member.query(api.chats.alerts))!.map((a) => a.text)).toEqual(["@member look"]);
+		await member.mutation(api.preferences.update, { notify: "off" });
+		expect(await member.query(api.chats.alerts)).toEqual([]);
+
+		await member.mutation(api.preferences.update, { notify: "all" });
+		await tick();
+		await member.mutation(api.chats.markRead, { chatId: dm });
+		expect((await member.query(api.chats.alerts))!.map((a) => a.text)).toEqual(["@member look"]);
 	});
 });
 

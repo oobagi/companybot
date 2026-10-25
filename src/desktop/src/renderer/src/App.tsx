@@ -6,6 +6,7 @@ import { useQuery } from "convex-helpers/react/cache";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "./api";
 import { desktop, useUpdates } from "./desktop";
+import { useAlerts } from "./notifications";
 import { navigate, useRoute } from "./router";
 import { Notice } from "./ui";
 import { ChatView } from "./views/chat/ChatView";
@@ -75,6 +76,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 		navigate("chat", id);
 		setError(undefined);
 	};
+	useAlerts(open);
 
 	return (
 		<div className="flex h-screen text-[15px] text-neutral-900">
