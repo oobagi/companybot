@@ -63,9 +63,18 @@ export async function legacyMemberOf(ctx: QueryCtx, userId: Id<"users">): Promis
 	return rows.length === 1 ? { userId, workspaceId: rows[0]!.workspaceId, role: rows[0]!.role } : null;
 }
 
-/** Pins their legacy workspace (legacyMemberOf) to the first they joined, unless it's set. Call after adding a membership. */
-export async function pinLegacyWorkspace(ctx: MutationCtx, userId: Id<"users">) {
-	if (await ctx.db.query("legacyWorkspaces").withIndex("by_user", (q) => q.eq("userId", userId)).first()) return;
+/**
+ * Pins their legacy workspace (legacyMemberOf) to the first they joined, unless it's set.
+ * Call after adding a membership and before removing one. `to` re-pins (ensure only).
+ */
+export async function pinLegacyWorkspace(ctx: MutationCtx, userId: Id<"users">, to?: Id<"workspaces">) {
+	const pinned = await ctx.db.query("legacyWorkspaces").withIndex("by_user", (q) => q.eq("userId", userId)).first();
+	if (to) {
+		if (pinned) await ctx.db.patch(pinned._id, { workspaceId: to });
+		else await ctx.db.insert("legacyWorkspaces", { userId, workspaceId: to });
+		return;
+	}
+	if (pinned) return;
 	let first: Doc<"members"> | null = null;
 	for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId)))
 		if (!first || row._creationTime < first._creationTime) first = row;

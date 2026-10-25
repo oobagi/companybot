@@ -9,7 +9,7 @@ import { seedAgents } from "./agents";
 import { fieldsOf, seedRecordTypes, typesOf } from "./recordOps";
 import { addToChat, ensureGeneral } from "./chatOps";
 import { sendInviteEmail } from "./invites";
-import { checkVersion, getMember, memberOf, nameOf, namesOf, normalizeEmail, pinLegacyWorkspace, requireMember, requirePermission, timeZoneOf } from "./lib";
+import { checkVersion, getMember, legacyMemberOf, memberOf, nameOf, namesOf, normalizeEmail, pinLegacyWorkspace, requireMember, requirePermission, timeZoneOf } from "./lib";
 import { forgetUserRules } from "./permissions";
 import { role } from "./schema";
 
@@ -41,7 +41,14 @@ export const ensure = mutation({
 			.query("members")
 			.withIndex("by_user", (q) => q.eq("userId", userId))
 			.first();
-		if (joined) return;
+		if (joined) {
+			// COMPAT(0.1.0-alpha.7): apps from before switching call this whenever they find no
+			// workspace (lib.ts legacyMemberOf), and show what it throws.
+			if (!(await legacyMemberOf(ctx, userId))) {
+				throw new ConvexError("Update Companybot to open your workspaces. This version only opens the first one you joined, and you're no longer in it.");
+			}
+			return;
+		}
 
 		const invites = await invitesFor(ctx, userId);
 		for (const invite of invites) await join(ctx, invite, userId);
@@ -49,7 +56,9 @@ export const ensure = mutation({
 
 		const workspaceId = await ctx.db.insert("workspaces", { name: "My company", version: 1 });
 		await ctx.db.insert("members", { workspaceId, userId, role: "owner" });
-		await pinLegacyWorkspace(ctx, userId);
+		// COMPAT(0.1.0-alpha.7): in no workspace at all, so old apps may as well act in this
+		// new one, theirs alone: nothing from an old draft can reach anyone else's.
+		await pinLegacyWorkspace(ctx, userId, workspaceId);
 		await seedAgents(ctx, workspaceId, userId);
 		await seedRecordTypes(ctx, workspaceId, userId);
 		await addToChat(ctx, await ensureGeneral(ctx, workspaceId, userId), { userId });
@@ -273,6 +282,8 @@ export const leave = mutation({
  */
 async function dropMember(ctx: MutationCtx, row: Doc<"members">) {
 	const { workspaceId, userId } = row;
+	// COMPAT(0.1.0-alpha.7): pin before the membership goes, or legacyMemberOf would pick the next one.
+	await pinLegacyWorkspace(ctx, userId);
 	await ctx.db.delete(row._id);
 	for (const seat of await ctx.db
 		.query("chatMembers")
