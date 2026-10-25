@@ -332,8 +332,8 @@ function textKey(value: string) {
 	return lower.length <= INDEX_CHARS ? lower : `${lower.slice(0, INDEX_PREFIX)}#${hash(lower)}`;
 }
 
-/** Two FNV-1a passes: 16 hex characters. Collisions are caught by `sameText`. */
-function hash(text: string) {
+/** Two FNV-1a passes: 16 hex characters. Not secure; text keys catch collisions with `sameText`. */
+export function hash(text: string) {
 	const fnv = (seed: number) => {
 		let h = seed;
 		for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
