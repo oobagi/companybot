@@ -94,7 +94,7 @@ export function toCondition({ field, op, value }: Filter): Record<string, unknow
 const dateFormat = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
 
 /** A "YYYY-MM-DD" day for people: "Oct 25, 2026". */
-export const formatDay = (day: string) => dateFormat.format(new Date(`${day}T00:00:00Z`));
+const formatDay = (day: string) => dateFormat.format(new Date(`${day}T00:00:00Z`));
 
 /**
  * One stored value as text. Links and people read from `refs`; a record that's gone or

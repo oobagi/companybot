@@ -5,10 +5,3 @@ export interface Actor {
 	userId: string;
 	role: Role;
 }
-
-export class PermissionError extends Error {
-	constructor(message: string) {
-		super(message);
-		this.name = "PermissionError";
-	}
-}

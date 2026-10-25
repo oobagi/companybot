@@ -192,7 +192,7 @@ async function valuesFor(names: Names, type: Doc<"recordTypes">, fields: Doc<"re
  */
 async function rowsOf(ctx: QueryCtx, member: Member, items: { record: Doc<"records">; fields: Doc<"recordFields">[] }[], withType?: Map<Id<"recordTypes">, string>) {
 	const rows = await toRows(ctx, member.workspaceId, items);
-	return rows.map((row, i) => ({
+	return rows.map((row, i): { _id: Id<"records">; _type?: string } & Record<string, string | number> => ({
 		_id: row._id,
 		...(withType && { _type: withType.get(row.typeId) ?? "" }),
 		...displayValues(items[i]!.fields.filter((f) => !f.archived).map(toField), row.values, row.refs),

@@ -12,7 +12,9 @@ import {
 	ConnectorOAuth,
 	type ReplyUsage,
 	CONNECTOR_CALL,
+	actionOf,
 	addStep,
+	callEnd,
 	calledConnectorTool,
 	callLabel,
 	clipJson,
@@ -27,7 +29,6 @@ import {
 	findConnector,
 	gatewayCost,
 	grantedConnectorIds,
-	heldCall,
 	isWidgetResult,
 	isWidgetToolName,
 	openConnector,
@@ -334,10 +335,11 @@ async function streamReply(
 				const call = describeCall(part.toolName, part.input, available);
 				if (call) calls.set(part.toolCallId, call);
 			} else if (part.type === "tool-result") {
+				const end = callEnd(part.output);
 				if (isWidgetToolName(part.toolName)) {
 					if (isWidgetResult(part.output)) parts.push({ type: "widget", id: part.toolCallId, widget: part.output.widget });
-				} else setTool(part.toolCallId, part.toolName, "done");
-				await logCall(part.toolCallId, { output: part.output });
+				} else setTool(part.toolCallId, part.toolName, "error" in end ? "error" : "done");
+				await logCall(part.toolCallId, end);
 			} else if (part.type === "tool-error") {
 				if (!isWidgetToolName(part.toolName)) setTool(part.toolCallId, part.toolName, "error");
 				await logCall(part.toolCallId, { error: part.error instanceof Error ? part.error.message : String(part.error) });
@@ -351,17 +353,17 @@ async function streamReply(
 				// Held, not run: save the exact call and show a card in its place. Logged only if it runs later.
 				const { toolCallId, toolName, input } = part.toolCall;
 				calls.delete(toolCallId);
-				const held = await heldCall(toolName, input, usable);
+				const held = await actionOf(toolName, input, usable);
 				const at = parts.findIndex((p) => p.type === "tool" && p.id === toolCallId);
 				if (held) {
 					const approvalId = await ctx.runMutation(internal.approvals.request, {
 						turnId,
 						callId: toolCallId,
-						tool: held.tool,
+						tool: held.tool.id,
 						input: canonicalJson(held.input),
-						risk: toolRisk(usable.find((t) => t.id === held.tool)!),
+						risk: toolRisk(held.tool),
 					});
-					const card = { type: "approval" as const, id: toolCallId, approvalId, tool: held.tool };
+					const card = { type: "approval" as const, id: toolCallId, approvalId, tool: held.tool.id };
 					if (at >= 0) parts[at] = card;
 					else parts.push(card);
 				} else setTool(toolCallId, toolName, "error");
@@ -404,8 +406,7 @@ async function runApproval(
 	let end: { output: unknown } | { error: string };
 	try {
 		if (!t) throw new Error(`${tool} isn't available to ${by} right now (disconnected, or access changed).`);
-		const output = await t.execute(call.input, toolCtx);
-		end = output && typeof output === "object" && "error" in output ? { error: String(output.error) } : { output };
+		end = callEnd(await t.execute(call.input, toolCtx));
 	} catch (e) {
 		end = { error: e instanceof Error ? e.message : String(e) };
 	}
