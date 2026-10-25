@@ -1,6 +1,7 @@
 import migrationsTest from "@convex-dev/migrations/test";
 import { convexTest } from "convex-test";
 import type { FunctionArgs } from "convex/server";
+import { getDocumentSize } from "convex/values";
 import { describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
@@ -22,7 +23,7 @@ type As = Awaited<ReturnType<typeof signIn>>;
 
 /** An owner and a member in one workspace, plus the built-in types by key. */
 async function setup() {
-	const t = convexTest(schema, modules);
+	const t = convexTest({ schema, modules, transactionLimits: true });
 	const owner = await signIn(t, "owner@co.com");
 	await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
 	const member = await signIn(t, "member@co.com");
@@ -56,7 +57,7 @@ describe("record types", () => {
 	});
 
 	it("seeds workspaces from before records through a migration, without duplicating", async () => {
-		const t = convexTest(schema, modules);
+		const t = convexTest({ schema, modules, transactionLimits: true });
 		migrationsTest.register(t);
 		const owner = await signIn(t, "owner@co.com");
 		await t.run(async (ctx) => {
@@ -99,12 +100,12 @@ describe("records", () => {
 		});
 		const got = (await owner.query(api.records.get, { recordId: dealId }))!;
 		expect(got.title).toBe("Acme reroof");
-		expect(got.values).toEqual({ name: "Acme reroof", client: acme, stage: "proposal", value: 12500.5 });
-		expect(got.refs).toEqual({ [acme]: "Acme Roofing" });
+		expect(got.values).toEqual({ name: "Acme reroof", client: acme, stage: "proposal", value: 1_250_050 });
+		expect(got.refs).toEqual({ [acme]: { name: "Acme Roofing" } });
 		expect(got.type.key).toBe("deal");
 		const acmeRow = (await owner.query(api.records.get, { recordId: acme }))!;
 		expect(acmeRow.values).toMatchObject({ email: "hi@acme.com", website: "https://acme.com/", status: "lead" });
-		expect(acmeRow.refs[owner.userId]).toBe("owner@co.com");
+		expect(acmeRow.refs[owner.userId]).toEqual({ name: "owner@co.com" });
 	});
 
 	it("refuses bad values, unknown fields and missing names", async () => {
@@ -327,18 +328,32 @@ describe("fields", () => {
 		expect(fields.find((f) => f._id === status._id)).toMatchObject({ label: "Stage", canEdit: false });
 	});
 
-	it("keeps values when options are renamed, and refuses removing options still in use", async () => {
+	it("keeps values when options are renamed, and retires removed options instead of deleting them", async () => {
 		const { owner, client } = await setup();
 		const status = client.fields.find((f) => f.key === "status")!;
-		const id = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Acme", status: "Active" } });
-		await owner.mutation(api.fields.update, {
-			fieldId: status._id,
-			options: [{ id: "lead", label: "Lead" }, { id: "active", label: "Current" }],
-		});
-		expect((await owner.query(api.records.get, { recordId: id }))!.values.status).toBe("active");
-		await expect(owner.mutation(api.fields.update, { fieldId: status._id, options: [{ id: "lead", label: "Lead" }] })).rejects.toThrow(
-			"still set to “Current”",
-		);
+		const live = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Acme", status: "Active" } });
+		const archived = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Bolt", status: "lead" } });
+		await owner.mutation(api.records.archive, { recordId: archived });
+		await owner.mutation(api.fields.update, { fieldId: status._id, options: [{ id: "active", label: "Current" }] });
+		expect((await owner.query(api.records.get, { recordId: live }))!.values.status).toBe("active");
+		const options = (await owner.query(api.recordTypes.list)).find((t) => t.key === "client")!.fields.find((f) => f.key === "status")!.options;
+		expect(options).toEqual([
+			{ id: "active", label: "Current" },
+			{ id: "lead", label: "Lead", retired: true },
+			{ id: "past", label: "Past", retired: true },
+		]);
+
+		// Retired options can't be set, but records keep them and can still be found by them,
+		// including ones that were archived when the option was removed.
+		await expect(owner.mutation(api.records.update, { recordId: live, values: { status: "lead" } })).rejects.toThrow("one of: Current");
+		await owner.mutation(api.records.restore, { recordId: archived });
+		expect((await owner.query(api.records.get, { recordId: archived }))!.values.status).toBe("lead");
+		expect(await titles(owner, { typeId: client._id, where: { field: "status", eq: "Lead" } })).toEqual(["Bolt"]);
+
+		// Sending it back, by label, brings back the same option.
+		await owner.mutation(api.fields.update, { fieldId: status._id, options: [{ id: "active", label: "Current" }, { label: "Lead" }] });
+		await owner.mutation(api.records.update, { recordId: live, values: { status: "Lead" } });
+		expect(await titles(owner, { typeId: client._id, where: { field: "status", eq: "lead" } })).toEqual(["Acme", "Bolt"]);
 	});
 
 	it("archives fields without losing values, and keeps the name field", async () => {
@@ -372,6 +387,126 @@ describe("fields", () => {
 		await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Bolt", tags: "VIP" } });
 		expect(await titles(owner, { typeId: client._id, where: { field: "tags", eq: "slow payer" } })).toEqual(["Acme"]);
 		expect(await titles(owner, { typeId: client._id, where: { field: "tags", eq: "vip" } })).toEqual(["Bolt", "Acme"]);
-		await expect(titles(owner, { typeId: client._id, sort: { field: "tags", order: "asc" } })).rejects.toThrow("can't be sorted");
+		await expect(titles(owner, { typeId: client._id, sort: { field: "tags", order: "asc" } })).rejects.toThrow("matched exactly");
+		// A range over one record's several values would list it on several pages.
+		await expect(titles(owner, { typeId: client._id, where: { field: "tags", gte: "a", lte: "z" } })).rejects.toThrow("matched exactly");
+	});
+});
+
+// Found in review of #28; each was reproduced before the fix.
+describe("records: limits and edge cases", () => {
+	const latest = async (as: As, recordId: Id<"records">) =>
+		(await as.query(api.records.history, { recordId, paginationOpts: page })).page[0]!;
+
+	it("checks undo against the fields, options and links as they are now", async () => {
+		const { owner, member, client, deal } = await setup();
+		const status = client.fields.find((f) => f.key === "status")!;
+		const id = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "C", status: "lead", phone: "5551234567" } });
+		await owner.mutation(api.records.update, { recordId: id, values: { status: "active" } });
+		const statusChange = await latest(owner, id);
+		await owner.mutation(api.fields.update, { fieldId: status._id, options: [{ id: "active", label: "Active" }] });
+		await expect(owner.mutation(api.records.undo, { historyId: statusChange._id })).rejects.toThrow("one of: Active");
+
+		await owner.mutation(api.records.update, { recordId: id, values: { phone: "5557654321" } });
+		const phoneChange = await latest(owner, id);
+		await owner.mutation(api.fields.archive, { fieldId: client.fields.find((f) => f.key === "phone")!._id });
+		await expect(member.mutation(api.records.undo, { historyId: phoneChange._id })).rejects.toThrow("no field");
+
+		const d = await owner.mutation(api.records.create, { typeId: deal._id, values: { name: "D", client: id } });
+		await owner.mutation(api.records.update, { recordId: d, values: { client: null } });
+		const unlink = await latest(owner, d);
+		await owner.mutation(api.records.archive, { recordId: id });
+		await expect(owner.mutation(api.records.undo, { historyId: unlink._id })).rejects.toThrow("doesn't exist");
+		expect((await owner.query(api.records.get, { recordId: d }))!.values.client).toBeUndefined();
+	});
+
+	it("treats links to an archived record as gone, without rewriting them", async () => {
+		const { owner, client, deal } = await setup();
+		const c = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "C" } });
+		const d = await owner.mutation(api.records.create, { typeId: deal._id, values: { name: "D", client: c } });
+		await owner.mutation(api.records.archive, { recordId: c });
+		const got = (await owner.query(api.records.get, { recordId: d }))!;
+		expect(got.values.client).toBe(c);
+		expect(got.refs[c]).toEqual({ name: "C", archived: true });
+		expect(await titles(owner, { typeId: deal._id, where: { field: "client", eq: c } })).toEqual([]);
+		expect((await owner.query(api.records.linked, { recordId: c, paginationOpts: page })).page).toEqual([]);
+
+		await owner.mutation(api.records.restore, { recordId: c });
+		expect(await titles(owner, { typeId: deal._id, where: { field: "client", eq: c } })).toEqual(["D"]);
+		expect((await owner.query(api.records.get, { recordId: d }))!.refs[c]).toEqual({ name: "C" });
+	});
+
+	it("matches long text exactly, not by its first characters", async () => {
+		const { owner, client } = await setup();
+		const long = "a".repeat(100);
+		await owner.mutation(api.records.create, { typeId: client._id, values: { name: `${long}FIRST` } });
+		await owner.mutation(api.records.create, { typeId: client._id, values: { name: `${long}SECOND` } });
+		expect(await titles(owner, { typeId: client._id, where: { field: "name", eq: `${long}first` } })).toEqual([`${long}FIRST`]);
+		expect(await titles(owner, { typeId: client._id, sort: { field: "name", order: "asc" } })).toHaveLength(2);
+	});
+
+	it("lists a full page of records with many links inside transaction limits", async () => {
+		const { owner, client, deal } = await setup();
+		await owner.mutation(api.fields.create, { typeId: deal._id, label: "Contacts", kind: "link", multiple: true, linkTypeId: client._id });
+		const ids: Id<"records">[] = [];
+		for (let n = 0; n < 50; n++) ids.push(await owner.mutation(api.records.create, { typeId: client._id, values: { name: `C${n}` } }));
+		for (let n = 0; n < 82; n++) await owner.mutation(api.records.create, { typeId: deal._id, values: { name: `D${n}`, contacts: ids } });
+		const first = await owner.query(api.records.list, { typeId: deal._id, paginationOpts: { numItems: 100, cursor: null } });
+		expect(first.page).toHaveLength(50);
+		expect(Object.keys(first.page[0]!.refs)).toHaveLength(50);
+		const second = await owner.query(api.records.list, { typeId: deal._id, paginationOpts: { numItems: 100, cursor: first.continueCursor } });
+		expect(second.page).toHaveLength(32);
+	});
+
+	it("leaves names past a page's read budget for records.refs", async () => {
+		const { owner, client, deal } = await setup();
+		await owner.mutation(api.fields.create, { typeId: deal._id, label: "Contacts", kind: "link", multiple: true, linkTypeId: client._id });
+		const ids: Id<"records">[] = [];
+		for (let n = 0; n < 250; n++) ids.push(await owner.mutation(api.records.create, { typeId: client._id, values: { name: `C${n}` } }));
+		for (let n = 0; n < 5; n++)
+			await owner.mutation(api.records.create, { typeId: deal._id, values: { name: `D${n}`, contacts: ids.slice(n * 50, n * 50 + 50) } });
+		const rows = (await owner.query(api.records.list, { typeId: deal._id, paginationOpts: page })).page;
+		const unresolved = rows.flatMap((r) => r.unresolved);
+		expect(unresolved).toHaveLength(50);
+		expect(rows.flatMap((r) => Object.keys(r.refs))).toHaveLength(200);
+		const refs = await owner.query(api.records.refs, { ids: unresolved });
+		expect(Object.keys(refs)).toHaveLength(50);
+	});
+
+	it("caps a record's size so it and its history stay under the document limit", async () => {
+		const { t, owner, client } = await setup();
+		const fields = [];
+		for (let n = 0; n < 14; n++) fields.push(await owner.mutation(api.fields.create, { typeId: client._id, label: `Long ${n}`, kind: "text" }));
+		const fill = (count: number, char: string) => Object.fromEntries(fields.slice(0, count).map((f) => [f.key, char.repeat(10_000)]));
+		await expect(owner.mutation(api.records.create, { typeId: client._id, values: { name: "Big", ...fill(14, "a") } })).rejects.toThrow(
+			"too big",
+		);
+		const id = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Big", ...fill(12, "a") } });
+		await expect(owner.mutation(api.records.update, { recordId: id, values: fill(14, "b") })).rejects.toThrow("too big");
+		await owner.mutation(api.records.update, { recordId: id, values: fill(12, "b") });
+		const sizes = await t.run(async (ctx) => ({
+			record: getDocumentSize((await ctx.db.get(id))!),
+			history: getDocumentSize((await ctx.db.query("recordHistory").withIndex("by_record", (q) => q.eq("recordId", id)).order("desc").first())!),
+		}));
+		expect(sizes.history).toBeGreaterThan(2 * 100_000);
+		expect(sizes.history).toBeLessThan(1_048_576 / 2);
+		expect(sizes.record).toBeLessThan(1_048_576 / 4);
+	});
+
+	it("stores currency in cents and lets owners set the workspace's currency", async () => {
+		const { owner, member, deal } = await setup();
+		const id = await owner.mutation(api.records.create, { typeId: deal._id, values: { name: "D", value: 1.005 } });
+		expect((await owner.query(api.records.get, { recordId: id }))!.values.value).toBe(101);
+		await expect(owner.mutation(api.records.update, { recordId: id, values: { value: Number.MAX_VALUE } })).rejects.toThrow("amount");
+		expect(await titles(owner, { typeId: deal._id, where: { field: "value", gte: "1.01", lte: 1.01 } })).toEqual(["D"]);
+
+		const settings = (await owner.query(api.workspace.settings))!;
+		expect(settings.currency).toBe("USD");
+		await owner.mutation(api.workspace.updateSettings, { name: settings.name, currency: "eur", expectedVersion: settings.version });
+		expect((await member.query(api.workspace.settings))!.currency).toBe("EUR");
+		const next = (await owner.query(api.workspace.settings))!;
+		await expect(owner.mutation(api.workspace.updateSettings, { name: next.name, currency: "euro", expectedVersion: next.version })).rejects.toThrow(
+			"currency code",
+		);
 	});
 });

@@ -20,13 +20,18 @@ export const fieldKinds = [
 ] as const;
 export type FieldKind = (typeof fieldKinds)[number];
 
-/** A stored value. Empty values (and unchecked boxes) aren't stored. Dates are "YYYY-MM-DD"; choices, people and links are ids. */
+/**
+ * A stored value. Empty values (and unchecked boxes) aren't stored. Dates are "YYYY-MM-DD";
+ * currency is whole cents (in the workspace's currency); choices, people and links are ids.
+ */
 export type FieldValue = string | number | boolean | string[];
 
 export interface ChoiceOption {
 	/** Stable: stored on records, so renaming an option changes nothing else. */
 	id: string;
 	label: string;
+	/** Removed from the field. Records keep it and it can be filtered on, but it can't be set again. */
+	retired?: boolean;
 }
 
 /** What someone picks when they add a field. */
@@ -55,8 +60,20 @@ export const OPTIONS_MAX = 100;
 export const TEXT_MAX = 10_000;
 /** Most values a `multiple` field holds. */
 export const MULTI_MAX = 50;
-/** Text is indexed (for sorting and exact match) by this many characters. */
+/**
+ * Most a record's values may take, as JSON bytes. History stores a change's old and new
+ * values together, so this keeps both the record and any history entry well under
+ * Convex's 1 MiB document limit, and a page of records under a query's read limit.
+ */
+export const RECORD_MAX_BYTES = 128 * 1024;
+/** Text up to this long is indexed as is; longer text by a prefix plus a hash of the rest. */
 const INDEX_CHARS = 100;
+const INDEX_PREFIX = 80;
+
+export const valuesBytes = (values: Record<string, FieldValue>) => new TextEncoder().encode(JSON.stringify(values)).length;
+
+/** The workspace's currency when it hasn't picked one. */
+export const DEFAULT_CURRENCY = "USD";
 
 /** A key from a label: "Roof type" → "roof_type", unique among `taken`. */
 export function keyOf(label: string, taken: Iterable<string>) {
@@ -74,12 +91,12 @@ export function keyOf(label: string, taken: Iterable<string>) {
 }
 
 /** Trims labels and gives new options an id. `options` may come without ids (labels only). */
-export function normalizeFieldConfig(config: Omit<FieldConfig, "options"> & { options?: { id?: string; label: string }[] }): FieldConfig {
+export function normalizeFieldConfig(config: Omit<FieldConfig, "options"> & { options?: (Omit<ChoiceOption, "id"> & { id?: string })[] }): FieldConfig {
 	const ids: string[] = [];
 	const options = config.options?.map((o) => {
 		const id = o.id || keyOf(o.label, ids);
 		ids.push(id);
-		return { id, label: o.label.trim() };
+		return { id, label: o.label.trim(), ...(o.retired && { retired: true }) };
 	});
 	return {
 		label: config.label.trim(),
@@ -100,8 +117,9 @@ export function fieldConfigError(config: FieldConfig): string | null {
 	if (kind === "choice") {
 		if (!options?.length) return "A choice field needs at least one option.";
 		if (options.length > OPTIONS_MAX) return `A choice field holds up to ${OPTIONS_MAX} options.`;
+		if (options.every((o) => o.retired)) return "A choice field needs at least one option.";
 		if (options.some((o) => !o.label)) return "Every option needs a name.";
-		const labels = options.map((o) => o.label.toLowerCase());
+		const labels = options.filter((o) => !o.retired).map((o) => o.label.toLowerCase());
 		if (new Set(labels).size !== labels.length) return "Two options have the same name.";
 		if (new Set(options.map((o) => o.id)).size !== options.length) return "Two options have the same id.";
 	} else if (options) return "Only choice fields have options.";
@@ -113,6 +131,13 @@ export function fieldConfigError(config: FieldConfig): string | null {
 
 export type Normalized = { value: FieldValue | null } | { error: string };
 
+/**
+ * `input`: what a person or agent typed (currency in whole units, "12.50").
+ * `stored`: a value from storage being set again, e.g. by undo (currency in cents).
+ * `filter`: a value to match; retired options are allowed, to find records still using them.
+ */
+export type ValueMode = "input" | "stored" | "filter";
+
 const isEmpty = (raw: unknown) => raw === null || raw === undefined || raw === "" || (Array.isArray(raw) && raw.length === 0);
 
 /**
@@ -120,7 +145,7 @@ const isEmpty = (raw: unknown) => raw === null || raw === undefined || raw === "
  * what's wrong. Choices accept an option's id or label. `user` and `link` ids are
  * checked against the workspace by the backend.
  */
-export function normalizeValue(field: Field, raw: unknown): Normalized {
+export function normalizeValue(field: Field, raw: unknown, mode: ValueMode = "input"): Normalized {
 	if (isEmpty(raw)) return { value: null };
 	const label = `“${field.label}”`;
 	if (field.multiple) {
@@ -128,28 +153,30 @@ export function normalizeValue(field: Field, raw: unknown): Normalized {
 		if (items.length > MULTI_MAX) return { error: `${label} holds up to ${MULTI_MAX}.` };
 		const out: string[] = [];
 		for (const item of items) {
-			const one = normalizeOne(field, item, label);
+			const one = normalizeOne(field, item, label, mode);
 			if ("error" in one) return one;
 			if (typeof one.value === "string" && !out.includes(one.value)) out.push(one.value);
 		}
 		return { value: out.length ? out : null };
 	}
 	if (Array.isArray(raw)) return { error: `${label} holds one value.` };
-	return normalizeOne(field, raw, label);
+	return normalizeOne(field, raw, label, mode);
 }
 
-function normalizeOne(field: Field, raw: unknown, label: string): Normalized {
+function normalizeOne(field: Field, raw: unknown, label: string, mode: ValueMode): Normalized {
 	const text = typeof raw === "string" ? raw.trim() : typeof raw === "number" ? String(raw) : null;
 	switch (field.kind) {
 		case "text":
 			if (text === null) return { error: `${label} is text.` };
 			if (text.length > TEXT_MAX) return { error: `Keep ${label} under ${TEXT_MAX.toLocaleString("en-US")} characters.` };
 			return { value: text || null };
-		case "number":
+		case "number": {
+			const n = typeof raw === "number" ? raw : text ? Number(text.replace(/[,\s]/g, "")) : Number.NaN;
+			return Number.isFinite(n) ? { value: n } : { error: `${label} is a number.` };
+		}
 		case "currency": {
-			const n = typeof raw === "number" ? raw : text ? Number(text.replace(/[$,\s]/g, "")) : Number.NaN;
-			if (!Number.isFinite(n)) return { error: `${label} is a number.` };
-			return { value: field.kind === "currency" ? Math.round(n * 100) / 100 : n };
+			const cents = mode === "stored" ? (typeof raw === "number" ? raw : Number.NaN) : toCents(text);
+			return Number.isSafeInteger(cents) ? { value: cents } : { error: `${label} is an amount like 1250.50.` };
 		}
 		case "date": {
 			const day = text?.slice(0, 10) ?? "";
@@ -162,8 +189,9 @@ function normalizeOne(field: Field, raw: unknown, label: string): Normalized {
 			if (raw === false || text === "false") return { value: null };
 			return { error: `${label} is true or false.` };
 		case "choice": {
-			const option = field.options?.find((o) => o.id === text || o.label.toLowerCase() === text?.toLowerCase());
-			if (!option) return { error: `${label} is one of: ${field.options?.map((o) => o.label).join(", ")}.` };
+			const options = field.options?.filter((o) => mode === "filter" || !o.retired) ?? [];
+			const option = options.find((o) => o.id === text || o.label.toLowerCase() === text?.toLowerCase());
+			if (!option) return { error: `${label} is one of: ${options.map((o) => o.label).join(", ")}.` };
 			return { value: option.id };
 		}
 		case "email":
@@ -189,6 +217,20 @@ function normalizeOne(field: Field, raw: unknown, label: string): Normalized {
 	}
 }
 
+/**
+ * Whole units ("1,250.505", 12.5) to cents, rounding half away from zero on the exact
+ * decimal (1.005 → 101). NaN if it isn't an amount or isn't a safe integer.
+ */
+function toCents(text: string | null) {
+	const match = text?.replace(/[$,\s]/g, "").match(/^(-?)(\d*)(?:\.(\d*))?$/);
+	const [, sign, whole = "", frac = ""] = match ?? [];
+	if (!whole && !frac) return Number.NaN;
+	let cents = BigInt(whole + `${frac}00`.slice(0, 2));
+	if (Number(frac[2] ?? 0) >= 5) cents += 1n;
+	if (cents > BigInt(Number.MAX_SAFE_INTEGER)) return Number.NaN;
+	return Number(sign ? -cents : cents) || 0;
+}
+
 /** One index entry for a value: text and ids by `str`, numbers by `num`, links by `ref`. */
 export type IndexEntry = { str: string } | { num: number } | { ref: string };
 
@@ -209,11 +251,35 @@ export function indexEntries(field: Field, value: FieldValue | null | undefined)
 		case "text":
 		case "email":
 		case "url":
-			return [{ str: String(value).toLowerCase().slice(0, INDEX_CHARS) }];
+			return [{ str: textKey(String(value)) }];
 		default:
 			return [{ str: String(value) }];
 	}
 }
+
+/**
+ * Case-insensitive. Short text is its own key; longer text keys by its first 80 characters
+ * plus a hash of all of it, so equal keys almost always mean equal text (check with
+ * `sameText`) and sorting goes by the first 80 characters.
+ */
+function textKey(value: string) {
+	const lower = value.toLowerCase();
+	return lower.length <= INDEX_CHARS ? lower : `${lower.slice(0, INDEX_PREFIX)}#${hash(lower)}`;
+}
+
+/** Two FNV-1a passes: 16 hex characters. Collisions are caught by `sameText`. */
+function hash(text: string) {
+	const fnv = (seed: number) => {
+		let h = seed;
+		for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
+		return (h >>> 0).toString(16).padStart(8, "0");
+	};
+	return fnv(2166136261) + fnv(0x9747b28c);
+}
+
+/** Whether a stored text-like value equals what a filter asked for, beyond its index key. */
+export const sameText = (field: Field, stored: FieldValue | undefined, wanted: FieldValue) =>
+	!["text", "email", "url"].includes(field.kind) || String(stored).toLowerCase() === String(wanted).toLowerCase();
 
 /** Text worth searching: the title and other text-like values. */
 export function searchTextOf(fields: Field[], values: Record<string, FieldValue>) {

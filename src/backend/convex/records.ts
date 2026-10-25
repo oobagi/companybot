@@ -1,4 +1,4 @@
-import { type FieldValue, indexEntries, normalizeValue } from "@companybot/core";
+import { indexEntries, normalizeValue, sameText } from "@companybot/core";
 import { type PaginationResult, paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -8,10 +8,11 @@ import { getMember, nameOf, requireMember } from "./lib";
 import {
 	createRecord,
 	fieldsOf,
-	refsOf,
+	idsIn,
+	resolveRefs,
 	setArchived,
 	toField,
-	toRow,
+	toRows,
 	undoChange,
 	updateRecord,
 } from "./recordOps";
@@ -20,10 +21,17 @@ import {
 // takes `records.edit`. Lists page through indexes only, so they stay fast at any size.
 // See wiki/data.md.
 
-/** Most rows a page returns. */
-const PAGE_MAX = 100;
+/**
+ * Most rows a page returns. A record is at most RECORD_MAX_BYTES of values, so a full page
+ * plus its names stays well inside a query's 16 MiB read limit. History entries hold old
+ * and new values, so their pages are smaller.
+ */
+const PAGE_MAX = 50;
+const HISTORY_PAGE_MAX = 20;
 
-type Row = Awaited<ReturnType<typeof toRow>>;
+type Row = Awaited<ReturnType<typeof toRows>>[number];
+
+const capped = (opts: { numItems: number; cursor: string | null }, max: number) => ({ ...opts, numItems: Math.min(opts.numItems, max) });
 
 const empty = <T>(): PaginationResult<T> => ({ page: [], isDone: true, continueCursor: "" });
 
@@ -33,7 +41,9 @@ const bound = v.optional(v.union(v.string(), v.number(), v.boolean()));
  * One type's records, a page at a time. Newest first by default; `sort` by "createdAt",
  * "updatedAt" or any field. `where` matches one field exactly (`eq`) or by range
  * (`gte` / `lte`, for numbers and dates), in that field's order. Filtering and sorting
- * use the same field, and only records with a value for it are listed.
+ * use the same field, and only records with a value for it are listed. Fields holding
+ * several values match exactly only, so each record shows up once. Links to an archived
+ * record match nothing.
  */
 export const list = query({
 	args: {
@@ -48,7 +58,7 @@ export const list = query({
 		const type = member && (await ctx.db.get(typeId));
 		if (!member || type?.workspaceId !== member.workspaceId) return empty();
 		const fields = await fieldsOf(ctx, typeId);
-		const opts = { ...paginationOpts, numItems: Math.min(paginationOpts.numItems, PAGE_MAX) };
+		const opts = capped(paginationOpts, PAGE_MAX);
 		const order = sort?.order ?? "desc";
 
 		const key = where?.field ?? (sort && !["createdAt", "updatedAt"].includes(sort.field) ? sort.field : undefined);
@@ -58,14 +68,15 @@ export const list = query({
 				.withIndex(sort?.field === "updatedAt" ? "by_type_updated" : "by_type", (q) => q.eq("typeId", typeId).eq("archived", archived))
 				.order(order)
 				.paginate(opts);
-			return { ...result, page: await Promise.all(result.page.map((r) => toRow(ctx, r, fields))) };
+			return { ...result, page: await toRows(ctx, member.workspaceId, result.page.map((record) => ({ record, fields }))) };
 		}
 
 		if (archived) throw new ConvexError("Archived records can't be filtered or sorted by a field.");
 		if (where && sort && sort.field !== where.field) throw new ConvexError("Filter and sort by the same field.");
 		const field = fields.find((f) => f.key === key && !f.archived);
 		if (!field) throw new ConvexError(`There's no field “${key}”.`);
-		if (sort && field.multiple) throw new ConvexError(`“${field.label}” holds several values, so it can't be sorted.`);
+		if (field.multiple && (sort || where?.gte !== undefined || where?.lte !== undefined))
+			throw new ConvexError(`“${field.label}” holds several values, so it can only be matched exactly.`);
 		const at = (raw: unknown) => (raw === undefined ? undefined : indexValue(field, raw));
 		const eq = at(where?.eq);
 		const gte = at(where?.gte);
@@ -74,6 +85,7 @@ export const list = query({
 		let rows: PaginationResult<Doc<"recordValues">>;
 		if (field.kind === "link") {
 			if (sort || eq === undefined) throw new ConvexError(`“${field.label}” can only be matched exactly.`);
+			if ((await ctx.db.get(eq as Id<"records">))?.archived) return empty();
 			rows = await ctx.db
 				.query("recordValues")
 				.withIndex("by_ref", (q) => q.eq("ref", eq as Id<"records">).eq("fieldId", field._id))
@@ -103,21 +115,22 @@ export const list = query({
 				.order(order)
 				.paginate(opts);
 		}
-		const seen = new Set<Id<"records">>();
-		const page: Row[] = [];
+		// Long text matches by a hash of its key, so check the value itself.
+		const wanted = where?.eq === undefined ? undefined : normalizeValue(toField(field), where.eq, "filter");
+		const records = [];
 		for (const row of rows.page) {
-			if (seen.has(row.recordId)) continue;
-			seen.add(row.recordId);
 			const record = await ctx.db.get(row.recordId);
-			if (record) page.push(await toRow(ctx, record, fields));
+			if (!record) continue;
+			if (wanted && "value" in wanted && wanted.value !== null && !sameText(toField(field), record.values[field.key], wanted.value)) continue;
+			records.push({ record, fields });
 		}
-		return { ...rows, page };
+		return { ...rows, page: await toRows(ctx, member.workspaceId, records) };
 	},
 });
 
 /** What a filter value looks like in the index, so `where` uses the same rules as saving. */
 function indexValue(field: Doc<"recordFields">, raw: unknown) {
-	const result = normalizeValue({ ...toField(field), multiple: false }, raw);
+	const result = normalizeValue({ ...toField(field), multiple: false }, raw, "filter");
 	if ("error" in result) throw new ConvexError(result.error);
 	const [entry] = indexEntries(toField(field), result.value);
 	if (!entry) throw new ConvexError(`Pick a value for “${field.label}”.`);
@@ -133,34 +146,36 @@ export const get = query({
 		if (!member || record?.workspaceId !== member.workspaceId) return null;
 		const type = (await ctx.db.get(record.typeId))!;
 		const fields = await fieldsOf(ctx, record.typeId);
+		const [row] = await toRows(ctx, member.workspaceId, [{ record, fields }]);
 		return {
-			...(await toRow(ctx, record, fields)),
+			...row!,
 			type: { _id: type._id, key: type.key, name: type.name, plural: type.plural },
 			fields: fields.filter((f) => !f.archived).map((f) => ({ _id: f._id, ...toField(f) })),
 		};
 	},
 });
 
-/** Live records that link to this one ("deals for this client"), optionally through one field. */
+/** Live records that link to this one ("deals for this client"), optionally through one field. None if it's archived. */
 export const linked = query({
 	args: { recordId: v.id("records"), fieldId: v.optional(v.id("recordFields")), paginationOpts: paginationOptsValidator },
 	handler: async (ctx, { recordId, fieldId, paginationOpts }) => {
 		const member = await getMember(ctx);
 		const record = member && (await ctx.db.get(recordId));
-		if (!member || record?.workspaceId !== member.workspaceId) return empty<Row & { fieldId: Id<"recordFields"> }>();
+		if (!member || record?.workspaceId !== member.workspaceId || record.archived) return empty<Row & { fieldId: Id<"recordFields"> }>();
 		const rows = await ctx.db
 			.query("recordValues")
 			.withIndex("by_ref", (q) => (fieldId ? q.eq("ref", recordId).eq("fieldId", fieldId) : q.eq("ref", recordId)))
-			.paginate({ ...paginationOpts, numItems: Math.min(paginationOpts.numItems, PAGE_MAX) });
+			.paginate(capped(paginationOpts, PAGE_MAX));
 		const fields = new Map<Id<"recordTypes">, Doc<"recordFields">[]>();
-		const page = [];
+		const items: { record: Doc<"records">; fields: Doc<"recordFields">[]; fieldId: Id<"recordFields"> }[] = [];
 		for (const row of rows.page) {
-			const source = await ctx.db.get(row.recordId);
-			if (!source) continue;
-			if (!fields.has(source.typeId)) fields.set(source.typeId, await fieldsOf(ctx, source.typeId));
-			page.push({ ...(await toRow(ctx, source, fields.get(source.typeId)!)), fieldId: row.fieldId });
+			const record = await ctx.db.get(row.recordId);
+			if (!record) continue;
+			if (!fields.has(record.typeId)) fields.set(record.typeId, await fieldsOf(ctx, record.typeId));
+			items.push({ record, fields: fields.get(record.typeId)!, fieldId: row.fieldId });
 		}
-		return { ...rows, page };
+		const rowsOut = await toRows(ctx, member.workspaceId, items);
+		return { ...rows, page: rowsOut.map((row, i) => ({ ...row, fieldId: items[i]!.fieldId })) };
 	},
 });
 
@@ -192,9 +207,9 @@ export const history = query({
 			.query("recordHistory")
 			.withIndex("by_record", (q) => q.eq("recordId", recordId))
 			.order("desc")
-			.paginate(paginationOpts);
+			.paginate(capped(paginationOpts, HISTORY_PAGE_MAX));
 		const fields = await fieldsOf(ctx, record.typeId);
-		return { ...result, page: await Promise.all(result.page.map((e) => toEntry(ctx, e, fields))) };
+		return { ...result, page: await toEntries(ctx, member.workspaceId, result.page.map((entry) => ({ entry, fields }))) };
 	},
 });
 
@@ -208,38 +223,58 @@ export const activity = query({
 			.query("recordHistory")
 			.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
 			.order("desc")
-			.paginate(paginationOpts);
+			.paginate(capped(paginationOpts, HISTORY_PAGE_MAX));
 		const fields = new Map<Id<"recordTypes">, Doc<"recordFields">[]>();
+		for (const e of result.page) if (!fields.has(e.typeId)) fields.set(e.typeId, await fieldsOf(ctx, e.typeId));
+		const entries = await toEntries(ctx, member.workspaceId, result.page.map((entry) => ({ entry, fields: fields.get(entry.typeId)! })));
 		const page = [];
-		for (const e of result.page) {
-			if (!fields.has(e.typeId)) fields.set(e.typeId, await fieldsOf(ctx, e.typeId));
+		for (const [i, e] of result.page.entries()) {
 			const record = e.recordId && (await ctx.db.get(e.recordId));
-			const type = await ctx.db.get(e.typeId);
-			page.push({ ...(await toEntry(ctx, e, fields.get(e.typeId)!)), record: record ? record.title : null, type: type?.name ?? "" });
+			page.push({ ...entries[i]!, record: record ? record.title : null, type: (await ctx.db.get(e.typeId))?.name ?? "" });
 		}
 		return { ...result, page };
 	},
 });
 
-type Entry = Awaited<ReturnType<typeof toEntry>>;
+type Entry = Awaited<ReturnType<typeof toEntries>>[number];
 
-async function toEntry(ctx: QueryCtx, e: Doc<"recordHistory">, fields: Doc<"recordFields">[]) {
-	const field = e.fieldId && fields.find((f) => f._id === e.fieldId);
-	return {
-		_id: e._id,
-		time: e._creationTime,
-		action: e.action,
-		recordId: e.recordId ?? null,
-		/** Field changes: the field's current label. */
-		field: field ? field.label : null,
-		changes: e.changes.map((c) => ({ ...c, label: fields.find((f) => f.key === c.key)?.label ?? c.key })),
-		refs: e.recordId ? await refsOf(ctx, fields, e.changes.flatMap((c) => [{ [c.key]: c.old }, { [c.key]: c.new }] as Partial<Record<string, FieldValue>>[])) : {},
-		user: await nameOf(ctx, e.userId),
-		agent: e.agentId ? ((await ctx.db.get(e.agentId))?.name ?? null) : null,
-		undoes: e.undoes ?? null,
-		undone: !!e.undoneBy,
-	};
+/** History entries, display-ready, with names resolved once for the page. */
+async function toEntries(ctx: QueryCtx, workspaceId: Id<"workspaces">, items: { entry: Doc<"recordHistory">; fields: Doc<"recordFields">[] }[]) {
+	const idsOf = items.map(({ entry, fields }) =>
+		entry.recordId ? entry.changes.flatMap((c) => [...idsIn(fields, { [c.key]: c.old }), ...idsIn(fields, { [c.key]: c.new })]) : [],
+	);
+	const { refs } = await resolveRefs(ctx, workspaceId, idsOf.flat());
+	return Promise.all(
+		items.map(async ({ entry: e, fields }, i) => {
+			const field = e.fieldId && fields.find((f) => f._id === e.fieldId);
+			return {
+				_id: e._id,
+				time: e._creationTime,
+				action: e.action,
+				recordId: e.recordId ?? null,
+				/** Field changes: the field's current label. */
+				field: field ? field.label : null,
+				changes: e.changes.map((c) => ({ ...c, label: fields.find((f) => f.key === c.key)?.label ?? c.key })),
+				refs: Object.fromEntries(idsOf[i]!.filter((id) => refs[id]).map((id) => [id, refs[id]!])),
+				user: await nameOf(ctx, e.userId),
+				agent: e.agentId ? ((await ctx.db.get(e.agentId))?.name ?? null) : null,
+				undoes: e.undoes ?? null,
+				undone: !!e.undoneBy,
+			};
+		}),
+	);
 }
+
+/** Names for ids a page couldn't resolve within its read budget (`unresolved`). Up to 200 at a time. */
+export const refs = query({
+	args: { ids: v.array(v.string()) },
+	handler: async (ctx, { ids }) => {
+		const member = await getMember(ctx);
+		if (!member) return {};
+		if (ids.length > 200) throw new ConvexError("Ask for up to 200 at a time.");
+		return (await resolveRefs(ctx, member.workspaceId, ids)).refs;
+	},
+});
 
 /** Chat messages that reference this record and that you can see, newest first. */
 export const discussion = query({

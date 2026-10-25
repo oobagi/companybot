@@ -102,7 +102,12 @@ export default defineSchema({
 	// Local backends only (`pnpm dev`): the latest sign-in code per email, read back by the app.
 	localSignInCodes: defineTable({ email: v.string(), code: v.string() }).index("by_email", ["email"]),
 
-	workspaces: defineTable({ name: v.string(), version: v.optional(v.number()) }),
+	workspaces: defineTable({
+		name: v.string(),
+		version: v.optional(v.number()),
+		/** ISO 4217 code for currency fields. Unset means DEFAULT_CURRENCY. */
+		currency: v.optional(v.string()),
+	}),
 
 	members: defineTable({
 		workspaceId: v.id("workspaces"),
@@ -534,7 +539,8 @@ export default defineSchema({
 		key: v.string(),
 		label: v.string(),
 		kind: fieldKind,
-		options: v.optional(v.array(v.object({ id: v.string(), label: v.string() }))),
+		/** Removed options stay, `retired`, so records using them keep their meaning. */
+		options: v.optional(v.array(v.object({ id: v.string(), label: v.string(), retired: v.optional(v.boolean()) }))),
 		linkTypeId: v.optional(v.id("recordTypes")),
 		multiple: v.optional(v.boolean()),
 		/** Display order. */
@@ -566,6 +572,7 @@ export default defineSchema({
 
 	// The index behind filtering and sorting on any field: one row per value of a live
 	// record (core's indexEntries). Archived records have none. Never read for display.
+	// Rows linking to an archived record stay; queries treat that target as gone.
 	recordValues: defineTable({
 		recordId: v.id("records"),
 		fieldId: v.id("recordFields"),

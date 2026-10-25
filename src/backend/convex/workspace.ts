@@ -1,5 +1,5 @@
 import { fireEvent } from "./automations";
-import { can } from "@companybot/core";
+import { DEFAULT_CURRENCY, can } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
@@ -175,17 +175,22 @@ export const settings = query({
 	handler: async (ctx) => {
 		const member = await getMember(ctx);
 		const workspace = member && (await ctx.db.get(member.workspaceId));
-		return workspace ? { name: workspace.name, version: workspace.version ?? 0 } : null;
+		return workspace
+			? { name: workspace.name, currency: workspace.currency ?? DEFAULT_CURRENCY, version: workspace.version ?? 0 }
+			: null;
 	},
 });
 
+/** `currency` (an ISO 4217 code) is optional so apps from before it keep working. Amounts aren't converted. */
 export const updateSettings = mutation({
-	args: { name: v.string(), expectedVersion: v.number() },
-	handler: async (ctx, { name, expectedVersion }) => {
+	args: { name: v.string(), currency: v.optional(v.string()), expectedVersion: v.number() },
+	handler: async (ctx, { name, currency, expectedVersion }) => {
 		const { workspaceId } = await requirePermission(ctx, "workspace.manage");
 		const workspace = (await ctx.db.get(workspaceId))!;
 		checkVersion(workspace.version ?? 0, expectedVersion);
 		if (!name.trim()) throw new ConvexError("Name can't be empty.");
-		await ctx.db.patch(workspaceId, { name: name.trim(), version: (workspace.version ?? 0) + 1 });
+		currency = currency?.trim().toUpperCase();
+		if (currency !== undefined && !/^[A-Z]{3}$/.test(currency)) throw new ConvexError("Pick a currency code like USD.");
+		await ctx.db.patch(workspaceId, { name: name.trim(), ...(currency && { currency }), version: (workspace.version ?? 0) + 1 });
 	},
 });

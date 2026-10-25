@@ -35,6 +35,7 @@ import { ConnectorOAuth } from "./oauth";
 import { can, canEditMade, canManageChannel, permissions } from "./permissions";
 import {
 	type Field,
+	type ValueMode,
 	fieldConfigError,
 	indexEntries,
 	keyOf,
@@ -276,7 +277,7 @@ describe("permissions", () => {
 
 describe("records", () => {
 	const field = (kind: Field["kind"], extra: Partial<Field> = {}): Field => ({ key: "f", label: "F", kind, ...extra });
-	const value = (f: Field, raw: unknown) => normalizeValue(f, raw);
+	const value = (f: Field, raw: unknown, mode?: ValueMode) => normalizeValue(f, raw, mode);
 
 	it("makes keys from labels that are safe, stable and unique", () => {
 		expect(keyOf("Roof type", [])).toBe("roof_type");
@@ -301,7 +302,7 @@ describe("records", () => {
 		expect(value(field("text"), "  hi ")).toEqual({ value: "hi" });
 		expect(value(field("text"), "")).toEqual({ value: null });
 		expect(value(field("number"), "1,200")).toEqual({ value: 1200 });
-		expect(value(field("currency"), 19.999)).toEqual({ value: 20 });
+		expect(value(field("number"), "1e3")).toEqual({ value: 1000 });
 		expect(value(field("date"), "2026-10-25T10:00:00Z")).toEqual({ value: "2026-10-25" });
 		expect(value(field("date"), "10/25/2026")).toHaveProperty("error");
 		expect(value(field("checkbox"), true)).toEqual({ value: true });
@@ -317,7 +318,34 @@ describe("records", () => {
 		expect(value({ ...stage, multiple: true }, [])).toEqual({ value: null });
 	});
 
+	it("stores currency as whole cents, rounding the exact decimal", () => {
+		const money = field("currency");
+		expect(value(money, 1.005)).toEqual({ value: 101 });
+		expect(value(money, "$1,250.50")).toEqual({ value: 125050 });
+		expect(value(money, "-1.005")).toEqual({ value: -101 });
+		expect(value(money, ".5")).toEqual({ value: 50 });
+		expect(value(money, 19.994)).toEqual({ value: 1999 });
+		expect(value(money, Number.MAX_VALUE)).toHaveProperty("error");
+		expect(value(money, "90071992547409.92")).toHaveProperty("error");
+		expect(value(money, "abc")).toHaveProperty("error");
+		expect(value(money, 101, "stored")).toEqual({ value: 101 });
+		expect(value(money, 1.5, "stored")).toHaveProperty("error");
+	});
+
+	it("can't set retired options, but can filter by them", () => {
+		const stage = field("choice", { options: [{ id: "won", label: "Won" }, { id: "old", label: "Old", retired: true }] });
+		expect(value(stage, "old")).toHaveProperty("error");
+		expect(value(stage, "old", "stored")).toHaveProperty("error");
+		expect(value(stage, "Old", "filter")).toEqual({ value: "old" });
+		expect(fieldConfigError({ label: "S", kind: "choice", options: [{ id: "a", label: "A", retired: true }] })).toMatch("at least one");
+	});
+
 	it("indexes values for sorting and exact matches", () => {
+		const long = "x".repeat(100);
+		const [a] = indexEntries(field("text"), `${long}One`) as { str: string }[];
+		expect(a!.str).toMatch(new RegExp(`^${"x".repeat(80)}#[0-9a-f]{16}$`));
+		expect(indexEntries(field("text"), `${long}ONE`)).toEqual([a]);
+		expect(indexEntries(field("text"), `${long}Two`)).not.toEqual([a]);
 		expect(indexEntries(field("text"), "Acme ROOFING")).toEqual([{ str: "acme roofing" }]);
 		expect(indexEntries(field("phone"), "(555) 123-4567")).toEqual([{ str: "5551234567" }]);
 		expect(indexEntries(field("currency"), 12.5)).toEqual([{ num: 12.5 }]);

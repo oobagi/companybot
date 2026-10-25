@@ -5,6 +5,8 @@ import {
 	type FieldValue,
 	NAME_KEY,
 	type Permission,
+	RECORD_MAX_BYTES,
+	type ValueMode,
 	can,
 	canEditMade,
 	deniedMessage,
@@ -17,8 +19,9 @@ import {
 	recordTypeCatalog,
 	sameValue,
 	searchTextOf,
+	valuesBytes,
 } from "@companybot/core";
-import { ConvexError } from "convex/values";
+import { ConvexError, getDocumentSize } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { type Member, memberOf, nameOf, toActor } from "./lib";
@@ -83,14 +86,23 @@ async function logChange(ctx: MutationCtx, who: Who, entry: Omit<Doc<"recordHist
 
 // ---- Records ----
 
-/** Checks what a person or agent typed (field key → value; null clears) and returns what to store. */
-async function normalizeInput(ctx: QueryCtx, member: Member, fields: Doc<"recordFields">[], input: Record<string, unknown>) {
+/**
+ * Checks values (field key → value; null clears) against the fields, options, people and
+ * records as they are now, and returns what to store. Every write goes through here, undo included.
+ */
+async function normalizeInput(
+	ctx: QueryCtx,
+	member: Member,
+	fields: Doc<"recordFields">[],
+	input: Record<string, unknown>,
+	mode: ValueMode = "input",
+) {
 	const byKey = new Map(fields.map((f) => [f.key, f]));
 	const out: Record<string, FieldValue | null> = {};
 	for (const [key, raw] of Object.entries(input)) {
 		const field = byKey.get(key);
 		if (!field || field.archived) throw new ConvexError(`There's no field “${key}”.`);
-		const result = normalizeValue(toField(field), raw);
+		const result = normalizeValue(toField(field), raw, mode);
 		if ("error" in result) throw new ConvexError(result.error);
 		const ids = result.value === null ? [] : [result.value].flat().map(String);
 		for (const id of field.kind === "user" ? ids : []) {
@@ -133,6 +145,11 @@ async function clearIndex(ctx: MutationCtx, recordId: Id<"records">) {
 	for (const row of rows) await ctx.db.delete(row._id);
 }
 
+function requireSize(values: Values) {
+	if (valuesBytes(values) > RECORD_MAX_BYTES)
+		throw new ConvexError(`This record is too big (over ${RECORD_MAX_BYTES / 1024} KB). Keep long text in a note or file instead.`);
+}
+
 const stamp = (who: Who) => ({ updatedAt: Date.now(), updatedBy: who.member.userId, updatedByAgent: who.agentId });
 
 export async function createRecord(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, input: Record<string, unknown>) {
@@ -146,6 +163,7 @@ export async function createRecord(ctx: MutationCtx, who: Who, typeId: Id<"recor
 	}
 	const title = values[NAME_KEY];
 	if (typeof title !== "string") throw new ConvexError(`Give the ${type.name.toLowerCase()} a name.`);
+	requireSize(values);
 	const id = await ctx.db.insert("records", {
 		workspaceId: who.member.workspaceId,
 		typeId,
@@ -195,12 +213,19 @@ async function applyValues(
 	if (changes.length === 0) return null;
 	const title = values[NAME_KEY];
 	if (typeof title !== "string") throw new ConvexError("Every record needs a name.");
+	requireSize(values);
 	await ctx.db.patch(record._id, { title, values, searchText: searchTextOf(fields.map(toField), values), ...stamp(who) });
 	await writeIndex(ctx, { ...record, values }, fields, new Set(changes.map((c) => c.key)));
 	return logChange(ctx, who, { typeId: record.typeId, recordId: record._id, action: "updated", changes, ...(undoes && { undoes }) });
 }
 
-/** Archived records keep their values and history but leave lists, filters and links. */
+/**
+ * Archived records keep their values and history but leave lists, filters and search.
+ * Links pointing at one stay as they are (rewriting them could be thousands of writes);
+ * queries treat it as gone and show it as archived. Restoring rebuilds its index from
+ * the fields as they are now; values on retired options or archived fields stay, as on
+ * any live record.
+ */
 export async function setArchived(ctx: MutationCtx, who: Who, recordId: Id<"records">, archived: boolean, undoes?: Id<"recordHistory">) {
 	requireCan(who.member, "records.edit");
 	const record = await requireRecord(ctx, who.member, recordId);
@@ -213,7 +238,8 @@ export async function setArchived(ctx: MutationCtx, who: Who, recordId: Id<"reco
 
 /**
  * Reverses one change to a record. Refuses if a value it touched has changed since,
- * so an undo never silently overwrites newer work.
+ * so an undo never silently overwrites newer work, and checks the old values like any
+ * other write: no archived fields, retired options, or archived link targets.
  */
 export async function undoChange(ctx: MutationCtx, who: Who, historyId: Id<"recordHistory">) {
 	requireCan(who.member, "records.edit");
@@ -231,8 +257,8 @@ export async function undoChange(ctx: MutationCtx, who: Who, historyId: Id<"reco
 				throw new ConvexError(`“${label}” has changed since, so this can't be undone.`);
 			}
 		}
-		const next = Object.fromEntries(entry.changes.map((c) => [c.key, c.old ?? null]));
-		undoneBy = await applyValues(ctx, who, record, fields, next, historyId);
+		const old = Object.fromEntries(entry.changes.map((c) => [c.key, c.old ?? null]));
+		undoneBy = await applyValues(ctx, who, record, fields, await normalizeInput(ctx, who.member, fields, old, "stored"), historyId);
 	} else undoneBy = await setArchived(ctx, who, record._id, entry.action !== "archived", historyId);
 	if (!undoneBy) throw new ConvexError("Nothing to undo.");
 	await ctx.db.patch(historyId, { undoneBy });
@@ -304,7 +330,11 @@ async function requireEditableField(ctx: QueryCtx, member: Member, fieldId: Id<"
 	return field;
 }
 
-/** Renames a field or changes its options. Its kind is fixed: values were checked against it. */
+/**
+ * Renames a field or changes its options. Its kind is fixed: values were checked against it.
+ * Options left out are retired, not deleted: records keep them, but they can't be set again.
+ * Sending one back (by id, or the same label) brings it back.
+ */
 export async function updateField(
 	ctx: MutationCtx,
 	who: Who,
@@ -312,22 +342,25 @@ export async function updateField(
 	update: { label?: string; options?: { id?: string; label: string }[] },
 ) {
 	const field = await requireEditableField(ctx, who.member, fieldId);
-	const config = normalizeFieldConfig({ ...toField(field), label: update.label ?? field.label, options: update.options ?? field.options });
+	let options = field.options;
+	if (update.options) {
+		const existing = field.options ?? [];
+		const ids = existing.map((e) => e.id);
+		const active = update.options.map((o) => {
+			const id = o.id || existing.find((e) => e.label.toLowerCase() === o.label.trim().toLowerCase())?.id || keyOf(o.label, ids);
+			ids.push(id);
+			return { id, label: o.label };
+		});
+		const kept = new Set(active.map((o) => o.id));
+		options = [...active, ...existing.filter((e) => !kept.has(e.id)).map((e) => ({ ...e, retired: true }))];
+	}
+	const config = normalizeFieldConfig({ ...toField(field), label: update.label ?? field.label, options });
 	requireFieldConfig(config);
 	requireUniqueLabel(await fieldsOf(ctx, field.typeId), config.label, fieldId);
-	const kept = new Set(config.options?.map((o) => o.id));
-	for (const option of field.options ?? []) {
-		if (kept.has(option.id)) continue;
-		const used = await ctx.db
-			.query("recordValues")
-			.withIndex("by_field_str", (q) => q.eq("fieldId", fieldId).eq("str", option.id))
-			.first();
-		if (used) throw new ConvexError(`Some records are still set to “${option.label}”. Change them first.`);
-	}
 	const changes: Change[] = [];
 	if (config.label !== field.label) changes.push({ key: "label", old: field.label, new: config.label });
-	const labels = (options?: { label: string }[]) => options?.map((o) => o.label) ?? [];
-	if (!sameValue(labels(field.options), labels(config.options)) || !sameValue(field.options?.map((o) => o.id), config.options?.map((o) => o.id)))
+	const labels = (options?: { label: string; retired?: boolean }[]) => options?.filter((o) => !o.retired).map((o) => o.label) ?? [];
+	if (!sameValue(labels(field.options), labels(config.options)))
 		changes.push({ key: "options", old: labels(field.options), new: labels(config.options) });
 	if (changes.length === 0) return;
 	await ctx.db.patch(fieldId, { label: config.label, ...(config.options && { options: config.options }), updatedAt: Date.now() });
@@ -402,31 +435,54 @@ export async function seedRecordTypes(ctx: MutationCtx, workspaceId: Id<"workspa
 
 // ---- Display ----
 
-/**
- * Names for the people and records a set of values points at, so the app shows
- * "Acme" rather than an id. Archived records still resolve; deleted ones don't.
- */
-export async function refsOf(ctx: QueryCtx, fields: Doc<"recordFields">[], valueSets: Partial<Values>[]) {
-	const refs: Record<string, string> = {};
-	for (const field of fields) {
-		if (field.kind !== "user" && field.kind !== "link") continue;
-		for (const values of valueSets) {
-			for (const id of [values[field.key] ?? []].flat().map(String)) {
-				if (id in refs) continue;
-				if (field.kind === "user") refs[id] = await nameOf(ctx, id as Id<"users">);
-				else {
-					const record = await ctx.db.get(id as Id<"records">);
-					if (record) refs[id] = record.title;
-				}
-			}
-		}
-	}
-	return refs;
+/** A person's or record's name, for a user or link value. Records linked to but archived say so. */
+export type Ref = { name: string; archived?: true };
+
+/** Most names one response resolves, and most bytes it reads doing so; the rest go through `records.refs`. */
+const REFS_MAX = 200;
+const REFS_BYTES = 4 * 1024 * 1024;
+
+/** The people and records a set of values points at. */
+export function idsIn(fields: Doc<"recordFields">[], values: Partial<Values>) {
+	return fields.filter((f) => f.kind === "user" || f.kind === "link").flatMap((f) => [values[f.key] ?? []].flat().map(String));
 }
 
-/** A record, display-ready. */
-export async function toRow(ctx: QueryCtx, record: Doc<"records">, fields: Doc<"recordFields">[]) {
-	return {
+/**
+ * Names for `ids`, each read once, within a read budget so a page full of links can't
+ * hit Convex's per-query limits. Ids past the budget come back in `unresolved`.
+ */
+export async function resolveRefs(ctx: QueryCtx, workspaceId: Id<"workspaces">, ids: Iterable<string>) {
+	const refs: Record<string, Ref> = {};
+	const unresolved: string[] = [];
+	let count = 0;
+	let bytes = 0;
+	for (const id of new Set(ids)) {
+		if (count >= REFS_MAX || bytes >= REFS_BYTES) {
+			unresolved.push(id);
+			continue;
+		}
+		count++;
+		const recordId = ctx.db.normalizeId("records", id);
+		const userId = recordId ? null : ctx.db.normalizeId("users", id);
+		if (recordId) {
+			const record = await ctx.db.get(recordId);
+			if (record?.workspaceId !== workspaceId) continue;
+			bytes += getDocumentSize(record);
+			refs[id] = { name: record.title, ...(record.archived && { archived: true }) };
+		} else if (userId) {
+			const member = await memberOf(ctx, userId);
+			refs[id] = { name: member?.workspaceId === workspaceId ? await nameOf(ctx, userId) : "Former member" };
+		}
+	}
+	return { refs, unresolved };
+}
+
+/** Records, display-ready, with the names their values point at resolved once for all of them. */
+export async function toRows(ctx: QueryCtx, workspaceId: Id<"workspaces">, items: { record: Doc<"records">; fields: Doc<"recordFields">[] }[]) {
+	const idsOf = items.map(({ record, fields }) => idsIn(fields, record.values));
+	const { refs, unresolved } = await resolveRefs(ctx, workspaceId, idsOf.flat());
+	const missing = new Set(unresolved);
+	return items.map(({ record }, i) => ({
 		_id: record._id,
 		_creationTime: record._creationTime,
 		typeId: record.typeId,
@@ -434,6 +490,8 @@ export async function toRow(ctx: QueryCtx, record: Doc<"records">, fields: Doc<"
 		values: record.values,
 		archived: record.archived,
 		updatedAt: record.updatedAt,
-		refs: await refsOf(ctx, fields, [record.values]),
-	};
+		refs: Object.fromEntries(idsOf[i]!.filter((id) => refs[id]).map((id) => [id, refs[id]!])),
+		/** Ids past the read budget: look them up with `records.refs`. */
+		unresolved: idsOf[i]!.filter((id) => missing.has(id)),
+	}));
 }
