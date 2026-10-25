@@ -85,8 +85,10 @@ export const recordTypes = migrations.define({
 
 // Combined filters order index rows by their record's creation time (`recordValues.at`).
 // Rows written before it get it from their record; rows whose record is gone are dropped.
+// Each row reads its whole record (up to ~256 KB), so batches stay small: 20 is ~5 MB.
 export const recordValueTimes = migrations.define({
 	table: "recordValues",
+	batchSize: 20,
 	migrateOne: async (ctx, row) => {
 		if (row.at !== undefined) return;
 		const record = await ctx.db.get(row.recordId);

@@ -1,4 +1,4 @@
-import { type FieldValue, MULTI_MAX, hash, indexEntries, normalizeValue, sameText } from "@companybot/core";
+import { type FieldValue, MULTI_MAX, NAME_KEY, hash, indexEntries, normalizeValue, sameText } from "@companybot/core";
 import type { PaginationResult } from "convex/server";
 import { ConvexError, getDocumentSize } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -10,9 +10,9 @@ import { toField } from "./recordOps";
 // Plan: one index drives the scan, in the order the list comes back; every condition is
 // then checked against the record itself. The driver is the sort field when there is a
 // sort; otherwise the most selective equality or "any of" condition (found by counting a
-// few index rows), then the most selective range, then the type's own index. Equality
-// rows are ordered by the record's creation time (`at`), then its id, so they keep
-// "newest first", and several "any of" streams merge by it.
+// few index rows), then the most selective range, then every record by creation time.
+// Index rows end in the record's creation time (`at`), then its id, so equality lists keep
+// "newest first", several "any of" streams merge by it, and ties page like any other key.
 //
 // Work is bounded: everything a request reads (link targets, selectivity probes, index
 // rows, records) counts against one budget, sized to leave room for resolving names after.
@@ -49,26 +49,26 @@ const DOC_MAX = 256 * 1024;
 const CHUNK = 100;
 /** Index rows counted, across all candidates, when picking the driver. */
 const PROBE_ROWS = 400;
-/** Most records sharing one index key (same value and creation time) that a list can page through. */
-const TIE_MAX = 8;
 
 type Fields = Doc<"recordFields">[];
 type Values = Record<string, FieldValue>;
 type Entry = { str?: string; num?: number; ref?: string };
-/** A position in a stream: its index fields after the prefix, then the record id. */
+/** A position in a stream: its index fields after the prefix (then the record id, for `records`). */
 type Key = (string | number)[];
 type Bound = { v: string | number; incl: boolean };
 type Row = Doc<"records"> | Doc<"recordValues">;
 type Item = { row: Row; key: Key };
 
-/** One index range, read in order of `keys` (the index fields after `prefix`), then `id`. */
+/**
+ * One index range, read in order of `keys` (the index fields after `prefix`). `recordValues`
+ * keys end in `recordId`, so every position is unique. `records` indexes can't hold `_id`, so
+ * rows tied on every key (only in imports) are read as a group and taken in `_id` order.
+ */
 interface Stream {
 	table: "records" | "recordValues";
 	index: string;
 	prefix: [string, unknown][];
 	keys: string[];
-	/** The record id: ties on `keys` are taken in id order. */
-	id: "_id" | "recordId";
 	lo?: Bound;
 	hi?: Bound;
 }
@@ -118,6 +118,8 @@ interface Check {
 	test: (values: Values) => boolean | Promise<boolean>;
 	/** Most link targets `test` may look up for one record. */
 	lookups: number;
+	/** The condition as resolved (values as the index stores them, currency included), for cursors. */
+	resolved: unknown;
 	/** Equality or "any of": one stream per value, each ordered by `at`. */
 	eqStreams?: Stream[];
 	/** Range or "has a value": one stream, ordered by the value. */
@@ -140,7 +142,7 @@ const sameEntry = (a: Entry, b: Entry) => a.str === b.str && a.num === b.num && 
 
 /** Where rows for this field and value live, ordered by `at`. */
 function eqStream(field: Doc<"recordFields">, e: Entry): Stream {
-	const s = (index: string, prefix: [string, unknown][]): Stream => ({ table: "recordValues", index, prefix, keys: ["at"], id: "recordId" });
+	const s = (index: string, prefix: [string, unknown][]): Stream => ({ table: "recordValues", index, prefix, keys: ["at", "recordId"] });
 	if (field.kind === "link") return s("by_ref", [["ref", e.ref], ["fieldId", field._id]]);
 	if (field.kind === "currency") return s("by_field_money", [["fieldId", field._id], ["str", e.str], ["num", e.num]]);
 	if (e.num !== undefined) return s("by_field_num", [["fieldId", field._id], ["num", e.num]]);
@@ -149,13 +151,14 @@ function eqStream(field: Doc<"recordFields">, e: Entry): Stream {
 
 /** Rows for this field in value order, optionally within bounds (and one currency). */
 function valueStream(field: Doc<"recordFields">, lo?: Bound, hi?: Bound, code?: string): Stream {
-	const base = { table: "recordValues" as const, id: "recordId" as const, lo, hi };
+	const base = { table: "recordValues" as const, lo, hi };
 	if (field.kind === "currency")
 		return code
-			? { ...base, index: "by_field_money", prefix: [["fieldId", field._id], ["str", code]], keys: ["num", "at"] }
-			: { ...base, index: "by_field_money", prefix: [["fieldId", field._id]], keys: ["str", "num", "at"] };
-	if (field.kind === "number" || field.kind === "checkbox") return { ...base, index: "by_field_num", prefix: [["fieldId", field._id]], keys: ["num", "at"] };
-	return { ...base, index: "by_field_str", prefix: [["fieldId", field._id]], keys: ["str", "at"] };
+			? { ...base, index: "by_field_money", prefix: [["fieldId", field._id], ["str", code]], keys: ["num", "at", "recordId"] }
+			: { ...base, index: "by_field_money", prefix: [["fieldId", field._id]], keys: ["str", "num", "at", "recordId"] };
+	if (field.kind === "number" || field.kind === "checkbox")
+		return { ...base, index: "by_field_num", prefix: [["fieldId", field._id]], keys: ["num", "at", "recordId"] };
+	return { ...base, index: "by_field_str", prefix: [["fieldId", field._id]], keys: ["str", "at", "recordId"] };
 }
 
 /** Checks one condition and works out how it can be tested and driven. Link targets are looked up within the budget. */
@@ -176,16 +179,23 @@ export async function compile(fields: Fields, c: Condition, currency: string, li
 				for (const e of entries(v)) if (await live.of(e.ref!)) return true;
 				return false;
 			};
-			return { field, lookups: MULTI_MAX, test: async (v) => (await hasLive(v)) !== want };
+			return { field, resolved: { field: field._id, empty: want }, lookups: MULTI_MAX, test: async (v) => (await hasLive(v)) !== want };
 		}
 		// Only single values can drive "has a value": several would list a record more than once.
-		return { field, lookups: 0, test: (v) => (v[field.key] === undefined) === want, ...(!want && !field.multiple && { rangeStream: valueStream(field) }) };
+		return {
+			field,
+			resolved: { field: field._id, empty: want },
+			lookups: 0,
+			test: (v) => (v[field.key] === undefined) === want,
+			...(!want && !field.multiple && { rangeStream: valueStream(field) }),
+		};
 	}
 	if (c.eq !== undefined || c.in !== undefined) {
 		if (c.in !== undefined && !anyOfKinds.includes(field.kind)) throw new ConvexError(`“Any of” works on choice, person and link fields, not ${name}.`);
 		const raws = c.in ?? [c.eq];
 		if (raws.length === 0 || raws.length > ANY_OF_MAX) throw new ConvexError(`Pick 1 to ${ANY_OF_MAX} values for ${name}.`);
 		let wanted = raws.map((raw) => entryOf(field, raw, currency));
+		const resolved = { field: field._id, any: wanted };
 		// Links to an archived record match nothing (wiki/data.md).
 		if (field.kind === "link") {
 			const kept = [];
@@ -196,6 +206,7 @@ export async function compile(fields: Fields, c: Condition, currency: string, li
 		const text = c.eq !== undefined && (normalizeValue(toField(field), c.eq, "filter", currency) as { value: FieldValue }).value;
 		return {
 			field,
+			resolved,
 			lookups: 0,
 			test: (v) => entries(v).some((e) => wanted.some((w) => sameEntry(e, w))) && (!text || sameText(toField(field), v[field.key], text)),
 			eqStreams: wanted.map((e) => eqStream(field, e)),
@@ -215,6 +226,7 @@ export async function compile(fields: Fields, c: Condition, currency: string, li
 		(!lo || (lo.incl ? x >= lo.v : x > lo.v)) && (!hi || (hi.incl ? x <= hi.v : x < hi.v));
 	return {
 		field,
+		resolved: { field: field._id, lo, hi },
 		lookups: 0,
 		test: (v) =>
 			entries(v).some((e) => {
@@ -228,8 +240,8 @@ export async function compile(fields: Fields, c: Condition, currency: string, li
 function keyOf(s: Stream, row: Row): Key {
 	const r = row as unknown as Record<string, string | number | undefined>;
 	// Rows written before `at` existed sort apart until the backfill migration (`recordValueTimes`) reaches them.
-	if (s.keys.includes("at") && r.at === undefined) throw new ConvexError("Lists are being updated. Try again in a minute.");
-	return [...s.keys.map((k) => r[k]!), r[s.id]!];
+	if (s.table === "recordValues" && r.at === undefined) throw new ConvexError("Lists are being updated. Try again in a minute.");
+	return s.table === "records" ? [...s.keys.map((k) => r[k]!), r._id!] : s.keys.map((k) => r[k]!);
 }
 
 const compareKeys = (a: Key, b: Key) => {
@@ -254,24 +266,29 @@ async function read(ctx: QueryCtx, budget: Budget, s: Stream, order: "asc" | "de
 	return rows;
 }
 
-/** Every row sharing `key`'s index fields: records with the same value and creation time. */
+/**
+ * Every `records` row tied with `key` on all its index fields (imports can repeat a creation
+ * time). There's no `_id` to seek by, so the group is read whole, as far as the budget allows.
+ */
 async function tie(ctx: QueryCtx, budget: Budget, s: Stream, order: "asc" | "desc", key: Key) {
-	const rows = await read(ctx, budget, s, order, TIE_MAX + 1, (r) => {
+	const room = Math.max(1, Math.floor((SCAN_BYTES - budget.bytes) / DOC_MAX));
+	const rows = await read(ctx, budget, s, order, room + 1, (r) => {
 		for (const [i, k] of s.keys.entries()) r = r.eq(k, key[i]);
 		return r;
 	});
-	if (rows.length > TIE_MAX) throw new ConvexError("Too many records share one value and creation time to list.");
+	if (rows.length > room) throw new ConvexError("Too many records share one time to list this way. Filter them, or sort by a field.");
 	return rows.map((row) => ({ row, key: keyOf(s, row) }));
 }
 
 /**
- * The stream's rows after `after`, in order, about `limit` of them. Only whole groups of
- * equal index fields come back, so ties can be taken in id order. `more`: there may be more.
+ * The stream's rows after `after`, in order, about `limit` of them. `more`: there may be more.
+ * For `records`, only whole groups of tied rows come back, so ties can be taken in id order.
  */
 async function readStream(ctx: QueryCtx, budget: Budget, s: Stream, order: "asc" | "desc", after: Key | undefined, limit: number) {
 	const sign = order === "asc" ? 1 : -1;
 	const n = s.keys.length;
-	const items: Item[] = after ? (await tie(ctx, budget, s, order, after)).filter((i) => compareKeys(i.key, after) * sign > 0) : [];
+	const grouped = s.table === "records";
+	const items: Item[] = after && grouped ? (await tie(ctx, budget, s, order, after)).filter((i) => compareKeys(i.key, after) * sign > 0) : [];
 	// A lexicographic seek past `after`: one range per key position.
 	let rest: Item[] = [];
 	for (const p of after ? s.keys.map((_, i) => n - 1 - i) : [0]) {
@@ -292,7 +309,7 @@ async function readStream(ctx: QueryCtx, budget: Budget, s: Stream, order: "asc"
 		rest.push(...rows.map((row) => ({ row, key: keyOf(s, row) })));
 	}
 	const more = rest.length >= limit;
-	if (more) {
+	if (more && grouped) {
 		// The last group may go on past the read: leave it for next time, or read it whole if it's all there is.
 		const last = rest.at(-1)!.key;
 		const first = rest.findIndex((i) => compareKeys(i.key.slice(0, n), last.slice(0, n)) === 0);
@@ -303,8 +320,15 @@ async function readStream(ctx: QueryCtx, budget: Budget, s: Stream, order: "asc"
 	return { items, more };
 }
 
-/** The streams for a plan id: "t" type, "u" updated, "s" sort field, or "c<i>" condition i. */
-function streamsFor(plan: string, typeId: Id<"recordTypes">, archived: boolean, checks: Check[], sortStream?: Stream): Stream[] | undefined {
+/**
+ * The streams for a plan id: "t" type, "u" updated, "s" sort field, or "c<i>" condition i.
+ * Live records by creation time come from their name rows (every live record has one), so
+ * ties page by id; archived ones, which have no index rows, from the records themselves.
+ */
+function streamsFor(plan: string, typeId: Id<"recordTypes">, archived: boolean, fields: Fields, checks: Check[], sortStream?: Stream): Stream[] | undefined {
+	const name = fields.find((f) => f.key === NAME_KEY);
+	if (plan === "t" && !archived && name)
+		return [{ table: "recordValues", index: "by_field_at", prefix: [["fieldId", name._id]], keys: ["at", "recordId"] }];
 	if (plan === "t" || plan === "u")
 		return [
 			{
@@ -312,7 +336,6 @@ function streamsFor(plan: string, typeId: Id<"recordTypes">, archived: boolean, 
 				index: plan === "t" ? "by_type" : "by_type_updated",
 				prefix: [["typeId", typeId], ["archived", archived]],
 				keys: plan === "t" ? ["_creationTime"] : ["updatedAt", "_creationTime"],
-				id: "_id",
 			},
 		];
 	if (plan === "s") return sortStream && [sortStream];
@@ -384,16 +407,16 @@ export async function findRecords(
 	},
 ): Promise<PaginationResult<Doc<"records">>> {
 	if (conditions.length > CONDITIONS_MAX) throw new ConvexError(`Use up to ${CONDITIONS_MAX} filters.`);
-	const fingerprint = hash(JSON.stringify([workspaceId, typeId, archived, conditions, sort ?? null]));
-	const start = paginationOpts.cursor ? parseCursor(paginationOpts.cursor, fingerprint) : undefined;
-	const endCursor = paginationOpts.endCursor ?? undefined;
-	const endAt = endCursor ? parseCursor(endCursor, fingerprint) : undefined;
-	if (start && endAt && start.p !== endAt.p) throw new ConvexError("That page is out of date. Start the list again.");
-
 	const budget = new Budget();
 	const live = new Liveness(ctx, budget);
 	const checks: Check[] = [];
 	for (const c of conditions) checks.push(await compile(fields, c, currency, live));
+	// Conditions as resolved, so a cursor stops working if what they mean changes (say, the workspace's currency).
+	const fingerprint = hash(JSON.stringify([workspaceId, typeId, archived, checks.map((c) => c.resolved), sort ?? null]));
+	const start = paginationOpts.cursor ? parseCursor(paginationOpts.cursor, fingerprint) : undefined;
+	const endCursor = paginationOpts.endCursor ?? undefined;
+	const endAt = endCursor ? parseCursor(endCursor, fingerprint) : undefined;
+	if (start && endAt && start.p !== endAt.p) throw new ConvexError("That page is out of date. Start the list again.");
 	const byField = sort && !["createdAt", "updatedAt"].includes(sort.field);
 	// Archived records have no index rows, so their lists scan the type and check every condition.
 	if (archived && byField) throw new ConvexError("Archived records can't be sorted by a field.");
@@ -412,7 +435,7 @@ export async function findRecords(
 
 	const plan =
 		start?.p ?? endAt?.p ?? (archived ? (sort?.field === "updatedAt" ? "u" : "t") : await choosePlan(ctx, budget, checks, sort, sortStream));
-	const streams = streamsFor(plan, typeId, archived, checks, sortStream);
+	const streams = streamsFor(plan, typeId, archived, fields, checks, sortStream);
 	if (!streams) throw new ConvexError("That page is out of date. Start the list again.");
 	// Ranges drive in their own order; everything else in the asked (or newest-first) order.
 	const streamOrder = plan.startsWith("c") && !checks[Number(plan.slice(1))]!.eqStreams ? "asc" : order;
@@ -436,7 +459,7 @@ export async function findRecords(
 			let take = Math.max(2, Math.floor(CHUNK / state.filter((x) => x.more).length));
 			// Records come whole, so read only as many as the budget has room for.
 			if (st.s.table === "records") take = Math.min(take, Math.floor((SCAN_BYTES - budget.bytes) / DOC_MAX) - (after ? 1 : 0));
-			if (take < 1 || !budget.has(st.s.keys.length + 2, take)) return stop();
+			if (take < 1 || !budget.has(st.s.keys.length + 2, take, st.s.table === "records" ? DOC_MAX : 0)) return stop();
 			({ items: st.buffer, more: st.more } = await readStream(ctx, budget, st.s, streamOrder, after, take));
 		}
 		let next: (typeof state)[number] | undefined;
