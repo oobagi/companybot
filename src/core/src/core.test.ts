@@ -34,7 +34,7 @@ import { builtinTools } from "./builtin-tools";
 import { describeTrigger, findAutomation, isValidTimeZone, scheduleDue } from "./automations";
 import { blankAgent, companybot, scribe } from "./default-agents";
 import type { ChatStore, Participant } from "./chat";
-import { type Memory, type MemoryStore, canCreateMemory, canEditMemory, canReadMemory } from "./memory";
+import { type Memory, type MemoryStore, canCreateMemory, canEditMemory, canReadMemory, memoryMatches } from "./memory";
 import { openConnector } from "./mcp";
 import { ConnectorOAuth } from "./oauth";
 import { can, canEditMade, canManageChannel, permissions } from "./permissions";
@@ -225,6 +225,14 @@ describe("skills", () => {
 });
 
 describe("memory permissions", () => {
+	it("searches by words and prefixes, every word, ignoring case and punctuation", () => {
+		expect(memoryMatches("Office is in Austin, TX.", "aus")).toBe(true);
+		expect(memoryMatches("Office is in Austin, TX.", "office tx")).toBe(true);
+		expect(memoryMatches("Office is in Austin, TX.", "ustin")).toBe(false);
+		expect(memoryMatches("Office is in Austin, TX.", "office dallas")).toBe(false);
+		expect(memoryMatches("Anything", "  ")).toBe(true);
+	});
+
 	const team: Memory = {
 		id: "t",
 		agentId: "a",

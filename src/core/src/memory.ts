@@ -34,14 +34,15 @@ export function canCreateMemory(actor: Actor, scope: MemoryScope): boolean {
 	return scope === "personal" || can(actor, "memory.team.write");
 }
 
-/** Whether a memory matches a search: it holds every word, ignoring case. An empty query matches all. */
+const words = (text: string) => text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+
+/**
+ * Whether a memory matches a search: each query word starts one of its words, ignoring case
+ * and punctuation ("aus" finds "Austin,"; "ustin" doesn't). An empty query matches all.
+ */
 export function memoryMatches(content: string, query: string) {
-	const text = content.toLowerCase();
-	return query
-		.toLowerCase()
-		.split(/\s+/)
-		.filter(Boolean)
-		.every((w) => text.includes(w));
+	const have = words(content);
+	return words(query).every((w) => have.some((h) => h.startsWith(w)));
 }
 
 /**
@@ -49,7 +50,7 @@ export function memoryMatches(content: string, query: string) {
  * must enforce the rules above on every call; tools rely on that, not on their own checks.
  */
 export interface MemoryStore {
-	/** Matching memories (`memoryMatches`), oldest first; the newest when there are many. */
+	/** Matching memories (`memoryMatches`) from the whole history, oldest first, capped. Empty query: the newest. */
 	search(query: string): Promise<Memory[]>;
 	create(input: { scope: MemoryScope; content: string }): Promise<Memory>;
 	update(id: string, content: string): Promise<Memory>;

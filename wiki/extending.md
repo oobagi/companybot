@@ -65,7 +65,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 ## Memory — `core/src/memory.ts`, `backend/convex/memoryOps.ts`
 - Each memory belongs to one agent; scope `workspace` or `personal`. Rules live in `canReadMemory` / `canEditMemory` / `canCreateMemory`.
 - App and agents both go through `memoryOps.ts` with a `Who` (member + optional agent), so they can't drift. Agent calls take the `turnId` and act through `runningTurn`, like every other agent tool; whether personal memories work is read from the chat on each call (`personalMemoryHere`).
-- Agent search is bounded: the newest 500 per scope through `by_agent_scope`, matched with `memoryMatches`, at most 50 back.
+- Agent search (`memory.search`) uses the `search_content` search index, filtered by agent, scope and owner, so it finds matches anywhere in the history; at most 50 back, oldest first. It matches words and prefixes, not substrings: "aus" finds "Austin", "ustin" doesn't; every word must match (`memoryMatches`). An empty query lists the newest 50.
 - Edits from the app send `expectedVersion`; agents edit the latest.
 
 ## Agents — `core/src/agents.ts`, `backend/convex/agents.ts`

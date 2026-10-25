@@ -38,28 +38,44 @@ export async function listMemories(ctx: QueryCtx, member: Member) {
 	return docs.map(toMemory).filter((m) => canReadMemory(actor, m));
 }
 
-/** Most memories one agent search reads per scope (the newest), so it stays bounded however many there are. */
-export const MEMORY_SCAN_MAX = 500;
-/** Most it returns. */
+/** Most memories one agent search returns. */
 export const MEMORY_RESULTS_MAX = 50;
 
 /**
- * One agent's memories the person can see that match `query` (core `memoryMatches`), oldest
- * first. `personal`: false in chats with 2+ people, so only team memories are read.
+ * One agent's memories the person can see, oldest first. With a query, the best matches
+ * from the whole history (search index: words, the last one as a prefix), keeping those
+ * holding every word (core `memoryMatches`); without one, the newest. At most
+ * MEMORY_RESULTS_MAX either way. `personal`: false in chats with 2+ people, so only team
+ * memories are read.
  */
 export async function searchMemories(ctx: QueryCtx, member: Member, agentId: Id<"agents">, { query, personal }: { query: string; personal: boolean }) {
-	const newest = (scope: MemoryScope, ownerId?: Id<"users">) =>
-		ctx.db
-			.query("memories")
-			.withIndex("by_agent_scope", (q) => (ownerId ? q.eq("agentId", agentId).eq("scope", scope).eq("ownerId", ownerId) : q.eq("agentId", agentId).eq("scope", scope)))
-			.order("desc")
-			.take(MEMORY_SCAN_MAX);
 	const actor = toActor(member);
-	const docs = await newest("workspace");
+	const text = query.trim();
+	const read = (scope: MemoryScope, ownerId?: Id<"users">) =>
+		text
+			? ctx.db
+					.query("memories")
+					.withSearchIndex("search_content", (q) => {
+						const s = q.search("content", text).eq("agentId", agentId).eq("scope", scope);
+						return ownerId ? s.eq("ownerId", ownerId) : s;
+					})
+					.take(MEMORY_RESULTS_MAX)
+			: ownerId
+				? ctx.db
+						.query("memories")
+						.withIndex("by_agent_owner", (q) => q.eq("agentId", agentId).eq("scope", scope).eq("ownerId", ownerId))
+						.order("desc")
+						.take(MEMORY_RESULTS_MAX)
+				: ctx.db
+						.query("memories")
+						.withIndex("by_agent_scope", (q) => q.eq("agentId", agentId).eq("scope", scope))
+						.order("desc")
+						.take(MEMORY_RESULTS_MAX);
+	const docs = await read("workspace");
 	// "memory.all.read" reads everyone's personal memories, as in the app.
-	if (personal) docs.push(...(await newest("personal", can(actor, "memory.all.read") ? undefined : member.userId)));
+	if (personal) docs.push(...(await read("personal", can(actor, "memory.all.read") ? undefined : member.userId)));
 	return docs
-		.filter((d) => d.workspaceId === member.workspaceId && memoryMatches(d.content, query))
+		.filter((d) => d.workspaceId === member.workspaceId && memoryMatches(d.content, text))
 		.sort((a, b) => a._creationTime - b._creationTime)
 		.slice(-MEMORY_RESULTS_MAX)
 		.map(toMemory)

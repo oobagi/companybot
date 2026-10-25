@@ -44,6 +44,15 @@ async function turnIn(t: ReturnType<typeof convexTest>, as: As, chatId: Id<"chat
 	};
 }
 
+/** Adds memories straight to the table, oldest first: history too big to make one call at a time. */
+async function insertMemories(t: ReturnType<typeof convexTest>, agentId: Id<"agents">, rows: { scope: "workspace" | "personal"; ownerId: Id<"users"> | null; content: string }[]) {
+	await t.run(async (ctx) => {
+		const agent = (await ctx.db.get(agentId))!;
+		for (const row of rows)
+			await ctx.db.insert("memories", { workspaceId: agent.workspaceId, agentId, ...row, updatedAt: Date.now(), updatedBy: agent.updatedBy, version: 1 });
+	});
+}
+
 const dmWith = (as: As, agentId: Id<"agents">) => as.mutation(api.chats.openDm, { userIds: [], agentIds: [agentId] });
 
 /** Every memory call, expected to fail with `message`. */
@@ -123,6 +132,36 @@ describe("agent memory", () => {
 		expect((await turn.search()).map((m) => m.content)).toEqual(["Board meets Fridays."]);
 		await member.mutation(api.chats.leave, { chatId });
 		await allRefused(turn, team.id, "can no longer see");
+	});
+
+	it("finds a match anywhere in the history, by word or prefix, not substring", async () => {
+		const { t, owner, companybot } = await setup();
+		await insertMemories(t, companybot, [
+			{ scope: "workspace", ownerId: null, content: "Roof warranty lasts ten years." },
+			...Array.from({ length: 600 }, (_, i) => ({ scope: "workspace" as const, ownerId: null, content: `Unrelated note ${i}` })),
+		]);
+		const turn = await turnIn(t, owner, await dmWith(owner, companybot), companybot);
+		expect((await turn.search("warranty")).map((m) => m.content)).toEqual(["Roof warranty lasts ten years."]);
+		expect((await turn.search("roof warr")).map((m) => m.content)).toEqual(["Roof warranty lasts ten years."]);
+		expect(await turn.search("arranty")).toEqual([]);
+		expect(await turn.search("warranty unrelated")).toEqual([]);
+	});
+
+	it("searches and lists everyone's personal memories newest first for owners, whoever wrote the most", async () => {
+		const { t, owner, member, companybot } = await setup();
+		const old = (who: Id<"users">, n: number) =>
+			Array.from({ length: n }, (_, i) => ({ scope: "personal" as const, ownerId: who, content: `Old ${who === owner.userId ? "owner" : "member"} note ${i}` }));
+		// Each person in turn writes a lot, then the other writes one new match: whichever id sorts first, the new one must win.
+		await insertMemories(t, companybot, old(member.userId, 600));
+		await insertMemories(t, companybot, [{ scope: "personal", ownerId: owner.userId, content: "Owner's fresh lead: Dana." }]);
+		await insertMemories(t, companybot, old(owner.userId, 600));
+		await insertMemories(t, companybot, [{ scope: "personal", ownerId: member.userId, content: "Member's fresh lead: Ben." }]);
+		const turn = await turnIn(t, owner, await dmWith(owner, companybot), companybot);
+		expect((await turn.search("fresh lead")).map((m) => m.content)).toEqual(["Owner's fresh lead: Dana.", "Member's fresh lead: Ben."]);
+		const newest = (await turn.search()).map((m) => m.content);
+		expect(newest).toHaveLength(MEMORY_RESULTS_MAX);
+		expect(newest.at(-1)).toBe("Member's fresh lead: Ben.");
+		expect(newest.slice(0, -1).every((c) => c.startsWith("Old owner note"))).toBe(true);
 	});
 
 	it("searches by every word and returns the newest when there are many", async () => {
