@@ -4,24 +4,26 @@ import { navigate } from "./router";
 
 /**
  * A screen. `back` makes it a pushed screen: a link back to the one it came from.
- * `actions` sit on the right of the title.
+ * `actions` sit on the right of the title. `wide` for tables.
  */
 export function Page({
 	title,
 	subtitle,
 	back,
 	actions,
+	wide,
 	children,
 }: {
 	title: string;
 	subtitle?: string;
 	back?: { label: string; to: string[] };
 	actions?: React.ReactNode;
+	wide?: boolean;
 	children: React.ReactNode;
 }) {
 	return (
 		<div className="flex-1 overflow-y-auto">
-			<div className="mx-auto flex max-w-2xl flex-col gap-6 px-6 py-10">
+			<div className={`mx-auto flex flex-col gap-6 px-6 py-10 ${wide ? "max-w-5xl" : "max-w-2xl"}`}>
 				<header className="flex flex-col gap-3">
 					{back && (
 						<button

@@ -61,9 +61,10 @@ New workspaces get copies of the default agents: **Companybot** (`memory.*`, clo
 pnpm dev                # this checkout's own local backend + the desktop app
 pnpm test && pnpm typecheck
 ```
+Desktop tests cover the renderer's pure logic only (`*.test.ts`, e.g. `views/records/logic.ts`).
 `pnpm dev` (`scripts/dev.mjs`, the `/dev` skill) gives each checkout its own local Convex backend and data, so worktrees never fight over the cloud dev deployment. Sign in with any email; local backends send no code (`auth.ts`). `--reset` wipes local data. Local backends have no public URL, so connector OAuth only works on cloud dev (`npx convex dev` against `exciting-guanaco-266`, `pnpm dev:desktop`).
 
-The app's screens are hash paths (`router.ts`): `#/chat`, `#/clients` (and the other record tabs), `#/customize/<tab>[/<item>]`, `#/settings/<tab>`. Opening an item pushes its own screen; back returns to the list. `pnpm --filter @companybot/desktop preview:web` serves the UI in a browser on port 5173.
+The app's screens are hash paths (`router.ts`): `#/chat[/<chat>[/thread|message/<id>]]`, `#/clients[/<record>]` (and the other record tabs; types owners add are `#/records/<key>[/<record>]`), `#/customize/<tab>[/<item>]`, `#/settings/<tab>`. Opening an item pushes its own screen; back returns to the list. `pnpm --filter @companybot/desktop preview:web` serves the UI in a browser on port 5173.
 
 ## Before launch
 - Sign-in emails send from `signin@callnightowl.com` and AI bills to the Night Owl Vercel team ($25/mo cap). Swap both to Companybot accounts.

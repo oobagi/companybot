@@ -31,6 +31,7 @@ import type * as permissions from "../permissions.js";
 import type * as plugins from "../plugins.js";
 import type * as preferences from "../preferences.js";
 import type * as recordOps from "../recordOps.js";
+import type * as recordQuery from "../recordQuery.js";
 import type * as recordTypes from "../recordTypes.js";
 import type * as records from "../records.js";
 import type * as skills from "../skills.js";
@@ -67,6 +68,7 @@ declare const fullApi: ApiFromModules<{
   plugins: typeof plugins;
   preferences: typeof preferences;
   recordOps: typeof recordOps;
+  recordQuery: typeof recordQuery;
   recordTypes: typeof recordTypes;
   records: typeof records;
   skills: typeof skills;
