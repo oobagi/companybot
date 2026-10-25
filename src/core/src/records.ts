@@ -28,11 +28,12 @@ export type FieldValue = string | number | boolean | string[] | Money;
 
 /**
  * An amount and its own currency, like Stripe and HubSpot store it: changing the workspace's
- * currency never relabels it. `cents` is the amount × 100 for every currency (so ¥100 is
- * 10000); keys in this order, as Convex returns them, so `sameValue` can compare JSON.
+ * currency never relabels it. `minor` is the amount in the currency's smallest unit (ISO 4217,
+ * like Stripe): $12.50 is 1250, ¥100 is 100, KWD 1.250 is 1250. Keys in this order, as Convex
+ * returns them, so `sameValue` can compare JSON.
  */
 export interface Money {
-	cents: number;
+	minor: number;
 	/** ISO 4217, one of `currencyCodes`. */
 	currency: string;
 }
@@ -95,6 +96,26 @@ export const currencyCodes = (
 	"QAR RON RSD RUB RWF SAR SBD SCR SDG SEK SGD SHP SLE SOS SRD SSP STN SVC SYP SZL THB TJS TMT TND TOP TRY TTD " +
 	"TWD TZS UAH UGX USD UYU UZS VES VND VUV WST XAF XCD XCG XOF XPF YER ZAR ZMW ZWG"
 ).split(" ");
+
+/** ISO 4217 minor-unit digits that aren't 2. */
+const minorDigitsOf: Record<string, number> = {
+	...Object.fromEntries("BIF CLP DJF GNF ISK JPY KMF KRW PYG RWF UGX VND VUV XAF XOF XPF".split(" ").map((c) => [c, 0])),
+	...Object.fromEntries("BHD IQD JOD KWD LYD OMR TND".split(" ").map((c) => [c, 3])),
+};
+
+/** Decimals in a currency's smallest unit: JPY 0, USD 2, KWD 3. */
+export const minorDigits = (code: string) => minorDigitsOf[code] ?? 2;
+
+/** An amount for people, in the currency's own decimals: "$1,250.50", "¥100", "KWD 1.250". */
+export function formatMoney({ minor, currency }: Money, locale?: string) {
+	const digits = minorDigits(currency);
+	// Built as an exact decimal string, so large amounts don't pick up float error.
+	const units = String(Math.abs(minor)).padStart(digits + 1, "0");
+	const decimal = `${minor < 0 ? "-" : ""}${units.slice(0, units.length - digits)}${digits ? `.${units.slice(-digits)}` : ""}`;
+	return new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: digits, maximumFractionDigits: digits }).format(
+		decimal as Intl.StringNumericLiteral,
+	);
+}
 
 export const isCurrencyCode = (code: unknown): code is string => typeof code === "string" && currencyCodes.includes(code);
 
@@ -200,9 +221,11 @@ function normalizeOne(field: Field, raw: unknown, label: string, mode: ValueMode
 		}
 		case "currency": {
 			const money = mode === "stored" ? (raw as Money | null) : toMoney(raw, currency);
-			if (!money || !Number.isSafeInteger(money.cents)) return { error: `${label} is an amount like 1250.50.` };
-			if (!isCurrencyCode(money.currency)) return { error: `${label} needs a currency code like USD or EUR.` };
-			return { value: { cents: money.cents, currency: money.currency } };
+			if (!money || !isCurrencyCode(money.currency)) {
+				return { error: money ? `${label} needs a currency code like USD or EUR.` : `${label} is an amount like 1250.50.` };
+			}
+			if (!Number.isSafeInteger(money.minor)) return { error: `${label} is an amount like 1250.50.` };
+			return { value: { minor: money.minor, currency: money.currency } };
 		}
 		case "date": {
 			const day = text?.slice(0, 10) ?? "";
@@ -252,21 +275,23 @@ function toMoney(raw: unknown, currency: string): Money | null {
 	const text = typeof raw === "number" ? String(raw) : typeof raw === "string" ? raw.trim() : null;
 	const match = text?.match(/^(?:([a-z]{3})\s*)?([^a-z]*?)(?:\s*([a-z]{3}))?$/i);
 	if (!match) return null;
-	return { cents: toCents(match[2]!), currency: (match[1] ?? match[3])?.toUpperCase() ?? currency };
+	const code = (match[1] ?? match[3])?.toUpperCase() ?? currency;
+	return { minor: toMinor(match[2]!, minorDigits(code)), currency: code };
 }
 
 /**
- * Whole units ("1,250.505", 12.5) to cents, rounding half away from zero on the exact
- * decimal (1.005 → 101). NaN if it isn't an amount or isn't a safe integer.
+ * Whole units ("1,250.505", 12.5) to the smallest unit with `digits` decimals, rounding half
+ * away from zero on the exact decimal (USD 1.005 → 101, JPY 99.5 → 100). NaN if it isn't an
+ * amount or isn't a safe integer.
  */
-function toCents(text: string | null) {
+function toMinor(text: string | null, digits: number) {
 	const match = text?.replace(/[$€£¥,\s]/g, "").match(/^(-?)(\d*)(?:\.(\d*))?$/);
 	const [, sign, whole = "", frac = ""] = match ?? [];
 	if (!whole && !frac) return Number.NaN;
-	let cents = BigInt(whole + `${frac}00`.slice(0, 2));
-	if (Number(frac[2] ?? 0) >= 5) cents += 1n;
-	if (cents > BigInt(Number.MAX_SAFE_INTEGER)) return Number.NaN;
-	return Number(sign ? -cents : cents) || 0;
+	let minor = BigInt(whole + frac.padEnd(digits, "0").slice(0, digits));
+	if (Number(frac[digits] ?? 0) >= 5) minor += 1n;
+	if (minor > BigInt(Number.MAX_SAFE_INTEGER)) return Number.NaN;
+	return Number(sign ? -minor : minor) || 0;
 }
 
 /** One index entry for a value: text and ids by `str`, numbers by `num`, links by `ref`. */
@@ -281,7 +306,7 @@ export function indexEntries(field: Field, value: FieldValue | null | undefined)
 			return [{ num: value as number }];
 		case "currency":
 			// Grouped by currency, then by amount: amounts only compare within one currency.
-			return [{ str: (value as Money).currency, num: (value as Money).cents }];
+			return [{ str: (value as Money).currency, num: (value as Money).minor }];
 		case "checkbox":
 			return [{ num: 1 }];
 		case "link":
