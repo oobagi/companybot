@@ -6,6 +6,7 @@ import {
 	type ChatStore,
 	type LoggedCall,
 	type MemoryStore,
+	type RecordStore,
 	type ConnectorCredentials,
 	type ConnectorSession,
 	ConnectorOAuth,
@@ -234,6 +235,7 @@ async function streamReply(
 			create: (input) => ctx.runMutation(internal.automations.createFor, { turnId, input }),
 			setMine: (input) => ctx.runMutation(internal.automations.setMineFor, { turnId, ...input }),
 		},
+		records: recordStore(ctx, turnId),
 		results: createResultStore(),
 	};
 	const tools = buildToolSet(
@@ -440,6 +442,18 @@ function chatStore(ctx: ActionCtx, turnId: Id<"agentTurns">): ChatStore {
 		react: (emoji) => ctx.runMutation(internal.turns.reactFor, { turnId, emoji }),
 		read: (input) => ctx.runQuery(internal.turns.readFor, { turnId, ...input }),
 		search: (input) => ctx.runQuery(internal.turns.searchFor, { turnId, ...input }),
+	};
+}
+
+/** Records as the turn's person may read and change them; recordTools.ts re-checks access on every call. */
+function recordStore(ctx: ActionCtx, turnId: Id<"agentTurns">): RecordStore {
+	return {
+		types: () => ctx.runQuery(internal.recordTools.typesFor, { turnId }),
+		find: (input) => ctx.runQuery(internal.recordTools.findFor, { turnId, input }),
+		get: ({ id }) => ctx.runQuery(internal.recordTools.getFor, { turnId, id }),
+		save: (input) => ctx.runMutation(internal.recordTools.saveFor, { turnId, input }),
+		undo: ({ change }) => ctx.runMutation(internal.recordTools.undoFor, { turnId, change }),
+		saveField: (input) => ctx.runMutation(internal.recordTools.saveFieldFor, { turnId, input }),
 	};
 }
 

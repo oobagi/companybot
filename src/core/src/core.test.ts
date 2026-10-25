@@ -1,6 +1,7 @@
 import type { AutomationStore } from "./automation-tools";
+import type { RecordFindInput, RecordPage, RecordStore } from "./record-tools";
 import { describe, expect, it } from "vitest";
-import { simulateReadableStream, streamText } from "ai";
+import { isStepCount, simulateReadableStream, streamText } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import {
 	APPROVAL_TTL_MS,
@@ -40,6 +41,7 @@ import { can, canEditMade, canManageChannel, permissions } from "./permissions";
 import {
 	type Field,
 	type ValueMode,
+	displayValues,
 	fieldConfigError,
 	formatMoney,
 	indexEntries,
@@ -83,6 +85,7 @@ const ctx = (actor: Actor) => ({
 	skills: { list: skillCatalog } as SkillStore,
 	results: createResultStore(),
 	automations: {} as AutomationStore,
+	records: {} as RecordStore,
 });
 
 describe("tool visibility", () => {
@@ -105,6 +108,12 @@ describe("tool visibility", () => {
 			"automations.list",
 			"automations.create",
 			"automations.set_mine",
+			"records.types",
+			"records.find",
+			"records.get",
+			"records.save",
+			"records.undo",
+			"records.save_field",
 		]);
 		expect(resolveTools(companybot, owner).map((t) => t.id)).toContain("memory.forget");
 	});
@@ -151,6 +160,12 @@ describe("tool visibility", () => {
 			"automations_list",
 			"automations_create",
 			"automations_set_mine",
+			"records_types",
+			"records_find",
+			"records_get",
+			"records_save",
+			"records_undo",
+			"records_save_field",
 		]);
 	});
 
@@ -1053,5 +1068,150 @@ describe("approvals", () => {
 	it("explains approvals only to agents with connectors", () => {
 		expect(platformGuide({ tools: [`${connectorCatalog[0]!.id}.*`] })).toContain("approve them in the chat");
 		expect(platformGuide({ tools: ["memory.*"] })).not.toContain("approve");
+	});
+});
+
+describe("records tools", () => {
+	const tool = (id: string) => builtinTools.find((t) => t.id === id)!;
+	const deal = (n: number) => ({ id: `d${n}`, name: `Deal ${n}`, value: `$${n},000.00` });
+	/** A store whose list comes back in short pages, as the backend's can. */
+	const store = (pages: RecordPage[]) => {
+		const calls: (RecordFindInput & { numItems: number })[] = [];
+		const records = {
+			find: async (input: RecordFindInput & { numItems: number }) => (calls.push(input), pages.shift() ?? { error: "no more" }),
+		} as unknown as RecordStore;
+		return { calls, c: { ...ctx(member), records } };
+	};
+
+	it("keeps asking while a page comes back short, passing the cursor on", async () => {
+		const { calls, c } = store([
+			{ type: "Deals", rows: [deal(1)], more: true, cursor: "c1" },
+			{ type: "Deals", rows: [], more: true, cursor: "c2" },
+			{ type: "Deals", rows: [deal(2), deal(3)], more: true, cursor: "c3" },
+		]);
+		const filters = [{ field: "stage", in: ["Won"] }];
+		const out = await tool("records.find").execute({ type: "deal", filters, limit: 3 }, c);
+		expect(out).toEqual({ type: "Deals", rows: [deal(1), deal(2), deal(3)], more: true, cursor: "c3" });
+		expect(calls.map((x) => [x.cursor, x.numItems, x.filters])).toEqual([
+			[undefined, 3, filters],
+			["c1", 2, filters],
+			["c2", 2, filters],
+		]);
+	});
+
+	it("stops when the list is done, or after a few requests, and passes errors through", async () => {
+		const done = store([{ type: "Deals", rows: [deal(1)], more: false, cursor: "end" }]);
+		expect(await tool("records.find").execute({ type: "deal" }, done.c)).toEqual({ type: "Deals", rows: [deal(1)], more: false });
+		const sparse = store(Array.from({ length: 9 }, (_, i) => ({ type: "Deals", rows: [], more: true, cursor: `c${i}` })));
+		expect(await tool("records.find").execute({ type: "deal" }, sparse.c)).toEqual({ type: "Deals", rows: [], more: true, cursor: "c4" });
+		expect(sparse.calls).toHaveLength(5);
+		const bad = store([]);
+		expect(await tool("records.find").execute({ type: "deal" }, bad.c)).toEqual({ error: "no more" });
+	});
+
+	it("hand every other call straight to the store, acting for the person", async () => {
+		const seen: unknown[] = [];
+		const record = (name: string) => async (input?: unknown) => (seen.push([name, input]), { ok: name });
+		const records = { types: record("types"), get: record("get"), save: record("save"), undo: record("undo"), saveField: record("saveField") };
+		const c = { ...ctx(member), records: records as unknown as RecordStore };
+		await tool("records.types").execute({}, c);
+		await tool("records.get").execute({ id: "r1" }, c);
+		await tool("records.save").execute({ type: "client", values: { name: "Acme" } }, c);
+		await tool("records.undo").execute({ change: "h1" }, c);
+		await tool("records.save_field").execute({ type: "client", label: "Roof type", kind: "text" }, c);
+		expect(seen).toEqual([
+			["types", undefined],
+			["get", { id: "r1" }],
+			["save", { type: "client", values: { name: "Acme" } }],
+			["undo", { change: "h1" }],
+			["saveField", { type: "client", label: "Roof type", kind: "text" }],
+		]);
+	});
+
+	it("run right away: internal, undoable, nothing sent outside", () => {
+		const ids = builtinTools.filter((t) => t.id.startsWith("records.")).map((t) => t.id);
+		expect(ids).toEqual(["records.types", "records.find", "records.get", "records.save", "records.undo", "records.save_field"]);
+		for (const id of ids) expect(toolRisk(tool(id))).toBe("none");
+		expect(ids.filter((id) => tool(id).readOnly)).toEqual(["records.types", "records.find", "records.get"]);
+		expect(ids.filter((id) => tool(id).roles)).toEqual([]);
+		expect(toolLine(callLabel("records_undo", builtinTools, []), "done")).toBe("Undid a record change");
+		expect(toolLine(callLabel("records_save", builtinTools, []), "running")).toBe("Saving a record…");
+	});
+
+	it("show values the way people read them, amounts in their own currency", () => {
+		const fields: Field[] = [
+			{ key: "name", label: "Name", kind: "text" },
+			{ key: "stage", label: "Stage", kind: "choice", options: [{ id: "won", label: "Won" }, { id: "old", label: "Old", retired: true }] },
+			{ key: "tags", label: "Tags", kind: "choice", multiple: true, options: [{ id: "a", label: "A" }, { id: "b", label: "B" }] },
+			{ key: "value", label: "Value", kind: "currency" },
+			{ key: "cad", label: "CAD", kind: "currency" },
+			{ key: "owner", label: "Owner", kind: "user" },
+			{ key: "client", label: "Client", kind: "link", linkType: "client" },
+			{ key: "paid", label: "Paid", kind: "checkbox" },
+			{ key: "minutes", label: "Minutes", kind: "number" },
+		];
+		const values = {
+			name: "Roof",
+			stage: "old",
+			tags: ["a", "b"],
+			value: { minor: 125050, currency: "USD" },
+			cad: { minor: 4000, currency: "CAD" },
+			owner: "u1",
+			client: "r1",
+			paid: true,
+			minutes: 12,
+			gone: "kept off",
+		};
+		expect(displayValues(fields, values, { u1: { name: "Jaden" }, r1: { name: "Acme", archived: true } })).toEqual({
+			name: "Roof",
+			stage: "Old",
+			tags: "A, B",
+			value: "$1,250.50",
+			cad: "CA$40.00",
+			owner: "Jaden",
+			client: "Acme (archived)",
+			paid: "Yes",
+			minutes: 12,
+		});
+		expect(displayValues(fields, { owner: "u9" })).toEqual({ owner: "u9" });
+	});
+
+	it("teach agents records only when granted", () => {
+		expect(platformGuide({ tools: ["records.*"] })).toContain("## Records");
+		expect(platformGuide({ tools: ["records.find"] })).toContain("records_types");
+		expect(platformGuide({ tools: ["memory.*"] })).not.toContain("## Records");
+	});
+
+	it("work in a real turn: the model lists deals, then shows them in a table by ref", async () => {
+		const records = {
+			find: async () => ({ type: "Deals", rows: [deal(1), deal(2), deal(3)], more: false }),
+		} as unknown as RecordStore;
+		const c = { ...ctx(member), records };
+		const tools = buildToolSet(companybot, c);
+		const usage = { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } };
+		const finish = { type: "finish" as const, finishReason: { unified: "tool-calls" as const, raw: undefined }, usage };
+		const steps = [
+			[{ type: "tool-call" as const, toolCallId: "c1", toolName: "records_find", input: JSON.stringify({ type: "deal", filters: [{ field: "close_date", gte: "2026-10-01" }] }) }],
+			[
+				{
+					type: "tool-call" as const,
+					toolCallId: "c2",
+					toolName: "widgets_table",
+					input: JSON.stringify({ columns: ["Deal", "Value"], from: { ref: "r1", path: "rows", fields: ["name", "value"] } }),
+				},
+			],
+			[{ type: "text-start" as const, id: "t" }, { type: "text-delta" as const, id: "t", delta: "Three deals." }, { type: "text-end" as const, id: "t" }],
+		];
+		const model = new MockLanguageModelV4({
+			doStream: async () => ({ stream: simulateReadableStream({ chunks: [...steps.shift()!, finish] }) }),
+		});
+		const result = streamText({ model, prompt: "what deals close this month?", tools, stopWhen: isStepCount(5) });
+		const outputs: unknown[] = [];
+		for await (const part of result.stream) if (part.type === "tool-result") outputs.push(part.output);
+		expect(outputs[0]).toEqual({ ref: "r1", data: { type: "Deals", rows: [deal(1), deal(2), deal(3)], more: false } });
+		expect(outputs[1]).toEqual({
+			widget: { type: "table", props: { columns: ["Deal", "Value"], rows: [["Deal 1", "$1,000.00"], ["Deal 2", "$2,000.00"], ["Deal 3", "$3,000.00"]] } },
+		});
+		expect(model.doStreamCalls).toHaveLength(3);
 	});
 });

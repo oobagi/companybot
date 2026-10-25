@@ -200,6 +200,7 @@ const VERBS: Record<string, [string, string]> = {
 	run: ["Ran", "Running"],
 	stop: ["Stopped", "Stopping"],
 	submit: ["Submitted", "Submitting"],
+	undo: ["Undid", "Undoing"],
 	...Object.fromEntries(
 		(
 			"add archive assign book call cancel charge check create delete draft edit email export fetch forward import invite list load look " +

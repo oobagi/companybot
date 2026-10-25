@@ -17,7 +17,8 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 - **Custom fields from the start.** A field is one piece of info on a record (name, phone, "Roof type", "Monthly retainer"). Each business adds its own, so the facts that matter aren't buried in notes. Designing for this up front is cheap; adding it later means migrating every record.
 - **Agents are wired in natively.** They can read and change any field and add new ones ("start tracking roof type on clients"), limited to what the person who asked may do. Every change is in the activity log, and records keep history so changes can be undone.
 - Record changes are automation triggers ("deal moved to Won" → welcome email + onboarding tasks).
-- Next: record screens, agent tools for records, record triggers for automations.
+- **Built:** agent tools for records (find, read, create, change, archive, undo, add fields), acting as the person who asked; Companybot has them. See [Data → Agent tools](data.md).
+- Next: record screens, record triggers for automations.
 
 ## Calls (not built yet)
 - Voice agents (like Night Owl's receptionist) run from Companybot.

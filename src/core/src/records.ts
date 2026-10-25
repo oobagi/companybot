@@ -356,6 +356,34 @@ export function searchTextOf(fields: Field[], values: Record<string, FieldValue>
 		.slice(0, TEXT_MAX);
 }
 
+/** A record's name for a person or record id in its values: `{ name, archived? }`. */
+export type RefName = { name: string; archived?: true };
+
+/**
+ * Values as people read them, by field key: option labels, names for people and links,
+ * amounts with their own currency ("$1,250.50", "€12.50", "CA$40.00"). Formatted for en-US so
+ * "$" always means US dollars. Fields not given (archived ones) are left out. Ids without a
+ * name in `refs` show as the id.
+ */
+export function displayValues(fields: Field[], values: Record<string, FieldValue>, refs: Record<string, RefName> = {}) {
+	const out: Record<string, string | number> = {};
+	const one = (field: Field, v: string) => {
+		if (field.kind === "choice") return field.options?.find((o) => o.id === v)?.label ?? v;
+		const ref = refs[v];
+		return ref ? `${ref.name}${ref.archived ? " (archived)" : ""}` : v;
+	};
+	for (const field of fields) {
+		const v = values[field.key];
+		if (v === undefined) continue;
+		if (Array.isArray(v)) out[field.key] = v.map((x) => one(field, x)).join(", ");
+		else if (typeof v === "object") out[field.key] = formatMoney(v, "en-US");
+		else if (typeof v === "boolean") out[field.key] = v ? "Yes" : "No";
+		else if (typeof v === "number") out[field.key] = v;
+		else out[field.key] = ["choice", "user", "link"].includes(field.kind) ? one(field, v) : v;
+	}
+	return out;
+}
+
 export const sameValue = (a: FieldValue | null | undefined, b: FieldValue | null | undefined) =>
 	JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 

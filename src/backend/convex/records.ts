@@ -261,7 +261,9 @@ export const create = mutation({
 /** Changes only the fields given. */
 export const update = mutation({
 	args: { recordId: v.id("records"), values },
-	handler: async (ctx, { recordId, values }) => updateRecord(ctx, { member: await requireMember(ctx) }, recordId, values),
+	handler: async (ctx, { recordId, values }) => {
+		await updateRecord(ctx, { member: await requireMember(ctx) }, recordId, values);
+	},
 });
 
 export const archive = mutation({

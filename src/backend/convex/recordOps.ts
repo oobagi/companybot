@@ -28,7 +28,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { type Member, memberOf, nameOf, toActor } from "./lib";
 
 // Records, fields and their history. Shared by the app's functions (records.ts,
-// recordTypes.ts) and, later, agent tools, so both follow the same rules. Agents pass
+// recordTypes.ts) and agent tools (recordTools.ts), so both follow the same rules. Agents pass
 // `agentId` and act as the member they help, like memory and connectors. See wiki/data.md.
 
 /** Who's making a change: a member, or an agent acting for one. */
@@ -190,13 +190,16 @@ export async function createRecord(ctx: MutationCtx, who: Who, typeId: Id<"recor
 	return id;
 }
 
-/** Sets the given fields and leaves the rest alone, so people editing different fields never clash. */
+/**
+ * Sets the given fields and leaves the rest alone, so people editing different fields never clash.
+ * Returns the history entry, or null if nothing changed.
+ */
 export async function updateRecord(ctx: MutationCtx, who: Who, recordId: Id<"records">, input: Record<string, unknown>) {
 	requireCan(who.member, "records.edit");
 	const record = await requireRecord(ctx, who.member, recordId);
 	if (record.archived) throw new ConvexError("Restore it before changing it.");
 	const fields = await fieldsOf(ctx, record.typeId);
-	await applyValues(ctx, who, record, fields, await normalizeInput(ctx, who.member, fields, input));
+	return applyValues(ctx, who, record, fields, await normalizeInput(ctx, who.member, fields, input));
 }
 
 /** Stores `next` (null clears) and logs what changed. Returns the history entry, if anything changed. */
