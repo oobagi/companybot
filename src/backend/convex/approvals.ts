@@ -24,7 +24,10 @@ import { enqueueTurn } from "./turns";
 // place (so the one-turn-per-place queue holds); that turn runs the call if approved,
 // with the exact stored input, then tells the agent what happened.
 
-/** Written by the runner when the model makes a call that needs approval. `input` is canonical JSON. */
+/**
+ * Written by the runner when the model makes a call that needs approval. `input` is canonical JSON.
+ * COMPAT(0.1.0-alpha.6): the runner always sends `risk`; make it required with `approvals.risk`.
+ */
 export const request = internalMutation({
 	args: { turnId: v.id("agentTurns"), callId: v.string(), tool: v.string(), input: v.string(), risk: v.optional(risk) },
 	handler: async (ctx, { turnId, callId, tool, input, risk }) => {
@@ -56,9 +59,11 @@ export const request = internalMutation({
  */
 async function alwaysFor(ctx: QueryCtx, row: Doc<"approvals">) {
 	const member = await memberOf(ctx, row.actorId);
+	// COMPAT(0.1.0-alpha.6): `!row.risk` is for rows from before `risk`; drop it when it's required.
 	if (!row.risk || !member || member.workspaceId !== row.workspaceId) return null;
 	// From an automation's run: the grant is scoped to it. If it's gone (or the row predates
 	// the field and its trigger was an automation's), refuse rather than save a wider rule.
+	// COMPAT(0.1.0-alpha.6): the trigger lookup is for rows from before `automationInstallId`; keep only that field.
 	const turn = await ctx.db.get(row.turnId);
 	const trigger = turn && (await ctx.db.get(turn.triggerId));
 	const fromAutomation = !!row.automationInstallId || !!trigger?.automation;
@@ -132,7 +137,10 @@ export const forReply = query({
  * decide, while they can still see the chat, before it expires.
  */
 export const decide = mutation({
-	/** `always`: also save a rule so it stops asking (apps from before Always allow leave it out). */
+	/**
+	 * `always`: also save a rule so it stops asking.
+	 * COMPAT(0.1.0-alpha.6): app builds before 0.1.0-alpha.6 leave it out when false; make it required.
+	 */
 	args: { approvalId: v.id("approvals"), hash: v.string(), approve: v.boolean(), always: v.optional(v.boolean()) },
 	handler: async (ctx, { approvalId, hash, approve, always }) => {
 		const member = await requireMember(ctx);
@@ -184,6 +192,7 @@ export const claim = internalMutation({
 			return null;
 		}
 		// Rules are read fresh: a block or Never set since the approval wins.
+		// COMPAT(0.1.0-alpha.6): `?? "outside"` is for rows from before `risk`.
 		const member = await memberOf(ctx, row.actorId);
 		const { decision } = member ? await decideFor(ctx, member, { action: row.tool, risk: row.risk ?? "outside" }) : { decision: null };
 		if (decision?.type === "deny") {

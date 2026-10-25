@@ -83,20 +83,6 @@ export const recordTypes = migrations.define({
 	},
 });
 
-// Combined filters order index rows by their record's creation time (`recordValues.at`).
-// Rows written before it get it from their record; rows whose record is gone are dropped.
-// Each row reads its whole record (up to ~256 KB), so batches stay small: 20 is ~5 MB.
-export const recordValueTimes = migrations.define({
-	table: "recordValues",
-	batchSize: 20,
-	migrateOne: async (ctx, row) => {
-		if (row.at !== undefined) return;
-		const record = await ctx.db.get(row.recordId);
-		if (record) await ctx.db.patch(row._id, { at: record._creationTime });
-		else await ctx.db.delete(row._id);
-	},
-});
-
 // Companybot got records tools (the CRM from chat). Same rule as companybotChatTools: only
 // Companybots that still have their default skills.load grant, saved as a new version.
 export const companybotRecordTools = migrations.define({
@@ -118,7 +104,6 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.automationAudiences,
 	internal.migrations.companybotChatTools,
 	internal.migrations.recordTypes,
-	internal.migrations.recordValueTimes,
 	internal.migrations.companybotRecordTools,
 ];
 
