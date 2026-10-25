@@ -2,6 +2,7 @@ import { z } from "zod";
 import { automationTools } from "./automation-tools";
 import { chatTools } from "./chat";
 import { SKILL_DESCRIPTION_MAX, SKILL_NAME_MAX } from "./skills";
+import { recordTools } from "./record-tools";
 import { formatLocalTime } from "./time";
 import { type ToolDef, defineTool } from "./tools";
 import { widgetTools } from "./widgets";
@@ -107,4 +108,5 @@ export const builtinTools: ToolDef[] = [
 	...widgetTools,
 	...chatTools,
 	...automationTools,
+	...recordTools,
 ];

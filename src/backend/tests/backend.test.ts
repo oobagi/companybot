@@ -1362,7 +1362,7 @@ describe("migrations", () => {
 });
 
 describe("migrations: Companybot chat tools", () => {
-	it("adds the make-skills and automations tools to existing Companybots, as a new version", async () => {
+	it("adds the make-skills, automations and records tools to existing Companybots, each as a new version", async () => {
 		const t = convexTest({ schema, modules, transactionLimits: true });
 		migrationsTest.register(t);
 		await signIn(t, "owner@co.com");
@@ -1381,9 +1381,10 @@ describe("migrations: Companybot chat tools", () => {
 			vi.useRealTimers();
 		}
 		const after = await t.run(async (ctx) => ({ bot: (await ctx.db.get(ids.bot))!, scribe: (await ctx.db.get(ids.scribe))! }));
-		expect(after.bot.tools).toEqual(["memory.*", "skills.load", "chat.*", "skills.create", "automations.*"]);
-		expect(after.bot.version).toBe(ids.version + 1);
+		expect(after.bot.tools).toEqual(["memory.*", "skills.load", "chat.*", "skills.create", "automations.*", "records.*"]);
+		expect(after.bot.version).toBe(ids.version + 2);
 		expect(after.scribe.tools).not.toContain("skills.create");
+		expect(after.scribe.tools).not.toContain("records.*");
 	});
 });
 

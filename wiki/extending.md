@@ -10,7 +10,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 ## Tools — `core/src/tools.ts`, `builtin-tools.ts`
 - One shape (`ToolDef`) for built-ins and connector tools. Ids are `group.name`; model names come from `modelToolName`.
 - Add a built-in: `defineTool` in `builtin-tools.ts`. Set `roles` if not everyone may trigger it, `readOnly: true` if it changes nothing, and `risk` if it reaches outside (see Approvals).
-- Tools reach data only through `ToolContext` (`memory`, `chat`, `skills`, `automations`), which enforce permissions. Don't do permission checks inside tools.
+- Tools reach data only through `ToolContext` (`memory`, `chat`, `skills`, `automations`, `records`), which enforce permissions. Don't do permission checks inside tools.
 - Agents grant exact ids or whole groups (`memory.*`). `resolveTools` is the only place that decides what the model sees.
 
 ## Connectors — `core/src/connectors.ts`, `mcp.ts`, `backend/convex/connectors.ts`
@@ -84,6 +84,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 - New field kind: add it to `fieldKinds` and `fieldKind` (`schema.ts`), then `normalizeValue` and `indexEntries`.
 - Every change goes through `recordOps` (`Who` = member + optional agent), so permissions, history and the index can't drift. Never write `records` or `recordValues` directly.
 - Heavy data for a type (recordings, transcripts, line items) gets its own table keyed by `recordId`, not a field.
+- Agent tools (`core/src/record-tools.ts`, `backend/convex/recordTools.ts`) are the same `recordOps` calls with `agentId`, acting through `runningTurn` (role read fresh each call). Keep the list at six fixed tools: grow inputs, not tools, since every tool is sent every turn. Expected problems return `{ error }` (`asToolResult`); resolve names before any write so a refused call writes nothing.
 
 ## Shared settings
 - Editable shared data gets a `version` field. Saves send the version they started from; `checkVersion` refuses stale ones. In the app, use `useDraft` + `ConflictNotice`.

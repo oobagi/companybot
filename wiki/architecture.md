@@ -25,7 +25,7 @@ What each piece is. The rules for changing them: [Extending](extending.md).
 - **Record** — a client, deal, task, call, or a type the workspace adds. Types and fields are data, so a new field ("Roof type") is one row. Every change is in history and can be undone. See [Data](data.md).
 - **Turn input** — what the model gets each turn (`turn-input.ts`): a fixed system prompt, the agent's session in that place replayed exactly, and one new message. Built for prompt caching.
 
-New workspaces get copies of the default agents: **Companybot** (`memory.*`, clock, `skills.load`, `skills.create`, widgets, `chat.*`, `automations.*`) and **Scribe** (`memory.search`, `skills.load`, widgets, `chat.react`, `chat.read`).
+New workspaces get copies of the default agents: **Companybot** (`memory.*`, clock, `skills.load`, `skills.create`, widgets, `chat.*`, `automations.*`, `records.*`) and **Scribe** (`memory.search`, `skills.load`, widgets, `chat.react`, `chat.read`).
 
 ## Backend (`src/backend/convex`)
 - **Sign-in:** Convex Auth (beta) with a 6-digit email code sent through Resend.
@@ -45,7 +45,7 @@ New workspaces get copies of the default agents: **Companybot** (`memory.*`, clo
 - **Permissions:** `permissionRules` (person + action: Always/Never, or an Always grant for one automation), `permissionLocks` (owners), `connectorTools` (each connector's last-listed tools, for settings). `permissions.check` decides each call. See [Permissions](permissions.md).
 - **Activity log:** the runner writes an `agentActivity` row as each tool call finishes (input and result as JSON, cut to 4k chars; calls cut off by a failed reply are logged as errors). An entry is as private as its chat; results show only to the person the agent acted for, since they can hold things only that person may see. Owners get no extra access. The app shows it in Settings → Activity and when you click a tool line in a reply. Memories an agent changed carry `updatedByAgent` until a person edits them.
 - **Approvals:** `approvals` rows (exact input as canonical JSON, `hash`, status, 24h expiry). The reply shows a card (`approval` part; `messages.list` sends it only in `fullParts`, and as a line of text in `parts` for apps from before approvals); `approvals.decide` takes the hash the person saw and queues a turn in the same place, which runs the call if approved and tells the agent. Results show only to the person, like the activity log.
-- **Records:** `records`, `recordTypes`, `recordFields`, `recordValues` (the index for filtering and sorting any field), `recordHistory`, `recordMentions`. Built-in types are seeded per workspace. See [Data](data.md).
+- **Records:** `records`, `recordTypes`, `recordFields`, `recordValues` (the index for filtering and sorting any field), `recordHistory`, `recordMentions`. Built-in types are seeded per workspace. Agents use them through six `records_*` tools (`recordTools.ts`), as the person who asked. See [Data](data.md).
 - **Usage:** each reply stores `stats` (model, tokens, time, AI Gateway's `cost`), plus its place's running total (`costUsd` on the chat or thread parent, summaries included). The app shows them under each reply. Prompt caching is on for every model call (AI Gateway `caching: "auto"`).
 - **Compaction:** once a reply leaves a session's context over 40k tokens, older turns fold into the session's summary (a ~15k-token tail kept verbatim). The app still shows everything; agent DMs show a divider where the summary starts.
 

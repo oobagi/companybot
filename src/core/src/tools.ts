@@ -2,6 +2,7 @@ import type { AutomationStore } from "./automation-tools";
 import type { FlexibleSchema, Tool } from "ai";
 import type { ChatStore } from "./chat";
 import type { MemoryStore } from "./memory";
+import type { RecordStore } from "./record-tools";
 import type { SkillStore } from "./skills";
 import type { Risk } from "./approvals";
 import type { Actor, Role } from "./types";
@@ -19,6 +20,8 @@ export interface ToolContext {
 	skills: SkillStore;
 	/** Automations, as the actor can see and make them. */
 	automations: AutomationStore;
+	/** Records (the CRM), as the actor may read and change them. */
+	records: RecordStore;
 	/** This turn's data results, by ref, so widgets can show them. */
 	results: ResultStore;
 }

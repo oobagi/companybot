@@ -97,6 +97,19 @@ export const recordValueTimes = migrations.define({
 	},
 });
 
+// Companybot got records tools (the CRM from chat). Same rule as companybotChatTools: only
+// Companybots that still have their default skills.load grant, saved as a new version.
+export const companybotRecordTools = migrations.define({
+	table: "agents",
+	migrateOne: async (ctx, agent) => {
+		if (agent.name !== "Companybot" || !agent.tools.includes("skills.load") || agent.tools.includes("records.*")) return;
+		const config = { name: agent.name, description: agent.description, instructions: agent.instructions, model: agent.model, tools: [...agent.tools, "records.*"] };
+		const version = agent.version + 1;
+		await ctx.db.patch(agent._id, { tools: config.tools, version, updatedAt: Date.now() });
+		await ctx.db.insert("agentVersions", { agentId: agent._id, version, config, savedBy: agent.updatedBy });
+	},
+});
+
 /** Every migration, oldest first. Never reorder or remove entries that have shipped. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.connectorInstalls,
@@ -106,6 +119,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.companybotChatTools,
 	internal.migrations.recordTypes,
 	internal.migrations.recordValueTimes,
+	internal.migrations.companybotRecordTools,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

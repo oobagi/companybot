@@ -52,7 +52,7 @@ Separate tables per type (Night Owl's way) means a migration for every new type 
 
 ## Rules
 - **Access:** every member reads every record. `records.edit` (owner, member): create, change, archive, restore, undo. `fields.create` (owner, member): add fields; makers can change their own. `fields.manage` (owner): change any field, add types (`canEditMade`).
-- **Agents act as the person who asked** (`Who = { member, agentId? }`), like memory and connectors: the person's role decides, history names both. Agent tools wrap `recordOps` in internal `*For` functions (see `memory.ts`); not built yet.
+- **Agents act as the person who asked** (`Who = { member, agentId? }`), like memory and connectors: the person's role decides (read fresh each call), history names both. See Agent tools.
 - **Edits are field-level patches:** `records.update` sets only the keys given (null clears), so two people editing different fields never clash. No version check; history holds every old value.
 - **Undo** (`records.undo`) reverses one entry: archive ↔ restore, or old values back. Refused if any value it touched has changed since, or it was already undone. Old values go through the same checks as any write, against the fields as they are now: no archived fields, retired options, or archived link targets. The undo is itself a history entry (`undoes`).
 - **Archive, don't delete.** Archived records keep values and history but leave lists, filters and search (their index rows are dropped, and rebuilt on restore). New links can't point at them.
@@ -76,8 +76,22 @@ Separate tables per type (Night Owl's way) means a migration for every new type 
 - `discussion({ recordId })` — messages referencing it that you can see.
 - `create({ typeId, values })` → id. `update({ recordId, values })`. `archive` / `restore({ recordId })`. `undo({ historyId })`.
 
+## Agent tools
+`core/src/record-tools.ts` → `ToolContext.records` → `backend/convex/recordTools.ts` (internal `*For` per turn, through `recordOps`). Granted as `records.*`; Companybot has them (migration `companybotRecordTools` for existing ones). All `risk: none`: internal, logged, undoable.
+- `records_types` — types, fields (key, label, kind, options, `linksTo`), workspace currency.
+- `records_find` — one type with filters, sort and `cursor` (`records.list` underneath), or `search` (title and text, top 20, no filters). Asks up to 5 times to fill a short page; `more` + `cursor` when there's more. Data result: rows `{ _id, _type? (search across types), …field key: display value }` (keys start with a letter, so a field called "id" can't clash), so `widgets_table` shows them by ref (`path: "rows"`).
+- `records_get` — one record: values, `links` (with ids), `linkedFrom` (10), last 5 `changes` with change ids and who (person + agent).
+- `records_save` — create, patch values, or archive/restore (on its own). Returns the record and its `change` id.
+- `records_undo` — reverses one change (`undoChange`); undoing a create archives it.
+- `records_save_field` — add a field (`fields.create`), or rename one / set its options (maker or `fields.manage`).
+- **Named like people say them:** types by id or key, else name or plural; fields by key, else label (a name two could match is refused, listing both); teammates as "me", a name or an email; links as the record's exact name or id.
+- **Link names are an exact lookup**, not a search: the target type's name field in `recordValues` (`by_field_str`, live records only), two rows to tell one from several. Lists are checked against their limits (50) first; lookups are memoized, and one call looks up at most 100 distinct names, so a call's reads stay small.
+- **What the model sees is capped** (`forModel`, ~24k characters): long text is cut (300 in lists, 2,000 on one record, shorter until it fits), then rows dropped, with a `trimmed` note. The full result stays behind the ref for widgets.
+- **Display:** `displayValues` (core): option labels, names, `formatMoney` in en-US so "$" is only USD. Input amounts follow Money.
+- Not exposed to agents: adding record types, archiving fields, workspace-wide history.
+
 ## Not built yet
-- Agent tools, automation triggers. Screens are built ([Product](product.md#crm-data-layer-and-screens-built)); code in `desktop/…/views/records/`.
+- Automation triggers. Screens are built ([Product](product.md#crm-data-layer-and-screens-built)); code in `desktop/…/views/records/`.
 - A record's own discussion thread; today its discussion is the messages that reference it.
 - Counts per type (needs the Convex aggregate component; counting would scan).
 - Per-type access by role; required fields; sorting that includes empty values; OR across filters.

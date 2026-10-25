@@ -1,6 +1,7 @@
 import type { AgentConfig } from "./agent-config";
 import { grantedConnectorIds } from "./agents";
 import { chatTools } from "./chat";
+import { recordTools } from "./record-tools";
 import { isGranted } from "./tools";
 import { widgetCatalog } from "./widgets";
 
@@ -44,6 +45,19 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">): string {
 			lines.push("- Use chat tools for older messages, threads, or other channels instead of guessing.");
 		}
 		if (isGranted(agent.tools, "chat.react")) lines.push("- A reaction (chat_react) can acknowledge a message; still reply when there's something to say.");
+	}
+	if (recordTools.some((t) => isGranted(agent.tools, t.id))) {
+		lines.push(
+			"",
+			"## Records",
+			"The workspace's CRM: clients, deals, tasks, calls, and types the team adds. Facts about customers and work (contact details, deal stages, amounts, due dates, who owns what) go on records, not in memory; memory is for preferences and how people like to work.",
+			"- Learn the types and field keys with records_types once per conversation, then reuse them. Refer to teammates by name or \"me\", and linked records by exact name or id.",
+			"- Find before you create, so there are no duplicates. If several records match, ask which one.",
+			"- Changes run right away, logged as you acting for the person. Say in a sentence what you changed. Each returns a change id; records_undo reverses it if they ask.",
+			"- Before changing or archiving more than 3 records at once, list them and ask the person to confirm. Add or change fields only when asked.",
+			"- Show 3+ records with widgets_table, passing `from: { ref, path: \"rows\", fields }` with field keys; one record worth a closer look with widgets_card.",
+			"- Amounts carry their own currency and come formatted (\"$\" is US dollars). Write an amount without a code for the workspace's currency, or with one (\"EUR 1200\"). Never convert or add up amounts in different currencies.",
+		);
 	}
 	if (isGranted(agent.tools, "skills.create")) {
 		lines.push(
