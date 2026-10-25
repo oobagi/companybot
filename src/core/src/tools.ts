@@ -82,6 +82,11 @@ export interface ToolDef<Input = any> {
 	execute(input: Input, ctx: ToolContext): Promise<unknown>;
 	/** What the model sees instead of the raw result, e.g. a short receipt for widgets. */
 	toModelOutput?: Tool["toModelOutput"];
+	/**
+	 * What one call did, for its tool line ("Save Acme Roofing"), from its input and, once it
+	 * finished, its result (a data tool's `data`; `{ error }` results included). Undefined: `title`.
+	 */
+	label?(input: Input, output?: unknown): string | undefined;
 }
 
 export const defineTool = <Input>(tool: Omit<ToolDef<Input>, "source">): ToolDef<Input> => ({

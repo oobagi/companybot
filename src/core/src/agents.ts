@@ -1,4 +1,4 @@
-import { type ToolSet, asSchema, tool } from "ai";
+import { type ToolSet, asSchema, isStepCount, tool } from "ai";
 import { callEnd } from "./activity";
 import type { AgentConfig } from "./agent-config";
 import { type PermissionDecision, deniedReason, permissionFor, toolRisk } from "./approvals";
@@ -89,6 +89,12 @@ export function resolveTools(
 ): ToolDef[] {
 	return available.filter((t) => isGranted(agent.tools, t.id) && canUseTool(actor, t));
 }
+
+/**
+ * When a run stops: only at its step limit, room for connectors_search + connectors_call + a
+ * widget + the answer. Never at a widget: work can go on after a table ("then mark them all won").
+ */
+export const agentStopWhen = isStepCount(10);
 
 /** Builds the AI SDK tool set for one run. */
 export function buildToolSet(

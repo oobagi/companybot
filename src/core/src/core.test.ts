@@ -22,6 +22,7 @@ import { ACTIVITY_MAX_CHARS, callEnd, callLabel, clipJson, describeCall } from "
 import { formatLocalTime, resolveTimeZone, shortStamp } from "./time";
 import {
 	actionOf,
+	agentStopWhen,
 	buildToolSet,
 	describeToolAccess,
 	grantedConnectorIds,
@@ -42,6 +43,7 @@ import {
 	type ValueMode,
 	displayValues,
 	fieldConfigError,
+	formatDate,
 	formatMoney,
 	indexEntries,
 	keyOf,
@@ -374,6 +376,14 @@ describe("records", () => {
 		expect(formatMoney({ minor: 1250, currency: "KWD" }, "en-US").replace(/\s/, " ")).toBe("KWD 1.250");
 		expect(formatMoney({ minor: 9007199254740991, currency: "USD" }, "en-US")).toBe("$90,071,992,547,409.91");
 		expect([minorDigits("JPY"), minorDigits("USD"), minorDigits("KWD")]).toEqual([0, 2, 3]);
+	});
+
+	it("shows dates as the calendar day stored, whatever the time zone", () => {
+		expect(formatDate("2026-11-15", "en-US")).toBe("Nov 15, 2026");
+		expect(formatDate("2026-01-01", "en-US")).toBe("Jan 1, 2026");
+		expect(formatDate("2026-12-31", "en-GB")).toBe("31 Dec 2026");
+		expect(formatDate("soon", "en-US")).toBe("soon");
+		expect(formatDate("2026-13-45", "en-US")).toBe("2026-13-45");
 	});
 
 	it("can't set retired options, but can filter by them", () => {
@@ -1112,13 +1122,13 @@ describe("records tools", () => {
 
 	it("keeps asking while a page comes back short, passing the cursor on", async () => {
 		const { calls, c } = store([
-			{ type: "Deals", rows: [deal(1)], more: true, cursor: "c1" },
-			{ type: "Deals", rows: [], more: true, cursor: "c2" },
-			{ type: "Deals", rows: [deal(2), deal(3)], more: true, cursor: "c3" },
+			{ type: "Deals", typeName: "Deal", rows: [deal(1)], more: true, cursor: "c1" },
+			{ type: "Deals", typeName: "Deal", rows: [], more: true, cursor: "c2" },
+			{ type: "Deals", typeName: "Deal", rows: [deal(2), deal(3)], more: true, cursor: "c3" },
 		]);
 		const filters = [{ field: "stage", in: ["Won"] }];
 		const out = await tool("records.find").execute({ type: "deal", filters, limit: 3 }, c);
-		expect(out).toEqual({ type: "Deals", rows: [deal(1), deal(2), deal(3)], more: true, cursor: "c3" });
+		expect(out).toEqual({ type: "Deals", typeName: "Deal", rows: [deal(1), deal(2), deal(3)], more: true, cursor: "c3" });
 		expect(calls.map((x) => [x.cursor, x.numItems, x.filters])).toEqual([
 			[undefined, 3, filters],
 			["c1", 2, filters],
@@ -1127,10 +1137,10 @@ describe("records tools", () => {
 	});
 
 	it("stops when the list is done, or after a few requests, and passes errors through", async () => {
-		const done = store([{ type: "Deals", rows: [deal(1)], more: false, cursor: "end" }]);
-		expect(await tool("records.find").execute({ type: "deal" }, done.c)).toEqual({ type: "Deals", rows: [deal(1)], more: false });
-		const sparse = store(Array.from({ length: 9 }, (_, i) => ({ type: "Deals", rows: [], more: true, cursor: `c${i}` })));
-		expect(await tool("records.find").execute({ type: "deal" }, sparse.c)).toEqual({ type: "Deals", rows: [], more: true, cursor: "c4" });
+		const done = store([{ type: "Deals", typeName: "Deal", rows: [deal(1)], more: false, cursor: "end" }]);
+		expect(await tool("records.find").execute({ type: "deal" }, done.c)).toEqual({ type: "Deals", typeName: "Deal", rows: [deal(1)], more: false });
+		const sparse = store(Array.from({ length: 9 }, (_, i) => ({ type: "Deals", typeName: "Deal", rows: [], more: true, cursor: `c${i}` })));
+		expect(await tool("records.find").execute({ type: "deal" }, sparse.c)).toEqual({ type: "Deals", typeName: "Deal", rows: [], more: true, cursor: "c4" });
 		expect(sparse.calls).toHaveLength(5);
 		const bad = store([]);
 		expect(await tool("records.find").execute({ type: "deal" }, bad.c)).toEqual({ error: "no more" });
@@ -1165,6 +1175,41 @@ describe("records tools", () => {
 		expect(toolLine(callLabel("records_save", builtinTools, []), "running")).toBe("Saving a record…");
 	});
 
+	it("tool lines say what each call did, from its input and result", () => {
+		const line = (name: string, status: "running" | "done" | "error", input: unknown, output?: unknown) =>
+			toolLine(callLabel(name, builtinTools, [], { input, output }), status);
+		const created = { id: "r2", type: "deal", typeName: "Deal", name: "Reroof main warehouse", values: {}, change: "h2" };
+		const acme = { id: "r1", type: "client", typeName: "Client", name: "Acme Roofing", values: {}, change: "h1" };
+		const deal = { type: "deal", values: { name: "Reroof main warehouse" } };
+		expect(line("records_types", "done", {})).toBe("Looked up record types");
+		expect(line("records_save", "running", deal)).toBe("Creating deal Reroof main warehouse…");
+		expect(line("records_save", "done", deal, created)).toBe("Created deal Reroof main warehouse");
+		expect(line("records_save", "error", deal)).toBe("Couldn't create deal Reroof main warehouse");
+		expect(line("records_save", "done", deal, { error: "No stage “Pitch”." })).toBe("Saved a record");
+		expect(line("records_save", "running", { id: "r1", values: { roof_type: "Metal" } })).toBe("Saving a record…");
+		expect(line("records_save", "done", { id: "r1", values: { roof_type: "Metal" } }, acme)).toBe("Saved Acme Roofing");
+		expect(line("records_save", "done", { id: "r1", archived: true }, acme)).toBe("Archived Acme Roofing");
+		expect(line("records_save", "done", { id: "r1", archived: false }, acme)).toBe("Restored Acme Roofing");
+		expect(line("records_undo", "done", { change: "h1" }, { undone: "h1", ...acme })).toBe("Undid a change to Acme Roofing");
+		expect(line("records_get", "done", { id: "r1" }, { ref: "r1", data: acme })).toBe("Opened Acme Roofing");
+		const page = (rows: number, more = false) => ({ ref: "r1", data: { type: "Deals", typeName: "Deal", rows: Array.from({ length: rows }, (_, i) => ({ _id: `d${i}` })), more } });
+		expect(line("records_find", "running", { type: "deal" })).toBe("Finding records…");
+		expect(line("records_find", "done", { type: "deal" }, page(1))).toBe("Found 1 deal");
+		expect(line("records_find", "done", { type: "deal" }, page(3))).toBe("Found 3 deals");
+		expect(line("records_find", "done", { type: "deal" }, page(0))).toBe("Found no deals");
+		expect(line("records_find", "done", { type: "deal" }, page(20, true))).toBe("Found 20+ deals");
+		const field = { type: "client", label: "Roof type", kind: "choice", options: ["Shingle", "Metal", "Flat"] };
+		expect(line("records_save_field", "running", field)).toBe("Adding field Roof type…");
+		expect(line("records_save_field", "done", field, { type: "client", typePlural: "Clients", key: "roof_type", label: "Roof type" })).toBe(
+			"Added field Roof type to Clients",
+		);
+		expect(line("records_save_field", "done", { type: "client", field: "roof_type", options: ["Tile"] }, { typePlural: "Clients", label: "Roof type" })).toBe(
+			"Updated field Roof type on Clients",
+		);
+		// Tools without a label keep their title.
+		expect(line("memory_search", "done", { query: "" }, { ref: "r1", data: [] })).toBe("Searched memory");
+	});
+
 	it("show values the way people read them, amounts in their own currency", () => {
 		const fields: Field[] = [
 			{ key: "name", label: "Name", kind: "text" },
@@ -1176,6 +1221,7 @@ describe("records tools", () => {
 			{ key: "client", label: "Client", kind: "link", linkType: "client" },
 			{ key: "paid", label: "Paid", kind: "checkbox" },
 			{ key: "minutes", label: "Minutes", kind: "number" },
+			{ key: "close", label: "Close date", kind: "date" },
 		];
 		const values = {
 			name: "Roof",
@@ -1187,6 +1233,7 @@ describe("records tools", () => {
 			client: "r1",
 			paid: true,
 			minutes: 12,
+			close: "2026-11-15",
 			gone: "kept off",
 		};
 		expect(displayValues(fields, values, { u1: { name: "Jaden" }, r1: { name: "Acme", archived: true } })).toEqual({
@@ -1199,6 +1246,7 @@ describe("records tools", () => {
 			client: "Acme (archived)",
 			paid: "Yes",
 			minutes: 12,
+			close: "Nov 15, 2026",
 		});
 		expect(displayValues(fields, { owner: "u9" })).toEqual({ owner: "u9" });
 	});
@@ -1206,11 +1254,11 @@ describe("records tools", () => {
 	it("trim what the model sees of a big result, but keep it whole for widgets", async () => {
 		const notes = Object.fromEntries(Array.from({ length: 30 }, (_, f) => [`notes_${f}`, "x".repeat(10_000)]));
 		const big = Array.from({ length: 50 }, (_, i) => ({ _id: `d${i}`, name: `Deal ${i}`, ...notes }));
-		const records = { find: async () => ({ type: "Deals", rows: big, more: false }) } as unknown as RecordStore;
+		const records = { find: async () => ({ type: "Deals", typeName: "Deal", rows: big, more: false }) } as unknown as RecordStore;
 		const c = { ...ctx(member), records };
 		const find = buildToolSet(companybot, c).records_find!;
 		const output = await (find.execute as (input: unknown, options: unknown) => Promise<unknown>)({ type: "deal", limit: 50 }, { toolCallId: "1", messages: [] });
-		expect(c.results.get("r1")).toEqual({ type: "Deals", rows: big, more: false });
+		expect(c.results.get("r1")).toEqual({ type: "Deals", typeName: "Deal", rows: big, more: false });
 		const seen = (await find.toModelOutput!({ toolCallId: "1", input: {}, output } as never)) as { type: string; value: any };
 		expect(JSON.stringify(seen.value).length).toBeLessThanOrEqual(MODEL_OUTPUT_MAX + 400);
 		expect(seen.value.ref).toBe("r1");
@@ -1221,7 +1269,7 @@ describe("records tools", () => {
 		const table = await widgetTools.find((t) => t.id === "widgets.table")!.execute({ columns: ["Deal"], from: { ref: "r1", path: "rows", fields: ["name"] } }, c);
 		expect((table as any).widget.props.rows).toHaveLength(50);
 		// Small results and errors reach the model as they are.
-		const small = { ref: "r2", data: { type: "Deals", rows: [deal(1)], more: false } };
+		const small = { ref: "r2", data: { type: "Deals", typeName: "Deal", rows: [deal(1)], more: false } };
 		expect(forModel(small, 300)).toBe(small);
 		expect(forModel({ error: "Nope" }, 300)).toEqual({ error: "Nope" });
 		// One huge record: text cut shorter until it fits.
@@ -1239,7 +1287,7 @@ describe("records tools", () => {
 
 	it("work in a real turn: the model lists deals, then shows them in a table by ref", async () => {
 		const records = {
-			find: async () => ({ type: "Deals", rows: [deal(1), deal(2), deal(3)], more: false }),
+			find: async () => ({ type: "Deals", typeName: "Deal", rows: [deal(1), deal(2), deal(3)], more: false }),
 		} as unknown as RecordStore;
 		const c = { ...ctx(member), records };
 		const tools = buildToolSet(companybot, c);
@@ -1263,10 +1311,40 @@ describe("records tools", () => {
 		const result = streamText({ model, prompt: "what deals close this month?", tools, stopWhen: isStepCount(5) });
 		const outputs: unknown[] = [];
 		for await (const part of result.stream) if (part.type === "tool-result") outputs.push(part.output);
-		expect(outputs[0]).toEqual({ ref: "r1", data: { type: "Deals", rows: [deal(1), deal(2), deal(3)], more: false } });
+		expect(outputs[0]).toEqual({ ref: "r1", data: { type: "Deals", typeName: "Deal", rows: [deal(1), deal(2), deal(3)], more: false } });
 		expect(outputs[1]).toEqual({
 			widget: { type: "table", props: { columns: ["Deal", "Value"], rows: [["Deal 1", "$1,000.00"], ["Deal 2", "$2,000.00"], ["Deal 3", "$3,000.00"]] } },
 		});
 		expect(model.doStreamCalls).toHaveLength(3);
+	});
+
+	it("keep working after a widget: show this month's deals, then mark them all won", async () => {
+		const saved: unknown[] = [];
+		const records = {
+			find: async () => ({ type: "Deals", typeName: "Deal", rows: [deal(1), deal(2)], more: false }),
+			save: async (input: unknown) => (saved.push(input), { id: "d1", type: "deal", typeName: "Deal", name: "Deal 1", values: {}, change: "h1" }),
+		} as unknown as RecordStore;
+		const tools = buildToolSet(companybot, { ...ctx(member), records });
+		const usage = { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } };
+		const finish = (unified: "tool-calls" | "stop") => ({ type: "finish" as const, finishReason: { unified, raw: undefined }, usage });
+		const text = (delta: string) => [{ type: "text-start" as const, id: "t" }, { type: "text-delta" as const, id: "t", delta }, { type: "text-end" as const, id: "t" }];
+		const call = (toolCallId: string, toolName: string, input: unknown) => ({ type: "tool-call" as const, toolCallId, toolName, input: JSON.stringify(input) });
+		const steps = [
+			[call("c1", "records_find", { type: "deal" }), finish("tool-calls")],
+			// It has said something and placed only a widget: the run must not stop here.
+			[...text("Two deals close this month."), call("c2", "widgets_table", { columns: ["Deal"], from: { ref: "r1", path: "rows", fields: ["name"] } }), finish("tool-calls")],
+			[call("c3", "records_save", { id: "d1", values: { stage: "Won" } }), call("c4", "records_save", { id: "d2", values: { stage: "Won" } }), finish("tool-calls")],
+			[...text("Both are Won now."), finish("stop")],
+		];
+		const model = new MockLanguageModelV4({
+			doStream: async () => ({ stream: simulateReadableStream({ chunks: steps.shift()! }) }),
+		});
+		const result = streamText({ model, prompt: "show me deals closing this month, then mark them all won", tools, stopWhen: agentStopWhen });
+		const done: string[] = [];
+		for await (const part of result.stream) if (part.type === "tool-result") done.push(part.toolName);
+		expect(done).toEqual(["records_find", "widgets_table", "records_save", "records_save"]);
+		expect(saved).toEqual([{ id: "d1", values: { stage: "Won" } }, { id: "d2", values: { stage: "Won" } }]);
+		expect(await result.text).toBe("Both are Won now.");
+		expect(model.doStreamCalls).toHaveLength(4);
 	});
 });
