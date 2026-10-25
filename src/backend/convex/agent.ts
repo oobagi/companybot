@@ -30,14 +30,14 @@ import {
 	heldCall,
 	isWidgetResult,
 	isWidgetToolName,
-	widgetEndsReply,
+	agentStopWhen,
 	openConnector,
 	resolveTools,
 	deniedReason,
 	toolApprovalPolicy,
 	toolRisk,
 } from "@companybot/core";
-import { generateText, isStepCount, streamText } from "ai";
+import { generateText, streamText } from "ai";
 import type { FunctionReturnType } from "convex/server";
 import { type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
@@ -303,9 +303,7 @@ async function streamReply(
 		instructions: input.instructions,
 		messages: input.messages,
 		tools,
-		// Room for connectors_search + connectors_call + a widget + the answer. A reply that has
-		// said something ends at its widget, so the model doesn't restate it (widgetEndsReply).
-		stopWhen: [isStepCount(10), widgetEndsReply],
+		stopWhen: agentStopWhen,
 		headers: { "x-session-affinity": turn.session.id },
 		providerOptions: { gateway: { caching: "auto" } },
 		// Calls that need approval stop the run there, unexecuted; we hold them below.

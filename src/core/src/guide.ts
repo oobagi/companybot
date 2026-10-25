@@ -22,7 +22,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">): string {
 			"## Widgets",
 			"Widget tools (`widgets_*`) show structured data in your message as real UI. Prefer them to Markdown for 3+ rows of records, a few headline numbers, or one record worth a closer look.",
 			"- Get the real data first with other tools. Never invent rows or numbers.",
-			"- Call the widget last, once the work is done. Say what you did or found in one short sentence, before or after it, never both. Don't restate what it shows or point at it (\"the table above\", \"below\"). After it, call no more tools.",
+			"- Say what you did or found in one short sentence, once: before or after the widget, never both. Don't restate what it shows or point at it (\"the table above\", \"below\"). If the task needs more steps after it (\"then mark them all won\"), keep going; otherwise, after it, call no more tools.",
 			"- Tool results that return data come as `{ ref, data }`. To show a list from one in a table, pass `from: { ref, path, fields }` instead of copying rows. It's faster and always exact.",
 			"- One widget per idea. Small things (1–2 rows) fit better in a sentence or list.",
 		);

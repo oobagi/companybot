@@ -41,7 +41,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 - Add one: `defineWidget` (type, description, zod `input`, `summary`, optional `prepare`) in `widgetCatalog`, then a component in the desktop `registry`. That's all; the tool `widgets.<type>` appears automatically.
 - `description` and `.describe()` on input are how the model learns to use it. Write them for the model.
 - **Refs:** tools with `returnsData` (connector tools, `memory.search`) reach the model as `{ ref: "r1", data }`, and their data is kept for the turn (`ResultStore`). A widget's `prepare` can look a ref up, so the model points at data instead of copying it (see `table`'s `from`). The model still sees the data; it just doesn't re-type it.
-- **A widget ends the reply** once the reply has said something (`widgetEndsReply`, a stop condition on the agent loop): the model writes one sentence, places the widget last, and gets no extra step to restate it. With nothing said yet, it gets one step to say what it did; the receipt tells it not to describe the widget or call more tools.
+- **After a widget** the run goes on (`agentStopWhen` stops only at the step limit), so work can continue after a table. The receipt tells the model not to describe the widget or repeat it, and to end the reply unless the task needs more steps.
 - `prepare` returns concrete props, which are stored and rendered by the app, so keep them plain data. Older apps show a placeholder for unknown types.
 - Widgets are generic UI, not tied to a skill or connector. Skills and connectors produce data; any widget can show it.
 - Connector-provided UI later: MCP Apps (`@ai-sdk/mcp` supports them) in a sandboxed frame, not this registry.

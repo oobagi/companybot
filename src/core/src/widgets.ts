@@ -162,7 +162,7 @@ export const widgetTools: ToolDef[] = widgetCatalog.map((w) =>
 		},
 		toModelOutput: ({ output }) =>
 			isWidgetResult(output)
-				? { type: "text", value: "Shown to the person where you placed it. Call no more tools. Don't describe it, point at it, or repeat what it shows. If you haven't said what you did or found, say it now in one sentence; otherwise end your reply." }
+				? { type: "text", value: "Shown to the person where you placed it. Don't describe it, point at it, or repeat what it shows. If the task needs more steps (changes still to make), keep going. Otherwise: if you haven't said what you did or found, say it in one sentence, then end your reply with no more tools." }
 				: { type: "json", value: output as never },
 	}),
 );
@@ -173,17 +173,6 @@ export const isWidgetResult = (output: unknown): output is { widget: Widget } =>
 /** Whether a tool name as the model sees it ("widgets_table") is a widget tool. */
 export const isWidgetToolName = (modelName: string) => modelName.startsWith(modelToolName("widgets."));
 
-/**
- * A stop condition for the agent loop: the run ends once a step only placed widgets (all
- * shown) and the reply already says something. The widget is the answer; another step would
- * only restate it ("The table above lists every deal.") and cost a model call.
- */
-export function widgetEndsReply({ steps }: { steps: { text: string; toolCalls: { toolName: string }[]; toolResults: { output: unknown }[] }[] }) {
-	const last = steps.at(-1);
-	if (!last?.toolCalls.length || !last.toolCalls.every((c) => isWidgetToolName(c.toolName))) return false;
-	if (last.toolResults.length !== last.toolCalls.length || !last.toolResults.every((r) => isWidgetResult(r.output))) return false;
-	return steps.some((s) => s.text.trim() !== "");
-}
 
 // ---- Reading tool results by ref ----
 

@@ -22,6 +22,7 @@ import {
 import { ACTIVITY_MAX_CHARS, callLabel, clipJson, describeCall } from "./activity";
 import { formatLocalTime, resolveTimeZone, shortStamp } from "./time";
 import {
+	agentStopWhen,
 	buildToolSet,
 	describeToolAccess,
 	grantedConnectorIds,
@@ -70,7 +71,7 @@ import { type ToolDef, createResultStore, isGranted, modelToolName } from "./too
 import { connectorMetaTools } from "./connector-tools";
 import { z } from "zod";
 import { type PlaceMessage, type TurnPromptInput, buildTurnInput, buildTurnPrompt } from "./turn-input";
-import { describeWidget, isWidgetResult, isWidgetToolName, widgetEndsReply, widgetTools } from "./widgets";
+import { describeWidget, isWidgetResult, isWidgetToolName, widgetTools } from "./widgets";
 import type { Actor } from "./types";
 
 const owner: Actor = { userId: "owner", role: "owner" };
@@ -552,21 +553,6 @@ describe("connector oauth", () => {
 });
 
 describe("widgets", () => {
-	it("end the reply at a widget once it has said something, so nothing restates it", () => {
-		const shown = { output: { widget: { type: "table", props: {} } } };
-		const table = { toolName: "widgets_table" };
-		const find = { text: "", toolCalls: [{ toolName: "records_find" }], toolResults: [{ output: {} }] };
-		const step = (text: string, toolCalls = [table], toolResults: { output: unknown }[] = [shown]) => ({ text, toolCalls, toolResults });
-		expect(widgetEndsReply({ steps: [find, step("Moved the deal to Won.")] })).toBe(true);
-		expect(widgetEndsReply({ steps: [step("Here they are."), find] })).toBe(false);
-		// Nothing said yet: one more step to say what it did.
-		expect(widgetEndsReply({ steps: [find, step("")] })).toBe(false);
-		// A widget that failed gets a retry; one placed alongside other tools isn't the end.
-		expect(widgetEndsReply({ steps: [step("Here.", [table], [{ output: { error: "bad ref" } }])] })).toBe(false);
-		expect(widgetEndsReply({ steps: [step("Here.", [table, { toolName: "records_save" }], [shown, { output: {} }])] })).toBe(false);
-		expect(widgetEndsReply({ steps: [step("Done.", [], [])] })).toBe(false);
-	});
-
 	const table = widgetTools.find((t) => t.id === "widgets.table")!;
 
 	it("returns a widget for the app and a short receipt for the model", async () => {
@@ -1303,5 +1289,35 @@ describe("records tools", () => {
 			widget: { type: "table", props: { columns: ["Deal", "Value"], rows: [["Deal 1", "$1,000.00"], ["Deal 2", "$2,000.00"], ["Deal 3", "$3,000.00"]] } },
 		});
 		expect(model.doStreamCalls).toHaveLength(3);
+	});
+
+	it("keep working after a widget: show this month's deals, then mark them all won", async () => {
+		const saved: unknown[] = [];
+		const records = {
+			find: async () => ({ type: "Deals", typeName: "Deal", rows: [deal(1), deal(2)], more: false }),
+			save: async (input: unknown) => (saved.push(input), { id: "d1", type: "deal", typeName: "Deal", name: "Deal 1", values: {}, change: "h1" }),
+		} as unknown as RecordStore;
+		const tools = buildToolSet(companybot, { ...ctx(member), records });
+		const usage = { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } };
+		const finish = (unified: "tool-calls" | "stop") => ({ type: "finish" as const, finishReason: { unified, raw: undefined }, usage });
+		const text = (delta: string) => [{ type: "text-start" as const, id: "t" }, { type: "text-delta" as const, id: "t", delta }, { type: "text-end" as const, id: "t" }];
+		const call = (toolCallId: string, toolName: string, input: unknown) => ({ type: "tool-call" as const, toolCallId, toolName, input: JSON.stringify(input) });
+		const steps = [
+			[call("c1", "records_find", { type: "deal" }), finish("tool-calls")],
+			// It has said something and placed only a widget: the run must not stop here.
+			[...text("Two deals close this month."), call("c2", "widgets_table", { columns: ["Deal"], from: { ref: "r1", path: "rows", fields: ["name"] } }), finish("tool-calls")],
+			[call("c3", "records_save", { id: "d1", values: { stage: "Won" } }), call("c4", "records_save", { id: "d2", values: { stage: "Won" } }), finish("tool-calls")],
+			[...text("Both are Won now."), finish("stop")],
+		];
+		const model = new MockLanguageModelV4({
+			doStream: async () => ({ stream: simulateReadableStream({ chunks: steps.shift()! }) }),
+		});
+		const result = streamText({ model, prompt: "show me deals closing this month, then mark them all won", tools, stopWhen: agentStopWhen });
+		const done: string[] = [];
+		for await (const part of result.stream) if (part.type === "tool-result") done.push(part.toolName);
+		expect(done).toEqual(["records_find", "widgets_table", "records_save", "records_save"]);
+		expect(saved).toEqual([{ id: "d1", values: { stage: "Won" } }, { id: "d2", values: { stage: "Won" } }]);
+		expect(await result.text).toBe("Both are Won now.");
+		expect(model.doStreamCalls).toHaveLength(4);
 	});
 });
