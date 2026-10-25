@@ -175,6 +175,36 @@ export async function insertMessage(
 	return id;
 }
 
+/** Your newest mention in a chat's main timeline after `since`, if any. */
+export const latestMentionSince = (ctx: QueryCtx, chatId: Id<"chats">, userId: Id<"users">, since: number) =>
+	ctx.db
+		.query("userMentions")
+		.withIndex("by_user_chat", (q) => q.eq("userId", userId).eq("chatId", chatId).gt("at", since))
+		.order("desc")
+		.first();
+
+/**
+ * Records who a main-timeline message mentions (see userMentions), or `slice` of them.
+ * Skips anyone already recorded, so it's safe to re-run.
+ */
+export async function addUserMentions(ctx: MutationCtx, message: Doc<"chatMessages">, slice?: { from: number; to: number }) {
+	if (message.threadId || message.deleted) return;
+	const userIds = [...new Set(message.mentions.userIds)].slice(slice?.from, slice?.to);
+	for (const userId of userIds) {
+		const existing = await ctx.db
+			.query("userMentions")
+			.withIndex("by_message", (q) => q.eq("messageId", message._id).eq("userId", userId))
+			.first();
+		if (!existing) await ctx.db.insert("userMentions", { userId, chatId: message.chatId, messageId: message._id, at: message._creationTime });
+	}
+}
+
+export async function removeUserMentions(ctx: MutationCtx, messageId: Id<"chatMessages">) {
+	for (const row of await ctx.db.query("userMentions").withIndex("by_message", (q) => q.eq("messageId", messageId)).collect()) {
+		await ctx.db.delete(row._id);
+	}
+}
+
 export const reactionsOf = (ctx: QueryCtx, messageId: Id<"chatMessages">) =>
 	ctx.db
 		.query("reactions")

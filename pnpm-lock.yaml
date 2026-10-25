@@ -94,6 +94,9 @@ importers:
       '@types/react-dom':
         specifier: ^19.3.0
         version: 19.3.0(@types/react@19.3.0)
+      '@types/react-test-renderer':
+        specifier: ^19.3.0
+        version: 19.3.0
       '@vitejs/plugin-react':
         specifier: ^6.1.2
         version: 6.1.2(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15))
@@ -120,6 +123,9 @@ importers:
         version: 19.3.1
       react-dom:
         specifier: ^19.3.1
+        version: 19.3.1(react@19.3.1)
+      react-test-renderer:
+        specifier: 19.3.1
         version: 19.3.1(react@19.3.1)
       streamdown:
         specifier: ^2.7.1
@@ -989,6 +995,9 @@ packages:
     resolution: {integrity: sha512-ZI7bU42mZXXKHn/qNLEw2IrbiINU7X5+vfgdixBHkCNpYWXjKgfQ/P+uyGb5CjOLB9UcnTeg3rylQtV2hym44Q==}
     peerDependencies:
       '@types/react': ^19.3.0
+
+  '@types/react-test-renderer@19.3.0':
+    resolution: {integrity: sha512-TX4p2D4Z2oigM3SXU7+QyLSUnSR0vR1S1Pfxm/qFL9nHQ3jclgi6ioGoWQmlIr1DeKRVmPJrmNlhgM0JlWlLUg==}
 
   '@types/react@19.3.0':
     resolution: {integrity: sha512-N0rFCuH9YoxG9/m61l9MfpJKfmLOVU0em7ipIz6TRgSSkvReLB9vL85GB+yr8Bs5leqpvg96JSwF4ZS1s4viQg==}
@@ -2482,6 +2491,14 @@ packages:
     peerDependencies:
       react: ^19.3.1
 
+  react-is@19.3.1:
+    resolution: {integrity: sha512-RRieF6IyxQBkcK6pP8xOHprLTPW6QjRkbGdImtqNme+/hYVwCZkLQLdlZGOhUqXwkS9IEynaGvPJtv6XB/cz0Q==}
+
+  react-test-renderer@19.3.1:
+    resolution: {integrity: sha512-YcNewwmnZMd0wTb2nkb4hQ58NmX/u1hW2OJsNpen8CnV+jNkmEjYd1R6wJrOMSgb8bIF5HAJv4iL+S3PwNptOA==}
+    peerDependencies:
+      react: ^19.3.1
+
   react@19.3.1:
     resolution: {integrity: sha512-QNhWdt7nrgVWWQG58QuGsAR3jv3Hbe4mb4vz7w2csnHavciZJgda1CPNaldF6eVxv90ud3jUXpKlHL69gO38yw==}
     engines: {node: '>=0.10.0'}
@@ -3718,6 +3735,10 @@ snapshots:
       undici-types: 8.9.0
 
   '@types/react-dom@19.3.0(@types/react@19.3.0)':
+    dependencies:
+      '@types/react': 19.3.0
+
+  '@types/react-test-renderer@19.3.0':
     dependencies:
       '@types/react': 19.3.0
 
@@ -5430,6 +5451,14 @@ snapshots:
   react-dom@19.3.1(react@19.3.1):
     dependencies:
       react: 19.3.1
+      scheduler: 0.28.0
+
+  react-is@19.3.1: {}
+
+  react-test-renderer@19.3.1(react@19.3.1):
+    dependencies:
+      react: 19.3.1
+      react-is: 19.3.1
       scheduler: 0.28.0
 
   react@19.3.1: {}

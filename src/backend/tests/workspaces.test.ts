@@ -218,3 +218,34 @@ describe("requests naming a workspace", () => {
 		expect(await A.query(api.records.get, { recordId })).toMatchObject({ archived: false });
 	});
 });
+
+describe("unread mentions", () => {
+	it("go once they leave the private chat or the workspace", async () => {
+		const { t, userId, a, A, B } = await setup();
+		const otherId = await t.run(async (ctx) => {
+			const id = await ctx.db.insert("users", { email: "other@co.com" });
+			await ctx.db.insert("members", { userId: id, workspaceId: a, role: "owner" });
+			return id;
+		});
+		const other = person(t.withIdentity({ subject: `${otherId}|session` })).in(a);
+		const chatId = await other.mutation(api.chats.createChannel, { name: "private", private: true });
+		await other.mutation(api.chats.addMembers, { chatId, userIds: [userId], agentIds: [] });
+		await t.run(async (ctx) => {
+			const seat = await ctx.db
+				.query("chatMembers")
+				.withIndex("by_user", (q) => q.eq("userId", userId).eq("chatId", chatId))
+				.first();
+			await ctx.db.patch(seat!._id, { lastReadAt: 0 });
+		});
+		await other.mutation(api.messages.send, { chatId, text: "@you secret", mentions: { userIds: [userId], agentIds: [] } });
+		expect(await A.query(api.chats.alerts)).toHaveLength(1);
+
+		await A.mutation(api.chats.leave, { chatId });
+		expect(await A.query(api.chats.alerts)).toEqual([]);
+		expect(await A.query(api.chats.get, { chatId })).toBeNull();
+		expect(await A.query(api.messages.list, { chatId })).toEqual([]);
+		await A.mutation(api.workspace.leave);
+		expect(await A.query(api.chats.alerts)).toBeNull();
+		expect(await B.query(api.chats.alerts)).toEqual([]);
+	});
+});

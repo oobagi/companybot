@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { BrowserWindow, app, shell } from "electron";
+import { BrowserWindow, app, ipcMain, shell } from "electron";
 import { setUpUpdater } from "./updater";
 
 function openOutside(url: string) {
@@ -36,6 +36,13 @@ function createWindow() {
 
 app.whenReady().then(() => {
 	setUpUpdater();
+	ipcMain.on("app:badge", (_, count: number) => app.setBadgeCount(Math.max(0, Math.floor(count) || 0)));
+	ipcMain.on("app:focus", (event) => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		if (win?.isMinimized()) win.restore();
+		win?.show();
+		win?.focus();
+	});
 	createWindow();
 	app.on("activate", () => BrowserWindow.getAllWindows().length === 0 && createWindow());
 });

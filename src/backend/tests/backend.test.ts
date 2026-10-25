@@ -399,7 +399,13 @@ describe("settings", () => {
 	it("keeps preferences personal", async () => {
 		const { owner, member } = await ownerAndMember();
 		await owner.mutation(api.preferences.update, { displayName: "Jaden", sendWith: "mod-enter" });
-		expect(await owner.query(api.preferences.get)).toEqual({ displayName: "Jaden", sendWith: "mod-enter", timeZone: null, deviceTimeZone: null });
+		expect(await owner.query(api.preferences.get)).toEqual({
+			displayName: "Jaden",
+			sendWith: "mod-enter",
+			notify: "all",
+			timeZone: null,
+			deviceTimeZone: null,
+		});
 		expect((await member.query(api.preferences.get)).displayName).toBe("");
 		expect((await member.query(api.workspace.team))?.members.map((m) => m.name)).toContain("Jaden");
 	});
@@ -657,6 +663,59 @@ describe("chats", () => {
 		await tick();
 		await member.mutation(api.chats.markRead, { chatId: general._id });
 		expect(await generalOf(member)).toMatchObject({ unread: false, mentioned: false });
+	});
+
+	it("alerts people to unread DMs and mentions, by their notification setting", async () => {
+		const { owner, member } = await ownerAndMember();
+		await owner.mutation(api.preferences.update, { displayName: "Jaden" });
+		const general = await generalOf(owner);
+		const memberId = await meOf(member);
+		const dm = await owner.mutation(api.chats.openDm, { userIds: [memberId], agentIds: [] });
+		await tick();
+		await owner.mutation(api.messages.send, { chatId: general._id, text: "hi all", mentions: noMentions });
+		await owner.mutation(api.messages.send, { chatId: dm, text: "got a sec?", mentions: noMentions });
+		await owner.mutation(api.messages.send, { chatId: general._id, text: "@member look", mentions: { userIds: [memberId], agentIds: [] } });
+		// Plain channel chatter doesn't alert; your own messages never do.
+		expect((await member.query(api.chats.alerts))!.map((a) => [a.title, a.text]).sort()).toEqual([
+			["Jaden in #general", "@member look"],
+			["Jaden", "got a sec?"],
+		]);
+		expect(await owner.query(api.chats.alerts)).toEqual([]);
+
+		expect((await member.query(api.preferences.get)).notify).toBe("all");
+		await member.mutation(api.preferences.update, { notify: "mentions" });
+		expect((await member.query(api.chats.alerts))!.map((a) => a.text)).toEqual(["@member look"]);
+		await member.mutation(api.preferences.update, { notify: "off" });
+		expect(await member.query(api.chats.alerts)).toEqual([]);
+
+		await member.mutation(api.preferences.update, { notify: "all" });
+		await tick();
+		await member.mutation(api.chats.markRead, { chatId: dm });
+		expect((await member.query(api.chats.alerts))!.map((a) => a.text)).toEqual(["@member look"]);
+	});
+
+	it("keeps an unread mention, in the dock and the sidebar, however much is said after it", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		await member.mutation(api.preferences.update, { notify: "mentions" });
+		const general = await generalOf(owner);
+		const memberId = await meOf(member);
+		await tick();
+		const mention = await owner.mutation(api.messages.send, {
+			chatId: general._id,
+			text: "@member look",
+			mentions: { userIds: [memberId], agentIds: [] },
+		});
+		for (let i = 0; i < 60; i++) await owner.mutation(api.messages.send, { chatId: general._id, text: `chatter ${i}`, mentions: noMentions });
+		const workspaceId = await t.run(async (ctx) => (await ctx.db.get(general._id))!.workspaceId);
+		expect(await member.query(api.chats.alerts)).toEqual([
+			{ workspaceId, chatId: general._id, messageId: mention, title: "owner@co.com in #general", text: "@member look" },
+		]);
+		expect((await generalOf(member)).mentioned).toBe(true);
+
+		// A deleted mention is gone from both.
+		await owner.mutation(api.messages.remove, { messageId: mention });
+		expect(await member.query(api.chats.alerts)).toEqual([]);
+		expect((await generalOf(member)).mentioned).toBe(false);
 	});
 });
 
@@ -1476,6 +1535,28 @@ describe("time zones", () => {
 });
 
 describe("migrations", () => {
+	it("indexes mentions in messages sent before the mentions index", async () => {
+		const t = convexTest({ schema, modules, transactionLimits: true });
+		migrationsTest.register(t);
+		const owner = await signIn(t, "owner@co.com");
+		const general = await generalOf(owner);
+		const messageId = await t.run(async (ctx) => {
+			const { userId, workspaceId } = (await ctx.db.query("members").first())!;
+			const message = { chatId: general._id, workspaceId, text: "@you", parts: [], status: "done" as const };
+			await ctx.db.insert("chatMessages", { ...message, threadId: undefined, mentions: { userIds: [], agentIds: [] } });
+			return ctx.db.insert("chatMessages", { ...message, mentions: { userIds: [userId, userId], agentIds: [] } });
+		});
+		vi.useFakeTimers();
+		try {
+			await t.mutation(internal.migrations.runAll);
+			await t.finishAllScheduledFunctions(vi.runAllTimers);
+		} finally {
+			vi.useRealTimers();
+		}
+		const rows = await t.run((ctx) => ctx.db.query("userMentions").collect());
+		expect(rows.map((r) => r.messageId)).toEqual([messageId]);
+	});
+
 	it("moves rows from the old plugin tables to the connector tables", async () => {
 		const t = convexTest({ schema, modules, transactionLimits: true });
 		migrationsTest.register(t);

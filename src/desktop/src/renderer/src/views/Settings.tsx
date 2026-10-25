@@ -234,6 +234,20 @@ function ProfileTab() {
 					</label>
 				))}
 			</Section>
+			<Section title="Notifications" hint="Desktop notifications while Companybot isn't in front, and the count on its dock icon.">
+				{(
+					[
+						["all", "DMs and mentions"],
+						["mentions", "Mentions only"],
+						["off", "Off"],
+					] as const
+				).map(([value, label]) => (
+					<label key={value} className="flex items-center gap-3 text-sm">
+						<input type="radio" name="notify" checked={prefs.notify === value} onChange={() => run(update({ notify: value }))} />
+						{label}
+					</label>
+				))}
+			</Section>
 			<YourPermissions />
 		</>
 	);

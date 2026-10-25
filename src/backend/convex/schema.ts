@@ -2,6 +2,8 @@ import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+export const notify = v.union(v.literal("all"), v.literal("mentions"), v.literal("off"));
+
 export const role = v.union(v.literal("owner"), v.literal("member"));
 
 export const agentConfig = v.object({
@@ -192,6 +194,8 @@ export default defineSchema({
 		/** What agents and teammates call you. */
 		displayName: v.string(),
 		sendWith: v.union(v.literal("enter"), v.literal("mod-enter")),
+		/** Desktop notifications and the dock badge: DMs and mentions (default), mentions only, or off. */
+		notify: v.optional(notify),
 		/** The time zone they picked. Left out means automatic: `deviceTimeZone`. */
 		timeZone: v.optional(v.string()),
 		/** Their computer's time zone, reported by the app. */
@@ -358,6 +362,17 @@ export default defineSchema({
 		userId: v.optional(v.id("users")),
 		agentId: v.optional(v.id("agents")),
 	}).index("by_message", ["messageId", "emoji"]),
+
+	// A person @mentioned in a main-timeline message, so unread mentions are found by index
+	// however much else was said since. `at`: the message's _creationTime. Gone when it's deleted.
+	userMentions: defineTable({
+		userId: v.id("users"),
+		chatId: v.id("chats"),
+		messageId: v.id("chatMessages"),
+		at: v.number(),
+	})
+		.index("by_user_chat", ["userId", "chatId", "at"])
+		.index("by_message", ["messageId", "userId"]),
 
 	// Queue of agent replies. One `running` per agent per place (chat + thread); the rest wait.
 	agentTurns: defineTable({

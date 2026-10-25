@@ -6,6 +6,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { api, errorMessage } from "./api";
 import { WorkspaceContext, useMutation, useQuery } from "./convex";
 import { desktop, useUpdates } from "./desktop";
+import { useAlerts } from "./notifications";
 import { navigate, useRoute } from "./router";
 import { Notice } from "./ui";
 import { RecordsView, recordTabs, useAddedTypes } from "./views/Records";
@@ -55,11 +56,16 @@ function Workspace() {
 		}
 	}, [id, chosen]);
 
+	// Only workspaces you're in: a notification can name one you've since left.
+	const joined = useRef(ids);
+	joined.current = ids;
 	const open = useCallback(
 		(next: Id<"workspaces">) => {
+			if (!joined.current.includes(next)) return false;
 			localStorage.setItem(OPEN_KEY, next);
 			setChosen(next);
 			remember({ to: next }).catch(() => {});
+			return true;
 		},
 		[remember],
 	);
@@ -114,6 +120,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 		navigate("chat", id);
 		setError(undefined);
 	};
+	useAlerts();
 
 	return (
 		<div className="flex h-screen text-[15px] text-neutral-900">

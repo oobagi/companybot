@@ -3,6 +3,8 @@ import type { DesktopBridge, UpdateStatus } from "./types";
 
 const bridge: DesktopBridge = {
 	version: () => ipcRenderer.invoke("app:version"),
+	setBadge: (count) => ipcRenderer.send("app:badge", count),
+	focus: () => ipcRenderer.send("app:focus"),
 	updates: {
 		status: () => ipcRenderer.invoke("updates:status"),
 		check: () => ipcRenderer.invoke("updates:check"),

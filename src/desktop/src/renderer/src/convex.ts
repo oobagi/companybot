@@ -8,8 +8,9 @@ import { createContext, useCallback, useContext } from "react";
 // window has open, so a request always acts where it was made, whatever another device opened
 // (backend functions.ts). Outside a workspace (sign-in, the workspace picker) they send none.
 
-/** The workspace this window has open, and how to open another (App.tsx). */
-export const WorkspaceContext = createContext<{ id: Id<"workspaces">; open: (id: Id<"workspaces">) => void } | null>(null);
+/** The workspace this window has open, and how to open another (App.tsx): false if you're not in it. */
+export type OpenWorkspace = { id: Id<"workspaces">; open: (id: Id<"workspaces">) => boolean };
+export const WorkspaceContext = createContext<OpenWorkspace | null>(null);
 
 export const useWorkspace = () => useContext(WorkspaceContext);
 

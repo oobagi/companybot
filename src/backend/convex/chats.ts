@@ -10,6 +10,7 @@ import {
 	agentOfDm,
 	chatMembersOf,
 	findOrCreateDm,
+	latestMentionSince,
 	markChatRead,
 	membership,
 	namer,
@@ -71,18 +72,9 @@ async function toChatItem(ctx: QueryCtx, chat: Doc<"chats">, member: Member, nam
 		agentId: agentOfDm(chat),
 		members,
 		unread,
-		mentioned: unread && (await mentionedSince(ctx, chat._id, member.userId, mine?.lastReadAt ?? 0)),
+		mentioned: unread && !!(await latestMentionSince(ctx, chat._id, member.userId, mine?.lastReadAt ?? 0)),
 		lastMessageAt: chat.lastMessageAt,
 	};
-}
-
-/** Whether a main-timeline message after `since` mentions this person. */
-async function mentionedSince(ctx: QueryCtx, chatId: Id<"chats">, userId: Id<"users">, since: number) {
-	const unread = await ctx.db
-		.query("chatMessages")
-		.withIndex("by_chat_thread", (q) => q.eq("chatId", chatId).eq("threadId", undefined).gt("_creationTime", since))
-		.take(200);
-	return unread.some((m) => !m.deleted && m.mentions.userIds.includes(userId));
 }
 
 /** The chats you're in, and each active agent with its DM with you. */
@@ -125,6 +117,70 @@ export const list = query({
 				};
 			}),
 		};
+	},
+});
+
+/** A chat's alert: its newest unread message meant for you. */
+export type Alert = {
+	/** Where the chat is, so a click can open that workspace first. */
+	workspaceId: Id<"workspaces">;
+	chatId: Id<"chats">;
+	messageId: Id<"chatMessages">;
+	title: string;
+	text: string;
+};
+
+/**
+ * What should reach you outside the app, by your notification setting: unread DMs
+ * (agents' replies once finished) and unread @mentions, main timelines only. `latest` is
+ * each such chat's newest one, for desktop notifications; its length is the dock badge.
+ */
+export const alerts = query({
+	args: {},
+	handler: async (ctx): Promise<Alert[] | null> => {
+		const member = await getMember(ctx);
+		if (!member) return null;
+		const prefs = await ctx.db
+			.query("preferences")
+			.withIndex("by_user", (q) => q.eq("userId", member.userId))
+			.first();
+		const notify = prefs?.notify ?? "all";
+		if (notify === "off") return [];
+		const names = namer(ctx);
+		const alerts: Alert[] = [];
+		for (const row of await ctx.db
+			.query("chatMembers")
+			.withIndex("by_user", (q) => q.eq("userId", member.userId))
+			.collect()) {
+			const since = row.lastReadAt ?? 0;
+			const chat = await ctx.db.get(row.chatId);
+			if (!chat || chat.archived || chat.workspaceId !== member.workspaceId || chat.lastMessageAt <= since) continue;
+			const fromOthers = (m: Doc<"chatMessages"> | null) => (m && !m.deleted && m.authorUserId !== member.userId ? m : null);
+			// Mentions come from their index, so any number of newer messages can't hide one.
+			const mention = await latestMentionSince(ctx, chat._id, member.userId, since);
+			let message = fromOthers(mention && (await ctx.db.get(mention.messageId)));
+			if (chat.kind === "dm" && notify === "all") {
+				// Your own posts mark the chat read, so what's unread here is others'. Agent replies
+				// still streaming are skipped until they finish.
+				const recent = await ctx.db
+					.query("chatMessages")
+					.withIndex("by_chat_thread", (q) => q.eq("chatId", chat._id).eq("threadId", undefined).gt("_creationTime", since))
+					.order("desc")
+					.take(20);
+				const newest = recent.map(fromOthers).find((m) => m?.status === "done");
+				if (newest && (!message || newest._creationTime > message._creationTime)) message = newest;
+			}
+			if (!message) continue;
+			const author = (await names.of(message)).name;
+			alerts.push({
+				workspaceId: chat.workspaceId,
+				chatId: chat._id,
+				messageId: message._id,
+				title: chat.kind === "channel" ? `${author} in #${chat.name}` : author,
+				text: message.text.slice(0, 200),
+			});
+		}
+		return alerts;
 	},
 });
 
