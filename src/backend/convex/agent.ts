@@ -231,7 +231,7 @@ async function streamReply(
 		actor: { userId: member.userId, role: member.role },
 		timeZone: turn.actor.timeZone,
 		agentId: agent.id,
-		memory: memoryStore(ctx, member, agent.id, turn.memory === "team"),
+		memory: memoryStore(ctx, turnId),
 		chat: chatStore(ctx, turnId),
 		skills: {
 			list: turn.skills,
@@ -432,24 +432,17 @@ async function runApproval(
 }
 
 /**
- * This agent's memory, routed through the same permission checks as the app. Each
- * call re-reads the person's role, so permission changes apply mid-reply. In chats
- * with 2+ people (`teamOnly`), the backend refuses personal memories.
+ * This agent's memory, routed through the same permission checks as the app. memory.ts
+ * re-checks the turn, the person's role and the chat on every call, so permission changes
+ * apply mid-reply, and refuses personal memories in chats with 2+ people.
  */
-function memoryStore(
-	ctx: ActionCtx,
-	{ userId, workspaceId }: { userId: Id<"users">; workspaceId: Id<"workspaces"> },
-	agentId: Id<"agents">,
-	teamOnly: boolean,
-): MemoryStore {
-	const who = { userId, workspaceId, agentId, teamOnly };
+function memoryStore(ctx: ActionCtx, turnId: Id<"agentTurns">): MemoryStore {
 	return {
-		list: () => ctx.runQuery(internal.memory.listFor, who),
-		create: (_actor, { scope, content }) => ctx.runMutation(internal.memory.createFor, { ...who, scope, content }),
-		update: (_actor, id, content) =>
-			ctx.runMutation(internal.memory.updateFor, { ...who, id: id as Id<"memories">, content }),
-		remove: async (_actor, id) => {
-			await ctx.runMutation(internal.memory.removeFor, { ...who, id: id as Id<"memories"> });
+		search: (query) => ctx.runQuery(internal.memory.searchFor, { turnId, query }),
+		create: ({ scope, content }) => ctx.runMutation(internal.memory.createFor, { turnId, scope, content }),
+		update: (id, content) => ctx.runMutation(internal.memory.updateFor, { turnId, id: id as Id<"memories">, content }),
+		remove: async (id) => {
+			await ctx.runMutation(internal.memory.removeFor, { turnId, id: id as Id<"memories"> });
 		},
 	};
 }

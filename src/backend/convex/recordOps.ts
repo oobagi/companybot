@@ -25,17 +25,11 @@ import {
 import { ConvexError, getDocumentSize } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { type Member, memberOf, nameOf, toActor } from "./lib";
+import { type Member, type Who, memberOf, nameOf, toActor } from "./lib";
 
 // Records, fields and their history. Shared by the app's functions (records.ts,
 // recordTypes.ts) and agent tools (recordTools.ts), so both follow the same rules. Agents pass
 // `agentId` and act as the member they help, like memory and connectors. See wiki/data.md.
-
-/** Who's making a change: a member, or an agent acting for one. */
-export interface Who {
-	member: Member;
-	agentId?: Id<"agents">;
-}
 
 export type Values = Record<string, FieldValue>;
 type Change = Doc<"recordHistory">["changes"][number];

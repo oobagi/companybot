@@ -34,13 +34,25 @@ export function canCreateMemory(actor: Actor, scope: MemoryScope): boolean {
 	return scope === "personal" || can(actor, "memory.team.write");
 }
 
+const words = (text: string) => text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+
 /**
- * One agent's memories, as seen by the person it's helping. Implementations must
- * enforce the rules above on every call; tools rely on that, not on their own checks.
+ * Whether a memory matches a search: each query word starts one of its words, ignoring case
+ * and punctuation ("aus" finds "Austin,"; "ustin" doesn't). An empty query matches all.
+ */
+export function memoryMatches(content: string, query: string) {
+	const have = words(content);
+	return words(query).every((w) => have.some((h) => h.startsWith(w)));
+}
+
+/**
+ * One agent's memories, as seen by the person it's helping, in this chat. Implementations
+ * must enforce the rules above on every call; tools rely on that, not on their own checks.
  */
 export interface MemoryStore {
-	list(actor: Actor): Promise<Memory[]>;
-	create(actor: Actor, input: { scope: MemoryScope; content: string }): Promise<Memory>;
-	update(actor: Actor, id: string, content: string): Promise<Memory>;
-	remove(actor: Actor, id: string): Promise<void>;
+	/** Matching memories (`memoryMatches`) from the whole history, oldest first, capped. Empty query: the newest. */
+	search(query: string): Promise<Memory[]>;
+	create(input: { scope: MemoryScope; content: string }): Promise<Memory>;
+	update(id: string, content: string): Promise<Memory>;
+	remove(id: string): Promise<void>;
 }

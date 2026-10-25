@@ -1,6 +1,6 @@
 import migrationsTest from "@convex-dev/migrations/test";
 import { convexTest } from "convex-test";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import schema from "../convex/schema";
@@ -284,8 +284,8 @@ describe("memory", () => {
 		const { companybot, scribe } = await agentsOf(owner);
 		await owner.mutation(api.memory.create, { agentId: companybot._id, scope: "workspace", content: "Companybot fact" });
 		await owner.mutation(api.memory.create, { agentId: scribe._id, scope: "workspace", content: "Scribe fact" });
-		const userId = companybot.updatedBy;
-		const seen = await t.query(internal.memory.listFor, { userId, workspaceId: await workspaceOf(owner), agentId: scribe._id });
+		const turnId = await agentTurn(t, owner, (await generalOf(owner))._id, scribe._id);
+		const seen = await t.query(internal.memory.searchFor, { turnId, query: "" });
 		expect(seen.map((m) => m.content)).toEqual(["Scribe fact"]);
 	});
 
@@ -293,13 +293,12 @@ describe("memory", () => {
 		const { t, owner, member } = await ownerAndMember();
 		const agentId = (await agentsOf(owner)).companybot._id;
 		const team = await owner.mutation(api.memory.create, { agentId, scope: "workspace", content: "Office is in Austin." });
-		const memberId = (await member.query(api.workspace.me))!.userId;
+		const general = (await generalOf(member))._id;
 		const id = team.id as never;
-		const workspaceId = await workspaceOf(owner);
-		await expect(t.mutation(internal.memory.removeFor, { userId: memberId, workspaceId, agentId, id })).rejects.toThrow("can't change");
-		await expect(
-			t.mutation(internal.memory.updateFor, { userId: memberId, workspaceId, agentId: (await agentsOf(owner)).scribe._id, id, content: "x" }),
-		).rejects.toThrow("not found");
+		const turnId = await agentTurn(t, member, general, agentId);
+		await expect(t.mutation(internal.memory.removeFor, { turnId, id })).rejects.toThrow("can't change");
+		const scribeTurn = await agentTurn(t, member, general, (await agentsOf(owner)).scribe._id);
+		await expect(t.mutation(internal.memory.updateFor, { turnId: scribeTurn, id, content: "x" })).rejects.toThrow("not found");
 	});
 
 	it("refuses an edit made against an old version", async () => {
@@ -314,14 +313,13 @@ describe("memory", () => {
 	});
 
 	it("cuts off an agent's access as soon as its person is removed", async () => {
-		const { t, owner } = await ownerAndMember();
+		const { t, owner, member } = await ownerAndMember();
 		const agentId = (await agentsOf(owner)).companybot._id;
+		const turnId = await agentTurn(t, member, (await generalOf(member))._id, agentId);
 		const team = (await owner.query(api.workspace.team))!;
 		const row = team.members.find((m) => !m.isYou)!;
 		await owner.mutation(api.workspace.removeMember, { id: row.id });
-		await expect(t.query(internal.memory.listFor, { userId: row.userId, workspaceId: await workspaceOf(owner), agentId })).rejects.toThrow(
-			"no longer",
-		);
+		await expect(t.query(internal.memory.searchFor, { turnId, query: "" })).rejects.toThrow("no longer");
 	});
 });
 
@@ -565,6 +563,14 @@ const tick = () => new Promise((r) => setTimeout(r, 3));
 const meOf = async (as: As) => (await as.query(api.workspace.me))!.userId;
 const generalOf = async (as: As) => (await as.query(api.chats.list))!.channels.find((c) => c.isDefault)!;
 const turnsOf = (t: ReturnType<typeof convexTest>) => t.run((ctx) => ctx.db.query("agentTurns").collect());
+/** A running turn of `agentId` for `as`, started by mentioning it in `chatId`. Fake timers hold its reply back. */
+async function agentTurn(t: ReturnType<typeof convexTest>, as: As, chatId: Id<"chats">, agentId: Id<"agents">) {
+	vi.useFakeTimers();
+	const before = await turnsOf(t);
+	await as.mutation(api.messages.send, { chatId, text: "hi", mentions: { userIds: [], agentIds: [agentId] } });
+	return (await turnsOf(t)).find((x) => !before.some((b) => b._id === x._id))!._id;
+}
+afterEach(() => void vi.useRealTimers());
 const usage = (costUsd: number) => ({
 	model: "anthropic/claude-haiku-5.5",
 	steps: 1,
@@ -862,17 +868,16 @@ describe("memory in shared chats", () => {
 		const agentId = companybot._id;
 		const mine = await owner.mutation(api.memory.create, { agentId, scope: "personal", content: "I'm vegan." });
 		await owner.mutation(api.memory.create, { agentId, scope: "workspace", content: "We close at 5." });
-		const userId = await meOf(owner);
-		const workspaceId = await workspaceOf(owner);
-		const shared = { userId, workspaceId, agentId, teamOnly: true };
-		expect((await t.query(internal.memory.listFor, shared)).map((m) => m.content)).toEqual(["We close at 5."]);
+		const shared = { turnId: await agentTurn(t, owner, (await generalOf(owner))._id, agentId) };
+		expect((await t.query(internal.memory.searchFor, { ...shared, query: "" })).map((m) => m.content)).toEqual(["We close at 5."]);
 		await expect(t.mutation(internal.memory.createFor, { ...shared, scope: "personal", content: "x" })).rejects.toThrow(
 			"Personal memories are off",
 		);
 		await expect(t.mutation(internal.memory.removeFor, { ...shared, id: mine.id as Id<"memories"> })).rejects.toThrow(
 			"Personal memories are off",
 		);
-		expect(await t.query(internal.memory.listFor, { userId, workspaceId, agentId })).toHaveLength(2);
+		const dm = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [agentId] });
+		expect(await t.query(internal.memory.searchFor, { turnId: await agentTurn(t, owner, dm, agentId), query: "" })).toHaveLength(2);
 	});
 });
 
@@ -1437,14 +1442,8 @@ describe("activity log", () => {
 	it("marks memories an agent changed until a person edits them", async () => {
 		const { t, owner } = await ownerAndMember();
 		const agentId = (await agentsOf(owner)).companybot._id;
-		const userId = await meOf(owner);
-		const made = await t.mutation(internal.memory.createFor, {
-			userId,
-			workspaceId: await workspaceOf(owner),
-			agentId,
-			scope: "personal",
-			content: "Likes tea.",
-		});
+		const dm = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [agentId] });
+		const made = await t.mutation(internal.memory.createFor, { turnId: await agentTurn(t, owner, dm, agentId), scope: "personal", content: "Likes tea." });
 		expect((await owner.query(api.memory.list))[0]).toMatchObject({ updatedByAgent: true });
 		await owner.mutation(api.memory.update, { id: made.id as Id<"memories">, content: "Likes coffee.", expectedVersion: 1 });
 		expect((await owner.query(api.memory.list))[0]!.updatedByAgent).toBeUndefined();
