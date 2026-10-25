@@ -13,6 +13,7 @@
     "build": "electron-vite build",
     "package": "electron-vite build && electron-builder --config electron-builder.yml --publish never",
     "preview:web": "vite --config vite.web.config.ts",
+    "test": "vitest run --config vitest.config.ts",
     "typecheck": "tsc -p ."
   },
   "//": "Everything is bundled by electron-vite, so the packaged app ships no node_modules. Keep all packages in devDependencies.",

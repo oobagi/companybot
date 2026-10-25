@@ -71,13 +71,13 @@ Separate tables per type (Night Owl's way) means a migration for every new type 
 - `refs({ ids })` — names for up to 200 `unresolved` ids.
 - `get({ recordId })` → row + `type` + live `fields`, or null.
 - `linked({ recordId, fieldId?, paginationOpts })` — records linking here ("deals for this client").
-- `search({ query, typeId? })` — title and text values, top 20.
+- `search({ query, typeId? })` — title and text values, top 20, as list rows (values and names), so the app shows them in the same table.
 - `history({ recordId, paginationOpts })`, `activity({ paginationOpts })` — newest first, names resolved.
 - `discussion({ recordId })` — messages referencing it that you can see.
 - `create({ typeId, values })` → id. `update({ recordId, values })`. `archive` / `restore({ recordId })`. `undo({ historyId })`.
 
 ## Not built yet
-- Record screens (tabs are placeholders), agent tools, automation triggers.
+- Agent tools, automation triggers. Screens are built ([Product](product.md#crm-data-layer-and-screens-built)); code in `desktop/…/views/records/`.
 - A record's own discussion thread; today its discussion is the messages that reference it.
 - Counts per type (needs the Convex aggregate component; counting would scan).
 - Per-type access by role; required fields; sorting that includes empty values; OR across filters.

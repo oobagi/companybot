@@ -272,6 +272,8 @@ describe("records", () => {
 		await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Bolt Electric" } });
 		expect((await owner.query(api.records.search, { query: "roofing" })).map((r) => r.title)).toEqual(["Acme Roofing"]);
 		expect((await owner.query(api.records.search, { query: "main", typeId: client._id })).map((r) => r.title)).toEqual(["Acme Roofing"]);
+		// Rows like a list's, so the app can show them in the same table.
+		expect((await owner.query(api.records.search, { query: "roofing" }))[0]).toMatchObject({ values: { name: "Acme Roofing" }, refs: {} });
 	});
 
 	it("lists the chat messages that reference a record, only where you can see them", async () => {
