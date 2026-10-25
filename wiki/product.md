@@ -59,7 +59,8 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 - Teammates: owners invite by email (the email links the download); one person can be in several workspaces and switches from the sidebar.
 
 ## UI
-- Profile cards (planned): click a person's name or avatar to see their details, like GitHub. Show their time zone and local time.
+- Profile cards (built): click a name or avatar in chat (or a channel's member list) to see name, email, role, time zone and local time, and **Message**. Agents show their description.
+- Not built: typing indicators and online status (they need a heartbeat write per person every few seconds; not worth it yet).
 - Clean home: a few starter suggestions + chat box (Ollama-style).
 - Sidebar for navigation. Agent switcher at the top.
 

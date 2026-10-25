@@ -9,6 +9,7 @@ import { CallDetails } from "../Activity";
 import { ApprovalMessages } from "./Approval";
 import { AgentBadge, Avatar, AvatarStack, EmojiPicker, clock, useDismiss } from "./common";
 import type { Message } from "./data";
+import { ProfileLink } from "./Profile";
 
 export function MessageRow({
 	message,
@@ -48,13 +49,17 @@ export function MessageRow({
 							{clock(message._creationTime)}
 						</span>
 					) : (
-						<Avatar name={message.author.name} agent={isAgent} />
+						<ProfileLink who={message.author}>
+							<Avatar name={message.author.name} agent={isAgent} />
+						</ProfileLink>
 					)}
 				</div>
 				<div className="flex min-w-0 flex-1 flex-col gap-1">
 					{!grouped && (
 						<div className="flex items-baseline gap-2">
-							<span className="font-semibold">{message.author.name}</span>
+							<ProfileLink who={message.author} className="font-semibold hover:underline">
+								{message.author.name}
+							</ProfileLink>
 							{isAgent && <AgentBadge />}
 							{message.automation && (
 								<span className="rounded bg-amber-50 px-1.5 text-xs text-amber-800">⚡ {message.automation.name}</span>
