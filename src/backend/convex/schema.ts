@@ -185,7 +185,7 @@ export default defineSchema({
 		timeZone: v.optional(v.string()),
 		/** Their computer's time zone, reported by the app. */
 		deviceTimeZone: v.optional(v.string()),
-		/** The workspace they have open, for people in several. Left out means their first. */
+		/** The workspace they used last: only a hint for a device opening for the first time. Each device keeps its own. */
 		workspaceId: v.optional(v.id("workspaces")),
 	}).index("by_user", ["userId"]),
 

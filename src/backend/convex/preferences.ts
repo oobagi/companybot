@@ -2,7 +2,8 @@ import { isValidTimeZone } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { type QueryCtx, mutation, query } from "./_generated/server";
+import { type QueryCtx } from "./_generated/server";
+import { mutation, query } from "./functions";
 
 // Personal preferences: only you see them, and they follow you to every device.
 

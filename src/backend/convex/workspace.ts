@@ -3,12 +3,13 @@ import { DEFAULT_CURRENCY, can, isCurrencyCode } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type MutationCtx, type QueryCtx, mutation, query } from "./_generated/server";
+import { type MutationCtx, type QueryCtx } from "./_generated/server";
+import { mutation, query } from "./functions";
 import { seedAgents } from "./agents";
 import { fieldsOf, seedRecordTypes, typesOf } from "./recordOps";
 import { addToChat, ensureGeneral } from "./chatOps";
 import { sendInviteEmail } from "./invites";
-import { checkVersion, getMember, memberOf, nameOf, namesOf, normalizeEmail, requireMember, requirePermission, timeZoneOf } from "./lib";
+import { checkVersion, getMember, legacyMemberOf, memberOf, nameOf, namesOf, normalizeEmail, requireMember, requirePermission, timeZoneOf } from "./lib";
 import { forgetUserRules } from "./permissions";
 import { role } from "./schema";
 
@@ -36,7 +37,7 @@ export const ensure = mutation({
 	handler: async (ctx) => {
 		const userId = await getAuthUserId(ctx);
 		if (!userId) throw new ConvexError("Not signed in.");
-		if (await getMember(ctx)) return;
+		if (await legacyMemberOf(ctx, userId)) return;
 
 		const invites = await invitesFor(ctx, userId);
 		for (const invite of invites) await join(ctx, invite, userId);
@@ -60,19 +61,19 @@ async function invitesFor(ctx: QueryCtx, userId: Id<"users">) {
 		.collect();
 }
 
-/** Uses up an invite: they're in, in #general, with that workspace open. */
+/** Uses up an invite: they're in, in #general, and it's their last-used workspace. */
 async function join(ctx: MutationCtx, invite: Doc<"invites">, userId: Id<"users">) {
 	await ctx.db.delete(invite._id);
 	if (await memberOf(ctx, userId, invite.workspaceId)) return;
 	await ctx.db.insert("members", { workspaceId: invite.workspaceId, userId, role: invite.role });
 	await addToChat(ctx, await ensureGeneral(ctx, invite.workspaceId, userId), { userId });
-	await openWorkspace(ctx, userId, invite.workspaceId);
+	await rememberLastUsed(ctx, userId, invite.workspaceId);
 	await fireEvent(ctx, invite.workspaceId, "member.joined", {
 		data: { name: await nameOf(ctx, userId), email: invite.email, role: invite.role },
 	});
 }
 
-async function openWorkspace(ctx: MutationCtx, userId: Id<"users">, workspaceId: Id<"workspaces">) {
+async function rememberLastUsed(ctx: MutationCtx, userId: Id<"users">, workspaceId: Id<"workspaces">) {
 	const prefs = await ctx.db
 		.query("preferences")
 		.withIndex("by_user", (q) => q.eq("userId", userId))
@@ -81,13 +82,15 @@ async function openWorkspace(ctx: MutationCtx, userId: Id<"users">, workspaceId:
 	else await ctx.db.insert("preferences", { userId, displayName: "", sendWith: "enter", workspaceId });
 }
 
-/** The workspaces you're in, and invites waiting for you, for the workspace menu. */
+/**
+ * The workspaces you're in, invites waiting for you, and the one you used last (a hint for
+ * a device opening for the first time). Which one is open is each device's own choice.
+ */
 export const mine = query({
 	args: {},
 	handler: async (ctx) => {
 		const userId = await getAuthUserId(ctx);
-		const open = await getMember(ctx);
-		if (!userId || !open) return null;
+		if (!userId) return null;
 		const rows = await ctx.db
 			.query("members")
 			.withIndex("by_user", (q) => q.eq("userId", userId))
@@ -95,7 +98,7 @@ export const mine = query({
 		const workspaces = [];
 		for (const row of rows) {
 			const workspace = await ctx.db.get(row.workspaceId);
-			if (workspace) workspaces.push({ id: workspace._id, name: workspace.name, role: row.role, open: workspace._id === open.workspaceId });
+			if (workspace) workspaces.push({ id: workspace._id, name: workspace.name, role: row.role });
 		}
 		const invitations = [];
 		for (const invite of await invitesFor(ctx, userId)) {
@@ -108,17 +111,21 @@ export const mine = query({
 				invitedBy: invite.invitedBy ? await nameOf(ctx, invite.invitedBy) : null,
 			});
 		}
-		return { workspaces: workspaces.sort((a, b) => a.name.localeCompare(b.name)), invitations };
+		const prefs = await ctx.db
+			.query("preferences")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.first();
+		return { workspaces: workspaces.sort((a, b) => a.name.localeCompare(b.name)), invitations, lastUsed: prefs?.workspaceId ?? null };
 	},
 });
 
-/** Opens another workspace you're in. It stays open on your other devices too. */
+/** Notes the workspace a device switched to as your last used. Other devices keep theirs. */
 export const switchTo = mutation({
-	args: { workspaceId: v.id("workspaces") },
-	handler: async (ctx, { workspaceId }) => {
+	args: { to: v.id("workspaces") },
+	handler: async (ctx, { to: workspaceId }) => {
 		const userId = await getAuthUserId(ctx);
 		if (!userId || !(await memberOf(ctx, userId, workspaceId))) throw new ConvexError("You're not in that workspace.");
-		await openWorkspace(ctx, userId, workspaceId);
+		await rememberLastUsed(ctx, userId, workspaceId);
 	},
 });
 
@@ -130,11 +137,13 @@ async function requireMyInvite(ctx: QueryCtx, id: Id<"invites">) {
 	return { userId, invite };
 }
 
+/** Returns the workspace, so the app can open it. */
 export const acceptInvite = mutation({
 	args: { id: v.id("invites") },
-	handler: async (ctx, { id }) => {
+	handler: async (ctx, { id }): Promise<Id<"workspaces">> => {
 		const { userId, invite } = await requireMyInvite(ctx, id);
 		await join(ctx, invite, userId);
+		return invite.workspaceId;
 	},
 });
 
@@ -191,7 +200,9 @@ export const invite = mutation({
 		if (await isMemberEmail(ctx, workspaceId, email)) throw new ConvexError("That person is already a member.");
 		if (await inviteIn(ctx, workspaceId, email)) throw new ConvexError("That person already has an invite.");
 		const id = await ctx.db.insert("invites", { workspaceId, email, role: args.role, invitedBy: userId });
-		await sendInviteEmail(ctx, (await ctx.db.get(id))!, userId);
+		/** False when they got one a moment ago (say, an invite cancelled and made again). */
+		const emailed = await sendInviteEmail(ctx, (await ctx.db.get(id))!, userId);
+		return { emailed };
 	},
 });
 

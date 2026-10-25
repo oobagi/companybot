@@ -2,9 +2,10 @@ import { convexTest } from "convex-test";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { describe, expect, it } from "vitest";
 import { api } from "../convex/_generated/api";
-import { activeMemberOf } from "../convex/lib";
+import { legacyMemberOf } from "../convex/lib";
 import { createRecord } from "../convex/recordOps";
 import schema from "../convex/schema";
+import { person } from "./person";
 
 // Lists over thousands of records, under real transaction limits. Slow (seeding takes about a
 // minute), so `pnpm test` skips them; `pnpm test:scale` runs them, and CI runs both.
@@ -13,7 +14,7 @@ const modules = import.meta.glob(["../convex/**/*.ts", "../convex/_generated/*.j
 
 async function signIn(t: ReturnType<typeof convexTest>, email: string) {
 	const userId = await t.run((ctx) => ctx.db.insert("users", { email }));
-	const as = t.withIdentity({ subject: `${userId}|session` });
+	const as = person(t.withIdentity({ subject: `${userId}|session` }));
 	await as.mutation(api.workspace.ensure);
 	return Object.assign(as, { userId });
 }
@@ -60,7 +61,7 @@ describe("records: combined filters at scale", () => {
 		});
 		for (let start = 0; start < COUNT; start += 200) {
 			await t.run(async (ctx) => {
-				const who = { member: (await activeMemberOf(ctx, owner.userId))! };
+				const who = { member: (await legacyMemberOf(ctx, owner.userId))! };
 				for (const s of seeds.slice(start, start + 200))
 					await createRecord(ctx, who, task._id, { name: s.name, status: s.status, assignee: users[s.owner], due: s.due, tags: s.tags });
 			});

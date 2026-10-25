@@ -29,7 +29,8 @@ import {
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type MutationCtx, type QueryCtx, internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { type MutationCtx, type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
+import { mutation, query } from "./functions";
 import { addToChat, canSee, findOrCreateDm, insertMessage } from "./chatOps";
 import {
 	type Member,

@@ -1,7 +1,8 @@
 import { canManageChannel } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type QueryCtx, mutation, query } from "./_generated/server";
+import { type QueryCtx } from "./_generated/server";
+import { mutation, query } from "./functions";
 import {
 	type Namer,
 	type Participant,

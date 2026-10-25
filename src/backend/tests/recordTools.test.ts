@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import schema from "../convex/schema";
+import { person } from "./person";
 
 // Records tools (recordTools.ts), as an agent turn calls them: acting for the person who asked.
 
@@ -10,7 +11,7 @@ const modules = import.meta.glob(["../convex/**/*.ts", "../convex/_generated/*.j
 
 async function signIn(t: ReturnType<typeof convexTest>, email: string) {
 	const userId = await t.run((ctx) => ctx.db.insert("users", { email }));
-	const as = t.withIdentity({ subject: `${userId}|session` });
+	const as = person(t.withIdentity({ subject: `${userId}|session` }));
 	await as.mutation(api.workspace.ensure);
 	return Object.assign(as, { userId });
 }

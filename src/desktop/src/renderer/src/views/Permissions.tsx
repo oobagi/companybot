@@ -1,8 +1,7 @@
-import { useAction, useMutation } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { useQuery } from "convex-helpers/react/cache";
 import { useState } from "react";
 import { api } from "../api";
+import { useAction, useMutation, useQuery } from "../convex";
 import { Loading, Notice, Section, primaryButton, secondaryButton, useRun } from "../ui";
 import { Modal } from "./chat/common";
 

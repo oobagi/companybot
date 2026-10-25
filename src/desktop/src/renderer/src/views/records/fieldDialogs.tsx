@@ -1,8 +1,8 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { type FieldKind, fieldKinds } from "@companybot/core/records";
-import { useMutation } from "convex/react";
 import { useState } from "react";
 import { api } from "../../api";
+import { useMutation } from "../../convex";
 import { Field, Notice, inputClass, primaryButton, useRun } from "../../ui";
 import { Modal } from "../chat/common";
 import { type RecordType, useTypes } from "./data";

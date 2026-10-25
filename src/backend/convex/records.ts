@@ -1,7 +1,8 @@
 import { type PaginationResult, paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type QueryCtx, mutation, query } from "./_generated/server";
+import { type QueryCtx } from "./_generated/server";
+import { mutation, query } from "./functions";
 import { canSee } from "./chatOps";
 import { getMember, nameOf, requireMember } from "./lib";
 import { fieldsByType, linkingRecords, listRecords, searchRecords } from "./recordReads";

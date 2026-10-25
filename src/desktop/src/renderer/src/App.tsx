@@ -1,21 +1,21 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import type { Role } from "@companybot/core";
 import { useAuthActions } from "@convex-dev/auth/react";
-import { useConvexAuth, useMutation } from "convex/react";
-import { useQuery } from "convex-helpers/react/cache";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useConvexAuth } from "convex/react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, errorMessage } from "./api";
+import { WorkspaceContext, useMutation, useQuery } from "./convex";
 import { desktop, useUpdates } from "./desktop";
 import { navigate, useRoute } from "./router";
 import { Notice } from "./ui";
-import { ChatView } from "./views/chat/ChatView";
-import { ChatNav, Item } from "./views/chat/Sidebar";
-import { CustomizeView, customizeTabs } from "./views/customize";
 import { RecordsView, recordTabs, useAddedTypes } from "./views/Records";
-import { builtinTabs } from "./views/records/logic";
 import { SettingsView, settingsTabAliases, settingsTabs } from "./views/Settings";
 import { SignIn } from "./views/SignIn";
 import { WorkspaceMenu } from "./views/WorkspaceMenu";
+import { ChatView } from "./views/chat/ChatView";
+import { ChatNav, Item } from "./views/chat/Sidebar";
+import { CustomizeView, customizeTabs } from "./views/customize";
+import { builtinTabs } from "./views/records/logic";
 
 const views = ["chat", ...recordTabs.map((t) => t.id), "records", "customize", "settings"] as const;
 type View = (typeof views)[number];
@@ -26,20 +26,59 @@ export function App() {
 	return isAuthenticated ? <Workspace /> : <SignIn />;
 }
 
+/** Where this device keeps the workspace it has open. Each device picks its own. */
+const OPEN_KEY = "companybot.workspace";
+
+/**
+ * Picks the workspace this window shows: the one this device had open, else the one you
+ * used last anywhere (first launch), else your first. Every call below carries it.
+ */
 function Workspace() {
-	const me = useQuery(api.workspace.me);
+	const mine = useQuery(api.workspace.mine);
 	const ensure = useMutation(api.workspace.ensure);
+	const remember = useMutation(api.workspace.switchTo);
+	const [chosen, setChosen] = useState(() => localStorage.getItem(OPEN_KEY));
 	const [error, setError] = useState<string>();
+	const ids = mine?.workspaces.map((w) => w.id) ?? [];
+	const id = [chosen, mine?.lastUsed].find((w) => w && ids.includes(w as Id<"workspaces">)) ?? ids[0];
 
 	// First sign-in (or after leaving your last one): join the workspaces that invited you, or start one.
 	useEffect(() => {
-		if (me && !me.role) ensure().catch((e) => setError(errorMessage(e)));
-	}, [me, ensure]);
+		if (mine?.workspaces.length === 0) ensure().catch((e) => setError(errorMessage(e)));
+	}, [mine, ensure]);
+
+	// Once this device has a workspace open it keeps it, even when another device later changes "last used".
+	useEffect(() => {
+		if (id && id !== chosen) {
+			localStorage.setItem(OPEN_KEY, id);
+			setChosen(id);
+		}
+	}, [id, chosen]);
+
+	const open = useCallback(
+		(next: Id<"workspaces">) => {
+			localStorage.setItem(OPEN_KEY, next);
+			setChosen(next);
+			remember({ to: next }).catch(() => {});
+		},
+		[remember],
+	);
+	const workspace = useMemo(() => id && { id: id as Id<"workspaces">, open }, [id, open]);
 
 	if (error) return <Centered><Notice>{error}</Notice></Centered>;
-	if (!me?.role) return null;
+	if (!workspace) return null;
 	// Keyed by workspace: switching starts every screen fresh.
-	return <Shell key={me.workspaceId} email={me.email} role={me.role} workspace={me.workspace ?? ""} />;
+	return (
+		<WorkspaceContext.Provider value={workspace}>
+			<Opened key={workspace.id} />
+		</WorkspaceContext.Provider>
+	);
+}
+
+function Opened() {
+	const me = useQuery(api.workspace.me);
+	if (!me?.role) return null;
+	return <Shell email={me.email} role={me.role} workspace={me.workspace ?? ""} />;
 }
 
 function Shell({ email, role, workspace }: { email: string; role: Role; workspace: string }) {

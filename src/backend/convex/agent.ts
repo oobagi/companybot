@@ -45,7 +45,8 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError } from "convex/values";
-import { type ActionCtx, action, internalAction } from "./_generated/server";
+import { type ActionCtx, internalAction } from "./_generated/server";
+import { action } from "./functions";
 import { decrypt, encrypt } from "./crypto";
 import { oauthRedirectUrl } from "./connectors";
 import type { messagePart } from "./schema";
@@ -113,7 +114,7 @@ export const refreshTools = action({
 	args: { connectorId: v.string() },
 	handler: async (ctx, { connectorId }) => {
 		const userId = await getAuthUserId(ctx);
-		const workspaceId = userId && (await ctx.runQuery(internal.permissions.workspaceOf, { userId }));
+		const workspaceId = userId && (await ctx.runQuery(internal.permissions.workspaceOf, { userId, workspaceId: ctx.workspaceId }));
 		if (!userId || !workspaceId) throw new ConvexError("Sign in to a workspace first.");
 		const connectors = await loadConnectors(ctx, { userId, workspaceId }, { tools: [`${connectorId}.*`] });
 		try {

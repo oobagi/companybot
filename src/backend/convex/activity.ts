@@ -1,7 +1,8 @@
 import { actionLabel, findConnector, toolGroup } from "@companybot/core";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type QueryCtx, internalMutation, query } from "./_generated/server";
+import { type QueryCtx, internalMutation } from "./_generated/server";
+import { query } from "./functions";
 import { type Namer, canSee, chatLabel, namer } from "./chatOps";
 import { type Member, getMember } from "./lib";
 import { titleOf } from "./permissions";

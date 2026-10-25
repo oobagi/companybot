@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import schema from "../convex/schema";
+import { person } from "./person";
 import { decrypt } from "../convex/crypto";
 import {
 	APPROVAL_TTL_MS,
@@ -44,13 +45,26 @@ const modules = import.meta.glob(["../convex/**/*.ts", "../convex/_generated/*.j
 /** A signed-in person. Convex Auth reads the user id from the token subject. */
 async function signIn(t: ReturnType<typeof convexTest>, email: string) {
 	const userId = await t.run((ctx) => ctx.db.insert("users", { email }));
-	const as = t.withIdentity({ subject: `${userId}|session` });
+	const as = person(t.withIdentity({ subject: `${userId}|session` }));
 	await as.mutation(api.workspace.ensure);
 	return as;
 }
 
-/** The workspace this person has open. */
+/** The workspace a person's calls act in when they name none (older apps): their first. */
 const workspaceOf = async (as: Awaited<ReturnType<typeof signIn>>) => (await as.query(api.workspace.me))!.workspaceId!;
+
+/** A person's calls as the app makes them: each carries the workspace that window has open. */
+const inWorkspace = (as: Awaited<ReturnType<typeof signIn>>, workspaceId: Id<"workspaces">) => as.in(workspaceId);
+
+/** Gives someone a second workspace of their own, as owner. */
+async function sideWorkspace(t: ReturnType<typeof convexTest>, email: string, name = "Side gig") {
+	return t.run(async (ctx) => {
+		const userId = (await ctx.db.query("users").collect()).find((u) => u.email === email)!._id;
+		const workspaceId = await ctx.db.insert("workspaces", { name, version: 1 });
+		await ctx.db.insert("members", { workspaceId, userId, role: "owner" });
+		return { userId, workspaceId };
+	});
+}
 
 /** The workspace's agents by name. */
 async function agentsOf(as: Awaited<ReturnType<typeof signIn>>) {
@@ -115,6 +129,12 @@ describe("invites", () => {
 
 		await owner.mutation(api.workspace.cancelInvite, { id: invite.id });
 		expect((await owner.query(api.workspace.team))!.invites).toEqual([]);
+		// Cancelling and inviting again doesn't get around the wait: the invite is saved, the email isn't sent.
+		expect(await owner.mutation(api.workspace.invite, { email: "pal@co.com", role: "member" })).toEqual({ emailed: false });
+		expect(await sent(t)).toHaveLength(3);
+		expect(inviteEmail({ inviter: "Eve\r\nBcc: x@evil.com", workspace: "Acme\n", email: "pal@co.com" }).subject).toBe(
+			"Eve Bcc: x@evil.com invited you to Acme on Companybot",
+		);
 		expect(inviteEmail({ inviter: "Jaden", workspace: "Acme", email: "pal@co.com" })).toMatchObject({
 			subject: "Jaden invited you to Acme on Companybot",
 			text: expect.stringContaining(DOWNLOAD_URL),
@@ -148,15 +168,18 @@ describe("invites", () => {
 		// Only the person invited can use it.
 		await expect(other.mutation(api.workspace.acceptInvite, { id: acme.id })).rejects.toThrow("isn't available");
 
-		await pal.mutation(api.workspace.acceptInvite, { id: acme.id });
-		expect(await pal.query(api.workspace.me)).toMatchObject({ workspace: "Acme", role: "member" });
-		expect((await generalOf(pal)).members).toHaveLength(2);
+		const acmeId = await pal.mutation(api.workspace.acceptInvite, { id: acme.id });
+		expect((await pal.query(api.workspace.mine))!.lastUsed).toBe(acmeId);
+		const inAcme = inWorkspace(pal, acmeId);
+		expect(await inAcme.query(api.workspace.me)).toMatchObject({ workspace: "Acme", role: "member" });
+		expect((await inAcme.query(api.chats.list))!.channels[0]!.members).toHaveLength(2);
 		await pal.mutation(api.workspace.declineInvite, { id: mine.invitations.find((i) => i.workspace !== "Acme")!.id });
 		expect((await pal.query(api.workspace.mine))!.invitations).toEqual([]);
 
-		await pal.mutation(api.workspace.switchTo, { workspaceId: palsOwn });
-		expect(await pal.query(api.workspace.me)).toMatchObject({ workspace: "My company", role: "owner" });
-		await expect(pal.mutation(api.workspace.switchTo, { workspaceId: await workspaceOf(other) })).rejects.toThrow("not in that workspace");
+		await pal.mutation(api.workspace.switchTo, { to: palsOwn });
+		expect((await pal.query(api.workspace.mine))!.lastUsed).toBe(palsOwn);
+		expect(await inWorkspace(pal, palsOwn).query(api.workspace.me)).toMatchObject({ workspace: "My company", role: "owner" });
+		await expect(pal.mutation(api.workspace.switchTo, { to: await workspaceOf(other) })).rejects.toThrow("not in that workspace");
 	});
 
 	it("joins every workspace that invited someone new", async () => {
@@ -170,24 +193,44 @@ describe("invites", () => {
 		expect((await a.query(api.workspace.team))!.members).toHaveLength(2);
 	});
 
-	it("acts in the workspace a turn belongs to, whichever one the person has open", async () => {
-		const { t, owner, member } = await ownerAndMember();
-		const agentId = (await agentsOf(owner)).companybot._id;
-		const shared = await workspaceOf(owner);
-		await owner.mutation(api.memory.create, { agentId, scope: "workspace", content: "Acme closes at 5." });
-		// The member also has a workspace of their own, and has it open.
-		const own = await t.run(async (ctx) => {
-			const userId = (await ctx.db.query("users").collect()).find((u) => u.email === "member@co.com")!._id;
-			const workspaceId = await ctx.db.insert("workspaces", { name: "Side gig", version: 1 });
-			await ctx.db.insert("members", { workspaceId, userId, role: "owner" });
-			return { userId, workspaceId };
-		});
-		await member.mutation(api.workspace.switchTo, { workspaceId: own.workspaceId });
-		expect((await member.query(api.workspace.me))!.workspace).toBe("Side gig");
-		const seen = await t.query(internal.memory.listFor, { userId: own.userId, workspaceId: shared, agentId });
-		expect(seen.map((m) => m.content)).toEqual(["Acme closes at 5."]);
-		// Their open workspace's own agents and chats are separate.
-		expect(await member.query(api.chats.list)).toMatchObject({ channels: [] });
+	it("acts in the workspace each request names, whatever another device has open", async () => {
+		const { t, owner } = await ownerAndMember();
+		const acme = await workspaceOf(owner);
+		const side = (await sideWorkspace(t, "owner@co.com")).workspaceId;
+		// Another device switches to the side workspace...
+		await owner.mutation(api.workspace.switchTo, { to: side });
+		// ...while this one, with Acme open, saves settings and invites someone.
+		const here = inWorkspace(owner, acme);
+		const { version } = (await here.query(api.workspace.settings))!;
+		await here.mutation(api.workspace.updateSettings, { name: "Acme", expectedVersion: version });
+		await here.mutation(api.workspace.invite, { email: "new@co.com", role: "owner" });
+		const names = await t.run(async (ctx) => [(await ctx.db.get(acme))!.name, (await ctx.db.get(side))!.name]);
+		expect(names).toEqual(["Acme", "Side gig"]);
+		const invites = await t.run((ctx) => ctx.db.query("invites").filter((q) => q.eq(q.field("email"), "new@co.com")).collect());
+		expect(invites.map((i) => i.workspaceId)).toEqual([acme]);
+		expect((await inWorkspace(owner, side).query(api.workspace.team))!.invites).toEqual([]);
+	});
+
+	it("refuses a request for a workspace the person isn't in", async () => {
+		const { t, member } = await ownerAndMember();
+		const stranger = await signIn(t, "stranger@co.com");
+		const theirs = inWorkspace(member, await workspaceOf(stranger));
+		expect(await theirs.query(api.workspace.me)).toMatchObject({ role: null });
+		expect(await theirs.query(api.chats.list)).toBeNull();
+		expect(await theirs.query(api.workspace.team)).toBeNull();
+		await expect(theirs.mutation(api.chats.createChannel, { name: "mine-now", private: false })).rejects.toThrow("Sign in to a workspace");
+		await expect(theirs.mutation(api.workspace.updateSettings, { name: "Taken", expectedVersion: 1 })).rejects.toThrow();
+	});
+
+	it("keeps older apps, which name no workspace, in the first one the person joined", async () => {
+		const { t, member } = await ownerAndMember();
+		const acme = await workspaceOf(member);
+		const side = (await sideWorkspace(t, "member@co.com")).workspaceId;
+		await member.mutation(api.workspace.switchTo, { to: side });
+		expect(await member.query(api.workspace.me)).toMatchObject({ workspaceId: acme, role: "member" });
+		await member.mutation(api.workspace.switchTo, { to: acme });
+		await member.mutation(api.workspace.switchTo, { to: side });
+		expect((await member.query(api.workspace.me))!.workspaceId).toBe(acme);
 	});
 
 	it("lets people leave, but not the last owner, and removal ends access at once", async () => {
@@ -1640,6 +1683,35 @@ describe("approvals", () => {
 		await t.mutation(internal.approvals.finish, { approvalId, result: '{"sent":true}' });
 		const [mine] = await member.query(api.approvals.forReply, { replyId: turn.replyId! });
 		expect(mine).toMatchObject({ status: "done", result: '{"sent":true}' });
+	});
+
+	it("keeps a turn, its connectors and its approval in their workspace when the person switches", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		const acme = await workspaceOf(owner);
+		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
+		await owner.action(api.connectors.connect, { connectorId: "crm", credentials: { type: "api_key", key: "k" } });
+		const chatId = (await generalOf(member))._id;
+		const { turn, approvalId, card } = await holdCall(t, member, chatId);
+
+		// The member also runs a workspace of their own, and switches to it on every device.
+		const side = (await sideWorkspace(t, "member@co.com")).workspaceId;
+		await member.mutation(api.workspace.switchTo, { to: side });
+		const userId = await meOf(member);
+		expect(await t.query(internal.connectors.forTurn, { userId, workspaceId: side, connectorIds: ["crm"] })).toEqual([]);
+
+		// Deciding from a window with the side workspace open finds nothing there...
+		await expect(
+			inWorkspace(member, side).mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true }),
+		).rejects.toThrow("not found");
+		// ...from Acme's, it resumes in Acme, acting as Acme's member with Acme's connection.
+		await inWorkspace(member, acme).mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true });
+		const next = (await turnsOf(t)).at(-1)!;
+		expect(next).toMatchObject({ status: "running", approvalId, workspaceId: acme });
+		const context = await t.query(internal.turns.turnContext, { turnId: next._id });
+		expect(context.member).toMatchObject({ userId, workspaceId: acme, role: "member" });
+		expect(await t.query(internal.connectors.forTurn, { userId, workspaceId: context.member.workspaceId, connectorIds: ["crm"] })).toHaveLength(1);
+		expect(await t.mutation(internal.approvals.claim, { approvalId, turnId: next._id })).toEqual(call);
+		expect(turn.workspaceId).toBe(acme);
 	});
 
 	it("runs nothing if the stored call no longer matches what was approved", async () => {

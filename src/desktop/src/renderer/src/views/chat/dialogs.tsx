@@ -1,8 +1,7 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { useMutation } from "convex/react";
-import { useQuery } from "convex-helpers/react/cache";
 import { useState } from "react";
 import { api } from "../../api";
+import { useMutation, useQuery } from "../../convex";
 import { Field, Loading, Notice, inputClass, primaryButton, secondaryButton, useRun } from "../../ui";
 import { AgentBadge, Avatar, Modal } from "./common";
 import { type ChatDetails, type Participant, chatTitle, useDirectory } from "./data";

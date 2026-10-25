@@ -10,7 +10,8 @@ import {
 	toolGroup,
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation } from "./_generated/server";
+import { mutation, query } from "./functions";
 import { canSee, namer } from "./chatOps";
 import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";

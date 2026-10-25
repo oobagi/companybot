@@ -1,9 +1,8 @@
 import type { Role } from "@companybot/core";
 import { can } from "@companybot/core/permissions";
-import { useMutation } from "convex/react";
-import { useQuery } from "convex-helpers/react/cache";
 import { useState } from "react";
 import { api } from "../api";
+import { useMutation, useQuery } from "../convex";
 import { Loading, Notice, inputClass, primaryButton, useRun } from "../ui";
 
 export function MembersTab({ role }: { role: Role }) {
@@ -16,6 +15,7 @@ export function MembersTab({ role }: { role: Role }) {
 	const [email, setEmail] = useState("");
 	const [inviteRole, setInviteRole] = useState<Role>("member");
 	const [resent, setResent] = useState<string>();
+	const [note, setNote] = useState<string>();
 	const { error, run } = useRun();
 	const isOwner = can(role, "members.manage");
 
@@ -27,13 +27,17 @@ export function MembersTab({ role }: { role: Role }) {
 				We email invited people a link to get the app. They join when they sign in with that email. Role changes apply right away.
 			</p>
 			{error && <Notice>{error}</Notice>}
+			{note && <p className="text-sm text-neutral-500">{note}</p>}
 
 			{isOwner && (
 				<form
 					className="flex gap-2"
 					onSubmit={(e) => {
 						e.preventDefault();
-						run(invite({ email, role: inviteRole }), () => setEmail(""));
+						run(
+							invite({ email, role: inviteRole }).then(({ emailed }) => setNote(emailed ? undefined : `${email} got an invite email a few minutes ago, so we didn't send another.`)),
+							() => setEmail(""),
+						);
 					}}
 				>
 					<input

@@ -1,9 +1,9 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import type { FunctionReturnType } from "convex/server";
-import { useQuery } from "convex-helpers/react/cache";
 import { useState } from "react";
 import { describeAllowed } from "@companybot/core/approvals";
 import { api } from "../api";
+import { useQuery } from "../convex";
 import { navigate } from "../router";
 import { Loading, timeAgo } from "../ui";
 

@@ -1,11 +1,10 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import type { MemoryScope, Role } from "@companybot/core";
 import { can } from "@companybot/core/permissions";
-import { useMutation } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { useQuery } from "convex-helpers/react/cache";
 import { useState } from "react";
 import { api } from "../api";
+import { useMutation, useQuery } from "../convex";
 import { ConflictNotice, Loading, Notice, Section, inputClass, primaryButton, timeAgo, useRun } from "../ui";
 
 type MemoryItem = FunctionReturnType<typeof api.memory.list>[number];

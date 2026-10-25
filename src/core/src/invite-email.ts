@@ -10,7 +10,13 @@ export const INVITE_RESEND_MS = 10 * 60_000;
 const escape = (text: string) =>
 	text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
-export function inviteEmail({ inviter, workspace, email }: { inviter: string; workspace: string; email: string }) {
+/** One line of plain text: names are typed by people, and the subject is an email header. */
+const oneLine = (text: string) => text.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").trim().slice(0, 100);
+
+export function inviteEmail(names: { inviter: string; workspace: string; email: string }) {
+	const inviter = oneLine(names.inviter);
+	const workspace = oneLine(names.workspace);
+	const email = oneLine(names.email);
 	const subject = `${inviter} invited you to ${workspace} on Companybot`;
 	const steps = [`Download Companybot: ${DOWNLOAD_URL}`, `Open it and sign in with ${email}. You'll join ${workspace} right away.`];
 	const text = [

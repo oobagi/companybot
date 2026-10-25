@@ -1,10 +1,9 @@
 import type { Role } from "@companybot/core";
 import { can } from "@companybot/core/permissions";
-import { useAction, useMutation } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { useQuery } from "convex-helpers/react/cache";
 import { useState } from "react";
 import { api } from "../../api";
+import { useAction, useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { Loading, Notice, Section, inputClass, primaryButton, useRun } from "../../ui";
 import { ConnectorActions } from "../Permissions";

@@ -15,8 +15,9 @@ import {
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type MutationCtx, type QueryCtx, internalMutation, internalQuery, mutation, query } from "./_generated/server";
-import { type Member, activeMemberOf, getMember, memberOf, requireMember, requirePermission } from "./lib";
+import { type MutationCtx, type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
+import { mutation, query } from "./functions";
+import { type Member, getMember, memberFor, memberOf, requireMember, requirePermission } from "./lib";
 import { canView } from "./automations";
 import { risk } from "./schema";
 import { runningTurn } from "./turns";
@@ -184,10 +185,10 @@ export async function titleOf(ctx: QueryCtx, workspaceId: Id<"workspaces">, acti
 	return (await toolsOf(ctx, workspaceId, toolGroup(action))).find((t) => `${toolGroup(action)}.${t.name}` === action)?.title;
 }
 
-/** The workspace they have open. */
+/** The workspace a request is for, if they're in it (actions can't read the database). */
 export const workspaceOf = internalQuery({
-	args: { userId: v.id("users") },
-	handler: async (ctx, { userId }) => (await activeMemberOf(ctx, userId))?.workspaceId ?? null,
+	args: { userId: v.id("users"), workspaceId: v.optional(v.id("workspaces")) },
+	handler: async (ctx, { userId, workspaceId }) => (await memberFor(ctx, userId, workspaceId))?.workspaceId ?? null,
 });
 
 /** Records the tools a connector's server listed, when they changed. Display only. */

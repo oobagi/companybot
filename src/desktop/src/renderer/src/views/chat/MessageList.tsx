@@ -1,7 +1,7 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { useQuery } from "convex-helpers/react/cache";
 import { Fragment, useLayoutEffect, useRef, useState } from "react";
 import { api } from "../../api";
+import { useQuery } from "../../convex";
 import { Markdown } from "../../markdown";
 import { dayLabel, sameDay } from "./common";
 import type { Message } from "./data";
