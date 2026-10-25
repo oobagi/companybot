@@ -84,7 +84,7 @@ type TurnUsage = ReplyUsage & { firstTokenMs?: number };
 
 async function runTurn(ctx: ActionCtx, turnId: Id<"agentTurns">, usage: TurnUsage) {
 	const turn = await ctx.runQuery(internal.turns.turnContext, { turnId });
-	const connectors = await loadConnectors(ctx, turn.member.userId, turn.agent);
+	const connectors = await loadConnectors(ctx, turn.member, turn.agent);
 	await saveTools(ctx, turn.member.workspaceId, connectors);
 	try {
 		await streamReply(ctx, turnId, turn, connectors, usage);
@@ -113,7 +113,7 @@ export const refreshTools = action({
 		const userId = await getAuthUserId(ctx);
 		const workspaceId = userId && (await ctx.runQuery(internal.permissions.workspaceOf, { userId }));
 		if (!userId || !workspaceId) throw new ConvexError("Sign in to a workspace first.");
-		const connectors = await loadConnectors(ctx, userId, { tools: [`${connectorId}.*`] });
+		const connectors = await loadConnectors(ctx, { userId, workspaceId }, { tools: [`${connectorId}.*`] });
 		try {
 			if (connectors.unavailable.length > 0) throw new ConvexError(`Couldn't reach ${connectors.unavailable[0]}.`);
 			await saveTools(ctx, workspaceId, connectors);
@@ -150,11 +150,15 @@ async function saveRefreshedTokens(ctx: ActionCtx, connectors: LoadedConnectors)
  * A failing connector is skipped and the agent is told, so one bad connection never
  * breaks the reply.
  */
-async function loadConnectors(ctx: ActionCtx, userId: Id<"users">, agent: Pick<AgentConfig, "tools">): Promise<LoadedConnectors> {
+async function loadConnectors(
+	ctx: ActionCtx,
+	{ userId, workspaceId }: { userId: Id<"users">; workspaceId: Id<"workspaces"> },
+	agent: Pick<AgentConfig, "tools">,
+): Promise<LoadedConnectors> {
 	const connectorIds = grantedConnectorIds(agent);
 	const oauth: LoadedConnectors["oauth"] = [];
 	if (connectorIds.length === 0) return { sessions: [], unavailable: [], oauth };
-	const usable = await ctx.runQuery(internal.connectors.forTurn, { userId, connectorIds });
+	const usable = await ctx.runQuery(internal.connectors.forTurn, { userId, workspaceId, connectorIds });
 	const results = await Promise.all(
 		usable.map(async ({ connectorId, connectionId, credentials }) => {
 			const connector = findConnector(connectorId)!;
@@ -169,7 +173,7 @@ async function loadConnectors(ctx: ActionCtx, userId: Id<"users">, agent: Pick<A
 				if (connectionId) await ctx.runMutation(internal.connectors.setConnectionError, { connectionId });
 				// Access is read fresh before every call, so a role change or disconnect applies mid-reply.
 				const stillAllowed = async () =>
-					(await ctx.runQuery(internal.connectors.forTurn, { userId, connectorIds: [connectorId] }))[0]?.connectionId === connectionId;
+					(await ctx.runQuery(internal.connectors.forTurn, { userId, workspaceId, connectorIds: [connectorId] }))[0]?.connectionId === connectionId;
 				const session: ConnectorSession = {
 					...opened,
 					tools: opened.tools.map((tool) => ({
@@ -224,7 +228,7 @@ async function streamReply(
 		actor: { userId: member.userId, role: member.role },
 		timeZone: turn.actor.timeZone,
 		agentId: agent.id,
-		memory: memoryStore(ctx, member.userId, agent.id, turn.memory === "team"),
+		memory: memoryStore(ctx, member, agent.id, turn.memory === "team"),
 		chat: chatStore(ctx, turnId),
 		skills: {
 			list: turn.skills,
@@ -423,8 +427,13 @@ async function runApproval(
  * call re-reads the person's role, so permission changes apply mid-reply. In chats
  * with 2+ people (`teamOnly`), the backend refuses personal memories.
  */
-function memoryStore(ctx: ActionCtx, userId: Id<"users">, agentId: Id<"agents">, teamOnly: boolean): MemoryStore {
-	const who = { userId, agentId, teamOnly };
+function memoryStore(
+	ctx: ActionCtx,
+	{ userId, workspaceId }: { userId: Id<"users">; workspaceId: Id<"workspaces"> },
+	agentId: Id<"agents">,
+	teamOnly: boolean,
+): MemoryStore {
+	const who = { userId, workspaceId, agentId, teamOnly };
 	return {
 		list: () => ctx.runQuery(internal.memory.listFor, who),
 		create: (_actor, { scope, content }) => ctx.runMutation(internal.memory.createFor, { ...who, scope, content }),

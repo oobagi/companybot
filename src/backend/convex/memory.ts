@@ -47,14 +47,15 @@ export const remove = mutation({
 // Agent-facing versions: same rules, acting for the person the agent is helping.
 // Membership is read fresh on every call, so a removed person's agent loses access at once.
 
-async function actingFor(ctx: QueryCtx, userId: Id<"users">) {
-	const member = await memberOf(ctx, userId);
+async function actingFor(ctx: QueryCtx, userId: Id<"users">, workspaceId: Id<"workspaces">) {
+	const member = await memberOf(ctx, userId, workspaceId);
 	if (!member) throw new ConvexError("This person is no longer in the workspace.");
 	return member;
 }
 
 const forArgs = {
 	userId: v.id("users"),
+	workspaceId: v.id("workspaces"),
 	agentId: v.id("agents"),
 	/** Set in chats with 2+ people: only team memories, so personal facts never land in a shared chat. */
 	teamOnly: v.optional(v.boolean()),
@@ -69,36 +70,36 @@ async function requireTeamMemory(ctx: QueryCtx, id: Id<"memories">, teamOnly?: b
 
 export const listFor = internalQuery({
 	args: forArgs,
-	handler: async (ctx, { userId, agentId, teamOnly }) => {
-		const memories = await listMemories(ctx, await actingFor(ctx, userId), agentId);
+	handler: async (ctx, { userId, workspaceId, agentId, teamOnly }) => {
+		const memories = await listMemories(ctx, await actingFor(ctx, userId, workspaceId), agentId);
 		return teamOnly ? memories.filter((m) => m.scope === "workspace") : memories;
 	},
 });
 
 export const createFor = internalMutation({
 	args: { ...forArgs, scope, content: v.string() },
-	handler: async (ctx, { userId, agentId, teamOnly, scope, content }) => {
+	handler: async (ctx, { userId, workspaceId, agentId, teamOnly, scope, content }) => {
 		if (teamOnly && scope === "personal") throw new ConvexError(SHARED_CHAT);
-		return createMemory(ctx, await actingFor(ctx, userId), agentId, scope, content, true);
+		return createMemory(ctx, await actingFor(ctx, userId, workspaceId), agentId, scope, content, true);
 	},
 });
 
 export const updateFor = internalMutation({
 	args: { ...forArgs, id: v.id("memories"), content: v.string() },
-	handler: async (ctx, { userId, agentId, teamOnly, id, content }) => {
+	handler: async (ctx, { userId, workspaceId, agentId, teamOnly, id, content }) => {
 		const memory = await ctx.db.get(id);
 		if (memory?.agentId !== agentId) throw new ConvexError("Memory not found.");
 		await requireTeamMemory(ctx, id, teamOnly);
-		return updateMemory(ctx, await actingFor(ctx, userId), id, content, undefined, true);
+		return updateMemory(ctx, await actingFor(ctx, userId, workspaceId), id, content, undefined, true);
 	},
 });
 
 export const removeFor = internalMutation({
 	args: { ...forArgs, id: v.id("memories") },
-	handler: async (ctx, { userId, agentId, teamOnly, id }) => {
+	handler: async (ctx, { userId, workspaceId, agentId, teamOnly, id }) => {
 		const memory = await ctx.db.get(id);
 		if (memory?.agentId !== agentId) throw new ConvexError("Memory not found.");
 		await requireTeamMemory(ctx, id, teamOnly);
-		await removeMemory(ctx, await actingFor(ctx, userId), id);
+		await removeMemory(ctx, await actingFor(ctx, userId, workspaceId), id);
 	},
 });

@@ -116,7 +116,7 @@ export async function ensureGeneral(ctx: MutationCtx, workspaceId: Id<"workspace
 /** Refuses people outside the workspace. */
 export async function requireWorkspaceUsers(ctx: QueryCtx, workspaceId: Id<"workspaces">, userIds: Id<"users">[]) {
 	for (const id of userIds) {
-		if ((await memberOf(ctx, id))?.workspaceId !== workspaceId) throw new ConvexError("Someone you picked isn't in this workspace.");
+		if (!(await memberOf(ctx, id, workspaceId))) throw new ConvexError("Someone you picked isn't in this workspace.");
 	}
 }
 

@@ -15,7 +15,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { encrypt } from "./crypto";
-import { type Member, getMember, memberOf, requireMember, requirePermission } from "./lib";
+import { type Member, activeMemberOf, getMember, memberOf, requireMember, requirePermission } from "./lib";
 import { forgetConnector } from "./permissions";
 import { role } from "./schema";
 
@@ -150,7 +150,7 @@ export const startOAuth = action({
 		if (!userId) throw new ConvexError("Not signed in.");
 		const connector = requireConnector(connectorId);
 		if (connector.auth.type !== "oauth") throw new ConvexError("This connector doesn't sign in through the browser.");
-		await ctx.runQuery(internal.connectors.connectTarget, { userId, connectorId });
+		const workspaceId = await ctx.runQuery(internal.connectors.connectTarget, { userId, connectorId });
 		let started: Awaited<ReturnType<typeof startSignIn>>;
 		try {
 			started = await startSignIn(connector, oauthRedirectUrl());
@@ -159,6 +159,7 @@ export const startOAuth = action({
 		}
 		await ctx.runMutation(internal.connectors.saveOAuthFlow, {
 			userId,
+			workspaceId,
 			connectorId,
 			state: started.state.state!,
 			data: await encrypt(started.state),
@@ -168,7 +169,7 @@ export const startOAuth = action({
 });
 
 export const saveOAuthFlow = internalMutation({
-	args: { userId: v.id("users"), connectorId: v.string(), state: v.string(), data: v.string() },
+	args: { userId: v.id("users"), workspaceId: v.id("workspaces"), connectorId: v.string(), state: v.string(), data: v.string() },
 	handler: async (ctx, args) => {
 		// Only the newest sign-in per person counts; drop abandoned ones.
 		const old = await ctx.db
@@ -204,14 +205,15 @@ export const connect = action({
 		const problem = validateCredentials(connector, args.credentials);
 		if (problem) throw new ConvexError(problem);
 		// Check permission before encrypting, then again when saving.
-		await ctx.runQuery(internal.connectors.connectTarget, { userId, connectorId: connector.id });
+		const workspaceId = await ctx.runQuery(internal.connectors.connectTarget, { userId, connectorId: connector.id });
 		const sealed = await encrypt(args.credentials);
-		await ctx.runMutation(internal.connectors.saveConnection, { userId, connectorId: connector.id, credentials: sealed });
+		await ctx.runMutation(internal.connectors.saveConnection, { userId, workspaceId, connectorId: connector.id, credentials: sealed });
 	},
 });
 
-async function requireConnectTarget(ctx: QueryCtx, userId: Id<"users">, connectorId: string) {
-	const member = await memberOf(ctx, userId);
+/** `workspaceId` pins where it connects; without one, the workspace they have open. */
+async function requireConnectTarget(ctx: QueryCtx, userId: Id<"users">, workspaceId: Id<"workspaces"> | undefined, connectorId: string) {
+	const member = workspaceId ? await memberOf(ctx, userId, workspaceId) : await activeMemberOf(ctx, userId);
 	if (!member) throw new ConvexError("Sign in to a workspace first.");
 	const connector = requireConnector(connectorId);
 	const install = await installOf(ctx, member.workspaceId, connectorId);
@@ -224,9 +226,9 @@ async function requireConnectTarget(ctx: QueryCtx, userId: Id<"users">, connecto
 
 export const connectTarget = internalQuery({
 	args: { userId: v.id("users"), connectorId: v.string() },
-	handler: async (ctx, { userId, connectorId }) => {
-		await requireConnectTarget(ctx, userId, connectorId);
-	},
+	/** The workspace it would connect in, so the save lands there even if they switch meanwhile. */
+	handler: async (ctx, { userId, connectorId }): Promise<Id<"workspaces">> =>
+		(await requireConnectTarget(ctx, userId, undefined, connectorId)).member.workspaceId,
 });
 
 /** Replaces stored credentials, e.g. after the runner refreshed an OAuth token. */
@@ -238,9 +240,9 @@ export const updateCredentials = internalMutation({
 });
 
 export const saveConnection = internalMutation({
-	args: { userId: v.id("users"), connectorId: v.string(), credentials: v.string() },
+	args: { userId: v.id("users"), workspaceId: v.optional(v.id("workspaces")), connectorId: v.string(), credentials: v.string() },
 	handler: async (ctx, args) => {
-		const { member, connector, userId } = await requireConnectTarget(ctx, args.userId, args.connectorId);
+		const { member, connector, userId } = await requireConnectTarget(ctx, args.userId, args.workspaceId, args.connectorId);
 		const existing = await connectionFor(ctx, connector, member);
 		if (existing) await ctx.db.delete(existing._id);
 		await ctx.db.insert("connectorConnections", {
@@ -273,9 +275,9 @@ export const disconnect = mutation({
  * fresh), and connected. Credentials stay encrypted until the runner needs them.
  */
 export const forTurn = internalQuery({
-	args: { userId: v.id("users"), connectorIds: v.array(v.string()) },
-	handler: async (ctx, { userId, connectorIds }) => {
-		const member = await memberOf(ctx, userId);
+	args: { userId: v.id("users"), workspaceId: v.id("workspaces"), connectorIds: v.array(v.string()) },
+	handler: async (ctx, { userId, workspaceId, connectorIds }) => {
+		const member = await memberOf(ctx, userId, workspaceId);
 		if (!member) return [];
 		const usable: { connectorId: string; connectionId: Id<"connectorConnections"> | null; credentials: string | null }[] = [];
 		for (const connectorId of connectorIds) {

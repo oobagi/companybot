@@ -21,8 +21,26 @@ export interface Member {
 
 export const toActor = (m: Member): Actor => ({ userId: m.userId, role: m.role });
 
-/** Reads membership fresh, so role changes and removals apply right away (even mid-reply). */
-export async function memberOf(ctx: QueryCtx, userId: Id<"users">): Promise<Member | null> {
+/**
+ * Their membership in one workspace, read fresh, so role changes and removals apply right
+ * away (even mid-reply). People can be in several workspaces, so always say which.
+ */
+export async function memberOf(ctx: QueryCtx, userId: Id<"users">, workspaceId: Id<"workspaces">): Promise<Member | null> {
+	const row = await ctx.db
+		.query("members")
+		.withIndex("by_user", (q) => q.eq("userId", userId).eq("workspaceId", workspaceId))
+		.first();
+	return row ? { userId, workspaceId, role: row.role } : null;
+}
+
+/** The workspace they have open (Your preferences), else the first they joined. */
+export async function activeMemberOf(ctx: QueryCtx, userId: Id<"users">): Promise<Member | null> {
+	const prefs = await ctx.db
+		.query("preferences")
+		.withIndex("by_user", (q) => q.eq("userId", userId))
+		.first();
+	const open = prefs?.workspaceId && (await memberOf(ctx, userId, prefs.workspaceId));
+	if (open) return open;
 	const row = await ctx.db
 		.query("members")
 		.withIndex("by_user", (q) => q.eq("userId", userId))
@@ -30,9 +48,10 @@ export async function memberOf(ctx: QueryCtx, userId: Id<"users">): Promise<Memb
 	return row ? { userId, workspaceId: row.workspaceId, role: row.role } : null;
 }
 
+/** The signed-in person in the workspace they have open. */
 export async function getMember(ctx: QueryCtx): Promise<Member | null> {
 	const userId = await getAuthUserId(ctx);
-	return userId ? memberOf(ctx, userId) : null;
+	return userId ? activeMemberOf(ctx, userId) : null;
 }
 
 export async function requireMember(ctx: QueryCtx): Promise<Member> {

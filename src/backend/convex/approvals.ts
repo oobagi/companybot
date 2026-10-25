@@ -55,8 +55,8 @@ export const request = internalMutation({
  * since), and the automation a grant would be scoped to. Old rows without a risk: no.
  */
 async function alwaysFor(ctx: QueryCtx, row: Doc<"approvals">) {
-	const member = await memberOf(ctx, row.actorId);
-	if (!row.risk || !member || member.workspaceId !== row.workspaceId) return null;
+	const member = await memberOf(ctx, row.actorId, row.workspaceId);
+	if (!row.risk || !member) return null;
 	// From an automation's run: the grant is scoped to it. If it's gone (or the row predates
 	// the field and its trigger was an automation's), refuse rather than save a wider rule.
 	const turn = await ctx.db.get(row.turnId);
@@ -184,7 +184,7 @@ export const claim = internalMutation({
 			return null;
 		}
 		// Rules are read fresh: a block or Never set since the approval wins.
-		const member = await memberOf(ctx, row.actorId);
+		const member = await memberOf(ctx, row.actorId, row.workspaceId);
 		const { decision } = member ? await decideFor(ctx, member, { action: row.tool, risk: row.risk ?? "outside" }) : { decision: null };
 		if (decision?.type === "deny") {
 			const who = decision.by === "owner" ? "A workspace owner blocked this" : `${await nameOf(ctx, row.actorId)} set this to Never`;

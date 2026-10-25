@@ -15,6 +15,7 @@ import { RecordsView, recordTabs, useAddedTypes } from "./views/Records";
 import { builtinTabs } from "./views/records/logic";
 import { SettingsView, settingsTabAliases, settingsTabs } from "./views/Settings";
 import { SignIn } from "./views/SignIn";
+import { WorkspaceMenu } from "./views/WorkspaceMenu";
 
 const views = ["chat", ...recordTabs.map((t) => t.id), "records", "customize", "settings"] as const;
 type View = (typeof views)[number];
@@ -30,14 +31,15 @@ function Workspace() {
 	const ensure = useMutation(api.workspace.ensure);
 	const [error, setError] = useState<string>();
 
-	// First sign-in: join the workspace you were invited to, or start one.
+	// First sign-in (or after leaving your last one): join the workspaces that invited you, or start one.
 	useEffect(() => {
 		if (me && !me.role) ensure().catch((e) => setError(errorMessage(e)));
 	}, [me, ensure]);
 
 	if (error) return <Centered><Notice>{error}</Notice></Centered>;
 	if (!me?.role) return null;
-	return <Shell email={me.email} role={me.role} workspace={me.workspace ?? ""} />;
+	// Keyed by workspace: switching starts every screen fresh.
+	return <Shell key={me.workspaceId} email={me.email} role={me.role} workspace={me.workspace ?? ""} />;
 }
 
 function Shell({ email, role, workspace }: { email: string; role: Role; workspace: string }) {
@@ -77,7 +79,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	return (
 		<div className="flex h-screen text-[15px] text-neutral-900">
 			<aside className="drag flex w-60 shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 px-3 pt-12 pb-3">
-				<p className="truncate px-2 pb-4 text-sm font-semibold">{workspace}</p>
+				<WorkspaceMenu name={workspace} />
 				<nav className="no-drag mb-3 flex flex-col gap-px border-b border-neutral-200 pb-3">
 					{recordTabs.map((t) => (
 						<Fragment key={t.id}>

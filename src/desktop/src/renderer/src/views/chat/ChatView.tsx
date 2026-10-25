@@ -87,7 +87,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 		<Composer
 			sendWith={sendWith}
 			placeholder={`Message ${title}`}
-			hint={chat.kind === "channel" ? "@mention an agent to ask it" : undefined}
+			hint={!agent && (chat.kind === "channel" || chat.members.some((m) => m.type === "agent")) ? "@mention an agent to ask it" : undefined}
 			candidates={candidates}
 			onSend={send}
 		/>

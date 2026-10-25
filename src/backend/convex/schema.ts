@@ -121,16 +121,27 @@ export default defineSchema({
 		userId: v.id("users"),
 		role,
 	})
-		.index("by_user", ["userId"])
+		.index("by_user", ["userId", "workspaceId"])
 		.index("by_workspace", ["workspaceId"]),
 
+	// One per email per workspace. Only someone signed in with that email can accept it.
 	invites: defineTable({
 		workspaceId: v.id("workspaces"),
 		email: v.string(),
 		role,
+		/** Missing on invites from before invite emails. */
+		invitedBy: v.optional(v.id("users")),
 	})
 		.index("by_email", ["email"])
 		.index("by_workspace", ["workspaceId"]),
+
+	// Each invite email sent, so a workspace can't flood an inbox (`inviteEmailProblem`).
+	inviteEmails: defineTable({
+		workspaceId: v.id("workspaces"),
+		email: v.string(),
+	})
+		.index("by_workspace", ["workspaceId"])
+		.index("by_email", ["workspaceId", "email"]),
 
 	// Each workspace has its own agents. Every save also writes an agentVersions row.
 	agents: defineTable({
@@ -174,6 +185,8 @@ export default defineSchema({
 		timeZone: v.optional(v.string()),
 		/** Their computer's time zone, reported by the app. */
 		deviceTimeZone: v.optional(v.string()),
+		/** The workspace they have open, for people in several. Left out means their first. */
+		workspaceId: v.optional(v.id("workspaces")),
 	}).index("by_user", ["userId"]),
 
 	// Connectors: an owner installs one and picks which roles may use it.
@@ -203,6 +216,8 @@ export default defineSchema({
 		state: v.string(),
 		connectorId: v.string(),
 		userId: v.id("users"),
+		/** The workspace it connects in. Missing on sign-ins started before people could be in several. */
+		workspaceId: v.optional(v.id("workspaces")),
 		data: v.string(),
 		expiresAt: v.number(),
 	})

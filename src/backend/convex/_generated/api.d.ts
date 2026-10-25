@@ -21,6 +21,7 @@ import type * as crons from "../crons.js";
 import type * as crypto from "../crypto.js";
 import type * as fields from "../fields.js";
 import type * as http from "../http.js";
+import type * as invites from "../invites.js";
 import type * as lib from "../lib.js";
 import type * as memory from "../memory.js";
 import type * as memoryOps from "../memoryOps.js";
@@ -59,6 +60,7 @@ declare const fullApi: ApiFromModules<{
   crypto: typeof crypto;
   fields: typeof fields;
   http: typeof http;
+  invites: typeof invites;
   lib: typeof lib;
   memory: typeof memory;
   memoryOps: typeof memoryOps;

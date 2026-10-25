@@ -7,6 +7,9 @@ import schema from "../convex/schema";
 import { decrypt } from "../convex/crypto";
 import {
 	APPROVAL_TTL_MS,
+	DOWNLOAD_URL,
+	INVITE_EMAILS_PER_DAY,
+	inviteEmail,
 	approvalHash,
 	automationCatalog,
 	builtinTools,
@@ -45,6 +48,9 @@ async function signIn(t: ReturnType<typeof convexTest>, email: string) {
 	await as.mutation(api.workspace.ensure);
 	return as;
 }
+
+/** The workspace this person has open. */
+const workspaceOf = async (as: Awaited<ReturnType<typeof signIn>>) => (await as.query(api.workspace.me))!.workspaceId!;
 
 /** The workspace's agents by name. */
 async function agentsOf(as: Awaited<ReturnType<typeof signIn>>) {
@@ -88,6 +94,127 @@ describe("workspaces", () => {
 	});
 });
 
+describe("invites", () => {
+	const sent = (t: ReturnType<typeof convexTest>) => t.run((ctx) => ctx.db.query("inviteEmails").collect());
+
+	it("emails the invite, saying who invited them, and lets owners resend or cancel it", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		await owner.mutation(api.preferences.update, { displayName: "Jaden" });
+		await owner.mutation(api.workspace.updateSettings, { name: "Acme", expectedVersion: 1 });
+		await owner.mutation(api.workspace.invite, { email: "Pal@Co.com", role: "member" });
+		expect((await sent(t)).map((e) => e.email)).toEqual(["member@co.com", "pal@co.com"]);
+		const invite = (await owner.query(api.workspace.team))!.invites[0]!;
+		await expect(member.mutation(api.workspace.resendInvite, { id: invite.id })).rejects.toThrow("permission");
+
+		// The same address can't be emailed again right away.
+		await expect(owner.mutation(api.workspace.resendInvite, { id: invite.id })).rejects.toThrow("a moment ago");
+		vi.useFakeTimers({ now: Date.now() + 11 * 60_000, toFake: ["Date"] });
+		await owner.mutation(api.workspace.resendInvite, { id: invite.id });
+		vi.useRealTimers();
+		expect(await sent(t)).toHaveLength(3);
+
+		await owner.mutation(api.workspace.cancelInvite, { id: invite.id });
+		expect((await owner.query(api.workspace.team))!.invites).toEqual([]);
+		expect(inviteEmail({ inviter: "Jaden", workspace: "Acme", email: "pal@co.com" })).toMatchObject({
+			subject: "Jaden invited you to Acme on Companybot",
+			text: expect.stringContaining(DOWNLOAD_URL),
+		});
+	});
+
+	it("caps invite emails per workspace per day", async () => {
+		const { t, owner } = await ownerAndMember();
+		for (let i = 1; i < INVITE_EMAILS_PER_DAY; i++) await owner.mutation(api.workspace.invite, { email: `p${i}@co.com`, role: "member" });
+		await expect(owner.mutation(api.workspace.invite, { email: "one-more@co.com", role: "member" })).rejects.toThrow("Try again tomorrow");
+		// Refused invites aren't saved half-done.
+		expect((await owner.query(api.workspace.team))!.invites).toHaveLength(INVITE_EMAILS_PER_DAY - 1);
+		expect(await sent(t)).toHaveLength(INVITE_EMAILS_PER_DAY);
+	});
+
+	it("lets someone who already has a workspace accept, then switch between both", async () => {
+		const t = convexTest({ schema, modules, transactionLimits: true });
+		const owner = await signIn(t, "owner@co.com");
+		await owner.mutation(api.workspace.updateSettings, { name: "Acme", expectedVersion: 1 });
+		const pal = await signIn(t, "pal@co.com");
+		const palsOwn = await workspaceOf(pal);
+		await owner.mutation(api.workspace.invite, { email: "pal@co.com", role: "member" });
+		// Another workspace inviting the same email doesn't block this one.
+		const other = await signIn(t, "other@co.com");
+		await other.mutation(api.workspace.invite, { email: "pal@co.com", role: "owner" });
+
+		const mine = (await pal.query(api.workspace.mine))!;
+		expect(mine.workspaces.map((w) => w.name)).toEqual(["My company"]);
+		expect(mine.invitations.map((i) => i.workspace).sort()).toEqual(["Acme", "My company"]);
+		const acme = mine.invitations.find((i) => i.workspace === "Acme")!;
+		// Only the person invited can use it.
+		await expect(other.mutation(api.workspace.acceptInvite, { id: acme.id })).rejects.toThrow("isn't available");
+
+		await pal.mutation(api.workspace.acceptInvite, { id: acme.id });
+		expect(await pal.query(api.workspace.me)).toMatchObject({ workspace: "Acme", role: "member" });
+		expect((await generalOf(pal)).members).toHaveLength(2);
+		await pal.mutation(api.workspace.declineInvite, { id: mine.invitations.find((i) => i.workspace !== "Acme")!.id });
+		expect((await pal.query(api.workspace.mine))!.invitations).toEqual([]);
+
+		await pal.mutation(api.workspace.switchTo, { workspaceId: palsOwn });
+		expect(await pal.query(api.workspace.me)).toMatchObject({ workspace: "My company", role: "owner" });
+		await expect(pal.mutation(api.workspace.switchTo, { workspaceId: await workspaceOf(other) })).rejects.toThrow("not in that workspace");
+	});
+
+	it("joins every workspace that invited someone new", async () => {
+		const t = convexTest({ schema, modules, transactionLimits: true });
+		const a = await signIn(t, "a@co.com");
+		const b = await signIn(t, "b@co.com");
+		await a.mutation(api.workspace.invite, { email: "new@co.com", role: "member" });
+		await b.mutation(api.workspace.invite, { email: "new@co.com", role: "member" });
+		const fresh = await signIn(t, "new@co.com");
+		expect((await fresh.query(api.workspace.mine))!.workspaces).toHaveLength(2);
+		expect((await a.query(api.workspace.team))!.members).toHaveLength(2);
+	});
+
+	it("acts in the workspace a turn belongs to, whichever one the person has open", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		const agentId = (await agentsOf(owner)).companybot._id;
+		const shared = await workspaceOf(owner);
+		await owner.mutation(api.memory.create, { agentId, scope: "workspace", content: "Acme closes at 5." });
+		// The member also has a workspace of their own, and has it open.
+		const own = await t.run(async (ctx) => {
+			const userId = (await ctx.db.query("users").collect()).find((u) => u.email === "member@co.com")!._id;
+			const workspaceId = await ctx.db.insert("workspaces", { name: "Side gig", version: 1 });
+			await ctx.db.insert("members", { workspaceId, userId, role: "owner" });
+			return { userId, workspaceId };
+		});
+		await member.mutation(api.workspace.switchTo, { workspaceId: own.workspaceId });
+		expect((await member.query(api.workspace.me))!.workspace).toBe("Side gig");
+		const seen = await t.query(internal.memory.listFor, { userId: own.userId, workspaceId: shared, agentId });
+		expect(seen.map((m) => m.content)).toEqual(["Acme closes at 5."]);
+		// Their open workspace's own agents and chats are separate.
+		expect(await member.query(api.chats.list)).toMatchObject({ channels: [] });
+	});
+
+	it("lets people leave, but not the last owner, and removal ends access at once", async () => {
+		const { owner, member } = await ownerAndMember();
+		await expect(owner.mutation(api.workspace.leave)).rejects.toThrow("only owner");
+		const secret = await owner.mutation(api.chats.createChannel, { name: "board", private: true });
+		const memberId = await meOf(member);
+		await owner.mutation(api.chats.addMembers, { chatId: secret, userIds: [memberId], agentIds: [] });
+		const dm = await owner.mutation(api.chats.openDm, { userIds: [memberId], agentIds: [] });
+		expect(await member.query(api.chats.get, { chatId: secret })).not.toBeNull();
+
+		const row = (await owner.query(api.workspace.team))!.members.find((m) => !m.isYou)!;
+		await owner.mutation(api.workspace.removeMember, { id: row.id });
+		expect(await member.query(api.chats.get, { chatId: secret })).toBeNull();
+		await expect(member.mutation(api.messages.send, { chatId: dm, text: "still here?", mentions: noMentions })).rejects.toThrow();
+		// Their seat in channels is gone, so rejoining doesn't bring back private ones; DMs keep them listed.
+		expect((await owner.query(api.chats.get, { chatId: secret }))!.members).toHaveLength(1);
+		expect((await owner.query(api.chats.get, { chatId: dm }))!.members).toHaveLength(2);
+		await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
+		await member.mutation(api.workspace.ensure);
+		expect(await member.query(api.chats.get, { chatId: secret })).toBeNull();
+
+		await member.mutation(api.workspace.leave);
+		expect((await owner.query(api.workspace.team))!.members).toHaveLength(1);
+	});
+});
+
 describe("memory", () => {
 	it("enforces team vs personal permissions", async () => {
 		const { t, owner, member } = await ownerAndMember();
@@ -115,7 +242,7 @@ describe("memory", () => {
 		await owner.mutation(api.memory.create, { agentId: companybot._id, scope: "workspace", content: "Companybot fact" });
 		await owner.mutation(api.memory.create, { agentId: scribe._id, scope: "workspace", content: "Scribe fact" });
 		const userId = companybot.updatedBy;
-		const seen = await t.query(internal.memory.listFor, { userId, agentId: scribe._id });
+		const seen = await t.query(internal.memory.listFor, { userId, workspaceId: await workspaceOf(owner), agentId: scribe._id });
 		expect(seen.map((m) => m.content)).toEqual(["Scribe fact"]);
 	});
 
@@ -125,9 +252,10 @@ describe("memory", () => {
 		const team = await owner.mutation(api.memory.create, { agentId, scope: "workspace", content: "Office is in Austin." });
 		const memberId = (await member.query(api.workspace.me))!.userId;
 		const id = team.id as never;
-		await expect(t.mutation(internal.memory.removeFor, { userId: memberId, agentId, id })).rejects.toThrow("can't change");
+		const workspaceId = await workspaceOf(owner);
+		await expect(t.mutation(internal.memory.removeFor, { userId: memberId, workspaceId, agentId, id })).rejects.toThrow("can't change");
 		await expect(
-			t.mutation(internal.memory.updateFor, { userId: memberId, agentId: (await agentsOf(owner)).scribe._id, id, content: "x" }),
+			t.mutation(internal.memory.updateFor, { userId: memberId, workspaceId, agentId: (await agentsOf(owner)).scribe._id, id, content: "x" }),
 		).rejects.toThrow("not found");
 	});
 
@@ -148,7 +276,9 @@ describe("memory", () => {
 		const team = (await owner.query(api.workspace.team))!;
 		const row = team.members.find((m) => !m.isYou)!;
 		await owner.mutation(api.workspace.removeMember, { id: row.id });
-		await expect(t.query(internal.memory.listFor, { userId: row.userId, agentId })).rejects.toThrow("no longer");
+		await expect(t.query(internal.memory.listFor, { userId: row.userId, workspaceId: await workspaceOf(owner), agentId })).rejects.toThrow(
+			"no longer",
+		);
 	});
 });
 
@@ -690,7 +820,8 @@ describe("memory in shared chats", () => {
 		const mine = await owner.mutation(api.memory.create, { agentId, scope: "personal", content: "I'm vegan." });
 		await owner.mutation(api.memory.create, { agentId, scope: "workspace", content: "We close at 5." });
 		const userId = await meOf(owner);
-		const shared = { userId, agentId, teamOnly: true };
+		const workspaceId = await workspaceOf(owner);
+		const shared = { userId, workspaceId, agentId, teamOnly: true };
 		expect((await t.query(internal.memory.listFor, shared)).map((m) => m.content)).toEqual(["We close at 5."]);
 		await expect(t.mutation(internal.memory.createFor, { ...shared, scope: "personal", content: "x" })).rejects.toThrow(
 			"Personal memories are off",
@@ -698,7 +829,7 @@ describe("memory in shared chats", () => {
 		await expect(t.mutation(internal.memory.removeFor, { ...shared, id: mine.id as Id<"memories"> })).rejects.toThrow(
 			"Personal memories are off",
 		);
-		expect(await t.query(internal.memory.listFor, { userId, agentId })).toHaveLength(2);
+		expect(await t.query(internal.memory.listFor, { userId, workspaceId, agentId })).toHaveLength(2);
 	});
 });
 
@@ -754,7 +885,8 @@ describe("connectors", () => {
 		await owner.mutation(api.agents.update, { agentId: scribe._id, expectedVersion: 1, config });
 
 		const memberId = (await member.query(api.workspace.me))!.userId;
-		const forTurn = () => t.query(internal.connectors.forTurn, { userId: memberId, connectorIds: ["crm"] });
+		const workspaceId = await workspaceOf(owner);
+		const forTurn = () => t.query(internal.connectors.forTurn, { userId: memberId, workspaceId, connectorIds: ["crm"] });
 		expect(await forTurn()).toHaveLength(1);
 		expect((await agentsOf(member)).scribe.access).toEqual([{ id: "crm.*", visible: true }]);
 
@@ -1263,7 +1395,13 @@ describe("activity log", () => {
 		const { t, owner } = await ownerAndMember();
 		const agentId = (await agentsOf(owner)).companybot._id;
 		const userId = await meOf(owner);
-		const made = await t.mutation(internal.memory.createFor, { userId, agentId, scope: "personal", content: "Likes tea." });
+		const made = await t.mutation(internal.memory.createFor, {
+			userId,
+			workspaceId: await workspaceOf(owner),
+			agentId,
+			scope: "personal",
+			content: "Likes tea.",
+		});
 		expect((await owner.query(api.memory.list))[0]).toMatchObject({ updatedByAgent: true });
 		await owner.mutation(api.memory.update, { id: made.id as Id<"memories">, content: "Likes coffee.", expectedVersion: 1 });
 		expect((await owner.query(api.memory.list))[0]!.updatedByAgent).toBeUndefined();

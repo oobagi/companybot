@@ -51,7 +51,7 @@ Queries return display-ready data (names resolved) so the app never joins tables
 - `updateChannel({ chatId, name?, topic? })`.
 - `join({ chatId })` — public channels. `leave({ chatId })` — any channel you're in, except `#general`.
 - `addMembers({ chatId, userIds, agentIds })` — channels only; by its members, or anyone who can manage it.
-- `openDm({ userIds, agentIds })` → chatId. Finds or creates. You're always included.
+- `openDm({ userIds, agentIds })` → chatId. Finds or creates. You're always included. The app's New message picks people and agents, so a group DM can include agents (they answer when @mentioned).
 - `markRead({ chatId })` — sets your `lastReadAt` to now.
 - `place({ chatId, threadId? })` → `{ summary, summarizedUpTo, compacting, costUsd }`, or null. Summaries belong to agent sessions, so only agent DMs have one (`summarizedUpTo` is a turn time); elsewhere summary is null. `costUsd` is the chat's (or thread's) running total.
 

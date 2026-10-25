@@ -7,6 +7,7 @@ export * from "./builtin-tools";
 export * from "./chat";
 export * from "./default-agents";
 export * from "./guide";
+export * from "./invite-email";
 export * from "./local-auth";
 export * from "./mcp";
 export * from "./memory";

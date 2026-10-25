@@ -431,7 +431,7 @@ export const update = mutation({
 			await requireVisibleChannel(ctx, member, channelId);
 			await checkPosting(ctx, install.custom?.trigger, channelId);
 			// Ones people make run as their maker, so the maker has to be able to see it too.
-			const maker = install.custom && (await memberOf(ctx, install.installedBy));
+			const maker = install.custom && (await memberOf(ctx, install.installedBy, install.workspaceId));
 			const chat = (await ctx.db.get(channelId))!;
 			if (install.custom && !(maker && (await canSee(ctx, chat, maker))))
 				throw new ConvexError(`${await nameOf(ctx, install.installedBy)} made it and can't see #${chat.name}, so it can't post there.`);
@@ -602,8 +602,7 @@ async function workspaceUserByEmail(ctx: QueryCtx, workspaceId: Id<"workspaces">
 		.withIndex("email", (q) => q.eq("email", normalizeEmail(email)))
 		.first();
 	if (!user) return null;
-	const member = await memberOf(ctx, user._id);
-	return member?.workspaceId === workspaceId ? user._id : null;
+	return (await memberOf(ctx, user._id, workspaceId)) ? user._id : null;
 }
 
 /** Webhook delivery ids outlive sender retries. */
@@ -750,8 +749,8 @@ async function runFor(
 	const chat = target.visibleIn && (await ctx.db.get(target.visibleIn));
 	const people: Id<"users">[] = [];
 	for (const id of userIds) {
-		const member = await memberOf(ctx, id);
-		if (member?.workspaceId !== install.workspaceId) continue;
+		const member = await memberOf(ctx, id, install.workspaceId);
+		if (!member) continue;
 		if (chat && !(await canSee(ctx, chat, member))) continue;
 		people.push(id);
 	}
@@ -829,7 +828,7 @@ async function runInChannel(
 	if (problem) return { ran: false, summary: await finish(ctx, install, `Didn't run: ${problem}`) };
 	const preferred = install.custom ? install.installedBy : (install.channelSetBy ?? install.installedBy);
 	const candidates = [
-		await memberOf(ctx, preferred),
+		await memberOf(ctx, preferred, install.workspaceId),
 		...(install.custom
 			? []
 			: (

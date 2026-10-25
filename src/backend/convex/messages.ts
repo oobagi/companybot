@@ -151,7 +151,7 @@ export const send = mutation({
 		// Mentions outside the workspace (or of archived agents) are dropped, not trusted.
 		const userIds: Id<"users">[] = [];
 		for (const id of new Set(mentions.userIds)) {
-			if ((await memberOf(ctx, id))?.workspaceId === member.workspaceId) userIds.push(id);
+			if (await memberOf(ctx, id, member.workspaceId)) userIds.push(id);
 		}
 		const agentIds: Id<"agents">[] = [];
 		for (const id of new Set(mentions.agentIds)) {

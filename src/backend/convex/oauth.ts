@@ -31,6 +31,7 @@ export const callback = httpAction(async (ctx, request) => {
 		// saveConnection re-checks that this person may still connect it.
 		await ctx.runMutation(internal.connectors.saveConnection, {
 			userId: flow.userId,
+			workspaceId: flow.workspaceId,
 			connectorId: connector.id,
 			credentials: await encrypt({ type: "oauth", oauth }),
 		});

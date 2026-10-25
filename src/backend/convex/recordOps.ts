@@ -113,7 +113,7 @@ async function normalizeInput(
 		const ids = result.value === null ? [] : [result.value].flat().map(String);
 		for (const id of field.kind === "user" ? ids : []) {
 			const userId = ctx.db.normalizeId("users", id);
-			if (!userId || (await memberOf(ctx, userId))?.workspaceId !== member.workspaceId)
+			if (!userId || !(await memberOf(ctx, userId, member.workspaceId)))
 				throw new ConvexError(`Someone picked for “${field.label}” isn't in this workspace.`);
 		}
 		for (const id of field.kind === "link" ? ids : []) {
@@ -479,8 +479,7 @@ export async function resolveRefs(ctx: QueryCtx, workspaceId: Id<"workspaces">, 
 			bytes += getDocumentSize(record);
 			refs[id] = { name: record.title, ...(record.archived && { archived: true }) };
 		} else if (userId) {
-			const member = await memberOf(ctx, userId);
-			refs[id] = { name: member?.workspaceId === workspaceId ? await nameOf(ctx, userId) : "Former member" };
+			refs[id] = { name: (await memberOf(ctx, userId, workspaceId)) ? await nameOf(ctx, userId) : "Former member" };
 		}
 	}
 	return { refs, unresolved };

@@ -5,7 +5,7 @@ import { getDocumentSize } from "convex/values";
 import { describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { memberOf } from "../convex/lib";
+import { activeMemberOf } from "../convex/lib";
 import { createRecord, updateRecord } from "../convex/recordOps";
 import schema from "../convex/schema";
 
@@ -165,7 +165,7 @@ describe("records", () => {
 		const { t, owner, client } = await setup();
 		const id = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Acme" } });
 		const agentId = (await owner.query(api.agents.list)).find((a) => a.name === "Companybot")!._id;
-		await t.run(async (ctx) => updateRecord(ctx, { member: (await memberOf(ctx, owner.userId))!, agentId }, id, { status: "Active" }));
+		await t.run(async (ctx) => updateRecord(ctx, { member: (await activeMemberOf(ctx, owner.userId))!, agentId }, id, { status: "Active" }));
 		const [latest] = (await owner.query(api.records.history, { recordId: id, paginationOpts: page })).page;
 		expect(latest).toMatchObject({ user: "owner@co.com", agent: "Companybot" });
 		expect((await t.run((ctx) => ctx.db.get(id)))!.updatedByAgent).toBe(agentId);
@@ -577,7 +577,7 @@ describe("records: combined filters at scale", () => {
 		});
 		for (let start = 0; start < COUNT; start += 200) {
 			await t.run(async (ctx) => {
-				const who = { member: (await memberOf(ctx, owner.userId))! };
+				const who = { member: (await activeMemberOf(ctx, owner.userId))! };
 				for (const s of seeds.slice(start, start + 200))
 					await createRecord(ctx, who, task._id, { name: s.name, status: s.status, assignee: users[s.owner], due: s.due, tags: s.tags });
 			});
@@ -710,7 +710,7 @@ describe("records: list edge cases", () => {
 	}
 	const seed = async (t: ReturnType<typeof convexTest>, userId: Id<"users">, typeId: Id<"recordTypes">, values: Record<string, unknown>[]) =>
 		t.run(async (ctx) => {
-			const who = { member: (await memberOf(ctx, userId))! };
+			const who = { member: (await activeMemberOf(ctx, userId))! };
 			const ids = [];
 			for (const v of values) ids.push(await createRecord(ctx, who, typeId, v));
 			return ids;
@@ -886,7 +886,7 @@ describe("records: list edge cases", () => {
 		// A bulk edit of one field rewrites its rows together at the end of the table: 100 rows in a row, each of a big record.
 		for (let batch = 0; batch < 4; batch++)
 			await t.run(async (ctx) => {
-				const who = { member: (await memberOf(ctx, owner.userId))! };
+				const who = { member: (await activeMemberOf(ctx, owner.userId))! };
 				for (const id of ids.slice(batch * 25, batch * 25 + 25)) await updateRecord(ctx, who, id, { status: "to_do" });
 			});
 		await t.run(async (ctx) => {

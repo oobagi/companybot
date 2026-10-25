@@ -10,10 +10,12 @@ export function MembersTab({ role }: { role: Role }) {
 	const team = useQuery(api.workspace.team);
 	const invite = useMutation(api.workspace.invite);
 	const cancelInvite = useMutation(api.workspace.cancelInvite);
+	const resendInvite = useMutation(api.workspace.resendInvite);
 	const removeMember = useMutation(api.workspace.removeMember);
 	const setRole = useMutation(api.workspace.setRole);
 	const [email, setEmail] = useState("");
 	const [inviteRole, setInviteRole] = useState<Role>("member");
+	const [resent, setResent] = useState<string>();
 	const { error, run } = useRun();
 	const isOwner = can(role, "members.manage");
 
@@ -22,7 +24,7 @@ export function MembersTab({ role }: { role: Role }) {
 	return (
 		<>
 			<p className="text-sm text-neutral-500">
-				Invited people join when they sign in with that email. Role changes apply right away.
+				We email invited people a link to get the app. They join when they sign in with that email. Role changes apply right away.
 			</p>
 			{error && <Notice>{error}</Notice>}
 
@@ -66,7 +68,14 @@ export function MembersTab({ role }: { role: Role }) {
 					</Row>
 				))}
 				{team.invites.map((i) => (
-					<Row key={i.id} label={i.email} detail={`Invited as ${i.role}`}>
+					<Row key={i.id} label={i.email} detail={`Invited as ${i.role} · hasn't joined yet`}>
+						{resent === i.id ? (
+							<span className="text-neutral-400">Sent</span>
+						) : (
+							<button type="button" onClick={() => run(resendInvite({ id: i.id }), () => setResent(i.id))} className="hover:text-neutral-900">
+								Resend
+							</button>
+						)}
 						<button type="button" onClick={() => run(cancelInvite({ id: i.id }))} className="hover:text-red-600">
 							Cancel
 						</button>

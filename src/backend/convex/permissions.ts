@@ -16,7 +16,7 @@ import {
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation, internalQuery, mutation, query } from "./_generated/server";
-import { type Member, getMember, memberOf, requireMember, requirePermission } from "./lib";
+import { type Member, activeMemberOf, getMember, memberOf, requireMember, requirePermission } from "./lib";
 import { canView } from "./automations";
 import { risk } from "./schema";
 import { runningTurn } from "./turns";
@@ -164,9 +164,10 @@ export async function titleOf(ctx: QueryCtx, workspaceId: Id<"workspaces">, acti
 	return (await toolsOf(ctx, workspaceId, toolGroup(action))).find((t) => `${toolGroup(action)}.${t.name}` === action)?.title;
 }
 
+/** The workspace they have open. */
 export const workspaceOf = internalQuery({
 	args: { userId: v.id("users") },
-	handler: async (ctx, { userId }) => (await memberOf(ctx, userId))?.workspaceId ?? null,
+	handler: async (ctx, { userId }) => (await activeMemberOf(ctx, userId))?.workspaceId ?? null,
 });
 
 /** Records the tools a connector's server listed, when they changed. Display only. */
