@@ -83,6 +83,18 @@ export const recordTypes = migrations.define({
 	},
 });
 
+// Combined filters order index rows by their record's creation time (`recordValues.at`).
+// Rows written before it get it from their record; rows whose record is gone are dropped.
+export const recordValueTimes = migrations.define({
+	table: "recordValues",
+	migrateOne: async (ctx, row) => {
+		if (row.at !== undefined) return;
+		const record = await ctx.db.get(row.recordId);
+		if (record) await ctx.db.patch(row._id, { at: record._creationTime });
+		else await ctx.db.delete(row._id);
+	},
+});
+
 /** Every migration, oldest first. Never reorder or remove entries that have shipped. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.connectorInstalls,
@@ -91,6 +103,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.automationAudiences,
 	internal.migrations.companybotChatTools,
 	internal.migrations.recordTypes,
+	internal.migrations.recordValueTimes,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

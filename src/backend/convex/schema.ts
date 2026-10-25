@@ -586,8 +586,11 @@ export default defineSchema({
 		num: v.optional(v.number()),
 		/** Link fields: the record linked to. Also answers "what links here". */
 		ref: v.optional(v.id("records")),
-		/** The record's _creationTime, so equal values list newest first and combined filters can merge by it. */
-		at: v.number(),
+		/**
+		 * The record's _creationTime, so equal values list newest first and combined filters can
+		 * merge by it. Optional only until migration `recordValueTimes` has filled in older rows.
+		 */
+		at: v.optional(v.number()),
 	})
 		.index("by_record", ["recordId", "fieldId"])
 		.index("by_field_str", ["fieldId", "str", "at"])

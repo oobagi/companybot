@@ -1,4 +1,4 @@
-import { type FieldValue, indexEntries, normalizeValue, sameText } from "@companybot/core";
+import { type FieldValue, MULTI_MAX, hash, indexEntries, normalizeValue, sameText } from "@companybot/core";
 import type { PaginationResult } from "convex/server";
 import { ConvexError, getDocumentSize } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -11,12 +11,13 @@ import { toField } from "./recordOps";
 // then checked against the record itself. The driver is the sort field when there is a
 // sort; otherwise the most selective equality or "any of" condition (found by counting a
 // few index rows), then the most selective range, then the type's own index. Equality
-// rows are ordered by the record's creation time (`at`), so they keep "newest first",
-// and several "any of" streams merge by it.
+// rows are ordered by the record's creation time (`at`), then its id, so they keep
+// "newest first", and several "any of" streams merge by it.
 //
-// Work is bounded: a request reads at most SCAN_ROWS index rows or SCAN_BYTES of records.
-// If that runs out before the page fills, it returns what it found with `isDone: false`
-// and a cursor to carry on, like Convex's own filtered pagination.
+// Work is bounded: everything a request reads (link targets, selectivity probes, index
+// rows, records) counts against one budget, sized to leave room for resolving names after.
+// If it runs out before the page fills, it returns what it found with `isDone: false` and
+// a cursor to carry on, like Convex's own filtered pagination.
 
 export interface Condition {
 	field: string;
@@ -33,33 +34,90 @@ export type Sort = { field: string; order: "asc" | "desc" };
 
 export const CONDITIONS_MAX = 10;
 export const ANY_OF_MAX = 50;
+/** Index rows a request reads, probes and link checks included. */
 const SCAN_ROWS = 1_000;
+/** Bytes a request reads before toRows resolves names (up to 4 MB more), within Convex's 16 MiB. */
 const SCAN_BYTES = 6 * 1024 * 1024;
-/** Index rows read at a time from each stream. */
+/** Index ranges a request reads, leaving room under Convex's 4,096 for resolving names. */
+const SCAN_RANGES = 2_500;
+/**
+ * The most a record document can be: values (RECORD_MAX_BYTES), plus its title and search
+ * text (each at most TEXT_MAX characters), with room to spare. No record is read without this much budget left.
+ */
+const DOC_MAX = 256 * 1024;
+/** Index rows read at a time, shared by a plan's streams. */
 const CHUNK = 100;
-/** Index rows counted per candidate when picking the driver. */
-const PROBE = 200;
+/** Index rows counted, across all candidates, when picking the driver. */
+const PROBE_ROWS = 400;
+/** Most records sharing one index key (same value and creation time) that a list can page through. */
+const TIE_MAX = 8;
 
 type Fields = Doc<"recordFields">[];
 type Values = Record<string, FieldValue>;
 type Entry = { str?: string; num?: number; ref?: string };
+/** A position in a stream: its index fields after the prefix, then the record id. */
 type Key = (string | number)[];
 type Bound = { v: string | number; incl: boolean };
+type Row = Doc<"records"> | Doc<"recordValues">;
+type Item = { row: Row; key: Key };
 
-/** One index range, read in order of `keys` (the index fields after `prefix`; the last is unique per record). */
+/** One index range, read in order of `keys` (the index fields after `prefix`), then `id`. */
 interface Stream {
 	table: "records" | "recordValues";
 	index: string;
 	prefix: [string, unknown][];
 	keys: string[];
+	/** The record id: ties on `keys` are taken in id order. */
+	id: "_id" | "recordId";
 	lo?: Bound;
 	hi?: Bound;
+}
+
+/** What one request has read so far. Every read goes through it. */
+class Budget {
+	rows = 0;
+	bytes = 0;
+	ranges = 0;
+	/** Room for `ranges` more ranges, `rows` more index rows and `bytes` more bytes. */
+	has(ranges: number, rows = 0, bytes = 0) {
+		return this.ranges + ranges <= SCAN_RANGES && this.rows + rows <= SCAN_ROWS && this.bytes + bytes <= SCAN_BYTES;
+	}
+	read(rows: Row[]) {
+		this.ranges++;
+		this.rows += rows.length;
+		for (const row of rows) this.bytes += getDocumentSize(row);
+	}
+}
+
+/** Whether linked records are live. Archived records have no index rows, so one small row answers it. */
+class Liveness {
+	private known = new Map<string, boolean>();
+	constructor(
+		private ctx: QueryCtx,
+		private budget: Budget,
+	) {}
+	async of(id: string) {
+		const cached = this.known.get(id);
+		if (cached !== undefined) return cached;
+		const recordId = this.ctx.db.normalizeId("records", id);
+		const rows = recordId
+			? await this.ctx.db
+					.query("recordValues")
+					.withIndex("by_record", (q) => q.eq("recordId", recordId))
+					.take(1)
+			: [];
+		this.budget.read(rows);
+		this.known.set(id, rows.length > 0);
+		return rows.length > 0;
+	}
 }
 
 /** A condition, checked and ready: what it accepts, and how it could drive the scan. */
 interface Check {
 	field: Doc<"recordFields">;
-	test: (values: Values) => boolean;
+	test: (values: Values) => boolean | Promise<boolean>;
+	/** Most link targets `test` may look up for one record. */
+	lookups: number;
 	/** Equality or "any of": one stream per value, each ordered by `at`. */
 	eqStreams?: Stream[];
 	/** Range or "has a value": one stream, ordered by the value. */
@@ -82,7 +140,7 @@ const sameEntry = (a: Entry, b: Entry) => a.str === b.str && a.num === b.num && 
 
 /** Where rows for this field and value live, ordered by `at`. */
 function eqStream(field: Doc<"recordFields">, e: Entry): Stream {
-	const s = (index: string, prefix: [string, unknown][]): Stream => ({ table: "recordValues", index, prefix, keys: ["at"] });
+	const s = (index: string, prefix: [string, unknown][]): Stream => ({ table: "recordValues", index, prefix, keys: ["at"], id: "recordId" });
 	if (field.kind === "link") return s("by_ref", [["ref", e.ref], ["fieldId", field._id]]);
 	if (field.kind === "currency") return s("by_field_money", [["fieldId", field._id], ["str", e.str], ["num", e.num]]);
 	if (e.num !== undefined) return s("by_field_num", [["fieldId", field._id], ["num", e.num]]);
@@ -91,7 +149,7 @@ function eqStream(field: Doc<"recordFields">, e: Entry): Stream {
 
 /** Rows for this field in value order, optionally within bounds (and one currency). */
 function valueStream(field: Doc<"recordFields">, lo?: Bound, hi?: Bound, code?: string): Stream {
-	const base = { table: "recordValues" as const, lo, hi };
+	const base = { table: "recordValues" as const, id: "recordId" as const, lo, hi };
 	if (field.kind === "currency")
 		return code
 			? { ...base, index: "by_field_money", prefix: [["fieldId", field._id], ["str", code]], keys: ["num", "at"] }
@@ -100,8 +158,8 @@ function valueStream(field: Doc<"recordFields">, lo?: Bound, hi?: Bound, code?: 
 	return { ...base, index: "by_field_str", prefix: [["fieldId", field._id]], keys: ["str", "at"] };
 }
 
-/** Checks one condition and works out how it can be tested and driven. */
-export async function compile(ctx: QueryCtx, fields: Fields, c: Condition, currency: string): Promise<Check> {
+/** Checks one condition and works out how it can be tested and driven. Link targets are looked up within the budget. */
+export async function compile(fields: Fields, c: Condition, currency: string, live: Liveness): Promise<Check> {
 	const field = fields.find((f) => f.key === c.field && !f.archived);
 	if (!field) throw new ConvexError(`There's no field “${c.field}”.`);
 	const name = `“${field.label}”`;
@@ -112,8 +170,16 @@ export async function compile(ctx: QueryCtx, fields: Fields, c: Condition, curre
 
 	if (c.empty !== undefined) {
 		const want = c.empty;
+		if (field.kind === "link") {
+			// Links to archived records count as gone (wiki/data.md), so "empty" means no live target.
+			const hasLive = async (v: Values) => {
+				for (const e of entries(v)) if (await live.of(e.ref!)) return true;
+				return false;
+			};
+			return { field, lookups: MULTI_MAX, test: async (v) => (await hasLive(v)) !== want };
+		}
 		// Only single values can drive "has a value": several would list a record more than once.
-		return { field, test: (v) => (v[field.key] === undefined) === want, ...(!want && !field.multiple && field.kind !== "link" && { rangeStream: valueStream(field) }) };
+		return { field, lookups: 0, test: (v) => (v[field.key] === undefined) === want, ...(!want && !field.multiple && { rangeStream: valueStream(field) }) };
 	}
 	if (c.eq !== undefined || c.in !== undefined) {
 		if (c.in !== undefined && !anyOfKinds.includes(field.kind)) throw new ConvexError(`“Any of” works on choice, person and link fields, not ${name}.`);
@@ -122,14 +188,15 @@ export async function compile(ctx: QueryCtx, fields: Fields, c: Condition, curre
 		let wanted = raws.map((raw) => entryOf(field, raw, currency));
 		// Links to an archived record match nothing (wiki/data.md).
 		if (field.kind === "link") {
-			const live = [];
-			for (const e of wanted) if (!(await ctx.db.get(e.ref as Id<"records">))?.archived) live.push(e);
-			wanted = live;
+			const kept = [];
+			for (const e of wanted) if (await live.of(e.ref!)) kept.push(e);
+			wanted = kept;
 		}
 		// Long text keys by a hash, so a match is checked against the text itself.
 		const text = c.eq !== undefined && (normalizeValue(toField(field), c.eq, "filter", currency) as { value: FieldValue }).value;
 		return {
 			field,
+			lookups: 0,
 			test: (v) => entries(v).some((e) => wanted.some((w) => sameEntry(e, w))) && (!text || sameText(toField(field), v[field.key], text)),
 			eqStreams: wanted.map((e) => eqStream(field, e)),
 		};
@@ -148,6 +215,7 @@ export async function compile(ctx: QueryCtx, fields: Fields, c: Condition, curre
 		(!lo || (lo.incl ? x >= lo.v : x > lo.v)) && (!hi || (hi.incl ? x <= hi.v : x < hi.v));
 	return {
 		field,
+		lookups: 0,
 		test: (v) =>
 			entries(v).some((e) => {
 				if (field.kind === "date") return inRange(e.str!);
@@ -157,62 +225,117 @@ export async function compile(ctx: QueryCtx, fields: Fields, c: Condition, curre
 	};
 }
 
-/** Index rows after `after` (exclusive), in order, up to `limit`. A lexicographic seek: one range per key position. */
-async function seek(ctx: QueryCtx, s: Stream, order: "asc" | "desc", after: Key | undefined, limit: number) {
-	const out: (Doc<"records"> | Doc<"recordValues">)[] = [];
-	const positions = after ? s.keys.map((_, i) => s.keys.length - 1 - i) : [0];
-	for (const p of positions) {
-		if (out.length >= limit) break;
-		const rows = await ctx.db
-			.query(s.table)
-			// The index and its fields vary by stream, so the range is built untyped.
-			// biome-ignore lint/suspicious/noExplicitAny: see above
-			.withIndex(s.index as any, (q: any) => {
-				let r = q;
-				for (const [f, value] of s.prefix) r = r.eq(f, value);
-				for (let i = 0; i < p; i++) r = r.eq(s.keys[i], after![i]);
-				const k = s.keys[p];
-				let lo = p === 0 ? s.lo : undefined;
-				let hi = p === 0 ? s.hi : undefined;
-				if (after) {
-					if (order === "asc") lo = { v: after[p]!, incl: false };
-					else hi = { v: after[p]!, incl: false };
-				}
-				if (lo) r = lo.incl ? r.gte(k, lo.v) : r.gt(k, lo.v);
-				if (hi) r = hi.incl ? r.lte(k, hi.v) : r.lt(k, hi.v);
-				return r;
-			})
-			.order(order)
-			.take(limit - out.length);
-		out.push(...rows);
-	}
-	return out;
+function keyOf(s: Stream, row: Row): Key {
+	const r = row as unknown as Record<string, string | number | undefined>;
+	// Rows written before `at` existed sort apart until the backfill migration (`recordValueTimes`) reaches them.
+	if (s.keys.includes("at") && r.at === undefined) throw new ConvexError("Lists are being updated. Try again in a minute.");
+	return [...s.keys.map((k) => r[k]!), r[s.id]!];
 }
 
-const keyOf = (s: Stream, row: Record<string, unknown>) => s.keys.map((k) => row[k] as string | number);
 const compareKeys = (a: Key, b: Key) => {
 	for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i]! < b[i]! ? -1 : 1;
 	return 0;
 };
 
-/** The streams for a plan id: "t" type, "u" updated, "s" sort field, or "c<i>" condition i. */
-function streamsFor(plan: string, typeId: Id<"recordTypes">, archived: boolean, checks: Check[], sortStream?: Stream): Stream[] {
-	if (plan === "t" || plan === "u")
-		return [{ table: "records", index: plan === "t" ? "by_type" : "by_type_updated", prefix: [["typeId", typeId], ["archived", archived]], keys: plan === "t" ? ["_creationTime"] : ["updatedAt", "_creationTime"] }];
-	if (plan === "s" && sortStream) return [sortStream];
-	const check = checks[Number(plan.slice(1))];
-	const streams = check?.eqStreams ?? (check?.rangeStream && [check.rangeStream]);
-	if (!streams) throw new ConvexError("That page is out of date. Start the list again.");
-	return streams;
+/** One range of `s`, through the budget. `range` narrows it past the prefix. */
+async function read(ctx: QueryCtx, budget: Budget, s: Stream, order: "asc" | "desc", limit: number, range: (r: any) => any) {
+	const rows: Row[] = await ctx.db
+		.query(s.table)
+		// The index and its fields vary by stream, so the range is built untyped.
+		// biome-ignore lint/suspicious/noExplicitAny: see above
+		.withIndex(s.index as any, (q: any) => {
+			let r = q;
+			for (const [f, value] of s.prefix) r = r.eq(f, value);
+			return range(r);
+		})
+		.order(order)
+		.take(limit);
+	budget.read(rows);
+	return rows;
 }
 
-/** Picks the driver: the sort, else the fewest rows among equalities, else among ranges, else the type. */
-async function choosePlan(ctx: QueryCtx, checks: Check[], sort: Sort | undefined, sortStream: Stream | undefined) {
+/** Every row sharing `key`'s index fields: records with the same value and creation time. */
+async function tie(ctx: QueryCtx, budget: Budget, s: Stream, order: "asc" | "desc", key: Key) {
+	const rows = await read(ctx, budget, s, order, TIE_MAX + 1, (r) => {
+		for (const [i, k] of s.keys.entries()) r = r.eq(k, key[i]);
+		return r;
+	});
+	if (rows.length > TIE_MAX) throw new ConvexError("Too many records share one value and creation time to list.");
+	return rows.map((row) => ({ row, key: keyOf(s, row) }));
+}
+
+/**
+ * The stream's rows after `after`, in order, about `limit` of them. Only whole groups of
+ * equal index fields come back, so ties can be taken in id order. `more`: there may be more.
+ */
+async function readStream(ctx: QueryCtx, budget: Budget, s: Stream, order: "asc" | "desc", after: Key | undefined, limit: number) {
+	const sign = order === "asc" ? 1 : -1;
+	const n = s.keys.length;
+	const items: Item[] = after ? (await tie(ctx, budget, s, order, after)).filter((i) => compareKeys(i.key, after) * sign > 0) : [];
+	// A lexicographic seek past `after`: one range per key position.
+	let rest: Item[] = [];
+	for (const p of after ? s.keys.map((_, i) => n - 1 - i) : [0]) {
+		if (rest.length >= limit) break;
+		const rows = await read(ctx, budget, s, order, limit - rest.length, (r) => {
+			for (let i = 0; i < p; i++) r = r.eq(s.keys[i], after![i]);
+			const k = s.keys[p];
+			let lo = p === 0 ? s.lo : undefined;
+			let hi = p === 0 ? s.hi : undefined;
+			if (after) {
+				if (order === "asc") lo = { v: after[p]!, incl: false };
+				else hi = { v: after[p]!, incl: false };
+			}
+			if (lo) r = lo.incl ? r.gte(k, lo.v) : r.gt(k, lo.v);
+			if (hi) r = hi.incl ? r.lte(k, hi.v) : r.lt(k, hi.v);
+			return r;
+		});
+		rest.push(...rows.map((row) => ({ row, key: keyOf(s, row) })));
+	}
+	const more = rest.length >= limit;
+	if (more) {
+		// The last group may go on past the read: leave it for next time, or read it whole if it's all there is.
+		const last = rest.at(-1)!.key;
+		const first = rest.findIndex((i) => compareKeys(i.key.slice(0, n), last.slice(0, n)) === 0);
+		rest = first > 0 ? rest.slice(0, first) : await tie(ctx, budget, s, order, last);
+	}
+	items.push(...rest);
+	items.sort((a, b) => compareKeys(a.key, b.key) * sign);
+	return { items, more };
+}
+
+/** The streams for a plan id: "t" type, "u" updated, "s" sort field, or "c<i>" condition i. */
+function streamsFor(plan: string, typeId: Id<"recordTypes">, archived: boolean, checks: Check[], sortStream?: Stream): Stream[] | undefined {
+	if (plan === "t" || plan === "u")
+		return [
+			{
+				table: "records",
+				index: plan === "t" ? "by_type" : "by_type_updated",
+				prefix: [["typeId", typeId], ["archived", archived]],
+				keys: plan === "t" ? ["_creationTime"] : ["updatedAt", "_creationTime"],
+				id: "_id",
+			},
+		];
+	if (plan === "s") return sortStream && [sortStream];
+	const check = /^c\d+$/.test(plan) ? checks[Number(plan.slice(1))] : undefined;
+	return check?.eqStreams ?? (check?.rangeStream && [check.rangeStream]);
+}
+
+/**
+ * Picks the driver: the sort, else the fewest rows among equalities, else among ranges,
+ * else the type. Counting is shared out of PROBE_ROWS and read through the budget.
+ */
+async function choosePlan(ctx: QueryCtx, budget: Budget, checks: Check[], sort: Sort | undefined, sortStream: Stream | undefined) {
 	if (sortStream) return "s";
 	if (sort?.field === "updatedAt") return "u";
+	if (sort?.field === "createdAt") return "t";
+	const candidates = checks.filter((c) => c.eqStreams ?? c.rangeStream).length;
+	const cap = Math.max(1, Math.floor(PROBE_ROWS / Math.max(1, candidates)));
 	const count = async (streams: Stream[]) => {
 		let n = 0;
-		for (const s of streams) n += (await seek(ctx, s, "asc", undefined, PROBE + 1 - n)).length;
+		for (const s of streams) {
+			if (n > cap || !budget.has(1, cap + 1 - n)) return Number.POSITIVE_INFINITY;
+			n += (await read(ctx, budget, s, "asc", cap + 1 - n, (r) => r)).length;
+		}
 		return n;
 	};
 	for (const kind of ["eqStreams", "rangeStream"] as const) {
@@ -228,24 +351,49 @@ async function choosePlan(ctx: QueryCtx, checks: Check[], sort: Sort | undefined
 	return "t";
 }
 
+type Cursor = { q: string; p: string; a?: Key };
+
+function parseCursor(raw: string, fingerprint: string): Cursor {
+	let cursor: Cursor | undefined;
+	try {
+		cursor = JSON.parse(raw);
+	} catch {}
+	// A cursor only continues the list it came from: same workspace, type, filters and sort.
+	if (!cursor || cursor.q !== fingerprint || typeof cursor.p !== "string" || (cursor.a !== undefined && !Array.isArray(cursor.a)))
+		throw new ConvexError("That page is out of date. Start the list again.");
+	return cursor;
+}
+
 /**
  * One page of `typeId`'s records matching every condition. Order: the sort if given;
  * otherwise newest first, unless a range drives the scan, which lists in that field's order.
+ * Never more than `pageMax` records, even when an `endCursor` asks for more.
  */
 export async function findRecords(
 	ctx: QueryCtx,
-	{ typeId, archived, fields, conditions, sort, currency, paginationOpts }: {
+	{ workspaceId, typeId, archived, fields, conditions, sort, currency, pageMax, paginationOpts }: {
+		workspaceId: Id<"workspaces">;
 		typeId: Id<"recordTypes">;
 		archived: boolean;
 		fields: Fields;
 		conditions: Condition[];
 		sort?: Sort;
 		currency: string;
+		pageMax: number;
 		paginationOpts: { numItems: number; cursor: string | null; endCursor?: string | null };
 	},
 ): Promise<PaginationResult<Doc<"records">>> {
 	if (conditions.length > CONDITIONS_MAX) throw new ConvexError(`Use up to ${CONDITIONS_MAX} filters.`);
-	const checks = await Promise.all(conditions.map((c) => compile(ctx, fields, c, currency)));
+	const fingerprint = hash(JSON.stringify([workspaceId, typeId, archived, conditions, sort ?? null]));
+	const start = paginationOpts.cursor ? parseCursor(paginationOpts.cursor, fingerprint) : undefined;
+	const endCursor = paginationOpts.endCursor ?? undefined;
+	const endAt = endCursor ? parseCursor(endCursor, fingerprint) : undefined;
+	if (start && endAt && start.p !== endAt.p) throw new ConvexError("That page is out of date. Start the list again.");
+
+	const budget = new Budget();
+	const live = new Liveness(ctx, budget);
+	const checks: Check[] = [];
+	for (const c of conditions) checks.push(await compile(fields, c, currency, live));
 	const byField = sort && !["createdAt", "updatedAt"].includes(sort.field);
 	// Archived records have no index rows, so their lists scan the type and check every condition.
 	if (archived && byField) throw new ConvexError("Archived records can't be sorted by a field.");
@@ -262,49 +410,55 @@ export async function findRecords(
 	}
 	const order = sort?.order ?? (byField ? "asc" : "desc");
 
-	const start = paginationOpts.cursor ? (JSON.parse(paginationOpts.cursor) as { p: string; a?: Key }) : undefined;
-	const end = paginationOpts.endCursor ? (JSON.parse(paginationOpts.endCursor) as { a?: Key }).a : undefined;
-	const plan = start?.p ?? (archived ? (sort?.field === "updatedAt" ? "u" : "t") : await choosePlan(ctx, checks, sort, sortStream));
+	const plan =
+		start?.p ?? endAt?.p ?? (archived ? (sort?.field === "updatedAt" ? "u" : "t") : await choosePlan(ctx, budget, checks, sort, sortStream));
 	const streams = streamsFor(plan, typeId, archived, checks, sortStream);
+	if (!streams) throw new ConvexError("That page is out of date. Start the list again.");
 	// Ranges drive in their own order; everything else in the asked (or newest-first) order.
 	const streamOrder = plan.startsWith("c") && !checks[Number(plan.slice(1))]!.eqStreams ? "asc" : order;
-	const cursor = (a: Key | undefined) => JSON.stringify({ p: plan, a });
+	const sign = streamOrder === "asc" ? 1 : -1;
+	const cursor = (a: Key | undefined) => JSON.stringify({ q: fingerprint, p: plan, a } satisfies Cursor);
+	const end = endAt?.a;
+	const limit = end ? pageMax : Math.min(paginationOpts.numItems, pageMax);
+	const lookups = checks.reduce((n, c) => n + c.lookups, 0);
 
 	let after = start?.a;
-	let active = streams;
 	const page: Doc<"records">[] = [];
-	let rows = 0;
-	let bytes = 0;
-	const sign = streamOrder === "asc" ? 1 : -1;
-	const beyond = (key: Key) => end !== undefined && compareKeys(key, end) * sign > 0;
+	// Stopped before the end: carry on from `after`. Within an `endCursor` page, ask the client to split it there.
+	const stop = (): PaginationResult<Doc<"records">> =>
+		endCursor ? { page, isDone: false, continueCursor: endCursor, splitCursor: cursor(after), pageStatus: "SplitRequired" } : { page, isDone: false, continueCursor: cursor(after) };
+
+	// A k-way merge: each stream keeps a buffer, refilled only once it's used up, so no row is dropped.
+	const state = streams.map((s) => ({ s, buffer: [] as Item[], more: true }));
 	for (;;) {
-		const limit = Math.max(1, Math.floor(Math.min(CHUNK, SCAN_ROWS - rows) / active.length));
-		if (rows >= SCAN_ROWS || bytes >= SCAN_BYTES) return { page, isDone: false, continueCursor: cursor(after) };
-		const reads = await Promise.all(active.map((s) => seek(ctx, s, streamOrder, after, limit)));
-		rows += reads.reduce((n, read) => n + read.length, 0);
-		// A stream that came back short is used up. Full ones may have more, so nothing past
-		// the earliest of their last keys is safe to take yet.
-		let frontier: Key | undefined;
-		for (const [i, read] of reads.entries()) {
-			if (read.length < limit) continue;
-			const last = keyOf(active[i]!, read.at(-1)!);
-			if (!frontier || compareKeys(last, frontier) * sign < 0) frontier = last;
+		for (const st of state) {
+			if (st.buffer.length || !st.more) continue;
+			let take = Math.max(2, Math.floor(CHUNK / state.filter((x) => x.more).length));
+			// Records come whole, so read only as many as the budget has room for.
+			if (st.s.table === "records") take = Math.min(take, Math.floor((SCAN_BYTES - budget.bytes) / DOC_MAX) - (after ? 1 : 0));
+			if (take < 1 || !budget.has(st.s.keys.length + 2, take)) return stop();
+			({ items: st.buffer, more: st.more } = await readStream(ctx, budget, st.s, streamOrder, after, take));
 		}
-		const merged = reads
-			.flatMap((read, i) => read.map((row) => ({ row, key: keyOf(active[i]!, row) })))
-			.filter(({ key }) => !frontier || compareKeys(key, frontier) * sign <= 0)
-			.sort((a, b) => compareKeys(a.key, b.key) * sign);
-		active = active.filter((_, i) => reads[i]!.length === limit);
-		for (const { row, key } of merged) {
-			if (after && compareKeys(key, after) === 0) continue; // the same record from another "any of" stream
-			if (beyond(key)) return { page, isDone: false, continueCursor: paginationOpts.endCursor! };
-			after = key;
-			const record = "recordId" in row ? await ctx.db.get(row.recordId) : row;
-			if (!record) continue;
-			bytes += getDocumentSize(record);
-			if (record.archived === archived && checks.every((c) => c.test(record.values))) page.push(record);
-			if (!end && page.length >= paginationOpts.numItems) return { page, isDone: false, continueCursor: cursor(after) };
+		let next: (typeof state)[number] | undefined;
+		for (const st of state)
+			if (st.buffer.length && (!next || compareKeys(st.buffer[0]!.key, next.buffer[0]!.key) * sign < 0)) next = st;
+		if (!next) return { page, isDone: true, continueCursor: endCursor ?? cursor(after) };
+		const { row, key } = next.buffer[0]!;
+		if (after && compareKeys(key, after) * sign <= 0) {
+			next.buffer.shift(); // the same record from another "any of" stream
+			continue;
 		}
-		if (!frontier) return { page, isDone: true, continueCursor: end ? paginationOpts.endCursor! : cursor(after) };
+		if (end && compareKeys(key, end) * sign > 0) return { page, isDone: false, continueCursor: endCursor! };
+		const fromIndex = "recordId" in row;
+		if (!budget.has(lookups + (fromIndex ? 1 : 0), lookups, fromIndex ? DOC_MAX : 0)) return stop();
+		next.buffer.shift();
+		after = key;
+		const record = fromIndex ? await ctx.db.get(row.recordId) : row;
+		if (fromIndex) budget.read(record ? [record] : []);
+		if (!record || record.archived !== archived) continue;
+		let match = true;
+		for (const c of checks) if (!(await c.test(record.values))) match = false;
+		if (match) page.push(record);
+		if (page.length >= limit) return end ? (compareKeys(after, end) === 0 ? { page, isDone: false, continueCursor: endCursor! } : stop()) : stop();
 	}
 }

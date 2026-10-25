@@ -698,3 +698,175 @@ describe("records: combined filters at scale", () => {
 		await expect(titles(owner, { typeId: task._id, filters: [{ field: "due", empty: true }], sort: { field: "due", order: "asc" } })).resolves.toEqual([]);
 	});
 });
+
+describe("records: list edge cases", () => {
+	/** Values near the size limit: three big text fields plus a big name. */
+	async function bigValues(owner: As, typeId: Id<"recordTypes">) {
+		const keys = [];
+		for (let i = 0; i < 3; i++) keys.push((await owner.mutation(api.fields.create, { typeId, label: `Big ${i}`, kind: "text" })).key);
+		return { name: "界".repeat(10_000), ...Object.fromEntries(keys.map((k) => [k, "界".repeat(10_000)])) };
+	}
+	const seed = async (t: ReturnType<typeof convexTest>, userId: Id<"users">, typeId: Id<"recordTypes">, values: Record<string, unknown>[]) =>
+		t.run(async (ctx) => {
+			const who = { member: (await memberOf(ctx, userId))! };
+			const ids = [];
+			for (const v of values) ids.push(await createRecord(ctx, who, typeId, v));
+			return ids;
+		});
+
+	it("keeps an older match from a short 'any of' stream behind a full one", async () => {
+		const { t, owner, task } = await setup();
+		await seed(t, owner.userId, task._id, [
+			{ name: "older match", status: "to_do", due: "2026-01-01" },
+			...Array.from({ length: 51 }, (_, i) => ({ name: `newer ${i}`, status: "done" })),
+		]);
+		const got = await owner.query(api.records.list, {
+			typeId: task._id,
+			filters: [{ field: "status", in: ["done", "to_do"] }, { field: "due", empty: false }],
+			paginationOpts: page,
+		});
+		expect(got.page.map((r) => r.title)).toEqual(["older match"]);
+		expect(got.isDone).toBe(true);
+	});
+
+	it("stops reading big records before the byte limit and says to go on", { timeout: 120_000 }, async () => {
+		const { t, owner, task } = await setup();
+		const big = await bigValues(owner, task._id);
+		for (let batch = 0; batch < 4; batch++) await seed(t, owner.userId, task._id, Array.from({ length: 25 }, () => ({ ...big, due: "2026-01-01" })));
+		const first = await owner.query(api.records.list, { typeId: task._id, filters: [{ field: "due", empty: true }], paginationOpts: page });
+		expect(first).toMatchObject({ page: [], isDone: false });
+		let cursor: string | null = first.continueCursor;
+		let requests = 1;
+		for (;;) {
+			const next = await owner.query(api.records.list, { typeId: task._id, filters: [{ field: "due", empty: true }], paginationOpts: { numItems: 50, cursor } });
+			requests++;
+			expect(next.page).toEqual([]);
+			if (next.isDone) break;
+			cursor = next.continueCursor;
+		}
+		expect(requests).toBeGreaterThan(2);
+	});
+
+	it("checks link filter targets within the budget, however big they are", { timeout: 120_000 }, async () => {
+		const { t, owner, client, deal } = await setup();
+		const big = await bigValues(owner, client._id);
+		const ids: Id<"records">[] = [];
+		for (let batch = 0; batch < 5; batch++) ids.push(...(await seed(t, owner.userId, client._id, Array.from({ length: 20 }, () => big))));
+		await seed(t, owner.userId, deal._id, [{ name: "Linked", client: ids[60] }]);
+		const got = await owner.query(api.records.list, {
+			typeId: deal._id,
+			filters: [{ field: "client", in: ids.slice(0, 50) }, { field: "client", in: ids.slice(50) }],
+			paginationOpts: page,
+		});
+		expect(got.page).toEqual([]);
+		const one = await owner.query(api.records.list, { typeId: deal._id, filters: [{ field: "client", in: ids.slice(50) }], paginationOpts: page });
+		expect(one.page.map((r) => r.title)).toEqual(["Linked"]);
+	});
+
+	it("stays within limits with the most filters allowed", async () => {
+		const { owner, deal } = await setup();
+		const fake = (i: number) => `${"k".repeat(31)}${i}`;
+		const filters = Array.from({ length: 10 }, (_, f) => ({ field: f % 2 ? "client" : "owner", in: Array.from({ length: 50 }, (_, i) => fake(f * 50 + i)) }));
+		const got = await owner.query(api.records.list, { typeId: deal._id, filters, paginationOpts: page });
+		expect(got).toMatchObject({ page: [], isDone: true });
+	});
+
+	it("honors an explicit createdAt sort when a range would drive", async () => {
+		const { t, owner, task } = await setup();
+		await seed(t, owner.userId, task._id, [{ name: "old", due: "2026-01-02" }, { name: "new", due: "2026-01-01" }]);
+		const list = (order: "asc" | "desc") => titles(owner, { typeId: task._id, filters: [{ field: "due", gte: "2026-01-01" }], sort: { field: "createdAt", order } });
+		expect(await list("desc")).toEqual(["new", "old"]);
+		expect(await list("asc")).toEqual(["old", "new"]);
+	});
+
+	it("caps pages even with an end cursor, and splits them instead", async () => {
+		const { t, owner, task } = await setup();
+		await seed(t, owner.userId, task._id, Array.from({ length: 120 }, (_, i) => ({ name: `T${i}` })));
+		const args = { typeId: task._id, filters: [{ field: "status", empty: true }] };
+		// A cursor 100 records in.
+		let cursor: string | null = null;
+		for (let i = 0; i < 2; i++) cursor = (await owner.query(api.records.list, { ...args, paginationOpts: { numItems: 50, cursor } })).continueCursor;
+		const whole = await owner.query(api.records.list, { ...args, paginationOpts: { numItems: 10, cursor: null, endCursor: cursor } });
+		expect(whole.page).toHaveLength(50);
+		expect(whole).toMatchObject({ pageStatus: "SplitRequired", continueCursor: cursor });
+		const rest = await owner.query(api.records.list, { ...args, paginationOpts: { numItems: 10, cursor: whole.splitCursor!, endCursor: cursor } });
+		expect(rest).toMatchObject({ continueCursor: cursor });
+		expect([...whole.page, ...rest.page].map((r) => r.title)).toEqual(Array.from({ length: 100 }, (_, i) => `T${119 - i}`));
+		await expect(
+			owner.query(api.records.list, { typeId: task._id, paginationOpts: { ...page, endCursor: JSON.stringify({ p: "t", a: [0] }) } }),
+		).rejects.toThrow("out of date");
+	});
+
+	it("only continues a cursor with the list it came from", async () => {
+		const { t, owner, member, task, deal } = await setup();
+		await seed(t, owner.userId, task._id, [{ name: "A", status: "done" }, { name: "B", status: "done" }]);
+		const args = { typeId: task._id, filters: [{ field: "status", eq: "done" }] };
+		const { continueCursor } = await owner.query(api.records.list, { ...args, paginationOpts: { numItems: 1, cursor: null } });
+		const next = (changes: Partial<FunctionArgs<typeof api.records.list>>, as: As = owner) =>
+			as.query(api.records.list, { ...args, ...changes, paginationOpts: { numItems: 1, cursor: continueCursor } });
+		expect((await next({})).page.map((r) => r.title)).toEqual(["A"]);
+		await expect(next({ filters: [{ field: "status", eq: "to_do" }] })).rejects.toThrow("out of date");
+		await expect(next({ sort: { field: "createdAt", order: "asc" } })).rejects.toThrow("out of date");
+		await expect(next({ typeId: deal._id, filters: [] })).rejects.toThrow("out of date");
+		await expect(next({ archived: true })).rejects.toThrow("out of date");
+		// Another workspace: the same cursor names this one.
+		const outsider = await signIn(t, "out@other.com");
+		const theirs = (await outsider.query(api.recordTypes.list)).find((ty) => ty.key === "task")!;
+		await expect(next({ typeId: theirs._id }, outsider)).rejects.toThrow("out of date");
+		expect((await next({}, member)).page.map((r) => r.title)).toEqual(["A"]);
+	});
+
+	it("pages through records that share a creation time, in id order", async () => {
+		const { t, owner, task } = await setup();
+		const ids = await seed(t, owner.userId, task._id, Array.from({ length: 5 }, (_, i) => ({ name: `T${i}`, status: "done" })));
+		// Same `at` on every row, as if they were created at once.
+		await t.run(async (ctx) => {
+			for (const row of await ctx.db.query("recordValues").collect()) await ctx.db.patch(row._id, { at: 1 });
+		});
+		const seen: string[] = [];
+		let cursor: string | null = null;
+		for (;;) {
+			const r = await owner.query(api.records.list, { typeId: task._id, filters: [{ field: "status", eq: "done" }], paginationOpts: { numItems: 2, cursor } });
+			seen.push(...r.page.map((x) => x._id));
+			if (r.isDone) break;
+			cursor = r.continueCursor;
+		}
+		expect(seen).toEqual([...ids].sort().reverse());
+	});
+
+	it("treats links to archived records as empty, one or several", async () => {
+		const { owner, client, deal } = await setup();
+		const gone = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Gone" } });
+		const kept = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Kept" } });
+		await owner.mutation(api.fields.create, { typeId: deal._id, label: "Partners", kind: "link", linkTypeId: client._id, multiple: true });
+		await owner.mutation(api.records.create, { typeId: deal._id, values: { name: "To gone", client: gone, partners: [gone] } });
+		await owner.mutation(api.records.create, { typeId: deal._id, values: { name: "Mixed", client: kept, partners: [gone, kept] } });
+		await owner.mutation(api.records.archive, { recordId: gone });
+		const list = (field: string, empty: boolean) => titles(owner, { typeId: deal._id, filters: [{ field, empty }] });
+		expect(await list("client", true)).toEqual(["To gone"]);
+		expect(await list("client", false)).toEqual(["Mixed"]);
+		expect(await list("partners", true)).toEqual(["To gone"]);
+		expect(await list("partners", false)).toEqual(["Mixed"]);
+	});
+
+	it("backfills index rows from before `at`, and says to wait until then", async () => {
+		const t = convexTest({ schema, modules, transactionLimits: true });
+		migrationsTest.register(t);
+		const owner = await signIn(t, "owner@co.com");
+		const task = (await owner.query(api.recordTypes.list)).find((ty) => ty.key === "task")!;
+		await owner.mutation(api.records.create, { typeId: task._id, values: { name: "Old", status: "done" } });
+		await t.run(async (ctx) => {
+			for (const row of await ctx.db.query("recordValues").collect()) await ctx.db.patch(row._id, { at: undefined });
+		});
+		const list = () => titles(owner, { typeId: task._id, filters: [{ field: "status", eq: "done" }] });
+		await expect(list()).rejects.toThrow("being updated");
+		vi.useFakeTimers();
+		try {
+			await t.mutation(internal.migrations.runAll);
+			await t.finishAllScheduledFunctions(vi.runAllTimers);
+		} finally {
+			vi.useRealTimers();
+		}
+		expect(await list()).toEqual(["Old"]);
+	});
+});

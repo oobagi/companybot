@@ -71,13 +71,15 @@ export const list = query({
 		if (!member || type?.workspaceId !== member.workspaceId) return empty();
 		const fields = await fieldsOf(ctx, typeId);
 		const result = await findRecords(ctx, {
+			workspaceId: member.workspaceId,
 			typeId,
 			archived,
 			fields,
 			conditions: filters,
 			sort,
 			currency: await currencyOf(ctx, member.workspaceId),
-			paginationOpts: capped(paginationOpts, PAGE_MAX),
+			pageMax: PAGE_MAX,
+			paginationOpts,
 		});
 		return { ...result, page: await toRows(ctx, member.workspaceId, result.page.map((record) => ({ record, fields }))) };
 	},
