@@ -31,13 +31,14 @@ import {
 	grantedConnectorIds,
 	isWidgetResult,
 	isWidgetToolName,
+	agentStopWhen,
 	openConnector,
 	resolveTools,
 	deniedReason,
 	toolApprovalPolicy,
 	toolRisk,
 } from "@companybot/core";
-import { generateText, isStepCount, streamText } from "ai";
+import { generateText, streamText } from "ai";
 import type { FunctionReturnType } from "convex/server";
 import { type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
@@ -264,10 +265,17 @@ async function streamReply(
 	let lastFlush = 0;
 	const text = () => parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("\n\n");
 	const flush = () => ctx.runMutation(internal.turns.updateReply, { replyId, text: text(), parts });
-	const setTool = (id: string, name: string, status: "running" | "done" | "error") => {
+	// Labels say what each call did ("Created deal Reroof main warehouse"): from its input while
+	// it runs, and its result once done. Stored with the reply; replays never include them.
+	const callInputs = new Map<string, unknown>();
+	const setTool = (id: string, name: string, status: "running" | "done" | "error", call?: { input: unknown; output?: unknown }) => {
+		if (call) callInputs.set(id, call.input);
 		const existing = parts.find((p) => p.type === "tool" && p.id === id);
-		if (existing?.type === "tool") existing.status = status;
-		else parts.push({ type: "tool", id, name, label: callLabel(name, available, services), status });
+		const label = (toolName: string) => callLabel(toolName, available, services, { input: callInputs.get(id), output: call?.output });
+		if (existing?.type === "tool") {
+			existing.status = status;
+			existing.label = label(existing.name);
+		} else parts.push({ type: "tool", id, name, label: label(name), status });
 	};
 
 	// A turn after an approval runs the approved call first, so its outcome goes in the prompt.
@@ -296,8 +304,7 @@ async function streamReply(
 		instructions: input.instructions,
 		messages: input.messages,
 		tools,
-		// Room for connectors_search + connectors_call + a widget + the answer.
-		stopWhen: isStepCount(10),
+		stopWhen: agentStopWhen,
 		headers: { "x-session-affinity": turn.session.id },
 		providerOptions: { gateway: { caching: "auto" } },
 		// Calls that need approval stop the run there, unexecuted; we hold them below.
@@ -331,14 +338,14 @@ async function streamReply(
 			} else if (part.type === "tool-call") {
 				// A connectors_call shows as the tool it ran.
 				const name = part.toolName === CONNECTOR_CALL ? (calledConnectorTool(part.input) ?? part.toolName) : part.toolName;
-				if (!isWidgetToolName(part.toolName)) setTool(part.toolCallId, name, "running");
+				if (!isWidgetToolName(part.toolName)) setTool(part.toolCallId, name, "running", { input: part.input });
 				const call = describeCall(part.toolName, part.input, available);
 				if (call) calls.set(part.toolCallId, call);
 			} else if (part.type === "tool-result") {
 				const end = callEnd(part.output);
 				if (isWidgetToolName(part.toolName)) {
 					if (isWidgetResult(part.output)) parts.push({ type: "widget", id: part.toolCallId, widget: part.output.widget });
-				} else setTool(part.toolCallId, part.toolName, "error" in end ? "error" : "done");
+				} else setTool(part.toolCallId, part.toolName, "error" in end ? "error" : "done", { input: callInputs.get(part.toolCallId), ...("output" in end && { output: end.output }) });
 				await logCall(part.toolCallId, end);
 			} else if (part.type === "tool-error") {
 				if (!isWidgetToolName(part.toolName)) setTool(part.toolCallId, part.toolName, "error");
@@ -394,14 +401,14 @@ async function runApproval(
 	approval: NonNullable<Turn["approval"]>,
 	usable: ToolDef[],
 	toolCtx: ToolContext,
-	setTool: (id: string, name: string, status: "running" | "done" | "error") => void,
+	setTool: (id: string, name: string, status: "running" | "done" | "error", call?: { input: unknown; output?: unknown }) => void,
 ): Promise<ApprovalOutcome | null> {
 	const { id: approvalId, tool, by } = approval;
 	if (approval.status === "denied") return { tool, by, decision: "denied" };
 	const call = await ctx.runMutation(internal.approvals.claim, { approvalId, turnId });
 	if (!call) return { tool, by, decision: "approved", error: "It didn't run: it was already handled, no longer matches what was approved, or was blocked since." };
 	const callId = `approval-${approvalId}`;
-	setTool(callId, tool, "running");
+	setTool(callId, tool, "running", { input: call.input });
 	const t = usable.find((x) => x.id === call.tool);
 	let end: { output: unknown } | { error: string };
 	try {
@@ -410,7 +417,7 @@ async function runApproval(
 	} catch (e) {
 		end = { error: e instanceof Error ? e.message : String(e) };
 	}
-	setTool(callId, tool, "error" in end ? "error" : "done");
+	setTool(callId, tool, "error" in end ? "error" : "done", { input: call.input, ...("output" in end && { output: end.output }) });
 	const result = "output" in end ? clipJson(end.output) : undefined;
 	const error = "error" in end ? end.error : undefined;
 	await ctx.runMutation(internal.approvals.finish, { approvalId, result, error });

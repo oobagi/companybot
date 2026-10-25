@@ -117,6 +117,23 @@ export function formatMoney({ minor, currency }: Money, locale?: string) {
 	);
 }
 
+const dateFormats = new Map<string | undefined, Intl.DateTimeFormat>();
+
+/**
+ * A "YYYY-MM-DD" day for people: "Nov 15, 2026". Read as that calendar day, never shifted
+ * by a time zone. Anything that isn't a day comes back as given.
+ */
+export function formatDate(day: string, locale?: string) {
+	const at = /^\d{4}-\d{2}-\d{2}$/.test(day) ? new Date(`${day}T00:00:00Z`) : null;
+	if (!at || Number.isNaN(at.getTime())) return day;
+	let format = dateFormats.get(locale);
+	if (!format) {
+		format = new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
+		dateFormats.set(locale, format);
+	}
+	return format.format(at);
+}
+
 export const isCurrencyCode = (code: unknown): code is string => typeof code === "string" && currencyCodes.includes(code);
 
 /** A key from a label: "Roof type" → "roof_type", unique among `taken`. */
@@ -361,8 +378,8 @@ export type RefName = { name: string; archived?: true };
 
 /**
  * Values as people read them, by field key: option labels, names for people and links,
- * amounts with their own currency ("$1,250.50", "€12.50", "CA$40.00"). Formatted for en-US so
- * "$" always means US dollars. Fields not given (archived ones) are left out. Ids without a
+ * amounts with their own currency ("$1,250.50", "€12.50", "CA$40.00"), dates ("Nov 15, 2026").
+ * Formatted for en-US so "$" always means US dollars. Fields not given (archived ones) are left out. Ids without a
  * name in `refs` show as the id.
  */
 export function displayValues(fields: Field[], values: Record<string, FieldValue>, refs: Record<string, RefName> = {}) {
@@ -379,6 +396,7 @@ export function displayValues(fields: Field[], values: Record<string, FieldValue
 		else if (typeof v === "object") out[field.key] = formatMoney(v, "en-US");
 		else if (typeof v === "boolean") out[field.key] = v ? "Yes" : "No";
 		else if (typeof v === "number") out[field.key] = v;
+		else if (field.kind === "date") out[field.key] = formatDate(v, "en-US");
 		else out[field.key] = ["choice", "user", "link"].includes(field.kind) ? one(field, v) : v;
 	}
 	return out;
