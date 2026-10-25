@@ -4,7 +4,9 @@ import { simulateReadableStream, streamText } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import {
 	APPROVAL_TTL_MS,
+	actionLabel,
 	alwaysAllowText,
+	askText,
 	approvalHash,
 	approvalStatus,
 	canDecideApproval,
@@ -12,9 +14,11 @@ import {
 	describeAllowed,
 	needsApproval,
 	permissionFor,
+	readableValue,
+	toolLine,
 	toolRisk,
 } from "./approvals";
-import { ACTIVITY_MAX_CHARS, clipJson, describeCall } from "./activity";
+import { ACTIVITY_MAX_CHARS, callLabel, clipJson, describeCall } from "./activity";
 import { formatLocalTime, resolveTimeZone, shortStamp } from "./time";
 import {
 	buildToolSet,
@@ -742,6 +746,15 @@ describe("activity log", () => {
 		expect(describeCall("connectors_call", { tool: "notes.gone", input: {} }, tools)?.changes).toBe(true);
 	});
 
+	it("labels tool lines in plain words", () => {
+		const crm = [{ id: "notes", name: "Notes" }];
+		expect(callLabel("connectors_search", tools, crm)).toBe("Look up Notes actions");
+		expect(callLabel("connectors_search", tools, [...crm, { id: "crm", name: "CRM" }])).toBe("Look up connected actions");
+		expect(callLabel("notes.find", tools, crm)).toBe("Find with Notes");
+		expect(callLabel(modelToolName("memory.search"), tools, crm)).toBe("Search memory");
+		expect(callLabel("gone.send_sms", tools, crm)).toBe("Send SMS");
+	});
+
 	it("skips widgets and tool search", () => {
 		expect(describeCall(modelToolName("widgets.table"), {}, tools)).toBeNull();
 		expect(describeCall("connectors_search", { query: "" }, tools)).toBeNull();
@@ -823,16 +836,62 @@ describe("approvals", () => {
 
 	it("says exactly what Always covers, and how a call was allowed", () => {
 		const gmail = { name: "Gmail", connection: "personal" as const };
-		expect(alwaysAllowText("gmail.send_email", gmail)).toMatch(/^Always allow: agents can send email from your Gmail without asking you first\. Only when acting for you\./);
-		expect(alwaysAllowText("crm.send_sms", { name: "CRM", connection: "workspace" }, "Morning brief")).toContain(
-			"agents can send sms with the workspace's CRM when running Morning brief without asking you first",
+		expect(alwaysAllowText("gmail.send_email", gmail)).toBe(
+			"Always allow: agents can send email from your Gmail without asking you first. Only when acting for you. Change it anytime in Settings → Your preferences.",
 		);
+		expect(alwaysAllowText("crm.send_sms", { name: "CRM", connection: "workspace" }, { automation: "Morning brief", whereToChange: false })).toBe(
+			"Always allow: agents can send SMS with the workspace's CRM when running Morning brief without asking you first. Only when acting for you.",
+		);
+		expect(alwaysAllowText("crm.charge", gmail, { title: "Charge a card" })).toContain("agents can charge a card from your Gmail");
 		const at = Date.UTC(2026, 9, 25, 12);
 		expect(describeAllowed({ how: "always", by: "u1", at }, "Jaden", "UTC")).toBe("Always allowed by Jaden, Oct 25");
 		expect(describeAllowed({ how: "automation", by: "u1", at, automation: "Morning brief" }, "Jaden", "UTC")).toBe(
 			"Allowed by Jaden for Morning brief, Oct 25",
 		);
 		expect(describeAllowed({ how: "once", by: "u1", at }, "Jaden", "UTC")).toBe("Approved by Jaden, Oct 25");
+	});
+
+	it("names actions in plain words: the server's title, else the name with acronyms kept", () => {
+		expect(actionLabel("fake-crm.send_sms")).toBe("Send SMS");
+		expect(actionLabel("fake-crm.charge_card")).toBe("Charge card");
+		expect(actionLabel("crm.getContactById")).toBe("Get contact by ID");
+		expect(actionLabel("crm.export-csv-url")).toBe("Export CSV URL");
+		expect(actionLabel("crm.send_sms", " Text a customer ")).toBe("Text a customer");
+		expect(actionLabel("crm.send_sms", "")).toBe("Send SMS");
+	});
+
+	it("asks in a natural sentence, with phone numbers laid out", () => {
+		const crm = { name: "Fake CRM", connection: "personal" as const };
+		expect(askText("fake-crm.send_sms", crm, { to: "+15550100100", text: "hi" })).toBe("I'd like to send an SMS to +1 (555) 010-0100 from your Fake CRM.");
+		expect(askText("fake-crm.charge_card", crm, { amount: 40, customer: "Dana" })).toBe("I'd like to charge a card in your Fake CRM.");
+		expect(askText("gmail.send_email", { name: "Gmail", connection: "workspace" }, { to: ["a@x.co", "b@x.co"] })).toBe(
+			"I'd like to send an email to a@x.co, b@x.co with the workspace's Gmail.",
+		);
+		expect(askText("crm.list_deals", crm, {})).toBe("I'd like to list deals in your Fake CRM.");
+		expect(askText("crm.send_money", crm, {})).toBe("I'd like to send money in your Fake CRM.");
+		expect(askText("crm.x", crm, {}, "Update a contact's stage")).toBe("I'd like to update a contact's stage in your Fake CRM.");
+		expect(askText("memory.forget", null, {})).toBe("I'd like to forget in Companybot.");
+	});
+
+	it("lays out phone numbers for reading, and leaves everything else alone", () => {
+		expect(readableValue("+15550100100")).toBe("+1 (555) 010-0100");
+		expect(readableValue("+1 555 010 0100")).toBe("+1 (555) 010-0100");
+		expect(readableValue("555-010-0100")).toBe("(555) 010-0100");
+		expect(readableValue("+44 20 7946 0958")).toBe("+44 20 7946 0958");
+		expect(readableValue("5550100100")).toBe("5550100100");
+		expect(readableValue("40")).toBe("40");
+		expect(readableValue("Running late, see you at 3.")).toBe("Running late, see you at 3.");
+	});
+
+	it("says what a tool did, in the right tense", () => {
+		expect(toolLine("Send SMS with Fake CRM", "done")).toBe("Sent SMS with Fake CRM");
+		expect(toolLine("Send SMS with Fake CRM", "running")).toBe("Sending SMS with Fake CRM…");
+		expect(toolLine("Send SMS with Fake CRM", "error")).toBe("Couldn't send SMS with Fake CRM");
+		expect(toolLine("Look up Fake CRM actions", "done")).toBe("Looked up Fake CRM actions");
+		expect(toolLine("Charge card", "running")).toBe("Charging card…");
+		expect(toolLine("Reply", "done")).toBe("Replied");
+		expect(toolLine("Contact lookup", "done")).toBe("Used Contact lookup");
+		expect(toolLine("Contact lookup", "error")).toBe("Failed: Contact lookup");
 	});
 
 	it("locks to the exact tool and input: key order doesn't matter, any other change does", async () => {

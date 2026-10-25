@@ -1421,7 +1421,7 @@ describe("approvals", () => {
 		const { turn, approvalId, card } = await holdCall(t, member, chatId);
 		expect(card).toMatchObject({
 			service: "CRM",
-			action: "send_sms",
+			action: "Send SMS",
 			input: canonicalJson(call.input),
 			status: "pending",
 			approver: "member@co.com",
@@ -1557,7 +1557,7 @@ describe("permissions", () => {
 			tools: [
 				{ name: "send_sms", description: "Text someone", risk: "outside" },
 				{ name: "find_leads", description: "Find leads", risk: "none" },
-				{ name: "charge_card", description: "Charge a card", risk: "locked" },
+				{ name: "charge_card", title: "Charge a customer's card", description: "Charge a card", risk: "locked" },
 			],
 		});
 		const { companybot } = await agentsOf(owner);
@@ -1628,10 +1628,12 @@ describe("permissions", () => {
 		const { t, owner, member } = await setup();
 		await expect(member.mutation(api.permissions.set, { action: "crm.charge_card", setting: "always" })).rejects.toThrow("always asks");
 		const listed = await member.query(api.permissions.actions, { connectorId: "crm" });
-		expect(listed.find((a) => a.action === "crm.charge_card")).toMatchObject({ canAlways: false, result: "ask" });
+		// Named by the server's title when it gives one, else from the tool's name.
+		expect(listed.find((a) => a.action === "crm.charge_card")).toMatchObject({ label: "Charge a customer's card", canAlways: false, result: "ask" });
+		expect(listed.find((a) => a.action === "crm.send_sms")?.label).toBe("Send SMS");
 		expect(listed.find((a) => a.action === "crm.send_sms")).toMatchObject({
 			canAlways: true,
-			alwaysText: expect.stringContaining("Always allow: agents can send sms with the workspace's CRM without asking you first"),
+			alwaysText: expect.stringContaining("Always allow: agents can send SMS with the workspace's CRM without asking you first"),
 		});
 		await owner.mutation(api.permissions.setLock, { action: "crm.charge_card", lock: "none" });
 		await member.mutation(api.permissions.set, { action: "crm.charge_card", setting: "always" });
@@ -1653,7 +1655,7 @@ describe("permissions", () => {
 	it("saves a rule when the card's Always allow is chosen, says plainly what it covers, and runs the call", async () => {
 		const { t, owner, member } = await setup();
 		const { approvalId, card, turn } = await hold(t, member);
-		expect(card.ask).toBe("I'd like to send sms to +15550100 with the workspace's CRM.");
+		expect(card.ask).toBe("I'd like to send an SMS to +15550100 with the workspace's CRM.");
 		expect(card.alwaysText).toContain("without asking you first");
 		// Others don't get the offer.
 		expect((await owner.query(api.approvals.forReply, { replyId: turn.replyId! }))[0]?.alwaysText).toBeNull();

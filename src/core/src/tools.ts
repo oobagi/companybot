@@ -56,6 +56,8 @@ export type ToolSource = { type: "builtin" } | { type: "connector"; connectorId:
  */
 export interface ToolDef<Input = any> {
 	id: string;
+	/** Its name for people ("Send SMS"). Unset: made from the id (approvals.ts `actionLabel`). */
+	title?: string;
 	description: string;
 	/** A zod schema, or `jsonSchema(...)` for tools described by an MCP server. */
 	input: FlexibleSchema<Input>;

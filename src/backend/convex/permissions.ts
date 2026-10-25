@@ -3,6 +3,7 @@ import {
 	type PermissionDecision,
 	type Risk,
 	type RuleSetting,
+	actionLabel,
 	alwaysAllowText,
 	builtinTools,
 	findAutomation,
@@ -156,6 +157,13 @@ const toolsOf = async (ctx: QueryCtx, workspaceId: Id<"workspaces">, connectorId
 			.first()
 	)?.tools ?? [];
 
+/** The title an action's server gave it, if any (built-ins carry their own). Use with `actionLabel`. */
+export async function titleOf(ctx: QueryCtx, workspaceId: Id<"workspaces">, action: string) {
+	const builtin = builtinTools.find((t) => t.id === action);
+	if (builtin) return builtin.title;
+	return (await toolsOf(ctx, workspaceId, toolGroup(action))).find((t) => `${toolGroup(action)}.${t.name}` === action)?.title;
+}
+
 export const workspaceOf = internalQuery({
 	args: { userId: v.id("users") },
 	handler: async (ctx, { userId }) => (await memberOf(ctx, userId))?.workspaceId ?? null,
@@ -166,7 +174,7 @@ export const saveTools = internalMutation({
 	args: {
 		workspaceId: v.id("workspaces"),
 		connectorId: v.string(),
-		tools: v.array(v.object({ name: v.string(), description: v.string(), risk })),
+		tools: v.array(v.object({ name: v.string(), title: v.optional(v.string()), description: v.string(), risk })),
 	},
 	handler: async (ctx, { workspaceId, connectorId, tools }) => {
 		const row = await ctx.db
@@ -205,9 +213,12 @@ export async function forgetAutomationGrants(ctx: MutationCtx, installId: Id<"au
 
 type Action = {
 	action: string;
+	/** Its name for people: "Send SMS". */
+	label: string;
 	/** The connector's name, or null for built-ins. */
 	service: string | null;
 	connectorId: string | null;
+	title?: string;
 	description: string;
 	risk: Risk;
 	/** The owner's lock, if any. */
@@ -227,13 +238,13 @@ async function actionsFor(ctx: QueryCtx, member: Member): Promise<Action[]> {
 		.query("connectorInstalls")
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
 		.collect();
-	const defs: { action: string; description: string; risk: Risk }[] = builtinTools
+	const defs: { action: string; title?: string; description: string; risk: Risk }[] = builtinTools
 		.filter((t) => toolRisk(t) !== "none")
-		.map((t) => ({ action: t.id, description: t.description, risk: toolRisk(t) }));
+		.map((t) => ({ action: t.id, title: t.title, description: t.description, risk: toolRisk(t) }));
 	for (const install of installs) {
 		if (!findConnector(install.connectorId)) continue;
 		for (const t of await toolsOf(ctx, member.workspaceId, install.connectorId))
-			defs.push({ action: `${install.connectorId}.${t.name}`, description: t.description, risk: t.risk });
+			defs.push({ action: `${install.connectorId}.${t.name}`, title: t.title, description: t.description, risk: t.risk });
 	}
 	return Promise.all(
 		defs.map(async (d) => {
@@ -245,13 +256,15 @@ async function actionsFor(ctx: QueryCtx, member: Member): Promise<Action[]> {
 			const forced = lock === "ask" || lock === "block" || (d.risk === "locked" && lock !== "none");
 			return {
 				...d,
+				label: actionLabel(d.action, d.title),
 				service: connector?.name ?? null,
 				connectorId: connector?.id ?? null,
 				lock: lock ?? null,
 				setting: own?.setting ?? "ask",
 				result: decision.type,
 				canAlways: d.risk !== "none" && !forced,
-				alwaysText: alwaysAllowText(d.action, connector),
+				// Shown beside its own Ask / Always / Never, so no pointer to Settings.
+				alwaysText: alwaysAllowText(d.action, connector, { title: d.title, whereToChange: false }),
 			};
 		}),
 	);
@@ -285,14 +298,20 @@ export const mine = query({
 				const connector = findConnector(toolGroup(r.action)) ?? null;
 				const automation = r.automationInstallId ? await ctx.db.get(r.automationInstallId) : null;
 				const name = automation ? automationName(automation) : undefined;
+				const title = await titleOf(ctx, member.workspaceId, r.action);
 				return {
 					_id: r._id,
 					action: r.action,
+					label: actionLabel(r.action, title),
 					service: connector?.name ?? null,
 					setting: r.setting,
 					setAt: r.setAt,
 					automation: automation ? { id: automation.automationId, name: name! } : null,
-					text: r.setting === "always" ? alwaysAllowText(r.action, connector, name) : "Never: agents can't do this for you.",
+					// This is Settings → Your preferences already, so no pointer to it.
+					text:
+						r.setting === "always"
+							? alwaysAllowText(r.action, connector, { automation: name, title, whereToChange: false })
+							: "Never: agents can't do this for you.",
 				};
 			}),
 		);
@@ -360,13 +379,15 @@ async function automationActions(ctx: QueryCtx, member: Member, install: Doc<"au
 				).find((r) => r.automationInstallId === install._id);
 				return {
 					action: a.action,
+					label: a.label,
 					service: a.service,
 					description: a.description,
 					/** "ask": you can allow it here. "locked": it asks every time. "always" / "blocked": already decided elsewhere. */
 					state:
 						a.result === "deny" ? ("blocked" as const) : a.setting === "always" ? ("always" as const) : a.canAlways ? ("ask" as const) : ("locked" as const),
 					allowed: !!grant,
-					alwaysText: alwaysAllowText(a.action, a.connectorId ? findConnector(a.connectorId)! : null, name),
+					// The dialog says where to change these once, below the list.
+					alwaysText: alwaysAllowText(a.action, a.connectorId ? findConnector(a.connectorId)! : null, { automation: name, title: a.title, whereToChange: false }),
 				};
 			}),
 	);

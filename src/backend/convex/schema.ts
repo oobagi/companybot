@@ -16,7 +16,8 @@ export const toolStatus = v.union(v.literal("running"), v.literal("done"), v.lit
 
 export const messagePart = v.union(
 	v.object({ type: v.literal("text"), text: v.string() }),
-	v.object({ type: v.literal("tool"), id: v.string(), name: v.string(), status: toolStatus }),
+	/** `label`: what it did, for people ("Send SMS with Fake CRM"; core `callLabel`). Older parts lack it. */
+	v.object({ type: v.literal("tool"), id: v.string(), name: v.string(), label: v.optional(v.string()), status: toolStatus }),
 	/** Props were validated against the widget's schema when the agent placed it. */
 	v.object({ type: v.literal("widget"), id: v.string(), widget: v.object({ type: v.string(), props: v.any() }) }),
 	/** A tool call held for approval (`id` is the tool call's id). The app reads its state from `approvals`. */
@@ -512,7 +513,7 @@ export default defineSchema({
 	connectorTools: defineTable({
 		workspaceId: v.id("workspaces"),
 		connectorId: v.string(),
-		tools: v.array(v.object({ name: v.string(), description: v.string(), risk })),
+		tools: v.array(v.object({ name: v.string(), title: v.optional(v.string()), description: v.string(), risk })),
 	}).index("by_workspace", ["workspaceId", "connectorId"]),
 
 	// ---- End permissions ----

@@ -57,7 +57,7 @@ function ActivityRow({ entry }: { entry: ActivityEntry & { chat: string } }) {
 		<div className="flex flex-col gap-2 rounded-xl border border-neutral-200 px-4 py-3 text-sm">
 			<button type="button" onClick={() => setOpen(!open)} className="flex items-baseline gap-2 text-left">
 				<span className="font-medium">{entry.agent}</span>
-				<span className="font-mono text-xs">{entry.tool}</span>
+				<span className="text-neutral-600">{entry.label}</span>
 				{entry.status === "error" && <span className="text-xs text-red-600">failed</span>}
 				<span className="ml-auto shrink-0 text-xs text-neutral-400">{timeAgo(entry.time)}</span>
 			</button>
@@ -86,7 +86,7 @@ function AllowedLine({ allowed, mine }: { allowed: NonNullable<ActivityEntry["al
 			{allowed.ruleStillOn && mine && (
 				<>
 					{" · "}
-					<button type="button" onClick={() => navigate("settings", "profile")} className="hover:underline">
+					<button type="button" onClick={() => navigate("settings", "preferences")} className="hover:underline">
 						See rule
 					</button>
 				</>
