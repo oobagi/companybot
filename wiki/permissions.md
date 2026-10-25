@@ -16,8 +16,9 @@ How agents get the go-ahead for actions that leave the building. Start strict, l
 - Uninstalling a connector deletes its rules and locks; removing a member deletes theirs. Reinstalling or rejoining starts strict.
 
 ## The card
-- The held call shows as **its own message from the agent**, after its reply: "I'd like to send email to dana@acme.com from your Gmail.", the exact input, then **Allow once / Always allow / Deny**. It stays in the timeline with the outcome ("Allowed once by Jaden").
-- Under the buttons, in plain words, what "always" covers: "Always allow: agents can send email from your Gmail without asking you first. Only when acting for you." Settings uses the same text (`alwaysAllowText`).
+- The held call shows as **its own message from the agent**, after its reply: "I'd like to send an email to dana@acme.com from your Gmail.", the exact input, then **Allow once / Always allow / Deny**. It stays in the timeline with the outcome ("Allowed once by Jaden"); what the call returned sits behind **Raw**, since the agent's reply says it in words.
+- Actions are named the same everywhere (`actionLabel`): the MCP tool's title, else its name in words ("send_sms" → "Send SMS"). Phone numbers show laid out; what runs and what's hashed is the exact input. Tool lines under replies say what happened ("Sent SMS with Fake CRM", `toolLine`).
+- Under the buttons, in plain words, what "always" covers: "Always allow: agents can send email from your Gmail without asking you first. Only when acting for you." Settings uses the same text (`alwaysAllowText`), minus the pointer to Settings.
 - "Always allow" saves the rule and runs the call. Not shown for locked actions or to anyone but the person the agent acts for.
 - Unchanged: locked to the hash of the exact call, only the acting person decides, 24h window, byte-identical replays.
 - Blocked calls (Never or owner block) don't run; the model is told why, and the tool line shows failed.
