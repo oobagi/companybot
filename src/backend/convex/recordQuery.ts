@@ -239,8 +239,6 @@ export async function compile(fields: Fields, c: Condition, currency: string, li
 
 function keyOf(s: Stream, row: Row): Key {
 	const r = row as unknown as Record<string, string | number | undefined>;
-	// Rows written before `at` existed sort apart until the backfill migration (`recordValueTimes`) reaches them.
-	if (s.table === "recordValues" && r.at === undefined) throw new ConvexError("Lists are being updated. Try again in a minute.");
 	return s.table === "records" ? [...s.keys.map((k) => r[k]!), r._id!] : s.keys.map((k) => r[k]!);
 }
 

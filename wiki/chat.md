@@ -44,7 +44,7 @@ Queries return display-ready data (names resolved) so the app never joins tables
   - `ChatItem`: `{ _id, kind, name, topic, private, isDefault, title, agentId, members: Participant[], unread: boolean, mentioned: boolean, lastMessageAt }`. `title` is `name` for channels, other participants' names for DMs. `agentId` is set for agent DMs, else null.
   - `AgentItem`: `{ _id, name, description, dmId, unread, mentioned, lastMessageAt }` for each active agent. `dmId` is its agent DM with you, or null; the rest come from that DM.
   - `Participant`: `{ type: "user", id: Id<"users">, name } | { type: "agent", id: Id<"agents">, name }`.
-  - Unread: the chat's newest main-timeline message is after your `lastReadAt`. `mentioned`: an unread main-timeline message mentions you.
+  - Unread: the chat's newest main-timeline message is after your `lastReadAt`. `mentioned`: an unread main-timeline message mentions you. Mentions are indexed in `userMentions` (one row per person mentioned in a main-timeline message, removed when the message is deleted), so an old unread mention is found however many messages follow it.
 - `browse()` → public channels you're not in: `{ _id, name, topic, memberCount }[]`.
 - `get({ chatId })` → `ChatItem` plus `canManage: boolean`, or null if you can't see it.
 - `createChannel({ name, topic?, private })` → chatId. Name normalized to lowercase-dashed; refused if taken.
@@ -53,7 +53,7 @@ Queries return display-ready data (names resolved) so the app never joins tables
 - `addMembers({ chatId, userIds, agentIds })` — channels only; by its members, or anyone who can manage it.
 - `openDm({ userIds, agentIds })` → chatId. Finds or creates. You're always included. The app's New message picks people and agents, so a group DM can include agents (they answer when @mentioned).
 - `markRead({ chatId })` — sets your `lastReadAt` to now.
-- `alerts()` → `{ chatId, messageId, title, text }[]`: each chat's newest unread message meant for you (DMs, agents' replies once done, @mentions; main timelines), filtered by your `notify` preference (`all` default, `mentions`, `off`). The app shows a desktop notification for new ones while it isn't in front (`notifications.ts`) and puts the count on the dock badge.
+- `alerts()` → `{ workspaceId, chatId, messageId, title, text }[]`: each chat's newest unread message meant for you (DMs, agents' replies once done, @mentions from `userMentions`, the same rows as the sidebar's `mentioned`; main timelines), filtered by your `notify` preference (`all` default, `mentions`, `off`). The app shows a desktop notification for new ones while it isn't in front (`notifications.ts`) and puts the count on the dock badge. Clicking one reopens its workspace if the window has switched since (only if you're still in it), then its chat.
 - `place({ chatId, threadId? })` → `{ summary, summarizedUpTo, compacting, costUsd }`, or null. Summaries belong to agent sessions, so only agent DMs have one (`summarizedUpTo` is a turn time); elsewhere summary is null. `costUsd` is the chat's (or thread's) running total.
 
 **`messages.ts`**

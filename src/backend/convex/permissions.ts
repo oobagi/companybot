@@ -15,8 +15,9 @@ import {
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type MutationCtx, type QueryCtx, internalMutation, internalQuery, mutation, query } from "./_generated/server";
-import { type Member, activeMemberOf, getMember, memberOf, requireMember, requirePermission } from "./lib";
+import { type MutationCtx, type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
+import { mutation, query } from "./functions";
+import { type Member, getMember, memberFor, memberOf, requireMember, requirePermission } from "./lib";
 import { canView } from "./automations";
 import { risk } from "./schema";
 import { runningTurn } from "./turns";
@@ -66,10 +67,30 @@ export async function decideFor(
 	ctx: QueryCtx,
 	member: Member,
 	{ action, risk, automationInstallId }: { action: string; risk: Risk; automationInstallId?: Id<"automationInstalls"> },
-): Promise<{ decision: PermissionDecision; rule?: Doc<"permissionRules">; lock?: LockSetting }> {
-	const install = await connectorInstallOf(ctx, member.workspaceId, action);
+): Promise<Decided> {
+	return decideWith(ctx, member, await connectorInstallOf(ctx, member.workspaceId, action), { action, risk, automationInstallId });
+}
+
+type Decided = {
+	decision: PermissionDecision;
+	/** The rule that let it run, if one did. */
+	rule?: Doc<"permissionRules">;
+	lock?: LockSetting;
+	/** The person's own rule for the action, if any. */
+	own?: Doc<"permissionRules">;
+	/** All their rules for it: their own and automation grants. Empty when its connector isn't installed. */
+	rules: Doc<"permissionRules">[];
+};
+
+/** `decideFor` with the action's connector install already read (`connectorInstallOf`). */
+async function decideWith(
+	ctx: QueryCtx,
+	member: Member,
+	install: Doc<"connectorInstalls"> | null | undefined,
+	{ action, risk, automationInstallId }: { action: string; risk: Risk; automationInstallId?: Id<"automationInstalls"> },
+): Promise<Decided> {
 	// Not installed: its tools can't load anyway. Fall back to the tool's own risk.
-	if (install === null) return { decision: permissionFor({ risk }) };
+	if (install === null) return { decision: permissionFor({ risk }), rules: [] };
 	const scope = install?._id;
 	const lock = (await lockOf(ctx, member.workspaceId, action, scope))?.lock;
 	const rules = await rulesOf(ctx, member, action, scope);
@@ -77,7 +98,7 @@ export async function decideFor(
 	const grant = automationInstallId ? rules.find((r) => r.automationInstallId === automationInstallId && r.setting === "always") : undefined;
 	const decision = permissionFor({ risk, lock, rule: own?.setting, automation: !!grant });
 	const rule = decision.type === "run" ? (decision.via === "always" ? own : decision.via === "automation" ? grant : undefined) : undefined;
-	return { decision, rule, lock };
+	return { decision, rule, lock, own, rules };
 }
 
 /** The automation install a turn runs for: its trigger message was posted by an automation. */
@@ -164,10 +185,10 @@ export async function titleOf(ctx: QueryCtx, workspaceId: Id<"workspaces">, acti
 	return (await toolsOf(ctx, workspaceId, toolGroup(action))).find((t) => `${toolGroup(action)}.${t.name}` === action)?.title;
 }
 
-/** The workspace they have open. */
+/** The workspace a request is for, if they're in it (actions can't read the database). */
 export const workspaceOf = internalQuery({
-	args: { userId: v.id("users") },
-	handler: async (ctx, { userId }) => (await activeMemberOf(ctx, userId))?.workspaceId ?? null,
+	args: { userId: v.id("users"), workspaceId: v.optional(v.id("workspaces")) },
+	handler: async (ctx, { userId, workspaceId }) => (await memberFor(ctx, userId, workspaceId))?.workspaceId ?? null,
 });
 
 /** Records the tools a connector's server listed, when they changed. Display only. */
@@ -233,29 +254,29 @@ type Action = {
 	alwaysText: string;
 };
 
-/** Every action agents can take here: installed connectors' tools (as last listed) and built-ins that ask. */
-async function actionsFor(ctx: QueryCtx, member: Member): Promise<Action[]> {
+/**
+ * Every action agents can take here: installed connectors' tools (as last listed) and built-ins
+ * that ask. With each, the person's rules for it, so callers needn't read them again.
+ */
+async function actionsFor(ctx: QueryCtx, member: Member): Promise<{ action: Action; rules: Doc<"permissionRules">[] }[]> {
 	const installs = await ctx.db
 		.query("connectorInstalls")
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
 		.collect();
-	const defs: { action: string; title?: string; description: string; risk: Risk }[] = builtinTools
+	const defs: { action: string; title?: string; description: string; risk: Risk; install?: Doc<"connectorInstalls"> }[] = builtinTools
 		.filter((t) => toolRisk(t) !== "none")
 		.map((t) => ({ action: t.id, title: t.title, description: t.description, risk: toolRisk(t) }));
 	for (const install of installs) {
 		if (!findConnector(install.connectorId)) continue;
 		for (const t of await toolsOf(ctx, member.workspaceId, install.connectorId))
-			defs.push({ action: `${install.connectorId}.${t.name}`, title: t.title, description: t.description, risk: t.risk });
+			defs.push({ action: `${install.connectorId}.${t.name}`, title: t.title, description: t.description, risk: t.risk, install });
 	}
 	return Promise.all(
-		defs.map(async (d) => {
+		defs.map(async ({ install, ...d }) => {
 			const connector = findConnector(toolGroup(d.action)) ?? null;
-			const { decision, lock } = await decideFor(ctx, member, { action: d.action, risk: d.risk });
-			const own = (await rulesOf(ctx, member, d.action, (await connectorInstallOf(ctx, member.workspaceId, d.action))?._id)).find(
-				(r) => !r.automationInstallId,
-			);
+			const { decision, lock, own, rules } = await decideWith(ctx, member, install, { action: d.action, risk: d.risk });
 			const forced = lock === "ask" || lock === "block" || (d.risk === "locked" && lock !== "none");
-			return {
+			const action: Action = {
 				...d,
 				label: actionLabel(d.action, d.title),
 				service: connector?.name ?? null,
@@ -267,6 +288,7 @@ async function actionsFor(ctx: QueryCtx, member: Member): Promise<Action[]> {
 				// Shown beside its own Ask / Always / Never, so no pointer to Settings.
 				alwaysText: alwaysAllowText(d.action, connector, { title: d.title, whereToChange: false }),
 			};
+			return { action, rules };
 		}),
 	);
 }
@@ -277,7 +299,7 @@ export const actions = query({
 	handler: async (ctx, { connectorId }) => {
 		const member = await getMember(ctx);
 		if (!member) return [];
-		const all = await actionsFor(ctx, member);
+		const all = (await actionsFor(ctx, member)).map((a) => a.action);
 		return connectorId ? all.filter((a) => a.connectorId === connectorId) : all;
 	},
 });
@@ -370,28 +392,23 @@ async function automationActions(ctx: QueryCtx, member: Member, install: Doc<"au
 	if (!agent) return [];
 	const name = automationName(install);
 	// Only tools the agent is granted: one granted connector tool never stands for the whole connector.
-	const all = (await actionsFor(ctx, member)).filter((a) => isGranted(agent.tools, a.action));
-	return Promise.all(
-		all
-			.filter((a) => a.risk !== "none" || a.result === "deny")
-			.map(async (a) => {
-				const grant = (
-					await rulesOf(ctx, member, a.action, a.connectorId ? (await connectorInstallOf(ctx, member.workspaceId, a.action))?._id : undefined)
-				).find((r) => r.automationInstallId === install._id);
-				return {
-					action: a.action,
-					label: a.label,
-					service: a.service,
-					description: a.description,
-					/** "ask": you can allow it here. "locked": it asks every time. "always" / "blocked": already decided elsewhere. */
-					state:
-						a.result === "deny" ? ("blocked" as const) : a.setting === "always" ? ("always" as const) : a.canAlways ? ("ask" as const) : ("locked" as const),
-					allowed: !!grant,
-					// The dialog says where to change these once, below the list.
-					alwaysText: alwaysAllowText(a.action, a.connectorId ? findConnector(a.connectorId)! : null, { automation: name, title: a.title, whereToChange: false }),
-				};
-			}),
-	);
+	return (await actionsFor(ctx, member))
+		.filter(({ action: a }) => isGranted(agent.tools, a.action) && (a.risk !== "none" || a.result === "deny"))
+		.map(({ action: a, rules }) => {
+			const grant = rules.find((r) => r.automationInstallId === install._id);
+			return {
+				action: a.action,
+				label: a.label,
+				service: a.service,
+				description: a.description,
+				/** "ask": you can allow it here. "locked": it asks every time. "always" / "blocked": already decided elsewhere. */
+				state:
+					a.result === "deny" ? ("blocked" as const) : a.setting === "always" ? ("always" as const) : a.canAlways ? ("ask" as const) : ("locked" as const),
+				allowed: !!grant,
+				// The dialog says where to change these once, below the list.
+				alwaysText: alwaysAllowText(a.action, a.connectorId ? findConnector(a.connectorId)! : null, { automation: name, title: a.title, whereToChange: false }),
+			};
+		});
 }
 
 /** An automation the person can see (creator-only ones are their maker's alone). */

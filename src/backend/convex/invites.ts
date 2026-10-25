@@ -11,17 +11,22 @@ import { nameOf } from "./lib";
 const DAY_MS = 24 * 60 * 60_000;
 
 /**
- * Queues the email for an invite, unless the workspace has sent too many today, or (`resend`)
- * this address got one a moment ago. Throws why not.
+ * Queues the email for an invite. Each address gets at most one per 10 minutes from a
+ * workspace, however its invites come and go: a resend inside that window is refused, a new
+ * invite is saved without an email. Over the workspace's daily cap, it throws.
+ * Returns whether an email went out.
  */
 export async function sendInviteEmail(ctx: MutationCtx, invite: Doc<"invites">, inviter: Id<"users">, { resend = false } = {}) {
 	const now = Date.now();
-	const last = resend && (await ctx.db
+	const last = await ctx.db
 		.query("inviteEmails")
 		.withIndex("by_email", (q) => q.eq("workspaceId", invite.workspaceId).eq("email", invite.email))
 		.order("desc")
-		.first());
-	if (last && now - last._creationTime < INVITE_RESEND_MS) throw new ConvexError("Email sent a moment ago. Try again in a few minutes.");
+		.first();
+	if (last && now - last._creationTime < INVITE_RESEND_MS) {
+		if (resend) throw new ConvexError("Email sent a moment ago. Try again in a few minutes.");
+		return false;
+	}
 	const today = await ctx.db
 		.query("inviteEmails")
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", invite.workspaceId).gt("_creationTime", now - DAY_MS))
@@ -38,6 +43,7 @@ export async function sendInviteEmail(ctx: MutationCtx, invite: Doc<"invites">, 
 	const workspace = await ctx.db.get(invite.workspaceId);
 	const content = inviteEmail({ inviter: await nameOf(ctx, inviter), workspace: workspace?.name ?? "a workspace", email: invite.email });
 	await ctx.scheduler.runAfter(0, internal.invites.deliver, { to: invite.email, ...content });
+	return true;
 }
 
 export const deliver = internalAction({

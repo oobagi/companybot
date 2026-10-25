@@ -1,10 +1,9 @@
 import type { Role } from "@companybot/core";
 import { can } from "@companybot/core/permissions";
 import { currencyCodes } from "@companybot/core/records";
-import { useMutation } from "convex/react";
-import { useQuery } from "convex-helpers/react/cache";
 import { useState } from "react";
 import { api } from "../api";
+import { useMutation, useQuery } from "../convex";
 import { describeUpdate, desktop, useUpdates } from "../desktop";
 import {
 	ConflictNotice,

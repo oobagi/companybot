@@ -1,13 +1,13 @@
 import { type PaginationResult, paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type QueryCtx, mutation, query } from "./_generated/server";
+import { type QueryCtx } from "./_generated/server";
+import { mutation, query } from "./functions";
 import { canSee } from "./chatOps";
-import { findRecords } from "./recordQuery";
 import { getMember, nameOf, requireMember } from "./lib";
+import { fieldsByType, linkingRecords, listRecords, searchRecords } from "./recordReads";
 import {
 	createRecord,
-	currencyOf,
 	fieldsOf,
 	idsIn,
 	resolveRefs,
@@ -22,12 +22,7 @@ import {
 // takes `records.edit`. Lists page through indexes only, so they stay fast at any size.
 // See wiki/data.md.
 
-/**
- * Most rows a page returns. A record is at most RECORD_MAX_BYTES of values, so a full page
- * plus its names stays well inside a query's 16 MiB read limit. History entries hold old
- * and new values, so their pages are smaller.
- */
-const PAGE_MAX = 50;
+/** History entries hold old and new values, so their pages are smaller than lists. */
 const HISTORY_PAGE_MAX = 20;
 
 type Row = Awaited<ReturnType<typeof toRows>>[number];
@@ -70,17 +65,7 @@ export const list = query({
 		const type = member && (await ctx.db.get(typeId));
 		if (!member || type?.workspaceId !== member.workspaceId) return empty();
 		const fields = await fieldsOf(ctx, typeId);
-		const result = await findRecords(ctx, {
-			workspaceId: member.workspaceId,
-			typeId,
-			archived,
-			fields,
-			conditions: filters,
-			sort,
-			currency: await currencyOf(ctx, member.workspaceId),
-			pageMax: PAGE_MAX,
-			paginationOpts,
-		});
+		const result = await listRecords(ctx, member.workspaceId, { typeId, fields }, { archived, conditions: filters, sort, paginationOpts });
 		return { ...result, page: await toRows(ctx, member.workspaceId, result.page.map((record) => ({ record, fields }))) };
 	},
 });
@@ -110,20 +95,9 @@ export const linked = query({
 		const member = await getMember(ctx);
 		const record = member && (await ctx.db.get(recordId));
 		if (!member || record?.workspaceId !== member.workspaceId || record.archived) return empty<Row & { fieldId: Id<"recordFields"> }>();
-		const rows = await ctx.db
-			.query("recordValues")
-			.withIndex("by_ref", (q) => (fieldId ? q.eq("ref", recordId).eq("fieldId", fieldId) : q.eq("ref", recordId)))
-			.paginate(capped(paginationOpts, PAGE_MAX));
-		const fields = new Map<Id<"recordTypes">, Doc<"recordFields">[]>();
-		const items: { record: Doc<"records">; fields: Doc<"recordFields">[]; fieldId: Id<"recordFields"> }[] = [];
-		for (const row of rows.page) {
-			const record = await ctx.db.get(row.recordId);
-			if (!record) continue;
-			if (!fields.has(record.typeId)) fields.set(record.typeId, await fieldsOf(ctx, record.typeId));
-			items.push({ record, fields: fields.get(record.typeId)!, fieldId: row.fieldId });
-		}
-		const rowsOut = await toRows(ctx, member.workspaceId, items);
-		return { ...rows, page: rowsOut.map((row, i) => ({ ...row, fieldId: items[i]!.fieldId })) };
+		const result = await linkingRecords(ctx, recordId, { fieldId, paginationOpts });
+		const rows = await toRows(ctx, member.workspaceId, result.page);
+		return { ...result, page: rows.map((row, i) => ({ ...row, fieldId: result.page[i]!.fieldId })) };
 	},
 });
 
@@ -133,16 +107,7 @@ export const search = query({
 	handler: async (ctx, { query: text, typeId }): Promise<Row[]> => {
 		const member = await getMember(ctx);
 		if (!member || !text.trim()) return [];
-		const records = await ctx.db
-			.query("records")
-			.withSearchIndex("search", (q) => {
-				const s = q.search("searchText", text).eq("workspaceId", member.workspaceId).eq("archived", false);
-				return typeId ? s.eq("typeId", typeId) : s;
-			})
-			.take(20);
-		const fields = new Map<Id<"recordTypes">, Doc<"recordFields">[]>();
-		for (const r of records) if (!fields.has(r.typeId)) fields.set(r.typeId, await fieldsOf(ctx, r.typeId));
-		return toRows(ctx, member.workspaceId, records.map((record) => ({ record, fields: fields.get(record.typeId)! })));
+		return toRows(ctx, member.workspaceId, await searchRecords(ctx, member.workspaceId, text, { typeId, limit: 20 }));
 	},
 });
 
@@ -174,9 +139,8 @@ export const activity = query({
 			.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
 			.order("desc")
 			.paginate(capped(paginationOpts, HISTORY_PAGE_MAX));
-		const fields = new Map<Id<"recordTypes">, Doc<"recordFields">[]>();
-		for (const e of result.page) if (!fields.has(e.typeId)) fields.set(e.typeId, await fieldsOf(ctx, e.typeId));
-		const entries = await toEntries(ctx, member.workspaceId, result.page.map((entry) => ({ entry, fields: fields.get(entry.typeId)! })));
+		const fields = fieldsByType(ctx);
+		const entries = await toEntries(ctx, member.workspaceId, await Promise.all(result.page.map(async (entry) => ({ entry, fields: await fields(entry.typeId) }))));
 		const page = [];
 		for (const [i, e] of result.page.entries()) {
 			const record = e.recordId && (await ctx.db.get(e.recordId));
@@ -257,7 +221,7 @@ const values = v.record(v.string(), v.any());
 
 export const create = mutation({
 	args: { typeId: v.id("recordTypes"), values },
-	handler: async (ctx, { typeId, values }) => createRecord(ctx, { member: await requireMember(ctx) }, typeId, values),
+	handler: async (ctx, { typeId, values }) => (await createRecord(ctx, { member: await requireMember(ctx) }, typeId, values)).id,
 });
 
 /** Changes only the fields given. */

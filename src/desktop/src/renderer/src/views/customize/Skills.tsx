@@ -1,11 +1,10 @@
 import type { Role } from "@companybot/core";
 import { can } from "@companybot/core/permissions";
 import { SKILL_DESCRIPTION_MAX, SKILL_NAME_MAX } from "@companybot/core/skills";
-import { useMutation } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { useQuery } from "convex-helpers/react/cache";
 import { useState } from "react";
 import { api } from "../../api";
+import { useMutation, useQuery } from "../../convex";
 import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
 import { Field, Loading, Notice, Section, inputClass, primaryButton, useRun } from "../../ui";

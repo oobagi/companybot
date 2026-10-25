@@ -1,16 +1,19 @@
 import { fireEvent } from "./automations";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type QueryCtx, mutation, query } from "./_generated/server";
+import { type QueryCtx } from "./_generated/server";
+import { mutation, query } from "./functions";
 import {
 	type Namer,
 	type Participant,
 	addToChat,
+	addUserMentions,
 	agentOfDm,
 	insertMessage,
 	markChatRead,
 	namer,
 	reactionsOf,
+	removeUserMentions,
 	requireChat,
 	toggleReaction,
 	visibleChat,
@@ -172,6 +175,7 @@ export const send = mutation({
 			mentions: { userIds, agentIds, ...(recordIds.length > 0 && { recordIds }) },
 			status: "done",
 		});
+		await addUserMentions(ctx, (await ctx.db.get(messageId))!);
 		await noteMentions(ctx, { _id: messageId, chatId }, recordIds);
 		if (!threadId) await markChatRead(ctx, chatId, member.userId);
 
@@ -226,6 +230,7 @@ export const remove = mutation({
 		const message = await requireOwn(ctx, await requireMember(ctx), messageId);
 		await ctx.db.patch(message._id, { text: "", parts: [], deleted: true });
 		for (const r of await reactionsOf(ctx, messageId)) await ctx.db.delete(r._id);
+		await removeUserMentions(ctx, messageId);
 	},
 });
 

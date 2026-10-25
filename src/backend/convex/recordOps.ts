@@ -158,6 +158,7 @@ function requireSize(values: Values) {
 
 const stamp = (who: Who) => ({ updatedAt: Date.now(), updatedBy: who.member.userId, updatedByAgent: who.agentId });
 
+/** Returns the new record and its "created" history entry. */
 export async function createRecord(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, input: Record<string, unknown>) {
 	requireCan(who.member, "records.edit");
 	const type = await requireType(ctx, who.member, typeId);
@@ -181,13 +182,13 @@ export async function createRecord(ctx: MutationCtx, who: Who, typeId: Id<"recor
 		...stamp(who),
 	});
 	await writeIndex(ctx, (await ctx.db.get(id))!, fields);
-	await logChange(ctx, who, {
+	const change = await logChange(ctx, who, {
 		typeId,
 		recordId: id,
 		action: "created",
 		changes: Object.entries(values).map(([key, value]) => ({ key, new: value })),
 	});
-	return id;
+	return { id, change };
 }
 
 /**

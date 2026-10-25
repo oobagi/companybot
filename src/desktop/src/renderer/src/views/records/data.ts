@@ -1,6 +1,6 @@
 import type { FunctionReturnType } from "convex/server";
-import { useQuery } from "convex-helpers/react/cache";
 import { api } from "../../api";
+import { useQuery } from "../../convex";
 import type { Refs } from "./logic";
 
 export type RecordType = FunctionReturnType<typeof api.recordTypes.list>[number];

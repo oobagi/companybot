@@ -1,7 +1,7 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { useMutation } from "convex/react";
 import { useState } from "react";
 import { api } from "../../api";
+import { useMutation } from "../../convex";
 import { Avatar } from "./common";
 import type { ChatList } from "./data";
 import { BrowseChannels, CreateChannel, NewMessage } from "./dialogs";

@@ -5,7 +5,8 @@ import type { MemoryStore } from "./memory";
 import type { RecordStore } from "./record-tools";
 import type { SkillStore } from "./skills";
 import type { Risk } from "./approvals";
-import type { Actor, Role } from "./types";
+import type { Permission } from "./permissions";
+import type { Actor } from "./types";
 
 /** What a tool can reach while it runs. */
 export interface ToolContext {
@@ -64,8 +65,8 @@ export interface ToolDef<Input = any> {
 	description: string;
 	/** A zod schema, or `jsonSchema(...)` for tools described by an MCP server. */
 	input: FlexibleSchema<Input>;
-	/** Roles allowed to use this tool. Omit for everyone. */
-	roles?: Role[];
+	/** Only roles with this permission may use it (permissions.ts). Omit for everyone. */
+	permission?: Permission;
 	/** True when the tool only reads. Unknown counts as a write. */
 	readOnly?: boolean;
 	/**
@@ -81,6 +82,11 @@ export interface ToolDef<Input = any> {
 	execute(input: Input, ctx: ToolContext): Promise<unknown>;
 	/** What the model sees instead of the raw result, e.g. a short receipt for widgets. */
 	toModelOutput?: Tool["toModelOutput"];
+	/**
+	 * What one call did, for its tool line ("Save Acme Roofing"), from its input and, once it
+	 * finished, its result (a data tool's `data`; `{ error }` results included). Undefined: `title`.
+	 */
+	label?(input: Input, output?: unknown): string | undefined;
 }
 
 export const defineTool = <Input>(tool: Omit<ToolDef<Input>, "source">): ToolDef<Input> => ({

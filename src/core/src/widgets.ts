@@ -51,7 +51,7 @@ export interface TableProps {
 export const tableWidget = defineWidget({
 	type: "table",
 	description:
-		"Show rows of structured data as a table under your message, e.g. a list of leads, tasks, or results. Use it for 3+ rows that share the same fields. To show a list from a tool result, pass `from` with its ref instead of copying rows.",
+		"Show rows of structured data as a table under your message, e.g. a list of leads, tasks, or results. Use it for 3+ rows that share the same fields. To show a list from a tool result, pass `from` with its ref instead of copying rows. Don't restate its rows in your text.",
 	input: z.object({
 		title: z.string().max(80).optional().describe("Short heading, e.g. 'Last 10 leads'"),
 		columns: z.array(z.string().max(40)).min(1).max(8).describe("Column headings, left to right"),
@@ -122,7 +122,7 @@ export const statsWidget = defineWidget({
 export const cardWidget = defineWidget({
 	type: "card",
 	description:
-		"Show one record as a card, e.g. a single lead, contact, or order, with its key fields. Place it mid-reply and keep talking after it.",
+		"Show one record as a card, e.g. a single lead, contact, or order, with its key fields. Don't restate its fields in your text.",
 	input: z.object({
 		title: z.string().max(80).describe("The record's name, e.g. 'Ada Lovelace'"),
 		subtitle: z.string().max(120).optional().describe("One line of context, e.g. 'Lead · Acme Corp'"),
@@ -162,7 +162,7 @@ export const widgetTools: ToolDef[] = widgetCatalog.map((w) =>
 		},
 		toModelOutput: ({ output }) =>
 			isWidgetResult(output)
-				? { type: "text", value: "Shown to the person under your message. Don't repeat its contents in text." }
+				? { type: "text", value: "Shown to the person where you placed it. Don't describe it, point at it, or repeat what it shows. If the task needs more steps (changes still to make), keep going. Otherwise: if you haven't said what you did or found, say it in one sentence, then end your reply with no more tools." }
 				: { type: "json", value: output as never },
 	}),
 );
@@ -172,6 +172,7 @@ export const isWidgetResult = (output: unknown): output is { widget: Widget } =>
 
 /** Whether a tool name as the model sees it ("widgets_table") is a widget tool. */
 export const isWidgetToolName = (modelName: string) => modelName.startsWith(modelToolName("widgets."));
+
 
 // ---- Reading tool results by ref ----
 
