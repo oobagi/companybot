@@ -12,7 +12,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { Requested } from "./functions";
-import type { QueryCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 
 export interface Member {
 	userId: Id<"users">;
@@ -44,15 +44,32 @@ export async function memberOf(ctx: QueryCtx, userId: Id<"users">, workspaceId: 
 }
 
 /**
- * The first workspace they joined: where apps from before workspace switching act, since
- * they send no workspace. Stable, so another device switching can't move their requests.
+ * Where apps from before workspace switching act, since they send no workspace: the first
+ * workspace the person joined, pinned once (legacyWorkspaces). Fails closed: after they leave
+ * it, those apps act nowhere, never in another workspace. Someone pinned before the table
+ * existed (the migration backfills them) can only have one workspace, so that one is theirs.
  * COMPAT(0.1.0-alpha.7): once installs send `workspaceId` (alpha.6), require it and delete this.
  */
 export async function legacyMemberOf(ctx: QueryCtx, userId: Id<"users">): Promise<Member | null> {
+	const pinned = await ctx.db
+		.query("legacyWorkspaces")
+		.withIndex("by_user", (q) => q.eq("userId", userId))
+		.first();
+	if (pinned) return memberOf(ctx, userId, pinned.workspaceId);
+	const rows = await ctx.db
+		.query("members")
+		.withIndex("by_user", (q) => q.eq("userId", userId))
+		.take(2);
+	return rows.length === 1 ? { userId, workspaceId: rows[0]!.workspaceId, role: rows[0]!.role } : null;
+}
+
+/** Pins their legacy workspace (legacyMemberOf) to the first they joined, unless it's set. Call after adding a membership. */
+export async function pinLegacyWorkspace(ctx: MutationCtx, userId: Id<"users">) {
+	if (await ctx.db.query("legacyWorkspaces").withIndex("by_user", (q) => q.eq("userId", userId)).first()) return;
 	let first: Doc<"members"> | null = null;
 	for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId)))
 		if (!first || row._creationTime < first._creationTime) first = row;
-	return first ? { userId, workspaceId: first.workspaceId, role: first.role } : null;
+	if (first) await ctx.db.insert("legacyWorkspaces", { userId, workspaceId: first.workspaceId });
 }
 
 /**
@@ -83,10 +100,18 @@ export async function requirePermission(ctx: QueryCtx, permission: Permission): 
 }
 
 /** An agent in the person's workspace. Other workspaces' agents look like they don't exist. */
+/**
+ * A row from the workspace this request is for, or "<what> not found." Every public function
+ * that takes an id checks the row with this (or a require* helper built on it): an id from
+ * another workspace, even one the person is also in, looks like it doesn't exist.
+ */
+export function requireInWorkspace<T extends { workspaceId: Id<"workspaces"> }>(member: Member, row: T | null, what: string): T {
+	if (!row || row.workspaceId !== member.workspaceId) throw new ConvexError(`${what} not found.`);
+	return row;
+}
+
 export async function requireAgent(ctx: QueryCtx, member: Member, agentId: Id<"agents">) {
-	const agent = await ctx.db.get(agentId);
-	if (!agent || agent.workspaceId !== member.workspaceId) throw new ConvexError("Agent not found.");
-	return agent;
+	return requireInWorkspace(member, await ctx.db.get(agentId), "Agent");
 }
 
 /** Refuses a save that started from an older version than what's stored now. */

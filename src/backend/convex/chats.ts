@@ -326,6 +326,7 @@ export const markRead = mutation({
 	args: { chatId: v.id("chats") },
 	handler: async (ctx, { chatId }) => {
 		const member = await requireMember(ctx);
+		await requireChat(ctx, member, chatId);
 		await markChatRead(ctx, chatId, member.userId);
 	},
 });

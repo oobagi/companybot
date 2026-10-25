@@ -183,11 +183,19 @@ export const latestMentionSince = (ctx: QueryCtx, chatId: Id<"chats">, userId: I
 		.order("desc")
 		.first();
 
-/** Records who a main-timeline message mentions (see userMentions). */
-export async function addUserMentions(ctx: MutationCtx, message: Doc<"chatMessages">) {
+/**
+ * Records who a main-timeline message mentions (see userMentions), or `slice` of them.
+ * Skips anyone already recorded, so it's safe to re-run.
+ */
+export async function addUserMentions(ctx: MutationCtx, message: Doc<"chatMessages">, slice?: { from: number; to: number }) {
 	if (message.threadId || message.deleted) return;
-	for (const userId of new Set(message.mentions.userIds)) {
-		await ctx.db.insert("userMentions", { userId, chatId: message.chatId, messageId: message._id, at: message._creationTime });
+	const userIds = [...new Set(message.mentions.userIds)].slice(slice?.from, slice?.to);
+	for (const userId of userIds) {
+		const existing = await ctx.db
+			.query("userMentions")
+			.withIndex("by_message", (q) => q.eq("messageId", message._id).eq("userId", userId))
+			.first();
+		if (!existing) await ctx.db.insert("userMentions", { userId, chatId: message.chatId, messageId: message._id, at: message._creationTime });
 	}
 }
 

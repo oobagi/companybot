@@ -9,7 +9,7 @@ import { seedAgents } from "./agents";
 import { fieldsOf, seedRecordTypes, typesOf } from "./recordOps";
 import { addToChat, ensureGeneral } from "./chatOps";
 import { sendInviteEmail } from "./invites";
-import { checkVersion, getMember, legacyMemberOf, memberOf, nameOf, namesOf, normalizeEmail, requireMember, requirePermission, timeZoneOf } from "./lib";
+import { checkVersion, getMember, memberOf, nameOf, namesOf, normalizeEmail, pinLegacyWorkspace, requireMember, requirePermission, timeZoneOf } from "./lib";
 import { forgetUserRules } from "./permissions";
 import { role } from "./schema";
 
@@ -37,7 +37,11 @@ export const ensure = mutation({
 	handler: async (ctx) => {
 		const userId = await getAuthUserId(ctx);
 		if (!userId) throw new ConvexError("Not signed in.");
-		if (await legacyMemberOf(ctx, userId)) return;
+		const joined = await ctx.db
+			.query("members")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.first();
+		if (joined) return;
 
 		const invites = await invitesFor(ctx, userId);
 		for (const invite of invites) await join(ctx, invite, userId);
@@ -45,6 +49,7 @@ export const ensure = mutation({
 
 		const workspaceId = await ctx.db.insert("workspaces", { name: "My company", version: 1 });
 		await ctx.db.insert("members", { workspaceId, userId, role: "owner" });
+		await pinLegacyWorkspace(ctx, userId);
 		await seedAgents(ctx, workspaceId, userId);
 		await seedRecordTypes(ctx, workspaceId, userId);
 		await addToChat(ctx, await ensureGeneral(ctx, workspaceId, userId), { userId });
@@ -66,6 +71,7 @@ async function join(ctx: MutationCtx, invite: Doc<"invites">, userId: Id<"users"
 	await ctx.db.delete(invite._id);
 	if (await memberOf(ctx, userId, invite.workspaceId)) return;
 	await ctx.db.insert("members", { workspaceId: invite.workspaceId, userId, role: invite.role });
+	await pinLegacyWorkspace(ctx, userId);
 	await addToChat(ctx, await ensureGeneral(ctx, invite.workspaceId, userId), { userId });
 	await rememberLastUsed(ctx, userId, invite.workspaceId);
 	await fireEvent(ctx, invite.workspaceId, "member.joined", {

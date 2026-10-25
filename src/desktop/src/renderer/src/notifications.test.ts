@@ -17,7 +17,7 @@ beforeEach(() => vi.mocked(navigate).mockClear());
 it("opens the chat in the workspace that's open", () => {
 	const open = workspace(acme);
 	openAlert({ workspaceId: acme, chatId }, open);
-	expect(open.open).not.toHaveBeenCalled();
+	expect(open.open).toHaveBeenCalledWith(acme);
 	expect(navigate).toHaveBeenCalledWith("chat", chatId);
 });
 

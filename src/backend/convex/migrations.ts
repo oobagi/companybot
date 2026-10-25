@@ -2,7 +2,9 @@ import { type MigrationFunctionReference, Migrations } from "@convex-dev/migrati
 import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
+import { v } from "convex/values";
 import { addUserMentions } from "./chatOps";
+import { pinLegacyWorkspace } from "./lib";
 import { seedRecordTypes } from "./recordOps";
 
 // Data migrations. Deploys never change stored rows; these do, once per deployment.
@@ -97,16 +99,36 @@ export const companybotRecordTools = migrations.define({
 	},
 });
 
+// Apps that send no workspace act in a pinned one (lib.ts legacyMemberOf): pin everyone's first.
+export const legacyWorkspaces = migrations.define({
+	table: "members",
+	migrateOne: async (ctx, member) => pinLegacyWorkspace(ctx, member.userId),
+});
+
 // Unread mentions moved to an index (userMentions): add rows for messages sent before it.
+// Small batches, and a message mentioning many people adds its rows MENTIONS_PER_WRITE at a
+// time in its own mutations, so no transaction nears the write limit however many it names.
+const MENTIONS_PER_WRITE = 100;
+
 export const userMentions = migrations.define({
 	table: "chatMessages",
+	batchSize: 20,
 	migrateOne: async (ctx, message) => {
 		if (message.mentions.userIds.length === 0) return;
-		const existing = await ctx.db
-			.query("userMentions")
-			.withIndex("by_message", (q) => q.eq("messageId", message._id))
-			.first();
-		if (!existing) await addUserMentions(ctx, message);
+		if (message.mentions.userIds.length <= MENTIONS_PER_WRITE) await addUserMentions(ctx, message);
+		else await ctx.scheduler.runAfter(0, internal.migrations.userMentionsFrom, { messageId: message._id, from: 0 });
+	},
+});
+
+/** Adds one slice of a message's mention rows, then schedules the next. */
+export const userMentionsFrom = internalMutation({
+	args: { messageId: v.id("chatMessages"), from: v.number() },
+	handler: async (ctx, { messageId, from }) => {
+		const message = await ctx.db.get(messageId);
+		if (!message) return;
+		const to = from + MENTIONS_PER_WRITE;
+		await addUserMentions(ctx, message, { from, to });
+		if (to < message.mentions.userIds.length) await ctx.scheduler.runAfter(0, internal.migrations.userMentionsFrom, { messageId, from: to });
 	},
 });
 
@@ -119,6 +141,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.companybotChatTools,
 	internal.migrations.recordTypes,
 	internal.migrations.companybotRecordTools,
+	internal.migrations.legacyWorkspaces,
 	internal.migrations.userMentions,
 ];
 
