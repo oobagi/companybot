@@ -37,8 +37,10 @@ import {
 	type Field,
 	type ValueMode,
 	fieldConfigError,
+	formatMoney,
 	indexEntries,
 	keyOf,
+	minorDigits,
 	normalizeFieldConfig,
 	normalizeValue,
 	recordTypeCatalog,
@@ -318,9 +320,9 @@ describe("records", () => {
 		expect(value({ ...stage, multiple: true }, [])).toEqual({ value: null });
 	});
 
-	it("stores each amount in cents with its own currency, rounding the exact decimal", () => {
+	it("stores each amount in its currency's smallest unit, rounding the exact decimal", () => {
 		const money = field("currency");
-		const usd = (cents: number) => ({ value: { cents, currency: "USD" } });
+		const usd = (minor: number) => ({ value: { minor, currency: "USD" } });
 		expect(value(money, 1.005)).toEqual(usd(101));
 		expect(value(money, "$1,250.50")).toEqual(usd(125050));
 		expect(value(money, "-1.005")).toEqual(usd(-101));
@@ -330,15 +332,30 @@ describe("records", () => {
 		expect(value(money, "90071992547409.92")).toHaveProperty("error");
 		expect(value(money, "abc")).toHaveProperty("error");
 		// The workspace's currency is only the default; a code in the input wins.
-		expect(value(money, 12, "input", "EUR")).toEqual({ value: { cents: 1200, currency: "EUR" } });
-		expect(value(money, "€12.50 eur")).toEqual({ value: { cents: 1250, currency: "EUR" } });
-		expect(value(money, "JPY 100", "input", "EUR")).toEqual({ value: { cents: 10000, currency: "JPY" } });
-		expect(value(money, { amount: "3.10", currency: "gbp" })).toEqual({ value: { cents: 310, currency: "GBP" } });
+		expect(value(money, 12, "input", "EUR")).toEqual({ value: { minor: 1200, currency: "EUR" } });
+		expect(value(money, "€12.50 eur")).toEqual({ value: { minor: 1250, currency: "EUR" } });
+		expect(value(money, "JPY 100", "input", "EUR")).toEqual({ value: { minor: 100, currency: "JPY" } });
+		expect(value(money, { amount: "3.10", currency: "gbp" })).toEqual({ value: { minor: 310, currency: "GBP" } });
+		// Each currency rounds to its own decimals (ISO 4217): yen has none, dinars three.
+		expect(value(money, "JPY 99.5")).toEqual({ value: { minor: 100, currency: "JPY" } });
+		expect(value(money, "JPY 1,250")).toEqual({ value: { minor: 1250, currency: "JPY" } });
+		expect(value(money, { amount: "1.2345", currency: "KWD" })).toEqual({ value: { minor: 1235, currency: "KWD" } });
+		expect(value(money, "BHD .5")).toEqual({ value: { minor: 500, currency: "BHD" } });
+		expect(value(money, 7, "input", "KRW")).toEqual({ value: { minor: 7, currency: "KRW" } });
 		expect(value(money, "XYZ 10")).toEqual({ error: "“F” needs a currency code like USD or EUR." });
 		// Stored values come back as they were, currency included.
-		expect(value(money, { cents: 101, currency: "EUR" }, "stored", "USD")).toEqual({ value: { cents: 101, currency: "EUR" } });
+		expect(value(money, { minor: 101, currency: "EUR" }, "stored", "USD")).toEqual({ value: { minor: 101, currency: "EUR" } });
 		expect(value(money, 101, "stored")).toHaveProperty("error");
-		expect(value(money, { cents: 1.5, currency: "USD" }, "stored")).toHaveProperty("error");
+		expect(value(money, { minor: 1.5, currency: "USD" }, "stored")).toHaveProperty("error");
+	});
+
+	it("shows amounts in their currency's own decimals", () => {
+		expect(formatMoney({ minor: 125050, currency: "USD" }, "en-US")).toBe("$1,250.50");
+		expect(formatMoney({ minor: -5, currency: "USD" }, "en-US")).toBe("-$0.05");
+		expect(formatMoney({ minor: 100, currency: "JPY" }, "en-US")).toBe("¥100");
+		expect(formatMoney({ minor: 1250, currency: "KWD" }, "en-US").replace(/\s/, " ")).toBe("KWD 1.250");
+		expect(formatMoney({ minor: 9007199254740991, currency: "USD" }, "en-US")).toBe("$90,071,992,547,409.91");
+		expect([minorDigits("JPY"), minorDigits("USD"), minorDigits("KWD")]).toEqual([0, 2, 3]);
 	});
 
 	it("can't set retired options, but can filter by them", () => {
@@ -357,7 +374,7 @@ describe("records", () => {
 		expect(indexEntries(field("text"), `${long}Two`)).not.toEqual([a]);
 		expect(indexEntries(field("text"), "Acme ROOFING")).toEqual([{ str: "acme roofing" }]);
 		expect(indexEntries(field("phone"), "(555) 123-4567")).toEqual([{ str: "5551234567" }]);
-		expect(indexEntries(field("currency"), { cents: 1250, currency: "EUR" })).toEqual([{ str: "EUR", num: 1250 }]);
+		expect(indexEntries(field("currency"), { minor: 1250, currency: "EUR" })).toEqual([{ str: "EUR", num: 1250 }]);
 		expect(indexEntries(field("link", { multiple: true }), ["a", "b"])).toEqual([{ ref: "a" }, { ref: "b" }]);
 		expect(indexEntries(field("text"), undefined)).toEqual([]);
 	});
