@@ -2,6 +2,7 @@ import {
 	type AgentConfig,
 	blankAgent,
 	builtinTools,
+	canUseTool,
 	defaultAgents,
 	describeToolAccess,
 	findConnector,
@@ -90,7 +91,7 @@ export const options = query({
 			connector: false,
 			tools: builtinTools
 				.filter((t) => toolGroup(t.id) === group)
-				.map(({ id, description, roles }) => ({ id, description, ownersOnly: !!roles && !roles.includes("member") })),
+				.map((t) => ({ id: t.id, description: t.description, ownersOnly: !canUseTool("member", t) })),
 		}));
 		const installed = member ? await connectorStates(ctx, member) : [];
 		const connectors = installed.flatMap((state) => {

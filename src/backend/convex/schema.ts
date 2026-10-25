@@ -437,9 +437,16 @@ export default defineSchema({
 		/** Approved calls: the result (JSON, clipped) or error. Shown only to the actor, like the activity log. */
 		result: v.optional(v.string()),
 		error: v.optional(v.string()),
-		/** The tool's risk when it asked, so the card knows whether to offer "Always allow". Unset on old rows: no offer. */
+		/**
+		 * The tool's risk when it asked, so the card knows whether to offer "Always allow". Unset on old rows: no offer.
+		 * COMPAT(0.1.0-alpha.6): delete or backfill rows without it (only dev has any), then make it required.
+		 * Prod got approvals with `risk`. Drop the fallbacks marked in approvals.ts with it.
+		 */
 		risk: v.optional(risk),
-		/** Set when the call came from an automation's run: an Always grant is scoped to it, never wider. */
+		/**
+		 * Set when the call came from an automation's run: an Always grant is scoped to it, never wider.
+		 * COMPAT(0.1.0-alpha.6): rows from before it fall back to the turn's trigger in `alwaysFor`; drop that fallback.
+		 */
 		automationInstallId: v.optional(v.id("automationInstalls")),
 		/** Set when the actor chose "Always allow": a rule was saved too. */
 		always: v.optional(v.boolean()),
@@ -602,11 +609,8 @@ export default defineSchema({
 		num: v.optional(v.number()),
 		/** Link fields: the record linked to. Also answers "what links here". */
 		ref: v.optional(v.id("records")),
-		/**
-		 * The record's _creationTime, so equal values list newest first and combined filters can
-		 * merge by it. Optional only until migration `recordValueTimes` has filled in older rows.
-		 */
-		at: v.optional(v.number()),
+		/** The record's _creationTime, so equal values list newest first and combined filters can merge by it. */
+		at: v.number(),
 	})
 		.index("by_record", ["recordId", "fieldId"])
 		// Ending in `at` then `recordId`, so records sharing a value and creation time still page in a fixed order.

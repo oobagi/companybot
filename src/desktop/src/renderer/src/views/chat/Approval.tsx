@@ -47,7 +47,7 @@ function ApprovalCard({ part, approval }: { part: ApprovalPart; approval: Approv
 	const send = (approve: boolean, always = false) => {
 		if (!approval) return;
 		setBusy(true);
-		run(decide({ approvalId: approval._id, hash: approval.hash, approve, ...(always && { always }) })).finally(() => setBusy(false));
+		run(decide({ approvalId: approval._id, hash: approval.hash, approve, always: !!always })).finally(() => setBusy(false));
 	};
 	const service = approval ? [approval.service, approval.action].filter(Boolean).join(" · ") : part.tool;
 

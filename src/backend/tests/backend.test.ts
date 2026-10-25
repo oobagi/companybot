@@ -267,7 +267,7 @@ describe("memory", () => {
 		await expect(
 			owner.mutation(api.memory.update, { id: memory.id as never, content: "stale", expectedVersion: 1 }),
 		).rejects.toThrow();
-		expect((await owner.query(api.memory.list))[0].content).toBe("v2");
+		expect((await owner.query(api.memory.list))[0]!.content).toBe("v2");
 	});
 
 	it("cuts off an agent's access as soon as its person is removed", async () => {
