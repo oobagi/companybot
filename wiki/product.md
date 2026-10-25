@@ -1,8 +1,35 @@
 # Product
 
-Companybot: AI-first team chat. Agents are teammates, not bots. Companybot is also the name of the main agent.
+Companybot is the platform you run your business on: a CRM, team chat, and AI agents in one, each making the others stronger. Agents are teammates, not bots. Companybot is also the name of the main agent.
 
 This page is the vision. What's built today: [Architecture](architecture.md).
+
+## The idea
+- **Night Owl, as software.** An agency's worth of work (finding leads, answering calls, following up, running the pipeline), done by agents, for businesses that could never afford an agency. The pitch is "fire your agency," not "switch from Slack."
+- **One AI sees the whole loop.** An ad brings a lead, the voice agent answers, the call is recorded and summarized on the client's record, a job gets booked, and the team talks about it in chat. Point tools each see one slice; all-in-one suites see it all but can't act on it (see [Competitors](competitors.md)).
+- **The edge is the harness.** CRM, calls, email and ads can be built or bought by anyone. Agents that reliably do the work across all of them are the hard part, and the part we own.
+- **Companybot owns the data.** Business records live in Companybot, not in HubSpot or a spreadsheet reached through a connector. Connectors bring data in; they aren't where it lives. Because of that, "who hasn't paid?" or "move Acme to won" works with zero setup.
+- **Companybot absorbs Night Owl.** Everything Night Owl does for clients moves in, rebuilt around the records, agents and automations.
+
+## CRM (not built yet)
+- Records: clients, deals/pipeline, jobs or projects, tasks, invoices. Each type gets its own tab (e.g. Clients) and lives next to the chat about it.
+- **Custom fields from the start.** A field is one piece of info on a record (name, phone, "Roof type", "Monthly retainer"). Each business adds its own, so the facts that matter aren't buried in notes. Designing for this up front is cheap; adding it later means migrating every record.
+- **Agents are wired in natively.** They can read and change any field and add new ones ("start tracking roof type on clients"), limited to what the person who asked may do. Every change is in the activity log, and records keep history so changes can be undone.
+- Record changes are automation triggers ("deal moved to Won" → welcome email + onboarding tasks).
+- Still open: which record types ship first.
+
+## Calls (not built yet)
+- Voice agents (like Night Owl's receptionist) run from Companybot.
+- Every call lands on the client's record: recording, transcript, AI summary, next steps. Summaries can post to chat, and call events can start automations.
+
+## Lead gen and campaigns (not built yet)
+- Generate leads and work them in the same pipeline. Lead lists, campaigns, follow-up steps and replies live natively in Companybot.
+- **We don't build the sending machinery.** Mailboxes, warm-up, sending, and bounce/spam tracking sit behind a swappable sending service, out of sight. Companybot sets mailboxes up for the customer, the way Night Owl does today.
+- Flow: the agent writes the emails → the person approves (see [Permissions](permissions.md)) → the service sends from warmed mailboxes → replies come back by webhook, land on the lead's record, move it in the pipeline, and the agent drafts an answer.
+- Email to people who already know the business (leads, past clients, check-ins) uses the same pipeline.
+
+## Later
+- **Ads manager:** run marketing campaigns from Companybot, with results tied back to the leads they brought in.
 
 ## Core
 - `#` text channels, threads, DMs, reactions, per-channel permissions.
