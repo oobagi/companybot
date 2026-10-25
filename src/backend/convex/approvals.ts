@@ -1,5 +1,6 @@
 import {
 	APPROVAL_TTL_MS,
+	actionLabel,
 	alwaysAllowText,
 	askText,
 	approvalHash,
@@ -14,7 +15,7 @@ import { canSee, namer } from "./chatOps";
 import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { getMember, memberOf, nameOf, requireMember, toActor } from "./lib";
-import { automationName, automationOfTurn, decideFor, setRule } from "./permissions";
+import { automationName, automationOfTurn, decideFor, setRule, titleOf } from "./permissions";
 import { risk } from "./schema";
 import { enqueueTurn } from "./turns";
 
@@ -91,6 +92,7 @@ export const forReply = query({
 				const group = toolGroup(row.tool);
 				const connector = findConnector(group) ?? null;
 				const always = mine && approvalStatus(row) === "pending" ? await alwaysFor(ctx, row) : null;
+				const title = await titleOf(ctx, row.workspaceId, row.tool);
 
 				return {
 					_id: row._id,
@@ -98,11 +100,14 @@ export const forReply = query({
 					tool: row.tool,
 					/** The service's name ("Night Owl"), or null for built-ins. */
 					service: findConnector(group)?.name ?? null,
-					action: row.tool.slice(group.length + 1),
-					/** The ask, in the agent's voice: "I'd like to send email from your Gmail." */
-					ask: askText(row.tool, connector, JSON.parse(row.input)),
+					/** Its name for people: "Send SMS". */
+					action: actionLabel(row.tool, title),
+					/** The ask, in the agent's voice: "I'd like to send an email to dana@acme.com from your Gmail." */
+					ask: askText(row.tool, connector, JSON.parse(row.input), title),
 					/** Null when "Always allow" isn't offered (locked, or not yours to decide). */
-					alwaysText: always ? alwaysAllowText(row.tool, connector, always.automation ? automationName(always.automation) : undefined) : null,
+					alwaysText: always
+						? alwaysAllowText(row.tool, connector, { automation: always.automation ? automationName(always.automation) : undefined, title })
+						: null,
 					/** Set when "Always allow" saved a rule. */
 					always: row.always ?? false,
 					/** The exact input that will run, as canonical JSON. */

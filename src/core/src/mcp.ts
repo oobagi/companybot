@@ -43,6 +43,7 @@ export async function openConnector(
 			tools: tools.map(
 				(t): ToolDef => ({
 					id: `${connector.id}.${t.name}`,
+					title: t.title ?? t.annotations?.title,
 					description: t.description ?? t.annotations?.title ?? t.name,
 					input: jsonSchema(t.inputSchema as Parameters<typeof jsonSchema>[0]),
 					// Servers report this themselves; we only trust connectors we list in the catalog.

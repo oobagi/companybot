@@ -53,6 +53,7 @@ export type AutomationToolInput = z.infer<typeof toolInput>;
 export const automationTools: ToolDef[] = [
 	defineTool({
 		id: "automations.list",
+		title: "List automations",
 		description: "List the automations the person can see: theirs, the team's, and installed library ones, with whether each is on for them.",
 		input: z.object({}),
 		readOnly: true,
@@ -61,6 +62,7 @@ export const automationTools: ToolDef[] = [
 	}),
 	defineTool({
 		id: "automations.create",
+		title: "Create an automation",
 		description:
 			"Set up an automation for the person: a trigger, a prompt you run each time, and who it runs for. Only after they've confirmed the summary you showed them.",
 		input: toolInput,
@@ -68,6 +70,7 @@ export const automationTools: ToolDef[] = [
 	}),
 	defineTool({
 		id: "automations.set_mine",
+		title: "Turn an automation on or off",
 		description: 'Turn an automation on or off for the person. Only works on ones that run for "anyone who turns it on".',
 		input: z.object({ id: z.string().describe("From automations_list"), on: z.boolean() }),
 		execute: (input, { automations }) => automations.setMine(input),

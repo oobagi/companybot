@@ -32,9 +32,12 @@ export const settingsTabs = [
 	{ id: "members", label: "Members" },
 	{ id: "memory", label: "Memory" },
 	{ id: "activity", label: "Activity" },
-	{ id: "profile", label: "Your preferences" },
+	{ id: "preferences", label: "Your preferences" },
 ] as const;
 export type SettingsTab = (typeof settingsTabs)[number]["id"];
+
+/** Other paths that open a tab: the old "profile", and "permissions" (they're in Your preferences). */
+export const settingsTabAliases: Record<string, SettingsTab> = { profile: "preferences", permissions: "preferences" };
 
 export function SettingsView({ role, tab, onTab }: { role: Role; tab: SettingsTab; onTab: (tab: SettingsTab) => void }) {
 	return (
@@ -44,7 +47,7 @@ export function SettingsView({ role, tab, onTab }: { role: Role; tab: SettingsTa
 			{tab === "members" && <MembersTab role={role} />}
 			{tab === "memory" && <MemoryTab role={role} />}
 			{tab === "activity" && <ActivityTab />}
-			{tab === "profile" && <ProfileTab />}
+			{tab === "preferences" && <ProfileTab />}
 		</Page>
 	);
 }
