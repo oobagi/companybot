@@ -32,6 +32,19 @@ export const approvalStatus = v.union(
 	v.literal("denied"),
 );
 
+/** core's Risk. */
+export const risk = v.union(v.literal("none"), v.literal("outside"), v.literal("locked"));
+
+/** core's AllowedHow: why a call that would ask ran. */
+export const allowedHow = v.object({
+	how: v.union(v.literal("once"), v.literal("always"), v.literal("automation")),
+	by: v.id("users"),
+	at: v.number(),
+	automation: v.optional(v.string()),
+	/** The rule that allowed it (Always or an automation grant). Gone if it was removed since. */
+	ruleId: v.optional(v.id("permissionRules")),
+});
+
 /** What a reply used, as the runner reports it. Tokens and cost are summed over its model calls. */
 export const replyUsage = v.object({
 	model: v.string(),
@@ -367,6 +380,8 @@ export default defineSchema({
 		output: v.optional(v.string()),
 		error: v.optional(v.string()),
 		status: v.union(v.literal("done"), v.literal("error")),
+		/** Calls that would have asked: who allowed it and how. */
+		allowed: v.optional(allowedHow),
 	})
 		.index("by_workspace", ["workspaceId"])
 		.index("by_reply", ["replyId"]),
@@ -395,6 +410,12 @@ export default defineSchema({
 		/** Approved calls: the result (JSON, clipped) or error. Shown only to the actor, like the activity log. */
 		result: v.optional(v.string()),
 		error: v.optional(v.string()),
+		/** The tool's risk when it asked, so the card knows whether to offer "Always allow". Unset on old rows: no offer. */
+		risk: v.optional(risk),
+		/** Set when the call came from an automation's run: an Always grant is scoped to it, never wider. */
+		automationInstallId: v.optional(v.id("automationInstalls")),
+		/** Set when the actor chose "Always allow": a rule was saved too. */
+		always: v.optional(v.boolean()),
 	}).index("by_reply", ["replyId"]),
 
 	// Automations: an owner installs a library one, or anyone makes their own, and picks the agent that runs it.
@@ -442,6 +463,48 @@ export default defineSchema({
 	})
 		.index("by_install", ["installId", "userId"])
 		.index("by_user", ["userId"]),
+
+	// ---- Permissions: per-person rules and owner locks on agent actions. See wiki/permissions.md. ----
+	// An action is one tool: "<connector>.<tool>" on one connector install, or a built-in's id.
+	// Read fresh for every call (permissions.check); never copied into a session.
+
+	// One person's Always or Never for one action. With `automationInstallId`, an Always granted
+	// when they turned that automation on: it applies to that automation's runs only.
+	permissionRules: defineTable({
+		workspaceId: v.id("workspaces"),
+		userId: v.id("users"),
+		action: v.string(),
+		/** Connector actions: the install it was set on. Uninstalling deletes it. */
+		connectorInstallId: v.optional(v.id("connectorInstalls")),
+		automationInstallId: v.optional(v.id("automationInstalls")),
+		setting: v.union(v.literal("always"), v.literal("never")),
+		setAt: v.number(),
+	})
+		.index("by_user", ["userId", "action"])
+		.index("by_automation", ["automationInstallId"])
+		.index("by_connector", ["connectorInstallId"]),
+
+	// An owner's lock on one action, for everyone (core LockSetting).
+	permissionLocks: defineTable({
+		workspaceId: v.id("workspaces"),
+		action: v.string(),
+		connectorInstallId: v.optional(v.id("connectorInstalls")),
+		lock: v.union(v.literal("ask"), v.literal("block"), v.literal("none")),
+		setBy: v.id("users"),
+		setAt: v.number(),
+	})
+		.index("by_workspace", ["workspaceId", "action"])
+		.index("by_connector", ["connectorInstallId"]),
+
+	// The tools a connector's server last listed, so settings can show its actions before
+	// anyone uses them. Display only: calls are always decided on the live tool.
+	connectorTools: defineTable({
+		workspaceId: v.id("workspaces"),
+		connectorId: v.string(),
+		tools: v.array(v.object({ name: v.string(), description: v.string(), risk })),
+	}).index("by_workspace", ["workspaceId", "connectorId"]),
+
+	// ---- End permissions ----
 
 	// Webhook delivery ids. Keep the automationEvents table name to avoid a migration.
 	automationEvents: defineTable({

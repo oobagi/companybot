@@ -6,7 +6,7 @@ One line per page: `- [Title](path.md) — what it covers`. Keep this file a tab
 - [Architecture](architecture.md) — packages, agents/tools/connectors/skills/memory, Convex backend, how to run, before-launch swaps
 - [Data](data.md) — records (clients, deals, tasks, calls), custom fields, links, history and undo; why one generic records table; the API
 - [Chat](chat.md) — channels, DMs, threads, reactions; when agents reply, what they're fed, the chat API
-- [Permissions](permissions.md) — planned Allow once / Always / Deny, owner locks, where it shows up, how others do it
+- [Permissions](permissions.md) — what asks, Allow once / Always / Deny, per-person rules, owner locks, automation grants, where it shows up, how others do it
 - [Extending](extending.md) — how to add tools, connectors, skills, permissions, roles, memory rules; invariants to keep
 - [Releases](releases.md) — cutting a release, CI, signing secrets, in-app updates
 - [Lessons](lessons.md) — what failed in Cottonwood/Night Owl and the rules that follow

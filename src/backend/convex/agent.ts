@@ -30,14 +30,18 @@ import {
 	isWidgetToolName,
 	openConnector,
 	resolveTools,
+	deniedReason,
 	toolApprovalPolicy,
+	toolRisk,
 } from "@companybot/core";
 import { generateText, isStepCount, streamText } from "ai";
 import type { FunctionReturnType } from "convex/server";
 import { type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { type ActionCtx, internalAction } from "./_generated/server";
+import { getAuthUserId } from "@convex-dev/auth/server";
+import { ConvexError } from "convex/values";
+import { type ActionCtx, action, internalAction } from "./_generated/server";
 import { decrypt, encrypt } from "./crypto";
 import { oauthRedirectUrl } from "./connectors";
 import type { messagePart } from "./schema";
@@ -79,6 +83,7 @@ type TurnUsage = ReplyUsage & { firstTokenMs?: number };
 async function runTurn(ctx: ActionCtx, turnId: Id<"agentTurns">, usage: TurnUsage) {
 	const turn = await ctx.runQuery(internal.turns.turnContext, { turnId });
 	const connectors = await loadConnectors(ctx, turn.member.userId, turn.agent);
+	await saveTools(ctx, turn.member.workspaceId, connectors);
 	try {
 		await streamReply(ctx, turnId, turn, connectors, usage);
 	} finally {
@@ -95,6 +100,35 @@ type LoadedConnectors = {
 	/** OAuth sign-ins in use, to save if the SDK refreshed their tokens. */
 	oauth: { connectionId: Id<"connectorConnections">; provider: ConnectorOAuth }[];
 };
+
+/**
+ * Lists a connector's actions now, through your connection, so its page can show them
+ * before any agent has used it.
+ */
+export const refreshTools = action({
+	args: { connectorId: v.string() },
+	handler: async (ctx, { connectorId }) => {
+		const userId = await getAuthUserId(ctx);
+		const workspaceId = userId && (await ctx.runQuery(internal.permissions.workspaceOf, { userId }));
+		if (!userId || !workspaceId) throw new ConvexError("Sign in to a workspace first.");
+		const connectors = await loadConnectors(ctx, userId, { tools: [`${connectorId}.*`] });
+		try {
+			if (connectors.unavailable.length > 0) throw new ConvexError(`Couldn't reach ${connectors.unavailable[0]}.`);
+			await saveTools(ctx, workspaceId, connectors);
+		} finally {
+			await Promise.allSettled(connectors.sessions.map((s) => s.close()));
+			await saveRefreshedTokens(ctx, connectors);
+		}
+	},
+});
+
+/** Keeps each connector's listed actions current for settings (permissions.saveTools; display only). */
+async function saveTools(ctx: ActionCtx, workspaceId: Id<"workspaces">, connectors: LoadedConnectors) {
+	for (const s of connectors.sessions) {
+		const tools = s.tools.map((t) => ({ name: t.id.slice(s.connector.id.length + 1), description: t.description, risk: toolRisk(t) }));
+		await ctx.runMutation(internal.permissions.saveTools, { workspaceId, connectorId: s.connector.id, tools });
+	}
+}
 
 async function saveRefreshedTokens(ctx: ActionCtx, connectors: LoadedConnectors) {
 	for (const { connectionId, provider } of connectors.oauth) {
@@ -201,8 +235,18 @@ async function streamReply(
 		available,
 		connectors.sessions.map((s) => ({ ...s.connector, instructions: s.instructions })),
 	);
-	/** What this person can run now; calls that need approval are held (approvals.ts). */
+	/** What this person can run now; calls that ask are held (approvals.ts). */
 	const usable = resolveTools(agent, toolCtx.actor, available);
+	// Each call is decided from the rules in force right then (permissions.check), never cached.
+	// Remembered per call so the activity log says how it was allowed, or why it was blocked.
+	const allowedCalls = new Map<string, FunctionReturnType<typeof internal.permissions.check>["allowed"] & {}>();
+	const deniedCalls = new Map<string, string>();
+	const check = async (t: ToolDef, callId: string) => {
+		const { decision, allowed } = await ctx.runQuery(internal.permissions.check, { turnId, action: t.id, risk: toolRisk(t) });
+		if (allowed) allowedCalls.set(callId, allowed);
+		if (decision.type === "deny") deniedCalls.set(callId, deniedReason(decision.by, t.id));
+		return decision;
+	};
 
 	// Stream into the reply as ordered parts; clients see it live through their query.
 	// Widget tools become widget parts; their tool activity isn't shown.
@@ -247,7 +291,7 @@ async function streamReply(
 		headers: { "x-session-affinity": turn.session.id },
 		providerOptions: { gateway: { caching: "auto" } },
 		// Calls that need approval stop the run there, unexecuted; we hold them below.
-		toolApproval: toolApprovalPolicy(usable),
+		toolApproval: toolApprovalPolicy(usable, check),
 	});
 
 	// Each tool call goes to the activity log once it finishes (activity.ts).
@@ -263,6 +307,7 @@ async function streamReply(
 			changes: call.changes,
 			input: clipJson(call.input),
 			...("output" in end ? { output: clipJson(end.output) } : { error: end.error }),
+			allowed: allowedCalls.get(callId),
 		});
 	};
 
@@ -287,7 +332,13 @@ async function streamReply(
 			} else if (part.type === "tool-error") {
 				if (!isWidgetToolName(part.toolName)) setTool(part.toolCallId, part.toolName, "error");
 				await logCall(part.toolCallId, { error: part.error instanceof Error ? part.error.message : String(part.error) });
+			} else if (part.type === "tool-output-denied") {
+				// Blocked by a Never or an owner's lock: it didn't run, and the model was told why.
+				setTool(part.toolCallId, part.toolName, "error");
+				await logCall(part.toolCallId, { error: deniedCalls.get(part.toolCallId) ?? "Blocked." });
 			} else if (part.type === "tool-approval-request") {
+				// Blocked calls come through here too, already answered; they're handled above.
+				if (part.isAutomatic) continue;
 				// Held, not run: save the exact call and show a card in its place. Logged only if it runs later.
 				const { toolCallId, toolName, input } = part.toolCall;
 				calls.delete(toolCallId);
@@ -299,6 +350,7 @@ async function streamReply(
 						callId: toolCallId,
 						tool: held.tool,
 						input: canonicalJson(held.input),
+						risk: toolRisk(usable.find((t) => t.id === held.tool)!),
 					});
 					const card = { type: "approval" as const, id: toolCallId, approvalId, tool: held.tool };
 					if (at >= 0) parts[at] = card;
@@ -336,7 +388,7 @@ async function runApproval(
 	const { id: approvalId, tool, by } = approval;
 	if (approval.status === "denied") return { tool, by, decision: "denied" };
 	const call = await ctx.runMutation(internal.approvals.claim, { approvalId, turnId });
-	if (!call) return { tool, by, decision: "approved", error: "It didn't run: it was already handled, or no longer matches what was approved." };
+	if (!call) return { tool, by, decision: "approved", error: "It didn't run: it was already handled, no longer matches what was approved, or was blocked since." };
 	const callId = `approval-${approvalId}`;
 	setTool(callId, tool, "running");
 	const t = usable.find((x) => x.id === call.tool);
@@ -352,7 +404,8 @@ async function runApproval(
 	const result = "output" in end ? clipJson(end.output) : undefined;
 	const error = "error" in end ? end.error : undefined;
 	await ctx.runMutation(internal.approvals.finish, { approvalId, result, error });
-	await ctx.runMutation(internal.activity.log, { turnId, callId, tool, changes: true, input: clipJson(call.input), output: result, error });
+	const allowed = { how: approval.always ? ("always" as const) : ("once" as const), by: approval.actorId, at: approval.decidedAt ?? Date.now() };
+	await ctx.runMutation(internal.activity.log, { turnId, callId, tool, changes: true, input: clipJson(call.input), output: result, error, allowed });
 	return { tool, by, decision: "approved", result, error };
 }
 

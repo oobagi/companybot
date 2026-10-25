@@ -1,87 +1,121 @@
 import type { FunctionReturnType } from "convex/server";
 import { useMutation } from "convex/react";
+import { useQuery } from "convex-helpers/react/cache";
 import { useState } from "react";
 import { api } from "../../api";
 import { Notice, primaryButton, secondaryButton, timeAgo, useRun } from "../../ui";
+import { AgentBadge, Avatar, clock } from "./common";
 import type { Message } from "./data";
 
 type ApprovalPart = Extract<Message["fullParts"][number], { type: "approval" }>;
 type Approval = FunctionReturnType<typeof api.approvals.forReply>[number];
 
 /**
- * A call the agent held for approval, shown where it would have run. Shows the exact
- * input that will run, every field in full; the person the agent acts for approves or
- * denies. The decision is locked to what's shown here (`hash`), so nothing else can run.
+ * Calls the agent held for permission, each shown as its own message from the agent
+ * right after its reply: what it wants to do, in its voice, the exact input, and the
+ * answers. It stays in the timeline after a decision, showing the outcome.
  */
-export function ApprovalCard({ part, approval }: { part: ApprovalPart; approval: Approval | undefined }) {
+export function ApprovalMessages({ message, parts }: { message: Message; parts: ApprovalPart[] }) {
+	const approvals = useQuery(api.approvals.forReply, { replyId: message._id });
+	return parts.map((part) => (
+		<div key={part.id} className="flex gap-3 px-5 pt-2 pb-0.5">
+			<div className="flex w-9 shrink-0 justify-center">
+				<Avatar name={message.author.name} agent />
+			</div>
+			<div className="flex min-w-0 flex-1 flex-col gap-1">
+				<div className="flex items-baseline gap-2">
+					<span className="font-semibold">{message.author.name}</span>
+					<AgentBadge />
+					<span className="text-xs text-neutral-400 tabular-nums">{clock(message._creationTime)}</span>
+				</div>
+				<ApprovalCard part={part} approval={approvals?.find((a) => a.callId === part.id)} />
+			</div>
+		</div>
+	));
+}
+
+/**
+ * One held call. Shows the exact input that will run, every field in full; the person the
+ * agent acts for answers. Answers are locked to what's shown here (`hash`), so nothing else can run.
+ */
+function ApprovalCard({ part, approval }: { part: ApprovalPart; approval: Approval | undefined }) {
 	const decide = useMutation(api.approvals.decide);
 	const { error, run } = useRun();
 	const [busy, setBusy] = useState(false);
 	const [raw, setRaw] = useState(false);
-	const send = (approve: boolean) => {
+	const send = (approve: boolean, always = false) => {
 		if (!approval) return;
 		setBusy(true);
-		run(decide({ approvalId: approval._id, hash: approval.hash, approve })).finally(() => setBusy(false));
+		run(decide({ approvalId: approval._id, hash: approval.hash, approve, ...(always && { always }) })).finally(() => setBusy(false));
 	};
-	const title = approval ? [approval.service, approval.action].filter(Boolean).join(" · ") : part.tool;
+	const service = approval ? [approval.service, approval.action].filter(Boolean).join(" · ") : part.tool;
 
 	return (
-		<div className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50/40 px-4 py-3">
-			<div className="flex items-baseline justify-between gap-3">
-				<p className="text-sm">
-					<span className="font-medium">{approval?.status === "pending" ? "Needs approval" : "Approval"}</span>
-					<span className="text-neutral-500"> · {title}</span>
-				</p>
-				{approval && (
-					<button type="button" onClick={() => setRaw(!raw)} className="text-xs text-neutral-400 hover:text-neutral-600">
-						{raw ? "Fields" : "Raw"}
-					</button>
-				)}
+		<div className="flex max-w-xl flex-col gap-3 rounded-2xl rounded-tl-sm border border-neutral-200 bg-neutral-50 px-4 py-3">
+			<p className="leading-relaxed">{approval?.ask ?? `I'd like to run ${part.tool}.`}</p>
+			<div className="flex flex-col gap-2 rounded-xl bg-white px-3 py-2">
+				<div className="flex items-baseline justify-between gap-3 text-xs text-neutral-500">
+					<span>{service}</span>
+					{approval && (
+						<button type="button" onClick={() => setRaw(!raw)} className="text-neutral-400 hover:text-neutral-600">
+							{raw ? "Fields" : "Raw"}
+						</button>
+					)}
+				</div>
+				{approval ? raw ? <Raw text={pretty(approval.input)} /> : <Fields input={approval.input} /> : <p className="text-sm text-neutral-400">Loading…</p>}
 			</div>
-			{approval ? raw ? <Raw text={pretty(approval.input)} /> : <Fields input={approval.input} /> : <p className="text-sm text-neutral-400">Loading…</p>}
 			{approval && <Status approval={approval} busy={busy} onDecide={send} />}
 			{error && <Notice>{error}</Notice>}
 		</div>
 	);
 }
 
-function Status({ approval, busy, onDecide }: { approval: Approval; busy: boolean; onDecide: (approve: boolean) => void }) {
+function Status({ approval, busy, onDecide }: { approval: Approval; busy: boolean; onDecide: (approve: boolean, always?: boolean) => void }) {
 	const lock = <span title={`SHA-256 ${approval.hash}`}>Locked to this exact content</span>;
+	const by = approval.always ? `Always allowed by ${approval.approver}` : `Allowed once by ${approval.approver}`;
 	switch (approval.status) {
 		case "pending":
 			return approval.canDecide ? (
-				<div className="flex items-center gap-2">
-					<button type="button" disabled={busy} onClick={() => onDecide(true)} className={`${primaryButton} py-1.5`}>
-						Approve
-					</button>
-					<button type="button" disabled={busy} onClick={() => onDecide(false)} className={`${secondaryButton} bg-white py-1.5`}>
-						Deny
-					</button>
-					<span className="ml-auto text-xs text-neutral-400">
-						{lock} · expires {timeAgo(approval.expiresAt)}
-					</span>
+				<div className="flex flex-col gap-2">
+					<div className="flex flex-wrap items-center gap-2">
+						<button type="button" disabled={busy} onClick={() => onDecide(true)} className={`${primaryButton} py-1.5`}>
+							Allow once
+						</button>
+						{approval.alwaysText && (
+							<button type="button" disabled={busy} onClick={() => onDecide(true, true)} className={`${secondaryButton} bg-white py-1.5`}>
+								Always allow
+							</button>
+						)}
+						<button type="button" disabled={busy} onClick={() => onDecide(false)} className={`${secondaryButton} bg-white py-1.5`}>
+							Deny
+						</button>
+					</div>
+					{/* Said plainly, so nobody reads "always" as "still ask me at key steps". */}
+					<p className="text-xs text-neutral-500">
+						{approval.alwaysText ?? "This action asks every time."} · {lock} · expires {timeAgo(approval.expiresAt)}
+					</p>
 				</div>
 			) : (
 				<p className="text-xs text-neutral-500">
-					Waiting for {approval.approver} to approve. The agent is acting for them. · {lock}
+					Waiting for {approval.approver}. The agent is acting for them, so only they can answer. · {lock}
 				</p>
 			);
 		case "approved":
 		case "running":
-			return <p className="text-xs text-neutral-500">Approved by {approval.approver} · running…</p>;
+			return <p className="text-xs text-neutral-500">{by} · running…</p>;
 		case "done":
 			return (
 				<div className="flex flex-col gap-1.5">
-					<p className="text-xs text-emerald-700">Approved by {approval.approver} · done</p>
+					<p className="text-xs text-emerald-700">{by} · done</p>
 					{approval.result !== null && <Raw text={approval.result} />}
 				</div>
 			);
 		case "failed":
-			return <p className="text-xs text-red-700">Approved by {approval.approver}, but it failed: {approval.error}</p>;
+			return <p className="text-xs text-red-700">{by}, but it failed: {approval.error}</p>;
 		case "denied":
 			return <p className="text-xs text-neutral-500">Denied by {approval.approver}. Nothing ran.</p>;
 		case "expired":
-			return <p className="text-xs text-neutral-500">Expired without a decision. Nothing ran.</p>;
+			return <p className="text-xs text-neutral-500">Expired without an answer. Nothing ran.</p>;
 	}
 }
 

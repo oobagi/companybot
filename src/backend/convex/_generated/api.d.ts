@@ -27,6 +27,7 @@ import type * as memoryOps from "../memoryOps.js";
 import type * as messages from "../messages.js";
 import type * as migrations from "../migrations.js";
 import type * as oauth from "../oauth.js";
+import type * as permissions from "../permissions.js";
 import type * as plugins from "../plugins.js";
 import type * as preferences from "../preferences.js";
 import type * as recordOps from "../recordOps.js";
@@ -62,6 +63,7 @@ declare const fullApi: ApiFromModules<{
   messages: typeof messages;
   migrations: typeof migrations;
   oauth: typeof oauth;
+  permissions: typeof permissions;
   plugins: typeof plugins;
   preferences: typeof preferences;
   recordOps: typeof recordOps;

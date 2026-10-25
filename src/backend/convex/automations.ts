@@ -47,6 +47,7 @@ import {
 	saveMade,
 	timeZoneOf,
 } from "./lib";
+import { forgetAutomationGrants } from "./permissions";
 import { audience, customTrigger } from "./schema";
 import { enqueueTurn, runningTurn } from "./turns";
 
@@ -87,7 +88,7 @@ export const audienceOf = (install: Doc<"automationInstalls">): AutomationAudien
 	install.audience ?? (install.channelId ? "channel" : "subscribers");
 
 /** Automations that run just for their creator are theirs alone; the rest are visible to the workspace. */
-const canView = (member: Member, install: Doc<"automationInstalls">) =>
+export const canView = (member: Member, install: Doc<"automationInstalls">) =>
 	!install.custom || audienceOf(install) !== "creator" || install.installedBy === member.userId;
 
 /** An installed automation the signed-in person may change: theirs, or any if they manage automations. */
@@ -397,6 +398,7 @@ export const setInstalled = mutation({
 
 async function removeInstall(ctx: MutationCtx, install: Doc<"automationInstalls">) {
 	await ctx.db.delete(install._id);
+	await forgetAutomationGrants(ctx, install._id);
 	const subs = ctx.db.query("automationSubscriptions").withIndex("by_install", (q) => q.eq("installId", install._id));
 	for await (const sub of subs) await ctx.db.delete(sub._id);
 	const deliveries = ctx.db.query("automationEvents").withIndex("by_install", (q) => q.eq("installId", install._id));
@@ -469,6 +471,8 @@ async function setSubscription(ctx: MutationCtx, member: Member, automationId: s
 		.first();
 	if (on && !existing) await ctx.db.insert("automationSubscriptions", { installId: install._id, userId: member.userId });
 	if (!on && existing) await ctx.db.delete(existing._id);
+	// Turning it off takes back what you allowed for it; turning it on again asks again.
+	if (!on) await forgetAutomationGrants(ctx, install._id, member.userId);
 	return null;
 }
 

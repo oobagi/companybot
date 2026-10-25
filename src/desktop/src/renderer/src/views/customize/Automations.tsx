@@ -10,6 +10,7 @@ import { api } from "../../api";
 import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
 import { Field, Loading, Notice, Page, Section, inputClass, primaryButton, secondaryButton, timeAgo, useRun } from "../../ui";
+import { AutomationPermissions, useTurnOn } from "../Permissions";
 import { Card, Detail, Facts, MadeItemDetail, Missing, NewItem } from "./shared";
 
 type AutomationItem = FunctionReturnType<typeof api.automations.list>[number];
@@ -22,7 +23,6 @@ export function AutomationsTab({ role }: { role: Role }) {
 	const automations = useQuery(api.automations.list);
 	const setInstalled = useMutation(api.automations.setInstalled);
 	const remove = useMutation(api.automations.remove);
-	const subscribe = useMutation(api.automations.subscribe);
 	const { error, run } = useRun();
 	if (!automations) return <Loading />;
 	const canManage = can(role, "automations.manage");
@@ -40,7 +40,7 @@ export function AutomationsTab({ role }: { role: Role }) {
 				installed={a.installed}
 				canManage={a.custom ? a.canEdit : canManage}
 				onToggle={a.custom || offered ? undefined : () => run(a.installed ? remove({ automationId: a.id }) : setInstalled({ automationId: a.id, installed: true, timeZone }))}
-				action={offered ? <SubscribeButton on={a.subscribed} onToggle={() => run(subscribe({ automationId: a.id, on: !a.subscribed }))} /> : undefined}
+				action={offered ? <SubscribeButton automation={a} onError={run} /> : undefined}
 				onOpen={() => navigate("customize", "automations", a.id)}
 			/>
 		);
@@ -85,19 +85,24 @@ function statusLine(a: AutomationItem) {
 	return `${who} · ${a.enabled ? (a.agentName ?? "No agent") : "Paused"}`;
 }
 
-function SubscribeButton({ on, onToggle }: { on: boolean; onToggle: () => void }) {
+/** "Turn on for me" asks once for what it will do (useTurnOn); turning off takes that back. */
+function SubscribeButton({ automation: a, onError }: { automation: AutomationItem; onError: (p: Promise<unknown>) => void }) {
+	const subscribe = useMutation(api.automations.subscribe);
+	const on = a.subscribed;
+	const turnOn = useTurnOn(a.id, a.name, () => subscribe({ automationId: a.id, on: true }));
 	return (
-		<button
-			type="button"
-			title={on ? "Turn off for you" : undefined}
-			onClick={(e) => {
-				e.stopPropagation();
-				onToggle();
-			}}
-			className={`shrink-0 rounded-full px-3 py-1 text-sm ${on ? "bg-emerald-50 text-emerald-700" : "bg-neutral-900 text-white"}`}
-		>
-			{on ? "On for you" : "Turn on for me"}
-		</button>
+		// The dialog sits inside a clickable card: keep its clicks from opening the card.
+		<span className="contents" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+			<button
+				type="button"
+				title={on ? "Turn off for you" : undefined}
+				onClick={() => onError(on ? subscribe({ automationId: a.id, on: false }) : Promise.resolve(turnOn.start()))}
+				className={`shrink-0 rounded-full px-3 py-1 text-sm ${on ? "bg-emerald-50 text-emerald-700" : "bg-neutral-900 text-white"}`}
+			>
+				{on ? "On for you" : "Turn on for me"}
+			</button>
+			{turnOn.dialog}
+		</span>
 	);
 }
 
@@ -415,13 +420,13 @@ function AutomationDetail({ automation: a, canManage }: { automation: Automation
 function AutomationSettings({ automation: a }: { automation: AutomationItem }) {
 	const agents = useQuery(api.agents.list);
 	const update = useMutation(api.automations.update);
-	const subscribe = useMutation(api.automations.subscribe);
 	const runNow = useMutation(api.automations.runNow);
 	const resetWebhook = useMutation(api.automations.resetWebhook);
 	const channels = useQuery(api.chats.list)?.channels ?? [];
 	const { error, run } = useRun();
 	const [ran, setRan] = useState(false);
 	const [copied, setCopied] = useState(false);
+	const resume = useTurnOn(a.id, a.name, () => update({ automationId: a.id, enabled: true }));
 	const active = agents?.filter((x) => !x.archived) ?? [];
 	const ungranted = a.needs.filter((n) => !n.granted);
 	const row = "flex items-center gap-2";
@@ -434,7 +439,7 @@ function AutomationSettings({ automation: a }: { automation: AutomationItem }) {
 				{a.audience === "subscribers" && (
 					<div className={row}>
 						<span className={label}>For you</span>
-						<SubscribeButton on={a.subscribed} onToggle={() => run(subscribe({ automationId: a.id, on: !a.subscribed }))} />
+						<SubscribeButton automation={a} onError={run} />
 						<span className="text-neutral-400">
 							{a.subscriberCount} {a.subscriberCount === 1 ? "person has" : "people have"} it on
 						</span>
@@ -446,11 +451,12 @@ function AutomationSettings({ automation: a }: { automation: AutomationItem }) {
 							<span className={label}>Status</span>
 							<button
 								type="button"
-								onClick={() => run(update({ automationId: a.id, enabled: !a.enabled }))}
+								onClick={() => run(a.enabled ? update({ automationId: a.id, enabled: false }) : Promise.resolve(resume.start()))}
 								className={`rounded-full px-3 py-1 ${a.enabled ? "bg-emerald-50 text-emerald-700" : "bg-neutral-100 text-neutral-600"}`}
 							>
 								{a.enabled ? "Running" : "Paused"}
 							</button>
+							{resume.dialog}
 						</div>
 						<label className={row}>
 							<span className={label}>Agent</span>
@@ -484,6 +490,7 @@ function AutomationSettings({ automation: a }: { automation: AutomationItem }) {
 						</div>
 					</>
 				)}
+				<AutomationPermissions automationId={a.id} name={a.name} />
 				{a.webhookUrl && (
 					<div className="flex flex-col gap-1">
 						<div className={row}>

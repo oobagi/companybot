@@ -2,7 +2,18 @@ import type { AutomationStore } from "./automation-tools";
 import { describe, expect, it } from "vitest";
 import { simulateReadableStream, streamText } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
-import { APPROVAL_TTL_MS, approvalHash, approvalStatus, canDecideApproval, canonicalJson, needsApproval } from "./approvals";
+import {
+	APPROVAL_TTL_MS,
+	alwaysAllowText,
+	approvalHash,
+	approvalStatus,
+	canDecideApproval,
+	canonicalJson,
+	describeAllowed,
+	needsApproval,
+	permissionFor,
+	toolRisk,
+} from "./approvals";
 import { ACTIVITY_MAX_CHARS, clipJson, describeCall } from "./activity";
 import { formatLocalTime, resolveTimeZone, shortStamp } from "./time";
 import {
@@ -369,6 +380,23 @@ describe("connectors", () => {
 		}
 	});
 
+	it("locks tools the server calls destructive, even if it also claims read-only", async () => {
+		const server = fakeMcpServer([
+			{ name: "find", readOnly: true },
+			{ name: "write" },
+			{ name: "wipe", destructive: true },
+			{ name: "sneaky", readOnly: true, destructive: true },
+		]);
+		const session = await openConnector(notes, { transport: server });
+		expect(session.tools.map((t) => [t.id, toolRisk(t)])).toEqual([
+			["notes.find", "none"],
+			["notes.write", "outside"],
+			["notes.wipe", "locked"],
+			["notes.sneaky", "locked"],
+		]);
+		await session.close();
+	});
+
 	it("loads tools from an MCP server and calls them", async () => {
 		const server = fakeMcpServer([{ name: "find", description: "Find notes", readOnly: true }, { name: "write" }]);
 		const session = await openConnector(notes, { transport: server });
@@ -707,14 +735,50 @@ describe("approvals", () => {
 	const send = connectorTool("send_sms");
 	const find = connectorTool("find_leads", { readOnly: true, input: z.object({}) });
 
-	it("holds connector writes, not reads or built-ins, unless a tool says otherwise", () => {
-		expect(needsApproval(send)).toBe(true);
-		expect(needsApproval(find)).toBe(false);
-		expect(needsApproval(builtinTools.find((t) => t.id === "memory.remember")!)).toBe(false);
-		expect(needsApproval({ ...builtinTools[0]!, needsApproval: true })).toBe(true);
-		expect(needsApproval({ ...send, needsApproval: false })).toBe(false);
+	it("asks for connector writes, not reads or built-ins, unless a tool declares its risk", () => {
+		expect(toolRisk(send)).toBe("outside");
+		expect(toolRisk(find)).toBe("none");
+		expect(toolRisk(builtinTools.find((t) => t.id === "memory.remember")!)).toBe("none");
+		// A built-in opts in by declaring risk; payments-style ones lock.
+		expect(toolRisk({ ...builtinTools[0]!, risk: "outside" })).toBe("outside");
+		expect(toolRisk({ ...send, risk: "locked" })).toBe("locked");
+		expect(needsApproval({ ...send, risk: "none" })).toBe(false);
 		// Every built-in today stays inside the workspace.
 		expect(builtinTools.filter(needsApproval)).toEqual([]);
+	});
+
+	it("strictest wins: owner lock, then Never, then Ask, then Always", () => {
+		// Strict by default: anything with outside impact asks, and offers Always.
+		expect(permissionFor({ risk: "outside" })).toEqual({ type: "ask", canAlways: true });
+		expect(permissionFor({ risk: "none" })).toEqual({ type: "run" });
+		expect(permissionFor({ risk: "outside", rule: "always" })).toEqual({ type: "run", via: "always" });
+		expect(permissionFor({ risk: "outside", automation: true })).toEqual({ type: "run", via: "automation" });
+		// Never beats Always and automation grants; it also blocks reads.
+		expect(permissionFor({ risk: "outside", rule: "never", automation: true })).toEqual({ type: "deny", by: "person" });
+		expect(permissionFor({ risk: "none", rule: "never" })).toEqual({ type: "deny", by: "person" });
+		// An owner's lock beats a person's rule.
+		expect(permissionFor({ risk: "outside", lock: "ask", rule: "always" })).toEqual({ type: "ask", canAlways: false });
+		expect(permissionFor({ risk: "outside", lock: "ask", automation: true })).toEqual({ type: "ask", canAlways: false });
+		expect(permissionFor({ risk: "none", lock: "ask" })).toEqual({ type: "ask", canAlways: false });
+		expect(permissionFor({ risk: "outside", lock: "block", rule: "always" })).toEqual({ type: "deny", by: "owner" });
+		// Locked by default (payments, deletes, bulk sends): never Always, unless an owner lifts it.
+		expect(permissionFor({ risk: "locked", rule: "always" })).toEqual({ type: "ask", canAlways: false });
+		expect(permissionFor({ risk: "locked", lock: "none" })).toEqual({ type: "ask", canAlways: true });
+		expect(permissionFor({ risk: "locked", lock: "none", rule: "always" })).toEqual({ type: "run", via: "always" });
+	});
+
+	it("says exactly what Always covers, and how a call was allowed", () => {
+		const gmail = { name: "Gmail", connection: "personal" as const };
+		expect(alwaysAllowText("gmail.send_email", gmail)).toMatch(/^Always allow: agents can send email from your Gmail without asking you first\. Only when acting for you\./);
+		expect(alwaysAllowText("crm.send_sms", { name: "CRM", connection: "workspace" }, "Morning brief")).toContain(
+			"agents can send sms with the workspace's CRM when running Morning brief without asking you first",
+		);
+		const at = Date.UTC(2026, 9, 25, 12);
+		expect(describeAllowed({ how: "always", by: "u1", at }, "Jaden", "UTC")).toBe("Always allowed by Jaden, Oct 25");
+		expect(describeAllowed({ how: "automation", by: "u1", at, automation: "Morning brief" }, "Jaden", "UTC")).toBe(
+			"Allowed by Jaden for Morning brief, Oct 25",
+		);
+		expect(describeAllowed({ how: "once", by: "u1", at }, "Jaden", "UTC")).toBe("Approved by Jaden, Oct 25");
 	});
 
 	it("locks to the exact tool and input: key order doesn't matter, any other change does", async () => {
@@ -755,13 +819,11 @@ describe("approvals", () => {
 		const tools = [send, find];
 		const call = (tool: string, input: unknown) => heldCall("connectors_call", { tool, input }, tools);
 		expect(await call("crm.send_sms", { body: "Hi", to: "+1" })).toEqual({ tool: "crm.send_sms", input: { body: "Hi", to: "+1" } });
-		expect(await call("crm.find_leads", {})).toBeNull();
+		expect(await call("crm.find_leads", {})).toEqual({ tool: "crm.find_leads", input: {} });
 		// Bad input or an unknown tool runs, so the model gets the error back instead of a card.
 		expect(await call("crm.send_sms", { to: "+1" })).toBeNull();
 		expect(await call("crm.nope", {})).toBeNull();
-		expect(await heldCall("memory_remember", { content: "x" }, builtinTools)).toBeNull();
-		const custom = { ...builtinTools.find((t) => t.id === "memory.remember")!, needsApproval: true };
-		expect(await heldCall("memory_remember", { content: "x" }, [custom])).toEqual({ tool: "memory.remember", input: { content: "x" } });
+		expect(await heldCall("memory_remember", { content: "x" }, builtinTools)).toEqual({ tool: "memory.remember", input: { content: "x" } });
 	});
 
 	it("stops the run at a held call without running it, and runs the rest", async () => {
@@ -800,6 +862,55 @@ describe("approvals", () => {
 		expect(parts.filter((p) => p.type === "tool-result").map((p) => p.toolCallId)).toEqual(["c2"]);
 		expect(ran).toEqual(["crm.find_leads"]);
 		expect(model.doStreamCalls).toHaveLength(1);
+	});
+
+	it("decides every call fresh from the rules: Always runs, Never blocks and tells the model, a revoked rule asks again", async () => {
+		const ran: string[] = [];
+		const track = (t: ToolDef): ToolDef => ({ ...t, execute: async (input) => (ran.push(t.id), { ok: input }) });
+		const available = [...builtinTools, track(send), track(find)];
+		const agent = { tools: ["crm.*"] };
+		const tools = buildToolSet(agent, ctx(owner), available, [{ id: "crm", name: "CRM" }]);
+		const usable = resolveTools(agent, owner, available);
+		const usage = { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } };
+		const call = (id: string, tool: string, input: unknown) => ({
+			type: "tool-call" as const,
+			toolCallId: id,
+			toolName: "connectors_call",
+			input: JSON.stringify({ tool, input }),
+		});
+		// The person's rules, as the backend would read them at each call.
+		const rules = new Map<string, "always" | "never">([["crm.send_sms", "always"], ["crm.find_leads", "never"]]);
+		const checked: string[] = [];
+		const check = async (t: ToolDef, callId: string) => {
+			checked.push(callId);
+			return permissionFor({ risk: toolRisk(t), rule: rules.get(t.id) });
+		};
+		const run = async (calls: ReturnType<typeof call>[]) => {
+			const model = new MockLanguageModelV4({
+				doStream: async () => ({
+					stream: simulateReadableStream({
+						chunks: [...calls, { type: "finish" as const, finishReason: { unified: "tool-calls" as const, raw: undefined }, usage }],
+					}),
+				}),
+			});
+			const result = streamText({ model, prompt: "go", tools, toolApproval: toolApprovalPolicy(usable, check) });
+			const parts: { type: string; toolCallId?: string; isAutomatic?: boolean; toolCall?: { toolCallId: string } }[] = [];
+			for await (const part of result.stream) parts.push(part as never);
+			return parts;
+		};
+		const first = await run([call("c1", "crm.send_sms", { to: "+1", body: "Hi" }), call("c2", "crm.find_leads", {})]);
+		expect(ran).toEqual(["crm.send_sms"]);
+		expect(first.filter((p) => p.type === "tool-output-denied").map((p) => p.toolCallId)).toEqual(["c2"]);
+		expect(first.filter((p) => p.type === "tool-approval-request" && !p.isAutomatic)).toEqual([]);
+		// Revoked: the very next call asks again. Nothing is cached between calls.
+		rules.delete("crm.send_sms");
+		const second = await run([call("c3", "crm.send_sms", { to: "+1", body: "Hi" })]);
+		expect(second.filter((p) => p.type === "tool-approval-request").map((p) => p.toolCall?.toolCallId)).toEqual(["c3"]);
+		expect(ran).toEqual(["crm.send_sms"]);
+		expect(checked).toEqual(["c1", "c2", "c3"]);
+		// Built-ins with no risk never hit the rules.
+		await run([{ type: "tool-call" as const, toolCallId: "c4", toolName: "memory_search", input: JSON.stringify({ query: "" }) }]);
+		expect(checked).toEqual(["c1", "c2", "c3"]);
 	});
 
 	it("tells the agent the outcome instead of asking it to reply to a message", () => {
