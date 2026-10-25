@@ -4,6 +4,7 @@ import type { AgentConfig } from "./agent-config";
 import { type PermissionDecision, deniedReason, permissionFor, toolRisk } from "./approvals";
 import { builtinTools } from "./builtin-tools";
 import { models } from "./models";
+import { can } from "./permissions";
 import { CONNECTOR_CALL, type ConnectorService, calledConnectorTool, connectorMetaTools } from "./connector-tools";
 import { findConnector } from "./connectors";
 import { type ToolContext, type ToolDef, isGranted, modelToolName, toolGroup } from "./tools";
@@ -69,23 +70,24 @@ export function describeToolAccess(
 		// Built-in grants are listed tool by tool, so a group shows which of its tools are hidden.
 		const defs = builtinTools.filter((t) => (id.endsWith(".*") ? toolGroup(t.id) === group : t.id === id));
 		if (defs.length === 0) return [{ id, visible: false, reason: "not_found" }];
-		return defs.map((d) =>
-			d.roles && !d.roles.includes(actor.role) ? { id: d.id, visible: false, reason: "role" } : { id: d.id, visible: true },
-		);
+		return defs.map((d) => (canUseTool(actor, d) ? { id: d.id, visible: true } : { id: d.id, visible: false, reason: "role" }));
 	});
 }
+
+/** Whether this person's role may use a tool: it needs no permission, or they have it. */
+export const canUseTool = (who: Actor | Role, tool: Pick<ToolDef, "permission">) => !tool.permission || can(who, tool.permission);
 
 /**
  * The tools this agent can use for this person, out of `available` (built-ins plus
  * whatever connector tools were loaded for the turn). Connector role checks happen when
- * connectors are loaded; tool-level `roles` are checked here.
+ * connectors are loaded; tool-level `permission` is checked here.
  */
 export function resolveTools(
 	agent: Pick<AgentConfig, "tools">,
 	actor: Actor,
 	available: ToolDef[] = builtinTools,
 ): ToolDef[] {
-	return available.filter((t) => isGranted(agent.tools, t.id) && (!t.roles || t.roles.includes(actor.role)));
+	return available.filter((t) => isGranted(agent.tools, t.id) && canUseTool(actor, t));
 }
 
 /** Builds the AI SDK tool set for one run. */

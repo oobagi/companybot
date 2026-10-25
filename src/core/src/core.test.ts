@@ -1160,7 +1160,7 @@ describe("records tools", () => {
 		expect(ids).toEqual(["records.types", "records.find", "records.get", "records.save", "records.undo", "records.save_field"]);
 		for (const id of ids) expect(toolRisk(tool(id))).toBe("none");
 		expect(ids.filter((id) => tool(id).readOnly)).toEqual(["records.types", "records.find", "records.get"]);
-		expect(ids.filter((id) => tool(id).roles)).toEqual([]);
+		expect(ids.filter((id) => tool(id).permission)).toEqual([]);
 		expect(toolLine(callLabel("records_undo", builtinTools, []), "done")).toBe("Undid a record change");
 		expect(toolLine(callLabel("records_save", builtinTools, []), "running")).toBe("Saving a record…");
 	});

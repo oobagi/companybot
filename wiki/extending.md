@@ -9,7 +9,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 
 ## Tools — `core/src/tools.ts`, `builtin-tools.ts`
 - One shape (`ToolDef`) for built-ins and connector tools. Ids are `group.name`; model names come from `modelToolName`.
-- Add a built-in: `defineTool` in `builtin-tools.ts`. Set `roles` if not everyone may trigger it, `readOnly: true` if it changes nothing, and `risk` if it reaches outside (see Approvals).
+- Add a built-in: `defineTool` in `builtin-tools.ts`. Set `permission` if not everyone may trigger it (checked through the role table, like everything else), `readOnly: true` if it changes nothing, and `risk` if it reaches outside (see Approvals).
 - Tools reach data only through `ToolContext` (`memory`, `chat`, `skills`, `automations`, `records`), which enforce permissions. Don't do permission checks inside tools.
 - Agents grant exact ids or whole groups (`memory.*`). `resolveTools` is the only place that decides what the model sees.
 
