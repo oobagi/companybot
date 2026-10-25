@@ -81,7 +81,7 @@ export const fieldValue = v.union(
 	v.number(),
 	v.boolean(),
 	v.array(v.string()),
-	v.object({ cents: v.number(), currency: v.string() }),
+	v.object({ minor: v.number(), currency: v.string() }),
 );
 
 /** core's FieldKind. */
@@ -588,7 +588,7 @@ export default defineSchema({
 		ref: v.optional(v.id("records")),
 	})
 		.index("by_record", ["recordId", "fieldId"])
-		// Currency: `str` is the code and `num` the cents, so amounts sort within their currency.
+		// Currency: `str` is the code and `num` the amount in its smallest unit, so amounts sort within their currency.
 		.index("by_field_str", ["fieldId", "str", "num"])
 		.index("by_field_num", ["fieldId", "num"])
 		.index("by_ref", ["ref", "fieldId"]),
