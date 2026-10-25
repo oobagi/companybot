@@ -63,5 +63,8 @@ Queries return display-ready data (names resolved) so the app never joins tables
 - `edit({ messageId, text })`, `remove({ messageId })` — your own messages. Removing keeps the row (threads hang off it) and clears text, parts, and reactions.
 - `react({ messageId, emoji })` — toggles your reaction.
 
+## In the app
+Click a name or avatar for a profile card (`views/chat/Profile.tsx`, from `workspace.team` and `chats.list`): name, email, role, local time, Message.
+
 ## Permissions
 `channels.create` (owner, member), `channels.manage` (owner: rename, archive, add members to any channel; members can manage channels they created).

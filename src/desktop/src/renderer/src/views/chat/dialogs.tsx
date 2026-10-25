@@ -5,6 +5,7 @@ import { useState } from "react";
 import { api } from "../../api";
 import { Field, Loading, Notice, inputClass, primaryButton, secondaryButton, useRun } from "../../ui";
 import { AgentBadge, Avatar, Modal } from "./common";
+import { ProfileLink } from "./Profile";
 import { type ChatDetails, type Participant, chatTitle, useDirectory } from "./data";
 
 export function CreateChannel({ onClose, onOpen }: { onClose: () => void; onOpen: (chatId: Id<"chats">) => void }) {
@@ -163,7 +164,9 @@ export function ChannelDetails({ chat, onClose, onLeft }: { chat: ChatDetails; o
 							{chat.members.map((m) => (
 								<li key={`${m.type}:${m.id}`} className="flex items-center gap-3 py-1">
 									<Avatar name={m.name} agent={m.type === "agent"} size="sm" />
-									<span className="flex-1 truncate text-sm">{m.name}</span>
+									<span className="flex-1 truncate text-sm">
+										<ProfileLink who={m} className="hover:underline">{m.name}</ProfileLink>
+									</span>
 									{m.type === "agent" && <AgentBadge />}
 								</li>
 							))}
