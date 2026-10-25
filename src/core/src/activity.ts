@@ -1,4 +1,5 @@
-import { CONNECTOR_CALL, CONNECTOR_SEARCH, calledConnectorTool } from "./connector-tools";
+import { actionLabel } from "./approvals";
+import { CONNECTOR_CALL, CONNECTOR_SEARCH, type ConnectorService, calledConnectorTool } from "./connector-tools";
 import { type ToolDef, modelToolName } from "./tools";
 import { isWidgetToolName } from "./widgets";
 
@@ -33,6 +34,17 @@ export function describeCall(modelName: string, input: unknown, tools: ToolDef[]
 	}
 	const t = tools.find((x) => modelToolName(x.id) === modelName);
 	return { tool: t?.id ?? modelName, input, changes: t?.readOnly !== true };
+}
+
+/**
+ * What a call did, for its tool line (approvals.ts `toolLine`): "Send SMS with Fake CRM",
+ * "Look up Fake CRM actions", "Search memory". `name` is the model's tool name, or a tool id.
+ */
+export function callLabel(name: string, tools: ToolDef[], services: Pick<ConnectorService, "id" | "name">[]) {
+	if (name === CONNECTOR_SEARCH) return services.length === 1 ? `Look up ${services[0]!.name} actions` : "Look up connected actions";
+	const t = tools.find((x) => x.id === name || modelToolName(x.id) === name);
+	const service = t?.source.type === "connector" ? services.find((s) => t.source.type === "connector" && s.id === t.source.connectorId) : undefined;
+	return `${actionLabel(t?.id ?? name, t?.title)}${service ? ` with ${service.name}` : ""}`;
 }
 
 /** A value as JSON, cut to ACTIVITY_MAX_CHARS. */

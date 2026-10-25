@@ -51,12 +51,14 @@ export interface ChatStore {
 export const chatTools: ToolDef[] = [
 	defineTool({
 		id: "chat.react",
+		title: "React",
 		description: "React with one emoji to the message you're answering. The same emoji again removes it.",
 		input: z.object({ emoji: z.string().min(1).max(16) }),
 		execute: ({ emoji }, { chat }) => chat.react(emoji),
 	}),
 	defineTool({
 		id: "chat.read",
+		title: "Read the chat",
 		description:
 			"Read chat messages, oldest first: earlier ones here, a channel (\"#sales\"), or a thread (threadOf: message id).",
 		input: z.object({
@@ -70,6 +72,7 @@ export const chatTools: ToolDef[] = [
 	}),
 	defineTool({
 		id: "chat.search",
+		title: "Search the chat",
 		description: "Search messages in chats the person can see.",
 		input: z.object({ query: z.string().min(1), chat: z.string().optional().describe('Limit to a channel like "#sales"') }),
 		readOnly: true,

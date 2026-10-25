@@ -12,7 +12,7 @@ import { ChatView } from "./views/chat/ChatView";
 import { ChatNav, Item } from "./views/chat/Sidebar";
 import { CustomizeView, customizeTabs } from "./views/customize";
 import { RecordsView, recordTabs } from "./views/Records";
-import { SettingsView, settingsTabs } from "./views/Settings";
+import { SettingsView, settingsTabAliases, settingsTabs } from "./views/Settings";
 import { SignIn } from "./views/SignIn";
 
 const views = ["chat", ...recordTabs.map((t) => t.id), "customize", "settings"] as const;
@@ -53,7 +53,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	const route = useRoute();
 	const view: View = views.find((v) => v === route[0]) ?? "chat";
 	const customizeTab = customizeTabs.find((t) => t.id === route[1])?.id ?? "agents";
-	const settingsTab = settingsTabs.find((t) => t.id === route[1])?.id ?? "general";
+	const settingsTab = settingsTabs.find((t) => t.id === (settingsTabAliases[route[1] ?? ""] ?? route[1]))?.id ?? "general";
 	const recordTab = recordTabs.find((t) => t.id === view)?.id;
 	// Each section reopens where you left it.
 	const lastPath = useRef<Partial<Record<View, string[]>>>({});

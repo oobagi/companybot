@@ -13,7 +13,7 @@ import { Modal } from "./chat/common";
 
 type Action = FunctionReturnType<typeof api.permissions.actions>[number];
 
-const actionName = (a: { action: string; service: string | null }) => `${a.service ? `${a.service} · ` : ""}${a.action.slice(a.action.indexOf(".") + 1)}`;
+const actionName = (a: { label: string; service: string | null }) => `${a.service ? `${a.service} · ` : ""}${a.label}`;
 
 const select = "rounded-lg border border-neutral-200 px-2 py-1 text-sm disabled:opacity-50";
 
@@ -70,7 +70,7 @@ function SettingSelect({ action: a }: { action: Action }) {
 	return (
 		<div className="flex flex-col items-end gap-1">
 			<select
-				aria-label={`${a.action} setting`}
+				aria-label={`${a.label} setting`}
 				className={select}
 				disabled={blocked}
 				value={a.setting}
@@ -114,7 +114,7 @@ export function ConnectorActions({ connectorId, connected }: { connectorId: stri
 			{actions.map((a) => (
 				<div key={a.action} className="flex items-start gap-3 rounded-xl border border-neutral-200 px-4 py-3 text-sm">
 					<div className="min-w-0 flex-1">
-						<p className="font-mono text-xs">{a.action.slice(a.action.indexOf(".") + 1)}</p>
+						<p className="font-medium">{a.label}</p>
 						<p className="line-clamp-2 text-neutral-500">{a.description}</p>
 						<p className="mt-1 text-xs text-neutral-400">{lockNote(a)}</p>
 					</div>
@@ -159,7 +159,7 @@ export function WorkspaceLocks() {
 					<div key={a.action} className="flex items-center gap-3 rounded-xl border border-neutral-200 px-4 py-2 text-sm">
 						<span className="min-w-0 flex-1 truncate">{actionName(a)}</span>
 						<select
-							aria-label={`${a.action} lock`}
+							aria-label={`${a.label} lock`}
 							className={select}
 							value={value}
 							onChange={(e) => {
