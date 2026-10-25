@@ -162,7 +162,7 @@ export default defineSchema({
 		version: v.number(),
 	})
 		.index("by_workspace", ["workspaceId"])
-		.index("by_agent", ["agentId"]),
+		.index("by_agent_scope", ["agentId", "scope", "ownerId"]),
 
 	// Personal preferences: only the person sees them; they follow them across devices.
 	preferences: defineTable({
