@@ -138,7 +138,7 @@ async function writeIndex(ctx: MutationCtx, record: Doc<"records">, fields: Doc<
 		for (const row of old) await ctx.db.delete(row._id);
 		for (const entry of indexEntries(toField(field), record.values[field.key])) {
 			const ref = "ref" in entry ? { ref: entry.ref as Id<"records"> } : entry;
-			await ctx.db.insert("recordValues", { recordId: record._id, fieldId: field._id, ...ref });
+			await ctx.db.insert("recordValues", { recordId: record._id, fieldId: field._id, ...ref, at: record._creationTime });
 		}
 	}
 }

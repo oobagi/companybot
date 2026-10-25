@@ -586,12 +586,15 @@ export default defineSchema({
 		num: v.optional(v.number()),
 		/** Link fields: the record linked to. Also answers "what links here". */
 		ref: v.optional(v.id("records")),
+		/** The record's _creationTime, so equal values list newest first and combined filters can merge by it. */
+		at: v.number(),
 	})
 		.index("by_record", ["recordId", "fieldId"])
+		.index("by_field_str", ["fieldId", "str", "at"])
+		.index("by_field_num", ["fieldId", "num", "at"])
 		// Currency: `str` is the code and `num` the cents, so amounts sort within their currency.
-		.index("by_field_str", ["fieldId", "str", "num"])
-		.index("by_field_num", ["fieldId", "num"])
-		.index("by_ref", ["ref", "fieldId"]),
+		.index("by_field_money", ["fieldId", "str", "num", "at"])
+		.index("by_ref", ["ref", "fieldId", "at"]),
 
 	// Every change to a record or field, oldest to newest: who (or which agent, acting
 	// for whom), and each value's old → new. Undo applies a change in reverse.

@@ -1,9 +1,9 @@
-import { indexEntries, normalizeValue, sameText } from "@companybot/core";
 import { type PaginationResult, paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, mutation, query } from "./_generated/server";
 import { canSee } from "./chatOps";
+import { findRecords } from "./recordQuery";
 import { getMember, nameOf, requireMember } from "./lib";
 import {
 	createRecord,
@@ -32,130 +32,56 @@ const HISTORY_PAGE_MAX = 20;
 
 type Row = Awaited<ReturnType<typeof toRows>>[number];
 
-const capped = (opts: { numItems: number; cursor: string | null }, max: number) => ({ ...opts, numItems: Math.min(opts.numItems, max) });
+const capped = <T extends { numItems: number }>(opts: T, max: number) => ({ ...opts, numItems: Math.min(opts.numItems, max) });
 
 const empty = <T>(): PaginationResult<T> => ({ page: [], isDone: true, continueCursor: "" });
 
-const bound = v.optional(v.union(v.string(), v.number(), v.boolean()));
+const condition = v.object({
+	field: v.string(),
+	eq: v.optional(v.any()),
+	in: v.optional(v.array(v.any())),
+	gt: v.optional(v.any()),
+	gte: v.optional(v.any()),
+	lt: v.optional(v.any()),
+	lte: v.optional(v.any()),
+	empty: v.optional(v.boolean()),
+});
 
 /**
- * One type's records, a page at a time. Newest first by default; `sort` by "createdAt",
- * "updatedAt" or any field. `where` matches one field exactly (`eq`) or by range
- * (`gte` / `lte`, for numbers and dates), in that field's order. Filtering and sorting
- * use the same field, and only records with a value for it are listed. Fields holding
- * several values match exactly only, so each record shows up once. Links to an archived
- * record match nothing.
+ * One type's records, a page at a time, matching every filter (AND). Each filter is one
+ * of: `eq`, `in` (any of: choice, person and link fields), a range (`gt`/`gte`/`lt`/`lte`:
+ * number, amount and date fields), or `empty`. Fields holding several values take `eq`,
+ * `in` and `empty`. `sort` by "createdAt", "updatedAt" or a field (records without a value
+ * for it aren't listed). Without a sort it's newest first, unless the only usable filters
+ * are ranges, which list in that field's order. A page can come back short with
+ * `isDone: false` when a rare combination takes more than one request's reading budget:
+ * ask for the next page. See wiki/data.md.
  */
 export const list = query({
 	args: {
 		typeId: v.id("recordTypes"),
 		archived: v.optional(v.boolean()),
+		filters: v.optional(v.array(condition)),
 		sort: v.optional(v.object({ field: v.string(), order: v.union(v.literal("asc"), v.literal("desc")) })),
-		where: v.optional(v.object({ field: v.string(), eq: bound, gte: bound, lte: bound })),
 		paginationOpts: paginationOptsValidator,
 	},
-	handler: async (ctx, { typeId, archived = false, sort, where, paginationOpts }): Promise<PaginationResult<Row>> => {
+	handler: async (ctx, { typeId, archived = false, filters = [], sort, paginationOpts }): Promise<PaginationResult<Row>> => {
 		const member = await getMember(ctx);
 		const type = member && (await ctx.db.get(typeId));
 		if (!member || type?.workspaceId !== member.workspaceId) return empty();
 		const fields = await fieldsOf(ctx, typeId);
-		const opts = capped(paginationOpts, PAGE_MAX);
-		const order = sort?.order ?? "desc";
-
-		const key = where?.field ?? (sort && !["createdAt", "updatedAt"].includes(sort.field) ? sort.field : undefined);
-		if (!key) {
-			const result = await ctx.db
-				.query("records")
-				.withIndex(sort?.field === "updatedAt" ? "by_type_updated" : "by_type", (q) => q.eq("typeId", typeId).eq("archived", archived))
-				.order(order)
-				.paginate(opts);
-			return { ...result, page: await toRows(ctx, member.workspaceId, result.page.map((record) => ({ record, fields }))) };
-		}
-
-		if (archived) throw new ConvexError("Archived records can't be filtered or sorted by a field.");
-		if (where && sort && sort.field !== where.field) throw new ConvexError("Filter and sort by the same field.");
-		const field = fields.find((f) => f.key === key && !f.archived);
-		if (!field) throw new ConvexError(`There's no field “${key}”.`);
-		if (field.multiple && (sort || where?.gte !== undefined || where?.lte !== undefined))
-			throw new ConvexError(`“${field.label}” holds several values, so it can only be matched exactly.`);
-		const currency = await currencyOf(ctx, member.workspaceId);
-		const at = (raw: unknown) => (raw === undefined ? undefined : indexValue(field, raw, currency));
-		const eq = at(where?.eq);
-		const gte = at(where?.gte);
-		const lte = at(where?.lte);
-
-		let rows: PaginationResult<Doc<"recordValues">>;
-		if (field.kind === "link") {
-			const ref = eq?.ref as Id<"records"> | undefined;
-			if (sort || !ref) throw new ConvexError(`“${field.label}” can only be matched exactly.`);
-			if ((await ctx.db.get(ref))?.archived) return empty();
-			rows = await ctx.db
-				.query("recordValues")
-				.withIndex("by_ref", (q) => q.eq("ref", ref).eq("fieldId", field._id))
-				.order(order)
-				.paginate(opts);
-		} else if (field.kind === "currency") {
-			// Amounts compare only within one currency: a filter picks one (the workspace's
-			// unless it names another), and sorting groups by currency code, then amount.
-			if (gte && lte && gte.str !== lte.str) throw new ConvexError("Compare amounts in one currency.");
-			const code = (eq ?? gte ?? lte)?.str;
-			rows = await ctx.db
-				.query("recordValues")
-				.withIndex("by_field_str", (q) => {
-					const f = q.eq("fieldId", field._id);
-					if (code === undefined) return f;
-					const c = f.eq("str", code);
-					if (eq) return c.eq("num", eq.num!);
-					const lo = gte ? c.gte("num", gte.num!) : c;
-					return lte ? lo.lte("num", lte.num!) : lo;
-				})
-				.order(order)
-				.paginate(opts);
-		} else if (field.kind === "number" || field.kind === "checkbox") {
-			rows = await ctx.db
-				.query("recordValues")
-				.withIndex("by_field_num", (q) => {
-					const f = q.eq("fieldId", field._id);
-					if (eq) return f.eq("num", eq.num!);
-					const lo = gte ? f.gte("num", gte.num!) : f;
-					return lte ? lo.lte("num", lte.num!) : lo;
-				})
-				.order(order)
-				.paginate(opts);
-		} else {
-			// Values are always set on rows for this field, so the lower bound skips none.
-			rows = await ctx.db
-				.query("recordValues")
-				.withIndex("by_field_str", (q) => {
-					const f = q.eq("fieldId", field._id);
-					if (eq) return f.eq("str", eq.str!);
-					const lo = gte ? f.gte("str", gte.str!) : f;
-					return lte ? lo.lte("str", lte.str!) : lo;
-				})
-				.order(order)
-				.paginate(opts);
-		}
-		// Long text matches by a hash of its key, so check the value itself.
-		const wanted = where?.eq === undefined ? undefined : normalizeValue(toField(field), where.eq, "filter", currency);
-		const records = [];
-		for (const row of rows.page) {
-			const record = await ctx.db.get(row.recordId);
-			if (!record) continue;
-			if (wanted && "value" in wanted && wanted.value !== null && !sameText(toField(field), record.values[field.key], wanted.value)) continue;
-			records.push({ record, fields });
-		}
-		return { ...rows, page: await toRows(ctx, member.workspaceId, records) };
+		const result = await findRecords(ctx, {
+			typeId,
+			archived,
+			fields,
+			conditions: filters,
+			sort,
+			currency: await currencyOf(ctx, member.workspaceId),
+			paginationOpts: capped(paginationOpts, PAGE_MAX),
+		});
+		return { ...result, page: await toRows(ctx, member.workspaceId, result.page.map((record) => ({ record, fields }))) };
 	},
 });
-
-/** What a filter value looks like in the index, so `where` uses the same rules as saving. */
-function indexValue(field: Doc<"recordFields">, raw: unknown, currency: string): { str?: string; num?: number; ref?: string } {
-	const result = normalizeValue({ ...toField(field), multiple: false }, raw, "filter", currency);
-	if ("error" in result) throw new ConvexError(result.error);
-	const [entry] = indexEntries(toField(field), result.value);
-	if (!entry) throw new ConvexError(`Pick a value for “${field.label}”.`);
-	return entry;
-}
 
 /** One record with its type and fields, or null if it isn't in your workspace. */
 export const get = query({
