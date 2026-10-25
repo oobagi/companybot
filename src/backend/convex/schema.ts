@@ -75,8 +75,14 @@ export const customTrigger = v.union(
 	v.object({ type: v.literal("event"), event: v.literal("member.joined") }),
 );
 
-/** core's FieldValue. Empty values aren't stored. */
-export const fieldValue = v.union(v.string(), v.number(), v.boolean(), v.array(v.string()));
+/** core's FieldValue. Empty values aren't stored. Currency is core's Money. */
+export const fieldValue = v.union(
+	v.string(),
+	v.number(),
+	v.boolean(),
+	v.array(v.string()),
+	v.object({ cents: v.number(), currency: v.string() }),
+);
 
 /** core's FieldKind. */
 export const fieldKind = v.union(
@@ -105,7 +111,7 @@ export default defineSchema({
 	workspaces: defineTable({
 		name: v.string(),
 		version: v.optional(v.number()),
-		/** ISO 4217 code for currency fields. Unset means DEFAULT_CURRENCY. */
+		/** ISO 4217: the default for new amounts. Each amount stores its own. Unset means DEFAULT_CURRENCY. */
 		currency: v.optional(v.string()),
 	}),
 
@@ -582,7 +588,8 @@ export default defineSchema({
 		ref: v.optional(v.id("records")),
 	})
 		.index("by_record", ["recordId", "fieldId"])
-		.index("by_field_str", ["fieldId", "str"])
+		// Currency: `str` is the code and `num` the cents, so amounts sort within their currency.
+		.index("by_field_str", ["fieldId", "str", "num"])
 		.index("by_field_num", ["fieldId", "num"])
 		.index("by_ref", ["ref", "fieldId"]),
 

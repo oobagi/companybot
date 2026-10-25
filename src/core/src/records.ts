@@ -22,9 +22,20 @@ export type FieldKind = (typeof fieldKinds)[number];
 
 /**
  * A stored value. Empty values (and unchecked boxes) aren't stored. Dates are "YYYY-MM-DD";
- * currency is whole cents (in the workspace's currency); choices, people and links are ids.
+ * currency is `Money`; choices, people and links are ids.
  */
-export type FieldValue = string | number | boolean | string[];
+export type FieldValue = string | number | boolean | string[] | Money;
+
+/**
+ * An amount and its own currency, like Stripe and HubSpot store it: changing the workspace's
+ * currency never relabels it. `cents` is the amount × 100 for every currency (so ¥100 is
+ * 10000); keys in this order, as Convex returns them, so `sameValue` can compare JSON.
+ */
+export interface Money {
+	cents: number;
+	/** ISO 4217, one of `currencyCodes`. */
+	currency: string;
+}
 
 export interface ChoiceOption {
 	/** Stable: stored on records, so renaming an option changes nothing else. */
@@ -72,8 +83,20 @@ const INDEX_PREFIX = 80;
 
 export const valuesBytes = (values: Record<string, FieldValue>) => new TextEncoder().encode(JSON.stringify(values)).length;
 
-/** The workspace's currency when it hasn't picked one. */
+/** The workspace's currency when it hasn't picked one. New amounts default to the workspace's. */
 export const DEFAULT_CURRENCY = "USD";
+
+/** ISO 4217 codes for currencies in use. */
+export const currencyCodes = (
+	"AED AFN ALL AMD AOA ARS AUD AWG AZN BAM BBD BDT BGN BHD BIF BMD BND BOB BRL BSD BTN BWP BYN BZD CAD CDF CHF " +
+	"CLP CNY COP CRC CUP CVE CZK DJF DKK DOP DZD EGP ERN ETB EUR FJD FKP GBP GEL GHS GIP GMD GNF GTQ GYD HKD HNL " +
+	"HTG HUF IDR ILS INR IQD IRR ISK JMD JOD JPY KES KGS KHR KMF KPW KRW KWD KYD KZT LAK LBP LKR LRD LSL LYD MAD " +
+	"MDL MGA MKD MMK MNT MOP MRU MUR MVR MWK MXN MYR MZN NAD NGN NIO NOK NPR NZD OMR PAB PEN PGK PHP PKR PLN PYG " +
+	"QAR RON RSD RUB RWF SAR SBD SCR SDG SEK SGD SHP SLE SOS SRD SSP STN SVC SYP SZL THB TJS TMT TND TOP TRY TTD " +
+	"TWD TZS UAH UGX USD UYU UZS VES VND VUV WST XAF XCD XCG XOF XPF YER ZAR ZMW ZWG"
+).split(" ");
+
+export const isCurrencyCode = (code: unknown): code is string => typeof code === "string" && currencyCodes.includes(code);
 
 /** A key from a label: "Roof type" → "roof_type", unique among `taken`. */
 export function keyOf(label: string, taken: Iterable<string>) {
@@ -132,8 +155,9 @@ export function fieldConfigError(config: FieldConfig): string | null {
 export type Normalized = { value: FieldValue | null } | { error: string };
 
 /**
- * `input`: what a person or agent typed (currency in whole units, "12.50").
- * `stored`: a value from storage being set again, e.g. by undo (currency in cents).
+ * `input`: what a person or agent typed. Currency: an amount in whole units ("1,250.50",
+ * "EUR 12.50", 12.5, or `{ amount, currency? }`); without a code it's the workspace's.
+ * `stored`: a value from storage being set again, e.g. by undo (currency as `Money`).
  * `filter`: a value to match; retired options are allowed, to find records still using them.
  */
 export type ValueMode = "input" | "stored" | "filter";
@@ -145,7 +169,7 @@ const isEmpty = (raw: unknown) => raw === null || raw === undefined || raw === "
  * what's wrong. Choices accept an option's id or label. `user` and `link` ids are
  * checked against the workspace by the backend.
  */
-export function normalizeValue(field: Field, raw: unknown, mode: ValueMode = "input"): Normalized {
+export function normalizeValue(field: Field, raw: unknown, mode: ValueMode = "input", currency = DEFAULT_CURRENCY): Normalized {
 	if (isEmpty(raw)) return { value: null };
 	const label = `“${field.label}”`;
 	if (field.multiple) {
@@ -153,17 +177,17 @@ export function normalizeValue(field: Field, raw: unknown, mode: ValueMode = "in
 		if (items.length > MULTI_MAX) return { error: `${label} holds up to ${MULTI_MAX}.` };
 		const out: string[] = [];
 		for (const item of items) {
-			const one = normalizeOne(field, item, label, mode);
+			const one = normalizeOne(field, item, label, mode, currency);
 			if ("error" in one) return one;
 			if (typeof one.value === "string" && !out.includes(one.value)) out.push(one.value);
 		}
 		return { value: out.length ? out : null };
 	}
 	if (Array.isArray(raw)) return { error: `${label} holds one value.` };
-	return normalizeOne(field, raw, label, mode);
+	return normalizeOne(field, raw, label, mode, currency);
 }
 
-function normalizeOne(field: Field, raw: unknown, label: string, mode: ValueMode): Normalized {
+function normalizeOne(field: Field, raw: unknown, label: string, mode: ValueMode, currency: string): Normalized {
 	const text = typeof raw === "string" ? raw.trim() : typeof raw === "number" ? String(raw) : null;
 	switch (field.kind) {
 		case "text":
@@ -175,8 +199,10 @@ function normalizeOne(field: Field, raw: unknown, label: string, mode: ValueMode
 			return Number.isFinite(n) ? { value: n } : { error: `${label} is a number.` };
 		}
 		case "currency": {
-			const cents = mode === "stored" ? (typeof raw === "number" ? raw : Number.NaN) : toCents(text);
-			return Number.isSafeInteger(cents) ? { value: cents } : { error: `${label} is an amount like 1250.50.` };
+			const money = mode === "stored" ? (raw as Money | null) : toMoney(raw, currency);
+			if (!money || !Number.isSafeInteger(money.cents)) return { error: `${label} is an amount like 1250.50.` };
+			if (!isCurrencyCode(money.currency)) return { error: `${label} needs a currency code like USD or EUR.` };
+			return { value: { cents: money.cents, currency: money.currency } };
 		}
 		case "date": {
 			const day = text?.slice(0, 10) ?? "";
@@ -217,12 +243,24 @@ function normalizeOne(field: Field, raw: unknown, label: string, mode: ValueMode
 	}
 }
 
+/** What someone typed as an amount, with its currency code if they gave one. */
+function toMoney(raw: unknown, currency: string): Money | null {
+	if (raw && typeof raw === "object" && "amount" in raw) {
+		const { amount, currency: code } = raw as { amount: unknown; currency?: unknown };
+		return toMoney(amount, typeof code === "string" ? code.toUpperCase() : currency);
+	}
+	const text = typeof raw === "number" ? String(raw) : typeof raw === "string" ? raw.trim() : null;
+	const match = text?.match(/^(?:([a-z]{3})\s*)?([^a-z]*?)(?:\s*([a-z]{3}))?$/i);
+	if (!match) return null;
+	return { cents: toCents(match[2]!), currency: (match[1] ?? match[3])?.toUpperCase() ?? currency };
+}
+
 /**
  * Whole units ("1,250.505", 12.5) to cents, rounding half away from zero on the exact
  * decimal (1.005 → 101). NaN if it isn't an amount or isn't a safe integer.
  */
 function toCents(text: string | null) {
-	const match = text?.replace(/[$,\s]/g, "").match(/^(-?)(\d*)(?:\.(\d*))?$/);
+	const match = text?.replace(/[$€£¥,\s]/g, "").match(/^(-?)(\d*)(?:\.(\d*))?$/);
 	const [, sign, whole = "", frac = ""] = match ?? [];
 	if (!whole && !frac) return Number.NaN;
 	let cents = BigInt(whole + `${frac}00`.slice(0, 2));
@@ -232,7 +270,7 @@ function toCents(text: string | null) {
 }
 
 /** One index entry for a value: text and ids by `str`, numbers by `num`, links by `ref`. */
-export type IndexEntry = { str: string } | { num: number } | { ref: string };
+export type IndexEntry = { str: string } | { num: number } | { ref: string } | { str: string; num: number };
 
 /** How a stored value is indexed, so lists can filter and sort by any field without a scan. */
 export function indexEntries(field: Field, value: FieldValue | null | undefined): IndexEntry[] {
@@ -240,8 +278,10 @@ export function indexEntries(field: Field, value: FieldValue | null | undefined)
 	if (Array.isArray(value)) return value.flatMap((v) => indexEntries({ ...field, multiple: false }, v));
 	switch (field.kind) {
 		case "number":
-		case "currency":
 			return [{ num: value as number }];
+		case "currency":
+			// Grouped by currency, then by amount: amounts only compare within one currency.
+			return [{ str: (value as Money).currency, num: (value as Money).cents }];
 		case "checkbox":
 			return [{ num: 1 }];
 		case "link":

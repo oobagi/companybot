@@ -100,7 +100,7 @@ describe("records", () => {
 		});
 		const got = (await owner.query(api.records.get, { recordId: dealId }))!;
 		expect(got.title).toBe("Acme reroof");
-		expect(got.values).toEqual({ name: "Acme reroof", client: acme, stage: "proposal", value: 1_250_050 });
+		expect(got.values).toEqual({ name: "Acme reroof", client: acme, stage: "proposal", value: { cents: 1_250_050, currency: "USD" } });
 		expect(got.refs).toEqual({ [acme]: { name: "Acme Roofing" } });
 		expect(got.type.key).toBe("deal");
 		const acmeRow = (await owner.query(api.records.get, { recordId: acme }))!;
@@ -496,17 +496,52 @@ describe("records: limits and edge cases", () => {
 	it("stores currency in cents and lets owners set the workspace's currency", async () => {
 		const { owner, member, deal } = await setup();
 		const id = await owner.mutation(api.records.create, { typeId: deal._id, values: { name: "D", value: 1.005 } });
-		expect((await owner.query(api.records.get, { recordId: id }))!.values.value).toBe(101);
+		expect((await owner.query(api.records.get, { recordId: id }))!.values.value).toEqual({ cents: 101, currency: "USD" });
 		await expect(owner.mutation(api.records.update, { recordId: id, values: { value: Number.MAX_VALUE } })).rejects.toThrow("amount");
 		expect(await titles(owner, { typeId: deal._id, where: { field: "value", gte: "1.01", lte: 1.01 } })).toEqual(["D"]);
 
 		const settings = (await owner.query(api.workspace.settings))!;
-		expect(settings.currency).toBe("USD");
+		expect(settings).toMatchObject({ currency: "USD", hasAmounts: true });
 		await owner.mutation(api.workspace.updateSettings, { name: settings.name, currency: "eur", expectedVersion: settings.version });
 		expect((await member.query(api.workspace.settings))!.currency).toBe("EUR");
 		const next = (await owner.query(api.workspace.settings))!;
-		await expect(owner.mutation(api.workspace.updateSettings, { name: next.name, currency: "euro", expectedVersion: next.version })).rejects.toThrow(
-			"currency code",
+		for (const currency of ["euro", "XYZ"])
+			await expect(owner.mutation(api.workspace.updateSettings, { name: next.name, currency, expectedVersion: next.version })).rejects.toThrow(
+				"currency code",
+			);
+		await expect(member.mutation(api.workspace.updateSettings, { name: next.name, currency: "GBP", expectedVersion: next.version })).rejects.toThrow(
+			"permission",
 		);
+	});
+
+	it("keeps each amount's own currency when the workspace's changes", async () => {
+		const { owner, deal } = await setup();
+		expect((await owner.query(api.workspace.settings))!.hasAmounts).toBe(false);
+		const old = await owner.mutation(api.records.create, { typeId: deal._id, values: { name: "Old", value: 100 } });
+		const settings = (await owner.query(api.workspace.settings))!;
+		await owner.mutation(api.workspace.updateSettings, { name: settings.name, currency: "EUR", expectedVersion: settings.version });
+		const fresh = await owner.mutation(api.records.create, { typeId: deal._id, values: { name: "New", value: 100 } });
+		const yen = await owner.mutation(api.records.create, { typeId: deal._id, values: { name: "Yen", value: "JPY 5000" } });
+		const value = async (recordId: Id<"records">) => (await owner.query(api.records.get, { recordId }))!.values.value;
+		expect(await value(old)).toEqual({ cents: 10000, currency: "USD" });
+		expect(await value(fresh)).toEqual({ cents: 10000, currency: "EUR" });
+		expect(await value(yen)).toEqual({ cents: 500000, currency: "JPY" });
+
+		// Filters compare within one currency: the workspace's unless they name one.
+		expect(await titles(owner, { typeId: deal._id, where: { field: "value", eq: 100 } })).toEqual(["New"]);
+		expect(await titles(owner, { typeId: deal._id, where: { field: "value", gte: "USD 0" } })).toEqual(["Old"]);
+		await expect(titles(owner, { typeId: deal._id, where: { field: "value", gte: "USD 0", lte: "EUR 500" } })).rejects.toThrow("one currency");
+		// Sorting groups by currency code, then amount.
+		await owner.mutation(api.records.create, { typeId: deal._id, values: { name: "Big", value: "USD 900" } });
+		expect(await titles(owner, { typeId: deal._id, sort: { field: "value", order: "asc" } })).toEqual(["New", "Yen", "Old", "Big"]);
+
+		// History and undo keep the currency code.
+		await owner.mutation(api.records.update, { recordId: old, values: { value: 250 } });
+		const [change] = (await owner.query(api.records.history, { recordId: old, paginationOpts: page })).page;
+		expect(change!.changes).toEqual([
+			{ key: "value", old: { cents: 10000, currency: "USD" }, new: { cents: 25000, currency: "EUR" }, label: "Value" },
+		]);
+		await owner.mutation(api.records.undo, { historyId: change!._id });
+		expect(await value(old)).toEqual({ cents: 10000, currency: "USD" });
 	});
 });

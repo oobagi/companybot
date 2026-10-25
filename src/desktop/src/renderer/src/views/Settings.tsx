@@ -1,5 +1,6 @@
 import type { Role } from "@companybot/core";
 import { can } from "@companybot/core/permissions";
+import { currencyCodes } from "@companybot/core/records";
 import { useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache";
 import { useState } from "react";
@@ -15,10 +16,13 @@ import {
 	Section,
 	Tabs,
 	inputClass,
+	primaryButton,
+	secondaryButton,
 	useRun,
 	useDraft,
 } from "../ui";
 import { ActivityTab } from "./Activity";
+import { Modal } from "./chat/common";
 import { MembersTab } from "./Members";
 import { MemoryTab } from "./Memory";
 import { WorkspaceLocks, YourPermissions } from "./Permissions";
@@ -87,27 +91,72 @@ function AppVersion() {
 	);
 }
 
-function GeneralForm({ settings, isOwner }: { settings: { name: string; version: number }; isOwner: boolean }) {
+const currencyNames = new Intl.DisplayNames(undefined, { type: "currency" });
+/** "EUR — Euro", or just the code where the system has no name for it. */
+const currencyLabel = (code: string) => {
+	const name = currencyNames.of(code);
+	return name && name !== code ? `${code} — ${name}` : code;
+};
+
+function GeneralForm({
+	settings,
+	isOwner,
+}: {
+	settings: { name: string; currency: string; hasAmounts: boolean; version: number };
+	isOwner: boolean;
+}) {
 	const save = useMutation(api.workspace.updateSettings);
-	const draft = useDraft({ name: settings.name }, settings.version);
+	const draft = useDraft({ name: settings.name, currency: settings.currency }, settings.version);
+	const [confirming, setConfirming] = useState(false);
 	const { error, run } = useRun();
+	const submit = () => run(save({ ...draft.value, expectedVersion: draft.base }), () => (draft.discard(), setConfirming(false)));
+	const currencyChanged = draft.value.currency !== settings.currency;
+	const ownerOnly = isOwner ? undefined : "Only owners can change this.";
 	return (
 		<>
 			{draft.stale && <ConflictNotice onDiscard={draft.discard} onKeep={draft.keepMine} />}
 			{error && <Notice>{error}</Notice>}
-			<Field label="Workspace name" hint={isOwner ? undefined : "Only owners can change this."}>
+			<Field label="Workspace name" hint={ownerOnly}>
 				<input
 					className={inputClass}
 					disabled={!isOwner}
 					value={draft.value.name}
-					onChange={(e) => draft.set({ name: e.target.value })}
+					onChange={(e) => draft.set({ ...draft.value, name: e.target.value })}
 				/>
 			</Field>
+			<Field label="Currency" hint={ownerOnly ?? "New amounts use it. Existing amounts keep their own."}>
+				<select
+					className={inputClass}
+					disabled={!isOwner}
+					value={draft.value.currency}
+					onChange={(e) => draft.set({ ...draft.value, currency: e.target.value })}
+				>
+					{currencyCodes.map((code) => (
+						<option key={code} value={code}>
+							{currencyLabel(code)}
+						</option>
+					))}
+				</select>
+			</Field>
 			{draft.dirty && (
-				<SaveBar
-					onDiscard={draft.discard}
-					onSave={() => run(save({ name: draft.value.name, expectedVersion: draft.base }), draft.discard)}
-				/>
+				<SaveBar onDiscard={draft.discard} onSave={() => (currencyChanged && settings.hasAmounts ? setConfirming(true) : submit())} />
+			)}
+			{confirming && (
+				<Modal title="Change currency?" onClose={() => setConfirming(false)}>
+					<div className="flex flex-col gap-4 text-sm">
+						<p className="text-neutral-600">
+							Existing amounts stay in {settings.currency}. New amounts will use {draft.value.currency}.
+						</p>
+						<div className="flex justify-end gap-2">
+							<button type="button" onClick={() => setConfirming(false)} className={secondaryButton}>
+								Cancel
+							</button>
+							<button type="button" onClick={submit} className={primaryButton}>
+								Change currency
+							</button>
+						</div>
+					</div>
+				</Modal>
 			)}
 		</>
 	);
