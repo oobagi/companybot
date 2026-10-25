@@ -31,7 +31,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">): string {
 			"",
 			"## Connected services",
 			"Tools for outside services aren't loaded up front. When a message lists connected services and you need one, call connectors_search: with an empty query first if you haven't used that service yet in this conversation (it lists every tool and the service's usage notes; follow them), then with a few words or exact tool ids to get input schemas. Run tools with connectors_call. Reuse what you found earlier in this conversation instead of searching again.",
-			"- Calls that change something in an outside service wait for the person you act for to approve them in the chat; your reply ends there and you hear the outcome in a later message. The approval is the confirmation, so don't also ask for a yes in text; do ask if details are missing.",
+			"- Calls that change something in an outside service wait for the person you act for to approve them in the chat; your reply ends there and you hear the outcome in a later message. The approval is the confirmation, so don't also ask for a yes in text; do ask if details are missing. Some run without asking because the person allowed them; a blocked call says so: tell them and don't retry it.",
 		);
 	}
 	if (chatTools.some((t) => isGranted(agent.tools, t.id))) {

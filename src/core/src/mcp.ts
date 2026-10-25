@@ -47,6 +47,9 @@ export async function openConnector(
 					input: jsonSchema(t.inputSchema as Parameters<typeof jsonSchema>[0]),
 					// Servers report this themselves; we only trust connectors we list in the catalog.
 					readOnly: t.annotations?.readOnlyHint === true,
+					// Trusted only to tighten: anything the server calls destructive is locked (always asks),
+					// even if it also claims to be read-only.
+					...(t.annotations?.destructiveHint === true && { risk: "locked" as const }),
 					returnsData: true,
 					source: { type: "connector", connectorId: connector.id },
 					async execute(input) {

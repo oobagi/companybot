@@ -7,6 +7,7 @@ import { useState } from "react";
 import { api } from "../../api";
 import { navigate } from "../../router";
 import { Loading, Notice, Section, inputClass, primaryButton, useRun } from "../../ui";
+import { ConnectorActions } from "../Permissions";
 import { Card, Detail, Facts, Missing } from "./shared";
 
 type ConnectorItem = FunctionReturnType<typeof api.connectors.list>[number];
@@ -79,6 +80,7 @@ function ConnectorDetail({ connector, isOwner }: { connector: ConnectorItem; isO
 					["Account", connector.connection === "personal" ? "Each person connects their own" : "One shared account for the workspace"],
 					["Sign-in", signIn],
 					["Tools", `Discovered from the connector each turn. Grant "${connector.id}.*" to an agent to use them.`],
+					["Asks first", "Anything that changes something, unless you set it to Always below."],
 					["Server", connector.server],
 				]}
 			/>
@@ -101,6 +103,7 @@ function ConnectorDetail({ connector, isOwner }: { connector: ConnectorItem; isO
 					<Connection connector={connector} />
 				</Section>
 			)}
+			{connector.installed && connector.canUse && <ConnectorActions connectorId={connector.id} connected={connector.connected} />}
 		</Detail>
 	);
 }

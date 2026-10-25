@@ -1,6 +1,6 @@
 import { type ToolSet, asSchema, tool } from "ai";
 import type { AgentConfig } from "./agent-config";
-import { needsApproval } from "./approvals";
+import { type PermissionDecision, deniedReason, permissionFor, toolRisk } from "./approvals";
 import { builtinTools } from "./builtin-tools";
 import { models } from "./models";
 import { CONNECTOR_CALL, type ConnectorService, calledConnectorTool, connectorMetaTools } from "./connector-tools";
@@ -125,26 +125,50 @@ export const grantedConnectorIds = (agent: Pick<AgentConfig, "tools">) =>
 	[...new Set(agent.tools.map(toolGroup))].filter((group) => !!findConnector(group));
 
 /**
- * The exact call to hold for approval, or null to run it now. `modelName` and `input`
- * are what the model sent; `tools` are the ones this person can use (resolveTools). A
- * connectors_call is held as the tool it runs, with that tool's input, once the input
- * matches the tool's schema (a bad one runs, so the model gets the schema error back).
+ * The action a model call runs: the tool and its exact input, or null if it names no
+ * tool this person can use. A connectors_call is the tool it runs, with that tool's
+ * input, once the input matches the tool's schema (a bad one runs as is, so the model
+ * gets the schema error back). `tools` are the ones this person can use (resolveTools).
  */
-export async function heldCall(modelName: string, input: unknown, tools: ToolDef[]): Promise<{ tool: string; input: unknown } | null> {
+export async function actionOf(modelName: string, input: unknown, tools: ToolDef[]): Promise<{ tool: ToolDef; input: unknown } | null> {
 	if (modelName === CONNECTOR_CALL) {
 		const t = tools.find((x) => x.id === calledConnectorTool(input));
-		if (!t || !needsApproval(t)) return null;
+		if (!t) return null;
 		const inner = (input as { input?: unknown }).input ?? {};
 		const check = await asSchema(t.input).validate?.(inner);
 		if (check && !check.success) return null;
-		return { tool: t.id, input: check?.success ? check.value : inner };
+		return { tool: t, input: check?.success ? check.value : inner };
 	}
 	const t = tools.find((x) => modelToolName(x.id) === modelName);
-	return t && needsApproval(t) ? { tool: t.id, input } : null;
+	return t ? { tool: t, input } : null;
 }
 
-/** The AI SDK `toolApproval` setting for one run: calls that need approval stop the run there. */
+/** The exact call to hold for approval: the action's tool id and input. */
+export async function heldCall(modelName: string, input: unknown, tools: ToolDef[]): Promise<{ tool: string; input: unknown } | null> {
+	const action = await actionOf(modelName, input, tools);
+	return action && { tool: action.tool.id, input: action.input };
+}
+
+/**
+ * Decides one call from the rules in force right now (see approvals.permissionFor).
+ * The runner reads them fresh for every call. Default: the tool's risk alone.
+ */
+export type PermissionCheck = (tool: ToolDef, callId: string) => Promise<PermissionDecision>;
+
+const byRiskOnly: PermissionCheck = async (t) => permissionFor({ risk: toolRisk(t) });
+
+/**
+ * The AI SDK `toolApproval` setting for one run. Calls that ask stop the run there,
+ * unexecuted; blocked ones never run and the model is told why. Built-ins with no risk
+ * skip the check: rules and locks only cover actions that can ask, plus connector reads.
+ */
 export const toolApprovalPolicy =
-	(tools: ToolDef[]) =>
-	async ({ toolCall }: { toolCall: { toolName: string; input: unknown } }) =>
-		(await heldCall(toolCall.toolName, toolCall.input, tools)) ? ("user-approval" as const) : undefined;
+	(tools: ToolDef[], check: PermissionCheck = byRiskOnly) =>
+	async ({ toolCall }: { toolCall: { toolCallId: string; toolName: string; input: unknown } }) => {
+		const action = await actionOf(toolCall.toolName, toolCall.input, tools);
+		if (!action || (action.tool.source.type === "builtin" && toolRisk(action.tool) === "none")) return undefined;
+		const decision = await check(action.tool, toolCall.toolCallId);
+		if (decision.type === "ask") return "user-approval" as const;
+		if (decision.type === "deny") return { type: "denied" as const, reason: deniedReason(decision.by, action.tool.id) };
+		return undefined;
+	};

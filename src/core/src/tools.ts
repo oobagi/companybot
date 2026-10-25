@@ -3,6 +3,7 @@ import type { FlexibleSchema, Tool } from "ai";
 import type { ChatStore } from "./chat";
 import type { MemoryStore } from "./memory";
 import type { SkillStore } from "./skills";
+import type { Risk } from "./approvals";
 import type { Actor, Role } from "./types";
 
 /** What a tool can reach while it runs. */
@@ -62,8 +63,13 @@ export interface ToolDef<Input = any> {
 	roles?: Role[];
 	/** True when the tool only reads. Unknown counts as a write. */
 	readOnly?: boolean;
-	/** Calls wait for the person's approval in the chat. Default: connector tools not marked read-only (see approvals.ts). */
-	needsApproval?: boolean;
+	/**
+	 * What a call can do outside the workspace (approvals.ts `Risk`): "outside" asks first,
+	 * "locked" always asks with no "Always allow". Set it on any built-in that sends, calls,
+	 * pays, deletes, or sends in bulk. Default: connector tools not marked read-only are
+	 * "outside"; everything else runs right away.
+	 */
+	risk?: Risk;
 	/** Returns data worth showing. Results get a ref widgets can point at; see ResultStore. */
 	returnsData?: boolean;
 	source: ToolSource;

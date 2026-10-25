@@ -3,6 +3,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, query } from "./_generated/server";
 import { type Namer, canSee, chatLabel, namer } from "./chatOps";
 import { type Member, getMember } from "./lib";
+import { allowedHow } from "./schema";
 
 // The activity log: every tool call an agent made, with its input and output.
 // An entry is as private as the chat it happened in. Outputs can hold things only
@@ -23,8 +24,9 @@ export const log = internalMutation({
 		input: v.string(),
 		output: v.optional(v.string()),
 		error: v.optional(v.string()),
+		allowed: v.optional(allowedHow),
 	},
-	handler: async (ctx, { turnId, error, ...call }) => {
+	handler: async (ctx, { turnId, error, allowed, ...call }) => {
 		const turn = await ctx.db.get(turnId);
 		if (!turn?.replyId) return;
 		await ctx.db.insert("agentActivity", {
@@ -37,6 +39,7 @@ export const log = internalMutation({
 			replyId: turn.replyId,
 			...call,
 			...(error !== undefined && { error }),
+			...(allowed && { allowed }),
 			status: error === undefined ? "done" : "error",
 		});
 	},
@@ -61,7 +64,7 @@ export const list = query({
 			if (!labels.has(row.chatId)) labels.set(row.chatId, await visibleLabel(ctx, row.chatId, member, names));
 			const chat = labels.get(row.chatId);
 			if (!chat) continue;
-			entries.push({ ...(await toEntry(row, member, names)), chat });
+			entries.push({ ...(await toEntry(ctx, row, member, names)), chat });
 			if (entries.length >= LIST_LIMIT) break;
 		}
 		return entries;
@@ -81,7 +84,7 @@ export const forReply = query({
 			.query("agentActivity")
 			.withIndex("by_reply", (q) => q.eq("replyId", replyId))
 			.collect();
-		return Promise.all(rows.map((row) => toEntry(row, member, names)));
+		return Promise.all(rows.map((row) => toEntry(ctx, row, member, names)));
 	},
 });
 
@@ -90,7 +93,7 @@ async function visibleLabel(ctx: QueryCtx, chatId: Id<"chats">, member: Member, 
 	return chat && (await canSee(ctx, chat, member)) ? chatLabel(ctx, chat, names, member.userId) : null;
 }
 
-async function toEntry(row: Doc<"agentActivity">, member: Member, names: Namer) {
+async function toEntry(ctx: QueryCtx, row: Doc<"agentActivity">, member: Member, names: Namer) {
 	const mine = row.actorId === member.userId;
 	return {
 		_id: row._id,
@@ -108,5 +111,15 @@ async function toEntry(row: Doc<"agentActivity">, member: Member, names: Namer) 
 		/** Only for the person the agent acted for; see the note at the top. */
 		output: mine ? row.output : undefined,
 		error: row.error,
+		/** Calls that would have asked: who allowed it and how, and whether that rule still stands. */
+		allowed: row.allowed
+			? {
+					how: row.allowed.how,
+					by: (await names.user(row.allowed.by)).name,
+					at: row.allowed.at,
+					automation: row.allowed.automation ?? null,
+					ruleStillOn: row.allowed.ruleId ? !!(await ctx.db.get(row.allowed.ruleId)) : null,
+				}
+			: null,
 	};
 }

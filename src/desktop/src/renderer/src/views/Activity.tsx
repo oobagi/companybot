@@ -2,6 +2,7 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import type { FunctionReturnType } from "convex/server";
 import { useQuery } from "convex-helpers/react/cache";
 import { useState } from "react";
+import { describeAllowed } from "@companybot/core/approvals";
 import { api } from "../api";
 import { navigate } from "../router";
 import { Loading, timeAgo } from "../ui";
@@ -66,8 +67,31 @@ function ActivityRow({ entry }: { entry: ActivityEntry & { chat: string } }) {
 					{entry.chat}
 				</button>
 			</p>
+			{entry.allowed && <AllowedLine allowed={entry.allowed} mine={entry.mine} />}
 			{open && <CallDetails entry={entry} />}
 		</div>
+	);
+}
+
+/**
+ * How a call that would have asked was allowed: "Always allowed by Ada, Oct 25", with
+ * a link to the rule (in Your preferences) while it still stands.
+ */
+function AllowedLine({ allowed, mine }: { allowed: NonNullable<ActivityEntry["allowed"]>; mine: boolean }) {
+	const text = describeAllowed({ ...allowed, automation: allowed.automation ?? undefined }, allowed.by);
+	return (
+		<p className="text-xs text-neutral-500">
+			{text}
+			{allowed.ruleStillOn === false && " · rule since removed"}
+			{allowed.ruleStillOn && mine && (
+				<>
+					{" · "}
+					<button type="button" onClick={() => navigate("settings", "profile")} className="hover:underline">
+						See rule
+					</button>
+				</>
+			)}
+		</p>
 	);
 }
 

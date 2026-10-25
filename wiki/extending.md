@@ -9,7 +9,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 
 ## Tools — `core/src/tools.ts`, `builtin-tools.ts`
 - One shape (`ToolDef`) for built-ins and connector tools. Ids are `group.name`; model names come from `modelToolName`.
-- Add a built-in: `defineTool` in `builtin-tools.ts`. Set `roles` if not everyone may trigger it, and `readOnly: true` if it changes nothing.
+- Add a built-in: `defineTool` in `builtin-tools.ts`. Set `roles` if not everyone may trigger it, `readOnly: true` if it changes nothing, and `risk` if it reaches outside (see Approvals).
 - Tools reach data only through `ToolContext` (`memory`, `chat`, `skills`, `automations`), which enforce permissions. Don't do permission checks inside tools.
 - Agents grant exact ids or whole groups (`memory.*`). `resolveTools` is the only place that decides what the model sees.
 
@@ -22,16 +22,20 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 - Access = installed + role allowed (`connectorInstalls.roles`) + connected. Checked fresh each turn (`connectors.forTurn`).
 - Auth: `none`, `api_key` (pasted in), or `oauth` (MCP OAuth: discovery, dynamic client registration, PKCE, refresh — all via `@ai-sdk/mcp`). OAuth flow: `connectors.startOAuth` → browser → `GET /oauth/callback` (`backend/convex/oauth.ts`) → `saveConnection`. State lives in `OAuthState` (`core/src/oauth.ts`), encrypted like any credentials. The runner saves refreshed tokens after each turn.
 - Connector results keep structure (`structuredContent`, or JSON text) so widgets can show them by ref.
-- Writes need approval: connector tools without `readOnlyHint` wait for a yes in the chat (see Approvals). Not built yet: per-tool policy (planned in [Permissions](permissions.md)), pre-registered OAuth clients (servers without dynamic registration).
+- Writes ask: connector tools without `readOnlyHint` wait for a yes in the chat; `destructiveHint` ones always ask (see Approvals). The tool list each server reports is saved to `connectorTools` for settings screens only. Not built yet: pre-registered OAuth clients (servers without dynamic registration).
 - Test with `fakeMcpServer` (`core/src/test-mcp-server.ts`), or push a test connector into `connectorCatalog` (see backend tests).
 
-## Approvals — `core/src/approvals.ts`, `backend/convex/approvals.ts`
-- Which calls wait: `needsApproval(tool)`. Default: connector tools not marked read-only. A built-in with outside impact sets `needsApproval: true`; none do today.
-- How: the runner passes `toolApprovalPolicy` as the AI SDK's `toolApproval`, so the run stops at the call, unexecuted. The runner saves the exact call (`approvals.request`) and puts an `approval` part in the reply where the tool line would be.
-- Lock: `approvalHash` = SHA-256 of canonical JSON of tool id + input. The app sends back the hash it showed; `decide` refuses any other; `claim` re-hashes the stored call before it runs. Compare nothing else: unrelated changes must never block or void an approval.
+## Approvals — `core/src/approvals.ts`, `backend/convex/approvals.ts`, `backend/convex/permissions.ts`
+- **Declare risk on the tool** (`ToolDef.risk`): `"outside"` for anything with outside impact (sends, texts, calls, campaign sends), `"locked"` for payments, deleting records and bulk sends (always asks, no "Always allow"). Leave it out for internal changes. Connector tools default to `"outside"` unless read-only (`toolRisk`).
+- **Every call is decided fresh:** the runner passes `toolApprovalPolicy(usable, check)` as the AI SDK's `toolApproval`; `check` runs `permissions.check` (person's rules, owner locks, automation grants; `permissionFor`, strictest wins). Ask → the run stops at the call, unexecuted. Deny → the model gets the reason. Run with a rule → logged with `allowed` (how, who, when, rule id). Never cache a decision into a session or prompt.
+- Built-ins with no risk skip the check entirely. Connector reads are checked (owners may lock them).
+- Held calls: the runner saves the exact call (`approvals.request`, with its `risk`) and puts an `approval` part in the reply. The app shows it as its own message from the agent ([Permissions](permissions.md) → The card).
+- Lock: `approvalHash` = SHA-256 of canonical JSON of tool id + input. The app sends back the hash it showed; `decide` refuses any other; `claim` re-hashes the stored call and re-checks rules before it runs. Compare nothing else: unrelated changes must never block or void an approval.
 - Who: only the person the agent acts for (`canDecideApproval`), while they can see the chat, within 24h. Owners can't approve for others; the call runs with that person's access and accounts.
+- `decide({ always: true })` also saves an Always rule (scoped to the automation if the run was one's). Refused where the action always asks. Older apps send only `approve` and keep working.
 - After a decision: `decide` queues a normal turn in the same place with `approvalId` (so one turn per place still holds). That turn runs the approved call first (approved only), then the agent is told the outcome in its new prompt (`approval` in `buildTurnPrompt`). Replies note held calls without their outcome, so replays stay byte-identical.
-- Automations need nothing special: their runs act as a real member, so the card lands in that person's DM (or the channel, for whoever it acts as there).
+- Rules and locks key on person + action (+ connector install, + automation install for grants). Uninstalling a connector or removing an automation deletes theirs. Wording for "Always allow" comes only from `alwaysAllowText`, so the card and Settings say the same thing.
+- Test new rules in `backend.test.ts` → `permissions`.
 
 ## Widgets — `core/src/widgets.ts`, `desktop/src/renderer/src/widgets.tsx`
 - Add one: `defineWidget` (type, description, zod `input`, `summary`, optional `prepare`) in `widgetCatalog`, then a component in the desktop `registry`. That's all; the tool `widgets.<type>` appears automatically.
