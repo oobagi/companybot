@@ -4,7 +4,7 @@ How agents get the go-ahead for actions that leave the building. Start strict, l
 
 ## What asks
 - Every tool has a **risk** (`toolRisk`): `none` runs right away; `outside` asks first; `locked` always asks and never offers "Always allow".
-- Default: connector tools not marked read-only are `outside` (unlabeled tools ask; a server's read-only label is its claim). A connector tool the server marks `destructiveHint` is `locked` (hints only ever tighten). Built-ins are `none` unless they declare `risk`; none do yet. Future sends, calls and campaign tools declare `outside`; payments, deleting records and bulk sends declare `locked`.
+- Default: connector tools not marked read-only are `outside` (unlabeled tools ask; a server's read-only label is its claim). A connector tool the server marks `destructiveHint` is `locked`, even if it also claims read-only (hints only ever tighten). Built-ins are `none` unless they declare `risk`; none do yet. Future sends, calls and campaign tools declare `outside`; payments, deleting records and bulk sends declare `locked`.
 - Internal changes (CRM edits, moving a deal) run right away, are logged, and can be undone.
 
 ## Rules
@@ -13,7 +13,7 @@ How agents get the go-ahead for actions that leave the building. Start strict, l
 - **Strictest wins** (`permissionFor`): owner block → person's Never → owner/default lock (ask, no Always) → no risk (run) → person's Always → automation grant → ask.
 - **Checked fresh at every call** (`permissions.check`, via the AI SDK's `toolApproval`). Nothing is cached in a session, so revoking or locking applies to the very next call. A call approved on the card is re-checked before it runs: a block or Never set since wins.
 - Rules key on the person and the action only, never on a snapshot of content, so unrelated changes can't void or block them (the "approvals broke silently" lesson).
-- Uninstalling a connector deletes its rules and locks: reinstalling starts strict.
+- Uninstalling a connector deletes its rules and locks; removing a member deletes theirs. Reinstalling or rejoining starts strict.
 
 ## The card
 - The held call shows as **its own message from the agent**, after its reply: "I'd like to send email to dana@acme.com from your Gmail.", the exact input, then **Allow once / Always allow / Deny**. It stays in the timeline with the outcome ("Allowed once by Jaden").
@@ -23,8 +23,9 @@ How agents get the go-ahead for actions that leave the building. Start strict, l
 - Blocked calls (Never or owner block) don't run; the model is told why, and the tool line shows failed.
 
 ## Automations
-- Turning one on (or "Turn on for me", or resuming a paused one) lists what its agent may do that would ask. **Allow** saves Always grants scoped to that automation and person (`automationInstallId` on the rule); Cancel does nothing. If nothing would ask, it just turns on.
+- Turning one on (or "Turn on for me", or resuming a paused one) lists what its agent may do that would ask: only tools the agent is granted, and only for automations the person can see. **Allow** saves Always grants scoped to that automation and person (`automationInstallId` on the rule); Cancel does nothing. If nothing would ask, it just turns on.
 - A run belongs to an automation when its trigger message was posted by it. Grants apply only to those runs; the same person chatting normally is still asked.
+- A held call remembers its automation (`approvals.automationInstallId`). If the automation is deleted, its card no longer offers "Always allow": a grant is never widened to a person-wide rule.
 - Anything new pauses and asks in the DM, as before. Turning it off for yourself, or deleting it, removes the grants.
 
 ## Where it shows up

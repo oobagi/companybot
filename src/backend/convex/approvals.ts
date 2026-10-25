@@ -44,6 +44,7 @@ export const request = internalMutation({
 			status: "pending",
 			expiresAt: Date.now() + APPROVAL_TTL_MS,
 			risk,
+			automationInstallId: (await automationOfTurn(ctx, turn))?._id,
 		});
 	},
 });
@@ -55,8 +56,17 @@ export const request = internalMutation({
 async function alwaysFor(ctx: QueryCtx, row: Doc<"approvals">) {
 	const member = await memberOf(ctx, row.actorId);
 	if (!row.risk || !member || member.workspaceId !== row.workspaceId) return null;
+	// From an automation's run: the grant is scoped to it. If it's gone (or the row predates
+	// the field and its trigger was an automation's), refuse rather than save a wider rule.
 	const turn = await ctx.db.get(row.turnId);
-	const automation = turn && (await automationOfTurn(ctx, turn));
+	const trigger = turn && (await ctx.db.get(turn.triggerId));
+	const fromAutomation = !!row.automationInstallId || !!trigger?.automation;
+	const automation = row.automationInstallId
+		? await ctx.db.get(row.automationInstallId)
+		: fromAutomation && turn
+			? await automationOfTurn(ctx, turn)
+			: null;
+	if (fromAutomation && !automation) return null;
 	const { decision } = await decideFor(ctx, member, { action: row.tool, risk: row.risk });
 	if (decision.type !== "ask" || !decision.canAlways) return null;
 	return { member, automation };
@@ -136,7 +146,7 @@ export const decide = mutation({
 
 		if (approve && always) {
 			const allowed = await alwaysFor(ctx, row);
-			if (!allowed) throw new ConvexError("This action always asks, so it can't be allowed always. Nothing ran.");
+			if (!allowed) throw new ConvexError("Always allow isn't available here: this action always asks, or its automation was deleted. Nothing ran.");
 			await setRule(ctx, allowed.member, { action: row.tool, setting: "always", automationInstallId: allowed.automation?._id });
 		}
 		await ctx.db.patch(approvalId, { status: approve ? "approved" : "denied", decidedAt: Date.now(), ...(approve && always && { always: true }) });

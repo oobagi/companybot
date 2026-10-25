@@ -7,7 +7,6 @@ import {
 	builtinTools,
 	findAutomation,
 	findConnector,
-	grantedConnectorIds,
 	isGranted,
 	permissionFor,
 	toolGroup,
@@ -17,6 +16,7 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { type Member, getMember, memberOf, requireMember, requirePermission } from "./lib";
+import { canView } from "./automations";
 import { risk } from "./schema";
 import { runningTurn } from "./turns";
 
@@ -189,6 +189,12 @@ export async function forgetConnector(ctx: MutationCtx, install: Doc<"connectorI
 	if (tools) await ctx.db.delete(tools._id);
 }
 
+/** Forgets everything one person set in a workspace. Called when they're removed. */
+export async function forgetUserRules(ctx: MutationCtx, workspaceId: Id<"workspaces">, userId: Id<"users">) {
+	for await (const row of ctx.db.query("permissionRules").withIndex("by_user", (q) => q.eq("userId", userId)))
+		if (row.workspaceId === workspaceId) await ctx.db.delete(row._id);
+}
+
 /** Forgets automation grants: everyone's, or one person's (they turned it off for themselves). */
 export async function forgetAutomationGrants(ctx: MutationCtx, installId: Id<"automationInstalls">, userId?: Id<"users">) {
 	for await (const row of ctx.db.query("permissionRules").withIndex("by_automation", (q) => q.eq("automationInstallId", installId)))
@@ -342,9 +348,9 @@ export const setLock = mutation({
 async function automationActions(ctx: QueryCtx, member: Member, install: Doc<"automationInstalls">) {
 	const agent = await ctx.db.get(install.agentId);
 	if (!agent) return [];
-	const reach = new Set(grantedConnectorIds(agent));
 	const name = automationName(install);
-	const all = (await actionsFor(ctx, member)).filter((a) => (a.connectorId ? reach.has(a.connectorId) : isGranted(agent.tools, a.action)));
+	// Only tools the agent is granted: one granted connector tool never stands for the whole connector.
+	const all = (await actionsFor(ctx, member)).filter((a) => isGranted(agent.tools, a.action));
 	return Promise.all(
 		all
 			.filter((a) => a.risk !== "none" || a.result === "deny")
@@ -366,11 +372,14 @@ async function automationActions(ctx: QueryCtx, member: Member, install: Doc<"au
 	);
 }
 
-const installNamed = (ctx: QueryCtx, member: Member, automationId: string) =>
-	ctx.db
+/** An automation the person can see (creator-only ones are their maker's alone). */
+async function installNamed(ctx: QueryCtx, member: Member, automationId: string) {
+	const install = await ctx.db
 		.query("automationInstalls")
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("automationId", automationId))
 		.first();
+	return install && canView(member, install) ? install : null;
+}
 
 /** For the turn-on screen: what it will do that would ask you. */
 export const forAutomation = query({

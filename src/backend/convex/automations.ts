@@ -88,7 +88,7 @@ export const audienceOf = (install: Doc<"automationInstalls">): AutomationAudien
 	install.audience ?? (install.channelId ? "channel" : "subscribers");
 
 /** Automations that run just for their creator are theirs alone; the rest are visible to the workspace. */
-const canView = (member: Member, install: Doc<"automationInstalls">) =>
+export const canView = (member: Member, install: Doc<"automationInstalls">) =>
 	!install.custom || audienceOf(install) !== "creator" || install.installedBy === member.userId;
 
 /** An installed automation the signed-in person may change: theirs, or any if they manage automations. */

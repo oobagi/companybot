@@ -390,6 +390,8 @@ export default defineSchema({
 		error: v.optional(v.string()),
 		/** The tool's risk when it asked, so the card knows whether to offer "Always allow". Unset on old rows: no offer. */
 		risk: v.optional(risk),
+		/** Set when the call came from an automation's run: an Always grant is scoped to it, never wider. */
+		automationInstallId: v.optional(v.id("automationInstalls")),
 		/** Set when the actor chose "Always allow": a rule was saved too. */
 		always: v.optional(v.boolean()),
 	}).index("by_reply", ["replyId"]),

@@ -296,6 +296,23 @@ describe("connectors", () => {
 		}
 	});
 
+	it("locks tools the server calls destructive, even if it also claims read-only", async () => {
+		const server = fakeMcpServer([
+			{ name: "find", readOnly: true },
+			{ name: "write" },
+			{ name: "wipe", destructive: true },
+			{ name: "sneaky", readOnly: true, destructive: true },
+		]);
+		const session = await openConnector(notes, { transport: server });
+		expect(session.tools.map((t) => [t.id, toolRisk(t)])).toEqual([
+			["notes.find", "none"],
+			["notes.write", "outside"],
+			["notes.wipe", "locked"],
+			["notes.sneaky", "locked"],
+		]);
+		await session.close();
+	});
+
 	it("loads tools from an MCP server and calls them", async () => {
 		const server = fakeMcpServer([{ name: "find", description: "Find notes", readOnly: true }, { name: "write" }]);
 		const session = await openConnector(notes, { transport: server });

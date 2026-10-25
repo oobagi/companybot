@@ -7,6 +7,7 @@ import { type QueryCtx, mutation, query } from "./_generated/server";
 import { seedAgents } from "./agents";
 import { addToChat, ensureGeneral } from "./chatOps";
 import { checkVersion, getMember, nameOf, namesOf, normalizeEmail, requirePermission, timeZoneOf } from "./lib";
+import { forgetUserRules } from "./permissions";
 import { role } from "./schema";
 
 export const me = query({
@@ -128,6 +129,8 @@ export const removeMember = mutation({
 			const install = await ctx.db.get(sub.installId);
 			if (install?.workspaceId === owner.workspaceId) await ctx.db.delete(sub._id);
 		}
+		// So are their permission rules: rejoining starts strict again.
+		await forgetUserRules(ctx, owner.workspaceId, row.userId);
 	},
 });
 

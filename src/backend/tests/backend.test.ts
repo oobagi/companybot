@@ -1672,7 +1672,7 @@ describe("permissions", () => {
 		const { t, member } = await setup();
 		const { approvalId, card } = await hold(t, member, "locked");
 		expect(card.alwaysText).toBeNull();
-		await expect(member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true, always: true })).rejects.toThrow("always asks");
+		await expect(member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true, always: true })).rejects.toThrow("isn't available");
 		await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true });
 		expect(await member.query(api.permissions.mine)).toEqual([]);
 	});
@@ -1737,5 +1737,62 @@ describe("permissions", () => {
 		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: false });
 		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
 		expect(await member.query(api.permissions.mine)).toEqual([]);
+	});
+
+	it("never widens an automation's Always allow to a person-wide rule once the automation is deleted", async () => {
+		const { t, member, companybot } = await setup();
+		const config = { name: "Follow up", prompt: "Text new leads.", trigger: { type: "webhook" as const } };
+		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "creator", timeZone: "UTC" });
+		await member.mutation(api.automations.runNow, { automationId: id });
+		await cancelScheduled(t);
+		const run = (await turnsOf(t)).at(-1)!;
+		const approvalId = await t.mutation(internal.approvals.request, { turnId: run._id, callId: "c1", tool: sms.tool, input: canonicalJson(sms.input), risk: "outside" });
+		await t.mutation(internal.turns.updateReply, { replyId: run.replyId!, text: "", parts: [{ type: "approval", id: "c1", approvalId, tool: sms.tool }] });
+		await t.mutation(internal.turns.finishReply, { turnId: run._id });
+		const [card] = await member.query(api.approvals.forReply, { replyId: run.replyId! });
+		expect(card!.alwaysText).toContain("when running Follow up");
+
+		await member.mutation(api.automations.remove, { automationId: id });
+		expect((await member.query(api.approvals.forReply, { replyId: run.replyId! }))[0]!.alwaysText).toBeNull();
+		await expect(member.mutation(api.approvals.decide, { approvalId, hash: card!.hash, approve: true, always: true })).rejects.toThrow("isn't available");
+		expect(await member.query(api.permissions.mine)).toEqual([]);
+		// Allowing once still works, and a normal chat call still asks.
+		await member.mutation(api.approvals.decide, { approvalId, hash: card!.hash, approve: true });
+		await t.mutation(internal.turns.finishReply, { turnId: (await turnsOf(t)).at(-1)!._id });
+		const plain = await ask(t, member);
+		expect((await check(t, plain._id)).decision).toEqual({ type: "ask", canAlways: true });
+	});
+
+	it("forgets a removed member's rules, so rejoining starts strict", async () => {
+		const { t, owner, member, companybot } = await setup();
+		const config = { name: "Follow up", prompt: "Text new leads.", trigger: { type: "webhook" as const } };
+		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
+		await member.mutation(api.permissions.allowForAutomation, { automationId: id, actions: [sms.tool] });
+		await member.mutation(api.permissions.set, { action: sms.tool, setting: "always" });
+		expect(await member.query(api.permissions.mine)).toHaveLength(2);
+		const userId = await meOf(member);
+		const row = (await owner.query(api.workspace.team))!.members.find((m) => m.userId === userId)!;
+		await owner.mutation(api.workspace.removeMember, { id: row.id });
+		expect(await t.run((ctx) => ctx.db.query("permissionRules").collect())).toEqual([]);
+	});
+
+	it("hides creator-only automations' actions from others, and refuses their grants", async () => {
+		const { t, owner, member, companybot } = await setup();
+		const config = { name: "Private", prompt: "Text my leads.", trigger: { type: "webhook" as const } };
+		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "creator", timeZone: "UTC" });
+		expect(await member.query(api.permissions.forAutomation, { automationId: id })).not.toEqual([]);
+		expect(await owner.query(api.permissions.forAutomation, { automationId: id })).toEqual([]);
+		await expect(owner.mutation(api.permissions.allowForAutomation, { automationId: id, actions: [sms.tool] })).rejects.toThrow("not found");
+		expect(await t.run((ctx) => ctx.db.query("permissionRules").collect())).toEqual([]);
+	});
+
+	it("only offers an automation the tools its agent is granted, not the whole connector", async () => {
+		const { t, member, companybot } = await setup();
+		await t.run((ctx) => ctx.db.patch(companybot._id, { tools: [...companybot.tools.filter((x) => x !== "crm.*"), sms.tool] }));
+		const config = { name: "Follow up", prompt: "Text new leads.", trigger: { type: "webhook" as const } };
+		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "creator", timeZone: "UTC" });
+		expect((await member.query(api.permissions.forAutomation, { automationId: id })).map((a) => a.action)).toEqual([sms.tool]);
+		await member.mutation(api.permissions.allowForAutomation, { automationId: id, actions: [sms.tool, "crm.charge_card"] });
+		expect((await member.query(api.permissions.mine))!.map((r) => r.action)).toEqual([sms.tool]);
 	});
 });

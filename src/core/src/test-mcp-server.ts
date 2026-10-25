@@ -2,7 +2,7 @@ import type { JSONRPCMessage, MCPTransport } from "@ai-sdk/mcp";
 
 /** A tiny in-memory MCP server for tests: lists the given tools and echoes calls. */
 export function fakeMcpServer(
-	tools: { name: string; description?: string; readOnly?: boolean }[],
+	tools: { name: string; description?: string; readOnly?: boolean; destructive?: boolean }[],
 	onCall: (name: string, args: unknown) => string = (name, args) => `${name}:${JSON.stringify(args)}`,
 ): MCPTransport & { closed: boolean } {
 	const transport: MCPTransport & { closed: boolean } = {
@@ -28,7 +28,7 @@ export function fakeMcpServer(
 						name: t.name,
 						description: t.description,
 						inputSchema: { type: "object", properties: { text: { type: "string" } } },
-						annotations: { readOnlyHint: t.readOnly },
+						annotations: { readOnlyHint: t.readOnly, destructiveHint: t.destructive },
 					})),
 				});
 			} else if (message.method === "tools/call") {
