@@ -30,7 +30,8 @@ import {
 	updateField,
 	updateRecord,
 } from "./recordOps";
-import { ANY_OF_MAX, CONDITIONS_MAX, type Condition, findRecords } from "./recordQuery";
+import { ANY_OF_MAX, CONDITIONS_MAX, type Condition } from "./recordQuery";
+import { PAGE_MAX, linkingRecords, listRecords, searchRecords } from "./recordReads";
 import { runningTurn } from "./turns";
 
 // Records tools (core's RecordStore), acting as the turn's person: their role, read fresh
@@ -38,7 +39,6 @@ import { runningTurn } from "./turns";
 // goes through recordOps, like the app. Types, fields, teammates and linked records can be
 // named the way people say them; ids work too. See wiki/data.md.
 
-const PAGE_MAX = 50;
 const SEARCH_MAX = 20;
 /** Records that link here, and recent changes, shown by records_get. */
 const LINKED_MAX = 10;
@@ -245,17 +245,9 @@ export const findFor = internalQuery({
 			if (search?.trim()) {
 				if (filters.length || sort || cursor || archived) throw new ConvexError("Search on its own, or list with filters and a sort instead.");
 				const type = typeName ? await typeNamed(ctx, member, typeName) : null;
-				const found = await ctx.db
-					.query("records")
-					.withSearchIndex("search", (q) => {
-						const s = q.search("searchText", search).eq("workspaceId", member.workspaceId).eq("archived", false);
-						return type ? s.eq("typeId", type._id) : s;
-					})
-					.take(Math.min(numItems, SEARCH_MAX));
-				const fields = new Map<Id<"recordTypes">, Doc<"recordFields">[]>();
-				for (const r of found) if (!fields.has(r.typeId)) fields.set(r.typeId, await fieldsOf(ctx, r.typeId));
+				const found = await searchRecords(ctx, member.workspaceId, search, { typeId: type?._id, limit: Math.min(numItems, SEARCH_MAX) });
 				const keys = type ? undefined : new Map((await liveTypes(ctx, member)).map((t) => [t._id, t.key]));
-				const rows = await rowsOf(ctx, member, found.map((record) => ({ record, fields: fields.get(record.typeId)! })), keys);
+				const rows = await rowsOf(ctx, member, found, keys);
 				return { type: type?.plural ?? "Records", rows, more: false };
 			}
 			if (!typeName) throw new ConvexError("Say which record type to list, or search.");
@@ -275,17 +267,12 @@ export const findFor = internalQuery({
 				field: ["createdAt", "updatedAt"].includes(sort.field) ? sort.field : fieldNamed(fields, sort.field, type).key,
 				order: sort.order,
 			};
-			const result = await findRecords(ctx, {
-				workspaceId: member.workspaceId,
-				typeId: type._id,
-				archived,
-				fields,
-				conditions,
-				sort: sortBy,
-				currency: await currencyOf(ctx, member.workspaceId),
-				pageMax: PAGE_MAX,
-				paginationOpts: { numItems: Math.min(Math.max(numItems, 1), PAGE_MAX), cursor: cursor ?? null },
-			});
+			const result = await listRecords(
+				ctx,
+				member.workspaceId,
+				{ typeId: type._id, fields },
+				{ archived, conditions, sort: sortBy, paginationOpts: { numItems: Math.min(Math.max(numItems, 1), PAGE_MAX), cursor: cursor ?? null } },
+			);
 			const rows = await rowsOf(ctx, member, result.page.map((record) => ({ record, fields })));
 			return { type: type.plural, rows, more: !result.isDone, ...(!result.isDone && { cursor: result.continueCursor }) };
 		});
@@ -309,14 +296,9 @@ export const getFor = internalQuery({
 					.map((f) => [f.key, [record.values[f.key]!].flat().map((x) => ({ id: String(x), name: row!.refs[String(x)]?.name ?? String(x) }))]),
 			);
 			const linkedFrom = [];
-			for (const ref of await ctx.db
-				.query("recordValues")
-				.withIndex("by_ref", (q) => q.eq("ref", recordId))
-				.take(LINKED_MAX)) {
-				const other = await ctx.db.get(ref.recordId);
-				const via = await ctx.db.get(ref.fieldId);
-				const type = other && (await ctx.db.get(other.typeId));
-				if (other && !other.archived && type) linkedFrom.push({ id: other._id, type: type.key, name: other.title, via: via?.label ?? "" });
+			for (const { record: other, fields: theirs, fieldId } of (await linkingRecords(ctx, recordId, { paginationOpts: { numItems: LINKED_MAX, cursor: null } })).page) {
+				const type = await ctx.db.get(other.typeId);
+				if (type) linkedFrom.push({ id: other._id, type: type.key, name: other.title, via: theirs.find((f) => f._id === fieldId)?.label ?? "" });
 			}
 			const entries = await ctx.db
 				.query("recordHistory")
@@ -373,12 +355,7 @@ export const saveFor = internalMutation({
 				if (!typeName) throw new ConvexError("Say which record type to create.");
 				const type = await typeNamed(ctx, member, typeName);
 				const fields = await fieldsOf(ctx, type._id);
-				recordId = await createRecord(ctx, who, type._id, await valuesFor(new Names(ctx, member), type, fields, values));
-				change = (await ctx.db
-					.query("recordHistory")
-					.withIndex("by_record", (q) => q.eq("recordId", recordId))
-					.order("desc")
-					.first())!._id;
+				({ id: recordId, change } = await createRecord(ctx, who, type._id, await valuesFor(new Names(ctx, member), type, fields, values)));
 			}
 			return { ...(await recordOut(ctx, member, recordId)), ...(change ? { change } : { unchanged: true }) };
 		});

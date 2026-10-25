@@ -572,7 +572,7 @@ describe("records: list edge cases", () => {
 		t.run(async (ctx) => {
 			const who = { member: (await memberOf(ctx, userId))! };
 			const ids = [];
-			for (const v of values) ids.push(await createRecord(ctx, who, typeId, v));
+			for (const v of values) ids.push((await createRecord(ctx, who, typeId, v)).id);
 			return ids;
 		});
 
