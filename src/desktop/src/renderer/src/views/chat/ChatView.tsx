@@ -17,7 +17,20 @@ const suggestions = [
 	"Remember that I prefer mornings for meetings.",
 ];
 
-export function ChatView({ chatId, sendWith, onLeft }: { chatId: Id<"chats">; sendWith: SendWith; onLeft: () => void }) {
+/** A message to show on opening, from a link elsewhere (a record's discussion): its thread, or the message itself. */
+export type ChatFocus = { thread: string } | { message: string };
+
+export function ChatView({
+	chatId,
+	sendWith,
+	focus,
+	onLeft,
+}: {
+	chatId: Id<"chats">;
+	sendWith: SendWith;
+	focus?: ChatFocus;
+	onLeft: () => void;
+}) {
 	const chat = useQuery(api.chats.get, { chatId });
 	if (!chat) {
 		return (
@@ -27,10 +40,10 @@ export function ChatView({ chatId, sendWith, onLeft }: { chatId: Id<"chats">; se
 			</>
 		);
 	}
-	return <OpenChat chat={chat} sendWith={sendWith} onLeft={onLeft} />;
+	return <OpenChat chat={chat} sendWith={sendWith} focus={focus} onLeft={onLeft} />;
 }
 
-function OpenChat({ chat, sendWith, onLeft }: { chat: ChatDetails; sendWith: SendWith; onLeft: () => void }) {
+function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWith: SendWith; focus?: ChatFocus; onLeft: () => void }) {
 	const messages = useQuery(api.messages.list, { chatId: chat._id });
 	const sendMessage = useMutation(api.messages.send);
 	const markRead = useMutation(api.chats.markRead);
@@ -39,6 +52,22 @@ function OpenChat({ chat, sendWith, onLeft }: { chat: ChatDetails; sendWith: Sen
 	const [details, setDetails] = useState(false);
 	const [error, setError] = useState<string>();
 	const onError = (e: unknown) => setError(errorMessage(e));
+
+	// A link to a thread opens it; a link to a message scrolls to it once it's loaded.
+	const focusThread = focus && "thread" in focus ? focus.thread : undefined;
+	const focusMessage = focus && "message" in focus ? focus.message : undefined;
+	useEffect(() => {
+		if (focusThread) setThreadId(focusThread as Id<"chatMessages">);
+	}, [focusThread]);
+	const loaded = !!messages;
+	useEffect(() => {
+		const el = loaded && focusMessage && document.getElementById(`message-${focusMessage}`);
+		if (!el) return;
+		el.scrollIntoView({ block: "center" });
+		el.classList.add("bg-amber-50");
+		const timer = setTimeout(() => el.classList.remove("bg-amber-50"), 2000);
+		return () => clearTimeout(timer);
+	}, [loaded, focusMessage]);
 
 	// Reading the open chat clears its unread state, including for messages that arrive while it's open.
 	const unread = chat.unread || chat.mentioned;

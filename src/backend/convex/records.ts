@@ -127,10 +127,10 @@ export const linked = query({
 	},
 });
 
-/** Live records whose title or text matches, best first. Optionally one type. */
+/** Live records whose title or text matches, best first, as list rows. Optionally one type. */
 export const search = query({
 	args: { query: v.string(), typeId: v.optional(v.id("recordTypes")) },
-	handler: async (ctx, { query: text, typeId }) => {
+	handler: async (ctx, { query: text, typeId }): Promise<Row[]> => {
 		const member = await getMember(ctx);
 		if (!member || !text.trim()) return [];
 		const records = await ctx.db
@@ -140,7 +140,9 @@ export const search = query({
 				return typeId ? s.eq("typeId", typeId) : s;
 			})
 			.take(20);
-		return records.map((r) => ({ _id: r._id, typeId: r.typeId, title: r.title }));
+		const fields = new Map<Id<"recordTypes">, Doc<"recordFields">[]>();
+		for (const r of records) if (!fields.has(r.typeId)) fields.set(r.typeId, await fieldsOf(ctx, r.typeId));
+		return toRows(ctx, member.workspaceId, records.map((record) => ({ record, fields: fields.get(record.typeId)! })));
 	},
 });
 

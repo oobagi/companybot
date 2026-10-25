@@ -3,7 +3,7 @@ import type { Role } from "@companybot/core";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvexAuth, useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "./api";
 import { desktop, useUpdates } from "./desktop";
 import { navigate, useRoute } from "./router";
@@ -11,11 +11,12 @@ import { Notice } from "./ui";
 import { ChatView } from "./views/chat/ChatView";
 import { ChatNav, Item } from "./views/chat/Sidebar";
 import { CustomizeView, customizeTabs } from "./views/customize";
-import { RecordsView, recordTabs } from "./views/Records";
+import { RecordsView, recordTabs, useAddedTypes } from "./views/Records";
+import { builtinTabs } from "./views/records/logic";
 import { SettingsView, settingsTabAliases, settingsTabs } from "./views/Settings";
 import { SignIn } from "./views/SignIn";
 
-const views = ["chat", ...recordTabs.map((t) => t.id), "customize", "settings"] as const;
+const views = ["chat", ...recordTabs.map((t) => t.id), "records", "customize", "settings"] as const;
 type View = (typeof views)[number];
 
 export function App() {
@@ -49,12 +50,17 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	useEffect(() => {
 		if (prefs && prefs.deviceTimeZone !== deviceTimeZone) updatePrefs({ deviceTimeZone }).catch(() => {});
 	}, [prefs, deviceTimeZone, updatePrefs]);
-	// Screens are paths: /chat[/<chat>], /clients (and other record tabs), /customize/<tab>[/<item>], /settings/<tab>.
+	// Screens are paths: /chat[/<chat>[/thread|message/<id>]], /clients[/<record>] (and other record tabs), /records/<type>[/<record>]
+	// for types owners add, /customize/<tab>[/<item>], /settings/<tab>.
 	const route = useRoute();
 	const view: View = views.find((v) => v === route[0]) ?? "chat";
 	const customizeTab = customizeTabs.find((t) => t.id === route[1])?.id ?? "agents";
 	const settingsTab = settingsTabs.find((t) => t.id === (settingsTabAliases[route[1] ?? ""] ?? route[1]))?.id ?? "general";
-	const recordTab = recordTabs.find((t) => t.id === view)?.id;
+	const addedTypes = useAddedTypes();
+	// The record type on screen, by key, and the record open in it.
+	const builtinKey = Object.keys(builtinTabs).find((k) => builtinTabs[k] === view) ?? (view === "campaigns" ? "campaign" : undefined);
+	const typeKey = view === "records" ? route[1] : builtinKey;
+	const recordId = view === "records" ? route[2] : route[1];
 	// Each section reopens where you left it.
 	const lastPath = useRef<Partial<Record<View, string[]>>>({});
 	lastPath.current[view] = route;
@@ -74,9 +80,17 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 				<p className="truncate px-2 pb-4 text-sm font-semibold">{workspace}</p>
 				<nav className="no-drag mb-3 flex flex-col gap-px border-b border-neutral-200 pb-3">
 					{recordTabs.map((t) => (
-						<Item key={t.id} active={view === t.id} onClick={() => navigate(t.id)}>
-							{t.label}
-						</Item>
+						<Fragment key={t.id}>
+							{t.id === "campaigns" &&
+								addedTypes.map((type) => (
+									<Item key={type._id} active={view === "records" && route[1] === type.key} onClick={() => navigate("records", type.key)}>
+										{type.plural}
+									</Item>
+								))}
+							<Item active={view === t.id} onClick={() => navigate(t.id)}>
+								{t.label}
+							</Item>
+						</Fragment>
 					))}
 				</nav>
 				<ChatNav chats={chats} openId={view === "chat" ? openId : undefined} onOpen={open} onError={(e) => setError(errorMessage(e))} />
@@ -111,12 +125,18 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 				{error && <Notice>{error}</Notice>}
 				{view === "chat" &&
 					(openId ? (
-						<ChatView key={openId} chatId={openId} sendWith={prefs?.sendWith ?? "enter"} onLeft={() => navigate("chat")} />
+						<ChatView
+							key={openId}
+							chatId={openId}
+							sendWith={prefs?.sendWith ?? "enter"}
+							focus={route[2] === "thread" && route[3] ? { thread: route[3] } : route[2] === "message" && route[3] ? { message: route[3] } : undefined}
+							onLeft={() => navigate("chat")}
+						/>
 					) : (
 						<div className="drag h-12 shrink-0" />
 					))}
 				{view !== "chat" && <header className="drag h-12 shrink-0" />}
-				{recordTab && <RecordsView tab={recordTab} />}
+				{typeKey && <RecordsView key={typeKey} typeKey={typeKey} recordId={recordId} role={role} />}
 				{view === "customize" && <CustomizeView role={role} tab={customizeTab} itemId={route[2]} />}
 				{view === "settings" && <SettingsView role={role} tab={settingsTab} onTab={(t) => navigate("settings", t)} />}
 			</main>
