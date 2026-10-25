@@ -1,10 +1,9 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import type { Role } from "@companybot/core";
 import { can } from "@companybot/core/permissions";
-import { useMutation } from "convex/react";
-import { usePaginatedQuery, useQuery } from "convex-helpers/react/cache";
 import { useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../../api";
+import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { ErrorBoundary, Loading, Notice, Page, inputClass, primaryButton, timeAgo } from "../../ui";
 import { Modal, useDismiss } from "../chat/common";

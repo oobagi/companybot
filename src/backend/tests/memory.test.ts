@@ -4,6 +4,7 @@ import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { MEMORY_RESULTS_MAX } from "../convex/memoryOps";
 import schema from "../convex/schema";
+import { person } from "./person";
 
 // Agent memory (memory.ts), as an agent turn calls it: acting for the turn's person, checked
 // fresh on every call (runningTurn), with personal memories only in a DM with exactly one person.
@@ -12,7 +13,7 @@ const modules = import.meta.glob(["../convex/**/*.ts", "../convex/_generated/*.j
 
 async function signIn(t: ReturnType<typeof convexTest>, email: string) {
 	const userId = await t.run((ctx) => ctx.db.insert("users", { email }));
-	const as = t.withIdentity({ subject: `${userId}|session` });
+	const as = person(t.withIdentity({ subject: `${userId}|session` }));
 	await as.mutation(api.workspace.ensure);
 	return Object.assign(as, { userId });
 }

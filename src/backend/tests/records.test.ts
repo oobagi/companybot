@@ -5,16 +5,17 @@ import { getDocumentSize } from "convex/values";
 import { describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { memberOf } from "../convex/lib";
+import { legacyMemberOf } from "../convex/lib";
 import { createRecord, updateRecord } from "../convex/recordOps";
 import schema from "../convex/schema";
+import { person } from "./person";
 
 const modules = import.meta.glob(["../convex/**/*.ts", "../convex/_generated/*.js"]);
 
 /** A signed-in person. Convex Auth reads the user id from the token subject. */
 async function signIn(t: ReturnType<typeof convexTest>, email: string) {
 	const userId = await t.run((ctx) => ctx.db.insert("users", { email }));
-	const as = t.withIdentity({ subject: `${userId}|session` });
+	const as = person(t.withIdentity({ subject: `${userId}|session` }));
 	await as.mutation(api.workspace.ensure);
 	return Object.assign(as, { userId });
 }
@@ -167,7 +168,7 @@ describe("records", () => {
 		const { t, owner, client } = await setup();
 		const id = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Acme" } });
 		const agentId = (await owner.query(api.agents.list)).find((a) => a.name === "Companybot")!._id;
-		await t.run(async (ctx) => updateRecord(ctx, { member: (await memberOf(ctx, owner.userId))!, agentId }, id, { status: "Active" }));
+		await t.run(async (ctx) => updateRecord(ctx, { member: (await legacyMemberOf(ctx, owner.userId))!, agentId }, id, { status: "Active" }));
 		const [latest] = (await owner.query(api.records.history, { recordId: id, paginationOpts: page })).page;
 		expect(latest).toMatchObject({ user: "owner@co.com", agent: "Companybot" });
 		expect((await t.run((ctx) => ctx.db.get(id)))!.updatedByAgent).toBe(agentId);
@@ -570,7 +571,7 @@ describe("records: list edge cases", () => {
 	}
 	const seed = async (t: ReturnType<typeof convexTest>, userId: Id<"users">, typeId: Id<"recordTypes">, values: Record<string, unknown>[]) =>
 		t.run(async (ctx) => {
-			const who = { member: (await memberOf(ctx, userId))! };
+			const who = { member: (await legacyMemberOf(ctx, userId))! };
 			const ids = [];
 			for (const v of values) ids.push((await createRecord(ctx, who, typeId, v)).id);
 			return ids;

@@ -25,7 +25,7 @@ import {
 import { ConvexError, getDocumentSize } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { type Member, type Who, memberOf, nameOf, toActor } from "./lib";
+import { type Member, type Who, memberOf, nameOf, requireInWorkspace, toActor } from "./lib";
 
 // Records, fields and their history. Shared by the app's functions (records.ts,
 // recordTypes.ts) and agent tools (recordTools.ts), so both follow the same rules. Agents pass
@@ -40,15 +40,11 @@ function requireCan(member: Member, permission: Permission) {
 
 /** A record type in the person's workspace. Other workspaces' look like they don't exist. */
 export async function requireType(ctx: QueryCtx, member: Member, typeId: Id<"recordTypes">) {
-	const type = await ctx.db.get(typeId);
-	if (!type || type.workspaceId !== member.workspaceId) throw new ConvexError("Record type not found.");
-	return type;
+	return requireInWorkspace(member, await ctx.db.get(typeId), "Record type");
 }
 
 export async function requireRecord(ctx: QueryCtx, member: Member, recordId: Id<"records">) {
-	const record = await ctx.db.get(recordId);
-	if (!record || record.workspaceId !== member.workspaceId) throw new ConvexError("Record not found.");
-	return record;
+	return requireInWorkspace(member, await ctx.db.get(recordId), "Record");
 }
 
 /** A type's fields in display order, archived ones included. At most FIELDS_PER_TYPE_MAX. */
@@ -107,7 +103,7 @@ async function normalizeInput(
 		const ids = result.value === null ? [] : [result.value].flat().map(String);
 		for (const id of field.kind === "user" ? ids : []) {
 			const userId = ctx.db.normalizeId("users", id);
-			if (!userId || (await memberOf(ctx, userId))?.workspaceId !== member.workspaceId)
+			if (!userId || !(await memberOf(ctx, userId, member.workspaceId)))
 				throw new ConvexError(`Someone picked for “${field.label}” isn't in this workspace.`);
 		}
 		for (const id of field.kind === "link" ? ids : []) {
@@ -328,8 +324,7 @@ export async function createField(ctx: MutationCtx, who: Who, typeId: Id<"record
 }
 
 async function requireEditableField(ctx: QueryCtx, member: Member, fieldId: Id<"recordFields">) {
-	const field = await ctx.db.get(fieldId);
-	if (!field || field.workspaceId !== member.workspaceId) throw new ConvexError("Field not found.");
+	const field = requireInWorkspace(member, await ctx.db.get(fieldId), "Field");
 	if (!canEditMade(toActor(member), "fields.manage", field.createdBy)) throw new ConvexError(madeEditDenied);
 	return field;
 }
@@ -474,8 +469,7 @@ export async function resolveRefs(ctx: QueryCtx, workspaceId: Id<"workspaces">, 
 			bytes += getDocumentSize(record);
 			refs[id] = { name: record.title, ...(record.archived && { archived: true }) };
 		} else if (userId) {
-			const member = await memberOf(ctx, userId);
-			refs[id] = { name: member?.workspaceId === workspaceId ? await nameOf(ctx, userId) : "Former member" };
+			refs[id] = { name: (await memberOf(ctx, userId, workspaceId)) ? await nameOf(ctx, userId) : "Former member" };
 		}
 	}
 	return { refs, unresolved };

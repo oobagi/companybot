@@ -1,7 +1,7 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import type { FunctionReturnType } from "convex/server";
-import { useQuery } from "convex-helpers/react/cache";
 import { api } from "../../api";
+import { useQuery } from "../../convex";
 
 export type ChatList = NonNullable<FunctionReturnType<typeof api.chats.list>>;
 type ChatItem = ChatList["channels"][number];

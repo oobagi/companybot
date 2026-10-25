@@ -1,8 +1,7 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { useMutation } from "convex/react";
-import { useQuery } from "convex-helpers/react/cache";
 import { useState } from "react";
 import { api } from "../../api";
+import { useMutation, useQuery } from "../../convex";
 import { Field, Loading, Notice, inputClass, primaryButton, secondaryButton, useRun } from "../../ui";
 import { AgentBadge, Avatar, Modal } from "./common";
 import { type ChatDetails, type Participant, chatTitle, useDirectory } from "./data";
@@ -111,24 +110,25 @@ function Picker({ options, picked, onChange }: { options: Participant[]; picked:
 	);
 }
 
+/** A DM with one or more people, and agents if you like (they answer when @mentioned). */
 export function NewMessage({ onClose, onOpen }: { onClose: () => void; onOpen: (chatId: Id<"chats">) => void }) {
 	const openDm = useMutation(api.chats.openDm);
-	const { people } = useDirectory();
+	const { people, agents } = useDirectory();
 	const [picked, setPicked] = useState<string[]>([]);
 	const { error, run } = useRun();
+	const of = (list: Participant[]) => list.filter((p) => picked.includes(p.id)).map((p) => p.id);
 	return (
 		<Modal title="New message" onClose={onClose}>
-			{people.length === 0 ? (
-				<p className="text-sm text-neutral-500">Invite teammates in Settings to message them.</p>
-			) : (
-				<Picker options={people} picked={picked} onChange={setPicked} />
-			)}
+			{people.length === 0 && <p className="text-sm text-neutral-500">Invite teammates in Settings → Members to message them.</p>}
+			<Picker options={[...people, ...agents]} picked={picked} onChange={setPicked} />
 			{error && <Notice>{error}</Notice>}
 			<button
 				type="button"
 				disabled={picked.length === 0}
 				onClick={() =>
-					run(openDm({ userIds: picked as Id<"users">[], agentIds: [] }).then((id) => (onOpen(id), onClose())))
+					run(
+						openDm({ userIds: of(people) as Id<"users">[], agentIds: of(agents) as Id<"agents">[] }).then((id) => (onOpen(id), onClose())),
+					)
 				}
 				className={`${primaryButton} self-end`}
 			>

@@ -1,19 +1,21 @@
 import type { Role } from "@companybot/core";
 import { can } from "@companybot/core/permissions";
-import { useMutation } from "convex/react";
-import { useQuery } from "convex-helpers/react/cache";
 import { useState } from "react";
 import { api } from "../api";
+import { useMutation, useQuery } from "../convex";
 import { Loading, Notice, inputClass, primaryButton, useRun } from "../ui";
 
 export function MembersTab({ role }: { role: Role }) {
 	const team = useQuery(api.workspace.team);
 	const invite = useMutation(api.workspace.invite);
 	const cancelInvite = useMutation(api.workspace.cancelInvite);
+	const resendInvite = useMutation(api.workspace.resendInvite);
 	const removeMember = useMutation(api.workspace.removeMember);
 	const setRole = useMutation(api.workspace.setRole);
 	const [email, setEmail] = useState("");
 	const [inviteRole, setInviteRole] = useState<Role>("member");
+	const [resent, setResent] = useState<string>();
+	const [note, setNote] = useState<string>();
 	const { error, run } = useRun();
 	const isOwner = can(role, "members.manage");
 
@@ -22,16 +24,20 @@ export function MembersTab({ role }: { role: Role }) {
 	return (
 		<>
 			<p className="text-sm text-neutral-500">
-				Invited people join when they sign in with that email. Role changes apply right away.
+				We email invited people a link to get the app. They join when they sign in with that email. Role changes apply right away.
 			</p>
 			{error && <Notice>{error}</Notice>}
+			{note && <p className="text-sm text-neutral-500">{note}</p>}
 
 			{isOwner && (
 				<form
 					className="flex gap-2"
 					onSubmit={(e) => {
 						e.preventDefault();
-						run(invite({ email, role: inviteRole }), () => setEmail(""));
+						run(
+							invite({ email, role: inviteRole }).then(({ emailed }) => setNote(emailed ? undefined : `${email} got an invite email a few minutes ago, so we didn't send another.`)),
+							() => setEmail(""),
+						);
 					}}
 				>
 					<input
@@ -66,7 +72,14 @@ export function MembersTab({ role }: { role: Role }) {
 					</Row>
 				))}
 				{team.invites.map((i) => (
-					<Row key={i.id} label={i.email} detail={`Invited as ${i.role}`}>
+					<Row key={i.id} label={i.email} detail={`Invited as ${i.role} · hasn't joined yet`}>
+						{resent === i.id ? (
+							<span className="text-neutral-400">Sent</span>
+						) : (
+							<button type="button" onClick={() => run(resendInvite({ id: i.id }), () => setResent(i.id))} className="hover:text-neutral-900">
+								Resend
+							</button>
+						)}
 						<button type="button" onClick={() => run(cancelInvite({ id: i.id }))} className="hover:text-red-600">
 							Cancel
 						</button>

@@ -12,7 +12,8 @@ import {
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type MutationCtx, mutation, query } from "./_generated/server";
+import { type MutationCtx } from "./_generated/server";
+import { mutation, query } from "./functions";
 import { checkVersion, getMember, namesOf, requireAgent, requireMember, requirePermission, toActor } from "./lib";
 import { connectorStates } from "./connectors";
 import { agentConfig } from "./schema";

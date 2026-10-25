@@ -1,7 +1,8 @@
 import { canEditMemory } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { type QueryCtx, internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
+import { mutation, query } from "./functions";
 import { getMember, namesOf, requireMember, toActor } from "./lib";
 import { createMemory, listMemories, removeMemory, searchMemories, updateMemory } from "./memoryOps";
 import { personalMemoryHere, runningTurn } from "./turns";

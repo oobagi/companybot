@@ -1,8 +1,7 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { useMutation } from "convex/react";
-import { useQuery } from "convex-helpers/react/cache";
 import { useEffect, useState } from "react";
 import { api, errorMessage } from "../../api";
+import { useMutation, useQuery } from "../../convex";
 import { Loading, Notice } from "../../ui";
 import { AgentBadge, AvatarStack } from "./common";
 import { Composer, type SendWith } from "./Composer";
@@ -87,7 +86,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 		<Composer
 			sendWith={sendWith}
 			placeholder={`Message ${title}`}
-			hint={chat.kind === "channel" ? "@mention an agent to ask it" : undefined}
+			hint={!agent && (chat.kind === "channel" || chat.members.some((m) => m.type === "agent")) ? "@mention an agent to ask it" : undefined}
 			candidates={candidates}
 			onSend={send}
 		/>

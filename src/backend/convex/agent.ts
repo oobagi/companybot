@@ -45,7 +45,8 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError } from "convex/values";
-import { type ActionCtx, action, internalAction } from "./_generated/server";
+import { type ActionCtx, internalAction } from "./_generated/server";
+import { action } from "./functions";
 import { decrypt, encrypt } from "./crypto";
 import { oauthRedirectUrl } from "./connectors";
 import type { messagePart } from "./schema";
@@ -86,7 +87,7 @@ type TurnUsage = ReplyUsage & { firstTokenMs?: number };
 
 async function runTurn(ctx: ActionCtx, turnId: Id<"agentTurns">, usage: TurnUsage) {
 	const turn = await ctx.runQuery(internal.turns.turnContext, { turnId });
-	const connectors = await loadConnectors(ctx, turn.member.userId, turn.agent);
+	const connectors = await loadConnectors(ctx, turn.member, turn.agent);
 	await saveTools(ctx, turn.member.workspaceId, connectors);
 	try {
 		await streamReply(ctx, turnId, turn, connectors, usage);
@@ -113,9 +114,9 @@ export const refreshTools = action({
 	args: { connectorId: v.string() },
 	handler: async (ctx, { connectorId }) => {
 		const userId = await getAuthUserId(ctx);
-		const workspaceId = userId && (await ctx.runQuery(internal.permissions.workspaceOf, { userId }));
+		const workspaceId = userId && (await ctx.runQuery(internal.permissions.workspaceOf, { userId, workspaceId: ctx.workspaceId }));
 		if (!userId || !workspaceId) throw new ConvexError("Sign in to a workspace first.");
-		const connectors = await loadConnectors(ctx, userId, { tools: [`${connectorId}.*`] });
+		const connectors = await loadConnectors(ctx, { userId, workspaceId }, { tools: [`${connectorId}.*`] });
 		try {
 			if (connectors.unavailable.length > 0) throw new ConvexError(`Couldn't reach ${connectors.unavailable[0]}.`);
 			await saveTools(ctx, workspaceId, connectors);
@@ -152,11 +153,15 @@ async function saveRefreshedTokens(ctx: ActionCtx, connectors: LoadedConnectors)
  * A failing connector is skipped and the agent is told, so one bad connection never
  * breaks the reply.
  */
-async function loadConnectors(ctx: ActionCtx, userId: Id<"users">, agent: Pick<AgentConfig, "tools">): Promise<LoadedConnectors> {
+async function loadConnectors(
+	ctx: ActionCtx,
+	{ userId, workspaceId }: { userId: Id<"users">; workspaceId: Id<"workspaces"> },
+	agent: Pick<AgentConfig, "tools">,
+): Promise<LoadedConnectors> {
 	const connectorIds = grantedConnectorIds(agent);
 	const oauth: LoadedConnectors["oauth"] = [];
 	if (connectorIds.length === 0) return { sessions: [], unavailable: [], oauth };
-	const usable = await ctx.runQuery(internal.connectors.forTurn, { userId, connectorIds });
+	const usable = await ctx.runQuery(internal.connectors.forTurn, { userId, workspaceId, connectorIds });
 	const results = await Promise.all(
 		usable.map(async ({ connectorId, connectionId, credentials }) => {
 			const connector = findConnector(connectorId)!;
@@ -171,7 +176,7 @@ async function loadConnectors(ctx: ActionCtx, userId: Id<"users">, agent: Pick<A
 				if (connectionId) await ctx.runMutation(internal.connectors.setConnectionError, { connectionId });
 				// Access is read fresh before every call, so a role change or disconnect applies mid-reply.
 				const stillAllowed = async () =>
-					(await ctx.runQuery(internal.connectors.forTurn, { userId, connectorIds: [connectorId] }))[0]?.connectionId === connectionId;
+					(await ctx.runQuery(internal.connectors.forTurn, { userId, workspaceId, connectorIds: [connectorId] }))[0]?.connectionId === connectionId;
 				const session: ConnectorSession = {
 					...opened,
 					tools: opened.tools.map((tool) => ({

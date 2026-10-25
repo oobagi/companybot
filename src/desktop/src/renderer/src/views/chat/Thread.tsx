@@ -1,8 +1,7 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { useMutation } from "convex/react";
-import { useQuery } from "convex-helpers/react/cache";
 import { useState } from "react";
 import { api, errorMessage } from "../../api";
+import { useMutation, useQuery } from "../../convex";
 import { Loading, Notice } from "../../ui";
 import { Composer, type SendWith } from "./Composer";
 import { type ChatDetails, type Participant, chatTitle } from "./data";

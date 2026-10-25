@@ -1,7 +1,8 @@
 import { fireEvent } from "./automations";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type QueryCtx, mutation, query } from "./_generated/server";
+import { type QueryCtx } from "./_generated/server";
+import { mutation, query } from "./functions";
 import {
 	type Namer,
 	type Participant,
@@ -151,7 +152,7 @@ export const send = mutation({
 		// Mentions outside the workspace (or of archived agents) are dropped, not trusted.
 		const userIds: Id<"users">[] = [];
 		for (const id of new Set(mentions.userIds)) {
-			if ((await memberOf(ctx, id))?.workspaceId === member.workspaceId) userIds.push(id);
+			if (await memberOf(ctx, id, member.workspaceId)) userIds.push(id);
 		}
 		const agentIds: Id<"agents">[] = [];
 		for (const id of new Set(mentions.agentIds)) {

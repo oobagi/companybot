@@ -2,6 +2,7 @@ import { type MigrationFunctionReference, Migrations } from "@convex-dev/migrati
 import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
+import { pinLegacyWorkspace } from "./lib";
 import { seedRecordTypes } from "./recordOps";
 
 // Data migrations. Deploys never change stored rows; these do, once per deployment.
@@ -96,6 +97,12 @@ export const companybotRecordTools = migrations.define({
 	},
 });
 
+// Apps that send no workspace act in a pinned one (lib.ts legacyMemberOf): pin everyone's first.
+export const legacyWorkspaces = migrations.define({
+	table: "members",
+	migrateOne: async (ctx, member) => pinLegacyWorkspace(ctx, member.userId),
+});
+
 /** Every migration, oldest first. Never reorder or remove entries that have shipped. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.connectorInstalls,
@@ -105,6 +112,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.companybotChatTools,
 	internal.migrations.recordTypes,
 	internal.migrations.companybotRecordTools,
+	internal.migrations.legacyWorkspaces,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

@@ -55,6 +55,7 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 - Desktop app first (Electron). Standalone mobile app later. No web app.
 - Cloud backend on Convex: agents run server-side so schedules work when nobody's online.
 - Sign-in: email code only.
+- Teammates: owners invite by email (the email links the download); one person can be in several workspaces and switches from the sidebar.
 
 ## UI
 - Profile cards (planned): click a person's name or avatar to see their details, like GitHub. Show their time zone and local time.

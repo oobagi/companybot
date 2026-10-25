@@ -122,8 +122,8 @@ async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">) {
 export async function runningTurn(ctx: QueryCtx, turnId: Id<"agentTurns">) {
 	const turn = await ctx.db.get(turnId);
 	if (!turn || turn.status !== "running" || !turn.replyId || !turn.sessionId) throw new Error("This reply was stopped.");
-	const member = await memberOf(ctx, turn.actorId);
-	if (member?.workspaceId !== turn.workspaceId) throw new Error("This person is no longer in the workspace.");
+	const member = await memberOf(ctx, turn.actorId, turn.workspaceId);
+	if (!member) throw new Error("This person is no longer in the workspace.");
 	const chat = await ctx.db.get(turn.chatId);
 	if (!chat || !(await canSee(ctx, chat, member))) throw new Error("This person can no longer see this chat.");
 	const who: Who = { member, agentId: turn.agentId };

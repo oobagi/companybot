@@ -1,8 +1,8 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { type FieldValue, type Money, TEXT_MAX, currencyCodes, formatMoney, minorDigits } from "@companybot/core/records";
-import { useQuery } from "convex-helpers/react/cache";
 import { useEffect, useState } from "react";
 import { api } from "../../api";
+import { useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useDismiss } from "../chat/common";
 import { useCurrency, useTypes } from "./data";
