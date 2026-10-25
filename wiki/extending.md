@@ -83,6 +83,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 - Add a built-in type or field: `recordTypeCatalog`. New workspaces get it; existing ones need a migration that calls `seedRecordTypes` (it only adds types that are missing, so new fields on an existing type need their own migration).
 - New field kind: add it to `fieldKinds` and `fieldKind` (`schema.ts`), then `normalizeValue` and `indexEntries`.
 - Every change goes through `recordOps` (`Who` = member + optional agent), so permissions, history and the index can't drift. Never write `records` or `recordValues` directly.
+- Reads the app and agents share (lists, search, "what links here") live in `recordReads.ts`; use them instead of querying the indexes again.
 - Heavy data for a type (recordings, transcripts, line items) gets its own table keyed by `recordId`, not a field.
 - Agent tools (`core/src/record-tools.ts`, `backend/convex/recordTools.ts`) are the same `recordOps` calls with `agentId`, acting through `runningTurn` (role read fresh each call). Keep the list at six fixed tools: grow inputs, not tools, since every tool is sent every turn. Expected problems return `{ error }` (`asToolResult`); resolve names before any write so a refused call writes nothing.
 
