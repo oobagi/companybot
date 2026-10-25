@@ -12,6 +12,7 @@ import {
 	ConnectorOAuth,
 	type ReplyUsage,
 	CONNECTOR_CALL,
+	actionOf,
 	addStep,
 	callEnd,
 	calledConnectorTool,
@@ -28,7 +29,6 @@ import {
 	findConnector,
 	gatewayCost,
 	grantedConnectorIds,
-	heldCall,
 	isWidgetResult,
 	isWidgetToolName,
 	openConnector,
@@ -353,17 +353,17 @@ async function streamReply(
 				// Held, not run: save the exact call and show a card in its place. Logged only if it runs later.
 				const { toolCallId, toolName, input } = part.toolCall;
 				calls.delete(toolCallId);
-				const held = await heldCall(toolName, input, usable);
+				const held = await actionOf(toolName, input, usable);
 				const at = parts.findIndex((p) => p.type === "tool" && p.id === toolCallId);
 				if (held) {
 					const approvalId = await ctx.runMutation(internal.approvals.request, {
 						turnId,
 						callId: toolCallId,
-						tool: held.tool,
+						tool: held.tool.id,
 						input: canonicalJson(held.input),
-						risk: toolRisk(usable.find((t) => t.id === held.tool)!),
+						risk: toolRisk(held.tool),
 					});
-					const card = { type: "approval" as const, id: toolCallId, approvalId, tool: held.tool };
+					const card = { type: "approval" as const, id: toolCallId, approvalId, tool: held.tool.id };
 					if (at >= 0) parts[at] = card;
 					else parts.push(card);
 				} else setTool(toolCallId, toolName, "error");

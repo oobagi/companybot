@@ -144,12 +144,6 @@ export async function actionOf(modelName: string, input: unknown, tools: ToolDef
 	return t ? { tool: t, input } : null;
 }
 
-/** The exact call to hold for approval: the action's tool id and input. */
-export async function heldCall(modelName: string, input: unknown, tools: ToolDef[]): Promise<{ tool: string; input: unknown } | null> {
-	const action = await actionOf(modelName, input, tools);
-	return action && { tool: action.tool.id, input: action.input };
-}
-
 /**
  * Decides one call from the rules in force right now (see approvals.permissionFor).
  * The runner reads them fresh for every call. Default: the tool's risk alone.

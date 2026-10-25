@@ -23,7 +23,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 - Auth: `none`, `api_key` (pasted in), or `oauth` (MCP OAuth: discovery, dynamic client registration, PKCE, refresh — all via `@ai-sdk/mcp`). OAuth flow: `connectors.startOAuth` → browser → `GET /oauth/callback` (`backend/convex/oauth.ts`) → `saveConnection`. State lives in `OAuthState` (`core/src/oauth.ts`), encrypted like any credentials. The runner saves refreshed tokens after each turn.
 - Connector results keep structure (`structuredContent`, or JSON text) so widgets can show them by ref.
 - Writes ask: connector tools without `readOnlyHint` wait for a yes in the chat; `destructiveHint` ones always ask (see Approvals). The tool list each server reports is saved to `connectorTools` for settings screens only. Not built yet: pre-registered OAuth clients (servers without dynamic registration).
-- Test with `fakeMcpServer` (`core/src/test-mcp-server.ts`), or push a test connector into `connectorCatalog` (see backend tests).
+- Test with `fakeMcpServer` (`core/test/test-mcp-server.ts`), or push a test connector into `connectorCatalog` (see backend tests).
 
 ## Approvals — `core/src/approvals.ts`, `backend/convex/approvals.ts`, `backend/convex/permissions.ts`
 - **Declare risk on the tool** (`ToolDef.risk`): `"outside"` for anything with outside impact (sends, texts, calls, campaign sends), `"locked"` for payments, deleting records and bulk sends (always asks, no "Always allow"). Leave it out for internal changes. Connector tools default to `"outside"` unless read-only (`toolRisk`).

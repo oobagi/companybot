@@ -13,7 +13,6 @@ import {
 	canDecideApproval,
 	canonicalJson,
 	describeAllowed,
-	needsApproval,
 	permissionFor,
 	readableValue,
 	toolLine,
@@ -22,10 +21,10 @@ import {
 import { ACTIVITY_MAX_CHARS, callEnd, callLabel, clipJson, describeCall } from "./activity";
 import { formatLocalTime, resolveTimeZone, shortStamp } from "./time";
 import {
+	actionOf,
 	buildToolSet,
 	describeToolAccess,
 	grantedConnectorIds,
-	heldCall,
 	resolveTools,
 	toolApprovalPolicy,
 	validateAgentConfig,
@@ -62,7 +61,7 @@ import {
 	skillCatalog,
 	skillsIndex,
 } from "./skills";
-import { fakeMcpServer } from "./test-mcp-server";
+import { fakeMcpServer } from "../test/test-mcp-server";
 import { platformGuide } from "./guide";
 import { addStep, emptyUsage, gatewayCost } from "./usage";
 import { type ToolDef, createResultStore, isGranted, modelToolName } from "./tools";
@@ -848,9 +847,9 @@ describe("approvals", () => {
 		// A built-in opts in by declaring risk; payments-style ones lock.
 		expect(toolRisk({ ...builtinTools[0]!, risk: "outside" })).toBe("outside");
 		expect(toolRisk({ ...send, risk: "locked" })).toBe("locked");
-		expect(needsApproval({ ...send, risk: "none" })).toBe(false);
+		expect(toolRisk({ ...send, risk: "none" })).toBe("none");
 		// Every built-in today stays inside the workspace.
-		expect(builtinTools.filter(needsApproval)).toEqual([]);
+		expect(builtinTools.filter((t) => toolRisk(t) !== "none")).toEqual([]);
 	});
 
 	it("strictest wins: owner lock, then Never, then Ask, then Always", () => {
@@ -969,13 +968,17 @@ describe("approvals", () => {
 
 	it("holds a connectors_call as the tool it runs, once its input is valid", async () => {
 		const tools = [send, find];
-		const call = (tool: string, input: unknown) => heldCall("connectors_call", { tool, input }, tools);
+		const held = async (name: string, input: unknown, from: ToolDef[]) => {
+			const action = await actionOf(name, input, from);
+			return action && { tool: action.tool.id, input: action.input };
+		};
+		const call = (tool: string, input: unknown) => held("connectors_call", { tool, input }, tools);
 		expect(await call("crm.send_sms", { body: "Hi", to: "+1" })).toEqual({ tool: "crm.send_sms", input: { body: "Hi", to: "+1" } });
 		expect(await call("crm.find_leads", {})).toEqual({ tool: "crm.find_leads", input: {} });
 		// Bad input or an unknown tool runs, so the model gets the error back instead of a card.
 		expect(await call("crm.send_sms", { to: "+1" })).toBeNull();
 		expect(await call("crm.nope", {})).toBeNull();
-		expect(await heldCall("memory_remember", { content: "x" }, builtinTools)).toEqual({ tool: "memory.remember", input: { content: "x" } });
+		expect(await held("memory_remember", { content: "x" }, builtinTools)).toEqual({ tool: "memory.remember", input: { content: "x" } });
 	});
 
 	it("stops the run at a held call without running it, and runs the rest", async () => {
