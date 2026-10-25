@@ -6,7 +6,7 @@ import { Markdown } from "../../markdown";
 import { Notice, timeAgo } from "../../ui";
 import { WidgetView } from "../../widgets";
 import { CallDetails } from "../Activity";
-import { ApprovalCard } from "./Approval";
+import { ApprovalMessages } from "./Approval";
 import { AgentBadge, Avatar, AvatarStack, EmojiPicker, clock, useDismiss } from "./common";
 import type { Message } from "./data";
 
@@ -34,106 +34,112 @@ export function MessageRow({
 	const isAgent = message.author.type === "agent";
 	const toggle = (emoji: string) => react({ messageId: message._id, emoji }).catch(onError);
 
+	const held = isAgent && !message.deleted ? message.fullParts.filter((p) => p.type === "approval") : [];
+
 	return (
-		<div className={`group relative flex gap-3 px-5 hover:bg-neutral-50/80 ${grouped ? "py-0.5" : "pt-2 pb-0.5"}`}>
-			<div className="flex w-9 shrink-0 justify-center">
-				{grouped ? (
-					<span className="invisible pt-1 text-[10px] text-neutral-400 tabular-nums group-hover:visible">
-						{clock(message._creationTime)}
-					</span>
-				) : (
-					<Avatar name={message.author.name} agent={isAgent} />
-				)}
-			</div>
-			<div className="flex min-w-0 flex-1 flex-col gap-1">
-				{!grouped && (
-					<div className="flex items-baseline gap-2">
-						<span className="font-semibold">{message.author.name}</span>
-						{isAgent && <AgentBadge />}
-						{message.automation && (
-							<span className="rounded bg-amber-50 px-1.5 text-xs text-amber-800">⚡ {message.automation.name}</span>
-						)}
-						<span className="text-xs text-neutral-400 tabular-nums">{clock(message._creationTime)}</span>
-					</div>
-				)}
-				{message.deleted ? (
-					<p className="text-neutral-400 italic">This message was deleted.</p>
-				) : editing ? (
-					<EditForm message={message} onDone={() => setEditing(false)} onError={onError} />
-				) : message.automation ? (
-					<AutomationPrompt prompt={message.text} />
-				) : isAgent ? (
-					<AgentBody message={message} />
-				) : (
-					<p className="leading-relaxed break-words whitespace-pre-wrap">
-						<MentionText text={message.text} names={names} />
-						{message.editedAt && <span className="text-xs text-neutral-400"> (edited)</span>}
-					</p>
-				)}
-				{message.reactions.length > 0 && (
-					<div className="flex flex-wrap gap-1 pt-0.5">
-						{message.reactions.map((r) => (
-							<button
-								type="button"
-								key={r.emoji}
-								title={r.names.join(", ")}
-								onClick={() => toggle(r.emoji)}
-								className={`flex h-6 items-center gap-1 rounded-full border px-2 text-xs tabular-nums ${
-									r.mine ? "border-neutral-400 bg-neutral-100 text-neutral-900" : "border-neutral-200 text-neutral-600 hover:border-neutral-300"
-								}`}
-							>
-								<span>{r.emoji}</span>
-								{r.count}
-							</button>
-						))}
-					</div>
-				)}
-				{onOpenThread && message.replyCount ? (
-					<button
-						type="button"
-						onClick={onOpenThread}
-						className="-ml-1 flex w-fit items-center gap-2 rounded-lg px-1 py-0.5 text-xs hover:bg-white"
-					>
-						<AvatarStack people={message.replyAuthors} size="xs" />
-						<span className="font-medium text-neutral-700">
-							{message.replyCount} {message.replyCount === 1 ? "reply" : "replies"}
+		<>
+			<div className={`group relative flex gap-3 px-5 hover:bg-neutral-50/80 ${grouped ? "py-0.5" : "pt-2 pb-0.5"}`}>
+				<div className="flex w-9 shrink-0 justify-center">
+					{grouped ? (
+						<span className="invisible pt-1 text-[10px] text-neutral-400 tabular-nums group-hover:visible">
+							{clock(message._creationTime)}
 						</span>
-						{message.lastReplyAt && <span className="text-neutral-400">Last reply {timeAgo(message.lastReplyAt)}</span>}
-					</button>
-				) : null}
-			</div>
-			{!message.deleted && !editing && (
-				<div
-					ref={toolbar}
-					className={`absolute -top-3 right-5 z-10 items-center rounded-lg border border-neutral-200 bg-white p-0.5 shadow-sm ${
-						picker ? "flex" : "hidden group-hover:flex"
-					}`}
-				>
-					<Action label="Add reaction" onClick={() => setPicker(!picker)}>
-						☺
-					</Action>
-					{onOpenThread && (
-						<Action label="Reply in thread" onClick={onOpenThread}>
-							↩
-						</Action>
+					) : (
+						<Avatar name={message.author.name} agent={isAgent} />
 					)}
-					{message.mine && !isAgent && (
-						<>
-							<Action label="Edit" onClick={() => setEditing(true)}>
-								✎
-							</Action>
-							<Action
-								label="Delete"
-								onClick={() => confirm("Delete this message?") && remove({ messageId: message._id }).catch(onError)}
-							>
-								🗑
-							</Action>
-						</>
-					)}
-					{picker && <EmojiPicker className="absolute top-full right-0 mt-1" onPick={toggle} onClose={() => setPicker(false)} />}
 				</div>
-			)}
-		</div>
+				<div className="flex min-w-0 flex-1 flex-col gap-1">
+					{!grouped && (
+						<div className="flex items-baseline gap-2">
+							<span className="font-semibold">{message.author.name}</span>
+							{isAgent && <AgentBadge />}
+							{message.automation && (
+								<span className="rounded bg-amber-50 px-1.5 text-xs text-amber-800">⚡ {message.automation.name}</span>
+							)}
+							<span className="text-xs text-neutral-400 tabular-nums">{clock(message._creationTime)}</span>
+						</div>
+					)}
+					{message.deleted ? (
+						<p className="text-neutral-400 italic">This message was deleted.</p>
+					) : editing ? (
+						<EditForm message={message} onDone={() => setEditing(false)} onError={onError} />
+					) : message.automation ? (
+						<AutomationPrompt prompt={message.text} />
+					) : isAgent ? (
+						<AgentBody message={message} />
+					) : (
+						<p className="leading-relaxed break-words whitespace-pre-wrap">
+							<MentionText text={message.text} names={names} />
+							{message.editedAt && <span className="text-xs text-neutral-400"> (edited)</span>}
+						</p>
+					)}
+					{message.reactions.length > 0 && (
+						<div className="flex flex-wrap gap-1 pt-0.5">
+							{message.reactions.map((r) => (
+								<button
+									type="button"
+									key={r.emoji}
+									title={r.names.join(", ")}
+									onClick={() => toggle(r.emoji)}
+									className={`flex h-6 items-center gap-1 rounded-full border px-2 text-xs tabular-nums ${
+										r.mine ? "border-neutral-400 bg-neutral-100 text-neutral-900" : "border-neutral-200 text-neutral-600 hover:border-neutral-300"
+									}`}
+								>
+									<span>{r.emoji}</span>
+									{r.count}
+								</button>
+							))}
+						</div>
+					)}
+					{onOpenThread && message.replyCount ? (
+						<button
+							type="button"
+							onClick={onOpenThread}
+							className="-ml-1 flex w-fit items-center gap-2 rounded-lg px-1 py-0.5 text-xs hover:bg-white"
+						>
+							<AvatarStack people={message.replyAuthors} size="xs" />
+							<span className="font-medium text-neutral-700">
+								{message.replyCount} {message.replyCount === 1 ? "reply" : "replies"}
+							</span>
+							{message.lastReplyAt && <span className="text-neutral-400">Last reply {timeAgo(message.lastReplyAt)}</span>}
+						</button>
+					) : null}
+				</div>
+				{!message.deleted && !editing && (
+					<div
+						ref={toolbar}
+						className={`absolute -top-3 right-5 z-10 items-center rounded-lg border border-neutral-200 bg-white p-0.5 shadow-sm ${
+							picker ? "flex" : "hidden group-hover:flex"
+						}`}
+					>
+						<Action label="Add reaction" onClick={() => setPicker(!picker)}>
+							☺
+						</Action>
+						{onOpenThread && (
+							<Action label="Reply in thread" onClick={onOpenThread}>
+								↩
+							</Action>
+						)}
+						{message.mine && !isAgent && (
+							<>
+								<Action label="Edit" onClick={() => setEditing(true)}>
+									✎
+								</Action>
+								<Action
+									label="Delete"
+									onClick={() => confirm("Delete this message?") && remove({ messageId: message._id }).catch(onError)}
+								>
+									🗑
+								</Action>
+							</>
+						)}
+						{picker && <EmojiPicker className="absolute top-full right-0 mt-1" onPick={toggle} onClose={() => setPicker(false)} />}
+					</div>
+				)}
+			</div>
+			{/* Calls held for permission read as their own messages from the agent, after its reply. */}
+			{held.length > 0 && <ApprovalMessages message={message} parts={held} />}
+		</>
 	);
 }
 
@@ -206,8 +212,6 @@ function EditForm({ message, onDone, onError }: { message: Message; onDone: () =
 function AgentBody({ message }: { message: Message }) {
 	const streaming = message.status === "streaming";
 	const lastText = message.fullParts.findLastIndex((p) => p.type === "text");
-	const held = message.fullParts.some((p) => p.type === "approval");
-	const approvals = useQuery(api.approvals.forReply, held ? { replyId: message._id } : "skip");
 	return (
 		<div className="flex flex-col gap-3">
 			{message.fullParts.map((part, i) =>
@@ -217,8 +221,6 @@ function AgentBody({ message }: { message: Message }) {
 					</Markdown>
 				) : part.type === "tool" ? (
 					<ToolPart key={part.id} replyId={message._id} part={part} />
-				) : part.type === "approval" ? (
-					<ApprovalCard key={part.id} part={part} approval={approvals?.find((a) => a.callId === part.id)} />
 				) : part.type === "widget" ? (
 					<WidgetView key={part.id} widget={part.widget} />
 				) : null,

@@ -207,7 +207,15 @@ export const turnContext = internalQuery({
 			triggerId: turn.triggerId as string,
 			/** The approval this turn follows: the runner runs it if approved, then tells the agent. */
 			approval: approval
-				? { id: approval._id, tool: approval.tool, status: approval.status, by: (await names.user(approval.actorId)).name }
+				? {
+						id: approval._id,
+						tool: approval.tool,
+						status: approval.status,
+						by: (await names.user(approval.actorId)).name,
+						actorId: approval.actorId,
+						decidedAt: approval.decidedAt,
+						always: approval.always ?? false,
+					}
 				: null,
 		};
 	},

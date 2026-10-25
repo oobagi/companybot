@@ -16,6 +16,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { encrypt } from "./crypto";
 import { type Member, getMember, memberOf, requireMember, requirePermission } from "./lib";
+import { forgetConnector } from "./permissions";
 import { role } from "./schema";
 
 // Install → choose roles → connect an account → agents granted "<connector>.*" use it.
@@ -109,6 +110,8 @@ export const setInstalled = mutation({
 		}
 		if (!installed && existing) {
 			await ctx.db.delete(existing._id);
+			// Rules and locks belong to this install: reinstalling starts strict again.
+			await forgetConnector(ctx, existing);
 			// Uninstalling forgets every account connected to it.
 			const connections = await ctx.db
 				.query("connectorConnections")

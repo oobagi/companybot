@@ -21,6 +21,7 @@ import {
 import { ActivityTab } from "./Activity";
 import { MembersTab } from "./Members";
 import { MemoryTab } from "./Memory";
+import { WorkspaceLocks, YourPermissions } from "./Permissions";
 
 export const settingsTabs = [
 	{ id: "general", label: "General" },
@@ -51,6 +52,7 @@ function GeneralTab({ role }: { role: Role }) {
 	return (
 		<>
 			<GeneralForm settings={settings} isOwner={can(role, "workspace.manage")} />
+			{can(role, "actions.lock") && <WorkspaceLocks />}
 			<AppVersion />
 		</>
 	);
@@ -181,6 +183,7 @@ function ProfileTab() {
 					</label>
 				))}
 			</Section>
+			<YourPermissions />
 		</>
 	);
 }

@@ -1,8 +1,21 @@
-import { APPROVAL_TTL_MS, approvalHash, approvalStatus, canDecideApproval, findConnector, toolGroup } from "@companybot/core";
+import {
+	APPROVAL_TTL_MS,
+	alwaysAllowText,
+	askText,
+	approvalHash,
+	approvalStatus,
+	canDecideApproval,
+	findConnector,
+	toolGroup,
+} from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { canSee, namer } from "./chatOps";
-import { getMember, nameOf, requireMember, toActor } from "./lib";
+import type { Doc } from "./_generated/dataModel";
+import type { QueryCtx } from "./_generated/server";
+import { getMember, memberOf, nameOf, requireMember, toActor } from "./lib";
+import { automationName, automationOfTurn, decideFor, setRule } from "./permissions";
+import { risk } from "./schema";
 import { enqueueTurn } from "./turns";
 
 // Approvals: a tool call an agent held until the person it acts for says yes (core
@@ -12,8 +25,8 @@ import { enqueueTurn } from "./turns";
 
 /** Written by the runner when the model makes a call that needs approval. `input` is canonical JSON. */
 export const request = internalMutation({
-	args: { turnId: v.id("agentTurns"), callId: v.string(), tool: v.string(), input: v.string() },
-	handler: async (ctx, { turnId, callId, tool, input }) => {
+	args: { turnId: v.id("agentTurns"), callId: v.string(), tool: v.string(), input: v.string(), risk: v.optional(risk) },
+	handler: async (ctx, { turnId, callId, tool, input, risk }) => {
 		const turn = await ctx.db.get(turnId);
 		if (!turn || turn.status !== "running" || !turn.replyId) throw new Error("This reply was stopped.");
 		return ctx.db.insert("approvals", {
@@ -30,9 +43,24 @@ export const request = internalMutation({
 			hash: await approvalHash(tool, JSON.parse(input)),
 			status: "pending",
 			expiresAt: Date.now() + APPROVAL_TTL_MS,
+			risk,
 		});
 	},
 });
+
+/**
+ * Whether the card may offer "Always allow", read live (an owner may have locked it
+ * since), and the automation a grant would be scoped to. Old rows without a risk: no.
+ */
+async function alwaysFor(ctx: QueryCtx, row: Doc<"approvals">) {
+	const member = await memberOf(ctx, row.actorId);
+	if (!row.risk || !member || member.workspaceId !== row.workspaceId) return null;
+	const turn = await ctx.db.get(row.turnId);
+	const automation = turn && (await automationOfTurn(ctx, turn));
+	const { decision } = await decideFor(ctx, member, { action: row.tool, risk: row.risk });
+	if (decision.type !== "ask" || !decision.canAlways) return null;
+	return { member, automation };
+}
 
 /** A reply's held calls, if the person can see its chat. Results show only to the person the agent acted for. */
 export const forReply = query({
@@ -51,6 +79,9 @@ export const forReply = query({
 			rows.map(async (row) => {
 				const mine = canDecideApproval(toActor(member), row);
 				const group = toolGroup(row.tool);
+				const connector = findConnector(group) ?? null;
+				const always = mine && approvalStatus(row) === "pending" ? await alwaysFor(ctx, row) : null;
+
 				return {
 					_id: row._id,
 					callId: row.callId,
@@ -58,6 +89,12 @@ export const forReply = query({
 					/** The service's name ("Night Owl"), or null for built-ins. */
 					service: findConnector(group)?.name ?? null,
 					action: row.tool.slice(group.length + 1),
+					/** The ask, in the agent's voice: "I'd like to send email from your Gmail." */
+					ask: askText(row.tool, connector, JSON.parse(row.input)),
+					/** Null when "Always allow" isn't offered (locked, or not yours to decide). */
+					alwaysText: always ? alwaysAllowText(row.tool, connector, always.automation ? automationName(always.automation) : undefined) : null,
+					/** Set when "Always allow" saved a rule. */
+					always: row.always ?? false,
 					/** The exact input that will run, as canonical JSON. */
 					input: row.input,
 					hash: row.hash,
@@ -80,8 +117,9 @@ export const forReply = query({
  * decide, while they can still see the chat, before it expires.
  */
 export const decide = mutation({
-	args: { approvalId: v.id("approvals"), hash: v.string(), approve: v.boolean() },
-	handler: async (ctx, { approvalId, hash, approve }) => {
+	/** `always`: also save a rule so it stops asking (apps from before Always allow leave it out). */
+	args: { approvalId: v.id("approvals"), hash: v.string(), approve: v.boolean(), always: v.optional(v.boolean()) },
+	handler: async (ctx, { approvalId, hash, approve, always }) => {
 		const member = await requireMember(ctx);
 		const row = await ctx.db.get(approvalId);
 		const chat = row && row.workspaceId === member.workspaceId ? await ctx.db.get(row.chatId) : null;
@@ -96,7 +134,12 @@ export const decide = mutation({
 		const agent = await ctx.db.get(row.agentId);
 		if (!agent || agent.archived) throw new ConvexError("This agent is archived.");
 
-		await ctx.db.patch(approvalId, { status: approve ? "approved" : "denied", decidedAt: Date.now() });
+		if (approve && always) {
+			const allowed = await alwaysFor(ctx, row);
+			if (!allowed) throw new ConvexError("This action always asks, so it can't be allowed always. Nothing ran.");
+			await setRule(ctx, allowed.member, { action: row.tool, setting: "always", automationInstallId: allowed.automation?._id });
+		}
+		await ctx.db.patch(approvalId, { status: approve ? "approved" : "denied", decidedAt: Date.now(), ...(approve && always && { always: true }) });
 		const asked = await ctx.db.get(row.turnId);
 		await enqueueTurn(ctx, chat, {
 			agentId: row.agentId,
@@ -123,6 +166,14 @@ export const claim = internalMutation({
 		const input: unknown = JSON.parse(row.input);
 		if ((await approvalHash(row.tool, input)) !== row.hash) {
 			await ctx.db.patch(approvalId, { status: "failed", error: "The stored action no longer matches what was approved." });
+			return null;
+		}
+		// Rules are read fresh: a block or Never set since the approval wins.
+		const member = await memberOf(ctx, row.actorId);
+		const { decision } = member ? await decideFor(ctx, member, { action: row.tool, risk: row.risk ?? "outside" }) : { decision: null };
+		if (decision?.type === "deny") {
+			const who = decision.by === "owner" ? "A workspace owner blocked this" : `${await nameOf(ctx, row.actorId)} set this to Never`;
+			await ctx.db.patch(approvalId, { status: "failed", error: `${who} after it was approved, so it didn't run.` });
 			return null;
 		}
 		await ctx.db.patch(approvalId, { status: "running" });
