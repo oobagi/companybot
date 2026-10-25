@@ -180,6 +180,13 @@ export default defineSchema({
 		.searchIndex("search_content", { searchField: "content", filterFields: ["agentId", "scope", "ownerId"] }),
 
 	// Personal preferences: only the person sees them; they follow them across devices.
+	// Where apps that send no workspace act: the first workspace the person joined, set once.
+	// COMPAT(0.1.0-alpha.7): delete with legacyMemberOf.
+	legacyWorkspaces: defineTable({
+		userId: v.id("users"),
+		workspaceId: v.id("workspaces"),
+	}).index("by_user", ["userId"]),
+
 	preferences: defineTable({
 		userId: v.id("users"),
 		/** What agents and teammates call you. */
