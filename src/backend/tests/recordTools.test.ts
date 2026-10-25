@@ -69,7 +69,7 @@ describe("records tools", () => {
 		const { t, member } = await setup();
 		const tools = await turnFor(t, member);
 		const client = await tools.save({ type: "Clients", values: { Name: "Acme Roofing", status: "lead" } });
-		expect(client).toMatchObject({ type: "client", name: "Acme Roofing", values: { name: "Acme Roofing", status: "Lead" } });
+		expect(client).toMatchObject({ type: "client", typeName: "Client", name: "Acme Roofing", values: { name: "Acme Roofing", status: "Lead" } });
 		const deal = await tools.save({
 			type: "deal",
 			values: { name: "Acme roof", client: "acme roofing", stage: "Proposal", value: 12000, owner: "me", close_date: "2026-10-30" },
@@ -79,7 +79,7 @@ describe("records tools", () => {
 			client: "Acme Roofing",
 			stage: "Proposal",
 			value: "$12,000.00",
-			close_date: "2026-10-30",
+			close_date: "Oct 30, 2026",
 			owner: "member@co.com",
 		});
 		const won = await tools.save({ id: deal.id, values: { Stage: "won" } });
@@ -142,7 +142,7 @@ describe("records tools", () => {
 		expect(mine.rows.map((r: any) => r.name)).toEqual(["Deal 3", "Deal 1"]);
 		expect(mine.rows[0]).toMatchObject({ _id: expect.any(String), owner: "member@co.com", stage: "Won" });
 		const found = await tools.find({ search: "deal" });
-		expect(found).toMatchObject({ type: "Records", more: false });
+		expect(found).toMatchObject({ type: "Records", typeName: "Record", more: false });
 		expect(found.rows).toHaveLength(5);
 		expect(found.rows[0]).toMatchObject({ _type: "deal" });
 		expect((await tools.find({ search: "Deal", filters })).error).toMatch("Search on its own");
@@ -273,7 +273,7 @@ describe("records tools", () => {
 		const { t, owner, member } = await setup();
 		const tools = await turnFor(t, member);
 		const roof = await tools.saveField({ type: "client", label: "Roof type", kind: "choice", options: ["Shingle", "Metal"] });
-		expect(roof).toEqual({ type: "client", key: "roof_type", label: "Roof type", kind: "choice", options: ["Shingle", "Metal"] });
+		expect(roof).toEqual({ type: "client", typePlural: "Clients", key: "roof_type", label: "Roof type", kind: "choice", options: ["Shingle", "Metal"] });
 		const acme = await tools.save({ type: "client", values: { name: "Acme", "Roof type": "metal" } });
 		expect(acme.values.roof_type).toBe("Metal");
 		expect(await tools.saveField({ type: "client", field: "roof type", options: ["Shingle", "Metal", "Tile"] })).toMatchObject({ options: ["Shingle", "Metal", "Tile"] });

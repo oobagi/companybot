@@ -51,7 +51,7 @@ export interface TableProps {
 export const tableWidget = defineWidget({
 	type: "table",
 	description:
-		"Show rows of structured data as a table under your message, e.g. a list of leads, tasks, or results. Use it for 3+ rows that share the same fields. To show a list from a tool result, pass `from` with its ref instead of copying rows.",
+		"Show rows of structured data as a table under your message, e.g. a list of leads, tasks, or results. Use it for 3+ rows that share the same fields. To show a list from a tool result, pass `from` with its ref instead of copying rows. Don't restate its rows in your text.",
 	input: z.object({
 		title: z.string().max(80).optional().describe("Short heading, e.g. 'Last 10 leads'"),
 		columns: z.array(z.string().max(40)).min(1).max(8).describe("Column headings, left to right"),
@@ -122,7 +122,7 @@ export const statsWidget = defineWidget({
 export const cardWidget = defineWidget({
 	type: "card",
 	description:
-		"Show one record as a card, e.g. a single lead, contact, or order, with its key fields. Place it mid-reply and keep talking after it.",
+		"Show one record as a card, e.g. a single lead, contact, or order, with its key fields. Don't restate its fields in your text.",
 	input: z.object({
 		title: z.string().max(80).describe("The record's name, e.g. 'Ada Lovelace'"),
 		subtitle: z.string().max(120).optional().describe("One line of context, e.g. 'Lead · Acme Corp'"),
@@ -162,7 +162,7 @@ export const widgetTools: ToolDef[] = widgetCatalog.map((w) =>
 		},
 		toModelOutput: ({ output }) =>
 			isWidgetResult(output)
-				? { type: "text", value: "Shown to the person under your message. Don't repeat its contents in text." }
+				? { type: "text", value: "Shown to the person where you placed it. Call no more tools. Don't describe it, point at it, or repeat what it shows. If you haven't said what you did or found, say it now in one sentence; otherwise end your reply." }
 				: { type: "json", value: output as never },
 	}),
 );
@@ -172,6 +172,18 @@ export const isWidgetResult = (output: unknown): output is { widget: Widget } =>
 
 /** Whether a tool name as the model sees it ("widgets_table") is a widget tool. */
 export const isWidgetToolName = (modelName: string) => modelName.startsWith(modelToolName("widgets."));
+
+/**
+ * A stop condition for the agent loop: the run ends once a step only placed widgets (all
+ * shown) and the reply already says something. The widget is the answer; another step would
+ * only restate it ("The table above lists every deal.") and cost a model call.
+ */
+export function widgetEndsReply({ steps }: { steps: { text: string; toolCalls: { toolName: string }[]; toolResults: { output: unknown }[] }[] }) {
+	const last = steps.at(-1);
+	if (!last?.toolCalls.length || !last.toolCalls.every((c) => isWidgetToolName(c.toolName))) return false;
+	if (last.toolResults.length !== last.toolCalls.length || !last.toolResults.every((r) => isWidgetResult(r.output))) return false;
+	return steps.some((s) => s.text.trim() !== "");
+}
 
 // ---- Reading tool results by ref ----
 

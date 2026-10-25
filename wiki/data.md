@@ -87,7 +87,8 @@ Separate tables per type (Night Owl's way) means a migration for every new type 
 - **Named like people say them:** types by id or key, else name or plural; fields by key, else label (a name two could match is refused, listing both); teammates as "me", a name or an email; links as the record's exact name or id.
 - **Link names are an exact lookup**, not a search: the target type's name field in `recordValues` (`by_field_str`, live records only), two rows to tell one from several. Lists are checked against their limits (50) first; lookups are memoized, and one call looks up at most 100 distinct names, so a call's reads stay small.
 - **What the model sees is capped** (`forModel`, ~24k characters): long text is cut (300 in lists, 2,000 on one record, shorter until it fits), then rows dropped, with a `trimmed` note. The full result stays behind the ref for widgets.
-- **Display:** `displayValues` (core): option labels, names, `formatMoney` in en-US so "$" is only USD. Input amounts follow Money.
+- **Display:** `displayValues` (core): option labels, names, `formatMoney` in en-US so "$" is only USD, `formatDate` ("Nov 15, 2026", the same helper the record screens use). Input amounts follow Money; dates go in and filter as `YYYY-MM-DD` (the tool descriptions say so).
+- **Tool lines** say what the call did, from its input and result (`ToolDef.label`, `callLabel`): "Created deal Reroof main warehouse", "Saved Acme Roofing", "Found 1 deal", "Added field Roof type to Clients", "Undid a change to Acme Roofing". Results carry the type's names for this (`typeName`, `typePlural`). An `{ error }` result falls back to the tool's title.
 - Not exposed to agents: adding record types, archiving fields, workspace-wide history.
 
 ## Not built yet

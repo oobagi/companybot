@@ -204,7 +204,7 @@ async function recordOut(ctx: QueryCtx, member: Member, recordId: Id<"records">)
 	const type = (await ctx.db.get(record.typeId))!;
 	const [row] = await rowsOf(ctx, member, [{ record, fields: await fieldsOf(ctx, record.typeId) }]);
 	const { _id, ...values } = row!;
-	return { id: _id, type: type.key, name: record.title, ...(record.archived && { archived: true }), values };
+	return { id: _id, type: type.key, typeName: type.name, name: record.title, ...(record.archived && { archived: true }), values };
 }
 
 export const typesFor = internalQuery({
@@ -256,7 +256,7 @@ export const findFor = internalQuery({
 				for (const r of found) if (!fields.has(r.typeId)) fields.set(r.typeId, await fieldsOf(ctx, r.typeId));
 				const keys = type ? undefined : new Map((await liveTypes(ctx, member)).map((t) => [t._id, t.key]));
 				const rows = await rowsOf(ctx, member, found.map((record) => ({ record, fields: fields.get(record.typeId)! })), keys);
-				return { type: type?.plural ?? "Records", rows, more: false };
+				return { type: type?.plural ?? "Records", typeName: type?.name ?? "Record", rows, more: false };
 			}
 			if (!typeName) throw new ConvexError("Say which record type to list, or search.");
 			const type = await typeNamed(ctx, member, typeName);
@@ -287,7 +287,7 @@ export const findFor = internalQuery({
 				paginationOpts: { numItems: Math.min(Math.max(numItems, 1), PAGE_MAX), cursor: cursor ?? null },
 			});
 			const rows = await rowsOf(ctx, member, result.page.map((record) => ({ record, fields })));
-			return { type: type.plural, rows, more: !result.isDone, ...(!result.isDone && { cursor: result.continueCursor }) };
+			return { type: type.plural, typeName: type.name, rows, more: !result.isDone, ...(!result.isDone && { cursor: result.continueCursor }) };
 		});
 	},
 });
@@ -421,6 +421,7 @@ export const saveFieldFor = internalMutation({
 			const f = (await ctx.db.get(fieldId))!;
 			return {
 				type: type.key,
+				typePlural: type.plural,
 				key: f.key,
 				label: f.label,
 				kind: f.kind,

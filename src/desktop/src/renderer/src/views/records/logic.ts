@@ -1,5 +1,5 @@
 import type { Field, FieldKind, FieldValue, Money } from "@companybot/core/records";
-import { formatMoney } from "@companybot/core/records";
+import { formatDate, formatMoney } from "@companybot/core/records";
 
 // Pure rules for the record screens: columns, filters, sorting and how values read.
 // Shared by every record type, built-in or added later. See wiki/data.md.
@@ -91,11 +91,6 @@ export function toCondition({ field, op, value }: Filter): Record<string, unknow
 
 // ---- Values ----
 
-const dateFormat = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
-
-/** A "YYYY-MM-DD" day for people: "Oct 25, 2026". */
-export const formatDay = (day: string) => dateFormat.format(new Date(`${day}T00:00:00Z`));
-
 /**
  * One stored value as text. Links and people read from `refs`; a record that's gone or
  * archived says so. Options that were removed from the field still show, marked "(removed)".
@@ -107,7 +102,7 @@ export function valueText(field: Field | undefined, value: FieldValue | null | u
 		case "currency":
 			return formatMoney(value as Money);
 		case "date":
-			return formatDay(String(value));
+			return formatDate(String(value));
 		case "checkbox":
 			return value ? "Yes" : "";
 		case "number":

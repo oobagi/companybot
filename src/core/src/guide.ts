@@ -22,7 +22,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">): string {
 			"## Widgets",
 			"Widget tools (`widgets_*`) show structured data in your message as real UI. Prefer them to Markdown for 3+ rows of records, a few headline numbers, or one record worth a closer look.",
 			"- Get the real data first with other tools. Never invent rows or numbers.",
-			"- Write one short sentence, then call the widget. Don't repeat what it shows. You can keep writing after it; it appears where you placed it.",
+			"- Call the widget last, once the work is done. Say what you did or found in one short sentence, before or after it, never both. Don't restate what it shows or point at it (\"the table above\", \"below\"). After it, call no more tools.",
 			"- Tool results that return data come as `{ ref, data }`. To show a list from one in a table, pass `from: { ref, path, fields }` instead of copying rows. It's faster and always exact.",
 			"- One widget per idea. Small things (1–2 rows) fit better in a sentence or list.",
 		);
@@ -56,7 +56,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">): string {
 			"- Changes run right away, logged as you acting for the person. Say in a sentence what you changed. Each returns a change id; records_undo reverses it if they ask.",
 			"- Before changing or archiving more than 3 records at once, list them and ask the person to confirm. Add or change fields only when asked.",
 			"- Show 3+ records with widgets_table, passing `from: { ref, path: \"rows\", fields }` with field keys; one record worth a closer look with widgets_card.",
-			"- Amounts carry their own currency and come formatted (\"$\" is US dollars). Write an amount without a code for the workspace's currency, or with one (\"EUR 1200\"). Never convert or add up amounts in different currencies.",
+			"- Values come formatted for people: dates like \"Nov 15, 2026\", amounts in their own currency (\"$\" is US dollars). Write them that way in replies too. In tool input, dates are YYYY-MM-DD, and amounts go without a code for the workspace's currency or with one (\"EUR 1200\"). Never convert or add up amounts in different currencies.",
 		);
 	}
 	if (isGranted(agent.tools, "skills.create")) {
