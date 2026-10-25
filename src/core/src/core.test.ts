@@ -19,7 +19,7 @@ import {
 	toolLine,
 	toolRisk,
 } from "./approvals";
-import { ACTIVITY_MAX_CHARS, callLabel, clipJson, describeCall } from "./activity";
+import { ACTIVITY_MAX_CHARS, callEnd, callLabel, clipJson, describeCall } from "./activity";
 import { formatLocalTime, resolveTimeZone, shortStamp } from "./time";
 import {
 	buildToolSet,
@@ -773,6 +773,30 @@ describe("activity log", () => {
 	it("skips widgets and tool search", () => {
 		expect(describeCall(modelToolName("widgets.table"), {}, tools)).toBeNull();
 		expect(describeCall("connectors_search", { query: "" }, tools)).toBeNull();
+	});
+
+	it("counts a call that answered { error } as failed, though the model sees it as a result", async () => {
+		const agent = { tools: ["skills.load"] };
+		const tools = buildToolSet(agent, ctx(owner), builtinTools);
+		const usage = { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } };
+		const load = (id: string, skill: string) => ({ type: "tool-call" as const, toolCallId: id, toolName: "skills_load", input: JSON.stringify({ id: skill }) });
+		const model = new MockLanguageModelV4({
+			doStream: async () => ({
+				stream: simulateReadableStream({
+					chunks: [
+						load("c1", "nope"),
+						load("c2", skillCatalog[0]!.id),
+						{ type: "finish" as const, finishReason: { unified: "tool-calls" as const, raw: undefined }, usage },
+					],
+				}),
+			}),
+		});
+		const ends: Record<string, string> = {};
+		for await (const part of streamText({ model, prompt: "load", tools }).stream)
+			if (part.type === "tool-result") ends[part.toolCallId] = "error" in callEnd(part.output) ? "error" : "done";
+		expect(ends).toEqual({ c1: "error", c2: "done" });
+		expect(callEnd({ error: "No installed skill." })).toEqual({ error: "No installed skill." });
+		expect(callEnd([{ id: 1 }])).toEqual({ output: [{ id: 1 }] });
 	});
 
 	it("cuts long values", () => {

@@ -1,4 +1,5 @@
 import { type ToolSet, asSchema, tool } from "ai";
+import { callEnd } from "./activity";
 import type { AgentConfig } from "./agent-config";
 import { type PermissionDecision, deniedReason, permissionFor, toolRisk } from "./approvals";
 import { builtinTools } from "./builtin-tools";
@@ -116,7 +117,7 @@ export function buildToolSet(
 /** Wraps a data tool's result as `{ ref, data }`. Errors pass through unchanged. */
 async function withRef(output: Promise<unknown>, ctx: ToolContext) {
 	const data = await output;
-	if (data && typeof data === "object" && "error" in data) return data;
+	if ("error" in callEnd(data)) return data;
 	return { ref: ctx.results.save(data), data };
 }
 

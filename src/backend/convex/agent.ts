@@ -13,6 +13,7 @@ import {
 	type ReplyUsage,
 	CONNECTOR_CALL,
 	addStep,
+	callEnd,
 	calledConnectorTool,
 	callLabel,
 	clipJson,
@@ -334,10 +335,11 @@ async function streamReply(
 				const call = describeCall(part.toolName, part.input, available);
 				if (call) calls.set(part.toolCallId, call);
 			} else if (part.type === "tool-result") {
+				const end = callEnd(part.output);
 				if (isWidgetToolName(part.toolName)) {
 					if (isWidgetResult(part.output)) parts.push({ type: "widget", id: part.toolCallId, widget: part.output.widget });
-				} else setTool(part.toolCallId, part.toolName, "done");
-				await logCall(part.toolCallId, { output: part.output });
+				} else setTool(part.toolCallId, part.toolName, "error" in end ? "error" : "done");
+				await logCall(part.toolCallId, end);
 			} else if (part.type === "tool-error") {
 				if (!isWidgetToolName(part.toolName)) setTool(part.toolCallId, part.toolName, "error");
 				await logCall(part.toolCallId, { error: part.error instanceof Error ? part.error.message : String(part.error) });
@@ -404,8 +406,7 @@ async function runApproval(
 	let end: { output: unknown } | { error: string };
 	try {
 		if (!t) throw new Error(`${tool} isn't available to ${by} right now (disconnected, or access changed).`);
-		const output = await t.execute(call.input, toolCtx);
-		end = output && typeof output === "object" && "error" in output ? { error: String(output.error) } : { output };
+		end = callEnd(await t.execute(call.input, toolCtx));
 	} catch (e) {
 		end = { error: e instanceof Error ? e.message : String(e) };
 	}

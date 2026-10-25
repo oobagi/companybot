@@ -47,6 +47,15 @@ export function callLabel(name: string, tools: ToolDef[], services: Pick<Connect
 	return `${actionLabel(t?.id ?? name, t?.title)}${service ? ` with ${service.name}` : ""}`;
 }
 
+/**
+ * How a finished call ended. Tools report expected problems as `{ error }` instead of
+ * throwing (asToolResult, connector errors), so the model can read them; the reply's
+ * tool line and the activity log still count those as failed.
+ */
+export function callEnd(output: unknown): { output: unknown } | { error: string } {
+	return output && typeof output === "object" && "error" in output ? { error: String(output.error) } : { output };
+}
+
 /** A value as JSON, cut to ACTIVITY_MAX_CHARS. */
 export function clipJson(value: unknown): string {
 	let text: string;
