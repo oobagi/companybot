@@ -7,6 +7,7 @@ import { canSee } from "./chatOps";
 import { getMember, nameOf, requireMember } from "./lib";
 import {
 	createRecord,
+	currencyOf,
 	fieldsOf,
 	idsIn,
 	resolveRefs,
@@ -77,28 +78,47 @@ export const list = query({
 		if (!field) throw new ConvexError(`There's no field “${key}”.`);
 		if (field.multiple && (sort || where?.gte !== undefined || where?.lte !== undefined))
 			throw new ConvexError(`“${field.label}” holds several values, so it can only be matched exactly.`);
-		const at = (raw: unknown) => (raw === undefined ? undefined : indexValue(field, raw));
+		const currency = await currencyOf(ctx, member.workspaceId);
+		const at = (raw: unknown) => (raw === undefined ? undefined : indexValue(field, raw, currency));
 		const eq = at(where?.eq);
 		const gte = at(where?.gte);
 		const lte = at(where?.lte);
 
 		let rows: PaginationResult<Doc<"recordValues">>;
 		if (field.kind === "link") {
-			if (sort || eq === undefined) throw new ConvexError(`“${field.label}” can only be matched exactly.`);
-			if ((await ctx.db.get(eq as Id<"records">))?.archived) return empty();
+			const ref = eq?.ref as Id<"records"> | undefined;
+			if (sort || !ref) throw new ConvexError(`“${field.label}” can only be matched exactly.`);
+			if ((await ctx.db.get(ref))?.archived) return empty();
 			rows = await ctx.db
 				.query("recordValues")
-				.withIndex("by_ref", (q) => q.eq("ref", eq as Id<"records">).eq("fieldId", field._id))
+				.withIndex("by_ref", (q) => q.eq("ref", ref).eq("fieldId", field._id))
 				.order(order)
 				.paginate(opts);
-		} else if (["number", "currency", "checkbox"].includes(field.kind)) {
+		} else if (field.kind === "currency") {
+			// Amounts compare only within one currency: a filter picks one (the workspace's
+			// unless it names another), and sorting groups by currency code, then amount.
+			if (gte && lte && gte.str !== lte.str) throw new ConvexError("Compare amounts in one currency.");
+			const code = (eq ?? gte ?? lte)?.str;
+			rows = await ctx.db
+				.query("recordValues")
+				.withIndex("by_field_str", (q) => {
+					const f = q.eq("fieldId", field._id);
+					if (code === undefined) return f;
+					const c = f.eq("str", code);
+					if (eq) return c.eq("num", eq.num!);
+					const lo = gte ? c.gte("num", gte.num!) : c;
+					return lte ? lo.lte("num", lte.num!) : lo;
+				})
+				.order(order)
+				.paginate(opts);
+		} else if (field.kind === "number" || field.kind === "checkbox") {
 			rows = await ctx.db
 				.query("recordValues")
 				.withIndex("by_field_num", (q) => {
 					const f = q.eq("fieldId", field._id);
-					if (eq !== undefined) return f.eq("num", eq as number);
-					const lo = gte === undefined ? f : f.gte("num", gte as number);
-					return lte === undefined ? lo : lo.lte("num", lte as number);
+					if (eq) return f.eq("num", eq.num!);
+					const lo = gte ? f.gte("num", gte.num!) : f;
+					return lte ? lo.lte("num", lte.num!) : lo;
 				})
 				.order(order)
 				.paginate(opts);
@@ -108,15 +128,15 @@ export const list = query({
 				.query("recordValues")
 				.withIndex("by_field_str", (q) => {
 					const f = q.eq("fieldId", field._id);
-					if (eq !== undefined) return f.eq("str", eq as string);
-					const lo = gte === undefined ? f : f.gte("str", gte as string);
-					return lte === undefined ? lo : lo.lte("str", lte as string);
+					if (eq) return f.eq("str", eq.str!);
+					const lo = gte ? f.gte("str", gte.str!) : f;
+					return lte ? lo.lte("str", lte.str!) : lo;
 				})
 				.order(order)
 				.paginate(opts);
 		}
 		// Long text matches by a hash of its key, so check the value itself.
-		const wanted = where?.eq === undefined ? undefined : normalizeValue(toField(field), where.eq, "filter");
+		const wanted = where?.eq === undefined ? undefined : normalizeValue(toField(field), where.eq, "filter", currency);
 		const records = [];
 		for (const row of rows.page) {
 			const record = await ctx.db.get(row.recordId);
@@ -129,12 +149,12 @@ export const list = query({
 });
 
 /** What a filter value looks like in the index, so `where` uses the same rules as saving. */
-function indexValue(field: Doc<"recordFields">, raw: unknown) {
-	const result = normalizeValue({ ...toField(field), multiple: false }, raw, "filter");
+function indexValue(field: Doc<"recordFields">, raw: unknown, currency: string): { str?: string; num?: number; ref?: string } {
+	const result = normalizeValue({ ...toField(field), multiple: false }, raw, "filter", currency);
 	if ("error" in result) throw new ConvexError(result.error);
 	const [entry] = indexEntries(toField(field), result.value);
 	if (!entry) throw new ConvexError(`Pick a value for “${field.label}”.`);
-	return "str" in entry ? entry.str : "num" in entry ? entry.num : entry.ref;
+	return entry;
 }
 
 /** One record with its type and fields, or null if it isn't in your workspace. */

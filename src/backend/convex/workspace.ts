@@ -1,11 +1,11 @@
 import { fireEvent } from "./automations";
-import { DEFAULT_CURRENCY, can } from "@companybot/core";
+import { DEFAULT_CURRENCY, can, isCurrencyCode } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { type QueryCtx, mutation, query } from "./_generated/server";
 import { seedAgents } from "./agents";
-import { seedRecordTypes } from "./recordOps";
+import { fieldsOf, seedRecordTypes, typesOf } from "./recordOps";
 import { addToChat, ensureGeneral } from "./chatOps";
 import { checkVersion, getMember, nameOf, namesOf, normalizeEmail, requirePermission, timeZoneOf } from "./lib";
 import { forgetUserRules } from "./permissions";
@@ -169,19 +169,42 @@ async function isMemberEmail(ctx: QueryCtx, workspaceId: Id<"workspaces">, email
 	return false;
 }
 
+/** One index lookup per currency field: a workspace has few types and fields. */
+async function hasAmounts(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
+	for (const type of await typesOf(ctx, workspaceId)) {
+		for (const field of await fieldsOf(ctx, type._id)) {
+			if (field.kind !== "currency") continue;
+			const row = await ctx.db
+				.query("recordValues")
+				.withIndex("by_field_str", (q) => q.eq("fieldId", field._id))
+				.first();
+			if (row) return true;
+		}
+	}
+	return false;
+}
+
 /** Shared workspace settings. */
 export const settings = query({
 	args: {},
 	handler: async (ctx) => {
 		const member = await getMember(ctx);
 		const workspace = member && (await ctx.db.get(member.workspaceId));
-		return workspace
-			? { name: workspace.name, currency: workspace.currency ?? DEFAULT_CURRENCY, version: workspace.version ?? 0 }
-			: null;
+		if (!workspace) return null;
+		return {
+			name: workspace.name,
+			currency: workspace.currency ?? DEFAULT_CURRENCY,
+			/** Whether any live record has an amount, so the app can say they keep their currency. */
+			hasAmounts: await hasAmounts(ctx, workspace._id),
+			version: workspace.version ?? 0,
+		};
 	},
 });
 
-/** `currency` (an ISO 4217 code) is optional so apps from before it keep working. Amounts aren't converted. */
+/**
+ * `currency` (ISO 4217) is the default for new amounts. Existing amounts keep their own
+ * currency. Optional, so apps from before it keep working.
+ */
 export const updateSettings = mutation({
 	args: { name: v.string(), currency: v.optional(v.string()), expectedVersion: v.number() },
 	handler: async (ctx, { name, currency, expectedVersion }) => {
@@ -190,7 +213,7 @@ export const updateSettings = mutation({
 		checkVersion(workspace.version ?? 0, expectedVersion);
 		if (!name.trim()) throw new ConvexError("Name can't be empty.");
 		currency = currency?.trim().toUpperCase();
-		if (currency !== undefined && !/^[A-Z]{3}$/.test(currency)) throw new ConvexError("Pick a currency code like USD.");
+		if (currency !== undefined && !isCurrencyCode(currency)) throw new ConvexError("Pick a currency code like USD.");
 		await ctx.db.patch(workspaceId, { name: name.trim(), ...(currency && { currency }), version: (workspace.version ?? 0) + 1 });
 	},
 });

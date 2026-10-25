@@ -5,10 +5,18 @@ The CRM half: records (clients, deals, tasks, calls…), their fields, links, an
 ## Model
 - **Record type** (`recordTypes`) — a kind of record: Client, Deal, Task, Call, or one an owner adds ("Job"). Built-ins come from `recordTypeCatalog`, seeded per workspace (`seedRecordTypes`: `workspace.ensure`, and migration `recordTypes` for older workspaces).
 - **Field** (`recordFields`) — one piece of info on a type: built-in ("Stage") or added ("Roof type"). Kinds: text, number, currency, date, checkbox, choice, email, phone, url, user (a teammate), link (another record). Choice, user and link can hold several (`multiple`). Every type has `name`, the record's title.
-- **Record** (`records`) — `values`: field key → value. Keys come from the label once ("Roof type" → `roof_type`) and never change, so renames are free. Empty values (and unchecked boxes) aren't stored. Dates are `YYYY-MM-DD`; currency is whole cents in the workspace's currency (`workspaces.currency`, default USD; changing it doesn't convert amounts); choices store the option's id, so renaming an option changes nothing.
+- **Record** (`records`) — `values`: field key → value. Keys come from the label once ("Roof type" → `roof_type`) and never change, so renames are free. Empty values (and unchecked boxes) aren't stored. Dates are `YYYY-MM-DD`; currency is `{ cents, currency }` (see Money); choices store the option's id, so renaming an option changes nothing.
 - **Index** (`recordValues`) — one row per value of a live record: text and ids in `str`, numbers in `num`, links in `ref`. Lists filter and sort through it; never read for display. Text is case-insensitive: up to 100 chars it's its own key; longer, its first 80 chars plus a hash of the whole, so sorting goes by the first 80 and exact matches are re-checked against the value.
 - **History** (`recordHistory`) — every change to a record or field: action, each value's old → new, `userId`, and `agentId` when an agent did it for that person. Feeds a record's history and Settings → Activity (`records.activity`).
 - **Mentions** (`recordMentions`) — a chat message that references a record (`messages.send` → `mentions.recordIds`). `records.discussion` lists the ones you can see.
+
+## Money
+- **Every amount carries its own currency** (ISO 4217), like Stripe and HubSpot: `{ cents: 10000, currency: "USD" }`. `cents` is the amount × 100 for every currency (¥100 is 10000); display rounds to the currency's own decimals. Three-decimal currencies (KWD, BHD…) keep only two.
+- **The workspace's currency** (`workspaces.currency`, default USD; Settings → General, owners) is only the default for new amounts, and later for totals and reports. Changing it never touches existing amounts: $100 stays $100. The app warns first if amounts exist ("Existing amounts stay in USD. New amounts will use EUR.").
+- **Input:** `1250.50`, `"$1,250.50"` or `{ amount }` use the workspace's currency; `"EUR 12.50"`, `"12.50 EUR"` or `{ amount, currency }` name their own. Rounds the exact decimal, half away from zero; must stay within safe integers.
+- **Comparing:** amounts compare only within one currency. Index rows are `str` = code, `num` = cents, so sorting groups by currency code, then amount. A filter picks one currency: the workspace's, unless its value names another (`gte: "USD 0"`); a range mixing currencies is refused.
+- History and undo store the whole value, so the currency comes back with it.
+- **Later:** exchange-rate conversion (totals across currencies, "sort by value in EUR"), and per-currency decimals.
 
 ## Why one generic records table
 Separate tables per type (Night Owl's way) means a migration for every new type or field, five copies of "who changed what", and agent tools per table. One table with type definitions gives one API, one history, one index, one set of agent tools for every type, and new types/fields are rows.
@@ -37,7 +45,7 @@ Separate tables per type (Night Owl's way) means a migration for every new type 
 **`fields`** `create({ typeId, label, kind, options?, linkTypeId?, multiple? })` → field with its `key`. `update({ fieldId, label?, options? })` (send all options; keep `id`s to keep values). `archive` / `restore({ fieldId })`.
 
 **`records`**
-- `list({ typeId, archived?, sort?: { field, order }, where?: { field, eq?, gte?, lte? }, paginationOpts })` — `sort.field` is `createdAt`, `updatedAt` or a field key. Fields holding several values take `eq` only, so a record never repeats across pages. Currency filters are in whole units. Rows: `{ _id, typeId, title, values, archived, updatedAt, refs, unresolved }`; `refs` maps user and record ids in `values` to `{ name, archived? }`.
+- `list({ typeId, archived?, sort?: { field, order }, where?: { field, eq?, gte?, lte? }, paginationOpts })` — `sort.field` is `createdAt`, `updatedAt` or a field key. Fields holding several values take `eq` only, so a record never repeats across pages. Currency filters are in whole units, in one currency (see Money). Rows: `{ _id, typeId, title, values, archived, updatedAt, refs, unresolved }`; `refs` maps user and record ids in `values` to `{ name, archived? }`.
 - `refs({ ids })` — names for up to 200 `unresolved` ids.
 - `get({ recordId })` → row + `type` + live `fields`, or null.
 - `linked({ recordId, fieldId?, paginationOpts })` — records linking here ("deals for this client").
@@ -51,5 +59,5 @@ Separate tables per type (Night Owl's way) means a migration for every new type 
 - A record's own discussion thread; today its discussion is the messages that reference it.
 - Counts per type (needs the Convex aggregate component; counting would scan).
 - Per-type access by role; required fields; filters on two fields at once; sorting that includes empty values.
-- A currency picker in Settings (`workspace.updateSettings` takes `currency`).
+- Exchange rates (see Money).
 - Contacts (people at a client) as their own type, linked to clients.

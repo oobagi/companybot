@@ -277,7 +277,7 @@ describe("permissions", () => {
 
 describe("records", () => {
 	const field = (kind: Field["kind"], extra: Partial<Field> = {}): Field => ({ key: "f", label: "F", kind, ...extra });
-	const value = (f: Field, raw: unknown, mode?: ValueMode) => normalizeValue(f, raw, mode);
+	const value = (f: Field, raw: unknown, mode?: ValueMode, currency?: string) => normalizeValue(f, raw, mode, currency);
 
 	it("makes keys from labels that are safe, stable and unique", () => {
 		expect(keyOf("Roof type", [])).toBe("roof_type");
@@ -318,18 +318,27 @@ describe("records", () => {
 		expect(value({ ...stage, multiple: true }, [])).toEqual({ value: null });
 	});
 
-	it("stores currency as whole cents, rounding the exact decimal", () => {
+	it("stores each amount in cents with its own currency, rounding the exact decimal", () => {
 		const money = field("currency");
-		expect(value(money, 1.005)).toEqual({ value: 101 });
-		expect(value(money, "$1,250.50")).toEqual({ value: 125050 });
-		expect(value(money, "-1.005")).toEqual({ value: -101 });
-		expect(value(money, ".5")).toEqual({ value: 50 });
-		expect(value(money, 19.994)).toEqual({ value: 1999 });
+		const usd = (cents: number) => ({ value: { cents, currency: "USD" } });
+		expect(value(money, 1.005)).toEqual(usd(101));
+		expect(value(money, "$1,250.50")).toEqual(usd(125050));
+		expect(value(money, "-1.005")).toEqual(usd(-101));
+		expect(value(money, ".5")).toEqual(usd(50));
+		expect(value(money, 19.994)).toEqual(usd(1999));
 		expect(value(money, Number.MAX_VALUE)).toHaveProperty("error");
 		expect(value(money, "90071992547409.92")).toHaveProperty("error");
 		expect(value(money, "abc")).toHaveProperty("error");
-		expect(value(money, 101, "stored")).toEqual({ value: 101 });
-		expect(value(money, 1.5, "stored")).toHaveProperty("error");
+		// The workspace's currency is only the default; a code in the input wins.
+		expect(value(money, 12, "input", "EUR")).toEqual({ value: { cents: 1200, currency: "EUR" } });
+		expect(value(money, "€12.50 eur")).toEqual({ value: { cents: 1250, currency: "EUR" } });
+		expect(value(money, "JPY 100", "input", "EUR")).toEqual({ value: { cents: 10000, currency: "JPY" } });
+		expect(value(money, { amount: "3.10", currency: "gbp" })).toEqual({ value: { cents: 310, currency: "GBP" } });
+		expect(value(money, "XYZ 10")).toEqual({ error: "“F” needs a currency code like USD or EUR." });
+		// Stored values come back as they were, currency included.
+		expect(value(money, { cents: 101, currency: "EUR" }, "stored", "USD")).toEqual({ value: { cents: 101, currency: "EUR" } });
+		expect(value(money, 101, "stored")).toHaveProperty("error");
+		expect(value(money, { cents: 1.5, currency: "USD" }, "stored")).toHaveProperty("error");
 	});
 
 	it("can't set retired options, but can filter by them", () => {
@@ -348,7 +357,7 @@ describe("records", () => {
 		expect(indexEntries(field("text"), `${long}Two`)).not.toEqual([a]);
 		expect(indexEntries(field("text"), "Acme ROOFING")).toEqual([{ str: "acme roofing" }]);
 		expect(indexEntries(field("phone"), "(555) 123-4567")).toEqual([{ str: "5551234567" }]);
-		expect(indexEntries(field("currency"), 12.5)).toEqual([{ num: 12.5 }]);
+		expect(indexEntries(field("currency"), { cents: 1250, currency: "EUR" })).toEqual([{ str: "EUR", num: 1250 }]);
 		expect(indexEntries(field("link", { multiple: true }), ["a", "b"])).toEqual([{ ref: "a" }, { ref: "b" }]);
 		expect(indexEntries(field("text"), undefined)).toEqual([]);
 	});

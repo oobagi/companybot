@@ -1,5 +1,6 @@
 import {
 	FIELDS_PER_TYPE_MAX,
+	DEFAULT_CURRENCY,
 	type Field,
 	type FieldConfig,
 	type FieldValue,
@@ -86,6 +87,10 @@ async function logChange(ctx: MutationCtx, who: Who, entry: Omit<Doc<"recordHist
 
 // ---- Records ----
 
+/** The workspace's currency: the default for new amounts, never applied to existing ones. */
+export const currencyOf = async (ctx: QueryCtx, workspaceId: Id<"workspaces">) =>
+	(await ctx.db.get(workspaceId))?.currency ?? DEFAULT_CURRENCY;
+
 /**
  * Checks values (field key → value; null clears) against the fields, options, people and
  * records as they are now, and returns what to store. Every write goes through here, undo included.
@@ -98,11 +103,12 @@ async function normalizeInput(
 	mode: ValueMode = "input",
 ) {
 	const byKey = new Map(fields.map((f) => [f.key, f]));
+	const currency = await currencyOf(ctx, member.workspaceId);
 	const out: Record<string, FieldValue | null> = {};
 	for (const [key, raw] of Object.entries(input)) {
 		const field = byKey.get(key);
 		if (!field || field.archived) throw new ConvexError(`There's no field “${key}”.`);
-		const result = normalizeValue(toField(field), raw, mode);
+		const result = normalizeValue(toField(field), raw, mode, currency);
 		if ("error" in result) throw new ConvexError(result.error);
 		const ids = result.value === null ? [] : [result.value].flat().map(String);
 		for (const id of field.kind === "user" ? ids : []) {
