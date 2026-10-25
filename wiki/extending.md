@@ -22,7 +22,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 - Access = installed + role allowed (`connectorInstalls.roles`) + connected. Checked fresh each turn (`connectors.forTurn`).
 - Auth: `none`, `api_key` (pasted in), or `oauth` (MCP OAuth: discovery, dynamic client registration, PKCE, refresh — all via `@ai-sdk/mcp`). OAuth flow: `connectors.startOAuth` → browser → `GET /oauth/callback` (`backend/convex/oauth.ts`) → `saveConnection`. State lives in `OAuthState` (`core/src/oauth.ts`), encrypted like any credentials. The runner saves refreshed tokens after each turn.
 - Connector results keep structure (`structuredContent`, or JSON text) so widgets can show them by ref.
-- Writes need approval: connector tools without `readOnlyHint` wait for a yes in the chat (see Approvals). Not built yet: per-tool policy, pre-registered OAuth clients (servers without dynamic registration).
+- Writes need approval: connector tools without `readOnlyHint` wait for a yes in the chat (see Approvals). Not built yet: per-tool policy (planned in [Permissions](permissions.md)), pre-registered OAuth clients (servers without dynamic registration).
 - Test with `fakeMcpServer` (`core/src/test-mcp-server.ts`), or push a test connector into `connectorCatalog` (see backend tests).
 
 ## Approvals — `core/src/approvals.ts`, `backend/convex/approvals.ts`
