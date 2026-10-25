@@ -17,7 +17,7 @@ import {
 	textForModel,
 	toggleReaction,
 } from "./chatOps";
-import { type Member, installedSkills, memberOf, timeZoneOf } from "./lib";
+import { type Member, type Who, installedSkills, memberOf, timeZoneOf } from "./lib";
 import { messagePart, replyUsage } from "./schema";
 
 // The agent turn queue and everything the runner (agent.ts) reads and writes.
@@ -126,7 +126,14 @@ export async function runningTurn(ctx: QueryCtx, turnId: Id<"agentTurns">) {
 	if (member?.workspaceId !== turn.workspaceId) throw new Error("This person is no longer in the workspace.");
 	const chat = await ctx.db.get(turn.chatId);
 	if (!chat || !(await canSee(ctx, chat, member))) throw new Error("This person can no longer see this chat.");
-	return { turn: turn as Doc<"agentTurns"> & { replyId: Id<"chatMessages">; sessionId: Id<"agentSessions"> }, member, chat };
+	const who: Who = { member, agentId: turn.agentId };
+	return { turn: turn as Doc<"agentTurns"> & { replyId: Id<"chatMessages">; sessionId: Id<"agentSessions"> }, member, chat, who };
+}
+
+/** Personal memories only in a DM with exactly one person; anywhere else, team memories only (wiki/chat.md). */
+export async function personalMemoryHere(ctx: QueryCtx, chat: Doc<"chats">) {
+	if (chat.kind !== "dm") return false;
+	return (await chatMembersOf(ctx, chat._id)).filter((r) => r.userId).length === 1;
 }
 
 /**
@@ -177,7 +184,6 @@ export const turnContext = internalQuery({
 
 		const parent = turn.threadId && (await ctx.db.get(turn.threadId));
 		const rows = await chatMembersOf(ctx, chat._id);
-		const people = rows.filter((r) => r.userId).length;
 		const user = await ctx.db.get(member.userId);
 		return {
 			replyId: turn.replyId,
@@ -185,8 +191,8 @@ export const turnContext = internalQuery({
 			agent: { id: agent._id, name: agent.name, instructions: agent.instructions, model: agent.model, tools: agent.tools },
 			skills: await installedSkills(ctx, chat.workspaceId),
 			session: { id: session._id, summary: session.summary ?? null, turns },
-			/** Personal memories only in a DM with exactly one person. */
-			memory: chat.kind === "dm" && people === 1 ? ("personal" as const) : ("team" as const),
+			/** Personal memories only in a DM with exactly one person. memory.ts checks again on every call. */
+			memory: (await personalMemoryHere(ctx, chat)) ? ("personal" as const) : ("team" as const),
 			actor: {
 				name: (await names.user(member.userId)).name,
 				email: user?.email ?? "",

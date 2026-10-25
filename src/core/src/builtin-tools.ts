@@ -20,12 +20,8 @@ export const builtinTools: ToolDef[] = [
 		input: z.object({ query: z.string().describe("Words to match; empty for all") }),
 		readOnly: true,
 		returnsData: true,
-		async execute({ query }, { actor, memory }) {
-			const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-			const all = await memory.list(actor);
-			return all
-				.filter((m) => words.every((w) => m.content.toLowerCase().includes(w)))
-				.map(({ id, scope, content }) => ({ id, scope, content }));
+		async execute({ query }, { memory }) {
+			return (await memory.search(query)).map(({ id, scope, content }) => ({ id, scope, content }));
 		},
 	}),
 	defineTool({
@@ -33,8 +29,8 @@ export const builtinTools: ToolDef[] = [
 		title: "Remember",
 		description: "Save a personal memory for the current person only.",
 		input: z.object({ content: z.string() }),
-		async execute({ content }, { actor, memory }) {
-			const saved = await memory.create(actor, { scope: "personal", content });
+		async execute({ content }, { memory }) {
+			const saved = await memory.create({ scope: "personal", content });
 			return { saved: saved.id };
 		},
 	}),
@@ -44,8 +40,8 @@ export const builtinTools: ToolDef[] = [
 		description: "Save a memory the whole workspace can see.",
 		input: z.object({ content: z.string() }),
 		permission: "memory.team.write",
-		async execute({ content }, { actor, memory }) {
-			const saved = await memory.create(actor, { scope: "workspace", content });
+		async execute({ content }, { memory }) {
+			const saved = await memory.create({ scope: "workspace", content });
 			return { saved: saved.id };
 		},
 	}),
@@ -54,8 +50,8 @@ export const builtinTools: ToolDef[] = [
 		title: "Update a memory",
 		description: "Correct a memory you found with memory_search. Replaces its content.",
 		input: z.object({ id: z.string(), content: z.string() }),
-		async execute({ id, content }, { actor, memory }) {
-			const saved = await memory.update(actor, id, content);
+		async execute({ id, content }, { memory }) {
+			const saved = await memory.update(id, content);
 			return { updated: saved.id };
 		},
 	}),
@@ -64,8 +60,8 @@ export const builtinTools: ToolDef[] = [
 		title: "Forget a memory",
 		description: "Delete a memory you found with memory_search, when it's wrong or the person asks you to forget it.",
 		input: z.object({ id: z.string() }),
-		async execute({ id }, { actor, memory }) {
-			await memory.remove(actor, id);
+		async execute({ id }, { memory }) {
+			await memory.remove(id);
 			return { forgotten: id };
 		},
 	}),

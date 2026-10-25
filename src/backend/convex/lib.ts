@@ -21,6 +21,15 @@ export interface Member {
 
 export const toActor = (m: Member): Actor => ({ userId: m.userId, role: m.role });
 
+/**
+ * Who's acting: a member, or an agent acting for one (its `agentId` set). Every change an
+ * agent makes goes through the same functions as the app, with this.
+ */
+export interface Who {
+	member: Member;
+	agentId?: Id<"agents">;
+}
+
 /** Reads membership fresh, so role changes and removals apply right away (even mid-reply). */
 export async function memberOf(ctx: QueryCtx, userId: Id<"users">): Promise<Member | null> {
 	const row = await ctx.db
