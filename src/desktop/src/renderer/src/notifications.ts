@@ -45,9 +45,12 @@ export function useAlerts() {
 	}, [alerts]);
 }
 
-/** Opens the alert's workspace if another is open (the gate checks you're still in it), then its chat. */
+/**
+ * Opens the alert's workspace, then its chat. Always through `open` (App.tsx's gate, which
+ * outlives workspace switches and checks you're still in it): a notification can outlive the
+ * screen that showed it, so its idea of which workspace is open may be stale.
+ */
 export function openAlert(alert: { workspaceId: Id<"workspaces">; chatId: Id<"chats"> }, workspace: OpenWorkspace | null) {
-	if (!workspace) return;
-	if (workspace.id !== alert.workspaceId && !workspace.open(alert.workspaceId)) return;
+	if (!workspace?.open(alert.workspaceId)) return;
 	navigate("chat", alert.chatId);
 }

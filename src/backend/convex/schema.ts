@@ -372,7 +372,7 @@ export default defineSchema({
 		at: v.number(),
 	})
 		.index("by_user_chat", ["userId", "chatId", "at"])
-		.index("by_message", ["messageId"]),
+		.index("by_message", ["messageId", "userId"]),
 
 	// Queue of agent replies. One `running` per agent per place (chat + thread); the rest wait.
 	agentTurns: defineTable({
