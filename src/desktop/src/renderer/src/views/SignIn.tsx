@@ -34,6 +34,8 @@ export function SignIn() {
 				onSubmit={(e) => {
 					e.preventDefault();
 					const to = email.trim();
+					// The browser accepts "jaden@c"; a cut-off address would sign in as a new, wrong person.
+					if (!sentTo && !/^\S+@\S+\.\S+$/.test(to)) return setError("Enter your full email address.");
 					if (sentTo) run({ email: sentTo, code: code.trim() });
 					else if (isLocalBackend(import.meta.env.CONVEX_URL)) {
 						// Local backend: no email is sent, so read the code back and sign straight in.

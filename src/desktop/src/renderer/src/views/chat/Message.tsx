@@ -1,3 +1,4 @@
+import { actionLabel, toolLine } from "@companybot/core/approvals";
 import { useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache";
 import { Fragment, useState } from "react";
@@ -234,12 +235,13 @@ function AgentBody({ message }: { message: Message }) {
 
 type ToolPart = Extract<Message["fullParts"][number], { type: "tool" }>;
 
-/** "Used memory_create"; click to see what went in and came out (from the activity log). */
+/** "Sent SMS with Fake CRM"; click to see what went in and came out (from the activity log). */
 function ToolPart({ replyId, part }: { replyId: Message["_id"]; part: ToolPart }) {
 	const [open, setOpen] = useState(false);
 	const calls = useQuery(api.activity.forReply, open ? { replyId } : "skip");
 	const call = calls?.find((c) => c.callId === part.id);
-	const label = `${part.status === "running" ? "Using" : part.status === "error" ? "Failed" : "Used"} ${part.name}`;
+	// Replies from before tool lines had labels: make one from the name.
+	const label = toolLine(part.label ?? (part.name === "connectors_search" ? "Look up connected actions" : actionLabel(part.name)), part.status);
 	return (
 		<div className="flex flex-col gap-1.5">
 			<button

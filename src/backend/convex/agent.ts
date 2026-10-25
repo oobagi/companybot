@@ -13,6 +13,7 @@ import {
 	CONNECTOR_CALL,
 	addStep,
 	calledConnectorTool,
+	callLabel,
 	clipJson,
 	describeCall,
 	buildToolSet,
@@ -125,7 +126,12 @@ export const refreshTools = action({
 /** Keeps each connector's listed actions current for settings (permissions.saveTools; display only). */
 async function saveTools(ctx: ActionCtx, workspaceId: Id<"workspaces">, connectors: LoadedConnectors) {
 	for (const s of connectors.sessions) {
-		const tools = s.tools.map((t) => ({ name: t.id.slice(s.connector.id.length + 1), description: t.description, risk: toolRisk(t) }));
+		const tools = s.tools.map((t) => ({
+			name: t.id.slice(s.connector.id.length + 1),
+			...(t.title && { title: t.title }),
+			description: t.description,
+			risk: toolRisk(t),
+		}));
 		await ctx.runMutation(internal.permissions.saveTools, { workspaceId, connectorId: s.connector.id, tools });
 	}
 }
@@ -212,6 +218,7 @@ async function streamReply(
 	// Connector tools sorted by id, so the tool list is identical every turn and caches.
 	const connectorTools = connectors.sessions.flatMap((s) => s.tools).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 	const available = [...builtinTools, ...connectorTools];
+	const services = connectors.sessions.map((s) => s.connector);
 	const toolCtx: ToolContext = {
 		actor: { userId: member.userId, role: member.role },
 		timeZone: turn.actor.timeZone,
@@ -257,7 +264,7 @@ async function streamReply(
 	const setTool = (id: string, name: string, status: "running" | "done" | "error") => {
 		const existing = parts.find((p) => p.type === "tool" && p.id === id);
 		if (existing?.type === "tool") existing.status = status;
-		else parts.push({ type: "tool", id, name, status });
+		else parts.push({ type: "tool", id, name, label: callLabel(name, available, services), status });
 	};
 
 	// A turn after an approval runs the approved call first, so its outcome goes in the prompt.

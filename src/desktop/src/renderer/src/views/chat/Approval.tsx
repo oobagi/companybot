@@ -1,3 +1,4 @@
+import { readableValue } from "@companybot/core/approvals";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache";
@@ -64,14 +65,24 @@ function ApprovalCard({ part, approval }: { part: ApprovalPart; approval: Approv
 				</div>
 				{approval ? raw ? <Raw text={pretty(approval.input)} /> : <Fields input={approval.input} /> : <p className="text-sm text-neutral-400">Loading…</p>}
 			</div>
-			{approval && <Status approval={approval} busy={busy} onDecide={send} />}
+			{approval && <Status approval={approval} busy={busy} raw={raw} onDecide={send} />}
 			{error && <Notice>{error}</Notice>}
 		</div>
 	);
 }
 
-function Status({ approval, busy, onDecide }: { approval: Approval; busy: boolean; onDecide: (approve: boolean, always?: boolean) => void }) {
-	const lock = <span title={`SHA-256 ${approval.hash}`}>Locked to this exact content</span>;
+/** `raw`: the card's Raw toggle, which also shows what the call returned (the agent's reply says it in words). */
+function Status({
+	approval,
+	busy,
+	raw,
+	onDecide,
+}: {
+	approval: Approval;
+	busy: boolean;
+	raw: boolean;
+	onDecide: (approve: boolean, always?: boolean) => void;
+}) {
 	const by = approval.always ? `Always allowed by ${approval.approver}` : `Allowed once by ${approval.approver}`;
 	switch (approval.status) {
 		case "pending":
@@ -91,13 +102,13 @@ function Status({ approval, busy, onDecide }: { approval: Approval; busy: boolea
 						</button>
 					</div>
 					{/* Said plainly, so nobody reads "always" as "still ask me at key steps". */}
-					<p className="text-xs text-neutral-500">
-						{approval.alwaysText ?? "This action asks every time."} · {lock} · expires {timeAgo(approval.expiresAt)}
+					<p className="text-xs text-neutral-500" title={`Locked to this exact content (SHA-256 ${approval.hash})`}>
+						{approval.alwaysText ?? "This action asks every time."} Expires {timeAgo(approval.expiresAt)}.
 					</p>
 				</div>
 			) : (
 				<p className="text-xs text-neutral-500">
-					Waiting for {approval.approver}. The agent is acting for them, so only they can answer. · {lock}
+					Waiting for {approval.approver}. The agent is acting for them, so only they can answer.
 				</p>
 			);
 		case "approved":
@@ -107,7 +118,7 @@ function Status({ approval, busy, onDecide }: { approval: Approval; busy: boolea
 			return (
 				<div className="flex flex-col gap-1.5">
 					<p className="text-xs text-emerald-700">{by} · done</p>
-					{approval.result !== null && <Raw text={approval.result} />}
+					{raw && approval.result !== null && <Raw text={approval.result} />}
 				</div>
 			);
 		case "failed":
@@ -119,7 +130,7 @@ function Status({ approval, busy, onDecide }: { approval: Approval; busy: boolea
 	}
 }
 
-/** Top-level fields, each in full: text as written, anything else as JSON. */
+/** Top-level fields, each in full: text as written (phone numbers laid out), numbers plain, anything else as JSON. */
 function Fields({ input }: { input: string }) {
 	const value: unknown = JSON.parse(input);
 	if (!value || typeof value !== "object" || Array.isArray(value)) return <Raw text={pretty(input)} />;
@@ -131,7 +142,13 @@ function Fields({ input }: { input: string }) {
 				<div key={key} className="contents">
 					<dt className="text-neutral-500">{key}</dt>
 					<dd className="min-w-0 break-words whitespace-pre-wrap text-neutral-900">
-						{typeof v === "string" ? v : <code className="text-xs">{JSON.stringify(v, null, 2)}</code>}
+						{typeof v === "string" ? (
+							readableValue(v)
+						) : typeof v === "number" || typeof v === "boolean" ? (
+							v.toLocaleString()
+						) : (
+							<code className="text-xs">{JSON.stringify(v, null, 2)}</code>
+						)}
 					</dd>
 				</div>
 			))}

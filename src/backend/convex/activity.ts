@@ -1,8 +1,10 @@
+import { actionLabel, findConnector, toolGroup } from "@companybot/core";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, query } from "./_generated/server";
 import { type Namer, canSee, chatLabel, namer } from "./chatOps";
 import { type Member, getMember } from "./lib";
+import { titleOf } from "./permissions";
 import { allowedHow } from "./schema";
 
 // The activity log: every tool call an agent made, with its input and output.
@@ -95,6 +97,7 @@ async function visibleLabel(ctx: QueryCtx, chatId: Id<"chats">, member: Member, 
 
 async function toEntry(ctx: QueryCtx, row: Doc<"agentActivity">, member: Member, names: Namer) {
 	const mine = row.actorId === member.userId;
+	const connector = row.tool.includes(".") ? findConnector(toolGroup(row.tool)) : undefined;
 	return {
 		_id: row._id,
 		time: row._creationTime,
@@ -105,6 +108,8 @@ async function toEntry(ctx: QueryCtx, row: Doc<"agentActivity">, member: Member,
 		replyId: row.replyId,
 		callId: row.callId,
 		tool: row.tool,
+		/** What it did, for people: "Send SMS with Fake CRM" (the same words as its tool line). */
+		label: `${actionLabel(row.tool, await titleOf(ctx, row.workspaceId, row.tool))}${connector ? ` with ${connector.name}` : ""}`,
 		changes: row.changes,
 		status: row.status,
 		input: row.input,
