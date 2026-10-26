@@ -31,7 +31,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
 import { mutation, query } from "./functions";
-import { addToChat, canSee, findOrCreateDm, insertMessage } from "./chatOps";
+import { addToChat, canSee, channelNamed, findOrCreateDm, insertMessage } from "./chatOps";
 import {
 	type Member,
 	asToolResult,
@@ -613,16 +613,6 @@ export const forgetOldWebhooks = internalMutation({
 });
 
 // ---- Agent tools (core's AutomationStore), acting as the turn's person ----
-
-/** A channel by name ("#sales" or "sales") that the person can see. */
-async function channelNamed(ctx: QueryCtx, member: Member, name: string) {
-	const clean = name.trim().replace(/^#/, "").toLowerCase();
-	const chat = await ctx.db
-		.query("chats")
-		.withIndex("by_name", (q) => q.eq("workspaceId", member.workspaceId).eq("name", clean))
-		.first();
-	return chat && chat.kind === "channel" && !chat.archived && (await canSee(ctx, chat, member)) ? chat : null;
-}
 
 export const listFor = internalQuery({
 	args: { turnId: v.id("agentTurns") },

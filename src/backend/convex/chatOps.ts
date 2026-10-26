@@ -53,6 +53,16 @@ export async function canSee(ctx: QueryCtx, chat: Doc<"chats">, member: Member) 
 	return !!(await membership(ctx, chat._id, member.userId));
 }
 
+/** A channel by name ("#sales" or "sales") that the person can see. */
+export async function channelNamed(ctx: QueryCtx, member: Member, name: string) {
+	const clean = name.trim().replace(/^#/, "").toLowerCase();
+	const chat = await ctx.db
+		.query("chats")
+		.withIndex("by_name", (q) => q.eq("workspaceId", member.workspaceId).eq("name", clean))
+		.first();
+	return chat && chat.kind === "channel" && !chat.archived && (await canSee(ctx, chat, member)) ? chat : null;
+}
+
 /** You and the chat, if you can see it. For queries, which show nothing rather than fail. */
 export async function visibleChat(ctx: QueryCtx, chatId: Id<"chats">) {
 	const member = await getMember(ctx);

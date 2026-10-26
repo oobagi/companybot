@@ -7,6 +7,7 @@ import { type MutationCtx, type QueryCtx, internalMutation, internalQuery } from
 import {
 	type Namer,
 	canSee,
+	channelNamed,
 	chatLabel,
 	chatMembersOf,
 	insertMessage,
@@ -17,7 +18,7 @@ import {
 	textForModel,
 	toggleReaction,
 } from "./chatOps";
-import { type Member, type Who, installedSkills, memberOf, timeZoneOf } from "./lib";
+import { type Who, installedSkills, memberOf, timeZoneOf } from "./lib";
 import { messagePart, replyUsage } from "./schema";
 
 // The agent turn queue and everything the runner (agent.ts) reads and writes.
@@ -356,15 +357,6 @@ export const reactFor = internalMutation({
 	},
 });
 
-/** A channel by name ("#sales"), if the person can see it. */
-async function channelNamed(ctx: QueryCtx, member: Member, name: string) {
-	const chat = await ctx.db
-		.query("chats")
-		.withIndex("by_name", (q) => q.eq("workspaceId", member.workspaceId).eq("name", normalizeChannelName(name)))
-		.first();
-	return chat && !chat.archived && (await canSee(ctx, chat, member)) ? chat : null;
-}
-
 async function toLine(ctx: QueryCtx, m: Doc<"chatMessages">, names: Namer, label: string): Promise<ChatLine> {
 	const author = (await names.of(m)).name;
 	const reactions = new Map<string, string[]>();
@@ -402,7 +394,7 @@ export const readFor = internalQuery({
 			if (!message || !chat || !(await canSee(ctx, chat, member))) return { error: `No message "${args.threadOf}" you can see.` };
 			threadId = message.threadId ?? message._id;
 		} else if (args.chat) {
-			chat = await channelNamed(ctx, member, args.chat);
+			chat = await channelNamed(ctx, member, normalizeChannelName(args.chat));
 			if (!chat) return { error: `No channel "${args.chat}" you can see.` };
 		}
 		const before = args.before ? Date.parse(args.before) : Number.POSITIVE_INFINITY;
@@ -431,7 +423,7 @@ export const searchFor = internalQuery({
 		const { turn, member } = await runningTurn(ctx, args.turnId);
 		let chatId: Id<"chats"> | undefined;
 		if (args.chat) {
-			const chat = await channelNamed(ctx, member, args.chat);
+			const chat = await channelNamed(ctx, member, normalizeChannelName(args.chat));
 			if (!chat) return { error: `No channel "${args.chat}" you can see.` };
 			chatId = chat._id;
 		}
