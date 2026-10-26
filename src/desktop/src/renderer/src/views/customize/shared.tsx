@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import { navigate } from "../../router";
-import { ConflictNotice, Loading, Notice, Page, SaveBar, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
+import { ConflictNotice, Loading, Notice, Page, SaveBar, Section, descriptionClass, disabledButtonClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
 
 export const customizeTabs = [
 	{ id: "agents", label: "Agents" },
@@ -14,6 +14,30 @@ export type CustomizeTab = (typeof customizeTabs)[number]["id"];
 type MadeTab = "skills" | "automations";
 
 const tabLabel = (tab: CustomizeTab) => customizeTabs.find((t) => t.id === tab)!.label;
+
+/** The shared library layout; screens keep their own cards and install behavior. */
+export function LibraryList<T extends { custom: unknown }>({
+	items, description, action, error, card,
+}: {
+	items: T[];
+	description: string;
+	action: React.ReactNode;
+	error?: string;
+	card: (item: T) => React.ReactNode;
+}) {
+	const ours = items.filter((item) => item.custom);
+	return (
+		<>
+			<div className="flex items-start justify-between gap-4">
+				<p className={descriptionClass}>{description}</p>
+				{action}
+			</div>
+			{error && <Notice>{error}</Notice>}
+			{ours.length > 0 && <Section title="Made by your team"><div className="flex flex-col gap-3">{ours.map(card)}</div></Section>}
+			<Section title="Library"><div className="flex flex-col gap-3">{items.filter((item) => !item.custom).map(card)}</div></Section>
+		</>
+	);
+}
 
 /** A library item. Click to open its detail page; the button, if any, installs or removes it. */
 export function Card(props: {
@@ -42,8 +66,8 @@ export function Card(props: {
 				<h3 className="font-medium">
 					{props.title} <span className="text-xs font-normal text-neutral-400">{props.meta}</span>
 				</h3>
-				<p className="line-clamp-2 text-sm text-neutral-500">{props.description}</p>
-				{props.status && <p className="mt-1 text-xs text-neutral-400">{props.status}</p>}
+				<p className={`line-clamp-2 ${descriptionClass}`}>{props.description}</p>
+				{props.status && <p className={`mt-1 ${metadataClass}`}>{props.status}</p>}
 			</div>
 			{props.action}
 			{props.onToggle && (
@@ -75,7 +99,7 @@ function InstallButton({
 			disabled={!canManage}
 			title={canManage ? (installed ? "Remove" : undefined) : "Only owners can install"}
 			onClick={onToggle}
-			className={`shrink-0 rounded-full px-3 py-1 text-sm disabled:opacity-50 ${
+			className={`shrink-0 rounded-full px-3 py-1 text-sm ${disabledButtonClass} ${
 				installed ? "border border-neutral-200 text-neutral-600" : "bg-neutral-900 text-white"
 			}`}
 		>
@@ -180,7 +204,7 @@ export function MadeItemDetail<T>({
 				canEdit && (
 					<button
 						type="button"
-						className="text-sm text-neutral-500 hover:text-neutral-900"
+						className={`${descriptionClass} hover:text-neutral-900`}
 						onClick={() => confirm(`Delete "${name}"? ${deleteWarning}`) && run(onDelete(), () => navigate("customize", tab))}
 					>
 						Delete
@@ -190,7 +214,7 @@ export function MadeItemDetail<T>({
 		>
 			{draft.stale && <ConflictNotice who={custom.updatedByName} onDiscard={draft.discard} onKeep={draft.keepMine} />}
 			{error && <Notice>{error}</Notice>}
-			{!canEdit && <p className="text-sm text-neutral-500">Only the person who made it or an owner can change it.</p>}
+			{!canEdit && <p className={descriptionClass}>Only the person who made it or an owner can change it.</p>}
 			<fieldset disabled={!canEdit} className="flex flex-col gap-5">
 				{fields(draft.value, draft.set)}
 			</fieldset>
@@ -204,7 +228,7 @@ export function MadeItemDetail<T>({
 export function Missing({ tab, loaded }: { tab: CustomizeTab; loaded: boolean }) {
 	return (
 		<Page title={loaded ? "Not found" : ""} back={{ label: tabLabel(tab), to: ["customize", tab] }}>
-			{loaded ? <p className="text-sm text-neutral-500">It may have been deleted.</p> : <Loading />}
+			{loaded ? <p className={descriptionClass}>It may have been deleted.</p> : <Loading />}
 		</Page>
 	);
 }

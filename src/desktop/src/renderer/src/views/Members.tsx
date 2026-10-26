@@ -3,7 +3,7 @@ import { can } from "@companybot/core/permissions";
 import { useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
-import { Loading, Notice, inputClass, primaryButton, useRun } from "../ui";
+import { Loading, Notice, compactControlClass, descriptionClass, inputClass, metadataClass, primaryButton, useRun } from "../ui";
 
 export function MembersTab({ role }: { role: Role }) {
 	const team = useQuery(api.workspace.team);
@@ -23,11 +23,11 @@ export function MembersTab({ role }: { role: Role }) {
 
 	return (
 		<>
-			<p className="text-sm text-neutral-500">
+			<p className={descriptionClass}>
 				We email invited people a link to get the app. They join when they sign in with that email. Role changes apply right away.
 			</p>
 			{error && <Notice>{error}</Notice>}
-			{note && <p className="text-sm text-neutral-500">{note}</p>}
+			{note && <p className={descriptionClass}>{note}</p>}
 
 			{isOwner && (
 				<form
@@ -95,7 +95,7 @@ function RoleSelect({ value, onChange }: { value: Role; onChange: (role: Role) =
 		<select
 			value={value}
 			onChange={(e) => onChange(e.target.value as Role)}
-			className="rounded-lg border border-neutral-200 px-2 py-1 text-sm"
+			className={compactControlClass}
 		>
 			<option value="member">Member</option>
 			<option value="owner">Owner</option>
@@ -109,11 +109,11 @@ function Row({ label, detail, you, children }: { label: string; detail?: string;
 			<span className="flex min-w-0 flex-1 flex-col">
 				<span className="truncate">
 					{label}
-					{you && <span className="ml-2 text-xs text-neutral-400">You</span>}
+					{you && <span className={`ml-2 ${metadataClass}`}>You</span>}
 				</span>
 				{detail && <span className="truncate text-xs text-neutral-500">{detail}</span>}
 			</span>
-			<span className="flex items-center gap-3 text-sm text-neutral-500">{children}</span>
+			<span className={`flex items-center gap-3 ${descriptionClass}`}>{children}</span>
 		</div>
 	);
 }

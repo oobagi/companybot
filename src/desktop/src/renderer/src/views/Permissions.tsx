@@ -1,8 +1,9 @@
+import { permissionFor } from "@companybot/core/action-rules";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../api";
 import { useAction, useMutation, useQuery } from "../convex";
-import { Loading, Notice, Section, primaryButton, secondaryButton, useRun } from "../ui";
+import { Loading, Notice, Section, compactControlClass, metadataClass, primaryButton, secondaryButton, useRun } from "../ui";
 import { Modal } from "./chat/common";
 
 // What agents may do without asking: your own Always / Never per action (Your preferences,
@@ -13,8 +14,6 @@ import { Modal } from "./chat/common";
 type Action = FunctionReturnType<typeof api.permissions.actions>[number];
 
 const actionName = (a: { label: string; service: string | null }) => `${a.service ? `${a.service} · ` : ""}${a.label}`;
-
-const select = "rounded-lg border border-neutral-200 px-2 py-1 text-sm disabled:opacity-50";
 
 /** Settings → Your preferences: everything you set to Always or Never, and what you allowed for automations. */
 export function YourPermissions() {
@@ -46,7 +45,7 @@ export function YourPermissions() {
 					) : (
 						<select
 							aria-label="Setting"
-							className={select}
+							className={compactControlClass}
 							value={r.setting}
 							onChange={(e) => run(set({ action: r.action, setting: e.target.value as "ask" | "always" | "never" }))}
 						>
@@ -70,7 +69,7 @@ function SettingSelect({ action: a }: { action: Action }) {
 		<div className="flex flex-col items-end gap-1">
 			<select
 				aria-label={`${a.label} setting`}
-				className={select}
+				className={compactControlClass}
 				disabled={blocked}
 				value={a.setting}
 				onChange={(e) => run(set({ action: a.action, setting: e.target.value as "ask" | "always" | "never" }))}
@@ -84,16 +83,13 @@ function SettingSelect({ action: a }: { action: Action }) {
 	);
 }
 
-const lockNote = (a: Action) =>
-	a.lock === "block"
-		? "Blocked by an owner."
-		: a.lock === "ask" || (a.risk === "locked" && a.lock !== "none")
-			? "Always asks (locked)."
-			: a.risk === "none"
-				? "Only reads. Runs without asking."
-				: a.setting === "always"
-					? a.alwaysText
-					: "Asks first.";
+const lockNote = (a: Action) => {
+	const decision = permissionFor({ risk: a.risk, lock: a.lock ?? undefined });
+	if (decision.type === "deny") return "Blocked by an owner.";
+	if (decision.type === "ask" && !decision.canAlways) return "Always asks (locked).";
+	if (a.risk === "none") return "Only reads. Runs without asking.";
+	return a.setting === "always" ? a.alwaysText : "Asks first.";
+};
 
 /** A connector's actions, each set to Ask / Always / Never for you (the same rules as Your preferences). */
 export function ConnectorActions({ connectorId, connected }: { connectorId: string; connected: boolean }) {
@@ -115,7 +111,7 @@ export function ConnectorActions({ connectorId, connected }: { connectorId: stri
 					<div className="min-w-0 flex-1">
 						<p className="font-medium">{a.label}</p>
 						<p className="line-clamp-2 text-neutral-500">{a.description}</p>
-						<p className="mt-1 text-xs text-neutral-400">{lockNote(a)}</p>
+						<p className={`mt-1 ${metadataClass}`}>{lockNote(a)}</p>
 					</div>
 					<SettingSelect action={a} />
 				</div>
@@ -159,7 +155,7 @@ export function WorkspaceLocks() {
 						<span className="min-w-0 flex-1 truncate">{actionName(a)}</span>
 						<select
 							aria-label={`${a.label} lock`}
-							className={select}
+							className={compactControlClass}
 							value={value}
 							onChange={(e) => {
 								const v = e.target.value;

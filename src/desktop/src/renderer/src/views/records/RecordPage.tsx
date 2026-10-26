@@ -7,7 +7,7 @@ import { useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { Loading, Notice, Page, Section, timeAgo, useRun } from "../../ui";
+import { LoadMore, Loading, Notice, Page, Section, descriptionClass, metadataClass, timeAgo, useRun } from "../../ui";
 import { type RecordType, useTypes } from "./data";
 import { AddField, EditField } from "./fieldDialogs";
 import { ValueEditor, ValueView } from "./fields";
@@ -26,7 +26,7 @@ export function RecordPage({ type, recordId, role }: { type: RecordType; recordI
 	if (record === null || record.typeId !== type._id) {
 		return (
 			<Page title="Not found" back={back}>
-				<p className="text-sm text-neutral-500">This {type.name.toLowerCase()} isn't in your workspace.</p>
+				<p className={descriptionClass}>This {type.name.toLowerCase()} isn't in your workspace.</p>
 			</Page>
 		);
 	}
@@ -42,7 +42,7 @@ export function RecordPage({ type, recordId, role }: { type: RecordType; recordI
 					<button
 						type="button"
 						onClick={() => run(record.archived ? restore({ recordId }) : archive({ recordId }))}
-						className="text-sm text-neutral-500 hover:text-neutral-900"
+						className={`${descriptionClass} hover:text-neutral-900`}
 					>
 						{record.archived ? "Restore" : "Archive"}
 					</button>
@@ -103,10 +103,10 @@ function FieldRow({ field, record, editable, onEditField }: { field: TypeField; 
 	const value = record.values[field.key] as FieldValue | undefined;
 	return (
 		<>
-			<dt className="group flex items-center gap-2 py-1.5 text-sm text-neutral-500">
+			<dt className={`group flex items-center gap-2 py-1.5 ${descriptionClass}`}>
 				<span className="truncate">{field.label}</span>
 				{onEditField && (
-					<button type="button" onClick={onEditField} className="invisible text-xs text-neutral-400 group-hover:visible hover:text-neutral-700">
+					<button type="button" onClick={onEditField} className={`invisible ${metadataClass} group-hover:visible hover:text-neutral-700`}>
 						Edit
 					</button>
 				)}
@@ -134,7 +134,7 @@ function ArchivedFields({ fields }: { fields: TypeField[] }) {
 	const restore = useMutation(api.fields.restore);
 	const { error, run } = useRun();
 	return (
-		<div className="flex flex-col gap-1 pt-2 text-sm text-neutral-500">
+		<div className={`flex flex-col gap-1 pt-2 ${descriptionClass}`}>
 			{error && <Notice>{error}</Notice>}
 			<p>
 				Archived fields:{" "}
@@ -167,7 +167,7 @@ function Linked({ recordId, archived }: { recordId: Id<"records">; archived: boo
 				if (!type) return null;
 				return (
 					<div key={key} className="flex flex-col gap-1">
-						<p className="text-sm text-neutral-500">
+						<p className={descriptionClass}>
 							{type.plural}
 							{field && <span className="text-neutral-400"> · {field.label}</span>}
 						</p>
@@ -217,7 +217,7 @@ function Discussion({ recordId }: { recordId: Id<"records"> }) {
 					>
 						<span className="flex items-baseline gap-2">
 							<span className="font-medium">{m.author}</span>
-							<span className="ml-auto text-xs text-neutral-400">{timeAgo(m.time)}</span>
+							<span className={`ml-auto ${metadataClass}`}>{timeAgo(m.time)}</span>
 						</span>
 						<span className="line-clamp-3 text-neutral-600">{m.text}</span>
 					</button>
@@ -243,9 +243,9 @@ function History({ type, recordId, canUndo }: { type: RecordType; recordId: Id<"
 						<div className="flex items-baseline gap-2">
 							<span className="font-medium">{e.undoes ? "Undid a change" : (actionLabels[e.action] ?? e.action)}</span>
 							<span className="text-neutral-500">by {whoLabel(e)}</span>
-							<span className="ml-auto shrink-0 text-xs text-neutral-400">{timeAgo(e.time)}</span>
+							<span className={`ml-auto shrink-0 ${metadataClass}`}>{timeAgo(e.time)}</span>
 							{e.undone ? (
-								<span className="text-xs text-neutral-400">Undone</span>
+								<span className={metadataClass}>Undone</span>
 							) : (
 								canUndo && (
 									<button type="button" onClick={() => run(undo({ historyId: e._id }))} className="text-xs text-neutral-500 hover:text-neutral-900">
@@ -273,15 +273,5 @@ function History({ type, recordId, canUndo }: { type: RecordType; recordId: Id<"
 			</div>
 			<LoadMore status={status} onMore={() => loadMore(20)} />
 		</Section>
-	);
-}
-
-function LoadMore({ status, onMore }: { status: string; onMore: () => void }) {
-	if (status === "LoadingMore") return <p className="text-center text-xs text-neutral-400">Loading…</p>;
-	if (status !== "CanLoadMore") return null;
-	return (
-		<button type="button" onClick={onMore} className="self-center text-xs text-neutral-400 hover:text-neutral-700">
-			Load more
-		</button>
 	);
 }

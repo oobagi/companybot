@@ -8,7 +8,7 @@ import { useMutation, useQuery } from "../../convex";
 import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
 import { Field, Loading, Notice, Section, inputClass, primaryButton, useRun } from "../../ui";
-import { Card, Detail, Facts, MadeItemDetail, Missing, NewItem } from "./shared";
+import { Card, Detail, Facts, LibraryList, MadeItemDetail, Missing, NewItem } from "./shared";
 
 type SkillItem = FunctionReturnType<typeof api.skills.list>[number];
 
@@ -19,8 +19,6 @@ export function SkillsTab({ role }: { role: Role }) {
 	const { error, run } = useRun();
 	if (!skills) return <Loading />;
 	const canManage = can(role, "skills.manage");
-	const ours = skills.filter((s) => s.custom);
-	const library = skills.filter((s) => !s.custom);
 	const card = (s: SkillItem) => (
 		<Card
 			key={s.id}
@@ -35,28 +33,17 @@ export function SkillsTab({ role }: { role: Role }) {
 	);
 
 	return (
-		<>
-			<div className="flex items-start justify-between gap-4">
-				<p className="text-sm text-neutral-500">
-					Instructions your agents load when a task calls for them. Agents see each skill's description, and read the rest only
-					when they need it.
-				</p>
-				{can(role, "skills.create") && (
-					<button type="button" className={`${primaryButton} shrink-0`} onClick={() => navigate("customize", "skills", "new")}>
-						New skill
-					</button>
-				)}
-			</div>
-			{error && <Notice>{error}</Notice>}
-			{ours.length > 0 && (
-				<Section title="Made by your team">
-					<div className="flex flex-col gap-3">{ours.map(card)}</div>
-				</Section>
+		<LibraryList
+			items={skills}
+			description="Instructions your agents load when a task calls for them. Agents see each skill's description, and read the rest only when they need it."
+			error={error}
+			card={card}
+			action={can(role, "skills.create") && (
+				<button type="button" className={`${primaryButton} shrink-0`} onClick={() => navigate("customize", "skills", "new")}>
+					New skill
+				</button>
 			)}
-			<Section title="Library">
-				<div className="flex flex-col gap-3">{library.map(card)}</div>
-			</Section>
-		</>
+		/>
 	);
 }
 

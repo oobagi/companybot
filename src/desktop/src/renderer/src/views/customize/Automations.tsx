@@ -4,13 +4,14 @@ import { type AutomationAudience as Audience, CUSTOM_NAME_MAX, type CustomAutoma
 import { can } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
+import { AgentOptions } from "../../agent-options";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
-import { Field, Loading, Notice, Page, Section, inputClass, primaryButton, secondaryButton, timeAgo, useRun } from "../../ui";
+import { Field, Loading, Notice, Page, Section, compactControlClass, descriptionClass, inputClass, primaryButton, secondaryButton, timeAgo, useRun } from "../../ui";
 import { AutomationPermissions, useTurnOn } from "../Permissions";
-import { Card, Detail, Facts, MadeItemDetail, Missing, NewItem } from "./shared";
+import { Card, Detail, Facts, LibraryList, MadeItemDetail, Missing, NewItem } from "./shared";
 
 type AutomationItem = FunctionReturnType<typeof api.automations.list>[number];
 type Channel = { _id: Id<"chats">; title: string };
@@ -25,8 +26,6 @@ export function AutomationsTab({ role }: { role: Role }) {
 	const { error, run } = useRun();
 	if (!automations) return <Loading />;
 	const canManage = can(role, "automations.manage");
-	const ours = automations.filter((a) => a.custom);
-	const library = automations.filter((a) => !a.custom);
 	const card = (a: AutomationItem) => {
 		const offered = a.installed && a.audience === "subscribers";
 		return (
@@ -46,28 +45,17 @@ export function AutomationsTab({ role }: { role: Role }) {
 	};
 
 	return (
-		<>
-			<div className="flex items-start justify-between gap-4">
-				<p className="text-sm text-neutral-500">
-					Jobs that run on their own: on a schedule, when something happens here, or when another app sends a webhook. Each one asks
-					an agent to do something. Turn on the ones you want.
-				</p>
-				{can(role, "automations.create") && (
-					<button type="button" className={`${primaryButton} shrink-0`} onClick={() => navigate("customize", "automations", "new")}>
-						New automation
-					</button>
-				)}
-			</div>
-			{error && <Notice>{error}</Notice>}
-			{ours.length > 0 && (
-				<Section title="Made by your team">
-					<div className="flex flex-col gap-3">{ours.map(card)}</div>
-				</Section>
+		<LibraryList
+			items={automations}
+			description="Jobs that run on their own: on a schedule, when something happens here, or when another app sends a webhook. Each one asks an agent to do something. Turn on the ones you want."
+			error={error}
+			card={card}
+			action={can(role, "automations.create") && (
+				<button type="button" className={`${primaryButton} shrink-0`} onClick={() => navigate("customize", "automations", "new")}>
+					New automation
+				</button>
 			)}
-			<Section title="Library">
-				<div className="flex flex-col gap-3">{library.map(card)}</div>
-			</Section>
-		</>
+		/>
 	);
 }
 
@@ -133,6 +121,11 @@ function AutomationFields({
 		`rounded-full px-3 py-1 text-sm ${active ? "bg-neutral-900 text-white" : "border border-neutral-200 text-neutral-600 hover:bg-neutral-50"}`;
 	const setTrigger = (t: CustomAutomationConfig["trigger"]) => onChange({ ...value, trigger: t });
 	const firstChannel = channels[0]?._id ?? "";
+	const triggers: { label: string; value: CustomAutomationConfig["trigger"] }[] = [
+		{ label: "On a schedule", value: defaultSchedule },
+		{ label: "When something happens here", value: firstChannel ? { type: "event", event: "message.posted", channelId: firstChannel } : { type: "event", event: "member.joined" } },
+		{ label: "When another app sends a webhook", value: { type: "webhook" } },
+	];
 	return (
 		<>
 			<Field label="Name">
@@ -149,33 +142,17 @@ function AutomationFields({
 				<span className="text-sm font-medium">When</span>
 				<div className="flex flex-col gap-3">
 					<div className="flex flex-wrap gap-2">
-						<button
-							type="button"
-							aria-pressed={trigger.type === "schedule"}
-							className={option(trigger.type === "schedule")}
-							onClick={() => trigger.type !== "schedule" && setTrigger(defaultSchedule)}
-						>
-							On a schedule
-						</button>
-						<button
-							type="button"
-							aria-pressed={trigger.type === "event"}
-							className={option(trigger.type === "event")}
-							onClick={() =>
-								trigger.type !== "event" &&
-								setTrigger(firstChannel ? { type: "event", event: "message.posted", channelId: firstChannel } : { type: "event", event: "member.joined" })
-							}
-						>
-							When something happens here
-						</button>
-						<button
-							type="button"
-							aria-pressed={trigger.type === "webhook"}
-							className={option(trigger.type === "webhook")}
-							onClick={() => setTrigger({ type: "webhook" })}
-						>
-							When another app sends a webhook
-						</button>
+						{triggers.map(({ label, value }) => (
+							<button
+								key={value.type}
+								type="button"
+								aria-pressed={trigger.type === value.type}
+								className={option(trigger.type === value.type)}
+								onClick={() => (trigger.type !== value.type || value.type === "webhook") && setTrigger(value)}
+							>
+								{label}
+							</button>
+						))}
 					</div>
 					{trigger.type === "schedule" && (
 						<div className="flex flex-wrap items-center gap-3">
@@ -198,10 +175,10 @@ function AutomationFields({
 									);
 								})}
 							</div>
-							<span className="text-sm text-neutral-500">at</span>
+							<span className={descriptionClass}>at</span>
 							<input
 								type="time"
-								className={`${inputClass} py-1`}
+								className={compactControlClass}
 								value={trigger.time}
 								onChange={(e) => setTrigger({ ...trigger, time: e.target.value })}
 							/>
@@ -211,7 +188,7 @@ function AutomationFields({
 						<div className="flex flex-wrap items-center gap-2 text-sm">
 							<select
 								aria-label="What happens"
-								className={`${inputClass} py-1`}
+								className={compactControlClass}
 								value={trigger.event}
 								onChange={(e) =>
 									setTrigger(
@@ -229,7 +206,7 @@ function AutomationFields({
 							{trigger.event === "message.posted" && (
 								<select
 									aria-label="Channel"
-									className={`${inputClass} py-1`}
+									className={compactControlClass}
 									value={trigger.channelId}
 									onChange={(e) => setTrigger({ ...trigger, channelId: e.target.value })}
 								>
@@ -247,7 +224,7 @@ function AutomationFields({
 						</div>
 					)}
 					{trigger.type === "webhook" && (
-						<p className="text-sm text-neutral-500">
+						<p className={descriptionClass}>
 							You'll get a URL to paste into the other app. Whatever it sends is handed to the agent with your prompt.
 						</p>
 					)}
@@ -340,11 +317,7 @@ function NewAutomation() {
 			<AutomationFields value={config} onChange={setConfig} channels={channels} />
 			<Field label="Agent">
 				<select className={inputClass} value={agent} onChange={(e) => setAgentId(e.target.value)}>
-					{agents.map((x) => (
-						<option key={x._id} value={x._id}>
-							{x.name}
-						</option>
-					))}
+					<AgentOptions agents={agents} />
 				</select>
 			</Field>
 			<Field label="Runs for" hint="Nobody gets messages they didn't ask for: others choose whether to turn it on.">
@@ -462,14 +435,10 @@ function AutomationSettings({ automation: a }: { automation: AutomationItem }) {
 							<select
 								value={a.agentId ?? ""}
 								onChange={(e) => run(update({ automationId: a.id, agentId: e.target.value as Id<"agents"> }))}
-								className={`${inputClass} py-1`}
+								className={compactControlClass}
 							>
 								{a.agentArchived && <option value={a.agentId ?? ""}>{a.agentName} (archived)</option>}
-								{active.map((x) => (
-									<option key={x._id} value={x._id}>
-										{x.name}
-									</option>
-								))}
+								<AgentOptions agents={active} />
 							</select>
 						</label>
 						<div className={row}>
