@@ -5,7 +5,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { type Member, getMember, memberOf, nameOf } from "./lib";
 
 // Shared by the app's chat functions (chats.ts, messages.ts) and the agent runner
-// (turns.ts), so both follow the same visibility rules. See wiki/chat.md.
+// (chatTools.ts), so both follow the same visibility rules. See wiki/chat.md.
 
 /** A person or agent, display-ready. Fits core's `Participant`. */
 export type Participant = { type: "user"; id: Id<"users">; name: string } | { type: "agent"; id: Id<"agents">; name: string };

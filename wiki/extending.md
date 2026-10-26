@@ -9,7 +9,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 
 ## Tools — `core/src/tools.ts`, `builtin-tools.ts`
 - One shape (`ToolDef`) for built-ins and connector tools. Ids are `group.name`; model names come from `modelToolName`.
-- Add a built-in: `defineTool` in `builtin-tools.ts`. Set `permission` if not everyone may trigger it (checked through the role table, like everything else), `readOnly: true` if it changes nothing, and `risk` if it reaches outside (see Approvals).
+- Add a built-in: `defineTool` in `builtin-tools.ts`. Set `permission` if not everyone may trigger it (checked through the role table, like everything else), `readOnly: true` if it changes nothing, and `risk` if it reaches outside ([Permissions](permissions.md)).
 - Tools reach data only through `ToolContext` (`memory`, `chat`, `skills`, `automations`, `records`), which enforce permissions. Don't do permission checks inside tools.
 - Agents grant exact ids or whole groups (`memory.*`). `resolveTools` is the only place that decides what the model sees.
 
@@ -22,20 +22,13 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 - Access = installed + role allowed (`connectorInstalls.roles`) + connected. Checked fresh each turn (`connectors.forTurn`).
 - Auth: `none`, `api_key` (pasted in), or `oauth` (MCP OAuth: discovery, dynamic client registration, PKCE, refresh — all via `@ai-sdk/mcp`). OAuth flow: `connectors.startOAuth` → browser → `GET /oauth/callback` (`backend/convex/oauth.ts`) → `saveConnection`. State lives in `OAuthState` (`core/src/oauth.ts`), encrypted like any credentials. The runner saves refreshed tokens after each turn.
 - Connector results keep structure (`structuredContent`, or JSON text) so widgets can show them by ref.
-- Writes ask: connector tools without `readOnlyHint` wait for a yes in the chat; `destructiveHint` ones always ask (see Approvals). The tool list each server reports is saved to `connectorTools` for settings screens only. Not built yet: pre-registered OAuth clients (servers without dynamic registration).
+- Risk and approval rules: [Permissions](permissions.md). `backend/convex/connectorTools.ts` saves the reported tool list for settings screens only. Not built yet: pre-registered OAuth clients (servers without dynamic registration).
 - Test with `fakeMcpServer` (`core/test/test-mcp-server.ts`), or push a test connector into `connectorCatalog` (see backend tests).
 
-## Approvals — `core/src/approvals.ts`, `backend/convex/approvals.ts`, `backend/convex/permissions.ts`
-- **Declare risk on the tool** (`ToolDef.risk`): `"outside"` for anything with outside impact (sends, texts, calls, campaign sends), `"locked"` for payments, deleting records and bulk sends (always asks, no "Always allow"). Leave it out for internal changes. Connector tools default to `"outside"` unless read-only (`toolRisk`).
-- **Every call is decided fresh:** the runner passes `toolApprovalPolicy(usable, check)` as the AI SDK's `toolApproval`; `check` runs `permissions.check` (person's rules, owner locks, automation grants; `permissionFor`, strictest wins). Ask → the run stops at the call, unexecuted. Deny → the model gets the reason. Run with a rule → logged with `allowed` (how, who, when, rule id). Never cache a decision into a session or prompt.
-- Built-ins with no risk skip the check entirely. Connector reads are checked (owners may lock them).
-- Held calls: the runner saves the exact call (`approvals.request`, with its `risk`) and puts an `approval` part in the reply. The app shows it as its own message from the agent ([Permissions](permissions.md) → The card).
-- Lock: `approvalHash` = SHA-256 of canonical JSON of tool id + input. The app sends back the hash it showed; `decide` refuses any other; `claim` re-hashes the stored call and re-checks rules before it runs. Compare nothing else: unrelated changes must never block or void an approval.
-- Who: only the person the agent acts for (`canDecideApproval`), while they can see the chat, within 24h. Owners can't approve for others; the call runs with that person's access and accounts.
-- `decide({ always: true })` also saves an Always rule (scoped to the automation if the run was one's). Refused where the action always asks.
-- After a decision: `decide` queues a normal turn in the same place with `approvalId` (so one turn per place still holds). That turn runs the approved call first (approved only), then the agent is told the outcome in its new prompt (`approval` in `buildTurnPrompt`). Replies note held calls without their outcome, so replays stay byte-identical.
-- Rules and locks key on person + action (+ connector install, + automation install for grants). Uninstalling a connector or removing an automation deletes theirs. Wording for "Always allow" comes only from `alwaysAllowText`, so the card and Settings say the same thing.
-- Test new rules in `backend.test.ts` → `permissions`.
+## Action rules and approvals
+- Declare `ToolDef.risk` when adding a tool with outside impact. Follow [Permissions](permissions.md) for risk levels, rule order, the held-call card and replay rules.
+- Use `action-words.ts` for action labels, asks, Always text and tool lines.
+- Test rules in `backend/tests/permissions.test.ts`, cards in `backend/tests/approvals.test.ts`, and pure helpers in core's matching `*.test.ts` files.
 
 ## Widgets — `core/src/widgets.ts`, `desktop/src/renderer/src/widgets.tsx`
 - Add one: `defineWidget` (type, description, zod `input`, `summary`, optional `prepare`) in `widgetCatalog`, then a component in the desktop `registry`. That's all; the tool `widgets.<type>` appears automatically.
@@ -55,9 +48,10 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 - Agents with `skills.load` see installed skills' one-line descriptions and load full text on demand. Keep descriptions short; they're in every prompt.
 - Anyone can make their own (`skills.create` permission; `create` / `save` in `backend/convex/skills.ts`, or the `skills.create` agent tool; the guide adds a short how-to when it's granted). The maker or an owner can edit or delete (`canEditMade`). They live on their `skillInstalls` row (`custom`, id `custom-…`), are always installed, and `installedSkills` turns them into the same `Skill` shape, so agents can't tell them apart. Limits are in `customSkillError`: name 64 and no tags (Claude's SKILL.md rules), description 200 (stricter than Claude's 1,024, since it's in every prompt), instructions 20k chars.
 
-## Automations — `core/src/automations.ts`, `backend/convex/automations.ts`
+## Automations — `core/src/automations.ts`
+Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automationTools.ts` (agent tools), `automationOps.ts` (shared lookups).
 - Add one with `defineAutomation` to `automationCatalog`: trigger, `connectors` it needs (must be installed first), and the `prompt` the agent gets. `details` is the Markdown on its detail page.
-- Triggers: `schedule`, `event` (in-app: add it to `appEvents` and call `fireEvent` where it happens), or `webhook`. A library automation can require a named event (add it to `webhookEvents`, set `webhookEvent` on the trigger); ones people make take any webhook. Give webhook triggers a `sample` ("Run now" sends it). Senders POST to the install's URL; there's no other way in.
+- Triggers: `schedule`, `event` (in-app: add it to `appEvents` and call `automationRuns.fireEvent` where it happens), or `webhook`. A library automation can require a named event (add it to `webhookEvents`, set `webhookEvent` on the trigger); ones people make take any webhook. Give webhook triggers a `sample` ("Run now" sends it). Senders POST to the install's URL; there's no other way in.
 - Member-made automations: `CustomAutomationConfig`, checked by `customAutomationError` on create and save, turned into an `Automation` by `customAutomation`. Saves send `expectedVersion`.
 - Webhook data is untrusted: it only ever reaches the model inside `triggerPrompt`'s fenced block, never as instructions or as who to act as. `person.email` must match a workspace member.
 - Runs go to the audience: each opted-in person's agent DM (`findOrCreateDm` + `insertMessage`), or the picked channel. Never message people who didn't opt in. Each run queues a turn with `enqueueTurn`, acting as a real member, the same path as a message they send. Don't give automations their own permission path.
