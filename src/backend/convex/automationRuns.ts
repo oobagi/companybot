@@ -144,6 +144,19 @@ export const forgetOldWebhooks = internalMutation({
 	},
 });
 
+/** Deletes a removed install's delivery ids, a bounded batch per run, so a busy webhook can't block removal. */
+export const forgetUninstalled = internalMutation({
+	args: { installId: v.id("automationInstalls") },
+	handler: async (ctx, { installId }) => {
+		const batch = await ctx.db
+			.query("automationEvents")
+			.withIndex("by_install", (q) => q.eq("installId", installId))
+			.take(1_000);
+		for (const delivery of batch) await ctx.db.delete(delivery._id);
+		if (batch.length === 1_000) await ctx.scheduler.runAfter(0, internal.automationRuns.forgetUninstalled, { installId });
+	},
+});
+
 // ---- Running ----
 
 /** Records what a run did, for its page, and returns the line. */

@@ -12,6 +12,8 @@ import { sendInviteEmail } from "./invites";
 import { checkVersion, getMember, legacyMemberOf, memberOf, nameOf, namesOf, normalizeEmail, pinLegacyWorkspace, requireMember, requirePermission, timeZoneOf } from "./lib";
 import { forgetUserRules } from "./permissions";
 import { forgetPersonalMemories } from "./memoryOps";
+import { privateTo } from "./automationOps";
+import { removeInstall } from "./automations";
 import { role } from "./schema";
 
 export const me = query({
@@ -278,8 +280,9 @@ export const leave = mutation({
 
 /**
  * Takes someone out of a workspace. Access ends at once (everything reads membership fresh);
- * their channel seats, automation opt-ins, permission rules and personal memories go too, so
- * rejoining starts strict. DMs keep them as a past participant.
+ * their channel seats, automation opt-ins, permission rules, personal connector accounts,
+ * automations only they could see, and personal memories go too, so rejoining starts strict.
+ * DMs keep them as a past participant.
  */
 async function dropMember(ctx: MutationCtx, row: Doc<"members">) {
 	const { workspaceId, userId } = row;
@@ -301,6 +304,23 @@ async function dropMember(ctx: MutationCtx, row: Doc<"members">) {
 		if (install?.workspaceId === workspaceId) await ctx.db.delete(sub._id);
 	}
 	await forgetUserRules(ctx, workspaceId, userId);
+	// Personal accounts only; the workspace's own (userId null) stay, whoever connected them.
+	for (const install of await ctx.db
+		.query("connectorInstalls")
+		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+		.collect()) {
+		const connections = ctx.db
+			.query("connectorConnections")
+			.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId).eq("connectorId", install.connectorId).eq("userId", userId));
+		for await (const connection of connections) await ctx.db.delete(connection._id);
+	}
+	// Just-them automations are hidden from everyone else (canView), so nobody could ever remove them.
+	for (const install of await ctx.db
+		.query("automationInstalls")
+		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+		.collect()) {
+		if (privateTo(install) === userId) await removeInstall(ctx, install);
+	}
 	await forgetPersonalMemories(ctx, workspaceId, userId, ctx.meta.getSnapshotTs());
 }
 

@@ -193,6 +193,7 @@ describe("automations", () => {
 			}
 			expect((await events()).map((e) => e.eventId)).toEqual(["new"]);
 			await owner.mutation(api.automations.setInstalled, { automationId: "after-call-summary", installed: false, timeZone: tz });
+			await t.finishAllScheduledFunctions(vi.runAllTimers);
 			expect(await events()).toHaveLength(0);
 		});
 
@@ -300,6 +301,7 @@ describe("automations", () => {
 			await remove(member);
 			await remove(member);
 			expect(await find(member, id)).toBeUndefined();
+			await t.finishAllScheduledFunctions(vi.runAllTimers);
 			const rows = await t.run(async (ctx) => ({
 				installs: await ctx.db.query("automationInstalls").collect(),
 				subscriptions: await ctx.db.query("automationSubscriptions").collect(),
