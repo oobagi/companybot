@@ -1,7 +1,7 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import type { Role } from "@companybot/core";
 import { can } from "@companybot/core/permissions";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
@@ -170,13 +170,14 @@ function Table({
 	const { results, status, loadMore } = usePaginatedQuery(api.records.list, args as never, { initialNumItems: 25 });
 	const rows = results as Row[];
 	const refs = useRefs(rows);
-	const end = useRef<HTMLDivElement>(null);
+	const [end, setEnd] = useState<HTMLDivElement | null>(null);
 	const [atEnd, setAtEnd] = useState(false);
 	useEffect(() => {
+		if (!end) return;
 		const observer = new IntersectionObserver(([e]) => setAtEnd(!!e?.isIntersecting), { rootMargin: "200px" });
-		if (end.current) observer.observe(end.current);
+		observer.observe(end);
 		return () => observer.disconnect();
-	}, []);
+	}, [end]);
 	// Re-checked after every page, so a short page (isDone false) asks again while the end is in view.
 	useEffect(() => {
 		if (atEnd && status === "CanLoadMore") loadMore(25);
@@ -220,7 +221,7 @@ function Table({
 					]}
 				/>
 			)}
-			<div ref={end} className="flex flex-col items-center py-2">
+			<div ref={setEnd} className="flex flex-col items-center py-2">
 				<LoadMore status={status} onMore={() => loadMore(25)} />
 			</div>
 		</div>

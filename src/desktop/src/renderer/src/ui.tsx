@@ -97,7 +97,7 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
 	);
 }
 
-const controlClass = "border border-neutral-200 outline-none focus:border-neutral-400 disabled:bg-neutral-50 disabled:text-neutral-500";
+const controlClass = "border border-neutral-200 focus:border-neutral-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 disabled:bg-neutral-50 disabled:text-neutral-500";
 export const inputClass = `rounded-xl px-3 py-2 ${controlClass}`;
 export const compactControlClass = `rounded-lg px-2 py-1 text-sm ${controlClass}`;
 export const disabledButtonClass = "disabled:opacity-50";

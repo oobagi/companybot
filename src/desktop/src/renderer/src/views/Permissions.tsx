@@ -1,4 +1,3 @@
-import { permissionFor } from "@companybot/core/action-rules";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../api";
@@ -84,11 +83,10 @@ function SettingSelect({ action: a }: { action: Action }) {
 }
 
 const lockNote = (a: Action) => {
-	const decision = permissionFor({ risk: a.risk, lock: a.lock ?? undefined });
-	if (decision.type === "deny") return "Blocked by an owner.";
-	if (decision.type === "ask" && !decision.canAlways) return "Always asks (locked).";
+	if (a.result === "deny") return a.lock === "block" ? "Blocked by an owner." : "Never: agents can't do this for you.";
+	if (a.result === "ask") return a.canAlways ? "Asks first." : "Always asks (locked).";
 	if (a.risk === "none") return "Only reads. Runs without asking.";
-	return a.setting === "always" ? a.alwaysText : "Asks first.";
+	return a.alwaysText;
 };
 
 /** A connector's actions, each set to Ask / Always / Never for you (the same rules as Your preferences). */

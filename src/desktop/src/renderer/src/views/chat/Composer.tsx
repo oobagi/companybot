@@ -1,6 +1,5 @@
 import type { Doc, Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useRef, useState } from "react";
-import { disabledButtonClass } from "../../ui";
 import { Avatar } from "./common";
 import type { Mentions, Participant } from "./data";
 
@@ -139,7 +138,7 @@ export function Composer({
 				<button
 					type="submit"
 					disabled={!text.trim()}
-					className={`size-8 shrink-0 rounded-full bg-neutral-900 text-white ${disabledButtonClass}`}
+					className="size-8 shrink-0 rounded-full bg-neutral-900 text-white disabled:bg-neutral-200"
 					aria-label="Send"
 				>
 					↑

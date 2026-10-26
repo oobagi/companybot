@@ -3,7 +3,7 @@ import type { MemoryScope, Role } from "@companybot/core";
 import { can } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
-import { AgentOptions } from "../agent-options";
+import { AgentOptions, agentLabel } from "../agent-options";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { ConflictNotice, Loading, Notice, Section, compactControlClass, descriptionClass, inputClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../ui";
@@ -21,7 +21,7 @@ export function MemoryTab({ role }: { role: Role }) {
 
 	if (!memories || !agents || !settings) return <Loading />;
 
-	const agentName = new Map(agents.map((a) => [a._id as string, a.archived ? `${a.name} (archived)` : a.name]));
+	const agentName = new Map(agents.map((a) => [a._id as string, agentLabel(a)]));
 	const shown = filter === "all" ? memories : memories.filter((m) => m.agentId === filter);
 	const team = shown.filter((m) => m.scope === "workspace");
 	const personal = shown.filter((m) => m.scope === "personal");
@@ -106,7 +106,7 @@ function MemoryRow({ memory, agent }: { memory: MemoryItem; agent: string }) {
 						autoFocus
 						value={draft.value}
 						onChange={(e) => draft.set(e.target.value)}
-						className={`${compactControlClass} flex-1 resize-none bg-neutral-50 text-base`}
+						className={`${inputClass} flex-1 resize-none bg-neutral-50 leading-relaxed`}
 					/>
 				)}
 				{memory.canEdit && (
