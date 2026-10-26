@@ -5,7 +5,7 @@ import { useState } from "react";
 import { api } from "../../api";
 import { useAction, useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { Loading, Notice, Section, inputClass, primaryButton, useRun } from "../../ui";
+import { Loading, Notice, Section, compactControlClass, descriptionClass, inputClass, metadataClass, primaryButton, useRun } from "../../ui";
 import { ConnectorActions } from "../Permissions";
 import { Card, Detail, Facts, Missing } from "./shared";
 
@@ -21,7 +21,7 @@ export function ConnectorsTab({ role }: { role: Role }) {
 
 	return (
 		<>
-			<p className="text-sm text-neutral-500">
+			<p className={descriptionClass}>
 				Connect outside services like Gmail or Calendar. Agents granted a connector use it for the person they're helping.
 			</p>
 			{error && <Notice>{error}</Notice>}
@@ -93,7 +93,7 @@ function ConnectorDetail({ connector, isOwner }: { connector: ConnectorItem; isO
 							onChange={(e) =>
 								run(setRoles({ connectorId: connector.id, roles: e.target.value === "everyone" ? ["owner", "member"] : ["owner"] }))
 							}
-							className="rounded-lg border border-neutral-200 px-2 py-1"
+							className={compactControlClass}
 						>
 							<option value="everyone">Everyone</option>
 							<option value="owners">Owners only</option>
@@ -170,7 +170,7 @@ function Connection({ connector }: { connector: ConnectorItem }) {
 				<p className="text-neutral-400">{connector.canUse ? "An owner needs to connect it." : "Your role can't use this connector."}</p>
 			)}
 			{connector.auth.type === "api_key" && connector.auth.help && !connector.connected && (
-				<p className="text-xs text-neutral-400">{connector.auth.help}</p>
+				<p className={metadataClass}>{connector.auth.help}</p>
 			)}
 		</div>
 	);

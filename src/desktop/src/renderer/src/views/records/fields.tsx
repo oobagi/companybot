@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { useQuery } from "../../convex";
 import { navigate } from "../../router";
+import { compactControlClass } from "../../ui";
 import { useDismiss } from "../chat/common";
 import { useCurrency, useTypes } from "./data";
 import { type Refs, type TypeField, moneyInput, recordPath, valueText } from "./logic";
@@ -47,7 +48,7 @@ function LinkChips({ field, ids, refs, onRemove }: { field: TypeField; ids: stri
 	);
 }
 
-function Chip({ children, onRemove }: { children: React.ReactNode; onRemove?: () => void }) {
+export function Chip({ children, onRemove }: { children: React.ReactNode; onRemove?: () => void }) {
 	return (
 		<span className="flex items-center gap-1 rounded-md bg-neutral-100 px-2 py-0.5 text-sm">
 			{children}
@@ -197,11 +198,7 @@ function OneEditor({ field, id, refs, onSave }: { field: TypeField; id: string |
 					{current.label}
 				</option>
 			)}
-			{options.map((o) => (
-				<option key={o.id} value={o.id}>
-					{o.label}
-				</option>
-			))}
+			<RecordOptions options={options} />
 		</select>
 	);
 }
@@ -228,16 +225,18 @@ function MultiEditor({ field, ids, refs, onSave }: { field: TypeField; ids: stri
 				options.length > 0 && (
 					<select value="" onChange={(e) => e.target.value && add(e.target.value)} className="rounded-md text-sm text-neutral-500">
 						<option value="">Add…</option>
-						{options.map((o) => (
-							<option key={o.id} value={o.id}>
-								{o.label}
-							</option>
-						))}
+						<RecordOptions options={options} />
 					</select>
 				)
 			)}
 		</span>
 	);
+}
+
+export function RecordOptions({ options }: { options: { id: string; label: string }[] }) {
+	return options.map((o) => (
+		<option key={o.id} value={o.id}>{o.label}</option>
+	));
 }
 
 /** What a choice or person field can be set to: live options, or the workspace's people. */
@@ -280,7 +279,7 @@ export function RecordPicker({
 						value={query}
 						onChange={(e) => setQuery(e.target.value)}
 						placeholder="Search by name"
-						className="rounded-lg border border-neutral-200 px-2 py-1 text-sm outline-none focus:border-neutral-400"
+						className={compactControlClass}
 					/>
 					{results
 						?.filter((r) => !exclude.includes(r._id))

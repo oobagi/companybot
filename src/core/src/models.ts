@@ -4,5 +4,3 @@ export const models = [
 	{ id: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5", note: "Fastest and cheapest." },
 	{ id: "anthropic/claude-opus-5.5", name: "Claude Opus 5.5", note: "Smartest, slowest, priciest." },
 ] as const;
-
-export type ModelId = (typeof models)[number]["id"];

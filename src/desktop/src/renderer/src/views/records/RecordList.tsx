@@ -1,14 +1,14 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import type { Role } from "@companybot/core";
 import { can } from "@companybot/core/permissions";
-import { useEffect, useRef, useState } from "react";
-import { api, errorMessage } from "../../api";
+import { useEffect, useState } from "react";
+import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { ErrorBoundary, Loading, Notice, Page, inputClass, primaryButton, timeAgo } from "../../ui";
+import { ErrorBoundary, Field, LoadMore, Loading, Notice, Page, compactControlClass, descriptionClass, inputClass, primaryButton, timeAgo, useRun } from "../../ui";
 import { Modal, useDismiss } from "../chat/common";
 import { type RecordType, type Row, useRefs } from "./data";
-import { RecordPicker, useOptions } from "./fields";
+import { Chip, RecordOptions, RecordPicker, useOptions } from "./fields";
 import {
 	type Filter,
 	type Op,
@@ -77,7 +77,7 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 					value={search}
 					onChange={(e) => setSearch(e.target.value)}
 					placeholder={`Search ${noun}`}
-					className={`${inputClass} w-64 py-1.5 text-sm`}
+					className={`${compactControlClass} w-64`}
 				/>
 				<button
 					type="button"
@@ -128,7 +128,7 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 							canSortFields={!archived}
 							empty={
 								filters.length || archived ? (
-									<p className="text-sm text-neutral-500">No {archived ? "archived " : ""}{noun} {filters.length ? "match these filters" : ""}.</p>
+									<p className={descriptionClass}>No {archived ? "archived " : ""}{noun} {filters.length ? "match these filters" : ""}.</p>
 								) : (
 									<div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-neutral-200 px-6 py-8">
 										<p className="text-neutral-600">No {noun} yet.</p>
@@ -170,13 +170,14 @@ function Table({
 	const { results, status, loadMore } = usePaginatedQuery(api.records.list, args as never, { initialNumItems: 25 });
 	const rows = results as Row[];
 	const refs = useRefs(rows);
-	const end = useRef<HTMLDivElement>(null);
+	const [end, setEnd] = useState<HTMLDivElement | null>(null);
 	const [atEnd, setAtEnd] = useState(false);
 	useEffect(() => {
+		if (!end) return;
 		const observer = new IntersectionObserver(([e]) => setAtEnd(!!e?.isIntersecting), { rootMargin: "200px" });
-		if (end.current) observer.observe(end.current);
+		observer.observe(end);
 		return () => observer.disconnect();
-	}, []);
+	}, [end]);
 	// Re-checked after every page, so a short page (isDone false) asks again while the end is in view.
 	useEffect(() => {
 		if (atEnd && status === "CanLoadMore") loadMore(25);
@@ -220,13 +221,8 @@ function Table({
 					]}
 				/>
 			)}
-			<div ref={end} className="flex items-center justify-center py-2 text-xs text-neutral-400">
-				{status === "LoadingMore" && "Loading…"}
-				{status === "CanLoadMore" && (
-					<button type="button" onClick={() => loadMore(25)} className="hover:text-neutral-700">
-						Load more
-					</button>
-				)}
+			<div ref={setEnd} className="flex flex-col items-center py-2">
+				<LoadMore status={status} onMore={() => loadMore(25)} />
 			</div>
 		</div>
 	);
@@ -265,7 +261,7 @@ function SearchResults({ type, query, columns }: { type: RecordType; query: stri
 	const rows = useQuery(api.records.search, { query, typeId: type._id });
 	const refs = useRefs(rows ?? []);
 	if (!rows) return <Loading />;
-	if (rows.length === 0) return <p className="text-sm text-neutral-500">No matches.</p>;
+	if (rows.length === 0) return <p className={descriptionClass}>No matches.</p>;
 	const head = [...columns.map((f) => <th key={f.key} className="px-3 py-2 text-left font-medium">{f.label}</th>), <th key="u" className="px-3 py-2 text-left font-medium">Updated</th>];
 	return <RowsTable type={type} rows={rows} refs={refs} columns={columns} head={head} />;
 }
@@ -282,7 +278,6 @@ function FilterRow({
 	onRemove: () => void;
 }) {
 	const field = fields.find((f) => f.key === filter.field) ?? fields[0]!;
-	const select = "rounded-lg border border-neutral-200 px-2 py-1";
 	return (
 		<div className="flex flex-wrap items-center gap-2 text-sm">
 			<select
@@ -291,7 +286,7 @@ function FilterRow({
 					const next = fields.find((f) => f.key === e.target.value)!;
 					onChange({ field: next.key, op: opsFor(next)[0]!, value: "" });
 				}}
-				className={select}
+				className={compactControlClass}
 			>
 				{fields.map((f) => (
 					<option key={f.key} value={f.key}>
@@ -299,7 +294,7 @@ function FilterRow({
 					</option>
 				))}
 			</select>
-			<select value={filter.op} onChange={(e) => onChange({ ...filter, op: e.target.value as Op })} className={select}>
+			<select value={filter.op} onChange={(e) => onChange({ ...filter, op: e.target.value as Op })} className={compactControlClass}>
 				{opsFor(field).map((op) => (
 					<option key={op} value={op}>
 						{opLabels[op]}
@@ -324,12 +319,7 @@ function FilterValue({ field, filter, onChange }: { field: TypeField; filter: Fi
 		return (
 			<span className="flex flex-wrap items-center gap-1.5">
 				{ids.map((id) => (
-					<span key={id} className="flex items-center gap-1 rounded-md bg-neutral-100 px-2 py-0.5">
-						{label(id)}
-						<button type="button" onClick={() => onChange(ids.filter((i) => i !== id))} className="text-neutral-400 hover:text-neutral-700">
-							×
-						</button>
-					</span>
+					<Chip key={id} onRemove={() => onChange(ids.filter((i) => i !== id))}>{label(id)}</Chip>
 				))}
 				{field.kind === "link" ? (
 					<RecordPicker
@@ -342,15 +332,9 @@ function FilterValue({ field, filter, onChange }: { field: TypeField; filter: Fi
 						}}
 					/>
 				) : (
-					<select value="" onChange={(e) => e.target.value && onChange([...ids, e.target.value])} className="rounded-lg border border-neutral-200 px-2 py-1">
+					<select value="" onChange={(e) => e.target.value && onChange([...ids, e.target.value])} className={compactControlClass}>
 						<option value="">Pick…</option>
-						{options
-							.filter((o) => !ids.includes(o.id))
-							.map((o) => (
-								<option key={o.id} value={o.id}>
-									{o.label}
-								</option>
-							))}
+						<RecordOptions options={options.filter((o) => !ids.includes(o.id))} />
 					</select>
 				)}
 			</span>
@@ -363,7 +347,7 @@ function FilterValue({ field, filter, onChange }: { field: TypeField; filter: Fi
 			value={typeof filter.value === "string" ? filter.value : ""}
 			onChange={(e) => onChange(e.target.value)}
 			placeholder={field.kind === "currency" ? "1000 or EUR 1000" : "Value"}
-			className="w-44 rounded-lg border border-neutral-200 px-2 py-1 outline-none focus:border-neutral-400"
+			className={`${compactControlClass} w-44`}
 		/>
 	);
 }
@@ -401,7 +385,7 @@ function ColumnsPicker({ fields, columns, onChange }: { fields: TypeField[]; col
 function NewRecord({ type, onClose }: { type: RecordType; onClose: () => void }) {
 	const create = useMutation(api.records.create);
 	const [name, setName] = useState("");
-	const [error, setError] = useState<string>();
+	const { error, run } = useRun();
 	const label = type.fields.find((f) => f.key === "name")?.label ?? "Name";
 	return (
 		<Modal title={`New ${type.name.toLowerCase()}`} onClose={onClose}>
@@ -409,17 +393,13 @@ function NewRecord({ type, onClose }: { type: RecordType; onClose: () => void })
 				className="flex flex-col gap-4"
 				onSubmit={(e) => {
 					e.preventDefault();
-					create({ typeId: type._id, values: { name } }).then(
-						(id) => navigate(...recordPath(type.key, id)),
-						(e) => setError(errorMessage(e)),
-					);
+					run(create({ typeId: type._id, values: { name } }).then((id) => navigate(...recordPath(type.key, id))));
 				}}
 			>
 				{error && <Notice>{error}</Notice>}
-				<label className="flex flex-col gap-1.5">
-					<span className="text-sm font-medium">{label}</span>
+				<Field label={label}>
 					<input autoFocus value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
-				</label>
+				</Field>
 				<button type="submit" className={`${primaryButton} self-start`}>
 					Create
 				</button>

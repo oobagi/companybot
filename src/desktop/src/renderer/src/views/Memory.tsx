@@ -3,9 +3,10 @@ import type { MemoryScope, Role } from "@companybot/core";
 import { can } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
+import { AgentOptions, agentLabel } from "../agent-options";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
-import { ConflictNotice, Loading, Notice, Section, inputClass, primaryButton, timeAgo, useRun } from "../ui";
+import { ConflictNotice, Loading, Notice, Section, compactControlClass, descriptionClass, inputClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../ui";
 
 type MemoryItem = FunctionReturnType<typeof api.memory.list>[number];
 type Agent = { _id: Id<"agents">; name: string; archived: boolean };
@@ -20,14 +21,14 @@ export function MemoryTab({ role }: { role: Role }) {
 
 	if (!memories || !agents || !settings) return <Loading />;
 
-	const agentName = new Map(agents.map((a) => [a._id as string, a.archived ? `${a.name} (archived)` : a.name]));
+	const agentName = new Map(agents.map((a) => [a._id as string, agentLabel(a)]));
 	const shown = filter === "all" ? memories : memories.filter((m) => m.agentId === filter);
 	const team = shown.filter((m) => m.scope === "workspace");
 	const personal = shown.filter((m) => m.scope === "personal");
 
 	return (
 		<>
-			<p className="text-sm text-neutral-500">
+			<p className={descriptionClass}>
 				Each agent has its own memory. Team memories are shared. Only you can see your personal memories.
 			</p>
 			{!settings.memory && (
@@ -47,14 +48,10 @@ export function MemoryTab({ role }: { role: Role }) {
 				<select
 					value={filter}
 					onChange={(e) => setFilter(e.target.value as typeof filter)}
-					className="rounded-lg border border-neutral-200 px-2 py-1"
+					className={compactControlClass}
 				>
 					<option value="all">All agents</option>
-					{agents.map((a) => (
-						<option key={a._id} value={a._id}>
-							{agentName.get(a._id)}
-						</option>
-					))}
+					<AgentOptions agents={agents} />
 				</select>
 			</div>
 			<MemoryList title="Team" empty="No team memories yet." items={team} agentName={agentName} />
@@ -87,40 +84,38 @@ function MemoryList({
 function MemoryRow({ memory, agent }: { memory: MemoryItem; agent: string }) {
 	const update = useMutation(api.memory.update);
 	const remove = useMutation(api.memory.remove);
-	// Editing starts from the version on screen; if someone saves first, we say so.
-	const [draft, setDraft] = useState<{ content: string; base: number }>();
+	const draft = useDraft(memory.content, memory.version);
 	const { error, run } = useRun();
 	const id = memory.id as Id<"memories">;
-	const stale = draft !== undefined && draft.base !== memory.version;
 
 	return (
 		<div className="flex flex-col gap-2 rounded-xl border border-neutral-200 px-4 py-3">
-			{stale && (
+			{draft.stale && (
 				<ConflictNotice
 					who={memory.updatedByName}
-					onDiscard={() => setDraft(undefined)}
-					onKeep={() => setDraft({ ...draft, base: memory.version })}
+					onDiscard={draft.discard}
+					onKeep={draft.keepMine}
 				/>
 			)}
 			{error && <Notice>{error}</Notice>}
 			<div className="flex items-start gap-3">
-				{draft === undefined ? (
+				{!draft.dirty ? (
 					<p className="flex-1 leading-relaxed">{memory.content}</p>
 				) : (
 					<textarea
 						autoFocus
-						value={draft.content}
-						onChange={(e) => setDraft({ ...draft, content: e.target.value })}
-						className="flex-1 resize-none rounded-lg bg-neutral-50 px-2 py-1 outline-none"
+						value={draft.value}
+						onChange={(e) => draft.set(e.target.value)}
+						className={`${inputClass} flex-1 resize-none bg-neutral-50 leading-relaxed`}
 					/>
 				)}
 				{memory.canEdit && (
-					<div className="flex gap-2 text-sm text-neutral-500">
-						{draft === undefined ? (
+					<div className={`flex gap-2 ${descriptionClass}`}>
+						{!draft.dirty ? (
 							<>
 								<button
 									type="button"
-									onClick={() => setDraft({ content: memory.content, base: memory.version })}
+									onClick={() => draft.set(memory.content)}
 									className="hover:text-neutral-900"
 								>
 									Edit
@@ -134,13 +129,13 @@ function MemoryRow({ memory, agent }: { memory: MemoryItem; agent: string }) {
 								<button
 									type="button"
 									onClick={() =>
-										run(update({ id, content: draft.content, expectedVersion: draft.base }), () => setDraft(undefined))
+										run(update({ id, content: draft.value, expectedVersion: draft.base }), draft.discard)
 									}
 									className="font-medium text-neutral-900"
 								>
 									Save
 								</button>
-								<button type="button" onClick={() => setDraft(undefined)}>
+								<button type="button" onClick={draft.discard}>
 									Cancel
 								</button>
 							</>
@@ -148,7 +143,7 @@ function MemoryRow({ memory, agent }: { memory: MemoryItem; agent: string }) {
 					</div>
 				)}
 			</div>
-			<p className="text-xs text-neutral-400">
+			<p className={metadataClass}>
 				<span className="rounded bg-neutral-100 px-1.5 py-0.5 text-neutral-600">{agent}</span> ·{" "}
 				{memory.updatedByName}
 				{memory.updatedByAgent && ", via agent"} ·{" "}
@@ -189,19 +184,15 @@ function AddMemory({
 			<select
 				value={agentId}
 				onChange={(e) => setAgentId(e.target.value as Id<"agents">)}
-				className="rounded-xl border border-neutral-200 px-2 text-sm"
+				className={compactControlClass}
 				aria-label="Agent"
 			>
-				{agents.map((a) => (
-					<option key={a._id} value={a._id}>
-						{a.name}
-					</option>
-				))}
+				<AgentOptions agents={agents} />
 			</select>
 			<select
 				value={scope}
 				onChange={(e) => setScope(e.target.value as MemoryScope)}
-				className="rounded-xl border border-neutral-200 px-2 text-sm"
+				className={compactControlClass}
 				aria-label="Who can see it"
 			>
 				<option value="personal">Personal</option>
