@@ -1,32 +1,18 @@
-import { convexTest } from "convex-test";
+import { setup as ownerAndMember, signIn } from "./helpers";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { describe, expect, it } from "vitest";
 import { api } from "../convex/_generated/api";
 import { legacyMemberOf } from "../convex/lib";
 import { createRecord } from "../convex/recordOps";
-import schema from "../convex/schema";
-import { person } from "./person";
 
 // Lists over thousands of records, under real transaction limits. Slow (seeding takes about a
 // minute), so `pnpm test` skips them; `pnpm test:scale` runs them, and CI runs both.
-
-const modules = import.meta.glob(["../convex/**/*.ts", "../convex/_generated/*.js"]);
-
-async function signIn(t: ReturnType<typeof convexTest>, email: string) {
-	const userId = await t.run((ctx) => ctx.db.insert("users", { email }));
-	const as = person(t.withIdentity({ subject: `${userId}|session` }));
-	await as.mutation(api.workspace.ensure);
-	return Object.assign(as, { userId });
-}
 
 type As = Awaited<ReturnType<typeof signIn>>;
 type List = FunctionReturnType<typeof api.records.list>;
 
 async function setup() {
-	const t = convexTest({ schema, modules, transactionLimits: true });
-	const owner = await signIn(t, "owner@co.com");
-	await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
-	const member = await signIn(t, "member@co.com");
+	const { t, owner, member } = await ownerAndMember();
 	const task = (await owner.query(api.recordTypes.list)).find((t) => t.key === "task")!;
 	return { t, owner, member, task };
 }

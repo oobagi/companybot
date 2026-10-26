@@ -1,20 +1,10 @@
+import { setup, signIn } from "./helpers";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import schema from "../convex/schema";
-import { person } from "./person";
 
 // Records tools (recordTools.ts), as an agent turn calls them: acting for the person who asked.
-
-const modules = import.meta.glob(["../convex/**/*.ts", "../convex/_generated/*.js"]);
-
-async function signIn(t: ReturnType<typeof convexTest>, email: string) {
-	const userId = await t.run((ctx) => ctx.db.insert("users", { email }));
-	const as = person(t.withIdentity({ subject: `${userId}|session` }));
-	await as.mutation(api.workspace.ensure);
-	return Object.assign(as, { userId });
-}
 
 type As = Awaited<ReturnType<typeof signIn>>;
 
@@ -39,14 +29,6 @@ async function turnFor(t: ReturnType<typeof convexTest>, as: As) {
 		saveField: (input: object) => result(t.mutation(internal.recordTools.saveFieldFor, { turnId, input })),
 	};
 	return { turnId, ...tools };
-}
-
-async function setup() {
-	const t = convexTest({ schema, modules, transactionLimits: true });
-	const owner = await signIn(t, "owner@co.com");
-	await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
-	const member = await signIn(t, "member@co.com");
-	return { t, owner, member };
 }
 
 describe("records tools", () => {

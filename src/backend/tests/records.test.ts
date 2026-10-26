@@ -1,3 +1,4 @@
+import { setup as ownerAndMember, signIn, modules } from "./helpers";
 import migrationsTest from "@convex-dev/migrations/test";
 import { convexTest } from "convex-test";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
@@ -8,26 +9,12 @@ import type { Id } from "../convex/_generated/dataModel";
 import { legacyMemberOf } from "../convex/lib";
 import { createRecord, updateRecord } from "../convex/recordOps";
 import schema from "../convex/schema";
-import { person } from "./person";
-
-const modules = import.meta.glob(["../convex/**/*.ts", "../convex/_generated/*.js"]);
-
-/** A signed-in person. Convex Auth reads the user id from the token subject. */
-async function signIn(t: ReturnType<typeof convexTest>, email: string) {
-	const userId = await t.run((ctx) => ctx.db.insert("users", { email }));
-	const as = person(t.withIdentity({ subject: `${userId}|session` }));
-	await as.mutation(api.workspace.ensure);
-	return Object.assign(as, { userId });
-}
 
 type As = Awaited<ReturnType<typeof signIn>>;
 
 /** An owner and a member in one workspace, plus the built-in types by key. */
 async function setup() {
-	const t = convexTest({ schema, modules, transactionLimits: true });
-	const owner = await signIn(t, "owner@co.com");
-	await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
-	const member = await signIn(t, "member@co.com");
+	const { t, owner, member } = await ownerAndMember();
 	const types = await owner.query(api.recordTypes.list);
 	const type = (key: string) => types.find((t) => t.key === key)!;
 	return { t, owner, member, client: type("client"), deal: type("deal"), task: type("task"), call: type("call") };

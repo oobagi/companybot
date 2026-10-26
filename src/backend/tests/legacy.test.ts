@@ -1,3 +1,4 @@
+import { modules } from "./helpers";
 import migrationsTest from "@convex-dev/migrations/test";
 import { convexTest } from "convex-test";
 import { expect, it, vi } from "vitest";
@@ -11,7 +12,6 @@ import { person } from "./person";
 // one (lib.ts legacyMemberOf), never another the person is in. Edge cases from security review.
 // COMPAT(0.1.0-alpha.7): delete with legacyMemberOf.
 
-const modules = import.meta.glob(["../convex/**/*.ts", "../convex/_generated/*.js"]);
 const UPDATE = "Update Companybot to open your workspaces";
 
 /** Someone who started A on an old app, with a second owner (deputy). `unpinned`: from before pinning. */

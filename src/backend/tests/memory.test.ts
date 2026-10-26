@@ -1,30 +1,17 @@
+import { setup as ownerAndMember, signIn } from "./helpers";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { MEMORY_RESULTS_MAX } from "../convex/memoryOps";
-import schema from "../convex/schema";
-import { person } from "./person";
 
 // Agent memory (memory.ts), as an agent turn calls it: acting for the turn's person, checked
 // fresh on every call (runningTurn), with personal memories only in a DM with exactly one person.
 
-const modules = import.meta.glob(["../convex/**/*.ts", "../convex/_generated/*.js"]);
-
-async function signIn(t: ReturnType<typeof convexTest>, email: string) {
-	const userId = await t.run((ctx) => ctx.db.insert("users", { email }));
-	const as = person(t.withIdentity({ subject: `${userId}|session` }));
-	await as.mutation(api.workspace.ensure);
-	return Object.assign(as, { userId });
-}
-
 type As = Awaited<ReturnType<typeof signIn>>;
 
 async function setup() {
-	const t = convexTest({ schema, modules, transactionLimits: true });
-	const owner = await signIn(t, "owner@co.com");
-	await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
-	const member = await signIn(t, "member@co.com");
+	const { t, owner, member } = await ownerAndMember();
 	const companybot = (await owner.query(api.agents.list)).find((a) => a.name === "Companybot")!._id;
 	const general = (await owner.query(api.chats.list))!.channels.find((c) => c.isDefault)!._id;
 	return { t, owner, member, companybot, general };

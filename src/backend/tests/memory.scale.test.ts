@@ -1,10 +1,9 @@
+import { modules } from "./helpers";
 import { convexTest } from "convex-test";
 import { expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
 import schema from "../convex/schema";
 import { person } from "./person";
-
-const modules = import.meta.glob(["../convex/**/*.ts", "../convex/_generated/*.js"]);
 
 it.each([
 	{ name: "16,100 personal memories", count: 16_100, contentSize: 20, batch: 1_000 },
