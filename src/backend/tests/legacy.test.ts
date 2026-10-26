@@ -1,4 +1,4 @@
-import { modules } from "./helpers";
+import { modules, settle } from "./helpers";
 import migrationsTest from "@convex-dev/migrations/test";
 import { convexTest } from "convex-test";
 import { expect, it, vi } from "vitest";
@@ -113,9 +113,10 @@ it("re-pins to the fresh workspace someone in none at all gets, so the old app w
 });
 
 it("keeps the A pin through joining B, leaving A and rejoining A", async () => {
-	const { old, a, deputy, inviteTo } = await setup();
+	const { t, old, a, deputy, inviteTo } = await setup();
 	await old.mutation(api.workspace.acceptInvite, { id: (await inviteTo("B")).id });
 	await old.in(a).mutation(api.workspace.leave);
+	await settle(t);
 	expect((await old.query(api.workspace.me))!.role).toBeNull();
 	await expect(old.mutation(api.workspace.ensure)).rejects.toThrow(UPDATE);
 	await deputy.mutation(api.workspace.invite, { email: "target@co.com", role: "member" });

@@ -4,7 +4,8 @@ import type { Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { getMember, namesOf, requireMember, toActor } from "./lib";
-import { createMemory, forgetPersonalMemories, listMemories, removeMemory, searchMemories, updateMemory } from "./memoryOps";
+import { internal } from "./_generated/api";
+import { createMemory, listMemories, removeMemory, searchMemories, updateMemory } from "./memoryOps";
 import { memoryOn, personalMemoryHere, runningTurn } from "./turns";
 
 const scope = v.union(v.literal("workspace"), v.literal("personal"));
@@ -46,9 +47,21 @@ export const remove = mutation({
 	handler: async (ctx, { id }) => removeMemory(ctx, { member: await requireMember(ctx) }, id),
 });
 
+/**
+ * Removal cleanup queued before cascades (lifecycle.ts) took over: personal memories saved
+ * before `before`, a batch per run.
+ * COMPAT(0.1.0-alpha.6): delete once no cleanup queued before this deploy can still run, with `memories.createdTs`.
+ */
 export const forgetForRemovedMember = internalMutation({
 	args: { workspaceId: v.id("workspaces"), userId: v.id("users"), before: v.int64() },
-	handler: (ctx, { workspaceId, userId, before }) => forgetPersonalMemories(ctx, workspaceId, userId, before),
+	handler: async (ctx, { workspaceId, userId, before }) => {
+		const batch = await ctx.db
+			.query("memories")
+			.withIndex("by_owner", (q) => q.eq("ownerId", userId).eq("workspaceId", workspaceId).lte("createdTs", before))
+			.take(100);
+		for (const memory of batch) await ctx.db.delete(memory._id);
+		if (batch.length === 100) await ctx.scheduler.runAfter(0, internal.memory.forgetForRemovedMember, { workspaceId, userId, before });
+	},
 });
 
 // Agent-facing versions: same rules, acting for the turn's person. runningTurn re-checks

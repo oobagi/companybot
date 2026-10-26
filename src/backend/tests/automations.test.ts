@@ -5,7 +5,7 @@ import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { automationCatalog, defineAutomation } from "@companybot/core";
 
-import { signIn, agentsOf, setup as ownerAndMember, meOf, generalOf, turnsOf } from "./helpers";
+import { signIn, agentsOf, setup as ownerAndMember, meOf, generalOf, turnsOf, settle } from "./helpers";
 
 // An automation that needs a connector, for the install check.
 automationCatalog.push(
@@ -321,6 +321,7 @@ describe("automations", () => {
 			await owner.mutation(api.automations.remove, { automationId: "morning-brief" });
 			await owner.mutation(api.automations.remove, { automationId: "morning-brief" });
 			expect((await find(owner, "morning-brief"))!.installed).toBe(false);
+			await settle(t);
 			expect(await t.run((ctx) => ctx.db.query("automationSubscriptions").collect())).toHaveLength(0);
 			await install(owner, "morning-brief");
 			await owner.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: false });

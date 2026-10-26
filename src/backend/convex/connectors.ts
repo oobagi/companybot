@@ -17,7 +17,7 @@ import { type QueryCtx, internalMutation, internalQuery } from "./_generated/ser
 import { action, mutation, query } from "./functions";
 import { encrypt } from "./crypto";
 import { type Member, getMember, memberFor, memberOf, requireMember, requirePermission } from "./lib";
-import { forgetConnector } from "./permissions";
+import { cascading, startCascade } from "./cascade";
 import { role } from "./schema";
 
 // Install → choose roles → connect an account → agents granted "<connector>.*" use it.
@@ -101,7 +101,9 @@ export const setInstalled = mutation({
 		const member = await requirePermission(ctx, "connectors.manage");
 		const connector = requireConnector(connectorId);
 		const existing = await installOf(ctx, member.workspaceId, connectorId);
+		const old = { workspaceId: member.workspaceId, connectorId };
 		if (installed && !existing) {
+			if (await cascading(ctx, "connectorInstall", old)) throw new ConvexError("It's still being uninstalled. Try again in a minute.");
 			await ctx.db.insert("connectorInstalls", {
 				workspaceId: member.workspaceId,
 				connectorId,
@@ -111,14 +113,8 @@ export const setInstalled = mutation({
 		}
 		if (!installed && existing) {
 			await ctx.db.delete(existing._id);
-			// Rules and locks belong to this install: reinstalling starts strict again.
-			await forgetConnector(ctx, existing);
-			// Uninstalling forgets every account connected to it.
-			const connections = await ctx.db
-				.query("connectorConnections")
-				.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("connectorId", connectorId))
-				.collect();
-			for (const c of connections) await ctx.db.delete(c._id);
+			// Its accounts, rules, locks and tool list go too (lifecycle.ts): reinstalling starts strict again.
+			await startCascade(ctx, "connectorInstall", { ...old, connectorInstallId: existing._id });
 		}
 	},
 });
@@ -179,6 +175,19 @@ export const saveOAuthFlow = internalMutation({
 			.collect();
 		for (const flow of old) await ctx.db.delete(flow._id);
 		await ctx.db.insert("connectorOAuthFlows", { ...args, expiresAt: Date.now() + OAUTH_FLOW_MS });
+	},
+});
+
+/** Runs hourly (crons.ts): deletes sign-ins nobody finished. */
+export const forgetExpiredOAuth = internalMutation({
+	args: {},
+	handler: async (ctx) => {
+		const expired = await ctx.db
+			.query("connectorOAuthFlows")
+			.withIndex("by_creation_time", (q) => q.lt("_creationTime", Date.now() - OAUTH_FLOW_MS))
+			.take(500);
+		for (const flow of expired) await ctx.db.delete(flow._id);
+		if (expired.length === 500) await ctx.scheduler.runAfter(0, internal.connectors.forgetExpiredOAuth);
 	},
 });
 

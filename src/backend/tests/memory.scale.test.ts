@@ -34,7 +34,7 @@ it.each([
 	try {
 		await owner.mutation(api.workspace.removeMember, { id: memberId });
 		expect(await t.run((ctx) => ctx.db.get(memberId))).toBeNull();
-		await t.finishAllScheduledFunctions(vi.runAllTimers, 200);
+		await t.finishAllScheduledFunctions(vi.runAllTimers, 1_000);
 	} finally {
 		vi.useRealTimers();
 	}

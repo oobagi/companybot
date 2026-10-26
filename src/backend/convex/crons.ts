@@ -7,5 +7,9 @@ const crons = cronJobs();
 crons.interval("automations", { minutes: 5 }, internal.automationRuns.tick, {});
 // Forgets webhook delivery ids once senders have stopped retrying them.
 crons.interval("automation webhooks", { hours: 1 }, internal.automationRuns.forgetOldWebhooks);
+// Connector sign-ins nobody finished.
+crons.interval("connector sign-ins", { hours: 1 }, internal.connectors.forgetExpiredOAuth);
+// Deletions (cascade.ts) whose last run failed start again.
+crons.interval("cascades", { minutes: 15 }, internal.cascade.resume);
 
 export default crons;

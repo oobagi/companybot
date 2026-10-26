@@ -4,7 +4,7 @@ import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { approvalHash, canonicalJson } from "@companybot/core";
 
-import { type As, agentsOf, setup as ownerAndMember, meOf, generalOf, turnsOf } from "./helpers";
+import { type As, agentsOf, setup as ownerAndMember, meOf, generalOf, turnsOf, settle } from "./helpers";
 import "./connectorFixtures";
 
 // The tests drive turns themselves; keep scheduled model replies back.
@@ -206,6 +206,7 @@ describe("permissions", () => {
 
 		await member.mutation(api.permissions.set, { action: sms.tool, setting: "always" });
 		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: false });
+		await settle(t);
 		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
 		expect(await member.query(api.permissions.mine)).toEqual([]);
 	});
@@ -244,6 +245,7 @@ describe("permissions", () => {
 		const userId = await meOf(member);
 		const row = (await owner.query(api.workspace.team))!.members.find((m) => m.userId === userId)!;
 		await owner.mutation(api.workspace.removeMember, { id: row.id });
+		await settle(t);
 		expect(await t.run((ctx) => ctx.db.query("permissionRules").collect())).toEqual([]);
 	});
 

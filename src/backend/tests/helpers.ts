@@ -71,3 +71,14 @@ export const usage = (costUsd: number) => ({
 	durationMs: 900,
 });
 
+
+/** Runs everything scheduled (cascades, cleanups) until nothing is left. */
+export async function settle(t: ReturnType<typeof convexTest>) {
+	const fake = vi.isFakeTimers();
+	if (!fake) vi.useFakeTimers();
+	try {
+		await t.finishAllScheduledFunctions(vi.runAllTimers, 1_000);
+	} finally {
+		if (!fake) vi.useRealTimers();
+	}
+}

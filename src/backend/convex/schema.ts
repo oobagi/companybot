@@ -118,6 +118,8 @@ export default defineSchema({
 		currency: v.optional(v.string()),
 		/** Whether agents read and write memories. Off keeps them, unused. Unset means on. */
 		memory: v.optional(v.boolean()),
+		/** Set when an owner deletes it: every access refuses at once, then a cascade deletes its rows (lifecycle.ts). */
+		deleting: v.optional(v.boolean()),
 	}),
 
 	members: defineTable({
@@ -175,11 +177,12 @@ export default defineSchema({
 		/** Set when the agent made the last change, acting for `updatedBy`. */
 		updatedByAgent: v.optional(v.boolean()),
 		version: v.number(),
-		/** Commit timestamp: removal cleanup must spare memories saved after rejoining. Older rows predate cleanup. */
+		/** Commit timestamp. COMPAT(0.1.0-alpha.6): only memory.forgetForRemovedMember reads it; drop it with that. */
 		createdTs: v.optional(v.commitTs()),
 	})
 		.index("by_workspace", ["workspaceId"])
-		.index("by_workspace_owner", ["workspaceId", "scope", "ownerId", "createdTs"])
+		// One person's personal memories in a workspace (team memories have no owner).
+		.index("by_owner", ["ownerId", "workspaceId", "createdTs"])
 		// Newest first within a scope, across owners (lists), or one owner's personal memories.
 		.index("by_agent_scope", ["agentId", "scope"])
 		.index("by_agent_owner", ["agentId", "scope", "ownerId"])
@@ -207,7 +210,9 @@ export default defineSchema({
 		deviceTimeZone: v.optional(v.string()),
 		/** The workspace they used last: only a hint for a device opening for the first time. Each device keeps its own. */
 		workspaceId: v.optional(v.id("workspaces")),
-	}).index("by_user", ["userId"]),
+	})
+		.index("by_user", ["userId"])
+		.index("by_workspace", ["workspaceId"]),
 
 	// Connectors: an owner installs one and picks which roles may use it.
 	connectorInstalls: defineTable({
@@ -228,7 +233,8 @@ export default defineSchema({
 		/** Set when the last attempt to use it failed, so the app can say so. */
 		error: v.optional(v.string()),
 	})
-		.index("by_workspace", ["workspaceId", "connectorId", "userId"]),
+		.index("by_workspace", ["workspaceId", "connectorId", "userId"])
+		.index("by_user", ["userId", "workspaceId"]),
 
 	// A connector sign-in in progress: started in the app, finished by /oauth/callback.
 	// `data` holds the encrypted OAuthState (client, PKCE verifier). One use; expires.
@@ -322,6 +328,7 @@ export default defineSchema({
 		lastReadAt: v.optional(v.number()),
 	})
 		.index("by_chat", ["chatId"])
+		.index("by_workspace", ["workspaceId", "userId"])
 		.index("by_user", ["userId", "chatId"])
 		.index("by_agent", ["agentId", "chatId"]),
 
@@ -357,6 +364,7 @@ export default defineSchema({
 		automation: v.optional(v.object({ id: v.string(), name: v.string() })),
 	})
 		.index("by_chat_thread", ["chatId", "threadId"])
+		.index("by_workspace", ["workspaceId"])
 		.searchIndex("search_text", { searchField: "text", filterFields: ["workspaceId", "chatId"] }),
 
 	// One emoji from one person or agent on one message.
@@ -401,7 +409,8 @@ export default defineSchema({
 		approvalId: v.optional(v.id("approvals")),
 	})
 		.index("by_place", ["agentId", "chatId", "threadId", "status"])
-		.index("by_session", ["sessionId"]),
+		.index("by_session", ["sessionId"])
+		.index("by_workspace", ["workspaceId"]),
 
 	// One agent's ongoing context in one place (chat + thread). Append-only: past turns
 	// replay exactly as sent, so prompt caching hits. Older turns fold into `summary`.
@@ -416,7 +425,9 @@ export default defineSchema({
 		compacting: v.optional(v.boolean()),
 		/** USD spent on this session's replies and summaries. */
 		costUsd: v.optional(v.number()),
-	}).index("by_place", ["agentId", "chatId", "threadId"]),
+	})
+		.index("by_place", ["agentId", "chatId", "threadId"])
+		.index("by_workspace", ["workspaceId"]),
 
 	// The activity log: every tool call an agent made, acting for `actorId`. Readable by
 	// whoever can see the chat it happened in; `output` only by the person it acted for.
@@ -481,7 +492,9 @@ export default defineSchema({
 		automationInstallId: v.optional(v.id("automationInstalls")),
 		/** Set when the actor chose "Always allow": a rule was saved too. */
 		always: v.optional(v.boolean()),
-	}).index("by_reply", ["replyId"]),
+	})
+		.index("by_reply", ["replyId"])
+		.index("by_workspace", ["workspaceId"]),
 
 	// Automations: an owner installs a library one, or anyone makes their own, and picks the agent that runs it.
 	automationInstalls: defineTable({
@@ -546,6 +559,7 @@ export default defineSchema({
 		setAt: v.number(),
 	})
 		.index("by_user", ["userId", "action"])
+		.index("by_workspace", ["workspaceId", "userId"])
 		.index("by_automation", ["automationInstallId"])
 		.index("by_connector", ["connectorInstallId"]),
 
@@ -627,6 +641,7 @@ export default defineSchema({
 		updatedByAgent: v.optional(v.id("agents")),
 	})
 		.index("by_type", ["typeId", "archived"])
+		.index("by_workspace", ["workspaceId"])
 		.index("by_type_updated", ["typeId", "archived", "updatedAt"])
 		.searchIndex("search", { searchField: "searchText", filterFields: ["workspaceId", "typeId", "archived"] }),
 
@@ -687,5 +702,28 @@ export default defineSchema({
 		recordId: v.id("records"),
 		messageId: v.id("chatMessages"),
 		chatId: v.id("chats"),
-	}).index("by_record", ["recordId"]),
+	})
+		.index("by_record", ["recordId"])
+		.index("by_message", ["messageId"]),
+
+	// A cascade deleting what belonged to something that went (cascade.ts): one page of one
+	// edge of lifecycle.ts per run, resumed from `edge` and `cursor`. `key` names what's going,
+	// so rejoining or reinstalling waits until its old rows are gone.
+	cascades: defineTable({
+		scope: v.union(v.literal("workspace"), v.literal("member"), v.literal("user"), v.literal("connectorInstall"), v.literal("automationInstall")),
+		root: v.object({
+			workspaceId: v.optional(v.id("workspaces")),
+			userId: v.optional(v.id("users")),
+			connectorId: v.optional(v.string()),
+			connectorInstallId: v.optional(v.id("connectorInstalls")),
+			automationInstallId: v.optional(v.id("automationInstalls")),
+		}),
+		key: v.string(),
+		/** The edge it's on, as "table.index" ("" before the first). */
+		edge: v.string(),
+		cursor: v.union(v.string(), v.null()),
+		updatedAt: v.number(),
+	})
+		.index("by_key", ["key"])
+		.index("by_updated", ["updatedAt"]),
 });

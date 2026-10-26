@@ -40,7 +40,13 @@ export async function memberOf(ctx: QueryCtx, userId: Id<"users">, workspaceId: 
 		.query("members")
 		.withIndex("by_user", (q) => q.eq("userId", userId).eq("workspaceId", workspaceId))
 		.first();
-	return row ? { userId, workspaceId, role: row.role } : null;
+	return row && (await liveWorkspace(ctx, workspaceId)) ? { userId, workspaceId, role: row.role } : null;
+}
+
+/** A workspace that exists and isn't being deleted. Deleting one ends every access to it at once. */
+export async function liveWorkspace(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
+	const workspace = await ctx.db.get(workspaceId);
+	return workspace && !workspace.deleting ? workspace : null;
 }
 
 /**
@@ -60,7 +66,7 @@ export async function legacyMemberOf(ctx: QueryCtx, userId: Id<"users">): Promis
 		.query("members")
 		.withIndex("by_user", (q) => q.eq("userId", userId))
 		.take(2);
-	return rows.length === 1 ? { userId, workspaceId: rows[0]!.workspaceId, role: rows[0]!.role } : null;
+	return rows.length === 1 ? memberOf(ctx, userId, rows[0]!.workspaceId) : null;
 }
 
 /**
@@ -193,7 +199,8 @@ export async function nameOf(ctx: QueryCtx, userId: Id<"users">) {
 		.withIndex("by_user", (q) => q.eq("userId", userId))
 		.first();
 	if (prefs?.displayName) return prefs.displayName;
-	return (await ctx.db.get(userId))?.email ?? "Someone";
+	// Erased accounts keep a scrubbed row (workspace.eraseAccount).
+	return (await ctx.db.get(userId))?.email ?? "Former member";
 }
 
 /** Someone's time zone: the one they picked, else their computer's, else UTC. */

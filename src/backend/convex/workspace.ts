@@ -9,11 +9,8 @@ import { seedAgents } from "./agents";
 import { fieldsOf, seedRecordTypes, typesOf } from "./recordOps";
 import { addToChat, ensureGeneral } from "./chatOps";
 import { sendInviteEmail } from "./invites";
-import { checkVersion, getMember, legacyMemberOf, memberOf, nameOf, namesOf, normalizeEmail, pinLegacyWorkspace, requireMember, requirePermission, timeZoneOf } from "./lib";
-import { forgetUserRules } from "./permissions";
-import { forgetPersonalMemories } from "./memoryOps";
-import { privateTo } from "./automationOps";
-import { removeInstall } from "./automations";
+import { checkVersion, getMember, legacyMemberOf, liveWorkspace, memberOf, nameOf, namesOf, normalizeEmail, pinLegacyWorkspace, requireMember, requirePermission, timeZoneOf } from "./lib";
+import { cascading, startCascade } from "./cascade";
 import { role } from "./schema";
 
 export const me = query({
@@ -40,10 +37,11 @@ export const ensure = mutation({
 	handler: async (ctx) => {
 		const userId = await getAuthUserId(ctx);
 		if (!userId) throw new ConvexError("Not signed in.");
-		const joined = await ctx.db
-			.query("members")
-			.withIndex("by_user", (q) => q.eq("userId", userId))
-			.first();
+		// Erased accounts keep their row, scrubbed (eraseAccount); a sign-in from before can't start over in it.
+		if (!(await ctx.db.get(userId))?.email) throw new ConvexError("This account was erased.");
+		let joined = false;
+		for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId)))
+			if (await liveWorkspace(ctx, row.workspaceId)) joined = true;
 		if (joined) {
 			// COMPAT(0.1.0-alpha.7): apps from before switching call this whenever they find no
 			// workspace (lib.ts legacyMemberOf), and show what it throws.
@@ -68,18 +66,21 @@ export const ensure = mutation({
 	},
 });
 
-/** Pending invites to this person's (verified) email. */
+/** Pending invites to this person's (verified) email, from workspaces that aren't being deleted. */
 async function invitesFor(ctx: QueryCtx, userId: Id<"users">) {
 	const email = normalizeEmail((await ctx.db.get(userId))?.email ?? "");
 	if (!email) return [];
-	return ctx.db
-		.query("invites")
-		.withIndex("by_email", (q) => q.eq("email", email))
-		.collect();
+	const invites = [];
+	for await (const invite of ctx.db.query("invites").withIndex("by_email", (q) => q.eq("email", email)))
+		if (await liveWorkspace(ctx, invite.workspaceId)) invites.push(invite);
+	return invites;
 }
 
 /** Uses up an invite: they're in, in #general, and it's their last-used workspace. */
 async function join(ctx: MutationCtx, invite: Doc<"invites">, userId: Id<"users">) {
+	// What they had here before is still being deleted: joining now could bring it back.
+	if (await cascading(ctx, "member", { workspaceId: invite.workspaceId, userId }))
+		throw new ConvexError("You were just removed from this workspace. Try again in a minute.");
 	await ctx.db.delete(invite._id);
 	if (await memberOf(ctx, userId, invite.workspaceId)) return;
 	await ctx.db.insert("members", { workspaceId: invite.workspaceId, userId, role: invite.role });
@@ -115,7 +116,7 @@ export const mine = query({
 			.collect();
 		const workspaces = [];
 		for (const row of rows) {
-			const workspace = await ctx.db.get(row.workspaceId);
+			const workspace = await liveWorkspace(ctx, row.workspaceId);
 			if (workspace) workspaces.push({ id: workspace._id, name: workspace.name, role: row.role });
 		}
 		const invitations = [];
@@ -279,50 +280,74 @@ export const leave = mutation({
 });
 
 /**
- * Takes someone out of a workspace. Access ends at once (everything reads membership fresh);
- * their channel seats, automation opt-ins, permission rules, personal connector accounts,
- * automations only they could see, and personal memories go too, so rejoining starts strict.
- * DMs keep them as a past participant.
+ * Takes someone out of a workspace. Access ends at once: their membership goes now, and
+ * everything reads it fresh. What was theirs alone goes in a member cascade (lifecycle.ts):
+ * channel seats, automation opt-ins, permission rules, personal connector accounts and
+ * memories, automations only they could see, unread mentions. Rejoining waits until it's
+ * done, so it starts strict. DMs keep them as a past participant.
  */
 async function dropMember(ctx: MutationCtx, row: Doc<"members">) {
 	const { workspaceId, userId } = row;
 	// COMPAT(0.1.0-alpha.7): pin before the membership goes, or legacyMemberOf would pick the next one.
 	await pinLegacyWorkspace(ctx, userId);
 	await ctx.db.delete(row._id);
-	for (const seat of await ctx.db
-		.query("chatMembers")
-		.withIndex("by_user", (q) => q.eq("userId", userId))
-		.collect()) {
-		if (seat.workspaceId !== workspaceId) continue;
-		if ((await ctx.db.get(seat.chatId))?.kind === "channel") await ctx.db.delete(seat._id);
-	}
-	for (const sub of await ctx.db
-		.query("automationSubscriptions")
-		.withIndex("by_user", (q) => q.eq("userId", userId))
-		.collect()) {
-		const install = await ctx.db.get(sub.installId);
-		if (install?.workspaceId === workspaceId) await ctx.db.delete(sub._id);
-	}
-	await forgetUserRules(ctx, workspaceId, userId);
-	// Personal accounts only; the workspace's own (userId null) stay, whoever connected them.
-	for (const install of await ctx.db
-		.query("connectorInstalls")
-		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-		.collect()) {
-		const connections = ctx.db
-			.query("connectorConnections")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId).eq("connectorId", install.connectorId).eq("userId", userId));
-		for await (const connection of connections) await ctx.db.delete(connection._id);
-	}
-	// Just-them automations are hidden from everyone else (canView), so nobody could ever remove them.
-	for (const install of await ctx.db
-		.query("automationInstalls")
-		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-		.collect()) {
-		if (privateTo(install) === userId) await removeInstall(ctx, install);
-	}
-	await forgetPersonalMemories(ctx, workspaceId, userId, ctx.meta.getSnapshotTs());
+	await startCascade(ctx, "member", { workspaceId, userId });
 }
+
+/**
+ * Deletes the open workspace and everything in it (owners). `name` must match, so it's never
+ * an accident. Access ends at once for everyone (memberOf refuses a workspace being deleted);
+ * a workspace cascade (lifecycle.ts) then deletes its rows, and it last.
+ */
+export const deleteWorkspace = mutation({
+	args: { name: v.string() },
+	handler: async (ctx, { name }) => {
+		const { workspaceId } = await requirePermission(ctx, "workspace.delete");
+		if ((await ctx.db.get(workspaceId))!.name !== name.trim()) throw new ConvexError("Type the workspace's name to delete it.");
+		await removeWorkspace(ctx, workspaceId);
+	},
+});
+
+async function removeWorkspace(ctx: MutationCtx, workspaceId: Id<"workspaces">) {
+	await ctx.db.patch(workspaceId, { deleting: true });
+	// COMPAT(0.1.0-alpha.7): pin before the memberships go, so old apps act nowhere rather than in another workspace.
+	for (const row of await membersOf(ctx, workspaceId)) await pinLegacyWorkspace(ctx, row.userId);
+	await startCascade(ctx, "workspace", { workspaceId });
+}
+
+/**
+ * Erases your account. You leave every workspace (one you're alone in is deleted), and your
+ * sign-in, preferences and everything personal go. The `users` row stays, scrubbed, since
+ * ~20 tables point at it: what you did stays in workspace history, as a former member's.
+ * Refused while you're the only owner of a workspace with other people in it.
+ */
+export const eraseAccount = mutation({
+	args: {},
+	handler: async (ctx) => {
+		const userId = await getAuthUserId(ctx);
+		if (!userId) throw new ConvexError("Not signed in.");
+		const memberships = [];
+		for (const row of await ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId)).collect()) {
+			const everyone = await membersOf(ctx, row.workspaceId);
+			if (row.role === "owner" && everyone.length > 1 && everyone.filter((r) => r.role === "owner").length === 1) {
+				const workspace = await ctx.db.get(row.workspaceId);
+				throw new ConvexError(`You're the only owner of ${workspace?.name ?? "a workspace"}. Make someone else an owner first, or remove everyone else.`);
+			}
+			memberships.push({ row, alone: everyone.length === 1 });
+		}
+		for (const { row, alone } of memberships) {
+			if (alone) await removeWorkspace(ctx, row.workspaceId);
+			else await dropMember(ctx, row);
+		}
+		// Now, not in the cascade: their email must sign in to a new account, never back into this one.
+		for await (const account of ctx.db.query("authAccounts").withIndex("userIdAndProvider", (q) => q.eq("userId", userId))) {
+			for await (const code of ctx.db.query("authVerificationCodes").withIndex("accountId", (q) => q.eq("accountId", account._id))) await ctx.db.delete(code._id);
+			await ctx.db.delete(account._id);
+		}
+		await ctx.db.replace(userId, {});
+		await startCascade(ctx, "user", { userId });
+	},
+});
 
 /** Takes effect at once, including for replies already running. */
 export const setRole = mutation({

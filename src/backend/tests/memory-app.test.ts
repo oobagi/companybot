@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 
-import { signIn, agentsOf, setup as ownerAndMember, generalOf, agentTurn } from "./helpers";
+import { signIn, agentsOf, setup as ownerAndMember, generalOf, agentTurn, settle } from "./helpers";
 
 // The tests drive turns themselves; keep scheduled model replies back.
 beforeEach(() => void vi.useFakeTimers());
@@ -54,6 +54,7 @@ describe("memory", () => {
 		await owner.mutation(api.memory.create, { agentId: companybot._id, scope: "workspace", content: "Team note" });
 		const row = (await owner.query(api.workspace.team))!.members.find((m) => !m.isYou)!;
 		await owner.mutation(api.workspace.removeMember, { id: row.id });
+		await settle(t);
 		const left = await t.run((ctx) => ctx.db.query("memories").collect());
 		expect(left.map((m) => m.content)).toEqual(["Owner note", "Team note"]);
 	});

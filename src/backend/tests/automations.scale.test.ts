@@ -30,7 +30,7 @@ it("deletes an automation with 20,000 webhook deliveries without exceeding trans
 	try {
 		await owner.mutation(api.automations.remove, { automationId });
 		expect(await t.run((ctx) => ctx.db.get(installId))).toBeNull();
-		await t.finishAllScheduledFunctions(vi.runAllTimers, 200);
+		await t.finishAllScheduledFunctions(vi.runAllTimers, 1_000);
 	} finally {
 		vi.useRealTimers();
 	}

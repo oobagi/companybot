@@ -8,7 +8,6 @@ import {
 	memoryMatches,
 } from "@companybot/core";
 import { ConvexError } from "convex/values";
-import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { type Member, type Who, checkVersion, requireAgent, toActor } from "./lib";
@@ -132,14 +131,4 @@ export async function updateMemory(ctx: MutationCtx, { member, agentId: byAgent 
 export async function removeMemory(ctx: MutationCtx, { member }: Who, id: Id<"memories">) {
 	await requireEditable(ctx, member, id);
 	await ctx.db.delete(id);
-}
-
-/** Removes one bounded batch, including archived agents' memories, then continues if needed. */
-export async function forgetPersonalMemories(ctx: MutationCtx, workspaceId: Id<"workspaces">, userId: Id<"users">, before: bigint) {
-	const { page, isDone } = await ctx.db
-		.query("memories")
-		.withIndex("by_workspace_owner", (q) => q.eq("workspaceId", workspaceId).eq("scope", "personal").eq("ownerId", userId).lte("createdTs", before))
-		.paginate({ cursor: null, numItems: 100, maximumBytesRead: 1_000_000 });
-	for (const memory of page) await ctx.db.delete(memory._id);
-	if (!isDone) await ctx.scheduler.runAfter(0, internal.memory.forgetForRemovedMember, { workspaceId, userId, before });
 }

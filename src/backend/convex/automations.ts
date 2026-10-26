@@ -16,7 +16,6 @@ import {
 	normalizeCustomAutomation,
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
-import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
@@ -36,6 +35,7 @@ import {
 } from "./lib";
 import { audienceOf, canView, definitionOf, installOf, postingProblem, requireEditable, runsForLabel, subscribersOf, webhookUrl } from "./automationOps";
 import { forgetAutomationGrants } from "./permissions";
+import { startCascade } from "./cascade";
 import { audience, customTrigger } from "./schema";
 
 // An automation is a trigger (schedule, webhook, or something happening in the app), a
@@ -318,13 +318,10 @@ export const setInstalled = mutation({
 	},
 });
 
-/** Deletes an install. Its webhook delivery ids (thousands on a busy one) follow in scheduled batches. */
-export async function removeInstall(ctx: MutationCtx, install: Doc<"automationInstalls">) {
+/** Deletes an install now, so its webhook and schedule stop; its opt-ins, grants and delivery ids follow (lifecycle.ts). */
+async function removeInstall(ctx: MutationCtx, install: Doc<"automationInstalls">) {
 	await ctx.db.delete(install._id);
-	await forgetAutomationGrants(ctx, install._id);
-	const subs = ctx.db.query("automationSubscriptions").withIndex("by_install", (q) => q.eq("installId", install._id));
-	for await (const sub of subs) await ctx.db.delete(sub._id);
-	await ctx.scheduler.runAfter(0, internal.automationRuns.forgetUninstalled, { installId: install._id });
+	await startCascade(ctx, "automationInstall", { automationInstallId: install._id });
 }
 
 export const update = mutation({

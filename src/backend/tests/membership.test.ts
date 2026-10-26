@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
 
-import { type As, agentsOf, inWorkspace, setup as ownerAndMember, sideWorkspace } from "./helpers";
+import { type As, agentsOf, inWorkspace, setup as ownerAndMember, sideWorkspace, settle } from "./helpers";
 import "./connectorFixtures";
 
 afterEach(() => void vi.useRealTimers());
@@ -36,7 +36,13 @@ describe("workspaces", () => {
 		const { owner, member } = t;
 		const row = (await owner.query(api.workspace.team))!.members.find((m) => !m.isYou)!;
 		await owner.mutation(api.workspace.removeMember, { id: row.id });
-		await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
+		await expect(acceptInvite(t)).rejects.toThrow("just removed");
+		await settle(t.t);
+		await acceptInvite(t);
+	}
+
+	async function acceptInvite({ owner, member }: Awaited<ReturnType<typeof ownerAndMember>>) {
+		if (!(await member.query(api.workspace.mine))!.invitations.length) await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
 		await member.mutation(api.workspace.acceptInvite, { id: (await member.query(api.workspace.mine))!.invitations[0]!.id });
 	}
 
