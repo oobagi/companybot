@@ -37,7 +37,7 @@ export function Page({
 					<div className="flex items-start justify-between gap-4">
 						<div>
 							<h1 className="text-xl font-medium">{title}</h1>
-							{subtitle && <p className="text-sm text-neutral-500">{subtitle}</p>}
+							{subtitle && <p className={descriptionClass}>{subtitle}</p>}
 						</div>
 						{actions}
 					</div>
@@ -80,7 +80,7 @@ export function Section({ title, hint, children }: { title: string; hint?: strin
 		<section className="flex flex-col gap-2">
 			<div>
 				<h2 className="font-medium">{title}</h2>
-				{hint && <p className="text-sm text-neutral-500">{hint}</p>}
+				{hint && <p className={descriptionClass}>{hint}</p>}
 			</div>
 			{children}
 		</section>
@@ -97,10 +97,14 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
 	);
 }
 
-export const inputClass =
-	"rounded-xl border border-neutral-200 px-3 py-2 outline-none focus:border-neutral-400 disabled:bg-neutral-50 disabled:text-neutral-500";
-export const primaryButton = "rounded-xl bg-neutral-900 px-4 py-2 text-sm text-white disabled:bg-neutral-300";
-export const secondaryButton = "rounded-xl border border-neutral-200 px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50";
+const controlClass = "border border-neutral-200 focus:border-neutral-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 disabled:bg-neutral-50 disabled:text-neutral-500";
+export const inputClass = `rounded-xl px-3 py-2 ${controlClass}`;
+export const compactControlClass = `rounded-lg px-2 py-1 text-sm ${controlClass}`;
+export const disabledButtonClass = "disabled:opacity-50";
+export const primaryButton = `rounded-xl bg-neutral-900 px-4 py-2 text-sm text-white ${disabledButtonClass}`;
+export const secondaryButton = `rounded-xl border border-neutral-200 px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
+export const descriptionClass = "text-sm text-neutral-500";
+export const metadataClass = "text-xs text-neutral-400";
 
 /** Placeholder shown only on first load; later visits come from the cache. */
 export function Loading() {
@@ -197,4 +201,14 @@ export function timeAgo(ms: number) {
 		if (Math.abs(seconds) >= size) return relative.format(Math.round(seconds / size), unit);
 	}
 	return "just now";
+}
+
+export function LoadMore({ status, onMore }: { status: string; onMore: () => void }) {
+	if (status === "LoadingMore") return <p className={`text-center ${metadataClass}`}>Loading…</p>;
+	if (status !== "CanLoadMore") return null;
+	return (
+		<button type="button" onClick={onMore} className={`self-center ${metadataClass} hover:text-neutral-700`}>
+			Load more
+		</button>
+	);
 }

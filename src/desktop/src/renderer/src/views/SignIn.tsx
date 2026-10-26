@@ -3,7 +3,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvex } from "convex/react";
 import { useState } from "react";
 import { api, errorMessage } from "../api";
-import { Notice } from "../ui";
+import { Notice, descriptionClass, inputClass, primaryButton } from "../ui";
 
 export function SignIn() {
 	const { signIn } = useAuthActions();
@@ -49,7 +49,7 @@ export function SignIn() {
 				<h1 className="text-xl font-medium">Sign in to Companybot</h1>
 				{sentTo ? (
 					<>
-						<p className="text-sm text-neutral-500">We sent a 6-digit code to {sentTo}.</p>
+						<p className={descriptionClass}>We sent a 6-digit code to {sentTo}.</p>
 						<input
 							autoFocus
 							inputMode="numeric"
@@ -57,7 +57,7 @@ export function SignIn() {
 							value={code}
 							onChange={(e) => setCode(e.target.value)}
 							placeholder="123456"
-							className="rounded-xl border border-neutral-200 bg-white px-3 py-2 tracking-widest outline-none focus:border-neutral-300"
+							className={`${inputClass} bg-white tracking-widest`}
 						/>
 					</>
 				) : (
@@ -67,18 +67,18 @@ export function SignIn() {
 						value={email}
 						onChange={(e) => setEmail(e.target.value)}
 						placeholder="you@company.com"
-						className="rounded-xl border border-neutral-200 bg-white px-3 py-2 outline-none focus:border-neutral-300"
+						className={`${inputClass} bg-white`}
 					/>
 				)}
 				{error && <Notice>{error}</Notice>}
-				<button type="submit" disabled={busy} className="rounded-xl bg-neutral-900 py-2 text-sm text-white disabled:opacity-50">
+				<button type="submit" disabled={busy} className={primaryButton}>
 					{sentTo ? "Sign in" : "Email me a code"}
 				</button>
 				{sentTo && (
 					<button
 						type="button"
 						onClick={() => (setSentTo(undefined), setCode(""), setError(undefined))}
-						className="text-sm text-neutral-500"
+						className={descriptionClass}
 					>
 						Use a different email
 					</button>

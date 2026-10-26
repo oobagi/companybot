@@ -2,10 +2,11 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { describeAllowed } from "@companybot/core/action-words";
+import { AgentOptions } from "../agent-options";
 import { api } from "../api";
 import { useQuery } from "../convex";
 import { navigate } from "../router";
-import { Loading, timeAgo } from "../ui";
+import { Loading, compactControlClass, descriptionClass, metadataClass, timeAgo } from "../ui";
 
 export type ActivityEntry = FunctionReturnType<typeof api.activity.forReply>[number];
 
@@ -20,21 +21,17 @@ export function ActivityTab() {
 
 	return (
 		<>
-			<p className="text-sm text-neutral-500">
+			<p className={descriptionClass}>
 				What agents did, in chats you can see. Results show only for what they did for you.
 			</p>
 			<div className="flex items-center gap-4 text-sm">
 				<select
 					value={agentId ?? ""}
 					onChange={(e) => setAgentId((e.target.value || undefined) as Id<"agents"> | undefined)}
-					className="rounded-lg border border-neutral-200 px-2 py-1"
+					className={compactControlClass}
 				>
 					<option value="">All agents</option>
-					{agents.map((a) => (
-						<option key={a._id} value={a._id}>
-							{a.archived ? `${a.name} (archived)` : a.name}
-						</option>
-					))}
+					<AgentOptions agents={agents} />
 				</select>
 				<label className="flex items-center gap-2 text-neutral-600">
 					<input type="checkbox" checked={changesOnly} onChange={(e) => setChangesOnly(e.target.checked)} />
@@ -59,7 +56,7 @@ function ActivityRow({ entry }: { entry: ActivityEntry & { chat: string } }) {
 				<span className="font-medium">{entry.agent}</span>
 				<span className="text-neutral-600">{entry.label}</span>
 				{entry.status === "error" && <span className="text-xs text-red-600">failed</span>}
-				<span className="ml-auto shrink-0 text-xs text-neutral-400">{timeAgo(entry.time)}</span>
+				<span className={`ml-auto shrink-0 ${metadataClass}`}>{timeAgo(entry.time)}</span>
 			</button>
 			<p className="text-xs text-neutral-500">
 				For {entry.mine ? "you" : entry.actor} in{" "}

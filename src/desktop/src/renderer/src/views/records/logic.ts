@@ -1,5 +1,5 @@
 import type { Field, FieldKind, FieldValue, Money } from "@companybot/core/records";
-import { formatDate, formatMoney } from "@companybot/core/records";
+import { formatDate, formatMoney, minorToDecimal } from "@companybot/core/records";
 
 // Pure rules for the record screens: columns, filters, sorting and how values read.
 // Shared by every record type, built-in or added later. See wiki/data.md.
@@ -124,9 +124,7 @@ export function valueText(field: Field | undefined, value: FieldValue | null | u
 
 /** What an amount editor starts from: "1250.50" in the amount's own decimals. */
 export function moneyInput(money: Money | undefined, digits: number) {
-	if (!money) return "";
-	const units = String(Math.abs(money.minor)).padStart(digits + 1, "0");
-	return `${money.minor < 0 ? "-" : ""}${units.slice(0, units.length - digits)}${digits ? `.${units.slice(-digits)}` : ""}`;
+	return money ? minorToDecimal(money.minor, digits) : "";
 }
 
 // ---- History ----

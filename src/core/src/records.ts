@@ -109,12 +109,16 @@ export const minorDigits = (code: string) => minorDigitsOf[code] ?? 2;
 /** An amount for people, in the currency's own decimals: "$1,250.50", "¥100", "KWD 1.250". */
 export function formatMoney({ minor, currency }: Money, locale?: string) {
 	const digits = minorDigits(currency);
-	// Built as an exact decimal string, so large amounts don't pick up float error.
-	const units = String(Math.abs(minor)).padStart(digits + 1, "0");
-	const decimal = `${minor < 0 ? "-" : ""}${units.slice(0, units.length - digits)}${digits ? `.${units.slice(-digits)}` : ""}`;
+	const decimal = minorToDecimal(minor, digits);
 	return new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: digits, maximumFractionDigits: digits }).format(
 		decimal as Intl.StringNumericLiteral,
 	);
+}
+
+/** Exact whole-unit decimal text, including amounts near the safe integer limit. */
+export function minorToDecimal(minor: number, digits: number) {
+	const units = String(Math.abs(minor)).padStart(digits + 1, "0");
+	return `${minor < 0 ? "-" : ""}${units.slice(0, units.length - digits)}${digits ? `.${units.slice(-digits)}` : ""}`;
 }
 
 const dateFormats = new Map<string | undefined, Intl.DateTimeFormat>();

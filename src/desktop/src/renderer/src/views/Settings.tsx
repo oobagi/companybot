@@ -14,11 +14,13 @@ import {
 	SaveBar,
 	Section,
 	Tabs,
+	descriptionClass,
+	disabledButtonClass,
 	inputClass,
 	primaryButton,
 	secondaryButton,
-	useRun,
 	useDraft,
+	useRun,
 } from "../ui";
 import { ActivityTab } from "./Activity";
 import { Modal } from "./chat/common";
@@ -83,7 +85,7 @@ function AppVersion() {
 						type="button"
 						disabled={status?.state === "checking" || status?.state === "downloading"}
 						onClick={() => void desktop?.updates.check()}
-						className="text-neutral-600 hover:text-neutral-900 disabled:opacity-50"
+						className={`text-neutral-600 hover:text-neutral-900 ${disabledButtonClass}`}
 					>
 						Check for updates
 					</button>
@@ -191,7 +193,7 @@ function ProfileTab() {
 
 	return (
 		<>
-			<p className="text-sm text-neutral-500">Only you see these, except your time zone. They follow you to every device.</p>
+			<p className={descriptionClass}>Only you see these, except your time zone. They follow you to every device.</p>
 			{error && <Notice>{error}</Notice>}
 			<form
 				className="flex items-end gap-2"
@@ -206,7 +208,7 @@ function ProfileTab() {
 					</Field>
 				</div>
 				{name !== undefined && name !== prefs.displayName && (
-					<button type="submit" className="mb-6 rounded-xl bg-neutral-900 px-4 py-2 text-sm text-white">
+					<button type="submit" className={`${primaryButton} mb-6`}>
 						Save
 					</button>
 				)}
