@@ -16,7 +16,7 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalQuery } from "./_generated/server";
 import { mutation, query } from "./functions";
-import { type Member, getMember, memberFor, memberOf, requireInWorkspace, requireMember, requirePermission } from "./lib";
+import { type Member, getMember, memberFor, requireInWorkspace, requireMember, requirePermission } from "./lib";
 import { automationName, canView } from "./automationOps";
 import { riskOf, titleOf, toolsOf } from "./connectorTools";
 import { risk } from "./schema";

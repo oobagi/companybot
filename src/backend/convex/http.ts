@@ -9,7 +9,7 @@ const http = httpRouter();
 auth.addHttpRoutes(http);
 http.route({ path: "/oauth/callback", method: "GET", handler: callback });
 
-/** Webhook automations' URLs: POST /automations/<token> (automations.receive). */
+/** Webhook automations' URLs: POST /automations/<token> (automationRuns.receive). */
 http.route({
 	pathPrefix: "/automations/",
 	method: "POST",
@@ -21,7 +21,7 @@ http.route({
 		const body = await request.text();
 		if (new TextEncoder().encode(body).length > MAX_WEBHOOK_BYTES) return tooBig();
 		const token = new URL(request.url).pathname.slice("/automations/".length);
-		const result = await ctx.runMutation(internal.automations.receive, { token, body });
+		const result = await ctx.runMutation(internal.automationRuns.receive, { token, body });
 		return reply(result.status, result.ok, result.message);
 	}),
 });

@@ -238,9 +238,9 @@ async function streamReply(
 			create: (config) => ctx.runMutation(internal.skills.createFor, { turnId, config }),
 		},
 		automations: {
-			list: () => ctx.runQuery(internal.automations.listFor, { turnId }),
-			create: (input) => ctx.runMutation(internal.automations.createFor, { turnId, input }),
-			setMine: (input) => ctx.runMutation(internal.automations.setMineFor, { turnId, ...input }),
+			list: () => ctx.runQuery(internal.automationTools.listFor, { turnId }),
+			create: (input) => ctx.runMutation(internal.automationTools.createFor, { turnId, input }),
+			setMine: (input) => ctx.runMutation(internal.automationTools.setMineFor, { turnId, ...input }),
 		},
 		records: recordStore(ctx, turnId),
 		results: createResultStore(),
@@ -447,12 +447,12 @@ function memoryStore(ctx: ActionCtx, turnId: Id<"agentTurns">): MemoryStore {
 	};
 }
 
-/** Chats as the turn's person sees them; turns.ts re-checks access on every call. */
+/** Chats as the turn's person sees them; chatTools.ts re-checks access on every call. */
 function chatStore(ctx: ActionCtx, turnId: Id<"agentTurns">): ChatStore {
 	return {
-		react: (emoji) => ctx.runMutation(internal.turns.reactFor, { turnId, emoji }),
-		read: (input) => ctx.runQuery(internal.turns.readFor, { turnId, ...input }),
-		search: (input) => ctx.runQuery(internal.turns.searchFor, { turnId, ...input }),
+		react: (emoji) => ctx.runMutation(internal.chatTools.reactFor, { turnId, emoji }),
+		read: (input) => ctx.runQuery(internal.chatTools.readFor, { turnId, ...input }),
+		search: (input) => ctx.runQuery(internal.chatTools.searchFor, { turnId, ...input }),
 	};
 }
 

@@ -419,7 +419,7 @@ function AutomationDetail({ automation: a, canManage }: { automation: Automation
 function AutomationSettings({ automation: a }: { automation: AutomationItem }) {
 	const agents = useQuery(api.agents.list);
 	const update = useMutation(api.automations.update);
-	const runNow = useMutation(api.automations.runNow);
+	const runNow = useMutation(api.automationRuns.runNow);
 	const resetWebhook = useMutation(api.automations.resetWebhook);
 	const channels = useQuery(api.chats.list)?.channels ?? [];
 	const { error, run } = useRun();
