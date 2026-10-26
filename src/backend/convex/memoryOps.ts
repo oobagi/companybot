@@ -1,7 +1,6 @@
 import {
 	type Memory,
 	type MemoryScope,
-	can,
 	canCreateMemory,
 	canEditMemory,
 	canReadMemory,
@@ -9,6 +8,7 @@ import {
 	memoryMatches,
 } from "@companybot/core";
 import { ConvexError } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { type Member, type Who, checkVersion, requireAgent, toActor } from "./lib";
@@ -46,7 +46,7 @@ export const MEMORY_RESULTS_MAX = 50;
  * from the whole history (search index: words, the last one as a prefix), keeping those
  * holding every word (core `memoryMatches`); without one, the newest. At most
  * MEMORY_RESULTS_MAX either way. `personal`: false in chats with 2+ people, so only team
- * memories are read.
+ * memories are read; true adds the person's own, never anyone else's (owners included).
  */
 export async function searchMemories(ctx: QueryCtx, member: Member, agentId: Id<"agents">, { query, personal }: { query: string; personal: boolean }) {
 	const actor = toActor(member);
@@ -72,8 +72,7 @@ export async function searchMemories(ctx: QueryCtx, member: Member, agentId: Id<
 						.order("desc")
 						.take(MEMORY_RESULTS_MAX);
 	const docs = await read("workspace");
-	// "memory.all.read" reads everyone's personal memories, as in the app.
-	if (personal) docs.push(...(await read("personal", can(actor, "memory.all.read") ? undefined : member.userId)));
+	if (personal) docs.push(...(await read("personal", member.userId)));
 	return docs
 		.filter((d) => d.workspaceId === member.workspaceId && memoryMatches(d.content, text))
 		.sort((a, b) => a._creationTime - b._creationTime)
@@ -96,6 +95,7 @@ export async function createMemory(ctx: MutationCtx, { member, agentId: byAgent 
 		updatedBy: member.userId,
 		...(byAgent && { updatedByAgent: true }),
 		version: 1,
+		createdTs: ctx.db.vars.commitTs,
 	});
 	return toMemory((await ctx.db.get(id))!);
 }
@@ -132,4 +132,14 @@ export async function updateMemory(ctx: MutationCtx, { member, agentId: byAgent 
 export async function removeMemory(ctx: MutationCtx, { member }: Who, id: Id<"memories">) {
 	await requireEditable(ctx, member, id);
 	await ctx.db.delete(id);
+}
+
+/** Removes one bounded batch, including archived agents' memories, then continues if needed. */
+export async function forgetPersonalMemories(ctx: MutationCtx, workspaceId: Id<"workspaces">, userId: Id<"users">, before: bigint) {
+	const { page, isDone } = await ctx.db
+		.query("memories")
+		.withIndex("by_workspace_owner", (q) => q.eq("workspaceId", workspaceId).eq("scope", "personal").eq("ownerId", userId).lte("createdTs", before))
+		.paginate({ cursor: null, numItems: 100, maximumBytesRead: 1_000_000 });
+	for (const memory of page) await ctx.db.delete(memory._id);
+	if (!isDone) await ctx.scheduler.runAfter(0, internal.memory.forgetForRemovedMember, { workspaceId, userId, before });
 }

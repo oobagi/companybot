@@ -4,8 +4,8 @@ import type { Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { getMember, namesOf, requireMember, toActor } from "./lib";
-import { createMemory, listMemories, removeMemory, searchMemories, updateMemory } from "./memoryOps";
-import { personalMemoryHere, runningTurn } from "./turns";
+import { createMemory, forgetPersonalMemories, listMemories, removeMemory, searchMemories, updateMemory } from "./memoryOps";
+import { memoryOn, personalMemoryHere, runningTurn } from "./turns";
 
 const scope = v.union(v.literal("workspace"), v.literal("personal"));
 
@@ -46,15 +46,22 @@ export const remove = mutation({
 	handler: async (ctx, { id }) => removeMemory(ctx, { member: await requireMember(ctx) }, id),
 });
 
+export const forgetForRemovedMember = internalMutation({
+	args: { workspaceId: v.id("workspaces"), userId: v.id("users"), before: v.int64() },
+	handler: (ctx, { workspaceId, userId, before }) => forgetPersonalMemories(ctx, workspaceId, userId, before),
+});
+
 // Agent-facing versions: same rules, acting for the turn's person. runningTurn re-checks
 // on every call that the turn is still running, the person is still a member (with their
 // role now) and can still see the chat, so removals and role changes apply mid-reply.
 
 const SHARED_CHAT = "Personal memories are off in chats with 2+ people. Only team memories work here.";
+const MEMORY_OFF = "An owner turned memory off for this workspace. Don't search or save memories.";
 
-/** The turn's person and agent, and whether personal memories work in this chat (read now). */
+/** The turn's person and agent, refusing memory use when off (read fresh on every call). */
 async function acting(ctx: QueryCtx, turnId: Id<"agentTurns">) {
 	const { turn, chat, who } = await runningTurn(ctx, turnId);
+	if (!(await memoryOn(ctx, turn.workspaceId))) throw new ConvexError(MEMORY_OFF);
 	return { who, agentId: turn.agentId, personal: await personalMemoryHere(ctx, chat) };
 }
 

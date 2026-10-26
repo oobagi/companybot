@@ -11,6 +11,7 @@ import { addToChat, ensureGeneral } from "./chatOps";
 import { sendInviteEmail } from "./invites";
 import { checkVersion, getMember, legacyMemberOf, memberOf, nameOf, namesOf, normalizeEmail, pinLegacyWorkspace, requireMember, requirePermission, timeZoneOf } from "./lib";
 import { forgetUserRules } from "./permissions";
+import { forgetPersonalMemories } from "./memoryOps";
 import { role } from "./schema";
 
 export const me = query({
@@ -277,8 +278,8 @@ export const leave = mutation({
 
 /**
  * Takes someone out of a workspace. Access ends at once (everything reads membership fresh);
- * their channel seats, automation opt-ins, and permission rules go too, so rejoining starts strict.
- * DMs keep them as a past participant.
+ * their channel seats, automation opt-ins, permission rules and personal memories go too, so
+ * rejoining starts strict. DMs keep them as a past participant.
  */
 async function dropMember(ctx: MutationCtx, row: Doc<"members">) {
 	const { workspaceId, userId } = row;
@@ -300,6 +301,7 @@ async function dropMember(ctx: MutationCtx, row: Doc<"members">) {
 		if (install?.workspaceId === workspaceId) await ctx.db.delete(sub._id);
 	}
 	await forgetUserRules(ctx, workspaceId, userId);
+	await forgetPersonalMemories(ctx, workspaceId, userId, ctx.meta.getSnapshotTs());
 }
 
 /** Takes effect at once, including for replies already running. */
@@ -360,6 +362,8 @@ export const settings = query({
 		return {
 			name: workspace.name,
 			currency: workspace.currency ?? DEFAULT_CURRENCY,
+			/** Whether agents read and write memories. */
+			memory: workspace.memory ?? true,
 			/** Whether any live record has an amount, so the app can say they keep their currency. */
 			hasAmounts: await hasAmounts(ctx, workspace._id),
 			version: workspace.version ?? 0,
@@ -369,17 +373,23 @@ export const settings = query({
 
 /**
  * `currency` (ISO 4217) is the default for new amounts. Existing amounts keep their own
- * currency. Optional, so apps from before it keep working.
+ * currency. `memory` turns agent memory on or off; off keeps every memory. Both optional,
+ * so apps from before them keep working.
  */
 export const updateSettings = mutation({
-	args: { name: v.string(), currency: v.optional(v.string()), expectedVersion: v.number() },
-	handler: async (ctx, { name, currency, expectedVersion }) => {
+	args: { name: v.string(), currency: v.optional(v.string()), memory: v.optional(v.boolean()), expectedVersion: v.number() },
+	handler: async (ctx, { name, currency, memory, expectedVersion }) => {
 		const { workspaceId } = await requirePermission(ctx, "workspace.manage");
 		const workspace = (await ctx.db.get(workspaceId))!;
 		checkVersion(workspace.version ?? 0, expectedVersion);
 		if (!name.trim()) throw new ConvexError("Name can't be empty.");
 		currency = currency?.trim().toUpperCase();
 		if (currency !== undefined && !isCurrencyCode(currency)) throw new ConvexError("Pick a currency code like USD.");
-		await ctx.db.patch(workspaceId, { name: name.trim(), ...(currency && { currency }), version: (workspace.version ?? 0) + 1 });
+		await ctx.db.patch(workspaceId, {
+			name: name.trim(),
+			...(currency && { currency }),
+			...(memory !== undefined && { memory }),
+			version: (workspace.version ?? 0) + 1,
+		});
 	},
 });

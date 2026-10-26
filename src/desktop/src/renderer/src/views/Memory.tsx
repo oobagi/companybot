@@ -13,11 +13,12 @@ type Agent = { _id: Id<"agents">; name: string; archived: boolean };
 export function MemoryTab({ role }: { role: Role }) {
 	const memories = useQuery(api.memory.list);
 	const agents = useQuery(api.agents.list);
+	const settings = useQuery(api.workspace.settings);
 	const create = useMutation(api.memory.create);
 	const [filter, setFilter] = useState<Id<"agents"> | "all">("all");
 	const { error, run } = useRun();
 
-	if (!memories || !agents) return <Loading />;
+	if (!memories || !agents || !settings) return <Loading />;
 
 	const agentName = new Map(agents.map((a) => [a._id as string, a.archived ? `${a.name} (archived)` : a.name]));
 	const shown = filter === "all" ? memories : memories.filter((m) => m.agentId === filter);
@@ -27,8 +28,14 @@ export function MemoryTab({ role }: { role: Role }) {
 	return (
 		<>
 			<p className="text-sm text-neutral-500">
-				Each agent has its own memory. Team memories are shared; personal ones only you and owners can see.
+				Each agent has its own memory. Team memories are shared. Only you can see your personal memories.
 			</p>
+			{!settings.memory && (
+				<p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+					Memory is turned off by an owner. Agents don't read or save memories until it's back on. Yours are kept, and you can
+					still edit or delete them here.
+				</p>
+			)}
 			{error && <Notice>{error}</Notice>}
 			<AddMemory
 				agents={agents.filter((a) => !a.archived)}

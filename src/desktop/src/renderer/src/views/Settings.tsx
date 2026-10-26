@@ -104,11 +104,11 @@ function GeneralForm({
 	settings,
 	isOwner,
 }: {
-	settings: { name: string; currency: string; hasAmounts: boolean; version: number };
+	settings: { name: string; currency: string; memory: boolean; hasAmounts: boolean; version: number };
 	isOwner: boolean;
 }) {
 	const save = useMutation(api.workspace.updateSettings);
-	const draft = useDraft({ name: settings.name, currency: settings.currency }, settings.version);
+	const draft = useDraft({ name: settings.name, currency: settings.currency, memory: settings.memory }, settings.version);
 	const [confirming, setConfirming] = useState(false);
 	const { error, run } = useRun();
 	const submit = () => run(save({ ...draft.value, expectedVersion: draft.base }), () => (draft.discard(), setConfirming(false)));
@@ -139,6 +139,17 @@ function GeneralForm({
 						</option>
 					))}
 				</select>
+			</Field>
+			<Field label="Memory" hint={ownerOnly ?? "When off, agents don't read or save memories. Existing ones are kept for when it's back on."}>
+				<span className="flex items-center gap-2 text-sm">
+					<input
+						type="checkbox"
+						disabled={!isOwner}
+						checked={draft.value.memory}
+						onChange={(e) => draft.set({ ...draft.value, memory: e.target.checked })}
+					/>
+					Agents remember things people tell them
+				</span>
 			</Field>
 			{draft.dirty && (
 				<SaveBar onDiscard={draft.discard} onSave={() => (currencyChanged && settings.hasAmounts ? setConfirming(true) : submit())} />

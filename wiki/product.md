@@ -39,11 +39,12 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 
 ## Core
 - `#` text channels, threads, DMs, reactions, per-channel permissions.
-- Memory: each agent has its own. Team memories (shared) + personal memories. Editable in Settings → Memory. Owners edit all; members edit only their own personal memories.
+- Memory: each agent has its own. Team memories (shared) + personal memories. Editable in Settings → Memory. Everyone reads team memories; owners edit them. Personal memories belong to the person: only they can see, edit or delete them, owners included, in the app and through agents. Owners can turn memory off for the workspace (Settings → General): agents then neither read nor save memories, and nothing is deleted. Removing a member deletes their personal memories.
+  - How others do it: ChatGPT and Claude business plans treat personal memory as the person's. They view, edit and delete it; admins only turn memory on or off and can't browse anyone's. Slack keeps DMs from owners in the app.
 - Agents reply only when @mentioned or DM'd — never butt in. They can react to messages that @mention them, and only those.
 - Replies render Markdown and **widgets**: real UI under the message (tables, stat tiles; more later), e.g. "last 10 leads" → a table.
 - One continuous conversation per agent; it auto-compacts. No separate sessions. Channels keep normal threads.
-- Settings: General (workspace name), Members, Memory, Activity, Your preferences (name, time zone, send key, notifications).
+- Settings: General (workspace name, currency, memory on/off), Members, Memory, Activity, Your preferences (name, time zone, send key, notifications).
 - Notifications: a desktop notification for each DM and @mention while the app isn't in front, and the count on the dock icon. Per person: DMs and mentions, mentions only, or off. Time zone defaults to automatic (the computer's). Shared settings are saved explicitly, with a conflict warning.
 - Customize tab: **Agents** (owners edit; every save is versioned and restorable), **Connectors** (links to outside services over MCP — Gmail, Calendar…), **Skills** (a marketplace of installable instructions; anyone can also write their own, or ask Companybot to save one ("here's how we write proposals"); they're shared with the team, shown under "Made by your team", and only the maker or an owner can change them) and **Automations** (below). Memory and clock are built in, not connectors.
 - Connectors, Skills and Automations are libraries: browse, install what you want, turn it off anytime. Click any item to open its detail page — what it does, who made it, version, what it needs (connectors, permissions, account), and for skills the full instructions.

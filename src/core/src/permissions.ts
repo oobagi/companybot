@@ -25,7 +25,6 @@ export const permissions = {
 	/** Make your own automations. You can always change and delete the ones you made. */
 	"automations.create": { roles: ["owner", "member"], label: "make automations" },
 	"memory.team.write": { roles: ["owner"], label: "change team memories" },
-	"memory.all.read": { roles: ["owner"], label: "read everyone's memories" },
 	/** Add, change, archive and restore records (clients, deals, tasks…), and undo changes. */
 	"records.edit": { roles: ["owner", "member"], label: "change records" },
 	/** Add fields to a record type. You can always change and archive the ones you added. */
