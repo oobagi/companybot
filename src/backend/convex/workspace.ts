@@ -11,6 +11,7 @@ import { addToChat, ensureGeneral } from "./chatOps";
 import { sendInviteEmail } from "./invites";
 import { checkVersion, getMember, legacyMemberOf, memberOf, nameOf, namesOf, normalizeEmail, pinLegacyWorkspace, requireMember, requirePermission, timeZoneOf } from "./lib";
 import { forgetUserRules } from "./permissions";
+import { forgetPersonalMemories } from "./memoryOps";
 import { role } from "./schema";
 
 export const me = query({
@@ -300,17 +301,7 @@ async function dropMember(ctx: MutationCtx, row: Doc<"members">) {
 		if (install?.workspaceId === workspaceId) await ctx.db.delete(sub._id);
 	}
 	await forgetUserRules(ctx, workspaceId, userId);
-	for (const agent of await ctx.db
-		.query("agents")
-		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-		.collect()) {
-		for (const memory of await ctx.db
-			.query("memories")
-			.withIndex("by_agent_owner", (q) => q.eq("agentId", agent._id).eq("scope", "personal").eq("ownerId", userId))
-			.collect()) {
-			await ctx.db.delete(memory._id);
-		}
-	}
+	await forgetPersonalMemories(ctx, workspaceId, userId, ctx.meta.getSnapshotTs());
 }
 
 /** Takes effect at once, including for replies already running. */

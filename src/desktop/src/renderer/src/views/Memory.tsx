@@ -28,7 +28,7 @@ export function MemoryTab({ role }: { role: Role }) {
 	return (
 		<>
 			<p className="text-sm text-neutral-500">
-				Each agent has its own memory. Team memories are shared; personal ones only you can see, owners included.
+				Each agent has its own memory. Team memories are shared. Only you can see your personal memories.
 			</p>
 			{!settings.memory && (
 				<p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">

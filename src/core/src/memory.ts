@@ -20,8 +20,7 @@ export interface Memory {
 }
 
 // Team memories: everyone reads, only roles with "memory.team.write" change them.
-// Personal memories: only the person reads, edits and deletes them. Owners included: they
-// can turn memory off for the workspace, but never browse anyone's (wiki/product.md).
+// Personal memories: only their owner reads and changes them, regardless of role.
 export function canReadMemory(actor: Actor, memory: Memory): boolean {
 	return memory.scope === "workspace" || memory.ownerId === actor.userId;
 }

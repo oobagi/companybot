@@ -175,8 +175,11 @@ export default defineSchema({
 		/** Set when the agent made the last change, acting for `updatedBy`. */
 		updatedByAgent: v.optional(v.boolean()),
 		version: v.number(),
+		/** Commit timestamp: removal cleanup must spare memories saved after rejoining. Older rows predate cleanup. */
+		createdTs: v.optional(v.commitTs()),
 	})
 		.index("by_workspace", ["workspaceId"])
+		.index("by_workspace_owner", ["workspaceId", "scope", "ownerId", "createdTs"])
 		// Newest first within a scope, across owners (lists), or one owner's personal memories.
 		.index("by_agent_scope", ["agentId", "scope"])
 		.index("by_agent_owner", ["agentId", "scope", "ownerId"])
