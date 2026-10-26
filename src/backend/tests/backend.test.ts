@@ -276,7 +276,53 @@ describe("memory", () => {
 		const team = (await member.query(api.memory.list)).find((m) => m.scope === "workspace")!;
 		expect(team.canEdit).toBe(false);
 		expect((await third.query(api.memory.list)).map((m) => m.content)).toEqual(["We close at 5pm."]);
-		expect(await owner.query(api.memory.list)).toHaveLength(2);
+		// Owners see and change team memories, never anyone else's personal ones.
+		expect(await owner.query(api.memory.list)).toMatchObject([{ content: "We close at 5pm.", canEdit: true }]);
+		await owner.mutation(api.memory.update, { id: team.id as never, content: "We close at 6pm.", expectedVersion: 1 });
+		expect((await member.query(api.memory.list)).map((m) => m.content)).toEqual(["We close at 6pm.", "I like mornings."]);
+	});
+
+	it("keeps personal memories from owners: no listing, editing or deleting", async () => {
+		const { owner, member } = await ownerAndMember();
+		const agentId = (await agentsOf(owner)).companybot._id;
+		const theirs = await member.mutation(api.memory.create, { agentId, scope: "personal", content: "I'm job hunting." });
+		expect(await owner.query(api.memory.list)).toEqual([]);
+		await expect(owner.mutation(api.memory.update, { id: theirs.id as never, content: "x", expectedVersion: 1 })).rejects.toThrow(
+			"Memory not found",
+		);
+		await expect(owner.mutation(api.memory.remove, { id: theirs.id as never })).rejects.toThrow("Memory not found");
+		expect(await member.query(api.memory.list)).toMatchObject([{ content: "I'm job hunting.", canEdit: true }]);
+	});
+
+	it("deletes a member's personal memories when they're removed, keeping everyone else's", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		const { companybot, scribe } = await agentsOf(owner);
+		await member.mutation(api.memory.create, { agentId: companybot._id, scope: "personal", content: "Member note" });
+		await member.mutation(api.memory.create, { agentId: scribe._id, scope: "personal", content: "Member note for Scribe" });
+		await owner.mutation(api.memory.create, { agentId: companybot._id, scope: "personal", content: "Owner note" });
+		await owner.mutation(api.memory.create, { agentId: companybot._id, scope: "workspace", content: "Team note" });
+		const row = (await owner.query(api.workspace.team))!.members.find((m) => !m.isYou)!;
+		await owner.mutation(api.workspace.removeMember, { id: row.id });
+		const left = await t.run((ctx) => ctx.db.query("memories").collect());
+		expect(left.map((m) => m.content)).toEqual(["Owner note", "Team note"]);
+	});
+
+	it("lets only owners turn memory off, kept across saves from older apps", async () => {
+		const { owner, member } = await ownerAndMember();
+		const settings = (await owner.query(api.workspace.settings))!;
+		expect(settings.memory).toBe(true);
+		await expect(
+			member.mutation(api.workspace.updateSettings, { name: settings.name, memory: false, expectedVersion: settings.version }),
+		).rejects.toThrow("permission");
+		await owner.mutation(api.workspace.updateSettings, { name: settings.name, memory: false, expectedVersion: settings.version });
+		expect((await member.query(api.workspace.settings))!.memory).toBe(false);
+		// A save from an old version is refused, like any shared setting.
+		await expect(
+			owner.mutation(api.workspace.updateSettings, { name: settings.name, memory: true, expectedVersion: settings.version }),
+		).rejects.toThrow();
+		// Apps from before the switch send no `memory`; it stays as it was.
+		await owner.mutation(api.workspace.updateSettings, { name: "Acme", expectedVersion: settings.version + 1 });
+		expect((await owner.query(api.workspace.settings))!.memory).toBe(false);
 	});
 
 	it("keeps each agent's memories separate", async () => {

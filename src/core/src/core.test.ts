@@ -254,11 +254,13 @@ describe("memory permissions", () => {
 		expect(canEditMemory(other, mine)).toBe(false);
 	});
 
-	it("keeps personal memories private from other members but not owners", () => {
+	it("keeps personal memories private from everyone else, owners included", () => {
 		expect(canReadMemory(other, mine)).toBe(false);
 		expect(canReadMemory(other, team)).toBe(true);
-		expect(canReadMemory(owner, mine)).toBe(true);
-		expect(canEditMemory(owner, mine)).toBe(true);
+		expect(canReadMemory(owner, mine)).toBe(false);
+		expect(canEditMemory(owner, mine)).toBe(false);
+		expect(canReadMemory(owner, { ...mine, ownerId: owner.userId })).toBe(true);
+		expect(canEditMemory(owner, team)).toBe(true);
 	});
 });
 
@@ -703,6 +705,7 @@ describe("turn input", () => {
 		});
 		expect(prompt).toContain("Where you are: a DM with Ben, in a thread.");
 		expect(prompt).toContain("Memory: personal and team memories.");
+		expect(buildTurnPrompt({ ...base, memory: "off" })).toContain("Memory: off. An owner turned memory off");
 		expect(prompt).toContain("Unavailable this turn, so you can't use them: CRM.");
 		expect(prompt).toContain("The thread is under this message:\n[Ben 10-22 08:00] Plan");
 		expect(prompt).toContain("(10 earlier messages not shown. Use chat_read for them.)");

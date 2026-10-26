@@ -130,6 +130,11 @@ export async function runningTurn(ctx: QueryCtx, turnId: Id<"agentTurns">) {
 	return { turn: turn as Doc<"agentTurns"> & { replyId: Id<"chatMessages">; sessionId: Id<"agentSessions"> }, member, chat, who };
 }
 
+/** Whether agents use memories here: owners can turn it off for the workspace (Settings → General). */
+export async function memoryOn(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
+	return (await ctx.db.get(workspaceId))?.memory !== false;
+}
+
 /** Personal memories only in a DM with exactly one person; anywhere else, team memories only (wiki/chat.md). */
 export async function personalMemoryHere(ctx: QueryCtx, chat: Doc<"chats">) {
 	if (chat.kind !== "dm") return false;
@@ -191,8 +196,8 @@ export const turnContext = internalQuery({
 			agent: { id: agent._id, name: agent.name, instructions: agent.instructions, model: agent.model, tools: agent.tools },
 			skills: await installedSkills(ctx, chat.workspaceId),
 			session: { id: session._id, summary: session.summary ?? null, turns },
-			/** Personal memories only in a DM with exactly one person. memory.ts checks again on every call. */
-			memory: (await personalMemoryHere(ctx, chat)) ? ("personal" as const) : ("team" as const),
+			/** Off when an owner turned it off; personal only in a DM with exactly one person. memory.ts checks again on every call. */
+			memory: !(await memoryOn(ctx, chat.workspaceId)) ? ("off" as const) : (await personalMemoryHere(ctx, chat)) ? ("personal" as const) : ("team" as const),
 			actor: {
 				name: (await names.user(member.userId)).name,
 				email: user?.email ?? "",

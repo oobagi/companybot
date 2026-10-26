@@ -107,7 +107,8 @@ describe("agent memory", () => {
 		await owner.mutation(api.memory.create, { agentId: companybot, scope: "personal", content: "Owner's note." });
 		const turn = await turnIn(t, member, await dmWith(member, companybot), companybot);
 		const team = await turn.create("workspace", "Office is in Austin.");
-		expect((await turn.search("note")).map((m) => m.content)).toEqual(["Member's note.", "Owner's note."]);
+		// Being an owner never shows anyone else's personal memories.
+		expect((await turn.search("note")).map((m) => m.content)).toEqual(["Member's note."]);
 
 		await owner.mutation(api.workspace.setRole, { id: row.id, role: "member" });
 		expect((await turn.search("note")).map((m) => m.content)).toEqual(["Member's note."]);
@@ -148,7 +149,7 @@ describe("agent memory", () => {
 		expect(await turn.search("warranty unrelated")).toEqual([]);
 	});
 
-	it("searches and lists everyone's personal memories newest first for owners, whoever wrote the most", async () => {
+	it("searches and lists only the person's own personal memories, owners included, however many others wrote", async () => {
 		const { t, owner, member, companybot } = await setup();
 		const old = (who: Id<"users">, n: number) =>
 			Array.from({ length: n }, (_, i) => ({ scope: "personal" as const, ownerId: who, content: `Old ${who === owner.userId ? "owner" : "member"} note ${i}` }));
@@ -157,12 +158,47 @@ describe("agent memory", () => {
 		await insertMemories(t, companybot, [{ scope: "personal", ownerId: owner.userId, content: "Owner's fresh lead: Dana." }]);
 		await insertMemories(t, companybot, old(owner.userId, 600));
 		await insertMemories(t, companybot, [{ scope: "personal", ownerId: member.userId, content: "Member's fresh lead: Ben." }]);
-		const turn = await turnIn(t, owner, await dmWith(owner, companybot), companybot);
-		expect((await turn.search("fresh lead")).map((m) => m.content)).toEqual(["Owner's fresh lead: Dana.", "Member's fresh lead: Ben."]);
-		const newest = (await turn.search()).map((m) => m.content);
+		const owners = await turnIn(t, owner, await dmWith(owner, companybot), companybot);
+		expect((await owners.search("fresh lead")).map((m) => m.content)).toEqual(["Owner's fresh lead: Dana."]);
+		const newest = (await owners.search()).map((m) => m.content);
 		expect(newest).toHaveLength(MEMORY_RESULTS_MAX);
-		expect(newest.at(-1)).toBe("Member's fresh lead: Ben.");
-		expect(newest.slice(0, -1).every((c) => c.startsWith("Old owner note"))).toBe(true);
+		expect(newest.every((c) => c.startsWith("Old owner note"))).toBe(true);
+
+		const members = await turnIn(t, member, await dmWith(member, companybot), companybot);
+		expect((await members.search("fresh lead")).map((m) => m.content)).toEqual(["Member's fresh lead: Ben."]);
+		expect((await members.search()).at(-1)?.content).toBe("Member's fresh lead: Ben.");
+	});
+
+	it("never shows or changes another person's personal memories for an owner", async () => {
+		const { t, owner, member, companybot } = await setup();
+		const theirs = await member.mutation(api.memory.create, { agentId: companybot, scope: "personal", content: "Member's salary is 90k." });
+		await member.mutation(api.memory.create, { agentId: companybot, scope: "personal", content: "Prefers email." });
+		const turn = await turnIn(t, owner, await dmWith(owner, companybot), companybot);
+		expect(await turn.search()).toEqual([]);
+		expect(await turn.search("salary")).toEqual([]);
+		await expect(turn.update(theirs.id, "x")).rejects.toThrow("Memory not found");
+		await expect(turn.remove(theirs.id)).rejects.toThrow("Memory not found");
+		expect((await member.query(api.memory.list)).map((m) => m.content)).toEqual(["Member's salary is 90k.", "Prefers email."]);
+	});
+
+	it("reads and writes nothing while an owner has memory turned off, and keeps every memory", async () => {
+		const { t, owner, member, companybot } = await setup();
+		const mine = await member.mutation(api.memory.create, { agentId: companybot, scope: "personal", content: "Likes tea." });
+		await owner.mutation(api.memory.create, { agentId: companybot, scope: "workspace", content: "We close at 5." });
+		const turn = await turnIn(t, member, await dmWith(member, companybot), companybot);
+		const setMemory = async (memory: boolean) => {
+			const { name, version } = (await owner.query(api.workspace.settings))!;
+			await owner.mutation(api.workspace.updateSettings, { name, memory, expectedVersion: version });
+		};
+
+		await setMemory(false);
+		await allRefused(turn, mine.id, "turned memory off");
+		expect((await t.query(internal.turns.turnContext, { turnId: turn.turnId })).memory).toBe("off");
+		expect(await member.query(api.memory.list)).toHaveLength(2);
+
+		await setMemory(true);
+		expect((await turn.search()).map((m) => m.content)).toEqual(["Likes tea.", "We close at 5."]);
+		expect((await t.query(internal.turns.turnContext, { turnId: turn.turnId })).memory).toBe("personal");
 	});
 
 	it("searches by every word and returns the newest when there are many", async () => {

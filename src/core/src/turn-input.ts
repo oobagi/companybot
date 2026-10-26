@@ -46,8 +46,8 @@ export interface TurnPromptInput {
 	place: TurnPlace;
 	/** The person the agent acts for. `timeZone` is resolved (see resolveTimeZone). */
 	actor: { name: string; email: string; role: Role; timeZone: string };
-	/** "personal" only in a DM with exactly one person. */
-	memory: "personal" | "team";
+	/** "personal" only in a DM with exactly one person; "off" when an owner turned memory off. */
+	memory: "personal" | "team" | "off";
 	/** Services the agent can reach this turn through connectors_search, and ones that failed to connect. */
 	connectors: { connected: { name: string; description: string }[]; unavailable: string[] };
 	/** Everything said in the place since the agent's last reply, oldest first, trigger included. */
@@ -80,7 +80,9 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 		`${actor.name} <${actor.email}>, a workspace ${actor.role}, asked for you. You act with their access. Their time zone: ${actor.timeZone}.`,
 		input.memory === "personal"
 			? "Memory: personal and team memories."
-			: "Memory: team memories only. 2+ people can read this chat, so personal memories are off.",
+			: input.memory === "team"
+				? "Memory: team memories only. 2+ people can read this chat, so personal memories are off."
+				: "Memory: off. An owner turned memory off for this workspace, so don't search or save memories.",
 		input.connectors.connected.length > 0 &&
 			`Connected services (find their tools with connectors_search): ${input.connectors.connected.map((p) => `${p.name}: ${p.description}`).join(" ")}`,
 		input.connectors.unavailable.length > 0 &&

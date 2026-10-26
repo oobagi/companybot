@@ -116,6 +116,8 @@ export default defineSchema({
 		version: v.optional(v.number()),
 		/** ISO 4217: the default for new amounts. Each amount stores its own. Unset means DEFAULT_CURRENCY. */
 		currency: v.optional(v.string()),
+		/** Whether agents read and write memories. Off keeps them, unused. Unset means on. */
+		memory: v.optional(v.boolean()),
 	}),
 
 	members: defineTable({

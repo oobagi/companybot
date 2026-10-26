@@ -20,14 +20,15 @@ export interface Memory {
 }
 
 // Team memories: everyone reads, only roles with "memory.team.write" change them.
-// Personal memories: the person reads and edits their own; "memory.all.read" sees all.
+// Personal memories: only the person reads, edits and deletes them. Owners included: they
+// can turn memory off for the workspace, but never browse anyone's (wiki/product.md).
 export function canReadMemory(actor: Actor, memory: Memory): boolean {
-	return memory.scope === "workspace" || memory.ownerId === actor.userId || can(actor, "memory.all.read");
+	return memory.scope === "workspace" || memory.ownerId === actor.userId;
 }
 
 export function canEditMemory(actor: Actor, memory: Memory): boolean {
 	if (memory.scope === "workspace") return can(actor, "memory.team.write");
-	return memory.ownerId === actor.userId || can(actor, "memory.all.read");
+	return memory.ownerId === actor.userId;
 }
 
 export function canCreateMemory(actor: Actor, scope: MemoryScope): boolean {

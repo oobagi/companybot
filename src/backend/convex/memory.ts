@@ -5,7 +5,7 @@ import { type QueryCtx, internalMutation, internalQuery } from "./_generated/ser
 import { mutation, query } from "./functions";
 import { getMember, namesOf, requireMember, toActor } from "./lib";
 import { createMemory, listMemories, removeMemory, searchMemories, updateMemory } from "./memoryOps";
-import { personalMemoryHere, runningTurn } from "./turns";
+import { memoryOn, personalMemoryHere, runningTurn } from "./turns";
 
 const scope = v.union(v.literal("workspace"), v.literal("personal"));
 
@@ -51,10 +51,15 @@ export const remove = mutation({
 // role now) and can still see the chat, so removals and role changes apply mid-reply.
 
 const SHARED_CHAT = "Personal memories are off in chats with 2+ people. Only team memories work here.";
+const MEMORY_OFF = "An owner turned memory off for this workspace. Don't search or save memories.";
 
-/** The turn's person and agent, and whether personal memories work in this chat (read now). */
+/**
+ * The turn's person and agent, and whether personal memories work in this chat (read now).
+ * Refuses everything while an owner has memory turned off.
+ */
 async function acting(ctx: QueryCtx, turnId: Id<"agentTurns">) {
 	const { turn, chat, who } = await runningTurn(ctx, turnId);
+	if (!(await memoryOn(ctx, turn.workspaceId))) throw new ConvexError(MEMORY_OFF);
 	return { who, agentId: turn.agentId, personal: await personalMemoryHere(ctx, chat) };
 }
 

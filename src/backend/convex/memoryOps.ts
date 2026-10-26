@@ -1,7 +1,6 @@
 import {
 	type Memory,
 	type MemoryScope,
-	can,
 	canCreateMemory,
 	canEditMemory,
 	canReadMemory,
@@ -46,7 +45,7 @@ export const MEMORY_RESULTS_MAX = 50;
  * from the whole history (search index: words, the last one as a prefix), keeping those
  * holding every word (core `memoryMatches`); without one, the newest. At most
  * MEMORY_RESULTS_MAX either way. `personal`: false in chats with 2+ people, so only team
- * memories are read.
+ * memories are read; true adds the person's own, never anyone else's (owners included).
  */
 export async function searchMemories(ctx: QueryCtx, member: Member, agentId: Id<"agents">, { query, personal }: { query: string; personal: boolean }) {
 	const actor = toActor(member);
@@ -72,8 +71,7 @@ export async function searchMemories(ctx: QueryCtx, member: Member, agentId: Id<
 						.order("desc")
 						.take(MEMORY_RESULTS_MAX);
 	const docs = await read("workspace");
-	// "memory.all.read" reads everyone's personal memories, as in the app.
-	if (personal) docs.push(...(await read("personal", can(actor, "memory.all.read") ? undefined : member.userId)));
+	if (personal) docs.push(...(await read("personal", member.userId)));
 	return docs
 		.filter((d) => d.workspaceId === member.workspaceId && memoryMatches(d.content, text))
 		.sort((a, b) => a._creationTime - b._creationTime)
