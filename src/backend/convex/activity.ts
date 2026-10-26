@@ -5,7 +5,7 @@ import { type QueryCtx, internalMutation } from "./_generated/server";
 import { query } from "./functions";
 import { type Namer, canSee, chatLabel, namer } from "./chatOps";
 import { type Member, getMember } from "./lib";
-import { titleOf } from "./permissions";
+import { titleOf } from "./connectorTools";
 import { allowedHow } from "./schema";
 
 // The activity log: every tool call an agent made, with its input and output.

@@ -4,7 +4,7 @@ import type { ChatStore } from "./chat";
 import type { MemoryStore } from "./memory";
 import type { RecordStore } from "./record-tools";
 import type { SkillStore } from "./skills";
-import type { Risk } from "./approvals";
+import type { Risk } from "./action-rules";
 import type { Permission } from "./permissions";
 import type { Actor } from "./types";
 
@@ -70,7 +70,7 @@ export interface ToolDef<Input = any> {
 	/** True when the tool only reads. Unknown counts as a write. */
 	readOnly?: boolean;
 	/**
-	 * What a call can do outside the workspace (approvals.ts `Risk`): "outside" asks first,
+	 * What a call can do outside the workspace (action-rules.ts `Risk`): "outside" asks first,
 	 * "locked" always asks with no "Always allow". Set it on any built-in that sends, calls,
 	 * pays, deletes, or sends in bulk. Default: connector tools not marked read-only are
 	 * "outside"; everything else runs right away.

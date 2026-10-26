@@ -127,7 +127,7 @@ export const refreshTools = action({
 	},
 });
 
-/** Keeps each connector's listed actions current for settings (permissions.saveTools; display only). */
+/** Keeps each connector's listed actions current for settings (connectorTools.saveTools; display only). */
 async function saveTools(ctx: ActionCtx, workspaceId: Id<"workspaces">, connectors: LoadedConnectors) {
 	for (const s of connectors.sessions) {
 		const tools = s.tools.map((t) => ({
@@ -136,7 +136,7 @@ async function saveTools(ctx: ActionCtx, workspaceId: Id<"workspaces">, connecto
 			description: t.description,
 			risk: toolRisk(t),
 		}));
-		await ctx.runMutation(internal.permissions.saveTools, { workspaceId, connectorId: s.connector.id, tools });
+		await ctx.runMutation(internal.connectorTools.saveTools, { workspaceId, connectorId: s.connector.id, tools });
 	}
 }
 

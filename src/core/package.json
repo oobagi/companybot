@@ -10,7 +10,8 @@
     "./local-auth": "./src/local-auth.ts",
     "./permissions": "./src/permissions.ts",
     "./records": "./src/records.ts",
-    "./skills": "./src/skills.ts"
+    "./skills": "./src/skills.ts",
+    "./action-rules": "./src/action-rules.ts"
   },
   "scripts": {
     "test": "vitest run",

@@ -48,6 +48,7 @@ import {
 	saveMade,
 	timeZoneOf,
 } from "./lib";
+import { audienceOf, canView } from "./automationOps";
 import { forgetAutomationGrants } from "./permissions";
 import { audience, customTrigger } from "./schema";
 import { enqueueTurn, runningTurn } from "./turns";
@@ -80,17 +81,6 @@ async function definitionOf(ctx: QueryCtx, install: Doc<"automationInstalls">): 
 	const channel = trigger.type === "event" && trigger.event === "message.posted" ? await ctx.db.get(trigger.channelId as Id<"chats">) : null;
 	return customAutomation(install.automationId, install.custom, install.custom.version, channel?.name);
 }
-
-/**
- * Installs from before audiences: a channel if one was picked, else people who turn it on.
- * COMPAT(0.1.0-alpha.6): the automationAudiences migration sets `audience` on every install. After it has run on prod, make `audience` required and drop this fallback.
- */
-export const audienceOf = (install: Doc<"automationInstalls">): AutomationAudience =>
-	install.audience ?? (install.channelId ? "channel" : "subscribers");
-
-/** Automations that run just for their creator are theirs alone; the rest are visible to the workspace. */
-export const canView = (member: Member, install: Doc<"automationInstalls">) =>
-	!install.custom || audienceOf(install) !== "creator" || install.installedBy === member.userId;
 
 /** An installed automation the signed-in person may change: theirs, or any if they manage automations. */
 async function requireEditable(ctx: QueryCtx, automationId: string) {

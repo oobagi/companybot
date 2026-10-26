@@ -1,7 +1,7 @@
 import { type ToolSet, asSchema, isStepCount, tool } from "ai";
 import { callEnd } from "./activity";
 import type { AgentConfig } from "./agent-config";
-import { type PermissionDecision, deniedReason, permissionFor, toolRisk } from "./approvals";
+import { type PermissionDecision, deniedReason, permissionFor, toolRisk } from "./action-rules";
 import { builtinTools } from "./builtin-tools";
 import { models } from "./models";
 import { can } from "./permissions";
@@ -153,7 +153,7 @@ export async function actionOf(modelName: string, input: unknown, tools: ToolDef
 }
 
 /**
- * Decides one call from the rules in force right now (see approvals.permissionFor).
+ * Decides one call from the rules in force right now (see action-rules.permissionFor).
  * The runner reads them fresh for every call. Default: the tool's risk alone.
  */
 export type PermissionCheck = (tool: ToolDef, callId: string) => Promise<PermissionDecision>;

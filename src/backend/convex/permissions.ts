@@ -6,7 +6,6 @@ import {
 	actionLabel,
 	alwaysAllowText,
 	builtinTools,
-	findAutomation,
 	findConnector,
 	isGranted,
 	permissionFor,
@@ -15,14 +14,15 @@ import {
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type MutationCtx, type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
+import { type MutationCtx, type QueryCtx, internalQuery } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { type Member, getMember, memberFor, memberOf, requireInWorkspace, requireMember, requirePermission } from "./lib";
-import { canView } from "./automations";
+import { automationName, canView } from "./automationOps";
+import { riskOf, titleOf, toolsOf } from "./connectorTools";
 import { risk } from "./schema";
 import { runningTurn } from "./turns";
 
-// Who allowed what (core approvals.ts `permissionFor`): each person's Always / Never per
+// Who allowed what (core action-rules.ts `permissionFor`): each person's Always / Never per
 // action, Always grants scoped to one automation, and owners' locks. An action is one
 // tool on one connector install, or a built-in. Everything is read fresh on every call
 // (`check`), so a change applies to the very next call; nothing is cached into a session.
@@ -162,50 +162,10 @@ export async function setRule(
 		});
 }
 
-/** An action's risk from its definition: built-ins in code, connector tools as their server last listed them (unlisted ones ask). */
-async function riskOf(ctx: QueryCtx, workspaceId: Id<"workspaces">, action: string): Promise<Risk> {
-	const builtin = builtinTools.find((t) => t.id === action);
-	if (builtin) return toolRisk(builtin);
-	const listed = await toolsOf(ctx, workspaceId, toolGroup(action));
-	return listed.find((t) => `${toolGroup(action)}.${t.name}` === action)?.risk ?? "outside";
-}
-
-const toolsOf = async (ctx: QueryCtx, workspaceId: Id<"workspaces">, connectorId: string) =>
-	(
-		await ctx.db
-			.query("connectorTools")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId).eq("connectorId", connectorId))
-			.first()
-	)?.tools ?? [];
-
-/** The title an action's server gave it, if any (built-ins carry their own). Use with `actionLabel`. */
-export async function titleOf(ctx: QueryCtx, workspaceId: Id<"workspaces">, action: string) {
-	const builtin = builtinTools.find((t) => t.id === action);
-	if (builtin) return builtin.title;
-	return (await toolsOf(ctx, workspaceId, toolGroup(action))).find((t) => `${toolGroup(action)}.${t.name}` === action)?.title;
-}
-
 /** The workspace a request is for, if they're in it (actions can't read the database). */
 export const workspaceOf = internalQuery({
 	args: { userId: v.id("users"), workspaceId: v.optional(v.id("workspaces")) },
 	handler: async (ctx, { userId, workspaceId }) => (await memberFor(ctx, userId, workspaceId))?.workspaceId ?? null,
-});
-
-/** Records the tools a connector's server listed, when they changed. Display only. */
-export const saveTools = internalMutation({
-	args: {
-		workspaceId: v.id("workspaces"),
-		connectorId: v.string(),
-		tools: v.array(v.object({ name: v.string(), title: v.optional(v.string()), description: v.string(), risk })),
-	},
-	handler: async (ctx, { workspaceId, connectorId, tools }) => {
-		const row = await ctx.db
-			.query("connectorTools")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId).eq("connectorId", connectorId))
-			.first();
-		if (!row) await ctx.db.insert("connectorTools", { workspaceId, connectorId, tools });
-		else if (JSON.stringify(row.tools) !== JSON.stringify(tools)) await ctx.db.patch(row._id, { tools });
-	},
 });
 
 /** Forgets every rule, lock, and listed tool for a connector install. Called on uninstall. */
@@ -340,11 +300,6 @@ export const mine = query({
 		);
 	},
 });
-
-export function automationName(install: Doc<"automationInstalls">) {
-	if (install.custom) return install.custom.name;
-	return findAutomation(install.automationId)?.name ?? install.automationId;
-}
 
 /** Sets your own Ask / Always / Never for one action. Applies from the next call. */
 export const set = mutation({

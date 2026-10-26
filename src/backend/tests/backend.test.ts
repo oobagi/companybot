@@ -1888,7 +1888,7 @@ describe("permissions", () => {
 		const { t, owner, member } = await ownerAndMember();
 		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
 		const workspaceId = await t.run(async (ctx) => (await ctx.db.query("workspaces").first())!._id);
-		await t.mutation(internal.permissions.saveTools, {
+		await t.mutation(internal.connectorTools.saveTools, {
 			workspaceId,
 			connectorId: "crm",
 			tools: [

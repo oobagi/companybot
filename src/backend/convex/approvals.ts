@@ -16,7 +16,9 @@ import { canSee, namer } from "./chatOps";
 import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { getMember, memberOf, nameOf, requireMember, toActor } from "./lib";
-import { automationName, automationOfTurn, decideFor, setRule, titleOf } from "./permissions";
+import { automationOfTurn, decideFor, setRule } from "./permissions";
+import { automationName } from "./automationOps";
+import { titleOf } from "./connectorTools";
 import { risk } from "./schema";
 import { enqueueTurn } from "./turns";
 

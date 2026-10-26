@@ -1,3 +1,4 @@
+import { permissionFor, toolRisk } from "./action-rules";
 import type { AutomationStore } from "./automation-tools";
 import { MODEL_OUTPUT_MAX, type RecordFindInput, type RecordPage, type RecordStore, forModel } from "./record-tools";
 import { describe, expect, it } from "vitest";
@@ -13,10 +14,8 @@ import {
 	canDecideApproval,
 	canonicalJson,
 	describeAllowed,
-	permissionFor,
 	readableValue,
 	toolLine,
-	toolRisk,
 } from "./approvals";
 import { ACTIVITY_MAX_CHARS, callEnd, callLabel, clipJson, describeCall } from "./activity";
 import { formatLocalTime, resolveTimeZone, shortStamp } from "./time";
