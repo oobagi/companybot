@@ -1,4 +1,4 @@
-import { actionLabel, toolLine } from "@companybot/core/approvals";
+import { actionLabel, toolLine } from "@companybot/core/action-words";
 import { Fragment, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";

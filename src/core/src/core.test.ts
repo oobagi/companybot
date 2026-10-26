@@ -1,3 +1,4 @@
+import { actionLabel, alwaysAllowText, askText, describeAllowed, readableValue, toolLine } from "./action-words";
 import { permissionFor, toolRisk } from "./action-rules";
 import type { AutomationStore } from "./automation-tools";
 import { MODEL_OUTPUT_MAX, type RecordFindInput, type RecordPage, type RecordStore, forModel } from "./record-tools";
@@ -6,16 +7,10 @@ import { isStepCount, simulateReadableStream, streamText } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import {
 	APPROVAL_TTL_MS,
-	actionLabel,
-	alwaysAllowText,
-	askText,
 	approvalHash,
 	approvalStatus,
 	canDecideApproval,
 	canonicalJson,
-	describeAllowed,
-	readableValue,
-	toolLine,
 } from "./approvals";
 import { ACTIVITY_MAX_CHARS, callEnd, callLabel, clipJson, describeCall } from "./activity";
 import { formatLocalTime, resolveTimeZone, shortStamp } from "./time";

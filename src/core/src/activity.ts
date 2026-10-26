@@ -1,4 +1,4 @@
-import { actionLabel } from "./approvals";
+import { actionLabel } from "./action-words";
 import { CONNECTOR_CALL, CONNECTOR_SEARCH, type ConnectorService, calledConnectorTool } from "./connector-tools";
 import { type ToolDef, modelToolName } from "./tools";
 import { isWidgetToolName } from "./widgets";
@@ -37,7 +37,7 @@ export function describeCall(modelName: string, input: unknown, tools: ToolDef[]
 }
 
 /**
- * What a call did, for its tool line (approvals.ts `toolLine`): "Send SMS with Fake CRM",
+ * What a call did, for its tool line (action-words.ts `toolLine`): "Send SMS with Fake CRM",
  * "Look up Fake CRM actions", "Save Acme Roofing". `name` is the model's tool name, or a tool id.
  * With the call's input (and output, once it's done), tools with `label` say what this call did.
  */

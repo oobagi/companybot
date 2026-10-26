@@ -1,4 +1,4 @@
-import { readableValue } from "@companybot/core/approvals";
+import { readableValue } from "@companybot/core/action-words";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../../api";
