@@ -1,4 +1,4 @@
-import { fireEvent } from "./automations";
+import { fireEvent } from "./automationRuns";
 import { DEFAULT_CURRENCY, can, isCurrencyCode } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";

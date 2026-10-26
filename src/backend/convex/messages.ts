@@ -1,4 +1,4 @@
-import { fireEvent } from "./automations";
+import { fireEvent } from "./automationRuns";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx } from "./_generated/server";

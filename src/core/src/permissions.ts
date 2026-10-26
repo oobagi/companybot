@@ -12,7 +12,7 @@ export const permissions = {
 	"members.manage": { roles: ["owner"], label: "manage members" },
 	"agents.manage": { roles: ["owner"], label: "change agents" },
 	"connectors.manage": { roles: ["owner"], label: "manage connectors" },
-	/** Lock agent actions for everyone: always ask, block, or lift a default lock (approvals.ts). */
+	/** Lock agent actions for everyone: always ask, block, or lift a default lock (action-rules.ts). */
 	"actions.lock": { roles: ["owner"], label: "lock agent actions" },
 	/** Connect your own account to a connector that uses personal connections. */
 	"connectors.connect": { roles: ["owner", "member"], label: "connect connectors" },

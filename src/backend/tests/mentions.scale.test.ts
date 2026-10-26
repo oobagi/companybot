@@ -1,3 +1,4 @@
+import { modules } from "./helpers";
 import migrationsTest from "@convex-dev/migrations/test";
 import { convexTest } from "convex-test";
 import { expect, it, vi } from "vitest";
@@ -8,8 +9,6 @@ import { person } from "./person";
 
 // The userMentions backfill (migrations.ts) on messages that each mention a crowd: no
 // transaction may go over Convex's 16,000-write limit, and every row lands.
-
-const modules = import.meta.glob(["../convex/**/*.ts", "../convex/_generated/*.js"]);
 
 it("backfills 100 messages mentioning 161 people each without hitting the write limit", { timeout: 600_000 }, async () => {
 	const t = convexTest({ schema, modules, transactionLimits: true });

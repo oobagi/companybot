@@ -1,6 +1,6 @@
 # Permissions
 
-How agents get the go-ahead for actions that leave the building. Start strict, loosen as trust builds. Code: `core/src/approvals.ts` (rules), `backend/convex/permissions.ts` (storage, checks), `backend/convex/approvals.ts` (the card). How to add a risky tool: [Extending → Approvals](extending.md).
+How agents get the go-ahead for actions that leave the building. Start strict, loosen as trust builds. This page owns action rules and approval invariants. How to add a tool: [Extending](extending.md#action-rules-and-approvals).
 
 ## What asks
 - Every tool has a **risk** (`toolRisk`): `none` runs right away; `outside` asks first; `locked` always asks and never offers "Always allow".
@@ -19,8 +19,11 @@ How agents get the go-ahead for actions that leave the building. Start strict, l
 - The held call shows as **its own message from the agent**, after its reply: "I'd like to send an email to dana@acme.com from your Gmail.", the exact input, then **Allow once / Always allow / Deny**. It stays in the timeline with the outcome ("Allowed once by Jaden"); what the call returned sits behind **Raw**, since the agent's reply says it in words.
 - Actions are named the same everywhere (`actionLabel`): the MCP tool's title, else its name in words ("send_sms" → "Send SMS"). Phone numbers show laid out; what runs and what's hashed is the exact input. Tool lines under replies say what happened ("Sent SMS with Fake CRM", `toolLine`); a tool with `label` names what this call touched ("Saved Acme Roofing"). Labels are stored on the reply's tool part, never replayed to the model.
 - Under the buttons, in plain words, what "always" covers: "Always allow: agents can send email from your Gmail without asking you first. Only when acting for you." Settings uses the same text (`alwaysAllowText`), minus the pointer to Settings.
-- "Always allow" saves the rule and runs the call. Not shown for locked actions or to anyone but the person the agent acts for.
-- Unchanged: locked to the hash of the exact call, only the acting person decides, 24h window, byte-identical replays.
+- "Always allow" saves the rule and runs the call. Not shown for locked actions or to anyone but the person the agent acts for. The server enforces it too: `decide({ always: true })` is refused wherever the action always asks (locked, or an owner's "ask" lock), and scoped to the automation if the run was one's.
+- The runner saves the exact held call with its `risk` (`approvals.request`).
+- The lock is SHA-256 of canonical JSON of the tool id and exact input (`approvalHash`). The app returns the hash it showed; `decide` refuses any other; `claim` re-hashes before running. Only the acting person decides, while they can see the chat, within 24h. Owners cannot decide for someone else. Compare nothing else: unrelated changes never void a call.
+- `approvals.decide` queues a normal turn in the same place with `approvalId`. It runs the approved call first, then gives the agent its outcome through `buildTurnPrompt`. Replays note the held call without its outcome, staying byte-identical.
+- Cards are `approval` message parts. `messages.list` returns them in `fullParts`; older apps get a text line in `parts`.
 - Blocked calls (Never or owner block) don't run; the model is told why, and the tool line shows failed.
 
 ## Automations
@@ -36,6 +39,14 @@ How agents get the go-ahead for actions that leave the building. Start strict, l
 4. **Connector detail page → Actions:** each action Ask / Always / Never (same rules as #3). Listed from what the server last reported (`connectorTools`, updated each turn or with "Refresh list"); display only, calls are decided on the live tool.
 5. **Settings → General (owners) → Action locks.**
 6. **Activity:** each auto-allowed call says how ("Always allowed by Jaden, Oct 25"), links to the rule, or notes it was removed since.
+
+## Code
+- `core/src/action-rules.ts`: risk, per-person rules, owner locks, `permissionFor` and denial reasons. Role gates stay in `core/src/permissions.ts`.
+- `core/src/action-words.ts`: labels, asks, Always text and tool lines. The card and Settings use the same helpers.
+- `core/src/approvals.ts`: exact-call hashes, status, expiry and who may decide.
+- `backend/convex/permissions.ts`: stores rules and locks, checks calls, and grants automation actions. `connectorTools.ts` owns the last-listed connector metadata; settings read it, but calls use the live tool.
+- The runner supplies `toolApprovalPolicy(usable, check)` as the AI SDK's `toolApproval`. Built-ins with no risk skip the check; connector reads are checked too. A rule-allowed call logs `allowed` (how, who, when, rule id).
+- `backend/convex/approvals.ts`: holds, decides and claims calls. Tests: `backend/tests/permissions.test.ts` and `approvals.test.ts`; pure helpers have matching core tests.
 
 ## Later
 - Recipient-scoped grants ("always allow emails to @acme.com").

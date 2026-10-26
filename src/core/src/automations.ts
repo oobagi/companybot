@@ -27,11 +27,11 @@ export type AutomationTrigger =
 	| { type: "schedule"; time: string; weekdays: number[] }
 	/**
 	 * Fired when another app POSTs to the install's webhook URL (backend
-	 * `automations.receive`). With `webhookEvent`, only bodies naming that event run; without,
+	 * `automationRuns.receive`). With `webhookEvent`, only bodies naming that event run; without,
 	 * any body does. `sample` is what "Run now" sends.
 	 */
 	| { type: "webhook"; webhookEvent?: WebhookEvent; label: string; sample: WebhookBody }
-	/** Something happened inside Companybot (backend `automations.fireEvent`). */
+	/** Something happened inside Companybot (backend `automationRuns.fireEvent`). */
 	| { type: "event"; event: AppEvent; label: string; channelId?: string };
 
 /**

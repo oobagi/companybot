@@ -5,7 +5,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { type Member, getMember, memberOf, nameOf } from "./lib";
 
 // Shared by the app's chat functions (chats.ts, messages.ts) and the agent runner
-// (turns.ts), so both follow the same visibility rules. See wiki/chat.md.
+// (chatTools.ts), so both follow the same visibility rules. See wiki/chat.md.
 
 /** A person or agent, display-ready. Fits core's `Participant`. */
 export type Participant = { type: "user"; id: Id<"users">; name: string } | { type: "agent"; id: Id<"agents">; name: string };
@@ -51,6 +51,16 @@ export async function canSee(ctx: QueryCtx, chat: Doc<"chats">, member: Member) 
 	if (chat.workspaceId !== member.workspaceId) return false;
 	if (chat.kind === "channel" && !chat.private) return true;
 	return !!(await membership(ctx, chat._id, member.userId));
+}
+
+/** A channel by name ("#sales" or "sales") that the person can see. */
+export async function channelNamed(ctx: QueryCtx, member: Member, name: string) {
+	const clean = name.trim().replace(/^#/, "").toLowerCase();
+	const chat = await ctx.db
+		.query("chats")
+		.withIndex("by_name", (q) => q.eq("workspaceId", member.workspaceId).eq("name", clean))
+		.first();
+	return chat && chat.kind === "channel" && !chat.archived && (await canSee(ctx, chat, member)) ? chat : null;
 }
 
 /** You and the chat, if you can see it. For queries, which show nothing rather than fail. */

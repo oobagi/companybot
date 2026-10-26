@@ -1,3 +1,4 @@
+import { modules } from "./helpers";
 import migrationsTest from "@convex-dev/migrations/test";
 import { connectorCatalog, defineConnector } from "@companybot/core";
 import { convexTest } from "convex-test";
@@ -10,8 +11,6 @@ import { person } from "./person";
 // One person in two workspaces, A and B: every request acts in the workspace it names, an id
 // from the other one looks like it doesn't exist, and apps that name no workspace stay in the
 // first one they joined. See wiki/architecture.md (Workspaces).
-
-const modules = import.meta.glob(["../convex/**/*.ts", "../convex/_generated/*.js"]);
 
 connectorCatalog.push(
 	defineConnector({
