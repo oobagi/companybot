@@ -409,5 +409,5 @@ export const resetWebhook = mutation({
 
 // COMPAT(0.1.0-alpha.6): installed apps call automations.runNow; use automationRuns.runNow.
 export { runNow } from "./automationRuns";
-// Queued cron and cleanup calls may still use these paths.
+// COMPAT(0.1.0-alpha.6): cron and cleanup calls queued before this deploy may still use these paths.
 export { tick, forgetOldWebhooks } from "./automationRuns";
