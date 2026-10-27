@@ -8,6 +8,7 @@
     "./automations": "./src/automations.ts",
     "./local-auth": "./src/local-auth.ts",
     "./models": "./src/models.ts",
+    "./page-links": "./src/page-links.ts",
     "./permissions": "./src/permissions.ts",
     "./records": "./src/records.ts",
     "./skills": "./src/skills.ts",

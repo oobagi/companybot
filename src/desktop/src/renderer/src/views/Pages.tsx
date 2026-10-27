@@ -1,11 +1,11 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useState } from "react";
 import { api } from "../api";
-import { useMutation, useQuery } from "../convex";
+import { useMutation, usePaginatedQuery, useQuery } from "../convex";
 import { navigate } from "../router";
-import { HistoryIcon, PageIcon, PlusIcon, TrashIcon } from "../icons";
-import { EmptyState, Loading, NewButton, NotFound, Notice, Page, barButton, barDangerButton, metadataClass, timeAgo, useRun } from "../ui";
-import { Group, Item } from "./chat/Sidebar";
+import { HistoryIcon, PageIcon, TrashIcon } from "../icons";
+import { EmptyState, LoadMore, Loading, NewButton, NotFound, Notice, Page, barButton, barDangerButton, metadataClass, timeAgo, useRun } from "../ui";
+import { MovePage } from "./pages/PageTree";
 import { PageEditor } from "./pages/PageEditor";
 import { PageHistory } from "./pages/PageHistory";
 import { PageTitle } from "./pages/PageTitle";
@@ -14,24 +14,7 @@ import { TrashNotice } from "./Trash";
 // Standalone pages (wiki, SOPs, meeting notes): /pages lists them, /pages/<id> opens one.
 // Records' page bodies use the same editor on the record's page. See wiki/pages.md.
 
-/** The sidebar's Pages section: every live page, and + to start one. */
-export function PagesNav({ openId }: { openId: string | undefined }) {
-	const pages = useQuery(api.pages.list, {});
-	const create = useMutation(api.pages.create);
-	const { error, run } = useRun();
-	const newPage = () => run(create({ title: "Untitled" }).then((id) => navigate("pages", id)));
-	return (
-		<Group title="Pages" onTitle={() => navigate("pages")} onAdd={() => void newPage()} addLabel="New page">
-			{pages?.map((p) => (
-				<Item key={p._id} icon={<PageIcon />} active={p._id === openId} onClick={() => navigate("pages", p._id)}>
-					<span className="truncate">{p.title}</span>
-				</Item>
-			))}
-			<Item icon={<PlusIcon />} onClick={() => void newPage()} muted>New page</Item>
-			{error && <Notice>{error}</Notice>}
-		</Group>
-	);
-}
+export { PagesNav } from "./pages/PageTree";
 
 export function PagesView({ pageId, canEdit }: { pageId?: string; canEdit: boolean }) {
 	return pageId ? <PageScreen key={pageId} pageId={pageId as Id<"pages">} canEdit={canEdit} /> : <PagesIndex canEdit={canEdit} />;
@@ -39,14 +22,14 @@ export function PagesView({ pageId, canEdit }: { pageId?: string; canEdit: boole
 
 /** Every page. Deleted ones are in Trash. */
 function PagesIndex({ canEdit }: { canEdit: boolean }) {
-	const pages = useQuery(api.pages.list, {});
+	const { results: pages, status, loadMore } = usePaginatedQuery(api.pages.children, {}, { initialNumItems: 30 });
 	const create = useMutation(api.pages.create);
 	const { error, run } = useRun();
 	const actions = canEdit && <NewButton label="New page" onClick={() => run(create({ title: "Untitled" }).then((id) => navigate("pages", id)))} />;
 	return (
 		<Page title="Pages" description="Wiki pages, how-tos and meeting notes. Every record has a page too." actions={actions}>
 			{error && <Notice>{error}</Notice>}
-			{!pages ? (
+			{status === "LoadingFirstPage" ? (
 				<Loading />
 			) : pages.length > 0 ? (
 				<div className="flex flex-col divide-y divide-neutral-100 rounded-xl border border-neutral-200">
@@ -61,6 +44,7 @@ function PagesIndex({ canEdit }: { canEdit: boolean }) {
 			) : (
 				<EmptyState icon={<PageIcon />} title="No pages yet">Write down how your team works.</EmptyState>
 			)}
+			<LoadMore status={status} onMore={() => loadMore(30)} />
 		</Page>
 	);
 }
@@ -70,8 +54,9 @@ function PageScreen({ pageId, canEdit }: { pageId: Id<"pages">; canEdit: boolean
 	const rename = useMutation(api.pages.rename);
 	const remove = useMutation(api.trash.move);
 	const [history, setHistory] = useState(false);
+	const [moving, setMoving] = useState(false);
 	const { error, run } = useRun();
-	const crumbs = [{ label: "Pages", to: ["pages"] }];
+	const crumbs = [{ label: "Pages", to: ["pages"] }, ...(page?.ancestors ?? []).map((p) => ({ label: p.title, to: ["pages", p._id] }))];
 	if (!page) return <NotFound crumbs={crumbs} loaded={page === null} icon={<PageIcon />} title="Page not found" />;
 	return (
 		<Page
@@ -83,6 +68,7 @@ function PageScreen({ pageId, canEdit }: { pageId: Id<"pages">; canEdit: boolean
 					<button type="button" onClick={() => setHistory(true)} className={barButton}>
 						<HistoryIcon /> History
 					</button>
+					{page.canEdit && <button type="button" onClick={() => setMoving(true)} className={barButton}>Move to…</button>}
 					{canEdit && !page.archived && (
 						<button type="button" onClick={() => run(remove({ kind: "page", id: pageId }), () => navigate("pages"))} className={barDangerButton}>
 							<TrashIcon /> Delete
@@ -93,7 +79,8 @@ function PageScreen({ pageId, canEdit }: { pageId: Id<"pages">; canEdit: boolean
 		>
 			{error && <Notice>{error}</Notice>}
 			{page.trash && <TrashNotice trash={page.trash} />}
-			<PageEditor pageId={pageId} editable={page.canEdit} />
+			<PageEditor pageId={pageId} editable={page.canEdit} standalone={!page.recordId} />
+			{moving && <MovePage page={page} onClose={() => setMoving(false)} />}
 			{history && <PageHistory pageId={pageId} canRestore={page.canEdit} onClose={() => setHistory(false)} />}
 		</Page>
 	);

@@ -88,10 +88,10 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 			"Pages hold longer writing: wiki pages, how-tos, meeting notes. Every record also has a page body for notes about it.",
 		);
 		if (has("pages.read")) lines.push("- pages_read history lists retained versions with a cursor; version previews one. For colored or aligned content, read format blocks and edit the complete JSON array so formatting survives. Markdown drops colors and alignment.");
-		if (has("pages.find")) lines.push("- Find a page with pages_find before creating one, so there are no duplicates.");
+		if (has("pages.find")) lines.push("- Find a page with pages_find before creating one. Rows include parentId; parent lists one level (null for top level). Follow cursors and child ids to read the tree.");
 		if (has("pages.write"))
 			lines.push(
-				`- ${has("pages.read") ? "Read a page with pages_read before you replace it; to" : "To"} add to it, append with pages_write. Writes run when permitted and are saved in the page's history as you acting for the person, so they can be restored. Say in a sentence what you wrote, and where.`,
+				`- ${has("pages.read") ? "Read a page with pages_read before you replace it; to" : "To"} add to it, append with pages_write. Create under parent; move with action move, page and parent (null for top level). Record bodies cannot be nested. Writes run when permitted and are saved in the page's history as you acting for the person, so they can be restored. Say in a sentence what you wrote, and where.`,
 			);
 	}
 	if (has("skills.create")) {

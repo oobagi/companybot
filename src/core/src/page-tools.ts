@@ -13,6 +13,10 @@ export interface PageRead {
 	/** None for a record's body nobody has written in yet. */
 	id?: string;
 	title: string;
+	parentId?: string | null;
+	ancestors?: { id: string; title: string }[];
+	subpages?: { id: string; title: string }[];
+	subpagesMore?: boolean;
 	record?: string;
 	markdown: string;
 	blocks?: string;
@@ -41,7 +45,8 @@ export const readInput = z.object({
 });
 export type PageReadInput = z.infer<typeof readInput>;
 
-const findInput = z.object({
+export const findInput = z.object({
+	parent: z.string().nullable().optional().describe("List direct sub-pages of this page id or exact title; null lists top-level pages. Rows include parentId, so page through every level to read the tree."),
 	search: z.string().optional().describe("Words in the title. Leave out to list pages by title."),
 	trashed: z.boolean().optional().describe("Pages in Trash instead"),
 	cursor: z.string().optional().describe("From a previous result with more: true"),
@@ -49,6 +54,8 @@ const findInput = z.object({
 export type PageFindInput = z.infer<typeof findInput>;
 
 export const writeInput = z.object({
+	action: z.union([z.literal("write"), z.literal("move")]).optional().describe("write (default) creates or edits a page; move changes its parent and keeps content and descendants"),
+	parent: z.string().nullable().optional().describe("Parent page id or exact title for creation or action move; null moves to the top level. Record bodies cannot be nested."),
 	...target,
 	title: z.string().optional().describe("A new page's title, or a new title for a page (not a record's body)"),
 	markdown: z.string().max(MARKDOWN_MAX).optional().describe("Content in Markdown: headings, lists, - [ ] to-dos, > quotes, ``` code, --- dividers, tables"),
@@ -63,6 +70,7 @@ export type PageWriteInput = z.infer<typeof writeInput>;
 function writeLabel(input: PageWriteInput, output: unknown) {
 	const title = text(output, "title");
 	if (text(output, "error") || !title) return;
+	if (input.action === "move") return `Move page ${title}`;
 	if (input.restore) return `Restore a version of ${title}`;
 	if (input.trash !== undefined) return `${input.trash ? "Delete" : "Restore"} page ${title}`;
 	if (!input.page && !input.record) return `Create page ${title}`;
@@ -102,8 +110,9 @@ export const pageTools: ToolDef[] = [
 		id: "pages.write",
 		title: "Write a page",
 		description:
-			"Create a page (title, optional markdown), add to a page or a record's page body (append), rewrite it (replace), rename it, delete it (to Trash) or restore it, or bring back an old version. Runs right away and is saved in the page's history as you acting for the person, so it can be restored. Read a page before replacing it.",
+			"Create a page (title, optional parent and markdown), move it (action move, page, parent; null for top level), add to a page or a record's page body (append), rewrite it (replace), rename it, delete it (to Trash) or restore it, or bring back an old version. Runs right away and is saved in the page's history as you acting for the person, so it can be restored. Read a page before replacing it.",
 		input: writeInput,
+		risk: "none",
 		execute: (input, { pages }) => pages.write(input),
 		label: writeLabel,
 	}),
