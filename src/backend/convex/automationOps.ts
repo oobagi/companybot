@@ -19,6 +19,25 @@ export const canView = (member: Member, install: Doc<"automationInstalls">) => {
 	return !only || only === member.userId;
 };
 
+/**
+ * Whether a run of this automation as `userId` follows words they didn't write: someone else
+ * made or last edited it, or its trigger brings in others' text (webhooks and in-app events).
+ * Those runs ask before acting as them in the workspace (core `Risk` "inside").
+ */
+export function followsOthers(install: Doc<"automationInstalls">, userId: Id<"users">) {
+	const trigger = install.custom?.trigger ?? findAutomation(install.automationId)?.trigger;
+	return (!!install.custom && (install.installedBy !== userId || install.custom.updatedBy !== userId)) || trigger?.type !== "schedule";
+}
+
+/** Live automation scope plus immutable provenance from the server-written trigger. */
+export async function automationScope(ctx: QueryCtx, turn: Doc<"agentTurns">) {
+	const trigger = await ctx.db.get(turn.triggerId);
+	const automation = trigger?.automation ? await installOf(ctx, turn.workspaceId, trigger.automation.id) : null;
+	// Legacy triggers without a provenance snapshot and removed installs stay foreign.
+	const foreign = !!trigger?.automation && ((trigger.automation.foreign ?? true) || !automation || followsOthers(automation, turn.actorId));
+	return { trigger, automation, foreign };
+}
+
 export function automationName(install: Doc<"automationInstalls">) {
 	if (install.custom) return install.custom.name;
 	return findAutomation(install.automationId)?.name ?? install.automationId;

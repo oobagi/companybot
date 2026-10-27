@@ -26,7 +26,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 - Test with `fakeMcpServer` (`core/test/test-mcp-server.ts`), or push a test connector into `connectorCatalog` (see backend tests).
 
 ## Action rules and approvals
-- Declare `ToolDef.risk` when adding a tool with outside impact. Follow [Permissions](permissions.md) for risk levels, rule order, the held-call card and replay rules.
+- Declare `ToolDef.risk` when adding a tool with outside impact. A built-in that changes nothing but reads what only the person sees (their chats, personal memory) declares `inside`; one that changes something harmless (display, a reaction) declares `none`. Follow [Permissions](permissions.md) for risk levels, rule order, the held-call card and replay rules.
 - Use `action-words.ts` for action labels, asks, Always text and tool lines.
 - Test rules in `backend/tests/permissions.test.ts`, cards in `backend/tests/approvals.test.ts`, and pure helpers in core's matching `*.test.ts` files.
 
@@ -107,9 +107,9 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 ## Person–agent parity — `backend/convex/parity.ts`
 - Every exported public Convex mutation names its agent tool/action (`agent`) or a one-line `humanOnly` reason. `tests/parity.test.ts` finds every registered mutation (re-exports and aliases too) and fails on missing or stale entries and unknown tools/actions. Unbuilt gaps cannot be labeled human-only: the test rejects Pending/deferred placeholders. Mixed entries explain the exact authority decision a person must make.
 - Group related actions into one tool per area (`manage-tools.ts`): an object root with `request: { action, … }`, a discriminated union of strict objects. `manageTools.runFor` parses the same schema again; never cast a request into an operation.
-- Use `riskFor` for call-specific risk within a grouped tool (chat/channel `delete` is locked); tests must exercise the actual nested request through approval resolution. Split tools where approval differs: `members.invite` is `outside`; `members.remove`, `skills.remove` and `automations.remove` are `locked`. Rules key on the tool id, so one tool for both would let an Always for invites cover removals. Members are targeted by email, so the card shows who.
+- Use `riskFor` for call-specific risk within a grouped tool (chat/channel `delete` is locked); tests must exercise the actual nested request through approval resolution. Split tools where approval differs: `members.invite` and `skills.edit` are `outside`; `members.remove`, `skills.remove` and `automations.remove` are `locked`. Rules key on the tool id, so one tool for both would let an Always for invites cover removals. Members are targeted by email, so the card shows who.
 - `runFor` calls the same functions the app's mutations do (`chats.ts`, `messages.ts`, `automations.ts`, `skills.ts`, `workspace.ts`) with the live `Member` (or `Who`, for message attribution) from `runningTurn`, and rechecks the agent's grant. Never call public mutations with the runner's auth or copy their rules. Lists page indexed ranges (30 rows).
-- Automation runs act with the reader's rights but follow the prompt's author. Manage tools refuse runs of a custom automation someone else last edited, so a member can't write a prompt that manages the workspace as an owner who turned it on.
+- Automation runs act with the reader's rights but follow the prompt's author. Runs that follow someone else's words ask before every `inside` action, manage tools included ([Permissions](permissions.md#automations)); tools don't check this themselves.
 - Member emails are normalized on join and indexed (`memberEmails` backfills older rows); invite checks fail closed until it's done instead of scanning the team.
 - `platformGuide` gets the runner's resolved tools and gates each line on exact ids; `manage-tools.test.ts` checks every single-tool grant and role so the guide never names a tool the agent lacks.
 

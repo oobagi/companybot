@@ -4,13 +4,12 @@ import type { Id, TableNames } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { addChannelMembers, markReadAs, createChannelAs, joinChannel, leaveChannel, openDirectMessage, removeChannelMember, updateChannelAs } from "./chats";
 import { chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
-import { canView, definitionOf, installOf } from "./automationOps";
+import { automationScope, canView, definitionOf, installOf } from "./automationOps";
 import { installAutomation, removeAutomation, saveAutomation, updateAutomation } from "./automations";
 import { installSkill, removeSkill, saveSkill } from "./skills";
 import { editMessage, removeMessage, reactMessage, sendMessage } from "./messages";
 import { cancelMemberInvite, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
 import { asToolResult, checkPermission, type Member, nameOf, normalizeEmail, preferencesOf, requireAgent, timeZoneOf } from "./lib";
-import { automationOfTurn } from "./permissions";
 import { archiveAgent, createAgent, updateAgent } from "./agents";
 import { updatePreferences } from "./preferences";
 import { runNowAs } from "./automationRuns";
@@ -41,10 +40,6 @@ export const runFor = internalMutation({
 		if (!agent || agent.archived || !isGranted(agent.tools, tool)) throw new ConvexError("This agent no longer has that tool.");
 		return asToolResult(async () => {
 			if (!(tool in manageInputs)) throw new ConvexError("Unknown tool.");
-			// A run acts with this person's rights but follows its prompt: only the prompt's author can have it manage the workspace.
-			const automation = await automationOfTurn(ctx, turn);
-			if (automation?.custom && automation.custom.updatedBy !== member.userId)
-				throw new ConvexError(`${await nameOf(ctx, automation.custom.updatedBy)} last edited this automation, so it can't manage the workspace for you.`);
 			switch (tool) {
 				case "chat.manage": {
 					const r = manageInputs[tool].parse(input).request;
@@ -194,7 +189,7 @@ export const runFor = internalMutation({
 							lastResult: install.lastResult,
 						};
 					if (r.action === "run") {
-						if (automation) throw new ConvexError("An automation run cannot start another run.");
+						if ((await automationScope(ctx, turn)).trigger?.automation) throw new ConvexError("An automation run cannot start another run.");
 						await runNowAs(ctx, member, r.id);
 					}
 					if (r.action === "edit") await saveAutomation(ctx, member, { automationId: r.id, config: r.config, expectedVersion: r.expectedVersion });
@@ -235,8 +230,12 @@ export const runFor = internalMutation({
 						if (!skill) throw new ConvexError("Skill not found.");
 						return { ...skill, id: r.id, installed: !!install, canEdit: canEditMade(member, "skills.manage", install?.custom?.createdBy) };
 					}
-					if (r.action === "edit") await saveSkill(ctx, member, { skillId: r.id, config: r.config, expectedVersion: r.expectedVersion });
 					if (r.action === "install") await installSkill(ctx, member, { skillId: r.id, installed: true });
+					return { done: r.action, id: r.id };
+				}
+				case "skills.edit": {
+					const r = manageInputs[tool].parse(input).request;
+					await saveSkill(ctx, member, { skillId: r.id, config: r.config, expectedVersion: r.expectedVersion });
 					return { done: r.action, id: r.id };
 				}
 				case "skills.remove": {

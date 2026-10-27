@@ -555,7 +555,7 @@ describe("writes that land after what they belong to went", () => {
 		const general = (await generalOf(member))._id;
 		const agentId = (await member.query(api.agents.list))[0]!._id;
 		const turnId = await agentTurn(t, member, general, agentId);
-		const approvalId = await t.mutation(internal.approvals.request, { turnId, callId: "c1", tool: "crm.find", input: "{}" });
+		const { approvalId } = await t.mutation(internal.approvals.request, { turnId, callId: "c1", tool: "crm.find", input: "{}" });
 		await t.run((ctx) => ctx.db.patch(approvalId, { status: "running" }));
 		// The external call is in flight while they erase their account, and returns after cleanup finished.
 		await member.mutation(api.workspace.eraseAccount);

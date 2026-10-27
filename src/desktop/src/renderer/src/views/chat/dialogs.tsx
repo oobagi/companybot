@@ -142,6 +142,11 @@ export function NewMessage({ onClose, onOpen }: { onClose: () => void; onOpen: (
 export function ChannelDetails({ chat, onClose, onLeft }: { chat: ChatDetails; onClose: () => void; onLeft: () => void }) {
 	const [adding, setAdding] = useState(false);
 	const isChannel = chat.kind === "channel";
+	const me = useQuery(api.workspace.me);
+	const removeMember = useMutation(api.chats.removeMember);
+	const { error, run } = useRun();
+	// Managers remove others (you leave instead); everyone stays in the default channel. The server checks the same.
+	const removable = (m: Participant) => isChannel && chat.canManage && m.id !== me?.userId && !(chat.isDefault && m.type === "user");
 	return (
 		<Modal title={chatTitle(chat)} onClose={onClose}>
 			{adding ? (
@@ -167,9 +172,22 @@ export function ChannelDetails({ chat, onClose, onLeft }: { chat: ChatDetails; o
 										<ProfileLink who={m} className="hover:underline">{m.name}</ProfileLink>
 									</span>
 									{m.type === "agent" && <AgentBadge />}
+									{removable(m) && (
+										<button
+											type="button"
+											onClick={() =>
+												confirm(`Remove ${m.name} from #${chat.name}?`) &&
+												run(removeMember({ chatId: chat._id, ...(m.type === "user" ? { userId: m.id as Id<"users"> } : { agentId: m.id as Id<"agents"> }) }))
+											}
+											className="text-xs text-neutral-400 hover:text-red-700"
+										>
+											Remove from channel
+										</button>
+									)}
 								</li>
 							))}
 						</ul>
+						{error && <Notice>{error}</Notice>}
 					</section>
 					{isChannel && !chat.isDefault && <LeaveButton chat={chat} onLeft={() => (onClose(), onLeft())} />}
 				</>

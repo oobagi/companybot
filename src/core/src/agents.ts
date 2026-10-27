@@ -1,7 +1,7 @@
 import { type ToolSet, asSchema, isStepCount, tool } from "ai";
 import { callEnd } from "./activity";
 import type { AgentConfig } from "./agent-config";
-import { type PermissionDecision, deniedReason, permissionFor, toolRisk } from "./action-rules";
+import { type PermissionDecision, deniedReason, heldReason, permissionFor, toolRisk } from "./action-rules";
 import { builtinTools } from "./builtin-tools";
 import { models } from "./models";
 import { can } from "./permissions";
@@ -162,8 +162,10 @@ const byRiskOnly: PermissionCheck = async (t) => permissionFor({ risk: toolRisk(
 
 /**
  * The AI SDK `toolApproval` setting for one run. Calls that ask stop the run there,
- * unexecuted; blocked ones never run and the model is told why. Built-ins with no risk
- * skip the check: rules and locks only cover actions that can ask, plus connector reads.
+ * unexecuted, except in automation runs (`waitFor`): there the model is told the call is
+ * waiting and goes on, and the runner holds it. Blocked ones never run and the model is told
+ * why. Built-ins with no risk skip the check: rules and locks only cover actions that can ask,
+ * plus connector reads.
  */
 export const toolApprovalPolicy =
 	(tools: ToolDef[], check: PermissionCheck = byRiskOnly) =>
@@ -171,7 +173,8 @@ export const toolApprovalPolicy =
 		const action = await actionOf(toolCall.toolName, toolCall.input, tools);
 		if (!action || (action.tool.source.type === "builtin" && toolRisk(action.tool) === "none")) return undefined;
 		const decision = await check(action.tool, toolCall.toolCallId);
-		if (decision.type === "ask") return "user-approval" as const;
+		if (decision.type === "ask")
+			return decision.waitFor ? { type: "denied" as const, reason: heldReason(decision.waitFor, action.tool.id) } : ("user-approval" as const);
 		if (decision.type === "deny") return { type: "denied" as const, reason: deniedReason(decision.by, action.tool.id) };
 		return undefined;
 	};

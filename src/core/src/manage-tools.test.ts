@@ -2,25 +2,60 @@ import { asSchema } from "ai";
 import { describe, expect, it } from "vitest";
 import { builtinTools } from "./builtin-tools";
 import { actionOf, resolveTools, toolApprovalPolicy } from "./agents";
-import { toolRisk } from "./action-rules";
+import { permissionFor, toolRisk } from "./action-rules";
 import { platformGuide } from "./guide";
 import { manageInputs, manageTools } from "./manage-tools";
 import { modelToolName } from "./tools";
 
 describe("grouped tools", () => {
-	it("asks for exact invitations and locks irreversible removal tools", async () => {
-		for (const id of ["members.invite", "members.remove", "skills.remove", "automations.remove"] as const) {
+	it("asks for exact invitations and skill edits, and locks irreversible removal tools", async () => {
+		for (const id of ["members.invite", "skills.edit", "members.remove", "skills.remove", "automations.remove"] as const) {
 			const tool = manageTools.find((t) => t.id === id)!;
-			expect(toolRisk(tool)).toBe(id === "members.invite" ? "outside" : "locked");
+			expect(toolRisk(tool)).toBe(id === "members.invite" || id === "skills.edit" ? "outside" : "locked");
 			const input =
 				id === "members.invite"
 					? { request: { action: "invite", email: "next@co.com" } }
 					: id === "members.remove"
 						? { request: { action: "remove", email: "dana@co.com" } }
-						: { request: { action: "delete", id: "exact-id" } };
+						: id === "skills.edit"
+							? { request: { action: "edit", id: "custom-1", expectedVersion: 1, config: { name: "Tone", description: "d", instructions: "i" } } }
+							: { request: { action: "delete", id: "exact-id" } };
 			expect(await actionOf(modelToolName(id), input, [tool])).toEqual({ tool, input });
 			expect(await toolApprovalPolicy([tool])({ toolCall: { toolCallId: "call", toolName: modelToolName(id), input } })).toBe("user-approval");
 		}
+	});
+
+	it.each([
+		["records.history", { source: "agents" }],
+		["memory.search", { query: "", agentId: "another-agent" }],
+		["memory.update", { id: "another-agents-memory", content: "Corrected" }],
+		["memory.forget", { id: "another-agents-memory" }],
+		["chat.manage", { request: { action: "edit", messageId: "m", text: "Corrected" } }],
+		["chat.manage", { request: { action: "react", messageId: "m", emoji: "✅" } }],
+		["chat.manage", { request: { action: "mark_read", chat: "c" } }],
+		["workspace.settings", { request: { action: "update_preferences", notify: "off" } }],
+		["automations.manage", { request: { action: "run", id: "a" } }],
+	] as const)("gates new parity action %s in foreign runs through its actual input", async (id, input) => {
+		const toolName = modelToolName(id);
+		const action = await actionOf(toolName, input, builtinTools);
+		expect(toolRisk(action!.tool)).toBe("inside");
+		const call = { toolCallId: "parity", toolName, input };
+		expect(await toolApprovalPolicy(builtinTools)({ toolCall: call })).toBeUndefined();
+		expect(await toolApprovalPolicy(builtinTools, async tool => {
+			const decision = permissionFor({ risk: toolRisk(tool), foreign: true });
+			return decision.type === "ask" ? { ...decision, waitFor: "Ada" } : decision;
+		})({ toolCall: call })).toMatchObject({ type: "denied", reason: expect.stringContaining("needs Ada's OK") });
+	});
+
+	it("keeps shared record history immediate while agent Activity asks, and describes runtime consent", async () => {
+		for (const input of [{}, { source: "records" }]) {
+			const action = await actionOf("records_history", input, builtinTools);
+			expect(toolRisk(action!.tool)).toBe("none");
+		}
+		const guide = platformGuide({ tools: ["records.history", "chat.manage", "workspace.settings"] });
+		expect(guide).toContain("Only that action waits as a card in their DM");
+		expect(guide).toContain("source agents reads visible tool activity");
+		expect(guide).toContain("mark a chat read only when explicitly asked");
 	});
 
 	it("locks message deletion without applying an Always for other chat actions", async () => {
@@ -57,6 +92,15 @@ describe("grouped tools", () => {
 		expect(await toolApprovalPolicy([tool])({ toolCall: { toolCallId: "delete", toolName: "channels_manage", input } })).toBe("user-approval");
 		for (const request of [{ action: "get", chat: "exact-channel" }, { action: "rename", chat: "exact-channel", name: "renamed" }])
 			expect(await toolApprovalPolicy([tool])({ toolCall: { toolCallId: "safe", toolName: "channels_manage", input: { request } } })).toBeUndefined();
+	});
+
+	it("names who a call is about, so the card says it", () => {
+		const label = (id: string, request: object) => manageTools.find((t) => t.id === id)!.label!({ request });
+		expect(label("members.remove", { action: "remove", email: "ben@acme.com" })).toBe("Remove ben@acme.com from the workspace");
+		expect(label("members.invite", { action: "invite", email: "ben@acme.com" })).toBe("Invite ben@acme.com to the workspace");
+		expect(label("members.invite", { action: "resend", email: "ben@acme.com" })).toBe("Resend the invitation to ben@acme.com");
+		expect(label("members.invite", { action: "cancel", email: "ben@acme.com" })).toBe("Cancel the invitation for ben@acme.com");
+		expect(label("chat.manage", { action: "send", chat: "general", text: "hi" })).toBe("Post in #general");
 	});
 
 	it("refuses authority escalation, unrelated action fields and invalid parameter combinations", () => {

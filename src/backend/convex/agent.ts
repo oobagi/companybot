@@ -263,10 +263,13 @@ async function streamReply(
 	// Remembered per call so the activity log says how it was allowed, or why it was blocked.
 	const allowedCalls = new Map<string, FunctionReturnType<typeof internal.permissions.check>["allowed"] & {}>();
 	const deniedCalls = new Map<string, string>();
+	/** Calls held in an automation's run: the model was told they're waiting, and the run goes on. */
+	const heldCalls = new Set<string>();
 	const check = async (t: ToolDef, callId: string) => {
 		const { decision, allowed } = await ctx.runQuery(internal.permissions.check, { turnId, action: t.id, risk: toolRisk(t) });
 		if (allowed) allowedCalls.set(callId, allowed);
 		if (decision.type === "deny") deniedCalls.set(callId, deniedReason(decision.by, t.id));
+		if (decision.type === "ask" && decision.waitFor) heldCalls.add(callId);
 		return decision;
 	};
 
@@ -322,6 +325,28 @@ async function streamReply(
 		toolApproval: toolApprovalPolicy(usable, check),
 	});
 
+	// Held, not run: save the exact call and show a card in its place. Logged only if it runs later.
+	const hold = async (toolCallId: string, toolName: string, input: unknown) => {
+		calls.delete(toolCallId);
+		const held = await actionOf(toolName, input, usable);
+		const at = parts.findIndex((p) => p.type === "tool" && p.id === toolCallId);
+		if (!held) return setTool(toolCallId, toolName, "error");
+		const { approvalId, separate } = await ctx.runMutation(internal.approvals.request, {
+			turnId,
+			callId: toolCallId,
+			tool: held.tool.id,
+			input: canonicalJson(held.input),
+			risk: toolRisk(held.tool),
+		});
+		if (separate) {
+			if (at >= 0) parts.splice(at, 1);
+			return;
+		}
+		const card = { type: "approval" as const, id: toolCallId, approvalId, tool: held.tool.id };
+		if (at >= 0) parts[at] = card;
+		else parts.push(card);
+	};
+
 	// Each tool call goes to the activity log once it finishes (activity.ts).
 	const calls = new Map<string, LoggedCall>();
 	const logCall = async (callId: string, end: { output: unknown } | { error: string }) => {
@@ -362,29 +387,16 @@ async function streamReply(
 				if (!isWidgetToolName(part.toolName)) setTool(part.toolCallId, part.toolName, "error");
 				await logCall(part.toolCallId, { error: part.error instanceof Error ? part.error.message : String(part.error) });
 			} else if (part.type === "tool-output-denied") {
-				// Blocked by a Never or an owner's lock: it didn't run, and the model was told why.
-				setTool(part.toolCallId, part.toolName, "error");
-				await logCall(part.toolCallId, { error: deniedCalls.get(part.toolCallId) ?? "Blocked." });
+				// Held in an automation's run: a card, while the run goes on. Otherwise blocked by a
+				// Never or an owner's lock: it didn't run, and the model was told why.
+				if (heldCalls.has(part.toolCallId)) await hold(part.toolCallId, part.toolName, callInputs.get(part.toolCallId));
+				else {
+					setTool(part.toolCallId, part.toolName, "error");
+					await logCall(part.toolCallId, { error: deniedCalls.get(part.toolCallId) ?? "Blocked." });
+				}
 			} else if (part.type === "tool-approval-request") {
-				// Blocked calls come through here too, already answered; they're handled above.
-				if (part.isAutomatic) continue;
-				// Held, not run: save the exact call and show a card in its place. Logged only if it runs later.
-				const { toolCallId, toolName, input } = part.toolCall;
-				calls.delete(toolCallId);
-				const held = await actionOf(toolName, input, usable);
-				const at = parts.findIndex((p) => p.type === "tool" && p.id === toolCallId);
-				if (held) {
-					const approvalId = await ctx.runMutation(internal.approvals.request, {
-						turnId,
-						callId: toolCallId,
-						tool: held.tool.id,
-						input: canonicalJson(held.input),
-						risk: toolRisk(held.tool),
-					});
-					const card = { type: "approval" as const, id: toolCallId, approvalId, tool: held.tool.id };
-					if (at >= 0) parts[at] = card;
-					else parts.push(card);
-				} else setTool(toolCallId, toolName, "error");
+				// Blocked and held-while-going-on calls come through here too, already answered; they're handled above.
+				if (!part.isAutomatic) await hold(part.toolCall.toolCallId, part.toolCall.toolName, part.toolCall.input);
 			} else if (part.type === "finish-step") {
 				addStep(usage, part.usage, part.providerMetadata);
 				continue;

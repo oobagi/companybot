@@ -14,6 +14,7 @@ import {
 	textForModel,
 } from "./chatOps";
 import { type Who, installedSkills, liveWorkspace, memberOf, timeZoneOf } from "./lib";
+import { automationScope } from "./automationOps";
 import { messagePart, replyUsage } from "./schema";
 
 // The agent turn queue and everything the runner (agent.ts) reads and writes.
@@ -151,9 +152,10 @@ export const turnContext = internalQuery({
 		const session = (await ctx.db.get(turn.sessionId))!;
 		const reply = (await ctx.db.get(turn.replyId))!;
 		const names = namer(ctx);
+		const { trigger, foreign } = await automationScope(ctx, turn);
 
 		// Finished turns only, so never this (running) one.
-		const turns = (await sessionTurns(ctx, session)).map(({ prompt, reply }) => ({ prompt, reply }));
+		const turns = (foreign ? [] : await sessionTurns(ctx, session)).map(({ prompt, reply }) => ({ prompt, reply }));
 
 		// What's new: everything in the place after the last turn's reply started.
 		const last = (
@@ -164,8 +166,10 @@ export const turnContext = internalQuery({
 				.take(20)
 		).find((t) => t._id !== turnId && t.prompt !== undefined);
 		const lastReply = last?.replyId && (await ctx.db.get(last.replyId));
-		const since = lastReply?._creationTime ?? last?.startedAt ?? 0;
-		const recent = (
+		const since = foreign ? (trigger?._creationTime ?? 0) : (lastReply?._creationTime ?? last?.startedAt ?? 0);
+		// Foreign runs get only their trigger, or replies in a thread rooted at that trigger.
+		// Never replay the person's DM/channel history, including compacted session summaries.
+		const recent = foreign && turn.threadId !== trigger?._id ? (trigger ? [trigger] : []) : (
 			await ctx.db
 				.query("chatMessages")
 				.withIndex("by_chat_thread", (q) =>
@@ -184,7 +188,7 @@ export const turnContext = internalQuery({
 			recent.filter((m) => !m.deleted && (m.status !== "streaming" || m.text)).map((m) => toPlaceMessage(m, names, agent._id)),
 		);
 
-		const parent = turn.threadId && (await ctx.db.get(turn.threadId));
+		const parent = turn.threadId && (!foreign || turn.threadId === trigger?._id) && (await ctx.db.get(turn.threadId));
 		const rows = await chatMembersOf(ctx, chat._id);
 		const user = await ctx.db.get(member.userId);
 		return {
@@ -192,7 +196,7 @@ export const turnContext = internalQuery({
 			member,
 			agent: { id: agent._id, name: agent.name, instructions: agent.instructions, model: agent.model, tools: agent.tools },
 			skills: await installedSkills(ctx, chat.workspaceId),
-			session: { id: session._id, summary: session.summary ?? null, turns },
+			session: { id: session._id, summary: foreign ? null : (session.summary ?? null), turns },
 			/** Off when an owner turned it off; personal only in a DM with exactly one person. memory.ts checks again on every call. */
 			memory: !(await memoryOn(ctx, chat.workspaceId)) ? ("off" as const) : (await personalMemoryHere(ctx, chat)) ? ("personal" as const) : ("team" as const),
 			actor: {
@@ -207,7 +211,7 @@ export const turnContext = internalQuery({
 				private: chat.private,
 				topic: chat.topic ?? null,
 				thread: parent
-					? { parent: await toPlaceMessage(parent, names, agent._id), first: turns.length === 0 && !session.summary }
+					? { parent: await toPlaceMessage(parent, names, agent._id), first: turns.length === 0 && (foreign || !session.summary) }
 					: null,
 				members: await Promise.all(rows.map(names.of)),
 			},

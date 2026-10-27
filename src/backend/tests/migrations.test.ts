@@ -134,8 +134,8 @@ describe("migrations: Companybot chat tools", () => {
 			vi.useRealTimers();
 		}
 		const after = await t.run(async (ctx) => ({ bot: (await ctx.db.get(ids.bot))!, scribe: (await ctx.db.get(ids.scribe))! }));
-		expect(after.bot.tools).toEqual(["memory.*", "skills.load", "chat.*", "skills.create", "automations.*", "records.*", "pages.*", "channels.*", "skills.manage", "skills.remove", "members.*", "workspace.*", "agents.manage"]);
-		expect(after.bot.version).toBe(ids.version + 5);
+		expect(after.bot.tools).toEqual(["memory.*", "skills.load", "chat.*", "skills.create", "automations.*", "records.*", "pages.*", "channels.*", "skills.manage", "skills.remove", "members.*", "workspace.*", "agents.manage", "skills.edit"]);
+		expect(after.bot.version).toBe(ids.version + 6);
 		expect(after.scribe.tools).not.toContain("skills.create");
 		expect(after.scribe.tools).not.toContain("records.*");
 	});

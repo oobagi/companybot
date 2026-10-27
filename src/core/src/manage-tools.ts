@@ -75,10 +75,10 @@ export const manageInputs = {
 		request: z.discriminatedUnion("action", [
 			z.strictObject({ action: z.literal("list"), ...page }),
 			z.strictObject({ action: z.literal("get"), id }),
-			z.strictObject({ action: z.literal("edit"), id, expectedVersion: version, config: skillConfig }),
 			z.strictObject({ action: z.literal("install"), id }),
 		]),
 	}),
+	"skills.edit": z.object({ request: z.strictObject({ action: z.literal("edit"), id, expectedVersion: version, config: skillConfig }) }),
 	"skills.remove": z.object({ request: z.strictObject({ action: z.literal("delete"), id }) }),
 	"members.invite": z.object({
 		request: z.discriminatedUnion("action", [
@@ -129,7 +129,9 @@ const descriptions: Record<ManageTool, string> = {
 	"automations.remove":
 		"Permanently delete/uninstall an automation by id. Stops runs and removes subscriptions and approval grants. The exact call waits for approval.",
 	"skills.manage":
-		"Browse custom and library skills, read full instructions and current version, edit a custom skill with expectedVersion, or install a library skill (owners). Confirm exact instructions before editing. Changes are shared with the team.",
+		"Browse custom and library skills, read full instructions and current version, or install a library skill (owners). Editing is a separate tool that asks first.",
+	"skills.edit":
+		"Edit a custom skill's name, description and instructions, using its current expectedVersion from skills_manage get. Every agent here follows skills, so the exact call waits for approval. Confirm the exact instructions with the person first.",
 	"skills.remove": "Permanently delete a custom skill or uninstall a library skill by id. The exact call waits for approval.",
 	"members.invite":
 		"Invite an email as a member, or resend or cancel the invitation for an email (owners). Invite and resend send email outside the workspace and wait for approval. Cannot invite owners or change roles.",
@@ -145,12 +147,37 @@ const titles: Record<ManageTool, string> = {
 	"automations.manage": "Manage automations",
 	"automations.remove": "Delete an automation",
 	"skills.manage": "Manage skills",
+	"skills.edit": "Edit a skill",
 	"skills.remove": "Delete or uninstall a skill",
 	"members.invite": "Manage member invitations",
 	"members.remove": "Remove a member",
 	"workspace.settings": "Manage workspace settings",
 	"agents.manage": "Manage agents",
 };
+/** What a call does to whom, for its card and tool line: "Remove ben@acme.com from the workspace", "Post in #sales". */
+function manageLabel(input: unknown): string | undefined {
+	const r = (input as { request?: Record<string, unknown> } | undefined)?.request;
+	const at = (key: string) => (typeof r?.[key] === "string" ? (r[key] as string) : "");
+	// A chat is a #name or an id; ids aren't words, so they read as "a chat".
+	const chat = /^[a-z0-9]{31,}$/.test(at("chat")) ? "a chat" : `#${at("chat").replace(/^#/, "")}`;
+	switch (r?.action) {
+		case "invite":
+			return `Invite ${at("email")} to the workspace`;
+		case "resend":
+			return `Resend the invitation to ${at("email")}`;
+		case "cancel":
+			return `Cancel the invitation for ${at("email")}`;
+		case "remove":
+			return `Remove ${at("email")} from the workspace`;
+		case "send":
+			return `Post in ${chat}`;
+		case "remove_member":
+			return `Remove someone from ${chat}`;
+		case "add_members":
+			return `Add people to ${chat}`;
+	}
+}
+
 export const manageTools: ToolDef[] = (Object.keys(manageInputs) as ManageTool[]).map((id) =>
 	defineTool<unknown>({
 		id,
@@ -158,15 +185,16 @@ export const manageTools: ToolDef[] = (Object.keys(manageInputs) as ManageTool[]
 		description: descriptions[id],
 		input: manageInputs[id],
 		...((id === "members.invite" || id === "members.remove") && { permission: "members.manage" as const }),
-		...(id.endsWith(".remove") ? { risk: "locked" as const } : id === "members.invite" ? { risk: "outside" as const } : {}),
+		...(id.endsWith(".remove") ? { risk: "locked" as const } : id === "members.invite" || id === "skills.edit" ? { risk: "outside" as const } : {}),
 		// Deleting, archiving an agent, or rewriting another agent's instructions/model always asks.
 		...((id === "channels.manage" || id === "chat.manage" || id === "agents.manage") && {
 			riskFor: (input: unknown) => {
 				const r = manageInputs[id].safeParse(input).data?.request as { action: string; instructions?: string; model?: string } | undefined;
 				const locked = r && (r.action === "delete" || r.action === "archive" || (r.action === "update" && (r.instructions !== undefined || r.model !== undefined)));
-				return locked ? "locked" as const : "none" as const;
+				return locked ? "locked" as const : "inside" as const;
 			},
 		}),
 		execute: (input, { manage }) => manage.run(id, input),
+		label: manageLabel,
 	}),
 );

@@ -5,6 +5,7 @@ import {
 	askText,
 	approvalHash,
 	approvalStatus,
+	builtinTools,
 	canDecideApproval,
 	findConnector,
 	toolGroup,
@@ -12,18 +13,18 @@ import {
 import { ConvexError, v } from "convex/values";
 import { internalMutation } from "./_generated/server";
 import { mutation, query } from "./functions";
-import { canSee, namer } from "./chatOps";
+import { canSee, findOrCreateDm, insertMessage, namer } from "./chatOps";
 import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { erased, getMember, memberOf, nameOf, requireMember, toActor } from "./lib";
-import { automationOfTurn, decideFor, setRule } from "./permissions";
-import { automationName } from "./automationOps";
+import { decideFor, setRule } from "./permissions";
+import { automationName, automationScope } from "./automationOps";
 import { titleOf } from "./connectorTools";
 import { risk } from "./schema";
 import { enqueueTurn, runningTurn } from "./turns";
 
 // Approvals: a tool call an agent held until the person it acts for says yes (core
-// approvals.ts). The card sits in the agent's reply. Deciding queues a turn in the same
+// approvals.ts). Automation cards go to the actor's DM; deciding queues a turn in the original
 // place (so the one-turn-per-place queue holds); that turn runs the call if approved,
 // with the exact stored input, then tells the agent what happened.
 
@@ -35,14 +36,22 @@ export const request = internalMutation({
 	args: { turnId: v.id("agentTurns"), callId: v.string(), tool: v.string(), input: v.string(), risk: v.optional(risk) },
 	handler: async (ctx, { turnId, callId, tool, input, risk }) => {
 		const { turn } = await runningTurn(ctx, turnId);
-		return ctx.db.insert("approvals", {
+		const { automation, trigger } = await automationScope(ctx, turn);
+		// Automation cards belong only in the acting person's DM, even for channel/thread runs.
+		// Keep chatId/threadId as the execution place: implicit targets must not change on approval.
+		const dmId = trigger?.automation && await findOrCreateDm(ctx, turn.workspaceId, turn.actorId, [turn.actorId], [turn.agentId]);
+		const separate = !!dmId && dmId !== turn.chatId;
+		const replyId = separate ? await insertMessage(ctx, (await ctx.db.get(dmId!))!, {
+			authorAgentId: turn.agentId, text: "", parts: [], mentions: { userIds: [], agentIds: [] }, status: "done",
+		}) : turn.replyId;
+		const approvalId = await ctx.db.insert("approvals", {
 			workspaceId: turn.workspaceId,
 			agentId: turn.agentId,
 			actorId: turn.actorId,
 			chatId: turn.chatId,
 			threadId: turn.threadId,
 			turnId,
-			replyId: turn.replyId,
+			replyId,
 			callId,
 			tool,
 			input,
@@ -50,8 +59,10 @@ export const request = internalMutation({
 			status: "pending",
 			expiresAt: Date.now() + APPROVAL_TTL_MS,
 			risk,
-			automationInstallId: (await automationOfTurn(ctx, turn))?._id,
+			automationInstallId: automation?._id,
 		});
+		if (separate) await ctx.db.patch(replyId, { parts: [{ type: "approval", id: callId, approvalId, tool }] });
+		return { approvalId, separate };
 	},
 });
 
@@ -72,10 +83,11 @@ async function alwaysFor(ctx: QueryCtx, row: Doc<"approvals">) {
 	const automation = row.automationInstallId
 		? await ctx.db.get(row.automationInstallId)
 		: fromAutomation && turn
-			? await automationOfTurn(ctx, turn)
+			? (await automationScope(ctx, turn)).automation
 			: null;
 	if (fromAutomation && !automation) return null;
-	const { decision } = await decideFor(ctx, member, { action: row.tool, risk: row.risk });
+	// Acting-as-you calls ask only in others' automations, and an Always for them is scoped to it.
+	const { decision } = await decideFor(ctx, member, { action: row.tool, risk: row.risk, foreign: !!automation });
 	if (decision.type !== "ask" || !decision.canAlways) return null;
 	return { member, automation };
 }
@@ -100,6 +112,8 @@ export const forReply = query({
 				const connector = findConnector(group) ?? null;
 				const always = mine && approvalStatus(row) === "pending" ? await alwaysFor(ctx, row) : null;
 				const title = await titleOf(ctx, row.workspaceId, row.tool);
+				const input: unknown = JSON.parse(row.input);
+				const automation = row.automationInstallId && (await ctx.db.get(row.automationInstallId));
 
 				return {
 					_id: row._id,
@@ -109,8 +123,14 @@ export const forReply = query({
 					service: findConnector(group)?.name ?? null,
 					/** Its name for people: "Send SMS". */
 					action: actionLabel(row.tool, title),
-					/** The ask, in the agent's voice: "I'd like to send an email to dana@acme.com from your Gmail." */
-					ask: askText(row.tool, connector, JSON.parse(row.input), title),
+					/** The ask: "I'd like to send an email to dana@acme.com from your Gmail.", or "Monday summary wants to post in #general as you." */
+					ask: askText(row.tool, connector, input, {
+						title,
+						said: builtinTools.find((t) => t.id === row.tool)?.label?.(input),
+						automation: automation ? automationName(automation) : undefined,
+					}),
+					/** Set when "Always allow" would cover only this automation's runs. */
+					alwaysAutomation: always?.automation ? automationName(always.automation) : null,
 					/** Null when "Always allow" isn't offered (locked, or not yours to decide). */
 					alwaysText: always
 						? alwaysAllowText(row.tool, connector, { automation: always.automation ? automationName(always.automation) : undefined, title })
@@ -162,7 +182,7 @@ export const decide = mutation({
 		if (approve && always) {
 			const allowed = await alwaysFor(ctx, row);
 			if (!allowed) throw new ConvexError("Always allow isn't available here: this action always asks, or its automation was deleted. Nothing ran.");
-			await setRule(ctx, allowed.member, { action: row.tool, setting: "always", automationInstallId: allowed.automation?._id });
+			await setRule(ctx, allowed.member, { action: row.tool, setting: "always", automationInstallId: allowed.automation?._id, risk: row.risk });
 		}
 		await ctx.db.patch(approvalId, { status: approve ? "approved" : "denied", decidedAt: Date.now(), ...(approve && always && { always: true }) });
 		const asked = await ctx.db.get(row.turnId);

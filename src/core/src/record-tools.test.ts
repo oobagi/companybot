@@ -90,7 +90,7 @@ describe("records tools", () => {
 	it("run right away: internal, undoable, nothing sent outside", () => {
 		const ids = builtinTools.filter((t) => t.id.startsWith("records.")).map((t) => t.id);
 		expect(ids).toEqual(["records.types", "records.find", "records.get", "records.history", "records.save", "records.undo", "records.save_field", "records.save_database", "records.views", "records.save_view"]);
-		for (const id of ids) expect(toolRisk(tool(id))).toBe("none");
+		for (const id of ids) expect(toolRisk(tool(id))).toBe(tool(id).readOnly ? "none" : "inside");
 		expect(ids.filter((id) => tool(id).readOnly)).toEqual(["records.types", "records.find", "records.get", "records.history", "records.views"]);
 		expect(ids.filter((id) => tool(id).permission)).toEqual(["records.save_database", "records.save_view"]);
 		expect(toolLine(callLabel("records_undo", builtinTools, []), "done")).toBe("Undid a record change");

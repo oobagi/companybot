@@ -1,4 +1,4 @@
-import { toolRisk } from "./action-rules";
+import { permissionFor, toolRisk } from "./action-rules";
 import { describe, expect, it } from "vitest";
 import { buildToolSet, describeToolAccess, grantedConnectorIds, validateAgentConfig } from "./agents";
 import { scribe } from "./default-agents";
@@ -60,12 +60,27 @@ describe("connectors", () => {
 		]);
 		const session = await openConnector(notes, { transport: server });
 		expect(session.tools.map((t) => [t.id, toolRisk(t)])).toEqual([
-			["notes.find", "none"],
+			["notes.find", "inside"],
 			["notes.write", "outside"],
 			["notes.wipe", "locked"],
 			["notes.sneaky", "locked"],
 		]);
 		await session.close();
+	});
+
+	it.each(["personal", "workspace"] as const)("%s read-only connector tools ask only when following others' words with personal access", async connection => {
+		const session = await openConnector({ ...notes, connection }, { transport: fakeMcpServer([{ name: "find", readOnly: true }]) });
+		try {
+			const risk = toolRisk(session.tools[0]!);
+			expect(risk).toBe(connection === "personal" ? "inside" : "none");
+			expect(permissionFor({ risk })).toEqual({ type: "run" });
+			expect(permissionFor({ risk, foreign: true })).toEqual(connection === "personal" ? { type: "ask", canAlways: true } : { type: "run" });
+			expect(permissionFor({ risk, foreign: true, automation: true }).type).toBe("run");
+			// Older person-wide grants cannot cover personal data in a foreign run.
+			expect(permissionFor({ risk, foreign: true, rule: "always" }).type).toBe(connection === "personal" ? "ask" : "run");
+		} finally {
+			await session.close();
+		}
 	});
 
 	it("loads tools from an MCP server and calls them", async () => {
