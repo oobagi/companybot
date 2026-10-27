@@ -130,18 +130,21 @@ export const check = internalQuery({
 	},
 });
 
-/** Saves (or clears) a person's rule for one action. Always is refused where the action always asks. */
+/**
+ * Saves (or clears) a person's rule for one action. Always is refused where the action always asks.
+ * `risk`: the held call's own, for tools whose risk depends on the call (`riskFor`).
+ */
 export async function setRule(
 	ctx: MutationCtx,
 	member: Member,
-	{ action, setting, automationInstallId }: { action: string; setting: RuleSetting | "ask"; automationInstallId?: Id<"automationInstalls"> },
+	{ action, setting, automationInstallId, risk: callRisk }: { action: string; setting: RuleSetting | "ask"; automationInstallId?: Id<"automationInstalls">; risk?: Risk },
 ) {
 	const install = await connectorInstallOf(ctx, member.workspaceId, action);
 	if (install === null) throw new ConvexError("Install the connector first.");
 	if (install && !install.roles.includes(member.role)) throw new ConvexError("Your role can't use this connector.");
 	if (install === undefined && !builtinTools.some((t) => t.id === action)) throw new ConvexError("Unknown action.");
 	const scope = install?._id;
-	const risk = await riskOf(ctx, member.workspaceId, action);
+	const risk = callRisk ?? (await riskOf(ctx, member.workspaceId, action));
 	// Acting as you only ever asks in others' automations, so it's only ever allowed for one.
 	if (risk === "inside" && !automationInstallId) throw new ConvexError("This only asks in automations someone else wrote; allow it there.");
 	if (setting === "always") {

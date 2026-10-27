@@ -172,7 +172,7 @@ export const decide = mutation({
 		if (approve && always) {
 			const allowed = await alwaysFor(ctx, row);
 			if (!allowed) throw new ConvexError("Always allow isn't available here: this action always asks, or its automation was deleted. Nothing ran.");
-			await setRule(ctx, allowed.member, { action: row.tool, setting: "always", automationInstallId: allowed.automation?._id });
+			await setRule(ctx, allowed.member, { action: row.tool, setting: "always", automationInstallId: allowed.automation?._id, risk: row.risk });
 		}
 		await ctx.db.patch(approvalId, { status: approve ? "approved" : "denied", decidedAt: Date.now(), ...(approve && always && { always: true }) });
 		const asked = await ctx.db.get(row.turnId);
