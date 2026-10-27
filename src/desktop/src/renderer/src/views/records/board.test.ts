@@ -9,11 +9,12 @@ const state = vi.hoisted(() => ({
 	status: "CanLoadMore",
 	loadMore: vi.fn(),
 	update: vi.fn(() => Promise.resolve()),
+	lists: [] as { filters: unknown[]; group?: unknown }[],
 }));
 vi.mock("../../convex", () => ({
 	useQuery: () => undefined,
 	useMutation: () => state.update,
-	usePaginatedQuery: (_fn: unknown, args: { filters: { eq?: string }[] }) => args.filters.at(-1)?.eq === "old"
+	usePaginatedQuery: (_fn: unknown, args: { filters: unknown[]; group?: { option: string | null } }) => (state.lists.push(args), args.group?.option === "old")
 		? { results: state.rows, status: state.status, loadMore: state.loadMore }
 		: { results: [], status: "Exhausted", loadMore: vi.fn() },
 }));
@@ -31,6 +32,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	state.rows = [];
 	state.status = "CanLoadMore";
+	state.lists = [];
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 	vi.stubGlobal("localStorage", { getItem: (key: string) => key.startsWith("records.layout.") ? '{"layout":"board","groupBy":"status"}' : null });
 	vi.stubGlobal("IntersectionObserver", class {
@@ -57,6 +59,12 @@ it("continues an empty first page before deciding a retired column has no cards"
 	state.rows = [];
 	await act(async () => root.update(tree()));
 	expect(root.root.findAllByType("section")).toHaveLength(2);
+});
+
+it("asks for each column as `group`, leaving the view's filters (and their limit) alone", async () => {
+	await act(async () => { root = create(tree(), { createNodeMock: () => ({}) }); });
+	expect(new Set(state.lists.map((a) => JSON.stringify(a.group)))).toEqual(new Set(['{"field":"status","option":null}', '{"field":"status","option":"todo"}', '{"field":"status","option":"old"}']));
+	for (const args of state.lists) expect(args.filters).toEqual([]);
 });
 
 it("ignores drops within the same column, into removed options, or from a different board", async () => {

@@ -222,3 +222,23 @@ it("lets alpha.7 save a board after its grouping field is deleted", async () => 
 	expect(saved).toMatchObject({ name: "Renamed", layout: "board", version: 2 });
 	expect(saved).not.toHaveProperty("groupBy");
 });
+
+it("lists a board column on top of ten filters, checking the grouping field and option", async () => {
+	const { owner } = await setup();
+	const typeId = await owner.mutation(api.recordTypes.create, { plural: "Jobs" });
+	const status = await owner.mutation(api.fields.create, { typeId, label: "Status", kind: "choice", options: [{ label: "To do" }, { label: "Old" }] });
+	await owner.mutation(api.fields.create, { typeId, label: "Tags", kind: "choice", options: [{ label: "Roof" }], multiple: true });
+	const [todo, old] = status.options!.map((o) => o.id);
+	for (const [name, value] of [["Open", todo], ["Legacy", old], ["Unsorted", null]] as const)
+		await owner.mutation(api.records.create, { typeId, values: { name, ...(value && { status: value }) } });
+	await owner.mutation(api.fields.update, { fieldId: status._id, options: [{ id: todo!, label: "To do" }] });
+	const filters = Array.from({ length: 10 }, () => ({ field: "name", empty: false }));
+	const column = async (option: string | null, field = "status") =>
+		(await owner.query(api.records.list, { typeId, filters, group: { field, option }, paginationOpts: page })).page.map((r) => r.title);
+	expect(await column(todo!)).toEqual(["Open"]);
+	expect(await column(old!)).toEqual(["Legacy"]);
+	expect(await column(null)).toEqual(["Unsorted"]);
+	await expect(owner.query(api.records.list, { typeId, filters: [...filters, { field: "status", empty: true }], paginationOpts: page })).rejects.toThrow("up to 10 filters");
+	await expect(column("missing")).rejects.toThrow("no such option");
+	for (const field of ["name", "tags", "gone"]) await expect(column(null, field)).rejects.toThrow("choice field");
+});

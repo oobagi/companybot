@@ -1,4 +1,4 @@
-import { condition, recordSort } from "./recordValidators";
+import { condition, recordGroup, recordSort } from "./recordValidators";
 import { type PaginationOptions, type PaginationResult, paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -50,15 +50,17 @@ export const list = query({
 		// COMPAT(0.1.0-alpha.8): alpha.6 apps list archived records; Trash lists them now.
 		archived: v.optional(v.boolean()),
 		filters: v.optional(v.array(condition)),
+		/** A board column: the view's filters stay within their limit. */
+		group: v.optional(recordGroup),
 		sort: v.optional(recordSort),
 		paginationOpts: paginationOptsValidator,
 	},
-	handler: async (ctx, { typeId, archived = false, filters = [], sort, paginationOpts }): Promise<PaginationResult<Row>> => {
+	handler: async (ctx, { typeId, archived = false, filters = [], group, sort, paginationOpts }): Promise<PaginationResult<Row>> => {
 		const member = await getMember(ctx);
 		const type = member && (await ctx.db.get(typeId));
 		if (!member || type?.workspaceId !== member.workspaceId || type.archived) return empty();
 		const fields = await fieldsOf(ctx, typeId);
-		const result = await listRecords(ctx, member.workspaceId, { typeId, fields }, { archived, conditions: filters, sort, paginationOpts });
+		const result = await listRecords(ctx, member.workspaceId, { typeId, fields }, { archived, conditions: filters, group, sort, paginationOpts });
 		return { ...result, page: await toRows(ctx, member.workspaceId, result.page.map((record) => ({ record, fields }))) };
 	},
 });
