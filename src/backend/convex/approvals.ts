@@ -72,9 +72,12 @@ export const request = internalMutation({
 async function alwaysFor(ctx: QueryCtx, row: Doc<"approvals">) {
 	const member = await memberOf(ctx, row.actorId, row.workspaceId);
 	if (!row.risk || !member) return null;
-	// A removed automation cannot leave behind a wider Always grant.
+	// A removed automation cannot leave behind a wider Always grant, whether it went after the
+	// call was held or before (its run keeps going, and `request` then has no install to record).
 	const automation = row.automationInstallId ? await ctx.db.get(row.automationInstallId) : null;
 	if (row.automationInstallId && !automation) return null;
+	const turn = !row.automationInstallId && (await ctx.db.get(row.turnId));
+	if (turn && (await ctx.db.get(turn.triggerId))?.automation) return null;
 	// Acting-as-you calls ask only in others' automations, and an Always for them is scoped to it.
 	const { decision } = await decideFor(ctx, member, { action: row.tool, risk: row.risk, foreign: !!automation });
 	if (decision.type !== "ask" || !decision.canAlways) return null;

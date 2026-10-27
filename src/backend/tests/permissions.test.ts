@@ -261,6 +261,21 @@ describe("permissions", () => {
 		expect((await check(t, plain._id)).decision).toEqual({ type: "ask", canAlways: true });
 	});
 
+	it("never offers Always for a call held after its automation was deleted mid-run", async () => {
+		const { t, member, companybot } = await setup();
+		const config = { name: "Follow up", prompt: "Text new leads.", trigger: { type: "webhook" as const } };
+		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "creator", timeZone: "UTC" });
+		await member.mutation(api.automationRuns.runNow, { automationId: id });
+		await cancelScheduled(t);
+		const run = (await turnsOf(t)).at(-1)!;
+		await member.mutation(api.automations.remove, { automationId: id });
+		const { approvalId } = await t.mutation(internal.approvals.request, { turnId: run._id, callId: "c1", tool: sms.tool, input: canonicalJson(sms.input), risk: "outside" });
+		expect((await t.run(ctx => ctx.db.get(approvalId)))!.automationInstallId).toBeUndefined();
+		const row = (await t.run(ctx => ctx.db.get(approvalId)))!;
+		await expect(member.mutation(api.approvals.decide, { approvalId, hash: row.hash, approve: true, always: true })).rejects.toThrow("isn't available");
+		expect(await member.query(api.permissions.mine)).toEqual([]);
+	});
+
 	it("forgets a removed member's rules, so rejoining starts strict", async () => {
 		const { t, owner, member, companybot } = await setup();
 		const config = { name: "Follow up", prompt: "Text new leads.", trigger: { type: "webhook" as const } };
