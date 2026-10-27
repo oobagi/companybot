@@ -167,7 +167,7 @@ describe("automations", () => {
 			expect(await member.query(api.messages.list, { chatId: calls })).toHaveLength(2);
 		});
 
-		it("forgets event ids after a week, and when uninstalled", async () => {
+		it("forgets event ids after a week and on purge, preserving them through Trash", async () => {
 			const { t, owner, post } = await installed();
 			await post(call("old"));
 			const events = () => t.run((ctx) => ctx.db.query("automationEvents").collect());
@@ -181,6 +181,13 @@ describe("automations", () => {
 			}
 			expect((await events()).map((e) => e.eventId)).toEqual(["new"]);
 			await owner.mutation(api.automations.remove, { automationId: "after-call-summary" });
+			const trash = (await find(owner, "after-call-summary"))!.trash!;
+			expect(await events()).toHaveLength(1);
+			expect((await post(call("new")))[0]).toBe(404);
+			await owner.mutation(api.trash.restore, { kind: "automation", id: trash.itemId });
+			expect(await post(call("new"))).toEqual([200, "Already received."]);
+			await owner.mutation(api.automations.remove, { automationId: "after-call-summary" });
+			await owner.mutation(api.trash.purge, { id: trash.itemId });
 			await t.finishAllScheduledFunctions(vi.runAllTimers);
 			expect(await events()).toHaveLength(0);
 		});
@@ -324,13 +331,19 @@ describe("automations", () => {
 			expect((await find(member, shared))!.trash).toMatchObject({ user: "owner@co.com" });
 		});
 
-		it("only lets owners uninstall library automations, without a time zone", async () => {
+		it("trashes and restores retained library automations with their opt-ins", async () => {
 			const { t, owner, member } = await ownerAndMember();
 			await install(t, owner, "morning-brief");
 			await expect(member.mutation(api.automations.remove, { automationId: "morning-brief" })).rejects.toThrow("permission");
 			await owner.mutation(api.automations.remove, { automationId: "morning-brief" });
 			await owner.mutation(api.automations.remove, { automationId: "morning-brief" });
-			expect(await find(owner, "morning-brief")).toBeUndefined();
+			const trashed = (await find(owner, "morning-brief"))!;
+			expect(trashed.trash).toMatchObject({ kind: "automation", canRestore: true });
+			await expect(owner.mutation(api.automationRuns.runNow, { automationId: "morning-brief" })).rejects.toThrow();
+			await owner.mutation(api.trash.restore, { kind: "automation", id: trashed.trash!.itemId });
+			expect(await find(owner, "morning-brief")).toMatchObject({ trash: null, subscribed: true, subscriberCount: 1 });
+			await owner.mutation(api.automations.remove, { automationId: "morning-brief" });
+			await owner.mutation(api.trash.purge, { id: trashed.trash!.itemId });
 			await settle(t);
 			expect(await t.run((ctx) => ctx.db.query("automationSubscriptions").collect())).toHaveLength(0);
 			await expect(owner.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: true })).rejects.toThrow("retired");

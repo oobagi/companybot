@@ -6,7 +6,6 @@ import {
 	normalizeCustomSkill,
 } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
-import { legacySkills } from "./legacyCatalogs";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { mutation, query } from "./functions";
@@ -21,6 +20,7 @@ import {
 	newCustomId,
 	requireMember,
 	saveMade,
+	skillOf,
 } from "./lib";
 import { putInTrash, takeFromTrash, trashInfo } from "./trashOps";
 import { runningTurn } from "./turns";
@@ -46,41 +46,21 @@ export const list = query({
 			.query("skillInstalls")
 			.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
 			.collect();
-		const custom = await Promise.all(
-			installs
-				.filter((i) => i.custom)
-				.sort((a, b) => b._creationTime - a._creationTime)
-				.map(async ({ _id, skillId, custom, archived }) => ({
-					canEdit: canEditMade(member, "skills.manage", custom!.createdBy),
-					createdByName: custom!.createdBy ? await nameOf(ctx, custom!.createdBy) : undefined,
-					id: skillId,
-					name: custom!.name,
-					description: custom!.description,
-					version: String(custom!.version),
-					instructions: custom!.instructions,
-					installed: true,
-					/** Set for skills people made: who last edited it, and the version a save starts from. */
-					custom: { version: custom!.version, updatedByName: await nameOf(ctx, custom!.updatedBy), updatedAt: custom!.updatedAt },
-					/** Set while it's in Trash. */
-					trash: archived ? await trashInfo(ctx, member, _id) : null,
-				})),
-		);
-		const library = installs.filter((i) => !i.custom).flatMap((i) => {
-			const definition = i.definition ?? legacySkills.find((s) => s.id === i.skillId);
-			return definition ? [definition] : [];
-		}).map(({ id, name, description, version, instructions }) => ({
-			id,
-			name,
-			description,
-			version,
-			instructions,
-			installed: true,
-			canEdit: canEditMade(member, "skills.manage"),
-			createdByName: undefined,
-			custom: null,
-			trash: null,
-		}));
-		return [...custom, ...library];
+		const rows = [];
+		for (const install of installs.sort((a, b) => b._creationTime - a._creationTime)) {
+			const skill = skillOf(install);
+			if (!skill) continue;
+			const custom = install.custom;
+			rows.push({
+				...skill,
+				installed: true,
+				canEdit: canEditMade(member, "skills.manage", custom?.createdBy),
+				createdByName: custom?.createdBy ? await nameOf(ctx, custom.createdBy) : undefined,
+				custom: custom ? { version: custom.version, updatedByName: await nameOf(ctx, custom.updatedBy), updatedAt: custom.updatedAt } : null,
+				trash: install.archived ? await trashInfo(ctx, member, install._id) : null,
+			});
+		}
+		return rows;
 	},
 });
 
@@ -138,17 +118,13 @@ export async function saveSkill(ctx: MutationCtx, member: Member, { skillId, con
 	});
 }
 
-/** Deletes a skill someone made (to Trash), or uninstalls a library one. */
+/** Moves a skill to Trash. Retained library installs have the same 30-day recovery. */
 export async function removeSkill(ctx: MutationCtx, who: Who, skillId: string) {
 	const { member } = who;
-	if (skillId.startsWith("custom-")) {
-		const install = await editableSkill(ctx, member, skillId);
-		await setSkillTrashed(ctx, who, install._id, true);
-		return;
-	}
-	const { workspaceId } = checkPermission(member, "skills.manage");
-	const install = await installOf(ctx, workspaceId, skillId);
-	if (install) await ctx.db.delete(install._id);
+	const install = await installOf(ctx, member.workspaceId, skillId);
+	if (!install && skillId.startsWith("custom-")) throw new ConvexError("Skill not found.");
+	if (!install) return void checkPermission(member, "skills.manage");
+	await setSkillTrashed(ctx, who, install._id, true);
 }
 
 export const remove = mutation({
@@ -156,13 +132,13 @@ export const remove = mutation({
 	handler: async (ctx, { skillId }) => removeSkill(ctx, { member: await requireMember(ctx) }, skillId),
 });
 
-/** Moves a skill someone made to Trash, or back: the maker or an owner. In Trash, agents don't see it. */
+/** Moves a skill to Trash, or back: the maker or an owner. In Trash, agents don't see it. */
 export async function setSkillTrashed(ctx: MutationCtx, who: Who, installId: Id<"skillInstalls">, archived: boolean) {
 	const install = await ctx.db.get(installId);
-	if (!install?.custom || install.workspaceId !== who.member.workspaceId) throw new ConvexError("Skill not found.");
-	if (!canEditMade(who.member, "skills.manage", install.custom.createdBy)) throw new ConvexError(madeEditDenied);
+	if (!install || install.workspaceId !== who.member.workspaceId) throw new ConvexError("Skill not found.");
+	if (!canEditMade(who.member, "skills.manage", install.custom?.createdBy)) throw new ConvexError(install.custom ? madeEditDenied : deniedMessage("skills.manage"));
 	if (!!install.archived === archived) return;
-	if (archived) await putInTrash(ctx, who, { kind: "skill", id: installId, name: install.custom.name });
+	if (archived) await putInTrash(ctx, who, { kind: "skill", id: installId, name: skillOf(install)?.name ?? install.skillId });
 	else await takeFromTrash(ctx, who, installId);
 	await ctx.db.patch(installId, { archived });
 }

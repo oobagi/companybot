@@ -136,8 +136,9 @@ export function SkillScreen({ role, id }: { role: Role; id: string }) {
 			meta={`v${open.version}`}
 			description={open.description}
 			installed={open.installed}
+			trash={open.trash}
 			canManage={canManage}
-			onToggle={() => confirm(`Remove "${open.name}"? Agents stop seeing it, and it can't be installed again.`) && run(removeSkill({ skillId: open.id }))}
+			onToggle={() => confirm(`Remove "${open.name}"? Agents stop seeing it. You can restore it from Trash for 30 days.`) && run(removeSkill({ skillId: open.id }))}
 		>
 			{error && <Notice>{error}</Notice>}
 			<Facts rows={[["Used by", 'Agents granted "skills.load", when a task calls for it']]} />

@@ -17,7 +17,7 @@ import { setSkillTrashed } from "./skills";
 import { TRASH_MS, type TrashKind, describeTrash, trashEntry } from "./trashOps";
 
 // Trash: one place for every deleted record, database, field, page, channel, agent, and skill or
-// automation people made. Deleting moves an item here; whoever deleted it (or an owner) can
+// automation installs. Deleting moves an item here; whoever deleted it (or an owner) can
 // restore it, where it was, links included. Owners can delete forever; everything else goes for
 // good after TRASH_DAYS. See wiki/data.md#trash.
 
@@ -91,7 +91,7 @@ async function visibleEntry(ctx: QueryCtx, member: Member, entry: Doc<"trash">) 
 	return !!chat && (await canSee(ctx, chat, member));
 }
 
-/** Skills and automations open by the id their screens use ("custom-…"), not their row's. */
+/** Skills and automations open by the id their screens use (custom or retained library), not their row's. */
 async function screenIdOf(ctx: QueryCtx, entry: Doc<"trash">) {
 	if (entry.kind === "skill") {
 		const id = ctx.db.normalizeId("skillInstalls", entry.itemId);

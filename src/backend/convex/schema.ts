@@ -328,7 +328,7 @@ export default defineSchema({
 				updatedAt: v.number(),
 			}),
 		),
-		/** Skills people made: in Trash (the `trash` table says who deleted it, and when). Agents don't see it. */
+		/** Skills: in Trash (the `trash` table says who deleted it, and when). Agents don't see it. */
 		archived: v.optional(v.boolean()),
 	}).index("by_workspace", ["workspaceId", "skillId"]),
 
@@ -570,7 +570,7 @@ export default defineSchema({
 				updatedAt: v.number(),
 			}),
 		),
-		/** Automations people made: in Trash (the `trash` table says who deleted it, and when). Nothing triggers it. */
+		/** Automations: in Trash (the `trash` table says who deleted it, and when). Nothing triggers it. */
 		archived: v.optional(v.boolean()),
 	})
 		.index("by_workspace", ["workspaceId", "automationId"])

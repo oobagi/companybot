@@ -364,8 +364,9 @@ function AutomationDetail({ automation: a, canManage }: { automation: Automation
 			meta={`${a.publisher} · v${a.version}`}
 			description={a.description}
 			installed={a.installed}
+			trash={a.trash}
 			canManage={canManage}
-			onToggle={() => confirm(`Remove "${a.name}"? It stops running and can't be installed again.`) && run(remove({ automationId: a.id }))}
+			onToggle={() => confirm(`Remove "${a.name}"? It stops running. You can restore it from Trash for 30 days.`) && run(remove({ automationId: a.id }))}
 		>
 			{error && <Notice>{error}</Notice>}
 			<Markdown className="text-sm leading-relaxed text-neutral-700">{a.details}</Markdown>
@@ -375,7 +376,7 @@ function AutomationDetail({ automation: a, canManage }: { automation: Automation
 					...(a.runsFor ? [["Runs for", a.runsFor] as [string, string]] : []),
 				]}
 			/>
-			{a.installed && <AutomationSettings automation={a} />}
+			{a.installed && !a.trash && <AutomationSettings automation={a} />}
 			<Section title="What the agent is asked" hint="Sent to the agent each run, as if the person it runs for asked it.">
 				<Markdown className="rounded-xl bg-neutral-50 px-4 py-3 text-sm leading-relaxed">{a.prompt}</Markdown>
 			</Section>

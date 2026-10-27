@@ -123,6 +123,7 @@ export function Detail(props: {
 	meta: string;
 	description: string;
 	installed: boolean;
+	trash?: React.ComponentProps<typeof TrashNotice>["trash"] | null;
 	canManage: boolean;
 	onToggle: () => void;
 	children: React.ReactNode;
@@ -132,8 +133,9 @@ export function Detail(props: {
 			title={props.title}
 			subtitle={props.meta}
 			crumbs={customizeCrumbs(props.tab)}
-			actions={<InstallButton installed={props.installed} canManage={props.canManage} onToggle={props.onToggle} />}
+			actions={!props.trash && <InstallButton installed={props.installed} canManage={props.canManage} onToggle={props.onToggle} />}
 		>
+			{props.trash && <TrashNotice trash={props.trash} />}
 			<p className="text-neutral-600">{props.description}</p>
 			{props.children}
 		</Page>

@@ -10,7 +10,7 @@ import {
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError } from "convex/values";
 import { legacySkills } from "./legacyCatalogs";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { Requested } from "./functions";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 
@@ -210,21 +210,19 @@ export async function asToolResult<Result>(fn: () => Promise<Result>): Promise<R
 	}
 }
 
-/** Skills this workspace uses: retained installs, then ones people made, oldest first. */
+/** A custom or retained skill's instructions, including while its row is in Trash. */
+export const skillOf = (install: Doc<"skillInstalls">): Skill | undefined => install.custom
+	? customSkill(install.skillId, install.custom, install.custom.version)
+	: install.definition ?? legacySkills.find((s) => s.id === install.skillId);
+
+/** Live retained skills, then custom skills, oldest first within each group. */
 export async function installedSkills(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<Skill[]> {
-	const installs = await ctx.db
-		.query("skillInstalls")
-		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-		.collect();
-	const stored = installs.filter((i) => !i.custom).flatMap((i) => {
-		const definition = i.definition ?? legacySkills.find((s) => s.id === i.skillId);
-		return definition ? [definition] : [];
+	const installs = (await ctx.db.query("skillInstalls").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect())
+		.filter((i) => !i.archived).sort((a, b) => a._creationTime - b._creationTime);
+	return [...installs.filter((i) => !i.custom), ...installs.filter((i) => i.custom)].flatMap((i) => {
+		const skill = skillOf(i);
+		return skill ? [skill] : [];
 	});
-	const custom = installs
-		.filter((i) => i.custom && !i.archived)
-		.sort((a, b) => a._creationTime - b._creationTime)
-		.map((i) => customSkill(i.skillId, i.custom!, i.custom!.version));
-	return [...stored, ...custom];
 }
 
 /** Someone's `preferences` row, if they've saved any. */

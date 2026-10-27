@@ -1,6 +1,6 @@
 import { legacySkills, legacyAutomations } from "../convex/legacyCatalogs";
 import { installedSkills } from "../convex/lib";
-import { scribe } from "./legacyFixtures";
+import { scribe, seedSkill, seedAutomation } from "./legacyFixtures";
 import migrationsTest from "@convex-dev/migrations/test";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -9,7 +9,7 @@ import schema, { audience } from "../convex/schema";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
-import { modules, signIn, generalOf } from "./helpers";
+import { modules, signIn, generalOf, setup, settle } from "./helpers";
 import "./connectorFixtures";
 
 afterEach(() => void vi.useRealTimers());
@@ -108,6 +108,28 @@ describe("migrations", () => {
 			expect(await t.run((ctx) => definitionOf(ctx, { ...install, audience: install.audience! }))).toEqual(snapshots.automations[1]);
 		} finally { legacySkills.push(...skills); legacyAutomations.push(...automations); }
 	});
+});
+
+it("snapshots trashed installs without reviving them or resetting their 30-day retention", async () => {
+	const { t, owner } = await setup();
+	migrationsTest.register(t);
+	await seedSkill(t, owner, "meeting-notes");
+	await seedAutomation(t, owner, "morning-brief");
+	await t.run(async (ctx) => { const workspaceId = (await ctx.db.query("skillInstalls").first())!.workspaceId; await ctx.db.insert("connectorInstalls", { workspaceId, connectorId: "night-owl", roles: ["owner"], installedBy: owner.userId }); });
+	await owner.mutation(api.skills.remove, { skillId: "meeting-notes" });
+	await owner.mutation(api.automations.remove, { automationId: "morning-brief" });
+	const before = await t.run((ctx) => ctx.db.query("trash").collect());
+	vi.useFakeTimers();
+	for (let n = 0; n < 2; n++) { await t.mutation(internal.migrations.runAll); await settle(t); }
+	expect(await t.run((ctx) => ctx.db.query("trash").collect())).toEqual(before);
+	expect(await t.run((ctx) => ctx.db.query("connectorInstalls").collect())).toEqual([]);
+	const rows = await t.run(async (ctx) => ({ skill: (await ctx.db.query("skillInstalls").first())!, automation: (await ctx.db.query("automationInstalls").first())! }));
+	expect(rows.skill).toMatchObject({ archived: true, definition: legacySkills[0] });
+	expect(rows.automation).toMatchObject({ archived: true, definition: legacyAutomations[0] });
+	expect(await t.run((ctx) => installedSkills(ctx, rows.skill.workspaceId))).toEqual([]);
+	for (const entry of before) await owner.mutation(api.trash.restore, { kind: entry.kind, id: entry.itemId });
+	expect((await owner.query(api.skills.list))[0]).toMatchObject({ trash: null, name: "Meeting notes" });
+	expect((await owner.query(api.automations.list))[0]).toMatchObject({ trash: null, subscribed: true });
 });
 
 describe("migrations: Companybot chat tools", () => {

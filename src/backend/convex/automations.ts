@@ -30,7 +30,7 @@ import {
 	requireMember,
 	saveMade,
 } from "./lib";
-import { canView, definitionOf, installOf, postingProblem, requireEditable, runsForLabel, subscribersOf, visibleInstalls, webhookUrl } from "./automationOps";
+import { automationName, canView, definitionOf, installOf, postingProblem, requireEditable, runsForLabel, subscribersOf, visibleInstalls, webhookUrl } from "./automationOps";
 import { forgetAutomationGrants } from "./permissions";
 import { startCascade } from "./cascade";
 import { audience, customTrigger } from "./schema";
@@ -84,7 +84,7 @@ export const list = query({
 					/** Set for automations someone made: what can be edited, and who last did. */
 					custom: install?.custom
 						? {
-								name: install.custom.name,
+								name: automationName(install),
 								prompt: install.custom.prompt,
 								trigger: install.custom.trigger,
 								version: install.custom.version,
@@ -239,13 +239,12 @@ export async function saveAutomation(ctx: MutationCtx, member: Member, { automat
 	});
 }
 
-/** Deletes an automation someone made (to Trash), or uninstalls a library one. */
+/** Moves any automation to Trash, retaining its opt-ins and grants for recovery. */
 export async function removeAutomation(ctx: MutationCtx, who: Who, automationId: string) {
 	const install = await installOf(ctx, who.member.workspaceId, automationId);
 	if (!install) return;
 	await requireEditable(ctx, automationId, who.member);
-	if (install.custom) await setAutomationTrashed(ctx, who, install._id, true);
-	else await removeInstall(ctx, install);
+	await setAutomationTrashed(ctx, who, install._id, true);
 }
 
 export const remove = mutation({
@@ -254,16 +253,17 @@ export const remove = mutation({
 });
 
 /**
- * Moves an automation someone made to Trash, or back: whoever can change it. In Trash nothing
+ * Moves an automation to Trash, or back: whoever can change it. In Trash nothing
  * triggers it (installOf skips it); its opt-ins and grants stay until it's deleted forever.
  */
 export async function setAutomationTrashed(ctx: MutationCtx, who: Who, installId: Id<"automationInstalls">, archived: boolean) {
 	const { member } = who;
 	const install = await ctx.db.get(installId);
-	if (!install?.custom || install.workspaceId !== member.workspaceId || !canView(member, install)) throw new ConvexError("Automation not found.");
-	if (!canEditMade(member, "automations.manage", install.installedBy)) throw new ConvexError(madeEditDenied);
+	if (!install || install.workspaceId !== member.workspaceId || !canView(member, install)) throw new ConvexError("Automation not found.");
+	if (!canEditMade(member, "automations.manage", install.custom ? install.installedBy : undefined))
+		throw new ConvexError(install.custom ? madeEditDenied : deniedMessage("automations.manage"));
 	if (!!install.archived === archived) return;
-	if (archived) await putInTrash(ctx, who, { kind: "automation", id: installId, name: install.custom.name });
+	if (archived) await putInTrash(ctx, who, { kind: "automation", id: installId, name: automationName(install) });
 	else await takeFromTrash(ctx, who, installId);
 	await ctx.db.patch(installId, { archived });
 }

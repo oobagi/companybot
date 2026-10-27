@@ -89,7 +89,13 @@ describe("customize", () => {
 			await expect(member.mutation(api.skills.remove, { skillId: "meeting-notes" })).rejects.toThrow("permission");
 			await owner.mutation(api.skills.remove, { skillId: "meeting-notes" });
 			await owner.mutation(api.skills.remove, { skillId: "meeting-notes" });
-			expect((await owner.query(api.skills.list)).find((s) => s.id === "meeting-notes")).toBeUndefined();
+			const retained = (await owner.query(api.skills.list)).find((s) => s.id === "meeting-notes")!;
+			expect(retained.trash).toMatchObject({ kind: "skill", canRestore: true });
+			expect(await t.run((ctx) => installedSkills(ctx, workspaceId))).toEqual([]);
+			await owner.mutation(api.trash.restore, { kind: "skill", id: retained.trash!.itemId });
+			expect((await t.run((ctx) => installedSkills(ctx, workspaceId))).map((s) => s.id)).toEqual(["meeting-notes"]);
+			await owner.mutation(api.skills.remove, { skillId: "meeting-notes" });
+			await owner.mutation(api.trash.purge, { id: retained.trash!.itemId });
 			expect(await t.run((ctx) => ctx.db.query("skillInstalls").collect())).toHaveLength(0);
 		});
 

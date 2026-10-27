@@ -1,4 +1,4 @@
-import { seedLegacyRecords } from "./legacyFixtures";
+import { seedLegacyRecords, scribe } from "./legacyFixtures";
 import migrationsTest from "@convex-dev/migrations/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, components, internal } from "../convex/_generated/api";
@@ -390,8 +390,7 @@ describe("trash migration", () => {
 			const type = await ctx.db.insert("recordTypes", { workspaceId, key: "job", name: "Job", plural: "Jobs", archived: true, createdBy: userId, updatedAt: now });
 			const field = await ctx.db.insert("recordFields", { workspaceId, typeId, key: "roof", label: "Roof", kind: "text", position: 9, archived: true, createdBy: userId, updatedAt: now });
 			const page = await ctx.db.insert("pages", { workspaceId, title: "Old SOP", archived: true, createdBy: userId, updatedAt: now, updatedBy: userId });
-			const agent = (await ctx.db.query("agents").collect()).find((a) => a.name === "Scribe")!._id;
-			await ctx.db.patch(agent, { archived: true });
+			const agent = await ctx.db.insert("agents", { ...scribe, workspaceId, archived: true, version: 1, updatedAt: now, updatedBy: userId });
 			return [record, type, field, page, agent] as string[];
 		});
 		vi.useFakeTimers();

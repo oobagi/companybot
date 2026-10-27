@@ -136,7 +136,7 @@ export const companybotParity2Tools = grantCompanybot(["agents.manage"]);
 // Archiving agents became Delete (Trash): agents archived before go to Trash the same way.
 export const trashAgents = archivedToTrash("agents", (a) => ({ kind: "agent", name: a.name, deletedBy: a.updatedBy }));
 
-/** Existing installs keep their exact instructions, schedule, webhook contract and provenance. */
+/** Snapshot live and trashed installs alike, without changing their Trash state or retention. */
 export const storedSkills = migrations.define({
 	table: "skillInstalls", batchSize: 8,
 	migrateOne: async (ctx, install) => {
@@ -180,7 +180,6 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.companybotParity2Tools,
 	internal.migrations.companybotSkillEdit,
 	internal.migrations.trashAgents,
-
 	internal.migrations.storedSkills,
 	internal.migrations.storedAutomations,
 	internal.migrations.retireNightOwl,

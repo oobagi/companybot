@@ -66,7 +66,7 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 - `AgentConfig` is the editable shape (`core/src/agent-config.ts`). Stored per workspace, versioned on every save. `validateAgentConfig` runs on save; add checks there.
 - The runner reads the agent fresh each turn. Anything that changes how a reply runs belongs in `turns.turnContext` + `agent.ts`; what the model is fed belongs in `core/src/turn-input.ts`.
 
-- Agent management shares `createAgent`, `updateAgent` and `setAgentTrashed` with the app (delete goes to Trash, like every other delete tool: `skills.remove` and `automations.remove` trash what people made), so both accept the same models (`allowedModels`). Tool-free creation cannot expand grants; schemas omit tools/reactivation and the backend refuses edits to the acting agent's own instructions/model. `agents_manage` lists models with `models` (search, 50 at a time), not inside `get`: the catalog runs to hundreds.
+- Agent management shares `createAgent`, `updateAgent` and `setAgentTrashed` with the app (delete goes to Trash, like every other delete tool: `skills.remove` and `automations.remove` trash custom and retained library installs), so both accept the same models (`allowedModels`). Tool-free creation cannot expand grants; schemas omit tools/reactivation and the backend refuses edits to the acting agent's own instructions/model. `agents_manage` lists models with `models` (search, 50 at a time), not inside `get`: the catalog runs to hundreds.
 
 ## The app and `core`
 - The app imports only dependency-free modules from core, by deep path: `@companybot/core/permissions`, `@companybot/core/agent-config`. Importing the barrel would bundle the agent runtime (`ai`, zod) into the renderer. To expose another module, add it to `exports` in `core/package.json`.
@@ -74,7 +74,7 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 ## Things people make
 - Skills and automations share `canEditMade(who, managePermission, createdBy)` and one denial message. Pass no creator for library installs. Skills store the maker in `custom.createdBy`; automations use `installedBy`.
 - Trim configs only in core (`normalizeCustomSkill` / `normalizeCustomAutomation`). Backend `madeCustom` adds creation metadata; `saveMade` checks the version, validates, then patches the next version and editor metadata. Agent creation uses `asToolResult` for expected errors.
-- Delete custom items or uninstall library ones with `skills.remove` / `automations.remove`. The old `setInstalled` endpoints only acknowledge existing installs or explain that the library has retired (COMPAT).
+- Move custom and retained library installs to Trash with `skills.remove` / `automations.remove`. The old `setInstalled` endpoints only acknowledge existing installs or explain that the library has retired (COMPAT).
 - `ToolContext.skills` holds the installed `list` and `create`, like the automations store.
 
 ## Databases and records — `core/src/records.ts`, `backend/convex/recordOps.ts`
