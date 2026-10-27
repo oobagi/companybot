@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CUSTOM_NAME_MAX, CUSTOM_PROMPT_MAX } from "./automations";
 import { SKILL_DESCRIPTION_MAX, SKILL_INSTRUCTIONS_MAX, SKILL_NAME_MAX } from "./skills";
 import { defineTool, type ToolDef } from "./tools";
 
@@ -63,7 +64,7 @@ export const manageInputs = {
 				action: z.literal("edit"),
 				id,
 				expectedVersion: version,
-				config: z.object({ name: z.string(), prompt: z.string().max(20_000), trigger }),
+				config: z.object({ name: z.string().max(CUSTOM_NAME_MAX), prompt: z.string().max(CUSTOM_PROMPT_MAX), trigger }),
 			}),
 			z.strictObject({ action: z.literal("pause"), id }),
 			z.strictObject({ action: z.literal("resume"), id }),
