@@ -3,7 +3,7 @@ export type UpdateStatus =
 	| { state: "current"; checkedAt: number }
 	| { state: "downloading"; version: string; percent: number }
 	| { state: "ready"; version: string }
-	| { state: "error"; message: string };
+	| { state: "error" };
 
 /** What the desktop shell exposes to the app as `window.companybot`. Absent in the web preview. */
 export interface DesktopBridge {

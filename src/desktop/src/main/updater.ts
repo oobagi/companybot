@@ -22,8 +22,16 @@ async function check() {
 	try {
 		await autoUpdater.checkForUpdates();
 	} catch (e) {
-		setStatus({ state: "error", message: e instanceof Error ? e.message : String(e) });
+		failed(e instanceof Error ? e : new Error(String(e)));
 	}
+}
+
+// A release's tag is public a few minutes before CI uploads its files, so its
+// latest-mac.yml 404s until then: nothing to install yet, not an error.
+function failed(e: Error) {
+	console.error("Update check failed:", e);
+	if (/latest-mac\.yml[\s\S]*\b404\b/.test(e.message)) return setStatus({ state: "current", checkedAt: Date.now() });
+	setStatus({ state: "error" });
 }
 
 export function setUpUpdater() {
@@ -37,7 +45,7 @@ export function setUpUpdater() {
 		setStatus({ state: "downloading", version: status.state === "downloading" ? status.version : "", percent: p.percent }),
 	);
 	autoUpdater.on("update-downloaded", (info) => setStatus({ state: "ready", version: info.version }));
-	autoUpdater.on("error", (e) => setStatus({ state: "error", message: e.message }));
+	autoUpdater.on("error", failed);
 
 	ipcMain.handle("app:version", () => app.getVersion());
 	ipcMain.handle("updates:status", () => status);
