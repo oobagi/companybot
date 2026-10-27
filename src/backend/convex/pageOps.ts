@@ -1,4 +1,5 @@
 import { BlockNoteEditor } from "@blocknote/core";
+import { pageHref } from "@companybot/core/page-links";
 import { ProsemirrorSync } from "@convex-dev/prosemirror-sync";
 import type { Node, Schema } from "@tiptap/pm/model";
 import { Transform } from "@tiptap/pm/transform";
@@ -94,10 +95,24 @@ export async function createPage(ctx: MutationCtx, { member }: Who, to: { title:
 	return pageId;
 }
 
-export async function renamePage(ctx: MutationCtx, { member }: Who, page: Doc<"pages">, title: string) {
-	await requireEditable(ctx, member, page);
+export async function renamePage(ctx: MutationCtx, who: Who, page: Doc<"pages">, title: string) {
+	await requireEditable(ctx, who.member, page);
 	if (page.recordId) throw new ConvexError("A record's page takes the record's name. Rename the record instead.");
-	await ctx.db.patch(page._id, { title: cleanTitle(title), updatedAt: Date.now(), updatedBy: member.userId });
+	const clean = cleanTitle(title);
+	await ctx.db.patch(page._id, { title: clean, updatedAt: Date.now(), updatedBy: who.member.userId });
+	// Page links are plain link marks whose text is the title when inserted (alpha.7 can't render live titles),
+	// so keep the parent's links in step, as an edit by whoever renamed. Reworded links and other pages' links stay.
+	const parent = page.parentId && clean !== page.title && (await ctx.db.get(page.parentId));
+	if (parent) await writeDoc(ctx, who, parent, (doc) => relabelLinks(doc, pageHref(page._id), page.title, clean));
+}
+
+function relabelLinks(doc: Node, href: string, from: string, to: string) {
+	const tr = new Transform(doc);
+	doc.descendants((node, pos) => {
+		if (node.text === from && node.marks.some((m) => m.type.name === "link" && m.attrs.href === href))
+			tr.replaceWith(tr.mapping.map(pos), tr.mapping.map(pos + node.nodeSize), doc.type.schema.text(to, node.marks));
+	});
+	return tr;
 }
 
 /** Moves a standalone page to Trash or back. A record's page goes with its record. */

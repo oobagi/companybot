@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, components, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { PAGE_DEPTH_MAX } from "../convex/pageTree";
-import { readDoc, writeBlocks } from "../convex/pageOps";
+import { IDLE_MS, readDoc, writeBlocks } from "../convex/pageOps";
 import { memberOf } from "../convex/lib";
 import { TRASH_MS } from "../convex/trashOps";
 import { agentTurn, agentsOf, generalOf, settle, setup, signIn } from "./helpers";
@@ -64,6 +64,7 @@ describe("nested pages", () => {
 		const foreign = await other.mutation(api.pages.create, { title: "Foreign" });
 		expect(await owner.query(api.pages.liveIds, { ids: [root, child, foreign, "invalid"] })).toEqual([root, child]);
 		await expect(owner.query(api.pages.liveIds, { ids: Array(101).fill(root) })).rejects.toThrow("100");
+		expect(await t.query(api.pages.liveIds, { ids: [root] })).toBeNull();
 		await owner.mutation(api.trash.move, { kind: "page", id: root });
 		expect(await owner.query(api.pages.liveIds, { ids: [root, child] })).toEqual([]);
 		await owner.mutation(api.trash.purge, { id: root });
@@ -224,9 +225,31 @@ describe("nested pages", () => {
 		expect(doc).toContain(`companybot://page/${child}`);
 		expect(await t.action(internal.pageMarkdown.toMarkdown, { doc: doc! })).toContain(`[Guide](companybot://page/${child})`);
 		await owner.mutation(api.pages.rename, { pageId: child, title: "Renamed" });
-		expect(await t.run(async (ctx) => (await readDoc(ctx, root)).textContent)).toBe("Guide");
+		expect(await t.run(async (ctx) => (await readDoc(ctx, root)).textContent)).toBe("Renamed");
 		await t.mutation(internal.pageTools.writeFor, { turnId, input: { page: root, blocks: "[]", mode: "replace" } });
 		expect(await owner.query(api.pages.get, { pageId: child })).toMatchObject({ parentId: root, archived: false });
 		expect(await t.run(async (ctx) => (await readDoc(ctx, root)).textContent)).toBe("");
+	});
+
+	it("relabels the parent's links to a renamed child, as the renamer, unless they were reworded", async () => {
+		const { t, owner, member } = await setup();
+		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
+		const child = await owner.mutation(api.pages.create, { title: "Untitled", parentId: root });
+		const link = (text: string) => ({ type: "text", text, marks: [{ type: "link", attrs: { href: `companybot://page/${child}` } }] });
+		const block = (id: string, content: object[]) => ({ type: "blockContainer", attrs: { id }, content: [{ type: "paragraph", content }] });
+		await t.run(async (ctx) => {
+			const page = (await ctx.db.get(root))!;
+			await writeBlocks(ctx, { member: (await memberOf(ctx, owner.userId, page.workspaceId))! }, page, JSON.stringify([block("a", [link("Untitled")]), block("b", [{ type: "text", text: "See " }, link("the guide")]), block("c", [{ type: "text", text: "Untitled" }])]), "replace");
+		});
+		vi.advanceTimersByTime(IDLE_MS + 1);
+		await member.mutation(api.pages.rename, { pageId: child, title: "Roof SOP" });
+		const blocks = await t.run(async (ctx) => (await readDoc(ctx, root)).firstChild!.content.content.map((b) => b.textContent));
+		expect(blocks.slice(0, 3)).toEqual(["Roof SOP", "See the guide", "Untitled"]);
+		const [latest, first] = (await owner.query(api.pages.history, { pageId: root, ...opts })).page;
+		expect(latest!.user).not.toEqual(first!.user);
+		// Renaming the parent, or to the same title, leaves the parent's content alone.
+		await member.mutation(api.pages.rename, { pageId: root, title: "Handbook" });
+		await member.mutation(api.pages.rename, { pageId: child, title: "Roof SOP" });
+		expect((await owner.query(api.pages.history, { pageId: root, ...opts })).page).toHaveLength(2);
 	});
 });

@@ -114,7 +114,8 @@ export const liveIds = query({
 	handler: async (ctx, { ids }) => {
 		if (ids.length > 100) throw new ConvexError("Check at most 100 saved page ids at once.");
 		const member = await getMember(ctx);
-		if (!member) return [];
+		// Unknown isn't deleted: signed out (or not yet), keep the saved ids.
+		if (!member) return null;
 		const state = pageStates(ctx);
 		const live = [];
 		for (const value of ids) {
