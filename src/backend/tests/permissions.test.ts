@@ -388,7 +388,7 @@ describe("permissions", () => {
 		const { t, owner, member, companybot } = await setup();
 		const chatId = (await generalOf(member))._id;
 		const config = { name: "Channel inbound", prompt: "Handle input.", trigger: { type: "event" as const, event: "message.posted" as const, channelId: chatId } };
-		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "channel", channelId: chatId, timeZone: "UTC" });
+		await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "channel", channelId: chatId, timeZone: "UTC" });
 		await member.mutation(api.messages.send, { chatId, text: "Incoming", mentions: { userIds: [], agentIds: [] } });
 		await cancelScheduled(t);
 		const run = (await turnsOf(t)).at(-1)!;

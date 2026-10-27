@@ -403,8 +403,7 @@ export default defineSchema({
 		emoji: v.string(),
 		userId: v.optional(v.id("users")),
 		agentId: v.optional(v.id("agents")),
-	}).index("by_message", ["messageId", "emoji"])
-		.index("by_actor", ["messageId", "emoji", "userId", "agentId"]),
+	}).index("by_message", ["messageId", "emoji", "userId", "agentId"]),
 
 	// A person @mentioned in a main-timeline message, so unread mentions are found by index
 	// however much else was said since. `at`: the message's _creationTime. Gone when it's deleted.

@@ -1,7 +1,7 @@
 import type { AllowedHow } from "./action-rules";
 
 /** "Always allowed by Ada, Oct 25", "Allowed by Ada for Morning brief, Oct 25", "Approved by Ada, Oct 25". */
-export function describeAllowed({ how, by, at, automation }: AllowedHow, name: string, timeZone?: string) {
+export function describeAllowed({ how, at, automation }: AllowedHow, name: string, timeZone?: string) {
 	const date = new Date(at).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone });
 	if (how === "always") return `Always allowed by ${name}, ${date}`;
 	if (how === "automation") return `Allowed by ${name} for ${automation ?? "an automation"}, ${date}`;

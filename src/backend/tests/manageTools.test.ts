@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ManageTool } from "@companybot/core";
 import { api, internal } from "../convex/_generated/api";
-import { agentTurn, agentsOf, generalOf, noMentions, setup, sideWorkspace, turnsOf, workspaceOf } from "./helpers";
+import { agentTurn, agentsOf, generalOf, noMentions, setup, sideWorkspace } from "./helpers";
 import type { Id } from "../convex/_generated/dataModel";
 
 afterEach(() => vi.useRealTimers());
@@ -206,7 +206,7 @@ describe("skills, members and settings", () => {
 	});
 
 	it("invites only members, respects email rate limits, cancels/resends and removes members with immediate revocation", async () => {
-		const { t, call, owner, member, memberTurn } = await ready();
+		const { t, call, owner, memberTurn } = await ready();
 		expect(await call("members.invite", { action: "invite", email: "next@co.com" })).toMatchObject({ emailed: true });
 		const invite = (await owner.query(api.workspace.team))!.invites[0]!;
 		expect(invite.role).toBe("member");

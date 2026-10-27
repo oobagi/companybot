@@ -273,7 +273,7 @@ export async function toggleReaction(
 	who: { userId: Id<"users"> } | { agentId: Id<"agents"> },
 ) {
 	const existing = await ctx.db.query("reactions")
-		.withIndex("by_actor", (q) => q.eq("messageId", message._id).eq("emoji", emoji)
+		.withIndex("by_message", (q) => q.eq("messageId", message._id).eq("emoji", emoji)
 			.eq("userId", "userId" in who ? who.userId : undefined).eq("agentId", "agentId" in who ? who.agentId : undefined))
 		.first();
 	if (existing) {

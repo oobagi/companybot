@@ -33,7 +33,6 @@ import {
 	randomHex,
 	requireAgent,
 	requireMember,
-	requirePermission,
 	saveMade,
 } from "./lib";
 import { canView, definitionOf, installOf, postingProblem, requireEditable, runsForLabel, subscribersOf, visibleInstalls, webhookUrl } from "./automationOps";

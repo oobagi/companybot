@@ -33,7 +33,7 @@ describe("workspaces", () => {
 	});
 
 	async function removeAndRejoin(t: Awaited<ReturnType<typeof ownerAndMember>>) {
-		const { owner, member } = t;
+		const { owner } = t;
 		const row = (await owner.query(api.workspace.team))!.members.find((m) => !m.isYou)!;
 		await owner.mutation(api.workspace.removeMember, { id: row.id });
 		await expect(acceptInvite(t)).rejects.toThrow("still being cleaned up");
