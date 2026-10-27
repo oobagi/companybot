@@ -7,8 +7,10 @@ import { useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { navigate } from "../router";
+import { customizeCrumbs } from "./customize/shared";
 import { ModelPicker } from "./ModelPicker";
 import {
+	type Crumb,
 	ConflictNotice,
 	Field,
 	Loading,
@@ -17,7 +19,7 @@ import {
 	SaveBar,
 	Section,
 	inputClass,
-	secondaryButton,
+	primaryButton,
 	timeAgo,
 	useRun,
 	useDraft,
@@ -46,7 +48,7 @@ export function AgentsTab({ role }: { role: Role }) {
 				{isOwner && (
 					<button
 						type="button"
-						className={secondaryButton}
+						className={`${primaryButton} shrink-0`}
 						onClick={() => run(create().then(open))}
 					>
 						New agent
@@ -88,10 +90,10 @@ function AgentRow({ agent, onOpen }: { agent: Agent; onOpen: () => void }) {
 /** One agent's own screen, pushed over the agents list. */
 export function AgentScreen({ role, agentId }: { role: Role; agentId: Id<"agents"> }) {
 	const agent = useQuery(api.agents.list)?.find((a) => a._id === agentId);
-	const back = { label: "Agents", to: ["customize", "agents"] };
+	const back = customizeCrumbs("agents");
 	if (!agent) {
 		return (
-			<Page title="" back={back}>
+			<Page title="" crumbs={back}>
 				<Loading />
 			</Page>
 		);
@@ -99,7 +101,7 @@ export function AgentScreen({ role, agentId }: { role: Role; agentId: Id<"agents
 	return <AgentEditor key={agent._id} agent={agent} isOwner={can(role, "agents.manage")} back={back} />;
 }
 
-function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean; back: { label: string; to: string[] } }) {
+function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean; back: Crumb[] }) {
 	const options = useQuery(api.agents.options);
 	const update = useMutation(api.agents.update);
 	const setArchived = useMutation(api.agents.setArchived);
@@ -111,7 +113,7 @@ function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean;
 
 	if (!options) {
 		return (
-			<Page title={agent.name} back={back}>
+			<Page title={agent.name} crumbs={back}>
 				<Loading />
 			</Page>
 		);
@@ -121,7 +123,7 @@ function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean;
 		<Page
 			title={agent.name}
 			subtitle={`v${agent.version} · edited by ${agent.updatedByName} ${timeAgo(agent.updatedAt)}`}
-			back={back}
+			crumbs={back}
 			actions={
 				isOwner && (
 					<button

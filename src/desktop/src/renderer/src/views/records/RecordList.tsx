@@ -5,7 +5,8 @@ import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { ConflictNotice, ErrorBoundary, Field, LoadMore, Loading, Notice, Page, Tabs, compactControlClass, dangerButton, descriptionClass, inputClass, primaryButton, secondaryButton, timeAgo, useDraft, useRun } from "../../ui";
+import { ArrowDownIcon, ArrowUpIcon, CloseIcon, EditIcon, MoreIcon, PlusIcon } from "../../icons";
+import { ConflictNotice, ErrorBoundary, Field, LoadMore, Loading, Notice, Page, Tabs, barButton, barPrimaryButton, compactControlClass, dangerButton, descriptionClass, inputClass, primaryButton, secondaryButton, timeAgo, useDraft, useRun } from "../../ui";
 import { Modal, useDismiss } from "../chat/common";
 import { DatabaseDialog } from "./DatabaseDialog";
 import { type RecordType, type Row, useRefs } from "./data";
@@ -74,36 +75,36 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 	const sortField = sort && fields.find((f) => f.key === sort.field);
 	const args = { typeId: type._id, filters: conditions, sort };
 	const noun = type.plural.toLowerCase();
-	const tabClass = "px-3 py-2 text-sm text-neutral-500 hover:text-neutral-800";
+	const tabClass = "flex items-center px-3 py-2 text-base text-neutral-500 hover:text-neutral-800";
 
 	return (
 		<Page
 			wide
 			title={type.plural}
 			actions={
-				<div className="flex items-center gap-2">
+				<>
 					{can(role, "fields.manage") && (
-						<button type="button" className={secondaryButton} onClick={() => setEditingDatabase(true)}>
-							Edit database
+						<button type="button" className={barButton} onClick={() => setEditingDatabase(true)}>
+							<EditIcon /> Edit database
 						</button>
 					)}
 					{canEdit && (
-						<button type="button" className={primaryButton} onClick={() => setCreating(true)}>
-							+ New
+						<button type="button" className={barPrimaryButton} onClick={() => setCreating(true)}>
+							<PlusIcon /> New {type.name.toLowerCase()}
 						</button>
 					)}
-				</div>
+				</>
 			}
 		>
 			<Tabs tabs={[{ id: "all", label: "All" }, ...(views ?? []).map((v) => ({ id: v._id as string, label: v.name }))]} value={selected ? viewId : "all"} onChange={open}>
 				{canEdit && selected && (
 					<button type="button" title="Rename or delete this view" className={tabClass} onClick={() => setNaming("edit")}>
-						⋯
+						<MoreIcon />
 					</button>
 				)}
 				{canEdit && (
 					<button type="button" title="Save these filters as a view" className={tabClass} onClick={() => setNaming("new")}>
-						+
+						<PlusIcon />
 					</button>
 				)}
 				{canEdit && selected && draft.dirty && (
@@ -258,9 +259,9 @@ function Table({
 		return (
 			<th key={key} className="px-3 py-2 text-left font-medium whitespace-nowrap">
 				{canSort ? (
-					<button type="button" onClick={() => onSort(next())} className={on ? "text-neutral-900" : "hover:text-neutral-900"}>
+					<button type="button" onClick={() => onSort(next())} className={`flex items-center gap-1 ${on ? "text-neutral-900" : "hover:text-neutral-900"}`}>
 						{label}
-						{on && (sort.order === "asc" ? " ↑" : " ↓")}
+						{on && (sort.order === "asc" ? <ArrowUpIcon /> : <ArrowDownIcon />)}
 					</button>
 				) : (
 					label
@@ -366,8 +367,8 @@ function FilterRow({
 				))}
 			</select>
 			{needsValue(filter.op) && <FilterValue field={field} filter={filter} onChange={(value) => onChange({ ...filter, value })} />}
-			<button type="button" onClick={onRemove} className="text-neutral-400 hover:text-neutral-700" aria-label="Remove filter">
-				×
+			<button type="button" onClick={onRemove} className="text-neutral-400 hover:text-neutral-700" title="Remove filter" aria-label="Remove filter">
+				<CloseIcon />
 			</button>
 		</div>
 	);

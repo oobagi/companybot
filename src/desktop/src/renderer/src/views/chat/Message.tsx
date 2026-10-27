@@ -7,7 +7,8 @@ import { Notice, timeAgo } from "../../ui";
 import { WidgetView } from "../../widgets";
 import { CallDetails } from "../Activity";
 import { ApprovalMessages } from "./Approval";
-import { AgentBadge, Avatar, AvatarStack, EmojiPicker, clock, useDismiss } from "./common";
+import { AutomationIcon, EditIcon, ReactIcon, ReplyIcon, TrashIcon } from "../../icons";
+import { AgentBadge, Avatar, AvatarStack, EmojiPicker, Popover, clock, useDismiss } from "./common";
 import type { Message } from "./data";
 import { ProfileLink } from "./Profile";
 
@@ -64,7 +65,9 @@ export function MessageRow({
 							</ProfileLink>
 							{isAgent && <AgentBadge />}
 							{message.automation && (
-								<span className="rounded bg-amber-50 px-1.5 text-xs text-amber-800">⚡ {message.automation.name}</span>
+								<span className="flex items-center gap-1 self-center rounded bg-amber-50 px-1.5 text-xs text-amber-800">
+									<AutomationIcon /> {message.automation.name}
+								</span>
 							)}
 							<span className="text-xs text-neutral-400 tabular-nums">{clock(message._creationTime)}</span>
 						</div>
@@ -123,23 +126,23 @@ export function MessageRow({
 						}`}
 					>
 						<Action label="Add reaction" onClick={() => setPicker(!picker)}>
-							☺
+							<ReactIcon />
 						</Action>
 						{onOpenThread && (
 							<Action label="Reply in thread" onClick={onOpenThread}>
-								↩
+								<ReplyIcon />
 							</Action>
 						)}
 						{message.mine && !isAgent && (
 							<>
 								<Action label="Edit" onClick={() => setEditing(true)}>
-									✎
+									<EditIcon />
 								</Action>
 								<Action
 									label="Delete"
 									onClick={() => confirm("Delete this message?") && remove({ messageId: message._id }).catch(onError)}
 								>
-									🗑
+									<TrashIcon />
 								</Action>
 							</>
 						)}
@@ -160,7 +163,7 @@ function Action({ label, onClick, children }: { label: string; onClick: () => vo
 			title={label}
 			aria-label={label}
 			onClick={onClick}
-			className="flex size-7 items-center justify-center rounded-md text-sm text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
+			className="flex size-7 items-center justify-center rounded-md text-base text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
 		>
 			{children}
 		</button>
@@ -246,30 +249,30 @@ type ToolPart = Extract<Message["parts"][number], { type: "tool" }>;
 
 /** "Sent SMS with Fake CRM"; click to see what went in and came out (from the activity log). */
 function ToolPart({ replyId, part }: { replyId: Message["_id"]; part: ToolPart }) {
-	const [open, setOpen] = useState(false);
-	const calls = useQuery(api.activity.forReply, open ? { replyId } : "skip");
-	const call = calls?.find((c) => c.callId === part.id);
 	// Replies from before tool lines had labels: make one from the name.
 	const label = toolLine(part.label ?? (part.name === "connectors_search" ? "Look up connected actions" : actionLabel(part.name)), part.status);
+	if (part.status === "running") return <p className="text-xs text-neutral-400">{label}</p>;
 	return (
-		<div className="flex flex-col gap-1.5">
-			<button
-				type="button"
-				disabled={part.status === "running"}
-				onClick={() => setOpen(!open)}
-				className="self-start text-xs text-neutral-400 enabled:hover:text-neutral-600"
-			>
-				{label}
-			</button>
-			{open && calls && (call ? <CallDetails entry={call} /> : <p className="text-xs text-neutral-400">No details saved.</p>)}
-		</div>
+		<span>
+			<Popover trigger={label} className="text-xs text-neutral-400 hover:text-neutral-600" panelClassName="w-[32rem] p-3">
+				<CallPanel replyId={replyId} callId={part.id} />
+			</Popover>
+		</span>
 	);
+}
+
+/** Loaded only when opened. */
+function CallPanel({ replyId, callId }: { replyId: Message["_id"]; callId: string }) {
+	const calls = useQuery(api.activity.forReply, { replyId });
+	if (!calls) return <p className="text-xs text-neutral-400">Loading…</p>;
+	const call = calls.find((c) => c.callId === callId);
+	return call ? <CallDetails entry={call} /> : <p className="text-xs text-neutral-400">No details saved.</p>;
 }
 
 type Stats = NonNullable<Message["stats"]>;
 
+/** The line under a reply (model, time, cost); click for the full breakdown. */
 function ReplyDetails({ stats }: { stats: Stats }) {
-	const [open, setOpen] = useState(false);
 	const rows: [string, string][] = [
 		["Model", stats.model],
 		["Time", `${seconds(stats.durationMs)}${stats.firstTokenMs !== undefined ? `, first words after ${seconds(stats.firstTokenMs)}` : ""}`],
@@ -281,22 +284,22 @@ function ReplyDetails({ stats }: { stats: Stats }) {
 		["Here so far", usd(stats.conversationCostUsd)],
 	];
 	return (
-		<div className="flex flex-col gap-1.5 text-xs text-neutral-400">
-			<button type="button" onClick={() => setOpen(!open)} className="self-start tabular-nums hover:text-neutral-600">
-				{shortModel(stats.model)} · {seconds(stats.durationMs)} · {tokens(stats.contextTokens)} context · {usd(stats.costUsd)} ·{" "}
-				{usd(stats.conversationCostUsd)} total
-			</button>
-			{open && (
-				<dl className="grid w-fit grid-cols-[auto_auto] gap-x-4 gap-y-0.5 tabular-nums">
+		<span>
+			<Popover
+				trigger={`${shortModel(stats.model)} · ${seconds(stats.durationMs)} · ${tokens(stats.contextTokens)} context · ${usd(stats.costUsd)} · ${usd(stats.conversationCostUsd)} total`}
+				className="text-xs text-neutral-400 tabular-nums hover:text-neutral-600"
+				panelClassName="w-80 p-3"
+			>
+				<dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs tabular-nums">
 					{rows.map(([label, value]) => (
 						<Fragment key={label}>
-							<dt>{label}</dt>
-							<dd className="text-neutral-600">{value}</dd>
+							<dt className="text-neutral-500">{label}</dt>
+							<dd className="break-words">{value}</dd>
 						</Fragment>
 					))}
 				</dl>
-			)}
-		</div>
+			</Popover>
+		</span>
 	);
 }
 

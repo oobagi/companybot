@@ -1,6 +1,7 @@
 import { Fragment } from "react";
 import { navigate } from "../../router";
-import { ConflictNotice, Loading, Notice, Page, SaveBar, Section, descriptionClass, disabledButtonClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
+import { TrashIcon } from "../../icons";
+import { type Crumb, ConflictNotice, Loading, Notice, Page, SaveBar, Section, barDangerButton, descriptionClass, disabledButtonClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
 
 export const customizeTabs = [
 	{ id: "agents", label: "Agents" },
@@ -14,6 +15,12 @@ export type CustomizeTab = (typeof customizeTabs)[number]["id"];
 type MadeTab = "skills" | "automations";
 
 const tabLabel = (tab: CustomizeTab) => customizeTabs.find((t) => t.id === tab)!.label;
+
+/** The top bar's trail for an item's own screen: Customize › Skills. */
+export const customizeCrumbs = (tab: CustomizeTab): Crumb[] => [
+	{ label: "Customize", to: ["customize"] },
+	{ label: tabLabel(tab), to: ["customize", tab] },
+];
 
 /** The shared library layout; screens keep their own cards and install behavior. */
 export function LibraryList<T extends { custom: unknown }>({
@@ -123,10 +130,10 @@ export function Detail(props: {
 		<Page
 			title={props.title}
 			subtitle={props.meta}
-			back={{ label: tabLabel(props.tab), to: ["customize", props.tab] }}
+			crumbs={customizeCrumbs(props.tab)}
 			actions={<InstallButton installed={props.installed} canManage={props.canManage} onToggle={props.onToggle} />}
 		>
-			<p className="-mt-3 text-neutral-600">{props.description}</p>
+			<p className="text-neutral-600">{props.description}</p>
 			{props.children}
 		</Page>
 	);
@@ -148,7 +155,7 @@ export function NewItem({
 	children: React.ReactNode;
 }) {
 	return (
-		<Page title={`New ${noun}`} back={{ label: tabLabel(tab), to: ["customize", tab] }}>
+		<Page title={`New ${noun}`} crumbs={customizeCrumbs(tab)}>
 			{error && <Notice>{error}</Notice>}
 			<div className="flex flex-col gap-5">
 				{children}
@@ -199,15 +206,15 @@ export function MadeItemDetail<T>({
 		<Page
 			title={name}
 			subtitle={`Made by ${createdByName ?? "your team"} · v${custom.version} · edited by ${custom.updatedByName} ${timeAgo(custom.updatedAt)}`}
-			back={{ label: tabLabel(tab), to: ["customize", tab] }}
+			crumbs={customizeCrumbs(tab)}
 			actions={
 				canEdit && (
 					<button
 						type="button"
-						className={`${descriptionClass} hover:text-neutral-900`}
+						className={barDangerButton}
 						onClick={() => confirm(`Delete "${name}"? ${deleteWarning}`) && run(onDelete(), () => navigate("customize", tab))}
 					>
-						Delete
+						<TrashIcon /> Delete
 					</button>
 				)
 			}
@@ -227,7 +234,7 @@ export function MadeItemDetail<T>({
 /** Loading while `loaded` is false; after that, the item is gone (deleted, or a stale link). */
 export function Missing({ tab, loaded }: { tab: CustomizeTab; loaded: boolean }) {
 	return (
-		<Page title={loaded ? "Not found" : ""} back={{ label: tabLabel(tab), to: ["customize", tab] }}>
+		<Page title={loaded ? "Not found" : ""} crumbs={customizeCrumbs(tab)}>
 			{loaded ? <p className={descriptionClass}>It may have been deleted.</p> : <Loading />}
 		</Page>
 	);

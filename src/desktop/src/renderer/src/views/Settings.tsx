@@ -14,7 +14,10 @@ import {
 	Page,
 	SaveBar,
 	Section,
+	Setting,
+	Settings,
 	Tabs,
+	compactControlClass,
 	dangerButton,
 	descriptionClass,
 	disabledButtonClass,
@@ -84,28 +87,24 @@ function AppVersion() {
 	const { version, status } = useUpdates();
 	if (!desktop) return null;
 	return (
-		<Section title="App">
-			<div className="flex items-center gap-3 rounded-xl border border-neutral-200 px-4 py-3 text-sm">
-				<span className="flex-1">
-					Companybot {version}
-					{status && <span className="block text-neutral-500">{describeUpdate(status)}</span>}
-				</span>
+		<Settings title="App">
+			<Setting label={`Companybot ${version}`} hint={status ? describeUpdate(status) : undefined}>
 				{status?.state === "ready" ? (
-					<button type="button" onClick={() => void desktop?.updates.install()} className="font-medium hover:underline">
-						Restart
+					<button type="button" onClick={() => void desktop?.updates.install()} className={primaryButton}>
+						Restart to update
 					</button>
 				) : (
 					<button
 						type="button"
 						disabled={status?.state === "checking" || status?.state === "downloading"}
 						onClick={() => void desktop?.updates.check()}
-						className={`text-neutral-600 hover:text-neutral-900 ${disabledButtonClass}`}
+						className={secondaryButton}
 					>
 						Check for updates
 					</button>
 				)}
-			</div>
-		</Section>
+			</Setting>
+		</Settings>
 	);
 }
 
@@ -132,13 +131,12 @@ function DangerZone({
 	const matches = ignoreCase ? typed.trim().toLowerCase() === confirm.toLowerCase() : typed.trim() === confirm;
 	const close = () => !busy && (setOpen(false), setTyped(""));
 	return (
-		<Section title="Danger zone">
-			<div className="flex items-center gap-3 rounded-xl border border-neutral-200 px-4 py-3 text-sm">
-				<span className="flex-1">{hint}</span>
-				<button type="button" onClick={() => setOpen(true)} className="font-medium text-red-600 hover:underline">
+		<Settings title="Danger zone">
+			<Setting label={action} hint={hint}>
+				<button type="button" onClick={() => setOpen(true)} className={`${secondaryButton} text-red-600`}>
 					{action}
 				</button>
-			</div>
+			</Setting>
 			{open && (
 				<Modal title={`${action}?`} onClose={close}>
 					<form
@@ -166,7 +164,23 @@ function DangerZone({
 					</form>
 				</Modal>
 			)}
-		</Section>
+		</Settings>
+	);
+}
+
+/** An on/off switch. */
+function Toggle({ checked, disabled, onChange }: { checked: boolean; disabled?: boolean; onChange: (on: boolean) => void }) {
+	return (
+		<button
+			type="button"
+			role="switch"
+			aria-checked={checked}
+			disabled={disabled}
+			onClick={() => onChange(!checked)}
+			className={`relative h-5 w-9 rounded-full transition-colors ${checked ? "bg-neutral-900" : "bg-neutral-300"} ${disabledButtonClass}`}
+		>
+			<span className={`absolute top-0.5 left-0.5 size-4 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-4" : ""}`} />
+		</button>
 	);
 }
 
@@ -195,39 +209,33 @@ function GeneralForm({
 		<>
 			{draft.stale && <ConflictNotice onDiscard={draft.discard} onKeep={draft.keepMine} />}
 			{error && <Notice>{error}</Notice>}
-			<Field label="Workspace name" hint={ownerOnly}>
-				<input
-					className={inputClass}
-					disabled={!isOwner}
-					value={draft.value.name}
-					onChange={(e) => draft.set({ ...draft.value, name: e.target.value })}
-				/>
-			</Field>
-			<Field label="Currency" hint={ownerOnly ?? "New amounts use it. Existing amounts keep their own."}>
-				<select
-					className={inputClass}
-					disabled={!isOwner}
-					value={draft.value.currency}
-					onChange={(e) => draft.set({ ...draft.value, currency: e.target.value })}
-				>
-					{currencyCodes.map((code) => (
-						<option key={code} value={code}>
-							{currencyLabel(code)}
-						</option>
-					))}
-				</select>
-			</Field>
-			<Field label="Memory" hint={ownerOnly ?? "When off, agents don't read or save memories. Existing ones are kept for when it's back on."}>
-				<span className="flex items-center gap-2 text-sm">
+			<Settings title="Workspace" hint={ownerOnly}>
+				<Setting label="Name">
 					<input
-						type="checkbox"
+						className={`${compactControlClass} w-64`}
 						disabled={!isOwner}
-						checked={draft.value.memory}
-						onChange={(e) => draft.set({ ...draft.value, memory: e.target.checked })}
+						value={draft.value.name}
+						onChange={(e) => draft.set({ ...draft.value, name: e.target.value })}
 					/>
-					Agents remember things people tell them
-				</span>
-			</Field>
+				</Setting>
+				<Setting label="Currency" hint="For new amounts. Existing amounts keep theirs.">
+					<select
+						className={`${compactControlClass} w-64`}
+						disabled={!isOwner}
+						value={draft.value.currency}
+						onChange={(e) => draft.set({ ...draft.value, currency: e.target.value })}
+					>
+						{currencyCodes.map((code) => (
+							<option key={code} value={code}>
+								{currencyLabel(code)}
+							</option>
+						))}
+					</select>
+				</Setting>
+				<Setting label="Memory" hint="Agents remember what people tell them. Off keeps existing memories for later.">
+					<Toggle disabled={!isOwner} checked={draft.value.memory} onChange={(memory) => draft.set({ ...draft.value, memory })} />
+				</Setting>
+			</Settings>
 			{draft.dirty && (
 				<SaveBar onDiscard={draft.discard} onSave={() => (currencyChanged && settings.hasAmounts ? setConfirming(true) : submit())} />
 			)}
@@ -270,74 +278,52 @@ function ProfileTab() {
 
 	return (
 		<>
-			<p className={descriptionClass}>Only you see these, except your time zone. They follow you to every device.</p>
 			{error && <Notice>{error}</Notice>}
-			<form
-				className="flex items-end gap-2"
-				onSubmit={(e) => {
-					e.preventDefault();
-					run(update({ displayName: shownName }), () => setName(undefined));
-				}}
-			>
-				<div className="flex-1">
-					<Field label="Your name" hint="What agents and teammates call you.">
-						<input className={inputClass} value={shownName} placeholder="e.g. Jaden" onChange={(e) => setName(e.target.value)} />
-					</Field>
-				</div>
-				{name !== undefined && name !== prefs.displayName && (
-					<button type="submit" className={`${primaryButton} mb-6`}>
-						Save
-					</button>
-				)}
-			</form>
-			<Field label="Time zone" hint="Agents use it for dates and times. Teammates will see it on your profile.">
-				<select
-					className={inputClass}
-					value={prefs.timeZone ?? "auto"}
-					onChange={(e) => run(update({ timeZone: e.target.value === "auto" ? null : e.target.value }))}
-				>
-					<option value="auto">Automatic ({zoneLabel(deviceTimeZone)})</option>
-					{timeZones.map((zone) => (
-						<option key={zone} value={zone}>
-							{zoneLabel(zone)}
-						</option>
-					))}
-				</select>
-			</Field>
-			<Section title="Send messages with">
-				{(
-					[
-						["enter", "Enter", "Shift+Enter adds a new line."],
-						["mod-enter", "⌘ Enter", "Enter adds a new line."],
-					] as const
-				).map(([value, label, hint]) => (
-					<label key={value} className="flex items-center gap-3 text-sm">
-						<input
-							type="radio"
-							name="sendWith"
-							checked={prefs.sendWith === value}
-							onChange={() => run(update({ sendWith: value }))}
-						/>
-						<span>
-							{label} <span className="text-neutral-500">— {hint}</span>
-						</span>
-					</label>
-				))}
-			</Section>
-			<Section title="Notifications" hint="Desktop notifications while Companybot isn't in front, and the count on its dock icon.">
-				{(
-					[
-						["all", "DMs and mentions"],
-						["mentions", "Mentions only"],
-						["off", "Off"],
-					] as const
-				).map(([value, label]) => (
-					<label key={value} className="flex items-center gap-3 text-sm">
-						<input type="radio" name="notify" checked={prefs.notify === value} onChange={() => run(update({ notify: value }))} />
-						{label}
-					</label>
-				))}
-			</Section>
+			<Settings title="You" hint="Only you see these, except your name and time zone. They follow you to every device.">
+				<Setting label="Name" hint="What agents and teammates call you.">
+					<form
+						className="flex gap-2"
+						onSubmit={(e) => {
+							e.preventDefault();
+							run(update({ displayName: shownName }), () => setName(undefined));
+						}}
+					>
+						<input className={`${compactControlClass} w-48`} value={shownName} placeholder="e.g. Jaden" onChange={(e) => setName(e.target.value)} />
+						{name !== undefined && name !== prefs.displayName && (
+							<button type="submit" className={`${primaryButton} py-1`}>
+								Save
+							</button>
+						)}
+					</form>
+				</Setting>
+				<Setting label="Time zone" hint="For dates and times agents give you.">
+					<select
+						className={`${compactControlClass} w-64`}
+						value={prefs.timeZone ?? "auto"}
+						onChange={(e) => run(update({ timeZone: e.target.value === "auto" ? null : e.target.value }))}
+					>
+						<option value="auto">Automatic ({zoneLabel(deviceTimeZone)})</option>
+						{timeZones.map((zone) => (
+							<option key={zone} value={zone}>
+								{zoneLabel(zone)}
+							</option>
+						))}
+					</select>
+				</Setting>
+				<Setting label="Send messages with" hint={prefs.sendWith === "enter" ? "Shift+Enter adds a new line." : "Enter adds a new line."}>
+					<select className={`${compactControlClass} w-64`} value={prefs.sendWith} onChange={(e) => run(update({ sendWith: e.target.value as typeof prefs.sendWith }))}>
+						<option value="enter">Enter</option>
+						<option value="mod-enter">⌘ Enter</option>
+					</select>
+				</Setting>
+				<Setting label="Notifications" hint="When Companybot isn't in front, and the dock count.">
+					<select className={`${compactControlClass} w-64`} value={prefs.notify} onChange={(e) => run(update({ notify: e.target.value as typeof prefs.notify }))}>
+						<option value="all">DMs and mentions</option>
+						<option value="mentions">Mentions only</option>
+						<option value="off">Off</option>
+					</select>
+				</Setting>
+			</Settings>
 			<YourPermissions />
 			{me && (
 				<DangerZone

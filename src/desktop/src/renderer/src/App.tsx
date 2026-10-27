@@ -8,12 +8,14 @@ import { WorkspaceContext, useMutation, useQuery } from "./convex";
 import { desktop, useUpdates } from "./desktop";
 import { useAlerts } from "./notifications";
 import { navigate, useRoute } from "./router";
-import { Notice } from "./ui";
+import { CustomizeIcon, DatabaseIcon, PlusIcon, SettingsIcon, SignOutIcon, TrashIcon } from "./icons";
+import { Notice, TopBar } from "./ui";
 import { RecordsView, recordTabs } from "./views/Records";
 import { SettingsView, settingsTabAliases, settingsTabs } from "./views/Settings";
 import { SignIn } from "./views/SignIn";
 import { WorkspaceMenu } from "./views/WorkspaceMenu";
 import { ChatView } from "./views/chat/ChatView";
+import { Avatar, MenuItem, Popover } from "./views/chat/common";
 import { ChatNav, Group, Item } from "./views/chat/Sidebar";
 import { PagesNav, PagesView } from "./views/Pages";
 import { CustomizeView, customizeTabs } from "./views/customize";
@@ -138,19 +140,31 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 			<aside className="drag flex w-60 shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 px-3 pt-12 pb-3">
 				<WorkspaceMenu name={workspace} />
 				<div className="no-drag -mx-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1 pb-4">
-					<Group title="Databases">
+					<Group title="Databases" onAdd={can(role, "fields.manage") ? () => setNewDatabase(true) : undefined} addLabel="New database">
 						{types?.map((type) => (
-							<Item key={type._id} active={typeKey === type.key} onClick={() => navigate(...recordPath(type.key))}>{type.plural}</Item>
+							<Item key={type._id} icon={<DatabaseIcon />} active={typeKey === type.key} onClick={() => navigate(...recordPath(type.key))}>
+								{type.plural}
+							</Item>
 						))}
-						{can(role, "fields.manage") && <Item muted onClick={() => setNewDatabase(true)}>+ New database</Item>}
+						{can(role, "fields.manage") && (
+							<Item icon={<PlusIcon />} muted onClick={() => setNewDatabase(true)}>
+								New database
+							</Item>
+						)}
 					</Group>
 					<PagesNav openId={view === "pages" ? route[1] : undefined} />
 					<ChatNav chats={chats} openId={view === "chat" ? openId : undefined} onOpen={open} onError={(e) => setError(errorMessage(e))} />
 				</div>
 				<nav className="no-drag flex flex-col gap-px border-t border-neutral-200 pt-3">
-					{(["trash", "customize", "settings"] as const).map((v) => (
-						<Item key={v} active={view === v} onClick={() => navigate(...(lastPath.current[v] ?? [v]))}>
-							<span className="capitalize">{v}</span>
+					{(
+						[
+							["trash", "Trash", <TrashIcon />],
+							["customize", "Customize", <CustomizeIcon />],
+							["settings", "Settings", <SettingsIcon />],
+						] as const
+					).map(([v, label, icon]) => (
+						<Item key={v} icon={icon} active={view === v} onClick={() => navigate(...(lastPath.current[v] ?? [v]))}>
+							{label}
 						</Item>
 					))}
 				</nav>
@@ -163,14 +177,8 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 						Update ready · Restart
 					</button>
 				)}
-				<div className="no-drag mt-3 flex flex-col gap-1 px-2 text-xs text-neutral-500">
-					<span className="truncate" title={email}>
-						{prefs?.displayName || email}
-					</span>
-					<span className="capitalize">{role}</span>
-					<button type="button" onClick={() => void signOut()} className="mt-1 text-left text-neutral-400 hover:text-neutral-700">
-						Sign out
-					</button>
+				<div className="no-drag mt-2 flex">
+					<YouMenu name={prefs?.displayName || email} email={email} role={role} onSignOut={() => void signOut()} />
 				</div>
 			</aside>
 
@@ -187,9 +195,8 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 							onLeft={() => navigate("chat")}
 						/>
 					) : (
-						<div className="drag h-12 shrink-0" />
+						<TopBar title="" />
 					))}
-				{view !== "chat" && <header className="drag h-12 shrink-0" />}
 				{typeKey && <RecordsView key={typeKey} typeKey={typeKey} recordId={recordId} role={role} />}
 				{view === "pages" && <PagesView pageId={route[1]} canEdit={can(role, "pages.edit")} />}
 				{view === "trash" && <TrashView role={role} />}
@@ -197,6 +204,44 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 				{view === "settings" && <SettingsView role={role} tab={settingsTab} onTab={(t) => navigate("settings", t)} />}
 			</main>
 		</div>
+	);
+}
+
+/** You, at the bottom of the sidebar: who you're signed in as, your preferences, and Sign out. */
+function YouMenu({ name, email, role, onSignOut }: { name: string; email: string; role: Role; onSignOut: () => void }) {
+	return (
+		<Popover
+			trigger={
+				<>
+					<Avatar name={name} size="sm" />
+					<span className="min-w-0 flex-1">
+						<span className="block truncate font-medium text-neutral-800">{name}</span>
+						<span className="block text-xs text-neutral-500 capitalize">{role}</span>
+					</span>
+				</>
+			}
+			className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-neutral-100"
+			panelClassName="w-64 p-1"
+		>
+			{(close) => (
+				<>
+					<div className="flex items-center gap-3 px-2 py-2">
+						<Avatar name={name} />
+						<div className="min-w-0">
+							<p className="truncate font-semibold">{name}</p>
+							{name !== email && <p className="truncate text-neutral-500">{email}</p>}
+						</div>
+					</div>
+					<div className="my-1 border-t border-neutral-100" />
+					<MenuItem onClick={() => (close(), navigate("settings", "preferences"))}>
+						<SettingsIcon className="text-neutral-500" /> Your preferences
+					</MenuItem>
+					<MenuItem onClick={() => (close(), onSignOut())}>
+						<SignOutIcon className="text-neutral-500" /> Sign out
+					</MenuItem>
+				</>
+			)}
+		</Popover>
 	);
 }
 

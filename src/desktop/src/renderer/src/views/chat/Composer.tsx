@@ -1,5 +1,6 @@
 import type { Doc, Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useRef, useState } from "react";
+import { ArrowUpIcon } from "../../icons";
 import { Avatar } from "./common";
 import type { Mentions, Participant } from "./data";
 
@@ -138,10 +139,10 @@ export function Composer({
 				<button
 					type="submit"
 					disabled={!text.trim()}
-					className="size-8 shrink-0 rounded-full bg-neutral-900 text-white disabled:bg-neutral-200"
+					className="flex size-8 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-white disabled:bg-neutral-200"
 					aria-label="Send"
 				>
-					↑
+					<ArrowUpIcon weight="bold" />
 				</button>
 			</form>
 			{hint && <p className="px-4 text-xs text-neutral-400">{hint}</p>}

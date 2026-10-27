@@ -1,49 +1,72 @@
-import { Component, useState } from "react";
+import { Component, Fragment, useState } from "react";
 import { errorMessage } from "./api";
+import { CaretRightIcon } from "./icons";
 import { navigate } from "./router";
 
+/** A screen above this one, in the top bar's trail. */
+export type Crumb = { label: string; to: string[] };
+
 /**
- * A screen. `back` makes it a pushed screen: a link back to the one it came from.
- * `actions` sit on the right of the title. `wide` for tables.
+ * The bar across the top of every screen, chat included: where you are on the left
+ * (each screen above it is a link back), what you can do here on the right. It's also
+ * where you drag the window.
+ */
+export function TopBar({ crumbs = [], title, children }: { crumbs?: Crumb[]; title: React.ReactNode; children?: React.ReactNode }) {
+	return (
+		<header className="drag flex h-12 shrink-0 items-center gap-3 border-b border-neutral-200 px-5">
+			<nav className="flex min-w-0 items-center gap-1 text-sm">
+				{crumbs.map((c) => (
+					<Fragment key={c.label}>
+						<button type="button" onClick={() => navigate(...c.to)} className="no-drag shrink-0 rounded-md px-1 py-0.5 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900">
+							{c.label}
+						</button>
+						<CaretRightIcon className="shrink-0 text-neutral-300" />
+					</Fragment>
+				))}
+				<div className="flex min-w-0 items-baseline gap-2 px-1 font-semibold">{title}</div>
+			</nav>
+			{children && <div className="no-drag ml-auto flex shrink-0 items-center gap-1">{children}</div>}
+		</header>
+	);
+}
+
+/**
+ * A screen: the top bar, then its content. The title lives in the top bar; `heading` is
+ * a big title in the content, only for things you write in and rename there (pages, records).
+ * `actions` go on the right of the top bar. `wide` for tables.
  */
 export function Page({
 	title,
+	crumbs,
+	heading,
 	subtitle,
-	back,
 	actions,
 	wide,
 	children,
 }: {
-	/** Text, or an input for screens whose title you edit in place (pages). */
-	title: React.ReactNode;
+	title: string;
+	crumbs?: Crumb[];
+	heading?: React.ReactNode;
 	subtitle?: string;
-	back?: { label: string; to: string[] };
 	actions?: React.ReactNode;
 	wide?: boolean;
 	children: React.ReactNode;
 }) {
 	return (
-		<div className="flex-1 overflow-y-auto">
-			<div className={`mx-auto flex flex-col gap-6 px-6 py-10 ${wide ? "max-w-5xl" : "max-w-2xl"}`}>
-				<header className="flex flex-col gap-3">
-					{back && (
-						<button
-							type="button"
-							onClick={() => navigate(...back.to)}
-							className="self-start text-sm text-neutral-500 hover:text-neutral-900"
-						>
-							← {back.label}
-						</button>
-					)}
-					<div className="flex items-start justify-between gap-4">
-						<div className="min-w-0 flex-1">
-							<h1 className="text-xl font-medium">{title}</h1>
+		<div className="flex min-h-0 flex-1 flex-col">
+			<TopBar crumbs={crumbs} title={<span className="truncate">{title}</span>}>
+				{actions}
+			</TopBar>
+			<div className="flex-1 overflow-y-auto">
+				<div className={`mx-auto flex flex-col gap-6 px-6 pt-8 pb-10 ${wide ? "max-w-5xl" : "max-w-2xl"}`}>
+					{(heading || subtitle) && (
+						<header className="flex flex-col gap-1">
+							{heading && <h1 className="text-2xl font-semibold tracking-tight">{heading}</h1>}
 							{subtitle && <p className={descriptionClass}>{subtitle}</p>}
-						</div>
-						{actions}
-					</div>
-				</header>
-				{children}
+						</header>
+					)}
+					{children}
+				</div>
 			</div>
 		</div>
 	);
@@ -62,7 +85,7 @@ export function Tabs<T extends string>({
 	children?: React.ReactNode;
 }) {
 	return (
-		<nav className="-mt-2 flex flex-wrap gap-1 border-b border-neutral-200">
+		<nav className="flex flex-wrap gap-1 border-b border-neutral-200">
 			{tabs.map((t) => (
 				<button
 					type="button"
@@ -92,6 +115,36 @@ export function Section({ title, hint, children }: { title: string; hint?: strin
 	);
 }
 
+/**
+ * Settings, one per row in a card: what it is and a one-line hint on the left, its
+ * control on the right. Every settings screen uses it, so labels and controls line up.
+ */
+export function Settings({ title, hint, children }: { title?: string; hint?: string; children: React.ReactNode }) {
+	return (
+		<section className="flex flex-col gap-2">
+			{(title || hint) && (
+				<div>
+					{title && <h2 className="font-medium">{title}</h2>}
+					{hint && <p className={descriptionClass}>{hint}</p>}
+				</div>
+			)}
+			<div className="flex flex-col divide-y divide-neutral-100 rounded-xl border border-neutral-200">{children}</div>
+		</section>
+	);
+}
+
+export function Setting({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+	return (
+		<div className="flex items-center gap-6 px-4 py-3">
+			<div className="min-w-0 flex-1">
+				<p className="text-sm font-medium">{label}</p>
+				{hint && <p className="text-xs text-neutral-500">{hint}</p>}
+			</div>
+			<div className="flex shrink-0 items-center gap-2 text-sm">{children}</div>
+		</div>
+	);
+}
+
 export function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
 	return (
 		<label className="flex flex-col gap-1.5">
@@ -109,6 +162,10 @@ export const disabledButtonClass = "disabled:opacity-50";
 export const primaryButton = `rounded-xl bg-neutral-900 px-4 py-2 text-sm text-white ${disabledButtonClass}`;
 export const dangerButton = `rounded-xl bg-red-600 px-4 py-2 text-sm text-white ${disabledButtonClass}`;
 export const secondaryButton = `rounded-xl border border-neutral-200 px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
+/** Buttons in the top bar: quiet ones, and the one main action. */
+export const barButton = `flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
+export const barDangerButton = `flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm text-neutral-600 hover:bg-red-50 hover:text-red-700 ${disabledButtonClass}`;
+export const barPrimaryButton = `flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-1 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
 export const descriptionClass = "text-sm text-neutral-500";
 export const metadataClass = "text-xs text-neutral-400";
 

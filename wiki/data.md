@@ -93,7 +93,7 @@ One place for everything deleted, like [Notion's Trash](https://www.notion.com/h
 - `create({ typeId, values })` → id. `update({ recordId, values })`. `undo({ historyId })`. Delete and restore through `trash`.
 
 ## Sorting and filtering in the app
-- Sidebar **Databases → + New database** asks owners for one name ("Projects"), then opens it. **Edit database** (next to **+ New**) renames it, including the singular ("Project"), or deletes it.
+- Sidebar **Databases → New database** asks owners for one name ("Projects"), then opens it. **Edit database** (in the top bar, next to **New <record>**) renames it, including the singular ("Project"), or deletes it.
 - Above each list, tabs: **All** (columns remembered on this computer) and each shared view. Filters, sort and columns start from the open view; edits stay private until **Save for everyone**. **+** saves the current settings as a new view; **⋯** on an open view renames or deletes it. Search is temporary and not saved. Deleted records are in Trash.
 - **All records** keeps local filters, sort and columns per database on this computer. Old column preferences carry over. Shared settings use `useDraft` + `ConflictNotice` and versions, like agents and workspace settings.
 - Settings → Activity shows record, field, database and view history, naming the person and any agent acting for them. Database/view changes are logged but do not use record undo.

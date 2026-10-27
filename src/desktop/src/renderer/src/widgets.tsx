@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { CardProps, StatsProps, TableProps } from "@companybot/core";
+import { ArrowDownIcon, ArrowRightIcon, ArrowUpIcon } from "./icons";
 
 // Components for widgets agents place in replies. Types and props are defined in
 // core/src/widgets.ts; add a component here for each one. Unknown types (from a
@@ -83,7 +84,7 @@ const isNumberLike = (value: string | number) =>
 	typeof value === "number" || /^[-+]?[$€£]?\d[\d,]*(\.\d+)?\s?(%|[kKmMbB])?$/.test(value.trim());
 
 const trendColor = { up: "text-emerald-700", down: "text-red-700", flat: "text-neutral-500" };
-const trendArrow = { up: "↑", down: "↓", flat: "→" };
+const trendArrow = { up: <ArrowUpIcon />, down: <ArrowDownIcon />, flat: <ArrowRightIcon /> };
 
 function StatsWidget({ props }: { props: StatsProps }) {
 	return (
@@ -94,8 +95,8 @@ function StatsWidget({ props }: { props: StatsProps }) {
 						<span className="text-xs text-neutral-500">{item.label}</span>
 						<span className="text-2xl font-medium tabular-nums">{item.value}</span>
 						{item.change && (
-							<span className={`text-xs ${trendColor[item.trend ?? "flat"]}`}>
-								{item.trend && `${trendArrow[item.trend]} `}
+							<span className={`flex items-center gap-1 text-xs ${trendColor[item.trend ?? "flat"]}`}>
+								{item.trend && trendArrow[item.trend]}
 								{item.change}
 							</span>
 						)}
