@@ -101,7 +101,7 @@ function Fields({ type, record, role, editable }: { type: RecordType; record: Re
 				))}
 			</dl>
 			<div className="flex gap-4 pt-2 text-sm">
-				{can(role, "fields.create") && (
+				{can(role, "fields.create") && !record.archived && (
 					<button type="button" onClick={() => setAdding(true)} className="text-neutral-500 hover:text-neutral-900">
 						+ Add field
 					</button>
