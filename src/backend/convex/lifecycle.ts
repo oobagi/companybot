@@ -117,6 +117,13 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		user: { index: "by_user", eq: ["userId"] },
 		keep: "A pin to a deleted workspace stays, so apps from before switching act nowhere, never in another workspace (legacyMemberOf).",
 	},
+	// Uploads not yet attached to anything (images.ts); unclaimed ones also go after a day (images.sweepUploads).
+	uploads: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		user: { index: "by_user", eq: ["userId"] },
+		keep: "A removed member's unclaimed uploads go with the hourly sweep, within a day.",
+		files: ["storageId"],
+	},
 	preferences: {
 		user: { index: "by_user", eq: ["userId"] },
 		// Their photo goes with their account.

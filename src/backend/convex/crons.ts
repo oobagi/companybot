@@ -13,6 +13,8 @@ crons.interval("connector sign-ins", { hours: 1 }, internal.connectors.forgetExp
 crons.interval("typing", { hours: 1 }, internal.typing.forgetStale);
 // What's been in Trash for 30 days goes for good (trash.ts).
 crons.interval("trash", { hours: 1 }, internal.trash.sweep);
+// Uploads nobody attached within a day, and their files (images.ts).
+crons.interval("uploads", { hours: 1 }, internal.images.sweepUploads);
 // Deletions (cascade.ts) whose last run failed start again.
 crons.interval("cascades", { minutes: 15 }, internal.cascade.resume);
 // AI Gateway's model list, for the agent model picker (modelCatalog.ts).

@@ -16,7 +16,7 @@ vi.mock("./convex", async (original) => ({
 	useQuery: (fn: Parameters<typeof getFunctionName>[0]) => state.queries[getFunctionName(fn)],
 	useMutation: () => state.mutate,
 }));
-vi.mock("@convex-dev/auth/react", () => ({ useAuthActions: () => ({ signOut: state.signOut }) }));
+vi.mock("@convex-dev/auth/react", () => ({ useAuthActions: () => ({ signOut: state.signOut }), useAuthToken: () => null }));
 vi.mock("convex/react", async (original) => ({
 	...(await original<typeof import("convex/react")>()),
 	useConvexAuth: () => ({ isLoading: false, isAuthenticated: true }),

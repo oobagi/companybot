@@ -166,7 +166,7 @@ export default defineSchema({
 		deleting: v.optional(v.boolean()),
 		/** Its logo (images.ts). Unset shows its initials. */
 		image: v.optional(v.id("_storage")),
-	}).index("by_image", ["image"]),
+	}),
 
 	members: defineTable({
 		workspaceId: v.id("workspaces"),
@@ -213,7 +213,7 @@ export default defineSchema({
 		updatedBy: v.id("users"),
 		/** Its picture (images.ts): not part of its config, so versions and restores leave it alone. Unset shows its initials. */
 		image: v.optional(v.id("_storage")),
-	}).index("by_workspace", ["workspaceId"]).index("by_workspace_active", ["workspaceId", "archived"]).index("by_image", ["image"]),
+	}).index("by_workspace", ["workspaceId"]).index("by_workspace_active", ["workspaceId", "archived"]),
 
 	agentVersions: defineTable({
 		agentId: v.id("agents"),
@@ -270,8 +270,21 @@ export default defineSchema({
 		image: v.optional(v.id("_storage")),
 	})
 		.index("by_user", ["userId"])
+		.index("by_workspace", ["workspaceId"]),
+
+	// Files people uploaded (images.ts), not yet attached to anything. Attaching one uses its row up;
+	// rows nobody claims go after a day, with their files (images.sweepUploads).
+	uploads: defineTable({
+		storageId: v.id("_storage"),
+		userId: v.id("users"),
+		/** The workspace the app had open. */
+		workspaceId: v.optional(v.id("workspaces")),
+		createdAt: v.number(),
+	})
+		.index("by_storage", ["storageId"])
+		.index("by_user", ["userId"])
 		.index("by_workspace", ["workspaceId"])
-		.index("by_image", ["image"]),
+		.index("by_created", ["createdAt"]),
 
 	// Connectors: an owner installs one and picks which roles may use it.
 	connectorInstalls: defineTable({

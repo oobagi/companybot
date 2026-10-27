@@ -29,10 +29,7 @@ export function ImagePicker({
 	const { error, busy, run } = useRun();
 	const input = useRef<HTMLInputElement>(null);
 	const [removing, setRemoving] = useState(false);
-	const save = async (file: Id<"_storage"> | null) => {
-		const result = await set({ of, file });
-		if (result.error) throw new Error(result.error);
-	};
+	const save = (file: Id<"_storage"> | null) => set({ of, file });
 	return (
 		<div className="flex flex-col gap-2">
 			<div className="flex items-center gap-3">

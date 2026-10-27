@@ -84,6 +84,8 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		await ctx.db.insert("agentVersions", { agentId, version: 1, config, savedBy: memberId });
 		await ctx.db.insert("invites", { workspaceId, email: "next@co.com", role: "member", invitedBy: ownerId });
 		await ctx.db.insert("inviteEmails", { workspaceId, email: "next@co.com" });
+		// Not the member's alone: removal leaves a pending upload to the sweep (images.ts).
+		await ctx.db.insert("uploads", { storageId: await ctx.storage.store(new Blob(["x"])), userId: memberId, workspaceId, createdAt: now });
 		const memory = { workspaceId, agentId, content: "Note", updatedAt: now, version: 1 };
 		await ctx.db.insert("memories", { ...memory, scope: "workspace", ownerId: null, updatedBy: memberId });
 		await ctx.db.insert("memories", { ...memory, scope: "personal", ownerId, updatedBy: ownerId });
@@ -333,7 +335,7 @@ describe("erasing an account", () => {
 
 		const theirs = new Set<string>([...mineIn[A]!, ...mineIn[B]!, ...seatsIn(before, A, m.userId), ...seatsIn(before, B, m.userId), leftBehind]);
 		for (const [id, { table, row }] of before) {
-			const own = row.userId === m.userId && ["members", "preferences", "legacyWorkspaces", "authAccounts", "authSessions", "connectorOAuthFlows"].includes(table);
+			const own = row.userId === m.userId && ["members", "preferences", "legacyWorkspaces", "authAccounts", "authSessions", "connectorOAuthFlows", "uploads"].includes(table);
 			const email = (table === "authRateLimits" && row.identifier === "m@co.com") || (table === "localSignInCodes" && row.email === "m@co.com");
 			if (email) theirs.add(id);
 			const child = (table === "authVerificationCodes" && !after.has(row.accountId as string)) || (table === "authRefreshTokens" && sessions.has(row.sessionId as string));
