@@ -344,7 +344,7 @@ export default defineSchema({
 	})
 		.index("by_workspace", ["workspaceId", "kind"])
 		.index("by_dm_key", ["workspaceId", "dmKey"])
-		.index("by_name", ["workspaceId", "name"]),
+		.index("by_name", ["workspaceId", "name", "archived"]),
 
 	// Who's in a chat: one person or one agent per row.
 	chatMembers: defineTable({

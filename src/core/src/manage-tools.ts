@@ -44,6 +44,8 @@ export const manageInputs = {
 				.refine((x) => !!x.userId !== !!x.agentId, "Choose one person or agent"),
 			z.strictObject({ action: z.literal("join"), chat: id }),
 			z.strictObject({ action: z.literal("leave"), chat: id }),
+			z.strictObject({ action: z.literal("delete"), chat: id }),
+			z.strictObject({ action: z.literal("restore"), chat: id.describe("Exact id of the deleted channel") }),
 		]),
 	}),
 	"automations.manage": z.object({
@@ -103,7 +105,7 @@ const descriptions: Record<ManageTool, string> = {
 	"chat.manage":
 		"Find people (paged directory, including agent ids), list your chats, open a DM with exact participant ids, or deliver a message to a chosen chat/thread. Sent as you for the person; never triggers agents or automations. Only send when asked; do not copy private information to a wider audience without their request.",
 	"channels.manage":
-		"Browse public channels, inspect a visible channel and paged participants, create, rename, set/clear topic, add/remove members, join or leave. Use chat ids or #names. Managers remove members; everyone stays in general. No delete or archive action.",
+		"Browse public channels, inspect a visible channel and paged participants, create, rename, set/clear topic, add/remove members, join or leave. Use chat ids or #names. Managers remove members; everyone stays in general. Delete moves a channel to Trash for 30 days and waits for approval; only its creator or an owner can do it. Restore by its exact id as the deleter or an owner. Never deletes forever.",
 	"automations.manage":
 		"List or inspect visible automations (prompt, version, agent, state), edit custom config using its current expectedVersion, pause/resume globally, or change agent/audience. Confirm changes first. Resuming grants no consent: future outside actions still ask. Webhook secrets are omitted.",
 	"automations.remove":
@@ -137,6 +139,12 @@ export const manageTools: ToolDef[] = (Object.keys(manageInputs) as ManageTool[]
 		input: manageInputs[id],
 		...((id === "members.invite" || id === "members.remove") && { permission: "members.manage" as const }),
 		...(id.endsWith(".remove") ? { risk: "locked" as const } : id === "members.invite" ? { risk: "outside" as const } : {}),
+		...(id === "channels.manage" && {
+			riskFor: (input: unknown) => {
+				const parsed = manageInputs["channels.manage"].safeParse(input);
+				return parsed.success && parsed.data.request.action === "delete" ? "locked" as const : "none" as const;
+			},
+		}),
 		execute: (input, { manage }) => manage.run(id, input),
 	}),
 );

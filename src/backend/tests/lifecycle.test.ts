@@ -543,7 +543,7 @@ describe("writes that land after what they belong to went", () => {
 		const count = () => t.run(async (ctx) => [(await ctx.db.query("chatMessages").collect()).length, (await ctx.db.query("agentSessions").collect()).length]);
 		const before = await count();
 		await t.mutation(internal.activity.log, { turnId, callId: "c1", tool: "crm.send_sms", changes: true, input: "{}", output: "private" });
-		await expect(t.mutation(internal.approvals.request, { turnId, callId: "c2", tool: "crm.send_sms", input: "{}", risk: "outside" })).rejects.toThrow("stopped");
+		await expect(t.mutation(internal.approvals.request, { turnId, callId: "c2", tool: "crm.send_sms", input: "{}", risk: "outside" })).rejects.toThrow("no longer in the workspace");
 		await t.mutation(internal.turns.finishReply, { turnId });
 		expect(await count()).toEqual(before);
 		expect(await t.run((ctx) => ctx.db.query("agentActivity").collect())).toEqual([]);
@@ -595,11 +595,12 @@ describe("writes that land after what they belong to went", () => {
 		await make("Daily", { type: "schedule", time: "09:00", weekdays: [0, 1, 2, 3, 4, 5, 6] });
 		const installs = () => t.run((ctx) => ctx.db.query("automationInstalls").collect());
 		const token = (await installs()).find((i) => i.webhookToken)!.webhookToken!;
+		const before = (await installs()).map((i) => i.lastRunDate ?? i.lastResult ?? null);
 		await owner.mutation(api.workspace.deleteWorkspace, { name: "My company" });
 		const reply = await t.mutation(internal.automationRuns.receive, { token, body: JSON.stringify({ id: "e1", data: {} }) });
 		expect(reply.status).toBe(404);
 		await t.mutation(internal.automationRuns.tick, { now: Date.UTC(2026, 9, 26, 10) });
-		expect((await installs()).map((i) => i.lastRunDate ?? i.lastResult ?? null)).toEqual([null, null]);
+		expect((await installs()).map((i) => i.lastRunDate ?? i.lastResult ?? null)).toEqual(before);
 		expect(await t.run((ctx) => ctx.db.query("automationEvents").collect())).toEqual([]);
 	});
 });

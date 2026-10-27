@@ -121,12 +121,54 @@ describe("trash", () => {
 		expect((await owner.query(api.records.search, { query: "Survivingneedle" })).map((r) => r._id)).toEqual([acme]);
 	});
 
+	it("bounds field cleanup across large records and skips large choice catalogs", async () => {
+		const { t, owner, member, client } = await seeded();
+		const field = await member.mutation(api.fields.create, { typeId: client._id, label: "Obsolete", kind: "text" });
+		const workspaceId = (await owner.query(api.workspace.me))!.workspaceId!;
+		for (let batch = 0; batch < 5; batch++) await t.run(async (ctx) => {
+			for (let n = 0; n < 4; n++) await ctx.db.insert("recordFields", { workspaceId, typeId: client._id, key: `choice${batch * 4 + n}`, label: "Large choices", kind: "choice", position: 30 + batch * 4 + n, options: [{ id: "old", label: "x".repeat(900_000) }], archived: false, createdBy: member.userId, updatedAt: Date.now() });
+		});
+		await t.run(async (ctx) => {
+			for (let n = 0; n < 12; n++) await ctx.db.insert("recordFields", { workspaceId, typeId: client._id, key: `keep${n}`, label: `Keep ${n}`, kind: "text", position: 10 + n, archived: false, createdBy: member.userId, updatedAt: Date.now() });
+		});
+		for (let batch = 0; batch < 5; batch++) await t.run(async (ctx) => {
+			for (let n = 0; n < 10; n++) await ctx.db.insert("records", { workspaceId, typeId: client._id, title: "Large", values: { name: "Large", obsolete: "Removedneedle", ...Object.fromEntries(Array.from({ length: 12 }, (_, n) => [`keep${n}`, "k".repeat(10_000)])) }, searchText: "Large\nRemovedneedle", archived: false, createdBy: member.userId, updatedBy: member.userId, updatedAt: Date.now() });
+		});
+		await member.mutation(api.trash.move, { kind: "field", id: field._id });
+		await owner.mutation(api.trash.purge, { id: field._id });
+		await settle(t);
+		const rows = await t.run((ctx) => ctx.db.query("records").withIndex("by_type", (q) => q.eq("typeId", client._id)).collect());
+		expect(rows).toHaveLength(51);
+		for (const row of rows) {
+			expect(row.values).not.toHaveProperty("obsolete");
+			expect(row.searchText).not.toContain("Removedneedle");
+		}
+		expect(await t.run((ctx) => ctx.db.query("cascades").collect())).toEqual([]);
+	});
+
 	it("refuses new child rows while a database is being deleted permanently", async () => {
 		const { owner, member, client, acme } = await seeded();
 		await owner.mutation(api.trash.move, { kind: "database", id: client._id });
 		await owner.mutation(api.trash.purge, { id: client._id });
 		await expect(member.mutation(api.fields.create, { typeId: client._id, label: "Late", kind: "text" })).rejects.toThrow("in Trash");
 		await expect(member.mutation(api.trash.move, { kind: "record", id: acme })).rejects.toThrow("in Trash");
+	});
+
+	it("continues the expiry sweep beyond its first hundred entries", async () => {
+		const { t, owner, member, client } = await seeded();
+		vi.useFakeTimers();
+		const workspaceId = (await owner.query(api.workspace.me))!.workspaceId!;
+		await t.run(async (ctx) => {
+			for (let n = 0; n < 105; n++) {
+				const id = await ctx.db.insert("records", { workspaceId, typeId: client._id, title: `Expired ${n}`, values: { name: `Expired ${n}` }, searchText: "", archived: true, createdBy: member.userId, updatedBy: member.userId, updatedAt: Date.now() });
+				await ctx.db.insert("trash", { workspaceId, itemId: id, kind: "record", typeId: client._id, name: `Expired ${n}`, deletedBy: member.userId, deletedAt: Date.now() - TRASH_MS - 1 });
+			}
+		});
+		await t.mutation(internal.trash.sweep, {});
+		expect(await t.run((ctx) => ctx.db.query("trash").collect())).toHaveLength(5);
+		await settle(t);
+		expect(await trashOf(owner)).toEqual([]);
+		expect(await t.run((ctx) => ctx.db.query("cascades").collect())).toEqual([]);
 	});
 
 	it("deletes forever after 30 days: values, history, mentions and the record's page", async () => {
@@ -249,7 +291,7 @@ describe("trash", () => {
 	});
 
 	it("keeps alpha.6 archive calls working, mapped to Trash", async () => {
-		const { owner, member, client, acme } = await seeded();
+		const { t, owner, member, client, acme } = await seeded();
 		await member.mutation(api.records.archive, { recordId: acme });
 		const field = await member.mutation(api.fields.create, { typeId: client._id, label: "Roof", kind: "text" });
 		await member.mutation(api.fields.archive, { fieldId: field._id });
@@ -276,10 +318,30 @@ describe("trash", () => {
 		await expect(member.mutation(api.pages.remove, { pageId })).rejects.toThrow("permission");
 		await owner.mutation(api.pages.remove, { pageId });
 		expect(await owner.query(api.pages.get, { pageId })).toBeNull();
+		expect(await t.withIdentity({ subject: `${owner.userId}|session` }).query(api.pageSync.latestVersion, { id: pageId })).toBeNull();
 	});
 });
 
 describe("trash migration", () => {
+	it("migrates large legacy rows in resumable batches, without duplicates on retry", async () => {
+		const t = newTest();
+		migrationsTest.register(t);
+		const owner = await signIn(t, "owner@co.com");
+		const workspaceId = (await owner.query(api.workspace.me))!.workspaceId!;
+		const typeId = (await owner.query(api.recordTypes.list))[0]!._id;
+		// A default 100-row batch would exceed 16 MiB. Seed in separate transactions too.
+		for (let batch = 0; batch < 7; batch++) await t.run(async (ctx) => {
+			for (let n = 0; n < 4; n++) await ctx.db.insert("records", { workspaceId, typeId, title: "Legacy", values: { name: "Legacy", old: "x".repeat(700_000) }, searchText: "Legacy", archived: true, createdBy: owner.userId, updatedBy: owner.userId, updatedAt: Date.now() });
+		});
+		vi.useFakeTimers();
+		for (let n = 0; n < 2; n++) {
+			await t.mutation(internal.migrations.runAll);
+			await settle(t);
+		}
+		expect(await trashOf(owner)).toHaveLength(28);
+		expect(new Set((await trashOf(owner)).map((e) => e.itemId)).size).toBe(28);
+	});
+
 	it("moves archived records, databases, fields and pages to Trash, deleted at deploy time", async () => {
 		const t = newTest();
 		migrationsTest.register(t);

@@ -3,7 +3,7 @@ import { ConvexError, v } from "convex/values";
 import type { Id, TableNames } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { addChannelMembers, createChannelAs, joinChannel, leaveChannel, openDirectMessage, removeChannelMember, updateChannelAs } from "./chats";
-import { chatByRef, namer, requireChat } from "./chatOps";
+import { chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
 import { canView, definitionOf, installOf } from "./automationOps";
 import { removeAutomation, saveAutomation, updateAutomation } from "./automations";
 import { installSkill, removeSkill, saveSkill } from "./skills";
@@ -130,6 +130,7 @@ export const runFor = internalMutation({
 							page: await Promise.all(result.page.map((m) => namer(ctx).of(m))),
 						};
 					}
+					if (r.action === "delete" || r.action === "restore") await setChannelTrashed(ctx, who, id, r.action === "delete");
 					if (r.action === "rename") await updateChannelAs(ctx, member, { chatId: id, name: r.name });
 					if (r.action === "set_topic") await updateChannelAs(ctx, member, { chatId: id, topic: r.topic });
 					if (r.action === "join") await joinChannel(ctx, member, { chatId: id });

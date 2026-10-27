@@ -23,6 +23,24 @@ const config = { name: "Review", prompt: "Review work", trigger: { type: "schedu
 const skill = { name: "Procedure", description: "Use for work", instructions: "Review it." };
 
 describe("messaging and channels as the person", () => {
+	it("trashes channels as their manager, with agent attribution, never DMs or general", async () => {
+		const { t, call, owner, member, chat } = await ready();
+		const id = await member.mutation(api.chats.createChannel, { name: "disposable", private: false });
+		expect(await call("channels.manage", { action: "delete", chat: id }, true)).toMatchObject({ done: "delete", chatId: id });
+		expect((await member.query(api.trash.list, { paginationOpts: { numItems: 50, cursor: null } })).page[0]).toMatchObject({ itemId: id, agent: "Companybot" });
+		const other = await owner.mutation(api.chats.createChannel, { name: "owner-channel", private: false });
+		expect(await call("channels.manage", { action: "delete", chat: other }, true)).toHaveProperty("error");
+		expect(await call("channels.manage", { action: "delete", chat: chat._id })).toHaveProperty("error");
+		const dm = await member.mutation(api.chats.openDm, { userIds: [], agentIds: [] });
+		expect(await call("channels.manage", { action: "delete", chat: dm }, true)).toHaveProperty("error");
+		expect(await t.run((ctx) => ctx.db.get(id))).toMatchObject({ archived: true });
+		expect(await call("channels.manage", { action: "restore", chat: id }, true)).toMatchObject({ done: "restore" });
+		expect(await t.run((ctx) => ctx.db.get(id))).toMatchObject({ archived: false });
+		await call("channels.manage", { action: "delete", chat: id }, true);
+		const replacement = await member.mutation(api.chats.createChannel, { name: "disposable", private: false });
+		expect(await call("channels.manage", { action: "get", chat: "#disposable" }, true)).toMatchObject({ id: replacement });
+	});
+
 	it("discovers people/agents/invites, chats and channel metadata with paging", async () => {
 		const { call, owner, companybot, chat } = await ready();
 		expect((await call("chat.manage", { action: "find_people" })).page).toEqual(

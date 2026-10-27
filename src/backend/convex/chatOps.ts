@@ -59,7 +59,7 @@ export async function channelNamed(ctx: QueryCtx, member: Member, name: string) 
 	const clean = name.trim().replace(/^#/, "").toLowerCase();
 	const chat = await ctx.db
 		.query("chats")
-		.withIndex("by_name", (q) => q.eq("workspaceId", member.workspaceId).eq("name", clean))
+		.withIndex("by_name", (q) => q.eq("workspaceId", member.workspaceId).eq("name", clean).eq("archived", false))
 		.first();
 	return chat && chat.kind === "channel" && !chat.archived && (await canSee(ctx, chat, member)) ? chat : null;
 }
@@ -138,8 +138,8 @@ export async function availableName(ctx: QueryCtx, member: Member, raw: string, 
 	if (!name) throw new ConvexError("Give the channel a name.");
 	const taken = await ctx.db
 		.query("chats")
-		.withIndex("by_name", (q) => q.eq("workspaceId", member.workspaceId).eq("name", name))
-		.filter((q) => q.and(q.eq(q.field("archived"), false), q.neq(q.field("_id"), except ?? null)))
+		.withIndex("by_name", (q) => q.eq("workspaceId", member.workspaceId).eq("name", name).eq("archived", false))
+		.filter((q) => q.neq(q.field("_id"), except ?? null))
 		.first();
 	if (taken) throw new ConvexError(`#${name} already exists.`);
 	return name;
