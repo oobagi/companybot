@@ -14,7 +14,7 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
-import { checkVersion, getMember, namesOf, requireAgent, requireMember, requirePermission, toActor } from "./lib";
+import { checkVersion, getMember, namesOf, requireAgent, requirePermission, toActor } from "./lib";
 import { connectorStates } from "./connectors";
 import { agentConfig } from "./schema";
 
@@ -178,11 +178,3 @@ export const setArchived = mutation({
 		await ctx.db.patch(agent._id, { archived });
 	},
 });
-
-/** For the chat: an agent people can talk to right now. */
-export async function requireActiveAgent(ctx: MutationCtx, agentId: Id<"agents">) {
-	const member = await requireMember(ctx);
-	const agent = await requireAgent(ctx, member, agentId);
-	if (agent.archived) throw new ConvexError("This agent is archived.");
-	return { member, agent };
-}

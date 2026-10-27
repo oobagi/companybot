@@ -20,7 +20,7 @@ import {
 	requireWorkspaceUsers,
 	visibleChat,
 } from "./chatOps";
-import { type Member, getMember, requireMember, requirePermission, toActor } from "./lib";
+import { type Member, getMember, preferencesOf, requireMember, requirePermission, toActor } from "./lib";
 import { sessionAt } from "./turns";
 
 // Channels and DMs. Queries return display-ready data so the app never joins tables.
@@ -140,10 +140,7 @@ export const alerts = query({
 	handler: async (ctx): Promise<Alert[] | null> => {
 		const member = await getMember(ctx);
 		if (!member) return null;
-		const prefs = await ctx.db
-			.query("preferences")
-			.withIndex("by_user", (q) => q.eq("userId", member.userId))
-			.first();
+		const prefs = await preferencesOf(ctx, member.userId);
 		const notify = prefs?.notify ?? "all";
 		if (notify === "off") return [];
 		const names = namer(ctx);

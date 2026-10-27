@@ -305,20 +305,8 @@ export async function createField(ctx: MutationCtx, who: Who, typeId: Id<"record
 	requireFieldConfig(config);
 	requireUniqueLabel(fields, config.label);
 	if (linkTypeId) await requireType(ctx, who.member, linkTypeId);
-	const id = await ctx.db.insert("recordFields", {
-		workspaceId: who.member.workspaceId,
-		typeId,
-		key: keyOf(config.label, fields.map((f) => f.key)),
-		label: config.label,
-		kind: config.kind,
-		...(config.options && { options: config.options }),
-		...(linkTypeId && { linkTypeId }),
-		...(config.multiple && { multiple: true }),
-		position: Math.max(0, ...fields.map((f) => f.position)) + 1,
-		archived: false,
-		createdBy: who.member.userId,
-		updatedAt: Date.now(),
-	});
+	const key = keyOf(config.label, fields.map((f) => f.key));
+	const id = await insertField(ctx, who.member, typeId, { ...config, key }, Math.max(0, ...fields.map((f) => f.position)) + 1, linkTypeId);
 	await logChange(ctx, who, { typeId, fieldId: id, action: "field.created", changes: [{ key: "label", new: config.label }] });
 	return (await ctx.db.get(id))!;
 }

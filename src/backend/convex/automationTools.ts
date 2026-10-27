@@ -4,7 +4,7 @@ import type { Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { channelNamed } from "./chatOps";
 import { asToolResult, nameOf, timeZoneOf } from "./lib";
-import { audienceOf, canView, definitionOf, installOf, runsForLabel, subscribersOf, webhookUrl } from "./automationOps";
+import { audienceOf, definitionOf, installOf, runsForLabel, subscribersOf, visibleInstalls, webhookUrl } from "./automationOps";
 import { createAutomation, setSubscription } from "./automations";
 import { runningTurn } from "./turns";
 
@@ -14,12 +14,7 @@ export const listFor = internalQuery({
 	args: { turnId: v.id("agentTurns") },
 	handler: async (ctx, { turnId }): Promise<AutomationSummary[]> => {
 		const { member } = await runningTurn(ctx, turnId);
-		const installs = (
-			await ctx.db
-				.query("automationInstalls")
-				.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
-				.collect()
-		).filter((i) => canView(member, i));
+		const installs = await visibleInstalls(ctx, member);
 		const rows = await Promise.all(
 			installs.map(async (install) => {
 				const automation = await definitionOf(ctx, install);

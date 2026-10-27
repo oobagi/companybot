@@ -17,7 +17,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalQuery } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { type Member, getMember, memberFor, requireInWorkspace, requireMember, requirePermission } from "./lib";
-import { automationName, canView } from "./automationOps";
+import { automationName, canView, installOf } from "./automationOps";
 import { riskOf, titleOf, toolsOf } from "./connectorTools";
 import { risk } from "./schema";
 import { runningTurn } from "./turns";
@@ -105,10 +105,7 @@ async function decideWith(
 export async function automationOfTurn(ctx: QueryCtx, turn: Doc<"agentTurns">) {
 	const trigger = await ctx.db.get(turn.triggerId);
 	if (!trigger?.automation) return null;
-	return ctx.db
-		.query("automationInstalls")
-		.withIndex("by_workspace", (q) => q.eq("workspaceId", turn.workspaceId).eq("automationId", trigger.automation!.id))
-		.first();
+	return installOf(ctx, turn.workspaceId, trigger.automation.id);
 }
 
 /** Called by the runner before every call that could ask: the decision, from the rules in force now. */
@@ -351,10 +348,7 @@ async function automationActions(ctx: QueryCtx, member: Member, install: Doc<"au
 
 /** An automation the person can see (creator-only ones are their maker's alone). */
 async function installNamed(ctx: QueryCtx, member: Member, automationId: string) {
-	const install = await ctx.db
-		.query("automationInstalls")
-		.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("automationId", automationId))
-		.first();
+	const install = await installOf(ctx, member.workspaceId, automationId);
 	return install && canView(member, install) ? install : null;
 }
 

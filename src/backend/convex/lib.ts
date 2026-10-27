@@ -210,6 +210,13 @@ export async function installedSkills(ctx: QueryCtx, workspaceId: Id<"workspaces
 	return [...skillCatalog.filter((s) => ids.has(s.id)), ...custom];
 }
 
+/** Someone's `preferences` row, if they've saved any. */
+export const preferencesOf = (ctx: QueryCtx, userId: Id<"users">) =>
+	ctx.db
+		.query("preferences")
+		.withIndex("by_user", (q) => q.eq("userId", userId))
+		.first();
+
 /** Display names for a set of people, falling back to email. */
 export async function namesOf(ctx: QueryCtx, userIds: Id<"users">[]) {
 	const names = new Map<Id<"users">, string>();
@@ -221,19 +228,13 @@ export async function nameOf(ctx: QueryCtx, userId: Id<"users">) {
 	const user = await ctx.db.get(userId);
 	// Erased accounts keep a scrubbed row (workspace.eraseAccount), whatever is left to clean up.
 	if (!user || user.erasedAt) return "Former member";
-	const prefs = await ctx.db
-		.query("preferences")
-		.withIndex("by_user", (q) => q.eq("userId", userId))
-		.first();
+	const prefs = await preferencesOf(ctx, userId);
 	return prefs?.displayName || user.email || "Former member";
 }
 
 /** Someone's time zone: the one they picked, else their computer's, else UTC. */
 export async function timeZoneOf(ctx: QueryCtx, userId: Id<"users">) {
-	const prefs = await ctx.db
-		.query("preferences")
-		.withIndex("by_user", (q) => q.eq("userId", userId))
-		.first();
+	const prefs = await preferencesOf(ctx, userId);
 	return resolveTimeZone(prefs?.timeZone, prefs?.deviceTimeZone);
 }
 

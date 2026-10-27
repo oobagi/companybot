@@ -33,7 +33,7 @@ import {
 	requirePermission,
 	saveMade,
 } from "./lib";
-import { audienceOf, canView, definitionOf, installOf, postingProblem, requireEditable, runsForLabel, subscribersOf, webhookUrl } from "./automationOps";
+import { audienceOf, canView, definitionOf, installOf, postingProblem, requireEditable, runsForLabel, subscribersOf, visibleInstalls, webhookUrl } from "./automationOps";
 import { forgetAutomationGrants } from "./permissions";
 import { startCascade } from "./cascade";
 import { audience, customTrigger } from "./schema";
@@ -70,12 +70,7 @@ export const list = query({
 		const member = await getMember(ctx);
 		if (!member) return [];
 		const connectors = await installedConnectorIds(ctx, member.workspaceId);
-		const installs = (
-			await ctx.db
-				.query("automationInstalls")
-				.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
-				.collect()
-		).filter((i) => canView(member, i));
+		const installs = await visibleInstalls(ctx, member);
 		const custom = installs.filter((i) => i.custom).sort((a, b) => b._creationTime - a._creationTime);
 		const library = automationCatalog.map((automation) => ({
 			automation,
@@ -299,9 +294,6 @@ export const setInstalled = mutation({
 			.filter((q) => q.eq(q.field("archived"), false))
 			.first();
 		if (!agent) throw new ConvexError("Create an agent first.");
-		// Installed after today's time: start tomorrow rather than firing right away.
-		const now = localTime(Date.now(), timeZone);
-		const startsTomorrow = automation.trigger.type === "schedule" && now.time >= automation.trigger.time;
 		const installId = await ctx.db.insert("automationInstalls", {
 			workspaceId: owner.workspaceId,
 			automationId,
@@ -309,7 +301,7 @@ export const setInstalled = mutation({
 			enabled: true,
 			timeZone,
 			installedBy: owner.userId,
-			lastRunDate: startsTomorrow ? now.date : undefined,
+			lastRunDate: firstRunDate(automation.trigger, timeZone),
 			webhookToken: automation.trigger.type === "webhook" ? newToken() : undefined,
 			audience: "subscribers",
 		});
