@@ -326,8 +326,7 @@ export const markRead = mutation({
 	args: { chatId: v.id("chats") },
 	handler: async (ctx, { chatId }) => {
 		const member = await requireMember(ctx);
-		await requireChat(ctx, member, chatId);
-		await markChatRead(ctx, chatId, member.userId);
+		await markReadAs(ctx, member, chatId);
 	},
 });
 
@@ -372,4 +371,9 @@ export async function removeChannelMember(ctx: MutationCtx, member: Member, { ch
 	const row = userId ? await membership(ctx, chatId, userId) : await ctx.db.query("chatMembers")
 		.withIndex("by_agent", q => q.eq("agentId", agentId).eq("chatId", chatId)).first();
 	if (row) await ctx.db.delete(row._id);
+}
+
+export async function markReadAs(ctx: MutationCtx, member: Member, chatId: Id<"chats">) {
+	await requireChat(ctx, member, chatId);
+	await markChatRead(ctx, chatId, member.userId);
 }

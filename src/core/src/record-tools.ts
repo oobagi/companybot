@@ -9,7 +9,8 @@ import { type ToolDef, defineTool, resultText as text } from "./tools";
  * Expected problems come back as `{ error }` for the model to fix or explain.
  */
 export interface RecordStore {
-	types(): Promise<RecordTypesResult>;
+	types(input?: { trashed?: boolean }): Promise<RecordTypesResult>;
+	history(input: { id?: string; cursor?: string; source?: "records" | "agents" }): Promise<unknown>;
 	/** One request's worth of a list or search. `numItems` is at most 50. */
 	find(input: RecordFindInput & { numItems: number }): Promise<RecordPage | { error: string }>;
 	get(input: { id: string }): Promise<unknown>;
@@ -29,7 +30,8 @@ export interface RecordTypesResult {
 		name: string;
 		plural: string;
 		version: number;
-		fields: { key: string; label: string; kind: string; options?: string[]; linksTo?: string; multiple?: true }[];
+		inTrash?: boolean;
+		fields: { key: string; label: string; kind: string; options?: string[]; choices?: { id: string; label: string; retired?: boolean }[]; position?: number; inTrash?: boolean; linksTo?: string; multiple?: true }[];
 	}[];
 }
 
@@ -97,15 +99,16 @@ const saveInput = z.object({
 });
 export type RecordSaveInput = z.infer<typeof saveInput>;
 
-const fieldInput = z.object({
+export const fieldInput = z.object({
 	type: z.string().describe('Database, e.g. "client"'),
 	field: z.string().optional().describe("An existing field's key or label, to rename it or change its options. Omit to add a field."),
 	label: z.string().optional().describe('The field\'s name, e.g. "Roof type". Required when adding.'),
 	kind: z.enum(fieldKinds).optional().describe("Required when adding; can't change later. user = a teammate; link = another record."),
 	options: z
-		.array(z.string())
+		.array(z.union([z.string(), z.strictObject({ id: z.string().optional(), label: z.string() })])).max(100)
 		.optional()
-		.describe("Choice fields: every option, in order. When changing, list all to keep: one left out is retired (records keep it; it can't be picked)."),
+		.describe("Choice fields: every option, in order. Use {id,label} from records_types choices to rename without changing stored values. When changing, list all to keep: one left out is retired (records keep it; it can't be picked)."),
+	position: z.number().int().min(1).max(100).optional().describe("Move an existing field to this display position, starting at 1 after Name (owners)."),
 	linksTo: z.string().optional().describe("Link fields: the database it points at"),
 	multiple: z.boolean().optional().describe("Choice, user and link fields: holds several"),
 	trash: z.boolean().optional().describe("true deletes `field` (to Trash: records keep its values until it's gone for good); false restores it. On its own."),
@@ -231,9 +234,9 @@ export const recordTools: ToolDef[] = [
 		title: "Look up databases",
 		description:
 			"The workspace's databases (clients, deals, tasks, calls, and any the team added) with every field: key, label, kind, choice options, and what links point at. Also the workspace's currency. Call it before your first records tool in a conversation.",
-		input: z.object({}),
+		input: z.object({ trashed: z.boolean().optional().describe("Databases in Trash instead; fields include trashed fields and stable choice ids") }),
 		readOnly: true,
-		execute: (_input, { records }) => records.types(),
+		execute: (input, { records }) => records.types(input),
 	}),
 	defineTool({
 		id: "records.find",
@@ -273,6 +276,15 @@ export const recordTools: ToolDef[] = [
 		execute: (input, { records }) => records.get(input),
 		toModelOutput: ({ output }) => ({ type: "json", value: forModel(output, RECORD_TEXT_MAX) as never }),
 		label: (_input, output) => (failed(output) || !text(output, "name") ? undefined : `Open ${text(output, "name")}`),
+	}),
+	defineTool({
+		id: "records.history",
+		title: "Read history and Activity",
+		description: "Read a record's full history by id, or the workspace Activity feed without id. Paged newest first, with raw old/new values and undo ids. source agents reads visible agent tool activity; outputs remain private to the person it acted for. Continue with cursor until isDone.",
+		input: z.object({ id: z.string().optional(), source: z.enum(["records", "agents"]).optional(), cursor: z.string().optional() }),
+		readOnly: true,
+		returnsData: true,
+		execute: (input, { records }) => records.history(input),
 	}),
 	defineTool({
 		id: "records.save",

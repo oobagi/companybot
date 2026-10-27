@@ -5,7 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { mutation } from "./functions";
 import { addToChat, canSee, findOrCreateDm, insertMessage } from "./chatOps";
-import { liveWorkspace, memberOf, nameOf, normalizeEmail } from "./lib";
+import { type Member, liveWorkspace, memberOf, nameOf, normalizeEmail, requireMember } from "./lib";
 import { audienceOf, definitionOf, postingProblem, requireEditable, subscribersOf } from "./automationOps";
 import { enqueueTurn } from "./turns";
 
@@ -13,11 +13,7 @@ import { enqueueTurn } from "./turns";
 export const runNow = mutation({
 	args: { automationId: v.string() },
 	handler: async (ctx, { automationId }) => {
-		const { member, install } = await requireEditable(ctx, automationId);
-		const automation = await definitionOf(ctx, install);
-		if (!automation) throw new ConvexError("Install it first.");
-		const result = await runInDms(ctx, install, automation, [member.userId], triggerPrompt(automation, sampleData(automation.trigger)));
-		if (!result.ran) throw new ConvexError(result.summary);
+		return runNowAs(ctx, await requireMember(ctx), automationId);
 	},
 });
 
@@ -288,4 +284,12 @@ async function runInChannel(
 	});
 	await enqueueTurn(ctx, chat, { agentId: agent._id, chatId: chat._id, threadId, triggerId, actorId });
 	return { ran: true, summary: await finish(ctx, install, `Posted in #${chat.name}.`) };
+}
+
+export async function runNowAs(ctx: MutationCtx, acting: Member, automationId: string) {
+	const { member, install } = await requireEditable(ctx, automationId, acting);
+	const automation = await definitionOf(ctx, install);
+	if (!automation) throw new ConvexError("Install it first.");
+	const result = await runInDms(ctx, install, automation, [member.userId], triggerPrompt(automation, sampleData(automation.trigger)));
+	if (!result.ran) throw new ConvexError(result.summary);
 }

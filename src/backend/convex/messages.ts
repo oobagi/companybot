@@ -1,7 +1,7 @@
 import { fireEvent } from "./automationRuns";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type MutationCtx, type QueryCtx } from "./_generated/server";
+import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { mutation, query } from "./functions";
 import {
 	type Namer,
@@ -13,7 +13,6 @@ import {
 	markChatRead,
 	namer,
 	reactionsOf,
-	removeUserMentions,
 	requireChat,
 	toggleReaction,
 	visibleChat,
@@ -21,6 +20,7 @@ import {
 import { type Who, type Member, memberOf, nameOf, requireMember } from "./lib";
 import { noteMentions, workspaceRecords } from "./recordOps";
 import type { messagePart, replyStats } from "./schema";
+import { internal } from "./_generated/api";
 import { enqueueTurn } from "./turns";
 
 // Messages in a chat's main timeline or a thread. See wiki/chat.md.
@@ -211,20 +211,19 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	return messageId;
 }
 /** Your own message, not deleted. */
-async function requireOwn(ctx: QueryCtx, member: Member, messageId: Id<"chatMessages">) {
+async function requireOwn(ctx: QueryCtx, who: Who, messageId: Id<"chatMessages">) {
+	const { member } = who;
 	const message = await ctx.db.get(messageId);
 	if (!message || message.workspaceId !== member.workspaceId || message.deleted) throw new ConvexError("Message not found.");
-	if (message.authorUserId !== member.userId) throw new ConvexError("You can only change your own messages.");
+	await requireChat(ctx, member, message.chatId);
+	if (message.authorUserId !== member.userId && !(who.agentId && message.authorAgentId === who.agentId && message.actingFor === member.userId)) throw new ConvexError("You can only change your own messages.");
 	return message;
 }
 
 export const edit = mutation({
 	args: { messageId: v.id("chatMessages"), text: v.string() },
 	handler: async (ctx, { messageId, text }) => {
-		const message = await requireOwn(ctx, await requireMember(ctx), messageId);
-		text = text.trim();
-		if (!text) throw new ConvexError("Write something first, or delete the message.");
-		await ctx.db.patch(message._id, { text, parts: [{ type: "text", text }], editedAt: Date.now() });
+		return editMessage(ctx, { member: await requireMember(ctx) }, messageId, text);
 	},
 });
 
@@ -232,24 +231,54 @@ export const edit = mutation({
 export const remove = mutation({
 	args: { messageId: v.id("chatMessages") },
 	handler: async (ctx, { messageId }) => {
-		const message = await requireOwn(ctx, await requireMember(ctx), messageId);
-		await ctx.db.patch(message._id, { text: "", parts: [], deleted: true });
-		for (const r of await reactionsOf(ctx, messageId)) await ctx.db.delete(r._id);
-		await removeUserMentions(ctx, messageId);
-		// Records no longer list it where they were discussed.
-		for await (const m of ctx.db.query("recordMentions").withIndex("by_message", (q) => q.eq("messageId", messageId))) await ctx.db.delete(m._id);
+		return removeMessage(ctx, { member: await requireMember(ctx) }, messageId);
 	},
 });
 
 export const react = mutation({
 	args: { messageId: v.id("chatMessages"), emoji: v.string() },
 	handler: async (ctx, { messageId, emoji }) => {
-		const member = await requireMember(ctx);
-		const message = await ctx.db.get(messageId);
-		if (!message || message.deleted) throw new ConvexError("Message not found.");
-		await requireChat(ctx, member, message.chatId);
-		emoji = emoji.trim();
-		if (!emoji || emoji.length > 16) throw new ConvexError("Pick one emoji.");
-		await toggleReaction(ctx, message, emoji, { userId: member.userId });
+		return reactMessage(ctx, { member: await requireMember(ctx) }, messageId, emoji);
+	},
+});
+
+export async function editMessage(ctx: MutationCtx, who: Who, messageId: Id<"chatMessages">, text: string) {
+	const message = await requireOwn(ctx, who, messageId);
+	text = text.trim();
+	if (!text) throw new ConvexError("Write something first, or delete the message.");
+	await ctx.db.patch(message._id, { text, parts: [{ type: "text", text }], editedAt: Date.now() });
+}
+
+export async function removeMessage(ctx: MutationCtx, who: Who, messageId: Id<"chatMessages">) {
+	const message = await requireOwn(ctx, who, messageId);
+	await ctx.db.patch(message._id, { text: "", parts: [], deleted: true });
+	await clearMessageLinks(ctx, messageId);
+}
+
+export async function reactMessage(ctx: MutationCtx, who: Who, messageId: Id<"chatMessages">, emoji: string) {
+	const { member } = who;
+	const message = await ctx.db.get(messageId);
+	if (!message || message.deleted) throw new ConvexError("Message not found.");
+	await requireChat(ctx, member, message.chatId);
+	emoji = emoji.trim();
+	if (!emoji || emoji.length > 16) throw new ConvexError("Pick one emoji.");
+	return toggleReaction(ctx, message, emoji, who.agentId ? { agentId: who.agentId } : { userId: member.userId });
+}
+
+/** Deleted content disappears immediately; mentions and reactions drain in bounded batches. */
+async function clearMessageLinks(ctx: MutationCtx, messageId: Id<"chatMessages">) {
+	let more = false;
+	for (const table of ["reactions", "userMentions", "recordMentions"] as const) {
+		const rows = await ctx.db.query(table).withIndex("by_message", (q) => q.eq("messageId", messageId)).take(100);
+		for (const row of rows) await ctx.db.delete(row._id);
+		more ||= rows.length === 100;
+	}
+	if (more) await ctx.scheduler.runAfter(0, internal.messages.clearRemovedMessage, { messageId });
+}
+
+export const clearRemovedMessage = internalMutation({
+	args: { messageId: v.id("chatMessages") },
+	handler: async (ctx, { messageId }) => {
+		if ((await ctx.db.get(messageId))?.deleted) await clearMessageLinks(ctx, messageId);
 	},
 });

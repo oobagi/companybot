@@ -1,4 +1,4 @@
-import { paginationOptsValidator } from "convex/server";
+import { type PaginationOptions, paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { components } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -115,24 +115,11 @@ export const history = query({
 		const member = await getMember(ctx);
 		const page = member && (await ctx.db.get(pageId));
 		if (!member || page?.workspaceId !== member.workspaceId) return { page: [], isDone: true, continueCursor: "" };
-		const result = await ctx.db
-			.query("pageVersions")
-			.withIndex("by_page", (q) => q.eq("pageId", pageId))
-			.order("desc")
-			.paginate({ ...paginationOpts, numItems: Math.min(paginationOpts.numItems, HISTORY_PAGE_MAX) });
-		return {
-			...result,
-			page: await Promise.all(
-				result.page.map(async (row) => {
-					const [first, ...others] = await editorsOf(ctx, row);
-					return { _id: row._id, time: row.editedAt, ...first!, others, restored: row.restored ?? null };
-				}),
-			),
-		};
+		return pageHistory(ctx, page._id, paginationOpts);
 	},
 });
 
-async function requireVersion(ctx: QueryCtx, member: Member, versionId: Id<"pageVersions">) {
+export async function requireVersion(ctx: QueryCtx, member: Member, versionId: Id<"pageVersions">) {
 	const row = await ctx.db.get(versionId);
 	const page = row && (await ctx.db.get(row.pageId));
 	if (!row || page?.workspaceId !== member.workspaceId) throw new ConvexError("Version not found.");
@@ -144,8 +131,7 @@ export const version = query({
 	args: { versionId: v.id("pageVersions") },
 	handler: async (ctx, { versionId }) => {
 		const { row, page } = await requireVersion(ctx, await requireMember(ctx), versionId);
-		const snapshot = await ctx.runQuery(components.prosemirrorSync.lib.getSnapshot, { id: page._id, version: row.version });
-		return snapshot.content !== null && snapshot.version === row.version ? snapshot.content : null;
+		return versionContent(ctx, page, row);
 	},
 });
 
@@ -158,3 +144,25 @@ export const restore = mutation({
 		await restoreVersion(ctx, { member }, page, row);
 	},
 });
+
+export async function pageHistory(ctx: QueryCtx, pageId: Id<"pages">, paginationOpts: PaginationOptions) {
+	const result = await ctx.db
+		.query("pageVersions")
+		.withIndex("by_page", (q) => q.eq("pageId", pageId))
+		.order("desc")
+		.paginate({ ...paginationOpts, numItems: Math.min(paginationOpts.numItems, HISTORY_PAGE_MAX) });
+	return {
+		...result,
+		page: await Promise.all(
+			result.page.map(async (row) => {
+				const [first, ...others] = await editorsOf(ctx, row);
+				return { _id: row._id, time: row.editedAt, ...first!, others, restored: row.restored ?? null };
+			}),
+		),
+	};
+}
+
+export async function versionContent(ctx: QueryCtx, page: Doc<"pages">, row: Doc<"pageVersions">) {
+	const snapshot = await ctx.runQuery(components.prosemirrorSync.lib.getSnapshot, { id: page._id, version: row.version });
+	return snapshot.content !== null && snapshot.version === row.version ? snapshot.content : null;
+}

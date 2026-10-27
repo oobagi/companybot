@@ -63,7 +63,7 @@ describe("records tools", () => {
 		await tool("records.undo").execute({ change: "h1" }, c);
 		await tool("records.save_field").execute({ type: "client", label: "Roof type", kind: "text" }, c);
 		expect(seen).toEqual([
-			["types", undefined],
+			["types", {}],
 			["get", { id: "r1" }],
 			["save", { type: "client", values: { name: "Acme" } }],
 			["undo", { change: "h1" }],
@@ -73,9 +73,9 @@ describe("records tools", () => {
 
 	it("run right away: internal, undoable, nothing sent outside", () => {
 		const ids = builtinTools.filter((t) => t.id.startsWith("records.")).map((t) => t.id);
-		expect(ids).toEqual(["records.types", "records.find", "records.get", "records.save", "records.undo", "records.save_field", "records.save_database", "records.views", "records.save_view"]);
+		expect(ids).toEqual(["records.types", "records.find", "records.get", "records.history", "records.save", "records.undo", "records.save_field", "records.save_database", "records.views", "records.save_view"]);
 		for (const id of ids) expect(toolRisk(tool(id))).toBe("none");
-		expect(ids.filter((id) => tool(id).readOnly)).toEqual(["records.types", "records.find", "records.get", "records.views"]);
+		expect(ids.filter((id) => tool(id).readOnly)).toEqual(["records.types", "records.find", "records.get", "records.history", "records.views"]);
 		expect(ids.filter((id) => tool(id).permission)).toEqual(["records.save_database", "records.save_view"]);
 		expect(toolLine(callLabel("records_undo", builtinTools, []), "done")).toBe("Undid a record change");
 		expect(toolLine(callLabel("records_save", builtinTools, []), "running")).toBe("Saving a record…");

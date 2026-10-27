@@ -175,7 +175,7 @@ export default defineSchema({
 		version: v.number(),
 		updatedAt: v.number(),
 		updatedBy: v.id("users"),
-	}).index("by_workspace", ["workspaceId"]),
+	}).index("by_workspace", ["workspaceId"]).index("by_workspace_active", ["workspaceId", "archived"]),
 
 	agentVersions: defineTable({
 		agentId: v.id("agents"),
@@ -404,7 +404,8 @@ export default defineSchema({
 		emoji: v.string(),
 		userId: v.optional(v.id("users")),
 		agentId: v.optional(v.id("agents")),
-	}).index("by_message", ["messageId", "emoji"]),
+	}).index("by_message", ["messageId", "emoji"])
+		.index("by_actor", ["messageId", "emoji", "userId", "agentId"]),
 
 	// A person @mentioned in a main-timeline message, so unread mentions are found by index
 	// however much else was said since. `at`: the message's _creationTime. Gone when it's deleted.

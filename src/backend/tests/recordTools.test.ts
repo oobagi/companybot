@@ -43,13 +43,13 @@ describe("records tools", () => {
 		expect(result.currency).toBe("USD");
 		const deal = result.types.find((x) => x.type === "deal")!;
 		expect(deal).toMatchObject({ name: "Deal", plural: "Deals" });
-		expect(deal.fields.find((f) => f.key === "stage")).toEqual({
+		expect(deal.fields.find((f) => f.key === "stage")).toMatchObject({
 			key: "stage",
 			label: "Stage",
 			kind: "choice",
 			options: ["New", "Qualified", "Proposal", "Won", "Lost"],
 		});
-		expect(deal.fields.find((f) => f.key === "client")).toEqual({ key: "client", label: "Client", kind: "link", linksTo: "client" });
+		expect(deal.fields.find((f) => f.key === "client")).toMatchObject({ key: "client", label: "Client", kind: "link", linksTo: "client" });
 	});
 
 	it("create and change records as the person, named the way people say things, with history naming both", async () => {
@@ -260,7 +260,7 @@ describe("records tools", () => {
 		const { t, owner, member } = await setup();
 		const tools = await turnFor(t, member);
 		const roof = await tools.saveField({ type: "client", label: "Roof type", kind: "choice", options: ["Shingle", "Metal"] });
-		expect(roof).toEqual({ type: "client", typePlural: "Clients", key: "roof_type", label: "Roof type", kind: "choice", options: ["Shingle", "Metal"] });
+		expect(roof).toMatchObject({ type: "client", typePlural: "Clients", key: "roof_type", label: "Roof type", kind: "choice", options: ["Shingle", "Metal"] });
 		const acme = await tools.save({ type: "client", values: { name: "Acme", "Roof type": "metal" } });
 		expect(acme.values.roof_type).toBe("Metal");
 		expect(await tools.saveField({ type: "client", field: "roof type", options: ["Shingle", "Metal", "Tile"] })).toMatchObject({ options: ["Shingle", "Metal", "Tile"] });

@@ -1,4 +1,4 @@
-import type { PageFindInput, PageWriteInput } from "@companybot/core";
+import { readInput, writeInput, type PageFindInput, type PageWriteInput } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
@@ -15,6 +15,7 @@ import {
 	writeBlocks,
 } from "./pageOps";
 import { inTrash, requireRecord } from "./recordOps";
+import { pageHistory, requireVersion, versionContent } from "./pages";
 import { runningTurn } from "./turns";
 
 // PageStore as the turn's person; conversion runs separately in pageMarkdown.ts.
@@ -62,13 +63,22 @@ export const findFor = internalQuery({
 });
 
 export const readFor = internalQuery({
-	args: { turnId: v.id("agentTurns"), page: v.optional(v.string()), record: v.optional(v.string()) },
-	handler: async (ctx, { turnId, page: name, record: recordName }) => {
+	args: { turnId: v.id("agentTurns"), page: v.optional(v.string()), record: v.optional(v.string()), version: v.optional(v.string()), history: v.optional(v.boolean()), cursor: v.optional(v.string()), format: v.optional(v.string()) },
+	handler: async (ctx, { turnId, ...input }) => {
 		const { member } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
+			const { page: name, record: recordName, version, history, cursor } = readInput.parse(input);
+			const oldId = version && ctx.db.normalizeId("pageVersions", version);
+			if (version && !oldId) throw new ConvexError("Version not found.");
+			const old = oldId ? await requireVersion(ctx, member, oldId) : null;
 			const record = recordName ? await recordNamed(ctx, member, recordName) : null;
-			const page = record ? await pageOfRecord(ctx, member.workspaceId, record._id) : name ? await pageNamed(ctx, member, name) : null;
+			const page = old?.page ?? (record ? await pageOfRecord(ctx, member.workspaceId, record._id) : name ? await pageNamed(ctx, member, name) : null);
+			if (old && ((record && old.page.recordId !== record._id) || (name && (await pageNamed(ctx, member, name))._id !== old.page._id))) throw new ConvexError("Version belongs to a different page.");
 			if (!record && !page) throw new ConvexError("Say which page (page) or record (record) to read.");
+			if (history) {
+				const result = page ? await pageHistory(ctx, page._id, { cursor: cursor ?? null, numItems: 20 }) : { page: [], isDone: true, continueCursor: "" };
+				return { title: page ? await titleOf(ctx, page) : record!.title, doc: null, versions: result.page.map((r) => ({ version: r._id, time: new Date(r.time).toISOString(), by: r.user, ...(r.agent && { agent: r.agent }), others: r.others.map((e) => e.agent ? `${e.agent}, for ${e.user}` : e.user) })), moreVersions: !result.isDone, ...(!result.isDone && { cursor: result.continueCursor }) };
+			}
 			const versions = page
 				? await ctx.db
 						.query("pageVersions")
@@ -82,7 +92,7 @@ export const readFor = internalQuery({
 				...(record && { record: record._id }),
 				...((page?.archived || (record && (await inTrash(ctx, record)))) && { inTrash: true }),
 				// A record nobody has written in yet has no page: it reads as empty.
-				doc: page ? JSON.stringify((await readDoc(ctx, page._id)).toJSON()) : null,
+				doc: old ? await versionContent(ctx, old.page, old.row) : page ? JSON.stringify((await readDoc(ctx, page._id)).toJSON()) : null,
 				versions: await Promise.all(
 					versions.map(async (row) => {
 						const [first, ...others] = await editorsOf(ctx, row);
@@ -104,9 +114,11 @@ export const writeFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), input: v.any(), blocks: v.optional(v.string()) },
 	handler: async (ctx, { turnId, input, blocks }) => {
 		const { member, who } = await runningTurn(ctx, turnId);
-		const { page: name, record, title, markdown, mode = "append", trash, restore } = input as PageWriteInput;
 		return asToolResult(async () => {
-			const changes = [title, markdown, trash, restore].filter((x) => x !== undefined).length;
+			const { page: name, record, title, markdown, blocks: rich, mode = "append", trash, restore } = writeInput.parse(input);
+			if (rich !== undefined && markdown !== undefined) throw new ConvexError("Use blocks or markdown, not both.");
+			const content = rich ?? blocks;
+			const changes = [title, markdown, rich, trash, restore].filter((x) => x !== undefined).length;
 			if ((trash !== undefined || restore) && changes > 1) throw new ConvexError("Delete, restore or bring back a version on its own.");
 			let page: Doc<"pages">;
 			if (restore) {
@@ -125,9 +137,9 @@ export const writeFor = internalMutation({
 			}
 			if (trash !== undefined) await setPageTrashed(ctx, who, page, trash);
 			if (title !== undefined && (name || record)) await renamePage(ctx, who, page, title);
-			const wrote = blocks !== undefined && (await writeBlocks(ctx, who, page, blocks, mode));
+			const wrote = content !== undefined && (await writeBlocks(ctx, who, page, content, mode));
 			const after = (await ctx.db.get(page._id))!;
-			return { id: page._id, title: await titleOf(ctx, after), ...(markdown !== undefined && !wrote && { unchanged: true }) };
+			return { id: page._id, title: await titleOf(ctx, after), ...((markdown !== undefined || rich !== undefined) && !wrote && { unchanged: true }) };
 		});
 	},
 });

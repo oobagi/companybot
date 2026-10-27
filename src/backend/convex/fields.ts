@@ -27,7 +27,7 @@ export const create = mutation({
 
 /** Renames a field or changes its options (send them all; keep `id`s to keep values). */
 export const update = mutation({
-	args: { fieldId: v.id("recordFields"), label: v.optional(v.string()), options: v.optional(options) },
+	args: { fieldId: v.id("recordFields"), label: v.optional(v.string()), options: v.optional(options), position: v.optional(v.number()) },
 	handler: async (ctx, { fieldId, ...update }) => updateField(ctx, { member: await requireMember(ctx) }, fieldId, update),
 });
 

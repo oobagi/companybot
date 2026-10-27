@@ -51,8 +51,8 @@ export function memoryMatches(content: string, query: string) {
  */
 export interface MemoryStore {
 	/** Matching memories (`memoryMatches`) from the whole history, oldest first, capped. Empty query: the newest. */
-	search(query: string): Promise<Memory[]>;
-	create(input: { scope: MemoryScope; content: string }): Promise<Memory>;
+	search(query: string, agentId?: string): Promise<Memory[]>;
+	create(input: { scope: MemoryScope; content: string; agentId?: string }): Promise<Memory>;
 	update(id: string, content: string): Promise<Memory>;
 	remove(id: string): Promise<void>;
 }

@@ -229,13 +229,22 @@ export async function writeDoc(ctx: MutationCtx, who: Who, page: Doc<"pages">, c
 /** Replaces the content, or adds to its end, with blocks (a JSON array, as pageMarkdown.ts makes). */
 export function writeBlocks(ctx: MutationCtx, who: Who, page: Doc<"pages">, json: string, mode: "replace" | "append") {
 	const schema = pageSchema();
-	const blocks = JSON.parse(json) as object[];
+	const raw: unknown = JSON.parse(json);
+	if (!Array.isArray(raw)) throw new ConvexError("Use a JSON array of page blocks.");
+	const blocks = raw.map((b) => schema.nodeFromJSON(b));
+	for (const block of blocks) {
+		if (block.type.name !== "blockContainer") throw new ConvexError("Use blockContainer nodes from pages_read.");
+		block.check();
+	}
 	return writeDoc(ctx, who, page, (doc) => {
-		if (mode === "replace") return replaceBlocks(doc, [...blocks, emptyBlock()].map((b) => schema.nodeFromJSON(b)));
+		if (mode === "replace") {
+			const last = blocks.at(-1)?.firstChild;
+			return replaceBlocks(doc, last?.type.name === "paragraph" && last.content.size === 0 ? blocks : [...blocks, schema.nodeFromJSON(emptyBlock())]);
+		}
 		// Before the empty block BlockNote keeps at the end, if it's there.
 		const last = doc.firstChild!.lastChild!;
 		const tr = new Transform(doc);
-		insertBlocks(tr, doc.content.size - 1 - (last.textContent === "" && last.childCount === 1 ? last.nodeSize : 0), blocks.map((b) => schema.nodeFromJSON(b)));
+		insertBlocks(tr, doc.content.size - 1 - (last.textContent === "" && last.childCount === 1 ? last.nodeSize : 0), blocks);
 		return tr;
 	});
 }

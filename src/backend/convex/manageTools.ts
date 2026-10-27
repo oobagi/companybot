@@ -1,16 +1,19 @@
-import { canEditMade, DEFAULT_CURRENCY, isGranted, manageInputs, skillCatalog } from "@companybot/core";
+import { canEditMade, DEFAULT_CURRENCY, isGranted, manageInputs, models, pickAgentConfig, skillCatalog, automationCatalog } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Id, TableNames } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
-import { addChannelMembers, createChannelAs, joinChannel, leaveChannel, openDirectMessage, removeChannelMember, updateChannelAs } from "./chats";
+import { addChannelMembers, markReadAs, createChannelAs, joinChannel, leaveChannel, openDirectMessage, removeChannelMember, updateChannelAs } from "./chats";
 import { chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
 import { canView, definitionOf, installOf } from "./automationOps";
-import { removeAutomation, saveAutomation, updateAutomation } from "./automations";
+import { installAutomation, removeAutomation, saveAutomation, updateAutomation } from "./automations";
 import { installSkill, removeSkill, saveSkill } from "./skills";
-import { sendMessage } from "./messages";
+import { editMessage, removeMessage, reactMessage, sendMessage } from "./messages";
 import { cancelMemberInvite, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
-import { asToolResult, checkPermission, type Member, nameOf, normalizeEmail, timeZoneOf } from "./lib";
+import { asToolResult, checkPermission, type Member, nameOf, normalizeEmail, preferencesOf, requireAgent, timeZoneOf } from "./lib";
 import { automationOfTurn } from "./permissions";
+import { archiveAgent, createAgent, updateAgent } from "./agents";
+import { updatePreferences } from "./preferences";
+import { runNowAs } from "./automationRuns";
 import { runningTurn } from "./turns";
 
 const paging = (cursor?: string) => ({ cursor: cursor ?? null, numItems: 30 });
@@ -90,6 +93,17 @@ export const runFor = internalMutation({
 								.map((c) => ({ id: c!._id, name: c!.name, kind: c!.kind, private: c!.private })),
 						};
 					}
+					if (r.action === "mark_read") {
+						await markReadAs(ctx, member, await chatId(ctx, member, r.chat));
+						return { done: r.action };
+					}
+					if (r.action === "edit" || r.action === "delete" || r.action === "react") {
+						const id = rowId(ctx, "chatMessages", r.messageId);
+						if (r.action === "edit") await editMessage(ctx, who, id, r.text);
+						if (r.action === "delete") await removeMessage(ctx, who, id);
+						if (r.action === "react") await reactMessage(ctx, who, id, r.emoji);
+						return { done: r.action, messageId: id };
+					}
 					if (r.action === "open_dm")
 						return {
 							chatId: await openDirectMessage(ctx, member, participants(ctx, r)),
@@ -157,7 +171,12 @@ export const runFor = internalMutation({
 							page: result.page
 								.filter((i) => canView(member, i))
 								.map((i) => ({ id: i.automationId, name: i.custom?.name, enabled: i.enabled, agentId: i.agentId, version: i.custom?.version })),
+							library: automationCatalog.map((a) => ({ id: a.id, name: a.name, description: a.description })),
 						};
+					}
+					if (r.action === "install") {
+						await installAutomation(ctx, member, { automationId: r.id, installed: true, timeZone: r.timeZone });
+						return { installed: r.id };
 					}
 					const install = await installOf(ctx, member.workspaceId, r.id);
 					if (!install || !canView(member, install)) throw new ConvexError("Automation not found.");
@@ -174,6 +193,10 @@ export const runFor = internalMutation({
 							lastRunAt: install.lastRunAt,
 							lastResult: install.lastResult,
 						};
+					if (r.action === "run") {
+						if (automation) throw new ConvexError("An automation run cannot start another run.");
+						await runNowAs(ctx, member, r.id);
+					}
 					if (r.action === "edit") await saveAutomation(ctx, member, { automationId: r.id, config: r.config, expectedVersion: r.expectedVersion });
 					if (r.action === "pause" || r.action === "resume") await updateAutomation(ctx, member, { automationId: r.id, enabled: r.action === "resume" });
 					if (r.action === "set_agent") await updateAutomation(ctx, member, { automationId: r.id, agentId: rowId(ctx, "agents", r.agentId) });
@@ -243,8 +266,36 @@ export const runFor = internalMutation({
 					await removeWorkspaceMember(ctx, member, { id: row._id });
 					return { removed: r.email };
 				}
+				case "agents.manage": {
+					const r = manageInputs[tool].parse(input).request;
+					if (r.action === "list") {
+						const result = await ctx.db.query("agents").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId)).paginate(paging(r.cursor));
+						return { ...result, page: result.page.map((a) => ({ id: a._id, name: a.name, description: a.description, archived: a.archived, version: a.version })) };
+					}
+					if (r.action === "create") return { id: await createAgent(ctx, member, true) };
+					const id = rowId(ctx, "agents", r.id);
+					const agent = await requireAgent(ctx, member, id);
+					if (r.action === "get") return { id, ...pickAgentConfig(agent), version: agent.version, archived: agent.archived, models };
+					if (r.action === "history") return ctx.db.query("agentVersions").withIndex("by_agent", (q) => q.eq("agentId", id)).order("desc").paginate(paging(r.cursor));
+					if (r.action === "archive") await archiveAgent(ctx, member, id, true);
+					if (r.action === "update") {
+						if (id === turn.agentId && (r.instructions !== undefined || r.model !== undefined)) throw new ConvexError("Only a person can change your instructions or model.");
+						const { action, id: _, expectedVersion, ...changes } = r;
+						await updateAgent(ctx, member, id, expectedVersion, { ...pickAgentConfig(agent), ...changes });
+					}
+					return { done: r.action, id };
+				}
 				case "workspace.settings": {
 					const r = manageInputs[tool].parse(input).request;
+					if (r.action === "get_preferences") {
+						const prefs = await preferencesOf(ctx, member.userId);
+						return { displayName: prefs?.displayName ?? "", sendWith: prefs?.sendWith ?? "enter", notify: prefs?.notify ?? "all", timeZone: prefs?.timeZone ?? null };
+					}
+					if (r.action === "update_preferences") {
+						const { action, ...changes } = r;
+						await updatePreferences(ctx, member.userId, changes);
+						return { updated: true };
+					}
 					const w = (await ctx.db.get(member.workspaceId))!;
 					if (r.action === "get") return { name: w.name, currency: w.currency ?? DEFAULT_CURRENCY, memory: w.memory ?? true, version: w.version ?? 0 };
 					await updateWorkspaceSettings(ctx, member, { ...r, name: r.name ?? w.name });
