@@ -1,16 +1,16 @@
 import { Fragment, useState } from "react";
 import { navigate } from "../../router";
-import { TrashIcon } from "../../icons";
+import { AgentIcon, AutomationIcon, ConnectorIcon, SkillIcon, TrashIcon } from "../../icons";
 import { type Crumb, EmptyState, ConflictNotice, NotFound, Notice, Page, SaveBar, barDangerButton, descriptionClass, disabledButtonClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
 import { TrashNotice } from "../Trash";
 import { Confirm } from "../chat/common";
 
 /** Each tab's description shows in the top bar. */
 export const customizeTabs = [
-	{ id: "agents", label: "Agents", description: "What each agent knows and can do. Only owners can change agents." },
-	{ id: "connectors", label: "Connectors", description: "Connect outside services like Gmail or Calendar. Agents granted a connector use it for the person they're helping." },
-	{ id: "skills", label: "Skills", description: "Instructions your agents load when a task calls for them. Agents see each skill's description, and read the rest only when they need it." },
-	{ id: "automations", label: "Automations", description: "Jobs that run on their own: on a schedule, when something happens here, or when another app sends a webhook. Each one asks an agent to do something." },
+	{ id: "agents", label: "Agents", one: "Agent", icon: AgentIcon, description: "What each agent knows and can do. Only owners can change agents." },
+	{ id: "connectors", label: "Connectors", one: "Connector", icon: ConnectorIcon, description: "Connect outside services like Gmail or Calendar. Agents granted a connector use it for the person they're helping." },
+	{ id: "skills", label: "Skills", one: "Skill", icon: SkillIcon, description: "Instructions your agents load when a task calls for them. Agents see each skill's description, and read the rest only when they need it." },
+	{ id: "automations", label: "Automations", one: "Automation", icon: AutomationIcon, description: "Jobs that run on their own: on a schedule, when something happens here, or when another app sends a webhook. Each one asks an agent to do something." },
 ] as const;
 export type CustomizeTab = (typeof customizeTabs)[number]["id"];
 
@@ -241,7 +241,13 @@ export function MadeItemDetail<T>({
 
 /** Loading while `loaded` is false; after that, the item is gone (deleted, or a stale link). */
 export function Missing({ tab, loaded }: { tab: CustomizeTab; loaded: boolean }) {
-	return <NotFound crumbs={customizeCrumbs(tab)} loaded={loaded}>It may have been deleted.</NotFound>;
+	const { one, icon: Icon } = customizeTabs.find((t) => t.id === tab)!;
+	// Connectors come with the app, so they're never in Trash.
+	return (
+		<NotFound crumbs={customizeCrumbs(tab)} loaded={loaded} icon={<Icon />} title={`${one} not found`}>
+			{tab === "connectors" ? "It may have been removed from the app." : undefined}
+		</NotFound>
+	);
 }
 
 export function Facts({ rows }: { rows: [string, string][] }) {

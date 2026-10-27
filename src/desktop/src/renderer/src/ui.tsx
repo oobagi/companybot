@@ -262,11 +262,11 @@ export function NoMatches() {
 	return <p className="py-8 text-center text-sm text-neutral-500">No matches</p>;
 }
 
-/** A screen for one item: loading while `loaded` is false, then `children` says why it's gone. */
-export function NotFound({ crumbs, loaded, children }: { crumbs?: Crumb[]; loaded: boolean; children?: React.ReactNode }) {
+/** A screen for one item: loading while `loaded` is false, then an empty state saying it's gone. */
+export function NotFound({ crumbs, loaded, icon, title, children = "It may have been deleted. Check Trash." }: { crumbs?: Crumb[]; loaded: boolean; icon: React.ReactNode; title: string; children?: string }) {
 	return (
 		<Page title={loaded ? "Not found" : ""} crumbs={crumbs}>
-			{loaded ? <p className={descriptionClass}>{children}</p> : <Loading />}
+			{loaded ? <EmptyState icon={icon} title={title}>{children}</EmptyState> : <Loading />}
 		</Page>
 	);
 }

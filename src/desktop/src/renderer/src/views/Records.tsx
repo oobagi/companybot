@@ -23,7 +23,7 @@ export const recordTabs = [
 export function RecordsView({ typeKey, recordId, role }: { typeKey?: string; recordId?: string; role: Role }) {
 	const types = useTypes();
 	const [creating, setCreating] = useState(false);
-	if (!types) return <NotFound loaded={false} />;
+	if (!types) return <NotFound loaded={false} icon={<DatabaseIcon />} title="Database not found" />;
 	if (!typeKey) return (
 		<Page title="Databases" actions={can(role, "fields.manage") && <NewButton label="New database" onClick={() => setCreating(true)} />}>
 			{types.length ? <p className={descriptionClass}>Choose a database in the sidebar.</p> : (
@@ -35,7 +35,7 @@ export function RecordsView({ typeKey, recordId, role }: { typeKey?: string; rec
 		</Page>
 	);
 	const type = types.find((t) => t.key === typeKey);
-	if (!type) return <NotFound loaded>This database may have been deleted. Look in Trash.</NotFound>;
+	if (!type) return <NotFound loaded icon={<DatabaseIcon />} title="Database not found" />;
 	return recordId ? (
 		<RecordPage key={recordId} type={type} recordId={recordId as Id<"records">} role={role} />
 	) : (

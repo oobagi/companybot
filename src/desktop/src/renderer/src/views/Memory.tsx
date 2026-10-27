@@ -6,7 +6,7 @@ import { useState } from "react";
 import { AgentOptions, agentLabel } from "../agent-options";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
-import { SkillIcon } from "../icons";
+import { MemoryIcon } from "../icons";
 import { EmptyState, NoMatches, ConflictNotice, Loading, Notice, Section, compactControlClass, descriptionClass, inputClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../ui";
 
 type MemoryItem = FunctionReturnType<typeof api.memory.list>[number];
@@ -52,7 +52,7 @@ export function MemoryTab({ role }: { role: Role }) {
 					<AgentOptions agents={agents} />
 				</select>
 			</div>
-			{shown.length === 0 ? (filter !== "all" ? <NoMatches /> : <EmptyState icon={<SkillIcon />} title="No memories yet">Add something to remember, or ask an agent to save it.</EmptyState>) : <>
+			{shown.length === 0 ? (filter !== "all" ? <NoMatches /> : <EmptyState icon={<MemoryIcon />} title="No memories yet">Add something to remember, or ask an agent to save it.</EmptyState>) : <>
 				<MemoryList title="Team" empty="No team memories yet." items={team} agentName={agentName} />
 				<MemoryList title="Personal" empty="No personal memories yet." items={personal} agentName={agentName} />
 			</>}

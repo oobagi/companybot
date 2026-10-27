@@ -72,7 +72,7 @@ function PageScreen({ pageId, canEdit }: { pageId: Id<"pages">; canEdit: boolean
 	const [history, setHistory] = useState(false);
 	const { error, run } = useRun();
 	const crumbs = [{ label: "Pages", to: ["pages"] }];
-	if (!page) return <NotFound crumbs={crumbs} loaded={page === null}>This page was deleted, or isn't in this workspace.</NotFound>;
+	if (!page) return <NotFound crumbs={crumbs} loaded={page === null} icon={<PageIcon />} title="Page not found" />;
 	return (
 		<Page
 			title={page.title}

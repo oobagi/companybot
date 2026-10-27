@@ -7,7 +7,7 @@ import { useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { navigate } from "../router";
-import { ItemList, customizeCrumbs } from "./customize/shared";
+import { ItemList, Missing, customizeCrumbs } from "./customize/shared";
 import { ModelPicker } from "./ModelPicker";
 import { TrashNotice } from "./Trash";
 import { AgentIcon, TrashIcon } from "../icons";
@@ -17,7 +17,6 @@ import {
 	ConflictNotice,
 	Field,
 	Loading,
-	NotFound,
 	Notice,
 	Page,
 	SaveBar,
@@ -64,9 +63,10 @@ function AgentRow({ agent, onOpen }: { agent: Agent; onOpen: () => void }) {
 
 /** One agent's own screen, pushed over the agents list. */
 export function AgentScreen({ role, agentId }: { role: Role; agentId: Id<"agents"> }) {
-	const agent = useQuery(api.agents.list)?.find((a) => a._id === agentId);
+	const agents = useQuery(api.agents.list);
+	const agent = agents?.find((a) => a._id === agentId);
 	const back = customizeCrumbs("agents");
-	if (!agent) return <NotFound crumbs={back} loaded={false} />;
+	if (!agent) return <Missing tab="agents" loaded={!!agents} />;
 	return <AgentEditor key={agent._id} agent={agent} isOwner={can(role, "agents.manage")} back={back} />;
 }
 
