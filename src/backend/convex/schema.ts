@@ -39,7 +39,7 @@ export const approvalStatus = v.union(
 export const trashKind = v.union(v.literal("record"), v.literal("database"), v.literal("field"), v.literal("page"), v.literal("channel"));
 
 /** core's Risk. */
-export const risk = v.union(v.literal("none"), v.literal("outside"), v.literal("locked"));
+export const risk = v.union(v.literal("none"), v.literal("inside"), v.literal("outside"), v.literal("locked"));
 
 /** core's AllowedHow: why a call that would ask ran. */
 export const allowedHow = v.object({

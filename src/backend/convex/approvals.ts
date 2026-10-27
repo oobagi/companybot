@@ -5,6 +5,7 @@ import {
 	askText,
 	approvalHash,
 	approvalStatus,
+	builtinTools,
 	canDecideApproval,
 	findConnector,
 	toolGroup,
@@ -75,7 +76,8 @@ async function alwaysFor(ctx: QueryCtx, row: Doc<"approvals">) {
 			? await automationOfTurn(ctx, turn)
 			: null;
 	if (fromAutomation && !automation) return null;
-	const { decision } = await decideFor(ctx, member, { action: row.tool, risk: row.risk });
+	// Acting-as-you calls ask only in others' automations, and an Always for them is scoped to it.
+	const { decision } = await decideFor(ctx, member, { action: row.tool, risk: row.risk, foreign: !!automation });
 	if (decision.type !== "ask" || !decision.canAlways) return null;
 	return { member, automation };
 }
@@ -100,6 +102,8 @@ export const forReply = query({
 				const connector = findConnector(group) ?? null;
 				const always = mine && approvalStatus(row) === "pending" ? await alwaysFor(ctx, row) : null;
 				const title = await titleOf(ctx, row.workspaceId, row.tool);
+				const input: unknown = JSON.parse(row.input);
+				const automation = row.automationInstallId && (await ctx.db.get(row.automationInstallId));
 
 				return {
 					_id: row._id,
@@ -109,8 +113,14 @@ export const forReply = query({
 					service: findConnector(group)?.name ?? null,
 					/** Its name for people: "Send SMS". */
 					action: actionLabel(row.tool, title),
-					/** The ask, in the agent's voice: "I'd like to send an email to dana@acme.com from your Gmail." */
-					ask: askText(row.tool, connector, JSON.parse(row.input), title),
+					/** The ask: "I'd like to send an email to dana@acme.com from your Gmail.", or "Monday summary wants to post in #general as you." */
+					ask: askText(row.tool, connector, input, {
+						title,
+						said: builtinTools.find((t) => t.id === row.tool)?.label?.(input),
+						automation: automation ? automationName(automation) : undefined,
+					}),
+					/** Set when "Always allow" would cover only this automation's runs. */
+					alwaysAutomation: always?.automation ? automationName(always.automation) : null,
 					/** Null when "Always allow" isn't offered (locked, or not yours to decide). */
 					alwaysText: always
 						? alwaysAllowText(row.tool, connector, { automation: always.automation ? automationName(always.automation) : undefined, title })

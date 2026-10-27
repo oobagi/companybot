@@ -69,7 +69,7 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"records.restore": { agent: ["records.save"] },
 	"records.undo": { agent: ["records.undo"] },
 	"skills.create": { agent: ["skills.create"] },
-	"skills.save": { agent: ["skills.manage:edit"] },
+	"skills.save": { agent: ["skills.edit:edit"] },
 	"skills.remove": { agent: ["skills.remove:delete"] },
 	"skills.setInstalled": { agent: ["skills.manage:install", "skills.remove:delete"] },
 	"workspace.ensure": { humanOnly: "Account setup and initial invite acceptance happen before workspace-scoped agents exist." },

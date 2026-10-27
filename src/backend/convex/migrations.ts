@@ -100,6 +100,9 @@ export const companybotPageTools = grantCompanybot(["pages.*"]);
 
 export const companybotParityTools = grantCompanybot(["channels.*", "skills.manage", "skills.remove", "members.*", "workspace.*"]);
 
+// Editing skills moved out of skills.manage into its own tool, which asks first. Same rule.
+export const companybotSkillEdit = grantCompanybot(["skills.edit"]);
+
 // Apps that send no workspace act in a pinned one (lib.ts legacyMemberOf): pin everyone's first.
 export const legacyWorkspaces = migrations.define({
 	table: "members",
@@ -185,6 +188,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.trashFields,
 	internal.migrations.trashPages,
 	internal.migrations.companybotParity2Tools,
+	internal.migrations.companybotSkillEdit,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

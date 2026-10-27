@@ -171,20 +171,6 @@ describe("automation management", () => {
 		});
 		expect(JSON.stringify(await call("automations.manage", { action: "get", id }))).not.toContain("SECRET");
 	});
-
-	it("lets a run manage the workspace only for the person who wrote its prompt", async () => {
-		const { t, owner, member, companybot, turnId, memberTurn } = await ready();
-		for (const done of [turnId, memberTurn]) await t.mutation(internal.turns.finishReply, { turnId: done });
-		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
-		const run = async (as: typeof owner) => {
-			const before = await turnsOf(t);
-			await as.mutation(api.automationRuns.runNow, { automationId: id });
-			const turnId = (await turnsOf(t)).find((x) => !before.some((b) => b._id === x._id))!._id;
-			return t.mutation(internal.manageTools.runFor, { turnId, tool: "chat.manage", input: { request: { action: "list_chats" } } }) as Promise<any>;
-		};
-		expect((await run(owner)).error).toContain("last edited this automation");
-		expect(await run(member)).toHaveProperty("page");
-	});
 });
 
 describe("skills, members and settings", () => {
@@ -193,10 +179,10 @@ describe("skills, members and settings", () => {
 		const id = await member.mutation(api.skills.create, { config: skill });
 		expect((await call("skills.manage", { action: "list" })).library.length).toBeGreaterThan(0);
 		expect(await call("skills.manage", { action: "get", id })).toMatchObject({ name: skill.name, version: 1 });
-		expect(await call("skills.manage", { action: "edit", id, expectedVersion: 1, config: { ...skill, instructions: "Updated." } }, true)).toMatchObject({
+		expect(await call("skills.edit", { action: "edit", id, expectedVersion: 1, config: { ...skill, instructions: "Updated." } }, true)).toMatchObject({
 			done: "edit",
 		});
-		expect(await call("skills.manage", { action: "edit", id, expectedVersion: 1, config: skill }, true)).toHaveProperty("error");
+		expect(await call("skills.edit", { action: "edit", id, expectedVersion: 1, config: skill }, true)).toHaveProperty("error");
 		expect(await call("skills.manage", { action: "get", id: "meeting-notes" })).toHaveProperty("instructions");
 		await call("skills.manage", { action: "install", id: "meeting-notes" });
 		expect(await call("skills.manage", { action: "get", id: "meeting-notes" })).toMatchObject({ installed: true });
@@ -208,7 +194,7 @@ describe("skills, members and settings", () => {
 	it("denies another maker's skill changes, nonowner install/removal and settings writes", async () => {
 		const { call, owner } = await ready();
 		const id = await owner.mutation(api.skills.create, { config: skill });
-		expect(await call("skills.manage", { action: "edit", id, expectedVersion: 1, config: skill }, true)).toHaveProperty("error");
+		expect(await call("skills.edit", { action: "edit", id, expectedVersion: 1, config: skill }, true)).toHaveProperty("error");
 		expect(await call("skills.remove", { action: "delete", id }, true)).toHaveProperty("error");
 		expect(await call("skills.manage", { action: "install", id: "meeting-notes" }, true)).toHaveProperty("error");
 		expect(await call("skills.remove", { action: "delete", id: "meeting-notes" }, true)).toHaveProperty("error");

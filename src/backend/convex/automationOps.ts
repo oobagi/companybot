@@ -19,6 +19,16 @@ export const canView = (member: Member, install: Doc<"automationInstalls">) => {
 	return !only || only === member.userId;
 };
 
+/**
+ * Whether a run of this automation as `userId` follows words they didn't write: someone else
+ * made or last edited it, or its trigger brings in others' text (webhooks and in-app events).
+ * Those runs ask before acting as them in the workspace (core `Risk` "inside").
+ */
+export function followsOthers(install: Doc<"automationInstalls">, userId: Id<"users">) {
+	const trigger = install.custom?.trigger ?? findAutomation(install.automationId)?.trigger;
+	return (!!install.custom && (install.installedBy !== userId || install.custom.updatedBy !== userId)) || trigger?.type !== "schedule";
+}
+
 export function automationName(install: Doc<"automationInstalls">) {
 	if (install.custom) return install.custom.name;
 	return findAutomation(install.automationId)?.name ?? install.automationId;
