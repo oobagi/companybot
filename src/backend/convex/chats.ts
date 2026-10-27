@@ -1,7 +1,7 @@
 import { canManageChannel } from "@companybot/core";
-import { ConvexError, v } from "convex/values";
+import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type QueryCtx } from "./_generated/server";
+import { type MutationCtx, type QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import {
 	type Namer,
@@ -20,7 +20,7 @@ import {
 	requireWorkspaceUsers,
 	visibleChat,
 } from "./chatOps";
-import { type Member, getMember, preferencesOf, requireMember, requirePermission, toActor } from "./lib";
+import { type Member, checkPermission, getMember, preferencesOf, requireMember, toActor } from "./lib";
 import { sessionAt } from "./turns";
 
 // Channels and DMs. Queries return display-ready data so the app never joins tables.
@@ -227,25 +227,29 @@ async function availableName(ctx: QueryCtx, member: Member, raw: string, except?
 	return name;
 }
 
+const createChannelArgs = v.object({ name: v.string(), topic: v.optional(v.string()), private: v.boolean() });
+
 export const createChannel = mutation({
-	args: { name: v.string(), topic: v.optional(v.string()), private: v.boolean() },
-	handler: async (ctx, args): Promise<Id<"chats">> => {
-		const member = await requirePermission(ctx, "channels.create");
-		const name = await availableName(ctx, member, args.name);
-		const chatId = await ctx.db.insert("chats", {
-			workspaceId: member.workspaceId,
-			kind: "channel",
-			name,
-			...(args.topic?.trim() && { topic: args.topic.trim() }),
-			private: args.private,
-			archived: false,
-			createdBy: member.userId,
-			lastMessageAt: Date.now(),
-		});
-		await addToChat(ctx, (await ctx.db.get(chatId))!, { userId: member.userId });
-		return chatId;
-	},
+	args: createChannelArgs.fields,
+	handler: async (ctx, args) => createChannelAs(ctx, await requireMember(ctx), args),
 });
+
+export async function createChannelAs(ctx: MutationCtx, member: Member, args: Infer<typeof createChannelArgs>): Promise<Id<"chats">> {
+	checkPermission(member, "channels.create");
+	const name = await availableName(ctx, member, args.name);
+	const chatId = await ctx.db.insert("chats", {
+		workspaceId: member.workspaceId,
+		kind: "channel",
+		name,
+		...(args.topic?.trim() && { topic: args.topic.trim() }),
+		private: args.private,
+		archived: false,
+		createdBy: member.userId,
+		lastMessageAt: Date.now(),
+	});
+	await addToChat(ctx, (await ctx.db.get(chatId))!, { userId: member.userId });
+	return chatId;
+}
 
 /** A channel you can see and manage (`channels.manage`, or you created it). */
 async function requireManagedChannel(ctx: QueryCtx, member: Member, chatId: Id<"chats">) {
@@ -255,69 +259,84 @@ async function requireManagedChannel(ctx: QueryCtx, member: Member, chatId: Id<"
 	return chat;
 }
 
+const updateChannelArgs = v.object({ chatId: v.id("chats"), name: v.optional(v.string()), topic: v.optional(v.string()) });
+
 export const updateChannel = mutation({
-	args: { chatId: v.id("chats"), name: v.optional(v.string()), topic: v.optional(v.string()) },
-	handler: async (ctx, { chatId, name, topic }) => {
-		const member = await requireMember(ctx);
-		const chat = await requireManagedChannel(ctx, member, chatId);
-		await ctx.db.patch(chat._id, {
-			...(name !== undefined && { name: await availableName(ctx, member, name, chat._id) }),
-			...(topic !== undefined && { topic: topic.trim() || undefined }),
-		});
-	},
+	args: updateChannelArgs.fields,
+	handler: async (ctx, args) => updateChannelAs(ctx, await requireMember(ctx), args),
 });
+
+export async function updateChannelAs(ctx: MutationCtx, member: Member, { chatId, name, topic }: Infer<typeof updateChannelArgs>) {
+	const chat = await requireManagedChannel(ctx, member, chatId);
+	await ctx.db.patch(chat._id, {
+		...(name !== undefined && { name: await availableName(ctx, member, name, chat._id) }),
+		...(topic !== undefined && { topic: topic.trim() || undefined }),
+	});
+}
+
+const joinChannelArgs = v.object({ chatId: v.id("chats") });
 
 export const join = mutation({
-	args: { chatId: v.id("chats") },
-	handler: async (ctx, { chatId }) => {
-		const member = await requireMember(ctx);
-		const chat = await requireChat(ctx, member, chatId);
-		if (chat.kind !== "channel" || chat.archived) throw new ConvexError("You can't join this chat.");
-		await addToChat(ctx, chat, { userId: member.userId });
-	},
+	args: joinChannelArgs.fields,
+	handler: async (ctx, args) => joinChannel(ctx, await requireMember(ctx), args),
 });
+
+export async function joinChannel(ctx: MutationCtx, member: Member, { chatId }: Infer<typeof joinChannelArgs>) {
+	const chat = await requireChat(ctx, member, chatId);
+	if (chat.kind !== "channel" || chat.archived) throw new ConvexError("You can't join this chat.");
+	await addToChat(ctx, chat, { userId: member.userId });
+}
+
+const leaveChannelArgs = v.object({ chatId: v.id("chats") });
 
 export const leave = mutation({
-	args: { chatId: v.id("chats") },
-	handler: async (ctx, { chatId }) => {
-		const member = await requireMember(ctx);
-		const chat = await requireChat(ctx, member, chatId);
-		if (chat.kind !== "channel") throw new ConvexError("You can't leave a DM.");
-		if (chat.isDefault) throw new ConvexError(`Everyone stays in #${chat.name}.`);
-		const row = await membership(ctx, chatId, member.userId);
-		if (row) await ctx.db.delete(row._id);
-	},
+	args: leaveChannelArgs.fields,
+	handler: async (ctx, args) => leaveChannel(ctx, await requireMember(ctx), args),
 });
+
+export async function leaveChannel(ctx: MutationCtx, member: Member, { chatId }: Infer<typeof leaveChannelArgs>) {
+	const chat = await requireChat(ctx, member, chatId);
+	if (chat.kind !== "channel") throw new ConvexError("You can't leave a DM.");
+	if (chat.isDefault) throw new ConvexError(`Everyone stays in #${chat.name}.`);
+	const row = await membership(ctx, chatId, member.userId);
+	if (row) await ctx.db.delete(row._id);
+}
 
 /** Channels only. Members of a channel can add people; managers can add to any channel they see. */
+const addChannelMembersArgs = v.object({ chatId: v.id("chats"), userIds: v.array(v.id("users")), agentIds: v.array(v.id("agents")) });
+
 export const addMembers = mutation({
-	args: { chatId: v.id("chats"), userIds: v.array(v.id("users")), agentIds: v.array(v.id("agents")) },
-	handler: async (ctx, { chatId, userIds, agentIds }) => {
-		const member = await requireMember(ctx);
-		const chat = await requireChat(ctx, member, chatId);
-		if (chat.kind !== "channel" || chat.archived) throw new ConvexError("You can only add people to channels.");
-		if (!(await membership(ctx, chatId, member.userId)) && !canManageChannel(toActor(member), chat)) {
-			throw new ConvexError("Join the channel first.");
-		}
-		await requireWorkspaceUsers(ctx, member.workspaceId, userIds);
-		await requireActiveAgents(ctx, member.workspaceId, agentIds);
-		for (const userId of userIds) await addToChat(ctx, chat, { userId });
-		for (const agentId of agentIds) await addToChat(ctx, chat, { agentId });
-	},
+	args: addChannelMembersArgs.fields,
+	handler: async (ctx, args) => addChannelMembers(ctx, await requireMember(ctx), args),
 });
 
+export async function addChannelMembers(ctx: MutationCtx, member: Member, { chatId, userIds, agentIds }: Infer<typeof addChannelMembersArgs>) {
+	const chat = await requireChat(ctx, member, chatId);
+	if (chat.kind !== "channel" || chat.archived) throw new ConvexError("You can only add people to channels.");
+	if (!(await membership(ctx, chatId, member.userId)) && !canManageChannel(toActor(member), chat)) {
+		throw new ConvexError("Join the channel first.");
+	}
+	await requireWorkspaceUsers(ctx, member.workspaceId, userIds);
+	await requireActiveAgents(ctx, member.workspaceId, agentIds);
+	for (const userId of userIds) await addToChat(ctx, chat, { userId });
+	for (const agentId of agentIds) await addToChat(ctx, chat, { agentId });
+}
+
 /** Finds or creates the DM with exactly these people and agents (and you). */
+const openDirectMessageArgs = v.object({ userIds: v.array(v.id("users")), agentIds: v.array(v.id("agents")) });
+
 export const openDm = mutation({
-	args: { userIds: v.array(v.id("users")), agentIds: v.array(v.id("agents")) },
-	handler: async (ctx, args): Promise<Id<"chats">> => {
-		const member = await requireMember(ctx);
-		const userIds = [...new Set([member.userId, ...args.userIds])];
-		const agentIds = [...new Set(args.agentIds)];
-		await requireWorkspaceUsers(ctx, member.workspaceId, userIds);
-		await requireActiveAgents(ctx, member.workspaceId, agentIds);
-		return findOrCreateDm(ctx, member.workspaceId, member.userId, userIds, agentIds);
-	},
+	args: openDirectMessageArgs.fields,
+	handler: async (ctx, args) => openDirectMessage(ctx, await requireMember(ctx), args),
 });
+
+export async function openDirectMessage(ctx: MutationCtx, member: Member, args: Infer<typeof openDirectMessageArgs>): Promise<Id<"chats">> {
+	const userIds = [...new Set([member.userId, ...args.userIds])];
+	const agentIds = [...new Set(args.agentIds)];
+	await requireWorkspaceUsers(ctx, member.workspaceId, userIds);
+	await requireActiveAgents(ctx, member.workspaceId, agentIds);
+	return findOrCreateDm(ctx, member.workspaceId, member.userId, userIds, agentIds);
+}
 
 export const markRead = mutation({
 	args: { chatId: v.id("chats") },
@@ -353,3 +372,20 @@ export const place = query({
 		};
 	},
 });
+
+const removeChannelMemberArgs = v.object({ chatId: v.id("chats"), userId: v.optional(v.id("users")), agentId: v.optional(v.id("agents")) });
+
+export const removeMember = mutation({
+	args: removeChannelMemberArgs.fields,
+	handler: async (ctx, args) => removeChannelMember(ctx, await requireMember(ctx), args),
+});
+
+export async function removeChannelMember(ctx: MutationCtx, member: Member, { chatId, userId, agentId }: Infer<typeof removeChannelMemberArgs>) {
+	const chat = await requireManagedChannel(ctx, member, chatId);
+	if (chat.archived) throw new ConvexError("This chat is archived.");
+	if (!!userId === !!agentId) throw new ConvexError("Choose one person or agent.");
+	if (chat.isDefault && userId) throw new ConvexError(`Everyone stays in #${chat.name}.`);
+	const row = userId ? await membership(ctx, chatId, userId) : await ctx.db.query("chatMembers")
+		.withIndex("by_agent", q => q.eq("agentId", agentId).eq("chatId", chatId)).first();
+	if (row) await ctx.db.delete(row._id);
+}

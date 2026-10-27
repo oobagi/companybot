@@ -1,3 +1,4 @@
+import type { ManageStore } from "./manage-tools";
 import type { AutomationStore } from "./automation-tools";
 import type { FlexibleSchema, Tool } from "ai";
 import type { ChatStore } from "./chat";
@@ -12,6 +13,7 @@ import type { Actor } from "./types";
 /** What a tool can reach while it runs. */
 export interface ToolContext {
 	actor: Actor;
+	manage: ManageStore;
 	/** The actor's IANA time zone (see resolveTimeZone). UTC when left out. */
 	timeZone?: string;
 	agentId: string;

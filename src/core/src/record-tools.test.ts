@@ -187,7 +187,7 @@ describe("records tools", () => {
 
 	it("teach agents records only when granted", () => {
 		expect(platformGuide({ tools: ["records.*"] })).toContain("## Databases");
-		expect(platformGuide({ tools: ["records.find"] })).toContain("records_types");
+		expect(platformGuide({ tools: ["records.find"] })).not.toContain("records_types");
 		expect(platformGuide({ tools: ["memory.*"] })).not.toContain("## Databases");
 	});
 

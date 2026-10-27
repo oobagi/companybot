@@ -2,7 +2,7 @@ import type { ChatLine, ChatResult } from "@companybot/core";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
-import { type Namer, canSee, channelNamed, chatLabel, namer, normalizeChannelName, reactionsOf, textForModel, toggleReaction } from "./chatOps";
+import { type Namer, canSee, channelNamed, chatLabel, namer, normalizeChannelName, reactionsOf, requireChat, textForModel, toggleReaction } from "./chatOps";
 import { runningTurn } from "./turns";
 
 // ---- Chat tools (core's ChatStore), acting as the turn's person ----
@@ -56,7 +56,8 @@ export const readFor = internalQuery({
 			if (!message || !chat || !(await canSee(ctx, chat, member))) return { error: `No message "${args.threadOf}" you can see.` };
 			threadId = message.threadId ?? message._id;
 		} else if (args.chat) {
-			chat = await channelNamed(ctx, member, normalizeChannelName(args.chat));
+			const id = ctx.db.normalizeId("chats", args.chat);
+			chat = id ? await requireChat(ctx, member, id) : await channelNamed(ctx, member, normalizeChannelName(args.chat));
 			if (!chat) return { error: `No channel "${args.chat}" you can see.` };
 		}
 		const before = args.before ? Date.parse(args.before) : Number.POSITIVE_INFINITY;
@@ -85,7 +86,8 @@ export const searchFor = internalQuery({
 		const { turn, member } = await runningTurn(ctx, args.turnId);
 		let chatId: Id<"chats"> | undefined;
 		if (args.chat) {
-			const chat = await channelNamed(ctx, member, normalizeChannelName(args.chat));
+			const id = ctx.db.normalizeId("chats", args.chat);
+			const chat = id ? await requireChat(ctx, member, id) : await channelNamed(ctx, member, normalizeChannelName(args.chat));
 			if (!chat) return { error: `No channel "${args.chat}" you can see.` };
 			chatId = chat._id;
 		}

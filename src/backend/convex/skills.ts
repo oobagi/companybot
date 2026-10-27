@@ -8,19 +8,19 @@ import {
 	normalizeCustomSkill,
 	skillCatalog,
 } from "@companybot/core";
-import { ConvexError, v } from "convex/values";
+import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { mutation, query } from "./functions";
 import {
 	type Member,
+	checkPermission,
 	asToolResult,
 	getMember,
 	madeCustom,
 	nameOf,
 	newCustomId,
 	requireMember,
-	requirePermission,
 	saveMade,
 } from "./lib";
 import { runningTurn } from "./turns";
@@ -110,54 +110,61 @@ async function editableSkill(ctx: QueryCtx, member: Member, skillId: string) {
 }
 
 /** Saves a skill someone made. Refused if someone saved since `expectedVersion`. */
+const saveSkillArgs = v.object({ skillId: v.string(), config: customConfig, expectedVersion: v.number() });
+
 export const save = mutation({
-	args: { skillId: v.string(), config: customConfig, expectedVersion: v.number() },
-	handler: async (ctx, { skillId, config, expectedVersion }) => {
-		const member = await requireMember(ctx);
-		const install = await editableSkill(ctx, member, skillId);
-		await saveMade({
-			current: install.custom,
-			expectedVersion,
-			config: normalizeCustomSkill(config),
-			userId: member.userId,
-			validate: () => {
-				const problem = customSkillError(config);
-				if (problem) throw new ConvexError(problem);
-			},
-			patch: (custom) => ctx.db.patch(install._id, { custom }),
-		});
-	},
+	args: saveSkillArgs.fields,
+	handler: async (ctx, args) => saveSkill(ctx, await requireMember(ctx), args),
 });
 
-async function removeSkill(ctx: MutationCtx, skillId: string) {
+export async function saveSkill(ctx: MutationCtx, member: Member, { skillId, config, expectedVersion }: Infer<typeof saveSkillArgs>) {
+	const install = await editableSkill(ctx, member, skillId);
+	await saveMade({
+		current: install.custom,
+		expectedVersion,
+		config: normalizeCustomSkill(config),
+		userId: member.userId,
+		validate: () => {
+			const problem = customSkillError(config);
+			if (problem) throw new ConvexError(problem);
+		},
+		patch: (custom) => ctx.db.patch(install._id, { custom }),
+	});
+}
+
+export async function removeSkill(ctx: MutationCtx, member: Member, skillId: string) {
 	if (skillId.startsWith("custom-")) {
-		const install = await editableSkill(ctx, await requireMember(ctx), skillId);
+		const install = await editableSkill(ctx, member, skillId);
 		await ctx.db.delete(install._id);
 		return;
 	}
-	const { workspaceId } = await requirePermission(ctx, "skills.manage");
+	const { workspaceId } = checkPermission(member, "skills.manage");
 	const install = await installOf(ctx, workspaceId, skillId);
 	if (install) await ctx.db.delete(install._id);
 }
 
 export const remove = mutation({
 	args: { skillId: v.string() },
-	handler: (ctx, { skillId }) => removeSkill(ctx, skillId),
+	handler: async (ctx, { skillId }) => removeSkill(ctx, await requireMember(ctx), skillId),
 });
 
+const installSkillArgs = v.object({ skillId: v.string(), installed: v.boolean() });
+
 export const setInstalled = mutation({
-	args: { skillId: v.string(), installed: v.boolean() },
-	handler: async (ctx, { skillId, installed }) => {
-		// COMPAT(0.1.0-alpha.6): drop removal through setInstalled; apps use remove.
-		if (!installed) return removeSkill(ctx, skillId);
-		if (skillId.startsWith("custom-")) throw new ConvexError("Skills people make are always on.");
-		const { workspaceId } = await requirePermission(ctx, "skills.manage");
-		const existing = await installOf(ctx, workspaceId, skillId);
-		if (existing) return;
-		if (!skillCatalog.some((s) => s.id === skillId)) throw new ConvexError("Unknown skill.");
-		await ctx.db.insert("skillInstalls", { workspaceId, skillId });
-	},
+	args: installSkillArgs.fields,
+	handler: async (ctx, args) => installSkill(ctx, await requireMember(ctx), args),
 });
+
+export async function installSkill(ctx: MutationCtx, member: Member, { skillId, installed }: Infer<typeof installSkillArgs>) {
+	// COMPAT(0.1.0-alpha.6): drop removal through setInstalled; apps use remove.
+	if (!installed) return removeSkill(ctx, member, skillId);
+	if (skillId.startsWith("custom-")) throw new ConvexError("Skills people make are always on.");
+	const { workspaceId } = checkPermission(member, "skills.manage");
+	const existing = await installOf(ctx, workspaceId, skillId);
+	if (existing) return;
+	if (!skillCatalog.some((s) => s.id === skillId)) throw new ConvexError("Unknown skill.");
+	await ctx.db.insert("skillInstalls", { workspaceId, skillId });
+}
 
 /** `skills.create` from chat: makes a skill as the person the agent is helping. */
 export const createFor = internalMutation({

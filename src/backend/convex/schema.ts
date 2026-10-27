@@ -151,7 +151,8 @@ export default defineSchema({
 		invitedBy: v.optional(v.id("users")),
 	})
 		.index("by_email", ["email"])
-		.index("by_workspace", ["workspaceId"]),
+		.index("by_workspace", ["workspaceId"])
+		.index("by_workspace_email", ["workspaceId", "email"]),
 
 	// Each invite email sent, so a workspace can't flood an inbox (`inviteEmailProblem`).
 	inviteEmails: defineTable({
@@ -361,6 +362,8 @@ export default defineSchema({
 		threadId: v.optional(v.id("chatMessages")),
 		authorUserId: v.optional(v.id("users")),
 		authorAgentId: v.optional(v.id("agents")),
+		/** A delivered message from an agent, on this person's behalf. */
+		actingFor: v.optional(v.id("users")),
 		text: v.string(),
 		parts: v.array(messagePart),
 		/** Who was @mentioned. Mentioned agents get a turn. `recordIds`: records the message references. */

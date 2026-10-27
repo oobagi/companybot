@@ -14,6 +14,7 @@ export const other: Actor = { userId: "other", role: "member" };
 
 export const ctx = (actor: Actor) => ({
 	actor,
+	manage: { run: async () => { throw new Error("Unexpected management call"); } },
 	agentId: "companybot",
 	memory: {} as MemoryStore,
 	chat: {} as ChatStore,

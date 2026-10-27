@@ -1,7 +1,7 @@
 import { fireEvent } from "./automationRuns";
 import { DEFAULT_CURRENCY, can, isCurrencyCode } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { ConvexError, v } from "convex/values";
+import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
@@ -9,7 +9,7 @@ import { seedAgents } from "./agents";
 import { fieldsOf, seedRecordTypes, typesOf } from "./recordOps";
 import { addToChat, ensureGeneral } from "./chatOps";
 import { sendInviteEmail } from "./invites";
-import { authUserId, checkVersion, getMember, hasLiveOwner, legacyMemberOf, liveWorkspace, memberOf, nameOf, namesOf, normalizeEmail, pinLegacyWorkspace, preferencesOf, requireMember, requirePermission, timeZoneOf } from "./lib";
+import { type Member, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, legacyMemberOf, liveWorkspace, memberOf, nameOf, namesOf, normalizeEmail, pinLegacyWorkspace, preferencesOf, requireMember, requirePermission, timeZoneOf } from "./lib";
 import { cascading, startCascade } from "./cascade";
 import { removeWorkspace } from "./lifecycle";
 import { role } from "./schema";
@@ -209,58 +209,70 @@ export const team = query({
 });
 
 /** Owners only. Emails them a link to the app; they join when they sign in with that email. */
+const inviteMemberArgs = v.object({ email: v.string(), role });
+
 export const invite = mutation({
-	args: { email: v.string(), role },
-	handler: async (ctx, args) => {
-		const { workspaceId, userId } = await requirePermission(ctx, "members.manage");
-		const email = normalizeEmail(args.email);
-		if (!/^\S+@\S+\.\S+$/.test(email)) throw new ConvexError("That doesn't look like an email.");
-		if (await isMemberEmail(ctx, workspaceId, email)) throw new ConvexError("That person is already a member.");
-		if (await inviteIn(ctx, workspaceId, email)) throw new ConvexError("That person already has an invite.");
-		const id = await ctx.db.insert("invites", { workspaceId, email, role: args.role, invitedBy: userId });
-		/** False when they got one a moment ago (say, an invite cancelled and made again). */
-		const emailed = await sendInviteEmail(ctx, (await ctx.db.get(id))!, userId);
-		return { emailed };
-	},
+	args: inviteMemberArgs.fields,
+	handler: async (ctx, args) => inviteMember(ctx, await requireMember(ctx), args),
 });
+
+export async function inviteMember(ctx: MutationCtx, member: Member, args: Infer<typeof inviteMemberArgs>) {
+	const { workspaceId, userId } = checkPermission(member, "members.manage");
+	const email = normalizeEmail(args.email);
+	if (!/^\S+@\S+\.\S+$/.test(email)) throw new ConvexError("That doesn't look like an email.");
+	if (await isMemberEmail(ctx, workspaceId, email)) throw new ConvexError("That person is already a member.");
+	if (await inviteIn(ctx, workspaceId, email)) throw new ConvexError("That person already has an invite.");
+	const id = await ctx.db.insert("invites", { workspaceId, email, role: args.role, invitedBy: userId });
+	/** False when they got one a moment ago (say, an invite cancelled and made again). */
+	const emailed = await sendInviteEmail(ctx, (await ctx.db.get(id))!, userId);
+	return { emailed };
+}
 
 /** Sends the invite email again. Limited, so nobody's inbox gets flooded. */
+const resendMemberInviteArgs = v.object({ id: v.id("invites") });
+
 export const resendInvite = mutation({
-	args: { id: v.id("invites") },
-	handler: async (ctx, { id }) => {
-		const { workspaceId, userId } = await requirePermission(ctx, "members.manage");
-		const invite = await ctx.db.get(id);
-		if (invite?.workspaceId !== workspaceId) throw new ConvexError("That invite isn't available anymore.");
-		await sendInviteEmail(ctx, invite, userId, { resend: true });
-	},
+	args: resendMemberInviteArgs.fields,
+	handler: async (ctx, args) => resendMemberInvite(ctx, await requireMember(ctx), args),
 });
+
+export async function resendMemberInvite(ctx: MutationCtx, member: Member, { id }: Infer<typeof resendMemberInviteArgs>) {
+	const { workspaceId, userId } = checkPermission(member, "members.manage");
+	const invite = await ctx.db.get(id);
+	if (invite?.workspaceId !== workspaceId) throw new ConvexError("That invite isn't available anymore.");
+	await sendInviteEmail(ctx, invite, userId, { resend: true });
+}
 
 const inviteIn = (ctx: QueryCtx, workspaceId: Id<"workspaces">, email: string) =>
-	ctx.db
-		.query("invites")
-		.withIndex("by_email", (q) => q.eq("email", email))
-		.filter((q) => q.eq(q.field("workspaceId"), workspaceId))
-		.first();
+	ctx.db.query("invites").withIndex("by_workspace_email", q => q.eq("workspaceId", workspaceId).eq("email", email)).first();
+
+const cancelMemberInviteArgs = v.object({ id: v.id("invites") });
 
 export const cancelInvite = mutation({
-	args: { id: v.id("invites") },
-	handler: async (ctx, { id }) => {
-		const { workspaceId } = await requirePermission(ctx, "members.manage");
-		const invite = await ctx.db.get(id);
-		if (invite?.workspaceId === workspaceId) await ctx.db.delete(id);
-	},
+	args: cancelMemberInviteArgs.fields,
+	handler: async (ctx, args) => cancelMemberInvite(ctx, await requireMember(ctx), args),
 });
 
+export async function cancelMemberInvite(ctx: MutationCtx, member: Member, { id }: Infer<typeof cancelMemberInviteArgs>) {
+	const { workspaceId } = checkPermission(member, "members.manage");
+	const invite = await ctx.db.get(id);
+	if (invite?.workspaceId === workspaceId) await ctx.db.delete(id);
+}
+
+const removeWorkspaceMemberArgs = v.object({ id: v.id("members") });
+
 export const removeMember = mutation({
-	args: { id: v.id("members") },
-	handler: async (ctx, { id }) => {
-		const owner = await requirePermission(ctx, "members.manage");
-		const row = await ctx.db.get(id);
-		if (!row || row.workspaceId !== owner.workspaceId) return;
-		if (row.userId === owner.userId) throw new ConvexError("You can't remove yourself.");
-		await dropMember(ctx, row);
-	},
+	args: removeWorkspaceMemberArgs.fields,
+	handler: async (ctx, args) => removeWorkspaceMember(ctx, await requireMember(ctx), args),
 });
+
+export async function removeWorkspaceMember(ctx: MutationCtx, member: Member, { id }: Infer<typeof removeWorkspaceMemberArgs>) {
+	const owner = checkPermission(member, "members.manage");
+	const row = await ctx.db.get(id);
+	if (!row || row.workspaceId !== owner.workspaceId) return;
+	if (row.userId === owner.userId) throw new ConvexError("You can't remove yourself.");
+	await dropMember(ctx, row);
+}
 
 /** Leaves the workspace you have open. Your others stay; the next one opens. */
 export const leave = mutation({
@@ -370,10 +382,8 @@ const membersOf = (ctx: QueryCtx, workspaceId: Id<"workspaces">) =>
 
 /** Whether someone with this (normalized) email is already in the workspace. */
 async function isMemberEmail(ctx: QueryCtx, workspaceId: Id<"workspaces">, email: string) {
-	for (const row of await membersOf(ctx, workspaceId)) {
-		const user = await ctx.db.get(row.userId);
-		if (user?.email && normalizeEmail(user.email) === email) return true;
-	}
+	const users = await ctx.db.query("users").withIndex("email", q => q.eq("email", email)).take(2);
+	for (const user of users) if (await memberOf(ctx, user._id, workspaceId)) return true;
 	return false;
 }
 
@@ -416,20 +426,24 @@ export const settings = query({
  * currency. `memory` turns agent memory on or off; off keeps every memory. Both optional,
  * so apps from before them keep working.
  */
+const updateWorkspaceSettingsArgs = v.object({ name: v.string(), currency: v.optional(v.string()), memory: v.optional(v.boolean()), expectedVersion: v.number() });
+
 export const updateSettings = mutation({
-	args: { name: v.string(), currency: v.optional(v.string()), memory: v.optional(v.boolean()), expectedVersion: v.number() },
-	handler: async (ctx, { name, currency, memory, expectedVersion }) => {
-		const { workspaceId } = await requirePermission(ctx, "workspace.manage");
-		const workspace = (await ctx.db.get(workspaceId))!;
-		checkVersion(workspace.version ?? 0, expectedVersion);
-		if (!name.trim()) throw new ConvexError("Name can't be empty.");
-		currency = currency?.trim().toUpperCase();
-		if (currency !== undefined && !isCurrencyCode(currency)) throw new ConvexError("Pick a currency code like USD.");
-		await ctx.db.patch(workspaceId, {
-			name: name.trim(),
-			...(currency && { currency }),
-			...(memory !== undefined && { memory }),
-			version: (workspace.version ?? 0) + 1,
-		});
-	},
+	args: updateWorkspaceSettingsArgs.fields,
+	handler: async (ctx, args) => updateWorkspaceSettings(ctx, await requireMember(ctx), args),
 });
+
+export async function updateWorkspaceSettings(ctx: MutationCtx, member: Member, { name, currency, memory, expectedVersion }: Infer<typeof updateWorkspaceSettingsArgs>) {
+	const { workspaceId } = checkPermission(member, "workspace.manage");
+	const workspace = (await ctx.db.get(workspaceId))!;
+	checkVersion(workspace.version ?? 0, expectedVersion);
+	if (!name.trim()) throw new ConvexError("Name can't be empty.");
+	currency = currency?.trim().toUpperCase();
+	if (currency !== undefined && !isCurrencyCode(currency)) throw new ConvexError("Pick a currency code like USD.");
+	await ctx.db.patch(workspaceId, {
+		name: name.trim(),
+		...(currency && { currency }),
+		...(memory !== undefined && { memory }),
+		version: (workspace.version ?? 0) + 1,
+	});
+}

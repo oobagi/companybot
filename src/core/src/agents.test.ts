@@ -10,7 +10,7 @@ const visible = (access: ReturnType<typeof describeToolAccess>) => access.filter
 
 describe("tool visibility", () => {
 	it("gives owners every tool the agent grants", () => {
-		expect(visible(describeToolAccess(companybot, owner))).toEqual([
+		expect(visible(describeToolAccess(companybot, owner)).sort()).toEqual([
 			"memory.search",
 			"memory.remember",
 			"memory.remember_for_team",
@@ -40,7 +40,8 @@ describe("tool visibility", () => {
 			"pages.find",
 			"pages.read",
 			"pages.write",
-		]);
+			"chat.manage", "channels.manage", "automations.manage", "automations.remove", "skills.manage", "skills.remove", "members.invite", "members.remove", "workspace.settings",
+		].sort());
 		expect(resolveTools(companybot, owner).map((t) => t.id)).toContain("memory.forget");
 	});
 
@@ -69,7 +70,7 @@ describe("tool visibility", () => {
 	});
 
 	it("only sends visible tools to the model", () => {
-		expect(Object.keys(buildToolSet(companybot, ctx(member)))).toEqual([
+		expect(Object.keys(buildToolSet(companybot, ctx(member))).sort()).toEqual([
 			"memory_search",
 			"memory_remember",
 			"memory_update",
@@ -97,7 +98,8 @@ describe("tool visibility", () => {
 			"pages_find",
 			"pages_read",
 			"pages_write",
-		]);
+			"chat_manage", "channels_manage", "automations_manage", "automations_remove", "skills_manage", "skills_remove", "workspace_settings",
+		].sort());
 	});
 
 	it("gives model-safe tool names", () => {

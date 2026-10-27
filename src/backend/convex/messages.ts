@@ -1,7 +1,7 @@
 import { fireEvent } from "./automationRuns";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type QueryCtx } from "./_generated/server";
+import { type MutationCtx, type QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import {
 	type Namer,
@@ -18,7 +18,7 @@ import {
 	toggleReaction,
 	visibleChat,
 } from "./chatOps";
-import { type Member, memberOf, nameOf, requireMember } from "./lib";
+import { type Who, type Member, memberOf, nameOf, requireMember } from "./lib";
 import { noteMentions, workspaceRecords } from "./recordOps";
 import type { messagePart, replyStats } from "./schema";
 import { enqueueTurn } from "./turns";
@@ -127,8 +127,7 @@ async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, 
  * every message in an agent DM, otherwise each @mentioned agent. A top-level channel
  * message also starts automations watching that channel.
  */
-export const send = mutation({
-	args: {
+const sendMessageArgs = v.object({
 		chatId: v.id("chats"),
 		threadId: v.optional(v.id("chatMessages")),
 		text: v.string(),
@@ -138,73 +137,79 @@ export const send = mutation({
 			agentIds: v.array(v.id("agents")),
 			recordIds: v.optional(v.array(v.id("records"))),
 		}),
-	},
-	handler: async (ctx, { chatId, threadId, text, mentions }): Promise<Id<"chatMessages">> => {
-		const member = await requireMember(ctx);
-		const chat = await requireChat(ctx, member, chatId);
-		if (chat.archived) throw new ConvexError("This chat is archived.");
-		text = text.trim();
-		if (!text) throw new ConvexError("Write something first.");
-		if (threadId) {
-			const parent = await ctx.db.get(threadId);
-			if (!parent || parent.chatId !== chatId || parent.threadId) throw new ConvexError("That thread doesn't exist.");
-		}
-		await addToChat(ctx, chat, { userId: member.userId });
+	});
 
-		// Mentions outside the workspace (or of archived agents) are dropped, not trusted.
-		const userIds: Id<"users">[] = [];
-		for (const id of new Set(mentions.userIds)) {
-			if (await memberOf(ctx, id, member.workspaceId)) userIds.push(id);
-		}
-		const agentIds: Id<"agents">[] = [];
-		for (const id of new Set(mentions.agentIds)) {
-			const agent = await ctx.db.get(id);
-			if (agent?.workspaceId === member.workspaceId && !agent.archived) agentIds.push(id);
-		}
-
-		const recordIds = await workspaceRecords(ctx, member.workspaceId, mentions.recordIds ?? []);
-
-		const dmAgent = agentOfDm(chat);
-		if (dmAgent && (await ctx.db.get(dmAgent))?.archived) throw new ConvexError("This agent is archived.");
-
-		const messageId = await insertMessage(ctx, chat, {
-			threadId,
-			authorUserId: member.userId,
-			text,
-			parts: [{ type: "text", text }],
-			mentions: { userIds, agentIds, ...(recordIds.length > 0 && { recordIds }) },
-			status: "done",
-		});
-		await addUserMentions(ctx, (await ctx.db.get(messageId))!);
-		await noteMentions(ctx, { _id: messageId, chatId }, recordIds);
-		if (!threadId) await markChatRead(ctx, chatId, member.userId);
-
-		// Channels gain mentioned agents as members. DMs are a fixed set, so only their own agents answer.
-		let responders: Id<"agents">[];
-		if (dmAgent) responders = [dmAgent];
-		else if (chat.kind === "channel") {
-			for (const agentId of agentIds) await addToChat(ctx, chat, { agentId });
-			responders = agentIds;
-		} else {
-			const inDm = new Set(chat.dmKey?.split(","));
-			responders = agentIds.filter((id) => inDm.has(`a:${id}`));
-		}
-		for (const agentId of responders) {
-			await enqueueTurn(ctx, chat, { agentId, chatId, threadId, triggerId: messageId, actorId: member.userId });
-		}
-		// People's top-level channel messages can start automations. Agents' and automations'
-		// posts don't go through here, so automations can't set each other off.
-		if (chat.kind === "channel" && !threadId) {
-			await fireEvent(ctx, chat.workspaceId, "message.posted", {
-				channelId: chatId,
-				messageId,
-				data: { channel: `#${chat.name}`, author: await nameOf(ctx, member.userId), text },
-			});
-		}
-		return messageId;
-	},
+export const send = mutation({
+	args: sendMessageArgs.fields,
+	handler: async (ctx, args) => sendMessage(ctx, { member: await requireMember(ctx) }, args),
 });
 
+export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId, text, mentions }: Infer<typeof sendMessageArgs>): Promise<Id<"chatMessages">> {
+	const { member } = who;
+	const chat = await requireChat(ctx, member, chatId);
+	if (chat.archived) throw new ConvexError("This chat is archived.");
+	text = text.trim();
+	if (!text) throw new ConvexError("Write something first.");
+	if (threadId) {
+		const parent = await ctx.db.get(threadId);
+		if (!parent || parent.chatId !== chatId || parent.threadId) throw new ConvexError("That thread doesn't exist.");
+	}
+	await addToChat(ctx, chat, { userId: member.userId });
+
+	// Mentions outside the workspace (or of archived agents) are dropped, not trusted.
+	const userIds: Id<"users">[] = [];
+	for (const id of new Set(mentions.userIds)) {
+		if (await memberOf(ctx, id, member.workspaceId)) userIds.push(id);
+	}
+	const agentIds: Id<"agents">[] = [];
+	for (const id of new Set(mentions.agentIds)) {
+		const agent = await ctx.db.get(id);
+		if (agent?.workspaceId === member.workspaceId && !agent.archived) agentIds.push(id);
+	}
+
+	const recordIds = await workspaceRecords(ctx, member.workspaceId, mentions.recordIds ?? []);
+
+	const dmAgent = agentOfDm(chat);
+	if (dmAgent && (await ctx.db.get(dmAgent))?.archived) throw new ConvexError("This agent is archived.");
+
+	const messageId = await insertMessage(ctx, chat, {
+		threadId,
+		...(who.agentId ? { authorAgentId: who.agentId, actingFor: member.userId } : { authorUserId: member.userId }),
+		text,
+		parts: [{ type: "text", text }],
+		mentions: { userIds, agentIds, ...(recordIds.length > 0 && { recordIds }) },
+		status: "done",
+	});
+	await addUserMentions(ctx, (await ctx.db.get(messageId))!);
+	await noteMentions(ctx, { _id: messageId, chatId }, recordIds);
+	if (!who.agentId && !threadId) await markChatRead(ctx, chatId, member.userId);
+
+	if (who.agentId) return messageId;
+
+	// Channels gain mentioned agents as members. DMs are a fixed set, so only their own agents answer.
+	let responders: Id<"agents">[];
+	if (dmAgent) responders = [dmAgent];
+	else if (chat.kind === "channel") {
+		for (const agentId of agentIds) await addToChat(ctx, chat, { agentId });
+		responders = agentIds;
+	} else {
+		const inDm = new Set(chat.dmKey?.split(","));
+		responders = agentIds.filter((id) => inDm.has(`a:${id}`));
+	}
+	for (const agentId of responders) {
+		await enqueueTurn(ctx, chat, { agentId, chatId, threadId, triggerId: messageId, actorId: member.userId });
+	}
+	// People's top-level channel messages can start automations. Agents' and automations'
+	// posts don't go through here, so automations can't set each other off.
+	if (chat.kind === "channel" && !threadId) {
+		await fireEvent(ctx, chat.workspaceId, "message.posted", {
+			channelId: chatId,
+			messageId,
+			data: { channel: `#${chat.name}`, author: await nameOf(ctx, member.userId), text },
+		});
+	}
+	return messageId;
+}
 /** Your own message, not deleted. */
 async function requireOwn(ctx: QueryCtx, member: Member, messageId: Id<"chatMessages">) {
 	const message = await ctx.db.get(messageId);
