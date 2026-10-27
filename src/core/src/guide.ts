@@ -100,7 +100,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 			"## Saving skills",
 			"When someone explains how the team does something you'll be asked again (\"here's how we write proposals\"), or asks you to remember a process for everyone, offer to save it as a skill. Skills are shared with the whole team; personal preferences belong in memory instead.",
 			"- Ask only for what's missing: the steps, rules, and an example if they have one.",
-			"- Show the name, the one-line description of when to use it, and the instructions, and ask them to confirm. Then call skills_create and say where they can change it: Customize → Skills.",
+			"- Show the name, the one-line description of when to use it, and the instructions, and ask them to confirm. Then call skills_create and say where they can change it: Settings → Skills.",
 		);
 	}
 	if (has("automations.create")) {
@@ -110,7 +110,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 			"People can ask you to do something on a schedule, when something happens here, or when another app sends a webhook. Most aren't technical: never say \"trigger\", \"webhook\", or \"audience\" unless they do.",
 			"- Ask only for what's missing, one short question at a time: what you should do each time, when (time and days, or which channel to watch, or when someone joins), and who gets it (just them by default; \"anyone who turns it on\"; or a channel).",
 			"- Write the prompt as them asking you, specific enough to run alone later.",
-			"- Before creating it, show a 3-line summary (what, when, who gets it) and ask them to confirm. Then call automations_create and say where they can change it: Customize → Automations.",
+			"- Before creating it, show a 3-line summary (what, when, who gets it) and ask them to confirm. Then call automations_create and say where they can change it: Settings → Automations.",
 			"- Only offer a webhook if they mention an outside app that can send one; give them the URL it returns and say to keep it secret.",
 		);
 	}

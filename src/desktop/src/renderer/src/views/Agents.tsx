@@ -36,7 +36,7 @@ export function AgentsTab({ role }: { role: Role }) {
 	const create = useMutation(api.agents.create);
 	const { error, run } = useRun();
 	const isOwner = can(role, "agents.manage");
-	const open = (id: Id<"agents">) => navigate("customize", "agents", id);
+	const open = (id: Id<"agents">) => navigate("settings", "agents", id);
 
 	if (!agents) return <Loading />;
 
@@ -119,7 +119,7 @@ function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean;
 				isOwner && !agent.archived && (
 					<button
 						type="button"
-						onClick={() => run(remove({ kind: "agent", id: agent._id }), () => navigate("customize", "agents"))}
+						onClick={() => run(remove({ kind: "agent", id: agent._id }), () => navigate("settings", "agents"))}
 						className={barDangerButton}
 					>
 						<TrashIcon /> Delete

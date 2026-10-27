@@ -17,7 +17,7 @@ export function WorkspaceMenu({ name }: { name: string }) {
 	const current = useWorkspace();
 
 	return (
-		<div className="no-drag flex pb-4">
+		<div className="no-drag flex">
 			<Popover
 				trigger={
 					<>

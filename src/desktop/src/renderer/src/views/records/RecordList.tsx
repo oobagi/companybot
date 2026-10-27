@@ -341,28 +341,31 @@ function Table({
 
 function RowsTable({ type, rows, refs, columns, head }: { type: RecordType; rows: Row[]; refs: Refs; columns: TypeField[]; head: React.ReactNode[] }) {
 	return (
-		<div className="overflow-x-auto rounded-xl border border-neutral-200">
-			<table className="w-full text-sm">
-				<thead className="border-b border-neutral-200 bg-neutral-50 text-neutral-500">
-					<tr>{head}</tr>
-				</thead>
-				<tbody>
-					{rows.map((r) => (
-						<tr
-							key={r._id}
-							onClick={() => navigate(...recordPath(type.key, r._id))}
-							className="cursor-default border-b border-neutral-100 last:border-0 hover:bg-neutral-50"
-						>
-							{columns.map((f, i) => (
-								<td key={f.key} className={`max-w-64 truncate px-3 py-2 ${i === 0 ? "font-medium" : "text-neutral-700"}`}>
-									{valueText(f, r.values[f.key], refs)}
-								</td>
-							))}
-							<td className="px-3 py-2 whitespace-nowrap text-neutral-400">{timeAgo(r.updatedAt)}</td>
-						</tr>
-					))}
-				</tbody>
-			</table>
+		// Too wide for the column: it scrolls out to the screen's edges.
+		<div className="bleed">
+			<div className="w-max min-w-full overflow-hidden rounded-xl border border-neutral-200">
+				<table className="w-full text-sm">
+					<thead className="border-b border-neutral-200 bg-neutral-50 text-neutral-500">
+						<tr>{head}</tr>
+					</thead>
+					<tbody>
+						{rows.map((r) => (
+							<tr
+								key={r._id}
+								onClick={() => navigate(...recordPath(type.key, r._id))}
+								className="cursor-default border-b border-neutral-100 last:border-0 hover:bg-neutral-50"
+							>
+								{columns.map((f, i) => (
+									<td key={f.key} className={`max-w-64 truncate px-3 py-2 ${i === 0 ? "font-medium" : "text-neutral-700"}`}>
+										{valueText(f, r.values[f.key], refs)}
+									</td>
+								))}
+								<td className="px-3 py-2 whitespace-nowrap text-neutral-400">{timeAgo(r.updatedAt)}</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+			</div>
 		</div>
 	);
 }

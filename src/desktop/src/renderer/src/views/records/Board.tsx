@@ -21,10 +21,10 @@ export function Board({ type, args, group, cards, canEdit }: { type: RecordType;
 	const lanes = [{ id: "", label: `No ${group.label}`, retired: false }, ...(group.options ?? []).map((o) => ({ ...o, retired: !!o.retired }))];
 	const props = cards.filter((f) => f.key !== "name" && f.key !== group.key);
 	return (
-		// Break out of Page's 64rem content limit, keeping its 1.5rem side padding.
-		<div className="-mx-[max(0px,calc((100cqw-64rem)/2))] flex flex-col gap-2">
+		<div className="flex flex-col gap-2">
 			{error && <Notice>{error}</Notice>}
-			<div className="flex items-start gap-3 overflow-x-auto pb-2">
+			{/* Lanes start at the column and scroll out to the screen's edges. */}
+			<div className="bleed flex items-start gap-3 pb-2">
 				{lanes.map((lane) => (
 					<Lane
 						key={lane.id}

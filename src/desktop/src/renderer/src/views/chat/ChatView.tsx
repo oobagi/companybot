@@ -94,70 +94,79 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 		/>
 	);
 
+	const bar = (
+		<TopBar
+			title={
+				<>
+					<h1 className="flex min-w-0 items-center gap-1 truncate">
+						{chat.private && chat.kind === "channel" && <PrivateIcon className="shrink-0 text-neutral-400" />}
+						{title}
+					</h1>
+					{agent && <AgentBadge />}
+					{chat.topic && <p className="truncate font-normal text-neutral-500">{chat.topic}</p>}
+				</>
+			}
+		>
+			{!agent && (
+				<button
+					type="button"
+					onClick={() => setDetails(true)}
+					title="Members and details"
+					className="flex shrink-0 items-center gap-1.5 rounded-lg px-1.5 py-1 text-sm text-neutral-500 hover:bg-neutral-100"
+				>
+					<AvatarStack people={chat.members} />
+					{chat.members.length}
+				</button>
+			)}
+		</TopBar>
+	);
+
 	return (
 		<div className="flex min-h-0 flex-1">
 			<div className="flex min-w-0 flex-1 flex-col">
-				<TopBar
-					title={
-						<>
-							<h1 className="flex min-w-0 items-center gap-1 truncate">
-								{chat.private && chat.kind === "channel" && <PrivateIcon className="shrink-0 text-neutral-400" />}
-								{title}
-							</h1>
-							{agent && <AgentBadge />}
-							{chat.topic && <p className="truncate font-normal text-neutral-500">{chat.topic}</p>}
-						</>
-					}
-				>
-					{!agent && (
-						<button
-							type="button"
-							onClick={() => setDetails(true)}
-							title="Members and details"
-							className="flex shrink-0 items-center gap-1.5 rounded-lg px-1.5 py-1 text-sm text-neutral-500 hover:bg-neutral-100"
-						>
-							<AvatarStack people={chat.members} />
-							{chat.members.length}
-						</button>
-					)}
-				</TopBar>
-
 				{!messages ? (
-					<Loading />
-				) : agent && messages.length === 0 ? (
-					<div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 pb-24">
-						<h1 className="text-2xl font-medium tracking-tight">What can {agent.name} do for you?</h1>
-						<div className="w-full max-w-2xl">{composer}</div>
-						<div className="flex max-w-xl flex-wrap justify-center gap-2">
-							{suggestions.map((s) => (
-								<button
-									type="button"
-									key={s}
-									onClick={() => send(s, { userIds: [], agentIds: [] })}
-									className="rounded-full border border-neutral-200 px-3 py-1.5 text-sm text-neutral-600 hover:bg-neutral-50"
-								>
-									{s}
-								</button>
-							))}
-						</div>
-						{error && <Notice>{error}</Notice>}
-					</div>
-				) : (
 					<>
-						<MessageList
-							chatId={chat._id}
-							messages={messages}
-							names={directory.names}
-							summaryLabel={agent?.name ?? "Agents"}
-							onOpenThread={setThreadId}
-							onError={onError}
-							intro={messages.length < 200 && <Intro title={title} channel={chat.kind === "channel"} />}
-						/>
-						<div className="flex flex-col gap-2 px-5 pb-5">
+						{bar}
+						<Loading />
+					</>
+				) : agent && messages.length === 0 ? (
+					<>
+						{bar}
+						<div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 pb-24">
+							<h1 className="text-2xl font-medium tracking-tight">What can {agent.name} do for you?</h1>
+							<div className="w-full max-w-2xl">{composer}</div>
+							<div className="flex max-w-xl flex-wrap justify-center gap-2">
+								{suggestions.map((s) => (
+									<button
+										type="button"
+										key={s}
+										onClick={() => send(s, { userIds: [], agentIds: [] })}
+										className="rounded-full border border-neutral-200 px-3 py-1.5 text-sm text-neutral-600 hover:bg-neutral-50"
+									>
+										{s}
+									</button>
+								))}
+							</div>
 							{error && <Notice>{error}</Notice>}
-							{chat.trash ? <TrashNotice trash={chat.trash} /> : composer}
 						</div>
 					</>
+				) : (
+					<MessageList
+						chatId={chat._id}
+						messages={messages}
+						names={directory.names}
+						summaryLabel={agent?.name ?? "Agents"}
+						onOpenThread={setThreadId}
+						onError={onError}
+						intro={messages.length < 200 && <Intro title={title} channel={chat.kind === "channel"} />}
+						header={bar}
+						footer={
+							<div className="flex flex-col gap-2 px-5 pt-4 pb-5">
+								{error && <Notice>{error}</Notice>}
+								{chat.trash ? <TrashNotice trash={chat.trash} /> : composer}
+							</div>
+						}
+					/>
 				)}
 			</div>
 			{threadId && (

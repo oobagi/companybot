@@ -81,7 +81,7 @@ export class ConnectorOAuth implements OAuthClientProvider {
 	};
 
 	redirectToAuthorization(url: URL) {
-		if (!this.interactive) throw new Error("The sign-in expired. Connect the connector again in Customize → Connectors.");
+		if (!this.interactive) throw new Error("The sign-in expired. Connect the connector again in Settings → Connectors.");
 		this.authorizationUrl = url;
 	}
 

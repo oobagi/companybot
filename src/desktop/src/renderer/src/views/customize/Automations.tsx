@@ -35,7 +35,7 @@ export function AutomationsTab({ role }: { role: Role }) {
 				installed={a.installed}
 				canManage={a.canEdit}
 				action={offered ? <SubscribeButton automation={a} onError={run} /> : undefined}
-				onOpen={() => navigate("customize", "automations", a.id)}
+				onOpen={() => navigate("settings", "automations", a.id)}
 			/>
 		);
 	};
@@ -48,7 +48,7 @@ export function AutomationsTab({ role }: { role: Role }) {
 			error={error}
 			card={card}
 			action={can(role, "automations.create") && (
-				<button type="button" className={`${primaryButton} shrink-0`} onClick={() => navigate("customize", "automations", "new")}>
+				<button type="button" className={`${primaryButton} shrink-0`} onClick={() => navigate("settings", "automations", "new")}>
 					New automation
 				</button>
 			)}
@@ -308,7 +308,7 @@ function NewAutomation() {
 			noun="automation"
 			error={error}
 			onCreate={() =>
-				run(create({ config, agentId: agent as Id<"agents">, ...audience, timeZone }).then((id) => navigate("customize", "automations", id)))
+				run(create({ config, agentId: agent as Id<"agents">, ...audience, timeZone }).then((id) => navigate("settings", "automations", id)))
 			}
 		>
 			<AutomationFields value={config} onChange={setConfig} channels={channels} />

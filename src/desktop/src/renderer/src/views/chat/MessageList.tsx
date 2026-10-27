@@ -3,6 +3,7 @@ import { Fragment, useLayoutEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import { useQuery } from "../../convex";
 import { Markdown } from "../../markdown";
+import { Scroll } from "../../ui";
 import { dayLabel, sameDay } from "./common";
 import type { Message } from "./data";
 import { MessageRow } from "./Message";
@@ -27,6 +28,8 @@ export function MessageList({
 	onOpenThread,
 	onError,
 	intro,
+	header,
+	footer,
 }: {
 	chatId: Id<"chats">;
 	threadId?: Id<"chatMessages">;
@@ -38,6 +41,9 @@ export function MessageList({
 	onError: (e: unknown) => void;
 	/** Shown above the first message. */
 	intro?: React.ReactNode;
+	/** The bar above and the composer below; messages scroll under both. */
+	header?: React.ReactNode;
+	footer?: React.ReactNode;
 }) {
 	const place = useQuery(api.chats.place, { chatId, threadId });
 	const scroller = useRef<HTMLDivElement>(null);
@@ -52,15 +58,16 @@ export function MessageList({
 	const upTo = place?.summarizedUpTo ?? null;
 
 	return (
-		<div
+		<Scroll
 			ref={scroller}
+			header={header}
+			footer={footer}
 			onScroll={(e) => {
 				const el = e.currentTarget;
 				nearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
 			}}
-			className="min-h-0 flex-1 overflow-y-auto"
 		>
-			<div className="flex min-h-full flex-col justify-end py-4">
+			<div className="flex flex-1 flex-col justify-end py-4">
 				{intro}
 				{messages.map((m, i) => {
 					const prev = messages[i - 1];
@@ -89,7 +96,7 @@ export function MessageList({
 				})}
 				{place?.compacting && <p className="py-2 text-center text-xs text-neutral-400">Summarizing earlier messages…</p>}
 			</div>
-		</div>
+		</Scroll>
 	);
 }
 

@@ -35,6 +35,7 @@ beforeEach(() => {
 	state.lists = [];
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 	vi.stubGlobal("localStorage", { getItem: (key: string) => key.startsWith("records.layout.") ? '{"layout":"board","groupBy":"status"}' : null });
+	vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
 	vi.stubGlobal("IntersectionObserver", class {
 		constructor(callback: IntersectionObserverCallback) { intersect = callback; }
 		observe() {}

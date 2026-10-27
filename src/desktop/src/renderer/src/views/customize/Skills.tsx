@@ -23,7 +23,7 @@ export function SkillsTab({ role }: { role: Role }) {
 			description={s.description}
 			installed={s.installed}
 			canManage={s.canEdit}
-			onOpen={() => navigate("customize", "skills", s.id)}
+			onOpen={() => navigate("settings", "skills", s.id)}
 		/>
 	);
 
@@ -34,7 +34,7 @@ export function SkillsTab({ role }: { role: Role }) {
 			empty={can(role, "skills.create") ? "No skills yet. Make your own with New skill, or ask Companybot to save a process for your team." : "No skills yet. Your team can create skills here."}
 			card={card}
 			action={can(role, "skills.create") && (
-				<button type="button" className={`${primaryButton} shrink-0`} onClick={() => navigate("customize", "skills", "new")}>
+				<button type="button" className={`${primaryButton} shrink-0`} onClick={() => navigate("settings", "skills", "new")}>
 					New skill
 				</button>
 			)}
@@ -91,7 +91,7 @@ function NewSkill() {
 			tab="skills"
 			noun="skill"
 			error={error}
-			onCreate={() => run(create({ config }).then((id) => navigate("customize", "skills", id)))}
+			onCreate={() => run(create({ config }).then((id) => navigate("settings", "skills", id)))}
 		>
 			<SkillFields value={config} onChange={setConfig} />
 		</NewItem>
