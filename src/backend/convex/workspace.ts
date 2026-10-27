@@ -243,7 +243,7 @@ export async function resendMemberInvite(ctx: MutationCtx, member: Member, { id 
 	await sendInviteEmail(ctx, invite, userId, { resend: true });
 }
 
-const inviteIn = (ctx: QueryCtx, workspaceId: Id<"workspaces">, email: string) =>
+export const inviteIn = (ctx: QueryCtx, workspaceId: Id<"workspaces">, email: string) =>
 	ctx.db.query("invites").withIndex("by_workspace_email", q => q.eq("workspaceId", workspaceId).eq("email", email)).first();
 
 const cancelMemberInviteArgs = v.object({ id: v.id("invites") });

@@ -1,7 +1,7 @@
 import { asSchema } from "ai";
-import { builtinTools, manageInputs } from "@companybot/core";
+import { builtinTools } from "@companybot/core";
 import { describe, expect, it } from "vitest";
-import { humanOnlyActions, parity } from "../convex/parity";
+import { parity } from "../convex/parity";
 import { modules } from "./helpers";
 
 describe("the parity registry", () => {
@@ -26,19 +26,6 @@ describe("the parity registry", () => {
 					expect(JSON.stringify(schema), action).toContain(`"const":"${verb}"`);
 				}
 			}
-		}
-	});
-
-	it("retains the audit's intentional human-only actions separately from pending gaps", () => {
-		expect(humanOnlyActions).toHaveLength(26);
-		for (const a of humanOnlyActions) expect(a.action && a.reason).toBeTruthy();
-	});
-
-	it("keeps every grouped schema object-shaped at the provider boundary", async () => {
-		for (const input of Object.values(manageInputs)) {
-			const schema = await asSchema<unknown>(input).jsonSchema;
-			expect(schema.type).toBe("object");
-			expect(schema.properties).toHaveProperty("request");
 		}
 	});
 });

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ManageTool } from "@companybot/core";
 import { api, internal } from "../convex/_generated/api";
-import { agentTurn, agentsOf, generalOf, noMentions, setup, sideWorkspace, workspaceOf } from "./helpers";
+import { agentTurn, agentsOf, generalOf, noMentions, setup, sideWorkspace, turnsOf, workspaceOf } from "./helpers";
 import type { Id } from "../convex/_generated/dataModel";
 
 afterEach(() => vi.useRealTimers());
@@ -153,6 +153,20 @@ describe("automation management", () => {
 		});
 		expect(JSON.stringify(await call("automations.manage", { action: "get", id }))).not.toContain("SECRET");
 	});
+
+	it("lets a run manage the workspace only for the person who wrote its prompt", async () => {
+		const { t, owner, member, companybot, turnId, memberTurn } = await ready();
+		for (const done of [turnId, memberTurn]) await t.mutation(internal.turns.finishReply, { turnId: done });
+		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
+		const run = async (as: typeof owner) => {
+			const before = await turnsOf(t);
+			await as.mutation(api.automationRuns.runNow, { automationId: id });
+			const turnId = (await turnsOf(t)).find((x) => !before.some((b) => b._id === x._id))!._id;
+			return t.mutation(internal.manageTools.runFor, { turnId, tool: "chat.manage", input: { request: { action: "list_chats" } } }) as Promise<any>;
+		};
+		expect((await run(owner)).error).toContain("last edited this automation");
+		expect(await run(member)).toHaveProperty("page");
+	});
 });
 
 describe("skills, members and settings", () => {
@@ -192,22 +206,21 @@ describe("skills, members and settings", () => {
 		expect(await call("members.invite", { action: "invite", email: "next@co.com" })).toMatchObject({ emailed: true });
 		const invite = (await owner.query(api.workspace.team))!.invites[0]!;
 		expect(invite.role).toBe("member");
-		expect(await call("members.invite", { action: "resend", id: invite.id })).toHaveProperty("error");
+		expect(await call("members.invite", { action: "resend", email: invite.email })).toHaveProperty("error");
 		await t.run(async (ctx) => {
 			for (const i of await ctx.db.query("inviteEmails").collect()) await ctx.db.delete(i._id);
 		});
-		expect(await call("members.invite", { action: "resend", id: invite.id })).toMatchObject({ done: "resend" });
-		expect(await call("members.invite", { action: "cancel", id: invite.id })).toMatchObject({ done: "cancel" });
+		expect(await call("members.invite", { action: "resend", email: invite.email })).toMatchObject({ done: "resend" });
+		expect(await call("members.invite", { action: "cancel", email: invite.email })).toMatchObject({ done: "cancel" });
 		for (const request of [
 			{ action: "invite", email: "no@co.com" },
-			{ action: "resend", id: invite.id },
-			{ action: "cancel", id: invite.id },
+			{ action: "resend", email: invite.email },
+			{ action: "cancel", email: invite.email },
 		])
 			expect(await call("members.invite", request, true)).toHaveProperty("error");
-		const members = (await owner.query(api.workspace.team))!.members;
-		expect(await call("members.remove", { action: "remove", id: members.find((m) => m.userId === owner.userId)!.id })).toHaveProperty("error");
-		expect(await call("members.remove", { action: "remove", id: members.find((m) => m.userId === owner.userId)!.id }, true)).toHaveProperty("error");
-		expect(await call("members.remove", { action: "remove", id: members.find((m) => m.userId === member.userId)!.id })).toHaveProperty("removed");
+		expect(await call("members.remove", { action: "remove", email: "owner@co.com" })).toHaveProperty("error");
+		expect(await call("members.remove", { action: "remove", email: "owner@co.com" }, true)).toHaveProperty("error");
+		expect(await call("members.remove", { action: "remove", email: "Member@Co.com" })).toHaveProperty("removed");
 		await expect(
 			t.mutation(internal.manageTools.runFor, { turnId: memberTurn, tool: "workspace.settings", input: { request: { action: "get" } } }),
 		).rejects.toThrow("no longer in the workspace");

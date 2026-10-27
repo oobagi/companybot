@@ -3,6 +3,9 @@ import { defineTool, type ToolDef } from "./tools";
 
 const id = z.string().min(1);
 const ids = z.array(id).max(50);
+const userIds = ids.describe("User ids from find_people");
+const agentIds = ids.describe("Agent ids from find_people with kind \"agents\"");
+const version = z.number().int().describe("version from get; a stale one is refused");
 const page = { cursor: z.string().optional() };
 const skillConfig = z.object({ name: z.string().max(64), description: z.string().max(200), instructions: z.string().max(20_000) });
 const trigger = z.union([
@@ -17,14 +20,14 @@ export const manageInputs = {
 		request: z.discriminatedUnion("action", [
 			z.strictObject({ action: z.literal("find_people"), kind: z.enum(["people", "agents", "invites"]).optional(), ...page }),
 			z.strictObject({ action: z.literal("list_chats"), ...page }),
-			z.strictObject({ action: z.literal("open_dm"), userIds: ids, agentIds: ids }),
+			z.strictObject({ action: z.literal("open_dm"), userIds: userIds.describe("Others in the DM; you are added"), agentIds }),
 			z.strictObject({
 				action: z.literal("send"),
 				chat: id.describe("Chat id or #channel"),
-				threadId: id.optional(),
+				threadId: id.optional().describe("Top-level message id, to reply in its thread"),
 				text: z.string().min(1).max(20_000),
-				userIds: ids.optional(),
-				agentIds: ids.optional(),
+				userIds: userIds.optional().describe("People to @mention"),
+				agentIds: agentIds.optional().describe("Agents to @mention; they don't reply"),
 			}),
 		]),
 	}),
@@ -35,7 +38,7 @@ export const manageInputs = {
 			z.strictObject({ action: z.literal("create"), name: z.string().min(1).max(80), topic: z.string().max(2000).optional(), private: z.boolean() }),
 			z.strictObject({ action: z.literal("rename"), chat: id, name: z.string().min(1).max(80) }),
 			z.strictObject({ action: z.literal("set_topic"), chat: id, topic: z.string().max(2000) }),
-			z.strictObject({ action: z.literal("add_members"), chat: id, userIds: ids, agentIds: ids }),
+			z.strictObject({ action: z.literal("add_members"), chat: id, userIds, agentIds }),
 			z
 				.strictObject({ action: z.literal("remove_member"), chat: id, userId: id.optional(), agentId: id.optional() })
 				.refine((x) => !!x.userId !== !!x.agentId, "Choose one person or agent"),
@@ -50,7 +53,7 @@ export const manageInputs = {
 			z.strictObject({
 				action: z.literal("edit"),
 				id,
-				expectedVersion: z.number().int(),
+				expectedVersion: version,
 				config: z.object({ name: z.string(), prompt: z.string().max(20_000), trigger }),
 			}),
 			z.strictObject({ action: z.literal("pause"), id }),
@@ -64,7 +67,7 @@ export const manageInputs = {
 		request: z.discriminatedUnion("action", [
 			z.strictObject({ action: z.literal("list"), ...page }),
 			z.strictObject({ action: z.literal("get"), id }),
-			z.strictObject({ action: z.literal("edit"), id, expectedVersion: z.number().int(), config: skillConfig }),
+			z.strictObject({ action: z.literal("edit"), id, expectedVersion: version, config: skillConfig }),
 			z.strictObject({ action: z.literal("install"), id }),
 		]),
 	}),
@@ -72,19 +75,19 @@ export const manageInputs = {
 	"members.invite": z.object({
 		request: z.discriminatedUnion("action", [
 			z.strictObject({ action: z.literal("invite"), email: z.string().email() }),
-			z.strictObject({ action: z.literal("resend"), id }),
-			z.strictObject({ action: z.literal("cancel"), id }),
+			z.strictObject({ action: z.literal("resend"), email: z.string().email() }),
+			z.strictObject({ action: z.literal("cancel"), email: z.string().email() }),
 		]),
 	}),
 	"members.remove": z.object({
-		request: z.strictObject({ action: z.literal("remove"), id: id.describe("Membership id from find_people; removes personal workspace data") }),
+		request: z.strictObject({ action: z.literal("remove"), email: z.string().email() }),
 	}),
 	"workspace.settings": z.object({
 		request: z.discriminatedUnion("action", [
 			z.strictObject({ action: z.literal("get") }),
 			z.strictObject({
 				action: z.literal("update"),
-				expectedVersion: z.number().int(),
+				expectedVersion: version,
 				name: z.string().min(1).optional(),
 				currency: z.string().optional(),
 				memory: z.boolean().optional(),
@@ -109,9 +112,9 @@ const descriptions: Record<ManageTool, string> = {
 		"Browse custom and library skills, read full instructions and current version, edit a custom skill with expectedVersion, or install a library skill (owners). Confirm exact instructions before editing. Changes are shared with the team.",
 	"skills.remove": "Permanently delete a custom skill or uninstall a library skill by id. The exact call waits for approval.",
 	"members.invite":
-		"Invite an email as a member, resend or cancel an invitation (owners). Invite and resend send email outside the workspace and wait for approval. Cannot invite owners or change roles.",
+		"Invite an email as a member, or resend or cancel the invitation for an email (owners). Invite and resend send email outside the workspace and wait for approval. Cannot invite owners or change roles.",
 	"members.remove":
-		"Remove another member by membership id (owners). Deletes their personal workspace data and access. The exact call waits for approval; cannot remove yourself.",
+		"Remove another member by their email (owners). Deletes their personal workspace data and access. The exact call waits for approval; cannot remove yourself.",
 	"workspace.settings":
 		"Read workspace name, default currency, memory switch and version; update these as an owner using the current expectedVersion. Existing amounts keep their currency; the default only affects new amounts. Memory off keeps stored memories. Change only when asked.",
 };

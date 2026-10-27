@@ -86,32 +86,3 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"workspace.updateSettings": { agent: ["workspace.settings:update"] },
 };
 
-/** The audit's 26 intentional human-only actions, including reads and auth actions. */
-export const humanOnlyActions = [
-	{ action: "List own workspaces and pending invitations", reason: "account-wide context outside this workspace turn" },
-	{ action: "Accept or decline an invitation to another workspace", reason: "joins a new trust domain or rejects account invitation" },
-	{ action: "Leave workspace", reason: "revokes actor access and deletes personal workspace data" },
-	{ action: "Bootstrap initial workspace or accept initial invites at first sign-in", reason: "account setup before a workspace-scoped agent exists" },
-	{ action: "Delete workspace and all its data", reason: "irreversible workspace-wide erasure" },
-	{ action: "Erase account across every workspace", reason: "irreversible account-wide erasure" },
-	{ action: "Invite someone as an owner", reason: "creates administrative privileges" },
-	{ action: "Change another member's role", reason: "delegates or removes security authority" },
-	{ action: "Change acting person's own role", reason: "changes agent's own effective authority" },
-	{ action: "Grant/revoke agent tools or whole connector groups", reason: "expands/redefines agent authority, including future wildcard tools" },
-	{ action: "Change running agent's own model/instructions/config", reason: "self-modifying execution policy" },
-	{ action: "Restore an archived agent", reason: "reactivates its prior grants and execution policy" },
-	{ action: "Restore an old agent configuration", reason: "can roll back tool grants and security instructions" },
-	{ action: "Change connector's allowed roles", reason: "changes who can use connected account authority" },
-	{ action: "Sign in/connect a personal or shared account through OAuth", reason: "identity, credentials and provider consent" },
-	{ action: "Paste and save an API-key connection", reason: "secret entry and account authority" },
-	{ action: "Set per-action Ask/Always/Never in connector detail", reason: "decides agent's future consent" },
-	{ action: "Approve/review automation-scoped Always grants", reason: "agent cannot preapprove its own future actions" },
-	{ action: "Allow a held call once", reason: "exact-input consent must come from acting person" },
-	{ action: "Allow held call always and save future consent rule", reason: "grants its own future authority" },
-	{ action: "Deny a held call", reason: "preserve independent person's approval decision" },
-	{ action: "Set/reset Ask, Always or Never rule", reason: "changes effective consent, including own permissions" },
-	{ action: "Remove an automation-scoped grant", reason: "edits consent policy" },
-	{ action: "Set owner Always ask/Blocked/Unlocked/default action lock", reason: "changes security policy for everyone" },
-	{ action: "Request/enter email sign-in code or switch sign-in email", reason: "authenticates account identity" },
-	{ action: "Sign out", reason: "account session and device identity" },
-];

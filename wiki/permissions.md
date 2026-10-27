@@ -32,6 +32,7 @@ How agents get the go-ahead for actions that leave the building. Start strict, l
 ## Automations
 - Turning one on (or "Turn on for me", or resuming a paused one) lists what its agent may do that would ask: only tools the agent is granted, and only for automations the person can see. **Allow** saves Always grants scoped to that automation and person (`automationInstallId` on the rule); Cancel does nothing. If nothing would ask, it just turns on.
 - A run belongs to an automation when its trigger message was posted by it. Grants apply only to those runs; the same person chatting normally is still asked.
+- A run follows its prompt but acts as its reader, so workspace-management tools (`chat.manage`, `channels.*`, `members.*`, …) refuse runs of a custom automation someone else last edited.
 - A held call remembers its automation (`approvals.automationInstallId`). If the automation is deleted, its card no longer offers "Always allow": a grant is never widened to a person-wide rule.
 - Anything new pauses and asks in the DM, as before. Turning it off for yourself, or deleting it, removes the grants.
 

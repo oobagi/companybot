@@ -3,13 +3,14 @@ import { ConvexError, v } from "convex/values";
 import type { Id, TableNames } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { addChannelMembers, createChannelAs, joinChannel, leaveChannel, openDirectMessage, removeChannelMember, updateChannelAs } from "./chats";
-import { channelNamed, namer, requireChat } from "./chatOps";
+import { chatByRef, namer, requireChat } from "./chatOps";
 import { canView, definitionOf, installOf } from "./automationOps";
 import { removeAutomation, saveAutomation, updateAutomation } from "./automations";
 import { installSkill, removeSkill, saveSkill } from "./skills";
 import { sendMessage } from "./messages";
-import { cancelMemberInvite, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
-import { asToolResult, checkPermission, type Member, nameOf, timeZoneOf } from "./lib";
+import { cancelMemberInvite, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
+import { asToolResult, checkPermission, type Member, nameOf, normalizeEmail, timeZoneOf } from "./lib";
+import { automationOfTurn } from "./permissions";
 import { runningTurn } from "./turns";
 
 const paging = (cursor?: string) => ({ cursor: cursor ?? null, numItems: 30 });
@@ -18,12 +19,15 @@ function rowId<T extends TableNames>(ctx: MutationCtx, table: T, raw: string): I
 	if (!id) throw new ConvexError("Invalid id.");
 	return id;
 }
-async function chatId(ctx: MutationCtx, member: Member, raw: string) {
-	const id = ctx.db.normalizeId("chats", raw);
-	const chat = id ? await requireChat(ctx, member, id) : await channelNamed(ctx, member, raw);
+async function chatId(ctx: MutationCtx, member: Member, ref: string) {
+	const chat = await chatByRef(ctx, member, ref);
 	if (!chat) throw new ConvexError("Chat not found.");
 	return chat._id;
 }
+const participants = (ctx: MutationCtx, r: { userIds?: string[]; agentIds?: string[] }) => ({
+	userIds: (r.userIds ?? []).map((i) => rowId(ctx, "users", i)),
+	agentIds: (r.agentIds ?? []).map((i) => rowId(ctx, "agents", i)),
+});
 
 export const runFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), tool: v.string(), input: v.any() },
@@ -34,6 +38,10 @@ export const runFor = internalMutation({
 		if (!agent || agent.archived || !isGranted(agent.tools, tool)) throw new ConvexError("This agent no longer has that tool.");
 		return asToolResult(async () => {
 			if (!(tool in manageInputs)) throw new ConvexError("Unknown tool.");
+			// A run acts with this person's rights but follows its prompt: only the prompt's author can have it manage the workspace.
+			const automation = await automationOfTurn(ctx, turn);
+			if (automation?.custom && automation.custom.updatedBy !== member.userId)
+				throw new ConvexError(`${await nameOf(ctx, automation.custom.updatedBy)} last edited this automation, so it can't manage the workspace for you.`);
 			switch (tool) {
 				case "chat.manage": {
 					const r = manageInputs[tool].parse(input).request;
@@ -61,7 +69,6 @@ export const runFor = internalMutation({
 							...result,
 							page: await Promise.all(
 								result.page.map(async (m) => ({
-									id: m._id,
 									userId: m.userId,
 									name: await nameOf(ctx, m.userId),
 									email: (await ctx.db.get(m.userId))?.email,
@@ -85,17 +92,14 @@ export const runFor = internalMutation({
 					}
 					if (r.action === "open_dm")
 						return {
-							chatId: await openDirectMessage(ctx, member, {
-								userIds: r.userIds.map((i) => rowId(ctx, "users", i)),
-								agentIds: r.agentIds.map((i) => rowId(ctx, "agents", i)),
-							}),
+							chatId: await openDirectMessage(ctx, member, participants(ctx, r)),
 						};
 					return {
 						messageId: await sendMessage(ctx, who, {
 							chatId: await chatId(ctx, member, r.chat),
 							threadId: r.threadId ? rowId(ctx, "chatMessages", r.threadId) : undefined,
 							text: r.text,
-							mentions: { userIds: (r.userIds ?? []).map((i) => rowId(ctx, "users", i)), agentIds: (r.agentIds ?? []).map((i) => rowId(ctx, "agents", i)) },
+							mentions: participants(ctx, r),
 						}),
 					};
 				}
@@ -131,11 +135,7 @@ export const runFor = internalMutation({
 					if (r.action === "join") await joinChannel(ctx, member, { chatId: id });
 					if (r.action === "leave") await leaveChannel(ctx, member, { chatId: id });
 					if (r.action === "add_members")
-						await addChannelMembers(ctx, member, {
-							chatId: id,
-							userIds: r.userIds.map((i) => rowId(ctx, "users", i)),
-							agentIds: r.agentIds.map((i) => rowId(ctx, "agents", i)),
-						});
+						await addChannelMembers(ctx, member, { chatId: id, ...participants(ctx, r) });
 					if (r.action === "remove_member")
 						await removeChannelMember(ctx, member, {
 							chatId: id,
@@ -223,19 +223,24 @@ export const runFor = internalMutation({
 				case "members.invite": {
 					const r = manageInputs[tool].parse(input).request;
 					if (r.action === "invite") return inviteMember(ctx, member, { email: r.email, role: "member" });
+					const invite = await inviteIn(ctx, member.workspaceId, normalizeEmail(r.email));
+					if (!invite) throw new ConvexError("No invitation for that email.");
 					if (r.action === "resend") {
-						const id = rowId(ctx, "invites", r.id);
-						const invite = await ctx.db.get(id);
-						if (invite?.workspaceId === member.workspaceId && invite.role !== "member") throw new ConvexError("Owner invitations require a person directly.");
-						await resendMemberInvite(ctx, member, { id });
+						if (invite.role !== "member") throw new ConvexError("Owner invitations require a person directly.");
+						await resendMemberInvite(ctx, member, { id: invite._id });
 					}
-					if (r.action === "cancel") await cancelMemberInvite(ctx, member, { id: rowId(ctx, "invites", r.id) });
-					return { done: r.action, id: r.id };
+					if (r.action === "cancel") await cancelMemberInvite(ctx, member, { id: invite._id });
+					return { done: r.action, email: invite.email };
 				}
 				case "members.remove": {
 					const r = manageInputs[tool].parse(input).request;
-					await removeWorkspaceMember(ctx, member, { id: rowId(ctx, "members", r.id) });
-					return { removed: r.id };
+					const row = await ctx.db
+						.query("members")
+						.withIndex("by_email", (q) => q.eq("workspaceId", member.workspaceId).eq("email", normalizeEmail(r.email)))
+						.first();
+					if (!row) throw new ConvexError("No member with that email.");
+					await removeWorkspaceMember(ctx, member, { id: row._id });
+					return { removed: r.email };
 				}
 				case "workspace.settings": {
 					const r = manageInputs[tool].parse(input).request;

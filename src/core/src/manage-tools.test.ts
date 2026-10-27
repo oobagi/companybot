@@ -15,7 +15,9 @@ describe("grouped tools", () => {
 			const input =
 				id === "members.invite"
 					? { request: { action: "invite", email: "next@co.com" } }
-					: { request: { action: id === "members.remove" ? "remove" : "delete", id: "exact-id" } };
+					: id === "members.remove"
+						? { request: { action: "remove", email: "dana@co.com" } }
+						: { request: { action: "delete", id: "exact-id" } };
 			expect(await actionOf(modelToolName(id), input, [tool])).toEqual({ tool, input });
 			expect(await toolApprovalPolicy([tool])({ toolCall: { toolCallId: "call", toolName: modelToolName(id), input } })).toBe("user-approval");
 		}
