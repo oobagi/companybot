@@ -1,7 +1,6 @@
 import type { Role } from "@companybot/core";
 import { can } from "@companybot/core/permissions";
 import { currencyCodes } from "@companybot/core/records";
-import { useAuthActions } from "@convex-dev/auth/react";
 import { useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
@@ -115,19 +114,23 @@ function DangerZone({
 	action,
 	hint,
 	confirm,
+	ignoreCase = false,
 	onDelete,
 	children,
 }: {
 	action: string;
 	hint: string;
 	confirm: string;
+	ignoreCase?: boolean;
 	onDelete: (typed: string) => Promise<unknown>;
 	children: React.ReactNode;
 }) {
 	const [open, setOpen] = useState(false);
 	const [typed, setTyped] = useState("");
+	const [busy, setBusy] = useState(false);
 	const { error, run } = useRun();
-	const close = () => (setOpen(false), setTyped(""));
+	const matches = ignoreCase ? typed.trim().toLowerCase() === confirm.toLowerCase() : typed.trim() === confirm;
+	const close = () => !busy && (setOpen(false), setTyped(""));
 	return (
 		<Section title="Danger zone">
 			<div className="flex items-center gap-3 rounded-xl border border-neutral-200 px-4 py-3 text-sm">
@@ -142,7 +145,9 @@ function DangerZone({
 						className="flex flex-col gap-4 text-sm"
 						onSubmit={(e) => {
 							e.preventDefault();
-							run(onDelete(typed.trim()));
+							if (busy || !matches) return;
+							setBusy(true);
+							run(onDelete(typed.trim())).finally(() => setBusy(false));
 						}}
 					>
 						<p className="text-neutral-600">{children}</p>
@@ -151,11 +156,11 @@ function DangerZone({
 							<input className={inputClass} autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} />
 						</Field>
 						<div className="flex justify-end gap-2">
-							<button type="button" onClick={close} className={secondaryButton}>
+							<button type="button" onClick={close} disabled={busy} className={secondaryButton}>
 								Cancel
 							</button>
-							<button type="submit" disabled={typed.trim() !== confirm} className={dangerButton}>
-								{action}
+							<button type="submit" disabled={busy || !matches} className={dangerButton}>
+								{busy ? "Deleting…" : action}
 							</button>
 						</div>
 					</form>
@@ -258,7 +263,6 @@ function ProfileTab() {
 	const update = useMutation(api.preferences.update);
 	const me = useQuery(api.workspace.me);
 	const erase = useMutation(api.workspace.eraseAccount);
-	const { signOut } = useAuthActions();
 	const [name, setName] = useState<string>();
 	const { error, run } = useRun();
 	if (!prefs) return <Loading />;
@@ -340,7 +344,8 @@ function ProfileTab() {
 					action="Delete account"
 					hint="Deletes your account and takes you out of every workspace."
 					confirm={me.email}
-					onDelete={() => erase().then(signOut)}
+					ignoreCase
+					onDelete={() => erase()}
 				>
 					You'll leave every workspace and be signed out. Workspaces only you are in are deleted with everything in them. Your name,
 					preferences and connected accounts are deleted; what you said in shared chats stays, as a former member's. If you're the only

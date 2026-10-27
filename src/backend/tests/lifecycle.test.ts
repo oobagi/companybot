@@ -5,7 +5,7 @@ import type { Id, TableNames } from "../convex/_generated/dataModel";
 import { type Edge, type Lifecycle, edgesOf, lifecycle } from "../convex/lifecycle";
 import { memberOf } from "../convex/lib";
 import schema from "../convex/schema";
-import { agentTurn, generalOf, modules, noMentions, settle, setup, signIn, turnsOf, workspaceOf } from "./helpers";
+import { agentTurn, generalOf, modules, noMentions, settle, setup, sideWorkspace, signIn, turnsOf, workspaceOf } from "./helpers";
 import "./connectorFixtures";
 import { person } from "./person";
 
@@ -216,6 +216,15 @@ function diff(before: Awaited<ReturnType<typeof dump>>, after: Awaited<ReturnTyp
 describe("deleting a workspace", () => {
 	it("ends access at once, then deletes everything of it and nothing of anyone else's", { timeout: 60_000 }, async () => {
 		const { t, a, b, m, A, B } = await world();
+		const general = (await generalOf(a))._id;
+		// The desktop keeps these subscriptions cached after their screens unmount.
+		const staleReads = async () => {
+			expect(await a.in(A).query(api.workspace.settings)).toBeNull();
+			expect(await a.in(A).query(api.chats.list)).toBeNull();
+			expect(await a.in(A).query(api.chats.get, { chatId: general })).toBeNull();
+			expect(await a.in(A).query(api.messages.list, { chatId: general })).toEqual([]);
+			expect(await a.in(A).query(api.chats.alerts)).toBeNull();
+		};
 		// Every table has rows, so a cascade that missed one would show.
 		const before = await dump(t);
 		const seeded = new Set([...before.values()].map((r) => r.table));
@@ -229,8 +238,10 @@ describe("deleting a workspace", () => {
 		await expect(m.in(A).mutation(api.chats.createChannel, { name: "x", private: false })).rejects.toThrow();
 		expect((await m.query(api.workspace.mine))!.workspaces.map((w) => w.id)).toEqual([B]);
 		expect((await a.query(api.workspace.mine))!.workspaces).toEqual([]);
+		await staleReads();
 
 		await settle(t);
+		await staleReads();
 		const after = await dump(t);
 		const owned = rowsOf(before, A);
 		for (const id of owned) {
@@ -350,6 +361,17 @@ describe("erasing an account", () => {
 		vi.useFakeTimers();
 		await owner.mutation(api.workspace.deleteWorkspace, { name: "My company" });
 		await owner.mutation(api.workspace.eraseAccount);
+		await settle(t);
+	});
+
+	it("still refuses a sole owner of a live shared workspace when another workspace is being deleted", async () => {
+		const { t, owner, member } = await setup();
+		const { workspaceId } = await sideWorkspace(t, "owner@co.com");
+		await t.run((ctx) => ctx.db.insert("members", { workspaceId, userId: member.userId, role: "member" }));
+		vi.useFakeTimers();
+		await owner.mutation(api.workspace.deleteWorkspace, { name: "My company" });
+		await expect(owner.mutation(api.workspace.eraseAccount)).rejects.toThrow("only owner of Side gig");
+		expect(await owner.in(workspaceId).query(api.workspace.me)).toMatchObject({ role: "owner", email: "owner@co.com" });
 		await settle(t);
 	});
 
