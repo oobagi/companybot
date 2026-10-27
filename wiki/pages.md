@@ -17,7 +17,7 @@ Notion saves a version every 10 minutes while you edit, and another 2 minutes af
 
 ## Storage bounds
 - **Per document:** a page's content is capped at 500 KB of JSON (`PAGE_MAX_BYTES`), measured in encoded bytes on the resulting document and serialized steps before every editor or agent write, so nothing nears Convex's 1 MiB document limit. Past it: "Split it into several pages."
-- **Compaction:** the newest 100 versions per page are kept (`PAGE_VERSIONS_MAX`); older ones go with their snapshots. Merging an edit run deletes its previous snapshot. Deltas older than a day and behind the latest snapshot are deleted on every accepted edit (the component's `deleteSteps`, which never deletes past the latest snapshot), so a client that was briefly offline can still catch up. So a page holds at most ~101 snapshots plus a day of steps. A small pnpm patch limits component reads/cleanup to 10 deltas at once (up to ~5 MB), rather than 100 (up to ~50 MB).
+- **Compaction:** the newest 100 versions per page are kept (`PAGE_VERSIONS_MAX`); older ones go with their snapshots. Merging an edit run deletes its previous snapshot. Deltas older than a day and behind the latest snapshot are deleted on every accepted edit (the component's `deleteSteps`, which never deletes past the latest snapshot), so a client that was briefly offline can still catch up. So a page holds at most ~101 snapshots plus a day of steps. A small pnpm patch limits component reads/cleanup to 10 deltas at once (up to ~5 MB), rather than 100 (up to ~50 MB), and makes idle editors drain every missed batch before stopping.
 - **Reads:** lists take 200 pages (sidebar) or 50 (`pages_find` list, paged) or 20 (title search, paged), history 20 per page.
 
 ## Rules

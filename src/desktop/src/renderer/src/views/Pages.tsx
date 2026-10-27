@@ -1,5 +1,5 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { navigate } from "../router";
@@ -7,6 +7,7 @@ import { Loading, Notice, Page, descriptionClass, metadataClass, timeAgo, useRun
 import { Group, Item } from "./chat/Sidebar";
 import { PageEditor } from "./pages/PageEditor";
 import { PageHistory } from "./pages/PageHistory";
+import { PageTitle } from "./pages/PageTitle";
 
 // Standalone pages (wiki, SOPs, meeting notes): /pages lists them, /pages/<id> opens one.
 // Records' page bodies use the same editor on the record's page. See wiki/pages.md.
@@ -18,16 +19,13 @@ export function PagesNav({ openId }: { openId: string | undefined }) {
 	const { error, run } = useRun();
 	const newPage = () => run(create({ title: "Untitled" }).then((id) => navigate("pages", id)));
 	return (
-		<Group title="Pages" onAdd={() => void newPage()} addLabel="New page" onTitle={() => navigate("pages")}>
+		<Group title="Pages" onTitle={() => navigate("pages")}>
 			{pages?.map((p) => (
 				<Item key={p._id} active={p._id === openId} onClick={() => navigate("pages", p._id)}>
 					<span className="truncate">{p.title}</span>
 				</Item>
 			))}
-			<Item onClick={() => void newPage()} muted>
-					<span className="w-5 shrink-0 text-center">+</span>
-					New page
-				</Item>
+			<Item onClick={() => void newPage()} muted>+ New page</Item>
 			{error && <Notice>{error}</Notice>}
 		</Group>
 	);
@@ -68,6 +66,7 @@ function PagesIndex() {
 function PageScreen({ pageId, canEdit }: { pageId: Id<"pages">; canEdit: boolean }) {
 	const page = useQuery(api.pages.get, { pageId });
 	const setArchived = useMutation(api.pages.setArchived);
+	const rename = useMutation(api.pages.rename);
 	const remove = useMutation(api.pages.remove);
 	const [history, setHistory] = useState(false);
 	const { error, run } = useRun();
@@ -83,7 +82,7 @@ function PageScreen({ pageId, canEdit }: { pageId: Id<"pages">; canEdit: boolean
 	const action = `${descriptionClass} hover:text-neutral-900`;
 	return (
 		<Page
-			title={<Title pageId={pageId} title={page.title} editable={page.canEdit} />}
+			title={<PageTitle title={page.title} editable={page.canEdit} onSave={(title) => rename({ pageId, title })} />}
 			subtitle={page.archived ? "Archived" : undefined}
 			back={back}
 			actions={
@@ -108,30 +107,5 @@ function PageScreen({ pageId, canEdit }: { pageId: Id<"pages">; canEdit: boolean
 			<PageEditor pageId={pageId} editable={page.canEdit} />
 			{history && <PageHistory pageId={pageId} canRestore={page.canEdit} onClose={() => setHistory(false)} />}
 		</Page>
-	);
-}
-
-/** The title, edited in place; saved when you leave it or press Enter. */
-function Title({ pageId, title, editable }: { pageId: Id<"pages">; title: string; editable: boolean }) {
-	const rename = useMutation(api.pages.rename);
-	const [draft, setDraft] = useState(title);
-	const { error, run } = useRun();
-	useEffect(() => setDraft(title), [title]);
-	if (!editable) return <span className="text-4xl font-bold">{title}</span>;
-	const save = () => draft.trim() && draft !== title && run(rename({ pageId, title: draft }));
-	return (
-		<>
-			<input
-				value={draft}
-				onChange={(e) => setDraft(e.target.value)}
-				onBlur={save}
-				onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-				autoFocus={title === "Untitled"}
-				onFocus={(e) => title === "Untitled" && e.currentTarget.select()}
-				aria-label="Title"
-				className="w-full bg-transparent text-4xl font-bold outline-none"
-			/>
-			{error && <span className="block text-xs font-normal text-red-600">{error}</span>}
-		</>
 	);
 }

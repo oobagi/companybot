@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, components, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { IDLE_MS, VERSION_MS, PAGE_VERSIONS_MAX, pageSchema, readDoc, sync } from "../convex/pageOps";
-import { type As, agentsOf, generalOf, settle, setup, signIn } from "./helpers";
+import { type As, agentsOf, generalOf, agentTurn, settle, setup, signIn } from "./helpers";
 
 // Pages (pageOps.ts): the editor's sync, versions grouped like Notion's, restore, agent tools, and cleanup.
 
@@ -247,7 +247,7 @@ describe("pages tools", () => {
 		expect(await tools.write({ title: "A", archived: true })).toMatchObject({ error: expect.stringContaining("on its own") });
 	});
 
-	it("rechecks the acting person's membership and chat visibility on each call", async () => {
+	it("rechecks the acting person's membership on each call", async () => {
 		const { t, owner, member } = await setup();
 		const tools = await turnFor(t, member);
 		const pageId = await owner.mutation(api.pages.create, { title: "Workspace only" });
@@ -261,6 +261,20 @@ describe("pages tools", () => {
 		});
 		await expect(tools.read({ page: pageId })).rejects.toThrow("no longer in the workspace");
 		await expect(tools.write({ page: pageId, title: "No" })).rejects.toThrow("no longer in the workspace");
+	});
+
+	it("stops page tools when the acting person loses access to a private chat", async () => {
+		const { t, member } = await setup();
+		const chatId = await member.mutation(api.chats.createChannel, { name: "private-plans", private: true });
+		const { companybot } = await agentsOf(member);
+		const turnId = await agentTurn(t, member, chatId, companybot._id);
+		const pageId = await member.mutation(api.pages.create, { title: "Team plans" });
+		await t.run(async (ctx) => {
+			const seat = await ctx.db.query("chatMembers").withIndex("by_chat", q => q.eq("chatId", chatId)).first();
+			await ctx.db.delete(seat!._id);
+		});
+		await expect(t.query(internal.pageTools.readFor, { turnId, page: pageId })).rejects.toThrow("no longer see this chat");
+		await expect(t.mutation(internal.pageTools.writeFor, { turnId, input: { page: pageId, title: "No" } })).rejects.toThrow("no longer see this chat");
 	});
 
 	it("write a record's body, creating it on first write", async () => {

@@ -139,9 +139,9 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.companybotChatTools,
 	internal.migrations.recordTypes,
 	internal.migrations.companybotRecordTools,
-	internal.migrations.companybotPageTools,
 	internal.migrations.legacyWorkspaces,
 	internal.migrations.userMentions,
+	internal.migrations.companybotPageTools,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

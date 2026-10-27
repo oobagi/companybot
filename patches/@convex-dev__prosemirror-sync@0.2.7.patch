@@ -1,28 +1,28 @@
-diff --git a/dist/component/lib.js b/dist/component/lib.js
-index dca7b1a5d517f26c1e8df46f9b3818d92c57bf33..937114b949f439b56841b187c09c49808c89549e 100644
 --- a/dist/component/lib.js
 +++ b/dist/component/lib.js
-@@ -2,7 +2,8 @@ import { v } from "convex/values";
- import { mutation, query, } from "./_generated/server";
- import { vClientId } from "./schema";
- import { api } from "./_generated/api";
+@@ -5 +5,2 @@
 -const MAX_DELTA_FETCH = 100;
 +// Ten 500 KB deltas stay below Convex's 16 MiB read limit.
 +const MAX_DELTA_FETCH = 10;
- const MAX_SNAPSHOT_FETCH = 10;
- export const submitSnapshot = mutation({
-     args: {
-diff --git a/src/component/lib.ts b/src/component/lib.ts
-index ad6c8b24352d7b9a82e2d2e50df644e85c01c431..b7fe4b0f34b70b85817229a874c4776bd2516839 100644
 --- a/src/component/lib.ts
 +++ b/src/component/lib.ts
-@@ -9,7 +9,8 @@ import type { Doc } from "./_generated/dataModel";
- import { vClientId } from "./schema";
- import { api } from "./_generated/api";
- 
+@@ -12 +12,2 @@
 -const MAX_DELTA_FETCH = 100;
 +// Ten 500 KB deltas stay below Convex's 16 MiB read limit.
 +const MAX_DELTA_FETCH = 10;
- const MAX_SNAPSHOT_FETCH = 10;
- 
- export const submitSnapshot = mutation({
+--- a/dist/tiptap/index.js
++++ b/dist/tiptap/index.js
+@@ -280 +280,2 @@
+-    if (serverVersion !== null && serverVersion > version) {
++    while (serverVersion !== null && serverVersion > collab.getVersion(editor.state)) {
++        const version = collab.getVersion(editor.state);
+@@ -291,0 +293 @@
++        if (steps.steps.length === 0) throw new Error("Missing page changes. Reload to reconnect.");
+--- a/src/tiptap/index.ts
++++ b/src/tiptap/index.ts
+@@ -378 +378,2 @@
+-  if (serverVersion !== null && serverVersion > version) {
++  while (serverVersion !== null && serverVersion > collab.getVersion(editor.state)) {
++    const version = collab.getVersion(editor.state);
+@@ -388,0 +390 @@
++    if (steps.steps.length === 0) throw new Error("Missing page changes. Reload to reconnect.");

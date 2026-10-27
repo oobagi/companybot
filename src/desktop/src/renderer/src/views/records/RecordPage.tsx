@@ -12,6 +12,7 @@ import { Modal } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { PageEditor } from "../pages/PageEditor";
 import { PageHistory } from "../pages/PageHistory";
+import { PageTitle } from "../pages/PageTitle";
 import { AddField, EditField } from "./fieldDialogs";
 import { ValueEditor, ValueView } from "./fields";
 import { type Refs, type TypeField, actionLabels, recordPath, valueText, whoLabel } from "./logic";
@@ -25,6 +26,7 @@ export function RecordPage({ type, recordId, role }: { type: RecordType; recordI
 	const pageId = useQuery(api.pages.forRecord, { recordId });
 	const [history, setHistory] = useState(false);
 	const archive = useMutation(api.records.archive);
+	const update = useMutation(api.records.update);
 	const restore = useMutation(api.records.restore);
 	const { error, run } = useRun();
 	const back = { label: type.plural, to: recordPath(type.key) };
@@ -40,7 +42,7 @@ export function RecordPage({ type, recordId, role }: { type: RecordType; recordI
 
 	return (
 		<Page
-			title={record.title}
+			title={<PageTitle title={record.title} editable={canEdit && !record.archived} onSave={(name) => update({ recordId, values: { name } })} />}
 			subtitle={record.archived ? `${type.name} · Archived` : type.name}
 			back={back}
 			actions={<div className="flex gap-4">

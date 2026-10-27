@@ -136,17 +136,15 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 		<div className="flex h-screen text-[15px] text-neutral-900">
 			<aside className="drag flex w-60 shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 px-3 pt-12 pb-3">
 				<WorkspaceMenu name={workspace} />
-				<nav className="no-drag mb-3 flex flex-col gap-px border-b border-neutral-200 pb-3">
+				<div className="no-drag -mx-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1 pb-4">
 					<Group title="Databases">
 						{types?.map((type) => (
 							<Item key={type._id} active={typeKey === type.key} onClick={() => navigate(...recordPath(type.key))}>{type.plural}</Item>
 						))}
 						{can(role, "fields.manage") && <Item muted onClick={() => setNewDatabase(true)}>+ New database</Item>}
 					</Group>
-					<Item active={view === "campaigns"} onClick={() => navigate("campaigns")}>Campaigns</Item>
-				</nav>
-				<div className="no-drag -mx-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1 pb-4">
 					<PagesNav openId={view === "pages" ? route[1] : undefined} />
+					<Item active={view === "campaigns"} onClick={() => navigate("campaigns")}>Campaigns</Item>
 					<ChatNav chats={chats} openId={view === "chat" ? openId : undefined} onOpen={open} onError={(e) => setError(errorMessage(e))} />
 				</div>
 				<nav className="no-drag flex flex-col gap-px border-t border-neutral-200 pt-3">
