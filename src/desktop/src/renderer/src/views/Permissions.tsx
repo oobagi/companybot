@@ -232,7 +232,7 @@ function TurnOnDialog({
 				)}
 				{outside.length > 0 && (
 					<div className="flex flex-col gap-2">
-						<p className="text-neutral-600">{inside.length ? "And outside Companybot:" : "When it runs for you, it may do these. Allow them now so it doesn't stop to ask:"}</p>
+						<p className="text-neutral-600">{inside.length ? "It may also do these, which ask first even in your own chats:" : "When it runs for you, it may do these. Allow them now so it doesn't stop to ask:"}</p>
 						<ul className="flex flex-col gap-2">
 							{outside.map((a) => (
 								<li key={a.action} className="rounded-xl border border-neutral-200 px-3 py-2">
