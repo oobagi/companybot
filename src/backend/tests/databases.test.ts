@@ -177,3 +177,35 @@ it("shows links into a database in Trash as deleted, still readable and clearabl
 	await owner.mutation(api.records.update, { recordId: id, values: { client: null } });
 	expect((await owner.query(api.records.get, { recordId: id }))?.values).not.toHaveProperty("client");
 });
+
+it("saves board views grouped by a single choice field, for people, agents and alpha.7 apps", async () => {
+	const { t, owner, member } = await setup();
+	const typeId = await owner.mutation(api.recordTypes.create, { plural: "Jobs" });
+	await owner.mutation(api.fields.create, { typeId, label: "Status", kind: "choice", options: [{ label: "To do" }, { label: "Done" }] });
+	await owner.mutation(api.fields.create, { typeId, label: "Tags", kind: "choice", options: [{ label: "Roof" }], multiple: true });
+	await owner.mutation(api.fields.create, { typeId, label: "Notes", kind: "text" });
+	const input = { typeId, name: "Pipeline", filters: [], columns: ["name"] };
+	const view = async () => (await member.query(api.databaseViews.list, { typeId }))[0]!;
+	const id = await member.mutation(api.databaseViews.save, input);
+	expect(await view()).not.toHaveProperty("layout");
+	for (const groupBy of ["notes", "tags", "missing"])
+		await expect(member.mutation(api.databaseViews.save, { ...input, viewId: id, version: 1, layout: "board", groupBy })).rejects.toThrow("choice field");
+	await member.mutation(api.databaseViews.save, { ...input, viewId: id, version: 1, layout: "board", groupBy: "status" });
+	expect(await view()).toMatchObject({ layout: "board", groupBy: "status", version: 2 });
+	// COMPAT(0.1.0-alpha.8): alpha.7 apps save without `layout`; the board stays a board.
+	await member.mutation(api.databaseViews.save, { ...input, viewId: id, version: 2, name: "Jobs board" });
+	expect(await view()).toMatchObject({ name: "Jobs board", layout: "board", groupBy: "status", version: 3 });
+	await member.mutation(api.databaseViews.save, { ...input, viewId: id, version: 3, layout: "table", groupBy: "status" });
+	expect(await view()).not.toHaveProperty("layout");
+
+	const { companybot } = await agentsOf(owner);
+	const turnId = await agentTurn(t, owner, (await generalOf(owner))._id, companybot._id);
+	const save = (patch: Record<string, unknown>) => t.mutation(internal.recordTools.saveViewFor, { turnId, input: { type: "Jobs", id, ...patch } });
+	expect(await save({ version: 4, layout: "board", groupBy: "Status" })).toMatchObject({ layout: "board", groupBy: "status", version: 5 });
+	expect(await save({ version: 5, name: "Renamed" })).toMatchObject({ layout: "board", groupBy: "status", version: 6 });
+	expect(await save({ version: 6, groupBy: "Tags" })).toEqual({ error: expect.stringContaining("choice field") });
+	expect(await save({ version: 6, groupBy: null })).toMatchObject({ layout: "board", version: 7 });
+	expect(await view()).not.toHaveProperty("groupBy");
+	const history = await member.query(api.records.activity, { paginationOpts: page });
+	expect(history.page[0]).toMatchObject({ action: "view.updated", agent: "Companybot" });
+});

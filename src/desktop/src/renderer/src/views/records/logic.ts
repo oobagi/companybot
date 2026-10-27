@@ -42,6 +42,9 @@ export const defaultColumns = (fields: TypeField[], count = 4) =>
 /** Lists can sort by single-valued fields other than links (and checkboxes, which only list the checked). */
 export const sortable = (field: Field) => !field.multiple && field.kind !== "link" && field.kind !== "checkbox";
 
+/** Boards group by a choice field that holds one option, so each card sits in one column. */
+export const groupable = (field: Field) => field.kind === "choice" && !field.multiple;
+
 // ---- Filters ----
 
 export type Op = "is" | "anyOf" | "gt" | "gte" | "lt" | "lte" | "empty" | "notEmpty" | "checked" | "unchecked";

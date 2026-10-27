@@ -10,6 +10,7 @@ import { ConflictNotice, ErrorBoundary, Field, LoadMore, Loading, Notice, Page, 
 import { Modal, useDismiss } from "../chat/common";
 import { DatabaseDialog } from "./DatabaseDialog";
 import { type RecordType, type Row, useRefs } from "./data";
+import { AddField } from "./fieldDialogs";
 import { Chip, RecordOptions, RecordPicker, useOptions } from "./fields";
 import {
 	type Filter,
@@ -18,6 +19,7 @@ import {
 	type TypeField,
 	defaultColumns,
 	fromConditions,
+	groupable,
 	needsValue,
 	opLabels,
 	opsFor,
@@ -27,12 +29,15 @@ import {
 	valueText,
 } from "./logic";
 
-// One database's list: a table with chosen columns, sort by any column, filters,
-// search, and pages that keep loading as you scroll. Deleted records are in Trash.
+// One database's list: a table with chosen columns, or a board of cards grouped by a
+// choice field. Sort by any column, filters, search, and pages that keep loading as you
+// scroll. Deleted records are in Trash.
 
 type Sort = { field: string; order: "asc" | "desc" };
+type Layout = "table" | "board";
+type Args = { typeId: Id<"recordTypes">; filters: Record<string, unknown>[]; sort?: Sort };
 
-type Settings = { filters: Filter[]; sort?: Sort; columns: string[] };
+type Settings = { filters: Filter[]; sort?: Sort; columns: string[]; layout: Layout; groupBy?: string };
 
 export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 	const views = useQuery(api.databaseViews.list, { typeId: type._id });
@@ -42,19 +47,31 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 	const selected = views?.find((v) => v._id === viewId);
 	const fields = type.fields.filter((f) => !f.archived) as TypeField[];
 	const live = (key: string) => ["createdAt", "updatedAt", ...fields.map((f) => f.key)].includes(key);
-	// "All" keeps the columns people picked on this computer; a view's settings skip fields archived since.
+	// "All" keeps the columns and layout people picked on this computer; a view's settings skip fields archived since.
 	const columnsKey = `records.columns.${type.key}`;
+	const layoutKey = `records.layout.${type.key}`;
 	const draft = useDraft<Settings>(
 		selected
-			? { filters: fromConditions(selected.filters.filter((c) => live(c.field)), fields), sort: selected.sort && live(selected.sort.field) ? selected.sort : undefined, columns: selected.columns }
-			: { filters: [], columns: JSON.parse(localStorage.getItem(columnsKey) ?? "null") ?? defaultColumns(type.fields) },
+			? {
+					filters: fromConditions(selected.filters.filter((c) => live(c.field)), fields),
+					sort: selected.sort && live(selected.sort.field) ? selected.sort : undefined,
+					columns: selected.columns,
+					layout: selected.layout ?? "table",
+					groupBy: selected.groupBy,
+				}
+			: { filters: [], columns: JSON.parse(localStorage.getItem(columnsKey) ?? "null") ?? defaultColumns(type.fields), layout: "table", ...JSON.parse(localStorage.getItem(layoutKey) ?? "{}") },
 		selected?.version ?? 0,
 	);
-	const { filters, sort } = draft.value;
+	const { filters, sort, layout } = draft.value;
 	const columns = draft.value.columns.filter(live);
+	// Like Notion, a board without a saved grouping uses the first field it can group by.
+	const groupFields = fields.filter(groupable);
+	const group = groupFields.find((f) => f.key === draft.value.groupBy) ?? groupFields[0];
 	const change = (next: Partial<Settings>) => {
-		draft.set({ ...draft.value, ...next });
+		const value = { ...draft.value, ...next };
+		draft.set(value);
 		if (!selected && next.columns) localStorage.setItem(columnsKey, JSON.stringify(next.columns));
+		if (!selected && (next.layout || next.groupBy)) localStorage.setItem(layoutKey, JSON.stringify({ layout: value.layout, groupBy: value.groupBy }));
 	};
 	const setFilters = (filters: Filter[]) => change({ filters });
 	const setSort = (sort: Sort | undefined) => change({ sort });
@@ -68,12 +85,14 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 	const [editingDatabase, setEditingDatabase] = useState(false);
 	const [search, setSearch] = useState("");
 	const [creating, setCreating] = useState(false);
+	const [addingField, setAddingField] = useState(false);
 	const { error, run } = useRun();
 	const shown = columns.map((k) => fields.find((f) => f.key === k)!);
 	const conditions = filters.map(toCondition).filter((c) => c !== null);
 	const canEdit = can(role, "records.edit");
 	const sortField = sort && fields.find((f) => f.key === sort.field);
 	const args = { typeId: type._id, filters: conditions, sort };
+	const config = { filters: conditions, sort, columns, layout, groupBy: group?.key };
 	const noun = type.plural.toLowerCase();
 	const tabClass = "flex items-center px-3 py-2 text-base text-neutral-500 hover:text-neutral-800";
 
@@ -108,7 +127,7 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 					</button>
 				)}
 				{canEdit && selected && draft.dirty && (
-					<button type="button" disabled={draft.stale} className={`ml-auto self-center ${compactControlClass}`} onClick={() => run(saveView({ typeId: type._id, viewId: selected._id, version: draft.base, name: selected.name, filters: conditions, sort, columns }), draft.discard)}>
+					<button type="button" disabled={draft.stale} className={`ml-auto self-center ${compactControlClass}`} onClick={() => run(saveView({ typeId: type._id, viewId: selected._id, version: draft.base, name: selected.name, ...config }), draft.discard)}>
 						Save for everyone
 					</button>
 				)}
@@ -130,7 +149,32 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 				>
 					+ Filter
 				</button>
-				<ColumnsPicker fields={fields} columns={columns} onChange={setColumns} />
+				<ColumnsPicker label={layout === "board" ? "Properties" : "Columns"} fields={fields} columns={columns} onChange={setColumns} />
+				{layout === "board" && group && (
+					<label className="flex items-center gap-2 text-neutral-600">
+						Group by
+						<select value={group.key} onChange={(e) => change({ groupBy: e.target.value })} className={compactControlClass}>
+							{groupFields.map((f) => (
+								<option key={f.key} value={f.key}>
+									{f.label}
+								</option>
+							))}
+						</select>
+					</label>
+				)}
+				<span className="ml-auto flex rounded-lg border border-neutral-200 p-0.5">
+					{(["table", "board"] as const).map((l) => (
+						<button
+							key={l}
+							type="button"
+							aria-pressed={layout === l}
+							onClick={() => change({ layout: l })}
+							className={`rounded-md px-2 py-0.5 ${layout === l ? "bg-neutral-100 text-neutral-900" : "text-neutral-500 hover:text-neutral-900"}`}
+						>
+							{l === "table" ? "Table" : "Board"}
+						</button>
+					))}
+				</span>
 			</div>
 			{filters.length > 0 && (
 				<div className="-mt-2 flex flex-col gap-2">
@@ -158,7 +202,23 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 						</p>
 					)}
 					{/* A query error (a bad filter, an old page) shows here; changing the list clears it. */}
-					<ErrorBoundary key={JSON.stringify(args)}>
+					<ErrorBoundary key={JSON.stringify([args, layout, group?.key])}>
+						{layout === "board" ? (
+							group ? (
+								<Board type={type} args={args} group={group} cards={shown} canEdit={canEdit} />
+							) : (
+								<div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-neutral-200 px-6 py-8">
+									<p className="text-neutral-600">
+										A board makes a column for each option of a choice field, like Status. This database has no choice field that holds one option yet.
+									</p>
+									{can(role, "fields.create") && (
+										<button type="button" className={primaryButton} onClick={() => setAddingField(true)}>
+											Add a choice field
+										</button>
+									)}
+								</div>
+							)
+						) : (
 						<Table
 							type={type}
 							args={args}
@@ -180,6 +240,7 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 								)
 							}
 						/>
+						)}
 					</ErrorBoundary>
 				</>
 			)}
@@ -192,11 +253,11 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 							e.preventDefault();
 							const name = String(new FormData(e.currentTarget).get("name"));
 							const edit = naming === "edit" && selected && { viewId: selected._id, version: draft.base };
-							run(saveView({ typeId: type._id, ...edit, name, filters: conditions, sort, columns }).then((id) => (open(id), setNaming(undefined))));
+							run(saveView({ typeId: type._id, ...edit, name, ...config }).then((id) => (open(id), setNaming(undefined))));
 						}}
 					>
 						{error && <Notice>{error}</Notice>}
-						<Field label="View name" hint="These filters, sort and columns, shared with everyone in the workspace.">
+						<Field label="View name" hint="These filters, sort, columns and layout, shared with everyone in the workspace.">
 							<input name="name" autoFocus required maxLength={120} defaultValue={naming === "edit" ? selected?.name : ""} className={inputClass} />
 						</Field>
 						<div className="flex items-center gap-2">
@@ -213,26 +274,13 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 				</Modal>
 			)}
 			{creating && <NewRecord type={type} onClose={() => setCreating(false)} />}
+			{addingField && <AddField type={type} kind="choice" onClose={() => setAddingField(false)} />}
 		</Page>
 	);
 }
 
-/** Rows of a list, loading more as the end scrolls into view. Short pages with more to come keep loading. */
-function Table({
-	type,
-	args,
-	columns,
-	sort,
-	onSort,
-	empty,
-}: {
-	type: RecordType;
-	args: { typeId: Id<"recordTypes">; filters: Record<string, unknown>[]; sort?: Sort };
-	columns: TypeField[];
-	sort?: Sort;
-	onSort: (sort: Sort | undefined) => void;
-	empty: React.ReactNode;
-}) {
+/** Rows of a list, loading more as `setEnd`'s element scrolls into view. Short pages with more to come keep loading. */
+function usePagedRows(args: Args) {
 	const { results, status, loadMore } = usePaginatedQuery(api.records.list, args as never, { initialNumItems: 25 });
 	const rows = results as Row[];
 	const refs = useRefs(rows);
@@ -248,6 +296,25 @@ function Table({
 	useEffect(() => {
 		if (atEnd && status === "CanLoadMore") loadMore(25);
 	}, [atEnd, status, rows.length, loadMore]);
+	return { rows, refs, status, loadMore, setEnd };
+}
+
+function Table({
+	type,
+	args,
+	columns,
+	sort,
+	onSort,
+	empty,
+}: {
+	type: RecordType;
+	args: Args;
+	columns: TypeField[];
+	sort?: Sort;
+	onSort: (sort: Sort | undefined) => void;
+	empty: React.ReactNode;
+}) {
+	const { rows, refs, status, loadMore, setEnd } = usePagedRows(args);
 
 	const header = (key: string, label: string, canSort: boolean) => {
 		const on = sort?.field === key;
@@ -319,6 +386,113 @@ function RowsTable({ type, rows, refs, columns, head }: { type: RecordType; rows
 				</tbody>
 			</table>
 		</div>
+	);
+}
+
+/**
+ * Cards in a column per option of `group`, after "No <field>". Each column is its own list
+ * (the view's filters plus that option), in the view's order. Dragging a card to another
+ * column sets the field through `records.update`, with its usual permission and history.
+ * Like Notion with a sort on, cards keep the list's order: there's no manual order to drag to.
+ */
+function Board({ type, args, group, cards, canEdit }: { type: RecordType; args: Args; group: TypeField; cards: TypeField[]; canEdit: boolean }) {
+	const update = useMutation(api.records.update);
+	const { error, run } = useRun();
+	const lanes = [{ id: "", label: `No ${group.label}`, retired: false }, ...(group.options ?? []).map((o) => ({ ...o, retired: !!o.retired }))];
+	const props = cards.filter((f) => f.key !== "name" && f.key !== group.key);
+	return (
+		<div className="flex flex-col gap-2">
+			{error && <Notice>{error}</Notice>}
+			<div className="flex items-start gap-3 overflow-x-auto pb-2">
+				{lanes.map((lane) => (
+					<Lane
+						key={lane.id}
+						id={lane.id}
+						type={type}
+						label={lane.label}
+						retired={lane.retired}
+						args={{ ...args, filters: [...args.filters, lane.id ? { field: group.key, eq: lane.id } : { field: group.key, empty: true }] }}
+						name={type.fields.find((f) => f.key === "name") as TypeField}
+						props={props}
+						canEdit={canEdit}
+						onMove={(recordId) => run(update({ recordId: recordId as Id<"records">, values: { [group.key]: lane.id || null } }))}
+					/>
+				))}
+			</div>
+		</div>
+	);
+}
+
+/** What a dragged card carries: its record and the column it came from. */
+const CARD = "application/x-companybot-card";
+
+/**
+ * One board column. A removed option's column only shows while cards still use it, and
+ * takes no cards, since a removed option can't be set again.
+ */
+function Lane({
+	id,
+	type,
+	label,
+	retired,
+	args,
+	name,
+	props,
+	canEdit,
+	onMove,
+}: {
+	id: string;
+	type: RecordType;
+	label: string;
+	retired: boolean;
+	args: Args;
+	name: TypeField;
+	props: TypeField[];
+	canEdit: boolean;
+	onMove: (recordId: string) => void;
+}) {
+	const { rows, refs, status, loadMore, setEnd } = usePagedRows(args);
+	const [over, setOver] = useState(false);
+	if (retired && rows.length === 0) return null;
+	return (
+		<section
+			onDragOver={(e) => canEdit && !retired && e.dataTransfer.types.includes(CARD) && (e.preventDefault(), setOver(true))}
+			onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setOver(false)}
+			onDrop={(e) => {
+				setOver(false);
+				const card = JSON.parse(e.dataTransfer.getData(CARD) || "null") as { id: string; from: string } | null;
+				if (card && card.from !== id) onMove(card.id);
+			}}
+			className={`flex w-64 shrink-0 flex-col gap-2 rounded-xl p-2 ${over ? "bg-neutral-200/70" : "bg-neutral-100/70"}`}
+		>
+			<h3 className="flex items-center gap-2 px-1 text-sm font-medium text-neutral-700">
+				<span className="truncate">{retired ? `${label} (removed)` : label}</span>
+				<span className="text-neutral-400">{status === "LoadingFirstPage" ? "" : `${rows.length}${status === "Exhausted" ? "" : "+"}`}</span>
+			</h3>
+			{rows.map((r) => (
+				<button
+					key={r._id}
+					type="button"
+					draggable={canEdit}
+					onDragStart={(e) => e.dataTransfer.setData(CARD, JSON.stringify({ id: r._id, from: id }))}
+					onClick={() => navigate(...recordPath(type.key, r._id))}
+					className="flex flex-col gap-1 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-left text-sm shadow-xs hover:bg-neutral-50"
+				>
+					<span className="font-medium break-words">{valueText(name, r.values[name.key], refs) || "Untitled"}</span>
+					{props.map(
+						(f) =>
+							r.values[f.key] !== undefined && (
+								<span key={f.key} title={f.label} className="truncate text-xs text-neutral-500">
+									{valueText(f, r.values[f.key], refs)}
+								</span>
+							),
+					)}
+				</button>
+			))}
+			<div ref={setEnd} className="flex flex-col items-center">
+				{status === "LoadingFirstPage" ? <Loading /> : <LoadMore status={status} onMore={() => loadMore(25)} />}
+			</div>
+		</section>
 	);
 }
 
@@ -417,13 +591,13 @@ function FilterValue({ field, filter, onChange }: { field: TypeField; filter: Fi
 	);
 }
 
-function ColumnsPicker({ fields, columns, onChange }: { fields: TypeField[]; columns: string[]; onChange: (keys: string[]) => void }) {
+function ColumnsPicker({ label, fields, columns, onChange }: { label: string; fields: TypeField[]; columns: string[]; onChange: (keys: string[]) => void }) {
 	const [open, setOpen] = useState(false);
 	const ref = useDismiss<HTMLSpanElement>(() => setOpen(false), open);
 	return (
 		<span ref={ref} className="relative">
 			<button type="button" onClick={() => setOpen(!open)} className="text-neutral-600 hover:text-neutral-900">
-				Columns
+				{label}
 			</button>
 			{open && (
 				<span className="absolute top-full left-0 z-20 mt-1 flex max-h-80 w-56 flex-col gap-1 overflow-y-auto rounded-xl border border-neutral-200 bg-white p-2 shadow-lg">

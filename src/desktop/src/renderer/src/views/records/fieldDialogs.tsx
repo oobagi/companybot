@@ -13,11 +13,11 @@ import { type TypeField, kindLabels } from "./logic";
 
 const severalKinds: FieldKind[] = ["choice", "user", "link"];
 
-export function AddField({ type, onClose }: { type: RecordType; onClose: () => void }) {
+export function AddField({ type, kind: initialKind = "text", onClose }: { type: RecordType; kind?: FieldKind; onClose: () => void }) {
 	const types = useTypes();
 	const create = useMutation(api.fields.create);
 	const [label, setLabel] = useState("");
-	const [kind, setKind] = useState<FieldKind>("text");
+	const [kind, setKind] = useState(initialKind);
 	const [options, setOptions] = useState("");
 	const [linkTypeId, setLinkTypeId] = useState<string>("");
 	const [multiple, setMultiple] = useState(false);
