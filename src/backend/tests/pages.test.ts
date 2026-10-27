@@ -26,7 +26,8 @@ async function type(t: T, as: Person, pageId: Id<"pages">, text: string) {
 const textOf = (t: T, pageId: Id<"pages">) => t.run(async (ctx) => (await readDoc(ctx, pageId)).textContent);
 const historyOf = async (as: As, pageId: Id<"pages">) => (await as.query(api.pages.history, { pageId, paginationOpts: { numItems: 20, cursor: null } })).page;
 /** The component's newest snapshot at or before `version`. */
-const snapshotAt = (t: T, pageId: Id<"pages">, version?: number) => t.run((ctx) => ctx.runQuery(components.prosemirrorSync.lib.getSnapshot, { id: pageId, version }));
+const snapshotAt = (t: T, pageId: Id<"pages">, version?: number) =>
+	t.run((ctx) => ctx.runQuery(components.prosemirrorSync.lib.getSnapshot, { id: pageId, version })) as Promise<{ content: string | null; version?: number }>;
 
 /** A running Companybot turn for `as`, and its pages tools as the runner calls them (markdown already converted). */
 async function turnFor(t: T, as: Person) {
