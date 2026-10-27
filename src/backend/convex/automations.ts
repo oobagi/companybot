@@ -13,6 +13,7 @@ import {
 	grantedConnectorIds,
 	isValidTimeZone,
 	localTime,
+	madeEditDenied,
 	normalizeCustomAutomation,
 } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
@@ -22,6 +23,7 @@ import { mutation, query } from "./functions";
 import { canSee } from "./chatOps";
 import {
 	type Member,
+	type Who,
 	checkPermission,
 	getMember,
 	madeCustom,
@@ -38,6 +40,7 @@ import { canView, definitionOf, installOf, postingProblem, requireEditable, runs
 import { forgetAutomationGrants } from "./permissions";
 import { startCascade } from "./cascade";
 import { audience, customTrigger } from "./schema";
+import { putInTrash, takeFromTrash, trashInfo } from "./trashOps";
 
 // An automation is a trigger (schedule, webhook, or something happening in the app), a
 // prompt, an agent, and who it runs for (`AutomationAudience`): just its creator, each
@@ -71,7 +74,7 @@ export const list = query({
 		const member = await getMember(ctx);
 		if (!member) return [];
 		const connectors = await installedConnectorIds(ctx, member.workspaceId);
-		const installs = await visibleInstalls(ctx, member);
+		const installs = await visibleInstalls(ctx, member, true);
 		const custom = installs.filter((i) => i.custom).sort((a, b) => b._creationTime - a._creationTime);
 		const library = automationCatalog.map((automation) => ({
 			automation,
@@ -139,6 +142,8 @@ export const list = query({
 					timeZone: install?.timeZone ?? null,
 					lastRunAt: install?.lastRunAt ?? null,
 					lastResult: install?.lastResult ?? null,
+					/** Set while it's in Trash. */
+					trash: install?.archived ? await trashInfo(ctx, member, install._id) : null,
 				};
 			}),
 		);
@@ -211,7 +216,7 @@ export async function createAutomation(
 	await checkConfig(ctx, member, config);
 	if (!timeZone || !isValidTimeZone(timeZone)) throw new ConvexError("Unknown time zone.");
 	const agent = await requireAgent(ctx, member, agentId);
-	if (agent.archived) throw new ConvexError("That agent is archived.");
+	if (agent.archived) throw new ConvexError("That agent is in Trash.");
 	if (audience === "channel") {
 		if (!channelId) throw new ConvexError("Pick a channel to post in.");
 		await requireVisibleChannel(ctx, member, channelId);
@@ -265,17 +270,34 @@ export async function saveAutomation(ctx: MutationCtx, member: Member, { automat
 	});
 }
 
-export async function removeAutomation(ctx: MutationCtx, member: Member, automationId: string) {
-	const install = await installOf(ctx, member.workspaceId, automationId);
+/** Deletes an automation someone made (to Trash), or uninstalls a library one. */
+export async function removeAutomation(ctx: MutationCtx, who: Who, automationId: string) {
+	const install = await installOf(ctx, who.member.workspaceId, automationId);
 	if (!install) return;
-	await requireEditable(ctx, automationId, member);
-	await removeInstall(ctx, install);
+	await requireEditable(ctx, automationId, who.member);
+	if (install.custom) await setAutomationTrashed(ctx, who, install._id, true);
+	else await removeInstall(ctx, install);
 }
 
 export const remove = mutation({
 	args: { automationId: v.string() },
-	handler: async (ctx, { automationId }) => removeAutomation(ctx, await requireMember(ctx), automationId),
+	handler: async (ctx, { automationId }) => removeAutomation(ctx, { member: await requireMember(ctx) }, automationId),
 });
+
+/**
+ * Moves an automation someone made to Trash, or back: whoever can change it. In Trash nothing
+ * triggers it (installOf skips it); its opt-ins and grants stay until it's deleted forever.
+ */
+export async function setAutomationTrashed(ctx: MutationCtx, who: Who, installId: Id<"automationInstalls">, archived: boolean) {
+	const { member } = who;
+	const install = await ctx.db.get(installId);
+	if (!install?.custom || install.workspaceId !== member.workspaceId || !canView(member, install)) throw new ConvexError("Automation not found.");
+	if (!canEditMade(member, "automations.manage", install.installedBy)) throw new ConvexError(madeEditDenied);
+	if (!!install.archived === archived) return;
+	if (archived) await putInTrash(ctx, who, { kind: "automation", id: installId, name: install.custom.name });
+	else await takeFromTrash(ctx, who, installId);
+	await ctx.db.patch(installId, { archived });
+}
 
 /** Installs a library automation (owners). */
 export const setInstalled = mutation({
@@ -286,7 +308,7 @@ export const setInstalled = mutation({
 });
 
 /** Deletes an install now, so its webhook and schedule stop; its opt-ins, grants and delivery ids follow (lifecycle.ts). */
-async function removeInstall(ctx: MutationCtx, install: Doc<"automationInstalls">) {
+export async function removeInstall(ctx: MutationCtx, install: Doc<"automationInstalls">) {
 	await ctx.db.delete(install._id);
 	await startCascade(ctx, "automationInstall", { automationInstallId: install._id });
 }
@@ -309,7 +331,7 @@ export async function updateAutomation(ctx: MutationCtx, member: Member, { autom
 	const { install } = await requireEditable(ctx, automationId, member);
 	if (agentId) {
 		const agent = await requireAgent(ctx, member, agentId);
-		if (agent.archived) throw new ConvexError("That agent is archived.");
+		if (agent.archived) throw new ConvexError("That agent is in Trash.");
 	}
 	if (audience === "creator" && !install.custom) throw new ConvexError("Library automations run for people who turn them on, or a channel.");
 	if (audience === "creator" && install.installedBy !== member.userId) throw new ConvexError("Only the person who made it can make it just for them.");

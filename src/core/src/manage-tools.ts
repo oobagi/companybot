@@ -97,7 +97,7 @@ export const manageInputs = {
 			z.strictObject({ action: z.literal("models"), search: z.string().optional().describe("Words in a model's name or id, like \"claude\" or \"openai\"") }),
 			z.strictObject({ action: z.literal("history"), id, ...page }),
 			z.strictObject({ action: z.literal("create") }),
-			z.strictObject({ action: z.literal("archive"), id }),
+			z.strictObject({ action: z.literal("delete"), id }),
 			z.strictObject({ action: z.literal("update"), id, expectedVersion: version, name: z.string().optional(), description: z.string().optional(), instructions: z.string().optional(), model: z.string().optional() }),
 		]),
 	}),
@@ -128,17 +128,17 @@ const descriptions: Record<ManageTool, string> = {
 	"automations.manage":
 		"List or inspect visible automations (prompt, version, agent, state), edit custom config using its current expectedVersion, pause/resume globally, change agent/audience, install a library automation, or run a sample once just for the person. Runs cannot start other runs. Confirm changes first. Resuming grants no consent: future outside actions still ask. Webhook secrets are omitted.",
 	"automations.remove":
-		"Permanently delete/uninstall an automation by id. Stops runs and removes subscriptions and approval grants. The exact call waits for approval.",
+		"Delete an automation someone made, or uninstall a library one, by id. A deleted one goes to Trash for 30 days and stops running; its maker or an owner can restore it from Trash. Uninstalling removes subscriptions and approval grants. The exact call waits for approval.",
 	"skills.manage":
 		"Browse custom and library skills, read full instructions and current version, or install a library skill (owners). Editing is a separate tool that asks first.",
 	"skills.edit":
 		"Edit a custom skill's name, description and instructions, using its current expectedVersion from skills_manage get. Every agent here follows skills, so the exact call waits for approval. Confirm the exact instructions with the person first.",
-	"skills.remove": "Permanently delete a custom skill or uninstall a library skill by id. The exact call waits for approval.",
+	"skills.remove": "Delete a custom skill (to Trash for 30 days; agents stop seeing it; the maker or an owner can restore it) or uninstall a library skill, by id. The exact call waits for approval.",
 	"members.invite":
 		"Invite an email as a member, or resend or cancel the invitation for an email (owners). Invite and resend send email outside the workspace and wait for approval. Cannot invite owners or change roles.",
 	"members.remove":
 		"Remove another member by their email (owners). Deletes their personal workspace data and access. The exact call waits for approval; cannot remove yourself.",
-	"agents.manage": "Browse agents and their paged configuration history, create an agent with no tools, edit metadata, or archive an agent. Writes require an owner. Archiving and changing another agent's instructions or model wait for approval; do them only when asked; you cannot change your own instructions/model, grant tools, restore grants or reactivate an agent. Use the current expectedVersion. models lists the AI Gateway models an agent can run on (id, context, $ per M input/output tokens); use one of those ids.",
+	"agents.manage": "Browse agents and their paged configuration history, create an agent with no tools, edit metadata, or delete an agent (to Trash for 30 days; the last agent stays). Writes require an owner. Deleting and changing another agent's instructions or model wait for approval; do them only when asked; you cannot change your own instructions/model, grant tools, restore grants or restore an agent from Trash. Use the current expectedVersion. models lists the AI Gateway models an agent can run on (id, context, $ per M input/output tokens); use one of those ids.",
 	"workspace.settings":
 		"Read/update the acting person's display name, send shortcut, notification preference and explicit time zone (null = automatic). Device time zone is measured by the device. Read workspace name, default currency, memory switch and version; update these as an owner using the current expectedVersion. Existing amounts keep their currency; the default only affects new amounts. Memory off keeps stored memories. Change only when asked.",
 };
@@ -187,11 +187,11 @@ export const manageTools: ToolDef[] = (Object.keys(manageInputs) as ManageTool[]
 		input: manageInputs[id],
 		...((id === "members.invite" || id === "members.remove") && { permission: "members.manage" as const }),
 		...(id.endsWith(".remove") ? { risk: "locked" as const } : id === "members.invite" || id === "skills.edit" ? { risk: "outside" as const } : {}),
-		// Deleting, archiving an agent, or rewriting another agent's instructions/model always asks.
+		// Deleting, or rewriting another agent's instructions/model, always asks.
 		...((id === "channels.manage" || id === "chat.manage" || id === "agents.manage") && {
 			riskFor: (input: unknown) => {
 				const r = manageInputs[id].safeParse(input).data?.request as { action: string; instructions?: string; model?: string } | undefined;
-				const locked = r && (r.action === "delete" || r.action === "archive" || (r.action === "update" && (r.instructions !== undefined || r.model !== undefined)));
+				const locked = r && (r.action === "delete" || (r.action === "update" && (r.instructions !== undefined || r.model !== undefined)));
 				return locked ? "locked" as const : "inside" as const;
 			},
 		}),

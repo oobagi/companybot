@@ -1,4 +1,4 @@
-export const agentLabel = (agent: { name: string; archived?: boolean }) => `${agent.name}${agent.archived ? " (archived)" : ""}`;
+export const agentLabel = (agent: { name: string; archived?: boolean }) => `${agent.name}${agent.archived ? " (deleted)" : ""}`;
 
 /** Options only: each screen decides which agents and placeholder to offer. */
 export function AgentOptions({ agents }: { agents: { _id: string; name: string; archived?: boolean }[] }) {

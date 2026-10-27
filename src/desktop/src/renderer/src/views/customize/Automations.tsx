@@ -258,7 +258,7 @@ function RunsForSelect({
 	allowCreator: boolean;
 	disabled?: boolean;
 	onChange: (audience: Audience, channelId?: Id<"chats">) => void;
-	/** The current channel if it isn't in the list (archived, or you left it). */
+	/** The current channel if it isn't in the list (deleted, or you left it). */
 	extraChannel?: { id: string; label: string };
 }) {
 	const value = audience === "channel" ? (channelId ?? "") : audience;
@@ -346,12 +346,12 @@ function CustomAutomationDetail({ automation: a, custom }: { automation: Automat
 			canEdit={a.canEdit}
 			custom={custom}
 			saved={{ name: custom.name, prompt: custom.prompt, trigger: custom.trigger }}
-			deleteWarning="It stops running and can't be restored."
+			trash={a.trash}
 			onDelete={() => remove({ automationId: a.id })}
 			onSave={(config, expectedVersion) => save({ automationId: a.id, config, expectedVersion })}
 			fields={(value, onChange) => <AutomationFields value={value} onChange={onChange} channels={channels} />}
 		>
-			<AutomationSettings automation={a} />
+			{!a.trash && <AutomationSettings automation={a} />}
 		</MadeItemDetail>
 	);
 }
@@ -437,7 +437,7 @@ function AutomationSettings({ automation: a }: { automation: AutomationItem }) {
 								onChange={(e) => run(update({ automationId: a.id, agentId: e.target.value as Id<"agents"> }))}
 								className={compactControlClass}
 							>
-								{a.agentArchived && <option value={a.agentId ?? ""}>{a.agentName} (archived)</option>}
+								{a.agentArchived && <option value={a.agentId ?? ""}>{a.agentName} (deleted)</option>}
 								<AgentOptions agents={active} />
 							</select>
 						</label>
@@ -450,7 +450,7 @@ function AutomationSettings({ automation: a }: { automation: AutomationItem }) {
 								allowCreator={!!a.custom}
 								extraChannel={
 									a.channelId && !channels.some((c) => c._id === a.channelId)
-										? { id: a.channelId, label: `#${a.channelName}${a.channelArchived ? " (archived)" : ""}` }
+										? { id: a.channelId, label: `#${a.channelName}${a.channelArchived ? " (deleted)" : ""}` }
 										: undefined
 								}
 								// Posting in a channel runs as you: ask first, like turning it on.

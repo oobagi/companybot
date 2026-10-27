@@ -11,7 +11,7 @@ import { toField } from "./recordOps";
 
 // What happens to every table's rows when what they belong to goes: a workspace is deleted,
 // a member removed, an account erased, a connector or automation uninstalled, a page deleted, or
-// a record, database, field or channel deleted for good from Trash (trash.ts). cascade.ts
+// a record, database, field, channel or agent deleted for good from Trash (trash.ts). cascade.ts
 // runs it. Every table must be listed (tests/lifecycle.test.ts fails otherwise), so a new
 // table can't ship until someone decides what happens to its rows. See wiki/architecture.md#data-lifecycle.
 
@@ -122,13 +122,19 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	},
 
 	// ---- Agents and memory ----
+	// An agent deleted from Trash goes last in its own cascade, after its versions, memories, sessions and channel seats.
+	// What it said and did stays (messages, activity, history), shown as "Agent".
 	agents: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		keep: "Agents are the workspace's. Who last saved one stays on it.",
 	},
-	agentVersions: { childOf: { table: "agents", index: "by_agent", field: "agentId" } },
+	agentVersions: {
+		childOf: { table: "agents", index: "by_agent", field: "agentId" },
+		agent: { index: "by_agent", eq: ["agentId"] },
+	},
 	memories: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		agent: { index: "by_agent_scope", eq: ["agentId"] },
 		// Personal memories are their owner's alone. Team memories they wrote stay with the team.
 		member: { index: "by_owner", eq: [["ownerId", "userId"], "workspaceId"] },
 	},
@@ -160,7 +166,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 
 	skillInstalls: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
-		keep: "Skills people made are the workspace's: they stay when their maker leaves.",
+		keep: "Skills people made are the workspace's: they stay when their maker leaves. Deleting one forever from Trash deletes its row.",
 	},
 
 	// ---- Chat ----
@@ -170,6 +176,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		channel: { index: "by_chat", eq: ["chatId"] },
 		member: { index: "by_workspace", eq: ["workspaceId", "userId"], where: inChannel },
+		agent: { index: "by_agent", eq: ["agentId"], where: inChannel },
 	},
 	chatMessages: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
@@ -193,6 +200,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	agentSessions: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		channel: { index: "by_chat", eq: ["chatId"] },
+		agent: { index: "by_place", eq: ["agentId"] },
 	},
 	agentActivity: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
@@ -216,7 +224,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 			where: (_get, row, root) => privateTo(row) === root.userId,
 			onDelete: (ctx, row) => startCascade(ctx, "automationInstall", { automationInstallId: row._id }),
 		},
-		keep: "Removing one deletes the row before the cascade starts (removeInstall), so its webhook and schedule stop at once.",
+		keep: "Removing one, or deleting one people made forever from Trash, deletes the row before the cascade starts (removeInstall). In Trash, nothing triggers it.",
 	},
 	automationSubscriptions: {
 		childOf: { table: "automationInstalls", index: "by_install", field: "installId" },

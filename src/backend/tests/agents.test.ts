@@ -47,10 +47,11 @@ describe("agents", () => {
 		).rejects.toThrow("Unknown tool");
 	});
 
-	it("archives agents but keeps at least one", async () => {
+	it("keeps alpha.7 Archive agent working through Trash, and at least one agent", async () => {
 		const { owner } = await ownerAndMember();
 		const { companybot, scribe } = await agentsOf(owner);
 		await owner.mutation(api.agents.setArchived, { agentId: scribe._id, archived: true });
+		expect((await agentsOf(owner)).scribe.trash).toMatchObject({ kind: "agent", name: "Scribe" });
 		await expect(owner.mutation(api.chats.openDm, { userIds: [], agentIds: [scribe._id] })).rejects.toThrow(
 			"isn't available",
 		);

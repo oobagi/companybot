@@ -282,7 +282,20 @@ describe("automations", () => {
 				"Only the person who made",
 			);
 			await member.mutation(api.automations.remove, { automationId: id });
-			expect(await find(member, id)).toBeUndefined();
+			expect((await find(member, id))!.trash).toMatchObject({ kind: "automation", user: "member@co.com", canRestore: true });
+		});
+
+		it("runs nothing from Trash, and runs again once restored", async () => {
+			const { t, member } = await ownerAndMember();
+			const id = await make(member, { name: "Standup", prompt: "Ask for updates.", trigger: daily }, "creator");
+			const { companybot } = await agentsOf(member);
+			await member.mutation(api.automations.remove, { automationId: id });
+			await tickThursday(t);
+			expect(await dmWith(member, companybot._id)).toHaveLength(0);
+			const [entry] = (await member.query(api.trash.list, { kind: "automation", paginationOpts: { numItems: 10, cursor: null } })).page;
+			await member.mutation(api.trash.restore, { kind: "automation", id: entry!.itemId });
+			await tickThursday(t);
+			expect(await dmWith(member, companybot._id)).toHaveLength(2);
 		});
 
 		it("removes custom automations and related rows", async () => {
@@ -298,8 +311,19 @@ describe("automations", () => {
 			expect(await find(member, id)).toBeDefined();
 			await remove(member);
 			await remove(member);
-			expect(await find(member, id)).toBeUndefined();
+			// In Trash: nothing triggers it and nobody can change it; its opt-ins wait for a restore.
+			expect((await find(member, id))!.trash).toMatchObject({ kind: "automation", canRestore: true });
+			expect((await t.fetch(path, { method: "POST", body: JSON.stringify({ id: "delivery-2" }) })).status).toBe(404);
+			await expect(member.mutation(api.automations.save, { automationId: id, config: { name: "X", prompt: "Y", trigger: { type: "webhook" } }, expectedVersion: 1 })).rejects.toThrow("Automation not found.");
+			const [entry] = (await other.query(api.trash.list, { paginationOpts: { numItems: 10, cursor: null } })).page;
+			expect(entry).toMatchObject({ kind: "automation", name: "Forms", screenId: id, canRestore: false });
+			await expect(other.mutation(api.trash.restore, { kind: "automation", id: entry!.itemId })).rejects.toThrow("Only the person who made");
+			await member.mutation(api.trash.restore, { kind: "automation", id: entry!.itemId });
+			expect(await find(member, id)).toMatchObject({ trash: null, subscriberCount: 2 });
+			await remove(member);
+			await owner.mutation(api.trash.purge, { id: entry!.itemId });
 			await t.finishAllScheduledFunctions(vi.runAllTimers);
+			expect(await find(member, id)).toBeUndefined();
 			const rows = await t.run(async (ctx) => ({
 				installs: await ctx.db.query("automationInstalls").collect(),
 				subscriptions: await ctx.db.query("automationSubscriptions").collect(),
@@ -309,7 +333,7 @@ describe("automations", () => {
 			expect((await t.fetch(path, { method: "POST", body: JSON.stringify({ id: "delivery-2" }) })).status).toBe(404);
 			const shared = await make(member, { name: "Shared", prompt: "Ask.", trigger: daily }, "subscribers");
 			await owner.mutation(api.automations.remove, { automationId: shared });
-			expect(await find(member, shared)).toBeUndefined();
+			expect((await find(member, shared))!.trash).toMatchObject({ user: "owner@co.com" });
 		});
 
 		it("only lets owners uninstall library automations, without a time zone", async () => {

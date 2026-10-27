@@ -4,6 +4,9 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id, TableNames } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
+import { setAgentTrashed } from "./agents";
+import { canView } from "./automationOps";
+import { removeInstall, setAutomationTrashed } from "./automations";
 import { startCascade } from "./cascade";
 import { canSee, setChannelTrashed } from "./chatOps";
 import { mutation, query } from "./functions";
@@ -11,17 +14,28 @@ import { type Member, type Who, getMember, requireMember } from "./lib";
 import { deletePage, requirePage, setPageTrashed } from "./pageOps";
 import { setFieldTrashed, setRecordTrashed, setTypeTrashed } from "./recordOps";
 import { trashKind } from "./schema";
+import { setSkillTrashed } from "./skills";
 import { TRASH_MS, type TrashKind, describeTrash, trashEntry } from "./trashOps";
 
-// Trash: one place for every deleted record, database, field, page and channel. Deleting moves
-// an item here; whoever deleted it (or an owner) can restore it, where it was, links included.
-// Owners can delete forever; everything else goes for good after TRASH_DAYS. See wiki/data.md#trash.
+// Trash: one place for every deleted record, database, field, page, channel, agent, and skill or
+// automation people made. Deleting moves an item here; whoever deleted it (or an owner) can
+// restore it, where it was, links included. Owners can delete forever; everything else goes for
+// good after TRASH_DAYS. See wiki/data.md#trash.
 
 const PAGE_MAX = 50;
 /** Entries deleted for good per run. Each starts its own cascade, so this only bounds the sweep itself; a full run schedules the next. */
 const SWEEP_MAX = 100;
 
-const tables = { record: "records", database: "recordTypes", field: "recordFields", page: "pages", channel: "chats" } as const satisfies Record<TrashKind, TableNames>;
+const tables = {
+	record: "records",
+	database: "recordTypes",
+	field: "recordFields",
+	page: "pages",
+	channel: "chats",
+	agent: "agents",
+	skill: "skillInstalls",
+	automation: "automationInstalls",
+} as const satisfies Record<TrashKind, TableNames>;
 
 function idOf<K extends TrashKind>(ctx: MutationCtx, kind: K, id: string) {
 	const itemId = ctx.db.normalizeId(tables[kind], id);
@@ -35,12 +49,16 @@ async function setTrashed(ctx: MutationCtx, who: Who, kind: TrashKind, id: strin
 	if (kind === "database") return setTypeTrashed(ctx, who, idOf(ctx, kind, id), trashed);
 	if (kind === "field") return setFieldTrashed(ctx, who, idOf(ctx, kind, id), trashed);
 	if (kind === "page") return setPageTrashed(ctx, who, await requirePage(ctx, who.member, idOf(ctx, kind, id)), trashed);
+	if (kind === "agent") return setAgentTrashed(ctx, who, idOf(ctx, kind, id), trashed);
+	if (kind === "skill") return setSkillTrashed(ctx, who, idOf(ctx, kind, id), trashed);
+	if (kind === "automation") return setAutomationTrashed(ctx, who, idOf(ctx, kind, id), trashed);
 	return setChannelTrashed(ctx, who, idOf(ctx, kind, id), trashed);
 }
 
 /**
  * Deletes an entry's item for good. The entry goes at once, so it can't be restored; a cascade
- * (lifecycle.ts) then deletes what belonged to the item, and the item last. Pages go at once.
+ * (lifecycle.ts) then deletes what belonged to the item, and the item last. Pages, skills and
+ * automations go at once (an automation's opt-ins and grants in its own cascade).
  */
 async function deleteEntry(ctx: MutationCtx, entry: Doc<"trash">) {
 	await ctx.db.delete(entry._id);
@@ -50,14 +68,41 @@ async function deleteEntry(ctx: MutationCtx, entry: Doc<"trash">) {
 	if (entry.kind === "field") await startCascade(ctx, "field", { workspaceId, typeId: entry.typeId, fieldId: idOf(ctx, "field", entry.itemId) });
 	if (entry.kind === "channel") await startCascade(ctx, "channel", { workspaceId, chatId: idOf(ctx, "channel", entry.itemId) });
 	if (entry.kind === "page") await deletePage(ctx, idOf(ctx, "page", entry.itemId));
+	if (entry.kind === "agent") await startCascade(ctx, "agent", { workspaceId, agentId: idOf(ctx, "agent", entry.itemId) });
+	if (entry.kind === "skill") {
+		const skill = await ctx.db.get(idOf(ctx, "skill", entry.itemId));
+		if (skill) await ctx.db.delete(skill._id);
+	}
+	if (entry.kind === "automation") {
+		const install = await ctx.db.get(idOf(ctx, "automation", entry.itemId));
+		if (install) await removeInstall(ctx, install);
+	}
 }
 
-/** Trash never widens a private channel's audience, including for workspace owners. */
+/** Trash never widens a private channel's or just-them automation's audience, including for workspace owners. */
 async function visibleEntry(ctx: QueryCtx, member: Member, entry: Doc<"trash">) {
+	if (entry.kind === "automation") {
+		const id = ctx.db.normalizeId("automationInstalls", entry.itemId);
+		const install = id && (await ctx.db.get(id));
+		return !!install && canView(member, install);
+	}
 	if (entry.kind !== "channel") return true;
 	const id = ctx.db.normalizeId("chats", entry.itemId);
 	const chat = id && (await ctx.db.get(id));
 	return !!chat && (await canSee(ctx, chat, member));
+}
+
+/** Skills and automations open by the id their screens use ("custom-…"), not their row's. */
+async function screenIdOf(ctx: QueryCtx, entry: Doc<"trash">) {
+	if (entry.kind === "skill") {
+		const id = ctx.db.normalizeId("skillInstalls", entry.itemId);
+		return (id && (await ctx.db.get(id))?.skillId) ?? null;
+	}
+	if (entry.kind === "automation") {
+		const id = ctx.db.normalizeId("automationInstalls", entry.itemId);
+		return (id && (await ctx.db.get(id))?.automationId) ?? null;
+	}
+	return null;
 }
 
 /** "Delete forever": owners only, and never agents. */
@@ -95,6 +140,7 @@ export const list = query({
 				...(await describeTrash(ctx, member, e)),
 				in: type ? type.plural : null,
 				typeKey: type ? type.key : null,
+				screenId: await screenIdOf(ctx, e),
 			});
 		}
 		return { ...result, page };

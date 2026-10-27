@@ -115,7 +115,7 @@ function CustomSkillDetail({ skill: s, custom }: { skill: SkillItem; custom: Non
 			canEdit={s.canEdit}
 			custom={custom}
 			saved={{ name: s.name, description: s.description, instructions: s.instructions }}
-			deleteWarning="Agents stop seeing it, and it can't be restored."
+			trash={s.trash}
 			onDelete={() => remove({ skillId: s.id })}
 			onSave={(config, expectedVersion) => save({ skillId: s.id, config, expectedVersion })}
 			fields={(value, onChange) => <SkillFields value={value} onChange={onChange} />}

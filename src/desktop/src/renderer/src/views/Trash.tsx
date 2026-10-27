@@ -19,6 +19,9 @@ const kinds: { id: Kind; label: string; one: string }[] = [
 	{ id: "field", label: "Fields", one: "Field" },
 	{ id: "page", label: "Pages", one: "Page" },
 	{ id: "channel", label: "Channels", one: "Channel" },
+	{ id: "agent", label: "Agents", one: "Agent" },
+	{ id: "skill", label: "Skills", one: "Skill" },
+	{ id: "automation", label: "Automations", one: "Automation" },
 ];
 
 /** Where an item in Trash opens, read-only, if it has its own screen. */
@@ -26,6 +29,8 @@ function pathOf(e: TrashRow): string[] | undefined {
 	if (e.kind === "record" && e.typeKey) return recordPath(e.typeKey, e.itemId);
 	if (e.kind === "page") return ["pages", e.itemId];
 	if (e.kind === "channel") return ["chat", e.itemId];
+	if (e.kind === "agent") return ["customize", "agents", e.itemId];
+	if ((e.kind === "skill" || e.kind === "automation") && e.screenId) return ["customize", `${e.kind}s`, e.screenId];
 }
 
 export function TrashView({ role }: { role: Role }) {
@@ -55,7 +60,7 @@ export function TrashView({ role }: { role: Role }) {
 						const to = pathOf(e);
 						return (
 							<div key={e._id} className="flex items-baseline gap-3 px-4 py-2 text-sm">
-								<span className="w-16 shrink-0 text-neutral-500">{kinds.find((k) => k.id === e.kind)!.one}</span>
+								<span className="w-24 shrink-0 text-neutral-500">{kinds.find((k) => k.id === e.kind)!.one}</span>
 								<span className="min-w-0 truncate">
 									{to ? (
 										<button type="button" onClick={() => navigate(...to)} className="font-medium hover:underline">{e.name}</button>

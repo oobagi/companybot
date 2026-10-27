@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import { builtinTools, systemPrompt } from "@companybot/core";
+import { installedSkills } from "../convex/lib";
 
 import { agentsOf, setup as ownerAndMember, noMentions, generalOf, turnsOf } from "./helpers";
 
@@ -56,7 +57,7 @@ describe("customize", () => {
 			const row = (await member.query(api.skills.list)).find((s) => s.id === skillId);
 			expect(row).toMatchObject({ canEdit: true, createdByName: "member@co.com", custom: { version: 3, updatedByName: "owner@co.com" } });
 			await owner.mutation(api.skills.remove, { skillId });
-			expect((await member.query(api.skills.list)).some((s) => s.id === skillId)).toBe(false);
+			expect((await member.query(api.skills.list)).find((s) => s.id === skillId)?.trash).toMatchObject({ kind: "skill", user: "owner@co.com", canRestore: false });
 			await expect(member.mutation(api.skills.setInstalled, { skillId: "meeting-notes", installed: true })).rejects.toThrow("permission");
 		});
 
@@ -67,8 +68,21 @@ describe("customize", () => {
 			const mine = await member.mutation(api.skills.create, { config: quote });
 			await member.mutation(api.skills.remove, { skillId: mine });
 			await owner.mutation(api.skills.remove, { skillId });
-			expect(await find()).toBeUndefined();
+			expect((await find())!.trash).toMatchObject({ kind: "skill", user: "owner@co.com" });
 			await expect(owner.mutation(api.skills.remove, { skillId })).rejects.toThrow("Skill not found.");
+			// In Trash agents don't see it and nobody can change it; restored, it's back as it was.
+			const workspaceId = (await t.run((ctx) => ctx.db.query("skillInstalls").first()))!.workspaceId;
+			expect(await t.run((ctx) => installedSkills(ctx, workspaceId))).toEqual([]);
+			await expect(owner.mutation(api.skills.save, { skillId, config: quote, expectedVersion: 1 })).rejects.toThrow("Skill not found.");
+			const trash = (await owner.query(api.trash.list, { kind: "skill", paginationOpts: { numItems: 10, cursor: null } })).page;
+			expect(trash.map((e) => [e.name, e.screenId])).toEqual([["Quote follow-up", skillId], ["Quote follow-up", mine]]);
+			await expect(member.mutation(api.trash.restore, { kind: "skill", id: trash[0]!.itemId })).rejects.toThrow("Only the person who made");
+			await owner.mutation(api.trash.restore, { kind: "skill", id: trash[0]!.itemId });
+			expect(await find()).toMatchObject({ trash: null, name: "Quote follow-up" });
+			expect((await t.run((ctx) => installedSkills(ctx, workspaceId))).map((s) => s.id)).toEqual([skillId]);
+			await owner.mutation(api.skills.remove, { skillId });
+			for (const e of trash) await owner.mutation(api.trash.purge, { id: e.itemId });
+			expect(await find()).toBeUndefined();
 			await owner.mutation(api.skills.setInstalled, { skillId: "meeting-notes", installed: true });
 			await expect(member.mutation(api.skills.remove, { skillId: "meeting-notes" })).rejects.toThrow("permission");
 			await owner.mutation(api.skills.remove, { skillId: "meeting-notes" });
@@ -114,7 +128,7 @@ describe("customize", () => {
 			await expect(member.mutation(api.skills.remove, { skillId })).rejects.toThrow("Only the person who made");
 			await expect(owner.mutation(api.skills.setInstalled, { skillId, installed: true })).rejects.toThrow("always on");
 			await owner.mutation(api.skills.remove, { skillId });
-			expect(await find()).toBeUndefined();
+			expect((await find())!.trash).toMatchObject({ kind: "skill" });
 			await expect(owner.mutation(api.skills.remove, { skillId })).rejects.toThrow("Skill not found.");
 		});
 

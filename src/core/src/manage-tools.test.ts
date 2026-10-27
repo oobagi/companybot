@@ -68,10 +68,10 @@ describe("grouped tools", () => {
 			expect(await toolApprovalPolicy([tool])({ toolCall: { toolCallId: "safe", toolName: "chat_manage", input: { request } } })).toBeUndefined();
 	});
 
-	it("locks agent archiving and instruction/model rewrites, not metadata edits", async () => {
+	it("locks agent deleting and instruction/model rewrites, not metadata edits", async () => {
 		const tool = manageTools.find((t) => t.id === "agents.manage")!;
 		const ask = (request: object) => toolApprovalPolicy([tool])({ toolCall: { toolCallId: "a", toolName: "agents_manage", input: { request } } });
-		for (const request of [{ action: "archive", id: "a" }, { action: "update", id: "a", expectedVersion: 1, instructions: "x" }, { action: "update", id: "a", expectedVersion: 1, model: "m" }])
+		for (const request of [{ action: "delete", id: "a" }, { action: "update", id: "a", expectedVersion: 1, instructions: "x" }, { action: "update", id: "a", expectedVersion: 1, model: "m" }])
 			expect(await ask(request)).toBe("user-approval");
 		for (const request of [{ action: "update", id: "a", expectedVersion: 1, name: "n" }, { action: "create" }, { action: "list" }])
 			expect(await ask(request)).toBeUndefined();

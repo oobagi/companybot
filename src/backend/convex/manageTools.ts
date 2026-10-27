@@ -10,7 +10,7 @@ import { installSkill, removeSkill, saveSkill } from "./skills";
 import { editMessage, removeMessage, reactMessage, sendMessage } from "./messages";
 import { cancelMemberInvite, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
 import { asToolResult, checkPermission, type Member, nameOf, normalizeEmail, preferencesOf, requireAgent, timeZoneOf } from "./lib";
-import { archiveAgent, createAgent, updateAgent } from "./agents";
+import { createAgent, setAgentTrashed, updateAgent } from "./agents";
 import { catalogModels } from "./modelCatalog";
 import { updatePreferences } from "./preferences";
 import { runNowAs } from "./automationRuns";
@@ -165,7 +165,7 @@ export const runFor = internalMutation({
 						return {
 							...result,
 							page: result.page
-								.filter((i) => canView(member, i))
+								.filter((i) => canView(member, i) && !i.archived)
 								.map((i) => ({ id: i.automationId, name: i.custom?.name, enabled: i.enabled, agentId: i.agentId, version: i.custom?.version })),
 							library: automationCatalog.map((a) => ({ id: a.id, name: a.name, description: a.description })),
 						};
@@ -206,7 +206,7 @@ export const runFor = internalMutation({
 				}
 				case "automations.remove": {
 					const r = manageInputs[tool].parse(input).request;
-					await removeAutomation(ctx, member, r.id);
+					await removeAutomation(ctx, who, r.id);
 					return { deleted: r.id };
 				}
 				case "skills.manage": {
@@ -218,14 +218,15 @@ export const runFor = internalMutation({
 							.paginate(paging(r.cursor));
 						return {
 							...result,
-							page: result.page.map((i) => ({ id: i.skillId, name: i.custom?.name, version: i.custom?.version })),
+							page: result.page.filter((i) => !i.archived).map((i) => ({ id: i.skillId, name: i.custom?.name, version: i.custom?.version })),
 							library: skillCatalog.map((s) => ({ id: s.id, name: s.name, description: s.description })),
 						};
 					}
-					const install = await ctx.db
+					const found = await ctx.db
 						.query("skillInstalls")
 						.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("skillId", r.id))
 						.first();
+					const install = found?.archived ? null : found;
 					if (r.action === "get") {
 						const skill = install?.custom ?? skillCatalog.find((s) => s.id === r.id);
 						if (!skill) throw new ConvexError("Skill not found.");
@@ -241,7 +242,7 @@ export const runFor = internalMutation({
 				}
 				case "skills.remove": {
 					const r = manageInputs[tool].parse(input).request;
-					await removeSkill(ctx, member, r.id);
+					await removeSkill(ctx, who, r.id);
 					return { deleted: r.id };
 				}
 				case "members.invite": {
@@ -270,7 +271,7 @@ export const runFor = internalMutation({
 					const r = manageInputs[tool].parse(input).request;
 					if (r.action === "list") {
 						const result = await ctx.db.query("agents").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId)).paginate(paging(r.cursor));
-						return { ...result, page: result.page.map((a) => ({ id: a._id, name: a.name, description: a.description, archived: a.archived, version: a.version })) };
+						return { ...result, page: result.page.map((a) => ({ id: a._id, name: a.name, description: a.description, inTrash: a.archived, version: a.version })) };
 					}
 					if (r.action === "models") {
 						const found = searchModels((await catalogModels(ctx)).models, r.search);
@@ -279,9 +280,9 @@ export const runFor = internalMutation({
 					if (r.action === "create") return { id: await createAgent(ctx, member, true) };
 					const id = rowId(ctx, "agents", r.id);
 					const agent = await requireAgent(ctx, member, id);
-					if (r.action === "get") return { id, ...pickAgentConfig(agent), version: agent.version, archived: agent.archived };
+					if (r.action === "get") return { id, ...pickAgentConfig(agent), version: agent.version, inTrash: agent.archived };
 					if (r.action === "history") return ctx.db.query("agentVersions").withIndex("by_agent", (q) => q.eq("agentId", id)).order("desc").paginate(paging(r.cursor));
-					if (r.action === "archive") await archiveAgent(ctx, member, id, true);
+					if (r.action === "delete") await setAgentTrashed(ctx, who, id, true);
 					if (r.action === "update") {
 						if (id === turn.agentId && (r.instructions !== undefined || r.model !== undefined)) throw new ConvexError("Only a person can change your instructions or model.");
 						const { action, id: _, expectedVersion, ...changes } = r;

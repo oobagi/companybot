@@ -149,10 +149,16 @@ it("manages safe agent config with version/owner checks and never expands tools 
 	for (const field of ["instructions", "model"])
 		expect(await call("agents.manage", { action: "update", id: companybot._id, expectedVersion: companybot.version, [field]: companybot[field as "model" | "instructions"] })).toHaveProperty("error");
 	expect(await call("agents.manage", { action: "update", id: companybot._id, expectedVersion: companybot.version, name: "Companybot 2" })).not.toHaveProperty("error");
-	for (const request of [{ action: "create" }, { action: "archive", id }, { action: "update", id, expectedVersion: 2, name: "No" }])
+	for (const request of [{ action: "create" }, { action: "delete", id }, { action: "update", id, expectedVersion: 2, name: "No" }])
 		expect(await call("agents.manage", request, true)).toHaveProperty("error");
-	await call("agents.manage", { action: "archive", id });
+	await call("agents.manage", { action: "delete", id });
 	expect(await t.run((ctx) => ctx.db.get(id))).toMatchObject({ archived: true, tools: [] });
+	// The same Trash as the app: listed with the agent that did it, restored only by a person.
+	expect((await owner.query(api.trash.list, { kind: "agent", paginationOpts: { numItems: 10, cursor: null } })).page).toEqual([
+		expect.objectContaining({ kind: "agent", itemId: id, name: "Research", agent: "Companybot 2", canRestore: true }),
+	]);
+	expect(await call("agents.manage", { action: "get", id })).toMatchObject({ inTrash: true });
+	expect(await call("agents.manage", { action: "update", id, expectedVersion: 2, name: "Back" })).toHaveProperty("error");
 	const side = await sideWorkspace(t, "owner@co.com");
 	const foreign = await owner.in(side.workspaceId).mutation(api.agents.create);
 	expect(await call("agents.manage", { action: "get", id: foreign })).toHaveProperty("error");
