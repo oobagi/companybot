@@ -173,6 +173,8 @@ async function world() {
 	const t = newTest();
 	const a = await signIn(t, "a@co.com");
 	const b = await signIn(t, "b@co.com");
+	// Shared by every workspace.
+	await t.mutation(internal.modelCatalog.save, { models: [{ id: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5", provider: "anthropic" }] });
 	const [A, B] = [(await a.query(api.workspace.me))!.workspaceId!, (await b.query(api.workspace.me))!.workspaceId!];
 	await a.in(A).mutation(api.workspace.invite, { email: "m@co.com", role: "member" });
 	await b.in(B).mutation(api.workspace.invite, { email: "m@co.com", role: "member" });

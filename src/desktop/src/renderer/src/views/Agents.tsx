@@ -7,6 +7,7 @@ import { useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { navigate } from "../router";
+import { ModelPicker } from "./ModelPicker";
 import {
 	ConflictNotice,
 	Field,
@@ -149,15 +150,7 @@ function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean;
 						onChange={(e) => edit({ description: e.target.value })}
 					/>
 				</Field>
-				<Field label="Model">
-					<select className={inputClass} value={config.model} onChange={(e) => edit({ model: e.target.value })}>
-						{options.models.map((m) => (
-							<option key={m.id} value={m.id}>
-								{m.name} — {m.note}
-							</option>
-						))}
-					</select>
-				</Field>
+				<ModelPicker models={options.models} defaultModel={options.defaultModel} value={config.model} onChange={(model) => edit({ model })} />
 				<div className="flex flex-col gap-1.5">
 					<span className="text-sm font-medium">Tools</span>
 					{options.groups.map((g) => (

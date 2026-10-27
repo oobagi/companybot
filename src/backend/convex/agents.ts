@@ -5,8 +5,8 @@ import {
 	canUseTool,
 	defaultAgents,
 	describeToolAccess,
+	defaultModel,
 	findConnector,
-	models,
 	toolGroup,
 	validateAgentConfig,
 } from "@companybot/core";
@@ -16,15 +16,16 @@ import { type MutationCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { type Member, checkPermission, checkVersion, getMember, namesOf, requireAgent, requirePermission, toActor } from "./lib";
 import { connectorStates } from "./connectors";
+import { allowedModels, catalogModels } from "./modelCatalog";
 import { agentConfig } from "./schema";
 
 // Agents live in the database, one set per workspace. Owners edit them; every save
 // is kept in agentVersions so changes can be reviewed and restored. Replies read the
 // agent fresh at the start of each turn, so edits apply from the next reply.
 
-function clean(config: AgentConfig): AgentConfig {
+async function clean(ctx: MutationCtx, agent: Doc<"agents">, config: AgentConfig): Promise<AgentConfig> {
 	const tidy = { ...config, name: config.name.trim(), description: config.description.trim() };
-	const problem = validateAgentConfig(tidy);
+	const problem = validateAgentConfig(tidy, await allowedModels(ctx, agent.model));
 	if (problem) throw new ConvexError(problem);
 	// Sorted and deduped so versions compare cleanly.
 	return { ...tidy, tools: [...new Set(tidy.tools)].sort() };
@@ -78,7 +79,7 @@ export const list = query({
 });
 
 /**
- * What owners can pick from when editing an agent: models, and tool groups. Each
+ * What owners can pick from when editing an agent: models (AI Gateway's, cached; modelCatalog.ts), and tool groups. Each
  * group can be granted whole ("memory.*") or tool by tool. Installed connectors are
  * granted whole, since their tools come from the connector's server.
  */
@@ -99,7 +100,8 @@ export const options = query({
 			const connector = findConnector(state.id);
 			return connector ? [{ id: connector.id, name: connector.name, connector: true, tools: [] }] : [];
 		});
-		return { models, groups: [...builtin, ...connectors] };
+		const { models, fetchedAt } = await catalogModels(ctx);
+		return { models, fetchedAt, defaultModel, groups: [...builtin, ...connectors] };
 	},
 });
 
@@ -155,7 +157,7 @@ export const restore = mutation({
 			.withIndex("by_agent", (q) => q.eq("agentId", agentId).eq("version", version))
 			.first();
 		if (!old) throw new ConvexError("That version doesn't exist.");
-		await saveVersion(ctx, agent, clean(old.config), owner.userId);
+		await saveVersion(ctx, agent, await clean(ctx, agent, old.config), owner.userId);
 	},
 });
 
@@ -177,7 +179,7 @@ export async function updateAgent(ctx: MutationCtx, member: Member, agentId: Id<
 	checkPermission(member, "agents.manage");
 	const agent = await requireAgent(ctx, member, agentId);
 	checkVersion(agent.version, expectedVersion);
-	await saveVersion(ctx, agent, clean(config), member.userId);
+	await saveVersion(ctx, agent, await clean(ctx, agent, config), member.userId);
 }
 
 export async function archiveAgent(ctx: MutationCtx, member: Member, agentId: Id<"agents">, archived: boolean) {

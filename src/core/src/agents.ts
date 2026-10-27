@@ -3,7 +3,7 @@ import { callEnd } from "./activity";
 import type { AgentConfig } from "./agent-config";
 import { type PermissionDecision, deniedReason, heldReason, permissionFor, toolRisk } from "./action-rules";
 import { builtinTools } from "./builtin-tools";
-import { models } from "./models";
+import { type ModelInfo, fallbackModels } from "./models";
 import { can } from "./permissions";
 import { CONNECTOR_CALL, type ConnectorService, calledConnectorTool, connectorMetaTools } from "./connector-tools";
 import { findConnector } from "./connectors";
@@ -22,8 +22,11 @@ function isKnownGrant(grant: string) {
 	return builtinTools.some((t) => t.id === grant) || !!findConnector(group);
 }
 
-/** Returns a message people can read, or null if the config is fine. */
-export function validateAgentConfig(config: AgentConfig): string | null {
+/**
+ * Returns a message people can read, or null if the config is fine. `models` are the ones a
+ * save may pick: the backend passes the gateway catalog plus the agent's current model.
+ */
+export function validateAgentConfig(config: AgentConfig, models: readonly Pick<ModelInfo, "id">[] = fallbackModels): string | null {
 	const name = config.name.trim();
 	if (!name) return "Give the agent a name.";
 	if (name.length > 40) return "Keep the name under 40 characters.";

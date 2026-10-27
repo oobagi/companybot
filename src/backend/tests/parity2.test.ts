@@ -140,7 +140,8 @@ it("manages safe agent config with version/owner checks and never expands tools 
 	const id = created.id as Id<"agents">;
 	expect(await t.run((ctx) => ctx.db.get(id))).toMatchObject({ tools: [] });
 	expect((await call("agents.manage", { action: "list" })).page).toContainEqual(expect.objectContaining({ id }));
-	expect(await call("agents.manage", { action: "get", id })).toMatchObject({ version: 1, tools: [], models: expect.any(Array) });
+	expect(await call("agents.manage", { action: "get", id })).toMatchObject({ version: 1, tools: [] });
+	expect(await call("agents.manage", { action: "models", search: "claude sonnet" })).toEqual({ total: 1, models: [{ id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", note: "" }] });
 	expect(await call("agents.manage", { action: "get", id }, true)).toMatchObject({ id });
 	expect(await call("agents.manage", { action: "history", id })).toMatchObject({ page: [expect.objectContaining({ version: 1 })] });
 	await call("agents.manage", { action: "update", id, expectedVersion: 1, name: "Research", description: "Researches", instructions: "Research", model: scribe.model });

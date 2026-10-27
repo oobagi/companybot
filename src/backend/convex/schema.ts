@@ -108,6 +108,16 @@ export const fieldKind = v.union(
 /** core's AutomationAudience. */
 export const audience = v.union(v.literal("creator"), v.literal("subscribers"), v.literal("channel"));
 
+/** core's ModelInfo. */
+export const modelInfo = v.object({
+	id: v.string(),
+	name: v.string(),
+	provider: v.string(),
+	contextWindow: v.optional(v.number()),
+	input: v.optional(v.number()),
+	output: v.optional(v.number()),
+});
+
 export default defineSchema({
 	...authTables,
 	// Convex Auth's, plus `erasedAt`.
@@ -121,6 +131,8 @@ export default defineSchema({
 
 	// Local backends only (`pnpm dev`): the latest sign-in code per email, read back by the app.
 	localSignInCodes: defineTable({ email: v.string(), code: v.string() }).index("by_email", ["email"]),
+	// AI Gateway's models that can run an agent, one row (modelCatalog.ts).
+	modelCatalog: defineTable({ models: v.array(modelInfo), fetchedAt: v.number() }),
 
 	workspaces: defineTable({
 		name: v.string(),

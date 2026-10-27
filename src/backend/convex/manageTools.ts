@@ -1,4 +1,4 @@
-import { canEditMade, DEFAULT_CURRENCY, isGranted, manageInputs, models, pickAgentConfig, skillCatalog, automationCatalog } from "@companybot/core";
+import { canEditMade, DEFAULT_CURRENCY, isGranted, manageInputs, modelNote, pickAgentConfig, searchModels, skillCatalog, automationCatalog } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Id, TableNames } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
@@ -11,6 +11,7 @@ import { editMessage, removeMessage, reactMessage, sendMessage } from "./message
 import { cancelMemberInvite, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
 import { asToolResult, checkPermission, type Member, nameOf, normalizeEmail, preferencesOf, requireAgent, timeZoneOf } from "./lib";
 import { archiveAgent, createAgent, updateAgent } from "./agents";
+import { catalogModels } from "./modelCatalog";
 import { updatePreferences } from "./preferences";
 import { runNowAs } from "./automationRuns";
 import { runningTurn } from "./turns";
@@ -271,10 +272,14 @@ export const runFor = internalMutation({
 						const result = await ctx.db.query("agents").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId)).paginate(paging(r.cursor));
 						return { ...result, page: result.page.map((a) => ({ id: a._id, name: a.name, description: a.description, archived: a.archived, version: a.version })) };
 					}
+					if (r.action === "models") {
+						const found = searchModels((await catalogModels(ctx)).models, r.search);
+						return { total: found.length, models: found.slice(0, 50).map((m) => ({ id: m.id, name: m.name, note: modelNote(m) })), ...(found.length > 50 && { more: "Search to narrow the list." }) };
+					}
 					if (r.action === "create") return { id: await createAgent(ctx, member, true) };
 					const id = rowId(ctx, "agents", r.id);
 					const agent = await requireAgent(ctx, member, id);
-					if (r.action === "get") return { id, ...pickAgentConfig(agent), version: agent.version, archived: agent.archived, models };
+					if (r.action === "get") return { id, ...pickAgentConfig(agent), version: agent.version, archived: agent.archived };
 					if (r.action === "history") return ctx.db.query("agentVersions").withIndex("by_agent", (q) => q.eq("agentId", id)).order("desc").paginate(paging(r.cursor));
 					if (r.action === "archive") await archiveAgent(ctx, member, id, true);
 					if (r.action === "update") {
