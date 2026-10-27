@@ -23,12 +23,12 @@ export function ChatNav({
 }) {
 	const openDm = useMutation(api.chats.openDm);
 	const [dialog, setDialog] = useState<Dialog>();
-	if (!chats) return <div className="flex-1" />;
+	if (!chats) return null;
 
 	const peopleDms = chats.dms.filter((d) => !d.agentId);
 
 	return (
-		<div className="no-drag -mx-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1 pb-4">
+		<>
 			<Group title="Channels" onAdd={() => setDialog("create")} addLabel="Create a channel">
 				{chats.channels.map((c) => (
 					<Item key={c._id} active={c._id === openId} unread={c.unread} mentioned={c.mentioned} onClick={() => onOpen(c._id)}>
@@ -78,17 +78,20 @@ export function ChatNav({
 			{dialog === "create" && <CreateChannel onClose={() => setDialog(undefined)} onOpen={onOpen} />}
 			{dialog === "browse" && <BrowseChannels onClose={() => setDialog(undefined)} onOpen={onOpen} />}
 			{dialog === "message" && <NewMessage onClose={() => setDialog(undefined)} onOpen={onOpen} />}
-		</div>
+		</>
 	);
 }
 
+/** A sidebar section. `onTitle` makes its title a link (Pages → every page). */
 export function Group({
 	title,
+	onTitle,
 	onAdd,
 	addLabel,
 	children,
 }: {
 	title: string;
+	onTitle?: () => void;
 	onAdd?: () => void;
 	addLabel?: string;
 	children: React.ReactNode;
@@ -96,7 +99,15 @@ export function Group({
 	return (
 		<section className="group/section flex flex-col gap-px">
 			<div className="flex items-center justify-between px-2 pb-1">
-				<h2 className="text-xs font-medium text-neutral-500">{title}</h2>
+				<h2 className="text-xs font-medium text-neutral-500">
+					{onTitle ? (
+						<button type="button" onClick={onTitle} className="hover:text-neutral-800">
+							{title}
+						</button>
+					) : (
+						title
+					)}
+				</h2>
 				{onAdd && (
 					<button
 						type="button"

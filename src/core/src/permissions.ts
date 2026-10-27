@@ -29,6 +29,8 @@ export const permissions = {
 	"memory.team.write": { roles: ["owner"], label: "change team memories" },
 	/** Add, change, archive and restore records (clients, deals, tasks…), and undo changes. */
 	"records.edit": { roles: ["owner", "member"], label: "change records" },
+	/** Write, rename, archive, restore and delete pages, and restore old versions (wiki/pages.md). */
+	"pages.edit": { roles: ["owner", "member"], label: "change pages" },
 	/** Add fields to a database. You can always change and archive the ones you added. */
 	"fields.create": { roles: ["owner", "member"], label: "add fields" },
 	/** Add databases, and change or archive anyone's fields (`canEditMade`). */

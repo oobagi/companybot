@@ -37,6 +37,9 @@ describe("tool visibility", () => {
 			"records.save_database",
 			"records.views",
 			"records.save_view",
+			"pages.find",
+			"pages.read",
+			"pages.write",
 		]);
 		expect(resolveTools(companybot, owner).map((t) => t.id)).toContain("memory.forget");
 	});
@@ -91,6 +94,9 @@ describe("tool visibility", () => {
 			"records_save_field",
 			"records_views",
 			"records_save_view",
+			"pages_find",
+			"pages_read",
+			"pages_write",
 		]);
 	});
 

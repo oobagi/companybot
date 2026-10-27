@@ -6,6 +6,7 @@ import {
 	type ChatStore,
 	type LoggedCall,
 	type MemoryStore,
+	type PageStore,
 	type RecordStore,
 	type ConnectorCredentials,
 	type ConnectorSession,
@@ -246,6 +247,7 @@ async function streamReply(
 			setMine: (input) => ctx.runMutation(internal.automationTools.setMineFor, { turnId, ...input }),
 		},
 		records: recordStore(ctx, turnId),
+		pages: pageStore(ctx, turnId),
 		results: createResultStore(),
 	};
 	const tools = buildToolSet(
@@ -471,6 +473,25 @@ function recordStore(ctx: ActionCtx, turnId: Id<"agentTurns">): RecordStore {
 		saveDatabase: (input) => ctx.runMutation(internal.recordTools.saveDatabaseFor, { turnId, input }),
 		views: ({ type }) => ctx.runQuery(internal.recordTools.viewsFor, { turnId, type }),
 		saveView: (input) => ctx.runMutation(internal.recordTools.saveViewFor, { turnId, input }),
+	};
+}
+
+/** Convert Markdown in Node; pageTools rechecks the acting person's access. */
+function pageStore(ctx: ActionCtx, turnId: Id<"agentTurns">): PageStore {
+	return {
+		find: (input) => ctx.runQuery(internal.pageTools.findFor, { turnId, input }),
+		async read(input) {
+			const page = await ctx.runQuery(internal.pageTools.readFor, { turnId, ...input });
+			if ("error" in page) return page;
+			const { doc, ...rest } = page;
+			return { ...rest, markdown: doc === null ? "" : await ctx.runAction(internal.pageMarkdown.toMarkdown, { doc }) };
+		},
+		write: async (input) =>
+			ctx.runMutation(internal.pageTools.writeFor, {
+				turnId,
+				input,
+				...(input.markdown !== undefined && { blocks: await ctx.runAction(internal.pageMarkdown.fromMarkdown, { markdown: input.markdown }) }),
+			}),
 	};
 }
 

@@ -9,6 +9,7 @@ Databases and their records: records (clients, deals, tasks, calls…), their fi
 - **Index** (`recordValues`) — one row per value of a live record: text and ids in `str`, numbers in `num`, links in `ref`. Lists filter and sort through it; never read for display. Text is case-insensitive: up to 100 chars it's its own key; longer, its first 80 chars plus a hash of the whole, so sorting goes by the first 80 and exact matches are re-checked against the value.
 - **History** (`recordHistory`) — every change to a record, field, database or saved view: action, each value's old → new, `userId`, and `agentId` when an agent did it for that person. Feeds a record's history and Settings → Activity (`records.activity`).
 - **Saved view** (`databaseViews`) — a named filter, sort and ordered columns shared with the workspace. Indexed by database (`by_type`); its lifecycle is `childOf: recordTypes`, so deleting a database in a cascade deletes its views. Removing a member keeps shared views.
+- **Page body** — every record has a page under its fields (notes, plans), created on first write. Same editor, history and agent tools as standalone pages: [Pages](pages.md).
 - **Mentions** (`recordMentions`) — a chat message that references a record (`messages.send` → `mentions.recordIds`). `records.discussion` lists the ones you can see.
 
 ## Money

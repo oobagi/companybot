@@ -1,24 +1,32 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import type { Role } from "@companybot/core";
 import { can } from "@companybot/core/permissions";
-import type { FieldValue } from "@companybot/core/records";
+import { type FieldValue, NAME_KEY } from "@companybot/core/records";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { LoadMore, Loading, Notice, Page, Section, descriptionClass, metadataClass, timeAgo, useRun } from "../../ui";
+import { LoadMore, Loading, Notice, Page, Section, Tabs, descriptionClass, metadataClass, timeAgo, useRun } from "../../ui";
+import { Modal } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
+import { PageEditor } from "../pages/PageEditor";
+import { PageHistory } from "../pages/PageHistory";
+import { PageTitle } from "../pages/PageTitle";
 import { AddField, EditField } from "./fieldDialogs";
 import { ValueEditor, ValueView } from "./fields";
 import { type Refs, type TypeField, actionLabels, recordPath, valueText, whoLabel } from "./logic";
 
-// One record's page: its fields, editable in place, then what links to it, where it was
-// discussed, and its history with undo. The same page for every type.
+// One record's page: its fields, editable in place, its page body (notes, plans: a page,
+// wiki/pages.md), then what links to it, where it was discussed, and its history with undo.
+// The same page for every type.
 
 export function RecordPage({ type, recordId, role }: { type: RecordType; recordId: Id<"records">; role: Role }) {
 	const record = useQuery(api.records.get, { recordId });
+	const pageId = useQuery(api.pages.forRecord, { recordId });
+	const [history, setHistory] = useState(false);
 	const archive = useMutation(api.records.archive);
+	const update = useMutation(api.records.update);
 	const restore = useMutation(api.records.restore);
 	const { error, run } = useRun();
 	const back = { label: type.plural, to: recordPath(type.key) };
@@ -34,20 +42,13 @@ export function RecordPage({ type, recordId, role }: { type: RecordType; recordI
 
 	return (
 		<Page
-			title={record.title}
+			title={<PageTitle title={record.title} editable={canEdit && !record.archived} onSave={(name) => update({ recordId, values: { name } })} />}
 			subtitle={record.archived ? `${type.name} · Archived` : type.name}
 			back={back}
-			actions={
-				canEdit && (
-					<button
-						type="button"
-						onClick={() => run(record.archived ? restore({ recordId }) : archive({ recordId }))}
-						className={`${descriptionClass} hover:text-neutral-900`}
-					>
-						{record.archived ? "Restore" : "Archive"}
-					</button>
-				)
-			}
+			actions={<div className="flex gap-4">
+				<button type="button" onClick={() => setHistory(true)} className={`${descriptionClass} hover:text-neutral-900`}>History</button>
+				{canEdit && <button type="button" onClick={() => run(record.archived ? restore({ recordId }) : archive({ recordId }))} className={`${descriptionClass} hover:text-neutral-900`}>{record.archived ? "Restore" : "Archive"}</button>}
+			</div>}
 		>
 			{error && <Notice>{error}</Notice>}
 			{record.archived && (
@@ -56,19 +57,40 @@ export function RecordPage({ type, recordId, role }: { type: RecordType; recordI
 				</p>
 			)}
 			<Fields type={type} record={record} role={role} editable={canEdit && !record.archived} />
+			<Body recordId={recordId} pageId={pageId} editable={can(role, "pages.edit") && !record.archived} />
 			<Linked recordId={recordId} archived={record.archived} />
 			<Discussion recordId={recordId} />
-			<History type={type} recordId={recordId} canUndo={canEdit} />
+			<RecordHistory open={history} onClose={() => setHistory(false)} type={type} recordId={recordId} pageId={pageId} canUndo={canEdit} canRestore={can(role, "pages.edit") && !record.archived} />
 		</Page>
 	);
 }
 
 type RecordDoc = NonNullable<FunctionReturnType<typeof api.records.get>>;
 
+/** The record's page body. It's made when someone first writes in it. */
+function Body({ recordId, pageId, editable }: { recordId: Id<"records">; pageId: Id<"pages"> | null | undefined; editable: boolean }) {
+	const create = useMutation(api.pages.create);
+	const { error, run } = useRun();
+	if (pageId === undefined || (pageId === null && !editable)) return null;
+	return (
+		<section className="flex flex-col gap-2 border-t border-neutral-200 pt-4">
+			{error && <Notice>{error}</Notice>}
+			{pageId ? (
+				<PageEditor pageId={pageId} editable={editable} />
+			) : (
+				<button type="button" onClick={() => run(create({ recordId }))} className="py-1 text-left text-neutral-400 hover:text-neutral-600">
+					Write notes, plans, anything…
+				</button>
+			)}
+		</section>
+	);
+}
+
 function Fields({ type, record, role, editable }: { type: RecordType; record: RecordDoc; role: Role; editable: boolean }) {
 	const [adding, setAdding] = useState(false);
 	const [editing, setEditing] = useState<TypeField>();
-	const live = type.fields.filter((f) => !f.archived) as TypeField[];
+	// The name is the page's title, edited there like Notion's.
+	const live = type.fields.filter((f) => !f.archived && f.key !== NAME_KEY) as TypeField[];
 	const archived = type.fields.filter((f) => f.archived && f.canEdit) as TypeField[];
 	return (
 		<section className="flex flex-col gap-1">
@@ -235,7 +257,7 @@ function History({ type, recordId, canUndo }: { type: RecordType; recordId: Id<"
 	const fields = type.fields as TypeField[];
 	if (status === "LoadingFirstPage") return null;
 	return (
-		<Section title="History">
+		<Section title="Property changes">
 			{error && <Notice>{error}</Notice>}
 			<div className="flex flex-col gap-2">
 				{results.map((e) => (
@@ -274,4 +296,11 @@ function History({ type, recordId, canUndo }: { type: RecordType; recordId: Id<"
 			<LoadMore status={status} onMore={() => loadMore(20)} />
 		</Section>
 	);
+}
+
+function RecordHistory({ open, onClose, type, recordId, pageId, canUndo, canRestore }: { open: boolean; onClose: () => void; type: RecordType; recordId: Id<"records">; pageId: Id<"pages"> | null | undefined; canUndo: boolean; canRestore: boolean }) {
+	const [tab, setTab] = useState<"properties" | "body">("properties");
+	if (!open) return null;
+	const tabs = <Tabs tabs={[{ id: "properties", label: "Properties" }, { id: "body", label: "Page body" }]} value={tab} onChange={setTab} />;
+	return tab === "body" && pageId ? <PageHistory pageId={pageId} canRestore={canRestore} onClose={onClose} tabs={tabs} /> : <Modal title="History" wide onClose={onClose}>{tabs}{tab === "properties" ? <History type={type} recordId={recordId} canUndo={canUndo} /> : <p className={descriptionClass}>No page edits yet.</p>}</Modal>;
 }

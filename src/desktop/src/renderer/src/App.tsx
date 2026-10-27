@@ -15,12 +15,13 @@ import { SignIn } from "./views/SignIn";
 import { WorkspaceMenu } from "./views/WorkspaceMenu";
 import { ChatView } from "./views/chat/ChatView";
 import { ChatNav, Group, Item } from "./views/chat/Sidebar";
+import { PagesNav, PagesView } from "./views/Pages";
 import { CustomizeView, customizeTabs } from "./views/customize";
 import { DatabaseDialog } from "./views/records/DatabaseDialog";
 import { useTypes } from "./views/records/data";
 import { builtinTabs, recordPath } from "./views/records/logic";
 
-const views = ["chat", ...recordTabs.map((t) => t.id), "records", "customize", "settings"] as const;
+const views = ["chat", ...recordTabs.map((t) => t.id), "records", "pages", "customize", "settings"] as const;
 type View = (typeof views)[number];
 
 export function App() {
@@ -106,7 +107,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 		if (prefs && prefs.deviceTimeZone !== deviceTimeZone) updatePrefs({ deviceTimeZone }).catch(() => {});
 	}, [prefs, deviceTimeZone, updatePrefs]);
 	// Screens are paths: /chat[/<chat>[/thread|message/<id>]], /clients[/<record>] (and other record tabs), /records/<type>[/<record>]
-	// for types owners add, /customize/<tab>[/<item>], /settings/<tab>.
+	// for types owners add, /pages[/<page>], /customize/<tab>[/<item>], /settings/<tab>.
 	const route = useRoute();
 	const view: View = views.find((v) => v === route[0]) ?? "chat";
 	const customizeTab = customizeTabs.find((t) => t.id === route[1])?.id ?? "agents";
@@ -114,7 +115,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	const types = useTypes();
 	const [newDatabase, setNewDatabase] = useState(false);
 	// The database on screen, by key, and the record open in it.
-	const builtinKey = Object.keys(builtinTabs).find((k) => builtinTabs[k] === view) ?? (view === "campaigns" ? "campaign" : undefined);
+	const builtinKey = Object.keys(builtinTabs).find((k) => builtinTabs[k] === view);
 	const typeKey = view === "records" ? route[1] : builtinKey;
 	const recordId = view === "records" ? route[2] : route[1];
 	// Each section reopens where you left it.
@@ -135,16 +136,16 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 		<div className="flex h-screen text-[15px] text-neutral-900">
 			<aside className="drag flex w-60 shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 px-3 pt-12 pb-3">
 				<WorkspaceMenu name={workspace} />
-				<nav className="no-drag mb-3 flex flex-col gap-px border-b border-neutral-200 pb-3">
+				<div className="no-drag -mx-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1 pb-4">
 					<Group title="Databases">
 						{types?.map((type) => (
 							<Item key={type._id} active={typeKey === type.key} onClick={() => navigate(...recordPath(type.key))}>{type.plural}</Item>
 						))}
 						{can(role, "fields.manage") && <Item muted onClick={() => setNewDatabase(true)}>+ New database</Item>}
 					</Group>
-					<Item active={view === "campaigns"} onClick={() => navigate("campaigns")}>Campaigns</Item>
-				</nav>
-				<ChatNav chats={chats} openId={view === "chat" ? openId : undefined} onOpen={open} onError={(e) => setError(errorMessage(e))} />
+					<PagesNav openId={view === "pages" ? route[1] : undefined} />
+					<ChatNav chats={chats} openId={view === "chat" ? openId : undefined} onOpen={open} onError={(e) => setError(errorMessage(e))} />
+				</div>
 				<nav className="no-drag flex flex-col gap-px border-t border-neutral-200 pt-3">
 					{(["customize", "settings"] as const).map((v) => (
 						<Item key={v} active={view === v} onClick={() => navigate(...(lastPath.current[v] ?? [v]))}>
@@ -189,6 +190,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 					))}
 				{view !== "chat" && <header className="drag h-12 shrink-0" />}
 				{typeKey && <RecordsView key={typeKey} typeKey={typeKey} recordId={recordId} role={role} />}
+				{view === "pages" && <PagesView pageId={route[1]} canEdit={can(role, "pages.edit")} />}
 				{view === "customize" && <CustomizeView role={role} tab={customizeTab} itemId={route[2]} />}
 				{view === "settings" && <SettingsView role={role} tab={settingsTab} onTab={(t) => navigate("settings", t)} />}
 			</main>

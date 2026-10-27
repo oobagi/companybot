@@ -11,7 +11,6 @@ export const recordTabs = [
 	{ id: "deals", label: "Deals" },
 	{ id: "tasks", label: "Tasks" },
 	{ id: "calls", label: "Calls" },
-	{ id: "campaigns", label: "Campaigns" },
 ] as const;
 
 /**
@@ -20,13 +19,6 @@ export const recordTabs = [
  */
 export function RecordsView({ typeKey, recordId, role }: { typeKey: string; recordId?: string; role: Role }) {
 	const types = useTypes();
-	if (typeKey === "campaign") {
-		return (
-			<Page title="Campaigns">
-				<p className="text-sm text-neutral-500">Coming soon.</p>
-			</Page>
-		);
-	}
 	if (!types) return <Loading />;
 	const type = types.find((t) => t.key === typeKey);
 	if (!type) {

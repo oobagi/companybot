@@ -37,6 +37,11 @@ import type * as memoryOps from "../memoryOps.js";
 import type * as messages from "../messages.js";
 import type * as migrations from "../migrations.js";
 import type * as oauth from "../oauth.js";
+import type * as pageMarkdown from "../pageMarkdown.js";
+import type * as pageOps from "../pageOps.js";
+import type * as pageSync from "../pageSync.js";
+import type * as pageTools from "../pageTools.js";
+import type * as pages from "../pages.js";
 import type * as permissions from "../permissions.js";
 import type * as plugins from "../plugins.js";
 import type * as preferences from "../preferences.js";
@@ -87,6 +92,11 @@ declare const fullApi: ApiFromModules<{
   messages: typeof messages;
   migrations: typeof migrations;
   oauth: typeof oauth;
+  pageMarkdown: typeof pageMarkdown;
+  pageOps: typeof pageOps;
+  pageSync: typeof pageSync;
+  pageTools: typeof pageTools;
+  pages: typeof pages;
   permissions: typeof permissions;
   plugins: typeof plugins;
   preferences: typeof preferences;
@@ -130,4 +140,5 @@ export declare const internal: FilterApi<
 
 export declare const components: {
   migrations: import("@convex-dev/migrations/_generated/component.js").ComponentApi<"migrations">;
+  prosemirrorSync: import("@convex-dev/prosemirror-sync/_generated/component.js").ComponentApi<"prosemirrorSync">;
 };
