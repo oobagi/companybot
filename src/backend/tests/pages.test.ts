@@ -195,3 +195,16 @@ describe("pages tools", () => {
 		expect((await historyOf(member, pageId))[0]).toMatchObject({ user: "member@co.com", agent: "Companybot" });
 	});
 });
+
+describe("page markdown", () => {
+	it("converts both ways, for agent tools", async () => {
+		const { t } = await setup();
+		const markdown = "# Plan\n\n- [ ] Call Acme\n\n| a | b |\n| - | - |\n| 1 | 2 |\n";
+		const blocks = JSON.parse(await t.action(internal.pageMarkdown.fromMarkdown, { markdown })) as object[];
+		const doc = JSON.stringify({ type: "doc", content: [{ type: "blockGroup", content: blocks }] });
+		const back = await t.action(internal.pageMarkdown.toMarkdown, { doc });
+		expect(back).toContain("# Plan");
+		expect(back).toContain("[ ] Call Acme");
+		expect(back).toMatch(/\| 1 +\| 2 +\|/);
+	});
+});

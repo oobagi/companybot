@@ -12,7 +12,10 @@ import { internalAction } from "./_generated/server";
 let editor: BlockNoteEditor | undefined;
 function blockNote() {
 	if (!editor) {
-		globalThis.document ??= new Window().document as unknown as Document;
+		const window = new Window();
+		// BlockNote reads both: document to parse, window.document to serialize.
+		globalThis.window ??= window as unknown as typeof globalThis.window;
+		globalThis.document ??= window.document as unknown as Document;
 		editor = BlockNoteEditor.create();
 	}
 	return editor;
