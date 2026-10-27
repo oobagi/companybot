@@ -469,7 +469,7 @@ export const saveViewFor = internalMutation({
 			const id = await saveView(ctx, who, type._id, {
 				name: parsed.name ?? old?.name ?? "",
 				filters: parsed.filters ? await conditionsFor(ctx, member, type, fields, parsed.filters) : old?.filters.filter((c) => live(c.field)) ?? [],
-				sort: parsed.sort === null ? undefined : sort ?? old?.sort,
+				sort: parsed.sort === null ? undefined : sort ?? (old?.sort && (["createdAt", "updatedAt"].includes(old.sort.field) || live(old.sort.field)) ? old.sort : undefined),
 				columns: parsed.columns ?? old?.columns.filter(live) ?? ["name"],
 			}, viewId || undefined, parsed.version);
 			return ctx.db.get(id);

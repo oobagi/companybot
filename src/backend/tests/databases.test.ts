@@ -81,7 +81,8 @@ it("isolates every database and view operation across workspaces, including forg
 	const { t, owner } = await setup();
 	const other = await signIn(t, "outsider@co.com");
 	// COMPAT(0.1.0-alpha.8): alpha.6 apps send both names.
-	const typeId = await owner.mutation(api.recordTypes.create, { name: "Job", plural: "Jobs" });
+	const typeId = await owner.mutation(api.recordTypes.create, { name: "Mouse", plural: "Mice" });
+	expect((await owner.query(api.recordTypes.list)).find((t) => t._id === typeId)).toMatchObject({ name: "Mouse", plural: "Mice" });
 	const viewId = await owner.mutation(api.databaseViews.save, { ...config, typeId });
 	await expect(other.mutation(api.recordTypes.update, { typeId, version: 0, name: "Stolen" })).rejects.toThrow("not found");
 	expect(await other.query(api.databaseViews.list, { typeId })).toEqual([]);
@@ -142,4 +143,37 @@ it("gives agents database and view parity, names both actors, and rechecks roles
 	expect(await t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input: { name: "Others" } })).toEqual({ error: expect.stringContaining("permission") });
 	const mine = await t.mutation(internal.recordTools.saveViewFor, { turnId, input: { type: "Deals", name: "My won deals", filters: [{ field: "Stage", in: ["Won"] }, { field: "Owner", eq: "me" }] } });
 	expect(mine).toMatchObject({ filters: [{ field: "stage", in: ["won"] }, { field: "owner", eq: owner.userId }] });
+});
+
+it("agent renames drop archived view fields, preserve timestamp sorts, and still reject explicit invalid sorts", async () => {
+	const { t, owner } = await setup();
+	const type = (await owner.query(api.recordTypes.list)).find((t) => t.key === "deal")!;
+	const field = type.fields.find((f) => f.key === "value")!;
+	const id = await owner.mutation(api.databaseViews.save, { typeId: type._id, name: "Value", filters: [{ field: "value", gte: 1 }], sort: { field: "value", order: "asc" }, columns: ["name", "value"] });
+	await owner.mutation(api.fields.archive, { fieldId: field._id });
+	const { companybot } = await agentsOf(owner);
+	const turnId = await agentTurn(t, owner, (await generalOf(owner))._id, companybot._id);
+	const rename = (version: number, sort?: { field: string; order: "asc" }) => t.mutation(internal.recordTools.saveViewFor, { turnId, input: { type: "deal", id, version, name: `Renamed ${version}`, sort } });
+	expect(await rename(1)).toMatchObject({ name: "Renamed 1", filters: [], columns: ["name"], version: 2 });
+	expect((await owner.query(api.databaseViews.list, { typeId: type._id }))[0]?.sort).toBeUndefined();
+	expect(await rename(2, { field: "value", order: "asc" })).toHaveProperty("error");
+	expect(await rename(2, { field: "createdAt", order: "asc" })).toMatchObject({ sort: { field: "createdAt", order: "asc" }, version: 3 });
+	expect(await rename(3)).toMatchObject({ sort: { field: "createdAt", order: "asc" }, version: 4 });
+});
+
+it("keeps links readable and clearable after archiving their built-in database", async () => {
+	const { t, owner } = await setup();
+	const types = await owner.query(api.recordTypes.list);
+	const client = types.find((t) => t.key === "client")!;
+	const deal = types.find((t) => t.key === "deal")!;
+	const target = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Acme" } });
+	const id = await owner.mutation(api.records.create, { typeId: deal._id, values: { name: "Roof", client: target } });
+	await owner.mutation(api.recordTypes.update, { typeId: client._id, version: 0, archived: true });
+	expect(await owner.query(api.records.get, { recordId: id })).toMatchObject({ values: { client: target }, refs: { [target]: { name: "Acme" } } });
+	await owner.mutation(api.records.update, { recordId: id, values: { name: "New roof" } });
+	const { companybot } = await agentsOf(owner);
+	const turnId = await agentTurn(t, owner, (await generalOf(owner))._id, companybot._id);
+	expect(await t.query(internal.recordTools.getFor, { turnId, id })).toMatchObject({ values: { client: "Acme" }, links: { client: [{ id: target, name: "Acme" }] } });
+	await owner.mutation(api.records.update, { recordId: id, values: { client: null } });
+	expect((await owner.query(api.records.get, { recordId: id }))?.values).not.toHaveProperty("client");
 });

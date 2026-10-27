@@ -23,7 +23,8 @@ describe("records", () => {
 		expect(keyOf("Roof type", [])).toBe("roof_type");
 		expect(keyOf("Roof type", ["roof_type", "roof_type_2"])).toBe("roof_type_3");
 		expect(keyOf("2nd phone", [])).toBe("f_2nd_phone");
-		expect(["Projects", "Companies", "Boxes", "Classes", "Staff"].map(singularOf)).toEqual(["Project", "Company", "Box", "Class", "Staff"]);
+		expect(["Projects", "Companies", "Boxes", "Classes", "Staff", "People", "Sales people", "Status", "Statuses", "Buses", "COMPANIES"].map(singularOf))
+			.toEqual(["Project", "Company", "Box", "Class", "Staff", "Person", "Sales person", "Status", "Status", "Bus", "COMPANY"]);
 		expect(keyOf("!!!", [])).toBe("field");
 		expect(keyOf("_secret", [])).toBe("secret");
 	});
