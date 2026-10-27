@@ -4,7 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation } from "./_generated/server";
 import { query } from "./functions";
 import { type Namer, canSee, chatLabel, namer } from "./chatOps";
-import { type Member, getMember, liveWorkspace } from "./lib";
+import { type Member, erased, getMember, liveWorkspace } from "./lib";
 import { titleOf } from "./connectorTools";
 import { allowedHow } from "./schema";
 
@@ -29,10 +29,12 @@ export const log = internalMutation({
 		error: v.optional(v.string()),
 		allowed: v.optional(allowedHow),
 	},
-	handler: async (ctx, { turnId, error, allowed, ...call }) => {
+	handler: async (ctx, { turnId, error, allowed, output, ...call }) => {
 		const turn = await ctx.db.get(turnId);
 		// Not into a workspace being deleted: its cascade may be past this table.
 		if (!turn?.replyId || !(await liveWorkspace(ctx, turn.workspaceId))) return;
+		// Only the actor sees the output: once their account is erased, the call is logged without it.
+		const keep = output !== undefined && !(await erased(ctx, turn.actorId));
 		await ctx.db.insert("agentActivity", {
 			workspaceId: turn.workspaceId,
 			agentId: turn.agentId,
@@ -42,6 +44,7 @@ export const log = internalMutation({
 			threadId: turn.threadId,
 			replyId: turn.replyId,
 			...call,
+			...(keep && { output }),
 			...(error !== undefined && { error }),
 			...(allowed && { allowed }),
 			status: error === undefined ? "done" : "error",

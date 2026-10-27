@@ -10,11 +10,13 @@ import {
 } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError } from "convex/values";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Id } from "./_generated/dataModel";
 import type { Requested } from "./functions";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 
 export interface Member {
+	/** The `members` row. */
+	id: Id<"members">;
 	userId: Id<"users">;
 	workspaceId: Id<"workspaces">;
 	role: Actor["role"];
@@ -40,8 +42,12 @@ export async function memberOf(ctx: QueryCtx, userId: Id<"users">, workspaceId: 
 		.query("members")
 		.withIndex("by_user", (q) => q.eq("userId", userId).eq("workspaceId", workspaceId))
 		.first();
-	return row && (await liveWorkspace(ctx, workspaceId)) ? { userId, workspaceId, role: row.role } : null;
+	// An erased account's memberships go in its cascade; until then it acts nowhere.
+	return row && !(await erased(ctx, userId)) && (await liveWorkspace(ctx, workspaceId)) ? { id: row._id, userId, workspaceId, role: row.role } : null;
 }
+
+/** Whether their account was erased (workspace.eraseAccount). */
+export const erased = async (ctx: QueryCtx, userId: Id<"users">) => !!(await ctx.db.get(userId))?.erasedAt;
 
 /** A workspace that exists and isn't being deleted. Deleting one ends every access to it at once. */
 export async function liveWorkspace(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
@@ -81,9 +87,10 @@ export async function pinLegacyWorkspace(ctx: MutationCtx, userId: Id<"users">, 
 		return;
 	}
 	if (pinned) return;
-	let first: Doc<"members"> | null = null;
-	for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId)))
-		if (!first || row._creationTime < first._creationTime) first = row;
+	const first = await ctx.db
+		.query("members")
+		.withIndex("by_joined", (q) => q.eq("userId", userId))
+		.first();
 	if (first) await ctx.db.insert("legacyWorkspaces", { userId, workspaceId: first.workspaceId });
 }
 

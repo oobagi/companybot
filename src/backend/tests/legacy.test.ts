@@ -176,6 +176,22 @@ it("backfills the earliest membership, and pinning again never moves it", async 
 
 // The reviewer's independent check of reads, restores and nested ids the main sweep
 // (workspaces.test.ts) left out.
+it("pins the workspace joined first, not the oldest workspace", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	const userId = await t.run(async (ctx) => {
+		const older = await ctx.db.insert("workspaces", { name: "Older", version: 1 });
+		const newer = await ctx.db.insert("workspaces", { name: "Newer", version: 1 });
+		const userId = await ctx.db.insert("users", { email: "p@co.com" });
+		await ctx.db.insert("members", { workspaceId: newer, userId, role: "member" });
+		await ctx.db.insert("members", { workspaceId: older, userId, role: "member" });
+		await pinLegacyWorkspace(ctx, userId);
+		return userId;
+	});
+	const pin = await t.run((ctx) => ctx.db.query("legacyWorkspaces").first());
+	expect(await t.run(async (ctx) => (await ctx.db.get(pin!.workspaceId))?.name)).toBe("Newer");
+	expect(pin?.userId).toBe(userId);
+});
+
 it("refuses ids from the other workspace in reads, restores and nested ids", async () => {
 	const { t, userId, old, a } = await setup();
 	const A = old.in(a);

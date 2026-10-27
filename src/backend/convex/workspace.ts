@@ -9,8 +9,9 @@ import { seedAgents } from "./agents";
 import { fieldsOf, seedRecordTypes, typesOf } from "./recordOps";
 import { addToChat, ensureGeneral } from "./chatOps";
 import { sendInviteEmail } from "./invites";
-import { authUserId, checkVersion, getMember, legacyMemberOf, liveWorkspace, memberOf, nameOf, namesOf, normalizeEmail, pinLegacyWorkspace, requireMember, requirePermission, timeZoneOf } from "./lib";
+import { authUserId, checkVersion, erased, getMember, legacyMemberOf, liveWorkspace, memberOf, nameOf, namesOf, normalizeEmail, pinLegacyWorkspace, requireMember, requirePermission, timeZoneOf } from "./lib";
 import { cascading, startCascade } from "./cascade";
+import { removeWorkspace } from "./lifecycle";
 import { role } from "./schema";
 
 export const me = query({
@@ -269,7 +270,7 @@ export const leave = mutation({
 	args: {},
 	handler: async (ctx) => {
 		const member = await requireMember(ctx);
-		if (member.role === "owner" && (await ownerCount(ctx, member.workspaceId)) <= 1) {
+		if (member.role === "owner" && !(await hasOtherOwner(ctx, member.workspaceId, member.userId))) {
 			throw new ConvexError("You're the only owner. Make someone else an owner first.");
 		}
 		const row = await ctx.db
@@ -310,12 +311,6 @@ export const deleteWorkspace = mutation({
 	},
 });
 
-async function removeWorkspace(ctx: MutationCtx, workspaceId: Id<"workspaces">) {
-	await ctx.db.patch(workspaceId, { deleting: true });
-	// Old apps' pins are set as the cascade deletes each membership (lifecycle.ts); until then they act nowhere.
-	await startCascade(ctx, "workspace", { workspaceId });
-}
-
 /**
  * Erases your account. You leave every workspace (one you're alone in is deleted), and your
  * sign-in, preferences, connected accounts, private agent results and everything personal go
@@ -328,18 +323,17 @@ export const eraseAccount = mutation({
 	handler: async (ctx) => {
 		const userId = await authUserId(ctx);
 		if (!userId) throw new ConvexError("Not signed in.");
-		const memberships = [];
-		for (const row of await ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId)).collect()) {
-			const everyone = await membersOf(ctx, row.workspaceId);
-			if (row.role === "owner" && everyone.length > 1 && everyone.filter((r) => r.role === "owner").length === 1) {
+		// A few indexed reads per workspace however big it is. Leaving them is the cascade's (memberOf refuses an erased account until then).
+		for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId))) {
+			if (row.role !== "owner" || (await hasOtherOwner(ctx, row.workspaceId, userId))) continue;
+			const others = await ctx.db
+				.query("members")
+				.withIndex("by_workspace", (q) => q.eq("workspaceId", row.workspaceId))
+				.take(2);
+			if (others.length > 1) {
 				const workspace = await ctx.db.get(row.workspaceId);
 				throw new ConvexError(`You're the only owner of ${workspace?.name ?? "a workspace"}. Make someone else an owner first, or remove everyone else.`);
 			}
-			memberships.push({ row, alone: everyone.length === 1 });
-		}
-		for (const { row, alone } of memberships) {
-			if (alone) await removeWorkspace(ctx, row.workspaceId);
-			else await dropMember(ctx, row);
 		}
 		// Now, not in the cascade: their email must sign in to a new account, never back into this one.
 		const emails = new Set([(await ctx.db.get(userId))!.email]);
@@ -366,7 +360,7 @@ export const setRole = mutation({
 		const owner = await requirePermission(ctx, "members.manage");
 		const row = await ctx.db.get(id);
 		if (!row || row.workspaceId !== owner.workspaceId) throw new ConvexError("Member not found.");
-		if (row.role === "owner" && role !== "owner" && (await ownerCount(ctx, owner.workspaceId)) <= 1) {
+		if (row.role === "owner" && role !== "owner" && !(await hasOtherOwner(ctx, owner.workspaceId, row.userId))) {
 			throw new ConvexError("A workspace needs at least one owner.");
 		}
 		await ctx.db.patch(id, { role });
@@ -379,8 +373,11 @@ const membersOf = (ctx: QueryCtx, workspaceId: Id<"workspaces">) =>
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
 		.collect();
 
-async function ownerCount(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
-	return (await membersOf(ctx, workspaceId)).filter((r) => r.role === "owner").length;
+/** Whether someone besides `userId` owns it. An erased owner doesn't count: their membership is on its way out. */
+async function hasOtherOwner(ctx: QueryCtx, workspaceId: Id<"workspaces">, userId: Id<"users">) {
+	for await (const row of ctx.db.query("members").withIndex("by_role", (q) => q.eq("workspaceId", workspaceId).eq("role", "owner")))
+		if (row.userId !== userId && !(await erased(ctx, row.userId))) return true;
+	return false;
 }
 
 /** Whether someone with this (normalized) email is already in the workspace. */

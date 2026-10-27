@@ -2,7 +2,7 @@ import { getDocumentSize, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id, TableNames } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
-import { type Get, type Root, type Scope, type Step, childrenOf, edgesOf, lifecycle, rootOf } from "./lifecycle";
+import { type Get, type Root, type Scope, type Step, childrenOf, edgesOf } from "./lifecycle";
 
 // Deletes what belonged to something that went, as lifecycle.ts says, a little at a time:
 // each run reads one page of one edge, deletes it (children first), saves where it got to
@@ -117,7 +117,8 @@ export const step = internalMutation({
 				break;
 			}
 			await edge.onDelete?.(ctx, row, job.root);
-			await deleteRow(ctx, edge.table, row, budget);
+			await ctx.db.delete(row._id);
+			budget.writes--;
 			handled++;
 		}
 		const next = edges[at + 1];
@@ -129,10 +130,10 @@ export const step = internalMutation({
 	},
 });
 
-/** Every edge is done: the root row goes last, then the cascade. */
+/** Every edge is done: a workspace goes last, then the cascade. The rest were gone before it started. */
 async function finish(ctx: MutationCtx, job: Doc<"cascades">) {
-	const root = rootOf(job.scope, job.root);
-	if (root && (await ctx.db.get(root))) await ctx.db.delete(root);
+	const { workspaceId } = job.root;
+	if (job.scope === "workspace" && workspaceId && (await ctx.db.get(workspaceId))) await ctx.db.delete(workspaceId);
 	await ctx.db.delete(job._id);
 }
 
@@ -142,24 +143,18 @@ async function deleteChildren(ctx: MutationCtx, table: TableNames, row: Doc<Tabl
 		if (!room(budget)) return false;
 		for await (const r of range(ctx, child.table, child.index as string, [[child.field, row._id]])) {
 			spend(budget, r);
-			await deleteRow(ctx, child.table, r, budget);
+			await ctx.db.delete(r._id);
+			budget.writes--;
 			if (!room(budget)) return false;
 		}
 	}
 	return budget.writes > 0;
 }
 
-async function deleteRow(ctx: MutationCtx, table: TableNames, row: Doc<TableNames>, budget: Budget) {
-	const files = lifecycle[table].files as ((row: Doc<TableNames>) => Id<"_storage">[]) | undefined;
-	for (const file of files?.(row) ?? []) await ctx.storage.delete(file);
-	await ctx.db.delete(row._id);
-	budget.writes--;
-}
-
 /**
  * Runs every 15 minutes (crons.ts): restarts cascades whose last run failed. After
  * MAX_ATTEMPTS failures in a row one is marked stuck, with its error, and left alone:
- * see wiki/data.md for how to find and resume one.
+ * see wiki/architecture.md#data-lifecycle for how to find and resume one.
  */
 export const resume = internalMutation({
 	args: {},

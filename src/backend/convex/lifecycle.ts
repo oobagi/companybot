@@ -3,14 +3,14 @@ import type { DataModel, Doc, Id, TableNames } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { privateTo } from "./automationOps";
 import { startCascade } from "./cascade";
-import { pinLegacyWorkspace } from "./lib";
+import { liveWorkspace, pinLegacyWorkspace } from "./lib";
 
 // What happens to every table's rows when what they belong to goes: a workspace is deleted,
 // a member removed, an account erased, a connector or automation uninstalled. cascade.ts
 // runs it. Every table must be listed (tests/lifecycle.test.ts fails otherwise), so a new
-// table can't ship until someone decides what happens to its rows. See wiki/data.md.
+// table can't ship until someone decides what happens to its rows. See wiki/architecture.md#data-lifecycle.
 
-/** What's going. Each cascade deletes the rows its scope lists, then the root row if it's `"root"`. */
+/** What's going. Each cascade deletes the rows its scope lists; a workspace's deletes the workspace last. */
 export type Scope = Doc<"cascades">["scope"];
 /** The ids naming what's going, read by each edge's `eq`. */
 export type Root = Doc<"cascades">["root"];
@@ -31,18 +31,34 @@ export type Edge<T extends TableNames> = {
 	onDelete?: (ctx: MutationCtx, row: Doc<T>, root: Root) => Promise<unknown>;
 };
 
-export type Lifecycle<T extends TableNames> = { [S in Scope]?: Edge<T> | "root" } & {
+export type Lifecycle<T extends TableNames> = { [S in Scope]?: Edge<T> } & {
 	/** Why the scopes not listed leave its rows alone. Required when no scope is. */
 	keep?: string;
 	/** Deleted with each row of `table`, wherever one is deleted: the rows whose `field` is its id. One level only. */
 	childOf?: { table: TableNames; index: IndexNames<NamedTableInfo<DataModel, T>>; field: string };
-	/** Files in storage a row owns, deleted with it (call recordings, later). */
-	files?: (row: Doc<T>) => Id<"_storage">[];
 };
 
 /** A channel seat, not a DM: DMs keep people who left as past participants. */
 const inChannel = async (get: Get, row: { chatId: Id<"chats"> }) => (await get(row.chatId))?.kind === "channel";
 const inWorkspace = async (get: Get, id: Id<"chats"> | Id<"automationInstalls">, root: Root) => (await get(id))?.workspaceId === root.workspaceId;
+
+/** Ends access to a workspace at once (memberOf refuses it), then deletes it in a cascade. */
+export async function removeWorkspace(ctx: MutationCtx, workspaceId: Id<"workspaces">) {
+	await ctx.db.patch(workspaceId, { deleting: true });
+	// Old apps' pins are set as the cascade deletes each membership (below); until then they act nowhere.
+	await startCascade(ctx, "workspace", { workspaceId });
+}
+
+/** An erased account leaves a workspace: one only they were in goes too; elsewhere, what was theirs alone goes as on removal. */
+async function leaveErased(ctx: MutationCtx, row: Doc<"members">) {
+	if (!(await liveWorkspace(ctx, row.workspaceId))) return;
+	const others = await ctx.db
+		.query("members")
+		.withIndex("by_workspace", (q) => q.eq("workspaceId", row.workspaceId))
+		.take(2);
+	if (others.length > 1) await startCascade(ctx, "member", { workspaceId: row.workspaceId, userId: row.userId });
+	else await removeWorkspace(ctx, row.workspaceId);
+}
 
 export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	// ---- Convex Auth ----
@@ -61,11 +77,12 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	localSignInCodes: { keep: "Local backends only (`pnpm dev`): the latest code per email. eraseAccount deletes the person's at once, like authRateLimits." },
 
 	// ---- Workspaces and people ----
-	workspaces: { workspace: "root" },
+	workspaces: { keep: "Its own cascade deletes it last, once everything in it is gone (cascade.ts)." },
 	members: {
 		// COMPAT(0.1.0-alpha.7): pin before the membership goes, so old apps act nowhere rather than in another workspace.
 		workspace: { index: "by_workspace", eq: ["workspaceId"], onDelete: (ctx, row) => pinLegacyWorkspace(ctx, row.userId) },
-		keep: "Removing someone deletes their row before the cascade starts (dropMember), so access ends at once. Erasing an account removes each membership that way.",
+		user: { index: "by_user", eq: ["userId"], onDelete: leaveErased },
+		keep: "Removing someone deletes their row before the cascade starts (dropMember), so access ends at once.",
 	},
 	invites: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
@@ -217,12 +234,9 @@ export type Step = Edge<TableNames> & { table: TableNames };
 export const edgesOf = (scope: Scope): Step[] =>
 	Object.entries(lifecycle).flatMap(([table, rules]) => {
 		const edge = (rules as Lifecycle<TableNames>)[scope];
-		return edge && edge !== "root" ? [{ ...(edge as Edge<TableNames>), table: table as TableNames }] : [];
+		return edge ? [{ ...(edge as Edge<TableNames>), table: table as TableNames }] : [];
 	});
 
 /** Tables deleted with each row of `table`. */
 export const childrenOf = (table: TableNames) =>
 	Object.entries(lifecycle).flatMap(([child, rules]) => (rules.childOf?.table === table ? [{ ...rules.childOf, table: child as TableNames }] : []));
-
-/** The root row a scope deletes last, if any. Only a workspace's: the rest are gone before their cascade starts. */
-export const rootOf = (scope: Scope, root: Root) => (lifecycle.workspaces[scope] === "root" ? root.workspaceId : undefined);

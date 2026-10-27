@@ -142,3 +142,43 @@ it("removes a member subscribed to many near-1 MiB automations elsewhere without
 	// Their opt-ins elsewhere stay.
 	expect(await t.run((ctx) => ctx.db.query("automationSubscriptions").collect())).toHaveLength(24);
 });
+
+// Someone in hundreds of 100-person workspaces: erasing them starts in a few reads per workspace,
+// and a workspace cascade pins each member's first workspace with one indexed read, not a scan.
+it("erases an account in 331 workspaces of 100 people, then deletes one whose members are each in 331", { timeout: 600_000 }, async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	const owner = await signIn(t, "owner@co.com");
+	const A = (await owner.query(api.workspace.me))!.workspaceId!;
+	const users = await t.run(async (ctx) => {
+		const ids = [];
+		for (let i = 0; i < 100; i++) {
+			const userId = await ctx.db.insert("users", { email: `p${i}@co.com` });
+			await ctx.db.insert("members", { workspaceId: A, userId, role: "member" });
+			ids.push(userId);
+		}
+		return ids;
+	});
+	const others = await t.run(async (ctx) => {
+		const ids = [];
+		for (let i = 0; i < 330; i++) ids.push(await ctx.db.insert("workspaces", { name: `W${i}`, version: 1 }));
+		return ids;
+	});
+	for (let start = 0; start < users.length; start += 10)
+		await t.run(async (ctx) => {
+			for (const userId of users.slice(start, start + 10)) for (const workspaceId of others) await ctx.db.insert("members", { workspaceId, userId, role: "member" });
+		});
+	const erased = person(t.withIdentity({ subject: `${users[0]}|session` }));
+	await erased.mutation(api.workspace.eraseAccount);
+	await settle(t);
+	expect(await t.run((ctx) => ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", users[0]!)).first())).toBeNull();
+	expect(await t.run((ctx) => ctx.db.query("cascades").first())).toBeNull();
+
+	await owner.mutation(api.workspace.deleteWorkspace, { name: "My company" });
+	await settle(t);
+	expect(await t.run((ctx) => ctx.db.get(A))).toBeNull();
+	expect(await t.run((ctx) => ctx.db.query("cascades").first())).toBeNull();
+	// Each was pinned to A, the workspace they joined first, so old apps act nowhere.
+	const pins = await t.run((ctx) => ctx.db.query("legacyWorkspaces").collect());
+	expect(new Set(pins.filter((p) => p.userId !== owner.userId).map((p) => p.workspaceId))).toEqual(new Set([A]));
+	expect(pins).toHaveLength(100);
+});

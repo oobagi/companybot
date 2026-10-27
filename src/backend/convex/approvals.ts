@@ -15,7 +15,7 @@ import { mutation, query } from "./functions";
 import { canSee, namer } from "./chatOps";
 import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { getMember, liveWorkspace, memberOf, nameOf, requireMember, toActor } from "./lib";
+import { erased, getMember, liveWorkspace, memberOf, nameOf, requireMember, toActor } from "./lib";
 import { automationOfTurn, decideFor, setRule } from "./permissions";
 import { automationName } from "./automationOps";
 import { titleOf } from "./connectorTools";
@@ -214,7 +214,9 @@ export const finish = internalMutation({
 	handler: async (ctx, { approvalId, result, error }) => {
 		const row = await ctx.db.get(approvalId);
 		if (row?.status !== "running") return;
-		await ctx.db.patch(approvalId, error === undefined ? { status: "done", result } : { status: "failed", error });
+		// Only the actor sees the result: once their account is erased, it's not kept.
+		if (error === undefined) await ctx.db.patch(approvalId, { status: "done", ...(!(await erased(ctx, row.actorId)) && { result }) });
+		else await ctx.db.patch(approvalId, { status: "failed", error });
 	},
 });
 

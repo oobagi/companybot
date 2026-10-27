@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id, TableNames } from "../convex/_generated/dataModel";
 import { type Edge, type Lifecycle, edgesOf, lifecycle } from "../convex/lifecycle";
+import { memberOf } from "../convex/lib";
 import schema from "../convex/schema";
 import { agentTurn, generalOf, modules, noMentions, settle, setup, signIn, turnsOf, workspaceOf } from "./helpers";
 import "./connectorFixtures";
@@ -31,10 +32,6 @@ describe("the lifecycle registry", () => {
 			for (const scope of scopes) {
 				const edge = rules[scope];
 				if (!edge) continue;
-				if (edge === "root") {
-					expect(table).toBe("workspaces");
-					continue;
-				}
 				const fields = indexesOf(table).get((edge as Edge<TableNames>).index as string);
 				expect(fields, `${table}.${String((edge as Edge<TableNames>).index)}`).toBeDefined();
 				const eq = (edge as Edge<TableNames>).eq.map((k) => (Array.isArray(k) ? k[0] : k));
@@ -207,7 +204,7 @@ function rowsOf(rows: Awaited<ReturnType<typeof dump>>, workspaceId: string) {
 /** Tables a workspace's deletion leaves alone, with a written reason (`keep`). */
 const keptWhenWorkspaceGoes = (table: TableNames) => {
 	const rules = lifecycle[table] as Lifecycle<TableNames>;
-	return !rules.workspace && !rules.childOf;
+	return table !== "workspaces" && !rules.workspace && !rules.childOf;
 };
 
 function diff(before: Awaited<ReturnType<typeof dump>>, after: Awaited<ReturnType<typeof dump>>) {
@@ -310,6 +307,8 @@ describe("erasing an account", () => {
 		await m.mutation(api.workspace.eraseAccount);
 		// At once: their sign-in acts as nobody, and their email can't sign back in to this account.
 		expect(await m.query(api.workspace.mine)).toBeNull();
+		// Their memberships go in the cascade; until then nothing (a queued reply, an automation) can act as them.
+		expect(await t.run((ctx) => memberOf(ctx, m.userId, A))).toBeNull();
 		await expect(m.mutation(api.workspace.ensure)).rejects.toThrow("erased");
 		await settle(t);
 		const after = await dump(t);
@@ -341,6 +340,20 @@ describe("erasing an account", () => {
 		await signIn(t, "m@co.com");
 		await expect(owner.mutation(api.workspace.eraseAccount)).rejects.toThrow("only owner of My company");
 		expect(await owner.query(api.workspace.me)).toMatchObject({ role: "owner" });
+	});
+
+	it("doesn't count an erased owner, so the last other owner can't leave while their membership is cleaned up", async () => {
+		const t = convexTest({ schema, modules, transactionLimits: true });
+		const a = await signIn(t, "a@co.com");
+		await a.mutation(api.workspace.invite, { email: "b@co.com", role: "owner" });
+		const b = await signIn(t, "b@co.com");
+		await a.mutation(api.workspace.invite, { email: "m@co.com", role: "member" });
+		await signIn(t, "m@co.com");
+		vi.useFakeTimers();
+		await a.mutation(api.workspace.eraseAccount);
+		await expect(b.mutation(api.workspace.leave)).rejects.toThrow("only owner");
+		await settle(t);
+		expect((await b.query(api.workspace.team))!.members.map((x) => [x.email, x.role])).toEqual([["b@co.com", "owner"], ["m@co.com", "member"]]);
 	});
 
 	it("shows what they wrote as a former member's", async () => {
@@ -483,6 +496,27 @@ describe("writes that land after what they belong to went", () => {
 		expect(await count()).toEqual(before);
 		expect(await t.run((ctx) => ctx.db.query("agentActivity").collect())).toEqual([]);
 		expect((await turnsOf(t)).map((x) => x.status)).toEqual(["done", "error"]);
+	});
+
+	it("keeps a call that finishes after its person's account is erased, without what it got back for them", { timeout: 60_000 }, async () => {
+		const { t, member } = await setup();
+		const general = (await generalOf(member))._id;
+		const agentId = (await member.query(api.agents.list))[0]!._id;
+		const turnId = await agentTurn(t, member, general, agentId);
+		const approvalId = await t.mutation(internal.approvals.request, { turnId, callId: "c1", tool: "crm.find", input: "{}" });
+		await t.run((ctx) => ctx.db.patch(approvalId, { status: "running" }));
+		// The external call is in flight while they erase their account, and returns after cleanup finished.
+		await member.mutation(api.workspace.eraseAccount);
+		await settle(t);
+		expect(await t.run((ctx) => ctx.db.query("cascades").first())).toBeNull();
+		await t.mutation(internal.activity.log, { turnId, callId: "c2", tool: "crm.find", changes: false, input: "{}", output: "private" });
+		await t.mutation(internal.approvals.finish, { approvalId, result: "private" });
+		const [activity] = await t.run((ctx) => ctx.db.query("agentActivity").collect());
+		expect(activity).toMatchObject({ callId: "c2", status: "done" });
+		expect(activity).not.toHaveProperty("output");
+		const approval = await t.run((ctx) => ctx.db.get(approvalId));
+		expect(approval).toMatchObject({ status: "done" });
+		expect(approval).not.toHaveProperty("result");
 	});
 
 	it("sends no invite email once the invite is gone", async () => {

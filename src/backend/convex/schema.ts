@@ -136,7 +136,10 @@ export default defineSchema({
 		role,
 	})
 		.index("by_user", ["userId", "workspaceId"])
-		.index("by_workspace", ["workspaceId"]),
+		// Oldest first: Convex orders an index's ties by _creationTime.
+		.index("by_joined", ["userId"])
+		.index("by_workspace", ["workspaceId"])
+		.index("by_role", ["workspaceId", "role"]),
 
 	// One per email per workspace. Only someone signed in with that email can accept it.
 	invites: defineTable({

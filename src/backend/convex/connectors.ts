@@ -245,13 +245,9 @@ async function requireConnectTarget(
 	if (!install.roles.includes(member.role)) throw new ConvexError("Your role can't use this connector.");
 	const permission = connector.connection === "workspace" ? "connectors.manage" : "connectors.connect";
 	if (!can(member.role, permission)) throw new ConvexError(deniedMessage(permission));
-	const row = (await ctx.db
-		.query("members")
-		.withIndex("by_user", (q) => q.eq("userId", userId).eq("workspaceId", member.workspaceId))
-		.first())!;
-	if (bound && (bound.memberId !== row._id || bound.connectorInstallId !== install._id))
+	if (bound && (bound.memberId !== member.id || bound.connectorInstallId !== install._id))
 		throw new ConvexError(`This sign-in started before ${connector.name} or your membership changed. Connect again.`);
-	return { member, connector, userId: connector.connection === "personal" ? member.userId : null, memberId: row._id, connectorInstallId: install._id };
+	return { member, connector, userId: connector.connection === "personal" ? member.userId : null, memberId: member.id, connectorInstallId: install._id };
 }
 
 export const connectTarget = internalQuery({
