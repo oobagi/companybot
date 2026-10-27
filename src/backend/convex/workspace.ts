@@ -57,7 +57,7 @@ export const ensure = mutation({
 		if (invites.length > 0) return;
 
 		const workspaceId = await ctx.db.insert("workspaces", { name: "My company", version: 1 });
-		await ctx.db.insert("members", { workspaceId, userId, role: "owner" });
+		await ctx.db.insert("members", { workspaceId, userId, role: "owner", email: normalizeEmail((await ctx.db.get(userId))?.email ?? "") });
 		// COMPAT(0.1.0-alpha.7): in no workspace at all, so old apps may as well act in this
 		// new one, theirs alone: nothing from an old draft can reach anyone else's.
 		await pinLegacyWorkspace(ctx, userId, workspaceId);
@@ -88,7 +88,7 @@ async function join(ctx: MutationCtx, invite: Doc<"invites">, userId: Id<"users"
 		throw new ConvexError("What you had in this workspace before is still being cleaned up. Try again in a few minutes.");
 	await ctx.db.delete(invite._id);
 	if (await memberOf(ctx, userId, invite.workspaceId)) return;
-	await ctx.db.insert("members", { workspaceId: invite.workspaceId, userId, role: invite.role });
+	await ctx.db.insert("members", { workspaceId: invite.workspaceId, userId, role: invite.role, email: invite.email });
 	await pinLegacyWorkspace(ctx, userId);
 	await addToChat(ctx, await ensureGeneral(ctx, invite.workspaceId, userId), { userId });
 	await rememberLastUsed(ctx, userId, invite.workspaceId);
@@ -382,8 +382,12 @@ const membersOf = (ctx: QueryCtx, workspaceId: Id<"workspaces">) =>
 
 /** Whether someone with this (normalized) email is already in the workspace. */
 async function isMemberEmail(ctx: QueryCtx, workspaceId: Id<"workspaces">, email: string) {
-	const users = await ctx.db.query("users").withIndex("email", q => q.eq("email", email)).take(2);
-	for (const user of users) if (await memberOf(ctx, user._id, workspaceId)) return true;
+	// Fail closed until old memberships have been indexed; never fall back to a team scan.
+	const missing = await ctx.db.query("members").withIndex("by_email", q => q.eq("workspaceId", workspaceId).eq("email", undefined)).first();
+	if (missing) throw new ConvexError("Member lookup is being updated. Try again shortly.");
+	const rows = await ctx.db.query("members").withIndex("by_email", q => q.eq("workspaceId", workspaceId).eq("email", email)).take(2);
+	for (const row of rows) if (await memberOf(ctx, row.userId, workspaceId)) return true;
+	if (rows.length === 2) throw new ConvexError("Previous memberships are still being cleaned up. Try again shortly.");
 	return false;
 }
 

@@ -144,7 +144,7 @@ function chatLine(m: PlaceMessage, timeZone: string) {
 
 /** The agent's system prompt. Nothing per chat or per turn goes here. */
 export function systemPrompt(agent: Pick<AgentConfig, "instructions" | "tools">, skills: Skill[], available?: readonly ToolDef[]): string {
-	return [agent.instructions, platformGuide(agent, available), isGranted(agent.tools, "skills.load") && skillsIndex(skills)]
+	return [agent.instructions, platformGuide(agent, available), (available ? available.some(t => t.id === "skills.load") : isGranted(agent.tools, "skills.load")) && skillsIndex(skills)]
 		.filter(Boolean)
 		.join("\n\n");
 }

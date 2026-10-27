@@ -135,12 +135,15 @@ export default defineSchema({
 		workspaceId: v.id("workspaces"),
 		userId: v.id("users"),
 		role,
+		/** Normalized for bounded invitation checks. COMPAT: backfilled by memberEmails. */
+		email: v.optional(v.string()),
 	})
 		.index("by_user", ["userId", "workspaceId"])
 		// Oldest first: Convex orders an index's ties by _creationTime.
 		.index("by_joined", ["userId"])
 		.index("by_workspace", ["workspaceId"])
-		.index("by_role", ["workspaceId", "role"]),
+		.index("by_role", ["workspaceId", "role"])
+		.index("by_email", ["workspaceId", "email"]),
 
 	// One per email per workspace. Only someone signed in with that email can accept it.
 	invites: defineTable({

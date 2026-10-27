@@ -4,7 +4,7 @@ import type { DataModel } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { addUserMentions } from "./chatOps";
-import { pinLegacyWorkspace } from "./lib";
+import { normalizeEmail, pinLegacyWorkspace } from "./lib";
 import { seedRecordTypes } from "./recordOps";
 import { saveVersion } from "./agents";
 
@@ -132,6 +132,16 @@ export const userMentionsFrom = internalMutation({
 	},
 });
 
+// Invitation checks used to scan the team, normalizing every user's email. Keep that
+// case-insensitive behavior with one indexed membership lookup, including alpha.6 users.
+export const memberEmails = migrations.define({
+	table: "members",
+	migrateOne: async (ctx, member) => {
+		if (member.email !== undefined) return;
+		await ctx.db.patch(member._id, { email: normalizeEmail((await ctx.db.get(member.userId))?.email ?? "") });
+	},
+});
+
 /** Every migration, oldest first. Never reorder or remove entries that have shipped. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.connectorInstalls,
@@ -145,6 +155,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.userMentions,
 	internal.migrations.companybotPageTools,
 	internal.migrations.companybotParityTools,
+	internal.migrations.memberEmails,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */
