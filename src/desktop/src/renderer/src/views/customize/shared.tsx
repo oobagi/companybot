@@ -4,6 +4,7 @@ import { TrashIcon } from "../../icons";
 import { type Crumb, ConflictNotice, NotFound, Notice, Page, SaveBar, Section, barDangerButton, descriptionClass, disabledButtonClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
 import { TrashNotice } from "../Trash";
 
+// Agents, Connectors, Skills and Automations are Settings tabs: /settings/<tab>[/<item>].
 export const customizeTabs = [
 	{ id: "agents", label: "Agents" },
 	{ id: "connectors", label: "Connectors" },
@@ -17,11 +18,8 @@ type MadeTab = "skills" | "automations";
 
 const tabLabel = (tab: CustomizeTab) => customizeTabs.find((t) => t.id === tab)!.label;
 
-/** The top bar's trail for an item's own screen: Customize › Skills. */
-export const customizeCrumbs = (tab: CustomizeTab): Crumb[] => [
-	{ label: "Customize", to: ["customize"] },
-	{ label: tabLabel(tab), to: ["customize", tab] },
-];
+/** The top bar's trail for an item's own screen: Skills. */
+export const customizeCrumbs = (tab: CustomizeTab): Crumb[] => [{ label: tabLabel(tab), to: ["settings", tab] }];
 
 /** The shared library layout; screens keep their own cards and install behavior. */
 export function LibraryList<T extends { custom: unknown; trash: unknown }>({
@@ -215,7 +213,7 @@ export function MadeItemDetail<T>({
 					<button
 						type="button"
 						className={barDangerButton}
-						onClick={() => run(onDelete(), () => navigate("customize", tab))}
+						onClick={() => run(onDelete(), () => navigate("settings", tab))}
 					>
 						<TrashIcon /> Delete
 					</button>

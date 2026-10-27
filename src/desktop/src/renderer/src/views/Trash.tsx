@@ -29,8 +29,8 @@ function pathOf(e: TrashRow): string[] | undefined {
 	if (e.kind === "record" && e.typeKey) return recordPath(e.typeKey, e.itemId);
 	if (e.kind === "page") return ["pages", e.itemId];
 	if (e.kind === "channel") return ["chat", e.itemId];
-	if (e.kind === "agent") return ["customize", "agents", e.itemId];
-	if ((e.kind === "skill" || e.kind === "automation") && e.screenId) return ["customize", `${e.kind}s`, e.screenId];
+	if (e.kind === "agent") return ["settings", "agents", e.itemId];
+	if ((e.kind === "skill" || e.kind === "automation") && e.screenId) return ["settings", `${e.kind}s`, e.screenId];
 }
 
 export function TrashView({ role }: { role: Role }) {

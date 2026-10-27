@@ -1,4 +1,4 @@
-import { Component, Fragment, useState } from "react";
+import { Component, Fragment, useCallback, useLayoutEffect, useRef, useState } from "react";
 import { errorMessage } from "./api";
 import { CaretRightIcon } from "./icons";
 import { navigate } from "./router";
@@ -13,7 +13,7 @@ export type Crumb = { label: string; to: string[] };
  */
 export function TopBar({ crumbs = [], title, children }: { crumbs?: Crumb[]; title: React.ReactNode; children?: React.ReactNode }) {
 	return (
-		<header className="drag flex h-12 shrink-0 items-center gap-3 border-b border-neutral-200 px-5">
+		<header className="drag flex h-12 shrink-0 items-center gap-3 px-5">
 			<nav className="flex min-w-0 items-center gap-1 text-sm">
 				{crumbs.map((c) => (
 					<Fragment key={c.label}>
@@ -27,6 +27,65 @@ export function TopBar({ crumbs = [], title, children }: { crumbs?: Crumb[]; tit
 			</nav>
 			{children && <div className="no-drag ml-auto flex shrink-0 items-center gap-1">{children}</div>}
 		</header>
+	);
+}
+
+/**
+ * A scrolling area whose header and footer stay put, taking their own room, so content
+ * starts below the header and ends above the footer. Content scrolled under either fades
+ * out on its scrim (styles.css), which shows only while something is under it.
+ */
+export function Scroll({
+	ref,
+	header,
+	footer,
+	className = "",
+	onScroll,
+	children,
+}: {
+	ref?: React.RefObject<HTMLDivElement | null>;
+	header?: React.ReactNode;
+	footer?: React.ReactNode;
+	className?: string;
+	onScroll?: React.UIEventHandler<HTMLDivElement>;
+	children: React.ReactNode;
+}) {
+	const own = useRef<HTMLDivElement>(null);
+	const scroller = ref ?? own;
+	const [underTop, setUnderTop] = useState(false);
+	const [underBottom, setUnderBottom] = useState(false);
+	const measure = useCallback(() => {
+		const el = scroller.current;
+		if (!el) return;
+		setUnderTop(el.scrollTop > 0);
+		setUnderBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 1);
+	}, [scroller]);
+	// Content can grow or shrink without a scroll: new messages, a longer draft, a resize.
+	useLayoutEffect(() => {
+		const el = scroller.current;
+		if (!el) return;
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(el);
+		if (el.firstElementChild) observer.observe(el.firstElementChild);
+		return () => observer.disconnect();
+	}, [scroller, measure]);
+	return (
+		<div ref={scroller} onScroll={(e) => (measure(), onScroll?.(e))} className={`min-h-0 flex-1 overflow-y-auto ${className}`}>
+			<div className="flex min-h-full flex-col">
+				{header && (
+					<div className="scrim-top sticky top-0 z-30" data-under={underTop || undefined}>
+						{header}
+					</div>
+				)}
+				<div className="flex flex-1 flex-col">{children}</div>
+				{footer && (
+					<div className="scrim-bottom sticky bottom-0 z-30" data-under={underBottom || undefined}>
+						{footer}
+					</div>
+				)}
+			</div>
+		</div>
 	);
 }
 
@@ -53,22 +112,29 @@ export function Page({
 	children: React.ReactNode;
 }) {
 	return (
-		<div className="flex min-h-0 flex-1 flex-col">
-			<TopBar crumbs={crumbs} title={<span className="truncate">{title}</span>}>
-				{actions}
-			</TopBar>
-			<div className="@container flex-1 overflow-y-auto">
-				<div className={`mx-auto flex flex-col gap-6 px-6 pt-8 pb-10 ${wide ? "max-w-5xl" : "max-w-2xl"}`}>
-					{(heading || subtitle) && (
-						<header className="flex flex-col gap-1">
-							{heading && <h1 className="text-2xl font-semibold tracking-tight">{heading}</h1>}
-							{subtitle && <p className={descriptionClass}>{subtitle}</p>}
-						</header>
-					)}
-					{children}
-				</div>
+		<Scroll
+			className="@container"
+			header={
+				<TopBar crumbs={crumbs} title={<span className="truncate">{title}</span>}>
+					{actions}
+				</TopBar>
+			}
+		>
+			{/* `--bleed`: from the column's content out to the screen's edge, for `.bleed`. */}
+			<div
+				className={`mx-auto flex w-full flex-col gap-6 px-6 pt-8 pb-10 ${
+					wide ? "max-w-5xl [--bleed:max(1.5rem,calc((100cqw-64rem)/2+1.5rem))]" : "max-w-2xl [--bleed:max(1.5rem,calc((100cqw-42rem)/2+1.5rem))]"
+				}`}
+			>
+				{(heading || subtitle) && (
+					<header className="flex flex-col gap-1">
+						{heading && <h1 className="text-2xl font-semibold tracking-tight">{heading}</h1>}
+						{subtitle && <p className={descriptionClass}>{subtitle}</p>}
+					</header>
+				)}
+				{children}
 			</div>
-		</div>
+		</Scroll>
 	);
 }
 

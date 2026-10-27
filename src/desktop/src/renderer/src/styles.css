@@ -50,3 +50,53 @@ body {
 .page-editor .bn-editor h1 { font-size: 1.5rem; }
 .page-editor .bn-editor h2 { font-size: 1.25rem; }
 .page-editor .bn-editor h3 { font-size: 1.125rem; }
+
+/* A header or footer over scrolling content (ui.tsx's Scroll): once something is scrolled
+   under it, its background fades in, solid behind the bar and dissolving toward the content,
+   so content slips out of sight instead of cutting off at a hard edge. Nothing scrolled
+   under it, no fade. `--scrim` is the surface it fades to; the fade takes the bar's inner
+   `--scrim-fade`, so give bars that much padding on that side. */
+:root {
+	--scrim: var(--color-white);
+	--scrim-fade: 1rem;
+}
+.scrim-top,
+.scrim-bottom {
+	isolation: isolate;
+}
+.scrim-top::before,
+.scrim-bottom::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: -1;
+	pointer-events: none;
+	opacity: 0;
+	transition: opacity 150ms;
+	background: linear-gradient(
+		var(--scrim-direction),
+		var(--scrim) calc(100% - var(--scrim-fade)),
+		color-mix(in srgb, var(--scrim) 85%, transparent) calc(100% - 0.7 * var(--scrim-fade)),
+		color-mix(in srgb, var(--scrim) 50%, transparent) calc(100% - 0.45 * var(--scrim-fade)),
+		color-mix(in srgb, var(--scrim) 20%, transparent) calc(100% - 0.2 * var(--scrim-fade)),
+		transparent 100%
+	);
+}
+.scrim-top::before {
+	--scrim-direction: to bottom;
+}
+.scrim-bottom::before {
+	--scrim-direction: to top;
+}
+.scrim-top[data-under]::before,
+.scrim-bottom[data-under]::before {
+	opacity: 1;
+}
+
+/* Sideways overflow (a board, a wide table) scrolls out to the screen's edges instead of
+   stopping at the content column. Page sets `--bleed`: the gap from the column to the edge. */
+.bleed {
+	margin-inline: calc(-1 * var(--bleed));
+	padding-inline: var(--bleed);
+	overflow-x: auto;
+}

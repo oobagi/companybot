@@ -8,23 +8,21 @@ import { WorkspaceContext, useMutation, useQuery } from "./convex";
 import { desktop, useUpdates } from "./desktop";
 import { useAlerts } from "./notifications";
 import { navigate, useRoute } from "./router";
-import { CustomizeIcon, DatabaseIcon, PlusIcon, SettingsIcon, SignOutIcon, TrashIcon } from "./icons";
-import { Notice, TopBar } from "./ui";
+import { ArrowLeftIcon, DatabaseIcon, PlusIcon, SettingsIcon, SignOutIcon } from "./icons";
+import { Notice, Scroll, TopBar } from "./ui";
 import { RecordsView, recordTabs } from "./views/Records";
-import { SettingsView, settingsTabAliases, settingsTabs } from "./views/Settings";
+import { SettingsNav, SettingsView, settingsTabAliases, settingsTabs } from "./views/Settings";
 import { SignIn } from "./views/SignIn";
 import { WorkspaceMenu } from "./views/WorkspaceMenu";
 import { ChatView } from "./views/chat/ChatView";
 import { Avatar, MenuItem, Popover } from "./views/chat/common";
 import { ChatNav, Group, Item } from "./views/chat/Sidebar";
 import { PagesNav, PagesView } from "./views/Pages";
-import { CustomizeView, customizeTabs } from "./views/customize";
-import { TrashView } from "./views/Trash";
 import { DatabaseDialog } from "./views/records/DatabaseDialog";
 import { useTypes } from "./views/records/data";
 import { builtinTabs, recordPath } from "./views/records/logic";
 
-const views = ["chat", ...recordTabs.map((t) => t.id), "records", "pages", "trash", "customize", "settings"] as const;
+const views = ["chat", ...recordTabs.map((t) => t.id), "records", "pages", "settings"] as const;
 type View = (typeof views)[number];
 
 export function App() {
@@ -110,10 +108,14 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 		if (prefs && prefs.deviceTimeZone !== deviceTimeZone) updatePrefs({ deviceTimeZone }).catch(() => {});
 	}, [prefs, deviceTimeZone, updatePrefs]);
 	// Screens are paths: /chat[/<chat>[/thread|message/<id>]], /clients[/<record>] (and other record tabs), /records/<type>[/<record>]
-	// for types owners add, /pages[/<page>], /trash, /customize/<tab>[/<item>], /settings/<tab>.
+	// for types owners add, /pages[/<page>], /settings/<tab>[/<item>] (Trash, Agents, Connectors, Skills and Automations included).
 	const route = useRoute();
+	// Trash and Customize used to be their own screens.
+	useEffect(() => {
+		if (route[0] === "customize") navigate("settings", ...(route.length > 1 ? route.slice(1) : ["agents"]));
+		if (route[0] === "trash") navigate("settings", "trash");
+	}, [route]);
 	const view: View = views.find((v) => v === route[0]) ?? "chat";
-	const customizeTab = customizeTabs.find((t) => t.id === route[1])?.id ?? "agents";
 	const settingsTab = settingsTabs.find((t) => t.id === (settingsTabAliases[route[1] ?? ""] ?? route[1]))?.id ?? "general";
 	const types = useTypes();
 	const [newDatabase, setNewDatabase] = useState(false);
@@ -124,6 +126,9 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	// Each section reopens where you left it.
 	const lastPath = useRef<Partial<Record<View, string[]>>>({});
 	lastPath.current[view] = route;
+	// Where "Back to app" goes from Settings.
+	const lastApp = useRef<string[]>(["chat"]);
+	if (view !== "settings") lastApp.current = route;
 	const [error, setError] = useState<string>();
 	const { status: update } = useUpdates();
 
@@ -137,49 +142,63 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 
 	return (
 		<div className="flex h-screen text-[15px] text-neutral-900">
-			<aside className="drag flex w-60 shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 px-3 pt-12 pb-3">
-				<WorkspaceMenu name={workspace} />
-				<div className="no-drag -mx-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1 pb-4">
-					<Group title="Databases" onAdd={can(role, "fields.manage") ? () => setNewDatabase(true) : undefined} addLabel="New database">
-						{types?.map((type) => (
-							<Item key={type._id} icon={<DatabaseIcon />} active={typeKey === type.key} onClick={() => navigate(...recordPath(type.key))}>
-								{type.plural}
-							</Item>
-						))}
-						{can(role, "fields.manage") && (
-							<Item icon={<PlusIcon />} muted onClick={() => setNewDatabase(true)}>
-								New database
-							</Item>
+			{/* The sidebar's lists scroll under the workspace name and you. */}
+			<aside className="drag flex w-60 shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 [--scrim:var(--color-neutral-50)]">
+				<Scroll
+					className="no-drag"
+					header={
+						<div className="drag px-3 pt-12 pb-4">
+							{view === "settings" ? (
+								<div className="no-drag flex flex-col">
+									<Item icon={<ArrowLeftIcon />} onClick={() => navigate(...lastApp.current)}>
+										Back to app
+									</Item>
+								</div>
+							) : (
+								<WorkspaceMenu name={workspace} />
+							)}
+						</div>
+					}
+					footer={
+						<div className="flex flex-col gap-2 px-3 pt-4 pb-3">
+							{update?.state === "ready" && (
+								<button type="button" onClick={() => void desktop?.updates.install()} className="rounded-lg bg-neutral-900 px-3 py-2 text-left text-xs text-white">
+									Update ready · Restart
+								</button>
+							)}
+							<YouMenu
+								name={prefs?.displayName || email}
+								email={email}
+								role={role}
+								onSettings={() => navigate(...(lastPath.current.settings ?? ["settings"]))}
+								onSignOut={() => void signOut()}
+							/>
+						</div>
+					}
+				>
+					<div className="flex flex-col gap-4 px-3 pb-2">
+						{view === "settings" ? (
+							<SettingsNav tab={settingsTab} />
+						) : (
+							<>
+								<Group title="Databases" onAdd={can(role, "fields.manage") ? () => setNewDatabase(true) : undefined} addLabel="New database">
+									{types?.map((type) => (
+										<Item key={type._id} icon={<DatabaseIcon />} active={typeKey === type.key} onClick={() => navigate(...recordPath(type.key))}>
+											{type.plural}
+										</Item>
+									))}
+									{can(role, "fields.manage") && (
+										<Item icon={<PlusIcon />} muted onClick={() => setNewDatabase(true)}>
+											New database
+										</Item>
+									)}
+								</Group>
+								<PagesNav openId={view === "pages" ? route[1] : undefined} />
+								<ChatNav chats={chats} openId={view === "chat" ? openId : undefined} onOpen={open} onError={(e) => setError(errorMessage(e))} />
+							</>
 						)}
-					</Group>
-					<PagesNav openId={view === "pages" ? route[1] : undefined} />
-					<ChatNav chats={chats} openId={view === "chat" ? openId : undefined} onOpen={open} onError={(e) => setError(errorMessage(e))} />
-				</div>
-				<nav className="no-drag flex flex-col gap-px border-t border-neutral-200 pt-3">
-					{(
-						[
-							["trash", "Trash", <TrashIcon />],
-							["customize", "Customize", <CustomizeIcon />],
-							["settings", "Settings", <SettingsIcon />],
-						] as const
-					).map(([v, label, icon]) => (
-						<Item key={v} icon={icon} active={view === v} onClick={() => navigate(...(lastPath.current[v] ?? [v]))}>
-							{label}
-						</Item>
-					))}
-				</nav>
-				{update?.state === "ready" && (
-					<button
-						type="button"
-						onClick={() => void desktop?.updates.install()}
-						className="no-drag mt-3 rounded-lg bg-neutral-900 px-3 py-2 text-left text-xs text-white"
-					>
-						Update ready · Restart
-					</button>
-				)}
-				<div className="no-drag mt-2 flex">
-					<YouMenu name={prefs?.displayName || email} email={email} role={role} onSignOut={() => void signOut()} />
-				</div>
+					</div>
+				</Scroll>
 			</aside>
 
 			{newDatabase && <DatabaseDialog onClose={() => setNewDatabase(false)} />}
@@ -199,16 +218,14 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 					))}
 				{typeKey && <RecordsView key={typeKey} typeKey={typeKey} recordId={recordId} role={role} />}
 				{view === "pages" && <PagesView pageId={route[1]} canEdit={can(role, "pages.edit")} />}
-				{view === "trash" && <TrashView role={role} />}
-				{view === "customize" && <CustomizeView role={role} tab={customizeTab} itemId={route[2]} />}
-				{view === "settings" && <SettingsView role={role} tab={settingsTab} onTab={(t) => navigate("settings", t)} />}
+				{view === "settings" && <SettingsView role={role} tab={settingsTab} itemId={route[2]} />}
 			</main>
 		</div>
 	);
 }
 
-/** You, at the bottom of the sidebar: who you're signed in as, your preferences, and Sign out. */
-function YouMenu({ name, email, role, onSignOut }: { name: string; email: string; role: Role; onSignOut: () => void }) {
+/** You, at the bottom of the sidebar: who you're signed in as, Settings, and Sign out. */
+function YouMenu({ name, email, role, onSettings, onSignOut }: { name: string; email: string; role: Role; onSettings: () => void; onSignOut: () => void }) {
 	return (
 		<Popover
 			trigger={
@@ -233,8 +250,8 @@ function YouMenu({ name, email, role, onSignOut }: { name: string; email: string
 						</div>
 					</div>
 					<div className="my-1 border-t border-neutral-100" />
-					<MenuItem onClick={() => (close(), navigate("settings", "preferences"))}>
-						<SettingsIcon className="text-neutral-500" /> Your preferences
+					<MenuItem onClick={() => (close(), onSettings())}>
+						<SettingsIcon className="text-neutral-500" /> Settings
 					</MenuItem>
 					<MenuItem onClick={() => (close(), onSignOut())}>
 						<SignOutIcon className="text-neutral-500" /> Sign out

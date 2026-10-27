@@ -28,7 +28,7 @@ export function SkillsTab({ role }: { role: Role }) {
 			installed={s.installed}
 			canManage={s.custom ? s.canEdit : canManage}
 			onToggle={s.custom ? undefined : () => run(s.installed ? removeSkill({ skillId: s.id }) : setSkill({ skillId: s.id, installed: true }))}
-			onOpen={() => navigate("customize", "skills", s.id)}
+			onOpen={() => navigate("settings", "skills", s.id)}
 		/>
 	);
 
@@ -39,7 +39,7 @@ export function SkillsTab({ role }: { role: Role }) {
 			error={error}
 			card={card}
 			action={can(role, "skills.create") && (
-				<button type="button" className={`${primaryButton} shrink-0`} onClick={() => navigate("customize", "skills", "new")}>
+				<button type="button" className={`${primaryButton} shrink-0`} onClick={() => navigate("settings", "skills", "new")}>
 					New skill
 				</button>
 			)}
@@ -96,7 +96,7 @@ function NewSkill() {
 			tab="skills"
 			noun="skill"
 			error={error}
-			onCreate={() => run(create({ config }).then((id) => navigate("customize", "skills", id)))}
+			onCreate={() => run(create({ config }).then((id) => navigate("settings", "skills", id)))}
 		>
 			<SkillFields value={config} onChange={setConfig} />
 		</NewItem>

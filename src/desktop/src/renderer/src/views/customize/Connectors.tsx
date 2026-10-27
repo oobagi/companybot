@@ -36,7 +36,7 @@ export function ConnectorsTab({ role }: { role: Role }) {
 					installed={p.installed}
 					canManage={isOwner}
 					onToggle={() => toggle(p)}
-					onOpen={() => navigate("customize", "connectors", p.id)}
+					onOpen={() => navigate("settings", "connectors", p.id)}
 				/>
 			))}
 		</>
