@@ -1,6 +1,6 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { can, type Role } from "@companybot/core";
-import { Loading, Page, descriptionClass } from "../ui";
+import { NotFound, Page, descriptionClass } from "../ui";
 import { useTypes } from "./records/data";
 import { RecordList } from "./records/RecordList";
 import { RecordPage } from "./records/RecordPage";
@@ -19,7 +19,7 @@ export const recordTabs = [
  */
 export function RecordsView({ typeKey, recordId, role }: { typeKey?: string; recordId?: string; role: Role }) {
 	const types = useTypes();
-	if (!types) return <Page title=""><Loading /></Page>;
+	if (!types) return <NotFound loaded={false} />;
 	if (!typeKey) return (
 		<Page title="Databases">
 			<p className={descriptionClass}>{types.length
@@ -30,13 +30,7 @@ export function RecordsView({ typeKey, recordId, role }: { typeKey?: string; rec
 		</Page>
 	);
 	const type = types.find((t) => t.key === typeKey);
-	if (!type) {
-		return (
-			<Page title="Not found">
-				<p className="text-sm text-neutral-500">This database may have been deleted. Look in Trash.</p>
-			</Page>
-		);
-	}
+	if (!type) return <NotFound loaded>This database may have been deleted. Look in Trash.</NotFound>;
 	return recordId ? (
 		<RecordPage key={recordId} type={type} recordId={recordId as Id<"records">} role={role} />
 	) : (

@@ -136,28 +136,25 @@ export const remove = mutation({
 export async function setSkillTrashed(ctx: MutationCtx, who: Who, installId: Id<"skillInstalls">, archived: boolean) {
 	const install = await ctx.db.get(installId);
 	if (!install || install.workspaceId !== who.member.workspaceId) throw new ConvexError("Skill not found.");
-	if (!canEditMade(who.member, "skills.manage", install.custom?.createdBy)) throw new ConvexError(install.custom ? madeEditDenied : deniedMessage("skills.manage"));
+	if (!install.custom) checkPermission(who.member, "skills.manage");
+	else if (!canEditMade(who.member, "skills.manage", install.custom.createdBy)) throw new ConvexError(madeEditDenied);
 	if (!!install.archived === archived) return;
 	if (archived) await putInTrash(ctx, who, { kind: "skill", id: installId, name: skillOf(install)?.name ?? install.skillId });
 	else await takeFromTrash(ctx, who, installId);
 	await ctx.db.patch(installId, { archived });
 }
 
-const installSkillArgs = v.object({ skillId: v.string(), installed: v.literal(true) });
-
 // COMPAT(0.1.0-alpha.8): old desktops may request installation; keep the endpoint until they update.
 export const setInstalled = mutation({
-	args: installSkillArgs.fields,
-	handler: async (ctx, args) => installSkill(ctx, await requireMember(ctx), args),
+	args: { skillId: v.string(), installed: v.literal(true) },
+	handler: async (ctx, { skillId }) => {
+		const member = await requireMember(ctx);
+		if (skillId.startsWith("custom-")) throw new ConvexError("Skills people make are always on.");
+		const { workspaceId } = checkPermission(member, "skills.manage");
+		if (await installOf(ctx, workspaceId, skillId)) return;
+		throw new ConvexError("The skill library has retired. Create your own skill in Customize → Skills.");
+	},
 });
-
-export async function installSkill(ctx: MutationCtx, member: Member, { skillId }: Infer<typeof installSkillArgs>) {
-	if (skillId.startsWith("custom-")) throw new ConvexError("Skills people make are always on.");
-	const { workspaceId } = checkPermission(member, "skills.manage");
-	const existing = await installOf(ctx, workspaceId, skillId);
-	if (existing) return;
-	throw new ConvexError("The skill library has retired. Create your own skill in Customize → Skills.");
-}
 
 /** `skills.create` from chat: makes a skill as the person the agent is helping. */
 export const createFor = internalMutation({

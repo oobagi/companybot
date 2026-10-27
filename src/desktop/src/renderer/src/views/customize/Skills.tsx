@@ -122,7 +122,7 @@ function CustomSkillDetail({ skill: s, custom }: { skill: SkillItem; custom: Non
 
 export function SkillScreen({ role, id }: { role: Role; id: string }) {
 	const skills = useQuery(api.skills.list);
-	const { error, run } = useRun();
+	const { error, busy, run } = useRun();
 	const canManage = can(role, "skills.manage");
 	const removeSkill = useMutation(api.skills.remove);
 	if (id === "new") return <NewSkill />;
@@ -138,7 +138,9 @@ export function SkillScreen({ role, id }: { role: Role; id: string }) {
 			installed={open.installed}
 			trash={open.trash}
 			canManage={canManage}
-			onToggle={() => confirm(`Remove "${open.name}"? Agents stop seeing it. You can restore it from Trash for 30 days.`) && run(removeSkill({ skillId: open.id }))}
+			confirmation="Agents stop seeing it. You can restore it from Trash for 30 days."
+			busy={busy}
+			onToggle={() => run(removeSkill({ skillId: open.id }))}
 		>
 			{error && <Notice>{error}</Notice>}
 			<Facts rows={[["Used by", 'Agents granted "skills.load", when a task calls for it']]} />

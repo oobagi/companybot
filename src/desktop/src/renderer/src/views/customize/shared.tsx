@@ -1,8 +1,9 @@
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 import { navigate } from "../../router";
 import { TrashIcon } from "../../icons";
 import { type Crumb, ConflictNotice, NotFound, Notice, Page, SaveBar, barDangerButton, descriptionClass, disabledButtonClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
 import { TrashNotice } from "../Trash";
+import { Confirm } from "../chat/common";
 
 export const customizeTabs = [
 	{ id: "agents", label: "Agents" },
@@ -95,16 +96,18 @@ export function Card(props: {
 function InstallButton({
 	installed,
 	canManage,
+	busy,
 	onToggle,
 }: {
 	installed: boolean;
 	canManage: boolean;
+	busy?: boolean;
 	onToggle: (e: React.MouseEvent) => void;
 }) {
 	return (
 		<button
 			type="button"
-			disabled={!canManage}
+			disabled={!canManage || busy}
 			title={canManage ? (installed ? "Remove" : undefined) : "Only owners can install"}
 			onClick={onToggle}
 			className={`shrink-0 rounded-full px-3 py-1 text-sm ${disabledButtonClass} ${
@@ -124,17 +127,21 @@ export function Detail(props: {
 	description: string;
 	installed: boolean;
 	trash?: React.ComponentProps<typeof TrashNotice>["trash"] | null;
+	confirmation?: string;
+	busy?: boolean;
 	canManage: boolean;
 	onToggle: () => void;
 	children: React.ReactNode;
 }) {
+	const [confirming, setConfirming] = useState(false);
 	return (
 		<Page
 			title={props.title}
 			subtitle={props.meta}
 			crumbs={customizeCrumbs(props.tab)}
-			actions={!props.trash && <InstallButton installed={props.installed} canManage={props.canManage} onToggle={props.onToggle} />}
+			actions={!props.trash && <InstallButton installed={props.installed} canManage={props.canManage} busy={props.busy} onToggle={() => props.confirmation ? setConfirming(true) : props.onToggle()} />}
 		>
+			{confirming && <Confirm title={`Remove "${props.title}"?`} action="Move to Trash" onClose={() => setConfirming(false)} onConfirm={() => { setConfirming(false); props.onToggle(); }}>{props.confirmation}</Confirm>}
 			{props.trash && <TrashNotice trash={props.trash} />}
 			<p className="text-neutral-600">{props.description}</p>
 			{props.children}

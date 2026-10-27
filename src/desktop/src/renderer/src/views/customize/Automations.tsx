@@ -355,7 +355,7 @@ function CustomAutomationDetail({ automation: a, custom }: { automation: Automat
 
 function AutomationDetail({ automation: a, canManage }: { automation: AutomationItem; canManage: boolean }) {
 	const remove = useMutation(api.automations.remove);
-	const { error, run } = useRun();
+	const { error, busy, run } = useRun();
 
 	return (
 		<Detail
@@ -366,7 +366,9 @@ function AutomationDetail({ automation: a, canManage }: { automation: Automation
 			installed={a.installed}
 			trash={a.trash}
 			canManage={canManage}
-			onToggle={() => confirm(`Remove "${a.name}"? It stops running. You can restore it from Trash for 30 days.`) && run(remove({ automationId: a.id }))}
+			confirmation="It stops running. You can restore it from Trash for 30 days."
+			busy={busy}
+			onToggle={() => run(remove({ automationId: a.id }))}
 		>
 			{error && <Notice>{error}</Notice>}
 			<Markdown className="text-sm leading-relaxed text-neutral-700">{a.details}</Markdown>

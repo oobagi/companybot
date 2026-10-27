@@ -2,7 +2,6 @@ import {
 	type Automation,
 	type AutomationAudience,
 	type CustomAutomationConfig,
-	can,
 	canEditMade,
 	customAutomationError,
 	describeTrigger,
@@ -260,8 +259,8 @@ export async function setAutomationTrashed(ctx: MutationCtx, who: Who, installId
 	const { member } = who;
 	const install = await ctx.db.get(installId);
 	if (!install || install.workspaceId !== member.workspaceId || !canView(member, install)) throw new ConvexError("Automation not found.");
-	if (!canEditMade(member, "automations.manage", install.custom ? install.installedBy : undefined))
-		throw new ConvexError(install.custom ? madeEditDenied : deniedMessage("automations.manage"));
+	if (!install.custom) checkPermission(member, "automations.manage");
+	else if (!canEditMade(member, "automations.manage", install.installedBy)) throw new ConvexError(madeEditDenied);
 	if (!!install.archived === archived) return;
 	if (archived) await putInTrash(ctx, who, { kind: "automation", id: installId, name: automationName(install) });
 	else await takeFromTrash(ctx, who, installId);
@@ -271,7 +270,13 @@ export async function setAutomationTrashed(ctx: MutationCtx, who: Who, installId
 // COMPAT(0.1.0-alpha.8): retain the old desktop install endpoint; new installs are retired.
 export const setInstalled = mutation({
 	args: { automationId: v.string(), installed: v.literal(true), timeZone: v.optional(v.string()) },
-	handler: async (ctx, { automationId, timeZone }) => installAutomation(ctx, await requireMember(ctx), { automationId, timeZone }),
+	handler: async (ctx, { automationId }) => {
+		const member = await requireMember(ctx);
+		const existing = await installOf(ctx, member.workspaceId, automationId);
+		checkPermission(member, "automations.manage");
+		if (existing) return;
+		throw new ConvexError("The automation library has retired. Create your own automation in Customize → Automations.");
+	},
 });
 
 /** Deletes an install now, so its webhook and schedule stop; its opt-ins, grants and delivery ids follow (lifecycle.ts). */
@@ -360,11 +365,3 @@ export const resetWebhook = mutation({
 		await ctx.db.patch(install._id, { webhookToken: newToken() });
 	},
 });
-
-// COMPAT(0.1.0-alpha.8): old desktops may request installation; retain this refusal until they update.
-export async function installAutomation(ctx: MutationCtx, member: Member, { automationId }: { automationId: string; timeZone?: string }) {
-	const existing = await installOf(ctx, member.workspaceId, automationId);
-	checkPermission(member, "automations.manage");
-	if (existing) return;
-	throw new ConvexError("The automation library has retired. Create your own automation in Customize → Automations.");
-}
