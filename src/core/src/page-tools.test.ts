@@ -28,14 +28,14 @@ describe("pages tools", () => {
 		expect(rest.more).toBeUndefined();
 	});
 
-	it("keeps moves inside workspace consent and requires exact consent for subtree deletion", async () => {
+	it("runs restorable page writes, moves and Trash without extra consent", async () => {
 		const tools = [tool("pages.write")];
-		const input = { action: "move", page: "p1", parent: "p2" };
-		const move = await actionOf("pages_write", input, tools);
-		expect(toolRisk(move!.tool)).toBe("inside");
-		expect(permissionFor({ risk: toolRisk(move!.tool), foreign: true })).toEqual({ type: "ask", canAlways: true });
-		expect(await toolApprovalPolicy(tools)({ toolCall: { toolCallId: "move", toolName: "pages_write", input } })).toBeUndefined();
-		expect(await toolApprovalPolicy(tools)({ toolCall: { toolCallId: "delete", toolName: "pages_write", input: { page: "p1", trash: true } } })).toBe("user-approval");
+		for (const input of [{ title: "Guide", parent: "p1" }, { action: "move", page: "p1", parent: "p2" }, { page: "p1", trash: true }, { page: "p1", trash: false }]) {
+			const call = await actionOf("pages_write", input, tools);
+			expect(toolRisk(call!.tool)).toBe("none");
+			expect(permissionFor({ risk: toolRisk(call!.tool), foreign: true })).toEqual({ type: "run" });
+			expect(await toolApprovalPolicy(tools)({ toolCall: { toolCallId: "page", toolName: "pages_write", input } })).toBeUndefined();
+		}
 	});
 
 	it("say what each write did", () => {

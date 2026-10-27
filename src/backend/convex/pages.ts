@@ -108,6 +108,24 @@ export const children = query({
 	},
 });
 
+/** Validate saved expansion ids without scanning or truncating the workspace's page tree. */
+export const liveIds = query({
+	args: { ids: v.array(v.string()) },
+	handler: async (ctx, { ids }) => {
+		if (ids.length > 100) throw new ConvexError("Check at most 100 saved page ids at once.");
+		const member = await getMember(ctx);
+		if (!member) return [];
+		const state = pageStates(ctx);
+		const live = [];
+		for (const value of ids) {
+			const id = ctx.db.normalizeId("pages", value);
+			const page = id && await ctx.db.get(id);
+			if (page && page.workspaceId === member.workspaceId && !page.recordId && !(await state(page)).archived) live.push(value);
+		}
+		return live;
+	},
+});
+
 export const move = mutation({
 	args: { pageId: v.id("pages"), parentId: v.optional(v.id("pages")) },
 	handler: async (ctx, { pageId, parentId }) => {

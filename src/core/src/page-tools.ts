@@ -112,7 +112,7 @@ export const pageTools: ToolDef[] = [
 		description:
 			"Create a page (title, optional parent and markdown), move it (action move, page, parent; null for top level), add to a page or a record's page body (append), rewrite it (replace), rename it, delete it (to Trash) or restore it, or bring back an old version. Runs right away and is saved in the page's history as you acting for the person, so it can be restored. Read a page before replacing it.",
 		input: writeInput,
-		riskFor: (input) => input.trash === true ? "locked" : "inside",
+		risk: "none",
 		execute: (input, { pages }) => pages.write(input),
 		label: writeLabel,
 	}),

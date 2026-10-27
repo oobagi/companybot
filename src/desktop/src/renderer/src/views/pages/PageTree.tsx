@@ -1,7 +1,7 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { Fragment, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../api";
-import { useMutation, usePaginatedQuery, useWorkspace } from "../../convex";
+import { useMutation, usePaginatedQuery, useQuery, useWorkspace } from "../../convex";
 import { CaretRightIcon, MoreIcon, PageIcon, PlusIcon, TrashIcon } from "../../icons";
 import { navigate } from "../../router";
 import { LoadMore, Notice, primaryButton, secondaryButton, useRun } from "../../ui";
@@ -18,8 +18,23 @@ export function PagesNav({ openId }: { openId: string | undefined }) {
 }
 function PageNavTree({ openId, storageKey }: { openId?: string; storageKey: string }) {
 	const [expanded, setExpanded] = useState<Set<string>>(() => {
-		try { return new Set(JSON.parse(localStorage.getItem(storageKey) ?? "[]")); } catch { return new Set(); }
+		try { const saved = JSON.parse(localStorage.getItem(storageKey) ?? "[]"); return new Set(Array.isArray(saved) ? saved.filter((id): id is string => typeof id === "string") : []); } catch { return new Set(); }
 	});
+	useEffect(() => {
+		try { localStorage.setItem(storageKey, JSON.stringify([...expanded])); } catch { /* Storage may be unavailable. */ }
+	}, [expanded, storageKey]);
+	const batches = useMemo(() => {
+		const ids = [...expanded];
+		return Array.from({ length: Math.ceil(ids.length / 100) }, (_, i) => ids.slice(i * 100, (i + 1) * 100));
+	}, [expanded]);
+	const prune = useCallback((ids: string[]) => {
+		if (!ids.length) return;
+		setExpanded((before) => {
+			const next = new Set(before);
+			for (const id of ids) next.delete(id);
+			return next.size === before.size ? before : next;
+		});
+	}, []);
 	const [moving, setMoving] = useState<Row>();
 	const create = useMutation(api.pages.create);
 	const remove = useMutation(api.trash.move);
@@ -28,7 +43,6 @@ function PageNavTree({ openId, storageKey }: { openId?: string; storageKey: stri
 		setExpanded((before) => {
 			const next = new Set(before);
 			if (open) next.add(id); else next.delete(id);
-			try { localStorage.setItem(storageKey, JSON.stringify([...next])); } catch { /* Storage may be unavailable. */ }
 			return next;
 		});
 	};
@@ -54,12 +68,21 @@ function PageNavTree({ openId, storageKey }: { openId?: string; storageKey: stri
 	);
 	return (
 		<Group title="Pages" onTitle={() => navigate("pages")} onAdd={() => add()} addLabel="New page">
+			{batches.map((ids, i) => <PruneExpanded key={i} ids={ids} onPrune={prune} />)}
 			{level()}
 			<Item icon={<PlusIcon />} onClick={() => add()} muted>New page</Item>
 			{error && <Notice>{error}</Notice>}
 			{moving && <MovePage page={moving} onClose={() => setMoving(undefined)} />}
 		</Group>
 	);
+}
+
+function PruneExpanded({ ids, onPrune }: { ids: string[]; onPrune: (ids: string[]) => void }) {
+	const live = useQuery(api.pages.liveIds, { ids });
+	useEffect(() => {
+		if (live) { const kept = new Set(live); onPrune(ids.filter((id) => !kept.has(id))); }
+	}, [live, ids, onPrune]);
+	return null;
 }
 
 export function PageLevel({ parentId, render, empty }: { parentId?: PageId; render: (row: Row) => React.ReactNode; empty?: React.ReactNode }) {

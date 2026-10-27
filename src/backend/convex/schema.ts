@@ -829,6 +829,8 @@ export default defineSchema({
 		itemId: v.string(),
 		/** Its name when deleted, for listing and search. */
 		name: v.string(),
+		/** Page deletion included live children, captured when it entered Trash. */
+		includesSubpages: v.optional(v.boolean()),
 		/** Records and fields: their database. */
 		typeId: v.optional(v.id("recordTypes")),
 		deletedBy: v.id("users"),

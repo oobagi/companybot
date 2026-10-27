@@ -56,6 +56,37 @@ describe("nested pages", () => {
 		await expect(member.mutation(api.pages.move, { pageId: child })).rejects.toThrow();
 	});
 
+	it("prunes saved expansion ids for deleted, inherited-Trash, foreign and invalid pages in bounded batches", async () => {
+		const { t, owner } = await setup();
+		const root = await owner.mutation(api.pages.create, { title: "Root" });
+		const child = await owner.mutation(api.pages.create, { title: "Child", parentId: root });
+		const other = await signIn(t, "other@co.com");
+		const foreign = await other.mutation(api.pages.create, { title: "Foreign" });
+		expect(await owner.query(api.pages.liveIds, { ids: [root, child, foreign, "invalid"] })).toEqual([root, child]);
+		await expect(owner.query(api.pages.liveIds, { ids: Array(101).fill(root) })).rejects.toThrow("100");
+		await owner.mutation(api.trash.move, { kind: "page", id: root });
+		expect(await owner.query(api.pages.liveIds, { ids: [root, child] })).toEqual([]);
+		await owner.mutation(api.trash.purge, { id: root });
+		await settle(t);
+		expect(await owner.query(api.pages.liveIds, { ids: [root, child] })).toEqual([]);
+	});
+
+	it("labels subtree Trash only when live children were actually deleted with the parent", async () => {
+		const { owner } = await setup();
+		const root = await owner.mutation(api.pages.create, { title: "Root" });
+		const child = await owner.mutation(api.pages.create, { title: "Child", parentId: root });
+		await owner.mutation(api.pages.create, { title: "Grandchild", parentId: child });
+		await owner.mutation(api.trash.move, { kind: "page", id: child });
+		await owner.mutation(api.trash.move, { kind: "page", id: root });
+		const entries = (await owner.query(api.trash.list, opts)).page;
+		expect(entries.find((e) => e.itemId === root)).toMatchObject({ hasChildren: false });
+		expect(entries.find((e) => e.itemId === child)).toMatchObject({ hasChildren: true });
+		await owner.mutation(api.trash.restore, { kind: "page", id: root });
+		await owner.mutation(api.pages.create, { title: "Live child", parentId: root });
+		await owner.mutation(api.trash.move, { kind: "page", id: root });
+		expect((await owner.query(api.trash.list, opts)).page.find((e) => e.itemId === root)).toMatchObject({ hasChildren: true });
+	});
+
 	it("moves an entire branch and attributes metadata history without changing content history", async () => {
 		const { owner, member } = await setup();
 		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
@@ -185,10 +216,15 @@ describe("nested pages", () => {
 		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
 		const child = await owner.mutation(api.pages.create, { title: "Guide", parentId: root });
 		const turnId = await agentTurn(t, owner, (await generalOf(owner))._id, (await agentsOf(owner)).companybot._id);
-		const blocks = await t.action(internal.pageMarkdown.fromMarkdown, { markdown: `[Guide](#/pages/${child})` });
+		const blocks = await t.action(internal.pageMarkdown.fromMarkdown, { markdown: `[Guide](companybot://page/${child})` });
 		await t.mutation(internal.pageTools.writeFor, { turnId, input: { page: root, blocks, mode: "replace" } });
 		const history = (await owner.query(api.pages.history, { pageId: root, ...opts })).page[0]!;
 		expect(await owner.query(api.pages.version, { versionId: history._id })).toContain(child);
+		const doc = await owner.query(api.pages.version, { versionId: history._id });
+		expect(doc).toContain(`companybot://page/${child}`);
+		expect(await t.action(internal.pageMarkdown.toMarkdown, { doc: doc! })).toContain(`[Guide](companybot://page/${child})`);
+		await owner.mutation(api.pages.rename, { pageId: child, title: "Renamed" });
+		expect(await t.run(async (ctx) => (await readDoc(ctx, root)).textContent)).toBe("Guide");
 		await t.mutation(internal.pageTools.writeFor, { turnId, input: { page: root, blocks: "[]", mode: "replace" } });
 		expect(await owner.query(api.pages.get, { pageId: child })).toMatchObject({ parentId: root, archived: false });
 		expect(await t.run(async (ctx) => (await readDoc(ctx, root)).textContent)).toBe("");

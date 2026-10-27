@@ -22,12 +22,13 @@ export const trashEntry = (ctx: QueryCtx, itemId: string) =>
 		.first();
 
 /** Adds an item to Trash, deleted by `who` now. The caller marks the item itself `archived`. */
-export async function putInTrash(ctx: MutationCtx, who: Who, item: { kind: TrashKind; id: string; name: string; typeId?: Doc<"trash">["typeId"] }) {
+export async function putInTrash(ctx: MutationCtx, who: Who, item: { kind: TrashKind; id: string; name: string; includesSubpages?: boolean; typeId?: Doc<"trash">["typeId"] }) {
 	await ctx.db.insert("trash", {
 		workspaceId: who.member.workspaceId,
 		kind: item.kind,
 		itemId: item.id,
 		name: item.name,
+		...(item.includesSubpages && { includesSubpages: true }),
 		...(item.typeId && { typeId: item.typeId }),
 		deletedBy: who.member.userId,
 		...(who.agentId && { agentId: who.agentId }),
@@ -55,10 +56,8 @@ export async function trashInfo(ctx: QueryCtx, member: Member, itemId: string) {
 
 /** Shared attribution for the list and item banners; nameOf handles names, email and erased accounts. */
 export async function describeTrash(ctx: QueryCtx, member: Member, entry: Doc<"trash">) {
-	const pageId = entry.kind === "page" ? ctx.db.normalizeId("pages", entry.itemId) : null;
-	const hasChildren = pageId ? !!(await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", pageId)).first()) : false;
 	return {
-		hasChildren,
+		hasChildren: entry.includesSubpages === true,
 		kind: entry.kind,
 		itemId: entry.itemId,
 		name: entry.name,
