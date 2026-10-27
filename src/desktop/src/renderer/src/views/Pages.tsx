@@ -3,7 +3,8 @@ import { useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { navigate } from "../router";
-import { Loading, Notice, Page, descriptionClass, metadataClass, timeAgo, useRun } from "../ui";
+import { HistoryIcon, PageIcon, PlusIcon, TrashIcon } from "../icons";
+import { Loading, Notice, Page, barButton, barDangerButton, barPrimaryButton, descriptionClass, metadataClass, timeAgo, useRun } from "../ui";
 import { Group, Item } from "./chat/Sidebar";
 import { PageEditor } from "./pages/PageEditor";
 import { PageHistory } from "./pages/PageHistory";
@@ -20,39 +21,49 @@ export function PagesNav({ openId }: { openId: string | undefined }) {
 	const { error, run } = useRun();
 	const newPage = () => run(create({ title: "Untitled" }).then((id) => navigate("pages", id)));
 	return (
-		<Group title="Pages" onTitle={() => navigate("pages")}>
+		<Group title="Pages" onTitle={() => navigate("pages")} onAdd={() => void newPage()} addLabel="New page">
 			{pages?.map((p) => (
-				<Item key={p._id} active={p._id === openId} onClick={() => navigate("pages", p._id)}>
+				<Item key={p._id} icon={<PageIcon />} active={p._id === openId} onClick={() => navigate("pages", p._id)}>
 					<span className="truncate">{p.title}</span>
 				</Item>
 			))}
-			<Item onClick={() => void newPage()} muted>+ New page</Item>
+			<Item icon={<PlusIcon />} onClick={() => void newPage()} muted>New page</Item>
 			{error && <Notice>{error}</Notice>}
 		</Group>
 	);
 }
 
 export function PagesView({ pageId, canEdit }: { pageId?: string; canEdit: boolean }) {
-	return pageId ? <PageScreen key={pageId} pageId={pageId as Id<"pages">} canEdit={canEdit} /> : <PagesIndex />;
+	return pageId ? <PageScreen key={pageId} pageId={pageId as Id<"pages">} canEdit={canEdit} /> : <PagesIndex canEdit={canEdit} />;
 }
 
 /** Every page. Deleted ones are in Trash. */
-function PagesIndex() {
+function PagesIndex({ canEdit }: { canEdit: boolean }) {
 	const pages = useQuery(api.pages.list, {});
-	if (!pages) return <Loading />;
+	const create = useMutation(api.pages.create);
+	const { error, run } = useRun();
+	const actions = canEdit && (
+		<button type="button" onClick={() => run(create({ title: "Untitled" }).then((id) => navigate("pages", id)))} className={barPrimaryButton}>
+			<PlusIcon /> New page
+		</button>
+	);
 	return (
-		<Page title="Pages" subtitle="Wiki pages, how-tos and meeting notes. Every record has a page too.">
-			{pages.length > 0 ? (
+		<Page title="Pages" subtitle="Wiki pages, how-tos and meeting notes. Every record has a page too." actions={actions}>
+			{error && <Notice>{error}</Notice>}
+			{!pages ? (
+				<Loading />
+			) : pages.length > 0 ? (
 				<div className="flex flex-col divide-y divide-neutral-100 rounded-xl border border-neutral-200">
 					{pages.map((p) => (
 						<button key={p._id} type="button" onClick={() => navigate("pages", p._id)} className="flex items-baseline gap-3 px-4 py-2 text-left text-sm hover:bg-neutral-50">
+							<PageIcon className="shrink-0 self-center text-neutral-400" />
 							<span className="font-medium">{p.title}</span>
 							<span className={`ml-auto ${metadataClass}`}>{timeAgo(p.updatedAt)}</span>
 						</button>
 					))}
 				</div>
 			) : (
-				<p className={descriptionClass}>No pages yet. Start one with + next to Pages.</p>
+				<p className={descriptionClass}>No pages yet.</p>
 			)}
 		</Page>
 	);
@@ -64,32 +75,31 @@ function PageScreen({ pageId, canEdit }: { pageId: Id<"pages">; canEdit: boolean
 	const remove = useMutation(api.trash.move);
 	const [history, setHistory] = useState(false);
 	const { error, run } = useRun();
-	const back = { label: "Pages", to: ["pages"] };
-	if (page === undefined) return <Page title="" back={back}><Loading /></Page>;
+	const crumbs = [{ label: "Pages", to: ["pages"] }];
+	if (page === undefined) return <Page title="" crumbs={crumbs}><Loading /></Page>;
 	if (page === null) {
 		return (
-			<Page title="Not found" back={back}>
+			<Page title="Not found" crumbs={crumbs}>
 				<p className={descriptionClass}>This page was deleted, or isn't in this workspace.</p>
 			</Page>
 		);
 	}
-	const action = `${descriptionClass} hover:text-neutral-900`;
 	return (
 		<Page
-			title={<PageTitle title={page.title} editable={page.canEdit} onSave={(title) => rename({ pageId, title })} />}
-			subtitle={page.archived ? "In Trash" : undefined}
-			back={back}
+			title={page.title}
+			crumbs={crumbs}
+			heading={<PageTitle title={page.title} editable={page.canEdit} onSave={(title) => rename({ pageId, title })} />}
 			actions={
-				<div className="flex shrink-0 gap-4">
-					<button type="button" onClick={() => setHistory(true)} className={action}>
-						History
+				<>
+					<button type="button" onClick={() => setHistory(true)} className={barButton}>
+						<HistoryIcon /> History
 					</button>
 					{canEdit && !page.archived && (
-						<button type="button" onClick={() => run(remove({ kind: "page", id: pageId }), () => navigate("pages"))} className={`${descriptionClass} hover:text-red-600`}>
-							Delete
+						<button type="button" onClick={() => run(remove({ kind: "page", id: pageId }), () => navigate("pages"))} className={barDangerButton}>
+							<TrashIcon /> Delete
 						</button>
 					)}
-				</div>
+				</>
 			}
 		>
 			{error && <Notice>{error}</Notice>}

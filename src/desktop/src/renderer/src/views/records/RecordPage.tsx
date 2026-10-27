@@ -7,7 +7,8 @@ import { useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { LoadMore, Loading, Notice, Page, Section, Tabs, descriptionClass, metadataClass, timeAgo, useRun } from "../../ui";
+import { HistoryIcon, TrashIcon } from "../../icons";
+import { LoadMore, Loading, Notice, Page, Section, Tabs, barButton, barDangerButton, descriptionClass, metadataClass, timeAgo, useRun } from "../../ui";
 import { Modal } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { PageEditor } from "../pages/PageEditor";
@@ -29,11 +30,11 @@ export function RecordPage({ type, recordId, role }: { type: RecordType; recordI
 	const remove = useMutation(api.trash.move);
 	const update = useMutation(api.records.update);
 	const { error, run } = useRun();
-	const back = { label: type.plural, to: recordPath(type.key) };
-	if (record === undefined) return <Page title="" back={back}><Loading /></Page>;
+	const crumbs = [{ label: type.plural, to: recordPath(type.key) }];
+	if (record === undefined) return <Page title="" crumbs={crumbs}><Loading /></Page>;
 	if (record === null || record.typeId !== type._id) {
 		return (
-			<Page title="Not found" back={back}>
+			<Page title="Not found" crumbs={crumbs}>
 				<p className={descriptionClass}>This {type.name.toLowerCase()} isn't in your workspace.</p>
 			</Page>
 		);
@@ -42,13 +43,21 @@ export function RecordPage({ type, recordId, role }: { type: RecordType; recordI
 
 	return (
 		<Page
-			title={<PageTitle title={record.title} editable={canEdit && !record.archived} onSave={(name) => update({ recordId, values: { name } })} />}
-			subtitle={record.archived ? `${type.name} · In Trash` : type.name}
-			back={back}
-			actions={<div className="flex gap-4">
-				<button type="button" onClick={() => setHistory(true)} className={`${descriptionClass} hover:text-neutral-900`}>History</button>
-				{canEdit && !record.archived && <button type="button" onClick={() => run(remove({ kind: "record", id: recordId }))} className={`${descriptionClass} hover:text-red-600`}>Delete</button>}
-			</div>}
+			title={record.title}
+			crumbs={crumbs}
+			heading={<PageTitle title={record.title} editable={canEdit && !record.archived} onSave={(name) => update({ recordId, values: { name } })} />}
+			actions={
+				<>
+					<button type="button" onClick={() => setHistory(true)} className={barButton}>
+						<HistoryIcon /> History
+					</button>
+					{canEdit && !record.archived && (
+						<button type="button" onClick={() => run(remove({ kind: "record", id: recordId }))} className={barDangerButton}>
+							<TrashIcon /> Delete
+						</button>
+					)}
+				</>
+			}
 		>
 			{error && <Notice>{error}</Notice>}
 			{record.trash && <TrashNotice trash={record.trash} />}

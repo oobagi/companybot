@@ -1,39 +1,25 @@
-import { useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { Notice, secondaryButton, useRun } from "../../ui";
-import { AgentBadge, Avatar, useDismiss } from "./common";
+import { AgentBadge, Avatar, Popover } from "./common";
 import type { Participant } from "./data";
 
 /** Their local time, e.g. "9:41 AM". */
 const localTime = (timeZone: string) => new Date().toLocaleTimeString([], { timeZone, hour: "numeric", minute: "2-digit" });
 const zoneLabel = (zone: string) => zone.replaceAll("_", " ");
 
-const CARD_HEIGHT = 240;
-
 /** Wraps a name or avatar: click it for their profile card. */
 export function ProfileLink({ who, children, className = "" }: { who: Participant; children: React.ReactNode; className?: string }) {
-	const [at, setAt] = useState<React.CSSProperties>();
-	const ref = useDismiss<HTMLSpanElement>(() => setAt(undefined), !!at);
-	// Fixed, so scrolling lists don't clip it; opens upward when there's no room below.
-	const toggle = (e: React.MouseEvent) => {
-		if (at) return setAt(undefined);
-		const r = e.currentTarget.getBoundingClientRect();
-		setAt(r.bottom + CARD_HEIGHT > window.innerHeight ? { left: r.left, bottom: window.innerHeight - r.top + 4 } : { left: r.left, top: r.bottom + 4 });
-	};
 	return (
-		<span ref={ref}>
-			<button type="button" onClick={toggle} className={`cursor-pointer ${className}`}>
-				{children}
-			</button>
-			{at && <ProfileCard who={who} style={at} onClose={() => setAt(undefined)} />}
-		</span>
+		<Popover trigger={children} className={`cursor-pointer ${className}`}>
+			{(close) => <ProfileCard who={who} onClose={close} />}
+		</Popover>
 	);
 }
 
 /** Name, email, role, and local time for people; description for agents. "Message" opens your DM. */
-function ProfileCard({ who, style, onClose }: { who: Participant; style: React.CSSProperties; onClose: () => void }) {
+export function ProfileCard({ who, onClose }: { who: Participant; onClose: () => void }) {
 	const team = useQuery(api.workspace.team);
 	const chats = useQuery(api.chats.list);
 	const openDm = useMutation(api.chats.openDm);
@@ -45,7 +31,7 @@ function ProfileCard({ who, style, onClose }: { who: Participant; style: React.C
 	const message = () => run(openDm(dm).then((id) => (onClose(), navigate("chat", id))));
 
 	return (
-		<div style={style} className="fixed z-50 flex w-72 flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 text-left text-sm font-normal shadow-lg">
+		<div className="flex flex-col gap-3 p-4">
 			<div className="flex items-center gap-3">
 				<Avatar name={who.name} agent={who.type === "agent"} />
 				<div className="min-w-0">

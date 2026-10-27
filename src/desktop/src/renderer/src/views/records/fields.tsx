@@ -8,6 +8,7 @@ import { compactControlClass } from "../../ui";
 import { useDismiss } from "../chat/common";
 import { useCurrency, useTypes } from "./data";
 import { type Refs, type TypeField, moneyInput, recordPath, valueText } from "./logic";
+import { CloseIcon } from "../../icons";
 
 // Showing and editing one field's value, for every kind. Edits save as you leave the
 // input (Enter, or clicking away); Escape puts it back.
@@ -53,8 +54,8 @@ export function Chip({ children, onRemove }: { children: React.ReactNode; onRemo
 		<span className="flex items-center gap-1 rounded-md bg-neutral-100 px-2 py-0.5 text-sm">
 			{children}
 			{onRemove && (
-				<button type="button" onClick={onRemove} className="text-neutral-400 hover:text-neutral-700" aria-label="Remove">
-					×
+				<button type="button" onClick={onRemove} className="text-neutral-400 hover:text-neutral-700" title="Remove" aria-label="Remove">
+					<CloseIcon />
 				</button>
 			)}
 		</span>

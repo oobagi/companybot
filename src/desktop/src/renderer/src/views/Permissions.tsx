@@ -2,7 +2,7 @@ import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../api";
 import { useAction, useMutation, useQuery } from "../convex";
-import { Loading, Notice, Section, compactControlClass, metadataClass, primaryButton, secondaryButton, useRun } from "../ui";
+import { Loading, Notice, Section, Setting, Settings, compactControlClass, metadataClass, primaryButton, secondaryButton, useRun } from "../ui";
 import { Modal } from "./chat/common";
 
 // What agents may do without asking: your own Always / Never per action (Your preferences,
@@ -138,21 +138,20 @@ export function WorkspaceLocks() {
 	if (!actions) return <Loading />;
 	const shown = actions.filter((a) => a.risk !== "none" || a.lock);
 	return (
-		<Section
+		<Settings
 			title="Action locks"
-			hint="Applies to everyone and beats anyone's own settings. Locked actions ask every time; nobody can set them to Always."
+			hint="For everyone, over anyone's own settings. Locked actions always ask; nobody can set them to Always."
 		>
-			{error && <Notice>{error}</Notice>}
-			{shown.length === 0 && <p className="text-sm text-neutral-400">No actions yet. Install and connect a connector first.</p>}
+			{error && <div className="p-3"><Notice>{error}</Notice></div>}
+			{shown.length === 0 && <p className="px-4 py-3 text-sm text-neutral-400">No actions yet. Install and connect a connector first.</p>}
 			{shown.map((a) => {
 				const lockedByDefault = a.risk === "locked";
 				const value = a.lock ?? "default";
 				return (
-					<div key={a.action} className="flex items-center gap-3 rounded-xl border border-neutral-200 px-4 py-2 text-sm">
-						<span className="min-w-0 flex-1 truncate">{actionName(a)}</span>
+					<Setting key={a.action} label={actionName(a)}>
 						<select
 							aria-label={`${a.label} lock`}
-							className={compactControlClass}
+							className={`${compactControlClass} w-44`}
 							value={value}
 							onChange={(e) => {
 								const v = e.target.value;
@@ -164,10 +163,10 @@ export function WorkspaceLocks() {
 							{!lockedByDefault && <option value="ask">Always ask</option>}
 							<option value="block">Blocked</option>
 						</select>
-					</div>
+					</Setting>
 				);
 			})}
-		</Section>
+		</Settings>
 	);
 }
 

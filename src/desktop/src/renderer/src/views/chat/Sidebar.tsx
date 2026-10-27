@@ -2,13 +2,17 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useState } from "react";
 import { api } from "../../api";
 import { useMutation } from "../../convex";
-import { Avatar } from "./common";
+import { CaretRightIcon, ChannelIcon, PlusIcon, PrivateIcon } from "../../icons";
+import { AgentBadge, Avatar } from "./common";
 import type { ChatList } from "./data";
 import { BrowseChannels, CreateChannel, NewMessage } from "./dialogs";
 
 type Dialog = "create" | "browse" | "message";
 
-/** The chat list: channels, DMs with people, and one DM per agent. */
+/**
+ * The chat list: channels, then direct messages. Agents sit with people (labeled Bot), and
+ * each one is listed even before you've written to it.
+ */
 export function ChatNav({
 	chats,
 	openId,
@@ -25,54 +29,60 @@ export function ChatNav({
 	const [dialog, setDialog] = useState<Dialog>();
 	if (!chats) return null;
 
-	const peopleDms = chats.dms.filter((d) => !d.agentId);
+	// Your DMs with people (and groups), and one per agent; most recent first, then the agents you haven't messaged.
+	const dms = [
+		...chats.dms.filter((d) => !d.agentId).map((d) => ({ key: d._id, dmId: d._id, name: d.title, agent: false, unread: d.unread, mentioned: d.mentioned, at: d.lastMessageAt, open: () => onOpen(d._id), title: undefined as string | undefined })),
+		...chats.agents.map((a) => ({
+			key: a._id,
+			dmId: a.dmId,
+			name: a.name,
+			agent: true,
+			unread: a.unread,
+			mentioned: a.mentioned,
+			at: a.lastMessageAt ?? 0,
+			title: a.description,
+			open: () => (a.dmId ? onOpen(a.dmId) : openDm({ userIds: [], agentIds: [a._id] }).then(onOpen, onError)),
+		})),
+	].sort((a, b) => b.at - a.at || a.name.localeCompare(b.name));
 
 	return (
 		<>
 			<Group title="Channels" onAdd={() => setDialog("create")} addLabel="Create a channel">
 				{chats.channels.map((c) => (
-					<Item key={c._id} active={c._id === openId} unread={c.unread} mentioned={c.mentioned} onClick={() => onOpen(c._id)}>
-						<span className="w-5 shrink-0 text-center text-neutral-400">{c.private ? "🔒" : "#"}</span>
+					<Item
+						key={c._id}
+						icon={c.private ? <PrivateIcon /> : <ChannelIcon />}
+						active={c._id === openId}
+						unread={c.unread}
+						mentioned={c.mentioned}
+						onClick={() => onOpen(c._id)}
+					>
 						<span className="truncate">{c.name}</span>
 					</Item>
 				))}
-				<Item onClick={() => setDialog("browse")} muted>
-					<span className="w-5 shrink-0 text-center">+</span>
+				<Item icon={<PlusIcon />} onClick={() => setDialog("browse")} muted>
 					Browse channels
 				</Item>
 			</Group>
 
 			<Group title="Direct messages" onAdd={() => setDialog("message")} addLabel="New message">
-				{peopleDms.map((d) => (
-					<Item key={d._id} active={d._id === openId} unread={d.unread} mentioned={d.mentioned} onClick={() => onOpen(d._id)}>
-						<Avatar name={d.title} size="xs" />
-						<span className="truncate">{d.title}</span>
-					</Item>
-				))}
-				{peopleDms.length === 0 && (
-					<Item onClick={() => setDialog("message")} muted>
-						<span className="w-5 shrink-0 text-center">+</span>
-						New message
-					</Item>
-				)}
-			</Group>
-
-			<Group title="Agents">
-				{chats.agents.map((a) => (
+				{dms.map((d) => (
 					<Item
-						key={a._id}
-						active={!!a.dmId && a.dmId === openId}
-						unread={a.unread}
-						mentioned={a.mentioned}
-						title={a.description}
-						onClick={() =>
-							a.dmId ? onOpen(a.dmId) : openDm({ userIds: [], agentIds: [a._id] }).then(onOpen, onError)
-						}
+						key={d.key}
+						icon={<Avatar name={d.name} agent={d.agent} size="xs" />}
+						active={!!d.dmId && d.dmId === openId}
+						unread={d.unread}
+						mentioned={d.mentioned}
+						title={d.title}
+						onClick={d.open}
 					>
-						<Avatar name={a.name} agent size="xs" />
-						<span className="truncate">{a.name}</span>
+						<span className="truncate">{d.name}</span>
+						{d.agent && <AgentBadge />}
 					</Item>
 				))}
+				<Item icon={<PlusIcon />} onClick={() => setDialog("message")} muted>
+					New message
+				</Item>
 			</Group>
 
 			{dialog === "create" && <CreateChannel onClose={() => setDialog(undefined)} onOpen={onOpen} />}
@@ -82,7 +92,7 @@ export function ChatNav({
 	);
 }
 
-/** A sidebar section. `onTitle` makes its title a link (Pages → every page). */
+/** A sidebar section. `onTitle` makes its title a link to the section's own screen (Pages → every page). */
 export function Group({
 	title,
 	onTitle,
@@ -101,8 +111,9 @@ export function Group({
 			<div className="flex items-center justify-between px-2 pb-1">
 				<h2 className="text-xs font-medium text-neutral-500">
 					{onTitle ? (
-						<button type="button" onClick={onTitle} className="hover:text-neutral-800">
+						<button type="button" onClick={onTitle} className="group/title flex items-center gap-0.5 hover:text-neutral-900">
 							{title}
+							<CaretRightIcon className="opacity-0 group-hover/title:opacity-100" />
 						</button>
 					) : (
 						title
@@ -116,7 +127,7 @@ export function Group({
 						aria-label={addLabel}
 						className="flex size-5 items-center justify-center rounded text-neutral-400 opacity-0 group-hover/section:opacity-100 hover:bg-neutral-200/70 hover:text-neutral-800"
 					>
-						+
+						<PlusIcon />
 					</button>
 				)}
 			</div>
@@ -126,6 +137,7 @@ export function Group({
 }
 
 export function Item({
+	icon,
 	active,
 	unread,
 	mentioned,
@@ -134,6 +146,8 @@ export function Item({
 	onClick,
 	children,
 }: {
+	/** Before the label: an icon or avatar, in a fixed-width slot so labels line up. */
+	icon?: React.ReactNode;
 	active?: boolean;
 	unread?: boolean;
 	mentioned?: boolean;
@@ -149,6 +163,7 @@ export function Item({
 			onClick={onClick}
 			className={`flex items-center gap-2 rounded-lg px-2 py-1 text-left text-sm ${itemTone({ active, unread, muted })}`}
 		>
+			{icon && <span className="flex w-5 shrink-0 items-center justify-center text-base text-neutral-400">{icon}</span>}
 			{children}
 			{mentioned && !active && (
 				<span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-neutral-900 px-1 text-[10px] font-medium text-white">

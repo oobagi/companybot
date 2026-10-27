@@ -11,7 +11,7 @@ import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
 import { Field, Loading, Notice, Page, Section, compactControlClass, descriptionClass, inputClass, primaryButton, secondaryButton, timeAgo, useRun } from "../../ui";
 import { useTurnOn } from "../Permissions";
-import { Card, Detail, Facts, LibraryList, MadeItemDetail, Missing, NewItem } from "./shared";
+import { Card, Detail, Facts, LibraryList, MadeItemDetail, Missing, NewItem, customizeCrumbs } from "./shared";
 
 type AutomationItem = FunctionReturnType<typeof api.automations.list>[number];
 type Channel = { _id: Id<"chats">; title: string };
@@ -300,7 +300,7 @@ function NewAutomation() {
 	const agent = agentId || agents[0]?._id || "";
 	if (!agent)
 		return (
-			<Page title="New automation" back={{ label: "Automations", to: ["customize", "automations"] }}>
+			<Page title="New automation" crumbs={customizeCrumbs("automations")}>
 				<Notice>Automations need an agent to run them. Ask an owner to create one in Agents.</Notice>
 			</Page>
 		);

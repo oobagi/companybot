@@ -4,6 +4,7 @@ import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { Field, Loading, Notice, inputClass, primaryButton, secondaryButton, useRun } from "../../ui";
 import { AgentBadge, Avatar, Modal } from "./common";
+import { navigate } from "../../router";
 import { ProfileLink } from "./Profile";
 import { type ChatDetails, type Participant, chatTitle, useDirectory } from "./data";
 
@@ -111,30 +112,43 @@ function Picker({ options, picked, onChange }: { options: Participant[]; picked:
 	);
 }
 
-/** A DM with one or more people, and agents if you like (they answer when @mentioned). */
+/**
+ * A DM with one or more people, and agents if you like (they answer when @mentioned).
+ * If you already have that conversation, it opens it rather than starting another.
+ */
 export function NewMessage({ onClose, onOpen }: { onClose: () => void; onOpen: (chatId: Id<"chats">) => void }) {
 	const openDm = useMutation(api.chats.openDm);
+	const chats = useQuery(api.chats.list);
 	const { people, agents } = useDirectory();
 	const [picked, setPicked] = useState<string[]>([]);
 	const { error, run } = useRun();
 	const of = (list: Participant[]) => list.filter((p) => picked.includes(p.id)).map((p) => p.id);
+	// The DM whose other members are exactly who's picked.
+	const sameAs = (ids: string[]) => ids.length === picked.length && ids.every((id) => picked.includes(id));
+	const existing = chats?.dms.find((d) => sameAs(d.members.filter((m) => m.id !== chats.me).map((m) => m.id)));
+	const open = () =>
+		existing
+			? (onOpen(existing._id), onClose())
+			: run(openDm({ userIds: of(people) as Id<"users">[], agentIds: of(agents) as Id<"agents">[] }).then((id) => (onOpen(id), onClose())));
 	return (
 		<Modal title="New message" onClose={onClose}>
-			{people.length === 0 && <p className="text-sm text-neutral-500">Invite teammates in Settings → Members to message them.</p>}
+			{people.length === 0 && (
+				<p className="text-sm text-neutral-500">
+					Invite teammates in{" "}
+					<button type="button" onClick={() => (onClose(), navigate("settings", "members"))} className="underline hover:text-neutral-900">
+						Settings → Members
+					</button>{" "}
+					to message them.
+				</p>
+			)}
 			<Picker options={[...people, ...agents]} picked={picked} onChange={setPicked} />
 			{error && <Notice>{error}</Notice>}
-			<button
-				type="button"
-				disabled={picked.length === 0}
-				onClick={() =>
-					run(
-						openDm({ userIds: of(people) as Id<"users">[], agentIds: of(agents) as Id<"agents">[] }).then((id) => (onOpen(id), onClose())),
-					)
-				}
-				className={`${primaryButton} self-end`}
-			>
-				Open
-			</button>
+			<div className="flex items-center justify-end gap-3">
+				{existing && <p className="flex-1 text-sm text-neutral-500">You already have this conversation.</p>}
+				<button type="button" disabled={picked.length === 0} onClick={() => void open()} className={primaryButton}>
+					{existing ? "Go to conversation" : "Start conversation"}
+				</button>
+			</div>
 		</Modal>
 	);
 }

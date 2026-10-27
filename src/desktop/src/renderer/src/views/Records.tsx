@@ -19,7 +19,7 @@ export const recordTabs = [
  */
 export function RecordsView({ typeKey, recordId, role }: { typeKey: string; recordId?: string; role: Role }) {
 	const types = useTypes();
-	if (!types) return <Loading />;
+	if (!types) return <Page title=""><Loading /></Page>;
 	const type = types.find((t) => t.key === typeKey);
 	if (!type) {
 		return (

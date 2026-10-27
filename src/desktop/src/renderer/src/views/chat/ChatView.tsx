@@ -2,7 +2,8 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useEffect, useState } from "react";
 import { api, errorMessage } from "../../api";
 import { useMutation, useQuery } from "../../convex";
-import { Loading, Notice } from "../../ui";
+import { PrivateIcon } from "../../icons";
+import { Loading, Notice, TopBar } from "../../ui";
 import { AgentBadge, AvatarStack } from "./common";
 import { Composer, type SendWith } from "./Composer";
 import { type ChatDetails, type Mentions, chatTitle, useDirectory } from "./data";
@@ -35,7 +36,7 @@ export function ChatView({
 	if (!chat) {
 		return (
 			<>
-				<div className="drag h-12 shrink-0" />
+				<TopBar title="" />
 				{chat === null ? <p className="p-8 text-sm text-neutral-500">This chat isn't available.</p> : <Loading />}
 			</>
 		);
@@ -96,27 +97,30 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 	return (
 		<div className="flex min-h-0 flex-1">
 			<div className="flex min-w-0 flex-1 flex-col">
-				<header className="drag flex h-12 shrink-0 items-center gap-3 border-b border-neutral-200 px-5">
-					<div className="flex min-w-0 items-baseline gap-2">
-						<h1 className="truncate font-semibold">
-							{chat.private && chat.kind === "channel" && <span className="mr-1 text-neutral-400">🔒</span>}
-							{title}
-						</h1>
-						{agent && <AgentBadge />}
-						{chat.topic && <p className="truncate text-sm text-neutral-500">{chat.topic}</p>}
-					</div>
+				<TopBar
+					title={
+						<>
+							<h1 className="flex min-w-0 items-center gap-1 truncate">
+								{chat.private && chat.kind === "channel" && <PrivateIcon className="shrink-0 text-neutral-400" />}
+								{title}
+							</h1>
+							{agent && <AgentBadge />}
+							{chat.topic && <p className="truncate font-normal text-neutral-500">{chat.topic}</p>}
+						</>
+					}
+				>
 					{!agent && (
 						<button
 							type="button"
 							onClick={() => setDetails(true)}
 							title="Members and details"
-							className="no-drag ml-auto flex shrink-0 items-center gap-1.5 rounded-lg px-1.5 py-1 text-sm text-neutral-500 hover:bg-neutral-100"
+							className="flex shrink-0 items-center gap-1.5 rounded-lg px-1.5 py-1 text-sm text-neutral-500 hover:bg-neutral-100"
 						>
 							<AvatarStack people={chat.members} />
 							{chat.members.length}
 						</button>
 					)}
-				</header>
+				</TopBar>
 
 				{!messages ? (
 					<Loading />

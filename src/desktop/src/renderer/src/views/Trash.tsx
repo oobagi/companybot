@@ -38,7 +38,7 @@ export function TrashView({ role }: { role: Role }) {
 	const { error, run } = useRun();
 	const canPurge = can(role, "trash.manage");
 	return (
-		<Page title="Trash" subtitle="Deleted records, databases, fields, pages and channels. Each is deleted forever 30 days after it's deleted." wide>
+		<Page title="Trash" subtitle="Everything deleted lands here. It's deleted forever 30 days later." wide>
 			<div className="flex items-center gap-3 text-sm">
 				<input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search Trash" className={`${compactControlClass} w-64`} />
 				<select value={kind} onChange={(e) => setKind(e.target.value as Kind | "")} className={compactControlClass}>
