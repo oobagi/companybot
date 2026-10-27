@@ -385,14 +385,6 @@ export function searchTextOf(fields: Field[], values: Record<string, FieldValue>
 		.slice(0, TEXT_MAX);
 }
 
-/** `searchTextOf` without one field's value, for when the field is deleted and the other fields can't be read. */
-export function searchTextWithout(searchText: string, field: Field, value: FieldValue | undefined) {
-	if (!searchKinds.includes(field.kind) || typeof value !== "string") return searchText;
-	const lines = `\n${searchText}\n`;
-	const at = lines.indexOf(`\n${value}\n`);
-	return at < 0 ? searchText : (lines.slice(0, at) + lines.slice(at + value.length + 1)).slice(1, -1);
-}
-
 /** A record's name for a person or record id in its values: `{ name, archived? }` (`archived`: in Trash or deleted). */
 export type RefName = { name: string; archived?: true };
 

@@ -1,3 +1,4 @@
+import { FIELDS_PER_TYPE_MAX } from "@companybot/core";
 import { getDocumentSize, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id, TableNames } from "./_generated/dataModel";
@@ -86,13 +87,28 @@ export const step = internalMutation({
 		for (const row of page) spend(budget, row);
 		// Rows `where` reads to decide, once each: a member's mentions are mostly in a few chats.
 		const seen = new Map<string, object | null>();
-		const get: Get = async (id) => {
+		const get = (async <T extends TableNames>(id: Id<T>): Promise<Doc<T> | null> => {
 			if (!seen.has(id)) {
 				const doc = await ctx.db.get(id);
 				spend(budget, doc);
 				seen.set(id, doc);
 			}
 			return seen.get(id) as Any;
+		}) as Get;
+		let searchFields: Doc<"recordFields">[] | undefined;
+		get.searchFields = async (typeId) => {
+			if (!searchFields) {
+				searchFields = [];
+				// Only text-like fields: choices can have large option lists. At most 100 small
+				// rows total, indexed by kind, read once per run even for a page of big records.
+				for (const kind of ["text", "email", "phone", "url"] as const) {
+					const fields = await ctx.db.query("recordFields").withIndex("by_type_kind", (q) => q.eq("typeId", typeId).eq("kind", kind)).take(FIELDS_PER_TYPE_MAX);
+					for (const field of fields) spend(budget, field);
+					searchFields.push(...fields);
+				}
+				searchFields.sort((a, b) => a.position - b.position);
+			}
+			return searchFields;
 		};
 		// Rows handled before running out of room. The rows `where` skips (and scrubbed ones) stay in the
 		// range, so the next run reads only this many: it fits, and the cursor moves past them.

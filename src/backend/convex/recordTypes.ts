@@ -47,6 +47,6 @@ export const update = mutation({
 	args: { typeId: v.id("recordTypes"), name: v.optional(v.string()), plural: v.optional(v.string()), archived: v.optional(v.boolean()), version: v.number() },
 	handler: async (ctx, { typeId, archived, ...input }) => {
 		const who = { member: await requireMember(ctx) };
-		return archived ? setTypeTrashed(ctx, who, typeId, true) : updateType(ctx, who, typeId, input);
+		return archived === undefined ? updateType(ctx, who, typeId, input) : setTypeTrashed(ctx, who, typeId, archived);
 	},
 });

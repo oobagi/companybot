@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, components, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { TRASH_MS } from "../convex/trashOps";
-import { agentTurn, agentsOf, generalOf, newTest, noMentions, settle, setup, signIn } from "./helpers";
+import { agentTurn, agentsOf, generalOf, newTest, noMentions, settle, setup, sideWorkspace, signIn } from "./helpers";
 
 afterEach(() => vi.useRealTimers());
 const page = { numItems: 50, cursor: null };
@@ -56,6 +56,77 @@ describe("trash", () => {
 		await settle(t);
 		expect(await t.run((ctx) => ctx.db.get(acme))).toBeNull();
 		expect((await owner.query(api.records.get, { recordId: roof }))?.refs[acme]).toEqual({ name: "Deleted record", archived: true });
+	});
+
+	it("uses the person's name, email fallback and Former member in lists and banners", async () => {
+		const { t, owner, member, acme } = await seeded();
+		await member.mutation(api.trash.move, { kind: "record", id: acme });
+		expect((await trashOf(owner))[0]?.user).toBe("member@co.com");
+		await member.mutation(api.preferences.update, { displayName: "Dana" });
+		expect((await trashOf(owner))[0]?.user).toBe("Dana");
+		expect((await owner.query(api.records.get, { recordId: acme }))?.trash?.user).toBe("Dana");
+		await t.run((ctx) => ctx.db.replace(member.userId, { erasedAt: Date.now() }));
+		expect((await trashOf(owner))[0]?.user).toBe("Former member");
+		expect((await owner.query(api.records.get, { recordId: acme }))?.trash?.user).toBe("Former member");
+	});
+
+	it("keeps private channel Trash private, including search, owner purge and cross-workspace IDs", async () => {
+		const { t, owner, member } = await setup();
+		const id = await member.mutation(api.chats.createChannel, { name: "confidential", private: true });
+		await member.mutation(api.trash.move, { kind: "channel", id });
+		expect((await trashOf(member))[0]?.name).toBe("#confidential");
+		expect(await trashOf(owner)).toEqual([]);
+		expect(await trashOf(owner, { kind: "channel", search: "confidential" })).toEqual([]);
+		await expect(owner.mutation(api.trash.purge, { id })).rejects.toThrow("no longer in Trash");
+		await expect(owner.mutation(api.trash.restore, { kind: "channel", id })).rejects.toThrow("Chat not found");
+		const dm = await member.mutation(api.chats.openDm, { userIds: [], agentIds: [] });
+		await expect(member.mutation(api.trash.move, { kind: "channel", id: dm })).rejects.toThrow("not a channel");
+		const other = await sideWorkspace(t, "member@co.com");
+		await expect(member.in(other.workspaceId).mutation(api.trash.restore, { kind: "channel", id })).rejects.toThrow("Chat not found");
+	});
+
+	it("lets the deleter restore a database after losing the owner role", async () => {
+		const { t, owner, member, client } = await seeded();
+		await owner.mutation(api.trash.move, { kind: "database", id: client._id });
+		await t.run(async (ctx) => {
+			for (const row of await ctx.db.query("members").collect()) await ctx.db.patch(row._id, { role: row.userId === member.userId ? "owner" : "member" });
+		});
+		await owner.mutation(api.trash.restore, { kind: "database", id: client._id });
+		expect((await owner.query(api.recordTypes.list)).some((r) => r._id === client._id)).toBe(true);
+	});
+
+	it("treats links into a trashed database as absent for equality, any-of and empty filters", async () => {
+		const { owner, client, deal, acme, roof } = await seeded();
+		const find = async (filter: object) => (await owner.query(api.records.list, { typeId: deal._id, filters: [{ field: "client", ...filter }], paginationOpts: page })).page.map((r) => r._id);
+		expect(await find({ eq: acme })).toEqual([roof]);
+		await owner.mutation(api.trash.move, { kind: "database", id: client._id });
+		expect(await find({ eq: acme })).toEqual([]);
+		expect(await find({ in: [acme] })).toEqual([]);
+		expect(await find({ empty: false })).toEqual([]);
+		expect(await find({ empty: true })).toEqual([roof]);
+		await owner.mutation(api.trash.restore, { kind: "database", id: client._id });
+		expect(await find({ eq: acme })).toEqual([roof]);
+	});
+
+	it("rebuilds truncated search text without losing surviving multiline text", async () => {
+		const { t, owner, member, client, acme } = await seeded();
+		const field = await member.mutation(api.fields.create, { typeId: client._id, label: "Long text", kind: "text" });
+		await member.mutation(api.fields.create, { typeId: client._id, label: "Notes", kind: "text" });
+		await member.mutation(api.records.update, { recordId: acme, values: { long_text: "Removedneedle " + "x".repeat(9980), notes: "Acme\nSurvivingneedle" } });
+		await member.mutation(api.trash.move, { kind: "field", id: field._id });
+		await owner.mutation(api.trash.purge, { id: field._id });
+		await settle(t);
+		expect(await t.run((ctx) => ctx.db.get(acme))).toMatchObject({ searchText: "Acme\nAcme\nSurvivingneedle", values: { name: "Acme", notes: "Acme\nSurvivingneedle" } });
+		expect(await owner.query(api.records.search, { query: "Removedneedle" })).toEqual([]);
+		expect((await owner.query(api.records.search, { query: "Survivingneedle" })).map((r) => r._id)).toEqual([acme]);
+	});
+
+	it("refuses new child rows while a database is being deleted permanently", async () => {
+		const { owner, member, client, acme } = await seeded();
+		await owner.mutation(api.trash.move, { kind: "database", id: client._id });
+		await owner.mutation(api.trash.purge, { id: client._id });
+		await expect(member.mutation(api.fields.create, { typeId: client._id, label: "Late", kind: "text" })).rejects.toThrow("in Trash");
+		await expect(member.mutation(api.trash.move, { kind: "record", id: acme })).rejects.toThrow("in Trash");
 	});
 
 	it("deletes forever after 30 days: values, history, mentions and the record's page", async () => {
@@ -193,6 +264,13 @@ describe("trash", () => {
 		await member.mutation(api.fields.restore, { fieldId: field._id });
 		await member.mutation(api.pages.setArchived, { pageId, archived: false });
 		expect((await trashOf(owner)).map((e) => e.kind)).toEqual(["database"]);
+		// Old apps deleting a live page move it to Trash, including for members.
+		await member.mutation(api.pages.remove, { pageId });
+		expect(await member.query(api.pages.get, { pageId })).toMatchObject({ archived: true });
+		await member.mutation(api.pages.setArchived, { pageId, archived: false });
+		// Old database restore calls work too.
+		await owner.mutation(api.recordTypes.update, { typeId: jobs, version: 1, archived: false });
+		expect(await trashOf(owner)).toEqual([]);
 		// Deleting an archived page for good is an owner's "Delete forever" now.
 		await member.mutation(api.pages.setArchived, { pageId, archived: true });
 		await expect(member.mutation(api.pages.remove, { pageId })).rejects.toThrow("permission");

@@ -85,7 +85,7 @@ export const forReply = query({
 		const member = await getMember(ctx);
 		const reply = await ctx.db.get(replyId);
 		const chat = reply && (await ctx.db.get(reply.chatId));
-		if (!member || !chat || !(await canSee(ctx, chat, member))) return [];
+		if (!member || !chat || chat.archived || !(await canSee(ctx, chat, member))) return [];
 		const names = namer(ctx);
 		const rows = await ctx.db
 			.query("agentActivity")
@@ -97,7 +97,7 @@ export const forReply = query({
 
 async function visibleLabel(ctx: QueryCtx, chatId: Id<"chats">, member: Member, names: Namer) {
 	const chat = await ctx.db.get(chatId);
-	return chat && (await canSee(ctx, chat, member)) ? chatLabel(ctx, chat, names, member.userId) : null;
+	return chat && !chat.archived && (await canSee(ctx, chat, member)) ? chatLabel(ctx, chat, names, member.userId) : null;
 }
 
 async function toEntry(ctx: QueryCtx, row: Doc<"agentActivity">, member: Member, names: Namer) {

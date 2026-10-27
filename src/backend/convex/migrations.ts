@@ -150,6 +150,8 @@ function archivedToTrash<T extends "records" | "recordTypes" | "recordFields" | 
 ) {
 	return migrations.define({
 		table,
+		// Even legacy 1 MiB documents fit, with room for their Trash rows and bookkeeping.
+		batchSize: 8,
 		migrateOne: async (ctx, row) => {
 			if (!row.archived || (await trashEntry(ctx, row._id))) return;
 			await ctx.db.insert("trash", { workspaceId: row.workspaceId, itemId: row._id, deletedAt: Date.now(), ...entry(row as Doc<T>) });

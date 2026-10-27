@@ -50,6 +50,11 @@ export async function takeFromTrash(ctx: MutationCtx, { member }: Who, itemId: s
 export async function trashInfo(ctx: QueryCtx, member: Member, itemId: string) {
 	const entry = await trashEntry(ctx, itemId);
 	if (entry?.workspaceId !== member.workspaceId) return null;
+	return describeTrash(ctx, member, entry);
+}
+
+/** Shared attribution for the list and item banners; nameOf handles names, email and erased accounts. */
+export async function describeTrash(ctx: QueryCtx, member: Member, entry: Doc<"trash">) {
 	return {
 		kind: entry.kind,
 		itemId: entry.itemId,

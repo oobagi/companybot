@@ -68,6 +68,22 @@ describe("approvals", () => {
 		expect((await member.query(api.approvals.forReply, { replyId: turn.replyId! }))[0]?.status).toBe("pending");
 	});
 
+	it("cannot decide, claim, create approvals or use tools in a trashed channel", async () => {
+		const { t, member } = await ownerAndMember();
+		const chatId = await member.mutation(api.chats.createChannel, { name: "sales", private: false });
+		const { turn, approvalId, card } = await holdCall(t, member, chatId);
+		await member.mutation(api.trash.move, { kind: "channel", id: chatId });
+		expect(await member.query(api.approvals.forReply, { replyId: turn.replyId! })).toEqual([]);
+		await expect(member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true })).rejects.toThrow("Approval not found");
+		await member.mutation(api.trash.restore, { kind: "channel", id: chatId });
+		await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true });
+		const resume = (await turnsOf(t)).at(-1)!;
+		await member.mutation(api.trash.move, { kind: "channel", id: chatId });
+		expect(await t.mutation(internal.approvals.claim, { approvalId, turnId: resume._id })).toBeNull();
+		await expect(t.query(internal.turns.turnContext, { turnId: resume._id })).rejects.toThrow("no longer see this chat");
+		await expect(t.mutation(internal.approvals.request, { turnId: resume._id, callId: "late", tool: call.tool, input: canonicalJson(call.input) })).rejects.toThrow("no longer see this chat");
+	});
+
 	it("refuses a hash other than the stored call's, and decided or expired requests", async () => {
 		const { t, member } = await ownerAndMember();
 		const chatId = (await generalOf(member))._id;

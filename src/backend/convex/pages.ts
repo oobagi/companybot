@@ -97,12 +97,14 @@ export const setArchived = mutation({
 	},
 });
 
-// COMPAT(0.1.0-alpha.8): deleting for good is the owners' "Delete forever" (trash.purge) now.
+// COMPAT(0.1.0-alpha.8): old apps delete live pages to Trash; only owners delete trashed pages forever.
 export const remove = mutation({
 	args: { pageId: v.id("pages") },
 	handler: async (ctx, { pageId }) => {
 		const member = await requireMember(ctx);
-		await purgeItem(ctx, member, (await requirePage(ctx, member, pageId))._id);
+		const page = await requirePage(ctx, member, pageId);
+		if (page.archived) await purgeItem(ctx, member, pageId);
+		else await setPageTrashed(ctx, { member }, page, true);
 	},
 });
 

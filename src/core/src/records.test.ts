@@ -12,7 +12,6 @@ import {
 	normalizeValue,
 	recordTypeCatalog,
 	searchTextOf,
-	searchTextWithout,
 	singularOf,
 } from "./records";
 
@@ -131,15 +130,6 @@ describe("records", () => {
 	it("searches text-like values only", () => {
 		const fields = [field("text", { key: "name" }), field("number", { key: "n" }), field("email", { key: "e" })];
 		expect(searchTextOf(fields, { name: "Acme", n: 3, e: "a@b.co" })).toBe("Acme\na@b.co");
-	});
-
-	it("drops a deleted field's text from search text without reading the other fields", () => {
-		const text = field("text", { key: "t" });
-		expect(searchTextWithout("Acme\nMetal roof\nnotes", text, "Metal roof")).toBe("Acme\nnotes");
-		expect(searchTextWithout("Metal\nAcme", text, "Metal")).toBe("Acme");
-		expect(searchTextWithout("Acme\nMetal", text, "Metal")).toBe("Acme");
-		expect(searchTextWithout("Acme\nMetal roof", text, "Metal")).toBe("Acme\nMetal roof");
-		expect(searchTextWithout("Acme\n3", field("number"), "3")).toBe("Acme\n3");
 	});
 
 	it("ships built-in types whose fields are valid and links point at other built-ins", () => {

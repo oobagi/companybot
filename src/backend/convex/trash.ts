@@ -3,15 +3,15 @@ import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id, TableNames } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { type MutationCtx, internalMutation } from "./_generated/server";
+import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { startCascade } from "./cascade";
-import { setChannelTrashed } from "./chatOps";
+import { canSee, setChannelTrashed } from "./chatOps";
 import { mutation, query } from "./functions";
-import { type Member, type Who, getMember, nameOf, requireMember } from "./lib";
+import { type Member, type Who, getMember, requireMember } from "./lib";
 import { deletePage, requirePage, setPageTrashed } from "./pageOps";
 import { setFieldTrashed, setRecordTrashed, setTypeTrashed } from "./recordOps";
 import { trashKind } from "./schema";
-import { TRASH_MS, type TrashKind, canRestore, trashEntry } from "./trashOps";
+import { TRASH_MS, type TrashKind, describeTrash, trashEntry } from "./trashOps";
 
 // Trash: one place for every deleted record, database, field, page and channel. Deleting moves
 // an item here; whoever deleted it (or an owner) can restore it, where it was, links included.
@@ -30,7 +30,7 @@ function idOf<K extends TrashKind>(ctx: MutationCtx, kind: K, id: string) {
 }
 
 /** Moves an item to Trash, or back: each kind's own rules decide who may. Agents use the same. */
-export async function setTrashed(ctx: MutationCtx, who: Who, kind: TrashKind, id: string, trashed: boolean) {
+async function setTrashed(ctx: MutationCtx, who: Who, kind: TrashKind, id: string, trashed: boolean) {
 	if (kind === "record") return void (await setRecordTrashed(ctx, who, idOf(ctx, kind, id), trashed));
 	if (kind === "database") return setTypeTrashed(ctx, who, idOf(ctx, kind, id), trashed);
 	if (kind === "field") return setFieldTrashed(ctx, who, idOf(ctx, kind, id), trashed);
@@ -52,11 +52,19 @@ async function deleteEntry(ctx: MutationCtx, entry: Doc<"trash">) {
 	if (entry.kind === "page") await deletePage(ctx, idOf(ctx, "page", entry.itemId));
 }
 
+/** Trash never widens a private channel's audience, including for workspace owners. */
+async function visibleEntry(ctx: QueryCtx, member: Member, entry: Doc<"trash">) {
+	if (entry.kind !== "channel") return true;
+	const id = ctx.db.normalizeId("chats", entry.itemId);
+	const chat = id && (await ctx.db.get(id));
+	return !!chat && (await canSee(ctx, chat, member));
+}
+
 /** "Delete forever": owners only, and never agents. */
 export async function purgeItem(ctx: MutationCtx, member: Member, itemId: string) {
 	if (!can(member.role, "trash.manage")) throw new ConvexError(deniedMessage("trash.manage"));
 	const entry = await trashEntry(ctx, itemId);
-	if (entry?.workspaceId !== member.workspaceId) throw new ConvexError("It's no longer in Trash.");
+	if (entry?.workspaceId !== member.workspaceId || !(await visibleEntry(ctx, member, entry))) throw new ConvexError("It's no longer in Trash.");
 	await deleteEntry(ctx, entry);
 }
 
@@ -80,18 +88,13 @@ export const list = query({
 				: await trash.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId)).order("desc").paginate(opts);
 		const page = [];
 		for (const e of result.page) {
+			if (!(await visibleEntry(ctx, member, e))) continue;
 			const type = e.typeId && (await ctx.db.get(e.typeId));
 			page.push({
 				_id: e._id,
-				kind: e.kind,
-				itemId: e.itemId,
-				name: e.name,
+				...(await describeTrash(ctx, member, e)),
 				in: type ? type.plural : null,
 				typeKey: type ? type.key : null,
-				user: await nameOf(ctx, e.deletedBy),
-				agent: e.agentId ? ((await ctx.db.get(e.agentId))?.name ?? null) : null,
-				deletedAt: e.deletedAt,
-				canRestore: canRestore(member, e),
 			});
 		}
 		return { ...result, page };

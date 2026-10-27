@@ -21,7 +21,6 @@ import {
 	singularOf,
 	sameValue,
 	searchTextOf,
-	searchTextWithout,
 	valuesBytes,
 } from "@companybot/core";
 import { ConvexError, getDocumentSize } from "convex/values";
@@ -42,8 +41,10 @@ export function requireCan(member: Member, permission: Permission) {
 }
 
 /** A database in the person's workspace. Other workspaces' look like they don't exist. */
-export async function requireType(ctx: QueryCtx, member: Member, typeId: Id<"recordTypes">) {
-	return requireInWorkspace(member, await ctx.db.get(typeId), "Database");
+export async function requireType(ctx: QueryCtx, member: Member, typeId: Id<"recordTypes">, live = false) {
+	const type = requireInWorkspace(member, await ctx.db.get(typeId), "Database");
+	if (live && type.archived) throw new ConvexError("This database is in Trash. Restore it to make changes.");
+	return type;
 }
 
 export async function requireRecord(ctx: QueryCtx, member: Member, recordId: Id<"records">) {
@@ -250,7 +251,10 @@ export async function setRecordTrashed(ctx: MutationCtx, who: Who, recordId: Id<
 	requireCan(who.member, "records.edit");
 	const record = await requireRecord(ctx, who.member, recordId);
 	if (record.archived === archived) return null;
-	if (archived) await putInTrash(ctx, who, { kind: "record", id: recordId, name: record.title, typeId: record.typeId });
+	if (archived) {
+		await requireLive(ctx, record);
+		await putInTrash(ctx, who, { kind: "record", id: recordId, name: record.title, typeId: record.typeId });
+	}
 	else {
 		const type = await ctx.db.get(record.typeId);
 		if (type?.archived) throw new ConvexError(`${type.plural} is in Trash. Restore it first.`);
@@ -323,14 +327,14 @@ function requireFieldConfig(config: FieldConfig) {
 /** Adds a field to a type. Existing records just don't have a value yet: nothing to backfill. */
 export async function createField(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, input: FieldInput) {
 	requireCan(who.member, "fields.create");
-	await requireType(ctx, who.member, typeId);
+	await requireType(ctx, who.member, typeId, true);
 	const fields = await fieldsOf(ctx, typeId);
 	if (fields.length >= FIELDS_PER_TYPE_MAX) throw new ConvexError(`A database holds up to ${FIELDS_PER_TYPE_MAX} fields.`);
 	const { linkTypeId, ...rest } = input;
 	const config = normalizeFieldConfig({ ...rest, linkType: linkTypeId });
 	requireFieldConfig(config);
 	requireUniqueLabel(fields, config.label);
-	if (linkTypeId) await requireType(ctx, who.member, linkTypeId);
+	if (linkTypeId) await requireType(ctx, who.member, linkTypeId, true);
 	const key = keyOf(config.label, fields.map((f) => f.key));
 	const id = await insertField(ctx, who.member, typeId, { ...config, key }, Math.max(0, ...fields.map((f) => f.position)) + 1, linkTypeId);
 	await logChange(ctx, who, { typeId, fieldId: id, action: "field.created", changes: [{ key: "label", new: config.label }] });
@@ -339,6 +343,7 @@ export async function createField(ctx: MutationCtx, who: Who, typeId: Id<"record
 
 async function requireEditableField(ctx: QueryCtx, member: Member, fieldId: Id<"recordFields">) {
 	const field = requireInWorkspace(member, await ctx.db.get(fieldId), "Field");
+	await requireType(ctx, member, field.typeId, true);
 	if (!canEditMade(toActor(member), "fields.manage", field.createdBy)) throw new ConvexError(madeEditDenied);
 	return field;
 }
@@ -355,6 +360,7 @@ export async function updateField(
 	update: { label?: string; options?: { id?: string; label: string }[] },
 ) {
 	const field = await requireEditableField(ctx, who.member, fieldId);
+	if (field.archived) throw new ConvexError("This field is in Trash. Restore it to make changes.");
 	let options = field.options;
 	if (update.options) {
 		const existing = field.options ?? [];
@@ -382,24 +388,19 @@ export async function updateField(
 
 /** A field in Trash keeps its values on every record, so restoring it brings them back. */
 export async function setFieldTrashed(ctx: MutationCtx, who: Who, fieldId: Id<"recordFields">, archived: boolean) {
-	const field = await requireEditableField(ctx, who.member, fieldId);
+	const field = archived
+		? await requireEditableField(ctx, who.member, fieldId)
+		: requireInWorkspace(who.member, await ctx.db.get(fieldId), "Field");
 	if (field.key === NAME_KEY) throw new ConvexError("Every record needs a name, so this field stays.");
 	if (field.archived === archived) return;
 	if (archived) await putInTrash(ctx, who, { kind: "field", id: fieldId, name: field.label, typeId: field.typeId });
 	else {
-		const type = await ctx.db.get(field.typeId);
-		if (type?.archived) throw new ConvexError(`${type.plural} is in Trash. Restore it first.`);
+		await requireType(ctx, who.member, field.typeId, true);
 		requireUniqueLabel(await fieldsOf(ctx, field.typeId), field.label, fieldId);
 		await takeFromTrash(ctx, who, fieldId);
 	}
 	await ctx.db.patch(fieldId, { archived, updatedAt: Date.now() });
 	await logChange(ctx, who, { typeId: field.typeId, fieldId, action: archived ? "field.archived" : "field.restored", changes: [] });
-}
-
-/** A record without a deleted field's value, so a new field can reuse its key. */
-export function withoutField(record: Doc<"records">, field: Doc<"recordFields">) {
-	const { [field.key]: value, ...values } = record.values;
-	return { values, searchText: searchTextWithout(record.searchText, toField(field), value) };
 }
 
 const TYPES_MAX = 32;
@@ -440,7 +441,7 @@ export async function updateType(ctx: MutationCtx, who: Who, typeId: Id<"recordT
 
 /** Moves a database to Trash, with its records, fields and views, or brings it back if its names are free. */
 export async function setTypeTrashed(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, archived: boolean) {
-	requireCan(who.member, "fields.manage");
+	if (archived) requireCan(who.member, "fields.manage");
 	const type = await requireType(ctx, who.member, typeId);
 	if (type.archived === archived) return;
 	if (archived) await putInTrash(ctx, who, { kind: "database", id: typeId, name: type.plural });

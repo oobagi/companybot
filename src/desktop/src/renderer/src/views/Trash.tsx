@@ -65,7 +65,7 @@ export function TrashView({ role }: { role: Role }) {
 									{e.in && <span className={`ml-2 ${metadataClass}`}>in {e.in}</span>}
 								</span>
 								<span className={`ml-auto shrink-0 ${metadataClass}`}>
-									{whoLabel(e)} · {timeAgo(e.deletedAt)}
+									{whoLabel(e)} · {timeAgo(e.at)}
 								</span>
 								{e.canRestore && (
 									<button type="button" onClick={() => run(restore({ kind: e.kind, id: e.itemId }))} className="shrink-0 text-neutral-600 hover:text-neutral-900">

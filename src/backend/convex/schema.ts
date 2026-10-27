@@ -667,7 +667,9 @@ export default defineSchema({
 		archived: v.boolean(),
 		createdBy: v.id("users"),
 		updatedAt: v.number(),
-	}).index("by_type", ["typeId", "key"]),
+	})
+		.index("by_type", ["typeId", "key"])
+		.index("by_type_kind", ["typeId", "kind"]),
 
 	records: defineTable({
 		workspaceId: v.id("workspaces"),
@@ -793,7 +795,8 @@ export default defineSchema({
 		chatId: v.id("chats"),
 	})
 		.index("by_record", ["recordId"])
-		.index("by_message", ["messageId"]),
+		.index("by_message", ["messageId"])
+		.index("by_chat", ["chatId"]),
 
 	// What's in Trash: one row per deleted record, database, field, page or channel (trash.ts).
 	// The item itself stays, `archived`, until it's restored or deleted for good: by an owner,

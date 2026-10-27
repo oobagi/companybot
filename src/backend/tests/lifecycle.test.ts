@@ -14,7 +14,7 @@ afterEach(() => void vi.useRealTimers());
 const tables = Object.keys(schema.tables) as TableNames[];
 const indexesOf = (table: TableNames) =>
 	new Map((schema.tables[table] as unknown as { " indexes"(): { indexDescriptor: string; fields: string[] }[] })[" indexes"]().map((i) => [i.indexDescriptor, i.fields]));
-const scopes = ["workspace", "member", "user", "connectorInstall", "automationInstall", "page"] as const;
+const scopes = ["workspace", "member", "user", "connectorInstall", "automationInstall", "page", "record", "database", "field", "channel"] as const;
 
 describe("the lifecycle registry", () => {
 	it("lists every table, so a new one fails until someone decides what happens to its rows", () => {

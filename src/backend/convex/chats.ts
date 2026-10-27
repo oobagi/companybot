@@ -251,6 +251,7 @@ export const updateChannel = mutation({
 
 export async function updateChannelAs(ctx: MutationCtx, member: Member, { chatId, name, topic }: Infer<typeof updateChannelArgs>) {
 	const chat = await requireManagedChannel(ctx, member, chatId);
+	if (chat.archived) throw new ConvexError("This channel is in Trash.");
 	await ctx.db.patch(chat._id, {
 		...(name !== undefined && { name: await availableName(ctx, member, name, chat._id) }),
 		...(topic !== undefined && { topic: topic.trim() || undefined }),

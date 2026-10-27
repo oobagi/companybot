@@ -82,7 +82,7 @@ class Budget {
 	has(ranges: number, rows = 0, bytes = 0) {
 		return this.ranges + ranges <= SCAN_RANGES && this.rows + rows <= SCAN_ROWS && this.bytes + bytes <= SCAN_BYTES;
 	}
-	read(rows: Row[]) {
+	read(rows: (Row | Doc<"recordTypes">)[]) {
 		this.ranges++;
 		this.rows += rows.length;
 		for (const row of rows) this.bytes += getDocumentSize(row);
@@ -96,6 +96,14 @@ class Liveness {
 		private ctx: QueryCtx,
 		private budget: Budget,
 	) {}
+	async type(id: Id<"recordTypes">) {
+		if (!this.known.has(id)) {
+			const type = await this.ctx.db.get(id);
+			this.budget.read(type ? [type] : []);
+			this.known.set(id, !!type && !type.archived);
+		}
+		return this.known.get(id)!;
+	}
 	async of(id: string) {
 		const cached = this.known.get(id);
 		if (cached !== undefined) return cached;
@@ -167,6 +175,7 @@ export async function compile(fields: Fields, c: Condition, currency: string, li
 	if (!field) throw new ConvexError(`There's no field “${c.field}”.`);
 	const name = `“${field.label}”`;
 	const entries = (values: Values) => indexEntries(toField(field), values[field.key]) as Entry[];
+	const targetLive = field.kind !== "link" || (await live.type(field.linkTypeId!));
 	const kinds = (["eq", "in", "empty"] as const).filter((k) => c[k] !== undefined);
 	const range = (["gt", "gte", "lt", "lte"] as const).filter((k) => c[k] !== undefined);
 	if (kinds.length + (range.length ? 1 : 0) !== 1) throw new ConvexError(`Give ${name} one condition: eq, in, a range, or empty.`);
@@ -176,7 +185,7 @@ export async function compile(fields: Fields, c: Condition, currency: string, li
 		if (field.kind === "link") {
 			// Links to archived records count as gone (wiki/data.md), so "empty" means no live target.
 			const hasLive = async (v: Values) => {
-				for (const e of entries(v)) if (await live.of(e.ref!)) return true;
+				for (const e of entries(v)) if (targetLive && (await live.of(e.ref!))) return true;
 				return false;
 			};
 			return { field, resolved: { field: field._id, empty: want }, lookups: MULTI_MAX, test: async (v) => (await hasLive(v)) !== want };
@@ -199,7 +208,7 @@ export async function compile(fields: Fields, c: Condition, currency: string, li
 		// Links to an archived record match nothing (wiki/data.md).
 		if (field.kind === "link") {
 			const kept = [];
-			for (const e of wanted) if (await live.of(e.ref!)) kept.push(e);
+			for (const e of wanted) if (targetLive && (await live.of(e.ref!))) kept.push(e);
 			wanted = kept;
 		}
 		// Long text keys by a hash, so a match is checked against the text itself.

@@ -155,7 +155,8 @@ export async function requireManagedChannel(ctx: QueryCtx, member: Member, chatI
 
 /** Moves a channel to Trash (its messages and members stay until it's deleted for good) or back. */
 export async function setChannelTrashed(ctx: MutationCtx, who: Who, chatId: Id<"chats">, archived: boolean) {
-	const chat = await requireManagedChannel(ctx, who.member, chatId);
+	const chat = archived ? await requireManagedChannel(ctx, who.member, chatId) : await requireChat(ctx, who.member, chatId);
+	if (chat.kind !== "channel") throw new ConvexError("That's not a channel.");
 	if (chat.isDefault) throw new ConvexError(`Everyone uses #${chat.name}, so it stays.`);
 	if (chat.archived === archived) return;
 	if (archived) await putInTrash(ctx, who, { kind: "channel", id: chatId, name: `#${chat.name}` });

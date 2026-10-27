@@ -1,3 +1,4 @@
+import { searchTextOf } from "@companybot/core";
 import type { IndexNames, NamedTableInfo } from "convex/server";
 import { internal } from "./_generated/api";
 import type { DataModel, Doc, Id, TableNames } from "./_generated/dataModel";
@@ -6,7 +7,7 @@ import { privateTo } from "./automationOps";
 import { startCascade } from "./cascade";
 import { hasLiveOwner, liveWorkspace, pinLegacyWorkspace } from "./lib";
 import { deletePage, pageOfRecord } from "./pageOps";
-import { withoutField } from "./recordOps";
+import { toField } from "./recordOps";
 
 // What happens to every table's rows when what they belong to goes: a workspace is deleted,
 // a member removed, an account erased, a connector or automation uninstalled, a page deleted, or
@@ -20,7 +21,11 @@ export type Scope = Doc<"cascades">["scope"];
 export type Root = Doc<"cascades">["root"];
 
 /** Reads a row by id, counted against the cascade run's read budget. */
-export type Get = <T extends TableNames>(id: Id<T>) => Promise<Doc<T> | null>;
+export type Get = {
+	<T extends TableNames>(id: Id<T>): Promise<Doc<T> | null>;
+	/** Small text-field catalog, cached and counted against the same budget. */
+	searchFields(typeId: Id<"recordTypes">): Promise<Doc<"recordFields">[]>;
+};
 
 /** One range of one index: its rows are deleted (or patched, with `scrub`) when the scope's root goes. */
 export type Edge<T extends TableNames> = {
@@ -56,7 +61,7 @@ async function deleteBody(ctx: MutationCtx, row: Doc<"records">) {
 const deleteContent = (ctx: MutationCtx, row: Doc<"pages">) => ctx.scheduler.runAfter(0, internal.pageSync.deleteDoc, { id: row._id });
 
 /** The field being deleted, read once per run. */
-const fieldOf = async (get: Get, root: Root) => (await get(root.fieldId!))!;
+const fieldOf = async (get: Get, root: Root) => await get(root.fieldId!);
 
 /** Ends access to a workspace at once (memberOf refuses it), then deletes it in a cascade. */
 export async function removeWorkspace(ctx: MutationCtx, workspaceId: Id<"workspaces">) {
@@ -170,14 +175,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	},
 	chatMessages: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
-		channel: {
-			index: "by_chat_thread",
-			eq: ["chatId"],
-			// Records no longer list it where they were discussed (as messages.remove).
-			onDelete: async (ctx, row) => {
-				for await (const m of ctx.db.query("recordMentions").withIndex("by_message", (q) => q.eq("messageId", row._id))) await ctx.db.delete(m._id);
-			},
-		},
+		channel: { index: "by_chat_thread", eq: ["chatId"] },
 		// Deleting a message clears it but keeps the row (messages.remove). What agents already saw of a
 		// deleted or edited message stays in their sessions: a product decision is pending.
 		keep: "Team history: what someone said stays when they leave; once their account is erased it shows as a former member's.",
@@ -261,8 +259,16 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		field: {
 			index: "by_type",
 			eq: ["typeId"],
-			where: async (get, row, root) => (await fieldOf(get, root)).key in row.values,
-			scrub: async (row, get, root) => withoutField(row, await fieldOf(get, root)),
+			where: async (get, row, root) => {
+				const field = await fieldOf(get, root);
+				return !!field && field.key in row.values;
+			},
+			scrub: async (row, get, root) => {
+				const field = await fieldOf(get, root);
+				const { [field!.key]: _, ...values } = row.values;
+				const fields = await get.searchFields(row.typeId);
+				return { values, searchText: searchTextOf(fields.filter((f) => f._id !== root.fieldId).map(toField), values) };
+			},
 		},
 		keep: "Records are the workspace's: deleting one moves it to Trash. Who made or changed them stays in history.",
 	},
@@ -279,6 +285,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	},
 	// Deleting a message deletes its rows here too (messages.remove).
 	recordMentions: {
+		channel: { index: "by_chat", eq: ["chatId"] },
 		childOf: { table: "records", index: "by_record", field: "recordId" },
 		record: { index: "by_record", eq: ["recordId"] },
 	},
