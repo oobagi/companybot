@@ -1,3 +1,4 @@
+import { seedLegacyRecords, scribe } from "./legacyFixtures";
 import migrationsTest from "@convex-dev/migrations/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, components, internal } from "../convex/_generated/api";
@@ -357,6 +358,8 @@ describe("trash migration", () => {
 		const t = newTest();
 		migrationsTest.register(t);
 		const owner = await signIn(t, "owner@co.com");
+		const workspaceIdForSeed = (await owner.query(api.workspace.me))!.workspaceId!;
+		await t.run((ctx) => seedLegacyRecords(ctx, workspaceIdForSeed, owner.userId));
 		const workspaceId = (await owner.query(api.workspace.me))!.workspaceId!;
 		const typeId = (await owner.query(api.recordTypes.list))[0]!._id;
 		// A default 100-row batch would exceed 16 MiB. Seed in separate transactions too.
@@ -376,6 +379,8 @@ describe("trash migration", () => {
 		const t = newTest();
 		migrationsTest.register(t);
 		const owner = await signIn(t, "owner@co.com");
+		const workspaceIdForSeed = (await owner.query(api.workspace.me))!.workspaceId!;
+		await t.run((ctx) => seedLegacyRecords(ctx, workspaceIdForSeed, owner.userId));
 		const ids = await t.run(async (ctx) => {
 			const { userId, workspaceId } = (await ctx.db.query("members").first())!;
 			const typeId = (await ctx.db.query("recordTypes").first())!._id;
@@ -385,8 +390,7 @@ describe("trash migration", () => {
 			const type = await ctx.db.insert("recordTypes", { workspaceId, key: "job", name: "Job", plural: "Jobs", archived: true, createdBy: userId, updatedAt: now });
 			const field = await ctx.db.insert("recordFields", { workspaceId, typeId, key: "roof", label: "Roof", kind: "text", position: 9, archived: true, createdBy: userId, updatedAt: now });
 			const page = await ctx.db.insert("pages", { workspaceId, title: "Old SOP", archived: true, createdBy: userId, updatedAt: now, updatedBy: userId });
-			const agent = (await ctx.db.query("agents").collect()).find((a) => a.name === "Scribe")!._id;
-			await ctx.db.patch(agent, { archived: true });
+			const agent = await ctx.db.insert("agents", { ...scribe, workspaceId, archived: true, version: 1, updatedAt: now, updatedBy: userId });
 			return [record, type, field, page, agent] as string[];
 		});
 		vi.useFakeTimers();

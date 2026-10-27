@@ -1,3 +1,4 @@
+import { seedLegacyRecords } from "./legacyFixtures";
 import { modules, settle } from "./helpers";
 import migrationsTest from "@convex-dev/migrations/test";
 import { convexTest } from "convex-test";
@@ -22,6 +23,7 @@ async function setup(unpinned = false) {
 	const old = person(t.withIdentity({ subject: `${userId}|session` }));
 	await old.mutation(api.workspace.ensure);
 	const a = (await old.query(api.workspace.me))!.workspaceId!;
+	await t.run((ctx) => seedLegacyRecords(ctx, a, userId));
 	const deputyId = await t.run(async (ctx) => {
 		const id = await ctx.db.insert("users", { email: "deputy@co.com" });
 		await ctx.db.insert("members", { userId: id, workspaceId: a, role: "owner", email: "deputy@co.com" });

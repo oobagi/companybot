@@ -140,18 +140,20 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 			<aside className="drag flex w-60 shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 px-3 pt-12 pb-3">
 				<WorkspaceMenu name={workspace} />
 				<div className="no-drag -mx-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1 pb-4">
-					<Group title="Databases" onAdd={can(role, "fields.manage") ? () => setNewDatabase(true) : undefined} addLabel="New database">
-						{types?.map((type) => (
-							<Item key={type._id} icon={<DatabaseIcon />} active={typeKey === type.key} onClick={() => navigate(...recordPath(type.key))}>
-								{type.plural}
-							</Item>
-						))}
-						{can(role, "fields.manage") && (
-							<Item icon={<PlusIcon />} muted onClick={() => setNewDatabase(true)}>
-								New database
-							</Item>
-						)}
-					</Group>
+					{(!!types?.length || can(role, "fields.manage")) && (
+						<Group title="Databases" onTitle={() => navigate("records")} onAdd={can(role, "fields.manage") ? () => setNewDatabase(true) : undefined} addLabel="New database">
+							{types?.map((type) => (
+								<Item key={type._id} icon={<DatabaseIcon />} active={typeKey === type.key} onClick={() => navigate(...recordPath(type.key))}>
+									{type.plural}
+								</Item>
+							))}
+							{can(role, "fields.manage") && (
+								<Item icon={<PlusIcon />} muted onClick={() => setNewDatabase(true)}>
+									New database
+								</Item>
+							)}
+						</Group>
+					)}
 					<PagesNav openId={view === "pages" ? route[1] : undefined} />
 					<ChatNav chats={chats} openId={view === "chat" ? openId : undefined} onOpen={open} onError={(e) => setError(errorMessage(e))} />
 				</div>
@@ -197,7 +199,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 					) : (
 						<TopBar title="" />
 					))}
-				{typeKey && <RecordsView key={typeKey} typeKey={typeKey} recordId={recordId} role={role} />}
+				{(typeKey || view === "records") && <RecordsView key={typeKey} typeKey={typeKey} recordId={recordId} role={role} />}
 				{view === "pages" && <PagesView pageId={route[1]} canEdit={can(role, "pages.edit")} />}
 				{view === "trash" && <TrashView role={role} />}
 				{view === "customize" && <CustomizeView role={role} tab={customizeTab} itemId={route[2]} />}

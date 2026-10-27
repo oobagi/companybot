@@ -11,7 +11,7 @@ import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
 import { Field, Loading, Notice, Page, Section, compactControlClass, descriptionClass, inputClass, primaryButton, secondaryButton, timeAgo, useRun } from "../../ui";
 import { useTurnOn } from "../Permissions";
-import { Card, Detail, Facts, LibraryList, MadeItemDetail, Missing, NewItem, customizeCrumbs } from "./shared";
+import { Card, Detail, Facts, ItemList, MadeItemDetail, Missing, NewItem, customizeCrumbs } from "./shared";
 
 type AutomationItem = FunctionReturnType<typeof api.automations.list>[number];
 type Channel = { _id: Id<"chats">; title: string };
@@ -21,11 +21,8 @@ const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 export function AutomationsTab({ role }: { role: Role }) {
 	const automations = useQuery(api.automations.list);
-	const setInstalled = useMutation(api.automations.setInstalled);
-	const remove = useMutation(api.automations.remove);
 	const { error, run } = useRun();
 	if (!automations) return <Loading />;
-	const canManage = can(role, "automations.manage");
 	const card = (a: AutomationItem) => {
 		const offered = a.installed && a.audience === "subscribers";
 		return (
@@ -36,8 +33,7 @@ export function AutomationsTab({ role }: { role: Role }) {
 				description={a.custom ? a.prompt : a.description}
 				status={a.installed ? statusLine(a) : undefined}
 				installed={a.installed}
-				canManage={a.custom ? a.canEdit : canManage}
-				onToggle={a.custom || offered ? undefined : () => run(a.installed ? remove({ automationId: a.id }) : setInstalled({ automationId: a.id, installed: true, timeZone }))}
+				canManage={a.canEdit}
 				action={offered ? <SubscribeButton automation={a} onError={run} /> : undefined}
 				onOpen={() => navigate("customize", "automations", a.id)}
 			/>
@@ -45,9 +41,10 @@ export function AutomationsTab({ role }: { role: Role }) {
 	};
 
 	return (
-		<LibraryList
+		<ItemList
 			items={automations}
-			description="Jobs that run on their own: on a schedule, when something happens here, or when another app sends a webhook. Each one asks an agent to do something. Turn on the ones you want."
+			empty={can(role, "automations.create") ? "No automations yet. Make your own with New automation, or ask Companybot to set one up." : "No automations yet. Your team can create automations here."}
+			description="Jobs that run on their own: on a schedule, when something happens here, or when another app sends a webhook. Each one asks an agent to do something. Create one for your team, or turn on one they already use."
 			error={error}
 			card={card}
 			action={can(role, "automations.create") && (
@@ -133,7 +130,7 @@ function AutomationFields({
 					className={inputClass}
 					value={value.name}
 					maxLength={CUSTOM_NAME_MAX}
-					placeholder="e.g. Weekly pipeline review"
+					placeholder="e.g. Weekly team update"
 					onChange={(e) => onChange({ ...value, name: e.target.value })}
 				/>
 			</Field>
@@ -234,7 +231,7 @@ function AutomationFields({
 				<textarea
 					className={`${inputClass} min-h-32`}
 					value={value.prompt}
-					placeholder="e.g. List deals that haven't moved in two weeks, with the next step for each."
+					placeholder="e.g. Summarize this week's conversations and highlight follow-ups."
 					onChange={(e) => onChange({ ...value, prompt: e.target.value })}
 				/>
 			</Field>
@@ -357,9 +354,8 @@ function CustomAutomationDetail({ automation: a, custom }: { automation: Automat
 }
 
 function AutomationDetail({ automation: a, canManage }: { automation: AutomationItem; canManage: boolean }) {
-	const setInstalled = useMutation(api.automations.setInstalled);
 	const remove = useMutation(api.automations.remove);
-	const { error, run } = useRun();
+	const { error, busy, run } = useRun();
 
 	return (
 		<Detail
@@ -368,8 +364,11 @@ function AutomationDetail({ automation: a, canManage }: { automation: Automation
 			meta={`${a.publisher} · v${a.version}`}
 			description={a.description}
 			installed={a.installed}
+			trash={a.trash}
 			canManage={canManage}
-			onToggle={() => run(a.installed ? remove({ automationId: a.id }) : setInstalled({ automationId: a.id, installed: true, timeZone }))}
+			confirmation="It stops running. You can restore it from Trash for 30 days."
+			busy={busy}
+			onToggle={() => run(remove({ automationId: a.id }))}
 		>
 			{error && <Notice>{error}</Notice>}
 			<Markdown className="text-sm leading-relaxed text-neutral-700">{a.details}</Markdown>
@@ -377,10 +376,9 @@ function AutomationDetail({ automation: a, canManage }: { automation: Automation
 				rows={[
 					["When", a.scheduled && a.timeZone ? `${a.trigger} (${a.timeZone})` : a.trigger],
 					...(a.runsFor ? [["Runs for", a.runsFor] as [string, string]] : []),
-					["Needs", a.needs.length ? a.needs.map((n) => `${n.name} connector${n.installed ? "" : " (not installed)"}`).join(", ") : "Nothing extra"],
 				]}
 			/>
-			{a.installed && <AutomationSettings automation={a} />}
+			{a.installed && !a.trash && <AutomationSettings automation={a} />}
 			<Section title="What the agent is asked" hint="Sent to the agent each run, as if the person it runs for asked it.">
 				<Markdown className="rounded-xl bg-neutral-50 px-4 py-3 text-sm leading-relaxed">{a.prompt}</Markdown>
 			</Section>
@@ -400,7 +398,6 @@ function AutomationSettings({ automation: a }: { automation: AutomationItem }) {
 	const [copied, setCopied] = useState(false);
 	const resume = useTurnOn(a.name, () => update({ automationId: a.id, enabled: true }));
 	const active = agents?.filter((x) => !x.archived) ?? [];
-	const ungranted = a.needs.filter((n) => !n.granted);
 	const row = "flex items-center gap-2";
 	const label = "w-20 shrink-0 text-neutral-500";
 
@@ -494,11 +491,6 @@ function AutomationSettings({ automation: a }: { automation: AutomationItem }) {
 							Paste this into the app that sends the webhook. Keep it secret: anyone with it can trigger this automation.
 						</p>
 					</div>
-				)}
-				{ungranted.length > 0 && (
-					<p className="rounded-lg bg-amber-50 px-3 py-2 text-amber-900">
-						{a.agentName} isn't granted {ungranted.map((n) => n.name).join(", ")}. Grant it in Agents, or pick another agent.
-					</p>
 				)}
 				<p className="text-neutral-500">{a.lastRunAt ? `Last ran ${timeAgo(a.lastRunAt)}. ${a.lastResult ?? ""}` : "Hasn't run yet."}</p>
 				{a.canEdit && (

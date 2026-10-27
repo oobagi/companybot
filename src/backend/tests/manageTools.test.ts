@@ -1,3 +1,4 @@
+import { seedSkill } from "./legacyFixtures";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ManageTool } from "@companybot/core";
 import { api, internal } from "../convex/_generated/api";
@@ -174,17 +175,17 @@ describe("automation management", () => {
 });
 
 describe("skills, members and settings", () => {
-	it("lists and reads library/custom skills, edits versioned instructions, installs and removes", async () => {
-		const { call, member } = await ready();
+	it("lists and reads existing skills, edits versioned instructions and removes", async () => {
+		const { t, owner, call, member } = await ready();
+		await seedSkill(t, owner, "meeting-notes");
 		const id = await member.mutation(api.skills.create, { config: skill });
-		expect((await call("skills.manage", { action: "list" })).library.length).toBeGreaterThan(0);
+		expect((await call("skills.manage", { action: "list" })).page).toHaveLength(2);
 		expect(await call("skills.manage", { action: "get", id })).toMatchObject({ name: skill.name, version: 1 });
 		expect(await call("skills.edit", { action: "edit", id, expectedVersion: 1, config: { ...skill, instructions: "Updated." } }, true)).toMatchObject({
 			done: "edit",
 		});
 		expect(await call("skills.edit", { action: "edit", id, expectedVersion: 1, config: skill }, true)).toHaveProperty("error");
 		expect(await call("skills.manage", { action: "get", id: "meeting-notes" })).toHaveProperty("instructions");
-		await call("skills.manage", { action: "install", id: "meeting-notes" });
 		expect(await call("skills.manage", { action: "get", id: "meeting-notes" })).toMatchObject({ installed: true });
 		await call("skills.remove", { action: "delete", id: "meeting-notes" });
 		await call("skills.remove", { action: "delete", id }, true);
@@ -196,7 +197,6 @@ describe("skills, members and settings", () => {
 		const id = await owner.mutation(api.skills.create, { config: skill });
 		expect(await call("skills.edit", { action: "edit", id, expectedVersion: 1, config: skill }, true)).toHaveProperty("error");
 		expect(await call("skills.remove", { action: "delete", id }, true)).toHaveProperty("error");
-		expect(await call("skills.manage", { action: "install", id: "meeting-notes" }, true)).toHaveProperty("error");
 		expect(await call("skills.remove", { action: "delete", id: "meeting-notes" }, true)).toHaveProperty("error");
 		const w = await call("workspace.settings", { action: "get" }, true);
 		expect(await call("workspace.settings", { action: "update", expectedVersion: w.version, name: "No" }, true)).toHaveProperty("error");

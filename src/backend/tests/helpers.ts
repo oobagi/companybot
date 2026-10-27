@@ -1,3 +1,4 @@
+import { seedLegacyRecords, scribe } from "./legacyFixtures";
 import prosemirrorSync from "@convex-dev/prosemirror-sync/test";
 import { convexTest } from "convex-test";
 import { vi } from "vitest";
@@ -49,6 +50,12 @@ export function newTest() {
 export async function setup() {
 	const t = newTest();
 	const owner = await signIn(t, "owner@co.com");
+	const workspaceId = await workspaceOf(owner);
+	await t.run(async (ctx) => {
+		const agentId = await ctx.db.insert("agents", { ...scribe, workspaceId, archived: false, version: 1, updatedBy: owner.userId, updatedAt: Date.now() });
+		await ctx.db.insert("agentVersions", { agentId, version: 1, config: scribe, savedBy: owner.userId });
+		await seedLegacyRecords(ctx, workspaceId, owner.userId);
+	});
 	await owner.mutation(api.workspace.invite, { email: "Member@Co.com", role: "member" });
 	const member = await signIn(t, "member@co.com");
 	return { t, owner, member };

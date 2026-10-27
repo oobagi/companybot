@@ -6,11 +6,11 @@ import {
 	customSkill,
 	deniedMessage,
 	resolveTimeZone,
-	skillCatalog,
 } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import { legacySkills } from "./legacyCatalogs";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { Requested } from "./functions";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 
@@ -210,18 +210,19 @@ export async function asToolResult<Result>(fn: () => Promise<Result>): Promise<R
 	}
 }
 
-/** Skills this workspace installed: library ones in catalog order, then ones people made, oldest first. */
+/** A custom or retained skill's instructions, including while its row is in Trash. */
+export const skillOf = (install: Doc<"skillInstalls">): Skill | undefined => install.custom
+	? customSkill(install.skillId, install.custom, install.custom.version)
+	: install.definition ?? legacySkills.find((s) => s.id === install.skillId);
+
+/** Live retained skills, then custom skills, oldest first within each group. */
 export async function installedSkills(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<Skill[]> {
-	const installs = await ctx.db
-		.query("skillInstalls")
-		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-		.collect();
-	const ids = new Set(installs.filter((i) => !i.custom).map((i) => i.skillId));
-	const custom = installs
-		.filter((i) => i.custom && !i.archived)
-		.sort((a, b) => a._creationTime - b._creationTime)
-		.map((i) => customSkill(i.skillId, i.custom!, i.custom!.version));
-	return [...skillCatalog.filter((s) => ids.has(s.id)), ...custom];
+	const installs = (await ctx.db.query("skillInstalls").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect())
+		.filter((i) => !i.archived).sort((a, b) => a._creationTime - b._creationTime);
+	return [...installs.filter((i) => !i.custom), ...installs.filter((i) => i.custom)].flatMap((i) => {
+		const skill = skillOf(i);
+		return skill ? [skill] : [];
+	});
 }
 
 /** Someone's `preferences` row, if they've saved any. */

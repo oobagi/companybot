@@ -14,7 +14,6 @@ import {
 	madeEditDenied,
 	normalizeFieldConfig,
 	normalizeValue,
-	recordTypeCatalog,
 	singularOf,
 	sameValue,
 	searchTextOf,
@@ -473,7 +472,7 @@ const insertField = (
 	ctx: MutationCtx,
 	member: Pick<Member, "workspaceId" | "userId">,
 	typeId: Id<"recordTypes">,
-	{ linkType, ...field }: Field,
+	{ linkType: _linkType, ...field }: Field,
 	position: number,
 	linkTypeId?: Id<"recordTypes">,
 ) =>
@@ -487,19 +486,6 @@ const insertField = (
 		createdBy: member.userId,
 		updatedAt: Date.now(),
 	});
-
-/** Adds the built-in types (core's recordTypeCatalog) a workspace doesn't have yet. Safe to re-run. */
-export async function seedRecordTypes(ctx: MutationCtx, workspaceId: Id<"workspaces">, userId: Id<"users">) {
-	const member = { workspaceId, userId };
-	const ids = new Map((await typesOf(ctx, workspaceId)).map((t) => [t.key, t._id]));
-	const added = recordTypeCatalog.filter((def) => !ids.has(def.key));
-	for (const { key, name, plural } of added) ids.set(key, await insertType(ctx, member, { key, name, plural }));
-	for (const def of added) {
-		for (const [position, field] of def.fields.entries()) {
-			await insertField(ctx, member, ids.get(def.key)!, field, position, field.linkType ? ids.get(field.linkType) : undefined);
-		}
-	}
-}
 
 // ---- Display ----
 

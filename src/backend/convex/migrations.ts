@@ -1,11 +1,12 @@
 import { type MigrationFunctionReference, Migrations } from "@convex-dev/migrations";
+import { v } from "convex/values";
+import { legacySkills, legacyAutomation } from "./legacyCatalogs";
+import { startCascade } from "./cascade";
 import { components, internal } from "./_generated/api";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
-import { v } from "convex/values";
 import { addUserMentions } from "./chatOps";
 import { normalizeEmail, pinLegacyWorkspace } from "./lib";
-import { seedRecordTypes } from "./recordOps";
 import { saveVersion } from "./agents";
 import { type TrashKind, trashEntry } from "./trashOps";
 
@@ -51,19 +52,8 @@ function grantCompanybot(tools: string[]) {
 // new version, like an edit, so it shows in the agent's history.
 export const companybotChatTools = grantCompanybot(["skills.create", "automations.*"]);
 
-// Records arrived: give workspaces from before them the built-in types (clients, deals,
-// tasks, calls). New workspaces get them in workspace.ensure. Seeding skips types that exist.
-export const recordTypes = migrations.define({
-	table: "workspaces",
-	migrateOne: async (ctx, workspace) => {
-		const owner = await ctx.db
-			.query("members")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
-			.filter((q) => q.eq(q.field("role"), "owner"))
-			.first();
-		if (owner) await seedRecordTypes(ctx, workspace._id, owner.userId);
-	},
-});
+// COMPAT(0.1.0-alpha.8): retain the shipped migration name for release bookkeeping; seeding is retired.
+export const recordTypes = migrations.define({ table: "workspaces", migrateOne: async () => {} });
 
 // Companybot got records tools (the CRM from chat). Same rule as companybotChatTools: only
 // Companybots that still have their default skills.load grant, saved as a new version.
@@ -146,6 +136,32 @@ export const companybotParity2Tools = grantCompanybot(["agents.manage"]);
 // Archiving agents became Delete (Trash): agents archived before go to Trash the same way.
 export const trashAgents = archivedToTrash("agents", (a) => ({ kind: "agent", name: a.name, deletedBy: a.updatedBy }));
 
+/** Snapshot live and trashed installs alike, without changing their Trash state or retention. */
+export const storedSkills = migrations.define({
+	table: "skillInstalls", batchSize: 8,
+	migrateOne: async (ctx, install) => {
+		const definition = legacySkills.find((s) => s.id === install.skillId);
+		if (!install.custom && !install.definition && definition) await ctx.db.patch(install._id, { definition });
+	},
+});
+export const storedAutomations = migrations.define({
+	table: "automationInstalls", batchSize: 8,
+	migrateOne: async (ctx, install) => {
+		const definition = legacyAutomation(install.automationId);
+		if (!install.custom && !install.definition && definition) await ctx.db.patch(install._id, { definition });
+	},
+});
+
+/** Retire the internal test connector. Access ends before its bounded credential/settings cleanup. */
+export const retireNightOwl = migrations.define({
+	table: "connectorInstalls", batchSize: 20,
+	migrateOne: async (ctx, install) => {
+		if (install.connectorId !== "night-owl") return;
+		await ctx.db.delete(install._id);
+		await startCascade(ctx, "connectorInstall", { workspaceId: install.workspaceId, connectorId: install.connectorId, connectorInstallId: install._id });
+	},
+});
+
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.automationAudiences,
@@ -164,6 +180,9 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.companybotParity2Tools,
 	internal.migrations.companybotSkillEdit,
 	internal.migrations.trashAgents,
+	internal.migrations.storedSkills,
+	internal.migrations.storedAutomations,
+	internal.migrations.retireNightOwl,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */
