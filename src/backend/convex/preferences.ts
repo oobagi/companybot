@@ -1,9 +1,7 @@
 import { isValidTimeZone } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
-import type { QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
-import { authUserId } from "./lib";
+import { authUserId, preferencesOf } from "./lib";
 import { notify } from "./schema";
 
 // Personal preferences: only you see them, and they follow you to every device.
@@ -13,18 +11,12 @@ const defaultNotify = "all" as const;
 const unset = { timeZone: null, deviceTimeZone: null };
 const sendWith = v.union(v.literal("enter"), v.literal("mod-enter"));
 
-const find = (ctx: QueryCtx, userId: Id<"users">) =>
-	ctx.db
-		.query("preferences")
-		.withIndex("by_user", (q) => q.eq("userId", userId))
-		.first();
-
 export const get = query({
 	args: {},
 	handler: async (ctx) => {
 		const userId = await authUserId(ctx);
 		if (!userId) return { ...defaults, notify: defaultNotify, ...unset };
-		const prefs = await find(ctx, userId);
+		const prefs = await preferencesOf(ctx, userId);
 		if (!prefs) return { ...defaults, notify: defaultNotify, ...unset };
 		return {
 			displayName: prefs.displayName,
@@ -57,7 +49,7 @@ export const update = mutation({
 			changes.displayName = changes.displayName.trim();
 			if (changes.displayName.length > 60) throw new ConvexError("Keep your name under 60 characters.");
 		}
-		const prefs = await find(ctx, userId);
+		const prefs = await preferencesOf(ctx, userId);
 		if (prefs) await ctx.db.patch(prefs._id, changes);
 		else await ctx.db.insert("preferences", { userId, ...defaults, ...changes });
 	},

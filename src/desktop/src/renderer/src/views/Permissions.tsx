@@ -59,17 +59,16 @@ export function YourPermissions() {
 	);
 }
 
-/** Ask / Always / Never for one action. Always isn't offered where it always asks. */
+/** Ask / Always / Never for one action. Always isn't offered where it always asks, and nothing where an owner blocked it (its note says so). */
 function SettingSelect({ action: a }: { action: Action }) {
 	const set = useMutation(api.permissions.set);
 	const { error, run } = useRun();
-	const blocked = a.lock === "block";
+	if (a.lock === "block") return null;
 	return (
 		<div className="flex flex-col items-end gap-1">
 			<select
 				aria-label={`${a.label} setting`}
 				className={compactControlClass}
-				disabled={blocked}
 				value={a.setting}
 				onChange={(e) => run(set({ action: a.action, setting: e.target.value as "ask" | "always" | "never" }))}
 			>

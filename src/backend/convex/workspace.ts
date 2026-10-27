@@ -9,7 +9,7 @@ import { seedAgents } from "./agents";
 import { fieldsOf, seedRecordTypes, typesOf } from "./recordOps";
 import { addToChat, ensureGeneral } from "./chatOps";
 import { sendInviteEmail } from "./invites";
-import { authUserId, checkVersion, getMember, hasLiveOwner, legacyMemberOf, liveWorkspace, memberOf, nameOf, namesOf, normalizeEmail, pinLegacyWorkspace, requireMember, requirePermission, timeZoneOf } from "./lib";
+import { authUserId, checkVersion, getMember, hasLiveOwner, legacyMemberOf, liveWorkspace, memberOf, nameOf, namesOf, normalizeEmail, pinLegacyWorkspace, preferencesOf, requireMember, requirePermission, timeZoneOf } from "./lib";
 import { cascading, startCascade } from "./cascade";
 import { removeWorkspace } from "./lifecycle";
 import { role } from "./schema";
@@ -98,10 +98,7 @@ async function join(ctx: MutationCtx, invite: Doc<"invites">, userId: Id<"users"
 }
 
 async function rememberLastUsed(ctx: MutationCtx, userId: Id<"users">, workspaceId: Id<"workspaces">) {
-	const prefs = await ctx.db
-		.query("preferences")
-		.withIndex("by_user", (q) => q.eq("userId", userId))
-		.first();
+	const prefs = await preferencesOf(ctx, userId);
 	if (prefs) await ctx.db.patch(prefs._id, { workspaceId });
 	else await ctx.db.insert("preferences", { userId, displayName: "", sendWith: "enter", workspaceId });
 }
@@ -135,10 +132,7 @@ export const mine = query({
 				invitedBy: invite.invitedBy ? await nameOf(ctx, invite.invitedBy) : null,
 			});
 		}
-		const prefs = await ctx.db
-			.query("preferences")
-			.withIndex("by_user", (q) => q.eq("userId", userId))
-			.first();
+		const prefs = await preferencesOf(ctx, userId);
 		return { workspaces: workspaces.sort((a, b) => a.name.localeCompare(b.name)), invitations, lastUsed: prefs?.workspaceId ?? null };
 	},
 });
