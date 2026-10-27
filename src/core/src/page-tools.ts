@@ -30,6 +30,7 @@ const target = {
 
 const findInput = z.object({
 	search: z.string().optional().describe("Words in the title. Leave out to list pages by title."),
+	trashed: z.boolean().optional().describe("Pages in Trash instead"),
 	cursor: z.string().optional().describe("From a previous result with more: true"),
 });
 export type PageFindInput = z.infer<typeof findInput>;
@@ -39,17 +40,17 @@ const writeInput = z.object({
 	title: z.string().optional().describe("A new page's title, or a new title for a page (not a record's body)"),
 	markdown: z.string().max(MARKDOWN_MAX).optional().describe("Content in Markdown: headings, lists, - [ ] to-dos, > quotes, ``` code, --- dividers, tables"),
 	mode: z.enum(["replace", "append"]).optional().describe("replace: the page becomes `markdown`; append (default): `markdown` goes at the end"),
-	archived: z.boolean().optional().describe("true archives a page, false restores it. On its own."),
+	trash: z.boolean().optional().describe("true deletes a page (to Trash, restorable for 30 days); false restores it. On its own."),
 	restore: z.string().optional().describe("A version id from pages_read: its content comes back as a new version. On its own."),
 });
 export type PageWriteInput = z.infer<typeof writeInput>;
 
-/** "Create page Onboarding", "Write page Onboarding", "Archive page Onboarding". */
+/** "Create page Onboarding", "Write page Onboarding", "Delete page Onboarding". */
 function writeLabel(input: PageWriteInput, output: unknown) {
 	const title = text(output, "title");
 	if (text(output, "error") || !title) return;
 	if (input.restore) return `Restore a version of ${title}`;
-	if (input.archived !== undefined) return `${input.archived ? "Archive" : "Restore"} page ${title}`;
+	if (input.trash !== undefined) return `${input.trash ? "Delete" : "Restore"} page ${title}`;
 	if (!input.page && !input.record) return `Create page ${title}`;
 	return input.markdown === undefined ? `Update page ${title}` : `Write page ${title}`;
 }
@@ -86,7 +87,7 @@ export const pageTools: ToolDef[] = [
 		id: "pages.write",
 		title: "Write a page",
 		description:
-			"Create a page (title, optional markdown), add to a page or a record's page body (append), rewrite it (replace), rename it, archive or restore it, or bring back an old version. Runs right away and is saved in the page's history as you acting for the person, so it can be restored. Read a page before replacing it.",
+			"Create a page (title, optional markdown), add to a page or a record's page body (append), rewrite it (replace), rename it, delete it (to Trash) or restore it, or bring back an old version. Runs right away and is saved in the page's history as you acting for the person, so it can be restored. Read a page before replacing it.",
 		input: writeInput,
 		execute: (input, { pages }) => pages.write(input),
 		label: writeLabel,

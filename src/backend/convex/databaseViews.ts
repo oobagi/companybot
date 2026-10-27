@@ -14,7 +14,7 @@ type Config = Pick<Doc<"databaseViews">, "name" | "filters" | "sort" | "columns"
 
 export async function viewsOf(ctx: QueryCtx, member: Member, typeId: Id<"recordTypes">) {
 	const type = await requireType(ctx, member, typeId);
-	if (type.archived) throw new ConvexError("This database is archived.");
+	if (type.archived) throw new ConvexError("This database is in Trash.");
 	return ctx.db.query("databaseViews").withIndex("by_type", (q) => q.eq("typeId", typeId)).take(VIEWS_MAX);
 }
 

@@ -191,17 +191,18 @@ describe("page history", () => {
 });
 
 describe("pages", () => {
-	it("are created, renamed, archived and deleted, content and history too", async () => {
+	it("are created, renamed, deleted to Trash and deleted forever, content and history too", async () => {
 		const { t, owner, member } = await setup();
 		const pageId = await member.mutation(api.pages.create, { title: "  Meeting   notes " });
 		await member.mutation(api.pages.rename, { pageId, title: "Weekly notes" });
 		expect(await owner.query(api.pages.list, {})).toEqual([expect.objectContaining({ _id: pageId, title: "Weekly notes" })]);
 		await type(t, member, pageId, "Agenda");
-		await expect(member.mutation(api.pages.remove, { pageId })).rejects.toThrow("Archive the page first");
-		await member.mutation(api.pages.setArchived, { pageId, archived: true });
+		await member.mutation(api.trash.move, { kind: "page", id: pageId });
 		expect(await owner.query(api.pages.list, {})).toEqual([]);
-		await expect(type(t, member, pageId, "more")).rejects.toThrow("archived");
-		await member.mutation(api.pages.remove, { pageId });
+		expect(await member.query(api.pages.get, { pageId })).toMatchObject({ archived: true, canEdit: false, trash: { by: "member@co.com", canRestore: true } });
+		await expect(type(t, member, pageId, "more")).rejects.toThrow("in Trash");
+		await expect(member.mutation(api.trash.purge, { id: pageId })).rejects.toThrow("permission");
+		await owner.mutation(api.trash.purge, { id: pageId });
 		await settle(t);
 		expect(await t.run((ctx) => ctx.db.query("pageVersions").collect())).toEqual([]);
 		expect(await snapshotAt(t, pageId)).toEqual({ content: null });
@@ -241,7 +242,7 @@ describe("pages", () => {
 		// Bodies aren't standalone pages.
 		expect(await owner.query(api.pages.list, {})).toEqual([]);
 		await owner.mutation(api.records.archive, { recordId });
-		await expect(type(t, owner, pageId, "x")).rejects.toThrow("record is archived");
+		await expect(type(t, owner, pageId, "x")).rejects.toThrow("record is in Trash");
 	});
 });
 
@@ -263,9 +264,9 @@ describe("pages tools", () => {
 		expect(read.versions).toEqual([expect.objectContaining({ by: "member@co.com", agent: "Companybot" })]);
 		expect(read.doc).toContain("Call for a quote");
 
-		await tools.write({ page: pageId, archived: true });
-		expect(await tools.write({ page: pageId, markdown: "x" }, [paragraph("no")])).toMatchObject({ error: expect.stringContaining("archived") });
-		expect(await tools.write({ title: "A", archived: true })).toMatchObject({ error: expect.stringContaining("on its own") });
+		await tools.write({ page: pageId, trash: true });
+		expect(await tools.write({ page: pageId, markdown: "x" }, [paragraph("no")])).toMatchObject({ error: expect.stringContaining("in Trash") });
+		expect(await tools.write({ title: "A", trash: true })).toMatchObject({ error: expect.stringContaining("on its own") });
 	});
 
 	it("rechecks the acting person's membership on each call", async () => {

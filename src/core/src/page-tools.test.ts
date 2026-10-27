@@ -22,7 +22,7 @@ describe("pages tools", () => {
 		expect(label({ title: "SOP" }, { title: "SOP" })).toBe("Create page SOP");
 		expect(label({ page: "p1", markdown: "hi" }, { title: "SOP" })).toBe("Write page SOP");
 		expect(label({ record: "r1", markdown: "hi" }, { title: "Acme" })).toBe("Write page Acme");
-		expect(label({ page: "p1", archived: true }, { title: "SOP" })).toBe("Archive page SOP");
+		expect(label({ page: "p1", trash: true }, { title: "SOP" })).toBe("Delete page SOP");
 		expect(label({ restore: "v1" }, { title: "SOP" })).toBe("Restore a version of SOP");
 		expect(label({ page: "p1", markdown: "hi" }, { error: "nope" })).toBeUndefined();
 	});

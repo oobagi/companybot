@@ -36,6 +36,8 @@ export const approvalStatus = v.union(
 	v.literal("denied"),
 );
 
+export const trashKind = v.union(v.literal("record"), v.literal("database"), v.literal("field"), v.literal("page"), v.literal("channel"));
+
 /** core's Risk. */
 export const risk = v.union(v.literal("none"), v.literal("outside"), v.literal("locked"));
 
@@ -333,6 +335,7 @@ export default defineSchema({
 		dmKey: v.optional(v.string()),
 		/** The channel everyone joins (#general). Can't be left or made private. */
 		isDefault: v.optional(v.boolean()),
+		/** In Trash (the `trash` table says who deleted it, and when). */
 		archived: v.boolean(),
 		createdBy: v.id("users"),
 		lastMessageAt: v.number(),
@@ -437,7 +440,8 @@ export default defineSchema({
 	})
 		.index("by_place", ["agentId", "chatId", "threadId", "status"])
 		.index("by_session", ["sessionId"])
-		.index("by_workspace", ["workspaceId"]),
+		.index("by_workspace", ["workspaceId"])
+		.index("by_chat", ["chatId"]),
 
 	// One agent's ongoing context in one place (chat + thread). Append-only: past turns
 	// replay exactly as sent, so prompt caching hits. Older turns fold into `summary`.
@@ -454,7 +458,8 @@ export default defineSchema({
 		costUsd: v.optional(v.number()),
 	})
 		.index("by_place", ["agentId", "chatId", "threadId"])
-		.index("by_workspace", ["workspaceId"]),
+		.index("by_workspace", ["workspaceId"])
+		.index("by_chat", ["chatId"]),
 
 	// The activity log: every tool call an agent made, acting for `actorId`. Readable by
 	// whoever can see the chat it happened in; `output` only by the person it acted for.
@@ -631,6 +636,7 @@ export default defineSchema({
 		key: v.string(),
 		name: v.string(),
 		plural: v.string(),
+		/** In Trash (the `trash` table says who deleted it, and when). */
 		archived: v.boolean(),
 		createdBy: v.id("users"),
 		updatedAt: v.number(),
@@ -657,7 +663,7 @@ export default defineSchema({
 		multiple: v.optional(v.boolean()),
 		/** Display order. */
 		position: v.number(),
-		/** Archived fields keep their values but can't be set, filtered or sorted. */
+		/** In Trash: its values stay on every record but can't be set, filtered or sorted. */
 		archived: v.boolean(),
 		createdBy: v.id("users"),
 		updatedAt: v.number(),
@@ -671,6 +677,7 @@ export default defineSchema({
 		values: v.record(v.string(), fieldValue),
 		/** Title and other text values, for the search index. */
 		searchText: v.string(),
+		/** In Trash (the `trash` table says who deleted it, and when). */
 		archived: v.boolean(),
 		createdBy: v.id("users"),
 		updatedAt: v.number(),
@@ -691,6 +698,7 @@ export default defineSchema({
 		recordId: v.optional(v.id("records")),
 		/** Standalone pages only: a record's body shows the record's name. */
 		title: v.string(),
+		/** In Trash (the `trash` table says who deleted it, and when). */
 		archived: v.boolean(),
 		createdBy: v.id("users"),
 		updatedAt: v.number(),
@@ -755,6 +763,7 @@ export default defineSchema({
 			v.literal("database.created"),
 			v.literal("database.updated"),
 			v.literal("database.archived"),
+			v.literal("database.restored"),
 			v.literal("view.created"),
 			v.literal("view.updated"),
 			v.literal("view.deleted"),
@@ -773,7 +782,9 @@ export default defineSchema({
 		undoneBy: v.optional(v.id("recordHistory")),
 	})
 		.index("by_record", ["recordId"])
-		.index("by_workspace", ["workspaceId"]),
+		.index("by_workspace", ["workspaceId"])
+		.index("by_type", ["typeId"])
+		.index("by_field", ["fieldId"]),
 
 	// A chat message that references a record, so the record can show where it was discussed.
 	recordMentions: defineTable({
@@ -784,11 +795,46 @@ export default defineSchema({
 		.index("by_record", ["recordId"])
 		.index("by_message", ["messageId"]),
 
+	// What's in Trash: one row per deleted record, database, field, page or channel (trash.ts).
+	// The item itself stays, `archived`, until it's restored or deleted for good: by an owner,
+	// or after TRASH_DAYS by `trash.sweep`. See wiki/data.md#trash.
+	trash: defineTable({
+		workspaceId: v.id("workspaces"),
+		kind: trashKind,
+		/** The record's, database's, field's, page's or chat's id. */
+		itemId: v.string(),
+		/** Its name when deleted, for listing and search. */
+		name: v.string(),
+		/** Records and fields: their database. */
+		typeId: v.optional(v.id("recordTypes")),
+		deletedBy: v.id("users"),
+		/** Set when an agent deleted it, acting for `deletedBy`. */
+		agentId: v.optional(v.id("agents")),
+		deletedAt: v.number(),
+	})
+		.index("by_workspace", ["workspaceId", "deletedAt"])
+		.index("by_kind", ["workspaceId", "kind", "deletedAt"])
+		.index("by_item", ["itemId"])
+		.index("by_type", ["typeId"])
+		.index("by_deleted", ["deletedAt"])
+		.searchIndex("search", { searchField: "name", filterFields: ["workspaceId", "kind"] }),
+
 	// A cascade deleting what belonged to something that went (cascade.ts): one page of one
 	// edge of lifecycle.ts per run, resumed from `edge` and `cursor`. `key` names what's going,
 	// so rejoining or reinstalling waits until its old rows are gone.
 	cascades: defineTable({
-		scope: v.union(v.literal("workspace"), v.literal("member"), v.literal("user"), v.literal("connectorInstall"), v.literal("automationInstall"), v.literal("page")),
+		scope: v.union(
+			v.literal("workspace"),
+			v.literal("member"),
+			v.literal("user"),
+			v.literal("connectorInstall"),
+			v.literal("automationInstall"),
+			v.literal("page"),
+			v.literal("record"),
+			v.literal("database"),
+			v.literal("field"),
+			v.literal("channel"),
+		),
 		root: v.object({
 			workspaceId: v.optional(v.id("workspaces")),
 			userId: v.optional(v.id("users")),
@@ -796,6 +842,10 @@ export default defineSchema({
 			connectorInstallId: v.optional(v.id("connectorInstalls")),
 			automationInstallId: v.optional(v.id("automationInstalls")),
 			pageId: v.optional(v.id("pages")),
+			recordId: v.optional(v.id("records")),
+			typeId: v.optional(v.id("recordTypes")),
+			fieldId: v.optional(v.id("recordFields")),
+			chatId: v.optional(v.id("chats")),
 		}),
 		key: v.string(),
 		/** The edge it's on, as "table.index" ("" before the first). */

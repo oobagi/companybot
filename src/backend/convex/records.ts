@@ -6,13 +6,15 @@ import { type QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { canSee } from "./chatOps";
 import { getMember, nameOf, requireMember } from "./lib";
+import { trashInfo } from "./trashOps";
 import { fieldsByType, linkingRecords, listRecords, searchRecords } from "./recordReads";
 import {
 	createRecord,
 	fieldsOf,
 	idsIn,
+	inTrash,
 	resolveRefs,
-	setArchived,
+	setRecordTrashed,
 	toField,
 	toRows,
 	undoChange,
@@ -45,6 +47,7 @@ const empty = <T>(): PaginationResult<T> => ({ page: [], isDone: true, continueC
 export const list = query({
 	args: {
 		typeId: v.id("recordTypes"),
+		// COMPAT(0.1.0-alpha.8): alpha.6 apps list archived records; Trash lists them now.
 		archived: v.optional(v.boolean()),
 		filters: v.optional(v.array(condition)),
 		sort: v.optional(recordSort),
@@ -53,14 +56,14 @@ export const list = query({
 	handler: async (ctx, { typeId, archived = false, filters = [], sort, paginationOpts }): Promise<PaginationResult<Row>> => {
 		const member = await getMember(ctx);
 		const type = member && (await ctx.db.get(typeId));
-		if (!member || type?.workspaceId !== member.workspaceId) return empty();
+		if (!member || type?.workspaceId !== member.workspaceId || type.archived) return empty();
 		const fields = await fieldsOf(ctx, typeId);
 		const result = await listRecords(ctx, member.workspaceId, { typeId, fields }, { archived, conditions: filters, sort, paginationOpts });
 		return { ...result, page: await toRows(ctx, member.workspaceId, result.page.map((record) => ({ record, fields }))) };
 	},
 });
 
-/** One record with its type and fields, or null if it isn't in your workspace. */
+/** One record with its type and fields, or null if it isn't in your workspace. `trash`: it's in Trash, on its own or with its database. */
 export const get = query({
 	args: { recordId: v.id("records") },
 	handler: async (ctx, { recordId }) => {
@@ -72,19 +75,21 @@ export const get = query({
 		const [row] = await toRows(ctx, member.workspaceId, [{ record, fields }]);
 		return {
 			...row!,
+			archived: await inTrash(ctx, record),
+			trash: (await trashInfo(ctx, member, record._id)) ?? (type.archived ? await trashInfo(ctx, member, type._id) : null),
 			type: { _id: type._id, key: type.key, name: type.name, plural: type.plural },
 			fields: fields.filter((f) => !f.archived).map((f) => ({ _id: f._id, ...toField(f) })),
 		};
 	},
 });
 
-/** Live records that link to this one ("deals for this client"), optionally through one field. None if it's archived. */
+/** Live records that link to this one ("deals for this client"), optionally through one field. None if it's in Trash. */
 export const linked = query({
 	args: { recordId: v.id("records"), fieldId: v.optional(v.id("recordFields")), paginationOpts: paginationOptsValidator },
 	handler: async (ctx, { recordId, fieldId, paginationOpts }) => {
 		const member = await getMember(ctx);
 		const record = member && (await ctx.db.get(recordId));
-		if (!member || record?.workspaceId !== member.workspaceId || record.archived) return empty<Row & { fieldId: Id<"recordFields"> }>();
+		if (!member || record?.workspaceId !== member.workspaceId || (await inTrash(ctx, record))) return empty<Row & { fieldId: Id<"recordFields"> }>();
 		const result = await linkingRecords(ctx, recordId, { fieldId, paginationOpts });
 		const rows = await toRows(ctx, member.workspaceId, result.page);
 		return { ...result, page: rows.map((row, i) => ({ ...row, fieldId: result.page[i]!.fieldId })) };
@@ -223,17 +228,18 @@ export const update = mutation({
 	},
 });
 
+// COMPAT(0.1.0-alpha.8): alpha.6 apps archive and restore here; newer ones use trash.move / trash.restore.
 export const archive = mutation({
 	args: { recordId: v.id("records") },
 	handler: async (ctx, { recordId }) => {
-		await setArchived(ctx, { member: await requireMember(ctx) }, recordId, true);
+		await setRecordTrashed(ctx, { member: await requireMember(ctx) }, recordId, true);
 	},
 });
 
 export const restore = mutation({
 	args: { recordId: v.id("records") },
 	handler: async (ctx, { recordId }) => {
-		await setArchived(ctx, { member: await requireMember(ctx) }, recordId, false);
+		await setRecordTrashed(ctx, { member: await requireMember(ctx) }, recordId, false);
 	},
 });
 

@@ -27,17 +27,19 @@ export const permissions = {
 	/** Make your own automations. You can always change and delete the ones you made. */
 	"automations.create": { roles: ["owner", "member"], label: "make automations" },
 	"memory.team.write": { roles: ["owner"], label: "change team memories" },
-	/** Add, change, archive and restore records (clients, deals, tasks…), and undo changes. */
+	/** Add, change, delete (to Trash) and restore records (clients, deals, tasks…), and undo changes. */
 	"records.edit": { roles: ["owner", "member"], label: "change records" },
-	/** Write, rename, archive, restore and delete pages, and restore old versions (wiki/pages.md). */
+	/** Write, rename, delete (to Trash) and restore pages, and restore old versions (wiki/pages.md). */
 	"pages.edit": { roles: ["owner", "member"], label: "change pages" },
-	/** Add fields to a database. You can always change and archive the ones you added. */
+	/** Add fields to a database. You can always change and delete the ones you added. */
 	"fields.create": { roles: ["owner", "member"], label: "add fields" },
-	/** Add databases, and change or archive anyone's fields (`canEditMade`). */
+	/** Add and delete databases, and change or delete anyone's fields (`canEditMade`). */
 	"fields.manage": { roles: ["owner"], label: "manage fields and databases" },
 	"channels.create": { roles: ["owner", "member"], label: "create channels" },
-	/** Rename, archive, and add members to any channel. Creators can always manage their own (`canManageChannel`). */
+	/** Rename, delete, and add members to any channel. Creators can always manage their own (`canManageChannel`). */
 	"channels.manage": { roles: ["owner"], label: "manage channels" },
+	/** Delete forever from Trash, and restore what anyone deleted (wiki/data.md#trash). Agents never delete forever. */
+	"trash.manage": { roles: ["owner"], label: "manage Trash" },
 } as const satisfies Record<string, { roles: readonly Role[]; label: string }>;
 
 export type Permission = keyof typeof permissions;
@@ -51,7 +53,7 @@ export function can(who: Actor | Role, permission: Permission): boolean {
 export const deniedMessage = (permission: Permission) =>
 	`You don't have permission to ${permissions[permission].label}. Ask a workspace owner.`;
 
-/** Whether someone can rename a channel or add people to it: `channels.manage`, or they created it. */
+/** Whether someone can rename or delete a channel, or add people to it: `channels.manage`, or they created it. */
 export function canManageChannel(who: Actor, channel: { createdBy: string }): boolean {
 	return can(who, "channels.manage") || channel.createdBy === who.userId;
 }

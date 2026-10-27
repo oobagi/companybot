@@ -92,15 +92,15 @@ it("isolates every database and view operation across workspaces, including forg
 	await expect(other.mutation(api.databaseViews.save, { ...config, typeId: ownType!._id, viewId, version: 1 })).rejects.toThrow("not found");
 });
 
-it("empties a live view subscription when its database is archived, keeping its data and refusing edits", async () => {
+it("empties a live view subscription when its database is in Trash, keeping its data and refusing edits", async () => {
 	const { t, owner } = await setup();
 	const typeId = await owner.mutation(api.recordTypes.create, { plural: "Jobs" });
 	const viewId = await owner.mutation(api.databaseViews.save, { ...config, typeId });
 	await owner.mutation(api.recordTypes.update, { typeId, archived: true, version: 0 });
 	expect(await owner.query(api.databaseViews.list, { typeId })).toEqual([]);
 	expect(await t.run((ctx) => ctx.db.get(viewId))).not.toBeNull();
-	await expect(owner.mutation(api.databaseViews.save, { ...config, typeId, viewId, version: 1 })).rejects.toThrow("archived");
-	await expect(owner.mutation(api.databaseViews.remove, { viewId, version: 1 })).rejects.toThrow("archived");
+	await expect(owner.mutation(api.databaseViews.save, { ...config, typeId, viewId, version: 1 })).rejects.toThrow("in Trash");
+	await expect(owner.mutation(api.databaseViews.remove, { viewId, version: 1 })).rejects.toThrow("in Trash");
 });
 
 it("keeps shared views when their maker leaves, and cascades them with their database", async () => {
@@ -132,7 +132,7 @@ it("gives agents database and view parity, names both actors, and rechecks roles
 	const view = views.rows[0]!;
 	await t.mutation(internal.recordTools.saveViewFor, { turnId, input: { type: "job", id: view._id, version: 1, name: "Latest", sort: { field: "updatedAt", order: "desc" } } });
 	expect(await t.mutation(internal.recordTools.saveViewFor, { turnId, input: { type: "job", id: view._id, version: 2, remove: true } })).toEqual({ deleted: "Latest" });
-	await t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input: { type: "job", version: 1, archived: true } });
+	await t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input: { type: "job", trash: true } });
 	const history = await member.query(api.records.activity, { paginationOpts: page });
 	expect(history.page).toHaveLength(6);
 	for (const entry of history.page) expect(entry).toMatchObject({ user: "owner@co.com", agent: "Companybot" });
@@ -161,7 +161,7 @@ it("agent renames drop archived view fields, preserve timestamp sorts, and still
 	expect(await rename(3)).toMatchObject({ sort: { field: "createdAt", order: "asc" }, version: 4 });
 });
 
-it("keeps links readable and clearable after archiving their built-in database", async () => {
+it("shows links into a database in Trash as deleted, still readable and clearable", async () => {
 	const { t, owner } = await setup();
 	const types = await owner.query(api.recordTypes.list);
 	const client = types.find((t) => t.key === "client")!;
@@ -169,11 +169,11 @@ it("keeps links readable and clearable after archiving their built-in database",
 	const target = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Acme" } });
 	const id = await owner.mutation(api.records.create, { typeId: deal._id, values: { name: "Roof", client: target } });
 	await owner.mutation(api.recordTypes.update, { typeId: client._id, version: 0, archived: true });
-	expect(await owner.query(api.records.get, { recordId: id })).toMatchObject({ values: { client: target }, refs: { [target]: { name: "Acme" } } });
+	expect(await owner.query(api.records.get, { recordId: id })).toMatchObject({ values: { client: target }, refs: { [target]: { name: "Acme", archived: true } } });
 	await owner.mutation(api.records.update, { recordId: id, values: { name: "New roof" } });
 	const { companybot } = await agentsOf(owner);
 	const turnId = await agentTurn(t, owner, (await generalOf(owner))._id, companybot._id);
-	expect(await t.query(internal.recordTools.getFor, { turnId, id })).toMatchObject({ values: { client: "Acme" }, links: { client: [{ id: target, name: "Acme" }] } });
+	expect(await t.query(internal.recordTools.getFor, { turnId, id })).toMatchObject({ values: { client: "Acme (deleted)" }, links: { client: [{ id: target, name: "Acme" }] } });
 	await owner.mutation(api.records.update, { recordId: id, values: { client: null } });
 	expect((await owner.query(api.records.get, { recordId: id }))?.values).not.toHaveProperty("client");
 });

@@ -55,6 +55,8 @@ import type * as recordTypes from "../recordTypes.js";
 import type * as recordValidators from "../recordValidators.js";
 import type * as records from "../records.js";
 import type * as skills from "../skills.js";
+import type * as trash from "../trash.js";
+import type * as trashOps from "../trashOps.js";
 import type * as turns from "../turns.js";
 import type * as workspace from "../workspace.js";
 
@@ -112,6 +114,8 @@ declare const fullApi: ApiFromModules<{
   recordValidators: typeof recordValidators;
   records: typeof records;
   skills: typeof skills;
+  trash: typeof trash;
+  trashOps: typeof trashOps;
   turns: typeof turns;
   workspace: typeof workspace;
 }>;

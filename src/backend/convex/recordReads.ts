@@ -1,7 +1,7 @@
 import type { PaginationOptions, PaginationResult } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { currencyOf, fieldsOf } from "./recordOps";
+import { currencyOf, fieldsOf, typeTrashed } from "./recordOps";
 import { type Condition, type Sort, findRecords } from "./recordQuery";
 
 // Reads the app (records.ts) and agents (recordTools.ts) share, so their lists, search and
@@ -36,7 +36,7 @@ export async function listRecords(
 	return findRecords(ctx, { workspaceId, ...type, ...opts, currency: await currencyOf(ctx, workspaceId), pageMax: PAGE_MAX });
 }
 
-/** Live records whose title or text matches, best first. Optionally one type. */
+/** Live records whose title or text matches, best first, leaving out databases in Trash. Optionally one type. */
 export async function searchRecords(
 	ctx: QueryCtx,
 	workspaceId: Id<"workspaces">,
@@ -51,12 +51,16 @@ export async function searchRecords(
 		})
 		.take(limit);
 	const fields = fieldsByType(ctx);
-	return Promise.all(records.map(async (record) => ({ record, fields: await fields(record.typeId) })));
+	const trashed = typeTrashed(ctx);
+	const items = [];
+	for (const record of records) if (!(await trashed(record.typeId))) items.push({ record, fields: await fields(record.typeId) });
+	return items;
 }
 
 /**
  * Records that link to `recordId` ("deals for this client"), optionally through one field,
- * a page at a time. Only live records have index rows, so archived ones never show.
+ * a page at a time. Only live records have index rows, so ones in Trash never show; nor do
+ * records of a database in Trash, or links through a field in Trash.
  */
 export async function linkingRecords(
 	ctx: QueryCtx,
@@ -68,10 +72,13 @@ export async function linkingRecords(
 		.withIndex("by_ref", (q) => (fieldId ? q.eq("ref", recordId).eq("fieldId", fieldId) : q.eq("ref", recordId)))
 		.paginate({ ...paginationOpts, numItems: Math.min(paginationOpts.numItems, PAGE_MAX) });
 	const fields = fieldsByType(ctx);
+	const trashed = typeTrashed(ctx);
 	const page = [];
 	for (const row of rows.page) {
 		const record = await ctx.db.get(row.recordId);
-		if (record) page.push({ record, fields: await fields(record.typeId), fieldId: row.fieldId });
+		if (!record || (await trashed(record.typeId))) continue;
+		const recordFields = await fields(record.typeId);
+		if (recordFields.some((f) => f._id === row.fieldId && !f.archived)) page.push({ record, fields: recordFields, fieldId: row.fieldId });
 	}
 	return { ...rows, page };
 }

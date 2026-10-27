@@ -27,7 +27,9 @@ const MAX_ATTEMPTS = 3;
 
 /** Names what's going, so callers can tell it's still being deleted. */
 const keyOf = (scope: Scope, root: Root) =>
-	[scope, root.workspaceId, root.userId, root.connectorId, root.automationInstallId, root.pageId].filter(Boolean).join(":");
+	[scope, root.workspaceId, root.userId, root.connectorId, root.automationInstallId, root.pageId, root.recordId, root.typeId, root.fieldId, root.chatId]
+		.filter(Boolean)
+		.join(":");
 
 /** Starts deleting what belongs to `root`. Access must already have ended. */
 export async function startCascade(ctx: MutationCtx, scope: Scope, root: Root) {
@@ -107,7 +109,7 @@ export const step = internalMutation({
 				continue;
 			}
 			if (edge.scrub) {
-				await ctx.db.patch(row._id, edge.scrub(row));
+				await ctx.db.patch(row._id, await edge.scrub(row, get, job.root));
 				budget.writes--;
 				handled++;
 				continue;
@@ -130,10 +132,14 @@ export const step = internalMutation({
 	},
 });
 
-/** Every edge is done: a workspace goes last, then the cascade. The rest were gone before it started. */
+/** The row a scope deletes last, once everything that belonged to it is gone. The rest were gone before it started. */
+const lastOf = ({ scope, root }: Doc<"cascades">) =>
+	({ workspace: root.workspaceId, record: root.recordId, database: root.typeId, field: root.fieldId, channel: root.chatId })[scope as string];
+
+/** Every edge is done: the root row goes last (a workspace, or something deleted from Trash), then the cascade. */
 async function finish(ctx: MutationCtx, job: Doc<"cascades">) {
-	const { workspaceId } = job.root;
-	if (job.scope === "workspace" && workspaceId && (await ctx.db.get(workspaceId))) await ctx.db.delete(workspaceId);
+	const last = lastOf(job);
+	if (last && (await ctx.db.get(last))) await ctx.db.delete(last);
 	await ctx.db.delete(job._id);
 }
 

@@ -23,9 +23,12 @@ import {
 	currencyOf,
 	fieldsOf,
 	idsIn,
+	inTrash,
 	requireRecord,
 	resolveRefs,
-	setArchived,
+	setFieldTrashed,
+	setRecordTrashed,
+	setTypeTrashed,
 	toField,
 	toRows,
 	typesOf,
@@ -56,9 +59,9 @@ function pickOne<T>(matches: T[], what: string, describe: (m: T) => string) {
 	return matches[0];
 }
 
-/** A type by id or key, else by name or plural ("deal", "Deals"). Ambiguous names are refused. */
-async function typeNamed(ctx: QueryCtx, member: Member, name: string) {
-	const types = await liveTypes(ctx, member);
+/** A type by id or key, else by name or plural ("deal", "Deals"). Ambiguous names are refused. `trashed`: one in Trash. */
+async function typeNamed(ctx: QueryCtx, member: Member, name: string, trashed = false) {
+	const types = trashed ? (await typesOf(ctx, member.workspaceId)).filter((t) => t.archived) : await liveTypes(ctx, member);
 	const raw = name.trim();
 	const n = raw.toLowerCase();
 	const type =
@@ -73,9 +76,9 @@ async function typeNamed(ctx: QueryCtx, member: Member, name: string) {
 	return type;
 }
 
-/** A live field by exact key, else by label. A label two fields could match is refused. */
-function fieldNamed(fields: Doc<"recordFields">[], name: string, type: Doc<"recordTypes">) {
-	const live = fields.filter((f) => !f.archived);
+/** A live field (or, `trashed`, one in Trash) by exact key, else by label. A label two fields could match is refused. */
+function fieldNamed(fields: Doc<"recordFields">[], name: string, type: Doc<"recordTypes">, trashed = false) {
+	const live = fields.filter((f) => f.archived === trashed);
 	const raw = name.trim();
 	const n = raw.toLowerCase();
 	const field =
@@ -216,7 +219,7 @@ async function recordOut(ctx: QueryCtx, member: Member, recordId: Id<"records">)
 	const type = (await ctx.db.get(record.typeId))!;
 	const [row] = await rowsOf(ctx, member, [{ record, fields: await fieldsOf(ctx, record.typeId) }]);
 	const { _id, ...values } = row!;
-	return { id: _id, type: type.key, typeName: type.name, name: record.title, ...(record.archived && { archived: true }), values };
+	return { id: _id, type: type.key, typeName: type.name, name: record.title, ...((await inTrash(ctx, record)) && { inTrash: true }), values };
 }
 
 export const typesFor = internalQuery({
@@ -240,7 +243,7 @@ export const typesFor = internalQuery({
 							label: f.label,
 							kind: f.kind,
 							...(f.options && { options: f.options.filter((o) => !o.retired).map((o) => o.label) }),
-							...(f.linkTypeId && { linksTo: keys.get(f.linkTypeId) ?? "(archived type)" }),
+							...(f.linkTypeId && { linksTo: keys.get(f.linkTypeId) ?? "(a deleted database)" }),
 							...(f.multiple && { multiple: true as const }),
 						})),
 				})),
@@ -253,10 +256,10 @@ export const findFor = internalQuery({
 	args: { turnId: v.id("agentTurns"), input: v.any() },
 	handler: async (ctx, { turnId, input }) => {
 		const { member } = await runningTurn(ctx, turnId);
-		const { type: typeName, search, filters = [], sort, archived = false, cursor, numItems } = input as RecordFindInput & { numItems: number };
+		const { type: typeName, search, filters = [], sort, trashed = false, cursor, numItems } = input as RecordFindInput & { numItems: number };
 		return asToolResult(async (): Promise<RecordPage> => {
 			if (search?.trim()) {
-				if (filters.length || sort || cursor || archived) throw new ConvexError("Search on its own, or list with filters and a sort instead.");
+				if (filters.length || sort || cursor || trashed) throw new ConvexError("Search on its own, or list with filters and a sort instead.");
 				const type = typeName ? await typeNamed(ctx, member, typeName) : null;
 				const found = await searchRecords(ctx, member.workspaceId, search, { typeId: type?._id, limit: Math.min(numItems, SEARCH_MAX) });
 				const keys = type ? undefined : new Map((await liveTypes(ctx, member)).map((t) => [t._id, t.key]));
@@ -275,7 +278,7 @@ export const findFor = internalQuery({
 				ctx,
 				member.workspaceId,
 				{ typeId: type._id, fields },
-				{ archived, conditions, sort: sortBy, paginationOpts: { numItems: Math.min(Math.max(numItems, 1), PAGE_MAX), cursor: cursor ?? null } },
+				{ archived: trashed, conditions, sort: sortBy, paginationOpts: { numItems: Math.min(Math.max(numItems, 1), PAGE_MAX), cursor: cursor ?? null } },
 			);
 			const rows = await rowsOf(ctx, member, result.page.map((record) => ({ record, fields })));
 			return { type: type.plural, typeName: type.name, rows, more: !result.isDone, ...(!result.isDone && { cursor: result.continueCursor }) };
@@ -337,10 +340,10 @@ export const saveFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), input: v.any() },
 	handler: async (ctx, { turnId, input }) => {
 		const { member, who } = await runningTurn(ctx, turnId);
-		const { id, type: typeName, values = {}, archived } = input as RecordSaveInput;
+		const { id, type: typeName, values = {}, trash } = input as RecordSaveInput;
 		return asToolResult(async () => {
 			const hasValues = Object.keys(values).length > 0;
-			if (archived !== undefined && hasValues) throw new ConvexError("Archive or restore on its own, then change values in another call.");
+			if (trash !== undefined && hasValues) throw new ConvexError("Delete or restore on its own, then change values in another call.");
 			let recordId: Id<"records">;
 			let change: Id<"recordHistory"> | null;
 			if (id) {
@@ -348,14 +351,14 @@ export const saveFor = internalMutation({
 				if (!normalized) throw new ConvexError("Record not found.");
 				const record = await requireRecord(ctx, member, normalized);
 				recordId = record._id;
-				if (archived !== undefined) change = await setArchived(ctx, who, recordId, archived);
+				if (trash !== undefined) change = await setRecordTrashed(ctx, who, recordId, trash);
 				else if (hasValues) {
 					const type = (await ctx.db.get(record.typeId))!;
 					const fields = await fieldsOf(ctx, type._id);
 					change = await updateRecord(ctx, who, recordId, await valuesFor(new Names(ctx, member), type, fields, values));
-				} else throw new ConvexError("Nothing to change: give values, or archived.");
+				} else throw new ConvexError("Nothing to change: give values, or trash.");
 			} else {
-				if (archived !== undefined) throw new ConvexError("Create the record first.");
+				if (trash !== undefined) throw new ConvexError("Create the record first.");
 				if (!typeName) throw new ConvexError("Say which database to create.");
 				const type = await typeNamed(ctx, member, typeName);
 				const fields = await fieldsOf(ctx, type._id);
@@ -384,11 +387,15 @@ export const saveFieldFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), input: v.any() },
 	handler: async (ctx, { turnId, input }) => {
 		const { member, who } = await runningTurn(ctx, turnId);
-		const { type: typeName, field: name, label, kind, options, linksTo, multiple } = input as FieldSaveInput;
+		const { type: typeName, field: name, label, kind, options, linksTo, multiple, trash } = input as FieldSaveInput;
 		return asToolResult(async () => {
 			const type = await typeNamed(ctx, member, typeName);
 			let fieldId: Id<"recordFields">;
-			if (name) {
+			if (trash !== undefined) {
+				if (!name || label || kind || options || linksTo || multiple !== undefined) throw new ConvexError("Say which field to delete or restore, on its own.");
+				fieldId = fieldNamed(await fieldsOf(ctx, type._id), name, type, !trash)._id;
+				await setFieldTrashed(ctx, who, fieldId, trash);
+			} else if (name) {
 				const field = fieldNamed(await fieldsOf(ctx, type._id), name, type);
 				if ((kind && kind !== field.kind) || linksTo || multiple !== undefined)
 					throw new ConvexError("Only a field's name and options can change. Add a new field instead.");
@@ -409,6 +416,7 @@ export const saveFieldFor = internalMutation({
 				...(f.options && { options: f.options.filter((o) => !o.retired).map((o) => o.label) }),
 				...(f.linkTypeId && { linksTo: (await ctx.db.get(f.linkTypeId))?.key }),
 				...(f.multiple && { multiple: true }),
+				...(f.archived && { inTrash: true }),
 			};
 		});
 	},
@@ -421,17 +429,21 @@ export const saveDatabaseFor = internalMutation({
 		return asToolResult(async () => {
 			const parsed = databaseInput.safeParse(input);
 			if (!parsed.success) throw new ConvexError(parsed.error.issues[0]!.message);
-			const { type: key, name: plural, singular: name, version, archived } = parsed.data;
+			const { type: key, name: plural, singular: name, version, trash } = parsed.data;
 			let id: Id<"recordTypes">;
-			if (key) {
+			if (key && trash !== undefined) {
+				if (plural || name) throw new ConvexError("Delete or restore a database on its own.");
+				id = (await typeNamed(ctx, member, key, !trash))._id;
+				await setTypeTrashed(ctx, who, id, trash);
+			} else if (key) {
 				id = (await typeNamed(ctx, member, key))._id;
-				await updateType(ctx, who, id, { name, plural, archived, version: version ?? -1 });
+				await updateType(ctx, who, id, { name, plural, version: version ?? -1 });
 			} else {
-				if (!plural || archived !== undefined) throw new ConvexError("Give the new database a name.");
+				if (!plural || trash !== undefined) throw new ConvexError("Give the new database a name.");
 				id = await createType(ctx, who, { plural, name });
 			}
 			const type = (await ctx.db.get(id))!;
-			return { type: type.key, name: type.name, plural: type.plural, version: type.version ?? 0, archived: type.archived };
+			return { type: type.key, name: type.name, plural: type.plural, version: type.version ?? 0, ...(type.archived && { inTrash: true }) };
 		});
 	},
 });

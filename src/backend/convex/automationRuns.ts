@@ -250,7 +250,7 @@ async function runInChannel(
 	if (!agent) return { ran: false, summary: await finish(ctx, install, noAgent) };
 	const chat = install.channelId && (await ctx.db.get(install.channelId));
 	if (!chat || chat.archived)
-		return { ran: false, summary: await finish(ctx, install, "Didn't run: its channel was archived or deleted. Pick another.") };
+		return { ran: false, summary: await finish(ctx, install, "Didn't run: its channel was deleted. Pick another.") };
 	const problem = await postingProblem(ctx, install.custom?.trigger, chat._id);
 	if (problem) return { ran: false, summary: await finish(ctx, install, `Didn't run: ${problem}`) };
 	const preferred = install.custom ? install.installedBy : (install.channelSetBy ?? install.installedBy);

@@ -94,8 +94,8 @@ describe("records tools", () => {
 		expect(line("records_save", "done", deal, { error: "No stage “Pitch”." })).toBe("Saved a record");
 		expect(line("records_save", "running", { id: "r1", values: { roof_type: "Metal" } })).toBe("Saving a record…");
 		expect(line("records_save", "done", { id: "r1", values: { roof_type: "Metal" } }, acme)).toBe("Saved Acme Roofing");
-		expect(line("records_save", "done", { id: "r1", archived: true }, acme)).toBe("Archived Acme Roofing");
-		expect(line("records_save", "done", { id: "r1", archived: false }, acme)).toBe("Restored Acme Roofing");
+		expect(line("records_save", "done", { id: "r1", trash: true }, acme)).toBe("Deleted Acme Roofing");
+		expect(line("records_save", "done", { id: "r1", trash: false }, acme)).toBe("Restored Acme Roofing");
 		expect(line("records_undo", "done", { change: "h1" }, { undone: "h1", ...acme })).toBe("Undid a change to Acme Roofing");
 		expect(line("records_get", "done", { id: "r1" }, { ref: "r1", data: acme })).toBe("Opened Acme Roofing");
 		const page = (rows: number, more = false) => ({ ref: "r1", data: { type: "Deals", typeName: "Deal", rows: Array.from({ length: rows }, (_, i) => ({ _id: `d${i}` })), more } });
@@ -149,7 +149,7 @@ describe("records tools", () => {
 			value: "$1,250.50",
 			cad: "CA$40.00",
 			owner: "Jaden",
-			client: "Acme (archived)",
+			client: "Acme (deleted)",
 			paid: "Yes",
 			minutes: 12,
 			close: "Nov 15, 2026",

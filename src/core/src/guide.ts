@@ -56,14 +56,15 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 			"The workspace's CRM: clients, deals, tasks, calls, and databases the team adds. Facts about customers and work (contact details, deal stages, amounts, due dates, who owns what) go on records, not in memory; memory is for preferences and how people like to work.",
 		);
 		if (has("records.types")) lines.push("- Learn the databases and field keys with records_types once per conversation, then reuse them. Refer to teammates by name or \"me\", and linked records by exact name or id.");
-		if (has("records.save_database")) lines.push("- Owners can create, rename and archive databases with records_save_database. Read the current version first. Change databases only when asked.");
+		if (has("records.save_database")) lines.push("- Owners can create, rename and delete databases with records_save_database. Read the current version first. Change databases only when asked.");
 		if (has("records.views")) lines.push("- Shared sorting and filtering is in records_views.");
 		if (has("records.save_view")) lines.push("- Change shared views with records_save_view, from their current version, only when asked.");
 		if (has("records.find")) lines.push("- Find before you create, so there are no duplicates. If several records match, ask which one.");
 		if (has("records.save") || has("records.save_field")) {
 			lines.push(
 				"- Changes run right away, logged as you acting for the person. Say in a sentence what you changed.",
-				"- Before changing or archiving more than 3 records at once, list them and ask the person to confirm. Add or change fields only when asked.",
+				"- Deleting moves things to Trash: whoever deleted it, or an owner, can restore it for 30 days. You cannot delete anything forever.",
+				"- Before changing or deleting more than 3 records at once, list them and ask the person to confirm. Add or change fields only when asked.",
 			);
 		}
 		if (has("records.undo")) lines.push("- Record changes return a change id; records_undo reverses those if they ask.");

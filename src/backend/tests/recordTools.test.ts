@@ -186,7 +186,7 @@ describe("records tools", () => {
 			error: expect.stringContaining("Several clients are named “Acme Roofing”"),
 		});
 		// Archived ones don't count.
-		await tools.save({ id: one.id, archived: true });
+		await tools.save({ id: one.id, trash: true });
 		expect((await tools.save({ type: "deal", values: { name: "Roof", client: "Acme Roofing" } })).values.client).toBe("acme roofing");
 		// Long names (indexed by prefix + hash) still match exactly.
 		const long = `Northwest ${"Roofing ".repeat(20)}LLC`;
@@ -228,7 +228,7 @@ describe("records tools", () => {
 		expect((await tools.find({ search: "Acme" })).rows[0]).toMatchObject({ _id: acme.id, _type: "client", id: "C-42", type: "Commercial" });
 	});
 
-	it("archive, restore and undo", async () => {
+	it("delete to Trash, restore and undo", async () => {
 		const { t, member } = await setup();
 		const tools = await turnFor(t, member);
 		const client = await tools.save({ type: "client", values: { name: "Acme", status: "Lead" } });
@@ -236,15 +236,15 @@ describe("records tools", () => {
 		const undone = await tools.undo(changed.change!);
 		expect(undone).toMatchObject({ undone: changed.change, id: client.id, values: { status: "Lead" } });
 		expect(await tools.undo(changed.change!)).toEqual({ error: "That change was already undone." });
-		const archived = await tools.save({ id: client.id, archived: true });
-		expect(archived).toMatchObject({ archived: true });
+		const deleted = await tools.save({ id: client.id, trash: true });
+		expect(deleted).toMatchObject({ inTrash: true });
 		expect((await tools.find({ type: "client" })).rows).toEqual([]);
-		expect((await tools.find({ type: "client", archived: true })).rows.map((r) => r.name)).toEqual(["Acme"]);
-		expect(await tools.undo(archived.change!)).not.toHaveProperty("archived");
-		expect(await tools.save({ id: client.id, archived: true, values: { status: "Past" } })).toEqual({ error: expect.stringContaining("on its own") });
-		// Undoing a new record archives it.
+		expect((await tools.find({ type: "client", trashed: true })).rows.map((r) => r.name)).toEqual(["Acme"]);
+		expect(await tools.undo(deleted.change!)).not.toHaveProperty("inTrash");
+		expect(await tools.save({ id: client.id, trash: true, values: { status: "Past" } })).toEqual({ error: expect.stringContaining("on its own") });
+		// Undoing a new record deletes it.
 		const extra = await tools.save({ type: "client", values: { name: "Oops" } });
-		expect(await tools.undo(extra.change!)).toMatchObject({ name: "Oops", archived: true });
+		expect(await tools.undo(extra.change!)).toMatchObject({ name: "Oops", inTrash: true });
 	});
 
 	it("show a record's links and what links to it", async () => {
