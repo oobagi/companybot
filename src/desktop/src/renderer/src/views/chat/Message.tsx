@@ -46,7 +46,7 @@ export function MessageRow({
 				id={`message-${message._id}`}
 				className={`group relative flex gap-3 px-5 hover:bg-neutral-50/80 ${grouped ? "py-0.5" : "pt-2 pb-0.5"}`}
 			>
-				<div className="flex w-9 shrink-0 justify-center">
+				<div className="flex w-9 shrink-0 items-start justify-center">
 					{grouped ? (
 						<span className="invisible pt-1 text-[10px] text-neutral-400 tabular-nums group-hover:visible">
 							{clock(message._creationTime)}
