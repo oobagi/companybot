@@ -66,7 +66,14 @@ Queries return display-ready data (names resolved) so the app never joins tables
 - `edit({ messageId, text })`, `remove({ messageId })` — your own messages. Removing keeps the row (threads hang off it) and clears text, parts, and reactions.
 - `react({ messageId, emoji })` — toggles your reaction.
 
+**`typing.ts`**
+- `ping({ chatId, threadId? })` — you're typing there. The app sends it on keystrokes, at most every 4s (`TYPING_PING_MS`).
+- `list({ chatId, threadId? })` → `{ people: (Participant & { at })[], agents: Participant[] }`. People with their last ping, you left out; the app hides pings older than 6s (`TYPING_MS`) on its own timer, since a query doesn't re-run as time passes. `agents`: agents whose turn is running there. No extra writes for them.
+- One `typing` row per person per place, overwritten by each ping, so one person can't grow the table. Sending a message deletes yours; an hourly cron deletes the rest (typed, never sent). Like Discord, there's no "stopped typing": a ping runs out.
+
 ## In the app
+Under every composer, one line says who's typing there ("Ada and Companybot are typing…"). Its space is always kept, so the box doesn't jump. A thread has its own line.
+
 Click a name or avatar for a profile card (`views/chat/Profile.tsx`, from `workspace.team` and `chats.list`): name, email, role, local time, Message.
 
 ## Permissions

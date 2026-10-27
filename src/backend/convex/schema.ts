@@ -396,6 +396,19 @@ export default defineSchema({
 		.index("by_workspace", ["workspaceId"])
 		.searchIndex("search_text", { searchField: "text", filterFields: ["workspaceId", "chatId"] }),
 
+	// Who's typing where: one row per person per place (chat + thread), its `at` bumped every
+	// few seconds while they type, deleted when they send. Stale after TYPING_MS (typing.ts).
+	typing: defineTable({
+		workspaceId: v.id("workspaces"),
+		chatId: v.id("chats"),
+		threadId: v.optional(v.id("chatMessages")),
+		userId: v.id("users"),
+		at: v.number(),
+	})
+		.index("by_place", ["chatId", "threadId", "userId"])
+		.index("by_workspace", ["workspaceId", "userId"])
+		.index("by_at", ["at"]),
+
 	// One emoji from one person or agent on one message.
 	reactions: defineTable({
 		messageId: v.id("chatMessages"),

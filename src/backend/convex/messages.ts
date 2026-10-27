@@ -22,6 +22,7 @@ import { noteMentions, workspaceRecords } from "./recordOps";
 import type { messagePart, replyStats } from "./schema";
 import { internal } from "./_generated/api";
 import { enqueueTurn } from "./turns";
+import { stopTyping } from "./typing";
 
 // Messages in a chat's main timeline or a thread. See wiki/chat.md.
 
@@ -177,6 +178,7 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	});
 	await addUserMentions(ctx, (await ctx.db.get(messageId))!);
 	await noteMentions(ctx, { _id: messageId, chatId }, recordIds);
+	if (!who.agentId) await stopTyping(ctx, chatId, threadId, member.userId);
 	if (!who.agentId && !threadId) await markChatRead(ctx, chatId, member.userId);
 
 	if (who.agentId) return messageId;

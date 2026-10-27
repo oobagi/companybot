@@ -185,6 +185,11 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		// deleted or edited message stays in their sessions: a product decision is pending.
 		keep: "Team history: what someone said stays when they leave; once their account is erased it shows as a former member's.",
 	},
+	typing: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		member: { index: "by_workspace", eq: ["workspaceId", "userId"] },
+		channel: { index: "by_place", eq: ["chatId"] },
+	},
 	reactions: { childOf: { table: "chatMessages", index: "by_message", field: "messageId" } },
 	userMentions: {
 		childOf: { table: "chatMessages", index: "by_message", field: "messageId" },

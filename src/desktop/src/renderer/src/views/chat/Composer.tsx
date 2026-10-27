@@ -21,13 +21,16 @@ export function Composer({
 	onSend,
 	sendWith,
 	placeholder,
-	hint,
+	status,
+	onType,
 	candidates,
 }: {
 	onSend: (text: string, mentions: Mentions) => void;
 	sendWith: SendWith;
 	placeholder: string;
-	hint?: string;
+	/** The line under the box (who's typing). Its space is kept when empty, so the box doesn't jump. Left out: no line. */
+	status?: string | null;
+	onType?: () => void;
 	/** People and agents offered by @mention autocomplete. */
 	candidates: Participant[];
 }) {
@@ -103,6 +106,7 @@ export function Composer({
 					autoFocus
 					onChange={(e) => {
 						setText(e.target.value);
+						if (e.target.value.trim()) onType?.();
 						track(e.target);
 						setIndex(0);
 						setDismissed(undefined);
@@ -145,7 +149,11 @@ export function Composer({
 					<ArrowUpIcon weight="bold" />
 				</button>
 			</form>
-			{hint && <p className="px-4 text-xs text-neutral-400">{hint}</p>}
+			{status !== undefined && (
+				<p className="h-4 truncate px-4 text-xs text-neutral-400" aria-live="polite">
+					{status}
+				</p>
+			)}
 		</div>
 	);
 }

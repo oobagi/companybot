@@ -58,6 +58,7 @@ import type * as skills from "../skills.js";
 import type * as trash from "../trash.js";
 import type * as trashOps from "../trashOps.js";
 import type * as turns from "../turns.js";
+import type * as typing from "../typing.js";
 import type * as workspace from "../workspace.js";
 
 import type {
@@ -117,6 +118,7 @@ declare const fullApi: ApiFromModules<{
   trash: typeof trash;
   trashOps: typeof trashOps;
   turns: typeof turns;
+  typing: typeof typing;
   workspace: typeof workspace;
 }>;
 
