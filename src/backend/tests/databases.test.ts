@@ -209,3 +209,16 @@ it("saves board views grouped by a single choice field, for people, agents and a
 	const history = await member.query(api.records.activity, { paginationOpts: page });
 	expect(history.page[0]).toMatchObject({ action: "view.updated", agent: "Companybot" });
 });
+
+it("lets alpha.7 save a board after its grouping field is deleted", async () => {
+	const { owner } = await setup();
+	const typeId = await owner.mutation(api.recordTypes.create, { plural: "Jobs" });
+	const field = await owner.mutation(api.fields.create, { typeId, label: "Status", kind: "choice", options: [{ label: "To do" }] });
+	const config = { typeId, name: "Pipeline", columns: ["name"], filters: [] };
+	const viewId = await owner.mutation(api.databaseViews.save, { ...config, layout: "board", groupBy: field.key });
+	await owner.mutation(api.fields.archive, { fieldId: field._id });
+	await owner.mutation(api.databaseViews.save, { ...config, viewId, version: 1, name: "Renamed" });
+	const [saved] = await owner.query(api.databaseViews.list, { typeId });
+	expect(saved).toMatchObject({ name: "Renamed", layout: "board", version: 2 });
+	expect(saved).not.toHaveProperty("groupBy");
+});

@@ -401,13 +401,15 @@ function Board({ type, args, group, cards, canEdit }: { type: RecordType; args: 
 	const lanes = [{ id: "", label: `No ${group.label}`, retired: false }, ...(group.options ?? []).map((o) => ({ ...o, retired: !!o.retired }))];
 	const props = cards.filter((f) => f.key !== "name" && f.key !== group.key);
 	return (
-		<div className="flex flex-col gap-2">
+		// Break out of Page's 64rem content limit, keeping its 1.5rem side padding.
+		<div className="-mx-[max(0px,calc((100cqw-64rem)/2))] flex flex-col gap-2">
 			{error && <Notice>{error}</Notice>}
 			<div className="flex items-start gap-3 overflow-x-auto pb-2">
 				{lanes.map((lane) => (
 					<Lane
 						key={lane.id}
 						id={lane.id}
+						groupBy={group.key}
 						type={type}
 						label={lane.label}
 						retired={lane.retired}
@@ -423,7 +425,7 @@ function Board({ type, args, group, cards, canEdit }: { type: RecordType; args: 
 	);
 }
 
-/** What a dragged card carries: its record and the column it came from. */
+/** Scope drags to their database and grouping, including across windows or a live grouping change. */
 const CARD = "application/x-companybot-card";
 
 /**
@@ -432,6 +434,7 @@ const CARD = "application/x-companybot-card";
  */
 function Lane({
 	id,
+	groupBy,
 	type,
 	label,
 	retired,
@@ -442,6 +445,7 @@ function Lane({
 	onMove,
 }: {
 	id: string;
+	groupBy: string;
 	type: RecordType;
 	label: string;
 	retired: boolean;
@@ -453,15 +457,21 @@ function Lane({
 }) {
 	const { rows, refs, status, loadMore, setEnd } = usePagedRows(args);
 	const [over, setOver] = useState(false);
-	if (retired && rows.length === 0) return null;
+	if (retired && rows.length === 0 && status === "Exhausted") return null;
 	return (
 		<section
 			onDragOver={(e) => canEdit && !retired && e.dataTransfer.types.includes(CARD) && (e.preventDefault(), setOver(true))}
 			onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setOver(false)}
 			onDrop={(e) => {
+				e.preventDefault();
 				setOver(false);
-				const card = JSON.parse(e.dataTransfer.getData(CARD) || "null") as { id: string; from: string } | null;
-				if (card && card.from !== id) onMove(card.id);
+				if (!canEdit || retired) return;
+				try {
+					const card = JSON.parse(e.dataTransfer.getData(CARD) || "null");
+					if (card?.typeId === type._id && card.groupBy === groupBy && typeof card.id === "string" && typeof card.from === "string" && card.from !== id) onMove(card.id);
+				} catch {
+					// Ignore unrelated or malformed external drags.
+				}
 			}}
 			className={`flex w-64 shrink-0 flex-col gap-2 rounded-xl p-2 ${over ? "bg-neutral-200/70" : "bg-neutral-100/70"}`}
 		>
@@ -474,7 +484,7 @@ function Lane({
 					key={r._id}
 					type="button"
 					draggable={canEdit}
-					onDragStart={(e) => e.dataTransfer.setData(CARD, JSON.stringify({ id: r._id, from: id }))}
+					onDragStart={(e) => e.dataTransfer.setData(CARD, JSON.stringify({ id: r._id, from: id, typeId: type._id, groupBy }))}
 					onClick={() => navigate(...recordPath(type.key, r._id))}
 					className="flex flex-col gap-1 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-left text-sm shadow-xs hover:bg-neutral-50"
 				>
