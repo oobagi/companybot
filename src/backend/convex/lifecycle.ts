@@ -1,3 +1,4 @@
+import { searchTextOf } from "@companybot/core";
 import type { IndexNames, NamedTableInfo } from "convex/server";
 import { internal } from "./_generated/api";
 import type { DataModel, Doc, Id, TableNames } from "./_generated/dataModel";
@@ -5,9 +6,12 @@ import type { MutationCtx } from "./_generated/server";
 import { privateTo } from "./automationOps";
 import { startCascade } from "./cascade";
 import { hasLiveOwner, liveWorkspace, pinLegacyWorkspace } from "./lib";
+import { deletePage, pageOfRecord } from "./pageOps";
+import { toField } from "./recordOps";
 
 // What happens to every table's rows when what they belong to goes: a workspace is deleted,
-// a member removed, an account erased, a connector or automation uninstalled, a page deleted. cascade.ts
+// a member removed, an account erased, a connector or automation uninstalled, a page deleted, or
+// a record, database, field or channel deleted for good from Trash (trash.ts). cascade.ts
 // runs it. Every table must be listed (tests/lifecycle.test.ts fails otherwise), so a new
 // table can't ship until someone decides what happens to its rows. See wiki/architecture.md#data-lifecycle.
 
@@ -17,7 +21,11 @@ export type Scope = Doc<"cascades">["scope"];
 export type Root = Doc<"cascades">["root"];
 
 /** Reads a row by id, counted against the cascade run's read budget. */
-export type Get = <T extends TableNames>(id: Id<T>) => Promise<Doc<T> | null>;
+export type Get = {
+	<T extends TableNames>(id: Id<T>): Promise<Doc<T> | null>;
+	/** Small text-field catalog, cached and counted against the same budget. */
+	searchFields(typeId: Id<"recordTypes">): Promise<Doc<"recordFields">[]>;
+};
 
 /** One range of one index: its rows are deleted (or patched, with `scrub`) when the scope's root goes. */
 export type Edge<T extends TableNames> = {
@@ -27,7 +35,7 @@ export type Edge<T extends TableNames> = {
 	/** Only rows this passes. */
 	where?: (get: Get, row: Doc<T>, root: Root) => boolean | Promise<boolean>;
 	/** Patch rows instead of deleting them. */
-	scrub?: (row: Doc<T>) => Partial<Doc<T>>;
+	scrub?: (row: Doc<T>, get: Get, root: Root) => Partial<Doc<T>> | Promise<Partial<Doc<T>>>;
 	/** Runs just before each row is deleted, in the same transaction. Keep it to a few small reads. */
 	onDelete?: (ctx: MutationCtx, row: Doc<T>, root: Root) => Promise<unknown>;
 };
@@ -42,6 +50,18 @@ export type Lifecycle<T extends TableNames> = { [S in Scope]?: Edge<T> } & {
 /** A channel seat, not a DM: DMs keep people who left as past participants. */
 const inChannel = async (get: Get, row: { chatId: Id<"chats"> }) => (await get(row.chatId))?.kind === "channel";
 const inWorkspace = async (get: Get, id: Id<"chats"> | Id<"automationInstalls">, root: Root) => (await get(id))?.workspaceId === root.workspaceId;
+
+/** A record's page body goes with it. */
+async function deleteBody(ctx: MutationCtx, row: Doc<"records">) {
+	const page = await pageOfRecord(ctx, row.workspaceId, row._id);
+	if (page) await deletePage(ctx, page._id);
+}
+
+/** A page's content is the prosemirrorSync component's, deleted by the component a little at a time. */
+const deleteContent = (ctx: MutationCtx, row: Doc<"pages">) => ctx.scheduler.runAfter(0, internal.pageSync.deleteDoc, { id: row._id });
+
+/** The field being deleted, read once per run. */
+const fieldOf = async (get: Get, root: Root) => await get(root.fieldId!);
 
 /** Ends access to a workspace at once (memberOf refuses it), then deletes it in a cascade. */
 export async function removeWorkspace(ctx: MutationCtx, workspaceId: Id<"workspaces">) {
@@ -146,13 +166,16 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	},
 
 	// ---- Chat ----
+	// A channel deleted from Trash goes last in its own cascade, after its messages, seats and agent sessions.
 	chats: { workspace: { index: "by_workspace", eq: ["workspaceId"] } },
 	chatMembers: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		channel: { index: "by_chat", eq: ["chatId"] },
 		member: { index: "by_workspace", eq: ["workspaceId", "userId"], where: inChannel },
 	},
 	chatMessages: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		channel: { index: "by_chat_thread", eq: ["chatId"] },
 		// Deleting a message clears it but keeps the row (messages.remove). What agents already saw of a
 		// deleted or edited message stays in their sessions: a product decision is pending.
 		keep: "Team history: what someone said stays when they leave; once their account is erased it shows as a former member's.",
@@ -166,19 +189,23 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	// ---- Agent runs ----
 	agentTurns: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		channel: { index: "by_chat", eq: ["chatId"] },
 		keep: "A queued turn acting for someone who left fails when it runs (runningTurn reads membership fresh).",
 	},
-	agentSessions: { workspace: { index: "by_workspace", eq: ["workspaceId"] } },
+	agentSessions: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		channel: { index: "by_chat", eq: ["chatId"] },
+	},
 	agentActivity: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		// Results show only to the person it acted for (their inbox, a private channel): erasing them clears those.
 		user: { index: "by_actor", eq: [["actorId", "userId"]], scrub: () => ({ output: undefined }) },
-		keep: "The workspace's log of what agents did. Results show only to the person it acted for, so once they leave nobody sees them.",
+		keep: "The workspace's log of what agents did. Results show only to the person it acted for, so once they leave nobody sees them. A deleted channel's entries stay, hidden with it (as private as its chat).",
 	},
 	approvals: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		user: { index: "by_actor", eq: [["actorId", "userId"]], scrub: () => ({ result: undefined }) },
-		keep: "Only the person it acted for can decide one; a removed person's expire undecided.",
+		keep: "Only the person it acted for can decide one; a removed person's expire undecided, as do ones in a deleted channel.",
 	},
 
 	// ---- Automations and permissions ----
@@ -215,27 +242,71 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	},
 
 	// ---- Records ----
+	// A record, database or field deleted from Trash (trash.ts) goes last in its own cascade.
 	recordTypes: { workspace: { index: "by_workspace", eq: ["workspaceId"] } },
-	databaseViews: { childOf: { table: "recordTypes", index: "by_type", field: "typeId" } },
-	recordFields: { childOf: { table: "recordTypes", index: "by_type", field: "typeId" } },
+	databaseViews: {
+		childOf: { table: "recordTypes", index: "by_type", field: "typeId" },
+		database: { index: "by_type", eq: ["typeId"] },
+	},
+	recordFields: {
+		childOf: { table: "recordTypes", index: "by_type", field: "typeId" },
+		database: { index: "by_type", eq: ["typeId"] },
+	},
 	records: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
-		keep: "Records are the workspace's (archive, don't delete); who made or changed them stays in history.",
+		database: { index: "by_type", eq: ["typeId"], onDelete: deleteBody },
+		// A deleted field's values leave every record in its database, in Trash or not, so a new field can reuse its key.
+		field: {
+			index: "by_type",
+			eq: ["typeId"],
+			where: async (get, row, root) => {
+				const field = await fieldOf(get, root);
+				return !!field && field.key in row.values;
+			},
+			scrub: async (row, get, root) => {
+				const field = await fieldOf(get, root);
+				const { [field!.key]: _, ...values } = row.values;
+				const fields = await get.searchFields(row.typeId);
+				return { values, searchText: searchTextOf(fields.filter((f) => f._id !== root.fieldId).map(toField), values) };
+			},
+		},
+		keep: "Records are the workspace's: deleting one moves it to Trash. Who made or changed them stays in history.",
 	},
-	recordValues: { childOf: { table: "records", index: "by_record", field: "recordId" } },
-	recordHistory: { workspace: { index: "by_workspace", eq: ["workspaceId"] } },
+	recordValues: {
+		childOf: { table: "records", index: "by_record", field: "recordId" },
+		record: { index: "by_record", eq: ["recordId"] },
+		field: { index: "by_field_at", eq: ["fieldId"] },
+	},
+	recordHistory: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		record: { index: "by_record", eq: ["recordId"] },
+		database: { index: "by_type", eq: ["typeId"] },
+		field: { index: "by_field", eq: ["fieldId"] },
+	},
 	// Deleting a message deletes its rows here too (messages.remove).
-	recordMentions: { childOf: { table: "records", index: "by_record", field: "recordId" } },
+	recordMentions: {
+		channel: { index: "by_chat", eq: ["chatId"] },
+		childOf: { table: "records", index: "by_record", field: "recordId" },
+		record: { index: "by_record", eq: ["recordId"] },
+	},
 
 	// ---- Pages ----
 	pages: {
-		// Its content is the prosemirrorSync component's, deleted by the component a little at a time.
-		workspace: { index: "by_workspace", eq: ["workspaceId"], onDelete: (ctx, row) => ctx.scheduler.runAfter(0, internal.pageSync.deleteDoc, { id: row._id }) },
-		keep: "Pages are the workspace's, like records. Deleting one (pages.remove) deletes its row first, then its content and a page cascade.",
+		workspace: { index: "by_workspace", eq: ["workspaceId"], onDelete: deleteContent },
+		// A record's body goes with it.
+		record: { index: "by_workspace", eq: ["workspaceId", "recordId"], onDelete: deleteContent },
+		keep: "Pages are the workspace's, like records. Deleting one forever (trash.ts) deletes its row first, then its content and a page cascade.",
 	},
 	pageVersions: {
 		childOf: { table: "pages", index: "by_page", field: "pageId" },
 		page: { index: "by_page", eq: ["pageId"] },
+	},
+
+	trash: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		// Its records' and fields' entries: they go with it.
+		database: { index: "by_type", eq: ["typeId"] },
+		keep: "Deleting forever deletes the entry first (trash.ts). Who deleted something stays, as a former member once they leave.",
 	},
 
 	cascades: { keep: "The cascades themselves: each deletes its own row when it's done." },

@@ -80,7 +80,7 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 	if (!next) return;
 	const chat = await ctx.db.get(next.chatId);
 	// A workspace being deleted starts nothing: its cascade may already be past the rows this would add.
-	if (!chat || !(await liveWorkspace(ctx, chat.workspaceId))) {
+	if (!chat || chat.archived || !(await liveWorkspace(ctx, chat.workspaceId))) {
 		await ctx.db.patch(next._id, { status: "error" });
 		return await settleApproval(ctx, next);
 	}
@@ -122,7 +122,7 @@ export async function runningTurn(ctx: QueryCtx, turnId: Id<"agentTurns">) {
 	const member = await memberOf(ctx, turn.actorId, turn.workspaceId);
 	if (!member) throw new Error("This person is no longer in the workspace.");
 	const chat = await ctx.db.get(turn.chatId);
-	if (!chat || !(await canSee(ctx, chat, member))) throw new Error("This person can no longer see this chat.");
+	if (!chat || chat.archived || !(await canSee(ctx, chat, member))) throw new Error("This person can no longer see this chat.");
 	const who: Who = { member, agentId: turn.agentId };
 	return { turn: turn as Doc<"agentTurns"> & { replyId: Id<"chatMessages">; sessionId: Id<"agentSessions"> }, member, chat, who };
 }

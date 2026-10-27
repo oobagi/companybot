@@ -24,7 +24,7 @@ export function RecordsView({ typeKey, recordId, role }: { typeKey: string; reco
 	if (!type) {
 		return (
 			<Page title="Not found">
-				<p className="text-sm text-neutral-500">This database may have been archived.</p>
+				<p className="text-sm text-neutral-500">This database may have been deleted. Look in Trash.</p>
 			</Page>
 		);
 	}

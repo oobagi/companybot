@@ -375,16 +375,17 @@ export const sameText = (field: Field, stored: FieldValue | undefined, wanted: F
 	!["text", "email", "url"].includes(field.kind) || String(stored).toLowerCase() === String(wanted).toLowerCase();
 
 /** Text worth searching: the title and other text-like values. */
+const searchKinds: FieldKind[] = ["text", "email", "phone", "url"];
+
 export function searchTextOf(fields: Field[], values: Record<string, FieldValue>) {
-	const kinds: FieldKind[] = ["text", "email", "phone", "url"];
 	return fields
-		.filter((f) => kinds.includes(f.kind) && typeof values[f.key] === "string")
+		.filter((f) => searchKinds.includes(f.kind) && typeof values[f.key] === "string")
 		.map((f) => values[f.key] as string)
 		.join("\n")
 		.slice(0, TEXT_MAX);
 }
 
-/** A record's name for a person or record id in its values: `{ name, archived? }`. */
+/** A record's name for a person or record id in its values: `{ name, archived? }` (`archived`: in Trash or deleted). */
 export type RefName = { name: string; archived?: true };
 
 /**
@@ -398,7 +399,7 @@ export function displayValues(fields: Field[], values: Record<string, FieldValue
 	const one = (field: Field, v: string) => {
 		if (field.kind === "choice") return field.options?.find((o) => o.id === v)?.label ?? v;
 		const ref = refs[v];
-		return ref ? `${ref.name}${ref.archived ? " (archived)" : ""}` : v;
+		return ref ? `${ref.name}${ref.archived ? " (deleted)" : ""}` : v;
 	};
 	for (const field of fields) {
 		const v = values[field.key];

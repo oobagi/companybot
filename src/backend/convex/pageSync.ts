@@ -2,7 +2,7 @@ import { Step, Transform } from "@tiptap/pm/transform";
 import { ConvexError, v } from "convex/values";
 import { components } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
-import { type QueryCtx, internalMutation, mutation } from "./_generated/server";
+import { type QueryCtx, internalMutation, mutation, query } from "./_generated/server";
 import { authUserId, memberOf } from "./lib";
 import { pageSchema, requireEditable, saveTransform, sync } from "./pageOps";
 
@@ -16,7 +16,18 @@ async function pageFor(ctx: QueryCtx, id: string) {
 	return { page, member };
 }
 
-export const { getSnapshot, latestVersion, getSteps } = sync.syncApi<DataModel>({ checkRead: async (ctx, id) => { await pageFor(ctx, id); } });
+export const { getSnapshot, getSteps } = sync.syncApi<DataModel>({ checkRead: async (ctx, id) => { await pageFor(ctx, id); } });
+
+// Open editors may still be subscribed when another window deletes the page forever.
+export const latestVersion = query({
+	args: { id: v.string() },
+	handler: async (ctx, { id }): Promise<number | null> => {
+		const pageId = ctx.db.normalizeId("pages", id);
+		if (!pageId || !(await ctx.db.get(pageId))) return null;
+		await pageFor(ctx, id);
+		return ctx.runQuery(components.prosemirrorSync.lib.latestVersion, { id });
+	},
+});
 
 export const submitSteps = mutation({
 	args: { id: v.string(), version: v.number(), clientId: v.union(v.string(), v.number()), steps: v.array(v.string()) },

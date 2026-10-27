@@ -3,7 +3,7 @@
 Free-form writing, Notion's way: a **page** is a title plus blocks. Standalone pages (wiki, SOPs, meeting notes) and the body under every record's fields are the same thing; a record's body is a page with `recordId` set. Code: `backend/convex/pageOps.ts` (rules), `pages.ts` (app API), `pageSync.ts` (editor sync), `pageTools.ts` + `core/src/page-tools.ts` (agents), `pageMarkdown.ts` (Markdown); app in `desktop/…/views/Pages.tsx` and `views/pages/`.
 
 ## Model
-- **Page** (`pages`) — `workspaceId`, `title` (standalone only: a record's body shows the record's name), `recordId?`, `archived`, who made and last changed it. One index, `by_workspace` (workspace, record, archived, title), serves the sidebar (standalone, live, by title), a record's body, and the agent's exact-title lookup; `search_title` serves `pages_find`.
+- **Page** (`pages`) — `workspaceId`, `title` (standalone only: a record's body shows the record's name), `recordId?`, `archived` (in Trash), who made and last changed it. One index, `by_workspace` (workspace, record, archived, title), serves the sidebar (standalone, live, by title), a record's body, and the agent's exact-title lookup; `search_title` serves `pages_find`.
 - **Content** lives in the [`@convex-dev/prosemirror-sync`](https://github.com/get-convex/prosemirror-sync) component, keyed by the page's id: ProseMirror **snapshots** (whole document) and **deltas** (steps). The editor is [BlockNote](https://www.blocknotejs.org) (MIT core, Mantine UI; no paid XL packages) through the component's `useBlockNoteSync`. The backend reads and writes with BlockNote's ProseMirror schema (`pageSchema`, an unmounted editor needs no DOM).
 - **Versions** (`pageVersions`) — the page's history: one row per run of edits, each pointing at the component snapshot it ends at (`version`), with `userId` (who started it), `agentId` when an agent did it for that person, `others` (anyone else who edited meanwhile, up to 10), `editedAt`, `restored` (the time of the version it brought back), and `n` (counts up per page).
 
@@ -22,16 +22,16 @@ Notion saves a version every 10 minutes while you edit, and another 2 minutes af
 - **Reads:** lists take 200 pages (sidebar) or 50 (`pages_find` list, paged) or 20 (title search, paged), history 20 per page.
 
 ## Rules
-- **Access:** every member reads every page; `pages.edit` (owner, member) creates, writes, renames, archives, restores and deletes. A page is read-only while it or its record is archived.
+- **Access:** every member reads every page; `pages.edit` (owner, member) creates, writes, renames, deletes (to Trash) and restores. A page is read-only while it or its record is in Trash.
 - **Sync API:** `useBlockNoteSync` calls `pageSync.*` with the page's id alone, so those functions find the workspace from the page and check membership there (`memberOf`), not from the request like the rest of the API (`functions.ts`).
-- **Record bodies** are created on first write (clicking "Write notes…", or an agent writing), so 100k records don't carry 100k empty documents. They're archived with their record and can't be renamed or archived on their own.
-- **Archive, then delete.** Deleting a standalone page (archived first) deletes its row at once, then its content (`pageSync.deleteDoc` → the component's `deleteDocument`, which deletes in batches) and a `page` cascade for its versions.
+- **Record bodies** are created on first write (clicking "Write notes…", or an agent writing), so 100k records don't carry 100k empty documents. They go to Trash with their record and can't be renamed or deleted on their own.
+- **Delete goes to Trash** ([Data → Trash](data.md#trash)). Deleting forever (an owner, or 30 days on) deletes its row at once, then its content (`pageSync.deleteDoc` → the component's `deleteDocument`, which deletes in batches) and a `page` cascade for its versions (`deletePage`). A record's body goes in its record's cascade.
 
 ## Agent tools
 `pages_find`, `pages_read`, `pages_write` (`core/src/page-tools.ts` → `ToolContext.pages` → `pageTools.ts`, through `runningTurn` like records). Granted as `pages.*`; Companybot has them (migration `companybotPageTools`). All `risk: none`: internal, versioned, restorable.
 - `pages_find` — by title words, or every standalone page by title, with `cursor`. Record bodies are found through their record.
 - `pages_read` — a page (id or exact title) or a record's body (`record`) as Markdown, 20,000 characters per call (`start`, `next`), plus its last 5 versions with ids.
-- `pages_write` — create (`title`, optional `markdown`), append (default) or replace content, rename, archive/restore, or bring back a version (`restore`). Each write is a version "Companybot, for <person>", grouped like a person's edits.
+- `pages_write` — create (`title`, optional `markdown`), append (default) or replace content, rename, delete/restore (`trash`), or bring back a version (`restore`). `pages_find` with `trashed` lists pages in Trash. Each write is a version "Companybot, for <person>", grouped like a person's edits.
 - **Markdown:** BlockNote converts through HTML, so `pageMarkdown.ts` runs in Node with happy-dom as its DOM (jsdom reads files at runtime and can't be bundled). The runner converts before writing and after reading, outside the mutation. Lossy: colors and alignment drop.
 - Agent edits show in Settings → Activity as tool calls ("Wrote page Roof inspection SOP"), like any agent change.
 

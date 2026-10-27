@@ -81,6 +81,8 @@ export interface ToolDef<Input = any> {
 	 * "outside"; everything else runs right away.
 	 */
 	risk?: Risk;
+	/** Per-call risk for grouped built-ins whose actions need different consent. */
+	riskFor?(input: Input): Risk;
 	/** Returns data worth showing. Results get a ref widgets can point at; see ResultStore. */
 	returnsData?: boolean;
 	source: ToolSource;

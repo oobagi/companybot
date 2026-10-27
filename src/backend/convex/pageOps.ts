@@ -4,11 +4,13 @@ import { ProsemirrorSync } from "@convex-dev/prosemirror-sync";
 import type { Node, Schema } from "@tiptap/pm/model";
 import { Transform } from "@tiptap/pm/transform";
 import { ConvexError, getDocumentSize } from "convex/values";
-import { components } from "./_generated/api";
+import { components, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { type Member, type Who, nameOf, requireInWorkspace } from "./lib";
-import { requireRecord } from "./recordOps";
+import { startCascade } from "./cascade";
+import { inTrash, requireRecord } from "./recordOps";
+import { putInTrash, takeFromTrash } from "./trashOps";
 
 // Shared rules for standalone pages and record bodies. See wiki/pages.md.
 
@@ -51,11 +53,11 @@ export const pageOfRecord = (ctx: QueryCtx, workspaceId: Id<"workspaces">, recor
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId).eq("recordId", recordId))
 		.first();
 
-/** Every member reads every page; `pages.edit` changes them, unless the page or its record is archived. */
+/** Every member reads every page; `pages.edit` changes them, unless the page or its record is in Trash. */
 export async function requireEditable(ctx: QueryCtx, member: Member, page: Doc<"pages">) {
 	if (!can(member.role, "pages.edit")) throw new ConvexError(deniedMessage("pages.edit"));
-	if (page.archived) throw new ConvexError("This page is archived. Restore it to make changes.");
-	if (page.recordId && (await requireRecord(ctx, member, page.recordId)).archived) throw new ConvexError("This record is archived. Restore it to make changes.");
+	if (page.archived) throw new ConvexError("This page is in Trash. Restore it to make changes.");
+	if (page.recordId && (await inTrash(ctx, await requireRecord(ctx, member, page.recordId)))) throw new ConvexError("This record is in Trash. Restore it to make changes.");
 }
 
 function cleanTitle(title: string) {
@@ -73,7 +75,7 @@ export async function createPage(ctx: MutationCtx, { member }: Who, to: { title:
 		const record = await requireRecord(ctx, member, to.recordId);
 		const existing = await pageOfRecord(ctx, member.workspaceId, record._id);
 		if (existing) return existing._id;
-		if (record.archived) throw new ConvexError("This record is archived. Restore it to make changes.");
+		if (await inTrash(ctx, record)) throw new ConvexError("This record is in Trash. Restore it to make changes.");
 		recordId = record._id;
 	}
 	const pageId = await ctx.db.insert("pages", {
@@ -95,10 +97,21 @@ export async function renamePage(ctx: MutationCtx, { member }: Who, page: Doc<"p
 	await ctx.db.patch(page._id, { title: cleanTitle(title), updatedAt: Date.now(), updatedBy: member.userId });
 }
 
-export async function setPageArchived(ctx: MutationCtx, { member }: Who, page: Doc<"pages">, archived: boolean) {
-	if (!can(member.role, "pages.edit")) throw new ConvexError(deniedMessage("pages.edit"));
-	if (page.recordId) throw new ConvexError("A record's page is archived with its record.");
-	await ctx.db.patch(page._id, { archived, updatedAt: Date.now(), updatedBy: member.userId });
+/** Moves a standalone page to Trash or back. A record's page goes with its record. */
+export async function setPageTrashed(ctx: MutationCtx, who: Who, page: Doc<"pages">, archived: boolean) {
+	if (!can(who.member.role, "pages.edit")) throw new ConvexError(deniedMessage("pages.edit"));
+	if (page.recordId) throw new ConvexError("A record's page goes to Trash with its record.");
+	if (page.archived === archived) return;
+	if (archived) await putInTrash(ctx, who, { kind: "page", id: page._id, name: page.title });
+	else await takeFromTrash(ctx, who, page._id);
+	await ctx.db.patch(page._id, { archived, updatedAt: Date.now(), updatedBy: who.member.userId });
+}
+
+/** Deletes a page for good: its row at once, then its content (a little at a time) and its versions. */
+export async function deletePage(ctx: MutationCtx, pageId: Id<"pages">) {
+	await ctx.db.delete(pageId);
+	await ctx.scheduler.runAfter(0, internal.pageSync.deleteDoc, { id: pageId });
+	await startCascade(ctx, "page", { pageId });
 }
 
 export const latestVersionOf = (ctx: QueryCtx, pageId: Id<"pages">) =>

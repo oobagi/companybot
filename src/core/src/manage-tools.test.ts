@@ -23,6 +23,17 @@ describe("grouped tools", () => {
 		}
 	});
 
+	it("asks for exact channel deletion without prompting for channel reads or edits", async () => {
+		const tool = manageTools.find((t) => t.id === "channels.manage")!;
+		const input = { request: { action: "delete", chat: "exact-channel" } };
+		const action = await actionOf("channels_manage", input, [tool]);
+		expect(toolRisk(action!.tool)).toBe("locked");
+		expect(action!.input).toEqual(input);
+		expect(await toolApprovalPolicy([tool])({ toolCall: { toolCallId: "delete", toolName: "channels_manage", input } })).toBe("user-approval");
+		for (const request of [{ action: "get", chat: "exact-channel" }, { action: "rename", chat: "exact-channel", name: "renamed" }])
+			expect(await toolApprovalPolicy([tool])({ toolCall: { toolCallId: "safe", toolName: "channels_manage", input: { request } } })).toBeUndefined();
+	});
+
 	it("refuses authority escalation, unrelated action fields and invalid parameter combinations", () => {
 		expect(manageInputs["members.invite"].safeParse({ request: { action: "invite", email: "next@co.com", role: "owner" } }).success).toBe(false);
 		expect(manageInputs["channels.manage"].safeParse({ request: { action: "rename", chat: "chat", topic: "missing name" } }).success).toBe(false);

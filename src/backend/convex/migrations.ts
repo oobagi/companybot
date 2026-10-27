@@ -1,12 +1,13 @@
 import { type MigrationFunctionReference, Migrations } from "@convex-dev/migrations";
 import { components, internal } from "./_generated/api";
-import type { DataModel } from "./_generated/dataModel";
+import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { addUserMentions } from "./chatOps";
 import { normalizeEmail, pinLegacyWorkspace } from "./lib";
 import { seedRecordTypes } from "./recordOps";
 import { saveVersion } from "./agents";
+import { type TrashKind, trashEntry } from "./trashOps";
 
 // Data migrations. Deploys never change stored rows; these do, once per deployment.
 // `pnpm release` runs every pending one on prod right after deploying, and the
@@ -141,6 +142,27 @@ export const memberEmails = migrations.define({
 		await ctx.db.patch(member._id, { email: normalizeEmail((await ctx.db.get(member.userId))?.email ?? "") });
 	},
 });
+// Archive became Trash (trash.ts): what was archived goes to Trash as deleted now, by whoever
+// last changed it, so it gets the full 30 days. Skips what's already there.
+function archivedToTrash<T extends "records" | "recordTypes" | "recordFields" | "pages">(
+	table: T,
+	entry: (row: Doc<T>) => { kind: TrashKind; name: string; deletedBy: Id<"users">; typeId?: Id<"recordTypes"> },
+) {
+	return migrations.define({
+		table,
+		// Even legacy 1 MiB documents fit, with room for their Trash rows and bookkeeping.
+		batchSize: 8,
+		migrateOne: async (ctx, row) => {
+			if (!row.archived || (await trashEntry(ctx, row._id))) return;
+			await ctx.db.insert("trash", { workspaceId: row.workspaceId, itemId: row._id, deletedAt: Date.now(), ...entry(row as Doc<T>) });
+		},
+	});
+}
+
+export const trashRecords = archivedToTrash("records", (r) => ({ kind: "record", name: r.title, deletedBy: r.updatedBy, typeId: r.typeId }));
+export const trashDatabases = archivedToTrash("recordTypes", (t) => ({ kind: "database", name: t.plural, deletedBy: t.createdBy }));
+export const trashFields = archivedToTrash("recordFields", (f) => ({ kind: "field", name: f.label, deletedBy: f.createdBy, typeId: f.typeId }));
+export const trashPages = archivedToTrash("pages", (p) => ({ kind: "page", name: p.title, deletedBy: p.updatedBy }));
 
 /** Every migration, oldest first. Never reorder or remove entries that have shipped. */
 const all: MigrationFunctionReference[] = [
@@ -156,6 +178,10 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.companybotPageTools,
 	internal.migrations.companybotParityTools,
 	internal.migrations.memberEmails,
+	internal.migrations.trashRecords,
+	internal.migrations.trashDatabases,
+	internal.migrations.trashFields,
+	internal.migrations.trashPages,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

@@ -14,7 +14,7 @@ afterEach(() => void vi.useRealTimers());
 const tables = Object.keys(schema.tables) as TableNames[];
 const indexesOf = (table: TableNames) =>
 	new Map((schema.tables[table] as unknown as { " indexes"(): { indexDescriptor: string; fields: string[] }[] })[" indexes"]().map((i) => [i.indexDescriptor, i.fields]));
-const scopes = ["workspace", "member", "user", "connectorInstall", "automationInstall", "page"] as const;
+const scopes = ["workspace", "member", "user", "connectorInstall", "automationInstall", "page", "record", "database", "field", "channel"] as const;
 
 describe("the lifecycle registry", () => {
 	it("lists every table, so a new one fails until someone decides what happens to its rows", () => {
@@ -152,6 +152,8 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		await ctx.db.insert("recordMentions", { recordId, messageId: said, chatId: channel });
 		const pageId = await ctx.db.insert("pages", { workspaceId, recordId, title: "", archived: false, createdBy: memberId, updatedAt: now, updatedBy: memberId });
 		await ctx.db.insert("pageVersions", { pageId, n: 1, version: 2, userId: memberId, editedAt: now });
+		const trashedId = await ctx.db.insert("records", { workspaceId, typeId, title: "Old", values: { name: "Old" }, searchText: "old", archived: true, createdBy: memberId, updatedAt: now, updatedBy: memberId });
+		await ctx.db.insert("trash", { workspaceId, kind: "record", itemId: trashedId, name: "Old", typeId, deletedBy: memberId, deletedAt: now });
 		return mine;
 	});
 }
@@ -541,7 +543,7 @@ describe("writes that land after what they belong to went", () => {
 		const count = () => t.run(async (ctx) => [(await ctx.db.query("chatMessages").collect()).length, (await ctx.db.query("agentSessions").collect()).length]);
 		const before = await count();
 		await t.mutation(internal.activity.log, { turnId, callId: "c1", tool: "crm.send_sms", changes: true, input: "{}", output: "private" });
-		await expect(t.mutation(internal.approvals.request, { turnId, callId: "c2", tool: "crm.send_sms", input: "{}", risk: "outside" })).rejects.toThrow("stopped");
+		await expect(t.mutation(internal.approvals.request, { turnId, callId: "c2", tool: "crm.send_sms", input: "{}", risk: "outside" })).rejects.toThrow("no longer in the workspace");
 		await t.mutation(internal.turns.finishReply, { turnId });
 		expect(await count()).toEqual(before);
 		expect(await t.run((ctx) => ctx.db.query("agentActivity").collect())).toEqual([]);
@@ -593,11 +595,12 @@ describe("writes that land after what they belong to went", () => {
 		await make("Daily", { type: "schedule", time: "09:00", weekdays: [0, 1, 2, 3, 4, 5, 6] });
 		const installs = () => t.run((ctx) => ctx.db.query("automationInstalls").collect());
 		const token = (await installs()).find((i) => i.webhookToken)!.webhookToken!;
+		const before = (await installs()).map((i) => i.lastRunDate ?? i.lastResult ?? null);
 		await owner.mutation(api.workspace.deleteWorkspace, { name: "My company" });
 		const reply = await t.mutation(internal.automationRuns.receive, { token, body: JSON.stringify({ id: "e1", data: {} }) });
 		expect(reply.status).toBe(404);
 		await t.mutation(internal.automationRuns.tick, { now: Date.UTC(2026, 9, 26, 10) });
-		expect((await installs()).map((i) => i.lastRunDate ?? i.lastResult ?? null)).toEqual([null, null]);
+		expect((await installs()).map((i) => i.lastRunDate ?? i.lastResult ?? null)).toEqual(before);
 		expect(await t.run((ctx) => ctx.db.query("automationEvents").collect())).toEqual([]);
 	});
 });

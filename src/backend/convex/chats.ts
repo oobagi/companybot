@@ -8,19 +8,21 @@ import {
 	type Participant,
 	addToChat,
 	agentOfDm,
+	availableName,
 	chatMembersOf,
 	findOrCreateDm,
 	latestMentionSince,
 	markChatRead,
 	membership,
 	namer,
-	normalizeChannelName,
 	requireActiveAgents,
 	requireChat,
+	requireManagedChannel,
 	requireWorkspaceUsers,
 	visibleChat,
 } from "./chatOps";
 import { type Member, checkPermission, getMember, preferencesOf, requireMember, toActor } from "./lib";
+import { trashInfo } from "./trashOps";
 import { sessionAt } from "./turns";
 
 // Channels and DMs. Queries return display-ready data so the app never joins tables.
@@ -204,28 +206,17 @@ export const browse = query({
 
 export const get = query({
 	args: { chatId: v.id("chats") },
-	handler: async (ctx, { chatId }): Promise<(ChatItem & { canManage: boolean }) | null> => {
+	handler: async (ctx, { chatId }) => {
 		const visible = await visibleChat(ctx, chatId);
 		if (!visible) return null;
 		const { member, chat } = visible;
 		return {
 			...(await toChatItem(ctx, chat, member, namer(ctx))),
 			canManage: chat.kind === "channel" && canManageChannel(toActor(member), chat),
+			trash: chat.archived ? await trashInfo(ctx, member, chat._id) : null,
 		};
 	},
 });
-
-/** A channel name that's usable and not taken. */
-async function availableName(ctx: QueryCtx, member: Member, raw: string, except?: Id<"chats">) {
-	const name = normalizeChannelName(raw);
-	if (!name) throw new ConvexError("Give the channel a name.");
-	const taken = await ctx.db
-		.query("chats")
-		.withIndex("by_name", (q) => q.eq("workspaceId", member.workspaceId).eq("name", name))
-		.first();
-	if (taken && taken._id !== except) throw new ConvexError(`#${name} already exists.`);
-	return name;
-}
 
 const createChannelArgs = v.object({ name: v.string(), topic: v.optional(v.string()), private: v.boolean() });
 
@@ -251,14 +242,6 @@ export async function createChannelAs(ctx: MutationCtx, member: Member, args: In
 	return chatId;
 }
 
-/** A channel you can see and manage (`channels.manage`, or you created it). */
-async function requireManagedChannel(ctx: QueryCtx, member: Member, chatId: Id<"chats">) {
-	const chat = await requireChat(ctx, member, chatId);
-	if (chat.kind !== "channel") throw new ConvexError("That's not a channel.");
-	if (!canManageChannel(toActor(member), chat)) throw new ConvexError("Only the channel's creator or an owner can change it.");
-	return chat;
-}
-
 const updateChannelArgs = v.object({ chatId: v.id("chats"), name: v.optional(v.string()), topic: v.optional(v.string()) });
 
 export const updateChannel = mutation({
@@ -268,6 +251,7 @@ export const updateChannel = mutation({
 
 export async function updateChannelAs(ctx: MutationCtx, member: Member, { chatId, name, topic }: Infer<typeof updateChannelArgs>) {
 	const chat = await requireManagedChannel(ctx, member, chatId);
+	if (chat.archived) throw new ConvexError("This channel is in Trash.");
 	await ctx.db.patch(chat._id, {
 		...(name !== undefined && { name: await availableName(ctx, member, name, chat._id) }),
 		...(topic !== undefined && { topic: topic.trim() || undefined }),

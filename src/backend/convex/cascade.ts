@@ -1,3 +1,4 @@
+import { FIELDS_PER_TYPE_MAX } from "@companybot/core";
 import { getDocumentSize, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id, TableNames } from "./_generated/dataModel";
@@ -27,7 +28,9 @@ const MAX_ATTEMPTS = 3;
 
 /** Names what's going, so callers can tell it's still being deleted. */
 const keyOf = (scope: Scope, root: Root) =>
-	[scope, root.workspaceId, root.userId, root.connectorId, root.automationInstallId, root.pageId].filter(Boolean).join(":");
+	[scope, root.workspaceId, root.userId, root.connectorId, root.automationInstallId, root.pageId, root.recordId, root.typeId, root.fieldId, root.chatId]
+		.filter(Boolean)
+		.join(":");
 
 /** Starts deleting what belongs to `root`. Access must already have ended. */
 export async function startCascade(ctx: MutationCtx, scope: Scope, root: Root) {
@@ -84,13 +87,28 @@ export const step = internalMutation({
 		for (const row of page) spend(budget, row);
 		// Rows `where` reads to decide, once each: a member's mentions are mostly in a few chats.
 		const seen = new Map<string, object | null>();
-		const get: Get = async (id) => {
+		const get = (async <T extends TableNames>(id: Id<T>): Promise<Doc<T> | null> => {
 			if (!seen.has(id)) {
 				const doc = await ctx.db.get(id);
 				spend(budget, doc);
 				seen.set(id, doc);
 			}
 			return seen.get(id) as Any;
+		}) as Get;
+		let searchFields: Doc<"recordFields">[] | undefined;
+		get.searchFields = async (typeId) => {
+			if (!searchFields) {
+				searchFields = [];
+				// Only text-like fields: choices can have large option lists. At most 100 small
+				// rows total, indexed by kind, read once per run even for a page of big records.
+				for (const kind of ["text", "email", "phone", "url"] as const) {
+					const fields = await ctx.db.query("recordFields").withIndex("by_type_kind", (q) => q.eq("typeId", typeId).eq("kind", kind)).take(FIELDS_PER_TYPE_MAX);
+					for (const field of fields) spend(budget, field);
+					searchFields.push(...fields);
+				}
+				searchFields.sort((a, b) => a.position - b.position);
+			}
+			return searchFields;
 		};
 		// Rows handled before running out of room. The rows `where` skips (and scrubbed ones) stay in the
 		// range, so the next run reads only this many: it fits, and the cursor moves past them.
@@ -107,7 +125,7 @@ export const step = internalMutation({
 				continue;
 			}
 			if (edge.scrub) {
-				await ctx.db.patch(row._id, edge.scrub(row));
+				await ctx.db.patch(row._id, await edge.scrub(row, get, job.root));
 				budget.writes--;
 				handled++;
 				continue;
@@ -130,10 +148,14 @@ export const step = internalMutation({
 	},
 });
 
-/** Every edge is done: a workspace goes last, then the cascade. The rest were gone before it started. */
+/** The row a scope deletes last, once everything that belonged to it is gone. The rest were gone before it started. */
+const lastOf = ({ scope, root }: Doc<"cascades">) =>
+	({ workspace: root.workspaceId, record: root.recordId, database: root.typeId, field: root.fieldId, channel: root.chatId })[scope as string];
+
+/** Every edge is done: the root row goes last (a workspace, or something deleted from Trash), then the cascade. */
 async function finish(ctx: MutationCtx, job: Doc<"cascades">) {
-	const { workspaceId } = job.root;
-	if (job.scope === "workspace" && workspaceId && (await ctx.db.get(workspaceId))) await ctx.db.delete(workspaceId);
+	const last = lastOf(job);
+	if (last && (await ctx.db.get(last))) await ctx.db.delete(last);
 	await ctx.db.delete(job._id);
 }
 

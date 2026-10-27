@@ -1,8 +1,9 @@
-import { describeWidget } from "@companybot/core";
+import { canManageChannel, describeWidget } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { type Member, getMember, memberOf, nameOf } from "./lib";
+import { type Member, type Who, getMember, memberOf, nameOf, toActor } from "./lib";
+import { putInTrash, takeFromTrash } from "./trashOps";
 
 // Shared by the app's chat functions (chats.ts, messages.ts) and the agent runner
 // (chatTools.ts), so both follow the same visibility rules. See wiki/chat.md.
@@ -58,7 +59,7 @@ export async function channelNamed(ctx: QueryCtx, member: Member, name: string) 
 	const clean = name.trim().replace(/^#/, "").toLowerCase();
 	const chat = await ctx.db
 		.query("chats")
-		.withIndex("by_name", (q) => q.eq("workspaceId", member.workspaceId).eq("name", clean))
+		.withIndex("by_name", (q) => q.eq("workspaceId", member.workspaceId).eq("name", clean).eq("archived", false))
 		.first();
 	return chat && chat.kind === "channel" && !chat.archived && (await canSee(ctx, chat, member)) ? chat : null;
 }
@@ -129,6 +130,41 @@ export async function ensureGeneral(ctx: MutationCtx, workspaceId: Id<"workspace
 		lastMessageAt: Date.now(),
 	});
 	return (await ctx.db.get(id))!;
+}
+
+/** A channel name that's usable and not taken by a live channel (one in Trash gives its name up). */
+export async function availableName(ctx: QueryCtx, member: Member, raw: string, except?: Id<"chats">) {
+	const name = normalizeChannelName(raw);
+	if (!name) throw new ConvexError("Give the channel a name.");
+	const taken = await ctx.db
+		.query("chats")
+		.withIndex("by_name", (q) => q.eq("workspaceId", member.workspaceId).eq("name", name).eq("archived", false))
+		.filter((q) => q.neq(q.field("_id"), except ?? null))
+		.first();
+	if (taken) throw new ConvexError(`#${name} already exists.`);
+	return name;
+}
+
+/** A channel you can see and manage (`channels.manage`, or you created it). */
+export async function requireManagedChannel(ctx: QueryCtx, member: Member, chatId: Id<"chats">) {
+	const chat = await requireChat(ctx, member, chatId);
+	if (chat.kind !== "channel") throw new ConvexError("That's not a channel.");
+	if (!canManageChannel(toActor(member), chat)) throw new ConvexError("Only the channel's creator or an owner can change it.");
+	return chat;
+}
+
+/** Moves a channel to Trash (its messages and members stay until it's deleted for good) or back. */
+export async function setChannelTrashed(ctx: MutationCtx, who: Who, chatId: Id<"chats">, archived: boolean) {
+	const chat = archived ? await requireManagedChannel(ctx, who.member, chatId) : await requireChat(ctx, who.member, chatId);
+	if (chat.kind !== "channel") throw new ConvexError("That's not a channel.");
+	if (chat.isDefault) throw new ConvexError(`Everyone uses #${chat.name}, so it stays.`);
+	if (chat.archived === archived) return;
+	if (archived) await putInTrash(ctx, who, { kind: "channel", id: chatId, name: `#${chat.name}` });
+	else {
+		await availableName(ctx, who.member, chat.name ?? "", chatId);
+		await takeFromTrash(ctx, who, chatId);
+	}
+	await ctx.db.patch(chatId, { archived });
 }
 
 /** Refuses people outside the workspace. */

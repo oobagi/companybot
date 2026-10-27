@@ -149,7 +149,7 @@ export async function actionOf(modelName: string, input: unknown, tools: ToolDef
 		return { tool: t, input: check?.success ? check.value : inner };
 	}
 	const t = tools.find((x) => modelToolName(x.id) === modelName);
-	return t ? { tool: t, input } : null;
+	return t ? { tool: t.riskFor ? { ...t, risk: t.riskFor(input) } : t, input } : null;
 }
 
 /**

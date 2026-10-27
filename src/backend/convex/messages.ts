@@ -147,7 +147,7 @@ export const send = mutation({
 export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId, text, mentions }: Infer<typeof sendMessageArgs>): Promise<Id<"chatMessages">> {
 	const { member } = who;
 	const chat = await requireChat(ctx, member, chatId);
-	if (chat.archived) throw new ConvexError("This chat is archived.");
+	if (chat.archived) throw new ConvexError("This channel is in Trash.");
 	text = text.trim();
 	if (!text) throw new ConvexError("Write something first.");
 	if (threadId) {

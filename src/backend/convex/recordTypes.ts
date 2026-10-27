@@ -2,12 +2,12 @@ import { canEditMade } from "@companybot/core";
 import { v } from "convex/values";
 import { mutation, query } from "./functions";
 import { getMember, requireMember, toActor } from "./lib";
-import { createType, fieldsOf, toField, typesOf, updateType } from "./recordOps";
+import { createType, fieldsOf, setTypeTrashed, toField, typesOf, updateType } from "./recordOps";
 
 // Databases: the workspace's data model. Owners add types (`fields.manage`); fields
 // are in fields.ts. See wiki/data.md.
 
-/** Every live type, oldest first, with its fields in order, archived fields last and marked. The data model agents read. */
+/** Every live type, oldest first, with its fields in order, ones in Trash last and marked `archived`. */
 export const list = query({
 	args: {},
 	handler: async (ctx) => {
@@ -43,6 +43,10 @@ export const create = mutation({
 });
 
 export const update = mutation({
+	// COMPAT(0.1.0-alpha.8): alpha.6 apps archive with `archived: true`; newer ones use trash.move.
 	args: { typeId: v.id("recordTypes"), name: v.optional(v.string()), plural: v.optional(v.string()), archived: v.optional(v.boolean()), version: v.number() },
-	handler: async (ctx, { typeId, ...input }) => updateType(ctx, { member: await requireMember(ctx) }, typeId, input),
+	handler: async (ctx, { typeId, archived, ...input }) => {
+		const who = { member: await requireMember(ctx) };
+		return archived === undefined ? updateType(ctx, who, typeId, input) : setTypeTrashed(ctx, who, typeId, archived);
+	},
 });

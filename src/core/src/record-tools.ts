@@ -83,7 +83,7 @@ const findInput = z.object({
 		.object({ field: z.string().describe('"createdAt", "updatedAt", or a field key'), order: z.enum(["asc", "desc"]) })
 		.optional()
 		.describe("Sorting by a field lists only records that have a value for it. Default: newest first."),
-	archived: z.boolean().optional().describe("List archived records instead"),
+	trashed: z.boolean().optional().describe("List the database's records in Trash instead"),
 	limit: z.number().int().min(1).max(50).optional().describe("Default 20"),
 	cursor: z.string().optional().describe("From a previous result with more: true, to get the next page of the same list"),
 });
@@ -93,7 +93,7 @@ const saveInput = z.object({
 	id: z.string().optional().describe("The record to change. Omit to create one."),
 	type: z.string().optional().describe('Database for a new record, e.g. "client"'),
 	values: z.record(z.string(), value).optional().describe("Field key or label → value. Only the fields given change. New records need a name."),
-	archived: z.boolean().optional().describe("true archives the record (hidden from lists, kept with its history); false restores it. On its own, without values."),
+	trash: z.boolean().optional().describe("true deletes the record: it goes to Trash, restorable for 30 days. false restores it from Trash. On its own, without values."),
 });
 export type RecordSaveInput = z.infer<typeof saveInput>;
 
@@ -108,6 +108,7 @@ const fieldInput = z.object({
 		.describe("Choice fields: every option, in order. When changing, list all to keep: one left out is retired (records keep it; it can't be picked)."),
 	linksTo: z.string().optional().describe("Link fields: the database it points at"),
 	multiple: z.boolean().optional().describe("Choice, user and link fields: holds several"),
+	trash: z.boolean().optional().describe("true deletes `field` (to Trash: records keep its values until it's gone for good); false restores it. On its own."),
 });
 export type FieldSaveInput = z.infer<typeof fieldInput>;
 
@@ -115,7 +116,7 @@ export const databaseInput = z.object({
 	type: z.string().optional().describe("Existing database key or id. Omit to create."),
 	name: z.string().max(120).optional().describe('The name people see, e.g. "Projects"; required when creating'),
 	singular: z.string().max(120).optional().describe('One entry, e.g. "Project". Omit to guess it from name.'),
-	archived: z.boolean().optional().describe("true archives the database, keeping its records"),
+	trash: z.boolean().optional().describe("true deletes the database with its records (to Trash, restorable for 30 days); false restores it. On its own."),
 	version: z.number().int().optional().describe("Current version from records_types; required when changing"),
 });
 export type DatabaseSaveInput = z.infer<typeof databaseInput>;
@@ -200,7 +201,7 @@ function foundLabel(output: unknown) {
 	return `Find ${n || "no"}${page.more ? "+" : ""} ${(n === 1 && !page.more ? page.typeName : page.type).toLowerCase()}`;
 }
 
-/** "Create deal Reroof main warehouse", "Save Acme Roofing", "Archive Acme Roofing". */
+/** "Create deal Reroof main warehouse", "Save Acme Roofing", "Delete Acme Roofing". */
 function savedLabel(input: RecordSaveInput, output: unknown) {
 	if (failed(output)) return;
 	const name = text(output, "name");
@@ -211,7 +212,7 @@ function savedLabel(input: RecordSaveInput, output: unknown) {
 		return type && given ? `Create ${type.toLowerCase()} ${given}` : undefined;
 	}
 	if (!name) return;
-	return `${input.archived === undefined ? "Save" : input.archived ? "Archive" : "Restore"} ${name}`;
+	return `${input.trash === undefined ? "Save" : input.trash ? "Delete" : "Restore"} ${name}`;
 }
 
 /** "Add field Roof type to Clients", "Update field Stage on Deals". */
@@ -220,7 +221,8 @@ function fieldLabel(input: FieldSaveInput, output: unknown) {
 	const label = text(output, "label") ?? (input.field ? undefined : input.label);
 	const types = text(output, "typePlural");
 	if (!label) return;
-	return input.field ? `Update field ${label}${types ? ` on ${types}` : ""}` : `Add field ${label}${types ? ` to ${types}` : ""}`;
+	if (!input.field) return `Add field ${label}${types ? ` to ${types}` : ""}`;
+	return `${input.trash === undefined ? "Update" : input.trash ? "Delete" : "Restore"} field ${label}${types ? ` on ${types}` : ""}`;
 }
 
 export const recordTools: ToolDef[] = [
@@ -276,7 +278,7 @@ export const recordTools: ToolDef[] = [
 		id: "records.save",
 		title: "Save a record",
 		description:
-			"Create a record, change some of its fields, or archive or restore it. Runs right away and is logged with your name and the person's; returns a change id records_undo takes. Find first so you don't create a duplicate.",
+			"Create a record, change some of its fields, delete it (to Trash) or restore it from Trash. Runs right away and is logged with your name and the person's; returns a change id records_undo takes. Find first so you don't create a duplicate.",
 		input: saveInput,
 		execute: (input, { records }) => records.save(input),
 		label: savedLabel,
@@ -285,7 +287,7 @@ export const recordTools: ToolDef[] = [
 		id: "records.undo",
 		title: "Undo a record change",
 		description:
-			"Reverse one change by its change id (from records_save or records_get): old values back, an archive restored, a new record archived. Refused if what it changed has changed again since.",
+			"Reverse one change by its change id (from records_save or records_get): old values back, a deleted record restored, a new record deleted (to Trash). Refused if what it changed has changed again since.",
 		input: z.object({ change: z.string() }),
 		execute: (input, { records }) => records.undo(input),
 		label: (_input, output) => (failed(output) || !text(output, "name") ? undefined : `Undo a change to ${text(output, "name")}`),
@@ -294,7 +296,7 @@ export const recordTools: ToolDef[] = [
 		id: "records.save_field",
 		title: "Save a field",
 		description:
-			'Add a field to a database ("start tracking roof type on clients"), or rename one or change its choice options. Only after the person asked for it or confirmed it.',
+			'Add a field to a database ("start tracking roof type on clients"), rename one, change its choice options, delete it (to Trash) or restore it. Only after the person asked for it or confirmed it.',
 		input: fieldInput,
 		execute: (input, { records }) => records.saveField(input),
 		label: fieldLabel,
@@ -302,7 +304,7 @@ export const recordTools: ToolDef[] = [
 	defineTool({
 		id: "records.save_database",
 		title: "Save a database",
-		description: "Create, rename or archive a database, when asked. Owners only. Changes are logged in Activity; record undo does not undo database changes.",
+		description: "Create, rename, delete (to Trash) or restore a database, when asked. Owners only. Changes are logged in Activity; record undo does not undo database changes.",
 		input: databaseInput,
 		permission: "fields.manage",
 		execute: (input, { records }) => records.saveDatabase(input),

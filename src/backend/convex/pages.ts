@@ -1,10 +1,8 @@
-import { can, deniedMessage } from "@companybot/core";
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
-import { components, internal } from "./_generated/api";
+import { components } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { startCascade } from "./cascade";
 import { mutation, query } from "./functions";
 import { type Member, getMember, requireMember } from "./lib";
 import {
@@ -15,8 +13,10 @@ import {
 	requireEditable,
 	requirePage,
 	restoreVersion,
-	setPageArchived,
+	setPageTrashed,
 } from "./pageOps";
+import { purgeItem } from "./trash";
+import { trashInfo } from "./trashOps";
 
 // Pages metadata and history; content syncs through pageSync.ts. See wiki/pages.md.
 
@@ -30,8 +30,9 @@ const canEdit = async (ctx: QueryCtx, member: Member, page: Doc<"pages">) =>
 		() => false,
 	);
 
-/** Standalone pages, live or archived, by title. */
+/** Standalone pages, by title. */
 export const list = query({
+	// COMPAT(0.1.0-alpha.8): alpha.6 apps list archived pages; Trash lists them now.
 	args: { archived: v.optional(v.boolean()) },
 	handler: async (ctx, { archived = false }) => {
 		const member = await getMember(ctx);
@@ -50,7 +51,14 @@ export const get = query({
 		const member = await getMember(ctx);
 		const page = member && (await ctx.db.get(pageId));
 		if (!member || page?.workspaceId !== member.workspaceId) return null;
-		return { _id: page._id, title: page.title, archived: page.archived, recordId: page.recordId ?? null, canEdit: await canEdit(ctx, member, page) };
+		return {
+			_id: page._id,
+			title: page.title,
+			archived: page.archived,
+			recordId: page.recordId ?? null,
+			canEdit: await canEdit(ctx, member, page),
+			trash: await trashInfo(ctx, member, page._id),
+		};
 	},
 });
 
@@ -80,26 +88,23 @@ export const rename = mutation({
 	},
 });
 
+// COMPAT(0.1.0-alpha.8): alpha.6 apps archive, restore and delete pages here; newer ones use trash.ts.
 export const setArchived = mutation({
 	args: { pageId: v.id("pages"), archived: v.boolean() },
 	handler: async (ctx, { pageId, archived }) => {
 		const member = await requireMember(ctx);
-		await setPageArchived(ctx, { member }, await requirePage(ctx, member, pageId), archived);
+		await setPageTrashed(ctx, { member }, await requirePage(ctx, member, pageId), archived);
 	},
 });
 
-/** Deletes an archived page for good: its content and history go too. */
+// COMPAT(0.1.0-alpha.8): old apps delete live pages to Trash; only owners delete trashed pages forever.
 export const remove = mutation({
 	args: { pageId: v.id("pages") },
 	handler: async (ctx, { pageId }) => {
 		const member = await requireMember(ctx);
 		const page = await requirePage(ctx, member, pageId);
-		if (!can(member.role, "pages.edit")) throw new ConvexError(deniedMessage("pages.edit"));
-		if (page.recordId) throw new ConvexError("Delete the record instead.");
-		if (!page.archived) throw new ConvexError("Archive the page first.");
-		await ctx.db.delete(page._id);
-		await ctx.scheduler.runAfter(0, internal.pageSync.deleteDoc, { id: page._id });
-		await startCascade(ctx, "page", { pageId: page._id });
+		if (page.archived) await purgeItem(ctx, member, pageId);
+		else await setPageTrashed(ctx, { member }, page, true);
 	},
 });
 
