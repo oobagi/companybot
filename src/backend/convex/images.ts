@@ -42,8 +42,27 @@ export const upload = httpAction(async (ctx, request) => {
 	if (!(await ctx.auth.getUserIdentity())) return reply(401, { error: "Sign in to upload." });
 	const tooBig = () => reply(413, { error: "Pick an image under 2 MB." });
 	if (Number(request.headers.get("content-length") ?? 0) > imageMaxBytes) return tooBig();
-	const bytes = new Uint8Array(await request.arrayBuffer());
-	if (bytes.length > imageMaxBytes) return tooBig();
+	// Raw HTTP bodies have no Convex size cap. Stop at our limit even without Content-Length.
+	const buffer = new Uint8Array(imageMaxBytes);
+	let size = 0;
+	const reader = request.body?.getReader();
+	if (reader) {
+		try {
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				if (size + value.byteLength > imageMaxBytes) {
+					await reader.cancel();
+					return tooBig();
+				}
+				buffer.set(value, size);
+				size += value.byteLength;
+			}
+		} finally {
+			reader.releaseLock();
+		}
+	}
+	const bytes = buffer.subarray(0, size);
 	const type = sniffImage(bytes);
 	if (!type) return reply(415, { error: "Pick a PNG, JPEG, WebP or GIF image." });
 	const storageId = await ctx.storage.store(new Blob([bytes], { type }));

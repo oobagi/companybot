@@ -14,7 +14,7 @@ const ascii = (text: string) => [...text].map((c) => c.charCodeAt(0));
 
 /** The picture type a file's first bytes say it is, or undefined if they aren't one we take. */
 export function sniffImage(head: Uint8Array): ImageType | undefined {
-	if (startsWith(head, 0, [0x89, 0x50, 0x4e, 0x47])) return "image/png";
+	if (startsWith(head, 0, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return "image/png";
 	if (startsWith(head, 0, [0xff, 0xd8, 0xff])) return "image/jpeg";
 	if (startsWith(head, 0, ascii("GIF87a")) || startsWith(head, 0, ascii("GIF89a"))) return "image/gif";
 	if (startsWith(head, 0, ascii("RIFF")) && startsWith(head, 8, ascii("WEBP"))) return "image/webp";

@@ -10,7 +10,7 @@ afterEach(() => {
 });
 
 type T = Awaited<ReturnType<typeof setup>>["t"];
-const png = (size = 16) => Object.assign(new Uint8Array(size), { 0: 0x89, 1: 0x50, 2: 0x4e, 3: 0x47 });
+const png = (size = 16) => Object.assign(new Uint8Array(size), { 0: 0x89, 1: 0x50, 2: 0x4e, 3: 0x47, 4: 0x0d, 5: 0x0a, 6: 0x1a, 7: 0x0a });
 /** POSTs bytes to the upload endpoint as `as`, as the app does. */
 const post = (as: As, body: Uint8Array<ArrayBuffer>, type: string, workspaceId?: Id<"workspaces">) =>
 	as.fetch(`/images/upload${workspaceId ? `?workspaceId=${workspaceId}` : ""}`, { method: "POST", headers: { "Content-Type": type }, body });
@@ -73,6 +73,123 @@ describe("pictures", () => {
 		const raw = await t.run((ctx) => ctx.storage.store(new Blob([png()], { type: "image/png" })));
 		await expect(owner.mutation(api.images.set, { of: "me", file: raw })).rejects.toThrow("isn't available");
 		expect(await exists(t, theirs)).toBe(true);
+	});
+
+	it.each([undefined, "1"])("stops reading an oversized stream with Content-Length %s", async (length) => {
+		const { t, owner } = await setup();
+		let reads = 0;
+		const cancel = vi.fn();
+		const body = new ReadableStream({
+			pull(controller) {
+				reads++;
+				if (reads <= 8) controller.enqueue(png(1024 * 1024));
+				else controller.close();
+			},
+			cancel,
+		});
+		const response = await owner.fetch("/images/upload", {
+			method: "POST",
+			headers: length ? { "Content-Length": length } : {},
+			body,
+			duplex: "half",
+		} as RequestInit & { duplex: "half" });
+		expect(response.status).toBe(413);
+		expect(cancel).toHaveBeenCalledOnce();
+		expect(reads).toBeLessThan(8);
+		expect(await files(t)).toBe(0);
+	});
+
+	it("accepts the exact limit and signatures split across chunks, using the sniffed type", async () => {
+		const { t, owner } = await setup();
+		const bytes = png(2 * 1024 * 1024);
+		const response = await owner.fetch("/images/upload", {
+			method: "POST",
+			headers: { "Content-Type": "text/html" },
+			body: new ReadableStream({
+				start(controller) {
+					controller.enqueue(bytes.subarray(0, 2));
+					controller.enqueue(bytes.subarray(2));
+					controller.close();
+				},
+			}),
+			duplex: "half",
+		} as RequestInit & { duplex: "half" });
+		expect(response.status).toBe(200);
+		const { storageId } = await response.json() as { storageId: Id<"_storage"> };
+		expect(await t.run((ctx) => ctx.db.system.get(storageId))).toMatchObject({ contentType: "image/png", size: bytes.length });
+	});
+
+	it("enforces the per-user cap across simultaneous uploads and frees a slot on claim", async () => {
+		const { t, owner, member } = await setup();
+		const workspaceId = await workspaceOf(owner);
+		// Race the cap mutations. convex-test's action storage writes share whichever test
+		// transaction is active, so store first rather than racing that fake storage layer.
+		const stored = await t.run(async (ctx) => {
+			const ids: Id<"_storage">[] = [];
+			for (let i = 0; i < 24; i++) ids.push(await ctx.storage.store(new Blob([png()])));
+			return ids;
+		});
+		const as = t.withIdentity({ subject: `${owner.userId}|session` });
+		const results = await Promise.allSettled(stored.map((storageId) => as.mutation(internal.images.saveUpload, { storageId, workspaceId })));
+		expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(20);
+		expect(results.filter((r) => r.status === "rejected")).toHaveLength(4);
+		await t.run(async (ctx) => {
+			for (const [i, result] of results.entries()) if (result.status === "rejected") await ctx.storage.delete(stored[i]!);
+		});
+		// The HTTP path deletes its file when the cap refuses it.
+		expect((await post(owner, png(), "image/png", workspaceId)).status).toBe(403);
+		expect(await files(t)).toBe(20);
+		await owner.mutation(api.images.set, { of: "me", file: stored[results.findIndex((r) => r.status === "fulfilled")]! });
+		await upload(owner);
+		await upload(member);
+		expect(await t.run((ctx) => ctx.db.query("uploads").collect())).toHaveLength(21);
+	});
+
+	it("lets only one of two simultaneous targets claim an upload", async () => {
+		const { t, owner } = await setup();
+		const file = await upload(owner);
+		const results = await Promise.allSettled([
+			owner.mutation(api.images.set, { of: "workspace", file }),
+			owner.mutation(api.images.set, { of: "me", file }),
+		]);
+		expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+		expect(results.filter((r) => r.status === "rejected")).toHaveLength(1);
+		expect(await exists(t, file)).toBe(true);
+		expect(await t.run((ctx) => ctx.db.query("uploads").collect())).toHaveLength(0);
+	});
+
+	it("keeps attachment and sweeping atomic when both try to consume a stale upload", async () => {
+		const { t, owner } = await setup();
+		const file = await upload(owner);
+		await t.run(async (ctx) => {
+			const row = await ctx.db.query("uploads").first();
+			await ctx.db.patch(row!._id, { createdAt: Date.now() - UPLOAD_TTL_MS - 1 });
+		});
+		const [attached, swept] = await Promise.allSettled([
+			owner.mutation(api.images.set, { of: "me", file }),
+			t.mutation(internal.images.sweepUploads),
+		]);
+		expect(swept.status).toBe("fulfilled");
+		expect(await exists(t, file)).toBe(attached.status === "fulfilled");
+		expect(!!(await owner.query(api.preferences.get)).image).toBe(attached.status === "fulfilled");
+		expect(await t.run((ctx) => ctx.db.query("uploads").collect())).toHaveLength(0);
+	});
+
+	it("sweeps 100 rows at a time and schedules the remainder", async () => {
+		const { t, owner } = await setup();
+		vi.useFakeTimers();
+		const userId = (await owner.query(api.workspace.me))!.userId;
+		await t.run(async (ctx) => {
+			for (let i = 0; i < 105; i++) {
+				const storageId = await ctx.storage.store(new Blob([png()]));
+				await ctx.db.insert("uploads", { storageId, userId, createdAt: Date.now() - UPLOAD_TTL_MS - 1 });
+			}
+		});
+		await t.mutation(internal.images.sweepUploads);
+		expect(await files(t)).toBe(5);
+		await settle(t);
+		expect(await files(t)).toBe(0);
+		expect(await t.run((ctx) => ctx.db.query("uploads").collect())).toHaveLength(0);
 	});
 
 	it("deletes uploads nobody attached within a day", async () => {
@@ -143,16 +260,21 @@ describe("pictures", () => {
 
 	it("deletes pictures and unclaimed uploads with the workspace, and a photo with its account", async () => {
 		const { t, owner, member } = await setup();
+		const workspaceId = await workspaceOf(owner);
 		const { scribe } = await agentsOf(owner);
-		const [logo, picture, photo, pending] = [await upload(owner), await upload(owner), await upload(member), await upload(owner)];
+		const [logo, picture, photo, pending, memberPending] = [await upload(owner), await upload(owner), await upload(member), await upload(owner), await upload(member)];
 		await owner.mutation(api.images.set, { of: "workspace", file: logo });
 		await owner.mutation(api.images.set, { of: scribe._id, file: picture });
 		await member.mutation(api.images.set, { of: "me", file: photo });
 		await member.mutation(api.workspace.eraseAccount);
 		await settle(t);
 		expect(await exists(t, photo)).toBe(false);
+		expect(await exists(t, memberPending)).toBe(false);
+		expect((await post(member, png(), "image/png")).status).toBe(403);
+		expect(await files(t)).toBe(3);
 		expect(await exists(t, logo)).toBe(true);
 		await owner.mutation(api.workspace.deleteWorkspace, { name: "My company" });
+		expect((await post(owner, png(), "image/png", workspaceId)).status).toBe(403);
 		await settle(t);
 		for (const file of [logo, picture, pending]) expect(await exists(t, file)).toBe(false);
 	});
