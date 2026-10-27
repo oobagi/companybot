@@ -133,13 +133,18 @@ function describePlace(place: TurnPlace, people: string[], agents: string[]) {
 	return people.length === 1 && agents.length === 0 ? `a DM with ${people[0]}` : "a group DM";
 }
 
-/** `[Ada 10-22 15:04] text` (time in `timeZone`), plus edit and thread notes. */
+/**
+ * `[Ada 10-22 15:04] "text"` (time in `timeZone`), plus edit and thread notes. The text is a JSON
+ * string and the name can't hold brackets or line breaks, so no message can fake a line from
+ * someone else (Anthropic's advice for untrusted text: JSON-encode it).
+ */
 function chatLine(m: PlaceMessage, timeZone: string) {
 	const notes = [
 		m.edited && "(edited)",
 		m.replyCount && `(${m.replyCount} ${m.replyCount === 1 ? "reply" : "replies"} in thread ${m.id})`,
 	].filter(Boolean);
-	return [`[${m.author.name} ${shortStamp(m.time, timeZone)}] ${m.text}`, ...notes].join(" ");
+	const name = m.author.name.replace(/[[\]\s]+/g, " ").trim();
+	return [`[${name} ${shortStamp(m.time, timeZone)}] ${JSON.stringify(m.text)}`, ...notes].join(" ");
 }
 
 /** The agent's system prompt. Nothing per chat or per turn goes here. */

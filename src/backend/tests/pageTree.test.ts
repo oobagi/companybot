@@ -138,8 +138,8 @@ describe("nested pages", () => {
 		const child = await owner.mutation(api.pages.create, { title: "Guide", parentId: root });
 		await owner.mutation(api.trash.move, { kind: "page", id: child });
 		await member.mutation(api.trash.move, { kind: "page", id: root });
-		await expect(member.mutation(api.trash.restore, { kind: "page", id: child })).rejects.toThrow("Only");
-		await owner.mutation(api.trash.restore, { kind: "page", id: child });
+		// Anyone who can edit pages can restore one, whoever deleted it.
+		await member.mutation(api.trash.restore, { kind: "page", id: child });
 		expect(await owner.query(api.pages.get, { pageId: child })).toMatchObject({ parentId: null, archived: false });
 		// A missing parent also falls back to Pages (e.g. an old orphan), unless its purge is in progress.
 		await owner.mutation(api.trash.restore, { kind: "page", id: root });

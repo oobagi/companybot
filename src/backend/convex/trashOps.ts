@@ -1,8 +1,8 @@
-import { can } from "@companybot/core";
+import { can, canEditMade, canManageChannel } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { type Member, type Who, nameOf } from "./lib";
+import { type Member, type Who, nameOf, toActor } from "./lib";
 
 // Trash: what people deleted, until it's restored or deleted for good. Each kind's own rules
 // (recordOps, pageOps, chatOps, agents, skills, automations, memoryOps) move its items in and out through here; trash.ts lists and
@@ -36,14 +36,53 @@ export async function putInTrash(ctx: MutationCtx, who: Who, item: { kind: Trash
 	});
 }
 
-/** Whoever deleted it, or an owner, can restore it. */
-export const canRestore = (member: Member, entry: Doc<"trash">) => entry.deletedBy === member.userId || can(member.role, "trash.manage");
+/**
+ * Anyone who could delete it can restore it, whoever deleted it (Google Drive's shared drives
+ * work this way): a member's mistake doesn't wait on an owner. The rules match each kind's delete.
+ * Whoever deleted it can always undo that, even after losing the role.
+ */
+export async function canRestore(ctx: QueryCtx, member: Member, entry: Doc<"trash">) {
+	if (entry.deletedBy === member.userId) return true;
+	const actor = toActor(member);
+	const item = async <T extends "recordFields" | "chats" | "skillInstalls" | "automationInstalls">(table: T) => {
+		const id = ctx.db.normalizeId(table, entry.itemId);
+		return id && (await ctx.db.get(id));
+	};
+	switch (entry.kind) {
+		case "record":
+			return can(actor, "records.edit");
+		case "page":
+			return can(actor, "pages.edit");
+		case "memory":
+			return can(actor, "memory.team.write");
+		case "database":
+			return can(actor, "fields.manage");
+		case "agent":
+			return can(actor, "agents.manage");
+		case "field": {
+			const field = await item("recordFields");
+			return !!field && canEditMade(actor, "fields.manage", field.createdBy);
+		}
+		case "channel": {
+			const chat = await item("chats");
+			return !!chat && canManageChannel(actor, chat);
+		}
+		case "skill": {
+			const install = await item("skillInstalls");
+			return !!install && (install.custom ? canEditMade(actor, "skills.manage", install.custom.createdBy) : can(actor, "skills.manage"));
+		}
+		case "automation": {
+			const install = await item("automationInstalls");
+			return !!install && (install.custom ? canEditMade(actor, "automations.manage", install.installedBy) : can(actor, "automations.manage"));
+		}
+	}
+}
 
 /** Takes an item out of Trash. Refused unless they can restore it, or once it's being deleted for good. */
 export async function takeFromTrash(ctx: MutationCtx, { member }: Who, itemId: string) {
 	const entry = await trashEntry(ctx, itemId);
 	if (entry?.workspaceId !== member.workspaceId) throw new ConvexError("It's no longer in Trash.");
-	if (!canRestore(member, entry)) throw new ConvexError(`Only ${await nameOf(ctx, entry.deletedBy)}, who deleted it, or an owner can restore it.`);
+	if (!(await canRestore(ctx, member, entry))) throw new ConvexError("You can't restore this: it takes the same access as deleting it.");
 	await ctx.db.delete(entry._id);
 }
 
@@ -64,6 +103,6 @@ export async function describeTrash(ctx: QueryCtx, member: Member, entry: Doc<"t
 		user: await nameOf(ctx, entry.deletedBy),
 		agent: entry.agentId ? ((await ctx.db.get(entry.agentId))?.name ?? null) : null,
 		at: entry.deletedAt,
-		canRestore: canRestore(member, entry),
+		canRestore: await canRestore(ctx, member, entry),
 	};
 }

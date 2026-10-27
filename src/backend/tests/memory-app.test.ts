@@ -141,6 +141,10 @@ describe("memory", () => {
 
 		await owner.mutation(api.trash.restore, { kind: "memory", id: team.id });
 		expect((await owner.query(api.memory.list)).map((m) => m.content)).toEqual(["Office is in Austin."]);
+		// Wiki-style both ways: any member can undo anyone's delete.
+		await owner.mutation(api.memory.remove, { id: team.id as never });
+		await member.mutation(api.trash.restore, { kind: "memory", id: team.id });
+		expect((await member.query(api.memory.list)).map((m) => m.content)).toContain("Office is in Austin.");
 
 		await member.mutation(api.memory.remove, { id: mine.id as never });
 		expect((await member.query(api.trash.list, { paginationOpts: { numItems: 10, cursor: null } })).page).toEqual([]);

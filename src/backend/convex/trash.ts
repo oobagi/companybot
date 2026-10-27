@@ -18,7 +18,7 @@ import { setSkillTrashed } from "./skills";
 import { TRASH_MS, type TrashKind, describeTrash, trashEntry } from "./trashOps";
 
 // Trash: one place for every deleted record, database, field, page, channel, agent, team memory,
-// and skill or automation installs. Deleting moves an item here; whoever deleted it (or an owner) can
+// and skill or automation installs. Deleting moves an item here; anyone who could delete it can
 // restore it, where it was, links included. Owners can delete forever; everything else goes for
 // good after TRASH_DAYS. See wiki/data.md#trash.
 
