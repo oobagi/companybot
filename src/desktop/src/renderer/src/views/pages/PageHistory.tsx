@@ -27,7 +27,7 @@ export function PageHistory({ pageId, canRestore, onClose }: { pageId: Id<"pages
 				<p className={descriptionClass}>No edits yet.</p>
 			) : (
 				<div className="flex min-h-0 gap-6">
-					<div className="min-w-0 flex-1 overflow-y-auto pl-[54px]">{shown && <Preview versionId={shown} />}</div>
+					<div className="min-w-0 flex-1 overflow-y-auto">{shown && <Preview versionId={shown} />}</div>
 					<div className="flex w-64 shrink-0 flex-col gap-1 overflow-y-auto">
 						{results.map((v, i) => (
 							<button
