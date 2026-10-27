@@ -36,12 +36,18 @@ const OPEN_KEY = "companybot.workspace";
  */
 function Workspace() {
 	const mine = useQuery(api.workspace.mine);
+	const { signOut } = useAuthActions();
 	const ensure = useMutation(api.workspace.ensure);
 	const remember = useMutation(api.workspace.switchTo);
 	const [chosen, setChosen] = useState(() => localStorage.getItem(OPEN_KEY));
 	const [error, setError] = useState<string>();
 	const ids = mine?.workspaces.map((w) => w.id) ?? [];
 	const id = [chosen, mine?.lastUsed].find((w) => w && ids.includes(w as Id<"workspaces">)) ?? ids[0];
+
+	// An erased account acts as signed out before its old token expires, in every window.
+	useEffect(() => {
+		if (mine === null) void signOut();
+	}, [mine, signOut]);
 
 	// First sign-in (or after leaving your last one): join the workspaces that invited you, or start one.
 	useEffect(() => {
