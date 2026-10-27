@@ -1,5 +1,6 @@
 import { asSchema } from "ai";
 import { describe, expect, it } from "vitest";
+import type { z } from "zod";
 import { builtinTools } from "./builtin-tools";
 import { actionOf, resolveTools, toolApprovalPolicy } from "./agents";
 import { permissionFor, toolRisk } from "./action-rules";
@@ -72,12 +73,17 @@ describe("grouped tools", () => {
 			expect(await toolApprovalPolicy([tool])({ toolCall: { toolCallId: "safe", toolName: "chat_manage", input: { request } } })).toBeUndefined();
 	});
 
-	it("caps automation edits at the backend's limits", () => {
+	it("caps automation edits and creates at the backend's limits", () => {
 		const edit = (name: string, prompt: string) =>
 			manageInputs["automations.manage"].safeParse({ request: { action: "edit", id: "a", expectedVersion: 1, config: { name, prompt, trigger: { type: "webhook" } } } }).success;
 		expect(edit("x".repeat(CUSTOM_NAME_MAX), "y".repeat(CUSTOM_PROMPT_MAX))).toBe(true);
 		expect(edit("x".repeat(CUSTOM_NAME_MAX + 1), "y")).toBe(false);
 		expect(edit("x", "y".repeat(CUSTOM_PROMPT_MAX + 1))).toBe(false);
+		const create = builtinTools.find((t) => t.id === "automations.create")!.input as z.ZodType;
+		const made = (name: string, prompt: string) => create.safeParse({ name, prompt, trigger: { type: "webhook" } }).success;
+		expect(made("x".repeat(CUSTOM_NAME_MAX), "y".repeat(CUSTOM_PROMPT_MAX))).toBe(true);
+		expect(made("x".repeat(CUSTOM_NAME_MAX + 1), "y")).toBe(false);
+		expect(made("x", "y".repeat(CUSTOM_PROMPT_MAX + 1))).toBe(false);
 	});
 
 	it("locks agent deleting and instruction/model rewrites, not metadata edits", async () => {

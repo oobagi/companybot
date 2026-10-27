@@ -17,6 +17,7 @@ import {
 	ConflictNotice,
 	Field,
 	Loading,
+	NotFound,
 	Notice,
 	Page,
 	SaveBar,
@@ -87,13 +88,7 @@ function AgentRow({ agent, onOpen }: { agent: Agent; onOpen: () => void }) {
 export function AgentScreen({ role, agentId }: { role: Role; agentId: Id<"agents"> }) {
 	const agent = useQuery(api.agents.list)?.find((a) => a._id === agentId);
 	const back = customizeCrumbs("agents");
-	if (!agent) {
-		return (
-			<Page title="" crumbs={back}>
-				<Loading />
-			</Page>
-		);
-	}
+	if (!agent) return <NotFound crumbs={back} loaded={false} />;
 	return <AgentEditor key={agent._id} agent={agent} isOwner={can(role, "agents.manage")} back={back} />;
 }
 

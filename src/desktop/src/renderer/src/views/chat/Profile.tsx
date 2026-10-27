@@ -2,12 +2,9 @@ import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { Notice, secondaryButton, useRun } from "../../ui";
-import { AgentBadge, Avatar, Popover } from "./common";
+import { AgentBadge, Avatar, Popover, clock, zoneLabel } from "./common";
 import type { Participant } from "./data";
 
-/** Their local time, e.g. "9:41 AM". */
-const localTime = (timeZone: string) => new Date().toLocaleTimeString([], { timeZone, hour: "numeric", minute: "2-digit" });
-const zoneLabel = (zone: string) => zone.replaceAll("_", " ");
 
 /** Wraps a name or avatar: click it for their profile card. */
 export function ProfileLink({ who, children, className = "" }: { who: Participant; children: React.ReactNode; className?: string }) {
@@ -48,7 +45,7 @@ export function ProfileCard({ who, onClose }: { who: Participant; onClose: () =>
 					<dd className="capitalize">{person.role}</dd>
 					<dt className="text-neutral-500">Local time</dt>
 					<dd>
-						{localTime(person.timeZone)} <span className="text-neutral-500">· {zoneLabel(person.timeZone)}</span>
+						{clock(Date.now(), person.timeZone)} <span className="text-neutral-500">· {zoneLabel(person.timeZone)}</span>
 					</dd>
 				</dl>
 			)}

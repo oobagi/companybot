@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CUSTOM_NAME_MAX, CUSTOM_PROMPT_MAX } from "./automations";
 import { type ToolDef, defineTool } from "./tools";
 
 /**
@@ -27,9 +28,10 @@ const day = z.enum(["sun", "mon", "tue", "wed", "thu", "fri", "sat"]);
 export const weekdayIndex = (d: z.infer<typeof day>) => day.options.indexOf(d);
 
 const toolInput = z.object({
-	name: z.string().describe("Short name, e.g. \"Monday pipeline review\""),
+	name: z.string().max(CUSTOM_NAME_MAX).describe("Short name, e.g. \"Monday pipeline review\""),
 	prompt: z
 		.string()
+		.max(CUSTOM_PROMPT_MAX)
 		.describe("What the agent is asked each run, written as the person asking, e.g. \"List deals that haven't moved in two weeks.\""),
 	trigger: z
 		.discriminatedUnion("type", [

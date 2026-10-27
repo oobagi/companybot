@@ -2,8 +2,8 @@ import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../api";
 import { useAction, useMutation, useQuery } from "../convex";
-import { Loading, Notice, Section, Setting, Settings, compactControlClass, metadataClass, primaryButton, secondaryButton, useRun } from "../ui";
-import { Modal } from "./chat/common";
+import { Loading, Notice, Section, Setting, Settings, compactControlClass, metadataClass, secondaryButton, useRun } from "../ui";
+import { Confirm } from "./chat/common";
 
 // What agents may do without asking: your own Always / Never per action (Your preferences,
 // and each connector's page), owners' workspace locks, and runtime automation approvals. The rules themselves live in the backend (permissions.ts) and apply from
@@ -92,8 +92,7 @@ const lockNote = (a: Action) => {
 export function ConnectorActions({ connectorId, connected }: { connectorId: string; connected: boolean }) {
 	const actions = useQuery(api.permissions.actions, { connectorId });
 	const refresh = useAction(api.agent.refreshTools);
-	const { error, run } = useRun();
-	const [busy, setBusy] = useState(false);
+	const { error, busy, run } = useRun();
 	if (!actions) return <Loading />;
 	return (
 		<Section title="Actions" hint="What agents can do here when acting for you. Anything that changes something asks first unless you say otherwise.">
@@ -118,10 +117,7 @@ export function ConnectorActions({ connectorId, connected }: { connectorId: stri
 					type="button"
 					disabled={busy}
 					className={`${secondaryButton} self-start`}
-					onClick={() => {
-						setBusy(true);
-						run(refresh({ connectorId })).finally(() => setBusy(false));
-					}}
+					onClick={() => run(refresh({ connectorId }))}
 				>
 					{busy ? "Checking…" : "Refresh list"}
 				</button>
@@ -182,18 +178,9 @@ export function useTurnOn(name: string, turnOn: () => Promise<unknown>) {
 function TurnOnDialog({ name, turnOn, onClose }: { name: string; turnOn: () => Promise<unknown>; onClose: () => void }) {
 	const { error, run } = useRun();
 	return (
-		<Modal title={`Turn on ${name}?`} onClose={onClose}>
-			<div className="flex flex-col gap-4 text-sm">
-				<p className="text-neutral-600">
-					It runs as you. When it needs permission to do something, like post or read your DMs, it'll ask you in your DM with the agent.
-					Choose “Always for this automation” there to allow that action on later runs.
-				</p>
-				{error && <Notice>{error}</Notice>}
-				<div className="flex justify-end gap-2">
-					<button type="button" onClick={onClose} className={secondaryButton}>Cancel</button>
-					<button type="button" onClick={() => run(turnOn(), onClose)} className={primaryButton}>Turn on</button>
-				</div>
-			</div>
-		</Modal>
+		<Confirm title={`Turn on ${name}?`} action="Turn on" error={error} onConfirm={() => run(turnOn(), onClose)} onClose={onClose}>
+			It runs as you. When it needs permission to do something, like post or read your DMs, it'll ask you in your DM with the agent.
+			Choose “Always for this automation” there to allow that action on later runs.
+		</Confirm>
 	);
 }

@@ -4,7 +4,7 @@ import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { navigate } from "../router";
 import { HistoryIcon, PageIcon, PlusIcon, TrashIcon } from "../icons";
-import { Loading, Notice, Page, barButton, barDangerButton, barPrimaryButton, descriptionClass, metadataClass, timeAgo, useRun } from "../ui";
+import { Loading, NotFound, Notice, Page, barButton, barDangerButton, barPrimaryButton, descriptionClass, metadataClass, timeAgo, useRun } from "../ui";
 import { Group, Item } from "./chat/Sidebar";
 import { PageEditor } from "./pages/PageEditor";
 import { PageHistory } from "./pages/PageHistory";
@@ -76,14 +76,7 @@ function PageScreen({ pageId, canEdit }: { pageId: Id<"pages">; canEdit: boolean
 	const [history, setHistory] = useState(false);
 	const { error, run } = useRun();
 	const crumbs = [{ label: "Pages", to: ["pages"] }];
-	if (page === undefined) return <Page title="" crumbs={crumbs}><Loading /></Page>;
-	if (page === null) {
-		return (
-			<Page title="Not found" crumbs={crumbs}>
-				<p className={descriptionClass}>This page was deleted, or isn't in this workspace.</p>
-			</Page>
-		);
-	}
+	if (!page) return <NotFound crumbs={crumbs} loaded={page === null}>This page was deleted, or isn't in this workspace.</NotFound>;
 	return (
 		<Page
 			title={page.title}

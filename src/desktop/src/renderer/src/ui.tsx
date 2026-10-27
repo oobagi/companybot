@@ -169,6 +169,15 @@ export const barPrimaryButton = `flex items-center gap-1.5 rounded-lg bg-neutral
 export const descriptionClass = "text-sm text-neutral-500";
 export const metadataClass = "text-xs text-neutral-400";
 
+/** A screen for one item: loading while `loaded` is false, then `children` says why it's gone. */
+export function NotFound({ crumbs, loaded, children }: { crumbs?: Crumb[]; loaded: boolean; children?: React.ReactNode }) {
+	return (
+		<Page title={loaded ? "Not found" : ""} crumbs={crumbs}>
+			{loaded ? <p className={descriptionClass}>{children}</p> : <Loading />}
+		</Page>
+	);
+}
+
 /** Placeholder shown only on first load; later visits come from the cache. */
 export function Loading() {
 	return (
@@ -195,15 +204,20 @@ export class ErrorBoundary extends Component<{ children: React.ReactNode }, { er
 	}
 }
 
-/** Runs a mutation and keeps its error message for display. */
+/** Runs a mutation and keeps its error message for display. `busy` while it runs. */
 export function useRun() {
 	const [error, setError] = useState<string>();
-	const run = (action: Promise<unknown>, then?: () => void) =>
-		action.then(
-			() => (setError(undefined), then?.()),
-			(e) => setError(errorMessage(e)),
-		);
-	return { error, run };
+	const [busy, setBusy] = useState(false);
+	const run = (action: Promise<unknown>, then?: () => void) => {
+		setBusy(true);
+		return action
+			.then(
+				() => (setError(undefined), then?.()),
+				(e) => setError(errorMessage(e)),
+			)
+			.finally(() => setBusy(false));
+	};
+	return { error, busy, run };
 }
 
 /**

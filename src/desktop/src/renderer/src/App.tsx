@@ -83,7 +83,7 @@ function Workspace() {
 	);
 	const workspace = useMemo(() => id && { id: id as Id<"workspaces">, open }, [id, open]);
 
-	if (error) return <Centered><Notice>{error}</Notice></Centered>;
+	if (error) return <div className="flex h-screen items-center justify-center p-8"><Notice>{error}</Notice></div>;
 	if (!workspace) return null;
 	// Keyed by workspace: switching starts every screen fresh.
 	return (
@@ -243,8 +243,4 @@ function YouMenu({ name, email, role, onSignOut }: { name: string; email: string
 			)}
 		</Popover>
 	);
-}
-
-function Centered({ children }: { children: React.ReactNode }) {
-	return <div className="flex h-screen items-center justify-center p-8">{children}</div>;
 }

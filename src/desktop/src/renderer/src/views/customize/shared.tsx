@@ -1,7 +1,7 @@
 import { Fragment } from "react";
 import { navigate } from "../../router";
 import { TrashIcon } from "../../icons";
-import { type Crumb, ConflictNotice, Loading, Notice, Page, SaveBar, Section, barDangerButton, descriptionClass, disabledButtonClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
+import { type Crumb, ConflictNotice, NotFound, Notice, Page, SaveBar, Section, barDangerButton, descriptionClass, disabledButtonClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
 import { TrashNotice } from "../Trash";
 
 export const customizeTabs = [
@@ -237,11 +237,7 @@ export function MadeItemDetail<T>({
 
 /** Loading while `loaded` is false; after that, the item is gone (deleted, or a stale link). */
 export function Missing({ tab, loaded }: { tab: CustomizeTab; loaded: boolean }) {
-	return (
-		<Page title={loaded ? "Not found" : ""} crumbs={customizeCrumbs(tab)}>
-			{loaded ? <p className={descriptionClass}>It may have been deleted.</p> : <Loading />}
-		</Page>
-	);
+	return <NotFound crumbs={customizeCrumbs(tab)} loaded={loaded}>It may have been deleted.</NotFound>;
 }
 
 export function Facts({ rows }: { rows: [string, string][] }) {
