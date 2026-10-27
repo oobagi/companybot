@@ -111,9 +111,12 @@ function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean;
 			{error && <Notice>{error}</Notice>}
 
 			<fieldset disabled={!isOwner || agent.archived} className="flex flex-col gap-5">
-				<Field label="Picture" hint="PNG, JPEG, WebP or GIF, up to 2 MB.">
+				{/* Not a Field: its <label> would name the picker's buttons. */}
+				<div className="flex flex-col gap-1.5">
+					<span className="text-sm font-medium">Picture</span>
 					<ImagePicker of={agent._id} name={agent.name} image={agent.image} agent disabled={!isOwner || agent.archived} />
-				</Field>
+					<span className="text-xs text-neutral-500">PNG, JPEG, WebP or GIF, up to 2 MB.</span>
+				</div>
 				<Field label="Name">
 					<input className={inputClass} value={config.name} onChange={(e) => edit({ name: e.target.value })} />
 				</Field>
