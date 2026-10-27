@@ -405,7 +405,8 @@ export default defineSchema({
 		userId: v.id("users"),
 		at: v.number(),
 	})
-		.index("by_place", ["chatId", "threadId", "userId"])
+		.index("by_place", ["chatId", "threadId", "at"])
+		.index("by_user", ["userId", "chatId", "threadId"])
 		.index("by_workspace", ["workspaceId", "userId"])
 		.index("by_at", ["at"]),
 
@@ -453,7 +454,8 @@ export default defineSchema({
 		.index("by_place", ["agentId", "chatId", "threadId", "status"])
 		.index("by_session", ["sessionId"])
 		.index("by_workspace", ["workspaceId"])
-		.index("by_chat", ["chatId"]),
+		// Also: who's replying in a place right now (typing.ts).
+		.index("by_chat", ["chatId", "threadId", "status"]),
 
 	// One agent's ongoing context in one place (chat + thread). Append-only: past turns
 	// replay exactly as sent, so prompt caching hits. Older turns fold into `summary`.

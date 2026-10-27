@@ -11,7 +11,8 @@
     "./permissions": "./src/permissions.ts",
     "./records": "./src/records.ts",
     "./skills": "./src/skills.ts",
-    "./action-words": "./src/action-words.ts"
+    "./action-words": "./src/action-words.ts",
+    "./typing": "./src/typing.ts"
   },
   "scripts": {
     "test": "vitest run",

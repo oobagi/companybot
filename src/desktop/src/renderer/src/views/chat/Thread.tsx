@@ -8,7 +8,7 @@ import { IconButton } from "./common";
 import { Composer, type SendWith } from "./Composer";
 import { type ChatDetails, type Participant, chatTitle } from "./data";
 import { MessageList } from "./MessageList";
-import { useTyping } from "./Typing";
+import { TypingLine, useTypingPing } from "./Typing";
 
 export function ThreadPanel({
 	chat,
@@ -27,7 +27,7 @@ export function ThreadPanel({
 }) {
 	const messages = useQuery(api.messages.list, { chatId: chat._id, threadId });
 	const send = useMutation(api.messages.send);
-	const typing = useTyping(chat._id, threadId);
+	const typing = useTypingPing(chat._id, threadId);
 	const [error, setError] = useState<string>();
 	const onError = (e: unknown) => setError(errorMessage(e));
 
@@ -63,7 +63,7 @@ export function ThreadPanel({
 					sendWith={sendWith}
 					placeholder="Reply…"
 					candidates={candidates}
-					status={typing.line ?? null}
+					status={<TypingLine chatId={chat._id} threadId={threadId} />}
 					onType={typing.ping}
 					onSend={(text, mentions) => {
 						setError(undefined);

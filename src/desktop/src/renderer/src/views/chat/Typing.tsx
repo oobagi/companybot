@@ -1,40 +1,51 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { TYPING_MS, TYPING_PING_MS } from "@companybot/core/typing";
+import { useCallback, useEffect, useReducer, useRef } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 
-// Same as backend typing.ts: ping at most this often while typing; a ping counts this long.
-const PING_MS = 4_000;
-const TYPING_MS = 6_000;
-
-/** Who's typing in a place, as one line ("Ada and Scribe are typing…"), and `ping` to call on each keystroke. */
-export function useTyping(chatId: Id<"chats">, threadId?: Id<"chatMessages">) {
-	const typing = useQuery(api.typing.list, { chatId, threadId });
+/** Tells others you're typing: call `ping` on each keystroke (it throttles itself) and `sent` on send. */
+export function useTypingPing(chatId: Id<"chats">, threadId?: Id<"chatMessages">) {
 	const send = useMutation(api.typing.ping);
 	const last = useRef(0);
 	const ping = useCallback(() => {
-		if (Date.now() - last.current < PING_MS) return;
+		if (Date.now() - last.current < TYPING_PING_MS) return;
 		last.current = Date.now();
 		send({ chatId, threadId }).catch(() => {});
 	}, [send, chatId, threadId]);
 	// Sending ends typing on the server; let the next keystroke ping again at once.
-	const sent = useCallback(() => (last.current = 0), []);
-
-	// Pings go stale as time passes, which no query re-run will notice: tick while anyone is shown.
-	const [now, setNow] = useState(Date.now);
-	const pending = typing?.people.some((p) => now - p.at < TYPING_MS);
-	useEffect(() => {
-		if (!pending) return;
-		const timer = setInterval(() => setNow(Date.now()), 1_000);
-		return () => clearInterval(timer);
-	}, [pending]);
-	useEffect(() => setNow(Date.now()), [typing]);
-
-	const names = [...(typing?.agents ?? []), ...(typing?.people.filter((p) => now - p.at < TYPING_MS) ?? [])].map((p) => p.name);
-	return { ping, sent, line: typingLine(names) };
+	const sent = useCallback(() => void (last.current = 0), []);
+	return { ping, sent };
 }
 
-export function typingLine(names: string[]) {
+/**
+ * "Ada and Companybot are typing…". Its own component, so its timer re-renders only this line.
+ * Pings expire by when this app saw them, not the server's clock, so a computer whose clock is
+ * off still shows the right people.
+ */
+export function TypingLine({ chatId, threadId }: { chatId: Id<"chats">; threadId?: Id<"chatMessages"> }) {
+	const typing = useQuery(api.typing.list, { chatId, threadId });
+	const seen = useRef(new Map<string, { at: number; seen: number }>());
+	const [, tick] = useReducer((n: number) => n + 1, 0);
+
+	const now = Date.now();
+	for (const p of typing?.people ?? []) {
+		if (seen.current.get(p.id)?.at !== p.at) seen.current.set(p.id, { at: p.at, seen: now });
+	}
+	const people = (typing?.people ?? []).filter((p) => now - seen.current.get(p.id)!.seen < TYPING_MS);
+
+	// Re-render when the next shown ping runs out.
+	const next = Math.min(...people.map((p) => seen.current.get(p.id)!.seen + TYPING_MS));
+	useEffect(() => {
+		if (!Number.isFinite(next)) return;
+		const timer = setTimeout(tick, next - Date.now());
+		return () => clearTimeout(timer);
+	}, [next]);
+
+	return typingLine([...(typing?.agents ?? []), ...people].map((p) => p.name)) ?? null;
+}
+
+function typingLine(names: string[]) {
 	if (names.length === 0) return undefined;
 	if (names.length === 1) return `${names[0]} is typing…`;
 	if (names.length === 2) return `${names[0]} and ${names[1]} are typing…`;
