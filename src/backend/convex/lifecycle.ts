@@ -1,4 +1,5 @@
 import type { IndexNames, NamedTableInfo } from "convex/server";
+import { internal } from "./_generated/api";
 import type { DataModel, Doc, Id, TableNames } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { privateTo } from "./automationOps";
@@ -6,7 +7,7 @@ import { startCascade } from "./cascade";
 import { hasLiveOwner, liveWorkspace, pinLegacyWorkspace } from "./lib";
 
 // What happens to every table's rows when what they belong to goes: a workspace is deleted,
-// a member removed, an account erased, a connector or automation uninstalled. cascade.ts
+// a member removed, an account erased, a connector or automation uninstalled, a page deleted. cascade.ts
 // runs it. Every table must be listed (tests/lifecycle.test.ts fails otherwise), so a new
 // table can't ship until someone decides what happens to its rows. See wiki/architecture.md#data-lifecycle.
 
@@ -225,6 +226,17 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	recordHistory: { workspace: { index: "by_workspace", eq: ["workspaceId"] } },
 	// Deleting a message deletes its rows here too (messages.remove).
 	recordMentions: { childOf: { table: "records", index: "by_record", field: "recordId" } },
+
+	// ---- Pages ----
+	pages: {
+		// Its content is the prosemirrorSync component's, deleted by the component a little at a time.
+		workspace: { index: "by_workspace", eq: ["workspaceId"], onDelete: (ctx, row) => ctx.scheduler.runAfter(0, internal.pageSync.deleteDoc, { id: row._id }) },
+		keep: "Pages are the workspace's, like records. Deleting one (pages.remove) deletes its row first, then its content and a page cascade.",
+	},
+	pageVersions: {
+		childOf: { table: "pages", index: "by_page", field: "pageId" },
+		page: { index: "by_page", eq: ["pageId"] },
+	},
 
 	cascades: { keep: "The cascades themselves: each deletes its own row when it's done." },
 };

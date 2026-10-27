@@ -1,4 +1,5 @@
 import type { AutomationStore } from "../src/automation-tools";
+import type { PageStore } from "../src/page-tools";
 import type { RecordStore } from "../src/record-tools";
 import type { ChatStore } from "../src/chat";
 import type { MemoryStore } from "../src/memory";
@@ -20,5 +21,6 @@ export const ctx = (actor: Actor) => ({
 	results: createResultStore(),
 	automations: {} as AutomationStore,
 	records: {} as RecordStore,
+	pages: {} as PageStore,
 });
 

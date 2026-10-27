@@ -27,7 +27,7 @@ const MAX_ATTEMPTS = 3;
 
 /** Names what's going, so callers can tell it's still being deleted. */
 const keyOf = (scope: Scope, root: Root) =>
-	[scope, root.workspaceId, root.userId, root.connectorId, root.automationInstallId].filter(Boolean).join(":");
+	[scope, root.workspaceId, root.userId, root.connectorId, root.automationInstallId, root.pageId].filter(Boolean).join(":");
 
 /** Starts deleting what belongs to `root`. Access must already have ended. */
 export async function startCascade(ctx: MutationCtx, scope: Scope, root: Root) {

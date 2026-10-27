@@ -1,6 +1,7 @@
 import type { AgentConfig } from "./agent-config";
 import { grantedConnectorIds } from "./agents";
 import { chatTools } from "./chat";
+import { pageTools } from "./page-tools";
 import { recordTools } from "./record-tools";
 import { isGranted } from "./tools";
 import { widgetCatalog } from "./widgets";
@@ -58,6 +59,15 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">): string {
 			"- Before changing or archiving more than 3 records at once, list them and ask the person to confirm. Add or change fields only when asked.",
 			"- Show 3+ records with widgets_table, passing `from: { ref, path: \"rows\", fields }` with field keys; one record worth a closer look with widgets_card.",
 			"- Values come formatted for people: dates like \"Nov 15, 2026\", amounts in their own currency (\"$\" is US dollars). Write them that way in replies too. In tool input, dates are YYYY-MM-DD, and amounts go without a code for the workspace's currency or with one (\"EUR 1200\"). Never convert or add up amounts in different currencies.",
+		);
+	}
+	if (pageTools.some((t) => isGranted(agent.tools, t.id))) {
+		lines.push(
+			"",
+			"## Pages",
+			"Pages hold longer writing: wiki pages, how-tos, meeting notes. Every record also has a page body for notes about it (pages_read and pages_write with `record`).",
+			"- Find a page before creating one, so there are no duplicates. Read it before you replace it; to add to it, append.",
+			"- Writes run right away and are saved in the page's history as you acting for the person, so they can be restored. Say in a sentence what you wrote, and where.",
 		);
 	}
 	if (isGranted(agent.tools, "skills.create")) {

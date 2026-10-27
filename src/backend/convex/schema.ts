@@ -677,6 +677,37 @@ export default defineSchema({
 		.index("by_type_updated", ["typeId", "archived", "updatedAt"])
 		.searchIndex("search", { searchField: "searchText", filterFields: ["workspaceId", "typeId", "archived"] }),
 
+	// A page: a standalone doc (wiki, SOP, meeting notes) or a record's body. Its content lives
+	// in the prosemirrorSync component, keyed by the page's id (pageSync.ts). See wiki/pages.md.
+	pages: defineTable({
+		workspaceId: v.id("workspaces"),
+		/** Set for a record's body; standalone pages have none. */
+		recordId: v.optional(v.id("records")),
+		/** Standalone pages only: a record's body shows the record's name. */
+		title: v.string(),
+		archived: v.boolean(),
+		createdBy: v.id("users"),
+		updatedAt: v.number(),
+		updatedBy: v.id("users"),
+	})
+		.index("by_workspace", ["workspaceId", "recordId", "archived", "title"])
+		.searchIndex("search_title", { searchField: "title", filterFields: ["workspaceId", "archived"] }),
+
+	// A page's history: one row per run of edits by one person (or agent for them), like
+	// Notion's. Its content is the component's snapshot at `version`; the rest are pruned.
+	pageVersions: defineTable({
+		pageId: v.id("pages"),
+		/** Counts up per page, so the oldest past PAGE_VERSIONS_MAX are found by index. */
+		n: v.number(),
+		/** The component's document version this one ends at. */
+		version: v.number(),
+		userId: v.id("users"),
+		agentId: v.optional(v.id("agents")),
+		editedAt: v.number(),
+		/** Set when it restored an older version: that version's time. */
+		restored: v.optional(v.number()),
+	}).index("by_page", ["pageId", "n"]),
+
 	// The index behind filtering and sorting on any field: one row per value of a live
 	// record (core's indexEntries). Archived records have none. Never read for display.
 	// Rows linking to an archived record stay; queries treat that target as gone.
@@ -749,13 +780,14 @@ export default defineSchema({
 	// edge of lifecycle.ts per run, resumed from `edge` and `cursor`. `key` names what's going,
 	// so rejoining or reinstalling waits until its old rows are gone.
 	cascades: defineTable({
-		scope: v.union(v.literal("workspace"), v.literal("member"), v.literal("user"), v.literal("connectorInstall"), v.literal("automationInstall")),
+		scope: v.union(v.literal("workspace"), v.literal("member"), v.literal("user"), v.literal("connectorInstall"), v.literal("automationInstall"), v.literal("page")),
 		root: v.object({
 			workspaceId: v.optional(v.id("workspaces")),
 			userId: v.optional(v.id("users")),
 			connectorId: v.optional(v.string()),
 			connectorInstallId: v.optional(v.id("connectorInstalls")),
 			automationInstallId: v.optional(v.id("automationInstalls")),
+			pageId: v.optional(v.id("pages")),
 		}),
 		key: v.string(),
 		/** The edge it's on, as "table.index" ("" before the first). */
