@@ -5,7 +5,7 @@ import { api } from "../convex/_generated/api";
 import schema from "../convex/schema";
 import { person } from "./person";
 
-// A busy webhook keeps a week of delivery ids: deleting its automation must stay under
+// A busy webhook keeps a week of delivery ids: deleting its automation forever must stay under
 // Convex's 16,000-write limit however many there are.
 
 it("deletes an automation with 20,000 webhook deliveries without exceeding transaction limits", { timeout: 600_000 }, async () => {
@@ -28,7 +28,10 @@ it("deletes an automation with 20,000 webhook deliveries without exceeding trans
 	}
 	vi.useFakeTimers();
 	try {
+		// Delete goes to Trash; deleting it forever is what clears the deliveries.
 		await owner.mutation(api.automations.remove, { automationId });
+		const [entry] = (await owner.query(api.trash.list, { paginationOpts: { numItems: 10, cursor: null } })).page;
+		await owner.mutation(api.trash.purge, { id: entry!.itemId });
 		expect(await t.run((ctx) => ctx.db.get(installId))).toBeNull();
 		await t.finishAllScheduledFunctions(vi.runAllTimers, 1_000);
 	} finally {
