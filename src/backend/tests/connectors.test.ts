@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import { decrypt } from "../convex/crypto";
 
-import { workspaceOf, agentsOf, setup as ownerAndMember } from "./helpers";
+import { workspaceOf, agentsOf, setup as ownerAndMember, settle } from "./helpers";
 import "./connectorFixtures";
 
 afterEach(() => void vi.useRealTimers());
@@ -74,6 +74,11 @@ describe("connectors", () => {
 		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
 		await owner.action(api.connectors.connect, { connectorId: "crm", credentials: { type: "api_key", key: "k" } });
 		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: false });
+		expect((await owner.query(api.connectors.list)).find((c) => c.id === "crm")).toMatchObject({ installed: false, connected: false });
+		// Reinstalling waits until the old accounts are gone, so none come back.
+		await expect(owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true })).rejects.toThrow("still being uninstalled");
+		await settle(t);
 		expect(await t.run((ctx) => ctx.db.query("connectorConnections").collect())).toHaveLength(0);
+		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
 	});
 });

@@ -5,7 +5,7 @@ import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { automationCatalog, defineAutomation } from "@companybot/core";
 
-import { signIn, agentsOf, setup as ownerAndMember, meOf, generalOf, turnsOf } from "./helpers";
+import { signIn, agentsOf, setup as ownerAndMember, meOf, generalOf, turnsOf, settle } from "./helpers";
 
 // An automation that needs a connector, for the install check.
 automationCatalog.push(
@@ -193,6 +193,7 @@ describe("automations", () => {
 			}
 			expect((await events()).map((e) => e.eventId)).toEqual(["new"]);
 			await owner.mutation(api.automations.setInstalled, { automationId: "after-call-summary", installed: false, timeZone: tz });
+			await t.finishAllScheduledFunctions(vi.runAllTimers);
 			expect(await events()).toHaveLength(0);
 		});
 
@@ -300,6 +301,7 @@ describe("automations", () => {
 			await remove(member);
 			await remove(member);
 			expect(await find(member, id)).toBeUndefined();
+			await t.finishAllScheduledFunctions(vi.runAllTimers);
 			const rows = await t.run(async (ctx) => ({
 				installs: await ctx.db.query("automationInstalls").collect(),
 				subscriptions: await ctx.db.query("automationSubscriptions").collect(),
@@ -319,6 +321,7 @@ describe("automations", () => {
 			await owner.mutation(api.automations.remove, { automationId: "morning-brief" });
 			await owner.mutation(api.automations.remove, { automationId: "morning-brief" });
 			expect((await find(owner, "morning-brief"))!.installed).toBe(false);
+			await settle(t);
 			expect(await t.run((ctx) => ctx.db.query("automationSubscriptions").collect())).toHaveLength(0);
 			await install(owner, "morning-brief");
 			await owner.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: false });

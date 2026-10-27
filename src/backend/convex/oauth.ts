@@ -13,7 +13,9 @@ export const callback = httpAction(async (ctx, request) => {
 	const params = new URL(request.url).searchParams;
 	const state = params.get("state");
 	const flow = state ? await ctx.runMutation(internal.connectors.takeOAuthFlow, { state }) : null;
-	if (!state || !flow) return page("This sign-in link expired.", "Go back to Companybot and connect again.");
+	// Each sign-in names the membership and install it started under; older ones can't be checked, so they're refused.
+	const { workspaceId, memberId, connectorInstallId } = flow ?? {};
+	if (!state || !flow || !workspaceId || !memberId || !connectorInstallId) return page("This sign-in link expired.", "Go back to Companybot and connect again.");
 	const connector = findConnector(flow.connectorId);
 	if (!connector) return page("That connector isn't available anymore.");
 	if (params.get("error")) {
@@ -28,10 +30,12 @@ export const callback = httpAction(async (ctx, request) => {
 			state,
 			issuer: params.get("iss") ?? undefined,
 		});
-		// saveConnection re-checks that this person may still connect it.
+		// saveConnection re-checks that this person may still connect it, under that membership and install.
 		await ctx.runMutation(internal.connectors.saveConnection, {
 			userId: flow.userId,
-			workspaceId: flow.workspaceId,
+			workspaceId,
+			memberId,
+			connectorInstallId,
 			connectorId: connector.id,
 			credentials: await encrypt({ type: "oauth", oauth }),
 		});

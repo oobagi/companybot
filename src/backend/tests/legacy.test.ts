@@ -1,4 +1,4 @@
-import { modules } from "./helpers";
+import { modules, settle } from "./helpers";
 import migrationsTest from "@convex-dev/migrations/test";
 import { convexTest } from "convex-test";
 import { expect, it, vi } from "vitest";
@@ -43,6 +43,7 @@ async function setup(unpinned = false) {
 	const inviteTo = (name: string, role: "owner" | "member" = "member") =>
 		t.run(async (ctx) => {
 			const workspaceId = await ctx.db.insert("workspaces", { name, version: 1 });
+			await ctx.db.insert("members", { workspaceId, userId: await ctx.db.insert("users", {}), role: "owner" });
 			const id = await ctx.db.insert("invites", { workspaceId, email: "target@co.com", role });
 			return { workspaceId, id };
 		});
@@ -113,9 +114,10 @@ it("re-pins to the fresh workspace someone in none at all gets, so the old app w
 });
 
 it("keeps the A pin through joining B, leaving A and rejoining A", async () => {
-	const { old, a, deputy, inviteTo } = await setup();
+	const { t, old, a, deputy, inviteTo } = await setup();
 	await old.mutation(api.workspace.acceptInvite, { id: (await inviteTo("B")).id });
 	await old.in(a).mutation(api.workspace.leave);
+	await settle(t);
 	expect((await old.query(api.workspace.me))!.role).toBeNull();
 	await expect(old.mutation(api.workspace.ensure)).rejects.toThrow(UPDATE);
 	await deputy.mutation(api.workspace.invite, { email: "target@co.com", role: "member" });
@@ -147,6 +149,7 @@ it("gives someone new with two invites the first, after the backfill", async () 
 		const id = await ctx.db.insert("users", { email: "new@co.com" });
 		for (const name of ["A", "B"]) {
 			const workspaceId = await ctx.db.insert("workspaces", { name, version: 1 });
+			await ctx.db.insert("members", { workspaceId, userId: await ctx.db.insert("users", {}), role: "owner" });
 			await ctx.db.insert("invites", { workspaceId, email: "new@co.com", role: "member" });
 		}
 		return id;
@@ -175,6 +178,22 @@ it("backfills the earliest membership, and pinning again never moves it", async 
 
 // The reviewer's independent check of reads, restores and nested ids the main sweep
 // (workspaces.test.ts) left out.
+it("pins the workspace joined first, not the oldest workspace", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	const userId = await t.run(async (ctx) => {
+		const older = await ctx.db.insert("workspaces", { name: "Older", version: 1 });
+		const newer = await ctx.db.insert("workspaces", { name: "Newer", version: 1 });
+		const userId = await ctx.db.insert("users", { email: "p@co.com" });
+		await ctx.db.insert("members", { workspaceId: newer, userId, role: "member" });
+		await ctx.db.insert("members", { workspaceId: older, userId, role: "member" });
+		await pinLegacyWorkspace(ctx, userId);
+		return userId;
+	});
+	const pin = await t.run((ctx) => ctx.db.query("legacyWorkspaces").first());
+	expect(await t.run(async (ctx) => (await ctx.db.get(pin!.workspaceId))?.name)).toBe("Newer");
+	expect(pin?.userId).toBe(userId);
+});
+
 it("refuses ids from the other workspace in reads, restores and nested ids", async () => {
 	const { t, userId, old, a } = await setup();
 	const A = old.in(a);

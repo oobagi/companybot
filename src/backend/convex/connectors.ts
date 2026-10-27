@@ -17,7 +17,7 @@ import { type QueryCtx, internalMutation, internalQuery } from "./_generated/ser
 import { action, mutation, query } from "./functions";
 import { encrypt } from "./crypto";
 import { type Member, getMember, memberFor, memberOf, requireMember, requirePermission } from "./lib";
-import { forgetConnector } from "./permissions";
+import { cascading, startCascade } from "./cascade";
 import { role } from "./schema";
 
 // Install → choose roles → connect an account → agents granted "<connector>.*" use it.
@@ -101,7 +101,9 @@ export const setInstalled = mutation({
 		const member = await requirePermission(ctx, "connectors.manage");
 		const connector = requireConnector(connectorId);
 		const existing = await installOf(ctx, member.workspaceId, connectorId);
+		const old = { workspaceId: member.workspaceId, connectorId };
 		if (installed && !existing) {
+			if (await cascading(ctx, "connectorInstall", old)) throw new ConvexError("It's still being uninstalled. Try again in a minute.");
 			await ctx.db.insert("connectorInstalls", {
 				workspaceId: member.workspaceId,
 				connectorId,
@@ -111,14 +113,8 @@ export const setInstalled = mutation({
 		}
 		if (!installed && existing) {
 			await ctx.db.delete(existing._id);
-			// Rules and locks belong to this install: reinstalling starts strict again.
-			await forgetConnector(ctx, existing);
-			// Uninstalling forgets every account connected to it.
-			const connections = await ctx.db
-				.query("connectorConnections")
-				.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("connectorId", connectorId))
-				.collect();
-			for (const c of connections) await ctx.db.delete(c._id);
+			// Its accounts, rules, locks and tool list go too (lifecycle.ts): reinstalling starts strict again.
+			await startCascade(ctx, "connectorInstall", { ...old, connectorInstallId: existing._id });
 		}
 	},
 });
@@ -151,7 +147,7 @@ export const startOAuth = action({
 		if (!userId) throw new ConvexError("Not signed in.");
 		const connector = requireConnector(connectorId);
 		if (connector.auth.type !== "oauth") throw new ConvexError("This connector doesn't sign in through the browser.");
-		const workspaceId = await ctx.runQuery(internal.connectors.connectTarget, { userId, workspaceId: ctx.workspaceId, connectorId });
+		const target = await ctx.runQuery(internal.connectors.connectTarget, { userId, workspaceId: ctx.workspaceId, connectorId });
 		let started: Awaited<ReturnType<typeof startSignIn>>;
 		try {
 			started = await startSignIn(connector, oauthRedirectUrl());
@@ -160,7 +156,7 @@ export const startOAuth = action({
 		}
 		await ctx.runMutation(internal.connectors.saveOAuthFlow, {
 			userId,
-			workspaceId,
+			...target,
 			connectorId,
 			state: started.state.state!,
 			data: await encrypt(started.state),
@@ -169,9 +165,13 @@ export const startOAuth = action({
 	},
 });
 
+const startedUnder = { memberId: v.id("members"), connectorInstallId: v.id("connectorInstalls") };
+
 export const saveOAuthFlow = internalMutation({
-	args: { userId: v.id("users"), workspaceId: v.id("workspaces"), connectorId: v.string(), state: v.string(), data: v.string() },
+	args: { userId: v.id("users"), workspaceId: v.id("workspaces"), ...startedUnder, connectorId: v.string(), state: v.string(), data: v.string() },
 	handler: async (ctx, args) => {
+		// Checked again: they may have been removed, or it uninstalled, while the provider answered.
+		await requireConnectTarget(ctx, args.userId, args.workspaceId, args.connectorId, args);
 		// Only the newest sign-in per person counts; drop abandoned ones.
 		const old = await ctx.db
 			.query("connectorOAuthFlows")
@@ -179,6 +179,19 @@ export const saveOAuthFlow = internalMutation({
 			.collect();
 		for (const flow of old) await ctx.db.delete(flow._id);
 		await ctx.db.insert("connectorOAuthFlows", { ...args, expiresAt: Date.now() + OAUTH_FLOW_MS });
+	},
+});
+
+/** Runs hourly (crons.ts): deletes sign-ins nobody finished. */
+export const forgetExpiredOAuth = internalMutation({
+	args: {},
+	handler: async (ctx) => {
+		const expired = await ctx.db
+			.query("connectorOAuthFlows")
+			.withIndex("by_creation_time", (q) => q.lt("_creationTime", Date.now() - OAUTH_FLOW_MS))
+			.take(500);
+		for (const flow of expired) await ctx.db.delete(flow._id);
+		if (expired.length === 500) await ctx.scheduler.runAfter(0, internal.connectors.forgetExpiredOAuth);
 	},
 });
 
@@ -206,14 +219,24 @@ export const connect = action({
 		const problem = validateCredentials(connector, args.credentials);
 		if (problem) throw new ConvexError(problem);
 		// Check permission before encrypting, then again when saving.
-		const workspaceId = await ctx.runQuery(internal.connectors.connectTarget, { userId, workspaceId: ctx.workspaceId, connectorId: connector.id });
+		const target = await ctx.runQuery(internal.connectors.connectTarget, { userId, workspaceId: ctx.workspaceId, connectorId: connector.id });
 		const sealed = await encrypt(args.credentials);
-		await ctx.runMutation(internal.connectors.saveConnection, { userId, workspaceId, connectorId: connector.id, credentials: sealed });
+		await ctx.runMutation(internal.connectors.saveConnection, { userId, ...target, connectorId: connector.id, credentials: sealed });
 	},
 });
 
-/** `workspaceId` is where it connects; without one (older apps), their first workspace. */
-async function requireConnectTarget(ctx: QueryCtx, userId: Id<"users">, workspaceId: Id<"workspaces"> | undefined, connectorId: string) {
+/**
+ * `workspaceId` is where it connects; without one (older apps), their first workspace. With
+ * `bound` (a save after the check), the membership and install must be the ones it started
+ * under: being removed and rejoining, or an uninstall and reinstall, in between refuses it.
+ */
+async function requireConnectTarget(
+	ctx: QueryCtx,
+	userId: Id<"users">,
+	workspaceId: Id<"workspaces"> | undefined,
+	connectorId: string,
+	bound?: { memberId: Id<"members">; connectorInstallId: Id<"connectorInstalls"> },
+) {
 	const member = await memberFor(ctx, userId, workspaceId);
 	if (!member) throw new ConvexError("Sign in to a workspace first.");
 	const connector = requireConnector(connectorId);
@@ -222,14 +245,18 @@ async function requireConnectTarget(ctx: QueryCtx, userId: Id<"users">, workspac
 	if (!install.roles.includes(member.role)) throw new ConvexError("Your role can't use this connector.");
 	const permission = connector.connection === "workspace" ? "connectors.manage" : "connectors.connect";
 	if (!can(member.role, permission)) throw new ConvexError(deniedMessage(permission));
-	return { member, connector, userId: connector.connection === "personal" ? member.userId : null };
+	if (bound && (bound.memberId !== member.id || bound.connectorInstallId !== install._id))
+		throw new ConvexError(`This sign-in started before ${connector.name} or your membership changed. Connect again.`);
+	return { member, connector, userId: connector.connection === "personal" ? member.userId : null, memberId: member.id, connectorInstallId: install._id };
 }
 
 export const connectTarget = internalQuery({
 	args: { userId: v.id("users"), workspaceId: v.optional(v.id("workspaces")), connectorId: v.string() },
-	/** The workspace it connects in, so the save (maybe an OAuth callback later) lands there. */
-	handler: async (ctx, { userId, workspaceId, connectorId }): Promise<Id<"workspaces">> =>
-		(await requireConnectTarget(ctx, userId, workspaceId, connectorId)).member.workspaceId,
+	/** Where it connects, and under which membership and install, so the save (maybe an OAuth callback later) lands there or nowhere. */
+	handler: async (ctx, { userId, workspaceId, connectorId }) => {
+		const { member, memberId, connectorInstallId } = await requireConnectTarget(ctx, userId, workspaceId, connectorId);
+		return { workspaceId: member.workspaceId, memberId, connectorInstallId };
+	},
 });
 
 /** Replaces stored credentials, e.g. after the runner refreshed an OAuth token. */
@@ -241,9 +268,9 @@ export const updateCredentials = internalMutation({
 });
 
 export const saveConnection = internalMutation({
-	args: { userId: v.id("users"), workspaceId: v.optional(v.id("workspaces")), connectorId: v.string(), credentials: v.string() },
+	args: { userId: v.id("users"), workspaceId: v.id("workspaces"), ...startedUnder, connectorId: v.string(), credentials: v.string() },
 	handler: async (ctx, args) => {
-		const { member, connector, userId } = await requireConnectTarget(ctx, args.userId, args.workspaceId, args.connectorId);
+		const { member, connector, userId } = await requireConnectTarget(ctx, args.userId, args.workspaceId, args.connectorId, args);
 		const existing = await connectionFor(ctx, connector, member);
 		if (existing) await ctx.db.delete(existing._id);
 		await ctx.db.insert("connectorConnections", {
@@ -280,17 +307,17 @@ export const forTurn = internalQuery({
 	handler: async (ctx, { userId, workspaceId, connectorIds }) => {
 		const member = await memberOf(ctx, userId, workspaceId);
 		if (!member) return [];
-		const usable: { connectorId: string; connectionId: Id<"connectorConnections"> | null; credentials: string | null }[] = [];
+		const usable: { connectorId: string; installId: Id<"connectorInstalls">; connectionId: Id<"connectorConnections"> | null; credentials: string | null }[] = [];
 		for (const connectorId of connectorIds) {
 			const connector = findConnector(connectorId);
 			const install = connector && (await installOf(ctx, member.workspaceId, connectorId));
 			if (!connector || !install || !install.roles.includes(member.role)) continue;
 			if (connector.auth.type === "none") {
-				usable.push({ connectorId, connectionId: null, credentials: null });
+				usable.push({ connectorId, installId: install._id, connectionId: null, credentials: null });
 				continue;
 			}
 			const connection: Doc<"connectorConnections"> | null = await connectionFor(ctx, connector, member);
-			if (connection) usable.push({ connectorId, connectionId: connection._id, credentials: connection.credentials });
+			if (connection) usable.push({ connectorId, installId: install._id, connectionId: connection._id, credentials: connection.credentials });
 		}
 		return usable;
 	},

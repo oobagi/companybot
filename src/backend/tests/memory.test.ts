@@ -1,4 +1,4 @@
-import { setup as ownerAndMember, signIn } from "./helpers";
+import { setup as ownerAndMember, signIn, settle } from "./helpers";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
@@ -111,6 +111,7 @@ describe("agent memory", () => {
 		}
 		expect(await member.query(api.memory.list)).toEqual([]);
 		const workspaceId = (await owner.query(api.workspace.me))!.workspaceId!;
+		await settle(t);
 		const before = await t.run(async (ctx) => ctx.meta.getSnapshotTs());
 		await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
 		await member.mutation(api.workspace.acceptInvite, { id: (await member.query(api.workspace.mine))!.invitations[0]!.id });

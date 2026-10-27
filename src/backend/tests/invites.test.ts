@@ -4,7 +4,7 @@ import { api } from "../convex/_generated/api";
 import schema from "../convex/schema";
 import { DOWNLOAD_URL, INVITE_EMAILS_PER_DAY, inviteEmail } from "@companybot/core";
 
-import { modules, signIn, workspaceOf, inWorkspace, sideWorkspace, setup as ownerAndMember, noMentions, meOf } from "./helpers";
+import { modules, signIn, workspaceOf, inWorkspace, sideWorkspace, setup as ownerAndMember, noMentions, meOf, settle } from "./helpers";
 
 afterEach(() => void vi.useRealTimers());
 
@@ -134,7 +134,7 @@ describe("invites", () => {
 	});
 
 	it("lets people leave, but not the last owner, and removal ends access at once", async () => {
-		const { owner, member } = await ownerAndMember();
+		const { t, owner, member } = await ownerAndMember();
 		await expect(owner.mutation(api.workspace.leave)).rejects.toThrow("only owner");
 		const secret = await owner.mutation(api.chats.createChannel, { name: "board", private: true });
 		const memberId = await meOf(member);
@@ -146,10 +146,13 @@ describe("invites", () => {
 		await owner.mutation(api.workspace.removeMember, { id: row.id });
 		expect(await member.query(api.chats.get, { chatId: secret })).toBeNull();
 		await expect(member.mutation(api.messages.send, { chatId: dm, text: "still here?", mentions: noMentions })).rejects.toThrow();
+		// Rejoining waits until what was theirs is gone.
+		await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
+		await expect(member.mutation(api.workspace.ensure)).rejects.toThrow("still being cleaned up");
+		await settle(t);
 		// Their seat in channels is gone, so rejoining doesn't bring back private ones; DMs keep them listed.
 		expect((await owner.query(api.chats.get, { chatId: secret }))!.members).toHaveLength(1);
 		expect((await owner.query(api.chats.get, { chatId: dm }))!.members).toHaveLength(2);
-		await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
 		await member.mutation(api.workspace.ensure);
 		expect(await member.query(api.chats.get, { chatId: secret })).toBeNull();
 

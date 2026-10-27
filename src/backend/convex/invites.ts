@@ -3,8 +3,8 @@ import { ConvexError, v } from "convex/values";
 import { Resend } from "resend";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type MutationCtx, internalAction } from "./_generated/server";
-import { nameOf } from "./lib";
+import { type MutationCtx, internalAction, internalQuery } from "./_generated/server";
+import { liveWorkspace, nameOf } from "./lib";
 
 // Invite emails. Sent through the same Resend account as sign-in codes (auth.ts).
 
@@ -42,13 +42,23 @@ export async function sendInviteEmail(ctx: MutationCtx, invite: Doc<"invites">, 
 
 	const workspace = await ctx.db.get(invite.workspaceId);
 	const content = inviteEmail({ inviter: await nameOf(ctx, inviter), workspace: workspace?.name ?? "a workspace", email: invite.email });
-	await ctx.scheduler.runAfter(0, internal.invites.deliver, { to: invite.email, ...content });
+	await ctx.scheduler.runAfter(0, internal.invites.deliver, { inviteId: invite._id, to: invite.email, ...content });
 	return true;
 }
 
+/** Whether an invite can still be used: not cancelled, accepted or declined, and its workspace not being deleted. */
+export const stillOpen = internalQuery({
+	args: { id: v.id("invites") },
+	handler: async (ctx, { id }) => {
+		const invite = await ctx.db.get(id);
+		return !!invite && !!(await liveWorkspace(ctx, invite.workspaceId));
+	},
+});
+
 export const deliver = internalAction({
-	args: { to: v.string(), subject: v.string(), text: v.string(), html: v.string() },
-	handler: async (_ctx, { to, subject, text, html }) => {
+	args: { inviteId: v.id("invites"), to: v.string(), subject: v.string(), text: v.string(), html: v.string() },
+	handler: async (ctx, { inviteId, to, subject, text, html }) => {
+		if (!(await ctx.runQuery(internal.invites.stillOpen, { id: inviteId }))) return;
 		// Local backends (`pnpm dev`) and tests send no email; the log shows what would have gone out.
 		if (isLocalBackend(process.env.CONVEX_CLOUD_URL) || !process.env.AUTH_RESEND_KEY) return void console.log(`Invite email to ${to}: ${subject}\n\n${text}`);
 		const { error } = await new Resend(process.env.AUTH_RESEND_KEY).emails.send({

@@ -58,7 +58,7 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 
 ## Memory — `core/src/memory.ts`, `backend/convex/memoryOps.ts`
 - Each memory belongs to one agent; scope `workspace` or `personal`. Rules live in `canReadMemory` / `canEditMemory` / `canCreateMemory`.
-- Personal memories are their owner's alone. No role reads, edits or deletes someone else's, so never add a permission that does; owners get only the on/off switch. Removing a member deletes theirs (`dropMember`): bounded batches keyed by workspace and person, including archived agents. Large cleanups finish in scheduled mutations. New memories store `createdTs` (Convex's commit timestamp); cleanup stops at the removal's snapshot timestamp, preserving anything saved after rejoining. Older rows without it predate cleanup and are deleted too.
+- Personal memories are their owner's alone. No role reads, edits or deletes someone else's, so never add a permission that does; owners get only the on/off switch. Removing a member deletes theirs, archived agents' included, through the member cascade (`lifecycle.ts`, index `by_owner`).
 - The switch is `workspaces.memory` (unset = on), read by `memoryOn`. Off: `memory.ts` refuses every agent call with a plain message, and the turn prompt says memory is off. People can still manage their memories in the app.
 - App and agents both go through `memoryOps.ts` with a `Who` (member + optional agent), so they can't drift. Agent calls take the `turnId` and act through `runningTurn`, like every other agent tool; whether personal memories work is read from the chat on each call (`personalMemoryHere`).
 - Agent search (`memory.search`) uses the `search_content` search index, filtered by agent, scope and owner, so it finds matches anywhere in the history; at most 50 back, oldest first. It matches words and prefixes, not substrings: "aus" finds "Austin", "ustin" doesn't; every word must match (`memoryMatches`). An empty query lists the newest 50.
@@ -84,6 +84,17 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 - Reads the app and agents share (lists, search, "what links here") live in `recordReads.ts`; use them instead of querying the indexes again.
 - Heavy data for a type (recordings, transcripts, line items) gets its own table keyed by `recordId`, not a field.
 - Agent tools (`core/src/record-tools.ts`, `backend/convex/recordTools.ts`) are the same `recordOps` calls with `agentId`, acting through `runningTurn` (role read fresh each call). Keep the list at six fixed tools: grow inputs, not tools, since every tool is sent every turn. Expected problems return `{ error }` (`asToolResult`); resolve names before any write so a refused call writes nothing.
+
+## Data lifecycle — `backend/convex/lifecycle.ts`, `cascade.ts`
+- New table → add it to `lifecycle` and decide, per scope, what happens to its rows when their workspace, member, account or install goes, or `keep` them with a reason. CI fails until you do. Rules: [Architecture](architecture.md#data-lifecycle).
+- Workspace-scoped → give it a `workspaceId`-first index, or make it `childOf` the row it hangs off. Children go one level deep: a table whose rows have children of their own needs its own index.
+- Prefer indexes on fields every row already has; a new required field needs a backfill migration (`migrations.ts`) before anything reads it.
+- Never hand-write a delete loop for something going away. End access in the mutation (delete the gate row, or mark it), then `startCascade`. Anything that could bring old rows back (rejoining, reinstalling) checks `cascading` first.
+- A mutation an action calls after a wait (a model call, a connector, a provider's redirect) rechecks what it writes under: a live workspace, the same install or membership. Otherwise its row can land after the cascade passed that table.
+- Functions keyed on the signed-in person use `authUserId` (lib.ts), never `getAuthUserId`, so an erased account's old token acts as nobody.
+- The first table whose rows own storage files (call recordings) adds deleting them with each row to the runner; nothing does yet.
+- Write-backs of what only the actor sees (`agentActivity.output`, `approvals.result`) drop it if the actor was erased (`erased`, lib.ts).
+- Pointing at `users` is always safe: accounts are scrubbed, never deleted.
 
 ## Shared settings
 - Editable shared data gets a `version` field. Saves send the version they started from; `checkVersion` refuses stale ones. In the app, use `useDraft` + `ConflictNotice`.

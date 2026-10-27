@@ -35,6 +35,7 @@ import {
 } from "./lib";
 import { audienceOf, canView, definitionOf, installOf, postingProblem, requireEditable, runsForLabel, subscribersOf, webhookUrl } from "./automationOps";
 import { forgetAutomationGrants } from "./permissions";
+import { startCascade } from "./cascade";
 import { audience, customTrigger } from "./schema";
 
 // An automation is a trigger (schedule, webhook, or something happening in the app), a
@@ -317,13 +318,10 @@ export const setInstalled = mutation({
 	},
 });
 
+/** Deletes an install now, so its webhook and schedule stop; its opt-ins, grants and delivery ids follow (lifecycle.ts). */
 async function removeInstall(ctx: MutationCtx, install: Doc<"automationInstalls">) {
 	await ctx.db.delete(install._id);
-	await forgetAutomationGrants(ctx, install._id);
-	const subs = ctx.db.query("automationSubscriptions").withIndex("by_install", (q) => q.eq("installId", install._id));
-	for await (const sub of subs) await ctx.db.delete(sub._id);
-	const deliveries = ctx.db.query("automationEvents").withIndex("by_install", (q) => q.eq("installId", install._id));
-	for await (const delivery of deliveries) await ctx.db.delete(delivery._id);
+	await startCascade(ctx, "automationInstall", { automationInstallId: install._id });
 }
 
 export const update = mutation({

@@ -10,11 +10,13 @@ import {
 } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError } from "convex/values";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Id } from "./_generated/dataModel";
 import type { Requested } from "./functions";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 
 export interface Member {
+	/** The `members` row. */
+	id: Id<"members">;
 	userId: Id<"users">;
 	workspaceId: Id<"workspaces">;
 	role: Actor["role"];
@@ -40,7 +42,24 @@ export async function memberOf(ctx: QueryCtx, userId: Id<"users">, workspaceId: 
 		.query("members")
 		.withIndex("by_user", (q) => q.eq("userId", userId).eq("workspaceId", workspaceId))
 		.first();
-	return row ? { userId, workspaceId, role: row.role } : null;
+	// An erased account's memberships go in its cascade; until then it acts nowhere.
+	return row && !(await erased(ctx, userId)) && (await liveWorkspace(ctx, workspaceId)) ? { id: row._id, userId, workspaceId, role: row.role } : null;
+}
+
+/** Whether their account was erased (workspace.eraseAccount). */
+export const erased = async (ctx: QueryCtx, userId: Id<"users">) => !!(await ctx.db.get(userId))?.erasedAt;
+
+/** Whether someone besides `except` owns it. An erased owner doesn't count: their membership is on its way out. */
+export async function hasLiveOwner(ctx: QueryCtx, workspaceId: Id<"workspaces">, except?: Id<"users">) {
+	for await (const row of ctx.db.query("members").withIndex("by_role", (q) => q.eq("workspaceId", workspaceId).eq("role", "owner")))
+		if (row.userId !== except && !(await erased(ctx, row.userId))) return true;
+	return false;
+}
+
+/** A workspace that exists and isn't being deleted. Deleting one ends every access to it at once. */
+export async function liveWorkspace(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
+	const workspace = await ctx.db.get(workspaceId);
+	return workspace && !workspace.deleting ? workspace : null;
 }
 
 /**
@@ -60,7 +79,7 @@ export async function legacyMemberOf(ctx: QueryCtx, userId: Id<"users">): Promis
 		.query("members")
 		.withIndex("by_user", (q) => q.eq("userId", userId))
 		.take(2);
-	return rows.length === 1 ? { userId, workspaceId: rows[0]!.workspaceId, role: rows[0]!.role } : null;
+	return rows.length === 1 ? memberOf(ctx, userId, rows[0]!.workspaceId) : null;
 }
 
 /**
@@ -75,10 +94,21 @@ export async function pinLegacyWorkspace(ctx: MutationCtx, userId: Id<"users">, 
 		return;
 	}
 	if (pinned) return;
-	let first: Doc<"members"> | null = null;
-	for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId)))
-		if (!first || row._creationTime < first._creationTime) first = row;
+	const first = await ctx.db
+		.query("members")
+		.withIndex("by_joined", (q) => q.eq("userId", userId))
+		.first();
 	if (first) await ctx.db.insert("legacyWorkspaces", { userId, workspaceId: first.workspaceId });
+}
+
+/**
+ * The signed-in person, unless their account was erased: a sign-in token from before stays
+ * valid until it expires, so everything keyed on the token's user goes through this.
+ */
+export async function authUserId(ctx: QueryCtx) {
+	const userId = await getAuthUserId(ctx);
+	const user = userId && (await ctx.db.get(userId));
+	return user && !user.erasedAt ? user._id : null;
 }
 
 /**
@@ -86,7 +116,7 @@ export async function pinLegacyWorkspace(ctx: MutationCtx, userId: Id<"users">, 
  * Null if they're not in it: a request can only act where its sender is a member.
  */
 export async function getMember(ctx: QueryCtx): Promise<Member | null> {
-	const userId = await getAuthUserId(ctx);
+	const userId = await authUserId(ctx);
 	if (!userId) return null;
 	return memberFor(ctx, userId, (ctx as QueryCtx & Partial<Requested>).workspaceId);
 }
@@ -188,12 +218,14 @@ export async function namesOf(ctx: QueryCtx, userIds: Id<"users">[]) {
 }
 
 export async function nameOf(ctx: QueryCtx, userId: Id<"users">) {
+	const user = await ctx.db.get(userId);
+	// Erased accounts keep a scrubbed row (workspace.eraseAccount), whatever is left to clean up.
+	if (!user || user.erasedAt) return "Former member";
 	const prefs = await ctx.db
 		.query("preferences")
 		.withIndex("by_user", (q) => q.eq("userId", userId))
 		.first();
-	if (prefs?.displayName) return prefs.displayName;
-	return (await ctx.db.get(userId))?.email ?? "Someone";
+	return prefs?.displayName || user.email || "Former member";
 }
 
 /** Someone's time zone: the one they picked, else their computer's, else UTC. */

@@ -104,6 +104,8 @@ type LoadedConnectors = {
 	unavailable: string[];
 	/** OAuth sign-ins in use, to save if the SDK refreshed their tokens. */
 	oauth: { connectionId: Id<"connectorConnections">; provider: ConnectorOAuth }[];
+	/** The install each connector was loaded under, by connector id. */
+	installs: Record<string, Id<"connectorInstalls">>;
 };
 
 /**
@@ -136,7 +138,7 @@ async function saveTools(ctx: ActionCtx, workspaceId: Id<"workspaces">, connecto
 			description: t.description,
 			risk: toolRisk(t),
 		}));
-		await ctx.runMutation(internal.connectorTools.saveTools, { workspaceId, connectorId: s.connector.id, tools });
+		await ctx.runMutation(internal.connectorTools.saveTools, { workspaceId, connectorId: s.connector.id, installId: connectors.installs[s.connector.id]!, tools });
 	}
 }
 
@@ -160,7 +162,7 @@ async function loadConnectors(
 ): Promise<LoadedConnectors> {
 	const connectorIds = grantedConnectorIds(agent);
 	const oauth: LoadedConnectors["oauth"] = [];
-	if (connectorIds.length === 0) return { sessions: [], unavailable: [], oauth };
+	if (connectorIds.length === 0) return { sessions: [], unavailable: [], oauth, installs: {} };
 	const usable = await ctx.runQuery(internal.connectors.forTurn, { userId, workspaceId, connectorIds });
 	const results = await Promise.all(
 		usable.map(async ({ connectorId, connectionId, credentials }) => {
@@ -199,6 +201,7 @@ async function loadConnectors(
 		sessions: results.flatMap((r) => (r.session ? [r.session] : [])),
 		unavailable: results.flatMap((r) => (r.unavailable ? [r.unavailable] : [])),
 		oauth,
+		installs: Object.fromEntries(usable.map((u) => [u.connectorId, u.installId])),
 	};
 }
 

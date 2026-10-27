@@ -107,6 +107,14 @@ export const audience = v.union(v.literal("creator"), v.literal("subscribers"), 
 
 export default defineSchema({
 	...authTables,
+	// Convex Auth's, plus `erasedAt`.
+	users: defineTable({
+		...authTables.users.validator.fields,
+		/** Set when the account is erased (workspace.eraseAccount): the row stays, scrubbed, so history shows a former member, and a sign-in from before acts as nobody. */
+		erasedAt: v.optional(v.number()),
+	})
+		.index("email", ["email"])
+		.index("phone", ["phone"]),
 
 	// Local backends only (`pnpm dev`): the latest sign-in code per email, read back by the app.
 	localSignInCodes: defineTable({ email: v.string(), code: v.string() }).index("by_email", ["email"]),
@@ -118,6 +126,8 @@ export default defineSchema({
 		currency: v.optional(v.string()),
 		/** Whether agents read and write memories. Off keeps them, unused. Unset means on. */
 		memory: v.optional(v.boolean()),
+		/** Set when an owner deletes it: every access refuses at once, then a cascade deletes its rows (lifecycle.ts). */
+		deleting: v.optional(v.boolean()),
 	}),
 
 	members: defineTable({
@@ -126,7 +136,10 @@ export default defineSchema({
 		role,
 	})
 		.index("by_user", ["userId", "workspaceId"])
-		.index("by_workspace", ["workspaceId"]),
+		// Oldest first: Convex orders an index's ties by _creationTime.
+		.index("by_joined", ["userId"])
+		.index("by_workspace", ["workspaceId"])
+		.index("by_role", ["workspaceId", "role"]),
 
 	// One per email per workspace. Only someone signed in with that email can accept it.
 	invites: defineTable({
@@ -175,11 +188,12 @@ export default defineSchema({
 		/** Set when the agent made the last change, acting for `updatedBy`. */
 		updatedByAgent: v.optional(v.boolean()),
 		version: v.number(),
-		/** Commit timestamp: removal cleanup must spare memories saved after rejoining. Older rows predate cleanup. */
+		/** Commit timestamp. COMPAT(0.1.0-alpha.6): only memory.forgetForRemovedMember reads it; drop it with that. */
 		createdTs: v.optional(v.commitTs()),
 	})
 		.index("by_workspace", ["workspaceId"])
-		.index("by_workspace_owner", ["workspaceId", "scope", "ownerId", "createdTs"])
+		// One person's personal memories in a workspace (team memories have no owner).
+		.index("by_owner", ["ownerId", "workspaceId", "createdTs"])
 		// Newest first within a scope, across owners (lists), or one owner's personal memories.
 		.index("by_agent_scope", ["agentId", "scope"])
 		.index("by_agent_owner", ["agentId", "scope", "ownerId"])
@@ -207,7 +221,9 @@ export default defineSchema({
 		deviceTimeZone: v.optional(v.string()),
 		/** The workspace they used last: only a hint for a device opening for the first time. Each device keeps its own. */
 		workspaceId: v.optional(v.id("workspaces")),
-	}).index("by_user", ["userId"]),
+	})
+		.index("by_user", ["userId"])
+		.index("by_workspace", ["workspaceId"]),
 
 	// Connectors: an owner installs one and picks which roles may use it.
 	connectorInstalls: defineTable({
@@ -228,7 +244,8 @@ export default defineSchema({
 		/** Set when the last attempt to use it failed, so the app can say so. */
 		error: v.optional(v.string()),
 	})
-		.index("by_workspace", ["workspaceId", "connectorId", "userId"]),
+		.index("by_workspace", ["workspaceId", "connectorId", "userId"])
+		.index("by_user", ["userId", "workspaceId"]),
 
 	// A connector sign-in in progress: started in the app, finished by /oauth/callback.
 	// `data` holds the encrypted OAuthState (client, PKCE verifier). One use; expires.
@@ -238,11 +255,20 @@ export default defineSchema({
 		userId: v.id("users"),
 		/** The workspace it connects in. Missing on sign-ins started before people could be in several. */
 		workspaceId: v.optional(v.id("workspaces")),
+		/**
+		 * The membership and install it started under. Saving checks both are still the ones there,
+		 * so a sign-in from before a removal and rejoin, or an uninstall and reinstall, can't connect.
+		 * Missing on sign-ins started before this; those are refused (they expire in 15 minutes anyway).
+		 */
+		memberId: v.optional(v.id("members")),
+		connectorInstallId: v.optional(v.id("connectorInstalls")),
 		data: v.string(),
 		expiresAt: v.number(),
 	})
 		.index("by_state", ["state"])
-		.index("by_user", ["userId"]),
+		.index("by_user", ["userId", "workspaceId"])
+		.index("by_workspace", ["workspaceId"])
+		.index("by_install", ["connectorInstallId"]),
 
 	// Legacy: the connector tables' names before "plugins" became "connectors". Emptied by
 	// the `connector*` migrations (migrations.ts).
@@ -322,6 +348,7 @@ export default defineSchema({
 		lastReadAt: v.optional(v.number()),
 	})
 		.index("by_chat", ["chatId"])
+		.index("by_workspace", ["workspaceId", "userId"])
 		.index("by_user", ["userId", "chatId"])
 		.index("by_agent", ["agentId", "chatId"]),
 
@@ -357,6 +384,7 @@ export default defineSchema({
 		automation: v.optional(v.object({ id: v.string(), name: v.string() })),
 	})
 		.index("by_chat_thread", ["chatId", "threadId"])
+		.index("by_workspace", ["workspaceId"])
 		.searchIndex("search_text", { searchField: "text", filterFields: ["workspaceId", "chatId"] }),
 
 	// One emoji from one person or agent on one message.
@@ -401,7 +429,8 @@ export default defineSchema({
 		approvalId: v.optional(v.id("approvals")),
 	})
 		.index("by_place", ["agentId", "chatId", "threadId", "status"])
-		.index("by_session", ["sessionId"]),
+		.index("by_session", ["sessionId"])
+		.index("by_workspace", ["workspaceId"]),
 
 	// One agent's ongoing context in one place (chat + thread). Append-only: past turns
 	// replay exactly as sent, so prompt caching hits. Older turns fold into `summary`.
@@ -416,7 +445,9 @@ export default defineSchema({
 		compacting: v.optional(v.boolean()),
 		/** USD spent on this session's replies and summaries. */
 		costUsd: v.optional(v.number()),
-	}).index("by_place", ["agentId", "chatId", "threadId"]),
+	})
+		.index("by_place", ["agentId", "chatId", "threadId"])
+		.index("by_workspace", ["workspaceId"]),
 
 	// The activity log: every tool call an agent made, acting for `actorId`. Readable by
 	// whoever can see the chat it happened in; `output` only by the person it acted for.
@@ -435,6 +466,7 @@ export default defineSchema({
 		changes: v.boolean(),
 		/** JSON, cut to ACTIVITY_MAX_CHARS. */
 		input: v.string(),
+		/** Only `actorId` sees it (activity.ts). Cleared when their account is erased. */
 		output: v.optional(v.string()),
 		error: v.optional(v.string()),
 		status: v.union(v.literal("done"), v.literal("error")),
@@ -442,7 +474,8 @@ export default defineSchema({
 		allowed: v.optional(allowedHow),
 	})
 		.index("by_workspace", ["workspaceId"])
-		.index("by_reply", ["replyId"]),
+		.index("by_reply", ["replyId"])
+		.index("by_actor", ["actorId"]),
 
 	// A tool call an agent held for approval, shown as a card in its reply (see core approvals.ts).
 	// Locked to `hash` (SHA-256 of the exact tool + input): the approver confirms that hash,
@@ -465,7 +498,7 @@ export default defineSchema({
 		status: approvalStatus,
 		expiresAt: v.number(),
 		decidedAt: v.optional(v.number()),
-		/** Approved calls: the result (JSON, clipped) or error. Shown only to the actor, like the activity log. */
+		/** Approved calls: the result (JSON, clipped) or error. Shown only to the actor, like the activity log; cleared when their account is erased. */
 		result: v.optional(v.string()),
 		error: v.optional(v.string()),
 		/**
@@ -481,7 +514,10 @@ export default defineSchema({
 		automationInstallId: v.optional(v.id("automationInstalls")),
 		/** Set when the actor chose "Always allow": a rule was saved too. */
 		always: v.optional(v.boolean()),
-	}).index("by_reply", ["replyId"]),
+	})
+		.index("by_reply", ["replyId"])
+		.index("by_workspace", ["workspaceId"])
+		.index("by_actor", ["actorId"]),
 
 	// Automations: an owner installs a library one, or anyone makes their own, and picks the agent that runs it.
 	automationInstalls: defineTable({
@@ -546,6 +582,7 @@ export default defineSchema({
 		setAt: v.number(),
 	})
 		.index("by_user", ["userId", "action"])
+		.index("by_workspace", ["workspaceId", "userId"])
 		.index("by_automation", ["automationInstallId"])
 		.index("by_connector", ["connectorInstallId"]),
 
@@ -627,6 +664,7 @@ export default defineSchema({
 		updatedByAgent: v.optional(v.id("agents")),
 	})
 		.index("by_type", ["typeId", "archived"])
+		.index("by_workspace", ["workspaceId"])
 		.index("by_type_updated", ["typeId", "archived", "updatedAt"])
 		.searchIndex("search", { searchField: "searchText", filterFields: ["workspaceId", "typeId", "archived"] }),
 
@@ -687,5 +725,37 @@ export default defineSchema({
 		recordId: v.id("records"),
 		messageId: v.id("chatMessages"),
 		chatId: v.id("chats"),
-	}).index("by_record", ["recordId"]),
+	})
+		.index("by_record", ["recordId"])
+		.index("by_message", ["messageId"]),
+
+	// A cascade deleting what belonged to something that went (cascade.ts): one page of one
+	// edge of lifecycle.ts per run, resumed from `edge` and `cursor`. `key` names what's going,
+	// so rejoining or reinstalling waits until its old rows are gone.
+	cascades: defineTable({
+		scope: v.union(v.literal("workspace"), v.literal("member"), v.literal("user"), v.literal("connectorInstall"), v.literal("automationInstall")),
+		root: v.object({
+			workspaceId: v.optional(v.id("workspaces")),
+			userId: v.optional(v.id("users")),
+			connectorId: v.optional(v.string()),
+			connectorInstallId: v.optional(v.id("connectorInstalls")),
+			automationInstallId: v.optional(v.id("automationInstalls")),
+		}),
+		key: v.string(),
+		/** The edge it's on, as "table.index" ("" before the first). */
+		edge: v.string(),
+		cursor: v.union(v.string(), v.null()),
+		/** Rows to read next, when the last page didn't fit in one run (cascade.ts). */
+		rows: v.optional(v.number()),
+		updatedAt: v.number(),
+		/** Its latest scheduled run, so `resume` can tell a failed run from a slow one. */
+		run: v.optional(v.id("_scheduled_functions")),
+		/** Runs that failed in a row, and the last one's error. */
+		attempts: v.optional(v.number()),
+		error: v.optional(v.string()),
+		/** Set after MAX_ATTEMPTS failures: `resume` leaves it until someone fixes the cause and runs `cascade:retry`. */
+		stuck: v.optional(v.boolean()),
+	})
+		.index("by_key", ["key"])
+		.index("by_updated", ["stuck", "updatedAt"]),
 });

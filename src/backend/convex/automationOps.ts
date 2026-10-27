@@ -11,9 +11,13 @@ import type { QueryCtx } from "./_generated/server";
 export const audienceOf = (install: Doc<"automationInstalls">): AutomationAudience =>
 	install.audience ?? (install.channelId ? "channel" : "subscribers");
 
-/** Automations that run just for their creator are theirs alone; the rest are visible to the workspace. */
-export const canView = (member: Member, install: Doc<"automationInstalls">) =>
-	!install.custom || audienceOf(install) !== "creator" || install.installedBy === member.userId;
+/** Automations that run just for their creator are theirs alone (their id here); the rest are visible to the workspace (null). */
+export const privateTo = (install: Doc<"automationInstalls">) => (install.custom && audienceOf(install) === "creator" ? install.installedBy : null);
+
+export const canView = (member: Member, install: Doc<"automationInstalls">) => {
+	const only = privateTo(install);
+	return !only || only === member.userId;
+};
 
 export function automationName(install: Doc<"automationInstalls">) {
 	if (install.custom) return install.custom.name;

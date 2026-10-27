@@ -231,6 +231,8 @@ export const remove = mutation({
 		await ctx.db.patch(message._id, { text: "", parts: [], deleted: true });
 		for (const r of await reactionsOf(ctx, messageId)) await ctx.db.delete(r._id);
 		await removeUserMentions(ctx, messageId);
+		// Records no longer list it where they were discussed.
+		for await (const m of ctx.db.query("recordMentions").withIndex("by_message", (q) => q.eq("messageId", messageId))) await ctx.db.delete(m._id);
 	},
 });
 

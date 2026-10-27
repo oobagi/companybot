@@ -168,27 +168,10 @@ export const workspaceOf = internalQuery({
 	handler: async (ctx, { userId, workspaceId }) => (await memberFor(ctx, userId, workspaceId))?.workspaceId ?? null,
 });
 
-/** Forgets every rule, lock, and listed tool for a connector install. Called on uninstall. */
-export async function forgetConnector(ctx: MutationCtx, install: Doc<"connectorInstalls">) {
-	for (const table of ["permissionRules", "permissionLocks"] as const)
-		for await (const row of ctx.db.query(table).withIndex("by_connector", (q) => q.eq("connectorInstallId", install._id))) await ctx.db.delete(row._id);
-	const tools = await ctx.db
-		.query("connectorTools")
-		.withIndex("by_workspace", (q) => q.eq("workspaceId", install.workspaceId).eq("connectorId", install.connectorId))
-		.first();
-	if (tools) await ctx.db.delete(tools._id);
-}
-
-/** Forgets everything one person set in a workspace. Called when they're removed. */
-export async function forgetUserRules(ctx: MutationCtx, workspaceId: Id<"workspaces">, userId: Id<"users">) {
-	for await (const row of ctx.db.query("permissionRules").withIndex("by_user", (q) => q.eq("userId", userId)))
-		if (row.workspaceId === workspaceId) await ctx.db.delete(row._id);
-}
-
-/** Forgets automation grants: everyone's, or one person's (they turned it off for themselves). */
-export async function forgetAutomationGrants(ctx: MutationCtx, installId: Id<"automationInstalls">, userId?: Id<"users">) {
+/** Forgets one person's grants for an automation: they turned it off for themselves. */
+export async function forgetAutomationGrants(ctx: MutationCtx, installId: Id<"automationInstalls">, userId: Id<"users">) {
 	for await (const row of ctx.db.query("permissionRules").withIndex("by_automation", (q) => q.eq("automationInstallId", installId)))
-		if (!userId || row.userId === userId) await ctx.db.delete(row._id);
+		if (row.userId === userId) await ctx.db.delete(row._id);
 }
 
 // ---- The app ----
