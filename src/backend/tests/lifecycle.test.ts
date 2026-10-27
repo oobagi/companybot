@@ -88,7 +88,7 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		await ctx.db.insert("memories", { ...memory, scope: "workspace", ownerId: null, updatedBy: memberId });
 		await ctx.db.insert("memories", { ...memory, scope: "personal", ownerId, updatedBy: ownerId });
 		const personal = await ctx.db.insert("memories", { ...memory, scope: "personal", ownerId: memberId, updatedBy: memberId });
-		mine.push(personal, await ctx.db.insert("memoryVersions", { memoryId: personal, content: "Before", savedBy: memberId, savedAt: now }));
+		mine.push(personal, await ctx.db.insert("memoryVersions", { memoryId: personal, version: 1, content: "Before", savedBy: memberId, savedAt: now }));
 
 		const connectorInstallId = await ctx.db.insert("connectorInstalls", { workspaceId, connectorId: "notes", roles: ["owner", "member"], installedBy: ownerId });
 		const connection = { workspaceId, connectorId: "notes", credentials: "sealed" };

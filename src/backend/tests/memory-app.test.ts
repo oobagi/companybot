@@ -104,6 +104,18 @@ describe("memory", () => {
 		expect((await owner.query(api.memory.versions, { id })).map((v) => v.content)).toEqual(["Office is in Dallas.", "Office is in Austin."]);
 	});
 
+	it("drops a memory's Trash entry when its agent is deleted for good", async () => {
+		const { t, owner } = await ownerAndMember();
+		const { scribe } = await agentsOf(owner);
+		const team = await owner.mutation(api.memory.create, { agentId: scribe._id, scope: "workspace", content: "Old fact" });
+		await owner.mutation(api.memory.remove, { id: team.id as never });
+		await owner.mutation(api.agents.setArchived, { agentId: scribe._id, archived: true });
+		await owner.mutation(api.trash.purge, { id: scribe._id });
+		await settle(t);
+		expect(await t.run((ctx) => ctx.db.query("trash").collect())).toEqual([]);
+		expect(await t.run((ctx) => ctx.db.get(team.id as Id<"memories">))).toBeNull();
+	});
+
 	it("keeps at most 20 old versions of a memory", async () => {
 		const { owner } = await ownerAndMember();
 		const agentId = (await agentsOf(owner)).companybot._id;
@@ -134,11 +146,22 @@ describe("memory", () => {
 		expect((await member.query(api.trash.list, { paginationOpts: { numItems: 10, cursor: null } })).page).toEqual([]);
 		expect(await t.run((ctx) => ctx.db.get(mine.id as Id<"memories">))).toBeNull();
 
+		// History follows the memory's rules: none for someone else's personal memory, or one in Trash.
+		await member.mutation(api.memory.create, { agentId, scope: "personal", content: "Draft" });
+		const draft = (await member.query(api.memory.list)).find((m) => m.content === "Draft")!;
+		await member.mutation(api.memory.update, { id: draft.id as never, content: "Final", expectedVersion: 1 });
+		const [draftVersion] = await member.query(api.memory.versions, { id: draft.id as never });
+		expect(await owner.query(api.memory.versions, { id: draft.id as never })).toEqual([]);
+		await expect(owner.mutation(api.memory.restoreVersion, { versionId: draftVersion!._id, expectedVersion: 2 })).rejects.toThrow("not found");
+
 		// Deleting forever takes its versions too.
 		await owner.mutation(api.memory.update, { id: team.id as never, content: "Office is in Dallas.", expectedVersion: 1 });
 		await owner.mutation(api.memory.remove, { id: team.id as never });
+		const [teamVersion] = await t.run((ctx) => ctx.db.query("memoryVersions").withIndex("by_memory", (q) => q.eq("memoryId", team.id as Id<"memories">)).collect());
+		await expect(owner.mutation(api.memory.restoreVersion, { versionId: teamVersion!._id, expectedVersion: 2 })).rejects.toThrow("not found");
+		expect(await owner.query(api.memory.versions, { id: team.id as never })).toEqual([]);
 		await owner.mutation(api.trash.purge, { id: team.id });
-		expect(await t.run((ctx) => ctx.db.query("memoryVersions").collect())).toEqual([]);
+		expect((await t.run((ctx) => ctx.db.query("memoryVersions").collect())).map((v) => v.content)).toEqual(["Draft"]);
 		expect(await t.run((ctx) => ctx.db.get(team.id as Id<"memories">))).toBeNull();
 	});
 
