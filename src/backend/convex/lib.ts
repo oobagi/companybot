@@ -49,6 +49,13 @@ export async function memberOf(ctx: QueryCtx, userId: Id<"users">, workspaceId: 
 /** Whether their account was erased (workspace.eraseAccount). */
 export const erased = async (ctx: QueryCtx, userId: Id<"users">) => !!(await ctx.db.get(userId))?.erasedAt;
 
+/** Whether someone besides `except` owns it. An erased owner doesn't count: their membership is on its way out. */
+export async function hasLiveOwner(ctx: QueryCtx, workspaceId: Id<"workspaces">, except?: Id<"users">) {
+	for await (const row of ctx.db.query("members").withIndex("by_role", (q) => q.eq("workspaceId", workspaceId).eq("role", "owner")))
+		if (row.userId !== except && !(await erased(ctx, row.userId))) return true;
+	return false;
+}
+
 /** A workspace that exists and isn't being deleted. Deleting one ends every access to it at once. */
 export async function liveWorkspace(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
 	const workspace = await ctx.db.get(workspaceId);

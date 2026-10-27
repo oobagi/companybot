@@ -43,6 +43,7 @@ async function setup(unpinned = false) {
 	const inviteTo = (name: string, role: "owner" | "member" = "member") =>
 		t.run(async (ctx) => {
 			const workspaceId = await ctx.db.insert("workspaces", { name, version: 1 });
+			await ctx.db.insert("members", { workspaceId, userId: await ctx.db.insert("users", {}), role: "owner" });
 			const id = await ctx.db.insert("invites", { workspaceId, email: "target@co.com", role });
 			return { workspaceId, id };
 		});
@@ -148,6 +149,7 @@ it("gives someone new with two invites the first, after the backfill", async () 
 		const id = await ctx.db.insert("users", { email: "new@co.com" });
 		for (const name of ["A", "B"]) {
 			const workspaceId = await ctx.db.insert("workspaces", { name, version: 1 });
+			await ctx.db.insert("members", { workspaceId, userId: await ctx.db.insert("users", {}), role: "owner" });
 			await ctx.db.insert("invites", { workspaceId, email: "new@co.com", role: "member" });
 		}
 		return id;

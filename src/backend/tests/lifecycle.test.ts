@@ -342,6 +342,20 @@ describe("erasing an account", () => {
 		expect(await owner.query(api.workspace.me)).toMatchObject({ role: "owner" });
 	});
 
+	it("deletes a sole owner's workspace even if their pending invite is used before the cascade gets there", async () => {
+		const t = convexTest({ schema, modules, transactionLimits: true });
+		const owner = await signIn(t, "a@co.com");
+		const workspaceId = await workspaceOf(owner);
+		await owner.mutation(api.workspace.invite, { email: "late@co.com", role: "member" });
+		vi.useFakeTimers();
+		await owner.mutation(api.workspace.eraseAccount);
+		const late = await signIn(t, "late@co.com");
+		expect((await late.query(api.workspace.mine))!.workspaces.map((w) => w.id)).not.toContain(workspaceId);
+		await settle(t);
+		expect(await t.run((ctx) => ctx.db.get(workspaceId))).toBeNull();
+		expect(await late.query(api.workspace.me)).toMatchObject({ role: "owner" });
+	});
+
 	it("doesn't count an erased owner, so the last other owner can't leave while their membership is cleaned up", async () => {
 		const t = convexTest({ schema, modules, transactionLimits: true });
 		const a = await signIn(t, "a@co.com");

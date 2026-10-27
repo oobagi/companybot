@@ -3,7 +3,7 @@ import type { DataModel, Doc, Id, TableNames } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { privateTo } from "./automationOps";
 import { startCascade } from "./cascade";
-import { liveWorkspace, pinLegacyWorkspace } from "./lib";
+import { hasLiveOwner, liveWorkspace, pinLegacyWorkspace } from "./lib";
 
 // What happens to every table's rows when what they belong to goes: a workspace is deleted,
 // a member removed, an account erased, a connector or automation uninstalled. cascade.ts
@@ -49,14 +49,14 @@ export async function removeWorkspace(ctx: MutationCtx, workspaceId: Id<"workspa
 	await startCascade(ctx, "workspace", { workspaceId });
 }
 
-/** An erased account leaves a workspace: one only they were in goes too; elsewhere, what was theirs alone goes as on removal. */
+/**
+ * An erased account leaves a workspace: what was theirs alone goes as on removal. One left with
+ * no owner goes too. eraseAccount refuses a sole owner while others are in it, and invites to it
+ * can't be accepted (workspace.ts invitesFor), so that's one only they were in.
+ */
 async function leaveErased(ctx: MutationCtx, row: Doc<"members">) {
 	if (!(await liveWorkspace(ctx, row.workspaceId))) return;
-	const others = await ctx.db
-		.query("members")
-		.withIndex("by_workspace", (q) => q.eq("workspaceId", row.workspaceId))
-		.take(2);
-	if (others.length > 1) await startCascade(ctx, "member", { workspaceId: row.workspaceId, userId: row.userId });
+	if (await hasLiveOwner(ctx, row.workspaceId)) await startCascade(ctx, "member", { workspaceId: row.workspaceId, userId: row.userId });
 	else await removeWorkspace(ctx, row.workspaceId);
 }
 

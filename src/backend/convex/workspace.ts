@@ -9,7 +9,7 @@ import { seedAgents } from "./agents";
 import { fieldsOf, seedRecordTypes, typesOf } from "./recordOps";
 import { addToChat, ensureGeneral } from "./chatOps";
 import { sendInviteEmail } from "./invites";
-import { authUserId, checkVersion, erased, getMember, legacyMemberOf, liveWorkspace, memberOf, nameOf, namesOf, normalizeEmail, pinLegacyWorkspace, requireMember, requirePermission, timeZoneOf } from "./lib";
+import { authUserId, checkVersion, getMember, hasLiveOwner, legacyMemberOf, liveWorkspace, memberOf, nameOf, namesOf, normalizeEmail, pinLegacyWorkspace, requireMember, requirePermission, timeZoneOf } from "./lib";
 import { cascading, startCascade } from "./cascade";
 import { removeWorkspace } from "./lifecycle";
 import { role } from "./schema";
@@ -67,13 +67,16 @@ export const ensure = mutation({
 	},
 });
 
-/** Pending invites to this person's (verified) email, from workspaces that aren't being deleted. */
+/**
+ * Pending invites to this person's (verified) email, from workspaces that aren't being deleted
+ * and still have an owner: a sole owner's erased account leaves theirs to be deleted (lifecycle.ts).
+ */
 async function invitesFor(ctx: QueryCtx, userId: Id<"users">) {
 	const email = normalizeEmail((await ctx.db.get(userId))?.email ?? "");
 	if (!email) return [];
 	const invites = [];
 	for await (const invite of ctx.db.query("invites").withIndex("by_email", (q) => q.eq("email", email)))
-		if (await liveWorkspace(ctx, invite.workspaceId)) invites.push(invite);
+		if ((await liveWorkspace(ctx, invite.workspaceId)) && (await hasLiveOwner(ctx, invite.workspaceId))) invites.push(invite);
 	return invites;
 }
 
@@ -270,13 +273,10 @@ export const leave = mutation({
 	args: {},
 	handler: async (ctx) => {
 		const member = await requireMember(ctx);
-		if (member.role === "owner" && !(await hasOtherOwner(ctx, member.workspaceId, member.userId))) {
+		if (member.role === "owner" && !(await hasLiveOwner(ctx, member.workspaceId, member.userId))) {
 			throw new ConvexError("You're the only owner. Make someone else an owner first.");
 		}
-		const row = await ctx.db
-			.query("members")
-			.withIndex("by_user", (q) => q.eq("userId", member.userId).eq("workspaceId", member.workspaceId))
-			.first();
+		const row = await ctx.db.get(member.id);
 		if (row) await dropMember(ctx, row);
 	},
 });
@@ -325,7 +325,7 @@ export const eraseAccount = mutation({
 		if (!userId) throw new ConvexError("Not signed in.");
 		// A few indexed reads per workspace however big it is. Leaving them is the cascade's (memberOf refuses an erased account until then).
 		for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId))) {
-			if (row.role !== "owner" || (await hasOtherOwner(ctx, row.workspaceId, userId))) continue;
+			if (row.role !== "owner" || (await hasLiveOwner(ctx, row.workspaceId, userId))) continue;
 			const others = await ctx.db
 				.query("members")
 				.withIndex("by_workspace", (q) => q.eq("workspaceId", row.workspaceId))
@@ -360,7 +360,7 @@ export const setRole = mutation({
 		const owner = await requirePermission(ctx, "members.manage");
 		const row = await ctx.db.get(id);
 		if (!row || row.workspaceId !== owner.workspaceId) throw new ConvexError("Member not found.");
-		if (row.role === "owner" && role !== "owner" && !(await hasOtherOwner(ctx, owner.workspaceId, row.userId))) {
+		if (row.role === "owner" && role !== "owner" && !(await hasLiveOwner(ctx, owner.workspaceId, row.userId))) {
 			throw new ConvexError("A workspace needs at least one owner.");
 		}
 		await ctx.db.patch(id, { role });
@@ -372,13 +372,6 @@ const membersOf = (ctx: QueryCtx, workspaceId: Id<"workspaces">) =>
 		.query("members")
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
 		.collect();
-
-/** Whether someone besides `userId` owns it. An erased owner doesn't count: their membership is on its way out. */
-async function hasOtherOwner(ctx: QueryCtx, workspaceId: Id<"workspaces">, userId: Id<"users">) {
-	for await (const row of ctx.db.query("members").withIndex("by_role", (q) => q.eq("workspaceId", workspaceId).eq("role", "owner")))
-		if (row.userId !== userId && !(await erased(ctx, row.userId))) return true;
-	return false;
-}
 
 /** Whether someone with this (normalized) email is already in the workspace. */
 async function isMemberEmail(ctx: QueryCtx, workspaceId: Id<"workspaces">, email: string) {

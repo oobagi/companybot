@@ -83,6 +83,7 @@ describe("apps that name no workspace", () => {
 		// Joining more workspaces later never moves it.
 		await t.run(async (ctx) => {
 			const c = await ctx.db.insert("workspaces", { name: "C", version: 1 });
+			await ctx.db.insert("members", { workspaceId: c, userId: await ctx.db.insert("users", {}), role: "owner" });
 			await ctx.db.insert("invites", { workspaceId: c, email: "two@co.com", role: "member" });
 		});
 		const [invite] = (await old.query(api.workspace.mine))!.invitations;
