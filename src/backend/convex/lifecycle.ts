@@ -156,9 +156,6 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		connectorInstall: { index: "by_workspace", eq: ["workspaceId", "connectorId"] },
 	},
-	pluginInstalls: { keep: "Legacy, emptied by the connector* migrations; dropped with them." },
-	pluginConnections: { keep: "Legacy, emptied by the connector* migrations; dropped with them." },
-	pluginOAuthFlows: { keep: "Legacy, emptied by the connector* migrations; dropped with them." },
 
 	skillInstalls: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },

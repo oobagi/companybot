@@ -76,7 +76,7 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 ## Things people make
 - Skills and automations share `canEditMade(who, managePermission, createdBy)` and one denial message. Pass no creator for library installs. Skills store the maker in `custom.createdBy`; automations use `installedBy`.
 - Trim configs only in core (`normalizeCustomSkill` / `normalizeCustomAutomation`). Backend `madeCustom` adds creation metadata; `saveMade` checks the version, validates, then patches the next version and editor metadata. Agent creation uses `asToolResult` for expected errors.
-- Delete custom items or uninstall library ones with `skills.remove` / `automations.remove`. `setInstalled(false)` stays for older apps; automation removal needs no time zone. New installs still need one.
+- Delete custom items or uninstall library ones with `skills.remove` / `automations.remove`. `setInstalled` accepts only `installed: true`; automation removal needs no time zone. New installs still need one.
 - `ToolContext.skills` holds the installed `list` and `create`, like the automations store.
 
 ## Databases and records — `core/src/records.ts`, `backend/convex/recordOps.ts`

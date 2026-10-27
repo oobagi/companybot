@@ -32,6 +32,7 @@ describe("approvals", () => {
 			callId: "c1",
 			tool: call.tool,
 			input: canonicalJson(call.input),
+			risk: "outside",
 		});
 		const parts = [{ type: "approval" as const, id: "c1", approvalId, tool: call.tool }];
 		await t.mutation(internal.turns.updateReply, { replyId: turn.replyId!, text: "", parts });
@@ -56,13 +57,14 @@ describe("approvals", () => {
 		const [theirs] = await owner.query(api.approvals.forReply, { replyId: turn.replyId! });
 		expect(theirs).toMatchObject({ canDecide: false, input: card.input });
 
-		// Apps from before approvals can't draw the card, so they get a line of text instead.
+		// Both fields include cards while alpha.6 apps still read the fullParts alias.
 		const reply = (await owner.query(api.messages.list, { chatId })).find((m) => m._id === turn.replyId)!;
-		expect(reply.parts).toEqual([{ type: "text", text: expect.stringContaining("Waiting for approval to run crm.send_sms") }]);
+		expect(reply.parts).toMatchObject([{ type: "approval", tool: call.tool }]);
+		expect(reply.fullParts).toEqual(reply.parts);
 		expect(reply.fullParts).toMatchObject([{ type: "approval", tool: call.tool }]);
 
 		// Owners can't approve for someone else: the call would run as them.
-		await expect(owner.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true })).rejects.toThrow(
+		await expect(owner.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true, always: false })).rejects.toThrow(
 			"Only member@co.com can decide this",
 		);
 		expect((await member.query(api.approvals.forReply, { replyId: turn.replyId! }))[0]?.status).toBe("pending");
@@ -74,14 +76,14 @@ describe("approvals", () => {
 		const { turn, approvalId, card } = await holdCall(t, member, chatId);
 		await member.mutation(api.trash.move, { kind: "channel", id: chatId });
 		expect(await member.query(api.approvals.forReply, { replyId: turn.replyId! })).toEqual([]);
-		await expect(member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true })).rejects.toThrow("Approval not found");
+		await expect(member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true, always: false })).rejects.toThrow("Approval not found");
 		await member.mutation(api.trash.restore, { kind: "channel", id: chatId });
-		await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true });
+		await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true, always: false });
 		const resume = (await turnsOf(t)).at(-1)!;
 		await member.mutation(api.trash.move, { kind: "channel", id: chatId });
 		expect(await t.mutation(internal.approvals.claim, { approvalId, turnId: resume._id })).toBeNull();
 		await expect(t.query(internal.turns.turnContext, { turnId: resume._id })).rejects.toThrow("no longer see this chat");
-		await expect(t.mutation(internal.approvals.request, { turnId: resume._id, callId: "late", tool: call.tool, input: canonicalJson(call.input) })).rejects.toThrow("no longer see this chat");
+		await expect(t.mutation(internal.approvals.request, { turnId: resume._id, callId: "late", tool: call.tool, input: canonicalJson(call.input), risk: "outside" })).rejects.toThrow("no longer see this chat");
 	});
 
 	it("refuses a hash other than the stored call's, and decided or expired requests", async () => {
@@ -89,11 +91,11 @@ describe("approvals", () => {
 		const chatId = (await generalOf(member))._id;
 		const { approvalId, card } = await holdCall(t, member, chatId);
 		const otherHash = await approvalHash(call.tool, { ...call.input, body: "See you at 4" });
-		await expect(member.mutation(api.approvals.decide, { approvalId, hash: otherHash, approve: true })).rejects.toThrow(
+		await expect(member.mutation(api.approvals.decide, { approvalId, hash: otherHash, approve: true, always: false })).rejects.toThrow(
 			"isn't the one you were shown",
 		);
-		await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: false });
-		await expect(member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true })).rejects.toThrow("already decided");
+		await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: false, always: false });
+		await expect(member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true, always: false })).rejects.toThrow("already decided");
 		await t.mutation(internal.turns.finishReply, { turnId: (await turnsOf(t)).at(-1)!._id });
 
 		const second = await holdCall(t, member, chatId);
@@ -104,7 +106,7 @@ describe("approvals", () => {
 			const [now] = await member.query(api.approvals.forReply, { replyId: second.turn.replyId! });
 			expect(now?.status).toBe("expired");
 			await expect(
-				member.mutation(api.approvals.decide, { approvalId: second.approvalId, hash: second.card.hash, approve: true }),
+				member.mutation(api.approvals.decide, { approvalId: second.approvalId, hash: second.card.hash, approve: true, always: false }),
 			).rejects.toThrow("expired");
 		} finally {
 			vi.setSystemTime(now);
@@ -117,7 +119,7 @@ describe("approvals", () => {
 		await owner.mutation(api.chats.addMembers, { chatId, userIds: [await meOf(member)], agentIds: [] });
 		const { approvalId, card } = await holdCall(t, member, chatId);
 		await member.mutation(api.chats.leave, { chatId });
-		await expect(member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true })).rejects.toThrow("not found");
+		await expect(member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true, always: false })).rejects.toThrow("not found");
 	});
 
 	it("queues an approved call behind the running turn, then runs exactly what was approved, once", async () => {
@@ -126,7 +128,7 @@ describe("approvals", () => {
 		const { turn, approvalId, card } = await holdCall(t, member, chatId, false);
 
 		// Decided while the asking reply is still running: it waits its turn in the place.
-		await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true });
+		await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true, always: false });
 		expect((await turnsOf(t)).map((x) => x.status)).toEqual(["running", "queued"]);
 		await t.mutation(internal.turns.finishReply, { turnId: turn._id });
 		const next = (await turnsOf(t))[1]!;
@@ -161,10 +163,10 @@ describe("approvals", () => {
 
 		// Deciding from a window with the side workspace open finds nothing there...
 		await expect(
-			inWorkspace(member, side).mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true }),
+			inWorkspace(member, side).mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true, always: false }),
 		).rejects.toThrow("not found");
 		// ...from Acme's, it resumes in Acme, acting as Acme's member with Acme's connection.
-		await inWorkspace(member, acme).mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true });
+		await inWorkspace(member, acme).mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true, always: false });
 		const next = (await turnsOf(t)).at(-1)!;
 		expect(next).toMatchObject({ status: "running", approvalId, workspaceId: acme });
 		const context = await t.query(internal.turns.turnContext, { turnId: next._id });
@@ -178,7 +180,7 @@ describe("approvals", () => {
 		const { t, member } = await ownerAndMember();
 		const chatId = (await generalOf(member))._id;
 		const { approvalId, card } = await holdCall(t, member, chatId);
-		await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true });
+		await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true, always: false });
 		const next = (await turnsOf(t)).at(-1)!;
 		await t.run((ctx) => ctx.db.patch(approvalId, { input: canonicalJson({ ...call.input, to: "+15550199" }) }));
 		expect(await t.mutation(internal.approvals.claim, { approvalId, turnId: next._id })).toBeNull();
@@ -190,12 +192,12 @@ describe("approvals", () => {
 		const { t, member } = await ownerAndMember();
 		const chatId = (await generalOf(member))._id;
 		const first = await holdCall(t, member, chatId);
-		await member.mutation(api.approvals.decide, { approvalId: first.approvalId, hash: first.card.hash, approve: true });
+		await member.mutation(api.approvals.decide, { approvalId: first.approvalId, hash: first.card.hash, approve: true, always: false });
 		await t.mutation(internal.turns.finishReply, { turnId: (await turnsOf(t)).at(-1)!._id, error: "Boom" });
 		expect(await t.run((ctx) => ctx.db.get(first.approvalId))).toMatchObject({ status: "failed", error: expect.stringContaining("before running it") });
 
 		const second = await holdCall(t, member, chatId);
-		await member.mutation(api.approvals.decide, { approvalId: second.approvalId, hash: second.card.hash, approve: true });
+		await member.mutation(api.approvals.decide, { approvalId: second.approvalId, hash: second.card.hash, approve: true, always: false });
 		const next = (await turnsOf(t)).at(-1)!;
 		await t.mutation(internal.approvals.claim, { approvalId: second.approvalId, turnId: next._id });
 		await t.mutation(internal.turns.finishReply, { turnId: next._id, error: "Timed out" });
@@ -206,7 +208,7 @@ describe("approvals", () => {
 		const { t, member } = await ownerAndMember();
 		const chatId = (await generalOf(member))._id;
 		const { approvalId, card } = await holdCall(t, member, chatId);
-		await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: false });
+		await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: false, always: false });
 		const next = (await turnsOf(t)).at(-1)!;
 		expect(next).toMatchObject({ status: "running", approvalId });
 		expect((await t.query(internal.turns.turnContext, { turnId: next._id })).approval?.status).toBe("denied");

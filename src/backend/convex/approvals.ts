@@ -30,10 +30,9 @@ import { enqueueTurn, runningTurn } from "./turns";
 
 /**
  * Written by the runner when the model makes a call that needs approval. `input` is canonical JSON.
- * COMPAT(0.1.0-alpha.6): the runner always sends `risk`; make it required with `approvals.risk`.
  */
 export const request = internalMutation({
-	args: { turnId: v.id("agentTurns"), callId: v.string(), tool: v.string(), input: v.string(), risk: v.optional(risk) },
+	args: { turnId: v.id("agentTurns"), callId: v.string(), tool: v.string(), input: v.string(), risk },
 	handler: async (ctx, { turnId, callId, tool, input, risk }) => {
 		const { turn } = await runningTurn(ctx, turnId);
 		const { automation, trigger } = await automationScope(ctx, turn);
@@ -72,20 +71,13 @@ export const request = internalMutation({
  */
 async function alwaysFor(ctx: QueryCtx, row: Doc<"approvals">) {
 	const member = await memberOf(ctx, row.actorId, row.workspaceId);
-	// COMPAT(0.1.0-alpha.6): `!row.risk` is for rows from before `risk`; drop it when it's required.
 	if (!row.risk || !member) return null;
-	// From an automation's run: the grant is scoped to it. If it's gone (or the row predates
-	// the field and its trigger was an automation's), refuse rather than save a wider rule.
-	// COMPAT(0.1.0-alpha.6): the trigger lookup is for rows from before `automationInstallId`; keep only that field.
-	const turn = await ctx.db.get(row.turnId);
-	const trigger = turn && (await ctx.db.get(turn.triggerId));
-	const fromAutomation = !!row.automationInstallId || !!trigger?.automation;
-	const automation = row.automationInstallId
-		? await ctx.db.get(row.automationInstallId)
-		: fromAutomation && turn
-			? (await automationScope(ctx, turn)).automation
-			: null;
-	if (fromAutomation && !automation) return null;
+	// A removed automation cannot leave behind a wider Always grant, whether it went after the
+	// call was held or before (its run keeps going, and `request` then has no install to record).
+	const automation = row.automationInstallId ? await ctx.db.get(row.automationInstallId) : null;
+	if (row.automationInstallId && !automation) return null;
+	const turn = !row.automationInstallId && (await ctx.db.get(row.turnId));
+	if (turn && (await ctx.db.get(turn.triggerId))?.automation) return null;
 	// Acting-as-you calls ask only in others' automations, and an Always for them is scoped to it.
 	const { decision } = await decideFor(ctx, member, { action: row.tool, risk: row.risk, foreign: !!automation });
 	if (decision.type !== "ask" || !decision.canAlways) return null;
@@ -161,9 +153,8 @@ export const forReply = query({
 export const decide = mutation({
 	/**
 	 * `always`: also save a rule so it stops asking.
-	 * COMPAT(0.1.0-alpha.6): app builds before 0.1.0-alpha.6 leave it out when false; make it required.
 	 */
-	args: { approvalId: v.id("approvals"), hash: v.string(), approve: v.boolean(), always: v.optional(v.boolean()) },
+	args: { approvalId: v.id("approvals"), hash: v.string(), approve: v.boolean(), always: v.boolean() },
 	handler: async (ctx, { approvalId, hash, approve, always }) => {
 		const member = await requireMember(ctx);
 		const row = await ctx.db.get(approvalId);
@@ -217,7 +208,7 @@ export const claim = internalMutation({
 			return null;
 		}
 		// Rules are read fresh: a block or Never set since the approval wins.
-		// COMPAT(0.1.0-alpha.6): `?? "outside"` is for rows from before `risk`.
+		// Stored rows without risk were never backfilled; treat them conservatively.
 		const { decision } = member ? await decideFor(ctx, member, { action: row.tool, risk: row.risk ?? "outside" }) : { decision: null };
 		if (decision?.type === "deny") {
 			const who = decision.by === "owner" ? "A workspace owner blocked this" : `${await nameOf(ctx, row.actorId)} set this to Never`;

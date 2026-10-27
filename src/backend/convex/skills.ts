@@ -148,16 +148,14 @@ export const remove = mutation({
 	handler: async (ctx, { skillId }) => removeSkill(ctx, await requireMember(ctx), skillId),
 });
 
-const installSkillArgs = v.object({ skillId: v.string(), installed: v.boolean() });
+const installSkillArgs = v.object({ skillId: v.string(), installed: v.literal(true) });
 
 export const setInstalled = mutation({
 	args: installSkillArgs.fields,
 	handler: async (ctx, args) => installSkill(ctx, await requireMember(ctx), args),
 });
 
-export async function installSkill(ctx: MutationCtx, member: Member, { skillId, installed }: Infer<typeof installSkillArgs>) {
-	// COMPAT(0.1.0-alpha.6): drop removal through setInstalled; apps use remove.
-	if (!installed) return removeSkill(ctx, member, skillId);
+export async function installSkill(ctx: MutationCtx, member: Member, { skillId }: Infer<typeof installSkillArgs>) {
 	if (skillId.startsWith("custom-")) throw new ConvexError("Skills people make are always on.");
 	const { workspaceId } = checkPermission(member, "skills.manage");
 	const existing = await installOf(ctx, workspaceId, skillId);

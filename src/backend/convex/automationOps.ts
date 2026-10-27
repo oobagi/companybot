@@ -4,15 +4,8 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type Member, requireMember } from "./lib";
 import type { QueryCtx } from "./_generated/server";
 
-/**
- * Installs from before audiences: a channel if one was picked, else people who turn it on.
- * COMPAT(0.1.0-alpha.6): the automationAudiences migration sets `audience` on every install. After it has run on prod, make `audience` required and drop this fallback.
- */
-export const audienceOf = (install: Doc<"automationInstalls">): AutomationAudience =>
-	install.audience ?? (install.channelId ? "channel" : "subscribers");
-
 /** Automations that run just for their creator are theirs alone (their id here); the rest are visible to the workspace (null). */
-export const privateTo = (install: Doc<"automationInstalls">) => (install.custom && audienceOf(install) === "creator" ? install.installedBy : null);
+export const privateTo = (install: Doc<"automationInstalls">) => (install.custom && install.audience === "creator" ? install.installedBy : null);
 
 export const canView = (member: Member, install: Doc<"automationInstalls">) => {
 	const only = privateTo(install);

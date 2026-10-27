@@ -170,7 +170,7 @@ export const runFor = internalMutation({
 						};
 					}
 					if (r.action === "install") {
-						await installAutomation(ctx, member, { automationId: r.id, installed: true, timeZone: r.timeZone });
+						await installAutomation(ctx, member, { automationId: r.id, timeZone: r.timeZone });
 						return { installed: r.id };
 					}
 					const install = await installOf(ctx, member.workspaceId, r.id);

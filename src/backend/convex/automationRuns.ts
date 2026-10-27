@@ -6,7 +6,7 @@ import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/
 import { mutation } from "./functions";
 import { addToChat, canSee, findOrCreateDm, insertMessage } from "./chatOps";
 import { type Member, liveWorkspace, memberOf, nameOf, normalizeEmail, requireMember } from "./lib";
-import { audienceOf, definitionOf, followsOthers, postingProblem, requireEditable, subscribersOf } from "./automationOps";
+import { definitionOf, followsOthers, postingProblem, requireEditable, subscribersOf } from "./automationOps";
 import { enqueueTurn } from "./turns";
 
 /** Runs it once now, just for you (webhooks and events use a sample), so you can see what it does. */
@@ -78,7 +78,7 @@ export const receive = internalMutation({
 		let person: Id<"users"> | undefined;
 		if (delivery.person) {
 			const found = await workspaceUserByEmail(ctx, install.workspaceId, delivery.person.email);
-			if (!found && audienceOf(install) === "subscribers")
+			if (!found && install.audience === "subscribers")
 				return { status: 200, ok: true, message: await finish(ctx, install, `Didn't run: nobody here has the email ${delivery.person.email}.`) };
 			person = found ?? undefined;
 		}
@@ -164,7 +164,7 @@ async function runFor(
 	prompt: string,
 	target: { person?: Id<"users">; visibleIn?: Id<"chats">; thread?: { chatId: Id<"chats">; messageId: Id<"chatMessages"> } },
 ): Promise<Run> {
-	const audience = audienceOf(install);
+	const audience = install.audience;
 	if (audience === "channel") return runInChannel(ctx, install, automation, prompt, target.thread);
 
 	let userIds = audience === "creator" ? [install.installedBy] : await subscribersOf(ctx, install._id);

@@ -18,32 +18,6 @@ import { type TrashKind, trashEntry } from "./trashOps";
 
 export const migrations = new Migrations<DataModel>(components.migrations);
 
-// "Plugins" became "connectors": move each row to its renamed table. Copy-then-delete,
-// so a re-run finds nothing left to move.
-export const connectorInstalls = migrations.define({
-	table: "pluginInstalls",
-	migrateOne: async (ctx, { _id, _creationTime, pluginId, ...rest }) => {
-		await ctx.db.insert("connectorInstalls", { ...rest, connectorId: pluginId });
-		await ctx.db.delete(_id);
-	},
-});
-
-export const connectorConnections = migrations.define({
-	table: "pluginConnections",
-	migrateOne: async (ctx, { _id, _creationTime, pluginId, ...rest }) => {
-		await ctx.db.insert("connectorConnections", { ...rest, connectorId: pluginId });
-		await ctx.db.delete(_id);
-	},
-});
-
-export const connectorOAuthFlows = migrations.define({
-	table: "pluginOAuthFlows",
-	migrateOne: async (ctx, { _id, _creationTime, pluginId, ...rest }) => {
-		await ctx.db.insert("connectorOAuthFlows", { ...rest, connectorId: pluginId });
-		await ctx.db.delete(_id);
-	},
-});
-
 // Automations got audiences: installs from before ran for everyone (or a channel). Keep
 // channels; the rest now run for people who turn them on, starting with whoever set it up.
 export const automationAudiences = migrations.define({
@@ -169,11 +143,8 @@ export const trashPages = archivedToTrash("pages", (p) => ({ kind: "page", name:
 
 export const companybotParity2Tools = grantCompanybot(["agents.manage"]);
 
-/** Every migration, oldest first. Never reorder or remove entries that have shipped. */
+/** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
 const all: MigrationFunctionReference[] = [
-	internal.migrations.connectorInstalls,
-	internal.migrations.connectorConnections,
-	internal.migrations.connectorOAuthFlows,
 	internal.migrations.automationAudiences,
 	internal.migrations.companybotChatTools,
 	internal.migrations.recordTypes,

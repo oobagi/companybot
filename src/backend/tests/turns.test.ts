@@ -42,7 +42,7 @@ describe("agent turns", () => {
 		const held = await t.mutation(internal.approvals.request, { turnId: run._id, callId: "read", tool: "chat.read", input: JSON.stringify(readInput), risk: "inside" });
 		const row = (await t.run(ctx => ctx.db.get(held.approvalId)))!;
 		if (place === "own-thread") await owner.mutation(api.messages.send, { chatId, threadId: run.triggerId, text: "RUN_THREAD", mentions: noMentions });
-		await owner.mutation(api.approvals.decide, { approvalId: row._id, hash: row.hash, approve: true });
+		await owner.mutation(api.approvals.decide, { approvalId: row._id, hash: row.hash, approve: true, always: false });
 		await t.mutation(internal.turns.finishReply, { turnId: run._id });
 		const resumed = (await turnsOf(t)).find(r => r.approvalId === row._id)!;
 		const continuation = await t.query(internal.turns.turnContext, { turnId: resumed._id });

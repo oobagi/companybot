@@ -32,12 +32,9 @@ export type Message = {
 	threadId: Id<"chatMessages"> | null;
 	author: Participant;
 	text: string;
-	/**
-	 * Without approval cards, which apps from before approvals can't show (they get a line of text instead).
-	 * COMPAT(0.1.0-alpha.6): once installs are past it, send approval cards in `parts` too and switch the app to `parts`; delete `fullParts` one release later.
-	 */
+	/** Every part, approval cards included. */
 	parts: Infer<typeof messagePart>[];
-	/** Every part, approval cards included. Apps that know approvals read this. */
+	/** COMPAT(0.1.0-alpha.7): alpha.6 apps read fullParts; newer apps use parts. Delete this alias. */
 	fullParts: Infer<typeof messagePart>[];
 	status: "streaming" | "done" | "error";
 	error: string | null;
@@ -104,9 +101,7 @@ async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, 
 		threadId: m.threadId ?? null,
 		author: await names.of(m),
 		text: m.text,
-		parts: m.parts.map((p) =>
-			p.type === "approval" ? { type: "text" as const, text: `_Waiting for approval to run ${p.tool}. Update Companybot to approve or deny it._` } : p,
-		),
+		parts: m.parts,
 		fullParts: m.parts,
 		status: m.status,
 		error: m.error ?? null,

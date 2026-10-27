@@ -34,7 +34,7 @@ import {
 	requirePermission,
 	saveMade,
 } from "./lib";
-import { audienceOf, canView, definitionOf, installOf, postingProblem, requireEditable, runsForLabel, subscribersOf, visibleInstalls, webhookUrl } from "./automationOps";
+import { canView, definitionOf, installOf, postingProblem, requireEditable, runsForLabel, subscribersOf, visibleInstalls, webhookUrl } from "./automationOps";
 import { forgetAutomationGrants } from "./permissions";
 import { startCascade } from "./cascade";
 import { audience, customTrigger } from "./schema";
@@ -87,7 +87,7 @@ export const list = query({
 				const granted = agent ? grantedConnectorIds(agent) : [];
 				const channel = (install?.channelId && (await ctx.db.get(install.channelId))) || null;
 				const scheduled = automation.trigger.type === "schedule";
-				const audience = install ? audienceOf(install) : null;
+				const audience = install ? install.audience : null;
 				const canEdit = install ? canEditMade(member, "automations.manage", install.custom ? install.installedBy : undefined) : can(member, "automations.manage");
 				const subscribers = install ? await subscribersOf(ctx, install._id) : [];
 				const creatorName = install ? await nameOf(ctx, install.installedBy) : "";
@@ -254,7 +254,7 @@ export async function saveAutomation(ctx: MutationCtx, member: Member, { automat
 		userId: member.userId,
 		validate: async () => {
 			await checkConfig(ctx, member, config, install.custom!.trigger);
-			if (audienceOf(install) === "channel") await checkPosting(ctx, config.trigger, install.channelId);
+			if (install.audience === "channel") await checkPosting(ctx, config.trigger, install.channelId);
 		},
 		patch: (custom) => ctx.db.patch(install._id, {
 			...(config.trigger.type === "schedule" && { lastRunDate: firstRunDate(config.trigger, install.timeZone) ?? install.lastRunDate }),
@@ -279,9 +279,9 @@ export const remove = mutation({
 
 /** Installs a library automation (owners). */
 export const setInstalled = mutation({
-	args: { automationId: v.string(), installed: v.boolean(), timeZone: v.optional(v.string()) },
-	handler: async (ctx, { automationId, installed, timeZone }) => {
-		return installAutomation(ctx, await requireMember(ctx), { automationId, installed, timeZone });
+	args: { automationId: v.string(), installed: v.literal(true), timeZone: v.optional(v.string()) },
+	handler: async (ctx, { automationId, timeZone }) => {
+		return installAutomation(ctx, await requireMember(ctx), { automationId, timeZone });
 	},
 });
 
@@ -296,11 +296,8 @@ const updateAutomationArgs = v.object({
 		enabled: v.optional(v.boolean()),
 		agentId: v.optional(v.id("agents")),
 		audience: v.optional(audience),
-		/**
-		 * Needed with audience "channel".
-		 * COMPAT(0.1.0-alpha.6): apps before audiences send only this, a channel or null for DMs. Drop `null` and the line that turns it into an audience.
-		 */
-		channelId: v.optional(v.union(v.id("chats"), v.null())),
+		/** Needed with audience "channel". */
+		channelId: v.optional(v.id("chats")),
 	});
 
 export const update = mutation({
@@ -310,7 +307,6 @@ export const update = mutation({
 
 export async function updateAutomation(ctx: MutationCtx, member: Member, { automationId, enabled, agentId, audience, channelId }: Infer<typeof updateAutomationArgs>) {
 	const { install } = await requireEditable(ctx, automationId, member);
-	if (audience === undefined && channelId !== undefined) audience = channelId ? "channel" : "subscribers";
 	if (agentId) {
 		const agent = await requireAgent(ctx, member, agentId);
 		if (agent.archived) throw new ConvexError("That agent is archived.");
@@ -354,7 +350,7 @@ export const subscribe = mutation({
 export async function setSubscription(ctx: MutationCtx, member: Member, automationId: string, on: boolean) {
 	const install = await installOf(ctx, member.workspaceId, automationId);
 	if (!install || !canView(member, install)) return "Automation not found.";
-	if (audienceOf(install) !== "subscribers") return "This automation isn't one people turn on for themselves.";
+	if (install.audience !== "subscribers") return "This automation isn't one people turn on for themselves.";
 	const existing = await ctx.db
 		.query("automationSubscriptions")
 		.withIndex("by_install", (q) => q.eq("installId", install._id).eq("userId", member.userId))
@@ -376,14 +372,7 @@ export const resetWebhook = mutation({
 	},
 });
 
-// COMPAT(0.1.0-alpha.6): installed apps call automations.runNow; use automationRuns.runNow.
-export { runNow } from "./automationRuns";
-// COMPAT(0.1.0-alpha.6): cron and cleanup calls queued before this deploy may still use these paths.
-export { tick, forgetOldWebhooks } from "./automationRuns";
-
-export async function installAutomation(ctx: MutationCtx, member: Member, { automationId, installed, timeZone }: { automationId: string; installed: boolean; timeZone?: string }) {
-	// COMPAT(0.1.0-alpha.6): drop removal through setInstalled; apps use remove.
-	if (!installed) return removeAutomation(ctx, member, automationId);
+export async function installAutomation(ctx: MutationCtx, member: Member, { automationId, timeZone }: { automationId: string; timeZone?: string }) {
 	const existing = await installOf(ctx, member.workspaceId, automationId);
 	checkPermission(member, "automations.manage");
 	const owner = member;

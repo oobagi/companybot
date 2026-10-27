@@ -2,7 +2,9 @@ import migrationsTest from "@convex-dev/migrations/test";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
-import schema from "../convex/schema";
+import schema, { audience } from "../convex/schema";
+import { defineSchema, defineTable } from "convex/server";
+import { v } from "convex/values";
 
 import { modules, signIn, generalOf } from "./helpers";
 import "./connectorFixtures";
@@ -49,42 +51,15 @@ describe("migrations", () => {
 		expect(await owner.mutation(api.workspace.invite, { email: "next@co.com", role: "member" })).toEqual({ emailed: true });
 	});
 
-	it("moves rows from the old plugin tables to the connector tables", async () => {
-		const t = convexTest({ schema, modules, transactionLimits: true });
-		migrationsTest.register(t);
-		const owner = await signIn(t, "owner@co.com");
-		await t.run(async (ctx) => {
-			const { userId, workspaceId } = (await ctx.db.query("members").first())!;
-			await ctx.db.insert("pluginInstalls", { workspaceId, pluginId: "crm", roles: ["owner"], installedBy: userId });
-			await ctx.db.insert("pluginConnections", { workspaceId, pluginId: "crm", userId: null, credentials: "enc", connectedBy: userId });
-			await ctx.db.insert("pluginOAuthFlows", { state: "s", pluginId: "crm", userId, data: "d", expiresAt: 1 });
-		});
-		vi.useFakeTimers();
-		try {
-			await t.mutation(internal.migrations.runAll);
-			await t.finishAllScheduledFunctions(vi.runAllTimers);
-		} finally {
-			vi.useRealTimers();
-		}
-		const rows = await t.run(async (ctx) => ({
-			old: [
-				...(await ctx.db.query("pluginInstalls").collect()),
-				...(await ctx.db.query("pluginConnections").collect()),
-				...(await ctx.db.query("pluginOAuthFlows").collect()),
-			].length,
-			installs: await ctx.db.query("connectorInstalls").collect(),
-			connections: await ctx.db.query("connectorConnections").collect(),
-			flows: await ctx.db.query("connectorOAuthFlows").collect(),
-		}));
-		expect(rows.old).toBe(0);
-		expect(rows.installs.map((r) => [r.connectorId, r.roles])).toEqual([["crm", ["owner"]]]);
-		expect(rows.connections.map((r) => [r.connectorId, r.credentials])).toEqual([["crm", "enc"]]);
-		expect(rows.flows.map((r) => [r.connectorId, r.state])).toEqual([["crm", "s"]]);
-		expect(await owner.query(api.connectors.list)).toContainEqual(expect.objectContaining({ id: "crm", installed: true }));
-	});
-
 	it("gives old automation installs an audience, keeping channels and subscribing the installer", async () => {
-		const t = convexTest({ schema, modules, transactionLimits: true });
+		const legacySchema = defineSchema({
+			...schema.tables,
+			automationInstalls: defineTable({ ...schema.tables.automationInstalls.validator.fields, audience: v.optional(audience) })
+				.index("by_workspace", ["workspaceId", "automationId"])
+				.index("by_enabled", ["enabled"])
+				.index("by_webhook", ["webhookToken"]),
+		});
+		const t = convexTest({ schema: legacySchema, modules, transactionLimits: true });
 		migrationsTest.register(t);
 		await signIn(t, "owner@co.com");
 		const ids = await t.run(async (ctx) => {

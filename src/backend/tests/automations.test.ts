@@ -34,15 +34,15 @@ describe("automations", () => {
 	}
 	const install = (as: As, automationId: string) => as.mutation(api.automations.setInstalled, { automationId, installed: true, timeZone: tz });
 
-	it("keeps installed apps and queued cleanup calls working at their old paths", async () => {
+	it("runs and cleans up through automationRuns", async () => {
 		vi.useFakeTimers();
 		const { t, owner } = await ownerAndMember();
 		await install(owner, "morning-brief");
-		await owner.mutation(api.automations.runNow, { automationId: "morning-brief" });
+		await owner.mutation(api.automationRuns.runNow, { automationId: "morning-brief" });
 		const { companybot } = await agentsOf(owner);
 		expect(await dmWith(owner, companybot._id)).toEqual([["user", "Morning brief"], ["agent", null]]);
-		await t.mutation(internal.automations.forgetOldWebhooks, {});
-		await t.mutation(internal.automations.tick, { now: 0 });
+		await t.mutation(internal.automationRuns.forgetOldWebhooks, {});
+		await t.mutation(internal.automationRuns.tick, { now: 0 });
 	});
 
 	describe("library", () => {
@@ -101,13 +101,13 @@ describe("automations", () => {
 			expect([brief.lastResult, brief.runsFor]).toEqual(["Posted in #sales.", "Posts once in #sales"]);
 		});
 
-		it("still takes what apps from before audiences send: a channel, or null for DMs", async () => {
+		it("changes audiences explicitly between a channel and subscribers", async () => {
 			const { owner } = await ownerAndMember();
 			await install(owner, "morning-brief");
 			const sales = await owner.mutation(api.chats.createChannel, { name: "sales", private: false });
-			await owner.mutation(api.automations.update, { automationId: "morning-brief", channelId: sales });
+			await owner.mutation(api.automations.update, { automationId: "morning-brief", audience: "channel", channelId: sales });
 			expect((await find(owner, "morning-brief"))!.audience).toBe("channel");
-			await owner.mutation(api.automations.update, { automationId: "morning-brief", channelId: null });
+			await owner.mutation(api.automations.update, { automationId: "morning-brief", audience: "subscribers" });
 			expect((await find(owner, "morning-brief"))!.audience).toBe("subscribers");
 		});
 
@@ -192,7 +192,7 @@ describe("automations", () => {
 				vi.setSystemTime(now);
 			}
 			expect((await events()).map((e) => e.eventId)).toEqual(["new"]);
-			await owner.mutation(api.automations.setInstalled, { automationId: "after-call-summary", installed: false, timeZone: tz });
+			await owner.mutation(api.automations.remove, { automationId: "after-call-summary" });
 			await t.finishAllScheduledFunctions(vi.runAllTimers);
 			expect(await events()).toHaveLength(0);
 		});
@@ -278,14 +278,14 @@ describe("automations", () => {
 			expect(saved.webhookUrl).toMatch(/\/automations\/[0-9a-f]{48}$/);
 			await member.mutation(api.automations.save, { automationId: id, config: { ...config, trigger: daily }, expectedVersion: 2 });
 			expect((await find(member, id))!.webhookUrl).toBeNull();
-			await expect(other.mutation(api.automations.setInstalled, { automationId: id, installed: false, timeZone: tz })).rejects.toThrow(
+			await expect(other.mutation(api.automations.remove, { automationId: id })).rejects.toThrow(
 				"Only the person who made",
 			);
-			await member.mutation(api.automations.setInstalled, { automationId: id, installed: false, timeZone: tz });
+			await member.mutation(api.automations.remove, { automationId: id });
 			expect(await find(member, id)).toBeUndefined();
 		});
 
-		it.each([false, true])("removes custom automations and related rows (legacy: %s)", async (legacy) => {
+		it("removes custom automations and related rows", async () => {
 			const { t, owner, member } = await ownerAndMember();
 			await owner.mutation(api.workspace.invite, { email: "other@co.com", role: "member" });
 			const other = await signIn(t, "other@co.com");
@@ -293,9 +293,7 @@ describe("automations", () => {
 			const path = new URL((await find(member, id))!.webhookUrl!, "http://x").pathname;
 			await t.fetch(path, { method: "POST", body: JSON.stringify({ id: "delivery-1" }) });
 			await other.mutation(api.automations.subscribe, { automationId: id, on: true });
-			const remove = (as: typeof owner) => legacy
-				? as.mutation(api.automations.setInstalled, { automationId: id, installed: false })
-				: as.mutation(api.automations.remove, { automationId: id });
+			const remove = (as: typeof owner) => as.mutation(api.automations.remove, { automationId: id });
 			await expect(remove(other)).rejects.toThrow("Only the person who made");
 			expect(await find(member, id)).toBeDefined();
 			await remove(member);
@@ -323,9 +321,6 @@ describe("automations", () => {
 			expect((await find(owner, "morning-brief"))!.installed).toBe(false);
 			await settle(t);
 			expect(await t.run((ctx) => ctx.db.query("automationSubscriptions").collect())).toHaveLength(0);
-			await install(owner, "morning-brief");
-			await owner.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: false });
-			expect((await find(owner, "morning-brief"))!.installed).toBe(false);
 			await expect(owner.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: true })).rejects.toThrow("Unknown time zone.");
 		});
 
