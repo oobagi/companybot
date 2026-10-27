@@ -9,12 +9,15 @@ import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { LoadMore, Loading, Notice, Page, Section, descriptionClass, metadataClass, timeAgo, useRun } from "../../ui";
 import { type RecordType, useTypes } from "./data";
+import { PageEditor } from "../pages/PageEditor";
+import { PageHistory } from "../pages/PageHistory";
 import { AddField, EditField } from "./fieldDialogs";
 import { ValueEditor, ValueView } from "./fields";
 import { type Refs, type TypeField, actionLabels, recordPath, valueText, whoLabel } from "./logic";
 
-// One record's page: its fields, editable in place, then what links to it, where it was
-// discussed, and its history with undo. The same page for every type.
+// One record's page: its fields, editable in place, its page body (notes, plans: a page,
+// wiki/pages.md), then what links to it, where it was discussed, and its history with undo.
+// The same page for every type.
 
 export function RecordPage({ type, recordId, role }: { type: RecordType; recordId: Id<"records">; role: Role }) {
 	const record = useQuery(api.records.get, { recordId });
@@ -56,6 +59,7 @@ export function RecordPage({ type, recordId, role }: { type: RecordType; recordI
 				</p>
 			)}
 			<Fields type={type} record={record} role={role} editable={canEdit && !record.archived} />
+			<Body recordId={recordId} editable={can(role, "pages.edit") && !record.archived} />
 			<Linked recordId={recordId} archived={record.archived} />
 			<Discussion recordId={recordId} />
 			<History type={type} recordId={recordId} canUndo={canEdit} />
@@ -64,6 +68,33 @@ export function RecordPage({ type, recordId, role }: { type: RecordType; recordI
 }
 
 type RecordDoc = NonNullable<FunctionReturnType<typeof api.records.get>>;
+
+/** The record's page body. It's made when someone first writes in it. */
+function Body({ recordId, editable }: { recordId: Id<"records">; editable: boolean }) {
+	const pageId = useQuery(api.pages.forRecord, { recordId });
+	const create = useMutation(api.pages.create);
+	const [history, setHistory] = useState(false);
+	const { error, run } = useRun();
+	if (pageId === undefined || (pageId === null && !editable)) return null;
+	return (
+		<section className="flex flex-col gap-2 border-t border-neutral-200 pt-4">
+			{error && <Notice>{error}</Notice>}
+			{pageId ? (
+				<>
+					<button type="button" onClick={() => setHistory(true)} className={`self-end ${metadataClass} hover:text-neutral-700`}>
+						Page history
+					</button>
+					<PageEditor pageId={pageId} editable={editable} />
+				</>
+			) : (
+				<button type="button" onClick={() => run(create({ recordId }))} className="py-1 text-left text-neutral-400 hover:text-neutral-600">
+					Write notes, plans, anything…
+				</button>
+			)}
+			{history && pageId && <PageHistory pageId={pageId} canRestore={editable} onClose={() => setHistory(false)} />}
+		</section>
+	);
+}
 
 function Fields({ type, record, role, editable }: { type: RecordType; record: RecordDoc; role: Role; editable: boolean }) {
 	const [adding, setAdding] = useState(false);

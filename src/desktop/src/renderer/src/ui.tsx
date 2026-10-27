@@ -14,7 +14,8 @@ export function Page({
 	wide,
 	children,
 }: {
-	title: string;
+	/** Text, or an input for screens whose title you edit in place (pages). */
+	title: React.ReactNode;
 	subtitle?: string;
 	back?: { label: string; to: string[] };
 	actions?: React.ReactNode;
@@ -35,7 +36,7 @@ export function Page({
 						</button>
 					)}
 					<div className="flex items-start justify-between gap-4">
-						<div>
+						<div className="min-w-0 flex-1">
 							<h1 className="text-xl font-medium">{title}</h1>
 							{subtitle && <p className={descriptionClass}>{subtitle}</p>}
 						</div>
