@@ -6,7 +6,6 @@ import {
 	can,
 	canEditMade,
 	customAutomationError,
-	deniedMessage,
 	describeTrigger,
 	findAutomation,
 	findConnector,
@@ -210,7 +209,7 @@ export async function createAutomation(
 		timeZone,
 	}: { config: CustomAutomationConfig; agentId: Id<"agents">; audience: AutomationAudience; channelId?: Id<"chats">; timeZone: string },
 ) {
-	if (!can(member, "automations.create")) throw new ConvexError(deniedMessage("automations.create"));
+	checkPermission(member, "automations.create");
 	config = normalizeCustomAutomation(config);
 	await checkConfig(ctx, member, config);
 	if (!timeZone || !isValidTimeZone(timeZone)) throw new ConvexError("Unknown time zone.");

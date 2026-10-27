@@ -136,6 +136,16 @@ export async function requirePermission(ctx: QueryCtx, permission: Permission): 
 	return checkPermission(await requireMember(ctx), permission);
 }
 
+/** `load`, called at most once per key: for a read many rows in one call share. */
+export function memo<K, V>(load: (key: K) => Promise<V>) {
+	const cache = new Map<K, Promise<V>>();
+	return (key: K) => {
+		let value = cache.get(key);
+		if (!value) cache.set(key, (value = load(key)));
+		return value;
+	};
+}
+
 /** Role check shared by app mutations and operations acting for a turn. */
 export function checkPermission(member: Member, permission: Permission): Member {
 	if (!can(member.role, permission)) throw new ConvexError(deniedMessage(permission));

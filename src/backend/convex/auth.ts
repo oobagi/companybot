@@ -4,7 +4,7 @@ import { v } from "convex/values";
 import { isLocalBackend } from "@companybot/core";
 import { internal } from "./_generated/api";
 import { type ActionCtx, internalMutation, query } from "./_generated/server";
-import { Resend } from "resend";
+import { sendEmail } from "./invites";
 
 // Sign in with a 6-digit code sent by email. No passwords.
 const EmailCode = Email({
@@ -20,13 +20,11 @@ const EmailCode = Email({
 		ctx?: ActionCtx,
 	) {
 		if (isLocal() && ctx) return void (await ctx.runMutation(internal.auth.saveLocalCode, { email, code: token }));
-		const { error } = await new Resend(provider.apiKey).emails.send({
-			from: process.env.AUTH_EMAIL_FROM ?? "Companybot <onboarding@resend.dev>",
-			to: [email],
+		await sendEmail(provider.apiKey, {
+			to: email,
 			subject: `Your Companybot code: ${token}`,
 			text: `Your Companybot sign-in code is ${token}. It expires in 15 minutes.`,
 		});
-		if (error) throw new Error(JSON.stringify(error));
 	},
 });
 

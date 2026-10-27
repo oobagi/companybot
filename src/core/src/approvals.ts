@@ -2,7 +2,7 @@ import type { Actor } from "./types";
 
 /**
  * Approvals: an agent's call to a tool with outside impact waits in the chat until
- * the person it acts for approves it. Dependency-free so the app can import it.
+ * the person it acts for approves it.
  *
  * An approval is locked to a hash of the exact tool and input. The approver sends back
  * the hash they were shown, and the runner re-checks it before running the call, so

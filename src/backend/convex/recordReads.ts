@@ -1,6 +1,7 @@
 import type { PaginationOptions, PaginationResult } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
+import { memo } from "./lib";
 import { currencyOf, fieldsOf, typeTrashed } from "./recordOps";
 import { type Condition, type Sort, findRecords } from "./recordQuery";
 
@@ -17,14 +18,7 @@ export const PAGE_MAX = 50;
 export type RecordItem = { record: Doc<"records">; fields: Doc<"recordFields">[] };
 
 /** Each type's fields, read once per call however many records share it. */
-export function fieldsByType(ctx: QueryCtx) {
-	const cache = new Map<Id<"recordTypes">, Promise<Doc<"recordFields">[]>>();
-	return (typeId: Id<"recordTypes">) => {
-		let fields = cache.get(typeId);
-		if (!fields) cache.set(typeId, (fields = fieldsOf(ctx, typeId)));
-		return fields;
-	};
-}
+export const fieldsByType = (ctx: QueryCtx) => memo((typeId: Id<"recordTypes">) => fieldsOf(ctx, typeId));
 
 /** One page of a type's records matching every condition, in the workspace's currency (recordQuery.findRecords). */
 export async function listRecords(

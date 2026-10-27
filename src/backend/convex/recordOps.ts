@@ -5,12 +5,9 @@ import {
 	type FieldConfig,
 	type FieldValue,
 	NAME_KEY,
-	type Permission,
 	RECORD_MAX_BYTES,
 	type ValueMode,
-	can,
 	canEditMade,
-	deniedMessage,
 	fieldConfigError,
 	indexEntries,
 	keyOf,
@@ -26,7 +23,7 @@ import {
 import { ConvexError, getDocumentSize } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { type Member, type Who, checkVersion, memberOf, nameOf, requireInWorkspace, toActor } from "./lib";
+import { type Member, type Who, checkPermission, checkVersion, memberOf, memo, nameOf, requireInWorkspace, toActor } from "./lib";
 import { putInTrash, takeFromTrash } from "./trashOps";
 
 // Records, fields and their history. Shared by the app's functions (records.ts,
@@ -36,9 +33,7 @@ import { putInTrash, takeFromTrash } from "./trashOps";
 export type Values = Record<string, FieldValue>;
 type Change = Doc<"recordHistory">["changes"][number];
 
-export function requireCan(member: Member, permission: Permission) {
-	if (!can(member.role, permission)) throw new ConvexError(deniedMessage(permission));
-}
+export const requireCan = checkPermission;
 
 /** A database in the person's workspace. Other workspaces' look like they don't exist. */
 export async function requireType(ctx: QueryCtx, member: Member, typeId: Id<"recordTypes">, live = false) {
@@ -51,15 +46,15 @@ export async function requireRecord(ctx: QueryCtx, member: Member, recordId: Id<
 	return requireInWorkspace(member, await ctx.db.get(recordId), "Record");
 }
 
-/** Whether each database is in Trash, read once per call however many records share it. */
-export function typeTrashed(ctx: QueryCtx) {
-	const cache = new Map<Id<"recordTypes">, Promise<boolean>>();
-	return (typeId: Id<"recordTypes">) => {
-		let trashed = cache.get(typeId);
-		if (!trashed) cache.set(typeId, (trashed = ctx.db.get(typeId).then((t) => !t || t.archived)));
-		return trashed;
-	};
+/** A record from an id an agent sent, which may be any string. */
+export function recordById(ctx: QueryCtx, member: Member, id: string, notFound = "Record not found.") {
+	const recordId = ctx.db.normalizeId("records", id);
+	if (!recordId) throw new ConvexError(notFound);
+	return requireRecord(ctx, member, recordId);
 }
+
+/** Whether each database is in Trash, read once per call however many records share it. */
+export const typeTrashed = (ctx: QueryCtx) => memo((typeId: Id<"recordTypes">) => ctx.db.get(typeId).then((t) => !t || t.archived));
 
 /** A record is in Trash on its own, or with its database. */
 export const inTrash = async (ctx: QueryCtx, record: Doc<"records">) => record.archived || (await typeTrashed(ctx)(record.typeId));

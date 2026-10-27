@@ -2,7 +2,6 @@ import {
 	type Connector,
 	type ConnectorState,
 	can,
-	deniedMessage,
 	findConnector,
 	connectorCatalog,
 	connectorRoles,
@@ -16,7 +15,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
 import { action, mutation, query } from "./functions";
 import { encrypt } from "./crypto";
-import { type Member, getMember, memberFor, memberOf, requireMember, requirePermission } from "./lib";
+import { type Member, checkPermission, getMember, memberFor, memberOf, requireMember, requirePermission } from "./lib";
 import { cascading, startCascade } from "./cascade";
 import { role } from "./schema";
 
@@ -29,7 +28,7 @@ function requireConnector(connectorId: string): Connector {
 	return connector;
 }
 
-const installOf = (ctx: QueryCtx, workspaceId: Id<"workspaces">, connectorId: string) =>
+export const installOf = (ctx: QueryCtx, workspaceId: Id<"workspaces">, connectorId: string) =>
 	ctx.db
 		.query("connectorInstalls")
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId).eq("connectorId", connectorId))
@@ -244,7 +243,7 @@ async function requireConnectTarget(
 	if (!install) throw new ConvexError("Install the connector first.");
 	if (!install.roles.includes(member.role)) throw new ConvexError("Your role can't use this connector.");
 	const permission = connector.connection === "workspace" ? "connectors.manage" : "connectors.connect";
-	if (!can(member.role, permission)) throw new ConvexError(deniedMessage(permission));
+	checkPermission(member, permission);
 	if (bound && (bound.memberId !== member.id || bound.connectorInstallId !== install._id))
 		throw new ConvexError(`This sign-in started before ${connector.name} or your membership changed. Connect again.`);
 	return { member, connector, userId: connector.connection === "personal" ? member.userId : null, memberId: member.id, connectorInstallId: install._id };
@@ -288,9 +287,7 @@ export const disconnect = mutation({
 	handler: async (ctx, { connectorId }) => {
 		const member = await requireMember(ctx);
 		const connector = requireConnector(connectorId);
-		if (connector.connection === "workspace" && !can(member.role, "connectors.manage")) {
-			throw new ConvexError(deniedMessage("connectors.manage"));
-		}
+		if (connector.connection === "workspace") checkPermission(member, "connectors.manage");
 		const connection = await connectionFor(ctx, connector, member);
 		if (connection) await ctx.db.delete(connection._id);
 	},

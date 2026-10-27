@@ -1,5 +1,4 @@
 import { BlockNoteEditor } from "@blocknote/core";
-import { can, deniedMessage } from "@companybot/core";
 import { ProsemirrorSync } from "@convex-dev/prosemirror-sync";
 import type { Node, Schema } from "@tiptap/pm/model";
 import { Transform } from "@tiptap/pm/transform";
@@ -7,7 +6,7 @@ import { ConvexError, getDocumentSize } from "convex/values";
 import { components, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { type Member, type Who, nameOf, requireInWorkspace } from "./lib";
+import { type Member, type Who, checkPermission, nameOf, requireInWorkspace } from "./lib";
 import { startCascade } from "./cascade";
 import { inTrash, requireRecord } from "./recordOps";
 import { putInTrash, takeFromTrash } from "./trashOps";
@@ -55,7 +54,7 @@ export const pageOfRecord = (ctx: QueryCtx, workspaceId: Id<"workspaces">, recor
 
 /** Every member reads every page; `pages.edit` changes them, unless the page or its record is in Trash. */
 export async function requireEditable(ctx: QueryCtx, member: Member, page: Doc<"pages">) {
-	if (!can(member.role, "pages.edit")) throw new ConvexError(deniedMessage("pages.edit"));
+	checkPermission(member, "pages.edit");
 	if (page.archived) throw new ConvexError("This page is in Trash. Restore it to make changes.");
 	if (page.recordId && (await inTrash(ctx, await requireRecord(ctx, member, page.recordId)))) throw new ConvexError("This record is in Trash. Restore it to make changes.");
 }
@@ -69,7 +68,7 @@ function cleanTitle(title: string) {
 
 /** A standalone page, or a record's body (returned if it already has one). Starts empty. */
 export async function createPage(ctx: MutationCtx, { member }: Who, to: { title: string } | { recordId: Id<"records"> }) {
-	if (!can(member.role, "pages.edit")) throw new ConvexError(deniedMessage("pages.edit"));
+	checkPermission(member, "pages.edit");
 	let recordId: Id<"records"> | undefined;
 	if ("recordId" in to) {
 		const record = await requireRecord(ctx, member, to.recordId);
@@ -99,7 +98,7 @@ export async function renamePage(ctx: MutationCtx, { member }: Who, page: Doc<"p
 
 /** Moves a standalone page to Trash or back. A record's page goes with its record. */
 export async function setPageTrashed(ctx: MutationCtx, who: Who, page: Doc<"pages">, archived: boolean) {
-	if (!can(who.member.role, "pages.edit")) throw new ConvexError(deniedMessage("pages.edit"));
+	checkPermission(who.member, "pages.edit");
 	if (page.recordId) throw new ConvexError("A record's page goes to Trash with its record.");
 	if (page.archived === archived) return;
 	if (archived) await putInTrash(ctx, who, { kind: "page", id: page._id, name: page.title });

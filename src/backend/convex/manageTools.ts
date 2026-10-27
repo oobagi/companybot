@@ -6,7 +6,7 @@ import { addChannelMembers, markReadAs, createChannelAs, joinChannel, leaveChann
 import { chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
 import { automationScope, canView, definitionOf, installOf } from "./automationOps";
 import { installAutomation, removeAutomation, saveAutomation, updateAutomation } from "./automations";
-import { installSkill, removeSkill, saveSkill } from "./skills";
+import { installOf as skillInstallOf, installSkill, removeSkill, saveSkill } from "./skills";
 import { editMessage, removeMessage, reactMessage, sendMessage } from "./messages";
 import { cancelMemberInvite, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
 import { asToolResult, checkPermission, type Member, nameOf, normalizeEmail, preferencesOf, requireAgent, timeZoneOf } from "./lib";
@@ -222,11 +222,7 @@ export const runFor = internalMutation({
 							library: skillCatalog.map((s) => ({ id: s.id, name: s.name, description: s.description })),
 						};
 					}
-					const found = await ctx.db
-						.query("skillInstalls")
-						.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("skillId", r.id))
-						.first();
-					const install = found?.archived ? null : found;
+					const install = await skillInstallOf(ctx, member.workspaceId, r.id);
 					if (r.action === "get") {
 						const skill = install?.custom ?? skillCatalog.find((s) => s.id === r.id);
 						if (!skill) throw new ConvexError("Skill not found.");
