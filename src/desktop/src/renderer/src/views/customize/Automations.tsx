@@ -365,7 +365,7 @@ function AutomationDetail({ automation: a, canManage }: { automation: Automation
 			description={a.description}
 			installed={a.installed}
 			canManage={canManage}
-			onToggle={() => run(remove({ automationId: a.id }))}
+			onToggle={() => confirm(`Remove "${a.name}"? It stops running and can't be installed again.`) && run(remove({ automationId: a.id }))}
 		>
 			{error && <Notice>{error}</Notice>}
 			<Markdown className="text-sm leading-relaxed text-neutral-700">{a.details}</Markdown>
@@ -489,7 +489,6 @@ function AutomationSettings({ automation: a }: { automation: AutomationItem }) {
 						</p>
 					</div>
 				)}
-
 				<p className="text-neutral-500">{a.lastRunAt ? `Last ran ${timeAgo(a.lastRunAt)}. ${a.lastResult ?? ""}` : "Hasn't run yet."}</p>
 				{a.canEdit && (
 					<div className="flex items-center gap-3">
