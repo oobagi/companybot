@@ -115,6 +115,9 @@ it("pages all retained versions, previews/restores one, preserves rich block pro
 	const preview: any = await t.query(internal.pageTools.readFor, { turnId, version: oldest });
 	expect(JSON.parse(preview.doc).content[0].content[0]).toMatchObject(blocks[0]!);
 	expect(await write({ restore: oldest })).toHaveProperty("restored", oldest);
+	const restored: any = await t.query(internal.pageTools.readFor, { turnId, page });
+	expect(restored.versions[0].version).not.toBe(history.versions[0].version);
+	expect(restored.versions[0]).toMatchObject({ agent: "Companybot", by: expect.any(String) });
 	const before = await t.run(async (ctx) => (await readDoc(ctx, page)).toJSON());
 	expect(await write({ blocks: JSON.stringify(before.content[0].content), mode: "replace" })).toHaveProperty("unchanged", true);
 	expect(await t.run(async (ctx) => (await readDoc(ctx, page)).toJSON())).toEqual(before);

@@ -115,7 +115,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 			"- To turn on an existing one for them (\"I want the morning brief too\"), find it with automations_list and use automations_set_mine. That doesn't allow its actions: anything that would ask still asks.",
 		);
 	}
-	if (has("agents.manage")) lines.push("", "## Agents", "Use agents_manage for agent metadata, paged history, tool-free creation, archiving and another agent's instructions/model. Read the current version first. Tool grants, your own instructions/model, restoring prior config and reactivation need a person directly.");
+	if (has("agents.manage")) lines.push("", "## Agents", "Use agents_manage for agent metadata, paged history, tool-free creation, archiving and another agent's instructions/model (archiving and instruction/model changes wait for approval). Read the current version first. Tool grants, your own instructions/model, restoring prior config and reactivation need a person directly.");
 	if (has("chat.manage")) lines.push("- chat_manage can edit your person's own messages, delete them with approval, react to an exact message, or mark a chat read only when explicitly asked. Delivery never starts agents or automations.");
 	if (has("workspace.settings")) lines.push("- workspace_settings manages workspace settings (owners) and the acting person's preferences; device measurements stay automatic.");
 	lines.push("", "Use only the tools you're given. If something can't be done with them, say so. Role changes, tool grants, sign-ins and approvals are for the person to do directly.");

@@ -6,7 +6,6 @@ import { type QueryCtx, internalMutation, internalQuery } from "./_generated/ser
 import { type Member, asToolResult } from "./lib";
 import {
 	createPage,
-	editorsOf,
 	pageOfRecord,
 	readDoc,
 	renamePage,
@@ -76,17 +75,15 @@ export const readFor = internalQuery({
 			const page = old?.page ?? (record ? await pageOfRecord(ctx, member.workspaceId, record._id) : name ? await pageNamed(ctx, member, name) : null);
 			if (old && ((record && old.page.recordId !== record._id) || (name && (await pageNamed(ctx, member, name))._id !== old.page._id))) throw new ConvexError("Version belongs to a different page.");
 			if (!record && !page) throw new ConvexError("Say which page (page) or record (record) to read.");
-			if (history) {
-				const result = page ? await pageHistory(ctx, page._id, { cursor: cursor ?? null, numItems: 20 }) : { page: [], isDone: true, continueCursor: "" };
-				return { title: page ? await titleOf(ctx, page) : record!.title, doc: null, versions: result.page.map((r) => ({ version: r._id, time: new Date(r.time).toISOString(), by: r.user, ...(r.agent && { agent: r.agent }), others: r.others.map((e) => e.agent ? `${e.agent}, for ${e.user}` : e.user) })), moreVersions: !result.isDone, ...(!result.isDone && { cursor: result.continueCursor }) };
-			}
-			const versions = page
-				? await ctx.db
-						.query("pageVersions")
-						.withIndex("by_page", (q) => q.eq("pageId", page._id))
-						.order("desc")
-						.take(VERSIONS_SHOWN)
-				: [];
+			const result = page ? await pageHistory(ctx, page._id, { cursor: history ? cursor ?? null : null, numItems: history ? 20 : VERSIONS_SHOWN }) : null;
+			const versions = (result?.page ?? []).map((r) => ({
+				version: r._id,
+				time: new Date(r.time).toISOString(),
+				by: r.user,
+				...(r.agent && { agent: r.agent }),
+				...(r.others.length > 0 && { others: r.others.map((e) => (e.agent ? `${e.agent}, for ${e.user}` : e.user)) }),
+			}));
+			if (history) return { title: page ? await titleOf(ctx, page) : record!.title, doc: null, versions, moreVersions: !!result && !result.isDone, ...(result && !result.isDone && { cursor: result.continueCursor }) };
 			const doc = old ? await versionContent(ctx, old.page, old.row) : page ? JSON.stringify((await readDoc(ctx, page._id)).toJSON()) : null;
 			if (old && doc === null) throw new ConvexError("This version is no longer available.");
 			return {
@@ -96,18 +93,7 @@ export const readFor = internalQuery({
 				...((page?.archived || (record && (await inTrash(ctx, record)))) && { inTrash: true }),
 				// A record nobody has written in yet has no page: it reads as empty.
 				doc,
-				versions: await Promise.all(
-					versions.map(async (row) => {
-						const [first, ...others] = await editorsOf(ctx, row);
-						return {
-							version: row._id,
-							time: new Date(row.editedAt).toISOString(),
-							by: first!.user,
-							...(first!.agent && { agent: first!.agent }),
-							...(others.length > 0 && { others: others.map((e) => (e.agent ? `${e.agent}, for ${e.user}` : e.user)) }),
-						};
-					}),
-				),
+				versions,
 			};
 		});
 	},
