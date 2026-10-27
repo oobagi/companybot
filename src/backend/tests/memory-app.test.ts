@@ -96,7 +96,7 @@ describe("memory", () => {
 		const turnId = await agentTurn(t, member, general, agentId);
 		await expect(t.mutation(internal.memory.removeFor, { turnId, id })).rejects.toThrow("can't change");
 		const scribeTurn = await agentTurn(t, member, general, (await agentsOf(owner)).scribe._id);
-		await expect(t.mutation(internal.memory.updateFor, { turnId: scribeTurn, id, content: "x" })).rejects.toThrow("not found");
+		await expect(t.mutation(internal.memory.updateFor, { turnId: scribeTurn, id, content: "x" })).rejects.toThrow("can't change");
 	});
 
 	it("refuses an edit made against an old version", async () => {

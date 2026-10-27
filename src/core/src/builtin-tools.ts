@@ -18,21 +18,21 @@ export const builtinTools: ToolDef[] = [
 	defineTool({
 		id: "memory.search",
 		title: "Search memory",
-		description: "Search your memories that the current person can see. Empty query lists all.",
-		input: z.object({ query: z.string().describe("Words to match; empty for all") }),
+		description: "Search memories the current person can see; optionally target another workspace agent by agentId. Empty query lists all.",
+		input: z.object({ query: z.string().describe("Words to match; empty for all"), agentId: z.string().optional() }),
 		readOnly: true,
 		returnsData: true,
-		async execute({ query }, { memory }) {
-			return (await memory.search(query)).map(({ id, scope, content }) => ({ id, scope, content }));
+		async execute({ query, agentId }, { memory }) {
+			return (await memory.search(query, agentId)).map(({ id, scope, content }) => ({ id, scope, content }));
 		},
 	}),
 	defineTool({
 		id: "memory.remember",
 		title: "Remember",
 		description: "Save a personal memory for the current person only.",
-		input: z.object({ content: z.string() }),
-		async execute({ content }, { memory }) {
-			const saved = await memory.create({ scope: "personal", content });
+		input: z.object({ content: z.string(), agentId: z.string().optional().describe("Target agent id; defaults to you") }),
+		async execute({ content, agentId }, { memory }) {
+			const saved = await memory.create({ scope: "personal", content, ...(agentId && { agentId }) });
 			return { saved: saved.id };
 		},
 	}),
@@ -40,17 +40,17 @@ export const builtinTools: ToolDef[] = [
 		id: "memory.remember_for_team",
 		title: "Remember for the team",
 		description: "Save a memory the whole workspace can see.",
-		input: z.object({ content: z.string() }),
+		input: z.object({ content: z.string(), agentId: z.string().optional().describe("Target agent id; defaults to you") }),
 		permission: "memory.team.write",
-		async execute({ content }, { memory }) {
-			const saved = await memory.create({ scope: "workspace", content });
+		async execute({ content, agentId }, { memory }) {
+			const saved = await memory.create({ scope: "workspace", content, ...(agentId && { agentId }) });
 			return { saved: saved.id };
 		},
 	}),
 	defineTool({
 		id: "memory.update",
 		title: "Update a memory",
-		description: "Correct a memory you found with memory_search. Replaces its content.",
+		description: "Correct any accessible memory found with memory_search, including another agent's. Replaces its content.",
 		input: z.object({ id: z.string(), content: z.string() }),
 		async execute({ id, content }, { memory }) {
 			const saved = await memory.update(id, content);
@@ -60,7 +60,7 @@ export const builtinTools: ToolDef[] = [
 	defineTool({
 		id: "memory.forget",
 		title: "Forget a memory",
-		description: "Delete a memory you found with memory_search, when it's wrong or the person asks you to forget it.",
+		description: "Delete any accessible memory found with memory_search, when it's wrong or the person asks you to forget it.",
 		input: z.object({ id: z.string() }),
 		async execute({ id }, { memory }) {
 			await memory.remove(id);

@@ -58,7 +58,7 @@ async function installedConnectorIds(ctx: QueryCtx, workspaceId: Id<"workspaces"
 	const installs = await ctx.db
 		.query("connectorInstalls")
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-		.collect();
+		.take(100);
 	return new Set(installs.map((i) => i.connectorId));
 }
 
@@ -281,36 +281,7 @@ export const remove = mutation({
 export const setInstalled = mutation({
 	args: { automationId: v.string(), installed: v.boolean(), timeZone: v.optional(v.string()) },
 	handler: async (ctx, { automationId, installed, timeZone }) => {
-		// COMPAT(0.1.0-alpha.6): drop removal through setInstalled; apps use remove.
-		if (!installed) return removeAutomation(ctx, await requireMember(ctx), automationId);
-		const member = await requireMember(ctx);
-		const existing = await installOf(ctx, member.workspaceId, automationId);
-		const owner = await requirePermission(ctx, "automations.manage");
-		if (existing) return;
-		const automation = requireAutomation(automationId);
-		if (!timeZone || !isValidTimeZone(timeZone)) throw new ConvexError("Unknown time zone.");
-		const connectors = await installedConnectorIds(ctx, owner.workspaceId);
-		const missing = automation.connectors.filter((id) => !connectors.has(id)).map((id) => findConnector(id)?.name ?? id);
-		if (missing.length > 0) throw new ConvexError(`Install the ${missing.join(", ")} connector first.`);
-		const agent = await ctx.db
-			.query("agents")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", owner.workspaceId))
-			.filter((q) => q.eq(q.field("archived"), false))
-			.first();
-		if (!agent) throw new ConvexError("Create an agent first.");
-		const installId = await ctx.db.insert("automationInstalls", {
-			workspaceId: owner.workspaceId,
-			automationId,
-			agentId: agent._id,
-			enabled: true,
-			timeZone,
-			installedBy: owner.userId,
-			lastRunDate: firstRunDate(automation.trigger, timeZone),
-			webhookToken: automation.trigger.type === "webhook" ? newToken() : undefined,
-			audience: "subscribers",
-		});
-		// The owner who installs it gets it; everyone else turns it on for themselves.
-		await ctx.db.insert("automationSubscriptions", { installId, userId: owner.userId });
+		return installAutomation(ctx, await requireMember(ctx), { automationId, installed, timeZone });
 	},
 });
 
@@ -409,3 +380,35 @@ export const resetWebhook = mutation({
 export { runNow } from "./automationRuns";
 // COMPAT(0.1.0-alpha.6): cron and cleanup calls queued before this deploy may still use these paths.
 export { tick, forgetOldWebhooks } from "./automationRuns";
+
+export async function installAutomation(ctx: MutationCtx, member: Member, { automationId, installed, timeZone }: { automationId: string; installed: boolean; timeZone?: string }) {
+	// COMPAT(0.1.0-alpha.6): drop removal through setInstalled; apps use remove.
+	if (!installed) return removeAutomation(ctx, member, automationId);
+	const existing = await installOf(ctx, member.workspaceId, automationId);
+	checkPermission(member, "automations.manage");
+	const owner = member;
+	if (existing) return;
+	const automation = requireAutomation(automationId);
+	if (!timeZone || !isValidTimeZone(timeZone)) throw new ConvexError("Unknown time zone.");
+	const connectors = await installedConnectorIds(ctx, owner.workspaceId);
+	const missing = automation.connectors.filter((id) => !connectors.has(id)).map((id) => findConnector(id)?.name ?? id);
+	if (missing.length > 0) throw new ConvexError(`Install the ${missing.join(", ")} connector first.`);
+	const agent = await ctx.db
+		.query("agents")
+		.withIndex("by_workspace_active", (q) => q.eq("workspaceId", owner.workspaceId).eq("archived", false))
+		.first();
+	if (!agent) throw new ConvexError("Create an agent first.");
+	const installId = await ctx.db.insert("automationInstalls", {
+		workspaceId: owner.workspaceId,
+		automationId,
+		agentId: agent._id,
+		enabled: true,
+		timeZone,
+		installedBy: owner.userId,
+		lastRunDate: firstRunDate(automation.trigger, timeZone),
+		webhookToken: automation.trigger.type === "webhook" ? newToken() : undefined,
+		audience: "subscribers",
+	});
+	// The owner who installs it gets it; everyone else turns it on for themselves.
+	await ctx.db.insert("automationSubscriptions", { installId, userId: owner.userId });
+}

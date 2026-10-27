@@ -2,7 +2,9 @@ import type { ChatLine, ChatResult } from "@companybot/core";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
-import { type Namer, canSee, chatByRef, chatLabel, namer, reactionsOf, textForModel, toggleReaction } from "./chatOps";
+import { type Namer, canSee, chatByRef, chatLabel, namer, reactionsOf, textForModel } from "./chatOps";
+import { asToolResult } from "./lib";
+import { reactMessage } from "./messages";
 import { runningTurn } from "./turns";
 
 // ---- Chat tools (core's ChatStore), acting as the turn's person ----
@@ -10,12 +12,8 @@ import { runningTurn } from "./turns";
 export const reactFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), emoji: v.string() },
 	handler: async (ctx, { turnId, emoji }): Promise<{ reacted: boolean } | { error: string }> => {
-		const { turn } = await runningTurn(ctx, turnId);
-		const trigger = await ctx.db.get(turn.triggerId);
-		if (!trigger || trigger.deleted) return { error: "That message was deleted." };
-		const clean = emoji.trim();
-		if (!clean) return { error: "Pick an emoji." };
-		return { reacted: await toggleReaction(ctx, trigger, clean, { agentId: turn.agentId }) };
+		const { turn, who } = await runningTurn(ctx, turnId);
+		return asToolResult(async () => ({ reacted: await reactMessage(ctx, who, turn.triggerId, emoji) }));
 	},
 });
 

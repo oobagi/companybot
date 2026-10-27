@@ -101,12 +101,13 @@ One place for everything deleted, like [Notion's Trash](https://www.notion.com/h
 
 ## Agent tools
 `core/src/record-tools.ts` → `ToolContext.records` → `backend/convex/recordTools.ts` (internal `*For` per turn, through `recordOps`). Granted as `records.*`; Companybot has them (migration `companybotRecordTools` for existing ones). All `risk: none`: internal and logged. Record changes have undo; database/view changes do not.
-- `records_types` — databases with versions, fields (key, label, kind, options, `linksTo`), workspace currency.
+- `records_types` — databases with versions, fields (key, label, kind, options, stable-id `choices`, position, `inTrash`, `linksTo`); `trashed` selects databases in Trash, workspace currency.
 - `records_find` — one database with filters, sort and `cursor` (`records.list` underneath), or `search` (title and text, top 20, no filters). Asks up to 5 times to fill a short page; `more` + `cursor` when there's more. Data result: rows `{ _id, _type? (search across types), …field key: display value }` (keys start with a letter, so a field called "id" can't clash), so `widgets_table` shows them by ref (`path: "rows"`).
 - `records_get` — one record: values, `links` (with ids), `linkedFrom` (10), last 5 `changes` with change ids and who (person + agent).
+- `records_history` — all record history by id, or workspace Activity without id; `source: agents` reads visible agent tool calls with outputs private to the acting person. Indexed pages of up to 20 (`limit`), newest first; long model results are trimmed, and `change` reads the full entry as JSON in 20,000-character chunks (`start`/`next`). continue with `continueCursor` while `isDone` is false.
 - `records_save` — create, patch values, or delete/restore (`trash`, on its own). Returns the record and its `change` id.
 - `records_undo` — reverses one change (`undoChange`); undoing a create deletes it (to Trash).
-- `records_save_field` — add a field (`fields.create`), rename one / set its options, or delete/restore it (`trash`; maker or `fields.manage`).
+- `records_save_field` — add a field (`fields.create`), rename one / set ordered options (strings or `{id,label}` to preserve stored values while renaming), reorder fields (`position`, owners; Name stays first), or delete/restore it (`trash`; maker or `fields.manage`).
 - `records_save_database` — create (one `name`, e.g. "Projects"; `singular` optional), rename (database key/id + version), or delete/restore (`trash`), owners only (`fields.manage`).
 - `records_views` — saved view ids, versions and complete configs for one database.
 - `records_save_view` — create, patch or delete (`remove: true`) a shared view (`records.edit`); updates/deletes require its current version. Omitted settings keep their previous values; `sort: null` clears it. Accepts field keys or labels, choice labels, teammates by name or "me", and linked records by exact name or id, like `records_find`. Saved choices use stable option ids.
@@ -115,7 +116,7 @@ One place for everything deleted, like [Notion's Trash](https://www.notion.com/h
 - **What the model sees is capped** (`forModel`, ~24k characters): long text is cut (300 in lists, 2,000 on one record, shorter until it fits), then rows dropped, with a `trimmed` note. The full result stays behind the ref for widgets.
 - **Display:** `displayValues` (core): option labels, names, `formatMoney` in en-US so "$" is only USD, `formatDate` ("Nov 15, 2026", the same helper the record screens use). Input amounts follow Money; dates go in and filter as `YYYY-MM-DD` (the tool descriptions say so).
 - **Tool lines** say what the call did, from its input and result (`ToolDef.label`, `callLabel`): "Created deal Reroof main warehouse", "Saved Acme Roofing", "Found 1 deal", "Added field Roof type to Clients", "Undid a change to Acme Roofing". Results carry the type's names for this (`typeName`, `typePlural`). A call that fails (including an `{ error }` result) is labeled from its input alone: "Couldn't create deal Reroof main warehouse", else the tool's title.
-- Not exposed to agents: deleting forever, workspace-wide history.
+- Not exposed to agents: deleting forever.
 
 ## Not built yet
 - Automation triggers. Screens are built ([Product](product.md#crm-data-layer-and-screens-built)); code in `desktop/…/views/records/`.

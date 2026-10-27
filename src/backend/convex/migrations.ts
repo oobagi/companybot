@@ -164,6 +164,8 @@ export const trashDatabases = archivedToTrash("recordTypes", (t) => ({ kind: "da
 export const trashFields = archivedToTrash("recordFields", (f) => ({ kind: "field", name: f.label, deletedBy: f.createdBy, typeId: f.typeId }));
 export const trashPages = archivedToTrash("pages", (p) => ({ kind: "page", name: p.title, deletedBy: p.updatedBy }));
 
+export const companybotParity2Tools = grantCompanybot(["agents.manage"]);
+
 /** Every migration, oldest first. Never reorder or remove entries that have shipped. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.connectorInstalls,
@@ -182,6 +184,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.trashDatabases,
 	internal.migrations.trashFields,
 	internal.migrations.trashPages,
+	internal.migrations.companybotParity2Tools,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

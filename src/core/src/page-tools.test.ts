@@ -17,6 +17,15 @@ describe("pages tools", () => {
 		expect(rest.more).toBeUndefined();
 	});
 
+	it("chunks structured blocks without altering their properties", async () => {
+		const blocks = JSON.stringify([{ type: "blockContainer", attrs: { id: "stable" }, content: [{ type: "paragraph", attrs: { textAlignment: "center", textColor: "red" }, content: [{ type: "text", text: "x".repeat(PAGE_READ_MAX) }] }] }]);
+		const c = { ...ctx(member), pages: { read: async () => ({ ...page, markdown: "", blocks }) } as unknown as PageStore };
+		const first: any = await tool("pages.read").execute({ page: "p1", format: "blocks" }, c);
+		const rest: any = await tool("pages.read").execute({ page: "p1", format: "blocks", start: first.next }, c);
+		expect(first.blocks + rest.blocks).toBe(blocks);
+		expect(rest.more).toBeUndefined();
+	});
+
 	it("say what each write did", () => {
 		const label = (input: object, output: object) => tool("pages.write").label!(input, output);
 		expect(label({ title: "SOP" }, { title: "SOP" })).toBe("Create page SOP");

@@ -357,7 +357,7 @@ export async function updateField(
 	ctx: MutationCtx,
 	who: Who,
 	fieldId: Id<"recordFields">,
-	update: { label?: string; options?: { id?: string; label: string }[] },
+	update: { label?: string; options?: { id?: string; label: string }[]; position?: number },
 ) {
 	const field = await requireEditableField(ctx, who.member, fieldId);
 	if (field.archived) throw new ConvexError("This field is in Trash. Restore it to make changes.");
@@ -377,11 +377,25 @@ export async function updateField(
 	requireFieldConfig(config);
 	requireUniqueLabel(await fieldsOf(ctx, field.typeId), config.label, fieldId);
 	const changes: Change[] = [];
+	let reordered: Doc<"recordFields">[] | undefined;
+	if (update.position !== undefined) {
+		requireCan(who.member, "fields.manage");
+		const fields = (await fieldsOf(ctx, field.typeId)).filter((f) => !f.archived);
+		if (field.key === NAME_KEY || !Number.isInteger(update.position) || update.position < 1 || update.position >= fields.length)
+			throw new ConvexError("Choose a field position after Name within the live fields.");
+		const old = fields.findIndex((f) => f._id === fieldId);
+		if (old !== update.position) {
+			reordered = fields.filter((f) => f._id !== fieldId);
+			reordered.splice(update.position, 0, field);
+			changes.push({ key: "position", old, new: update.position });
+		}
+	}
 	if (config.label !== field.label) changes.push({ key: "label", old: field.label, new: config.label });
 	const labels = (options?: { label: string; retired?: boolean }[]) => options?.filter((o) => !o.retired).map((o) => o.label) ?? [];
 	if (!sameValue(labels(field.options), labels(config.options)))
 		changes.push({ key: "options", old: labels(field.options), new: labels(config.options) });
 	if (changes.length === 0) return;
+	if (reordered) for (const [position, f] of reordered.entries()) await ctx.db.patch(f._id, { position });
 	await ctx.db.patch(fieldId, { label: config.label, ...(config.options && { options: config.options }), updatedAt: Date.now() });
 	await logChange(ctx, who, { typeId: field.typeId, fieldId, action: "field.updated", changes });
 }

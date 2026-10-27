@@ -1,7 +1,6 @@
-import { databaseInput, viewInput } from "@companybot/core";
+import { databaseInput, fieldInput, isGranted, viewInput } from "@companybot/core";
 import { deleteView, saveView, viewsOf } from "./databaseViews";
 import {
-	type FieldSaveInput,
 	type RecordFindInput,
 	type RecordPage,
 	type RecordSaveInput,
@@ -14,7 +13,7 @@ import {
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
-import { type Member, asToolResult, nameOf } from "./lib";
+import { type Member, asToolResult, nameOf, requireInWorkspace } from "./lib";
 import {
 	createType,
 	updateType,
@@ -38,6 +37,8 @@ import {
 } from "./recordOps";
 import { ANY_OF_MAX, CONDITIONS_MAX, type Condition } from "./recordQuery";
 import { PAGE_MAX, linkingRecords, listRecords, searchRecords } from "./recordReads";
+import { historyAs, activityAs, toEntries } from "./records";
+import { activityPage } from "./activity";
 import { runningTurn } from "./turns";
 
 // Records tools (core's RecordStore), acting as the turn's person: their role, read fresh
@@ -223,10 +224,10 @@ async function recordOut(ctx: QueryCtx, member: Member, recordId: Id<"records">)
 }
 
 export const typesFor = internalQuery({
-	args: { turnId: v.id("agentTurns") },
-	handler: async (ctx, { turnId }): Promise<RecordTypesResult> => {
+	args: { turnId: v.id("agentTurns"), trashed: v.optional(v.boolean()) },
+	handler: async (ctx, { turnId, trashed = false }): Promise<RecordTypesResult> => {
 		const { member } = await runningTurn(ctx, turnId);
-		const types = await liveTypes(ctx, member);
+		const types = (await typesOf(ctx, member.workspaceId)).filter((t) => t.archived === trashed);
 		const keys = new Map(types.map((t) => [t._id, t.key]));
 		return {
 			currency: await currencyOf(ctx, member.workspaceId),
@@ -236,12 +237,15 @@ export const typesFor = internalQuery({
 					name: t.name,
 					plural: t.plural,
 					version: t.version ?? 0,
+					...(t.archived && { inTrash: true }),
 					fields: (await fieldsOf(ctx, t._id))
-						.filter((f) => !f.archived)
 						.map((f) => ({
 							key: f.key,
 							label: f.label,
 							kind: f.kind,
+							position: f.position,
+							...(f.archived && { inTrash: true }),
+							...(f.options && { choices: f.options }),
 							...(f.options && { options: f.options.filter((o) => !o.retired).map((o) => o.label) }),
 							...(f.linkTypeId && { linksTo: keys.get(f.linkTypeId) ?? "(a deleted database)" }),
 							...(f.multiple && { multiple: true as const }),
@@ -387,24 +391,26 @@ export const saveFieldFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), input: v.any() },
 	handler: async (ctx, { turnId, input }) => {
 		const { member, who } = await runningTurn(ctx, turnId);
-		const { type: typeName, field: name, label, kind, options, linksTo, multiple, trash } = input as FieldSaveInput;
 		return asToolResult(async () => {
+			const { type: typeName, field: name, label, kind, options: rawOptions, linksTo, multiple, trash, position } = fieldInput.parse(input);
+			const options = rawOptions?.map((o) => typeof o === "string" ? { label: o } : o);
 			const type = await typeNamed(ctx, member, typeName);
 			let fieldId: Id<"recordFields">;
 			if (trash !== undefined) {
-				if (!name || label || kind || options || linksTo || multiple !== undefined) throw new ConvexError("Say which field to delete or restore, on its own.");
+				if (!name || label || kind || options || linksTo || multiple !== undefined || position !== undefined) throw new ConvexError("Say which field to delete or restore, on its own.");
 				fieldId = fieldNamed(await fieldsOf(ctx, type._id), name, type, !trash)._id;
 				await setFieldTrashed(ctx, who, fieldId, trash);
 			} else if (name) {
 				const field = fieldNamed(await fieldsOf(ctx, type._id), name, type);
 				if ((kind && kind !== field.kind) || linksTo || multiple !== undefined)
 					throw new ConvexError("Only a field's name and options can change. Add a new field instead.");
-				await updateField(ctx, who, field._id, { label, options: options?.map((o) => ({ label: o })) });
+				await updateField(ctx, who, field._id, { label, options, position });
 				fieldId = field._id;
 			} else {
+				if (position !== undefined) throw new ConvexError("Create the field before moving it.");
 				if (!label || !kind) throw new ConvexError("Give the new field a label and a kind.");
 				const linkTypeId = linksTo ? (await typeNamed(ctx, member, linksTo))._id : undefined;
-				fieldId = (await createField(ctx, who, type._id, { label, kind, options: options?.map((o) => ({ label: o })), linkTypeId, multiple }))._id;
+				fieldId = (await createField(ctx, who, type._id, { label, kind, options, linkTypeId, multiple }))._id;
 			}
 			const f = (await ctx.db.get(fieldId))!;
 			return {
@@ -413,6 +419,8 @@ export const saveFieldFor = internalMutation({
 				key: f.key,
 				label: f.label,
 				kind: f.kind,
+				position: f.position,
+				...(f.options && { choices: f.options }),
 				...(f.options && { options: f.options.filter((o) => !o.retired).map((o) => o.label) }),
 				...(f.linkTypeId && { linksTo: (await ctx.db.get(f.linkTypeId))?.key }),
 				...(f.multiple && { multiple: true }),
@@ -485,6 +493,33 @@ export const saveViewFor = internalMutation({
 				columns: parsed.columns ?? old?.columns.filter(live) ?? ["name"],
 			}, viewId || undefined, parsed.version);
 			return ctx.db.get(id);
+		});
+	},
+});
+
+export const historyFor = internalQuery({
+	args: { turnId: v.id("agentTurns"), id: v.optional(v.string()), source: v.optional(v.union(v.literal("records"), v.literal("agents"))), cursor: v.optional(v.string()), change: v.optional(v.string()), limit: v.optional(v.number()) },
+	handler: async (ctx, { turnId, id, source, cursor, change, limit }) => {
+		const { member, turn } = await runningTurn(ctx, turnId);
+		const agent = await ctx.db.get(turn.agentId);
+		if (!agent || agent.archived || !isGranted(agent.tools, "records.history")) throw new ConvexError("This agent no longer has that tool.");
+		return asToolResult(async () => {
+			const opts = { numItems: Math.min(Math.max(limit ?? 20, 1), 20), cursor: cursor ?? null };
+			if (change) {
+				if (source === "agents") throw new ConvexError("Use change only for record history.");
+				const entryId = ctx.db.normalizeId("recordHistory", change);
+				const entry = requireInWorkspace(member, entryId ? await ctx.db.get(entryId) : null, "Change");
+				if (id && entry.recordId !== id) throw new ConvexError("Change belongs to a different record.");
+				return (await toEntries(ctx, member.workspaceId, [{ entry, fields: await fieldsOf(ctx, entry.typeId) }]))[0]!;
+			}
+			if (source === "agents") {
+				if (id) throw new ConvexError("Use id only for record history.");
+				return activityPage(ctx, member, opts);
+			}
+			if (!id) return activityAs(ctx, member, opts);
+			const recordId = ctx.db.normalizeId("records", id);
+			if (!recordId) throw new ConvexError("Record not found.");
+			return historyAs(ctx, member, await requireRecord(ctx, member, recordId), opts);
 		});
 	},
 });

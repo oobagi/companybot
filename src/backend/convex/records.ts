@@ -1,11 +1,11 @@
 import { condition, recordSort } from "./recordValidators";
-import { type PaginationResult, paginationOptsValidator } from "convex/server";
+import { type PaginationOptions, type PaginationResult, paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { canSee } from "./chatOps";
-import { getMember, nameOf, requireMember } from "./lib";
+import { type Member, getMember, nameOf, requireMember } from "./lib";
 import { trashInfo } from "./trashOps";
 import { fieldsByType, linkingRecords, listRecords, searchRecords } from "./recordReads";
 import {
@@ -113,13 +113,7 @@ export const history = query({
 		const member = await getMember(ctx);
 		const record = member && (await ctx.db.get(recordId));
 		if (!member || record?.workspaceId !== member.workspaceId) return empty<Entry>();
-		const result = await ctx.db
-			.query("recordHistory")
-			.withIndex("by_record", (q) => q.eq("recordId", recordId))
-			.order("desc")
-			.paginate(capped(paginationOpts, HISTORY_PAGE_MAX));
-		const fields = await fieldsOf(ctx, record.typeId);
-		return { ...result, page: await toEntries(ctx, member.workspaceId, result.page.map((entry) => ({ entry, fields }))) };
+		return historyAs(ctx, member, record, paginationOpts);
 	},
 });
 
@@ -129,26 +123,14 @@ export const activity = query({
 	handler: async (ctx, { paginationOpts }) => {
 		const member = await getMember(ctx);
 		if (!member) return empty<Entry & { record: string | null; type: string }>();
-		const result = await ctx.db
-			.query("recordHistory")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
-			.order("desc")
-			.paginate(capped(paginationOpts, HISTORY_PAGE_MAX));
-		const fields = fieldsByType(ctx);
-		const entries = await toEntries(ctx, member.workspaceId, await Promise.all(result.page.map(async (entry) => ({ entry, fields: await fields(entry.typeId) }))));
-		const page = [];
-		for (const [i, e] of result.page.entries()) {
-			const record = e.recordId && (await ctx.db.get(e.recordId));
-			page.push({ ...entries[i]!, record: record ? record.title : null, type: (await ctx.db.get(e.typeId))?.name ?? "" });
-		}
-		return { ...result, page };
+		return activityAs(ctx, member, paginationOpts);
 	},
 });
 
 type Entry = Awaited<ReturnType<typeof toEntries>>[number];
 
 /** History entries, display-ready, with names resolved once for the page. */
-async function toEntries(ctx: QueryCtx, workspaceId: Id<"workspaces">, items: { entry: Doc<"recordHistory">; fields: Doc<"recordFields">[] }[]) {
+export async function toEntries(ctx: QueryCtx, workspaceId: Id<"workspaces">, items: { entry: Doc<"recordHistory">; fields: Doc<"recordFields">[] }[]) {
 	const idsOf = items.map(({ entry, fields }) =>
 		entry.recordId ? entry.changes.flatMap((c) => [...idsIn(fields, { [c.key]: c.old }), ...idsIn(fields, { [c.key]: c.new })]) : [],
 	);
@@ -251,3 +233,28 @@ export const undo = mutation({
 	},
 });
 
+export async function historyAs(ctx: QueryCtx, member: Member, record: Doc<"records">, paginationOpts: PaginationOptions) {
+	const result = await ctx.db
+		.query("recordHistory")
+		.withIndex("by_record", (q) => q.eq("recordId", record._id))
+		.order("desc")
+		.paginate(capped(paginationOpts, HISTORY_PAGE_MAX));
+	const fields = await fieldsOf(ctx, record.typeId);
+	return { ...result, page: await toEntries(ctx, member.workspaceId, result.page.map((entry) => ({ entry, fields }))) };
+}
+
+export async function activityAs(ctx: QueryCtx, member: Member, paginationOpts: PaginationOptions) {
+	const result = await ctx.db
+		.query("recordHistory")
+		.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
+		.order("desc")
+		.paginate(capped(paginationOpts, HISTORY_PAGE_MAX));
+	const fields = fieldsByType(ctx);
+	const entries = await toEntries(ctx, member.workspaceId, await Promise.all(result.page.map(async (entry) => ({ entry, fields: await fields(entry.typeId) }))));
+	const page = [];
+	for (const [i, e] of result.page.entries()) {
+		const record = e.recordId && (await ctx.db.get(e.recordId));
+		page.push({ ...entries[i]!, record: record ? record.title : null, type: (await ctx.db.get(e.typeId))?.name ?? "" });
+	}
+	return { ...result, page };
+}

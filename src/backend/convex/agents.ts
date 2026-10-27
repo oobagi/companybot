@@ -14,7 +14,7 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
-import { checkVersion, getMember, namesOf, requireAgent, requirePermission, toActor } from "./lib";
+import { type Member, checkPermission, checkVersion, getMember, namesOf, requireAgent, requirePermission, toActor } from "./lib";
 import { connectorStates } from "./connectors";
 import { agentConfig } from "./schema";
 
@@ -131,7 +131,7 @@ export const create = mutation({
 	args: {},
 	handler: async (ctx) => {
 		const owner = await requirePermission(ctx, "agents.manage");
-		return insertAgent(ctx, owner.workspaceId, owner.userId, blankAgent);
+		return createAgent(ctx, owner);
 	},
 });
 
@@ -139,9 +139,7 @@ export const update = mutation({
 	args: { agentId: v.id("agents"), expectedVersion: v.number(), config: agentConfig },
 	handler: async (ctx, { agentId, expectedVersion, config }) => {
 		const owner = await requirePermission(ctx, "agents.manage");
-		const agent = await requireAgent(ctx, owner, agentId);
-		checkVersion(agent.version, expectedVersion);
-		await saveVersion(ctx, agent, clean(config), owner.userId);
+		await updateAgent(ctx, owner, agentId, expectedVersion, config);
 	},
 });
 
@@ -166,15 +164,31 @@ export const setArchived = mutation({
 	args: { agentId: v.id("agents"), archived: v.boolean() },
 	handler: async (ctx, { agentId, archived }) => {
 		const owner = await requirePermission(ctx, "agents.manage");
-		const agent = await requireAgent(ctx, owner, agentId);
-		if (archived) {
-			const active = await ctx.db
-				.query("agents")
-				.withIndex("by_workspace", (q) => q.eq("workspaceId", owner.workspaceId))
-				.filter((q) => q.eq(q.field("archived"), false))
-				.collect();
-			if (active.length <= 1) throw new ConvexError("Keep at least one agent.");
-		}
-		await ctx.db.patch(agent._id, { archived });
+		await archiveAgent(ctx, owner, agentId, archived);
 	},
 });
+
+export async function createAgent(ctx: MutationCtx, member: Member, withoutTools = false) {
+	checkPermission(member, "agents.manage");
+	return insertAgent(ctx, member.workspaceId, member.userId, { ...blankAgent, ...(withoutTools && { tools: [] }) });
+}
+
+export async function updateAgent(ctx: MutationCtx, member: Member, agentId: Id<"agents">, expectedVersion: number, config: AgentConfig) {
+	checkPermission(member, "agents.manage");
+	const agent = await requireAgent(ctx, member, agentId);
+	checkVersion(agent.version, expectedVersion);
+	await saveVersion(ctx, agent, clean(config), member.userId);
+}
+
+export async function archiveAgent(ctx: MutationCtx, member: Member, agentId: Id<"agents">, archived: boolean) {
+	checkPermission(member, "agents.manage");
+	const agent = await requireAgent(ctx, member, agentId);
+	if (archived) {
+		const active = await ctx.db
+			.query("agents")
+			.withIndex("by_workspace_active", (q) => q.eq("workspaceId", member.workspaceId).eq("archived", false))
+			.take(2);
+		if (active.length <= 1) throw new ConvexError("Keep at least one agent.");
+	}
+	await ctx.db.patch(agent._id, { archived });
+}

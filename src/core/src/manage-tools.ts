@@ -20,6 +20,10 @@ export const manageInputs = {
 		request: z.discriminatedUnion("action", [
 			z.strictObject({ action: z.literal("find_people"), kind: z.enum(["people", "agents", "invites"]).optional(), ...page }),
 			z.strictObject({ action: z.literal("list_chats"), ...page }),
+			z.strictObject({ action: z.literal("mark_read"), chat: id }),
+			z.strictObject({ action: z.literal("edit"), messageId: id, text: z.string().min(1).max(20_000) }),
+			z.strictObject({ action: z.literal("delete"), messageId: id }),
+			z.strictObject({ action: z.literal("react"), messageId: id, emoji: z.string().min(1).max(16) }),
 			z.strictObject({ action: z.literal("open_dm"), userIds: userIds.describe("Others in the DM; you are added"), agentIds }),
 			z.strictObject({
 				action: z.literal("send"),
@@ -52,6 +56,8 @@ export const manageInputs = {
 		request: z.discriminatedUnion("action", [
 			z.strictObject({ action: z.literal("list"), ...page }),
 			z.strictObject({ action: z.literal("get"), id }),
+			z.strictObject({ action: z.literal("install"), id, timeZone: z.string() }),
+			z.strictObject({ action: z.literal("run"), id }),
 			z.strictObject({
 				action: z.literal("edit"),
 				id,
@@ -84,9 +90,21 @@ export const manageInputs = {
 	"members.remove": z.object({
 		request: z.strictObject({ action: z.literal("remove"), email: z.string().email() }),
 	}),
+	"agents.manage": z.object({
+		request: z.discriminatedUnion("action", [
+			z.strictObject({ action: z.literal("list"), ...page }),
+			z.strictObject({ action: z.literal("get"), id }),
+			z.strictObject({ action: z.literal("history"), id, ...page }),
+			z.strictObject({ action: z.literal("create") }),
+			z.strictObject({ action: z.literal("archive"), id }),
+			z.strictObject({ action: z.literal("update"), id, expectedVersion: version, name: z.string().optional(), description: z.string().optional(), instructions: z.string().optional(), model: z.string().optional() }),
+		]),
+	}),
 	"workspace.settings": z.object({
 		request: z.discriminatedUnion("action", [
 			z.strictObject({ action: z.literal("get") }),
+			z.strictObject({ action: z.literal("get_preferences") }),
+			z.strictObject({ action: z.literal("update_preferences"), displayName: z.string().max(60).optional(), sendWith: z.enum(["enter", "mod-enter"]).optional(), notify: z.enum(["all", "mentions", "off"]).optional(), timeZone: z.string().nullable().optional() }),
 			z.strictObject({
 				action: z.literal("update"),
 				expectedVersion: version,
@@ -103,11 +121,11 @@ export interface ManageStore {
 }
 const descriptions: Record<ManageTool, string> = {
 	"chat.manage":
-		"Find people (paged directory, including agent ids), list your chats, open a DM with exact participant ids, or deliver a message to a chosen chat/thread. Sent as you for the person; never triggers agents or automations. Only send when asked; do not copy private information to a wider audience without their request.",
+		"Find people (paged directory, including agent ids), list your chats, open a DM with exact participant ids, deliver a message to a chosen chat/thread, edit your person's own messages, delete them with locked approval, react to an exact message, or explicitly mark a chat read when asked. Sent as you for the person; never triggers agents or automations. Only send when asked; do not copy private information to a wider audience without their request.",
 	"channels.manage":
 		"Browse public channels, inspect a visible channel and paged participants, create, rename, set/clear topic, add/remove members, join or leave. Use chat ids or #names. Managers remove members; everyone stays in general. Delete moves a channel to Trash for 30 days and waits for approval; only its creator or an owner can do it. Restore by its exact id as the deleter or an owner. Never deletes forever.",
 	"automations.manage":
-		"List or inspect visible automations (prompt, version, agent, state), edit custom config using its current expectedVersion, pause/resume globally, or change agent/audience. Confirm changes first. Resuming grants no consent: future outside actions still ask. Webhook secrets are omitted.",
+		"List or inspect visible automations (prompt, version, agent, state), edit custom config using its current expectedVersion, pause/resume globally, change agent/audience, install a library automation, or run a sample once just for the person. Runs cannot start other runs. Confirm changes first. Resuming grants no consent: future outside actions still ask. Webhook secrets are omitted.",
 	"automations.remove":
 		"Permanently delete/uninstall an automation by id. Stops runs and removes subscriptions and approval grants. The exact call waits for approval.",
 	"skills.manage":
@@ -117,8 +135,9 @@ const descriptions: Record<ManageTool, string> = {
 		"Invite an email as a member, or resend or cancel the invitation for an email (owners). Invite and resend send email outside the workspace and wait for approval. Cannot invite owners or change roles.",
 	"members.remove":
 		"Remove another member by their email (owners). Deletes their personal workspace data and access. The exact call waits for approval; cannot remove yourself.",
+	"agents.manage": "Browse agents and their paged configuration history, create an agent with no tools, edit metadata, or archive an agent. Writes require an owner. Archiving and changing another agent's instructions or model wait for approval; do them only when asked; you cannot change your own instructions/model, grant tools, restore grants or reactivate an agent. Use the current expectedVersion. Get includes the model catalog.",
 	"workspace.settings":
-		"Read workspace name, default currency, memory switch and version; update these as an owner using the current expectedVersion. Existing amounts keep their currency; the default only affects new amounts. Memory off keeps stored memories. Change only when asked.",
+		"Read/update the acting person's display name, send shortcut, notification preference and explicit time zone (null = automatic). Device time zone is measured by the device. Read workspace name, default currency, memory switch and version; update these as an owner using the current expectedVersion. Existing amounts keep their currency; the default only affects new amounts. Memory off keeps stored memories. Change only when asked.",
 };
 const titles: Record<ManageTool, string> = {
 	"chat.manage": "Manage messages and DMs",
@@ -130,6 +149,7 @@ const titles: Record<ManageTool, string> = {
 	"members.invite": "Manage member invitations",
 	"members.remove": "Remove a member",
 	"workspace.settings": "Manage workspace settings",
+	"agents.manage": "Manage agents",
 };
 export const manageTools: ToolDef[] = (Object.keys(manageInputs) as ManageTool[]).map((id) =>
 	defineTool<unknown>({
@@ -139,10 +159,12 @@ export const manageTools: ToolDef[] = (Object.keys(manageInputs) as ManageTool[]
 		input: manageInputs[id],
 		...((id === "members.invite" || id === "members.remove") && { permission: "members.manage" as const }),
 		...(id.endsWith(".remove") ? { risk: "locked" as const } : id === "members.invite" ? { risk: "outside" as const } : {}),
-		...(id === "channels.manage" && {
+		// Deleting, archiving an agent, or rewriting another agent's instructions/model always asks.
+		...((id === "channels.manage" || id === "chat.manage" || id === "agents.manage") && {
 			riskFor: (input: unknown) => {
-				const parsed = manageInputs["channels.manage"].safeParse(input);
-				return parsed.success && parsed.data.request.action === "delete" ? "locked" as const : "none" as const;
+				const r = manageInputs[id].safeParse(input).data?.request as { action: string; instructions?: string; model?: string } | undefined;
+				const locked = r && (r.action === "delete" || r.action === "archive" || (r.action === "update" && (r.instructions !== undefined || r.model !== undefined)));
+				return locked ? "locked" as const : "none" as const;
 			},
 		}),
 		execute: (input, { manage }) => manage.run(id, input),

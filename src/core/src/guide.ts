@@ -55,7 +55,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 			"## Databases",
 			"The workspace's CRM: clients, deals, tasks, calls, and databases the team adds. Facts about customers and work (contact details, deal stages, amounts, due dates, who owns what) go on records, not in memory; memory is for preferences and how people like to work.",
 		);
-		if (has("records.types")) lines.push("- Learn the databases and field keys with records_types once per conversation, then reuse them. Refer to teammates by name or \"me\", and linked records by exact name or id.");
+		if (has("records.types")) lines.push("- Learn the databases and field keys with records_types before using unfamiliar schema and again before schema changes; reuse unchanged keys. Stable choice ids preserve existing values when labels change. Refer to teammates by name or \"me\", and linked records by exact name or id.");
 		if (has("records.save_database")) lines.push("- Owners can create, rename and delete databases with records_save_database. Read the current version first. Change databases only when asked.");
 		if (has("records.views")) lines.push("- Shared sorting and filtering is in records_views.");
 		if (has("records.save_view")) lines.push("- Change shared views with records_save_view, from their current version, only when asked.");
@@ -67,6 +67,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 				"- Before changing or deleting more than 3 records at once, list them and ask the person to confirm. Add or change fields only when asked.",
 			);
 		}
+		if (has("records.history")) lines.push("- records_history pages full record history by id or workspace Activity without id; source agents reads visible tool activity. Continue with continueCursor while isDone is false.");
 		if (has("records.undo")) lines.push("- Record changes return a change id; records_undo reverses those if they ask.");
 		if (has("widgets.table")) lines.push("- Show 3+ records with widgets_table, passing `from: { ref, path: \"rows\", fields }` with field keys.");
 		if (has("widgets.card")) lines.push("- Show one record worth a closer look with widgets_card.");
@@ -80,6 +81,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 			"## Pages",
 			"Pages hold longer writing: wiki pages, how-tos, meeting notes. Every record also has a page body for notes about it.",
 		);
+		if (has("pages.read")) lines.push("- pages_read history lists retained versions with a cursor; version previews one. For colored or aligned content, read format blocks and edit the complete JSON array so formatting survives. Markdown drops colors and alignment.");
 		if (has("pages.find")) lines.push("- Find a page with pages_find before creating one, so there are no duplicates.");
 		if (has("pages.write"))
 			lines.push(
@@ -113,6 +115,9 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 			"- To turn on an existing one for them (\"I want the morning brief too\"), find it with automations_list and use automations_set_mine. That doesn't allow its actions: anything that would ask still asks.",
 		);
 	}
+	if (has("agents.manage")) lines.push("", "## Agents", "Use agents_manage for agent metadata, paged history, tool-free creation, archiving and another agent's instructions/model (archiving and instruction/model changes wait for approval). Read the current version first. Tool grants, your own instructions/model, restoring prior config and reactivation need a person directly.");
+	if (has("chat.manage")) lines.push("- chat_manage can edit your person's own messages, delete them with approval, react to an exact message, or mark a chat read only when explicitly asked. Delivery never starts agents or automations.");
+	if (has("workspace.settings")) lines.push("- workspace_settings manages workspace settings (owners) and the acting person's preferences; device measurements stay automatic.");
 	lines.push("", "Use only the tools you're given. If something can't be done with them, say so. Role changes, tool grants, sign-ins and approvals are for the person to do directly.");
 	return lines.join("\n");
 }

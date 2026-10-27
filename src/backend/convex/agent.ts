@@ -444,8 +444,8 @@ async function runApproval(
  */
 function memoryStore(ctx: ActionCtx, turnId: Id<"agentTurns">): MemoryStore {
 	return {
-		search: (query) => ctx.runQuery(internal.memory.searchFor, { turnId, query }),
-		create: ({ scope, content }) => ctx.runMutation(internal.memory.createFor, { turnId, scope, content }),
+		search: (query, agentId) => ctx.runQuery(internal.memory.searchFor, { turnId, query, ...(agentId && { agentId: agentId as Id<"agents"> }) }),
+		create: ({ scope, content, agentId }) => ctx.runMutation(internal.memory.createFor, { turnId, scope, content, ...(agentId && { agentId: agentId as Id<"agents"> }) }),
 		update: (id, content) => ctx.runMutation(internal.memory.updateFor, { turnId, id: id as Id<"memories">, content }),
 		remove: async (id) => {
 			await ctx.runMutation(internal.memory.removeFor, { turnId, id: id as Id<"memories"> });
@@ -465,7 +465,8 @@ function chatStore(ctx: ActionCtx, turnId: Id<"agentTurns">): ChatStore {
 /** Records as the turn's person may read and change them; recordTools.ts re-checks access on every call. */
 function recordStore(ctx: ActionCtx, turnId: Id<"agentTurns">): RecordStore {
 	return {
-		types: () => ctx.runQuery(internal.recordTools.typesFor, { turnId }),
+		types: (input) => ctx.runQuery(internal.recordTools.typesFor, { turnId, ...input }),
+		history: (input) => ctx.runQuery(internal.recordTools.historyFor, { turnId, ...input }),
 		find: (input) => ctx.runQuery(internal.recordTools.findFor, { turnId, input }),
 		get: ({ id }) => ctx.runQuery(internal.recordTools.getFor, { turnId, id }),
 		save: (input) => ctx.runMutation(internal.recordTools.saveFor, { turnId, input }),
@@ -485,6 +486,7 @@ function pageStore(ctx: ActionCtx, turnId: Id<"agentTurns">): PageStore {
 			const page = await ctx.runQuery(internal.pageTools.readFor, { turnId, ...input });
 			if ("error" in page) return page;
 			const { doc, ...rest } = page;
+			if (input.format === "blocks" && doc) return { ...rest, markdown: "", blocks: JSON.stringify(JSON.parse(doc).content[0].content) };
 			return { ...rest, markdown: doc === null ? "" : await ctx.runAction(internal.pageMarkdown.toMarkdown, { doc }) };
 		},
 		write: async (input) =>

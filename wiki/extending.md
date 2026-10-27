@@ -68,6 +68,8 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 - `AgentConfig` is the editable shape (`core/src/agent-config.ts`). Stored per workspace, versioned on every save. `validateAgentConfig` runs on save; add checks there.
 - The runner reads the agent fresh each turn. Anything that changes how a reply runs belongs in `turns.turnContext` + `agent.ts`; what the model is fed belongs in `core/src/turn-input.ts`.
 
+- Agent management shares `createAgent`, `updateAgent` and `archiveAgent` with the app. Tool-free creation cannot expand grants; schemas omit tools/reactivation and the backend refuses edits to the acting agent's own instructions/model.
+
 ## The app and `core`
 - The app imports only dependency-free modules from core, by deep path: `@companybot/core/permissions`, `@companybot/core/agent-config`. Importing the barrel would bundle the agent runtime (`ai`, zod) into the renderer. To expose another module, add it to `exports` in `core/package.json`.
 
@@ -103,12 +105,14 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 `pnpm typecheck && pnpm test`. Add a test for every new permission rule.
 
 ## Person–agent parity — `backend/convex/parity.ts`
-- Every exported public Convex mutation names its agent tool/action (`agent`) or a one-line `humanOnly` reason. `tests/parity.test.ts` finds every registered mutation (re-exports and aliases too) and fails on missing or stale entries and unknown tools/actions. `Pending` means a gap not built yet, not a rule.
+- Every exported public Convex mutation names its agent tool/action (`agent`) or a one-line `humanOnly` reason. `tests/parity.test.ts` finds every registered mutation (re-exports and aliases too) and fails on missing or stale entries and unknown tools/actions. Unbuilt gaps cannot be labeled human-only: the test rejects Pending/deferred placeholders. Mixed entries explain the exact authority decision a person must make.
 - Group related actions into one tool per area (`manage-tools.ts`): an object root with `request: { action, … }`, a discriminated union of strict objects. `manageTools.runFor` parses the same schema again; never cast a request into an operation.
-- Split tools where approval differs: `members.invite` is `outside`; `members.remove`, `skills.remove` and `automations.remove` are `locked`. Rules key on the tool id, so one tool for both would let an Always for invites cover removals. Members are targeted by email, so the card shows who.
+- Use `riskFor` for call-specific risk within a grouped tool (chat/channel `delete` is locked); tests must exercise the actual nested request through approval resolution. Split tools where approval differs: `members.invite` is `outside`; `members.remove`, `skills.remove` and `automations.remove` are `locked`. Rules key on the tool id, so one tool for both would let an Always for invites cover removals. Members are targeted by email, so the card shows who.
 - `runFor` calls the same functions the app's mutations do (`chats.ts`, `messages.ts`, `automations.ts`, `skills.ts`, `workspace.ts`) with the live `Member` (or `Who`, for message attribution) from `runningTurn`, and rechecks the agent's grant. Never call public mutations with the runner's auth or copy their rules. Lists page indexed ranges (30 rows).
 - Automation runs act with the reader's rights but follow the prompt's author. Manage tools refuse runs of a custom automation someone else last edited, so a member can't write a prompt that manages the workspace as an owner who turned it on.
 - Member emails are normalized on join and indexed (`memberEmails` backfills older rows); invite checks fail closed until it's done instead of scanning the team.
 - `platformGuide` gets the runner's resolved tools and gates each line on exact ids; `manage-tools.test.ts` checks every single-tool grant and role so the guide never names a tool the agent lacks.
+
+Page tool writes run in a nested mutation (`writeChecked`); expected errors are caught by its caller after Convex rolls its writes back. Keep this boundary so refused block edits cannot create blank pages or save partial renames.
 
 Tool shape references: [Anthropic's tool definitions](https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools), [consolidating tools](https://www.anthropic.com/engineering/writing-tools-for-agents), [AI SDK tool schemas](https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling). At implementation: AI SDK 7.0.148, Zod 4.6.7, Gateway provider 4.0.121; Claude Sonnet/Haiku/Opus 5.5 through Vercel AI Gateway. Separate action tools give simpler schemas and individual grants but expand model choice; nested unions retain an object root while expressing action-specific fields. Risk boundaries take precedence over grouping.

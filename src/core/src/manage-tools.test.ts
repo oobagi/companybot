@@ -23,6 +23,31 @@ describe("grouped tools", () => {
 		}
 	});
 
+	it("locks message deletion without applying an Always for other chat actions", async () => {
+		const tool = manageTools.find((t) => t.id === "chat.manage")!;
+		const request = { action: "delete", messageId: "exact-message" };
+		const action = await actionOf("chat_manage", { request }, [tool]);
+		expect(toolRisk(action!.tool)).toBe("locked");
+		expect(await toolApprovalPolicy([tool])({ toolCall: { toolCallId: "delete", toolName: "chat_manage", input: { request } } })).toBe("user-approval");
+		for (const request of [{ action: "edit", messageId: "m", text: "fixed" }, { action: "react", messageId: "m", emoji: "✅" }, { action: "mark_read", chat: "c" }])
+			expect(await toolApprovalPolicy([tool])({ toolCall: { toolCallId: "safe", toolName: "chat_manage", input: { request } } })).toBeUndefined();
+	});
+
+	it("locks agent archiving and instruction/model rewrites, not metadata edits", async () => {
+		const tool = manageTools.find((t) => t.id === "agents.manage")!;
+		const ask = (request: object) => toolApprovalPolicy([tool])({ toolCall: { toolCallId: "a", toolName: "agents_manage", input: { request } } });
+		for (const request of [{ action: "archive", id: "a" }, { action: "update", id: "a", expectedVersion: 1, instructions: "x" }, { action: "update", id: "a", expectedVersion: 1, model: "m" }])
+			expect(await ask(request)).toBe("user-approval");
+		for (const request of [{ action: "update", id: "a", expectedVersion: 1, name: "n" }, { action: "create" }, { action: "list" }])
+			expect(await ask(request)).toBeUndefined();
+	});
+
+	it("keeps grants, self-reactivation and device measurements out of management schemas", () => {
+		for (const request of [{ action: "update", id: "a", expectedVersion: 1, tools: ["*"] }, { action: "restore", id: "a" }, { action: "create", tools: ["chat.*"] }])
+			expect(manageInputs["agents.manage"].safeParse({ request }).success).toBe(false);
+		expect(manageInputs["workspace.settings"].safeParse({ request: { action: "update_preferences", deviceTimeZone: "UTC" } }).success).toBe(false);
+	});
+
 	it("asks for exact channel deletion without prompting for channel reads or edits", async () => {
 		const tool = manageTools.find((t) => t.id === "channels.manage")!;
 		const input = { request: { action: "delete", chat: "exact-channel" } };

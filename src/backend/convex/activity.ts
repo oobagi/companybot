@@ -1,4 +1,5 @@
 import { actionLabel, findConnector, toolGroup } from "@companybot/core";
+import type { PaginationOptions } from "convex/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation } from "./_generated/server";
@@ -132,4 +133,18 @@ async function toEntry(ctx: QueryCtx, row: Doc<"agentActivity">, member: Member,
 				}
 			: null,
 	};
+}
+
+/** One bounded indexed page, applying the same chat visibility and output privacy as the app. */
+export async function activityPage(ctx: QueryCtx, member: Member, opts: PaginationOptions) {
+	const result = await ctx.db.query("agentActivity")
+		.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
+		.order("desc").paginate({ ...opts, numItems: Math.min(opts.numItems, 20) });
+	const names = namer(ctx);
+	const page = [];
+	for (const row of result.page) {
+		const chat = await visibleLabel(ctx, row.chatId, member, names);
+		if (chat) page.push({ ...(await toEntry(ctx, row, member, names)), chat });
+	}
+	return { ...result, page };
 }

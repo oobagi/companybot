@@ -1,5 +1,7 @@
 import { isValidTimeZone } from "@companybot/core";
-import { ConvexError, v } from "convex/values";
+import { ConvexError, type Infer, v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { authUserId, preferencesOf } from "./lib";
 import { notify } from "./schema";
@@ -29,28 +31,34 @@ export const get = query({
 	},
 });
 
-export const update = mutation({
-	args: {
+const preferenceChanges = v.object({
 		displayName: v.optional(v.string()),
 		sendWith: v.optional(sendWith),
 		notify: v.optional(notify),
 		/** Null switches back to automatic. */
 		timeZone: v.optional(v.union(v.string(), v.null())),
 		deviceTimeZone: v.optional(v.string()),
-	},
-	handler: async (ctx, { timeZone, ...rest }) => {
+});
+
+export const update = mutation({
+	args: preferenceChanges.fields,
+	handler: async (ctx, args) => {
 		const userId = await authUserId(ctx);
 		if (!userId) throw new ConvexError("Not signed in.");
-		const changes = { ...rest, ...(timeZone !== undefined && { timeZone: timeZone ?? undefined }) };
-		for (const zone of [changes.timeZone, changes.deviceTimeZone]) {
-			if (zone !== undefined && !isValidTimeZone(zone)) throw new ConvexError("Unknown time zone.");
-		}
-		if (changes.displayName !== undefined) {
-			changes.displayName = changes.displayName.trim();
-			if (changes.displayName.length > 60) throw new ConvexError("Keep your name under 60 characters.");
-		}
-		const prefs = await preferencesOf(ctx, userId);
-		if (prefs) await ctx.db.patch(prefs._id, changes);
-		else await ctx.db.insert("preferences", { userId, ...defaults, ...changes });
+		return updatePreferences(ctx, userId, args);
 	},
 });
+
+export async function updatePreferences(ctx: MutationCtx, userId: Id<"users">, { timeZone, ...rest }: Infer<typeof preferenceChanges>) {
+	const changes = { ...rest, ...(timeZone !== undefined && { timeZone: timeZone ?? undefined }) };
+	for (const zone of [changes.timeZone, changes.deviceTimeZone]) {
+		if (zone !== undefined && !isValidTimeZone(zone)) throw new ConvexError("Unknown time zone.");
+	}
+	if (changes.displayName !== undefined) {
+		changes.displayName = changes.displayName.trim();
+		if (changes.displayName.length > 60) throw new ConvexError("Keep your name under 60 characters.");
+	}
+	const prefs = await preferencesOf(ctx, userId);
+	if (prefs) await ctx.db.patch(prefs._id, changes);
+	else await ctx.db.insert("preferences", { userId, ...defaults, ...changes });
+}

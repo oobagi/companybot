@@ -63,7 +63,7 @@ describe("records tools", () => {
 		await tool("records.undo").execute({ change: "h1" }, c);
 		await tool("records.save_field").execute({ type: "client", label: "Roof type", kind: "text" }, c);
 		expect(seen).toEqual([
-			["types", undefined],
+			["types", {}],
 			["get", { id: "r1" }],
 			["save", { type: "client", values: { name: "Acme" } }],
 			["undo", { change: "h1" }],
@@ -71,11 +71,27 @@ describe("records tools", () => {
 		]);
 	});
 
+	it("reads large history entries without losing content between chunks", async () => {
+		const entry = { _id: "h1", changes: [{ key: "notes", old: "x".repeat(10_000), new: '\"'.repeat(20_000) }] };
+		const c = { ...ctx(member), records: { history: async () => entry } as unknown as RecordStore };
+		let json = "";
+		let start = 0;
+		for (;;) {
+			const chunk: any = await tool("records.history").execute({ change: "h1", start }, c);
+			const output = { ref: "r1", data: chunk };
+			expect((await tool("records.history").toModelOutput!({ toolCallId: "c", input: { change: "h1" }, output }) as any).value).toEqual(output);
+			json += chunk.json;
+			if (!chunk.more) break;
+			start = chunk.next;
+		}
+		expect(JSON.parse(json)).toEqual(entry);
+	});
+
 	it("run right away: internal, undoable, nothing sent outside", () => {
 		const ids = builtinTools.filter((t) => t.id.startsWith("records.")).map((t) => t.id);
-		expect(ids).toEqual(["records.types", "records.find", "records.get", "records.save", "records.undo", "records.save_field", "records.save_database", "records.views", "records.save_view"]);
+		expect(ids).toEqual(["records.types", "records.find", "records.get", "records.history", "records.save", "records.undo", "records.save_field", "records.save_database", "records.views", "records.save_view"]);
 		for (const id of ids) expect(toolRisk(tool(id))).toBe("none");
-		expect(ids.filter((id) => tool(id).readOnly)).toEqual(["records.types", "records.find", "records.get", "records.views"]);
+		expect(ids.filter((id) => tool(id).readOnly)).toEqual(["records.types", "records.find", "records.get", "records.history", "records.views"]);
 		expect(ids.filter((id) => tool(id).permission)).toEqual(["records.save_database", "records.save_view"]);
 		expect(toolLine(callLabel("records_undo", builtinTools, []), "done")).toBe("Undid a record change");
 		expect(toolLine(callLabel("records_save", builtinTools, []), "running")).toBe("Saving a record…");
