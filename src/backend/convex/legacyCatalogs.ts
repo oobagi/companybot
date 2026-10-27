@@ -1,6 +1,6 @@
 import { defineAutomation, defineSkill, type Automation, type Skill } from "@companybot/core";
 
-// COMPAT(0.1.0-alpha.8): definitions for existing installs until storedSkills and storedAutomations finish; then delete this file and its read fallbacks. Never offer these for installation.
+// COMPAT(0.1.0-alpha.8): definitions for existing installs until storedSkills and storedAutomations finish in prod; only then delete this file and its read fallbacks. Never offer these for installation.
 export const legacySkills: Skill[] = [
 	defineSkill({
 		id: "meeting-notes",

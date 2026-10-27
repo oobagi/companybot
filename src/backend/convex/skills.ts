@@ -1,4 +1,3 @@
-import { legacySkills } from "./legacyCatalogs";
 import {
 	type CustomSkillConfig,
 	canEditMade,
@@ -7,6 +6,7 @@ import {
 	normalizeCustomSkill,
 } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
+import { legacySkills } from "./legacyCatalogs";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { mutation, query } from "./functions";

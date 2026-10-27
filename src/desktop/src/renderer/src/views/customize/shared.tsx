@@ -42,7 +42,7 @@ export function ItemList<T extends { trash: unknown }>({
 				{action}
 			</div>
 			{error && <Notice>{error}</Notice>}
-			{items.length ? <div className="flex flex-col gap-3">{items.map(card)}</div> : <p className="rounded-xl border border-dashed border-neutral-200 p-6 text-sm text-neutral-500">{empty}</p>}
+			{items.length ? <div className="flex flex-col gap-3">{items.map(card)}</div> : <p className={descriptionClass}>{empty}</p>}
 		</>
 	);
 }

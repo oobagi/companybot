@@ -1,6 +1,6 @@
-import { legacyAutomation } from "./legacyCatalogs";
 import { type Automation, type AutomationAudience, type CustomAutomationConfig, canEditMade, customAutomation, deniedMessage, madeEditDenied } from "@companybot/core";
 import { ConvexError } from "convex/values";
+import { legacyAutomation } from "./legacyCatalogs";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type Member, requireMember } from "./lib";
 import type { QueryCtx } from "./_generated/server";

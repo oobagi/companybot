@@ -25,7 +25,7 @@ export function ConnectorsTab({ role }: { role: Role }) {
 				Connect outside services like Gmail or Calendar. Agents granted a connector use it for the person they're helping.
 			</p>
 			{error && <Notice>{error}</Notice>}
-			{connectors.length === 0 && <p className="rounded-xl border border-dashed border-neutral-200 p-6 text-sm text-neutral-500">No connectors available yet. You can still work with chats, databases, pages, skills, and automations in this workspace.</p>}
+			{connectors.length === 0 && <p className={descriptionClass}>No connectors available yet. You can still work with chats, databases, pages, skills, and automations in this workspace.</p>}
 			{connectors.map((p) => (
 				<Card
 					key={p.id}

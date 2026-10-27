@@ -1,4 +1,3 @@
-import { legacySkills } from "./legacyCatalogs";
 import {
 	type Actor,
 	type Permission,
@@ -10,6 +9,7 @@ import {
 } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError } from "convex/values";
+import { legacySkills } from "./legacyCatalogs";
 import type { Id } from "./_generated/dataModel";
 import type { Requested } from "./functions";
 import type { MutationCtx, QueryCtx } from "./_generated/server";

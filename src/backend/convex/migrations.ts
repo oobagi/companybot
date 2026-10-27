@@ -1,10 +1,10 @@
+import { type MigrationFunctionReference, Migrations } from "@convex-dev/migrations";
+import { v } from "convex/values";
 import { legacySkills, legacyAutomation } from "./legacyCatalogs";
 import { startCascade } from "./cascade";
-import { type MigrationFunctionReference, Migrations } from "@convex-dev/migrations";
 import { components, internal } from "./_generated/api";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
-import { v } from "convex/values";
 import { addUserMentions } from "./chatOps";
 import { normalizeEmail, pinLegacyWorkspace } from "./lib";
 import { saveVersion } from "./agents";

@@ -235,7 +235,7 @@ export const recordTools: ToolDef[] = [
 		id: "records.types",
 		title: "Look up databases",
 		description:
-			"The workspace's databases (created by the team; a new workspace has none) with every field: key, label, kind, choice options, and what links point at. Also the workspace's currency. Call it before your first records tool in a conversation.",
+			"The workspace's databases with every field: key, label, kind, choice options, and what links point at. Also the workspace's currency. Call it before your first records tool in a conversation.",
 		input: z.object({ trashed: z.boolean().optional().describe("Databases in Trash instead; fields include trashed fields and stable choice ids") }),
 		readOnly: true,
 		execute: (input, { records }) => records.types(input),
@@ -271,7 +271,7 @@ export const recordTools: ToolDef[] = [
 		id: "records.get",
 		title: "Open a record",
 		description:
-			"One record by id: every field, linked records with their ids, records that link to it (e.g. a client's deals), and its latest changes, each with a change id records_undo takes.",
+			"One record by id: every field, linked records with their ids, records that link to it, and its latest changes, each with a change id records_undo takes.",
 		input: z.object({ id: z.string() }),
 		readOnly: true,
 		returnsData: true,
@@ -328,7 +328,7 @@ export const recordTools: ToolDef[] = [
 		id: "records.save_field",
 		title: "Save a field",
 		description:
-			'Add a field to a database ("start tracking roof type on clients"), rename one, change its choice options, delete it (to Trash) or restore it. Only after the person asked for it or confirmed it.',
+			'Add a field to a database ("add a Priority field"), rename one, change its choice options, delete it (to Trash) or restore it. Only after the person asked for it or confirmed it.',
 		input: fieldInput,
 		execute: (input, { records }) => records.saveField(input),
 		label: fieldLabel,

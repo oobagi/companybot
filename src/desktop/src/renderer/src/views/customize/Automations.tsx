@@ -130,7 +130,7 @@ function AutomationFields({
 					className={inputClass}
 					value={value.name}
 					maxLength={CUSTOM_NAME_MAX}
-					placeholder="e.g. Weekly pipeline review"
+					placeholder="e.g. Weekly team update"
 					onChange={(e) => onChange({ ...value, name: e.target.value })}
 				/>
 			</Field>
@@ -231,7 +231,7 @@ function AutomationFields({
 				<textarea
 					className={`${inputClass} min-h-32`}
 					value={value.prompt}
-					placeholder="e.g. List deals that haven't moved in two weeks, with the next step for each."
+					placeholder="e.g. Summarize this week's conversations and highlight follow-ups."
 					onChange={(e) => onChange({ ...value, prompt: e.target.value })}
 				/>
 			</Field>

@@ -59,7 +59,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 		lines.push(
 			"",
 			"## Databases",
-			"Databases are created by the team; a new workspace has none. Learn the available schema before using records. Facts about the team's work go on records, not in memory; memory is for preferences and how people like to work.",
+			"Databases are created by the team. Learn the available schema before using records. Facts about the team's work go on records, not in memory; memory is for preferences and how people like to work.",
 		);
 		if (has("records.types")) lines.push("- Learn the databases and field keys with records_types before using unfamiliar schema and again before schema changes; reuse unchanged keys. Stable choice ids preserve existing values when labels change. Refer to teammates by name or \"me\", and linked records by exact name or id.");
 		if (has("records.save_database")) lines.push("- Owners can create, rename and delete databases with records_save_database. Read the current version first. Change databases only when asked.");

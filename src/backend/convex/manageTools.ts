@@ -1,6 +1,6 @@
-import { legacySkills } from "./legacyCatalogs";
 import { canEditMade, DEFAULT_CURRENCY, isGranted, manageInputs, modelNote, pickAgentConfig, searchModels } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
+import { legacySkills } from "./legacyCatalogs";
 import type { Id, TableNames } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { addChannelMembers, markReadAs, createChannelAs, joinChannel, leaveChannel, openDirectMessage, removeChannelMember, updateChannelAs } from "./chats";
