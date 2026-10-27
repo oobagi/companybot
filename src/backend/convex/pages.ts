@@ -101,9 +101,10 @@ export const children = query({
 			const parent = await ctx.db.get(parentId);
 			if (parent?.workspaceId !== member.workspaceId || parent.recordId || (await pageState(ctx, parent)).archived) return empty;
 		}
-		const result = await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", parentId).eq("archived", false))
+		const result = await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", parentId).eq("recordId", undefined).eq("archived", false))
 			.paginate({ ...paginationOpts, numItems: Math.min(paginationOpts.numItems, 50) });
-		return { ...result, page: result.page.filter((p) => !p.recordId).map(pageRow) };
+		const hasChildren = async (p: Doc<"pages">) => !!(await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", p._id).eq("recordId", undefined).eq("archived", false)).first());
+		return { ...result, page: await Promise.all(result.page.map(async (p) => ({ ...pageRow(p), hasChildren: await hasChildren(p) }))) };
 	},
 });
 

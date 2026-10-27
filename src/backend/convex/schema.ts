@@ -717,7 +717,7 @@ export default defineSchema({
 		updatedBy: v.id("users"),
 	})
 		.index("by_workspace", ["workspaceId", "recordId", "archived", "title"])
-		.index("by_parent", ["workspaceId", "parentId", "archived", "title"])
+		.index("by_parent", ["workspaceId", "parentId", "recordId", "archived", "title"])
 		.searchIndex("search_title", { searchField: "title", filterFields: ["workspaceId", "archived"] }),
 
 	pageMoves: defineTable({

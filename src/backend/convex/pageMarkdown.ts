@@ -21,12 +21,10 @@ function blockNote() {
 
 /** A page's content (ProseMirror JSON) as Markdown. Colors and alignment are dropped. */
 export const toMarkdown = internalAction({
-	args: { doc: v.string(), subpages: v.optional(v.array(v.object({ id: v.string(), title: v.string() }))), more: v.optional(v.boolean()) },
-	handler: async (_ctx, { doc, subpages = [], more }) => {
+	args: { doc: v.string() },
+	handler: async (_ctx, { doc }) => {
 		const bn = blockNote();
-		const markdown = bn.blocksToMarkdownLossy(docToBlocks(bn.pmSchema.nodeFromJSON(JSON.parse(doc))) as Block[]);
-		const links = subpages.map((p) => `- [${p.title.replace(/[\[\]\\]/g, "\\$&")}](#/pages/${p.id})`).join("\n");
-		return markdown + (links ? `\n\n## Sub-pages\n\n${links}${more ? "\n\nMore sub-pages: continue with pages_find parent and cursor." : ""}\n` : "");
+		return bn.blocksToMarkdownLossy(docToBlocks(bn.pmSchema.nodeFromJSON(JSON.parse(doc))) as Block[]);
 	},
 });
 

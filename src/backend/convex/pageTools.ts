@@ -57,7 +57,7 @@ export const findFor = internalQuery({
 		const row = (p: Doc<"pages">) => ({ id: p._id, title: p.title, parentId: p.parentId ?? null, edited: new Date(p.updatedAt).toISOString() });
 		const pages = ctx.db.query("pages");
 		const found = parent !== undefined
-			? pages.withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", parentPage?._id))
+			? pages.withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", parentPage?._id).eq("recordId", undefined))
 			: search?.trim()
 			? pages.withSearchIndex("search_title", (q) => q.search("title", search).eq("workspaceId", member.workspaceId).eq("archived", trashed))
 			: pages.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("recordId", undefined).eq("archived", trashed));
@@ -92,7 +92,7 @@ export const readFor = internalQuery({
 			}));
 			if (history) return { title: page ? await titleOf(ctx, page) : record!.title, doc: null, versions, moreVersions: !!result && !result.isDone, ...(result && !result.isDone && { cursor: result.continueCursor }) };
 			const state = page ? await pageState(ctx, page) : null;
-			const children = page && !page.recordId && !old ? await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", page._id).eq("archived", false)).take(51) : [];
+			const children = page && !page.recordId && !old ? await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", page._id).eq("recordId", undefined).eq("archived", false)).take(51) : [];
 			const doc = old ? await versionContent(ctx, old.page, old.row) : page ? JSON.stringify((await readDoc(ctx, page._id)).toJSON()) : null;
 			if (old && doc === null) throw new ConvexError("This version is no longer available.");
 			return {

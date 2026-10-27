@@ -24,6 +24,15 @@ describe("nested pages", () => {
 		expect(await owner.query(api.pages.get, { pageId: "invalid-link" })).toBeNull();
 	});
 
+	it("keeps record bodies out of the top level, so they can't page standalone pages out of view", async () => {
+		const { owner } = await setup();
+		const type = (await owner.query(api.recordTypes.list))[0]!;
+		for (let i = 0; i < 60; i++) await owner.mutation(api.pages.create, { recordId: await owner.mutation(api.records.create, { typeId: type._id, values: { name: `R${i}` } }) });
+		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
+		await owner.mutation(api.pages.create, { title: "Guide", parentId: root });
+		expect((await owner.query(api.pages.children, opts)).page).toEqual([expect.objectContaining({ _id: root, hasChildren: true })]);
+	});
+
 	it("rejects cycles, foreign parents, record bodies and moves after membership is revoked", async () => {
 		const { t, owner, member } = await setup();
 		const root = await owner.mutation(api.pages.create, { title: "Root" });
@@ -147,7 +156,7 @@ describe("nested pages", () => {
 		expect(await owner.query(api.pages.get, { pageId: child })).toBeNull();
 	});
 
-	it("gives agents parent creation, tree reads, moves, Markdown child links and attribution through the same rules", async () => {
+	it("gives agents parent creation, tree reads, moves, sub-page lists and attribution through the same rules", async () => {
 		const { t, owner, member } = await setup();
 		const turnId = await agentTurn(t, member, (await generalOf(member))._id, (await agentsOf(member)).companybot._id);
 		const write = (input: object) => t.mutation(internal.pageTools.writeFor, { turnId, input });
@@ -156,8 +165,7 @@ describe("nested pages", () => {
 		const tree = await t.query(internal.pageTools.findFor, { turnId, input: { parent: root } });
 		expect(tree.rows).toEqual([expect.objectContaining({ id: made.id, parentId: root })]);
 		const read = await t.query(internal.pageTools.readFor, { turnId, page: root });
-		if ("error" in read || !("subpages" in read) || !read.doc) throw new Error("Missing page");
-		expect(await t.action(internal.pageMarkdown.toMarkdown, { doc: read.doc, subpages: read.subpages })).toContain(`[Guide](#/pages/${made.id})`);
+		expect(read).toMatchObject({ subpages: [{ id: made.id, title: "Guide" }], subpagesMore: false });
 		expect(await write({ action: "move", page: root, parent: made.id })).toMatchObject({ error: expect.stringContaining("descendants") });
 		await write({ action: "move", page: made.id, parent: null });
 		expect((await member.query(api.pages.moves, { pageId: made.id, ...opts })).page[0]).toMatchObject({ agent: "Companybot", user: "member@co.com" });
