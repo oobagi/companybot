@@ -36,7 +36,16 @@ export const approvalStatus = v.union(
 	v.literal("denied"),
 );
 
-export const trashKind = v.union(v.literal("record"), v.literal("database"), v.literal("field"), v.literal("page"), v.literal("channel"));
+export const trashKind = v.union(
+	v.literal("record"),
+	v.literal("database"),
+	v.literal("field"),
+	v.literal("page"),
+	v.literal("channel"),
+	v.literal("agent"),
+	v.literal("skill"),
+	v.literal("automation"),
+);
 
 /** core's Risk. */
 export const risk = v.union(v.literal("none"), v.literal("inside"), v.literal("outside"), v.literal("locked"));
@@ -183,6 +192,7 @@ export default defineSchema({
 	agents: defineTable({
 		workspaceId: v.id("workspaces"),
 		...agentConfig.fields,
+		/** In Trash (the `trash` table says who deleted it, and when): hidden from chat, runs nothing. */
 		archived: v.boolean(),
 		version: v.number(),
 		updatedAt: v.number(),
@@ -305,6 +315,8 @@ export default defineSchema({
 				updatedAt: v.number(),
 			}),
 		),
+		/** Skills people made: in Trash (the `trash` table says who deleted it, and when). Agents don't see it. */
+		archived: v.optional(v.boolean()),
 	}).index("by_workspace", ["workspaceId", "skillId"]),
 
 	// ---- Chat: channels, DMs (people and agents), threads, reactions. See wiki/chat.md. ----
@@ -545,6 +557,8 @@ export default defineSchema({
 				updatedAt: v.number(),
 			}),
 		),
+		/** Automations people made: in Trash (the `trash` table says who deleted it, and when). Nothing triggers it. */
+		archived: v.optional(v.boolean()),
 	})
 		.index("by_workspace", ["workspaceId", "automationId"])
 		.index("by_enabled", ["enabled"])
@@ -779,13 +793,13 @@ export default defineSchema({
 		.index("by_message", ["messageId"])
 		.index("by_chat", ["chatId"]),
 
-	// What's in Trash: one row per deleted record, database, field, page or channel (trash.ts).
+	// What's in Trash: one row per deleted record, database, field, page, channel, agent, or skill or automation people made (trash.ts).
 	// The item itself stays, `archived`, until it's restored or deleted for good: by an owner,
 	// or after TRASH_DAYS by `trash.sweep`. See wiki/data.md#trash.
 	trash: defineTable({
 		workspaceId: v.id("workspaces"),
 		kind: trashKind,
-		/** The record's, database's, field's, page's or chat's id. */
+		/** The item's row id: record, database, field, page, chat, agent, or skill or automation install. */
 		itemId: v.string(),
 		/** Its name when deleted, for listing and search. */
 		name: v.string(),
@@ -819,6 +833,7 @@ export default defineSchema({
 			typeId: v.optional(v.id("recordTypes")),
 			fieldId: v.optional(v.id("recordFields")),
 			chatId: v.optional(v.id("chats")),
+			agentId: v.optional(v.id("agents")),
 		}),
 		key: v.string(),
 		/** The edge it's on, as "table.index" ("" before the first). */

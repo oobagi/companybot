@@ -208,7 +208,7 @@ export async function installedSkills(ctx: QueryCtx, workspaceId: Id<"workspaces
 		.collect();
 	const ids = new Set(installs.filter((i) => !i.custom).map((i) => i.skillId));
 	const custom = installs
-		.filter((i) => i.custom)
+		.filter((i) => i.custom && !i.archived)
 		.sort((a, b) => a._creationTime - b._creationTime)
 		.map((i) => customSkill(i.skillId, i.custom!, i.custom!.version));
 	return [...skillCatalog.filter((s) => ids.has(s.id)), ...custom];

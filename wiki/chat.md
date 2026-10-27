@@ -62,7 +62,7 @@ Queries return display-ready data (names resolved) so the app never joins tables
 - `list({ chatId, threadId? })` → newest 200 of the main timeline (or the thread, parent first), oldest first. Each `Message`:
   `{ _id, _creationTime, chatId, threadId, author: Participant, text, parts, fullParts, status, error, stats, editedAt, deleted, mine: boolean, replyCount, lastReplyAt, replyAuthors: Participant[] (up to 3), automation: { id, name } | null, reactions: { emoji, count, mine, names: string[] }[] }`.
 - `parts` includes approval cards; `fullParts` is the same array, retained for alpha.6 apps.
-- `send({ chatId, threadId?, text, mentions: { userIds, agentIds, recordIds? } })` → messageId. The app sends mention ids picked from autocomplete; the server drops ids outside the workspace and archived agents. `recordIds` are records the message references ([Data](data.md)). Schedules agent turns, and starts automations watching the channel (`message.posted`, top-level channel messages only).
+- `send({ chatId, threadId?, text, mentions: { userIds, agentIds, recordIds? } })` → messageId. The app sends mention ids picked from autocomplete; the server drops ids outside the workspace and agents in Trash. `recordIds` are records the message references ([Data](data.md)). Schedules agent turns, and starts automations watching the channel (`message.posted`, top-level channel messages only).
 - `edit({ messageId, text })`, `remove({ messageId })` — your own messages. Removing keeps the row (threads hang off it) and clears text, parts, and reactions.
 - `react({ messageId, emoji })` — toggles your reaction.
 

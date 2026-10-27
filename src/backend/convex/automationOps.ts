@@ -36,20 +36,23 @@ export function automationName(install: Doc<"automationInstalls">) {
 	return findAutomation(install.automationId)?.name ?? install.automationId;
 }
 
-export const installOf = (ctx: QueryCtx, workspaceId: Id<"workspaces">, automationId: string) =>
-	ctx.db
+/** An automation's install, unless it's in Trash: one there is gone to everything but Trash. */
+export const installOf = async (ctx: QueryCtx, workspaceId: Id<"workspaces">, automationId: string) => {
+	const install = await ctx.db
 		.query("automationInstalls")
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId).eq("automationId", automationId))
 		.first();
+	return install?.archived ? null : install;
+};
 
-/** The workspace's installs this person can see. */
-export const visibleInstalls = async (ctx: QueryCtx, member: Member) =>
+/** The workspace's installs this person can see; ones in Trash only if `trashed`. */
+export const visibleInstalls = async (ctx: QueryCtx, member: Member, trashed = false) =>
 	(
 		await ctx.db
 			.query("automationInstalls")
 			.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
 			.collect()
-	).filter((i) => canView(member, i));
+	).filter((i) => canView(member, i) && (trashed || !i.archived));
 
 /** What an install runs: its own definition if someone made it, else the catalog's. */
 export async function definitionOf(ctx: QueryCtx, install: Doc<"automationInstalls">): Promise<Automation | undefined> {

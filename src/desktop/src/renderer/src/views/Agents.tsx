@@ -9,8 +9,11 @@ import { useMutation, useQuery } from "../convex";
 import { navigate } from "../router";
 import { customizeCrumbs } from "./customize/shared";
 import { ModelPicker } from "./ModelPicker";
+import { TrashNotice } from "./Trash";
+import { TrashIcon } from "../icons";
 import {
 	type Crumb,
+	barDangerButton,
 	ConflictNotice,
 	Field,
 	Loading,
@@ -36,8 +39,8 @@ export function AgentsTab({ role }: { role: Role }) {
 
 	if (!agents) return <Loading />;
 
+	// Deleted ones are in Trash.
 	const active = agents.filter((a) => !a.archived);
-	const archived = agents.filter((a) => a.archived);
 
 	return (
 		<>
@@ -59,13 +62,6 @@ export function AgentsTab({ role }: { role: Role }) {
 			{active.map((a) => (
 				<AgentRow key={a._id} agent={a} onOpen={() => open(a._id)} />
 			))}
-			{archived.length > 0 && (
-				<Section title="Archived" hint="Hidden from chat. Their conversations and memories are kept.">
-					{archived.map((a) => (
-						<AgentRow key={a._id} agent={a} onOpen={() => open(a._id)} />
-					))}
-				</Section>
-			)}
 		</>
 	);
 }
@@ -104,7 +100,7 @@ export function AgentScreen({ role, agentId }: { role: Role; agentId: Id<"agents
 function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean; back: Crumb[] }) {
 	const options = useQuery(api.agents.options);
 	const update = useMutation(api.agents.update);
-	const setArchived = useMutation(api.agents.setArchived);
+	const remove = useMutation(api.trash.move);
 	const draft = useDraft(pickAgentConfig(agent), agent.version);
 	const { error, run } = useRun();
 	const config = draft.value;
@@ -125,23 +121,22 @@ function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean;
 			subtitle={`v${agent.version} · edited by ${agent.updatedByName} ${timeAgo(agent.updatedAt)}`}
 			crumbs={back}
 			actions={
-				isOwner && (
+				isOwner && !agent.archived && (
 					<button
 						type="button"
-						onClick={() => run(setArchived({ agentId: agent._id, archived: !agent.archived }))}
-						className="text-sm text-neutral-500 hover:text-neutral-900"
+						onClick={() => run(remove({ kind: "agent", id: agent._id }), () => navigate("customize", "agents"))}
+						className={barDangerButton}
 					>
-						{agent.archived ? "Restore agent" : "Archive agent"}
+						<TrashIcon /> Delete
 					</button>
 				)
 			}
 		>
-
-			{agent.archived && <p className="rounded-lg bg-neutral-100 px-3 py-2 text-sm">This agent is archived and hidden from chat.</p>}
+			{agent.trash && <TrashNotice trash={agent.trash} />}
 			{draft.stale && <ConflictNotice who={agent.updatedByName} onDiscard={draft.discard} onKeep={draft.keepMine} />}
 			{error && <Notice>{error}</Notice>}
 
-			<fieldset disabled={!isOwner} className="flex flex-col gap-5">
+			<fieldset disabled={!isOwner || agent.archived} className="flex flex-col gap-5">
 				<Field label="Name">
 					<input className={inputClass} value={config.name} onChange={(e) => edit({ name: e.target.value })} />
 				</Field>
@@ -169,14 +164,14 @@ function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean;
 				</Field>
 			</fieldset>
 
-			{isOwner && draft.dirty && (
+			{isOwner && !agent.archived && draft.dirty && (
 				<SaveBar
 					onDiscard={draft.discard}
 					onSave={() => run(update({ agentId: agent._id, expectedVersion: draft.base, config }), draft.discard)}
 				/>
 			)}
 
-			<History agent={agent} isOwner={isOwner} />
+			<History agent={agent} isOwner={isOwner && !agent.archived} />
 		</Page>
 	);
 }

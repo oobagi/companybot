@@ -58,7 +58,7 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 
 ## Memory — `core/src/memory.ts`, `backend/convex/memoryOps.ts`
 - Each memory belongs to one agent; scope `workspace` or `personal`. Rules live in `canReadMemory` / `canEditMemory` / `canCreateMemory`.
-- Personal memories are their owner's alone. No role reads, edits or deletes someone else's, so never add a permission that does; owners get only the on/off switch. Removing a member deletes theirs, archived agents' included, through the member cascade (`lifecycle.ts`, index `by_owner`).
+- Personal memories are their owner's alone. No role reads, edits or deletes someone else's, so never add a permission that does; owners get only the on/off switch. Removing a member deletes theirs, agents' in Trash included, through the member cascade (`lifecycle.ts`, index `by_owner`).
 - The switch is `workspaces.memory` (unset = on), read by `memoryOn`. Off: `memory.ts` refuses every agent call with a plain message, and the turn prompt says memory is off. People can still manage their memories in the app.
 - App and agents both go through `memoryOps.ts` with a `Who` (member + optional agent), so they can't drift. Agent calls take the `turnId` and act through `runningTurn`, like every other agent tool; whether personal memories work is read from the chat on each call (`personalMemoryHere`).
 - Agent search (`memory.search`) uses the `search_content` search index, filtered by agent, scope and owner, so it finds matches anywhere in the history; at most 50 back, oldest first. It matches words and prefixes, not substrings: "aus" finds "Austin", "ustin" doesn't; every word must match (`memoryMatches`). An empty query lists the newest 50.
@@ -68,7 +68,7 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 - `AgentConfig` is the editable shape (`core/src/agent-config.ts`). Stored per workspace, versioned on every save. `validateAgentConfig` runs on save; add checks there.
 - The runner reads the agent fresh each turn. Anything that changes how a reply runs belongs in `turns.turnContext` + `agent.ts`; what the model is fed belongs in `core/src/turn-input.ts`.
 
-- Agent management shares `createAgent`, `updateAgent` and `archiveAgent` with the app, so both accept the same models (`allowedModels`). Tool-free creation cannot expand grants; schemas omit tools/reactivation and the backend refuses edits to the acting agent's own instructions/model. `agents_manage` lists models with `models` (search, 50 at a time), not inside `get`: the catalog runs to hundreds.
+- Agent management shares `createAgent`, `updateAgent` and `setAgentTrashed` with the app (delete goes to Trash, like every other delete tool: `skills.remove` and `automations.remove` trash what people made), so both accept the same models (`allowedModels`). Tool-free creation cannot expand grants; schemas omit tools/reactivation and the backend refuses edits to the acting agent's own instructions/model. `agents_manage` lists models with `models` (search, 50 at a time), not inside `get`: the catalog runs to hundreds.
 
 ## The app and `core`
 - The app imports only dependency-free modules from core, by deep path: `@companybot/core/permissions`, `@companybot/core/agent-config`. Importing the barrel would bundle the agent runtime (`ai`, zod) into the renderer. To expose another module, add it to `exports` in `core/package.json`.

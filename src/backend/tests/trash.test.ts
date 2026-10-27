@@ -257,6 +257,36 @@ describe("trash", () => {
 		expect(left).toEqual({ chat: null, messages: [], seats: [] });
 	});
 
+	it("deletes agents as owners, keeping the last; forever takes its versions, memories and channel seats", async () => {
+		const { t, owner, member } = await setup();
+		const { companybot, scribe } = await agentsOf(owner);
+		const chatId = await owner.mutation(api.chats.createChannel, { name: "ops", private: false });
+		await owner.mutation(api.chats.addMembers, { chatId, userIds: [], agentIds: [scribe._id] });
+		await t.run((ctx) => ctx.db.insert("memories", { workspaceId: scribe.workspaceId, agentId: scribe._id, scope: "workspace", ownerId: null, content: "Ops is Tuesdays.", updatedAt: Date.now(), updatedBy: owner.userId, version: 1 }));
+		await expect(member.mutation(api.trash.move, { kind: "agent", id: scribe._id })).rejects.toThrow("permission");
+		await owner.mutation(api.trash.move, { kind: "agent", id: scribe._id });
+		expect((await agentsOf(owner)).scribe).toMatchObject({ archived: true, trash: { kind: "agent", name: "Scribe", canRestore: true } });
+		expect(await trashOf(owner)).toEqual([expect.objectContaining({ kind: "agent", itemId: scribe._id, name: "Scribe" })]);
+		await expect(owner.mutation(api.chats.openDm, { userIds: [], agentIds: [scribe._id] })).rejects.toThrow("isn't available");
+		await expect(owner.mutation(api.agents.update, { agentId: scribe._id, expectedVersion: scribe.version, config: { name: "Back", description: "", instructions: "", model: scribe.model, tools: [] } })).rejects.toThrow("in Trash");
+		await expect(owner.mutation(api.trash.move, { kind: "agent", id: companybot._id })).rejects.toThrow("at least one");
+		await owner.mutation(api.trash.restore, { kind: "agent", id: scribe._id });
+		expect((await agentsOf(owner)).scribe).toMatchObject({ archived: false, trash: null });
+		await owner.mutation(api.trash.move, { kind: "agent", id: scribe._id });
+		await expect(member.mutation(api.trash.purge, { id: scribe._id })).rejects.toThrow("permission");
+		await owner.mutation(api.trash.purge, { id: scribe._id });
+		await settle(t);
+		const left = await t.run(async (ctx) => ({
+			agent: await ctx.db.get(scribe._id),
+			versions: await ctx.db.query("agentVersions").withIndex("by_agent", (q) => q.eq("agentId", scribe._id)).collect(),
+			memories: await ctx.db.query("memories").withIndex("by_agent_scope", (q) => q.eq("agentId", scribe._id)).collect(),
+			seats: await ctx.db.query("chatMembers").withIndex("by_agent", (q) => q.eq("agentId", scribe._id)).collect(),
+		}));
+		expect(left).toEqual({ agent: null, versions: [], memories: [], seats: [] });
+		expect((await owner.query(api.agents.list)).map((a) => a.name)).toEqual(["Companybot"]);
+		expect(await trashOf(owner)).toEqual([]);
+	});
+
 	it("searches and filters by kind", async () => {
 		const { owner, member, acme, roof } = await seeded();
 		const pageId = await member.mutation(api.pages.create, { title: "Roof SOP" });
@@ -342,7 +372,7 @@ describe("trash migration", () => {
 		expect(new Set((await trashOf(owner)).map((e) => e.itemId)).size).toBe(28);
 	});
 
-	it("moves archived records, databases, fields and pages to Trash, deleted at deploy time", async () => {
+	it("moves archived records, databases, fields, pages and agents to Trash, deleted at deploy time", async () => {
 		const t = newTest();
 		migrationsTest.register(t);
 		const owner = await signIn(t, "owner@co.com");
@@ -355,7 +385,9 @@ describe("trash migration", () => {
 			const type = await ctx.db.insert("recordTypes", { workspaceId, key: "job", name: "Job", plural: "Jobs", archived: true, createdBy: userId, updatedAt: now });
 			const field = await ctx.db.insert("recordFields", { workspaceId, typeId, key: "roof", label: "Roof", kind: "text", position: 9, archived: true, createdBy: userId, updatedAt: now });
 			const page = await ctx.db.insert("pages", { workspaceId, title: "Old SOP", archived: true, createdBy: userId, updatedAt: now, updatedBy: userId });
-			return [record, type, field, page] as string[];
+			const agent = (await ctx.db.query("agents").collect()).find((a) => a.name === "Scribe")!._id;
+			await ctx.db.patch(agent, { archived: true });
+			return [record, type, field, page, agent] as string[];
 		});
 		vi.useFakeTimers();
 		vi.setSystemTime(new Date("2026-11-01T00:00:00Z"));
@@ -365,11 +397,12 @@ describe("trash migration", () => {
 		await t.finishAllScheduledFunctions(vi.runAllTimers);
 		const entries = await t.run((ctx) => ctx.db.query("trash").collect());
 		expect(entries.map((e) => [e.kind, e.itemId, e.name]).sort()).toEqual(
-			[["record", ids[0], "Old"], ["database", ids[1], "Jobs"], ["field", ids[2], "Roof"], ["page", ids[3], "Old SOP"]].sort(),
+			[["record", ids[0], "Old"], ["database", ids[1], "Jobs"], ["field", ids[2], "Roof"], ["page", ids[3], "Old SOP"], ["agent", ids[4], "Scribe"]].sort(),
 		);
 		// Deploy time, give or take the migration's own run: the full 30 days from now.
 		for (const e of entries) expect(e.deletedAt - new Date("2026-11-01T00:00:00Z").getTime()).toBeLessThan(1_000);
-		expect((await owner.query(api.trash.list, { paginationOpts: page })).page).toHaveLength(4);
+		expect((await owner.query(api.trash.list, { paginationOpts: page })).page).toHaveLength(5);
 		await owner.mutation(api.trash.restore, { kind: "record", id: ids[0]! as Id<"records"> });
+		await owner.mutation(api.trash.restore, { kind: "agent", id: ids[4]! });
 	});
 });

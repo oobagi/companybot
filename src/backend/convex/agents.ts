@@ -14,10 +14,11 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
-import { type Member, checkPermission, checkVersion, getMember, namesOf, requireAgent, requirePermission, toActor } from "./lib";
+import { type Member, type Who, checkPermission, checkVersion, getMember, namesOf, requireAgent, requirePermission, toActor } from "./lib";
 import { connectorStates } from "./connectors";
 import { allowedModels, catalogModels } from "./modelCatalog";
 import { agentConfig } from "./schema";
+import { putInTrash, takeFromTrash, trashInfo } from "./trashOps";
 
 // Agents live in the database, one set per workspace. Owners edit them; every save
 // is kept in agentVersions so changes can be reviewed and restored. Replies read the
@@ -70,11 +71,15 @@ export const list = query({
 			agents.map((a) => a.updatedBy),
 		);
 		const connectors = await connectorStates(ctx, member);
-		return agents.map((a) => ({
-			...a,
-			updatedByName: names.get(a.updatedBy) ?? "",
-			access: describeToolAccess(a, toActor(member), connectors),
-		}));
+		return Promise.all(
+			agents.map(async (a) => ({
+				...a,
+				updatedByName: names.get(a.updatedBy) ?? "",
+				access: describeToolAccess(a, toActor(member), connectors),
+				/** Set while it's in Trash: who deleted it, when, and whether you can restore it. */
+				trash: a.archived ? await trashInfo(ctx, member, a._id) : null,
+			})),
+		);
 	},
 });
 
@@ -150,7 +155,7 @@ export const restore = mutation({
 	args: { agentId: v.id("agents"), version: v.number(), expectedVersion: v.number() },
 	handler: async (ctx, { agentId, version, expectedVersion }) => {
 		const owner = await requirePermission(ctx, "agents.manage");
-		const agent = await requireAgent(ctx, owner, agentId);
+		const agent = await requireLiveAgent(ctx, owner, agentId);
 		checkVersion(agent.version, expectedVersion);
 		const old = await ctx.db
 			.query("agentVersions")
@@ -161,12 +166,12 @@ export const restore = mutation({
 	},
 });
 
-/** Archived agents leave the switcher but keep their chats and memories. */
+/** COMPAT(0.1.0-alpha.8): alpha.7 apps' Archive/Restore agent go through Trash. */
 export const setArchived = mutation({
 	args: { agentId: v.id("agents"), archived: v.boolean() },
 	handler: async (ctx, { agentId, archived }) => {
 		const owner = await requirePermission(ctx, "agents.manage");
-		await archiveAgent(ctx, owner, agentId, archived);
+		await setAgentTrashed(ctx, { member: owner }, agentId, archived);
 	},
 });
 
@@ -177,20 +182,34 @@ export async function createAgent(ctx: MutationCtx, member: Member, withoutTools
 
 export async function updateAgent(ctx: MutationCtx, member: Member, agentId: Id<"agents">, expectedVersion: number, config: AgentConfig) {
 	checkPermission(member, "agents.manage");
-	const agent = await requireAgent(ctx, member, agentId);
+	const agent = await requireLiveAgent(ctx, member, agentId);
 	checkVersion(agent.version, expectedVersion);
 	await saveVersion(ctx, agent, await clean(ctx, agent, config), member.userId);
 }
 
-export async function archiveAgent(ctx: MutationCtx, member: Member, agentId: Id<"agents">, archived: boolean) {
+/** An agent that isn't in Trash: one there is read-only until it's restored. */
+async function requireLiveAgent(ctx: MutationCtx, member: Member, agentId: Id<"agents">) {
+	const agent = await requireAgent(ctx, member, agentId);
+	if (agent.archived) throw new ConvexError("This agent is in Trash. Restore it first.");
+	return agent;
+}
+
+/**
+ * Moves an agent to Trash, or back (owners). In Trash it leaves chat and runs nothing; its chats
+ * and memories stay until it's deleted forever. The last agent stays: automations and chat need one.
+ */
+export async function setAgentTrashed(ctx: MutationCtx, who: Who, agentId: Id<"agents">, archived: boolean) {
+	const { member } = who;
 	checkPermission(member, "agents.manage");
 	const agent = await requireAgent(ctx, member, agentId);
+	if (agent.archived === archived) return;
 	if (archived) {
 		const active = await ctx.db
 			.query("agents")
 			.withIndex("by_workspace_active", (q) => q.eq("workspaceId", member.workspaceId).eq("archived", false))
 			.take(2);
 		if (active.length <= 1) throw new ConvexError("Keep at least one agent.");
-	}
+		await putInTrash(ctx, who, { kind: "agent", id: agentId, name: agent.name });
+	} else await takeFromTrash(ctx, who, agentId);
 	await ctx.db.patch(agent._id, { archived });
 }

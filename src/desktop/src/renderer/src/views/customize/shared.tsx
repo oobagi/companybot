@@ -2,6 +2,7 @@ import { Fragment } from "react";
 import { navigate } from "../../router";
 import { TrashIcon } from "../../icons";
 import { type Crumb, ConflictNotice, Loading, Notice, Page, SaveBar, Section, barDangerButton, descriptionClass, disabledButtonClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
+import { TrashNotice } from "../Trash";
 
 export const customizeTabs = [
 	{ id: "agents", label: "Agents" },
@@ -23,7 +24,7 @@ export const customizeCrumbs = (tab: CustomizeTab): Crumb[] => [
 ];
 
 /** The shared library layout; screens keep their own cards and install behavior. */
-export function LibraryList<T extends { custom: unknown }>({
+export function LibraryList<T extends { custom: unknown; trash: unknown }>({
 	items, description, action, error, card,
 }: {
 	items: T[];
@@ -32,7 +33,8 @@ export function LibraryList<T extends { custom: unknown }>({
 	error?: string;
 	card: (item: T) => React.ReactNode;
 }) {
-	const ours = items.filter((item) => item.custom);
+	// Deleted ones are in Trash.
+	const ours = items.filter((item) => item.custom && !item.trash);
 	return (
 		<>
 			<div className="flex items-start justify-between gap-4">
@@ -169,7 +171,7 @@ export function NewItem({
 
 /**
  * The page for one your team made: who made it, its fields as an edit form (read-only for
- * people who can't change it), Delete, and Save. `children` go below the fields.
+ * people who can't change it, or while it's in Trash), Delete (to Trash), and Save. `children` go below the fields.
  */
 export function MadeItemDetail<T>({
 	tab,
@@ -177,8 +179,8 @@ export function MadeItemDetail<T>({
 	createdByName,
 	canEdit,
 	custom,
+	trash,
 	saved,
-	deleteWarning,
 	onDelete,
 	onSave,
 	fields,
@@ -190,10 +192,10 @@ export function MadeItemDetail<T>({
 	/** From the server: the maker or an owner. */
 	canEdit: boolean;
 	custom: { version: number; updatedByName: string; updatedAt: number };
+	/** Set while it's in Trash. */
+	trash: React.ComponentProps<typeof TrashNotice>["trash"] | null;
 	/** The saved fields; the form edits a draft of them. */
 	saved: T;
-	/** Follows "Delete "<name>"?" in the confirm. */
-	deleteWarning: string;
 	onDelete: () => Promise<unknown>;
 	onSave: (value: T, expectedVersion: number) => Promise<unknown>;
 	fields: (value: T, onChange: (value: T) => void) => React.ReactNode;
@@ -201,6 +203,7 @@ export function MadeItemDetail<T>({
 }) {
 	const draft = useDraft(saved, custom.version);
 	const { error, run } = useRun();
+	const editable = canEdit && !trash;
 
 	return (
 		<Page
@@ -208,25 +211,26 @@ export function MadeItemDetail<T>({
 			subtitle={`Made by ${createdByName ?? "your team"} · v${custom.version} · edited by ${custom.updatedByName} ${timeAgo(custom.updatedAt)}`}
 			crumbs={customizeCrumbs(tab)}
 			actions={
-				canEdit && (
+				editable && (
 					<button
 						type="button"
 						className={barDangerButton}
-						onClick={() => confirm(`Delete "${name}"? ${deleteWarning}`) && run(onDelete(), () => navigate("customize", tab))}
+						onClick={() => run(onDelete(), () => navigate("customize", tab))}
 					>
 						<TrashIcon /> Delete
 					</button>
 				)
 			}
 		>
+			{trash && <TrashNotice trash={trash} />}
 			{draft.stale && <ConflictNotice who={custom.updatedByName} onDiscard={draft.discard} onKeep={draft.keepMine} />}
 			{error && <Notice>{error}</Notice>}
 			{!canEdit && <p className={descriptionClass}>Only the person who made it or an owner can change it.</p>}
-			<fieldset disabled={!canEdit} className="flex flex-col gap-5">
+			<fieldset disabled={!editable} className="flex flex-col gap-5">
 				{fields(draft.value, draft.set)}
 			</fieldset>
 			{children}
-			{draft.dirty && <SaveBar onDiscard={draft.discard} onSave={() => run(onSave(draft.value, draft.base), draft.discard)} />}
+			{editable && draft.dirty && <SaveBar onDiscard={draft.discard} onSave={() => run(onSave(draft.value, draft.base), draft.discard)} />}
 		</Page>
 	);
 }

@@ -14,6 +14,7 @@ import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/
 import { mutation, query } from "./functions";
 import {
 	type Member,
+	type Who,
 	checkPermission,
 	asToolResult,
 	getMember,
@@ -23,18 +24,22 @@ import {
 	requireMember,
 	saveMade,
 } from "./lib";
+import { putInTrash, takeFromTrash, trashInfo } from "./trashOps";
 import { runningTurn } from "./turns";
 
 // Library skills come from core's catalog and are installed per workspace (owners). Anyone
 // can make their own (`skills.create`); those live on their install (`custom`, id "custom-…"),
 // are on for the whole workspace, and reach agents the same way (`installedSkills` in lib.ts).
-// The maker or an owner can change or delete one (`canEditMade`).
+// The maker or an owner can change or delete one (`canEditMade`); deleting moves it to Trash.
 
-const installOf = (ctx: QueryCtx, workspaceId: Id<"workspaces">, skillId: string) =>
-	ctx.db
+/** A skill's install, unless it's in Trash. */
+const installOf = async (ctx: QueryCtx, workspaceId: Id<"workspaces">, skillId: string) => {
+	const install = await ctx.db
 		.query("skillInstalls")
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId).eq("skillId", skillId))
 		.first();
+	return install?.archived ? null : install;
+};
 
 export const list = query({
 	args: {},
@@ -49,7 +54,7 @@ export const list = query({
 			installs
 				.filter((i) => i.custom)
 				.sort((a, b) => b._creationTime - a._creationTime)
-				.map(async ({ skillId, custom }) => ({
+				.map(async ({ _id, skillId, custom, archived }) => ({
 					canEdit: canEditMade(member, "skills.manage", custom!.createdBy),
 					createdByName: custom!.createdBy ? await nameOf(ctx, custom!.createdBy) : undefined,
 					id: skillId,
@@ -60,6 +65,8 @@ export const list = query({
 					installed: true,
 					/** Set for skills people made: who last edited it, and the version a save starts from. */
 					custom: { version: custom!.version, updatedByName: await nameOf(ctx, custom!.updatedBy), updatedAt: custom!.updatedAt },
+					/** Set while it's in Trash. */
+					trash: archived ? await trashInfo(ctx, member, _id) : null,
 				})),
 		);
 		const installed = new Set(installs.filter((i) => !i.custom).map((i) => i.skillId));
@@ -73,6 +80,7 @@ export const list = query({
 			canEdit: canEditMade(member, "skills.manage"),
 			createdByName: undefined,
 			custom: null,
+			trash: null,
 		}));
 		return [...custom, ...library];
 	},
@@ -132,10 +140,12 @@ export async function saveSkill(ctx: MutationCtx, member: Member, { skillId, con
 	});
 }
 
-export async function removeSkill(ctx: MutationCtx, member: Member, skillId: string) {
+/** Deletes a skill someone made (to Trash), or uninstalls a library one. */
+export async function removeSkill(ctx: MutationCtx, who: Who, skillId: string) {
+	const { member } = who;
 	if (skillId.startsWith("custom-")) {
 		const install = await editableSkill(ctx, member, skillId);
-		await ctx.db.delete(install._id);
+		await setSkillTrashed(ctx, who, install._id, true);
 		return;
 	}
 	const { workspaceId } = checkPermission(member, "skills.manage");
@@ -145,8 +155,19 @@ export async function removeSkill(ctx: MutationCtx, member: Member, skillId: str
 
 export const remove = mutation({
 	args: { skillId: v.string() },
-	handler: async (ctx, { skillId }) => removeSkill(ctx, await requireMember(ctx), skillId),
+	handler: async (ctx, { skillId }) => removeSkill(ctx, { member: await requireMember(ctx) }, skillId),
 });
+
+/** Moves a skill someone made to Trash, or back: the maker or an owner. In Trash, agents don't see it. */
+export async function setSkillTrashed(ctx: MutationCtx, who: Who, installId: Id<"skillInstalls">, archived: boolean) {
+	const install = await ctx.db.get(installId);
+	if (!install?.custom || install.workspaceId !== who.member.workspaceId) throw new ConvexError("Skill not found.");
+	if (!canEditMade(who.member, "skills.manage", install.custom.createdBy)) throw new ConvexError(madeEditDenied);
+	if (!!install.archived === archived) return;
+	if (archived) await putInTrash(ctx, who, { kind: "skill", id: installId, name: install.custom.name });
+	else await takeFromTrash(ctx, who, installId);
+	await ctx.db.patch(installId, { archived });
+}
 
 const installSkillArgs = v.object({ skillId: v.string(), installed: v.literal(true) });
 

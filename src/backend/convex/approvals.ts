@@ -75,7 +75,7 @@ async function alwaysFor(ctx: QueryCtx, row: Doc<"approvals">) {
 	// A removed automation cannot leave behind a wider Always grant, whether it went after the
 	// call was held or before (its run keeps going, and `request` then has no install to record).
 	const automation = row.automationInstallId ? await ctx.db.get(row.automationInstallId) : null;
-	if (row.automationInstallId && !automation) return null;
+	if (row.automationInstallId && (!automation || automation.archived)) return null;
 	const turn = !row.automationInstallId && (await ctx.db.get(row.turnId));
 	if (turn && (await ctx.db.get(turn.triggerId))?.automation) return null;
 	// Acting-as-you calls ask only in others' automations, and an Always for them is scoped to it.
@@ -168,7 +168,7 @@ export const decide = mutation({
 		if (status !== "pending") throw new ConvexError("This was already decided.");
 		if (hash !== row.hash) throw new ConvexError("This action isn't the one you were shown. Nothing ran.");
 		const agent = await ctx.db.get(row.agentId);
-		if (!agent || agent.archived) throw new ConvexError("This agent is archived.");
+		if (!agent || agent.archived) throw new ConvexError("This agent is in Trash.");
 
 		if (approve && always) {
 			const allowed = await alwaysFor(ctx, row);

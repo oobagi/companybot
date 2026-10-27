@@ -29,6 +29,7 @@ export const tick = internalMutation({
 			.withIndex("by_enabled", (q) => q.eq("enabled", true))
 			.collect();
 		for (const install of installs) {
+			if (install.archived) continue;
 			const automation = await definitionOf(ctx, install);
 			if (!automation || !(await liveWorkspace(ctx, install.workspaceId))) continue;
 			const due = scheduleDue(automation.trigger, now, install.timeZone, install.lastRunDate);
@@ -53,8 +54,8 @@ export const receive = internalMutation({
 					.first()
 			: null;
 		const automation = install && (await definitionOf(ctx, install));
-		// A workspace being deleted has no webhooks: nothing runs, and nothing new is saved behind its cascade.
-		if (!install || automation?.trigger.type !== "webhook" || !(await liveWorkspace(ctx, install.workspaceId)))
+		// A workspace being deleted has no webhooks, and one in Trash has none: nothing runs, and nothing new is saved behind its cascade.
+		if (!install || install.archived || automation?.trigger.type !== "webhook" || !(await liveWorkspace(ctx, install.workspaceId)))
 			return { status: 404, ok: false, message: "Unknown webhook URL." };
 		let json: unknown;
 		try {
@@ -103,7 +104,7 @@ export async function fireEvent(
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
 		.collect();
 	for (const install of installs) {
-		if (!install.enabled) continue;
+		if (!install.enabled || install.archived) continue;
 		const automation = await definitionOf(ctx, install);
 		const trigger = automation?.trigger;
 		if (!automation || trigger?.type !== "event" || trigger.event !== event) continue;
@@ -196,7 +197,7 @@ async function activeAgent(ctx: QueryCtx, install: Doc<"automationInstalls">) {
 	return agent && !agent.archived ? agent : null;
 }
 
-const noAgent = "Didn't run: its agent is archived or deleted. Pick another agent.";
+const noAgent = "Didn't run: its agent was deleted. Pick another agent.";
 
 /**
  * Posts the prompt in each person's DM with the agent, as them, and queues the agent's

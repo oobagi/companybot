@@ -165,7 +165,7 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	const recordIds = await workspaceRecords(ctx, member.workspaceId, mentions.recordIds ?? []);
 
 	const dmAgent = agentOfDm(chat);
-	if (dmAgent && (await ctx.db.get(dmAgent))?.archived) throw new ConvexError("This agent is archived.");
+	if (dmAgent && (await ctx.db.get(dmAgent))?.archived) throw new ConvexError("This agent is in Trash.");
 
 	const messageId = await insertMessage(ctx, chat, {
 		threadId,

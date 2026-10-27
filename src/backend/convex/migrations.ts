@@ -121,7 +121,7 @@ export const memberEmails = migrations.define({
 });
 // Archive became Trash (trash.ts): what was archived goes to Trash as deleted now, by whoever
 // last changed it, so it gets the full 30 days. Skips what's already there.
-function archivedToTrash<T extends "records" | "recordTypes" | "recordFields" | "pages">(
+function archivedToTrash<T extends "records" | "recordTypes" | "recordFields" | "pages" | "agents">(
 	table: T,
 	entry: (row: Doc<T>) => { kind: TrashKind; name: string; deletedBy: Id<"users">; typeId?: Id<"recordTypes"> },
 ) {
@@ -143,6 +143,9 @@ export const trashPages = archivedToTrash("pages", (p) => ({ kind: "page", name:
 
 export const companybotParity2Tools = grantCompanybot(["agents.manage"]);
 
+// Archiving agents became Delete (Trash): agents archived before go to Trash the same way.
+export const trashAgents = archivedToTrash("agents", (a) => ({ kind: "agent", name: a.name, deletedBy: a.updatedBy }));
+
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.automationAudiences,
@@ -160,6 +163,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.trashPages,
 	internal.migrations.companybotParity2Tools,
 	internal.migrations.companybotSkillEdit,
+	internal.migrations.trashAgents,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

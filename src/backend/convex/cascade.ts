@@ -28,7 +28,7 @@ const MAX_ATTEMPTS = 3;
 
 /** Names what's going, so callers can tell it's still being deleted. */
 const keyOf = (scope: Scope, root: Root) =>
-	[scope, root.workspaceId, root.userId, root.connectorId, root.automationInstallId, root.pageId, root.recordId, root.typeId, root.fieldId, root.chatId]
+	[scope, root.workspaceId, root.userId, root.connectorId, root.automationInstallId, root.pageId, root.recordId, root.typeId, root.fieldId, root.chatId, root.agentId]
 		.filter(Boolean)
 		.join(":");
 
@@ -150,7 +150,7 @@ export const step = internalMutation({
 
 /** The row a scope deletes last, once everything that belonged to it is gone. The rest were gone before it started. */
 const lastOf = ({ scope, root }: Doc<"cascades">) =>
-	({ workspace: root.workspaceId, record: root.recordId, database: root.typeId, field: root.fieldId, channel: root.chatId })[scope as string];
+	({ workspace: root.workspaceId, record: root.recordId, database: root.typeId, field: root.fieldId, channel: root.chatId, agent: root.agentId })[scope as string];
 
 /** Every edge is done: the root row goes last (a workspace, or something deleted from Trash), then the cascade. */
 async function finish(ctx: MutationCtx, job: Doc<"cascades">) {
