@@ -5,6 +5,7 @@ import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
+import { SkillIcon } from "../../icons";
 import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
 import { Field, Loading, Notice, Section, inputClass, primaryButton, useRun } from "../../ui";
@@ -31,7 +32,7 @@ export function SkillsTab({ role }: { role: Role }) {
 		<ItemList
 			items={skills}
 			description="Instructions your agents load when a task calls for them. Agents see each skill's description, and read the rest only when they need it."
-			empty={can(role, "skills.create") ? "No skills yet. Make your own with New skill, or ask Companybot to save a process for your team." : "No skills yet. Your team can create skills here."}
+			icon={<SkillIcon />} title="No skills yet" empty="Save a process your agents can follow."
 			card={card}
 			action={can(role, "skills.create") && (
 				<button type="button" className={`${primaryButton} shrink-0`} onClick={() => navigate("settings", "skills", "new")}>

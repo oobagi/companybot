@@ -6,7 +6,8 @@ import { useState } from "react";
 import { AgentOptions, agentLabel } from "../agent-options";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
-import { ConflictNotice, Loading, Notice, Section, compactControlClass, descriptionClass, inputClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../ui";
+import { SkillIcon } from "../icons";
+import { EmptyState, NoMatches, ConflictNotice, Loading, Notice, Section, compactControlClass, descriptionClass, inputClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../ui";
 
 type MemoryItem = FunctionReturnType<typeof api.memory.list>[number];
 type Agent = { _id: Id<"agents">; name: string; archived: boolean };
@@ -54,8 +55,10 @@ export function MemoryTab({ role }: { role: Role }) {
 					<AgentOptions agents={agents} />
 				</select>
 			</div>
-			<MemoryList title="Team" empty="No team memories yet." items={team} agentName={agentName} />
-			<MemoryList title="Personal" empty="No personal memories yet." items={personal} agentName={agentName} />
+			{shown.length === 0 ? (filter !== "all" ? <NoMatches onClear={() => setFilter("all")} /> : <EmptyState icon={<SkillIcon />} title="No memories yet">Add something to remember, or ask an agent to save it.</EmptyState>) : <>
+				<MemoryList title="Team" empty="No team memories yet." items={team} agentName={agentName} />
+				<MemoryList title="Personal" empty="No personal memories yet." items={personal} agentName={agentName} />
+			</>}
 		</>
 	);
 }

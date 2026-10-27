@@ -122,7 +122,7 @@ export function Page({
 		>
 			{/* `--bleed`: from the column's content out to the screen's edge, for `.bleed`. */}
 			<div
-				className={`mx-auto flex w-full flex-col gap-6 px-6 pt-8 pb-10 ${
+				className={`mx-auto flex w-full flex-1 flex-col gap-6 px-6 py-8 ${
 					wide ? "max-w-5xl [--bleed:max(1.5rem,calc((100cqw-64rem)/2+1.5rem))]" : "max-w-2xl [--bleed:max(1.5rem,calc((100cqw-42rem)/2+1.5rem))]"
 				}`}
 			>
@@ -234,6 +234,25 @@ export const barDangerButton = `flex items-center gap-1.5 rounded-lg px-2.5 py-1
 export const barPrimaryButton = `flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-1 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
 export const descriptionClass = "text-sm text-neutral-500";
 export const metadataClass = "text-xs text-neutral-400";
+
+/** Fills the space left below a screen's controls. */
+export function EmptyState({ icon, title, children, action }: { icon: React.ReactNode; title: string; children: React.ReactNode; action?: React.ReactNode }) {
+	return (
+		<div className="flex min-h-48 flex-1 flex-col items-center justify-center gap-2 py-8 text-center">
+			<span aria-hidden="true" className="mb-2 text-[32px] text-neutral-400">{icon}</span>
+			<h2 className="text-base font-medium">{title}</h2>
+			<p className={descriptionClass}>{children}</p>
+			{action && <div className="mt-3">{action}</div>}
+		</div>
+	);
+}
+
+export function NoMatches({ onClear }: { onClear: () => void }) {
+	return <div className="flex flex-col items-center gap-2 py-8 text-sm text-neutral-500">
+		<p>No matches</p>
+		<button type="button" className={barButton} onClick={onClear}>Clear filters</button>
+	</div>;
+}
 
 /** A screen for one item: loading while `loaded` is false, then `children` says why it's gone. */
 export function NotFound({ crumbs, loaded, children }: { crumbs?: Crumb[]; loaded: boolean; children?: React.ReactNode }) {

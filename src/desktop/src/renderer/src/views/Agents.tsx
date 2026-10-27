@@ -7,10 +7,10 @@ import { useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { navigate } from "../router";
-import { customizeCrumbs } from "./customize/shared";
+import { ItemList, customizeCrumbs } from "./customize/shared";
 import { ModelPicker } from "./ModelPicker";
 import { TrashNotice } from "./Trash";
-import { TrashIcon } from "../icons";
+import { AgentIcon, TrashIcon } from "../icons";
 import {
 	type Crumb,
 	barDangerButton,
@@ -40,30 +40,15 @@ export function AgentsTab({ role }: { role: Role }) {
 
 	if (!agents) return <Loading />;
 
-	// Deleted ones are in Trash.
-	const active = agents.filter((a) => !a.archived);
-
 	return (
-		<>
-			<div className="flex items-center justify-between gap-4">
-				<p className="text-sm text-neutral-500">
-					{isOwner ? "Edit what each agent knows and can do." : "Only owners can change agents."}
-				</p>
-				{isOwner && (
-					<button
-						type="button"
-						className={`${primaryButton} shrink-0`}
-						onClick={() => run(create().then(open))}
-					>
-						New agent
-					</button>
-				)}
-			</div>
-			{error && <Notice>{error}</Notice>}
-			{active.map((a) => (
-				<AgentRow key={a._id} agent={a} onOpen={() => open(a._id)} />
-			))}
-		</>
+		<ItemList
+			items={agents}
+			description={isOwner ? "Edit what each agent knows and can do." : "Only owners can change agents."}
+			icon={<AgentIcon />} title="No agents yet" empty="Add a teammate to help with your team's work."
+			error={error}
+			action={isOwner && <button type="button" className={`${primaryButton} shrink-0`} onClick={() => run(create().then(open))}>New agent</button>}
+			card={(a) => <AgentRow key={a._id} agent={a} onOpen={() => open(a._id)} />}
+		/>
 	);
 }
 

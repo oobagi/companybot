@@ -4,7 +4,8 @@ import { useState } from "react";
 import { api } from "../api";
 import { useMutation, usePaginatedQuery } from "../convex";
 import { navigate } from "../router";
-import { LoadMore, Notice, Page, compactControlClass, descriptionClass, metadataClass, timeAgo, useRun } from "../ui";
+import { TrashIcon } from "../icons";
+import { EmptyState, NoMatches, LoadMore, Notice, Page, compactControlClass, metadataClass, timeAgo, useRun } from "../ui";
 import { recordPath, whoLabel } from "./records/logic";
 
 // Trash: everything people deleted, like Notion's. Whoever deleted something, or an owner,
@@ -43,7 +44,7 @@ export function TrashView({ role }: { role: Role }) {
 	const { error, run } = useRun();
 	const canPurge = can(role, "trash.manage");
 	return (
-		<Page title="Trash" subtitle="Everything deleted lands here. It's deleted forever 30 days later." wide>
+		<Page title="Trash" wide>
 			<div className="flex items-center gap-3 text-sm">
 				<input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search Trash" className={`${compactControlClass} w-64`} />
 				<select value={kind} onChange={(e) => setKind(e.target.value as Kind | "")} className={compactControlClass}>
@@ -91,7 +92,7 @@ export function TrashView({ role }: { role: Role }) {
 					})}
 				</div>
 			)}
-			{status === "Exhausted" && results.length === 0 && <p className={descriptionClass}>{args.search || args.kind ? "Nothing in Trash matches." : "Trash is empty."}</p>}
+			{status === "Exhausted" && results.length === 0 && (args.search || args.kind ? <NoMatches onClear={() => { setSearch(""); setKind(""); }} /> : <EmptyState icon={<TrashIcon />} title="Trash is empty">Deleted items stay here for 30 days before they’re gone forever.</EmptyState>)}
 			<LoadMore status={status} onMore={() => loadMore(25)} />
 		</Page>
 	);

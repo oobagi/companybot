@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { ArrowDownIcon, ArrowUpIcon, CloseIcon, EditIcon, MoreIcon, PlusIcon } from "../../icons";
-import { ConflictNotice, ErrorBoundary, Field, LoadMore, Loading, Notice, Page, Tabs, barButton, barPrimaryButton, compactControlClass, dangerButton, descriptionClass, inputClass, primaryButton, secondaryButton, timeAgo, useDraft, useRun } from "../../ui";
+import { ArrowDownIcon, ArrowUpIcon, CloseIcon, DatabaseIcon, EditIcon, MoreIcon, PlusIcon } from "../../icons";
+import { ConflictNotice, EmptyState, NoMatches, ErrorBoundary, Field, LoadMore, Loading, Notice, Page, Tabs, barButton, barPrimaryButton, compactControlClass, dangerButton, inputClass, primaryButton, secondaryButton, timeAgo, useDraft, useRun } from "../../ui";
 import { Modal, useDismiss } from "../chat/common";
 import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
@@ -88,6 +88,7 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 	const shown = columns.map((k) => fields.find((f) => f.key === k)!);
 	const conditions = filters.map(toCondition).filter((c) => c !== null);
 	const canEdit = can(role, "records.edit");
+	const clearFilters = () => { setSearch(""); change({ filters: [], sort: undefined }); };
 	const sortField = sort && fields.find((f) => f.key === sort.field);
 	const args = { typeId: type._id, filters: conditions, sort };
 	const config = { filters: conditions, sort, columns, layout, groupBy: group?.key };
@@ -190,7 +191,7 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 			{search.trim() ? (
 				<>
 					<p className="-mt-2 text-xs text-neutral-500">Top 20 live {noun} matching the name or text. Filters and sort don't apply to search.</p>
-					<SearchResults type={type} query={search} columns={shown} />
+					<SearchResults type={type} query={search} columns={shown} onClear={clearFilters} />
 				</>
 			) : (
 				<>
@@ -201,44 +202,14 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 					)}
 					{/* A query error (a bad filter, an old page) shows here; changing the list clears it. */}
 					<ErrorBoundary key={JSON.stringify([args, layout, group?.key])}>
-						{layout === "board" ? (
-							group ? (
-								<Board type={type} args={args} group={group} cards={shown} canEdit={canEdit} />
-							) : (
-								<div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-neutral-200 px-6 py-8">
-									<p className="text-neutral-600">
-										A board makes a column for each option of a choice field, like Status. This database has no choice field that holds one option yet.
-									</p>
-									{can(role, "fields.create") && (
-										<button type="button" className={primaryButton} onClick={() => setAddingField(true)}>
-											Add a choice field
-										</button>
-									)}
-								</div>
-							)
-						) : (
-						<Table
-							type={type}
-							args={args}
-							columns={shown}
-							sort={sort}
-							onSort={setSort}
-							empty={
-								filters.length ? (
-									<p className={descriptionClass}>No {noun} match these filters.</p>
-								) : (
-									<div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-neutral-200 px-6 py-8">
-										<p className="text-neutral-600">No {noun} yet.</p>
-										{canEdit && (
-											<button type="button" className={primaryButton} onClick={() => setCreating(true)}>
-												Add the first {type.name.toLowerCase()}
-											</button>
-										)}
-									</div>
-								)
-							}
+						<RecordResults
+							type={type} args={args} columns={shown} sort={sort} onSort={setSort}
+							layout={layout} group={group} canEdit={canEdit}
+							noGroup={<EmptyState icon={<DatabaseIcon />} title="Choose a field for your board" action={can(role, "fields.create") && <button type="button" className={primaryButton} onClick={() => setAddingField(true)}>Add a choice field</button>}>Group records by a choice field, like Status.</EmptyState>}
+							empty={filters.length || sort ? <NoMatches onClear={clearFilters} /> : (
+								<EmptyState icon={<DatabaseIcon />} title={`No ${noun} yet`} action={canEdit && <button type="button" className={primaryButton} onClick={() => setCreating(true)}>New {type.name.toLowerCase()}</button>}>Keep your {noun} and their details here.</EmptyState>
+							)}
 						/>
-						)}
 					</ErrorBoundary>
 				</>
 			)}
@@ -277,12 +248,13 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 	);
 }
 
-function Table({
+function RecordResults({
 	type,
 	args,
 	columns,
 	sort,
 	onSort,
+	layout, group, canEdit, noGroup,
 	empty,
 }: {
 	type: RecordType;
@@ -291,6 +263,10 @@ function Table({
 	sort?: Sort;
 	onSort: (sort: Sort | undefined) => void;
 	empty: React.ReactNode;
+	layout: Layout;
+	group?: TypeField;
+	canEdit: boolean;
+	noGroup: React.ReactNode;
 }) {
 	const { rows, refs, status, loadMore, setEnd } = usePagedRows(args);
 
@@ -316,22 +292,20 @@ function Table({
 	};
 
 	if (status === "LoadingFirstPage") return <Loading />;
+	if (rows.length === 0 && status === "Exhausted") return empty;
+	if (layout === "board" && rows.length > 0) return group ? <Board type={type} args={args} group={group} cards={columns} canEdit={canEdit} /> : noGroup;
 	return (
 		<div className="flex flex-col gap-2">
-			{rows.length === 0 && status === "Exhausted" ? (
-				empty
-			) : (
-				<RowsTable
-					type={type}
-					rows={rows}
-					refs={refs}
-					columns={columns}
-					head={[
-						...columns.map((f) => header(f.key, f.label, sortable(f))),
-						header("updatedAt", "Updated", true),
-					]}
-				/>
-			)}
+			<RowsTable
+				type={type}
+				rows={rows}
+				refs={refs}
+				columns={columns}
+				head={[
+					...columns.map((f) => header(f.key, f.label, sortable(f))),
+					header("updatedAt", "Updated", true),
+				]}
+			/>
 			<div ref={setEnd} className="flex flex-col items-center py-2">
 				<LoadMore status={status} onMore={() => loadMore(25)} />
 			</div>
@@ -370,11 +344,11 @@ function RowsTable({ type, rows, refs, columns, head }: { type: RecordType; rows
 	);
 }
 
-function SearchResults({ type, query, columns }: { type: RecordType; query: string; columns: TypeField[] }) {
+function SearchResults({ type, query, columns, onClear }: { type: RecordType; query: string; columns: TypeField[]; onClear: () => void }) {
 	const rows = useQuery(api.records.search, { query, typeId: type._id });
 	const refs = useRefs(rows ?? []);
 	if (!rows) return <Loading />;
-	if (rows.length === 0) return <p className={descriptionClass}>No matches.</p>;
+	if (rows.length === 0) return <NoMatches onClear={onClear} />;
 	const head = [...columns.map((f) => <th key={f.key} className="px-3 py-2 text-left font-medium">{f.label}</th>), <th key="u" className="px-3 py-2 text-left font-medium">Updated</th>];
 	return <RowsTable type={type} rows={rows} refs={refs} columns={columns} head={head} />;
 }

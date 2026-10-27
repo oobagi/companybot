@@ -4,7 +4,7 @@ import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { navigate } from "../router";
 import { HistoryIcon, PageIcon, PlusIcon, TrashIcon } from "../icons";
-import { Loading, NotFound, Notice, Page, barButton, barDangerButton, barPrimaryButton, descriptionClass, metadataClass, timeAgo, useRun } from "../ui";
+import { EmptyState, Loading, NotFound, Notice, Page, barButton, barDangerButton, barPrimaryButton, metadataClass, timeAgo, useRun } from "../ui";
 import { Group, Item } from "./chat/Sidebar";
 import { PageEditor } from "./pages/PageEditor";
 import { PageHistory } from "./pages/PageHistory";
@@ -48,7 +48,7 @@ function PagesIndex({ canEdit }: { canEdit: boolean }) {
 		</button>
 	);
 	return (
-		<Page title="Pages" subtitle="Wiki pages, how-tos and meeting notes. Every record has a page too." actions={actions}>
+		<Page title="Pages"  actions={actions}>
 			{error && <Notice>{error}</Notice>}
 			{!pages ? (
 				<Loading />
@@ -63,7 +63,7 @@ function PagesIndex({ canEdit }: { canEdit: boolean }) {
 					))}
 				</div>
 			) : (
-				<p className={descriptionClass}>No pages yet.</p>
+				<EmptyState icon={<PageIcon />} title="No pages yet" action={actions}>Keep wiki pages, how-tos and meeting notes here.</EmptyState>
 			)}
 		</Page>
 	);

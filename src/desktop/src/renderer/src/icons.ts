@@ -12,6 +12,7 @@ export {
 	CaretDownIcon,
 	CaretRightIcon,
 	CheckIcon,
+	ChatCircleIcon as ChatIcon,
 	ClockCounterClockwiseIcon as HistoryIcon,
 	DotsThreeIcon as MoreIcon,
 	FileTextIcon as PageIcon,

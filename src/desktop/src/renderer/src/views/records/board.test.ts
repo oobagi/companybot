@@ -6,6 +6,7 @@ import { RecordList } from "./RecordList";
 
 const state = vi.hoisted(() => ({
 	rows: [] as Row[],
+	overview: { results: [{ refs: {}, unresolved: [] }] as unknown as Row[], status: "Exhausted", loadMore: vi.fn() },
 	status: "CanLoadMore",
 	loadMore: vi.fn(),
 	update: vi.fn(() => Promise.resolve()),
@@ -14,7 +15,7 @@ const state = vi.hoisted(() => ({
 vi.mock("../../convex", () => ({
 	useQuery: () => undefined,
 	useMutation: () => state.update,
-	usePaginatedQuery: (_fn: unknown, args: { filters: unknown[]; group?: { option: string | null } }) => (state.lists.push(args), args.group?.option === "old")
+	usePaginatedQuery: (_fn: unknown, args: { filters: unknown[]; group?: { option: string | null } }) => !args.group ? state.overview : (state.lists.push(args), args.group?.option === "old")
 		? { results: state.rows, status: state.status, loadMore: state.loadMore }
 		: { results: [], status: "Exhausted", loadMore: vi.fn() },
 }));
@@ -31,6 +32,7 @@ let intersect: IntersectionObserverCallback;
 beforeEach(() => {
 	vi.clearAllMocks();
 	state.rows = [];
+	state.overview = { results: [{ refs: {}, unresolved: [] }] as unknown as Row[], status: "Exhausted", loadMore: vi.fn() };
 	state.status = "CanLoadMore";
 	state.lists = [];
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -86,4 +88,22 @@ it("ignores drops within the same column, into removed options, or from a differ
 	expect(state.update).not.toHaveBeenCalled();
 	await act(async () => drop(0, card));
 	expect(state.update).toHaveBeenCalledExactlyOnceWith({ recordId: "record", values: { status: null } });
+});
+
+it.each(["table", "board"])("shows the whole-screen empty state only after %s pagination ends", async (layout) => {
+	vi.stubGlobal("localStorage", { getItem: (key: string) => key.startsWith("records.layout.") ? JSON.stringify({ layout }) : null });
+	state.overview.results = [];
+	state.overview.status = "CanLoadMore";
+	await act(async () => { root = create(tree(), { createNodeMock: () => ({}) }); });
+	expect(JSON.stringify(root.toJSON())).not.toContain("No jobs yet");
+	await act(async () => intersect([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver));
+	expect(state.overview.loadMore).toHaveBeenCalledExactlyOnceWith(25);
+	state.overview.status = "Exhausted";
+	await act(async () => root.update(tree()));
+	expect(JSON.stringify(root.toJSON())).toContain("No jobs yet");
+	expect(root.root.findAllByType("section")).toHaveLength(0);
+	expect(root.root.findAllByType("table")).toHaveLength(0);
+	await act(async () => root.update(createElement(RecordList, { type, role: "member" })));
+	// Members can create records too; the action follows records.edit, not ownership.
+	expect(root.root.findAllByType("button").some((b) => b.children.join("") === "New job")).toBe(true);
 });

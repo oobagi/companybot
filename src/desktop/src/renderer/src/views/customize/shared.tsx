@@ -1,7 +1,7 @@
 import { Fragment, useState } from "react";
 import { navigate } from "../../router";
 import { TrashIcon } from "../../icons";
-import { type Crumb, ConflictNotice, NotFound, Notice, Page, SaveBar, barDangerButton, descriptionClass, disabledButtonClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
+import { type Crumb, EmptyState, ConflictNotice, NotFound, Notice, Page, SaveBar, barDangerButton, descriptionClass, disabledButtonClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
 import { TrashNotice } from "../Trash";
 import { Confirm } from "../chat/common";
 
@@ -22,26 +22,28 @@ const tabLabel = (tab: CustomizeTab) => customizeTabs.find((t) => t.id === tab)!
 /** The top bar's trail for an item's own screen: Skills. */
 export const customizeCrumbs = (tab: CustomizeTab): Crumb[] => [{ label: tabLabel(tab), to: ["settings", tab] }];
 
-/** Skills and automations share one list of workspace items. */
-export function ItemList<T extends { trash: unknown }>({
-	items, description, action, empty, error, card,
+/** Agents, skills and automations share one list of workspace items. */
+export function ItemList<T extends { trash?: unknown; archived?: boolean }>({
+	items, description, action, title, icon, empty, error, card,
 }: {
 	items: T[];
+	title: string;
+	icon: React.ReactNode;
 	description: string;
 	empty: string;
 	action: React.ReactNode;
 	error?: string;
 	card: (item: T) => React.ReactNode;
 }) {
-	items = items.filter((item) => !item.trash);
+	items = items.filter((item) => !item.trash && !item.archived);
 	return (
 		<>
 			<div className="flex items-start justify-between gap-4">
 				<p className={descriptionClass}>{description}</p>
-				{action}
+				{items.length > 0 && action}
 			</div>
 			{error && <Notice>{error}</Notice>}
-			{items.length ? <div className="flex flex-col gap-3">{items.map(card)}</div> : <p className={descriptionClass}>{empty}</p>}
+			{items.length ? <div className="flex flex-col gap-3">{items.map(card)}</div> : <EmptyState icon={icon} title={title} action={action}>{empty}</EmptyState>}
 		</>
 	);
 }
