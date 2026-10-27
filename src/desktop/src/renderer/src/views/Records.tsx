@@ -1,6 +1,9 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { can, type Role } from "@companybot/core";
-import { NotFound, Page, descriptionClass } from "../ui";
+import { useState } from "react";
+import { DatabaseIcon } from "../icons";
+import { EmptyState, NewButton, NotFound, Page } from "../ui";
+import { DatabaseDialog } from "./records/DatabaseDialog";
 import { useTypes } from "./records/data";
 import { RecordList } from "./records/RecordList";
 import { RecordPage } from "./records/RecordPage";
@@ -19,18 +22,20 @@ export const recordTabs = [
  */
 export function RecordsView({ typeKey, recordId, role }: { typeKey?: string; recordId?: string; role: Role }) {
 	const types = useTypes();
-	if (!types) return <NotFound loaded={false} />;
+	const [creating, setCreating] = useState(false);
+	if (!types) return <NotFound loaded={false} icon={<DatabaseIcon />} title="Database not found" />;
 	if (!typeKey) return (
-		<Page title="Databases">
-			<p className={descriptionClass}>{types.length
-				? "Choose a database in the sidebar."
-				: can(role, "fields.manage")
-					? "No databases yet. Choose New database in the sidebar, or ask Companybot to make one for your team."
-					: "No databases yet. An owner can create one for your team."}</p>
+		<Page title="Databases" actions={can(role, "fields.manage") && <NewButton label="New database" onClick={() => setCreating(true)} />}>
+			{types.length ? <EmptyState icon={<DatabaseIcon />} title="Pick a database">Open one from the sidebar.</EmptyState> : (
+				<EmptyState icon={<DatabaseIcon />} title="No databases yet">
+					{can(role, "fields.manage") ? "Organize your team's work with records and custom fields." : "An owner can create a database for your team."}
+				</EmptyState>
+			)}
+			{creating && <DatabaseDialog onClose={() => setCreating(false)} />}
 		</Page>
 	);
 	const type = types.find((t) => t.key === typeKey);
-	if (!type) return <NotFound loaded>This database may have been deleted. Look in Trash.</NotFound>;
+	if (!type) return <NotFound loaded icon={<DatabaseIcon />} title="Database not found" />;
 	return recordId ? (
 		<RecordPage key={recordId} type={type} recordId={recordId as Id<"records">} role={role} />
 	) : (

@@ -52,9 +52,9 @@ const sections = [
 		title: "Workspace",
 		tabs: [
 			{ id: "general", label: "General", icon: <SettingsIcon /> },
-			{ id: "members", label: "Members", icon: <MembersIcon /> },
-			{ id: "memory", label: "Memory", icon: <MemoryIcon /> },
-			{ id: "activity", label: "Activity", icon: <ActivityIcon /> },
+			{ id: "members", label: "Members", description: "We email invited people a link to get the app. They join when they sign in with that email. Role changes apply right away.", icon: <MembersIcon /> },
+			{ id: "memory", label: "Memory", description: "Each agent has its own memory. Team memories are shared. Only you can see your personal memories.", icon: <MemoryIcon /> },
+			{ id: "activity", label: "Activity", description: "Database changes, and what agents did in chats you can see. Agent results show only for what they did for you.", icon: <ActivityIcon /> },
 			{ id: "trash", label: "Trash", icon: <TrashIcon /> },
 		],
 	},
@@ -84,7 +84,7 @@ export function SettingsView({ role, tab, itemId }: { role: Role; tab: SettingsT
 	if (isCustomize(tab)) return <CustomizeView role={role} tab={tab} itemId={itemId} />;
 	if (tab === "trash") return <TrashView role={role} />;
 	return (
-		<Page title={settingsTabs.find((t) => t.id === tab)!.label}>
+		<Page title={settingsTabs.find((t) => t.id === tab)!.label} description={(settingsTabs.find((t) => t.id === tab) as { description?: string } | undefined)?.description}>
 			{tab === "general" && <GeneralTab role={role} />}
 			{tab === "members" && <MembersTab role={role} />}
 			{tab === "memory" && <MemoryTab role={role} />}

@@ -2,8 +2,8 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useEffect, useState } from "react";
 import { api, errorMessage } from "../../api";
 import { useMutation, useQuery } from "../../convex";
-import { PrivateIcon } from "../../icons";
-import { Loading, Notice, TopBar } from "../../ui";
+import { ChannelIcon, ChatIcon, PrivateIcon } from "../../icons";
+import { EmptyState, Loading, NotFound, Notice, Scroll, TopBar } from "../../ui";
 import { AgentBadge, AvatarStack } from "./common";
 import { Composer, type SendWith } from "./Composer";
 import { type ChatDetails, type Mentions, chatTitle, useDirectory } from "./data";
@@ -33,14 +33,7 @@ export function ChatView({
 	onLeft: () => void;
 }) {
 	const chat = useQuery(api.chats.get, { chatId });
-	if (!chat) {
-		return (
-			<>
-				<TopBar title="" />
-				{chat === null ? <p className="p-8 text-sm text-neutral-500">This chat isn't available.</p> : <Loading />}
-			</>
-		);
-	}
+	if (!chat) return <NotFound loaded={chat === null} icon={<ChatIcon />} title="Chat not found">It may have been deleted, or you're not in it.</NotFound>;
 	return <OpenChat chat={chat} sendWith={sendWith} focus={focus} onLeft={onLeft} />;
 }
 
@@ -103,9 +96,9 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 						{title}
 					</h1>
 					{agent && <AgentBadge />}
-					{chat.topic && <p className="truncate font-normal text-neutral-500">{chat.topic}</p>}
 				</>
 			}
+			description={chat.topic}
 		>
 			{!agent && (
 				<button
@@ -150,6 +143,10 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 							{error && <Notice>{error}</Notice>}
 						</div>
 					</>
+				) : messages.length === 0 ? (
+					<Scroll header={bar} footer={<div className="flex flex-col gap-2 px-5 pt-4 pb-5">{error && <Notice>{error}</Notice>}{chat.trash ? <TrashNotice trash={chat.trash} /> : composer}</div>}>
+						<EmptyState icon={chat.kind === "channel" ? <ChannelIcon /> : <ChatIcon />} title="No messages yet">{chat.kind === "channel" ? `Start a conversation in ${title}.` : `Send your first message to ${title}.`}</EmptyState>
+					</Scroll>
 				) : (
 					<MessageList
 						chatId={chat._id}

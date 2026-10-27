@@ -4,7 +4,7 @@ import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { navigate } from "../router";
 import { HistoryIcon, PageIcon, PlusIcon, TrashIcon } from "../icons";
-import { Loading, NotFound, Notice, Page, barButton, barDangerButton, barPrimaryButton, descriptionClass, metadataClass, timeAgo, useRun } from "../ui";
+import { EmptyState, Loading, NewButton, NotFound, Notice, Page, barButton, barDangerButton, metadataClass, timeAgo, useRun } from "../ui";
 import { Group, Item } from "./chat/Sidebar";
 import { PageEditor } from "./pages/PageEditor";
 import { PageHistory } from "./pages/PageHistory";
@@ -42,13 +42,9 @@ function PagesIndex({ canEdit }: { canEdit: boolean }) {
 	const pages = useQuery(api.pages.list, {});
 	const create = useMutation(api.pages.create);
 	const { error, run } = useRun();
-	const actions = canEdit && (
-		<button type="button" onClick={() => run(create({ title: "Untitled" }).then((id) => navigate("pages", id)))} className={barPrimaryButton}>
-			<PlusIcon /> New page
-		</button>
-	);
+	const actions = canEdit && <NewButton label="New page" onClick={() => run(create({ title: "Untitled" }).then((id) => navigate("pages", id)))} />;
 	return (
-		<Page title="Pages" subtitle="Wiki pages, how-tos and meeting notes. Every record has a page too." actions={actions}>
+		<Page title="Pages" description="Wiki pages, how-tos and meeting notes. Every record has a page too." actions={actions}>
 			{error && <Notice>{error}</Notice>}
 			{!pages ? (
 				<Loading />
@@ -63,7 +59,7 @@ function PagesIndex({ canEdit }: { canEdit: boolean }) {
 					))}
 				</div>
 			) : (
-				<p className={descriptionClass}>No pages yet.</p>
+				<EmptyState icon={<PageIcon />} title="No pages yet">Write down how your team works.</EmptyState>
 			)}
 		</Page>
 	);
@@ -76,7 +72,7 @@ function PageScreen({ pageId, canEdit }: { pageId: Id<"pages">; canEdit: boolean
 	const [history, setHistory] = useState(false);
 	const { error, run } = useRun();
 	const crumbs = [{ label: "Pages", to: ["pages"] }];
-	if (!page) return <NotFound crumbs={crumbs} loaded={page === null}>This page was deleted, or isn't in this workspace.</NotFound>;
+	if (!page) return <NotFound crumbs={crumbs} loaded={page === null} icon={<PageIcon />} title="Page not found" />;
 	return (
 		<Page
 			title={page.title}
