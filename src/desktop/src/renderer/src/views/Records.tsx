@@ -2,7 +2,7 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { can, type Role } from "@companybot/core";
 import { useState } from "react";
 import { DatabaseIcon } from "../icons";
-import { EmptyState, NewButton, NotFound, Page, descriptionClass } from "../ui";
+import { EmptyState, NewButton, NotFound, Page } from "../ui";
 import { DatabaseDialog } from "./records/DatabaseDialog";
 import { useTypes } from "./records/data";
 import { RecordList } from "./records/RecordList";
@@ -26,7 +26,7 @@ export function RecordsView({ typeKey, recordId, role }: { typeKey?: string; rec
 	if (!types) return <NotFound loaded={false} icon={<DatabaseIcon />} title="Database not found" />;
 	if (!typeKey) return (
 		<Page title="Databases" actions={can(role, "fields.manage") && <NewButton label="New database" onClick={() => setCreating(true)} />}>
-			{types.length ? <p className={descriptionClass}>Choose a database in the sidebar.</p> : (
+			{types.length ? <EmptyState icon={<DatabaseIcon />} title="Pick a database">Open one from the sidebar.</EmptyState> : (
 				<EmptyState icon={<DatabaseIcon />} title="No databases yet">
 					{can(role, "fields.manage") ? "Organize your team's work with records and custom fields." : "An owner can create a database for your team."}
 				</EmptyState>

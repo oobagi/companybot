@@ -198,7 +198,7 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 						<RecordResults
 							type={type} args={args} columns={shown} sort={sort} onSort={setSort}
 							layout={layout} group={group} canEdit={canEdit}
-							noGroup={<EmptyState icon={<DatabaseIcon />} title="No choice field to group by">A board makes a column for each option of a choice field, like Status.</EmptyState>}
+							noGroup={<EmptyState icon={<DatabaseIcon />} title="No choice field to group by">Open a record and use Add field to add a choice field for grouping cards.</EmptyState>}
 							empty={filters.length || sort ? <NoMatches /> : <EmptyState icon={<DatabaseIcon />} title={`No ${noun} yet`}>Keep your {noun} and their details here.</EmptyState>}
 						/>
 					</ErrorBoundary>

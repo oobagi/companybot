@@ -133,13 +133,12 @@ export function Detail(props: {
 	return (
 		<Page
 			title={props.title}
-			description={props.meta}
+			description={`${props.description} · ${props.meta}`}
 			crumbs={customizeCrumbs(props.tab)}
 			actions={!props.trash && <InstallButton installed={props.installed} canManage={props.canManage} busy={props.busy} onToggle={() => props.confirmation ? setConfirming(true) : props.onToggle()} />}
 		>
 			{confirming && <Confirm title={`Remove "${props.title}"?`} action="Move to Trash" onClose={() => setConfirming(false)} onConfirm={() => { setConfirming(false); props.onToggle(); }}>{props.confirmation}</Confirm>}
 			{props.trash && <TrashNotice trash={props.trash} />}
-			<p className="text-neutral-600">{props.description}</p>
 			{props.children}
 		</Page>
 	);
