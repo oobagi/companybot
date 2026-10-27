@@ -114,7 +114,7 @@ export const list = query({
 					_id: a._id,
 					name: a.name,
 					description: a.description,
-					image: (await names.agent(a._id)).image ?? null,
+					image: await names.imageUrl(a.image),
 					dmId: dm?._id ?? null,
 					unread: dm?.unread ?? false,
 					mentioned: dm?.mentioned ?? false,

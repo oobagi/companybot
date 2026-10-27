@@ -304,7 +304,7 @@ export function namer(ctx: QueryCtx, { images = false } = {}) {
 		const author = await (userId ? user(userId) : agent(agentId!));
 		return "actingFor" in row && row.actingFor ? { ...author, name: `${author.name}, for ${await nameOf(ctx, row.actingFor)}` } : author;
 	};
-	return { user, agent, of };
+	return { user, agent, of, imageUrl: url };
 }
 
 export type Namer = ReturnType<typeof namer>;
