@@ -1,9 +1,9 @@
 import type { AgentConfig } from "./agent-config";
-import { grantedConnectorIds } from "./agents";
+import { grantedConnectorIds, resolveTools } from "./agents";
 import { chatTools } from "./chat";
 import { pageTools } from "./page-tools";
 import { recordTools } from "./record-tools";
-import { isGranted } from "./tools";
+import type { ToolDef } from "./tools";
 import { widgetCatalog } from "./widgets";
 
 /**
@@ -12,12 +12,14 @@ import { widgetCatalog } from "./widgets";
  * stays correct for every agent and changes in one place when the app does.
  * Sections only appear for tools the agent is granted.
  */
-export function platformGuide(agent: Pick<AgentConfig, "tools">): string {
+export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: readonly ToolDef[]): string {
+	const usable = available ?? resolveTools(agent, { userId: "", role: "owner" });
+	const has = (id: string) => usable.some((t) => t.id === id);
 	const lines = [
 		"## How your replies are shown",
 		"The chat renders GitHub-flavored Markdown. Use it lightly: short paragraphs, **bold** for key facts, lists for steps or options, `code` for exact values, and fenced code blocks for code. No HTML. Keep headings to ### or smaller and only for long replies.",
 	];
-	if (widgetCatalog.some((w) => isGranted(agent.tools, `widgets.${w.type}`))) {
+	if (widgetCatalog.some((w) => has(`widgets.${w.type}`))) {
 		lines.push(
 			"",
 			"## Widgets",
@@ -36,41 +38,54 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">): string {
 			"- Calls that change something in an outside service wait for the person you act for to approve them in the chat; your reply ends there and you hear the outcome in a later message. The approval is the confirmation, so don't also ask for a yes in text; do ask if details are missing. Some run without asking because the person allowed them; a blocked call says so: tell them and don't retry it.",
 		);
 	}
-	if (chatTools.some((t) => isGranted(agent.tools, t.id))) {
+	if (chatTools.some((t) => has(t.id))) {
 		lines.push(
 			"",
 			"## Chat",
 			"You work in a team chat of channels, DMs, and threads. Each new message to you says where you are and lists what was said there since your last reply, labeled `[Name time]`, then the message to answer. Your reply is posted right there. Don't start it with your name or a label. Your earlier replies end with the tools you used in them; trust that record.",
 		);
-		if (isGranted(agent.tools, "chat.read") || isGranted(agent.tools, "chat.search")) {
+		if (has("chat.read") || has("chat.search")) {
 			lines.push("- Use chat tools for older messages, threads, or other channels instead of guessing.");
 		}
-		if (isGranted(agent.tools, "chat.react")) lines.push("- A reaction (chat_react) can acknowledge a message; still reply when there's something to say.");
+		if (has("chat.react")) lines.push("- A reaction (chat_react) can acknowledge a message; still reply when there's something to say.");
 	}
-	if (recordTools.some((t) => isGranted(agent.tools, t.id))) {
+	if (recordTools.some((t) => has(t.id))) {
 		lines.push(
 			"",
 			"## Databases",
 			"The workspace's CRM: clients, deals, tasks, calls, and databases the team adds. Facts about customers and work (contact details, deal stages, amounts, due dates, who owns what) go on records, not in memory; memory is for preferences and how people like to work.",
-			"- Learn the databases and field keys with records_types once per conversation, then reuse them. Refer to teammates by name or \"me\", and linked records by exact name or id.",
-			"- Owners can create, rename and archive databases with records_save_database. Shared sorting and filtering uses records_views and records_save_view. Read the current version before changing shared settings. These actions stay inside the workspace and run right away. Change databases or views only when asked.",
-			"- Find before you create, so there are no duplicates. If several records match, ask which one.",
-			"- Changes run right away, logged as you acting for the person. Say in a sentence what you changed. Record changes return a change id; records_undo reverses those if they ask. Database and view changes are logged in Settings → Activity.",
-			"- Before changing or archiving more than 3 records at once, list them and ask the person to confirm. Add or change fields only when asked.",
-			"- Show 3+ records with widgets_table, passing `from: { ref, path: \"rows\", fields }` with field keys; one record worth a closer look with widgets_card.",
+		);
+		if (has("records.types")) lines.push("- Learn the databases and field keys with records_types once per conversation, then reuse them. Refer to teammates by name or \"me\", and linked records by exact name or id.");
+		if (has("records.save_database")) lines.push("- Owners can create, rename and archive databases with records_save_database. Read the current version first. Change databases only when asked.");
+		if (has("records.views")) lines.push("- Shared sorting and filtering is in records_views.");
+		if (has("records.save_view")) lines.push("- Change shared views with records_save_view, from their current version, only when asked.");
+		if (has("records.find")) lines.push("- Find before you create, so there are no duplicates. If several records match, ask which one.");
+		if (has("records.save") || has("records.save_field")) {
+			lines.push(
+				"- Changes run right away, logged as you acting for the person. Say in a sentence what you changed.",
+				"- Before changing or archiving more than 3 records at once, list them and ask the person to confirm. Add or change fields only when asked.",
+			);
+		}
+		if (has("records.undo")) lines.push("- Record changes return a change id; records_undo reverses those if they ask.");
+		if (has("widgets.table")) lines.push("- Show 3+ records with widgets_table, passing `from: { ref, path: \"rows\", fields }` with field keys.");
+		if (has("widgets.card")) lines.push("- Show one record worth a closer look with widgets_card.");
+		lines.push(
 			"- Values come formatted for people: dates like \"Nov 15, 2026\", amounts in their own currency (\"$\" is US dollars). Write them that way in replies too. In tool input, dates are YYYY-MM-DD, and amounts go without a code for the workspace's currency or with one (\"EUR 1200\"). Never convert or add up amounts in different currencies.",
 		);
 	}
-	if (pageTools.some((t) => isGranted(agent.tools, t.id))) {
+	if (pageTools.some((t) => has(t.id))) {
 		lines.push(
 			"",
 			"## Pages",
-			"Pages hold longer writing: wiki pages, how-tos, meeting notes. Every record also has a page body for notes about it (pages_read and pages_write with `record`).",
-			"- Find a page before creating one, so there are no duplicates. Read it before you replace it; to add to it, append.",
-			"- Writes run right away and are saved in the page's history as you acting for the person, so they can be restored. Say in a sentence what you wrote, and where.",
+			"Pages hold longer writing: wiki pages, how-tos, meeting notes. Every record also has a page body for notes about it.",
 		);
+		if (has("pages.find")) lines.push("- Find a page with pages_find before creating one, so there are no duplicates.");
+		if (has("pages.write"))
+			lines.push(
+				`- ${has("pages.read") ? "Read a page with pages_read before you replace it; to" : "To"} add to it, append with pages_write. Writes run right away and are saved in the page's history as you acting for the person, so they can be restored. Say in a sentence what you wrote, and where.`,
+			);
 	}
-	if (isGranted(agent.tools, "skills.create")) {
+	if (has("skills.create")) {
 		lines.push(
 			"",
 			"## Saving skills",
@@ -79,7 +94,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">): string {
 			"- Show the name, the one-line description of when to use it, and the instructions, and ask them to confirm. Then call skills_create and say where they can change it: Customize → Skills.",
 		);
 	}
-	if (isGranted(agent.tools, "automations.create")) {
+	if (has("automations.create")) {
 		lines.push(
 			"",
 			"## Setting up automations",
@@ -88,8 +103,15 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">): string {
 			"- Write the prompt as them asking you, specific enough to run alone later.",
 			"- Before creating it, show a 3-line summary (what, when, who gets it) and ask them to confirm. Then call automations_create and say where they can change it: Customize → Automations.",
 			"- Only offer a webhook if they mention an outside app that can send one; give them the URL it returns and say to keep it secret.",
-			"- To turn on an existing one for them (\"I want the morning brief too\"), find it with automations_list and use automations_set_mine.",
 		);
 	}
+	if (has("automations.list") && has("automations.set_mine")) {
+		lines.push(
+			"",
+			"## Existing automations",
+			"- To turn on an existing one for them (\"I want the morning brief too\"), find it with automations_list and use automations_set_mine. That doesn't allow its actions: anything that would ask still asks.",
+		);
+	}
+	lines.push("", "Use only the tools you're given. If something can't be done with them, say so. Role changes, tool grants, sign-ins and approvals are for the person to do directly.");
 	return lines.join("\n");
 }

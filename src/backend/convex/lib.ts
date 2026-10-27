@@ -133,7 +133,11 @@ export async function requireMember(ctx: QueryCtx): Promise<Member> {
 
 /** The signed-in member, if their role has `permission` (see core/permissions.ts). */
 export async function requirePermission(ctx: QueryCtx, permission: Permission): Promise<Member> {
-	const member = await requireMember(ctx);
+	return checkPermission(await requireMember(ctx), permission);
+}
+
+/** Role check shared by app mutations and operations acting for a turn. */
+export function checkPermission(member: Member, permission: Permission): Member {
 	if (!can(member.role, permission)) throw new ConvexError(deniedMessage(permission));
 	return member;
 }

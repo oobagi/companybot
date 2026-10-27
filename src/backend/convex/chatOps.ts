@@ -63,6 +63,14 @@ export async function channelNamed(ctx: QueryCtx, member: Member, name: string) 
 	return chat && chat.kind === "channel" && !chat.archived && (await canSee(ctx, chat, member)) ? chat : null;
 }
 
+/** A chat by id, or a channel by name, that the person can see. */
+export async function chatByRef(ctx: QueryCtx, member: Member, ref: string) {
+	const id = ctx.db.normalizeId("chats", ref);
+	if (!id) return channelNamed(ctx, member, normalizeChannelName(ref));
+	const chat = await ctx.db.get(id);
+	return chat && (await canSee(ctx, chat, member)) ? chat : null;
+}
+
 /** You and the chat, if you can see it. For queries, which show nothing rather than fail. */
 export async function visibleChat(ctx: QueryCtx, chatId: Id<"chats">) {
 	const member = await getMember(ctx);
@@ -260,10 +268,11 @@ export function namer(ctx: QueryCtx) {
 		name: await cached(id, async () => (await ctx.db.get(id))?.name ?? "Agent"),
 	});
 	/** A member row or message author: a person or an agent. */
-	const of = (row: { userId?: Id<"users">; agentId?: Id<"agents"> } | { authorUserId?: Id<"users">; authorAgentId?: Id<"agents"> }) => {
+	const of = async (row: { userId?: Id<"users">; agentId?: Id<"agents"> } | { authorUserId?: Id<"users">; authorAgentId?: Id<"agents">; actingFor?: Id<"users"> }) => {
 		const userId = "authorUserId" in row ? row.authorUserId : "userId" in row ? row.userId : undefined;
 		const agentId = "authorAgentId" in row ? row.authorAgentId : "agentId" in row ? row.agentId : undefined;
-		return userId ? user(userId) : agent(agentId!);
+		const author = await (userId ? user(userId) : agent(agentId!));
+		return "actingFor" in row && row.actingFor ? { ...author, name: `${author.name}, for ${await nameOf(ctx, row.actingFor)}` } : author;
 	};
 	return { user, agent, of };
 }

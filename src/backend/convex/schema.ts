@@ -135,12 +135,15 @@ export default defineSchema({
 		workspaceId: v.id("workspaces"),
 		userId: v.id("users"),
 		role,
+		/** Normalized for bounded invitation checks. COMPAT: backfilled by memberEmails. */
+		email: v.optional(v.string()),
 	})
 		.index("by_user", ["userId", "workspaceId"])
 		// Oldest first: Convex orders an index's ties by _creationTime.
 		.index("by_joined", ["userId"])
 		.index("by_workspace", ["workspaceId"])
-		.index("by_role", ["workspaceId", "role"]),
+		.index("by_role", ["workspaceId", "role"])
+		.index("by_email", ["workspaceId", "email"]),
 
 	// One per email per workspace. Only someone signed in with that email can accept it.
 	invites: defineTable({
@@ -151,7 +154,8 @@ export default defineSchema({
 		invitedBy: v.optional(v.id("users")),
 	})
 		.index("by_email", ["email"])
-		.index("by_workspace", ["workspaceId"]),
+		.index("by_workspace", ["workspaceId"])
+		.index("by_workspace_email", ["workspaceId", "email"]),
 
 	// Each invite email sent, so a workspace can't flood an inbox (`inviteEmailProblem`).
 	inviteEmails: defineTable({
@@ -361,6 +365,8 @@ export default defineSchema({
 		threadId: v.optional(v.id("chatMessages")),
 		authorUserId: v.optional(v.id("users")),
 		authorAgentId: v.optional(v.id("agents")),
+		/** A delivered message from an agent, on this person's behalf. */
+		actingFor: v.optional(v.id("users")),
 		text: v.string(),
 		parts: v.array(messagePart),
 		/** Who was @mentioned. Mentioned agents get a turn. `recordIds`: records the message references. */

@@ -31,8 +31,9 @@ describe("permissions", () => {
 			],
 		});
 		const { companybot } = await agentsOf(owner);
-		await t.run((ctx) => ctx.db.patch(companybot._id, { tools: [...companybot.tools, "crm.*"] }));
-		return { t, owner, member, companybot };
+		const tools = [...companybot.tools.filter(g => !["automations.*", "skills.remove", "members.*"].includes(g)), "crm.*"];
+		await t.run((ctx) => ctx.db.patch(companybot._id, { tools }));
+		return { t, owner, member, companybot: { ...companybot, tools } };
 	}
 
 	/** `as` asks Companybot in #general; returns the running turn (the test plays the runner). */

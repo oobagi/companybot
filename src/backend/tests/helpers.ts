@@ -27,7 +27,7 @@ export async function sideWorkspace(t: ReturnType<typeof convexTest>, email: str
 	return t.run(async (ctx) => {
 		const userId = (await ctx.db.query("users").collect()).find((u) => u.email === email)!._id;
 		const workspaceId = await ctx.db.insert("workspaces", { name, version: 1 });
-		await ctx.db.insert("members", { workspaceId, userId, role: "owner" });
+		await ctx.db.insert("members", { workspaceId, userId, role: "owner", email: email.trim().toLowerCase() });
 		return { userId, workspaceId };
 	});
 }

@@ -6,6 +6,7 @@ import {
 	actionLabel,
 	alwaysAllowText,
 	builtinTools,
+	canUseTool,
 	findConnector,
 	isGranted,
 	permissionFor,
@@ -204,7 +205,7 @@ async function actionsFor(ctx: QueryCtx, member: Member): Promise<{ action: Acti
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
 		.collect();
 	const defs: { action: string; title?: string; description: string; risk: Risk; install?: Doc<"connectorInstalls"> }[] = builtinTools
-		.filter((t) => toolRisk(t) !== "none")
+		.filter((t) => canUseTool(member, t) && toolRisk(t) !== "none")
 		.map((t) => ({ action: t.id, title: t.title, description: t.description, risk: toolRisk(t) }));
 	for (const install of installs) {
 		if (!findConnector(install.connectorId)) continue;

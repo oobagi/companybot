@@ -1,3 +1,4 @@
+import type { ToolDef } from "./tools";
 import type { AgentConfig } from "./agent-config";
 import type { ApprovalOutcome } from "./approvals";
 import type { Participant } from "./chat";
@@ -142,8 +143,8 @@ function chatLine(m: PlaceMessage, timeZone: string) {
 }
 
 /** The agent's system prompt. Nothing per chat or per turn goes here. */
-export function systemPrompt(agent: Pick<AgentConfig, "instructions" | "tools">, skills: Skill[]): string {
-	return [agent.instructions, platformGuide(agent), isGranted(agent.tools, "skills.load") && skillsIndex(skills)]
+export function systemPrompt(agent: Pick<AgentConfig, "instructions" | "tools">, skills: Skill[], available?: readonly ToolDef[]): string {
+	return [agent.instructions, platformGuide(agent, available), (available ? available.some(t => t.id === "skills.load") : isGranted(agent.tools, "skills.load")) && skillsIndex(skills)]
 		.filter(Boolean)
 		.join("\n\n");
 }
@@ -166,6 +167,7 @@ export function buildTurnInput(input: {
 	skills: Skill[];
 	session: { summary: string | null; turns: SessionTurn[] };
 	prompt: string;
+	available?: readonly ToolDef[];
 }): { instructions: string; messages: TurnMessage[] } {
 	const { session } = input;
 	const messages: TurnMessage[] = [];
@@ -181,7 +183,7 @@ export function buildTurnInput(input: {
 		push("assistant", turn.reply || "(No reply.)");
 	}
 	push("user", input.prompt);
-	return { instructions: systemPrompt(input.agent, input.skills), messages };
+	return { instructions: systemPrompt(input.agent, input.skills, input.available), messages };
 }
 
 /** Rough token count, for deciding what compaction keeps. */

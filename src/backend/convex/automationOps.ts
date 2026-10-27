@@ -48,8 +48,8 @@ export async function definitionOf(ctx: QueryCtx, install: Doc<"automationInstal
 }
 
 /** An installed automation the signed-in person may change: theirs, or any if they manage automations. */
-export async function requireEditable(ctx: QueryCtx, automationId: string) {
-	const member = await requireMember(ctx);
+export async function requireEditable(ctx: QueryCtx, automationId: string, acting?: Member) {
+	const member = acting ?? await requireMember(ctx);
 	const install = await installOf(ctx, member.workspaceId, automationId);
 	if (!install || !canView(member, install)) throw new ConvexError("Automation not found.");
 	if (!canEditMade(member, "automations.manage", install.custom ? install.installedBy : undefined))

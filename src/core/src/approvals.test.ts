@@ -33,8 +33,10 @@ describe("approvals", () => {
 		expect(toolRisk({ ...builtinTools[0]!, risk: "outside" })).toBe("outside");
 		expect(toolRisk({ ...send, risk: "locked" })).toBe("locked");
 		expect(toolRisk({ ...send, risk: "none" })).toBe("none");
-		// Every built-in today stays inside the workspace.
-		expect(builtinTools.filter((t) => toolRisk(t) !== "none")).toEqual([]);
+		// External invitations ask; irreversible removals always ask.
+		expect(builtinTools.filter(t => toolRisk(t) !== "none").map(t => [t.id, toolRisk(t)])).toEqual([
+			["automations.remove", "locked"], ["skills.remove", "locked"], ["members.invite", "outside"], ["members.remove", "locked"],
+		]);
 	});
 
 	it("strictest wins: owner lock, then Never, then Ask, then Always", () => {

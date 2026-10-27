@@ -237,6 +237,7 @@ async function streamReply(
 		agentId: agent.id,
 		memory: memoryStore(ctx, turnId),
 		chat: chatStore(ctx, turnId),
+		manage: { run: (tool, input) => ctx.runMutation(internal.manageTools.runFor, { turnId, tool, input }) },
 		skills: {
 			list: turn.skills,
 			create: (config) => ctx.runMutation(internal.skills.createFor, { turnId, config }),
@@ -306,7 +307,7 @@ async function streamReply(
 	// Later turns replay what's stored. They can act for someone else, so an approved call's
 	// result stays out of it (only its approver may see it); this turn alone gets it.
 	await ctx.runMutation(internal.turns.savePrompt, { turnId, prompt: approval ? buildTurnPrompt({ ...promptInput, forReplay: true }) : prompt });
-	const input = buildTurnInput({ agent, skills: turn.skills, session: turn.session, prompt });
+	const input = buildTurnInput({ agent, skills: turn.skills, session: turn.session, prompt, available: usable });
 
 	const started = Date.now();
 	const result = streamText({

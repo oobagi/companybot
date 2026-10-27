@@ -1,3 +1,4 @@
+import { manageTools } from "./manage-tools";
 import { z } from "zod";
 import { automationTools } from "./automation-tools";
 import { chatTools } from "./chat";
@@ -102,6 +103,7 @@ export const builtinTools: ToolDef[] = [
 		}),
 		execute: (input, { skills }) => skills.create(input),
 	}),
+	...manageTools,
 	...widgetTools,
 	...chatTools,
 	...automationTools,

@@ -4,10 +4,13 @@ How agents get the go-ahead for actions that leave the building. Start strict, l
 
 ## What asks
 - Every tool has a **risk** (`toolRisk`): `none` runs right away; `outside` asks first; `locked` always asks and never offers "Always allow".
-- Default: connector tools not marked read-only are `outside` (unlabeled tools ask; a server's read-only label is its claim). A connector tool the server marks `destructiveHint` is `locked`, even if it also claims read-only (hints only ever tighten). Built-ins are `none` unless they declare `risk`; none do yet. Future sends, calls and campaign tools declare `outside`; payments, deleting records and bulk sends declare `locked`.
+- Default: connector tools not marked read-only are `outside` (unlabeled tools ask; a server's read-only label is its claim). A connector tool the server marks `destructiveHint` is `locked`, even if it also claims read-only (hints only ever tighten). Built-ins are `none` unless they declare `risk`. Member invitations (including resend/cancel in the invitation group) declare `outside`; member removal, skill deletion/uninstall and automation deletion/uninstall declare `locked`. Future outside sends and calls declare `outside`; payments, deleting records and bulk sends declare `locked`.
+- Internal message delivery, channel changes, skill edits/installs, automation edits/pause/resume and non-security workspace settings follow the acting person's normal rights and run immediately. An agent delivery names the agent and person, does not mark the person's destination read, and never triggers another agent or automation. Resuming or subscribing never grants Always consent.
 - Internal changes (record edits, database management, shared sorting and filtering) run right away and are logged. Records have undo; database and saved-view changes do not. Owners create, rename and archive databases (`fields.manage`); owners and members manage shared views (`records.edit`). Both the app and agents use the same server checks.
 
 ## Rules
+- Grouped tools use an action union but one approval identity per tool. Separate outside invitations from locked removals; an Always rule for invitations must never authorize a removal. The exact nested request is hashed and shown on the card.
+- The parity registry (`parity.ts`, tested against every public mutation) maps agent actions and human-only reasons. Role changes, owner invites, agent grants/self-modification, credentials, consent policy and account erasure stay direct human decisions. `Pending` entries are existing follow-up gaps, not new policy restrictions.
 - **Per person, per action.** An action is one tool on one connector install (`crm.send_sms`), or a built-in. A rule (`permissionRules`) is Always or Never; no rule = Ask. Agents act as whoever asked, so a rule only applies to that person's calls and never reaches anyone else's accounts.
 - **Owner locks** (`permissionLocks`, `actions.lock` permission): Always ask, Blocked, or (for `locked` tools) Unlocked. Apply to everyone, reads included.
 - **Strictest wins** (`permissionFor`): owner block → person's Never → owner/default lock (ask, no Always) → no risk (run) → person's Always → automation grant → ask.
@@ -29,6 +32,7 @@ How agents get the go-ahead for actions that leave the building. Start strict, l
 ## Automations
 - Turning one on (or "Turn on for me", or resuming a paused one) lists what its agent may do that would ask: only tools the agent is granted, and only for automations the person can see. **Allow** saves Always grants scoped to that automation and person (`automationInstallId` on the rule); Cancel does nothing. If nothing would ask, it just turns on.
 - A run belongs to an automation when its trigger message was posted by it. Grants apply only to those runs; the same person chatting normally is still asked.
+- A run follows its prompt but acts as its reader, so workspace-management tools (`chat.manage`, `channels.*`, `members.*`, …) refuse runs of a custom automation someone else last edited.
 - A held call remembers its automation (`approvals.automationInstallId`). If the automation is deleted, its card no longer offers "Always allow": a grant is never widened to a person-wide rule.
 - Anything new pauses and asks in the DM, as before. Turning it off for yourself, or deleting it, removes the grants.
 

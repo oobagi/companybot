@@ -24,7 +24,7 @@ async function setup(unpinned = false) {
 	const a = (await old.query(api.workspace.me))!.workspaceId!;
 	const deputyId = await t.run(async (ctx) => {
 		const id = await ctx.db.insert("users", { email: "deputy@co.com" });
-		await ctx.db.insert("members", { userId: id, workspaceId: a, role: "owner" });
+		await ctx.db.insert("members", { userId: id, workspaceId: a, role: "owner", email: "deputy@co.com" });
 		if (unpinned) for (const pin of await ctx.db.query("legacyWorkspaces").collect()) await ctx.db.delete(pin._id);
 		return id;
 	});
