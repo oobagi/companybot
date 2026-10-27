@@ -6,7 +6,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { seedAgents } from "./agents";
-import { fieldsOf, seedRecordTypes, typesOf } from "./recordOps";
+import { fieldsOf, typesOf } from "./recordOps";
 import { addToChat, ensureGeneral } from "./chatOps";
 import { sendInviteEmail } from "./invites";
 import { type Member, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, legacyMemberOf, liveWorkspace, memberOf, nameOf, namesOf, normalizeEmail, pinLegacyWorkspace, preferencesOf, requireMember, requirePermission, timeZoneOf } from "./lib";
@@ -62,7 +62,6 @@ export const ensure = mutation({
 		// new one, theirs alone: nothing from an old draft can reach anyone else's.
 		await pinLegacyWorkspace(ctx, userId, workspaceId);
 		await seedAgents(ctx, workspaceId, userId);
-		await seedRecordTypes(ctx, workspaceId, userId);
 		await addToChat(ctx, await ensureGeneral(ctx, workspaceId, userId), { userId });
 	},
 });

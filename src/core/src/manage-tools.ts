@@ -58,7 +58,6 @@ export const manageInputs = {
 		request: z.discriminatedUnion("action", [
 			z.strictObject({ action: z.literal("list"), ...page }),
 			z.strictObject({ action: z.literal("get"), id }),
-			z.strictObject({ action: z.literal("install"), id, timeZone: z.string() }),
 			z.strictObject({ action: z.literal("run"), id }),
 			z.strictObject({
 				action: z.literal("edit"),
@@ -77,7 +76,6 @@ export const manageInputs = {
 		request: z.discriminatedUnion("action", [
 			z.strictObject({ action: z.literal("list"), ...page }),
 			z.strictObject({ action: z.literal("get"), id }),
-			z.strictObject({ action: z.literal("install"), id }),
 		]),
 	}),
 	"skills.edit": z.object({ request: z.strictObject({ action: z.literal("edit"), id, expectedVersion: version, config: skillConfig }) }),
@@ -126,9 +124,9 @@ export interface ManageStore {
 const about: Record<ManageTool, { title: string; description: string }> = {
 	"chat.manage": { title: "Manage messages and DMs", description: "Find people (paged directory, including agent ids), list your chats, open a DM with exact participant ids, deliver a message to a chosen chat/thread, edit your person's own messages, delete them with locked approval, react to an exact message, or explicitly mark a chat read when asked. Sent as you for the person; never triggers agents or automations. Only send when asked; do not copy private information to a wider audience without their request." },
 	"channels.manage": { title: "Manage channels", description: "Browse public channels, inspect a visible channel and paged participants, create, rename, set/clear topic, add/remove members, join or leave. Use chat ids or #names. Managers remove members; everyone stays in general. Delete moves a channel to Trash for 30 days and waits for approval; only its creator or an owner can do it. Restore by its exact id as the deleter or an owner. Never deletes forever." },
-	"automations.manage": { title: "Manage automations", description: "List or inspect visible automations (prompt, version, agent, state), edit custom config using its current expectedVersion, pause/resume globally, change agent/audience, install a library automation, or run a sample once just for the person. Runs cannot start other runs. Confirm changes first. Resuming grants no consent: future outside actions still ask. Webhook secrets are omitted." },
+	"automations.manage": { title: "Manage automations", description: "List or inspect visible automations (prompt, version, agent, state), edit custom config using its current expectedVersion, pause/resume globally, change agent/audience, or run a sample once just for the person. Runs cannot start other runs. Confirm changes first. Resuming grants no consent: future outside actions still ask. Webhook secrets are omitted." },
 	"automations.remove": { title: "Delete an automation", description: "Delete an automation someone made, or uninstall a library one, by id. A deleted one goes to Trash for 30 days and stops running; its maker or an owner can restore it from Trash. Uninstalling removes subscriptions and approval grants. The exact call waits for approval." },
-	"skills.manage": { title: "Manage skills", description: "Browse custom and library skills, read full instructions and current version, or install a library skill (owners). Editing is a separate tool that asks first." },
+	"skills.manage": { title: "Manage skills", description: "List workspace skills and read their full instructions and current version. Editing is a separate tool that asks first." },
 	"skills.edit": { title: "Edit a skill", description: "Edit a custom skill's name, description and instructions, using its current expectedVersion from skills_manage get. Every agent here follows skills, so the exact call waits for approval. Confirm the exact instructions with the person first." },
 	"skills.remove": { title: "Delete or uninstall a skill", description: "Delete a custom skill (to Trash for 30 days; agents stop seeing it; the maker or an owner can restore it) or uninstall a library skill, by id. The exact call waits for approval." },
 	"members.invite": { title: "Manage member invitations", description: "Invite an email as a member, or resend or cancel the invitation for an email (owners). Invite and resend send email outside the workspace and wait for approval. Cannot invite owners or change roles." },

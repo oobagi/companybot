@@ -2,14 +2,10 @@ import {
 	type Automation,
 	type AutomationAudience,
 	type CustomAutomationConfig,
-	automationCatalog,
 	can,
 	canEditMade,
 	customAutomationError,
 	describeTrigger,
-	findAutomation,
-	findConnector,
-	grantedConnectorIds,
 	isValidTimeZone,
 	localTime,
 	madeEditDenied,
@@ -46,22 +42,8 @@ import { putInTrash, takeFromTrash, trashInfo } from "./trashOps";
 // runs for (or, in a channel, as its creator or an owner) and queues the agent's reply,
 // so the reply uses their permissions and connector accounts (wiki/chat.md).
 //
-// Library automations come from core's catalog; owners install them. Anyone can make
-// their own (`custom`, id "custom-…"); both run through the same code.
-
-function requireAutomation(automationId: string): Automation {
-	const automation = findAutomation(automationId);
-	if (!automation) throw new ConvexError("Unknown automation.");
-	return automation;
-}
-
-async function installedConnectorIds(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
-	const installs = await ctx.db
-		.query("connectorInstalls")
-		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-		.take(100);
-	return new Set(installs.map((i) => i.connectorId));
-}
+// Anyone can make their own (`custom`, id "custom-…"). Retired library installs
+// keep their stored definition; both run through the same code.
 
 /** The secret in a webhook automation's URL. */
 const newToken = () => randomHex(24);
@@ -71,27 +53,20 @@ export const list = query({
 	handler: async (ctx) => {
 		const member = await getMember(ctx);
 		if (!member) return [];
-		const connectors = await installedConnectorIds(ctx, member.workspaceId);
 		const installs = await visibleInstalls(ctx, member, true);
-		const custom = installs.filter((i) => i.custom).sort((a, b) => b._creationTime - a._creationTime);
-		const library = automationCatalog.map((automation) => ({
-			automation,
-			install: installs.find((i) => i.automationId === automation.id && !i.custom) ?? null,
-		}));
-		const rows = [
-			...(await Promise.all(custom.map(async (install) => ({ automation: (await definitionOf(ctx, install))!, install })))),
-			...library,
-		];
+		const rows = (await Promise.all(installs
+			.sort((a, b) => b._creationTime - a._creationTime)
+			.map(async (install) => ({ automation: await definitionOf(ctx, install), install }))))
+			.filter((row): row is { automation: Automation; install: Doc<"automationInstalls"> } => !!row.automation);
 		return Promise.all(
 			rows.map(async ({ automation, install }) => {
-				const agent = install && (await ctx.db.get(install.agentId));
-				const granted = agent ? grantedConnectorIds(agent) : [];
+				const agent = await ctx.db.get(install.agentId);
 				const channel = (install?.channelId && (await ctx.db.get(install.channelId))) || null;
 				const scheduled = automation.trigger.type === "schedule";
-				const audience = install ? install.audience : null;
-				const canEdit = install ? canEditMade(member, "automations.manage", install.custom ? install.installedBy : undefined) : can(member, "automations.manage");
-				const subscribers = install ? await subscribersOf(ctx, install._id) : [];
-				const creatorName = install ? await nameOf(ctx, install.installedBy) : "";
+				const audience = install.audience;
+				const canEdit = canEditMade(member, "automations.manage", install.custom ? install.installedBy : undefined);
+				const subscribers = await subscribersOf(ctx, install._id);
+				const creatorName = await nameOf(ctx, install.installedBy);
 				return {
 					id: automation.id,
 					name: automation.name,
@@ -104,12 +79,8 @@ export const list = query({
 					scheduled,
 					runsFor: audience ? runsForLabel(audience, channel, scheduled, creatorName) : null,
 					prompt: automation.prompt,
-					needs: automation.connectors.map((id) => ({
-						id,
-						name: findConnector(id)?.name ?? id,
-						installed: connectors.has(id),
-						granted: granted.includes(id),
-					})),
+					// COMPAT(0.1.0-alpha.8): old desktops read dependency badges; no retained definition needs a connector.
+					needs: [],
 					/** Set for automations someone made: what can be edited, and who last did. */
 					custom: install?.custom
 						? {
@@ -123,7 +94,7 @@ export const list = query({
 						: null,
 					createdByName: install?.custom ? creatorName : null,
 					canEdit,
-					installed: !!install,
+					installed: true,
 					enabled: install?.enabled ?? false,
 					audience,
 					/** Audience "subscribers": whether you turned it on, and how many have. */
@@ -297,7 +268,7 @@ export async function setAutomationTrashed(ctx: MutationCtx, who: Who, installId
 	await ctx.db.patch(installId, { archived });
 }
 
-/** Installs a library automation (owners). */
+// COMPAT(0.1.0-alpha.8): retain the old desktop install endpoint; new installs are retired.
 export const setInstalled = mutation({
 	args: { automationId: v.string(), installed: v.literal(true), timeZone: v.optional(v.string()) },
 	handler: async (ctx, { automationId, timeZone }) => installAutomation(ctx, await requireMember(ctx), { automationId, timeZone }),
@@ -390,31 +361,10 @@ export const resetWebhook = mutation({
 	},
 });
 
-export async function installAutomation(ctx: MutationCtx, member: Member, { automationId, timeZone }: { automationId: string; timeZone?: string }) {
+// COMPAT(0.1.0-alpha.8): old desktops may request installation; retain this refusal until they update.
+export async function installAutomation(ctx: MutationCtx, member: Member, { automationId }: { automationId: string; timeZone?: string }) {
 	const existing = await installOf(ctx, member.workspaceId, automationId);
 	checkPermission(member, "automations.manage");
 	if (existing) return;
-	const automation = requireAutomation(automationId);
-	if (!timeZone || !isValidTimeZone(timeZone)) throw new ConvexError("Unknown time zone.");
-	const connectors = await installedConnectorIds(ctx, member.workspaceId);
-	const missing = automation.connectors.filter((id) => !connectors.has(id)).map((id) => findConnector(id)?.name ?? id);
-	if (missing.length > 0) throw new ConvexError(`Install the ${missing.join(", ")} connector first.`);
-	const agent = await ctx.db
-		.query("agents")
-		.withIndex("by_workspace_active", (q) => q.eq("workspaceId", member.workspaceId).eq("archived", false))
-		.first();
-	if (!agent) throw new ConvexError("Create an agent first.");
-	const installId = await ctx.db.insert("automationInstalls", {
-		workspaceId: member.workspaceId,
-		automationId,
-		agentId: agent._id,
-		enabled: true,
-		timeZone,
-		installedBy: member.userId,
-		lastRunDate: firstRunDate(automation.trigger, timeZone),
-		webhookToken: automation.trigger.type === "webhook" ? newToken() : undefined,
-		audience: "subscribers",
-	});
-	// The owner who installs it gets it; everyone else turns it on for themselves.
-	await ctx.db.insert("automationSubscriptions", { installId, userId: member.userId });
+	throw new ConvexError("The automation library has retired. Create your own automation in Customize → Automations.");
 }

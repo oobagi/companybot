@@ -1,3 +1,6 @@
+import { legacySkills, legacyAutomations } from "../convex/legacyCatalogs";
+import { installedSkills } from "../convex/lib";
+import { scribe } from "./legacyFixtures";
 import migrationsTest from "@convex-dev/migrations/test";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -67,6 +70,9 @@ describe("migrations", () => {
 			const agentId = (await ctx.db.query("agents").first())!._id;
 			const channelId = (await ctx.db.query("chats").first())!._id;
 			const base = { workspaceId, agentId, enabled: true, timeZone: "UTC", installedBy: userId };
+			await ctx.db.insert("skillInstalls", { workspaceId, skillId: "meeting-notes" });
+			await ctx.db.insert("connectorInstalls", { workspaceId, connectorId: "night-owl", roles: ["owner"], installedBy: userId });
+			await ctx.db.insert("connectorConnections", { workspaceId, connectorId: "night-owl", userId, credentials: "encrypted", connectedBy: userId });
 			return {
 				userId,
 				dms: await ctx.db.insert("automationInstalls", { ...base, automationId: "morning-brief" }),
@@ -86,6 +92,21 @@ describe("migrations", () => {
 			subs: (await ctx.db.query("automationSubscriptions").collect()).map((s) => [s.installId, s.userId]),
 		}));
 		expect(after).toEqual({ dms: "subscribers", channel: "channel", subs: [[ids.dms, ids.userId]] });
+		const snapshots = await t.run(async (ctx) => ({
+			skills: (await ctx.db.query("skillInstalls").collect()).map((i) => i.definition),
+			automations: (await ctx.db.query("automationInstalls").collect()).map((i) => i.definition),
+			connectors: await ctx.db.query("connectorInstalls").collect(),
+			credentials: await ctx.db.query("connectorConnections").collect(),
+		}));
+		expect(snapshots).toEqual({ skills: [legacySkills[0]], automations: legacyAutomations, connectors: [], credentials: [] });
+		const skills = legacySkills.splice(0), automations = legacyAutomations.splice(0);
+		try {
+			const workspaceId = (await t.run((ctx) => ctx.db.get(ids.dms)))!.workspaceId;
+			expect(await t.run((ctx) => installedSkills(ctx, workspaceId))).toEqual(snapshots.skills);
+			const install = (await t.run((ctx) => ctx.db.get(ids.channel)))!;
+			const { definitionOf } = await import("../convex/automationOps");
+			expect(await t.run((ctx) => definitionOf(ctx, { ...install, audience: install.audience! }))).toEqual(snapshots.automations[1]);
+		} finally { legacySkills.push(...skills); legacyAutomations.push(...automations); }
 	});
 });
 
@@ -97,9 +118,11 @@ describe("migrations: Companybot chat tools", () => {
 		const ids = await t.run(async (ctx) => {
 			const agents = await ctx.db.query("agents").collect();
 			const bot = agents.find((a) => a.name === "Companybot")!;
-			const scribe = agents.find((a) => a.name === "Scribe")!;
+			const { _id, _creationTime, ...stored } = bot;
+			const writerId = await ctx.db.insert("agents", { ...stored, ...scribe });
+			const writer = (await ctx.db.get(writerId))!;
 			await ctx.db.patch(bot._id, { tools: ["memory.*", "skills.load", "chat.*"] });
-			return { bot: bot._id, scribe: scribe._id, version: bot.version };
+			return { bot: bot._id, scribe: writer._id, version: bot.version };
 		});
 		vi.useFakeTimers();
 		try {

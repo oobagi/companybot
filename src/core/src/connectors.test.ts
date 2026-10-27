@@ -1,7 +1,8 @@
+import { scribe } from "../test/fixtures";
 import { permissionFor, toolRisk } from "./action-rules";
 import { describe, expect, it } from "vitest";
 import { buildToolSet, describeToolAccess, grantedConnectorIds, validateAgentConfig } from "./agents";
-import { scribe } from "./default-agents";
+
 import { openConnector } from "./mcp";
 import { ConnectorOAuth } from "./oauth";
 import { type Connector, defineConnector, connectorCatalog, connectorHeaders, validateCredentials, validateConnector } from "./connectors";

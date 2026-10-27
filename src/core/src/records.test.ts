@@ -10,7 +10,6 @@ import {
 	minorDigits,
 	normalizeFieldConfig,
 	normalizeValue,
-	recordTypeCatalog,
 	searchTextOf,
 	singularOf,
 } from "./records";
@@ -132,14 +131,4 @@ describe("records", () => {
 		expect(searchTextOf(fields, { name: "Acme", n: 3, e: "a@b.co" })).toBe("Acme\na@b.co");
 	});
 
-	it("ships built-in types whose fields are valid and links point at other built-ins", () => {
-		const keys = recordTypeCatalog.map((t) => t.key);
-		for (const type of recordTypeCatalog) {
-			expect(type.fields[0]?.key).toBe("name");
-			for (const f of type.fields) {
-				expect(fieldConfigError(f)).toBeNull();
-				if (f.linkType) expect(keys).toContain(f.linkType);
-			}
-		}
-	});
 });

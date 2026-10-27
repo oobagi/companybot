@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { describeTrigger, findAutomation, isValidTimeZone, scheduleDue } from "./automations";
+import { describeTrigger, isValidTimeZone, scheduleDue } from "./automations";
 
 describe("automations", () => {
-	const brief = findAutomation("morning-brief")!;
+	const brief = { trigger: { type: "schedule" as const, time: "08:00", weekdays: [1, 2, 3, 4, 5] } };
 	// Thu 2026-10-22, 15:30 UTC = 08:30 in Los Angeles.
 	const thursday = Date.UTC(2026, 9, 22, 15, 30);
 	const la = "America/Los_Angeles";
@@ -15,7 +15,7 @@ describe("automations", () => {
 	});
 
 	it("never schedules event automations", () => {
-		expect(scheduleDue(findAutomation("after-call-summary")!.trigger, thursday, la, undefined)).toBeNull();
+		expect(scheduleDue({ type: "event", event: "member.joined", label: "When someone joins" }, thursday, la, undefined)).toBeNull();
 	});
 
 	it("describes triggers plainly", () => {

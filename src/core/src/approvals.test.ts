@@ -1,3 +1,4 @@
+import { connectorCatalog, defineConnector } from "./connectors";
 import { permissionFor, toolRisk } from "./action-rules";
 import { describe, expect, it } from "vitest";
 import { simulateReadableStream, streamText } from "ai";
@@ -5,7 +6,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { APPROVAL_TTL_MS, approvalHash, approvalStatus, canDecideApproval, canonicalJson } from "./approvals";
 import { actionOf, buildToolSet, resolveTools, toolApprovalPolicy } from "./agents";
 import { builtinTools } from "./builtin-tools";
-import { connectorCatalog } from "./connectors";
+
 import { platformGuide } from "./guide";
 import { type ToolDef } from "./tools";
 import { z } from "zod";
@@ -270,7 +271,10 @@ describe("approvals", () => {
 	});
 
 	it("explains approvals only to agents with connectors", () => {
-		expect(platformGuide({ tools: [`${connectorCatalog[0]!.id}.*`] })).toContain("approve them in the chat");
+		connectorCatalog.push(defineConnector({ id: "notes", name: "Notes", description: "Test", version: "1", publisher: "Test", connection: "personal", auth: { type: "none" }, mcp: { url: "https://example.com/mcp", transport: "http" } }));
+		try {
+			expect(platformGuide({ tools: ["notes.*"] })).toContain("approve them in the chat");
+		} finally { connectorCatalog.pop(); }
 		expect(platformGuide({ tools: ["memory.*"] })).not.toContain("approve");
 	});
 });

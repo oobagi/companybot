@@ -1,10 +1,10 @@
+import { legacySkills } from "./legacyCatalogs";
 import {
 	type CustomSkillConfig,
 	canEditMade,
 	customSkillError,
 	madeEditDenied,
 	normalizeCustomSkill,
-	skillCatalog,
 } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -25,10 +25,8 @@ import {
 import { putInTrash, takeFromTrash, trashInfo } from "./trashOps";
 import { runningTurn } from "./turns";
 
-// Library skills come from core's catalog and are installed per workspace (owners). Anyone
-// can make their own (`skills.create`); those live on their install (`custom`, id "custom-…"),
-// are on for the whole workspace, and reach agents the same way (`installedSkills` in lib.ts).
-// The maker or an owner can change or delete one (`canEditMade`); deleting moves it to Trash.
+// Skills people make live on their install and are shared with the workspace.
+// Retired library installs read stored definitions, with a fallback until migration finishes.
 
 /** A skill's install, unless it's in Trash. */
 export const installOf = async (ctx: QueryCtx, workspaceId: Id<"workspaces">, skillId: string) => {
@@ -67,14 +65,16 @@ export const list = query({
 					trash: archived ? await trashInfo(ctx, member, _id) : null,
 				})),
 		);
-		const installed = new Set(installs.filter((i) => !i.custom).map((i) => i.skillId));
-		const library = skillCatalog.map(({ id, name, description, version, instructions }) => ({
+		const library = installs.filter((i) => !i.custom).flatMap((i) => {
+			const definition = i.definition ?? legacySkills.find((s) => s.id === i.skillId);
+			return definition ? [definition] : [];
+		}).map(({ id, name, description, version, instructions }) => ({
 			id,
 			name,
 			description,
 			version,
 			instructions,
-			installed: installed.has(id),
+			installed: true,
 			canEdit: canEditMade(member, "skills.manage"),
 			createdByName: undefined,
 			custom: null,
@@ -169,6 +169,7 @@ export async function setSkillTrashed(ctx: MutationCtx, who: Who, installId: Id<
 
 const installSkillArgs = v.object({ skillId: v.string(), installed: v.literal(true) });
 
+// COMPAT(0.1.0-alpha.8): old desktops may request installation; keep the endpoint until they update.
 export const setInstalled = mutation({
 	args: installSkillArgs.fields,
 	handler: async (ctx, args) => installSkill(ctx, await requireMember(ctx), args),
@@ -179,8 +180,7 @@ export async function installSkill(ctx: MutationCtx, member: Member, { skillId }
 	const { workspaceId } = checkPermission(member, "skills.manage");
 	const existing = await installOf(ctx, workspaceId, skillId);
 	if (existing) return;
-	if (!skillCatalog.some((s) => s.id === skillId)) throw new ConvexError("Unknown skill.");
-	await ctx.db.insert("skillInstalls", { workspaceId, skillId });
+	throw new ConvexError("The skill library has retired. Create your own skill in Customize → Skills.");
 }
 
 /** `skills.create` from chat: makes a skill as the person the agent is helping. */

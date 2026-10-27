@@ -59,7 +59,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 		lines.push(
 			"",
 			"## Databases",
-			"The workspace's CRM: clients, deals, tasks, calls, and databases the team adds. Facts about customers and work (contact details, deal stages, amounts, due dates, who owns what) go on records, not in memory; memory is for preferences and how people like to work.",
+			"Databases are created by the team; a new workspace has none. Learn the available schema before using records. Facts about the team's work go on records, not in memory; memory is for preferences and how people like to work.",
 		);
 		if (has("records.types")) lines.push("- Learn the databases and field keys with records_types before using unfamiliar schema and again before schema changes; reuse unchanged keys. Stable choice ids preserve existing values when labels change. Refer to teammates by name or \"me\", and linked records by exact name or id.");
 		if (has("records.save_database")) lines.push("- Owners can create, rename and delete databases with records_save_database. Read the current version first. Change databases only when asked.");
@@ -118,7 +118,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 		lines.push(
 			"",
 			"## Existing automations",
-			"- To turn on an existing one for them (\"I want the morning brief too\"), find it with automations_list and use automations_set_mine. That doesn't allow its actions: anything that would ask still asks.",
+			"- To turn on an existing one for them (\"turn that on for me too\"), find it with automations_list and use automations_set_mine. That doesn't allow its actions: anything that would ask still asks.",
 		);
 	}
 	if (has("agents.manage")) lines.push("", "## Agents", "Use agents_manage for agent metadata, paged history, tool-free creation, deleting (to Trash) and another agent's instructions/model (deleting and instruction/model changes wait for approval). Read the current version first. Tool grants, your own instructions/model, restoring prior config and restoring an agent from Trash need a person directly.");

@@ -1,3 +1,4 @@
+import { legacySkills } from "./legacyCatalogs";
 import {
 	type Actor,
 	type Permission,
@@ -6,7 +7,6 @@ import {
 	customSkill,
 	deniedMessage,
 	resolveTimeZone,
-	skillCatalog,
 } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError } from "convex/values";
@@ -210,18 +210,21 @@ export async function asToolResult<Result>(fn: () => Promise<Result>): Promise<R
 	}
 }
 
-/** Skills this workspace installed: library ones in catalog order, then ones people made, oldest first. */
+/** Skills this workspace uses: retained installs, then ones people made, oldest first. */
 export async function installedSkills(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<Skill[]> {
 	const installs = await ctx.db
 		.query("skillInstalls")
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
 		.collect();
-	const ids = new Set(installs.filter((i) => !i.custom).map((i) => i.skillId));
+	const stored = installs.filter((i) => !i.custom).flatMap((i) => {
+		const definition = i.definition ?? legacySkills.find((s) => s.id === i.skillId);
+		return definition ? [definition] : [];
+	});
 	const custom = installs
 		.filter((i) => i.custom && !i.archived)
 		.sort((a, b) => a._creationTime - b._creationTime)
 		.map((i) => customSkill(i.skillId, i.custom!, i.custom!.version));
-	return [...skillCatalog.filter((s) => ids.has(s.id)), ...custom];
+	return [...stored, ...custom];
 }
 
 /** Someone's `preferences` row, if they've saved any. */

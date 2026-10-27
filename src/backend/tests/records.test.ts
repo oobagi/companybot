@@ -28,7 +28,7 @@ const titles = async (as: As, args: Omit<FunctionArgs<typeof api.records.list>, 
 	(await as.query(api.records.list, { ...args, paginationOpts: page })).page.map((r) => r.title);
 
 describe("databases", () => {
-	it("gives new workspaces clients, deals, tasks and calls, linked to each other", async () => {
+	it("keeps existing databases and their links usable without a catalog", async () => {
 		const { client, deal, task, call } = await setup();
 		expect([client, deal, task, call].map((t) => t.plural)).toEqual(["Clients", "Deals", "Tasks", "Calls"]);
 		expect(deal.fields.map((f) => f.key)).toEqual(["name", "client", "stage", "value", "close_date", "owner"]);
@@ -46,7 +46,7 @@ describe("databases", () => {
 		expect(jobs.fields.map((f) => [f.key, f.label])).toEqual([["name", "Name"]]);
 	});
 
-	it("seeds workspaces from before records through a migration, without duplicating", async () => {
+	it("never seeds databases when old migrations run, preserving existing databases", async () => {
 		const t = convexTest({ schema, modules, transactionLimits: true });
 		migrationsTest.register(t);
 		const owner = await signIn(t, "owner@co.com");
@@ -72,8 +72,7 @@ describe("databases", () => {
 			vi.useRealTimers();
 		}
 		const types = await owner.query(api.recordTypes.list);
-		expect(types.map((t) => t.key)).toEqual(["client", "deal", "task", "call"]);
-		expect(types.find((t) => t.key === "deal")!.fields.find((f) => f.key === "client")?.linkType).toBe(types[0]!._id);
+		expect(types.map((t) => t.key)).toEqual(["client"]);
 	});
 });
 
@@ -113,6 +112,7 @@ describe("records", () => {
 	it("refuses links and people from other workspaces, and hides records across workspaces", async () => {
 		const { t, owner, client, deal } = await setup();
 		const outsider = await signIn(t, "outsider@else.com");
+		await outsider.mutation(api.recordTypes.create, { plural: "Clients" });
 		const theirs = await outsider.mutation(api.records.create, {
 			typeId: (await outsider.query(api.recordTypes.list))[0]!._id,
 			values: { name: "Theirs" },
@@ -269,6 +269,7 @@ describe("records", () => {
 	it("lists the chat messages that reference a record, only where you can see them", async () => {
 		const { t, owner, member, client } = await setup();
 		const outsider = await signIn(t, "outsider@else.com");
+		await outsider.mutation(api.recordTypes.create, { plural: "Clients" });
 		const acme = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Acme" } });
 		const general = (await owner.query(api.chats.list))!.channels[0]!._id;
 		const secret = await owner.mutation(api.chats.createChannel, { name: "board", private: true });
@@ -661,7 +662,9 @@ describe("records: list edge cases", () => {
 		await expect(next({ archived: true })).rejects.toThrow("out of date");
 		// Another workspace: the same cursor names this one.
 		const outsider = await signIn(t, "out@other.com");
+		await outsider.mutation(api.recordTypes.create, { plural: "Tasks" });
 		const theirs = (await outsider.query(api.recordTypes.list)).find((ty) => ty.key === "task")!;
+		await outsider.mutation(api.fields.create, { typeId: theirs._id, label: "Status", kind: "choice", options: [{ id: "to_do", label: "To do" }, { id: "doing", label: "Doing" }, { id: "done", label: "Done" }] });
 		await expect(next({ typeId: theirs._id }, outsider)).rejects.toThrow("out of date");
 		expect((await next({}, member)).page.map((r) => r.title)).toEqual(["A"]);
 	});

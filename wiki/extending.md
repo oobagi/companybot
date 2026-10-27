@@ -44,14 +44,12 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 - Add a section only when the agent has the matching tools, so prompts stay small.
 
 ## Skills — `core/src/skills.ts`
-- Add one with `defineSkill` to `skillCatalog`. Owners install per workspace.
 - Agents with `skills.load` see installed skills' one-line descriptions and load full text on demand. Keep descriptions short; they're in every prompt.
 - Anyone can make their own (`skills.create` permission; `create` / `save` in `backend/convex/skills.ts`, or the `skills.create` agent tool; the guide adds a short how-to when it's granted). The maker or an owner can edit or delete (`canEditMade`). They live on their `skillInstalls` row (`custom`, id `custom-…`), are always installed, and `installedSkills` turns them into the same `Skill` shape, so agents can't tell them apart. Limits are in `customSkillError`: name 64 and no tags (Claude's SKILL.md rules), description 200 (stricter than Claude's 1,024, since it's in every prompt), instructions 20k chars.
 
 ## Automations — `core/src/automations.ts`
 Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automationTools.ts` (agent tools), `automationOps.ts` (shared lookups).
-- Add one with `defineAutomation` to `automationCatalog`: trigger, `connectors` it needs (must be installed first), and the `prompt` the agent gets. `details` is the Markdown on its detail page.
-- Triggers: `schedule`, `event` (in-app: add it to `appEvents` and call `automationRuns.fireEvent` where it happens), or `webhook`. A library automation can require a named event (add it to `webhookEvents`, set `webhookEvent` on the trigger); ones people make take any webhook. Give webhook triggers a `sample` ("Run now" sends it). Senders POST to the install's URL; there's no other way in.
+- Triggers: `schedule`, `event` (in-app: add it to `appEvents` and call `automationRuns.fireEvent` where it happens), or `webhook`. Retired stored definitions can require a named event; ones people make take any webhook. Give webhook triggers a `sample` ("Run now" sends it). Senders POST to the install's URL; there's no other way in.
 - Member-made automations: `CustomAutomationConfig`, checked by `customAutomationError` on create and save, turned into an `Automation` by `customAutomation`. Saves send `expectedVersion`.
 - Webhook data is untrusted: it only ever reaches the model inside `triggerPrompt`'s fenced block, never as instructions or as who to act as. `person.email` must match a workspace member.
 - Runs go to the audience: each opted-in person's agent DM (`findOrCreateDm` + `insertMessage`), or the picked channel. Never message people who didn't opt in. Each run queues a turn with `enqueueTurn`, acting as a real member, the same path as a message they send. Don't give automations their own permission path.
@@ -76,11 +74,11 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 ## Things people make
 - Skills and automations share `canEditMade(who, managePermission, createdBy)` and one denial message. Pass no creator for library installs. Skills store the maker in `custom.createdBy`; automations use `installedBy`.
 - Trim configs only in core (`normalizeCustomSkill` / `normalizeCustomAutomation`). Backend `madeCustom` adds creation metadata; `saveMade` checks the version, validates, then patches the next version and editor metadata. Agent creation uses `asToolResult` for expected errors.
-- Delete custom items or uninstall library ones with `skills.remove` / `automations.remove`. `setInstalled` accepts only `installed: true`; automation removal needs no time zone. New installs still need one.
+- Delete custom items or uninstall library ones with `skills.remove` / `automations.remove`. The old `setInstalled` endpoints only acknowledge existing installs or explain that the library has retired (COMPAT).
 - `ToolContext.skills` holds the installed `list` and `create`, like the automations store.
 
 ## Databases and records — `core/src/records.ts`, `backend/convex/recordOps.ts`
-- Add a built-in database or field: `recordTypeCatalog`. New workspaces get it; existing ones need a migration that calls `seedRecordTypes` (it only adds databases that are missing, so new fields on an existing type need their own migration).
+- Databases and fields are workspace data, created through the app or agent tools. Never seed demo databases or fields in workspace creation or migrations.
 - New field kind: add it to `fieldKinds` and `fieldKind` (`schema.ts`), then `normalizeValue` and `indexEntries`.
 - Every change goes through `recordOps` (`Who` in `lib.ts`: member + optional agent), so permissions, history and the index can't drift. Never write `records` or `recordValues` directly.
 - Reads the app and agents share (lists, search, "what links here") live in `recordReads.ts`; use them instead of querying the indexes again.

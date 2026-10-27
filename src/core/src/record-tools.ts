@@ -78,7 +78,7 @@ const filter = z.object({
 });
 
 const findInput = z.object({
-	type: z.string().optional().describe('Database, e.g. "deal" or "Clients". Optional only with `search`.'),
+	type: z.string().optional().describe('Database key or name from records_types. Optional only with `search`.'),
 	search: z.string().optional().describe("Words to match in names and text fields, best first, up to 20. Can't be combined with filters or sort."),
 	filters: z.array(filter).max(10).optional().describe("All must match"),
 	sort: z
@@ -93,14 +93,14 @@ export type RecordFindInput = z.infer<typeof findInput>;
 
 const saveInput = z.object({
 	id: z.string().optional().describe("The record to change. Omit to create one."),
-	type: z.string().optional().describe('Database for a new record, e.g. "client"'),
+	type: z.string().optional().describe('Database key from records_types for a new record'),
 	values: z.record(z.string(), value).optional().describe("Field key or label → value. Only the fields given change. New records need a name."),
 	trash: z.boolean().optional().describe("true deletes the record: it goes to Trash, restorable for 30 days. false restores it from Trash. On its own, without values."),
 });
 export type RecordSaveInput = z.infer<typeof saveInput>;
 
 export const fieldInput = z.object({
-	type: z.string().describe('Database, e.g. "client"'),
+	type: z.string().describe('Database key or name from records_types'),
 	field: z.string().optional().describe("An existing field's key or label, to rename it or change its options. Omit to add a field."),
 	label: z.string().optional().describe('The field\'s name, e.g. "Roof type". Required when adding.'),
 	kind: z.enum(fieldKinds).optional().describe("Required when adding; can't change later. user = a teammate; link = another record."),
@@ -235,7 +235,7 @@ export const recordTools: ToolDef[] = [
 		id: "records.types",
 		title: "Look up databases",
 		description:
-			"The workspace's databases (clients, deals, tasks, calls, and any the team added) with every field: key, label, kind, choice options, and what links point at. Also the workspace's currency. Call it before your first records tool in a conversation.",
+			"The workspace's databases (created by the team; a new workspace has none) with every field: key, label, kind, choice options, and what links point at. Also the workspace's currency. Call it before your first records tool in a conversation.",
 		input: z.object({ trashed: z.boolean().optional().describe("Databases in Trash instead; fields include trashed fields and stable choice ids") }),
 		readOnly: true,
 		execute: (input, { records }) => records.types(input),

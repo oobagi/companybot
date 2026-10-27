@@ -1,14 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 
-import { agentsOf, setup as ownerAndMember } from "./helpers";
+import { newTest, signIn, agentsOf, setup as ownerAndMember } from "./helpers";
 
 afterEach(() => void vi.useRealTimers());
 
 describe("agents", () => {
 	it("gives new workspaces the default agents", async () => {
-		const { owner } = await ownerAndMember();
-		expect((await agentsOf(owner)).list.map((a) => a.name)).toEqual(["Companybot", "Scribe"]);
+		const t = newTest();
+		const owner = await signIn(t, "owner@co.com");
+		expect((await agentsOf(owner)).list.map((a) => a.name)).toEqual(["Companybot"]);
+		for (const query of [api.recordTypes.list, api.skills.list, api.automations.list]) expect(await owner.query(query)).toEqual([]);
+		expect((await owner.query(api.chats.list))!.channels.map((c) => c.title)).toEqual(["general"]);
+		for (const table of ["pages", "records", "skillInstalls", "automationInstalls", "connectorInstalls"] as const)
+			expect(await t.run((ctx) => ctx.db.query(table).collect())).toEqual([]);
 	});
 
 	it("versions every save and restores old versions", async () => {
@@ -23,6 +28,20 @@ describe("agents", () => {
 			[2, "Be terse."],
 			[1, "You are Sc"],
 		]);
+	});
+
+	it("saves old desktop configs and restores history containing retired connector grants", async () => {
+		const { t, owner } = await ownerAndMember();
+		const { scribe } = await agentsOf(owner);
+		const config = { name: scribe.name, description: scribe.description, instructions: scribe.instructions, model: scribe.model, tools: [...scribe.tools, "night-owl.*", "night-owl.search"] };
+		await t.run(async (ctx) => {
+			const version = await ctx.db.query("agentVersions").withIndex("by_agent", q => q.eq("agentId", scribe._id).eq("version", 1)).first();
+			await ctx.db.patch(version!._id, { config });
+		});
+		await owner.mutation(api.agents.update, { agentId: scribe._id, expectedVersion: 1, config });
+		await owner.mutation(api.agents.restore, { agentId: scribe._id, version: 1, expectedVersion: 2 });
+		expect((await agentsOf(owner)).scribe.tools).toEqual([...scribe.tools].sort());
+		expect((await owner.query(api.agents.history, { agentId: scribe._id })).find((v) => v.version === 1)!.config.tools).toEqual(config.tools);
 	});
 
 	it("refuses a save when someone else saved first", async () => {

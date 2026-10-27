@@ -8,17 +8,13 @@ import { useMutation, useQuery } from "../../convex";
 import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
 import { Field, Loading, Notice, Section, inputClass, primaryButton, useRun } from "../../ui";
-import { Card, Detail, Facts, LibraryList, MadeItemDetail, Missing, NewItem } from "./shared";
+import { Card, Detail, Facts, ItemList, MadeItemDetail, Missing, NewItem } from "./shared";
 
 type SkillItem = FunctionReturnType<typeof api.skills.list>[number];
 
 export function SkillsTab({ role }: { role: Role }) {
 	const skills = useQuery(api.skills.list);
-	const setSkill = useMutation(api.skills.setInstalled);
-	const removeSkill = useMutation(api.skills.remove);
-	const { error, run } = useRun();
 	if (!skills) return <Loading />;
-	const canManage = can(role, "skills.manage");
 	const card = (s: SkillItem) => (
 		<Card
 			key={s.id}
@@ -26,17 +22,16 @@ export function SkillsTab({ role }: { role: Role }) {
 			meta={`v${s.version}`}
 			description={s.description}
 			installed={s.installed}
-			canManage={s.custom ? s.canEdit : canManage}
-			onToggle={s.custom ? undefined : () => run(s.installed ? removeSkill({ skillId: s.id }) : setSkill({ skillId: s.id, installed: true }))}
+			canManage={s.canEdit}
 			onOpen={() => navigate("customize", "skills", s.id)}
 		/>
 	);
 
 	return (
-		<LibraryList
+		<ItemList
 			items={skills}
 			description="Instructions your agents load when a task calls for them. Agents see each skill's description, and read the rest only when they need it."
-			error={error}
+			empty={can(role, "skills.create") ? "No skills yet. Make your own with New skill, or ask Companybot to save a process for your team." : "No skills yet. Your team can create skills here."}
 			card={card}
 			action={can(role, "skills.create") && (
 				<button type="button" className={`${primaryButton} shrink-0`} onClick={() => navigate("customize", "skills", "new")}>
@@ -127,10 +122,9 @@ function CustomSkillDetail({ skill: s, custom }: { skill: SkillItem; custom: Non
 
 export function SkillScreen({ role, id }: { role: Role; id: string }) {
 	const skills = useQuery(api.skills.list);
-	const setSkill = useMutation(api.skills.setInstalled);
-	const removeSkill = useMutation(api.skills.remove);
 	const { error, run } = useRun();
 	const canManage = can(role, "skills.manage");
+	const removeSkill = useMutation(api.skills.remove);
 	if (id === "new") return <NewSkill />;
 	const open = skills?.find((s) => s.id === id);
 	if (!open) return <Missing tab="skills" loaded={!!skills} />;
@@ -143,7 +137,7 @@ export function SkillScreen({ role, id }: { role: Role; id: string }) {
 			description={open.description}
 			installed={open.installed}
 			canManage={canManage}
-			onToggle={() => run(open.installed ? removeSkill({ skillId: open.id }) : setSkill({ skillId: open.id, installed: true }))}
+			onToggle={() => run(removeSkill({ skillId: open.id }))}
 		>
 			{error && <Notice>{error}</Notice>}
 			<Facts rows={[["Used by", 'Agents granted "skills.load", when a task calls for it']]} />
