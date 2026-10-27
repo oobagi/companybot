@@ -421,14 +421,14 @@ export const saveDatabaseFor = internalMutation({
 		return asToolResult(async () => {
 			const parsed = databaseInput.safeParse(input);
 			if (!parsed.success) throw new ConvexError(parsed.error.issues[0]!.message);
-			const { type: name, version, ...changes } = parsed.data;
+			const { type: key, name: plural, singular: name, version, archived } = parsed.data;
 			let id: Id<"recordTypes">;
-			if (name) {
-				id = (await typeNamed(ctx, member, name))._id;
-				await updateType(ctx, who, id, { ...changes, version: version ?? -1 });
+			if (key) {
+				id = (await typeNamed(ctx, member, key))._id;
+				await updateType(ctx, who, id, { name, plural, archived, version: version ?? -1 });
 			} else {
-				if (!changes.name || !changes.plural || changes.archived !== undefined) throw new ConvexError("Give the new database a name and plural.");
-				id = await createType(ctx, who, { name: changes.name, plural: changes.plural });
+				if (!plural || archived !== undefined) throw new ConvexError("Give the new database a name.");
+				id = await createType(ctx, who, { plural, name });
 			}
 			const type = (await ctx.db.get(id))!;
 			return { type: type.key, name: type.name, plural: type.plural, version: type.version ?? 0, archived: type.archived };
@@ -463,12 +463,14 @@ export const saveViewFor = internalMutation({
 				return { deleted: old.name };
 			}
 			const fields = await fieldsOf(ctx, type._id);
+			// Kept settings drop fields archived since, so renaming an old view still works.
+			const live = (key: string) => fields.some((f) => f.key === key && !f.archived);
 			const sort = parsed.sort && { ...parsed.sort, field: ["createdAt", "updatedAt"].includes(parsed.sort.field) ? parsed.sort.field : fieldNamed(fields, parsed.sort.field, type).key };
 			const id = await saveView(ctx, who, type._id, {
 				name: parsed.name ?? old?.name ?? "",
-				filters: parsed.filters ? await conditionsFor(ctx, member, type, fields, parsed.filters) : old?.filters ?? [],
+				filters: parsed.filters ? await conditionsFor(ctx, member, type, fields, parsed.filters) : old?.filters.filter((c) => live(c.field)) ?? [],
 				sort: parsed.sort === null ? undefined : sort ?? old?.sort,
-				columns: parsed.columns ?? old?.columns ?? ["name"],
+				columns: parsed.columns ?? old?.columns.filter(live) ?? ["name"],
 			}, viewId || undefined, parsed.version);
 			return ctx.db.get(id);
 		});

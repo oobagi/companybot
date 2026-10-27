@@ -1,4 +1,4 @@
-import { canEditMade, recordTypeCatalog } from "@companybot/core";
+import { canEditMade } from "@companybot/core";
 import { v } from "convex/values";
 import { mutation, query } from "./functions";
 import { getMember, requireMember, toActor } from "./lib";
@@ -24,7 +24,6 @@ export const list = query({
 					name: t.name,
 					plural: t.plural,
 					version: t.version ?? 0,
-					canArchive: !recordTypeCatalog.some((def) => def.key === t.key),
 					fields: [...fields.filter((f) => !f.archived), ...fields.filter((f) => f.archived)].map((f) => ({
 						_id: f._id,
 						...toField(f),
@@ -38,7 +37,8 @@ export const list = query({
 });
 
 export const create = mutation({
-	args: { name: v.string(), plural: v.string() },
+	// COMPAT(0.1.0-alpha.8): `name` is only sent by alpha.6 apps; newer ones send the plural alone.
+	args: { plural: v.string(), name: v.optional(v.string()) },
 	handler: async (ctx, input) => createType(ctx, { member: await requireMember(ctx) }, input),
 });
 

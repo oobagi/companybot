@@ -28,7 +28,6 @@ export async function saveView(ctx: MutationCtx, who: Who, typeId: Id<"recordTyp
 	const config = { ...input, name: input.name.trim() };
 	if (!config.name || config.name.length > 120) throw new ConvexError("Give the view a name, up to 120 characters.");
 	if (views.some((v) => v._id !== viewId && v.name.toLowerCase() === config.name.toLowerCase())) throw new ConvexError("A view with that name already exists.");
-	if (JSON.stringify(config).length > 16_000) throw new ConvexError("Keep a saved view under 16,000 characters.");
 	const fields = await fieldsOf(ctx, typeId);
 	const live = fields.filter((f) => !f.archived).map((f) => f.key);
 	if (!config.columns.includes("name") || new Set(config.columns).size !== config.columns.length || config.columns.some((k) => !live.includes(k)))
@@ -46,11 +45,10 @@ export async function saveView(ctx: MutationCtx, who: Who, typeId: Id<"recordTyp
 		return { ...c, ...(c.eq !== undefined && { eq: choice(c.eq) }), ...(c.in && { in: c.in.map(choice) }) };
 	});
 	if (JSON.stringify(config).length > 16_000) throw new ConvexError("Keep a saved view under 16,000 characters.");
-	const changes = (["name", "filters", "sort", "columns"] as const).flatMap((key) => {
-		const before = old?.[key];
-		const after = config[key];
-		return JSON.stringify(before) === JSON.stringify(after) ? [] : [{ key, ...(before !== undefined && { old: key === "name" ? String(before) : JSON.stringify(before) }), ...(after !== undefined && { new: key === "name" ? String(after) : JSON.stringify(after) }) }];
-	});
+	const text = (value: unknown) => (value === undefined || typeof value === "string" ? value : JSON.stringify(value));
+	const changes = (["name", "filters", "sort", "columns"] as const)
+		.filter((key) => text(old?.[key]) !== text(config[key]))
+		.map((key) => ({ key, old: text(old?.[key]), new: text(config[key]) }));
 	if (old && !changes.length) return old._id;
 	const id = old ? old._id : await ctx.db.insert("databaseViews", { workspaceId: who.member.workspaceId, typeId, ...config, version: 1 });
 	if (old) await ctx.db.patch(id, { ...config, version: old.version + 1 });
@@ -71,7 +69,7 @@ export const list = query({
 	args: { typeId: v.id("recordTypes") },
 	handler: async (ctx, { typeId }) => {
 		const member = await getMember(ctx);
-		const type = member && await ctx.db.get(typeId);
+		const type = member && (await ctx.db.get(typeId));
 		return member && type?.workspaceId === member.workspaceId && !type.archived ? viewsOf(ctx, member, typeId) : [];
 	},
 });

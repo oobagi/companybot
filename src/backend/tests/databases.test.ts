@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import { childrenOf } from "../convex/lifecycle";
+import { seedRecordTypes } from "../convex/recordOps";
 import { agentTurn, agentsOf, generalOf, setup, settle, signIn } from "./helpers";
 
 afterEach(() => vi.useRealTimers());
@@ -9,9 +10,9 @@ const config = { name: "By name", filters: [], columns: ["name"], sort: { field:
 
 it("owners create, rename and archive databases with stable keys and Activity history", async () => {
 	const { owner, member } = await setup();
-	const id = await owner.mutation(api.recordTypes.create, { name: " Job ", plural: " Jobs " });
+	const id = await owner.mutation(api.recordTypes.create, { plural: " Jobs " });
 	let database = (await member.query(api.recordTypes.list)).find((t) => t._id === id)!;
-	expect(database).toMatchObject({ key: "job", name: "Job", plural: "Jobs", version: 0, canArchive: true });
+	expect(database).toMatchObject({ key: "job", name: "Job", plural: "Jobs", version: 0 });
 	for (const input of [{ name: "Work", plural: "Works" }, { archived: true }])
 		await expect(member.mutation(api.recordTypes.update, { typeId: id, version: 0, ...input })).rejects.toThrow("permission");
 	await owner.mutation(api.recordTypes.update, { typeId: id, version: 0, name: "Project", plural: "Projects" });
@@ -26,16 +27,17 @@ it("owners create, rename and archive databases with stable keys and Activity hi
 	]);
 });
 
-it("renames every built-in without allowing archive, and validates database names", async () => {
-	const { owner } = await setup();
+it("renames and archives built-ins, which re-seeding leaves archived, and validates database names", async () => {
+	const { t, owner } = await setup();
 	const types = await owner.query(api.recordTypes.list);
-	for (const type of types) {
-		expect(type.canArchive).toBe(false);
-		await owner.mutation(api.recordTypes.update, { typeId: type._id, name: `${type.name} new`, plural: `${type.plural} new`, version: type.version });
-		await expect(owner.mutation(api.recordTypes.update, { typeId: type._id, archived: true, version: 1 })).rejects.toThrow("Built-in");
-	}
-	await expect(owner.mutation(api.recordTypes.create, { name: "CLIENT NEW", plural: "Other" })).rejects.toThrow("already");
-	for (const name of [" ", "a".repeat(121)]) await expect(owner.mutation(api.recordTypes.create, { name, plural: "Jobs" })).rejects.toThrow("120");
+	for (const type of types) await owner.mutation(api.recordTypes.update, { typeId: type._id, name: `${type.name} new`, plural: `${type.plural} new`, version: type.version });
+	await expect(owner.mutation(api.recordTypes.create, { plural: "CLIENTS NEW" })).rejects.toThrow("already");
+	for (const name of [" ", "a".repeat(121)]) await expect(owner.mutation(api.recordTypes.create, { plural: name })).rejects.toThrow("120");
+	const client = types.find((type) => type.key === "client")!;
+	await owner.mutation(api.recordTypes.update, { typeId: client._id, archived: true, version: 1 });
+	const workspaceId = (await t.run((ctx) => ctx.db.get(client._id)))!.workspaceId;
+	await t.run((ctx) => seedRecordTypes(ctx, workspaceId, owner.userId));
+	expect((await owner.query(api.recordTypes.list)).map((type) => type.key)).toEqual(types.map((type) => type.key).filter((key) => key !== "client"));
 });
 
 it("shares sorting, filtering and ordered columns; refuses stale saves and deletions", async () => {
@@ -78,6 +80,7 @@ it("checks filter semantics, columns, names and per-database limits before writi
 it("isolates every database and view operation across workspaces, including forged ids", async () => {
 	const { t, owner } = await setup();
 	const other = await signIn(t, "outsider@co.com");
+	// COMPAT(0.1.0-alpha.8): alpha.6 apps send both names.
 	const typeId = await owner.mutation(api.recordTypes.create, { name: "Job", plural: "Jobs" });
 	const viewId = await owner.mutation(api.databaseViews.save, { ...config, typeId });
 	await expect(other.mutation(api.recordTypes.update, { typeId, version: 0, name: "Stolen" })).rejects.toThrow("not found");
@@ -90,7 +93,7 @@ it("isolates every database and view operation across workspaces, including forg
 
 it("empties a live view subscription when its database is archived, keeping its data and refusing edits", async () => {
 	const { t, owner } = await setup();
-	const typeId = await owner.mutation(api.recordTypes.create, { name: "Job", plural: "Jobs" });
+	const typeId = await owner.mutation(api.recordTypes.create, { plural: "Jobs" });
 	const viewId = await owner.mutation(api.databaseViews.save, { ...config, typeId });
 	await owner.mutation(api.recordTypes.update, { typeId, archived: true, version: 0 });
 	expect(await owner.query(api.databaseViews.list, { typeId })).toEqual([]);
@@ -118,9 +121,9 @@ it("gives agents database and view parity, names both actors, and rechecks roles
 	const { t, owner, member } = await setup();
 	const { companybot } = await agentsOf(owner);
 	const turnId = await agentTurn(t, owner, (await generalOf(owner))._id, companybot._id);
-	const database = await t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input: { name: "Job", plural: "Jobs" } });
+	const database = await t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input: { name: "Jobs" } });
 	expect(database).toMatchObject({ type: "job", version: 0 });
-	await t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input: { type: "job", plural: "Projects", version: 0 } });
+	await t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input: { type: "job", name: "Projects", version: 0 } });
 	const saved = await t.mutation(internal.recordTools.saveViewFor, { turnId, input: { type: "job", name: "Newest", columns: ["name"] } });
 	expect(saved).toHaveProperty("_id");
 	const views = await t.query(internal.recordTools.viewsFor, { turnId, type: "job" });
@@ -136,7 +139,7 @@ it("gives agents database and view parity, names both actors, and rechecks roles
 		const membership = await ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", owner.userId)).first();
 		await ctx.db.patch(membership!._id, { role: "member" });
 	});
-	expect(await t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input: { name: "Other", plural: "Others" } })).toEqual({ error: expect.stringContaining("permission") });
+	expect(await t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input: { name: "Others" } })).toEqual({ error: expect.stringContaining("permission") });
 	const mine = await t.mutation(internal.recordTools.saveViewFor, { turnId, input: { type: "Deals", name: "My won deals", filters: [{ field: "Stage", in: ["Won"] }, { field: "Owner", eq: "me" }] } });
 	expect(mine).toMatchObject({ filters: [{ field: "stage", in: ["won"] }, { field: "owner", eq: owner.userId }] });
 });

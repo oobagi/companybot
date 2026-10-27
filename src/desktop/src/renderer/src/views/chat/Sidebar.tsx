@@ -82,7 +82,7 @@ export function ChatNav({
 	);
 }
 
-function Group({
+export function Group({
 	title,
 	onAdd,
 	addLabel,

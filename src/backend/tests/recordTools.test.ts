@@ -163,7 +163,7 @@ describe("records tools", () => {
 		});
 		expect((await tools.save({ id: acme.id, values: { tier_level_2: "Gold" } })).values).toMatchObject({ tier_level_2: "Gold" });
 		// Types: a key beats another type's name; names two types share are refused.
-		await owner.mutation(api.recordTypes.create, { name: "Pipeline", plural: "Pipelines" });
+		await owner.mutation(api.recordTypes.create, { plural: "Pipelines" });
 		await t.run(async (ctx) => {
 			const type = (await ctx.db.query("recordTypes").collect()).find((x) => x.key === "pipeline")!;
 			await ctx.db.patch(type._id, { name: "deal", plural: "Deals" });

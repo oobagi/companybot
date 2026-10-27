@@ -18,6 +18,7 @@ import {
 	normalizeFieldConfig,
 	normalizeValue,
 	recordTypeCatalog,
+	singularOf,
 	sameValue,
 	searchTextOf,
 	valuesBytes,
@@ -366,45 +367,43 @@ export async function setFieldArchived(ctx: MutationCtx, who: Who, fieldId: Id<"
 
 const TYPES_MAX = 32;
 
-function databaseNames(input: { name: string; plural: string }, types: Doc<"recordTypes">[], except?: Id<"recordTypes">) {
-	const name = input.name.trim();
-	const plural = input.plural.trim();
-	if (!name || !plural || name.length > 120 || plural.length > 120) throw new ConvexError("Give the database a name and plural, each up to 120 characters.");
-	if (types.some((t) => t._id !== except && !t.archived && [t.name, t.plural].some((n) => [name, plural].some((m) => n.toLowerCase() === m.toLowerCase()))))
-		throw new ConvexError(`There's already a database called “${plural}”.`);
-	return { name, plural };
+/** Trimmed names, unique among live databases. The singular defaults to a guess from the plural. */
+function databaseNames(plural: string, singular: string | undefined, types: Doc<"recordTypes">[], except?: Id<"recordTypes">) {
+	const names = { name: (singular ?? singularOf(plural.trim())).trim(), plural: plural.trim() };
+	if (!names.name || !names.plural || names.name.length > 120 || names.plural.length > 120) throw new ConvexError("Give the database a name, up to 120 characters.");
+	if (types.some((t) => t._id !== except && !t.archived && [t.name, t.plural].some((n) => [names.name, names.plural].some((m) => n.toLowerCase() === m.toLowerCase()))))
+		throw new ConvexError(`There's already a database called “${names.plural}”.`);
+	return names;
 }
 
 /** A new database with just a name field. */
-export async function createType(ctx: MutationCtx, who: Who, input: { name: string; plural: string }) {
+export async function createType(ctx: MutationCtx, who: Who, input: { plural: string; name?: string }) {
 	requireCan(who.member, "fields.manage");
 	const types = await typesOf(ctx, who.member.workspaceId);
 	if (types.length >= TYPES_MAX) throw new ConvexError(`A workspace holds up to ${TYPES_MAX} databases, including archived ones.`);
-	const names = databaseNames(input, types);
+	const names = databaseNames(input.plural, input.name, types);
 	const typeId = await insertType(ctx, who.member, { key: keyOf(names.name, [...types.map((t) => t.key), "campaign"]), ...names });
 	await insertField(ctx, who.member, typeId, { key: NAME_KEY, label: "Name", kind: "text" }, 0);
 	await logChange(ctx, who, { typeId, action: "database.created", changes: Object.entries(names).map(([key, value]) => ({ key, new: value })) });
 	return typeId;
 }
 
+/** Rename (a new plural alone re-guesses the singular) or archive. */
 export async function updateType(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, input: { name?: string; plural?: string; archived?: boolean; version: number }) {
 	requireCan(who.member, "fields.manage");
 	const type = await requireType(ctx, who.member, typeId);
 	checkVersion(type.version ?? 0, input.version);
 	if (type.archived) throw new ConvexError("This database is archived.");
-	if (input.archived && recordTypeCatalog.some((t) => t.key === type.key)) throw new ConvexError("Built-in databases can be renamed, but not archived.");
-	const names = databaseNames({ name: input.name ?? type.name, plural: input.plural ?? type.plural }, await typesOf(ctx, who.member.workspaceId), typeId);
-	const changes = Object.entries(names).filter(([key, value]) => type[key as "name" | "plural"] !== value).map(([key, value]) => ({ key, old: type[key as "name" | "plural"], new: value }));
+	const names = databaseNames(input.plural ?? type.plural, input.name ?? (input.plural === undefined ? type.name : undefined), await typesOf(ctx, who.member.workspaceId), typeId);
+	const changes = (["name", "plural"] as const).filter((key) => type[key] !== names[key]).map((key) => ({ key, old: type[key], new: names[key] }));
 	if (!changes.length && !input.archived) return;
-	await ctx.db.patch(typeId, { ...names, archived: input.archived ?? false, version: (type.version ?? 0) + 1, updatedAt: Date.now() });
+	await ctx.db.patch(typeId, { ...names, archived: !!input.archived, version: (type.version ?? 0) + 1, updatedAt: Date.now() });
 	await logChange(ctx, who, { typeId, action: input.archived ? "database.archived" : "database.updated", changes });
 }
 
-export async function typesOf(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
-	const types = await ctx.db.query("recordTypes").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).take(TYPES_MAX + 1);
-	if (types.length > TYPES_MAX) throw new ConvexError(`This workspace exceeds the ${TYPES_MAX}-database limit. Ask an owner for help.`);
-	return types;
-}
+/** Bounded by TYPES_MAX, which createType enforces. */
+export const typesOf = (ctx: QueryCtx, workspaceId: Id<"workspaces">) =>
+	ctx.db.query("recordTypes").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).take(TYPES_MAX);
 
 const insertType = (ctx: MutationCtx, member: Pick<Member, "workspaceId" | "userId">, type: { key: string; name: string; plural: string }) =>
 	ctx.db.insert("recordTypes", { workspaceId: member.workspaceId, ...type, archived: false, createdBy: member.userId, updatedAt: Date.now() });

@@ -39,9 +39,9 @@ describe("databases", () => {
 
 	it("lets only owners add databases, each starting with a name field", async () => {
 		const { owner, member } = await setup();
-		await expect(member.mutation(api.recordTypes.create, { name: "Job", plural: "Jobs" })).rejects.toThrow("permission");
-		await owner.mutation(api.recordTypes.create, { name: "Job", plural: "Jobs" });
-		await expect(owner.mutation(api.recordTypes.create, { name: "job", plural: "jobs" })).rejects.toThrow("already");
+		await expect(member.mutation(api.recordTypes.create, { plural: "Jobs" })).rejects.toThrow("permission");
+		await owner.mutation(api.recordTypes.create, { plural: "Jobs" });
+		await expect(owner.mutation(api.recordTypes.create, { plural: "jobs" })).rejects.toThrow("already");
 		const jobs = (await member.query(api.recordTypes.list)).find((t) => t.key === "job")!;
 		expect(jobs.fields.map((f) => [f.key, f.label])).toEqual([["name", "Name"]]);
 	});

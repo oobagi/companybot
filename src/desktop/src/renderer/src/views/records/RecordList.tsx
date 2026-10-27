@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { ConflictNotice, ErrorBoundary, Field, LoadMore, Loading, Notice, Page, compactControlClass, descriptionClass, inputClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
+import { ConflictNotice, ErrorBoundary, Field, LoadMore, Loading, Notice, Page, Tabs, compactControlClass, dangerButton, descriptionClass, inputClass, primaryButton, secondaryButton, timeAgo, useDraft, useRun } from "../../ui";
 import { Modal, useDismiss } from "../chat/common";
 import { DatabaseDialog } from "./DatabaseDialog";
 import { type RecordType, type Row, useRefs } from "./data";
@@ -22,7 +22,7 @@ import {
 	opsFor,
 	recordPath,
 	sortable,
-	toConditions,
+	toCondition,
 	valueText,
 } from "./logic";
 
@@ -37,73 +37,86 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 	const views = useQuery(api.databaseViews.list, { typeId: type._id });
 	const saveView = useMutation(api.databaseViews.save);
 	const removeView = useMutation(api.databaseViews.remove);
-	const [viewId, setViewId] = useState("");
+	const [viewId, setViewId] = useState("all");
 	const selected = views?.find((v) => v._id === viewId);
-	const storageKey = `records.view.${type._id}`;
-	const [local, setLocal] = useState<Settings>(() => JSON.parse(localStorage.getItem(storageKey) ?? "null") ?? {
-		filters: [], columns: JSON.parse(localStorage.getItem(`records.columns.${type.key}`) ?? "null") ?? defaultColumns(type.fields),
-	});
-	const draft = useDraft<Settings>(selected ? { filters: fromConditions(selected.filters, type.fields), sort: selected.sort, columns: selected.columns } : local, selected?.version ?? 0);
+	const fields = type.fields.filter((f) => !f.archived) as TypeField[];
+	const live = (key: string) => ["createdAt", "updatedAt", ...fields.map((f) => f.key)].includes(key);
+	// "All" keeps the columns people picked on this computer; a view's settings skip fields archived since.
+	const columnsKey = `records.columns.${type.key}`;
+	const draft = useDraft<Settings>(
+		selected
+			? { filters: fromConditions(selected.filters.filter((c) => live(c.field)), fields), sort: selected.sort && live(selected.sort.field) ? selected.sort : undefined, columns: selected.columns }
+			: { filters: [], columns: JSON.parse(localStorage.getItem(columnsKey) ?? "null") ?? defaultColumns(type.fields) },
+		selected?.version ?? 0,
+	);
 	const { filters, sort } = draft.value;
-	const columns = draft.value.columns.filter((key) => type.fields.some((f) => f.key === key && !f.archived));
+	const columns = draft.value.columns.filter(live);
 	const change = (next: Partial<Settings>) => {
-		const value = { ...draft.value, ...next };
-		draft.set(value);
-		if (!selected) { setLocal(value); localStorage.setItem(storageKey, JSON.stringify(value)); }
+		draft.set({ ...draft.value, ...next });
+		if (!selected && next.columns) localStorage.setItem(columnsKey, JSON.stringify(next.columns));
 	};
 	const setFilters = (filters: Filter[]) => change({ filters });
 	const setSort = (sort: Sort | undefined) => change({ sort });
 	const setColumns = (columns: string[]) => change({ columns });
+	const open = (id: string) => (setViewId(id), draft.discard());
+	// Someone deleted the open view.
+	useEffect(() => {
+		if (views && viewId !== "all" && !selected) open("all");
+	}, [views, viewId, selected]);
+	const [naming, setNaming] = useState<"new" | "edit">();
+	const [editingDatabase, setEditingDatabase] = useState(false);
 	const [search, setSearch] = useState("");
 	const [archived, setArchived] = useState(false);
-	const [editingDatabase, setEditingDatabase] = useState(false);
-	const [naming, setNaming] = useState<"new" | "rename">();
-	const [viewName, setViewName] = useState("");
-	const titleDraft = useDraft(selected?.name ?? "", selected?.version ?? 0);
-	const { error, run } = useRun();
-	useEffect(() => {
-		if (views && viewId && !selected) { setViewId(""); draft.discard(); }
-	}, [views, viewId, selected]);
 	const [creating, setCreating] = useState(false);
-	const fields = type.fields.filter((f) => !f.archived) as TypeField[];
+	const { error, run } = useRun();
 	const shown = columns.map((k) => fields.find((f) => f.key === k)!);
-	const conditions = toConditions(filters);
+	const conditions = filters.map(toCondition).filter((c) => c !== null);
 	const canEdit = can(role, "records.edit");
 	// Archived lists can't sort by a field (archived records aren't indexed).
 	const activeSort = archived && sort && !["createdAt", "updatedAt"].includes(sort.field) ? undefined : sort;
 	const sortField = activeSort && fields.find((f) => f.key === activeSort.field);
 	const args = { typeId: type._id, archived, filters: conditions, sort: activeSort };
 	const noun = type.plural.toLowerCase();
+	const tabClass = "px-3 py-2 text-sm text-neutral-500 hover:text-neutral-800";
 
 	return (
 		<Page
 			wide
 			title={type.plural}
 			actions={
-				<>
-					{can(role, "fields.manage") && <button type="button" className={compactControlClass} onClick={() => setEditingDatabase(true)}>Edit database</button>}
-					{canEdit && <button type="button" className={primaryButton} onClick={() => setCreating(true)}>
-						+ New
-					</button>}
-				</>
+				<div className="flex items-center gap-2">
+					{can(role, "fields.manage") && (
+						<button type="button" className={secondaryButton} onClick={() => setEditingDatabase(true)}>
+							Edit database
+						</button>
+					)}
+					{canEdit && (
+						<button type="button" className={primaryButton} onClick={() => setCreating(true)}>
+							+ New
+						</button>
+					)}
+				</div>
 			}
 		>
+			<Tabs tabs={[{ id: "all", label: "All" }, ...(views ?? []).map((v) => ({ id: v._id as string, label: v.name }))]} value={selected ? viewId : "all"} onChange={open}>
+				{canEdit && selected && (
+					<button type="button" title="Rename or delete this view" className={tabClass} onClick={() => setNaming("edit")}>
+						⋯
+					</button>
+				)}
+				{canEdit && (
+					<button type="button" title="Save these filters as a view" className={tabClass} onClick={() => setNaming("new")}>
+						+
+					</button>
+				)}
+				{canEdit && selected && draft.dirty && (
+					<button type="button" disabled={draft.stale} className={`ml-auto self-center ${compactControlClass}`} onClick={() => run(saveView({ typeId: type._id, viewId: selected._id, version: draft.base, name: selected.name, filters: conditions, sort, columns }), draft.discard)}>
+						Save for everyone
+					</button>
+				)}
+			</Tabs>
 			{error && <Notice>{error}</Notice>}
 			{draft.stale && <ConflictNotice onDiscard={draft.discard} onKeep={draft.keepMine} />}
-			<div className="flex flex-wrap items-center gap-3 text-sm">
-				<select aria-label="Saved view" className={compactControlClass} value={viewId} onChange={(e) => { setViewId(e.target.value); draft.discard(); setSearch(""); setArchived(false); }}>
-					<option value="">All records</option>
-					{views?.map((v) => <option key={v._id} value={v._id}>{v.name}</option>)}
-				</select>
-				{canEdit && <>
-					{selected && draft.dirty && <button type="button" disabled={draft.stale} className={primaryButton} onClick={() => run(saveView({ typeId: type._id, viewId: selected._id, version: draft.base, name: selected.name, filters: conditions, sort, columns }), draft.discard)}>Save for everyone</button>}
-					<button type="button" className={compactControlClass} onClick={() => { setNaming("new"); setViewName(""); }}>+ Save view</button>
-					{selected && <>
-						<button type="button" className={compactControlClass} onClick={() => { setNaming("rename"); titleDraft.set(selected.name); }}>Rename view</button>
-						<button type="button" disabled={draft.stale} className={compactControlClass} onClick={() => run(removeView({ viewId: selected._id, version: draft.base }), () => { setViewId(""); draft.discard(); })}>Delete view</button>
-					</>}
-				</>}
-			</div>
 			<div className="flex flex-wrap items-center gap-3 text-sm">
 				<input
 					type="search"
@@ -119,11 +132,6 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 				>
 					+ Filter
 				</button>
-				<select aria-label="Sort by" className={compactControlClass} value={sort?.field ?? ""} onChange={(e) => setSort(e.target.value ? { field: e.target.value, order: "asc" } : undefined)}>
-					<option value="">Newest first</option>
-					{[...fields.filter(sortable).map((f) => ({ key: f.key, label: f.label })), { key: "createdAt", label: "Created" }, { key: "updatedAt", label: "Updated" }].map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
-				</select>
-				{sort && <button type="button" className={compactControlClass} onClick={() => setSort({ ...sort, order: sort.order === "asc" ? "desc" : "asc" })}>{sort.order === "asc" ? "Ascending ↑" : "Descending ↓"}</button>}
 				<ColumnsPicker fields={fields} columns={columns} onChange={setColumns} />
 				<label className="ml-auto flex items-center gap-2 text-neutral-600">
 					<input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} />
@@ -183,18 +191,34 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 				</>
 			)}
 			{editingDatabase && <DatabaseDialog type={type} onClose={() => setEditingDatabase(false)} />}
-			{naming && <Modal title={naming === "rename" ? "Rename view" : "Save view"} onClose={() => { setNaming(undefined); titleDraft.discard(); }}>
-				<form className="flex flex-col gap-4" onSubmit={(e) => {
-					e.preventDefault();
-					run(saveView({ typeId: type._id, ...(naming === "rename" && selected && { viewId: selected._id, version: draft.dirty ? draft.base : titleDraft.base }), name: naming === "rename" ? titleDraft.value : viewName, filters: conditions, sort, columns }).then((id) => { setViewId(id); draft.discard(); titleDraft.discard(); setNaming(undefined); }));
-				}}>
-					{error && <Notice>{error}</Notice>}
-					{naming === "rename" && (draft.stale || titleDraft.stale) && <ConflictNotice onDiscard={() => { draft.discard(); titleDraft.discard(); }} onKeep={() => { draft.keepMine(); titleDraft.keepMine(); }} />}
-					<Field label="View name" hint="Sorting, filtering and columns shared with everyone in the workspace."><input autoFocus required maxLength={120} className={inputClass} value={naming === "rename" ? titleDraft.value : viewName} onChange={(e) => naming === "rename" ? titleDraft.set(e.target.value) : setViewName(e.target.value)} /></Field>
-					<button type="submit" disabled={(draft.stale || titleDraft.stale) && naming === "rename"} className={primaryButton}>Save for everyone</button>
-				</form>
-			</Modal>}
-
+			{naming && (
+				<Modal title={naming === "edit" ? "Edit view" : "Save view"} onClose={() => setNaming(undefined)}>
+					<form
+						className="flex flex-col gap-4"
+						onSubmit={(e) => {
+							e.preventDefault();
+							const name = String(new FormData(e.currentTarget).get("name"));
+							const edit = naming === "edit" && selected && { viewId: selected._id, version: draft.base };
+							run(saveView({ typeId: type._id, ...edit, name, filters: conditions, sort, columns }).then((id) => (open(id), setNaming(undefined))));
+						}}
+					>
+						{error && <Notice>{error}</Notice>}
+						<Field label="View name" hint="These filters, sort and columns, shared with everyone in the workspace.">
+							<input name="name" autoFocus required maxLength={120} defaultValue={naming === "edit" ? selected?.name : ""} className={inputClass} />
+						</Field>
+						<div className="flex items-center gap-2">
+							<button type="submit" disabled={naming === "edit" && draft.stale} className={primaryButton}>
+								Save for everyone
+							</button>
+							{naming === "edit" && selected && (
+								<button type="button" className={dangerButton} onClick={() => confirm(`Delete the view ${selected.name}?`) && run(removeView({ viewId: selected._id, version: draft.base }), () => (open("all"), setNaming(undefined)))}>
+									Delete view
+								</button>
+							)}
+						</div>
+					</form>
+				</Modal>
+			)}
 			{creating && <NewRecord type={type} onClose={() => setCreating(false)} />}
 		</Page>
 	);

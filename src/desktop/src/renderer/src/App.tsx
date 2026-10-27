@@ -1,5 +1,5 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import type { Role } from "@companybot/core";
+import { type Role, can } from "@companybot/core";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvexAuth } from "convex/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -14,9 +14,8 @@ import { SettingsView, settingsTabAliases, settingsTabs } from "./views/Settings
 import { SignIn } from "./views/SignIn";
 import { WorkspaceMenu } from "./views/WorkspaceMenu";
 import { ChatView } from "./views/chat/ChatView";
-import { ChatNav, Item } from "./views/chat/Sidebar";
+import { ChatNav, Group, Item } from "./views/chat/Sidebar";
 import { CustomizeView, customizeTabs } from "./views/customize";
-import { can } from "@companybot/core";
 import { DatabaseDialog } from "./views/records/DatabaseDialog";
 import { useTypes } from "./views/records/data";
 import { builtinTabs, recordPath } from "./views/records/logic";
@@ -137,11 +136,12 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 			<aside className="drag flex w-60 shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 px-3 pt-12 pb-3">
 				<WorkspaceMenu name={workspace} />
 				<nav className="no-drag mb-3 flex flex-col gap-px border-b border-neutral-200 pb-3">
-					<h2 className="px-2 pb-1 text-xs font-medium text-neutral-500">Databases</h2>
-					{types?.map((type) => (
-						<Item key={type._id} active={typeKey === type.key} onClick={() => navigate(...recordPath(type.key))}>{type.plural}</Item>
-					))}
-					{can(role, "fields.manage") && <Item muted onClick={() => setNewDatabase(true)}>+ New database</Item>}
+					<Group title="Databases">
+						{types?.map((type) => (
+							<Item key={type._id} active={typeKey === type.key} onClick={() => navigate(...recordPath(type.key))}>{type.plural}</Item>
+						))}
+						{can(role, "fields.manage") && <Item muted onClick={() => setNewDatabase(true)}>+ New database</Item>}
+					</Group>
 					<Item active={view === "campaigns"} onClick={() => navigate("campaigns")}>Campaigns</Item>
 				</nav>
 				<ChatNav chats={chats} openId={view === "chat" ? openId : undefined} onOpen={open} onError={(e) => setError(errorMessage(e))} />

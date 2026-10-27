@@ -235,7 +235,7 @@ it("refuses ids from the other workspace in reads, restores and nested ids", asy
 	await expect(
 		B.mutation(api.messages.send, { chatId: bChat, threadId: message, text: "x", mentions: { userIds: [], agentIds: [] } }),
 	).rejects.toThrow("thread doesn't exist");
-	const bType: Id<"recordTypes"> = (await B.query(api.recordTypes.list))[0]?._id ?? (await B.mutation(api.recordTypes.create, { name: "Thing", plural: "Things" }));
+	const bType: Id<"recordTypes"> = (await B.query(api.recordTypes.list))[0]?._id ?? (await B.mutation(api.recordTypes.create, { plural: "Things" }));
 	await expect(B.mutation(api.fields.create, { typeId: bType, label: "Leak", kind: "link", linkTypeId: type })).rejects.toThrow(
 		"Database not found",
 	);

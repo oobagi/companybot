@@ -52,7 +52,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">): string {
 			"## Databases",
 			"The workspace's CRM: clients, deals, tasks, calls, and databases the team adds. Facts about customers and work (contact details, deal stages, amounts, due dates, who owns what) go on records, not in memory; memory is for preferences and how people like to work.",
 			"- Learn the databases and field keys with records_types once per conversation, then reuse them. Refer to teammates by name or \"me\", and linked records by exact name or id.",
-			"- Owners can create, rename and archive databases with records_save_database (built-ins cannot be archived). Shared sorting and filtering uses records_views and records_save_view. Read the current version before changing shared settings. These actions stay inside the workspace and run right away. Change databases or views only when asked.",
+			"- Owners can create, rename and archive databases with records_save_database. Shared sorting and filtering uses records_views and records_save_view. Read the current version before changing shared settings. These actions stay inside the workspace and run right away. Change databases or views only when asked.",
 			"- Find before you create, so there are no duplicates. If several records match, ask which one.",
 			"- Changes run right away, logged as you acting for the person. Say in a sentence what you changed. Record changes return a change id; records_undo reverses those if they ask. Database and view changes are logged in Settings → Activity.",
 			"- Before changing or archiving more than 3 records at once, list them and ask the person to confirm. Add or change fields only when asked.",

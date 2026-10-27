@@ -113,9 +113,9 @@ export type FieldSaveInput = z.infer<typeof fieldInput>;
 
 export const databaseInput = z.object({
 	type: z.string().optional().describe("Existing database key or id. Omit to create."),
-	name: z.string().max(120).optional().describe("Singular name; required when creating"),
-	plural: z.string().max(120).optional().describe("Plural name; required when creating"),
-	archived: z.boolean().optional().describe("Archive a custom database; built-ins cannot be archived"),
+	name: z.string().max(120).optional().describe('The name people see, e.g. "Projects"; required when creating'),
+	singular: z.string().max(120).optional().describe('One entry, e.g. "Project". Omit to guess it from name.'),
+	archived: z.boolean().optional().describe("true archives the database, keeping its records"),
 	version: z.number().int().optional().describe("Current version from records_types; required when changing"),
 });
 export type DatabaseSaveInput = z.infer<typeof databaseInput>;
@@ -308,7 +308,7 @@ export const recordTools: ToolDef[] = [
 	defineTool({
 		id: "records.save_database",
 		title: "Save a database",
-		description: "Create, rename or archive a database, when asked. Owners only. Built-in databases can be renamed but not archived. Changes are logged in Activity; record undo does not undo database changes.",
+		description: "Create, rename or archive a database, when asked. Owners only. Changes are logged in Activity; record undo does not undo database changes.",
 		input: databaseInput,
 		permission: "fields.manage",
 		execute: (input, { records }) => records.saveDatabase(input),

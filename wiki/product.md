@@ -22,7 +22,7 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 - **Agents are wired in natively.** They can read and change any field and add new ones ("start tracking roof type on clients"), limited to what the person who asked may do. Every change is in the activity log, and records keep history so changes can be undone.
 - Record changes are automation triggers ("deal moved to Won" → welcome email + onboarding tasks).
 - **Built:** agent tools for records (find, read, create, change, archive, undo, add fields), acting as the person who asked; Companybot has them. See [Data → Agent tools](data.md).
-- Owners create databases from the sidebar and rename or archive them from the list. Built-ins can be renamed but not archived. Saved views share sorting, filtering and columns with the workspace; people and agents can create, update and delete them.
+- Owners create databases from the sidebar and rename or archive them from the list. Built-ins can be renamed and archived too. Saved views share sorting, filtering and columns with the workspace; people and agents can create, update and delete them.
 - Next: record triggers for automations, a pipeline board.
 
 ## Calls (not built yet)

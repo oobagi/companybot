@@ -155,6 +155,10 @@ export function keyOf(label: string, taken: Iterable<string>) {
 	return key;
 }
 
+/** A best guess at one entry's name: "Projects" → "Project", "Companies" → "Company". Editable later. */
+export const singularOf = (plural: string) =>
+	plural.replace(/ies$/i, "y").replace(/(s|x|z|ch|sh)es$/i, "$1").replace(/([^s])s$/i, "$1");
+
 /** Trims labels and gives new options an id. `options` may come without ids (labels only). */
 export function normalizeFieldConfig(config: Omit<FieldConfig, "options"> & { options?: (Omit<ChoiceOption, "id"> & { id?: string })[] }): FieldConfig {
 	const ids: string[] = [];

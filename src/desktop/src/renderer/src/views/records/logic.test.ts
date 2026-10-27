@@ -1,6 +1,6 @@
 import type { Field } from "@companybot/core/records";
 import { describe, expect, it } from "vitest";
-import { defaultColumns, fromConditions, toConditions, moneyInput, opsFor, recordPath, sortable, toCondition, valueText, whoLabel } from "./logic";
+import { defaultColumns, fromConditions, moneyInput, opsFor, recordPath, sortable, toCondition, valueText, whoLabel } from "./logic";
 
 const field = (kind: Field["kind"], extra: Partial<Field> = {}): Field => ({ key: kind, label: kind, kind, ...extra });
 const stage = field("choice", {
@@ -44,9 +44,10 @@ describe("record screens", () => {
 		const conditions = [{ field: "number", gte: 0, lt: 10 }, { field: "choice", in: ["won"] }, { field: "owner", empty: true }];
 		const filters = fromConditions(conditions);
 		expect(filters).toHaveLength(4);
-		expect(toConditions(filters)).toEqual([{ field: "number", gte: "0", lt: "10" }, { field: "choice", in: ["won"] }, { field: "owner", empty: true }]);
+		expect(filters.map(toCondition)).toEqual([{ field: "number", gte: "0" }, { field: "number", lt: "10" }, { field: "choice", in: ["won"] }, { field: "owner", empty: true }]);
 		const fields = [{ ...stage, _id: "stage" }];
 		expect(fromConditions([{ field: "choice", eq: "won" }], fields)).toEqual([{ field: "choice", op: "anyOf", value: ["won"] }]);
+		expect(fromConditions([{ field: "checkbox", empty: false }], [{ ...field("checkbox"), _id: "c" }])).toEqual([{ field: "checkbox", op: "checked", value: "" }]);
 	});
 
 	it("sorts only by single values that aren't links or checkboxes", () => {

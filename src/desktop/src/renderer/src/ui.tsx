@@ -52,10 +52,13 @@ export function Tabs<T extends string>({
 	tabs,
 	value,
 	onChange,
+	children,
 }: {
 	tabs: readonly { id: T; label: string }[];
 	value: T;
 	onChange: (tab: T) => void;
+	/** Extra controls after the last tab. */
+	children?: React.ReactNode;
 }) {
 	return (
 		<nav className="-mt-2 flex gap-1 border-b border-neutral-200">
@@ -71,6 +74,7 @@ export function Tabs<T extends string>({
 					{t.label}
 				</button>
 			))}
+			{children}
 		</nav>
 	);
 }
