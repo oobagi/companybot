@@ -25,7 +25,8 @@ import { putInTrash, takeFromTrash, trashInfo } from "./trashOps";
 // agent fresh at the start of each turn, so edits apply from the next reply.
 
 async function clean(ctx: MutationCtx, agent: Doc<"agents">, config: AgentConfig): Promise<AgentConfig> {
-	const tidy = { ...config, name: config.name.trim(), description: config.description.trim() };
+	// Night Owl's connector is retired: drop its grants so agents (and versions from before) still save and restore. Not COMPAT: old versions keep them forever.
+	const tidy = { ...config, name: config.name.trim(), description: config.description.trim(), tools: config.tools.filter((id) => toolGroup(id) !== "night-owl") };
 	const problem = validateAgentConfig(tidy, await allowedModels(ctx, agent.model));
 	if (problem) throw new ConvexError(problem);
 	// Sorted and deduped so versions compare cleanly.

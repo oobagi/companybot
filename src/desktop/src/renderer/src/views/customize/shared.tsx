@@ -1,8 +1,9 @@
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 import { navigate } from "../../router";
 import { TrashIcon } from "../../icons";
-import { type Crumb, ConflictNotice, NotFound, Notice, Page, SaveBar, Section, barDangerButton, descriptionClass, disabledButtonClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
+import { type Crumb, ConflictNotice, NotFound, Notice, Page, SaveBar, barDangerButton, descriptionClass, disabledButtonClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
 import { TrashNotice } from "../Trash";
+import { Confirm } from "../chat/common";
 
 // Agents, Connectors, Skills and Automations are Settings tabs: /settings/<tab>[/<item>].
 export const customizeTabs = [
@@ -21,18 +22,18 @@ const tabLabel = (tab: CustomizeTab) => customizeTabs.find((t) => t.id === tab)!
 /** The top bar's trail for an item's own screen: Skills. */
 export const customizeCrumbs = (tab: CustomizeTab): Crumb[] => [{ label: tabLabel(tab), to: ["settings", tab] }];
 
-/** The shared library layout; screens keep their own cards and install behavior. */
-export function LibraryList<T extends { custom: unknown; trash: unknown }>({
-	items, description, action, error, card,
+/** Skills and automations share one list of workspace items. */
+export function ItemList<T extends { trash: unknown }>({
+	items, description, action, empty, error, card,
 }: {
 	items: T[];
 	description: string;
+	empty: string;
 	action: React.ReactNode;
 	error?: string;
 	card: (item: T) => React.ReactNode;
 }) {
-	// Deleted ones are in Trash.
-	const ours = items.filter((item) => item.custom && !item.trash);
+	items = items.filter((item) => !item.trash);
 	return (
 		<>
 			<div className="flex items-start justify-between gap-4">
@@ -40,8 +41,7 @@ export function LibraryList<T extends { custom: unknown; trash: unknown }>({
 				{action}
 			</div>
 			{error && <Notice>{error}</Notice>}
-			{ours.length > 0 && <Section title="Made by your team"><div className="flex flex-col gap-3">{ours.map(card)}</div></Section>}
-			<Section title="Library"><div className="flex flex-col gap-3">{items.filter((item) => !item.custom).map(card)}</div></Section>
+			{items.length ? <div className="flex flex-col gap-3">{items.map(card)}</div> : <p className={descriptionClass}>{empty}</p>}
 		</>
 	);
 }
@@ -94,16 +94,18 @@ export function Card(props: {
 function InstallButton({
 	installed,
 	canManage,
+	busy,
 	onToggle,
 }: {
 	installed: boolean;
 	canManage: boolean;
+	busy?: boolean;
 	onToggle: (e: React.MouseEvent) => void;
 }) {
 	return (
 		<button
 			type="button"
-			disabled={!canManage}
+			disabled={!canManage || busy}
 			title={canManage ? (installed ? "Remove" : undefined) : "Only owners can install"}
 			onClick={onToggle}
 			className={`shrink-0 rounded-full px-3 py-1 text-sm ${disabledButtonClass} ${
@@ -122,17 +124,23 @@ export function Detail(props: {
 	meta: string;
 	description: string;
 	installed: boolean;
+	trash?: React.ComponentProps<typeof TrashNotice>["trash"] | null;
+	confirmation?: string;
+	busy?: boolean;
 	canManage: boolean;
 	onToggle: () => void;
 	children: React.ReactNode;
 }) {
+	const [confirming, setConfirming] = useState(false);
 	return (
 		<Page
 			title={props.title}
 			subtitle={props.meta}
 			crumbs={customizeCrumbs(props.tab)}
-			actions={<InstallButton installed={props.installed} canManage={props.canManage} onToggle={props.onToggle} />}
+			actions={!props.trash && <InstallButton installed={props.installed} canManage={props.canManage} busy={props.busy} onToggle={() => props.confirmation ? setConfirming(true) : props.onToggle()} />}
 		>
+			{confirming && <Confirm title={`Remove "${props.title}"?`} action="Move to Trash" onClose={() => setConfirming(false)} onConfirm={() => { setConfirming(false); props.onToggle(); }}>{props.confirmation}</Confirm>}
+			{props.trash && <TrashNotice trash={props.trash} />}
 			<p className="text-neutral-600">{props.description}</p>
 			{props.children}
 		</Page>

@@ -28,7 +28,7 @@ Markdown for the people using the app, not developers. Save to a temp file (`mkt
 
 ```
 ## What's new
-- **Connect Night Owl.** Agents can look up your leads and show them in a table. (#1)
+- **Create a database.** Track your team’s work with fields you choose. (#1)
 
 ## Fixes
 - Long tables no longer scroll inside the message; they show 10 rows with "Show all". (#3)
@@ -41,7 +41,7 @@ Rules:
 - Group as **What's new**, **Improvements**, **Fixes**. Omit empty groups.
 - Usually 2–8 bullets. If nothing user-facing changed, say so in one line ("Behind-the-scenes improvements.").
 - Prereleases: add a first line `Alpha build — expect rough edges.` (or Beta).
-- Never mention internal-only items listed under "Before launch" in wiki/architecture.md as features (e.g. the Night Owl test connector) unless the user says to.
+- Never mention internal-only items listed under "Before launch" in wiki/architecture.md as features unless the user says to.
 
 ## 4. Get approval
 Show the version and the notes in chat. Wait for the user's OK or edits. Skip this only if they already said to ship without review.

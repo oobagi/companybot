@@ -1,10 +1,11 @@
+import { skills } from "../test/fixtures";
 import { describe, expect, it } from "vitest";
 import { simulateReadableStream, streamText } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { ACTIVITY_MAX_CHARS, callEnd, callLabel, clipJson, describeCall } from "./activity";
 import { buildToolSet } from "./agents";
 import { builtinTools } from "./builtin-tools";
-import { skillCatalog } from "./skills";
+
 import { type ToolDef, modelToolName } from "./tools";
 import { z } from "zod";
 
@@ -60,7 +61,7 @@ describe("activity log", () => {
 				stream: simulateReadableStream({
 					chunks: [
 						load("c1", "nope"),
-						load("c2", skillCatalog[0]!.id),
+						load("c2", skills[0]!.id),
 						{ type: "finish" as const, finishReason: { unified: "tool-calls" as const, raw: undefined }, usage },
 					],
 				}),

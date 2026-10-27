@@ -1,3 +1,4 @@
+import { seedSkill } from "./legacyFixtures";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import { builtinTools, systemPrompt } from "@companybot/core";
@@ -11,13 +12,14 @@ beforeEach(() => void vi.useFakeTimers());
 afterEach(() => void vi.useRealTimers());
 
 describe("customize", () => {
-	it("lets only owners install skills", async () => {
-		const { owner, member } = await ownerAndMember();
+	it("keeps existing installed skills visible and refuses new library installs", async () => {
+		const { t, owner, member } = await ownerAndMember();
 		await expect(member.mutation(api.skills.setInstalled, { skillId: "meeting-notes", installed: true })).rejects.toThrow(
 			"permission",
 		);
-		await owner.mutation(api.skills.setInstalled, { skillId: "meeting-notes", installed: true });
+		await seedSkill(t, owner, "meeting-notes");
 		expect((await member.query(api.skills.list)).find((s) => s.id === "meeting-notes")?.installed).toBe(true);
+		await expect(owner.mutation(api.skills.setInstalled, { skillId: "email-reply", installed: true })).rejects.toThrow("retired");
 	});
 
 	describe("skills people make", () => {
@@ -83,11 +85,17 @@ describe("customize", () => {
 			await owner.mutation(api.skills.remove, { skillId });
 			for (const e of trash) await owner.mutation(api.trash.purge, { id: e.itemId });
 			expect(await find()).toBeUndefined();
-			await owner.mutation(api.skills.setInstalled, { skillId: "meeting-notes", installed: true });
+			await seedSkill(t, owner, "meeting-notes");
 			await expect(member.mutation(api.skills.remove, { skillId: "meeting-notes" })).rejects.toThrow("permission");
 			await owner.mutation(api.skills.remove, { skillId: "meeting-notes" });
 			await owner.mutation(api.skills.remove, { skillId: "meeting-notes" });
-			expect((await owner.query(api.skills.list)).find((s) => s.id === "meeting-notes")!.installed).toBe(false);
+			const retained = (await owner.query(api.skills.list)).find((s) => s.id === "meeting-notes")!;
+			expect(retained.trash).toMatchObject({ kind: "skill", canRestore: true });
+			expect(await t.run((ctx) => installedSkills(ctx, workspaceId))).toEqual([]);
+			await owner.mutation(api.trash.restore, { kind: "skill", id: retained.trash!.itemId });
+			expect((await t.run((ctx) => installedSkills(ctx, workspaceId))).map((s) => s.id)).toEqual(["meeting-notes"]);
+			await owner.mutation(api.skills.remove, { skillId: "meeting-notes" });
+			await owner.mutation(api.trash.purge, { id: retained.trash!.itemId });
 			expect(await t.run((ctx) => ctx.db.query("skillInstalls").collect())).toHaveLength(0);
 		});
 
@@ -152,7 +160,7 @@ describe("customize", () => {
 
 		it("reaches agents like a library skill: description in the prompt, full text through skills.load", async () => {
 			const { t, owner, skillId } = await made();
-			await owner.mutation(api.skills.setInstalled, { skillId: "meeting-notes", installed: true });
+			await seedSkill(t, owner, "meeting-notes");
 			const { companybot } = await agentsOf(owner);
 			const chatId = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
 			await owner.mutation(api.messages.send, { chatId, text: "Chase the Reyes quote", mentions: noMentions });

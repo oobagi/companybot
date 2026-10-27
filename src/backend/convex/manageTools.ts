@@ -1,12 +1,13 @@
-import { canEditMade, DEFAULT_CURRENCY, isGranted, manageInputs, modelNote, pickAgentConfig, searchModels, skillCatalog, automationCatalog } from "@companybot/core";
+import { canEditMade, DEFAULT_CURRENCY, isGranted, manageInputs, modelNote, pickAgentConfig, searchModels } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
+import { legacySkills } from "./legacyCatalogs";
 import type { Id, TableNames } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { addChannelMembers, markReadAs, createChannelAs, joinChannel, leaveChannel, openDirectMessage, removeChannelMember, updateChannelAs } from "./chats";
 import { chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
-import { automationScope, canView, definitionOf, installOf } from "./automationOps";
-import { installAutomation, removeAutomation, saveAutomation, updateAutomation } from "./automations";
-import { installOf as skillInstallOf, installSkill, removeSkill, saveSkill } from "./skills";
+import { automationName, automationScope, canView, definitionOf, installOf } from "./automationOps";
+import { removeAutomation, saveAutomation, updateAutomation } from "./automations";
+import { installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
 import { editMessage, removeMessage, reactMessage, sendMessage } from "./messages";
 import { cancelMemberInvite, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
 import { asToolResult, checkPermission, type Member, nameOf, normalizeEmail, preferencesOf, requireAgent, timeZoneOf } from "./lib";
@@ -166,14 +167,10 @@ export const runFor = internalMutation({
 							...result,
 							page: result.page
 								.filter((i) => canView(member, i) && !i.archived)
-								.map((i) => ({ id: i.automationId, name: i.custom?.name, enabled: i.enabled, agentId: i.agentId, version: i.custom?.version })),
-							library: automationCatalog.map((a) => ({ id: a.id, name: a.name, description: a.description })),
+								.map((i) => ({ id: i.automationId, name: automationName(i), enabled: i.enabled, agentId: i.agentId, version: i.custom?.version ?? i.definition?.version })),
 						};
 					}
-					if (r.action === "install") {
-						await installAutomation(ctx, member, { automationId: r.id, timeZone: r.timeZone });
-						return { installed: r.id };
-					}
+
 					const install = await installOf(ctx, member.workspaceId, r.id);
 					if (!install || !canView(member, install)) throw new ConvexError("Automation not found.");
 					if (r.action === "get")
@@ -218,18 +215,13 @@ export const runFor = internalMutation({
 							.paginate(paging(r.cursor));
 						return {
 							...result,
-							page: result.page.filter((i) => !i.archived).map((i) => ({ id: i.skillId, name: i.custom?.name, version: i.custom?.version })),
-							library: skillCatalog.map((s) => ({ id: s.id, name: s.name, description: s.description })),
+							page: result.page.filter((i) => !i.archived).map((i) => ({ id: i.skillId, name: (i.custom ?? i.definition ?? legacySkills.find((s) => s.id === i.skillId))?.name, version: i.custom?.version ?? i.definition?.version })),
 						};
 					}
 					const install = await skillInstallOf(ctx, member.workspaceId, r.id);
-					if (r.action === "get") {
-						const skill = install?.custom ?? skillCatalog.find((s) => s.id === r.id);
-						if (!skill) throw new ConvexError("Skill not found.");
-						return { ...skill, id: r.id, installed: !!install, canEdit: canEditMade(member, "skills.manage", install?.custom?.createdBy) };
-					}
-					if (r.action === "install") await installSkill(ctx, member, { skillId: r.id, installed: true });
-					return { done: r.action, id: r.id };
+					const skill = install && (install.custom ?? install.definition ?? legacySkills.find((s) => s.id === r.id));
+					if (!skill) throw new ConvexError("Skill not found.");
+					return { ...skill, id: r.id, installed: true, canEdit: canEditMade(member, "skills.manage", install.custom?.createdBy) };
 				}
 				case "skills.edit": {
 					const r = manageInputs[tool].parse(input).request;

@@ -30,6 +30,7 @@ import type * as fields from "../fields.js";
 import type * as functions from "../functions.js";
 import type * as http from "../http.js";
 import type * as invites from "../invites.js";
+import type * as legacyCatalogs from "../legacyCatalogs.js";
 import type * as lib from "../lib.js";
 import type * as lifecycle from "../lifecycle.js";
 import type * as manageTools from "../manageTools.js";
@@ -89,6 +90,7 @@ declare const fullApi: ApiFromModules<{
   functions: typeof functions;
   http: typeof http;
   invites: typeof invites;
+  legacyCatalogs: typeof legacyCatalogs;
   lib: typeof lib;
   lifecycle: typeof lifecycle;
   manageTools: typeof manageTools;

@@ -98,10 +98,11 @@ export const setInstalled = mutation({
 	args: { connectorId: v.string(), installed: v.boolean() },
 	handler: async (ctx, { connectorId, installed }) => {
 		const member = await requirePermission(ctx, "connectors.manage");
-		const connector = requireConnector(connectorId);
+		// COMPAT(0.1.0-alpha.8): old desktops can still remove a retired connector without its catalog entry.
 		const existing = await installOf(ctx, member.workspaceId, connectorId);
 		const old = { workspaceId: member.workspaceId, connectorId };
 		if (installed && !existing) {
+			const connector = requireConnector(connectorId);
 			if (await cascading(ctx, "connectorInstall", old)) throw new ConvexError("It's still being uninstalled. Try again in a minute.");
 			await ctx.db.insert("connectorInstalls", {
 				workspaceId: member.workspaceId,

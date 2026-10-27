@@ -181,18 +181,20 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 							<SettingsNav tab={settingsTab} />
 						) : (
 							<>
-								<Group title="Databases" onAdd={can(role, "fields.manage") ? () => setNewDatabase(true) : undefined} addLabel="New database">
-									{types?.map((type) => (
-										<Item key={type._id} icon={<DatabaseIcon />} active={typeKey === type.key} onClick={() => navigate(...recordPath(type.key))}>
-											{type.plural}
-										</Item>
-									))}
-									{can(role, "fields.manage") && (
-										<Item icon={<PlusIcon />} muted onClick={() => setNewDatabase(true)}>
-											New database
-										</Item>
-									)}
-								</Group>
+								{(!!types?.length || can(role, "fields.manage")) && (
+									<Group title="Databases" onTitle={() => navigate("records")} onAdd={can(role, "fields.manage") ? () => setNewDatabase(true) : undefined} addLabel="New database">
+										{types?.map((type) => (
+											<Item key={type._id} icon={<DatabaseIcon />} active={typeKey === type.key} onClick={() => navigate(...recordPath(type.key))}>
+												{type.plural}
+											</Item>
+										))}
+										{can(role, "fields.manage") && (
+											<Item icon={<PlusIcon />} muted onClick={() => setNewDatabase(true)}>
+												New database
+											</Item>
+										)}
+									</Group>
+								)}
 								<PagesNav openId={view === "pages" ? route[1] : undefined} />
 								<ChatNav chats={chats} openId={view === "chat" ? openId : undefined} onOpen={open} onError={(e) => setError(errorMessage(e))} />
 							</>
@@ -216,7 +218,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 					) : (
 						<TopBar title="" />
 					))}
-				{typeKey && <RecordsView key={typeKey} typeKey={typeKey} recordId={recordId} role={role} />}
+				{(typeKey || view === "records") && <RecordsView key={typeKey} typeKey={typeKey} recordId={recordId} role={role} />}
 				{view === "pages" && <PagesView pageId={route[1]} canEdit={can(role, "pages.edit")} />}
 				{view === "settings" && <SettingsView role={role} tab={settingsTab} itemId={route[2]} />}
 			</main>

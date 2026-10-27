@@ -42,19 +42,7 @@ export type ConnectorCredentials = { type: "none" } | { type: "api_key"; key: st
 export const defineConnector = (connector: Connector) => connector;
 
 /** The connector marketplace. */
-export const connectorCatalog: Connector[] = [
-	// Internal testing only: our own product's MCP server. Remove before launch (wiki/architecture.md).
-	defineConnector({
-		id: "night-owl",
-		name: "Night Owl",
-		description: "Leads, calls, campaigns, and clients from Night Owl.",
-		version: "1.0.0",
-		publisher: "Night Owl",
-		mcp: { url: "https://callnightowl.com/api/mcp", transport: "http" },
-		connection: "personal",
-		auth: { type: "oauth" },
-	}),
-];
+export const connectorCatalog: Connector[] = [];
 
 export const findConnector = (id: string) => connectorCatalog.find((p) => p.id === id);
 

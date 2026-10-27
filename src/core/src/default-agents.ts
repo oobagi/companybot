@@ -11,16 +11,7 @@ export const companybot = defineAgent({
 	tools: ["memory.*", "clock.now", "skills.load", "skills.create", "widgets.*", "chat.*", "automations.*", "records.*", "pages.*", "channels.*", "skills.manage", "skills.edit", "skills.remove", "members.*", "workspace.*", "agents.manage"],
 });
 
-export const scribe = defineAgent({
-	name: "Scribe",
-	description: "Drafts and edits writing. Can read memory, can't change it.",
-	model: "anthropic/claude-haiku-5.5",
-	instructions:
-		"You are Scribe, a writing helper. Draft and edit text in a clear, friendly voice. Search memory for context when useful.",
-	tools: ["memory.search", "skills.load", "widgets.*", "chat.react", "chat.read"],
-});
-
-export const defaultAgents = [companybot, scribe];
+export const defaultAgents = [companybot];
 
 /** Starting point for an agent an owner creates from scratch. */
 export const blankAgent = defineAgent({

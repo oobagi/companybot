@@ -4,7 +4,7 @@ import { type ToolDef, defineTool } from "./tools";
 
 /**
  * Agents set up automations for the person they're helping, in chat: "every Monday,
- * send me deals that went quiet". The backend applies the same rules as the app
+ * send me a summary of recent conversations". The backend applies the same rules as the app
  * (anyone can make their own; changing others' needs `automations.manage`).
  */
 export interface AutomationStore {
@@ -28,11 +28,11 @@ const day = z.enum(["sun", "mon", "tue", "wed", "thu", "fri", "sat"]);
 export const weekdayIndex = (d: z.infer<typeof day>) => day.options.indexOf(d);
 
 const toolInput = z.object({
-	name: z.string().max(CUSTOM_NAME_MAX).describe("Short name, e.g. \"Monday pipeline review\""),
+	name: z.string().max(CUSTOM_NAME_MAX).describe("Short name, e.g. \"Monday team update\""),
 	prompt: z
 		.string()
 		.max(CUSTOM_PROMPT_MAX)
-		.describe("What the agent is asked each run, written as the person asking, e.g. \"List deals that haven't moved in two weeks.\""),
+		.describe("What the agent is asked each run, written as the person asking, e.g. \"Summarize recent conversations and highlight follow-ups.\""),
 	trigger: z
 		.discriminatedUnion("type", [
 			z.object({

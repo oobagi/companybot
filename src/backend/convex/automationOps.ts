@@ -1,5 +1,6 @@
-import { type Automation, type AutomationAudience, type CustomAutomationConfig, canEditMade, customAutomation, deniedMessage, findAutomation, madeEditDenied } from "@companybot/core";
+import { type Automation, type AutomationAudience, type CustomAutomationConfig, canEditMade, customAutomation, deniedMessage, madeEditDenied } from "@companybot/core";
 import { ConvexError } from "convex/values";
+import { legacyAutomation } from "./legacyCatalogs";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type Member, requireMember } from "./lib";
 import type { QueryCtx } from "./_generated/server";
@@ -18,7 +19,7 @@ export const canView = (member: Member, install: Doc<"automationInstalls">) => {
  * Those runs ask before acting as them in the workspace (core `Risk` "inside").
  */
 export function followsOthers(install: Doc<"automationInstalls">, userId: Id<"users">) {
-	const trigger = install.custom?.trigger ?? findAutomation(install.automationId)?.trigger;
+	const trigger = install.custom?.trigger ?? (install.definition ?? legacyAutomation(install.automationId))?.trigger;
 	return (!!install.custom && (install.installedBy !== userId || install.custom.updatedBy !== userId)) || trigger?.type !== "schedule";
 }
 
@@ -33,7 +34,7 @@ export async function automationScope(ctx: QueryCtx, turn: Doc<"agentTurns">) {
 
 export function automationName(install: Doc<"automationInstalls">) {
 	if (install.custom) return install.custom.name;
-	return findAutomation(install.automationId)?.name ?? install.automationId;
+	return (install.definition ?? legacyAutomation(install.automationId))?.name ?? install.automationId;
 }
 
 /** An automation's install, unless it's in Trash: one there is gone to everything but Trash. */
@@ -54,9 +55,9 @@ export const visibleInstalls = async (ctx: QueryCtx, member: Member, trashed = f
 			.collect()
 	).filter((i) => canView(member, i) && (trashed || !i.archived));
 
-/** What an install runs: its own definition if someone made it, else the catalog's. */
+/** What an install runs: its custom config or its retained stored definition. */
 export async function definitionOf(ctx: QueryCtx, install: Doc<"automationInstalls">): Promise<Automation | undefined> {
-	if (!install.custom) return findAutomation(install.automationId);
+	if (!install.custom) return install.definition ?? legacyAutomation(install.automationId);
 	const { trigger } = install.custom;
 	const channel = trigger.type === "event" && trigger.event === "message.posted" ? await ctx.db.get(trigger.channelId as Id<"chats">) : null;
 	return customAutomation(install.automationId, install.custom, install.custom.version, channel?.name);
