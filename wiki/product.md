@@ -60,7 +60,8 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 
 ## UI
 - Profile cards (built): click a name or avatar in chat (or a channel's member list) to see name, email, role, time zone and local time, and **Message**. Agents show their description.
-- Not built: typing indicators and online status (they need a heartbeat write per person every few seconds; not worth it yet).
+- Typing indicators (built): a line under the composer, for people and agents ([Chat](chat.md)). Only written while someone types, so no heartbeat.
+- Not built: online status (it needs a heartbeat write per person every few seconds; not worth it yet).
 - Home opens #general, ready for the team to talk.
 - Sidebar for navigation. Agent switcher at the top.
 

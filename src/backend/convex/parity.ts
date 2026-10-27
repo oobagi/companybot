@@ -37,6 +37,7 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"memory.update": { agent: ["memory.update"] },
 	"memory.remove": { agent: ["memory.forget"] },
 	"messages.send": { agent: ["chat.manage:send"] },
+	"typing.ping": { humanOnly: "Comes from a keyboard; agents show as typing while their turn runs." },
 	"messages.edit": { agent: ["chat.manage:edit"] },
 	"messages.remove": { agent: ["chat.manage:delete"] },
 	"messages.react": { agent: ["chat.react", "chat.manage:react"] },

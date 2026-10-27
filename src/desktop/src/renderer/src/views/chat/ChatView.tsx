@@ -11,6 +11,7 @@ import { ChannelDetails } from "./dialogs";
 import { MessageList } from "./MessageList";
 import { ThreadPanel } from "./Thread";
 import { TrashNotice } from "../Trash";
+import { TypingLine, useTypingPing } from "./Typing";
 
 const suggestions = [
 	"What do you remember about me?",
@@ -73,15 +74,19 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 	const agent = chat.agentId ? chat.members.find((m) => m.id === chat.agentId) : undefined;
 	const title = chatTitle(chat);
 	const candidates = [...directory.people, ...directory.agents];
+	const typing = useTypingPing(chat._id);
 	const send = (text: string, mentions: Mentions) => {
 		setError(undefined);
+		typing.sent();
 		sendMessage({ chatId: chat._id, text, mentions }).catch(onError);
 	};
 	const composer = (
 		<Composer
 			sendWith={sendWith}
 			placeholder={`Message ${title}`}
-			hint={!agent && (chat.kind === "channel" || chat.members.some((m) => m.type === "agent")) ? "@mention an agent to ask it" : undefined}
+			status={<TypingLine chatId={chat._id} />}
+			// Nobody else could see it in an agent DM.
+			onType={agent ? undefined : typing.ping}
 			candidates={candidates}
 			onSend={send}
 		/>
