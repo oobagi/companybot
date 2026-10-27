@@ -1,4 +1,4 @@
-import { can, canEditMade, canManageChannel } from "@companybot/core";
+import { canTrash } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -36,45 +36,23 @@ export async function putInTrash(ctx: MutationCtx, who: Who, item: { kind: Trash
 	});
 }
 
-/**
- * Anyone who could delete it can restore it, whoever deleted it (Google Drive's shared drives
- * work this way): a member's mistake doesn't wait on an owner. The rules match each kind's delete.
- * Whoever deleted it can always undo that, even after losing the role.
- */
+/** Anyone who could delete it can restore it, whoever deleted it (core `canTrash`). */
 export async function canRestore(ctx: QueryCtx, member: Member, entry: Doc<"trash">) {
-	if (entry.deletedBy === member.userId) return true;
-	const actor = toActor(member);
-	const item = async <T extends "recordFields" | "chats" | "skillInstalls" | "automationInstalls">(table: T) => {
+	return canTrash(toActor(member), entry.kind, await madeBy(ctx, entry));
+}
+
+/** Who made a trashed item, for kinds whose makers manage their own. */
+async function madeBy(ctx: QueryCtx, entry: Doc<"trash">) {
+	const get = async <T extends "recordFields" | "chats" | "skillInstalls" | "automationInstalls">(table: T) => {
 		const id = ctx.db.normalizeId(table, entry.itemId);
-		return id && (await ctx.db.get(id));
+		return id ? await ctx.db.get(id) : null;
 	};
-	switch (entry.kind) {
-		case "record":
-			return can(actor, "records.edit");
-		case "page":
-			return can(actor, "pages.edit");
-		case "memory":
-			return can(actor, "memory.team.write");
-		case "database":
-			return can(actor, "fields.manage");
-		case "agent":
-			return can(actor, "agents.manage");
-		case "field": {
-			const field = await item("recordFields");
-			return !!field && canEditMade(actor, "fields.manage", field.createdBy);
-		}
-		case "channel": {
-			const chat = await item("chats");
-			return !!chat && canManageChannel(actor, chat);
-		}
-		case "skill": {
-			const install = await item("skillInstalls");
-			return !!install && (install.custom ? canEditMade(actor, "skills.manage", install.custom.createdBy) : can(actor, "skills.manage"));
-		}
-		case "automation": {
-			const install = await item("automationInstalls");
-			return !!install && (install.custom ? canEditMade(actor, "automations.manage", install.installedBy) : can(actor, "automations.manage"));
-		}
+	if (entry.kind === "field") return (await get("recordFields"))?.createdBy;
+	if (entry.kind === "channel") return (await get("chats"))?.createdBy;
+	if (entry.kind === "skill") return (await get("skillInstalls"))?.custom?.createdBy;
+	if (entry.kind === "automation") {
+		const install = await get("automationInstalls");
+		return install?.custom ? install.installedBy : undefined;
 	}
 }
 

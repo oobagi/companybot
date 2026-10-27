@@ -250,7 +250,7 @@ describe("approvals", () => {
 		const input: TurnPromptInput = {
 			agentId: "a1",
 			place: { kind: "dm", name: null, private: true, topic: null, thread: null, members: [] },
-			actor: { name: "Ada", email: "ada@co.com", role: "member", timeZone: "UTC" },
+			actor: { id: "u1", name: "Ada", email: "ada@co.com", role: "member", timeZone: "UTC" },
 			memory: "personal",
 			connectors: { connected: [], unavailable: [] },
 			messages: [],

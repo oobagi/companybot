@@ -93,13 +93,15 @@ describe("trash", () => {
 		await expect(member.in(other.workspaceId).mutation(api.trash.restore, { kind: "channel", id })).rejects.toThrow("Chat not found");
 	});
 
-	it("lets the deleter restore a database after losing the owner role", async () => {
+	it("goes by what you can do now, not who deleted it: a demoted owner can't restore a database", async () => {
 		const { t, owner, member, client } = await seeded();
 		await owner.mutation(api.trash.move, { kind: "database", id: client._id });
 		await t.run(async (ctx) => {
 			for (const row of await ctx.db.query("members").collect()) await ctx.db.patch(row._id, { role: row.userId === member.userId ? "owner" : "member" });
 		});
-		await owner.mutation(api.trash.restore, { kind: "database", id: client._id });
+		expect((await trashOf(owner))[0]).toMatchObject({ kind: "database", canRestore: false });
+		await expect(owner.mutation(api.trash.restore, { kind: "database", id: client._id })).rejects.toThrow("same access as deleting it");
+		await member.mutation(api.trash.restore, { kind: "database", id: client._id });
 		expect((await owner.query(api.recordTypes.list)).some((r) => r._id === client._id)).toBe(true);
 	});
 

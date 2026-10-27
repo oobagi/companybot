@@ -175,7 +175,7 @@ export async function restoreMemoryVersion(ctx: MutationCtx, who: Who, versionId
 	return updateMemory(ctx, who, version.memoryId, version.content, expectedVersion);
 }
 
-/** Team memories go to Trash, so a delete can be undone (by whoever deleted it, or an owner). Personal ones are theirs alone and go for good. */
+/** Team memories go to Trash, so any member can undo a delete. Personal ones are theirs alone and go for good. */
 export async function removeMemory(ctx: MutationCtx, who: Who, id: Id<"memories">) {
 	const doc = await requireEditable(ctx, who.member, id);
 	if (doc.scope === "personal") return deleteMemory(ctx, doc._id);
@@ -183,7 +183,7 @@ export async function removeMemory(ctx: MutationCtx, who: Who, id: Id<"memories"
 	await putInTrash(ctx, who, { kind: "memory", id, name: doc.content.slice(0, 120) });
 }
 
-/** Out of Trash, for whoever deleted it or an owner (trashOps). */
+/** Out of Trash, for anyone who could delete it (trashOps.canRestore). */
 export async function setMemoryTrashed(ctx: MutationCtx, who: Who, id: Id<"memories">, trashed: boolean) {
 	if (trashed) return removeMemory(ctx, who, id);
 	const doc = await ctx.db.get(id);
