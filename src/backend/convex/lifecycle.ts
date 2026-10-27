@@ -304,9 +304,21 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	// ---- Pages ----
 	pages: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"], onDelete: deleteContent },
+		page: {
+			index: "by_parent", eq: ["workspaceId", ["parentId", "pageId"]],
+			onDelete: async (ctx, row) => {
+				await deleteContent(ctx, row);
+				await startCascade(ctx, "page", { workspaceId: row.workspaceId, pageId: row._id });
+			},
+		},
 		// A record's body goes with it.
 		record: { index: "by_workspace", eq: ["workspaceId", "recordId"], onDelete: deleteContent },
 		keep: "Pages are the workspace's, like records. Deleting one forever (trash.ts) deletes its row first, then its content and a page cascade.",
+	},
+	pageMoves: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		childOf: { table: "pages", index: "by_page", field: "pageId" },
+		page: { index: "by_page", eq: ["pageId"] },
 	},
 	pageVersions: {
 		childOf: { table: "pages", index: "by_page", field: "pageId" },
@@ -314,6 +326,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	},
 
 	trash: {
+		page: { index: "by_item", eq: [["itemId", "pageId"]] },
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		// Its records' and fields' entries: they go with it.
 		database: { index: "by_type", eq: ["typeId"] },

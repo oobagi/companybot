@@ -7,23 +7,21 @@ import { useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { navigate } from "../router";
-import { customizeCrumbs } from "./customize/shared";
+import { ItemList, Missing, customizeCrumbs } from "./customize/shared";
 import { ModelPicker } from "./ModelPicker";
 import { TrashNotice } from "./Trash";
-import { TrashIcon } from "../icons";
+import { AgentIcon, TrashIcon } from "../icons";
 import {
 	type Crumb,
 	barDangerButton,
 	ConflictNotice,
 	Field,
 	Loading,
-	NotFound,
 	Notice,
 	Page,
 	SaveBar,
 	Section,
 	inputClass,
-	primaryButton,
 	timeAgo,
 	useRun,
 	useDraft,
@@ -31,39 +29,18 @@ import {
 
 type Agent = FunctionReturnType<typeof api.agents.list>[number];
 
-export function AgentsTab({ role }: { role: Role }) {
+export function AgentsTab() {
 	const agents = useQuery(api.agents.list);
-	const create = useMutation(api.agents.create);
-	const { error, run } = useRun();
-	const isOwner = can(role, "agents.manage");
-	const open = (id: Id<"agents">) => navigate("customize", "agents", id);
+	const open = (id: Id<"agents">) => navigate("settings", "agents", id);
 
 	if (!agents) return <Loading />;
 
-	// Deleted ones are in Trash.
-	const active = agents.filter((a) => !a.archived);
-
 	return (
-		<>
-			<div className="flex items-center justify-between gap-4">
-				<p className="text-sm text-neutral-500">
-					{isOwner ? "Edit what each agent knows and can do." : "Only owners can change agents."}
-				</p>
-				{isOwner && (
-					<button
-						type="button"
-						className={`${primaryButton} shrink-0`}
-						onClick={() => run(create().then(open))}
-					>
-						New agent
-					</button>
-				)}
-			</div>
-			{error && <Notice>{error}</Notice>}
-			{active.map((a) => (
-				<AgentRow key={a._id} agent={a} onOpen={() => open(a._id)} />
-			))}
-		</>
+		<ItemList
+			items={agents}
+			icon={<AgentIcon />} title="No agents yet" empty="Add a teammate to help with your team's work."
+			card={(a) => <AgentRow key={a._id} agent={a} onOpen={() => open(a._id)} />}
+		/>
 	);
 }
 
@@ -86,9 +63,10 @@ function AgentRow({ agent, onOpen }: { agent: Agent; onOpen: () => void }) {
 
 /** One agent's own screen, pushed over the agents list. */
 export function AgentScreen({ role, agentId }: { role: Role; agentId: Id<"agents"> }) {
-	const agent = useQuery(api.agents.list)?.find((a) => a._id === agentId);
+	const agents = useQuery(api.agents.list);
+	const agent = agents?.find((a) => a._id === agentId);
 	const back = customizeCrumbs("agents");
-	if (!agent) return <NotFound crumbs={back} loaded={false} />;
+	if (!agent) return <Missing tab="agents" loaded={!!agents} />;
 	return <AgentEditor key={agent._id} agent={agent} isOwner={can(role, "agents.manage")} back={back} />;
 }
 
@@ -113,13 +91,13 @@ function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean;
 	return (
 		<Page
 			title={agent.name}
-			subtitle={`v${agent.version} · edited by ${agent.updatedByName} ${timeAgo(agent.updatedAt)}`}
+			description={`v${agent.version} · edited by ${agent.updatedByName} ${timeAgo(agent.updatedAt)}`}
 			crumbs={back}
 			actions={
 				isOwner && !agent.archived && (
 					<button
 						type="button"
-						onClick={() => run(remove({ kind: "agent", id: agent._id }), () => navigate("customize", "agents"))}
+						onClick={() => run(remove({ kind: "agent", id: agent._id }), () => navigate("settings", "agents"))}
 						className={barDangerButton}
 					>
 						<TrashIcon /> Delete

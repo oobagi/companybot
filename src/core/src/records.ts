@@ -1,5 +1,5 @@
 /**
- * Business records: clients, deals, tasks, calls, and any type a workspace adds.
+ * Business records in databases the workspace creates.
  * Every type is data (a database plus its fields), so a new type or field is
  * a row, never a migration. Pure rules here; storage in backend/convex/recordOps.ts.
  * See wiki/data.md.
@@ -416,72 +416,3 @@ export function displayValues(fields: Field[], values: Record<string, FieldValue
 
 export const sameValue = (a: FieldValue | null | undefined, b: FieldValue | null | undefined) =>
 	JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
-
-// ---- Built-in types ----
-
-/** A type every workspace starts with. `linkType` names another built-in by key. */
-export interface RecordTypeDef {
-	key: string;
-	name: string;
-	plural: string;
-	fields: Field[];
-}
-
-const options = (...labels: string[]) => labels.map((label) => ({ id: keyOf(label, []), label }));
-
-export const recordTypeCatalog: RecordTypeDef[] = [
-	{
-		key: "client",
-		name: "Client",
-		plural: "Clients",
-		fields: [
-			{ key: NAME_KEY, label: "Name", kind: "text" },
-			{ key: "status", label: "Status", kind: "choice", options: options("Lead", "Active", "Past") },
-			{ key: "email", label: "Email", kind: "email" },
-			{ key: "phone", label: "Phone", kind: "phone" },
-			{ key: "address", label: "Address", kind: "text" },
-			{ key: "website", label: "Website", kind: "url" },
-			{ key: "owner", label: "Owner", kind: "user" },
-		],
-	},
-	{
-		key: "deal",
-		name: "Deal",
-		plural: "Deals",
-		fields: [
-			{ key: NAME_KEY, label: "Name", kind: "text" },
-			{ key: "client", label: "Client", kind: "link", linkType: "client" },
-			{ key: "stage", label: "Stage", kind: "choice", options: options("New", "Qualified", "Proposal", "Won", "Lost") },
-			{ key: "value", label: "Value", kind: "currency" },
-			{ key: "close_date", label: "Close date", kind: "date" },
-			{ key: "owner", label: "Owner", kind: "user" },
-		],
-	},
-	{
-		key: "task",
-		name: "Task",
-		plural: "Tasks",
-		fields: [
-			{ key: NAME_KEY, label: "Task", kind: "text" },
-			{ key: "status", label: "Status", kind: "choice", options: options("To do", "Doing", "Done") },
-			{ key: "due", label: "Due", kind: "date" },
-			{ key: "assignee", label: "Assignee", kind: "user" },
-			{ key: "client", label: "Client", kind: "link", linkType: "client" },
-			{ key: "deal", label: "Deal", kind: "link", linkType: "deal" },
-		],
-	},
-	{
-		key: "call",
-		name: "Call",
-		plural: "Calls",
-		fields: [
-			{ key: NAME_KEY, label: "Title", kind: "text" },
-			{ key: "client", label: "Client", kind: "link", linkType: "client" },
-			{ key: "deal", label: "Deal", kind: "link", linkType: "deal" },
-			{ key: "direction", label: "Direction", kind: "choice", options: options("Inbound", "Outbound") },
-			{ key: "date", label: "Date", kind: "date" },
-			{ key: "minutes", label: "Minutes", kind: "number" },
-			{ key: "summary", label: "Summary", kind: "text" },
-		],
-	},
-];

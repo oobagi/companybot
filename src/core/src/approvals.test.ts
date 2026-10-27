@@ -1,3 +1,4 @@
+import { connectorCatalog, defineConnector } from "./connectors";
 import { permissionFor, toolRisk } from "./action-rules";
 import { describe, expect, it } from "vitest";
 import { simulateReadableStream, streamText } from "ai";
@@ -5,7 +6,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { APPROVAL_TTL_MS, approvalHash, approvalStatus, canDecideApproval, canonicalJson } from "./approvals";
 import { actionOf, buildToolSet, resolveTools, toolApprovalPolicy } from "./agents";
 import { builtinTools } from "./builtin-tools";
-import { connectorCatalog } from "./connectors";
+
 import { platformGuide } from "./guide";
 import { type ToolDef } from "./tools";
 import { z } from "zod";
@@ -30,11 +31,11 @@ describe("approvals", () => {
 		expect(toolRisk(find)).toBe("none");
 		const risk = (id: string) => toolRisk(builtinTools.find((t) => t.id === id)!);
 		// Acting as the person, or reading what only they see: "inside". Shared reads and display: "none".
-		expect(["memory.remember", "memory.search", "chat.read", "chat.search", "chat.manage", "records.save", "pages.write"].map(risk)).toEqual(Array(7).fill("inside"));
-		expect(["records.find", "pages.read", "clock.now", "skills.load", "chat.react", "widgets.table"].map(risk)).toEqual(Array(6).fill("none"));
+		expect(["memory.remember", "memory.search", "chat.read", "chat.search", "chat.manage", "records.save"].map(risk)).toEqual(Array(6).fill("inside"));
+		expect(["records.find", "pages.read", "pages.write", "clock.now", "skills.load", "chat.react", "widgets.table"].map(risk)).toEqual(Array(7).fill("none"));
 		// Exhaust the low-risk list: new private reads cannot silently inherit `none`.
 		expect(builtinTools.filter(t => toolRisk(t) === "none" && !t.id.startsWith("widgets.")).map(t => t.id).sort()).toEqual([
-			"automations.list", "chat.react", "clock.now", "pages.find", "pages.read", "records.find", "records.get", "records.history", "records.types", "records.views", "skills.load",
+			"automations.list", "chat.react", "clock.now", "pages.find", "pages.read", "pages.write", "records.find", "records.get", "records.history", "records.types", "records.views", "skills.load",
 		]);
 		// A built-in opts in by declaring risk; payments-style ones lock.
 		expect(toolRisk({ ...builtinTools[0]!, risk: "outside" })).toBe("outside");
@@ -270,7 +271,10 @@ describe("approvals", () => {
 	});
 
 	it("explains approvals only to agents with connectors", () => {
-		expect(platformGuide({ tools: [`${connectorCatalog[0]!.id}.*`] })).toContain("approve them in the chat");
+		connectorCatalog.push(defineConnector({ id: "notes", name: "Notes", description: "Test", version: "1", publisher: "Test", connection: "personal", auth: { type: "none" }, mcp: { url: "https://example.com/mcp", transport: "http" } }));
+		try {
+			expect(platformGuide({ tools: ["notes.*"] })).toContain("approve them in the chat");
+		} finally { connectorCatalog.pop(); }
 		expect(platformGuide({ tools: ["memory.*"] })).not.toContain("approve");
 	});
 });

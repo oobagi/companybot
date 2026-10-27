@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { validateAgentConfig } from "./agents";
-import { scribe } from "./default-agents";
+import { scribe } from "../test/fixtures";
 import { fallbackModels, modelNote, parseGatewayModels, searchModels } from "./models";
 
 const sonnet = { id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", type: "language", tags: ["reasoning", "tool-use"], context_window: 1_000_000, pricing: { input: "0.000003", output: "0.000015" } };

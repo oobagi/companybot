@@ -1,7 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import { childrenOf } from "../convex/lifecycle";
-import { seedRecordTypes } from "../convex/recordOps";
 import { agentTurn, agentsOf, generalOf, setup, settle, signIn } from "./helpers";
 
 afterEach(() => vi.useRealTimers());
@@ -27,16 +26,15 @@ it("owners create, rename and archive databases with stable keys and Activity hi
 	]);
 });
 
-it("renames and archives built-ins, which re-seeding leaves archived, and validates database names", async () => {
-	const { t, owner } = await setup();
+it("renames and archives legacy databases and validates database names", async () => {
+	const { owner } = await setup();
 	const types = await owner.query(api.recordTypes.list);
 	for (const type of types) await owner.mutation(api.recordTypes.update, { typeId: type._id, name: `${type.name} new`, plural: `${type.plural} new`, version: type.version });
 	await expect(owner.mutation(api.recordTypes.create, { plural: "CLIENTS NEW" })).rejects.toThrow("already");
 	for (const name of [" ", "a".repeat(121)]) await expect(owner.mutation(api.recordTypes.create, { plural: name })).rejects.toThrow("120");
 	const client = types.find((type) => type.key === "client")!;
 	await owner.mutation(api.recordTypes.update, { typeId: client._id, archived: true, version: 1 });
-	const workspaceId = (await t.run((ctx) => ctx.db.get(client._id)))!.workspaceId;
-	await t.run((ctx) => seedRecordTypes(ctx, workspaceId, owner.userId));
+	await owner.mutation(api.workspace.ensure);
 	expect((await owner.query(api.recordTypes.list)).map((type) => type.key)).toEqual(types.map((type) => type.key).filter((key) => key !== "client"));
 });
 
@@ -88,6 +86,7 @@ it("isolates every database and view operation across workspaces, including forg
 	expect(await other.query(api.databaseViews.list, { typeId })).toEqual([]);
 	await expect(other.mutation(api.databaseViews.save, { ...config, typeId })).rejects.toThrow("not found");
 	await expect(other.mutation(api.databaseViews.remove, { viewId, version: 1 })).rejects.toThrow("not found");
+	await other.mutation(api.recordTypes.create, { plural: "Projects" });
 	const [ownType] = await other.query(api.recordTypes.list);
 	await expect(other.mutation(api.databaseViews.save, { ...config, typeId: ownType!._id, viewId, version: 1 })).rejects.toThrow("not found");
 });

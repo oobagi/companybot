@@ -127,6 +127,18 @@ export const modelInfo = v.object({
 	output: v.optional(v.number()),
 });
 
+// Stored definitions keep retired library installs independent of shipped catalogs.
+const skillDefinition = v.object({ id: v.string(), name: v.string(), description: v.string(), version: v.string(), instructions: v.string() });
+const automationDefinition = v.object({
+	id: v.string(), name: v.string(), description: v.string(), details: v.string(), version: v.string(), publisher: v.string(),
+	connectors: v.array(v.string()), prompt: v.string(),
+	trigger: v.union(
+		v.object({ type: v.literal("schedule"), time: v.string(), weekdays: v.array(v.number()) }),
+		v.object({ type: v.literal("event"), event: v.union(v.literal("message.posted"), v.literal("member.joined")), label: v.string(), channelId: v.optional(v.string()) }),
+		v.object({ type: v.literal("webhook"), webhookEvent: v.optional(v.literal("call.ended")), label: v.string(), sample: v.object({ id: v.string(), event: v.optional(v.string()), person: v.optional(v.object({ email: v.string() })), data: v.optional(v.record(v.string(), v.any())) }) }),
+	),
+});
+
 export default defineSchema({
 	...authTables,
 	// Convex Auth's, plus `erasedAt`.
@@ -300,9 +312,10 @@ export default defineSchema({
 		.index("by_install", ["connectorInstallId"]),
 
 	skillInstalls: defineTable({
+		definition: v.optional(skillDefinition),
 		workspaceId: v.id("workspaces"),
 		skillId: v.string(),
-		/** Set for skills people made (id "custom-…"); library ones come from the catalog. Shared setting: versioned. */
+		/** Set for skills people made (id "custom-…"); retired library ones use definition. Shared setting: versioned. */
 		custom: v.optional(
 			v.object({
 				name: v.string(),
@@ -315,7 +328,7 @@ export default defineSchema({
 				updatedAt: v.number(),
 			}),
 		),
-		/** Skills people made: in Trash (the `trash` table says who deleted it, and when). Agents don't see it. */
+		/** Skills: in Trash (the `trash` table says who deleted it, and when). Agents don't see it. */
 		archived: v.optional(v.boolean()),
 	}).index("by_workspace", ["workspaceId", "skillId"]),
 
@@ -538,8 +551,9 @@ export default defineSchema({
 		.index("by_workspace", ["workspaceId"])
 		.index("by_actor", ["actorId"]),
 
-	// Automations: an owner installs a library one, or anyone makes their own, and picks the agent that runs it.
+	// Automations people make and retained library installs; each picks the agent that runs it.
 	automationInstalls: defineTable({
+		definition: v.optional(automationDefinition),
 		workspaceId: v.id("workspaces"),
 		automationId: v.string(),
 		agentId: v.id("agents"),
@@ -560,7 +574,7 @@ export default defineSchema({
 		channelSetBy: v.optional(v.id("users")),
 		/** Webhook automations: the secret in their URL (`/automations/<token>`). */
 		webhookToken: v.optional(v.string()),
-		/** Set for automations people made (id "custom-…"); library ones come from the catalog. Shared setting: versioned. */
+		/** Set for automations people made (id "custom-…"); retired library ones use definition. Shared setting: versioned. */
 		custom: v.optional(
 			v.object({
 				name: v.string(),
@@ -571,7 +585,7 @@ export default defineSchema({
 				updatedAt: v.number(),
 			}),
 		),
-		/** Automations people made: in Trash (the `trash` table says who deleted it, and when). Nothing triggers it. */
+		/** Automations: in Trash (the `trash` table says who deleted it, and when). Nothing triggers it. */
 		archived: v.optional(v.boolean()),
 	})
 		.index("by_workspace", ["workspaceId", "automationId"])
@@ -635,9 +649,9 @@ export default defineSchema({
 		eventId: v.string(),
 	}).index("by_install", ["installId", "eventId"]),
 
-	// ---- Databases and records: clients, deals, tasks, calls, and databases people add. See wiki/data.md. ----
+	// ---- Databases and records. See wiki/data.md. ----
 
-	// A database. Built-ins come from core's recordTypeCatalog (`key` "client", "deal"…).
+	// A database created by the team. Existing keys stay stable.
 	recordTypes: defineTable({
 		version: v.optional(v.number()),
 		workspaceId: v.id("workspaces"),
@@ -707,6 +721,8 @@ export default defineSchema({
 		workspaceId: v.id("workspaces"),
 		/** Set for a record's body; standalone pages have none. */
 		recordId: v.optional(v.id("records")),
+		/** Only standalone pages can be nested. */
+		parentId: v.optional(v.id("pages")),
 		/** Standalone pages only: a record's body shows the record's name. */
 		title: v.string(),
 		/** In Trash (the `trash` table says who deleted it, and when). */
@@ -716,7 +732,18 @@ export default defineSchema({
 		updatedBy: v.id("users"),
 	})
 		.index("by_workspace", ["workspaceId", "recordId", "archived", "title"])
+		.index("by_parent", ["workspaceId", "parentId", "recordId", "archived", "title"])
 		.searchIndex("search_title", { searchField: "title", filterFields: ["workspaceId", "archived"] }),
+
+	pageMoves: defineTable({
+		workspaceId: v.id("workspaces"),
+		pageId: v.id("pages"),
+		n: v.number(),
+		userId: v.id("users"),
+		agentId: v.optional(v.id("agents")),
+		from: v.string(),
+		to: v.string(),
+	}).index("by_page", ["pageId", "n"]).index("by_workspace", ["workspaceId"]),
 
 	// A page's history: one row per run of edits, like Notion's: whoever started it, and
 	// anyone else who edited meanwhile. Its content is the component's snapshot at `version`; the rest are pruned.
@@ -817,6 +844,8 @@ export default defineSchema({
 		itemId: v.string(),
 		/** Its name when deleted, for listing and search. */
 		name: v.string(),
+		/** Page deletion included live children, captured when it entered Trash. */
+		includesSubpages: v.optional(v.boolean()),
 		/** Records and fields: their database. */
 		typeId: v.optional(v.id("recordTypes")),
 		deletedBy: v.id("users"),

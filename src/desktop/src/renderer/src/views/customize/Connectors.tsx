@@ -5,7 +5,8 @@ import { useState } from "react";
 import { api } from "../../api";
 import { useAction, useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { Loading, Notice, Section, compactControlClass, descriptionClass, inputClass, metadataClass, primaryButton, useRun } from "../../ui";
+import { ConnectorIcon } from "../../icons";
+import { EmptyState, Loading, Notice, Section, compactControlClass, inputClass, metadataClass, primaryButton, useRun } from "../../ui";
 import { ConnectorActions } from "../Permissions";
 import { Card, Detail, Facts, Missing } from "./shared";
 
@@ -21,11 +22,8 @@ export function ConnectorsTab({ role }: { role: Role }) {
 
 	return (
 		<>
-			<p className={descriptionClass}>
-				Connect outside services like Gmail or Calendar. Agents granted a connector use it for the person they're helping.
-			</p>
 			{error && <Notice>{error}</Notice>}
-			{connectors.length === 0 && <p className="text-sm text-neutral-400">No connectors available yet.</p>}
+			{connectors.length === 0 && <EmptyState icon={<ConnectorIcon />} title="No connectors available">Outside services will appear here when they’re available.</EmptyState>}
 			{connectors.map((p) => (
 				<Card
 					key={p.id}
@@ -36,7 +34,7 @@ export function ConnectorsTab({ role }: { role: Role }) {
 					installed={p.installed}
 					canManage={isOwner}
 					onToggle={() => toggle(p)}
-					onOpen={() => navigate("customize", "connectors", p.id)}
+					onOpen={() => navigate("settings", "connectors", p.id)}
 				/>
 			))}
 		</>

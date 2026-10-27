@@ -1,6 +1,7 @@
+import { scribe } from "../test/fixtures";
 import { describe, expect, it } from "vitest";
 import { buildToolSet, describeToolAccess, resolveTools, validateAgentConfig } from "./agents";
-import { blankAgent, companybot, scribe } from "./default-agents";
+import { blankAgent, companybot } from "./default-agents";
 import { isGranted, modelToolName } from "./tools";
 import { isWidgetToolName } from "./widgets";
 

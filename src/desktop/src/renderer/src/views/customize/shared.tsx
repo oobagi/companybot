@@ -1,14 +1,16 @@
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 import { navigate } from "../../router";
-import { TrashIcon } from "../../icons";
-import { type Crumb, ConflictNotice, NotFound, Notice, Page, SaveBar, Section, barDangerButton, descriptionClass, disabledButtonClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
+import { AgentIcon, AutomationIcon, ConnectorIcon, SkillIcon, TrashIcon } from "../../icons";
+import { type Crumb, EmptyState, ConflictNotice, NotFound, Notice, Page, SaveBar, barDangerButton, descriptionClass, disabledButtonClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
 import { TrashNotice } from "../Trash";
+import { Confirm } from "../chat/common";
 
+/** Each tab's description shows in the top bar. */
 export const customizeTabs = [
-	{ id: "agents", label: "Agents" },
-	{ id: "connectors", label: "Connectors" },
-	{ id: "skills", label: "Skills" },
-	{ id: "automations", label: "Automations" },
+	{ id: "agents", label: "Agents", one: "Agent", icon: AgentIcon, description: "What each agent knows and can do. Only owners can change agents." },
+	{ id: "connectors", label: "Connectors", one: "Connector", icon: ConnectorIcon, description: "Connect outside services like Gmail or Calendar. Agents granted a connector use it for the person they're helping." },
+	{ id: "skills", label: "Skills", one: "Skill", icon: SkillIcon, description: "Instructions your agents load when a task calls for them. Agents see each skill's description, and read the rest only when they need it." },
+	{ id: "automations", label: "Automations", one: "Automation", icon: AutomationIcon, description: "Jobs that run on their own: on a schedule, when something happens here, or when another app sends a webhook. Each one asks an agent to do something." },
 ] as const;
 export type CustomizeTab = (typeof customizeTabs)[number]["id"];
 
@@ -17,33 +19,27 @@ type MadeTab = "skills" | "automations";
 
 const tabLabel = (tab: CustomizeTab) => customizeTabs.find((t) => t.id === tab)!.label;
 
-/** The top bar's trail for an item's own screen: Customize › Skills. */
+/** The top bar's trail for an item's own screen: Skills. */
 export const customizeCrumbs = (tab: CustomizeTab): Crumb[] => [
-	{ label: "Customize", to: ["customize"] },
-	{ label: tabLabel(tab), to: ["customize", tab] },
+	{ label: tabLabel(tab), to: ["settings", tab] },
 ];
 
-/** The shared library layout; screens keep their own cards and install behavior. */
-export function LibraryList<T extends { custom: unknown; trash: unknown }>({
-	items, description, action, error, card,
+/** Agents, skills and automations share one list of workspace items. */
+export function ItemList<T extends { trash?: unknown; archived?: boolean }>({
+	items, title, icon, empty, error, card,
 }: {
 	items: T[];
-	description: string;
-	action: React.ReactNode;
+	title: string;
+	icon: React.ReactNode;
+	empty: string;
 	error?: string;
 	card: (item: T) => React.ReactNode;
 }) {
-	// Deleted ones are in Trash.
-	const ours = items.filter((item) => item.custom && !item.trash);
+	items = items.filter((item) => !item.trash && !item.archived);
 	return (
 		<>
-			<div className="flex items-start justify-between gap-4">
-				<p className={descriptionClass}>{description}</p>
-				{action}
-			</div>
 			{error && <Notice>{error}</Notice>}
-			{ours.length > 0 && <Section title="Made by your team"><div className="flex flex-col gap-3">{ours.map(card)}</div></Section>}
-			<Section title="Library"><div className="flex flex-col gap-3">{items.filter((item) => !item.custom).map(card)}</div></Section>
+			{items.length ? <div className="flex flex-col gap-3">{items.map(card)}</div> : <EmptyState icon={icon} title={title}>{empty}</EmptyState>}
 		</>
 	);
 }
@@ -96,16 +92,18 @@ export function Card(props: {
 function InstallButton({
 	installed,
 	canManage,
+	busy,
 	onToggle,
 }: {
 	installed: boolean;
 	canManage: boolean;
+	busy?: boolean;
 	onToggle: (e: React.MouseEvent) => void;
 }) {
 	return (
 		<button
 			type="button"
-			disabled={!canManage}
+			disabled={!canManage || busy}
 			title={canManage ? (installed ? "Remove" : undefined) : "Only owners can install"}
 			onClick={onToggle}
 			className={`shrink-0 rounded-full px-3 py-1 text-sm ${disabledButtonClass} ${
@@ -124,18 +122,23 @@ export function Detail(props: {
 	meta: string;
 	description: string;
 	installed: boolean;
+	trash?: React.ComponentProps<typeof TrashNotice>["trash"] | null;
+	confirmation?: string;
+	busy?: boolean;
 	canManage: boolean;
 	onToggle: () => void;
 	children: React.ReactNode;
 }) {
+	const [confirming, setConfirming] = useState(false);
 	return (
 		<Page
 			title={props.title}
-			subtitle={props.meta}
+			description={`${props.description} · ${props.meta}`}
 			crumbs={customizeCrumbs(props.tab)}
-			actions={<InstallButton installed={props.installed} canManage={props.canManage} onToggle={props.onToggle} />}
+			actions={!props.trash && <InstallButton installed={props.installed} canManage={props.canManage} busy={props.busy} onToggle={() => props.confirmation ? setConfirming(true) : props.onToggle()} />}
 		>
-			<p className="text-neutral-600">{props.description}</p>
+			{confirming && <Confirm title={`Remove "${props.title}"?`} action="Move to Trash" onClose={() => setConfirming(false)} onConfirm={() => { setConfirming(false); props.onToggle(); }}>{props.confirmation}</Confirm>}
+			{props.trash && <TrashNotice trash={props.trash} />}
 			{props.children}
 		</Page>
 	);
@@ -208,14 +211,14 @@ export function MadeItemDetail<T>({
 	return (
 		<Page
 			title={name}
-			subtitle={`Made by ${createdByName ?? "your team"} · v${custom.version} · edited by ${custom.updatedByName} ${timeAgo(custom.updatedAt)}`}
+			description={`Made by ${createdByName ?? "your team"} · v${custom.version} · edited by ${custom.updatedByName} ${timeAgo(custom.updatedAt)}`}
 			crumbs={customizeCrumbs(tab)}
 			actions={
 				editable && (
 					<button
 						type="button"
 						className={barDangerButton}
-						onClick={() => run(onDelete(), () => navigate("customize", tab))}
+						onClick={() => run(onDelete(), () => navigate("settings", tab))}
 					>
 						<TrashIcon /> Delete
 					</button>
@@ -237,7 +240,13 @@ export function MadeItemDetail<T>({
 
 /** Loading while `loaded` is false; after that, the item is gone (deleted, or a stale link). */
 export function Missing({ tab, loaded }: { tab: CustomizeTab; loaded: boolean }) {
-	return <NotFound crumbs={customizeCrumbs(tab)} loaded={loaded}>It may have been deleted.</NotFound>;
+	const { one, icon: Icon } = customizeTabs.find((t) => t.id === tab)!;
+	// Connectors come with the app, so they're never in Trash.
+	return (
+		<NotFound crumbs={customizeCrumbs(tab)} loaded={loaded} icon={<Icon />} title={`${one} not found`}>
+			{tab === "connectors" ? "It may have been removed from the app." : undefined}
+		</NotFound>
+	);
 }
 
 export function Facts({ rows }: { rows: [string, string][] }) {

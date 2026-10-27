@@ -196,15 +196,8 @@ it("edits/deletes only own visible messages, reacts to chosen messages and marks
 		expect(await call("chat.manage", request, true)).toHaveProperty("error");
 });
 
-it("installs library automations only as owners and sample-runs with the same edit/dispatch rules", async () => {
+it("sample-runs automations with the same edit and dispatch rules", async () => {
 	const { t, call, scribe, owner, member } = await ready();
-	const library = (await call("automations.manage", { action: "list" })).library;
-	const id = library[0].id;
-	expect(await call("automations.manage", { action: "install", id, timeZone: "UTC" }, true)).toHaveProperty("error");
-	// This catalog entry has no required connectors.
-	const free = library.find((x: { id: string }) => x.id === "morning-brief")?.id ?? id;
-	expect(await call("automations.manage", { action: "install", id: free, timeZone: "UTC" })).toMatchObject({ installed: free });
-	expect(await call("automations.manage", { action: "run", id: free }, true)).toHaveProperty("error");
 	const custom = await member.mutation(api.automations.create, { config: { name: "Review", prompt: "Review", trigger: { type: "event", event: "member.joined" } }, agentId: scribe._id, audience: "subscribers", timeZone: "UTC" });
 	await t.run((ctx) => ctx.db.patch(scribe._id, { tools: ["automations.manage"] }));
 	const before = await turnsOf(t);

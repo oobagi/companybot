@@ -1,10 +1,11 @@
+import { skills } from "./fixtures";
 import type { AutomationStore } from "../src/automation-tools";
 import type { PageStore } from "../src/page-tools";
 import type { RecordStore } from "../src/record-tools";
 import type { ChatStore } from "../src/chat";
 import type { MemoryStore } from "../src/memory";
 import type { SkillStore } from "../src/skills";
-import { skillCatalog } from "../src/skills";
+
 import { createResultStore } from "../src/tools";
 import type { Actor } from "../src/types";
 
@@ -18,7 +19,7 @@ export const ctx = (actor: Actor) => ({
 	agentId: "companybot",
 	memory: {} as MemoryStore,
 	chat: {} as ChatStore,
-	skills: { list: skillCatalog } as SkillStore,
+	skills: { list: skills } as SkillStore,
 	results: createResultStore(),
 	automations: {} as AutomationStore,
 	records: {} as RecordStore,

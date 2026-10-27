@@ -1,6 +1,6 @@
-import { Component, Fragment, useState } from "react";
+import { Component, Fragment, useCallback, useLayoutEffect, useRef, useState } from "react";
 import { errorMessage } from "./api";
-import { CaretRightIcon } from "./icons";
+import { PlusIcon } from "./icons";
 import { navigate } from "./router";
 
 /** A screen above this one, in the top bar's trail. */
@@ -11,19 +11,23 @@ export type Crumb = { label: string; to: string[] };
  * (each screen above it is a link back), what you can do here on the right. It's also
  * where you drag the window.
  */
-export function TopBar({ crumbs = [], title, children }: { crumbs?: Crumb[]; title: React.ReactNode; children?: React.ReactNode }) {
+export function TopBar({ crumbs = [], title, description, children }: { crumbs?: Crumb[]; title: React.ReactNode; description?: React.ReactNode; children?: React.ReactNode }) {
 	return (
-		<header className="drag flex h-12 shrink-0 items-center gap-3 border-b border-neutral-200 px-5">
-			<nav className="flex min-w-0 items-center gap-1 text-sm">
+		<header className="drag flex h-12 shrink-0 items-center gap-3 px-5">
+			<nav className="flex min-w-0 items-center overflow-x-auto text-sm">
 				{crumbs.map((c) => (
-					<Fragment key={c.label}>
+					<Fragment key={c.to.join("/")}>
 						<button type="button" onClick={() => navigate(...c.to)} className="no-drag shrink-0 rounded-md px-1 py-0.5 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900">
 							{c.label}
 						</button>
-						<CaretRightIcon className="shrink-0 text-neutral-300" />
+						<span className="shrink-0 px-1 text-neutral-300">/</span>
 					</Fragment>
 				))}
-				<div className="flex min-w-0 items-baseline gap-2 px-1 font-semibold">{title}</div>
+				<div className="flex min-w-0 items-baseline gap-2 px-1 font-semibold">
+					{title}
+					{/* Gives way before the title does: it only gets the room left over. */}
+					{description && <p className="min-w-0 flex-1 truncate font-normal text-neutral-500">{description}</p>}
+				</div>
 			</nav>
 			{children && <div className="no-drag ml-auto flex shrink-0 items-center gap-1">{children}</div>}
 		</header>
@@ -31,15 +35,74 @@ export function TopBar({ crumbs = [], title, children }: { crumbs?: Crumb[]; tit
 }
 
 /**
+ * A scrolling area whose header and footer stay put, taking their own room, so content
+ * starts below the header and ends above the footer. Content scrolled under either fades
+ * out on its scrim (styles.css), which shows only while something is under it.
+ */
+export function Scroll({
+	ref,
+	header,
+	footer,
+	className = "",
+	onScroll,
+	children,
+}: {
+	ref?: React.RefObject<HTMLDivElement | null>;
+	header?: React.ReactNode;
+	footer?: React.ReactNode;
+	className?: string;
+	onScroll?: React.UIEventHandler<HTMLDivElement>;
+	children: React.ReactNode;
+}) {
+	const own = useRef<HTMLDivElement>(null);
+	const scroller = ref ?? own;
+	const [underTop, setUnderTop] = useState(false);
+	const [underBottom, setUnderBottom] = useState(false);
+	const measure = useCallback(() => {
+		const el = scroller.current;
+		if (!el) return;
+		setUnderTop(el.scrollTop > 0);
+		setUnderBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 1);
+	}, [scroller]);
+	// Content can grow or shrink without a scroll: new messages, a longer draft, a resize.
+	useLayoutEffect(() => {
+		const el = scroller.current;
+		if (!el) return;
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(el);
+		if (el.firstElementChild) observer.observe(el.firstElementChild);
+		return () => observer.disconnect();
+	}, [scroller, measure]);
+	return (
+		<div ref={scroller} onScroll={(e) => (measure(), onScroll?.(e))} className={`min-h-0 flex-1 overflow-y-auto ${className}`}>
+			<div className="flex min-h-full flex-col">
+				{header && (
+					<div className="scrim-top sticky top-0 z-30" data-under={underTop || undefined}>
+						{header}
+					</div>
+				)}
+				<div className="flex flex-1 flex-col">{children}</div>
+				{footer && (
+					<div className="scrim-bottom sticky bottom-0 z-30" data-under={underBottom || undefined}>
+						{footer}
+					</div>
+				)}
+			</div>
+		</div>
+	);
+}
+
+/**
  * A screen: the top bar, then its content. The title lives in the top bar; `heading` is
  * a big title in the content, only for things you write in and rename there (pages, records).
- * `actions` go on the right of the top bar. `wide` for tables.
+ * `description` sits next to the title in the top bar; `actions` go on its right. `wide` for tables.
  */
 export function Page({
 	title,
 	crumbs,
 	heading,
-	subtitle,
+	description,
 	actions,
 	wide,
 	children,
@@ -47,28 +110,30 @@ export function Page({
 	title: string;
 	crumbs?: Crumb[];
 	heading?: React.ReactNode;
-	subtitle?: string;
+	description?: string;
 	actions?: React.ReactNode;
 	wide?: boolean;
 	children: React.ReactNode;
 }) {
 	return (
-		<div className="flex min-h-0 flex-1 flex-col">
-			<TopBar crumbs={crumbs} title={<span className="truncate">{title}</span>}>
-				{actions}
-			</TopBar>
-			<div className="@container flex-1 overflow-y-auto">
-				<div className={`mx-auto flex flex-col gap-6 px-6 pt-8 pb-10 ${wide ? "max-w-5xl" : "max-w-2xl"}`}>
-					{(heading || subtitle) && (
-						<header className="flex flex-col gap-1">
-							{heading && <h1 className="text-2xl font-semibold tracking-tight">{heading}</h1>}
-							{subtitle && <p className={descriptionClass}>{subtitle}</p>}
-						</header>
-					)}
-					{children}
-				</div>
+		<Scroll
+			className="@container"
+			header={
+				<TopBar crumbs={crumbs} title={<span className="truncate">{title}</span>} description={description}>
+					{actions}
+				</TopBar>
+			}
+		>
+			{/* `--bleed`: from the column's content out to the screen's edge, for `.bleed`. */}
+			<div
+				className={`mx-auto flex w-full flex-1 flex-col gap-6 px-6 py-8 ${
+					wide ? "max-w-5xl [--bleed:max(1.5rem,calc((100cqw-64rem)/2+1.5rem))]" : "max-w-2xl [--bleed:max(1.5rem,calc((100cqw-42rem)/2+1.5rem))]"
+				}`}
+			>
+				{heading && <h1 className="text-2xl font-semibold tracking-tight">{heading}</h1>}
+				{children}
 			</div>
-		</div>
+		</Scroll>
 	);
 }
 
@@ -162,18 +227,46 @@ export const disabledButtonClass = "disabled:opacity-50";
 export const primaryButton = `rounded-xl bg-neutral-900 px-4 py-2 text-sm text-white ${disabledButtonClass}`;
 export const dangerButton = `rounded-xl bg-red-600 px-4 py-2 text-sm text-white ${disabledButtonClass}`;
 export const secondaryButton = `rounded-xl border border-neutral-200 px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
-/** Buttons in the top bar: quiet ones, and the one main action. */
+/** Buttons in the top bar: quiet ones, and the create action (`NewButton`). */
 export const barButton = `flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
 export const barDangerButton = `flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm text-neutral-600 hover:bg-red-50 hover:text-red-700 ${disabledButtonClass}`;
-export const barPrimaryButton = `flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-1 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
+const barPrimaryButton = `flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-1 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
 export const descriptionClass = "text-sm text-neutral-500";
 export const metadataClass = "text-xs text-neutral-400";
 
-/** A screen for one item: loading while `loaded` is false, then `children` says why it's gone. */
-export function NotFound({ crumbs, loaded, children }: { crumbs?: Crumb[]; loaded: boolean; children?: React.ReactNode }) {
+/** A screen's create action, always in the top bar: the same look on every screen. */
+export function NewButton({ label, onClick }: { label: string; onClick: () => void }) {
+	return <button type="button" className={barPrimaryButton} onClick={onClick}><PlusIcon /> {label}</button>;
+}
+
+/**
+ * A screen with nothing in it yet: no button, since the top bar's create action is how you start.
+ * In the middle of the space under the top bar on every screen, however much sits above it:
+ * sticky `top-1/2` brings it down to the middle; when the controls above reach past that,
+ * it stays just below them.
+ */
+export function EmptyState({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+	return (
+		<div className="flex flex-1 flex-col items-center pt-24">
+			<div className="sticky top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 py-8 text-center">
+				<span aria-hidden="true" className="mb-2 text-[32px] text-neutral-400">{icon}</span>
+				<h2 className="text-base font-medium">{title}</h2>
+				<p className={descriptionClass}>{children}</p>
+			</div>
+		</div>
+	);
+}
+
+/** A filtered list with nothing left. The filters' own controls undo them. */
+export function NoMatches() {
+	return <p className="py-8 text-center text-sm text-neutral-500">No matches</p>;
+}
+
+/** A screen for one item: loading while `loaded` is false, then an empty state saying it's gone. */
+export function NotFound({ crumbs, loaded, icon, title, children = "It may have been deleted. Check Trash." }: { crumbs?: Crumb[]; loaded: boolean; icon: React.ReactNode; title: string; children?: string }) {
 	return (
 		<Page title={loaded ? "Not found" : ""} crumbs={crumbs}>
-			{loaded ? <p className={descriptionClass}>{children}</p> : <Loading />}
+			{loaded ? <EmptyState icon={icon} title={title}>{children}</EmptyState> : <Loading />}
 		</Page>
 	);
 }

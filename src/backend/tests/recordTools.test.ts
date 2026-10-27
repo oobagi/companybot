@@ -278,6 +278,7 @@ describe("records tools", () => {
 		const { t, owner, member } = await setup();
 		const tools = await turnFor(t, member);
 		const other = await signIn(t, "other@else.com");
+		await other.mutation(api.recordTypes.create, { plural: "Clients" });
 		const theirs = await turnFor(t, other);
 		const secret = await theirs.save({ type: "client", values: { name: "Their client" } });
 		expect(await tools.get(secret.id)).toEqual({ error: "Record not found." });

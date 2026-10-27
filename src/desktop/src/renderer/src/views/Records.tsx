@@ -1,11 +1,14 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import type { Role } from "@companybot/core";
-import { Loading, Page } from "../ui";
+import { can, type Role } from "@companybot/core";
+import { useState } from "react";
+import { DatabaseIcon } from "../icons";
+import { EmptyState, NewButton, NotFound, Page } from "../ui";
+import { DatabaseDialog } from "./records/DatabaseDialog";
 import { useTypes } from "./records/data";
 import { RecordList } from "./records/RecordList";
 import { RecordPage } from "./records/RecordPage";
 
-/** Top-level tabs for business records. Each lists one database (see wiki/data.md). */
+// COMPAT(0.1.0-alpha.8): existing bookmarks use these routes; all databases also work at /records/<key>.
 export const recordTabs = [
 	{ id: "clients", label: "Clients" },
 	{ id: "deals", label: "Deals" },
@@ -17,17 +20,22 @@ export const recordTabs = [
  * A type's list, or one record's page: /clients, /clients/<id>, /records/<key>[/<id>].
  * Every type shares the same screens.
  */
-export function RecordsView({ typeKey, recordId, role }: { typeKey: string; recordId?: string; role: Role }) {
+export function RecordsView({ typeKey, recordId, role }: { typeKey?: string; recordId?: string; role: Role }) {
 	const types = useTypes();
-	if (!types) return <Page title=""><Loading /></Page>;
+	const [creating, setCreating] = useState(false);
+	if (!types) return <NotFound loaded={false} icon={<DatabaseIcon />} title="Database not found" />;
+	if (!typeKey) return (
+		<Page title="Databases" actions={can(role, "fields.manage") && <NewButton label="New database" onClick={() => setCreating(true)} />}>
+			{types.length ? <EmptyState icon={<DatabaseIcon />} title="Pick a database">Open one from the sidebar.</EmptyState> : (
+				<EmptyState icon={<DatabaseIcon />} title="No databases yet">
+					{can(role, "fields.manage") ? "Organize your team's work with records and custom fields." : "An owner can create a database for your team."}
+				</EmptyState>
+			)}
+			{creating && <DatabaseDialog onClose={() => setCreating(false)} />}
+		</Page>
+	);
 	const type = types.find((t) => t.key === typeKey);
-	if (!type) {
-		return (
-			<Page title="Not found">
-				<p className="text-sm text-neutral-500">This database may have been deleted. Look in Trash.</p>
-			</Page>
-		);
-	}
+	if (!type) return <NotFound loaded icon={<DatabaseIcon />} title="Database not found" />;
 	return recordId ? (
 		<RecordPage key={recordId} type={type} recordId={recordId as Id<"records">} role={role} />
 	) : (

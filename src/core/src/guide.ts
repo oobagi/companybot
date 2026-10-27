@@ -59,7 +59,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 		lines.push(
 			"",
 			"## Databases",
-			"The workspace's CRM: clients, deals, tasks, calls, and databases the team adds. Facts about customers and work (contact details, deal stages, amounts, due dates, who owns what) go on records, not in memory; memory is for preferences and how people like to work.",
+			"Databases are created by the team. Learn the available schema before using records. Facts about the team's work go on records, not in memory; memory is for preferences and how people like to work.",
 		);
 		if (has("records.types")) lines.push("- Learn the databases and field keys with records_types before using unfamiliar schema and again before schema changes; reuse unchanged keys. Stable choice ids preserve existing values when labels change. Refer to teammates by name or \"me\", and linked records by exact name or id.");
 		if (has("records.save_database")) lines.push("- Owners can create, rename and delete databases with records_save_database. Read the current version first. Change databases only when asked.");
@@ -88,10 +88,10 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 			"Pages hold longer writing: wiki pages, how-tos, meeting notes. Every record also has a page body for notes about it.",
 		);
 		if (has("pages.read")) lines.push("- pages_read history lists retained versions with a cursor; version previews one. For colored or aligned content, read format blocks and edit the complete JSON array so formatting survives. Markdown drops colors and alignment.");
-		if (has("pages.find")) lines.push("- Find a page with pages_find before creating one, so there are no duplicates.");
+		if (has("pages.find")) lines.push("- Find a page with pages_find before creating one. Rows include parentId; parent lists one level (null for top level). Follow cursors and child ids to read the tree.");
 		if (has("pages.write"))
 			lines.push(
-				`- ${has("pages.read") ? "Read a page with pages_read before you replace it; to" : "To"} add to it, append with pages_write. Writes run when permitted and are saved in the page's history as you acting for the person, so they can be restored. Say in a sentence what you wrote, and where.`,
+				`- ${has("pages.read") ? "Read a page with pages_read before you replace it; to" : "To"} add to it, append with pages_write. Create under parent; move with action move, page and parent (null for top level). Record bodies cannot be nested. Writes run when permitted and are saved in the page's history as you acting for the person, so they can be restored. Say in a sentence what you wrote, and where.`,
 			);
 	}
 	if (has("skills.create")) {
@@ -100,7 +100,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 			"## Saving skills",
 			"When someone explains how the team does something you'll be asked again (\"here's how we write proposals\"), or asks you to remember a process for everyone, offer to save it as a skill. Skills are shared with the whole team; personal preferences belong in memory instead.",
 			"- Ask only for what's missing: the steps, rules, and an example if they have one.",
-			"- Show the name, the one-line description of when to use it, and the instructions, and ask them to confirm. Then call skills_create and say where they can change it: Customize → Skills.",
+			"- Show the name, the one-line description of when to use it, and the instructions, and ask them to confirm. Then call skills_create and say where they can change it: Settings → Skills.",
 		);
 	}
 	if (has("automations.create")) {
@@ -110,7 +110,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 			"People can ask you to do something on a schedule, when something happens here, or when another app sends a webhook. Most aren't technical: never say \"trigger\", \"webhook\", or \"audience\" unless they do.",
 			"- Ask only for what's missing, one short question at a time: what you should do each time, when (time and days, or which channel to watch, or when someone joins), and who gets it (just them by default; \"anyone who turns it on\"; or a channel).",
 			"- Write the prompt as them asking you, specific enough to run alone later.",
-			"- Before creating it, show a 3-line summary (what, when, who gets it) and ask them to confirm. Then call automations_create and say where they can change it: Customize → Automations.",
+			"- Before creating it, show a 3-line summary (what, when, who gets it) and ask them to confirm. Then call automations_create and say where they can change it: Settings → Automations.",
 			"- Only offer a webhook if they mention an outside app that can send one; give them the URL it returns and say to keep it secret.",
 		);
 	}
@@ -118,7 +118,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 		lines.push(
 			"",
 			"## Existing automations",
-			"- To turn on an existing one for them (\"I want the morning brief too\"), find it with automations_list and use automations_set_mine. That doesn't allow its actions: anything that would ask still asks.",
+			"- To turn on an existing one for them (\"turn that on for me too\"), find it with automations_list and use automations_set_mine. That doesn't allow its actions: anything that would ask still asks.",
 		);
 	}
 	if (has("agents.manage")) lines.push("", "## Agents", "Use agents_manage for agent metadata, paged history, tool-free creation, deleting (to Trash) and another agent's instructions/model (deleting and instruction/model changes wait for approval). Read the current version first. Tool grants, your own instructions/model, restoring prior config and restoring an agent from Trash need a person directly.");

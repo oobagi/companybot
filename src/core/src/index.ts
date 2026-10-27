@@ -19,6 +19,7 @@ export * from "./permissions";
 export * from "./records";
 export * from "./record-tools";
 export * from "./page-tools";
+export * from "./page-links";
 export * from "./connector-tools";
 export * from "./connectors";
 export * from "./skills";

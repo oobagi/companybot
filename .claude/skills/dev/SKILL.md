@@ -28,7 +28,7 @@ Any email, no code: local backends send no email and the app signs straight in. 
 
 ## Look at it without Electron
 
-The renderer is also served at `http://localhost:5173` (vite prints the port; it moves if taken). Open it in a browser (Playwright) to click through and screenshot. Screens have paths, so you can open one directly: `#/customize/automations/morning-brief`, `#/settings/members`.
+The renderer is also served at `http://localhost:5173` (vite prints the port; it moves if taken). Open it in a browser (Playwright) to click through and screenshot. Screens have paths, so you can open one directly: `#/customize/automations/new`, `#/settings/members`.
 
 ## Other commands
 

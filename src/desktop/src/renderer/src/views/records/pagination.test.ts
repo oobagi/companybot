@@ -20,6 +20,7 @@ it.each(["client", "deal", "task", "call", "custom"])("auto-pages a fresh %s lis
 	const observe = vi.fn();
 	const disconnect = vi.fn();
 	let intersect!: (visible: boolean) => void;
+	vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
 	vi.stubGlobal("IntersectionObserver", class {
 		constructor(callback: IntersectionObserverCallback) {
 			intersect = (visible) => callback([{ isIntersecting: visible } as IntersectionObserverEntry], this as unknown as IntersectionObserver);

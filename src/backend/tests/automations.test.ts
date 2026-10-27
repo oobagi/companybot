@@ -1,16 +1,11 @@
+import { seedAutomation } from "./legacyFixtures";
 import "./connectorFixtures";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { automationCatalog, defineAutomation } from "@companybot/core";
 
 import { signIn, agentsOf, setup as ownerAndMember, meOf, generalOf, turnsOf, settle } from "./helpers";
-
-// An automation that needs a connector, for the install check.
-automationCatalog.push(
-	defineAutomation({ ...automationCatalog[0]!, id: "crm-digest", name: "CRM digest", connectors: ["crm"] }),
-);
 
 afterEach(() => void vi.useRealTimers());
 
@@ -32,12 +27,12 @@ describe("automations", () => {
 		});
 		await t.mutation(internal.automationRuns.tick, { now: Date.UTC(2026, 9, 22, 17) });
 	}
-	const install = (as: As, automationId: string) => as.mutation(api.automations.setInstalled, { automationId, installed: true, timeZone: tz });
+	const install = seedAutomation;
 
 	it("runs and cleans up through automationRuns", async () => {
 		vi.useFakeTimers();
 		const { t, owner } = await ownerAndMember();
-		await install(owner, "morning-brief");
+		await install(t, owner, "morning-brief");
 		await owner.mutation(api.automationRuns.runNow, { automationId: "morning-brief" });
 		const { companybot } = await agentsOf(owner);
 		expect(await dmWith(owner, companybot._id)).toEqual([["user", "Morning brief"], ["agent", null]]);
@@ -46,25 +41,18 @@ describe("automations", () => {
 	});
 
 	describe("library", () => {
-		it("lets only owners install, needs connectors first, and turns it on for the installer only", async () => {
-			const { owner, member } = await ownerAndMember();
-			await expect(install(member, "morning-brief")).rejects.toThrow("permission");
-			await expect(install(owner, "crm-digest")).rejects.toThrow("Install the CRM connector first");
-			await install(owner, "morning-brief");
-			const brief = (await find(member, "morning-brief"))!;
-			expect([brief.installed, brief.audience, brief.subscribed, brief.subscriberCount, brief.trigger]).toEqual([
-				true,
-				"subscribers",
-				false,
-				1,
-				"Weekdays at 8:00 AM",
-			]);
+		it("refuses library installation from old desktops and keeps existing opt-ins", async () => {
+			const { t, owner, member } = await ownerAndMember();
+			await expect(member.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: true, timeZone: tz })).rejects.toThrow("permission");
+			await expect(owner.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: true, timeZone: tz })).rejects.toThrow("retired");
+			await install(t, owner, "morning-brief");
 			expect((await find(owner, "morning-brief"))!.subscribed).toBe(true);
+			expect((await find(member, "morning-brief"))!.subscribed).toBe(false);
 		});
 
 		it("runs a schedule only for people who turned it on", async () => {
 			const { t, owner, member } = await ownerAndMember();
-			await install(owner, "morning-brief");
+			await install(t, owner, "morning-brief");
 			await tickThursday(t);
 			const { companybot } = await agentsOf(member);
 			expect(await dmWith(member, companybot._id)).toHaveLength(0);
@@ -83,7 +71,7 @@ describe("automations", () => {
 
 		it("posts once in a channel when an owner picks one; members can't change it", async () => {
 			const { t, owner, member } = await ownerAndMember();
-			await install(owner, "morning-brief");
+			await install(t, owner, "morning-brief");
 			const sales = await owner.mutation(api.chats.createChannel, { name: "sales", private: false });
 			const toSales = { automationId: "morning-brief", audience: "channel" as const, channelId: sales };
 			await expect(member.mutation(api.automations.update, toSales)).rejects.toThrow("permission");
@@ -102,8 +90,8 @@ describe("automations", () => {
 		});
 
 		it("changes audiences explicitly between a channel and subscribers", async () => {
-			const { owner } = await ownerAndMember();
-			await install(owner, "morning-brief");
+			const { t, owner } = await ownerAndMember();
+			await install(t, owner, "morning-brief");
 			const sales = await owner.mutation(api.chats.createChannel, { name: "sales", private: false });
 			await owner.mutation(api.automations.update, { automationId: "morning-brief", audience: "channel", channelId: sales });
 			expect((await find(owner, "morning-brief"))!.audience).toBe("channel");
@@ -112,8 +100,8 @@ describe("automations", () => {
 		});
 
 		it("runs now just for the person who clicked, if they can change it", async () => {
-			const { owner, member } = await ownerAndMember();
-			await install(owner, "morning-brief");
+			const { t, owner, member } = await ownerAndMember();
+			await install(t, owner, "morning-brief");
 			await owner.mutation(api.automations.update, { automationId: "morning-brief", enabled: false });
 			await owner.mutation(api.automationRuns.runNow, { automationId: "morning-brief" });
 			const { companybot } = await agentsOf(owner);
@@ -128,7 +116,7 @@ describe("automations", () => {
 
 		async function installed() {
 			const ctx = await ownerAndMember();
-			await install(ctx.owner, "after-call-summary");
+			await install(ctx.t, ctx.owner, "after-call-summary");
 			const url = (await find(ctx.owner, "after-call-summary"))!.webhookUrl!;
 			const post = async (body: string, path = new URL(url, "http://x").pathname) => {
 				const res = await ctx.t.fetch(path, { method: "POST", body });
@@ -179,7 +167,7 @@ describe("automations", () => {
 			expect(await member.query(api.messages.list, { chatId: calls })).toHaveLength(2);
 		});
 
-		it("forgets event ids after a week, and when uninstalled", async () => {
+		it("forgets event ids after a week and on purge, preserving them through Trash", async () => {
 			const { t, owner, post } = await installed();
 			await post(call("old"));
 			const events = () => t.run((ctx) => ctx.db.query("automationEvents").collect());
@@ -193,6 +181,13 @@ describe("automations", () => {
 			}
 			expect((await events()).map((e) => e.eventId)).toEqual(["new"]);
 			await owner.mutation(api.automations.remove, { automationId: "after-call-summary" });
+			const trash = (await find(owner, "after-call-summary"))!.trash!;
+			expect(await events()).toHaveLength(1);
+			expect((await post(call("new")))[0]).toBe(404);
+			await owner.mutation(api.trash.restore, { kind: "automation", id: trash.itemId });
+			expect(await post(call("new"))).toEqual([200, "Already received."]);
+			await owner.mutation(api.automations.remove, { automationId: "after-call-summary" });
+			await owner.mutation(api.trash.purge, { id: trash.itemId });
 			await t.finishAllScheduledFunctions(vi.runAllTimers);
 			expect(await events()).toHaveLength(0);
 		});
@@ -336,16 +331,22 @@ describe("automations", () => {
 			expect((await find(member, shared))!.trash).toMatchObject({ user: "owner@co.com" });
 		});
 
-		it("only lets owners uninstall library automations, without a time zone", async () => {
+		it("trashes and restores retained library automations with their opt-ins", async () => {
 			const { t, owner, member } = await ownerAndMember();
-			await install(owner, "morning-brief");
+			await install(t, owner, "morning-brief");
 			await expect(member.mutation(api.automations.remove, { automationId: "morning-brief" })).rejects.toThrow("permission");
 			await owner.mutation(api.automations.remove, { automationId: "morning-brief" });
 			await owner.mutation(api.automations.remove, { automationId: "morning-brief" });
-			expect((await find(owner, "morning-brief"))!.installed).toBe(false);
+			const trashed = (await find(owner, "morning-brief"))!;
+			expect(trashed.trash).toMatchObject({ kind: "automation", canRestore: true });
+			await expect(owner.mutation(api.automationRuns.runNow, { automationId: "morning-brief" })).rejects.toThrow();
+			await owner.mutation(api.trash.restore, { kind: "automation", id: trashed.trash!.itemId });
+			expect(await find(owner, "morning-brief")).toMatchObject({ trash: null, subscribed: true, subscriberCount: 1 });
+			await owner.mutation(api.automations.remove, { automationId: "morning-brief" });
+			await owner.mutation(api.trash.purge, { id: trashed.trash!.itemId });
 			await settle(t);
 			expect(await t.run((ctx) => ctx.db.query("automationSubscriptions").collect())).toHaveLength(0);
-			await expect(owner.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: true })).rejects.toThrow("Unknown time zone.");
+			await expect(owner.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: true })).rejects.toThrow("retired");
 		});
 
 		it("takes any webhook body when it has no named event", async () => {
@@ -385,7 +386,7 @@ describe("automations", () => {
 			const hook = await create({ name: "Forms", prompt: "Post it.", trigger: { type: "webhook" }, runsFor: "me" });
 			expect(hook).toMatchObject({ webhookUrl: expect.stringMatching(/\/automations\/[0-9a-f]{48}$/) });
 
-			await install(owner, "morning-brief");
+			await install(t, owner, "morning-brief");
 			expect(await t.mutation(internal.automationTools.setMineFor, { turnId, id: "morning-brief", on: true })).toEqual({ id: "morning-brief", on: true });
 			expect((await find(member, "morning-brief"))!.subscribed).toBe(true);
 		});

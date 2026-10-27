@@ -15,7 +15,6 @@ import {
 	SaveBar,
 	Setting,
 	Settings,
-	Tabs,
 	compactControlClass,
 	dangerButton,
 	disabledButtonClass,
@@ -25,34 +24,90 @@ import {
 	useDraft,
 	useRun,
 } from "../ui";
+import {
+	ActivityIcon,
+	AgentIcon,
+	AutomationIcon,
+	ConnectorIcon,
+	MembersIcon,
+	MemoryIcon,
+	SettingsIcon,
+	SkillIcon,
+	TrashIcon,
+	UserIcon,
+} from "../icons";
 import { ActivityTab } from "./Activity";
 import { Confirm, Modal, zoneLabel } from "./chat/common";
+import { Group, Item } from "./chat/Sidebar";
+import { type CustomizeTab, CustomizeView, customizeTabs } from "./customize";
 import { MembersTab } from "./Members";
 import { MemoryTab } from "./Memory";
 import { WorkspaceLocks, YourPermissions } from "./Permissions";
+import { TrashView } from "./Trash";
 
-export const settingsTabs = [
-	{ id: "general", label: "General" },
-	{ id: "members", label: "Members" },
-	{ id: "memory", label: "Memory" },
-	{ id: "activity", label: "Activity" },
-	{ id: "preferences", label: "Your preferences" },
+// Settings: /settings/<tab>[/<item>]. While it's open, the sidebar lists its tabs in place of the app's.
+const sections = [
+	{ title: "Account", tabs: [{ id: "preferences", label: "Your preferences", icon: <UserIcon /> }] },
+	{
+		title: "Workspace",
+		tabs: [
+			{ id: "general", label: "General", icon: <SettingsIcon /> },
+			{ id: "members", label: "Members", description: "We email invited people a link to get the app. They join when they sign in with that email. Role changes apply right away.", icon: <MembersIcon /> },
+			{ id: "memory", label: "Memory", description: "Each agent has its own memory. Team memories are shared. Only you can see your personal memories.", icon: <MemoryIcon /> },
+			{ id: "activity", label: "Activity", description: "Database changes, and what agents did in chats you can see. Agent results show only for what they did for you.", icon: <ActivityIcon /> },
+			{ id: "trash", label: "Trash", icon: <TrashIcon /> },
+		],
+	},
+	{
+		title: "Customize",
+		tabs: [
+			{ id: "agents", label: "Agents", icon: <AgentIcon /> },
+			{ id: "connectors", label: "Connectors", icon: <ConnectorIcon /> },
+			{ id: "skills", label: "Skills", icon: <SkillIcon /> },
+			{ id: "automations", label: "Automations", icon: <AutomationIcon /> },
+		],
+	},
 ] as const;
+export const settingsTabs = sections.flatMap((s): readonly (typeof s.tabs)[number][] => s.tabs);
 export type SettingsTab = (typeof settingsTabs)[number]["id"];
 
-/** Other paths that open a tab: the old "profile", and "permissions" (they're in Your preferences). */
+/**
+ * Other paths that open a tab: the old "profile", and "permissions" (they're in Your preferences).
+ * Old /customize/<tab> and /trash paths are redirected in App.
+ */
 export const settingsTabAliases: Record<string, SettingsTab> = { profile: "preferences", permissions: "preferences" };
 
-export function SettingsView({ role, tab, onTab }: { role: Role; tab: SettingsTab; onTab: (tab: SettingsTab) => void }) {
+const isCustomize = (tab: SettingsTab): tab is CustomizeTab => customizeTabs.some((t) => t.id === tab);
+
+/** A tab's screen, or with `itemId`, one agent, connector, skill or automation. */
+export function SettingsView({ role, tab, itemId }: { role: Role; tab: SettingsTab; itemId?: string }) {
+	if (isCustomize(tab)) return <CustomizeView role={role} tab={tab} itemId={itemId} />;
+	if (tab === "trash") return <TrashView role={role} />;
 	return (
-		<Page title="Settings">
-			<Tabs tabs={settingsTabs} value={tab} onChange={onTab} />
+		<Page title={settingsTabs.find((t) => t.id === tab)!.label} description={(settingsTabs.find((t) => t.id === tab) as { description?: string } | undefined)?.description}>
 			{tab === "general" && <GeneralTab role={role} />}
 			{tab === "members" && <MembersTab role={role} />}
 			{tab === "memory" && <MemoryTab role={role} />}
 			{tab === "activity" && <ActivityTab />}
 			{tab === "preferences" && <ProfileTab />}
 		</Page>
+	);
+}
+
+/** The sidebar while Settings is open: every tab, by section. */
+export function SettingsNav({ tab }: { tab: SettingsTab }) {
+	return (
+		<>
+			{sections.map((s) => (
+				<Group key={s.title} title={s.title}>
+					{s.tabs.map((t) => (
+						<Item key={t.id} icon={t.icon} active={t.id === tab} onClick={() => navigate("settings", t.id)}>
+							{t.label}
+						</Item>
+					))}
+				</Group>
+			))}
+		</>
 	);
 }
 
