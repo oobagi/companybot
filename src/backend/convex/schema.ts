@@ -424,6 +424,20 @@ export default defineSchema({
 		.index("by_workspace", ["workspaceId"])
 		.searchIndex("search_text", { searchField: "text", filterFields: ["workspaceId", "chatId"] }),
 
+	// Who's typing where: one row per person per place (chat + thread), its `at` bumped every
+	// few seconds while they type, deleted when they send. Stale after TYPING_MS (typing.ts).
+	typing: defineTable({
+		workspaceId: v.id("workspaces"),
+		chatId: v.id("chats"),
+		threadId: v.optional(v.id("chatMessages")),
+		userId: v.id("users"),
+		at: v.number(),
+	})
+		.index("by_place", ["chatId", "threadId", "at"])
+		.index("by_user", ["userId", "chatId", "threadId"])
+		.index("by_workspace", ["workspaceId", "userId"])
+		.index("by_at", ["at"]),
+
 	// One emoji from one person or agent on one message.
 	reactions: defineTable({
 		messageId: v.id("chatMessages"),
@@ -468,7 +482,8 @@ export default defineSchema({
 		.index("by_place", ["agentId", "chatId", "threadId", "status"])
 		.index("by_session", ["sessionId"])
 		.index("by_workspace", ["workspaceId"])
-		.index("by_chat", ["chatId"]),
+		// Also: who's replying in a place right now (typing.ts).
+		.index("by_chat", ["chatId", "threadId", "status"]),
 
 	// One agent's ongoing context in one place (chat + thread). Append-only: past turns
 	// replay exactly as sent, so prompt caching hits. Older turns fold into `summary`.
@@ -721,6 +736,8 @@ export default defineSchema({
 		workspaceId: v.id("workspaces"),
 		/** Set for a record's body; standalone pages have none. */
 		recordId: v.optional(v.id("records")),
+		/** Only standalone pages can be nested. */
+		parentId: v.optional(v.id("pages")),
 		/** Standalone pages only: a record's body shows the record's name. */
 		title: v.string(),
 		/** In Trash (the `trash` table says who deleted it, and when). */
@@ -730,7 +747,18 @@ export default defineSchema({
 		updatedBy: v.id("users"),
 	})
 		.index("by_workspace", ["workspaceId", "recordId", "archived", "title"])
+		.index("by_parent", ["workspaceId", "parentId", "recordId", "archived", "title"])
 		.searchIndex("search_title", { searchField: "title", filterFields: ["workspaceId", "archived"] }),
+
+	pageMoves: defineTable({
+		workspaceId: v.id("workspaces"),
+		pageId: v.id("pages"),
+		n: v.number(),
+		userId: v.id("users"),
+		agentId: v.optional(v.id("agents")),
+		from: v.string(),
+		to: v.string(),
+	}).index("by_page", ["pageId", "n"]).index("by_workspace", ["workspaceId"]),
 
 	// A page's history: one row per run of edits, like Notion's: whoever started it, and
 	// anyone else who edited meanwhile. Its content is the component's snapshot at `version`; the rest are pruned.
@@ -831,6 +859,8 @@ export default defineSchema({
 		itemId: v.string(),
 		/** Its name when deleted, for listing and search. */
 		name: v.string(),
+		/** Page deletion included live children, captured when it entered Trash. */
+		includesSubpages: v.optional(v.boolean()),
 		/** Records and fields: their database. */
 		typeId: v.optional(v.id("recordTypes")),
 		deletedBy: v.id("users"),

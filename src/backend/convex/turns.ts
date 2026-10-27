@@ -21,7 +21,7 @@ import { messagePart, replyUsage } from "./schema";
 // One `running` turn per agent per place (chat + thread); the rest wait in order.
 
 /** A running turn this old (e.g. the action crashed) is failed so the queue moves on. */
-const STALE_TURN_MS = 5 * 60_000;
+export const STALE_TURN_MS = 5 * 60_000;
 /** Newest turns kept verbatim when a session is compacted. */
 const KEEP_TOKENS = 15_000;
 

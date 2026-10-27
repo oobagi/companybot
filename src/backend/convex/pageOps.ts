@@ -1,4 +1,5 @@
 import { BlockNoteEditor } from "@blocknote/core";
+import { pageHref } from "@companybot/core/page-links";
 import { ProsemirrorSync } from "@convex-dev/prosemirror-sync";
 import type { Node, Schema } from "@tiptap/pm/model";
 import { Transform } from "@tiptap/pm/transform";
@@ -7,8 +8,9 @@ import { components, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { type Member, type Who, checkPermission, nameOf, requireInWorkspace } from "./lib";
-import { startCascade } from "./cascade";
+import { cascading, startCascade } from "./cascade";
 import { inTrash, requireRecord } from "./recordOps";
+import { pageState, parentFor } from "./pageTree";
 import { putInTrash, takeFromTrash } from "./trashOps";
 
 // Shared rules for standalone pages and record bodies. See wiki/pages.md.
@@ -55,7 +57,7 @@ export const pageOfRecord = (ctx: QueryCtx, workspaceId: Id<"workspaces">, recor
 /** Every member reads every page; `pages.edit` changes them, unless the page or its record is in Trash. */
 export async function requireEditable(ctx: QueryCtx, member: Member, page: Doc<"pages">) {
 	checkPermission(member, "pages.edit");
-	if (page.archived) throw new ConvexError("This page is in Trash. Restore it to make changes.");
+	if ((await pageState(ctx, page)).archived) throw new ConvexError("This page is in Trash. Restore it to make changes.");
 	if (page.recordId && (await inTrash(ctx, await requireRecord(ctx, member, page.recordId)))) throw new ConvexError("This record is in Trash. Restore it to make changes.");
 }
 
@@ -67,8 +69,10 @@ function cleanTitle(title: string) {
 }
 
 /** A standalone page, or a record's body (returned if it already has one). Starts empty. */
-export async function createPage(ctx: MutationCtx, { member }: Who, to: { title: string } | { recordId: Id<"records"> }) {
+export async function createPage(ctx: MutationCtx, { member }: Who, to: { title: string; parentId?: Id<"pages"> } | { recordId: Id<"records"> }) {
 	checkPermission(member, "pages.edit");
+	const parentId = "parentId" in to ? to.parentId : undefined;
+	if (parentId) await parentFor(ctx, member, parentId);
 	let recordId: Id<"records"> | undefined;
 	if ("recordId" in to) {
 		const record = await requireRecord(ctx, member, to.recordId);
@@ -80,6 +84,7 @@ export async function createPage(ctx: MutationCtx, { member }: Who, to: { title:
 	const pageId = await ctx.db.insert("pages", {
 		workspaceId: member.workspaceId,
 		...(recordId && { recordId }),
+		...(parentId && { parentId }),
 		title: "title" in to ? cleanTitle(to.title) : "",
 		archived: false,
 		createdBy: member.userId,
@@ -90,10 +95,24 @@ export async function createPage(ctx: MutationCtx, { member }: Who, to: { title:
 	return pageId;
 }
 
-export async function renamePage(ctx: MutationCtx, { member }: Who, page: Doc<"pages">, title: string) {
-	await requireEditable(ctx, member, page);
+export async function renamePage(ctx: MutationCtx, who: Who, page: Doc<"pages">, title: string) {
+	await requireEditable(ctx, who.member, page);
 	if (page.recordId) throw new ConvexError("A record's page takes the record's name. Rename the record instead.");
-	await ctx.db.patch(page._id, { title: cleanTitle(title), updatedAt: Date.now(), updatedBy: member.userId });
+	const clean = cleanTitle(title);
+	await ctx.db.patch(page._id, { title: clean, updatedAt: Date.now(), updatedBy: who.member.userId });
+	// Page links are plain link marks whose text is the title when inserted (alpha.7 can't render live titles),
+	// so keep the parent's links in step, as an edit by whoever renamed. Reworded links and other pages' links stay.
+	const parent = page.parentId && clean !== page.title && (await ctx.db.get(page.parentId));
+	if (parent) await writeDoc(ctx, who, parent, (doc) => relabelLinks(doc, pageHref(page._id), page.title, clean));
+}
+
+function relabelLinks(doc: Node, href: string, from: string, to: string) {
+	const tr = new Transform(doc);
+	doc.descendants((node, pos) => {
+		if (node.text === from && node.marks.some((m) => m.type.name === "link" && m.attrs.href === href))
+			tr.replaceWith(tr.mapping.map(pos), tr.mapping.map(pos + node.nodeSize), doc.type.schema.text(to, node.marks));
+	});
+	return tr;
 }
 
 /** Moves a standalone page to Trash or back. A record's page goes with its record. */
@@ -101,16 +120,30 @@ export async function setPageTrashed(ctx: MutationCtx, who: Who, page: Doc<"page
 	checkPermission(who.member, "pages.edit");
 	if (page.recordId) throw new ConvexError("A record's page goes to Trash with its record.");
 	if (page.archived === archived) return;
-	if (archived) await putInTrash(ctx, who, { kind: "page", id: page._id, name: page.title });
-	else await takeFromTrash(ctx, who, page._id);
+	if (archived) await requireEditable(ctx, who.member, page);
+	if (archived) {
+		const child = await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", page.workspaceId).eq("parentId", page._id).eq("recordId", undefined).eq("archived", false)).first();
+		await putInTrash(ctx, who, { kind: "page", id: page._id, name: page.title, includesSubpages: !!child });
+	}
+	else {
+		await takeFromTrash(ctx, who, page._id);
+		if (page.parentId) {
+			const parent = await ctx.db.get(page.parentId);
+			const state = parent ? await pageState(ctx, parent) : null;
+			const missingId = state?.missingId ?? (!parent ? page.parentId : undefined);
+			if (missingId && await cascading(ctx, "page", { workspaceId: page.workspaceId, pageId: missingId })) throw new ConvexError("This page is being deleted forever.");
+			if (!parent || state?.archived) await ctx.db.patch(page._id, { parentId: undefined });
+		}
+	}
 	await ctx.db.patch(page._id, { archived, updatedAt: Date.now(), updatedBy: who.member.userId });
 }
 
 /** Deletes a page for good: its row at once, then its content (a little at a time) and its versions. */
 export async function deletePage(ctx: MutationCtx, pageId: Id<"pages">) {
+	const page = await ctx.db.get(pageId);
 	await ctx.db.delete(pageId);
 	await ctx.scheduler.runAfter(0, internal.pageSync.deleteDoc, { id: pageId });
-	await startCascade(ctx, "page", { pageId });
+	await startCascade(ctx, "page", { pageId, ...(page && { workspaceId: page.workspaceId }) });
 }
 
 export const latestVersionOf = (ctx: QueryCtx, pageId: Id<"pages">) =>

@@ -1,5 +1,5 @@
 import type { Doc, Id } from "@companybot/backend/convex/_generated/dataModel";
-import { useRef, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { ArrowUpIcon } from "../../icons";
 import { Avatar } from "./common";
 import type { Mentions, Participant } from "./data";
@@ -21,13 +21,16 @@ export function Composer({
 	onSend,
 	sendWith,
 	placeholder,
-	hint,
+	status,
+	onType,
 	candidates,
 }: {
 	onSend: (text: string, mentions: Mentions) => void;
 	sendWith: SendWith;
 	placeholder: string;
-	hint?: string;
+	/** The line under the box (who's typing). Its space is kept when empty, so the box doesn't jump. */
+	status?: ReactNode;
+	onType?: () => void;
 	/** People and agents offered by @mention autocomplete. */
 	candidates: Participant[];
 }) {
@@ -103,6 +106,7 @@ export function Composer({
 					autoFocus
 					onChange={(e) => {
 						setText(e.target.value);
+						if (e.target.value.trim()) onType?.();
 						track(e.target);
 						setIndex(0);
 						setDismissed(undefined);
@@ -145,7 +149,9 @@ export function Composer({
 					<ArrowUpIcon weight="bold" />
 				</button>
 			</form>
-			{hint && <p className="px-4 text-xs text-neutral-400">{hint}</p>}
+			<p className="h-4 truncate px-4 text-xs text-neutral-400" aria-live="polite">
+				{status}
+			</p>
 		</div>
 	);
 }

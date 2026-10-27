@@ -69,6 +69,7 @@ export function TrashView({ role }: { role: Role }) {
 									) : (
 										<span className="font-medium">{e.name}</span>
 									)}
+									{e.hasChildren && <span className={`ml-2 ${metadataClass}`}>includes sub-pages</span>}
 									{e.in && <span className={`ml-2 ${metadataClass}`}>in {e.in}</span>}
 								</span>
 								<span className={`ml-auto shrink-0 ${metadataClass}`}>
