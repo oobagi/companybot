@@ -84,7 +84,7 @@ export function Composer({
 								onMouseEnter={() => setIndex(i)}
 								className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm ${i === active ? "bg-neutral-100" : ""}`}
 							>
-								<Avatar name={c.name} agent={c.type === "agent"} size="sm" />
+								<Avatar name={c.name} image={c.image} agent={c.type === "agent"} size="sm" />
 								<span className="flex-1 truncate">{c.name}</span>
 								{c.type === "agent" && <span className="text-xs text-neutral-400">Agent</span>}
 							</button>

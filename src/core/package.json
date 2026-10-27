@@ -13,7 +13,8 @@
     "./records": "./src/records.ts",
     "./skills": "./src/skills.ts",
     "./action-words": "./src/action-words.ts",
-    "./typing": "./src/typing.ts"
+    "./typing": "./src/typing.ts",
+    "./images": "./src/images.ts"
   },
   "scripts": {
     "test": "vitest run",

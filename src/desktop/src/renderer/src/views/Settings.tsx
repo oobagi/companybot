@@ -37,6 +37,7 @@ import {
 	UserIcon,
 } from "../icons";
 import { ActivityTab } from "./Activity";
+import { ImagePicker } from "./ImagePicker";
 import { Confirm, Modal, zoneLabel } from "./chat/common";
 import { Group, Item } from "./chat/Sidebar";
 import { type CustomizeTab, CustomizeView, customizeTabs } from "./customize";
@@ -246,7 +247,7 @@ function GeneralForm({
 	settings,
 	isOwner,
 }: {
-	settings: { name: string; currency: string; memory: boolean; hasAmounts: boolean; version: number };
+	settings: { name: string; currency: string; memory: boolean; hasAmounts: boolean; image: string | null; version: number };
 	isOwner: boolean;
 }) {
 	const save = useMutation(api.workspace.updateSettings);
@@ -261,6 +262,9 @@ function GeneralForm({
 			{draft.stale && <ConflictNotice onDiscard={draft.discard} onKeep={draft.keepMine} />}
 			{error && <Notice>{error}</Notice>}
 			<Settings title="Workspace" hint={ownerOnly}>
+				<Setting label="Logo" hint="Next to its name in the sidebar. PNG, JPEG, WebP or GIF, up to 2 MB.">
+					<ImagePicker of="workspace" name={settings.name} image={settings.image} agent disabled={!isOwner} />
+				</Setting>
 				<Setting label="Name">
 					<input
 						className={`${compactControlClass} w-64`}
@@ -316,7 +320,10 @@ function ProfileTab() {
 	return (
 		<>
 			{error && <Notice>{error}</Notice>}
-			<Settings title="You" hint="Only you see these, except your name and time zone. They follow you to every device.">
+			<Settings title="You" hint="Only you see these, except your photo, name and time zone. They follow you to every device.">
+				<Setting label="Photo" hint="Shown to your team in every workspace. PNG, JPEG, WebP or GIF, up to 2 MB.">
+					<ImagePicker of="me" name={prefs.displayName || me?.email || ""} image={prefs.image} />
+				</Setting>
 				<Setting label="Name" hint="What agents and teammates call you.">
 					<form
 						className="flex gap-2"

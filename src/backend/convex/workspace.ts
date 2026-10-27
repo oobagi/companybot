@@ -9,8 +9,9 @@ import { seedAgents } from "./agents";
 import { fieldsOf, typesOf } from "./recordOps";
 import { addToChat, ensureGeneral } from "./chatOps";
 import { sendInviteEmail } from "./invites";
-import { type Member, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, legacyMemberOf, liveWorkspace, memberOf, nameOf, namesOf, normalizeEmail, pinLegacyWorkspace, preferencesOf, requireMember, requirePermission, timeZoneOf } from "./lib";
+import { type Member, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, legacyMemberOf, liveWorkspace, memberOf, nameOf, normalizeEmail, personOf, pinLegacyWorkspace, preferencesOf, requireMember, requirePermission, timeZoneOf } from "./lib";
 import { cascading, startCascade } from "./cascade";
+import { imageUrl } from "./images";
 import { removeWorkspace } from "./lifecycle";
 import { role } from "./schema";
 
@@ -28,6 +29,8 @@ export const me = query({
 			role: member?.role ?? null,
 			workspace: workspace?.name ?? null,
 			workspaceId: workspace?._id ?? null,
+			/** Its logo's URL, or null for its initials. */
+			workspaceImage: await imageUrl(ctx, workspace?.image),
 		};
 	},
 });
@@ -118,7 +121,7 @@ export const mine = query({
 		const workspaces = [];
 		for (const row of rows) {
 			const workspace = await liveWorkspace(ctx, row.workspaceId);
-			if (workspace) workspaces.push({ id: workspace._id, name: workspace.name, role: row.role });
+			if (workspace) workspaces.push({ id: workspace._id, name: workspace.name, role: row.role, image: await imageUrl(ctx, workspace.image) });
 		}
 		const invitations = [];
 		for (const invite of await invitesFor(ctx, userId)) {
@@ -178,21 +181,22 @@ export const team = query({
 		const member = await getMember(ctx);
 		if (!member) return null;
 		const rows = await membersOf(ctx, member.workspaceId);
-		const names = await namesOf(
-			ctx,
-			rows.map((r) => r.userId),
-		);
 		const members = await Promise.all(
-			rows.map(async (r) => ({
-				id: r._id,
-				userId: r.userId,
-				role: r.role,
-				name: names.get(r.userId) ?? "",
-				email: (await ctx.db.get(r.userId))?.email ?? "",
-				isYou: r.userId === member.userId,
-				/** For profiles: the zone they picked, else their computer's. */
-				timeZone: await timeZoneOf(ctx, r.userId),
-			})),
+			rows.map(async (r) => {
+				const person = await personOf(ctx, r.userId);
+				return {
+					id: r._id,
+					userId: r.userId,
+					role: r.role,
+					name: person.name,
+					/** Their photo's URL, or null for their initials. */
+					image: await imageUrl(ctx, person.image),
+					email: (await ctx.db.get(r.userId))?.email ?? "",
+					isYou: r.userId === member.userId,
+					/** For profiles: the zone they picked, else their computer's. */
+					timeZone: await timeZoneOf(ctx, r.userId),
+				};
+			}),
 		);
 		const invites =
 			can(member.role, "members.manage")
@@ -417,6 +421,8 @@ export const settings = query({
 			currency: workspace.currency ?? DEFAULT_CURRENCY,
 			/** Whether agents read and write memories. */
 			memory: workspace.memory ?? true,
+			/** Its logo's URL, or null for its initials. */
+			image: await imageUrl(ctx, workspace.image),
 			/** Whether any live record has an amount, so the app can say they keep their currency. */
 			hasAmounts: await hasAmounts(ctx, workspace._id),
 			version: workspace.version ?? 0,

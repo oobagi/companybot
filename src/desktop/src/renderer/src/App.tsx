@@ -94,10 +94,10 @@ function Workspace() {
 function Opened() {
 	const me = useQuery(api.workspace.me);
 	if (!me?.role) return null;
-	return <Shell email={me.email} role={me.role} workspace={me.workspace ?? ""} />;
+	return <Shell email={me.email} role={me.role} workspace={me.workspace ?? ""} logo={me.workspaceImage} />;
 }
 
-function Shell({ email, role, workspace }: { email: string; role: Role; workspace: string }) {
+function Shell({ email, role, workspace, logo }: { email: string; role: Role; workspace: string; logo: string | null }) {
 	const { signOut } = useAuthActions();
 	const chats = useQuery(api.chats.list);
 	const prefs = useQuery(api.preferences.get);
@@ -155,7 +155,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 									</Item>
 								</div>
 							) : (
-								<WorkspaceMenu name={workspace} />
+								<WorkspaceMenu name={workspace} logo={logo} />
 							)}
 						</div>
 					}
@@ -168,6 +168,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 							)}
 							<YouMenu
 								name={prefs?.displayName || email}
+								image={prefs?.image}
 								email={email}
 								role={role}
 								onSettings={() => navigate(...(lastPath.current.settings ?? ["settings"]))}
@@ -227,12 +228,27 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 }
 
 /** You, at the bottom of the sidebar: who you're signed in as, Settings, and Sign out. */
-function YouMenu({ name, email, role, onSettings, onSignOut }: { name: string; email: string; role: Role; onSettings: () => void; onSignOut: () => void }) {
+function YouMenu({
+	name,
+	image,
+	email,
+	role,
+	onSettings,
+	onSignOut,
+}: {
+	name: string;
+	image?: string | null;
+	email: string;
+	role: Role;
+	onSettings: () => void;
+	onSignOut: () => void;
+}) {
 	return (
 		<Popover
 			trigger={
 				<>
-					<Avatar name={name} size="sm" />
+					{/* The size of the sidebar's icons, so your name lines up with the labels above. */}
+					<Avatar name={name} image={image} size="xs" />
 					<span className="min-w-0 flex-1">
 						<span className="block truncate font-medium text-neutral-800">{name}</span>
 						<span className="block text-xs text-neutral-500 capitalize">{role}</span>
@@ -245,7 +261,7 @@ function YouMenu({ name, email, role, onSettings, onSignOut }: { name: string; e
 			{(close) => (
 				<>
 					<div className="flex items-center gap-3 px-2 py-2">
-						<Avatar name={name} />
+						<Avatar name={name} image={image} />
 						<div className="min-w-0">
 							<p className="truncate font-semibold">{name}</p>
 							{name !== email && <p className="truncate text-neutral-500">{email}</p>}

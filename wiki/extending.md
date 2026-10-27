@@ -93,7 +93,7 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 - Never hand-write a delete loop for something going away. End access in the mutation (delete the gate row, or mark it), then `startCascade`. Anything that could bring old rows back (rejoining, reinstalling) checks `cascading` first.
 - A mutation an action calls after a wait (a model call, a connector, a provider's redirect) rechecks what it writes under: a live workspace, the same install or membership. Otherwise its row can land after the cascade passed that table.
 - Functions keyed on the signed-in person use `authUserId` (lib.ts), never `getAuthUserId`, so an erased account's old token acts as nobody.
-- The first table whose rows own storage files (call recordings) adds deleting them with each row to the runner; nothing does yet.
+- Rows that hold storage files list those fields in `files`; the runner deletes the files with each row. Replacing a file in a mutation deletes the old one (`deleteFile`, images.ts).
 - Write-backs of what only the actor sees (`agentActivity.output`, `approvals.result`) drop it if the actor was erased (`erased`, lib.ts).
 - Pointing at `users` is always safe: accounts are scrubbed, never deleted.
 

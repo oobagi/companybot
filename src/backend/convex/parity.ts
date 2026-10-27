@@ -29,6 +29,10 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"connectors.disconnect": { humanOnly: "Revokes the personal or shared account credential; direct person controls connected account authority." },
 	"databaseViews.save": { agent: ["records.save_view"] },
 	"databaseViews.remove": { agent: ["records.save_view"] },
+	"images.set": {
+		agent: ["workspace.settings:remove_image", "agents.manage:remove_image"],
+		humanOnly: "Agents can't make image files: a person uploads one from their device (an HTTP upload, then this). Agents can reset a picture to initials.",
+	},
 	"fields.create": { agent: ["records.save_field"] },
 	"fields.update": { agent: ["records.save_field"] },
 	"fields.archive": { agent: ["records.save_field"] },

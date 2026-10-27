@@ -20,7 +20,7 @@ export function ApprovalMessages({ message, parts }: { message: Message; parts: 
 	return parts.map((part) => (
 		<div key={part.id} className="flex gap-3 px-5 pt-2 pb-0.5">
 			<div className="flex w-9 shrink-0 justify-center">
-				<Avatar name={message.author.name} agent />
+				<Avatar name={message.author.name} image={message.author.image} agent />
 			</div>
 			<div className="flex min-w-0 flex-1 flex-col gap-1">
 				<div className="flex items-baseline gap-2">

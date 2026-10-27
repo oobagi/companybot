@@ -165,6 +165,8 @@ export default defineSchema({
 		memory: v.optional(v.boolean()),
 		/** Set when an owner deletes it: every access refuses at once, then a cascade deletes its rows (lifecycle.ts). */
 		deleting: v.optional(v.boolean()),
+		/** Its logo (images.ts). Unset shows its initials. */
+		image: v.optional(v.id("_storage")),
 	}),
 
 	members: defineTable({
@@ -210,6 +212,8 @@ export default defineSchema({
 		version: v.number(),
 		updatedAt: v.number(),
 		updatedBy: v.id("users"),
+		/** Its picture (images.ts): not part of its config, so versions and restores leave it alone. Unset shows its initials. */
+		image: v.optional(v.id("_storage")),
 	}).index("by_workspace", ["workspaceId"]).index("by_workspace_active", ["workspaceId", "archived"]),
 
 	agentVersions: defineTable({
@@ -279,9 +283,25 @@ export default defineSchema({
 		deviceTimeZone: v.optional(v.string()),
 		/** The workspace they used last: only a hint for a device opening for the first time. Each device keeps its own. */
 		workspaceId: v.optional(v.id("workspaces")),
+		/** Their photo (images.ts), shown in every workspace. Unset shows their initials. */
+		image: v.optional(v.id("_storage")),
 	})
 		.index("by_user", ["userId"])
 		.index("by_workspace", ["workspaceId"]),
+
+	// Files people uploaded (images.ts), not yet attached to anything. Attaching one uses its row up;
+	// rows nobody claims go after a day, with their files (images.sweepUploads).
+	uploads: defineTable({
+		storageId: v.id("_storage"),
+		userId: v.id("users"),
+		/** The workspace the app had open. */
+		workspaceId: v.optional(v.id("workspaces")),
+		createdAt: v.number(),
+	})
+		.index("by_storage", ["storageId"])
+		.index("by_user", ["userId"])
+		.index("by_workspace", ["workspaceId"])
+		.index("by_created", ["createdAt"]),
 
 	// Connectors: an owner installs one and picks which roles may use it.
 	connectorInstalls: defineTable({
