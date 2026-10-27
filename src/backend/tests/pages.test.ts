@@ -199,7 +199,7 @@ describe("pages", () => {
 		await type(t, member, pageId, "Agenda");
 		await member.mutation(api.trash.move, { kind: "page", id: pageId });
 		expect(await owner.query(api.pages.list, {})).toEqual([]);
-		expect(await member.query(api.pages.get, { pageId })).toMatchObject({ archived: true, canEdit: false, trash: { by: "member@co.com", canRestore: true } });
+		expect(await member.query(api.pages.get, { pageId })).toMatchObject({ archived: true, canEdit: false, trash: { user: "member@co.com", canRestore: true } });
 		await expect(type(t, member, pageId, "more")).rejects.toThrow("in Trash");
 		await expect(member.mutation(api.trash.purge, { id: pageId })).rejects.toThrow("permission");
 		await owner.mutation(api.trash.purge, { id: pageId });

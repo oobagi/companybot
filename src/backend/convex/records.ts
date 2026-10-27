@@ -63,7 +63,7 @@ export const list = query({
 	},
 });
 
-/** One record with its type and fields, or null if it isn't in your workspace. `trash`: it's in Trash, on its own or with its database. */
+/** One record with its type and fields, or null if it isn't in your workspace. `archived`: in Trash, on its own or with its database. */
 export const get = query({
 	args: { recordId: v.id("records") },
 	handler: async (ctx, { recordId }) => {
@@ -76,7 +76,7 @@ export const get = query({
 		return {
 			...row!,
 			archived: await inTrash(ctx, record),
-			trash: (await trashInfo(ctx, member, record._id)) ?? (type.archived ? await trashInfo(ctx, member, type._id) : null),
+			trash: await trashInfo(ctx, member, record._id),
 			type: { _id: type._id, key: type.key, name: type.name, plural: type.plural },
 			fields: fields.filter((f) => !f.archived).map((f) => ({ _id: f._id, ...toField(f) })),
 		};

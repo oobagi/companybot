@@ -27,7 +27,7 @@ import {
 } from "./logic";
 
 // One database's list: a table with chosen columns, sort by any column, filters,
-// search, archived behind a toggle, and pages that keep loading as you scroll.
+// search, and pages that keep loading as you scroll. Deleted records are in Trash.
 
 type Sort = { field: string; order: "asc" | "desc" };
 
@@ -66,16 +66,13 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 	const [naming, setNaming] = useState<"new" | "edit">();
 	const [editingDatabase, setEditingDatabase] = useState(false);
 	const [search, setSearch] = useState("");
-	const [archived, setArchived] = useState(false);
 	const [creating, setCreating] = useState(false);
 	const { error, run } = useRun();
 	const shown = columns.map((k) => fields.find((f) => f.key === k)!);
 	const conditions = filters.map(toCondition).filter((c) => c !== null);
 	const canEdit = can(role, "records.edit");
-	// Archived lists can't sort by a field (archived records aren't indexed).
-	const activeSort = archived && sort && !["createdAt", "updatedAt"].includes(sort.field) ? undefined : sort;
-	const sortField = activeSort && fields.find((f) => f.key === activeSort.field);
-	const args = { typeId: type._id, archived, filters: conditions, sort: activeSort };
+	const sortField = sort && fields.find((f) => f.key === sort.field);
+	const args = { typeId: type._id, filters: conditions, sort };
 	const noun = type.plural.toLowerCase();
 	const tabClass = "px-3 py-2 text-sm text-neutral-500 hover:text-neutral-800";
 
@@ -133,10 +130,6 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 					+ Filter
 				</button>
 				<ColumnsPicker fields={fields} columns={columns} onChange={setColumns} />
-				<label className="ml-auto flex items-center gap-2 text-neutral-600">
-					<input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} />
-					Show archived
-				</label>
 			</div>
 			{filters.length > 0 && (
 				<div className="-mt-2 flex flex-col gap-2">
@@ -169,12 +162,11 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 							type={type}
 							args={args}
 							columns={shown}
-							sort={activeSort}
+							sort={sort}
 							onSort={setSort}
-							canSortFields={!archived}
 							empty={
-								filters.length || archived ? (
-									<p className={descriptionClass}>No {archived ? "archived " : ""}{noun} {filters.length ? "match these filters" : ""}.</p>
+								filters.length ? (
+									<p className={descriptionClass}>No {noun} match these filters.</p>
 								) : (
 									<div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-neutral-200 px-6 py-8">
 										<p className="text-neutral-600">No {noun} yet.</p>
@@ -231,15 +223,13 @@ function Table({
 	columns,
 	sort,
 	onSort,
-	canSortFields,
 	empty,
 }: {
 	type: RecordType;
-	args: { typeId: Id<"recordTypes">; archived: boolean; filters: Record<string, unknown>[]; sort?: Sort };
+	args: { typeId: Id<"recordTypes">; filters: Record<string, unknown>[]; sort?: Sort };
 	columns: TypeField[];
 	sort?: Sort;
 	onSort: (sort: Sort | undefined) => void;
-	canSortFields: boolean;
 	empty: React.ReactNode;
 }) {
 	const { results, status, loadMore } = usePaginatedQuery(api.records.list, args as never, { initialNumItems: 25 });
@@ -291,7 +281,7 @@ function Table({
 					refs={refs}
 					columns={columns}
 					head={[
-						...columns.map((f) => header(f.key, f.label, canSortFields && sortable(f))),
+						...columns.map((f) => header(f.key, f.label, sortable(f))),
 						header("updatedAt", "Updated", true),
 					]}
 				/>
@@ -320,7 +310,6 @@ function RowsTable({ type, rows, refs, columns, head }: { type: RecordType; rows
 							{columns.map((f, i) => (
 								<td key={f.key} className={`max-w-64 truncate px-3 py-2 ${i === 0 ? "font-medium" : "text-neutral-700"}`}>
 									{valueText(f, r.values[f.key], refs)}
-									{i === 0 && r.archived && <span className="ml-2 text-xs font-normal text-neutral-400">Archived</span>}
 								</td>
 							))}
 							<td className="px-3 py-2 whitespace-nowrap text-neutral-400">{timeAgo(r.updatedAt)}</td>

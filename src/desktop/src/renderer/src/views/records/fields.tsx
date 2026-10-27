@@ -14,7 +14,7 @@ import { type Refs, type TypeField, moneyInput, recordPath, valueText } from "./
 
 const editable = "w-full rounded-lg border border-transparent px-2 py-1 outline-none hover:border-neutral-200 focus:border-neutral-400";
 
-/** A value, read-only. Links open their record; archived ones say so. */
+/** A value, read-only. Links open their record; ones to a deleted record say so and don't open. */
 export function ValueView({ field, value, refs }: { field: TypeField; value: FieldValue | undefined; refs: Refs }) {
 	if (value === undefined) return <span className="text-neutral-300">—</span>;
 	if (field.kind === "link") return <LinkChips field={field} ids={[value].flat().map(String)} refs={refs} />;
@@ -35,13 +35,13 @@ function LinkChips({ field, ids, refs, onRemove }: { field: TypeField; ids: stri
 		<span className="flex flex-wrap gap-1.5">
 			{ids.map((id) => (
 				<Chip key={id} onRemove={onRemove && (() => onRemove(id))}>
-					<button
-						type="button"
-						onClick={() => key && navigate(...recordPath(key, id))}
-						className={`hover:underline ${refs[id]?.archived ? "text-neutral-400" : ""}`}
-					>
-						{valueText(field, id, refs)}
-					</button>
+					{refs[id]?.archived ? (
+						<span className="text-neutral-400">{valueText(field, id, refs)}</span>
+					) : (
+						<button type="button" onClick={() => key && navigate(...recordPath(key, id))} className="hover:underline">
+							{valueText(field, id, refs)}
+						</button>
+					)}
 				</Chip>
 			))}
 		</span>

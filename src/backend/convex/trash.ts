@@ -65,9 +65,10 @@ export type TrashRow = {
 	kind: TrashKind;
 	itemId: string;
 	name: string;
-	/** Records and fields: their database's name. */
+	/** Records and fields: their database's name, and its key (records open at it). */
 	in: string | null;
-	by: string;
+	typeKey: string | null;
+	user: string;
 	agent: string | null;
 	deletedAt: number;
 	canRestore: boolean;
@@ -93,13 +94,15 @@ export const list = query({
 				: await trash.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId)).order("desc").paginate(opts);
 		const page = [];
 		for (const e of result.page) {
+			const type = e.typeId && (await ctx.db.get(e.typeId));
 			page.push({
 				_id: e._id,
 				kind: e.kind,
 				itemId: e.itemId,
 				name: e.name,
-				in: e.typeId ? ((await ctx.db.get(e.typeId))?.plural ?? null) : null,
-				by: await nameOf(ctx, e.deletedBy),
+				in: type ? type.plural : null,
+				typeKey: type ? type.key : null,
+				user: await nameOf(ctx, e.deletedBy),
 				agent: e.agentId ? ((await ctx.db.get(e.agentId))?.name ?? null) : null,
 				deletedAt: e.deletedAt,
 				canRestore: canRestore(member, e),

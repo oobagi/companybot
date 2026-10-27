@@ -16,6 +16,7 @@ export function DatabaseDialog({ type, onClose }: { type?: RecordType; onClose: 
 	}, [types, created, onClose]);
 	const create = useMutation(api.recordTypes.create);
 	const update = useMutation(api.recordTypes.update);
+	const remove = useMutation(api.trash.move);
 	const draft = useDraft({ name: type?.name ?? "", plural: type?.plural ?? "" }, type?.version ?? 0);
 	const { error, run } = useRun();
 	return (
@@ -37,7 +38,7 @@ export function DatabaseDialog({ type, onClose }: { type?: RecordType; onClose: 
 				)}
 				<div className="flex items-center gap-2">
 					<button type="submit" disabled={draft.stale} className={primaryButton}>{type ? "Save" : "Create database"}</button>
-					{type && <button type="button" disabled={draft.stale} className={dangerButton} onClick={() => confirm(`Archive ${type.plural}? Its records and views are kept.`) && run(update({ typeId: type._id, archived: true, version: draft.base }), () => { onClose(); navigate("chat"); })}>Archive database</button>}
+					{type && <button type="button" className={dangerButton} onClick={() => confirm(`Delete ${type.plural}? It goes to Trash with its records, and can be restored for 30 days.`) && run(remove({ kind: "database", id: type._id }), () => { onClose(); navigate("chat"); })}>Delete database</button>}
 				</div>
 			</form>
 		</Modal>

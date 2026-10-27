@@ -171,7 +171,7 @@ export function ChannelDetails({ chat, onClose, onLeft }: { chat: ChatDetails; o
 							))}
 						</ul>
 					</section>
-					{isChannel && !chat.isDefault && <LeaveButton chatId={chat._id} onLeft={() => (onClose(), onLeft())} />}
+					{isChannel && !chat.isDefault && <LeaveButton chat={chat} onLeft={() => (onClose(), onLeft())} />}
 				</>
 			)}
 		</Modal>
@@ -246,19 +246,28 @@ function AddMembers({ chat, onDone }: { chat: ChatDetails; onDone: () => void })
 	);
 }
 
-function LeaveButton({ chatId, onLeft }: { chatId: Id<"chats">; onLeft: () => void }) {
+/** Leave, and for its managers, delete (to Trash). */
+function LeaveButton({ chat, onLeft }: { chat: ChatDetails; onLeft: () => void }) {
 	const leave = useMutation(api.chats.leave);
+	const remove = useMutation(api.trash.move);
 	const { error, run } = useRun();
 	return (
 		<>
 			{error && <Notice>{error}</Notice>}
-			<button
-				type="button"
-				onClick={() => run(leave({ chatId }), onLeft)}
-				className="self-start text-sm text-red-600 hover:text-red-800"
-			>
-				Leave channel
-			</button>
+			<div className="flex gap-4 text-sm">
+				<button type="button" onClick={() => run(leave({ chatId: chat._id }), onLeft)} className="text-red-600 hover:text-red-800">
+					Leave channel
+				</button>
+				{chat.canManage && !chat.trash && (
+					<button
+						type="button"
+						onClick={() => confirm(`Delete #${chat.name}? It goes to Trash with its messages, and can be restored for 30 days.`) && run(remove({ kind: "channel", id: chat._id }), onLeft)}
+						className="text-red-600 hover:text-red-800"
+					>
+						Delete channel
+					</button>
+				)}
+			</div>
 		</>
 	);
 }

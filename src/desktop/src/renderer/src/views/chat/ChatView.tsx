@@ -9,6 +9,7 @@ import { type ChatDetails, type Mentions, chatTitle, useDirectory } from "./data
 import { ChannelDetails } from "./dialogs";
 import { MessageList } from "./MessageList";
 import { ThreadPanel } from "./Thread";
+import { TrashNotice } from "../Trash";
 
 const suggestions = [
 	"What do you remember about me?",
@@ -150,7 +151,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 						/>
 						<div className="flex flex-col gap-2 px-5 pb-5">
 							{error && <Notice>{error}</Notice>}
-							{composer}
+							{chat.trash ? <TrashNotice trash={chat.trash} /> : composer}
 						</div>
 					</>
 				)}

@@ -13,6 +13,7 @@ import { type RecordType, useTypes } from "./data";
 import { PageEditor } from "../pages/PageEditor";
 import { PageHistory } from "../pages/PageHistory";
 import { PageTitle } from "../pages/PageTitle";
+import { TrashNotice } from "../Trash";
 import { AddField, EditField } from "./fieldDialogs";
 import { ValueEditor, ValueView } from "./fields";
 import { type Refs, type TypeField, actionLabels, recordPath, valueText, whoLabel } from "./logic";
@@ -25,9 +26,8 @@ export function RecordPage({ type, recordId, role }: { type: RecordType; recordI
 	const record = useQuery(api.records.get, { recordId });
 	const pageId = useQuery(api.pages.forRecord, { recordId });
 	const [history, setHistory] = useState(false);
-	const archive = useMutation(api.records.archive);
+	const remove = useMutation(api.trash.move);
 	const update = useMutation(api.records.update);
-	const restore = useMutation(api.records.restore);
 	const { error, run } = useRun();
 	const back = { label: type.plural, to: recordPath(type.key) };
 	if (record === undefined) return <Page title="" back={back}><Loading /></Page>;
@@ -43,22 +43,18 @@ export function RecordPage({ type, recordId, role }: { type: RecordType; recordI
 	return (
 		<Page
 			title={<PageTitle title={record.title} editable={canEdit && !record.archived} onSave={(name) => update({ recordId, values: { name } })} />}
-			subtitle={record.archived ? `${type.name} · Archived` : type.name}
+			subtitle={record.archived ? `${type.name} · In Trash` : type.name}
 			back={back}
 			actions={<div className="flex gap-4">
 				<button type="button" onClick={() => setHistory(true)} className={`${descriptionClass} hover:text-neutral-900`}>History</button>
-				{canEdit && <button type="button" onClick={() => run(record.archived ? restore({ recordId }) : archive({ recordId }))} className={`${descriptionClass} hover:text-neutral-900`}>{record.archived ? "Restore" : "Archive"}</button>}
+				{canEdit && !record.archived && <button type="button" onClick={() => run(remove({ kind: "record", id: recordId }))} className={`${descriptionClass} hover:text-red-600`}>Delete</button>}
 			</div>}
 		>
 			{error && <Notice>{error}</Notice>}
-			{record.archived && (
-				<p className="-mt-3 rounded-xl bg-neutral-50 px-4 py-3 text-sm text-neutral-600">
-					Archived: it's out of lists and search, and links to it show as archived.{canEdit && " Restore it to make changes."}
-				</p>
-			)}
+			{record.trash && <TrashNotice trash={record.trash} />}
 			<Fields type={type} record={record} role={role} editable={canEdit && !record.archived} />
 			<Body recordId={recordId} pageId={pageId} editable={can(role, "pages.edit") && !record.archived} />
-			<Linked recordId={recordId} archived={record.archived} />
+			<Linked recordId={recordId} />
 			<Discussion recordId={recordId} />
 			<RecordHistory open={history} onClose={() => setHistory(false)} type={type} recordId={recordId} pageId={pageId} canUndo={canEdit} canRestore={can(role, "pages.edit") && !record.archived} />
 		</Page>
@@ -91,7 +87,6 @@ function Fields({ type, record, role, editable }: { type: RecordType; record: Re
 	const [editing, setEditing] = useState<TypeField>();
 	// The name is the page's title, edited there like Notion's.
 	const live = type.fields.filter((f) => !f.archived && f.key !== NAME_KEY) as TypeField[];
-	const archived = type.fields.filter((f) => f.archived && f.canEdit) as TypeField[];
 	return (
 		<section className="flex flex-col gap-1">
 			<dl className="grid grid-cols-[10rem_1fr] items-start gap-x-4 gap-y-1">
@@ -112,7 +107,6 @@ function Fields({ type, record, role, editable }: { type: RecordType; record: Re
 					</button>
 				)}
 			</div>
-			{archived.length > 0 && <ArchivedFields fields={archived} />}
 			{adding && <AddField type={type} onClose={() => setAdding(false)} />}
 			{editing && <EditField field={editing} onClose={() => setEditing(undefined)} />}
 		</section>
@@ -152,33 +146,11 @@ function FieldRow({ field, record, editable, onEditField }: { field: TypeField; 
 	);
 }
 
-function ArchivedFields({ fields }: { fields: TypeField[] }) {
-	const restore = useMutation(api.fields.restore);
-	const { error, run } = useRun();
-	return (
-		<div className={`flex flex-col gap-1 pt-2 ${descriptionClass}`}>
-			{error && <Notice>{error}</Notice>}
-			<p>
-				Archived fields:{" "}
-				{fields.map((f, i) => (
-					<span key={f._id}>
-						{i > 0 && ", "}
-						{f.label}{" "}
-						<button type="button" onClick={() => run(restore({ fieldId: f._id as Id<"recordFields"> }))} className="hover:text-neutral-900 hover:underline">
-							Restore
-						</button>
-					</span>
-				))}
-			</p>
-		</div>
-	);
-}
-
 /** Live records that link here ("deals for this client"), grouped by type and field. */
-function Linked({ recordId, archived }: { recordId: Id<"records">; archived: boolean }) {
+function Linked({ recordId }: { recordId: Id<"records"> }) {
 	const types = useTypes();
 	const { results, status, loadMore } = usePaginatedQuery(api.records.linked, { recordId }, { initialNumItems: 25 });
-	if (archived || !types || (results.length === 0 && status === "Exhausted")) return null;
+	if (!types || (results.length === 0 && status === "Exhausted")) return null;
 	const groups = new Map<string, typeof results>();
 	for (const r of results) groups.set(`${r.typeId}:${r.fieldId}`, [...(groups.get(`${r.typeId}:${r.fieldId}`) ?? []), r]);
 	return (

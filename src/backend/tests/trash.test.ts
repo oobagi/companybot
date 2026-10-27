@@ -26,12 +26,12 @@ describe("trash", () => {
 	it("moves a record to Trash and back, links included, with who deleted it", async () => {
 		const { owner, member, client, acme, roof } = await seeded();
 		await member.mutation(api.trash.move, { kind: "record", id: acme });
-		expect(await trashOf(owner)).toEqual([expect.objectContaining({ kind: "record", itemId: acme, name: "Acme", in: "Clients", by: "member@co.com", canRestore: true })]);
+		expect(await trashOf(owner)).toEqual([expect.objectContaining({ kind: "record", itemId: acme, name: "Acme", in: "Clients", user: "member@co.com", canRestore: true })]);
 		expect((await owner.query(api.records.list, { typeId: client._id, paginationOpts: page })).page).toEqual([]);
 		expect(await owner.query(api.records.search, { query: "Acme" })).toEqual([]);
 		// Links show it as deleted, and can't be pointed at it again.
 		expect((await owner.query(api.records.get, { recordId: roof }))?.refs[acme]).toEqual({ name: "Acme", archived: true });
-		expect(await owner.query(api.records.get, { recordId: acme })).toMatchObject({ archived: true, trash: { by: "member@co.com", canRestore: true } });
+		expect(await owner.query(api.records.get, { recordId: acme })).toMatchObject({ archived: true, trash: { user: "member@co.com", canRestore: true } });
 		expect(await member.query(api.records.get, { recordId: acme })).toMatchObject({ trash: { canRestore: true } });
 		await expect(owner.mutation(api.records.update, { recordId: roof, values: { client: acme } })).rejects.toThrow("doesn't exist");
 		await expect(member.mutation(api.records.update, { recordId: acme, values: { name: "Acme 2" } })).rejects.toThrow("in Trash");
@@ -89,7 +89,7 @@ describe("trash", () => {
 		await owner.mutation(api.trash.move, { kind: "database", id: client._id });
 		expect(await owner.query(api.records.search, { query: "Acme" })).toEqual([]);
 		expect((await owner.query(api.records.get, { recordId: roof }))?.refs[acme]).toEqual({ name: "Acme", archived: true });
-		expect(await owner.query(api.records.get, { recordId: acme })).toMatchObject({ archived: true, trash: { kind: "database", name: "Clients" } });
+		expect(await owner.query(api.records.get, { recordId: acme })).toMatchObject({ archived: true });
 		await owner.mutation(api.trash.purge, { id: client._id });
 		await settle(t);
 		const gone = await t.run(async (ctx) => ({
@@ -158,7 +158,7 @@ describe("trash", () => {
 		const { companybot } = await agentsOf(member);
 		const turnId = await agentTurn(t, member, (await generalOf(member))._id, companybot._id);
 		expect(await t.mutation(internal.recordTools.saveFor, { turnId, input: { id: acme, trash: true } })).toMatchObject({ inTrash: true });
-		expect(await trashOf(owner)).toEqual([expect.objectContaining({ itemId: acme, by: "member@co.com", agent: "Companybot" })]);
+		expect(await trashOf(owner)).toEqual([expect.objectContaining({ itemId: acme, user: "member@co.com", agent: "Companybot" })]);
 		expect(await t.query(internal.recordTools.getFor, { turnId, id: acme })).toMatchObject({ inTrash: true });
 		expect(await t.mutation(internal.recordTools.saveFor, { turnId, input: { id: acme, trash: false } })).not.toHaveProperty("inTrash");
 		// Fields and databases by name, in Trash or not, within the person's rights.

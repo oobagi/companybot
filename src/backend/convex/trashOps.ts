@@ -52,8 +52,9 @@ export async function trashInfo(ctx: QueryCtx, member: Member, itemId: string) {
 	if (entry?.workspaceId !== member.workspaceId) return null;
 	return {
 		kind: entry.kind,
+		itemId: entry.itemId,
 		name: entry.name,
-		by: await nameOf(ctx, entry.deletedBy),
+		user: await nameOf(ctx, entry.deletedBy),
 		agent: entry.agentId ? ((await ctx.db.get(entry.agentId))?.name ?? null) : null,
 		at: entry.deletedAt,
 		canRestore: canRestore(member, entry),

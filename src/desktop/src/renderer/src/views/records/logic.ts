@@ -108,8 +108,8 @@ export function fromConditions(conditions: { field: string; eq?: unknown; in?: u
 // ---- Values ----
 
 /**
- * One stored value as text. Links and people read from `refs`; a record that's gone or
- * archived says so. Options that were removed from the field still show, marked "(removed)".
+ * One stored value as text. Links and people read from `refs`; a record in Trash or
+ * deleted says so. Options that were removed from the field still show, marked "(removed)".
  */
 export function valueText(field: Field | undefined, value: FieldValue | null | undefined, refs: Refs = {}): string {
 	if (value === null || value === undefined) return "";
@@ -131,7 +131,7 @@ export function valueText(field: Field | undefined, value: FieldValue | null | u
 		case "link": {
 			const ref = refs[String(value)];
 			if (!ref) return field.kind === "user" ? "Someone" : "…";
-			return ref.archived ? `${ref.name} (archived)` : ref.name;
+			return ref.archived ? `${ref.name} (deleted)` : ref.name;
 		}
 		default:
 			return typeof value === "object" ? JSON.stringify(value) : String(value);
@@ -148,4 +148,5 @@ export function moneyInput(money: Money | undefined, digits: number) {
 /** "Ada", or "Companybot, for Ada" when an agent made the change for them. */
 export const whoLabel = (entry: { user: string; agent: string | null }) => (entry.agent ? `${entry.agent}, for ${entry.user}` : entry.user);
 
-export const actionLabels: Record<string, string> = { created: "Created", updated: "Changed", archived: "Archived", restored: "Restored", deleted: "Deleted" };
+/** History actions in words. `archived` is the stored name for moving to Trash. */
+export const actionLabels: Record<string, string> = { created: "Created", updated: "Changed", archived: "Deleted", restored: "Restored", deleted: "Deleted" };

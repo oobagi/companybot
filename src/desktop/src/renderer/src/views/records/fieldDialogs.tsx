@@ -9,7 +9,7 @@ import { type RecordType, useTypes } from "./data";
 import { type TypeField, kindLabels } from "./logic";
 
 // Adding a field to a type (anyone with `fields.create`), and renaming, re-optioning or
-// archiving one (its maker or an owner: `canEdit` from the server).
+// deleting one (its maker or an owner: `canEdit` from the server).
 
 const severalKinds: FieldKind[] = ["choice", "user", "link"];
 
@@ -87,10 +87,10 @@ export function AddField({ type, onClose }: { type: RecordType; onClose: () => v
 	);
 }
 
-/** Rename, change options (a removed option is retired: records keep it), or archive. */
+/** Rename, change options (a removed option is retired: records keep it), or delete (to Trash). */
 export function EditField({ field, onClose }: { field: TypeField; onClose: () => void }) {
 	const update = useMutation(api.fields.update);
-	const archive = useMutation(api.fields.archive);
+	const remove = useMutation(api.trash.move);
 	const [label, setLabel] = useState(field.label);
 	const [options, setOptions] = useState(field.options?.filter((o) => !o.retired) ?? []);
 	const [added, setAdded] = useState("");
@@ -146,10 +146,10 @@ export function EditField({ field, onClose }: { field: TypeField; onClose: () =>
 					{field.key !== "name" && (
 						<button
 							type="button"
-							onClick={() => run(archive({ fieldId }), onClose)}
+							onClick={() => run(remove({ kind: "field", id: fieldId }), onClose)}
 							className="text-sm text-neutral-500 hover:text-red-600"
 						>
-							Archive field
+							Delete field
 						</button>
 					)}
 				</div>
