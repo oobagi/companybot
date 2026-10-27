@@ -86,7 +86,7 @@ export const heldReason = (person: string, tool: string) =>
 
 /** How a call that ran was allowed, for the activity log ("Always allowed by Ada, Oct 25"). */
 export interface AllowedHow {
-	/** "once": approved on the card. "always": a person's Always rule (or Always allow on the card). "automation": allowed when they turned on the automation. */
+	/** "once": approved on the card. "always": a person's Always rule (or Always allow on the card). "automation": allowed on a previous card for this automation. */
 	how: "once" | "always" | "automation";
 	/** The person who allowed it. */
 	by: string;

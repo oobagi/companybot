@@ -87,6 +87,7 @@ function Status({
 		case "pending":
 			return approval.canDecide ? (
 				<div className="flex flex-col gap-2">
+					<p className="text-xs text-neutral-500">Acting for {approval.approver}. Only they can answer.</p>
 					<div className="flex flex-wrap items-center gap-2">
 						<button type="button" disabled={busy} onClick={() => onDecide(true)} className={`${primaryButton} py-1.5`}>
 							Allow once

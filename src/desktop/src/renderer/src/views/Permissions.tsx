@@ -3,12 +3,10 @@ import { useState } from "react";
 import { api } from "../api";
 import { useAction, useMutation, useQuery } from "../convex";
 import { Loading, Notice, Section, compactControlClass, metadataClass, primaryButton, secondaryButton, useRun } from "../ui";
-import { insideText } from "@companybot/core/action-words";
 import { Modal } from "./chat/common";
 
 // What agents may do without asking: your own Always / Never per action (Your preferences,
-// and each connector's page), owners' workspace locks, and asking once when an automation
-// is turned on. The rules themselves live in the backend (permissions.ts) and apply from
+// and each connector's page), owners' workspace locks, and runtime automation approvals. The rules themselves live in the backend (permissions.ts) and apply from
 // the next call.
 
 type Action = FunctionReturnType<typeof api.permissions.actions>[number];
@@ -172,121 +170,30 @@ export function WorkspaceLocks() {
 	);
 }
 
-/**
- * Turning an automation on, for you: lists what it will do that would ask, and asks once,
- * like a phone asking for an app's permissions. Allow saves Always for those actions, for this
- * automation only; "Ask each time" turns it on anyway, and each one asks in your chat when used.
- * If nothing would ask, it turns on without the screen. `start(turnOn)` overrides what turning on does.
- */
-export function useTurnOn(automationId: string, name: string, turnOn: () => Promise<unknown>) {
-	const actions = useQuery(api.permissions.forAutomation, { automationId });
+/** Turn-on confirms intent; consent is requested for the exact action when used. */
+export function useTurnOn(name: string, turnOn: () => Promise<unknown>) {
 	const [pending, setPending] = useState<(() => Promise<unknown>) | null>(null);
-	const askable = actions?.filter((a) => a.state === "ask" && !a.allowed) ?? [];
 	return {
-		start: (then = turnOn) => (askable.length > 0 || actions?.some((a) => a.state === "locked") ? setPending(() => then) : then()),
-		dialog:
-			pending && actions ? (
-				<TurnOnDialog automationId={automationId} name={name} actions={actions} turnOn={pending} onClose={() => setPending(null)} />
-			) : null,
+		start: (then = turnOn) => setPending(() => then),
+		dialog: pending ? <TurnOnDialog name={name} turnOn={pending} onClose={() => setPending(null)} /> : null,
 	};
 }
 
-function TurnOnDialog({
-	automationId,
-	name,
-	actions,
-	turnOn,
-	onClose,
-}: {
-	automationId: string;
-	name: string;
-	actions: FunctionReturnType<typeof api.permissions.forAutomation>;
-	turnOn: () => Promise<unknown>;
-	onClose: () => void;
-}) {
-	const allow = useMutation(api.permissions.allowForAutomation);
+function TurnOnDialog({ name, turnOn, onClose }: { name: string; turnOn: () => Promise<unknown>; onClose: () => void }) {
 	const { error, run } = useRun();
-	const state = {
-		ask: "Runs without asking you, for this automation only.",
-		locked: "Still asks you each time (locked).",
-		always: "Already set to Always.",
-		blocked: "Blocked. It won't run.",
-	};
-	// Acting as you, one line per area; outside actions one by one, as before.
-	const inside = [...new Set(actions.filter((a) => a.inside && a.state === "ask").map((a) => insideText(a.action)))];
-	const outside = actions.filter((a) => !a.inside);
 	return (
 		<Modal title={`Turn on ${name}?`} onClose={onClose}>
 			<div className="flex flex-col gap-4 text-sm">
-				{inside.length > 0 && (
-					<div className="flex flex-col gap-2">
-						<p className="text-neutral-600">
-							It runs as you, but someone else wrote or changed it, or it acts on data sent in from outside. Allow it to:
-						</p>
-						<ul className="flex flex-col gap-1 rounded-xl border border-neutral-200 px-3 py-2">
-							{inside.map((line) => (
-								<li key={line}>{line}</li>
-							))}
-						</ul>
-					</div>
-				)}
-				{outside.length > 0 && (
-					<div className="flex flex-col gap-2">
-						<p className="text-neutral-600">{inside.length ? "It may also do these, which ask first even in your own chats:" : "When it runs for you, it may do these. Allow them now so it doesn't stop to ask:"}</p>
-						<ul className="flex flex-col gap-2">
-							{outside.map((a) => (
-								<li key={a.action} className="rounded-xl border border-neutral-200 px-3 py-2">
-									<p className="font-medium">{actionName(a)}</p>
-									<p className="text-neutral-500">{a.state === "ask" ? a.alwaysText : state[a.state]}</p>
-								</li>
-							))}
-						</ul>
-					</div>
-				)}
-				<p className="text-xs text-neutral-500">
-					Allowed for this automation only. Anything else it tries waits for you in your chat with the agent, and the rest of the run goes on. Change these anytime in
-					Settings → Your preferences.
+				<p className="text-neutral-600">
+					It runs as you. When it needs permission to do something, like post or read your DMs, it'll ask you in your DM with the agent.
+					Choose “Always for this automation” there to allow that action on later runs.
 				</p>
 				{error && <Notice>{error}</Notice>}
 				<div className="flex justify-end gap-2">
-					<button type="button" onClick={onClose} className={secondaryButton}>
-						Cancel
-					</button>
-					<button type="button" onClick={() => run(turnOn(), onClose)} className={secondaryButton}>
-						Ask each time
-					</button>
-					<button
-						type="button"
-						className={primaryButton}
-						onClick={() => run(allow({ automationId, actions: actions.map((a) => a.action) }).then(turnOn), onClose)}
-					>
-						Allow
-					</button>
+					<button type="button" onClick={onClose} className={secondaryButton}>Cancel</button>
+					<button type="button" onClick={() => run(turnOn(), onClose)} className={primaryButton}>Turn on</button>
 				</div>
 			</div>
 		</Modal>
-	);
-}
-
-/** On an automation's page: what you've allowed it to do without asking, and a way to allow the rest. */
-export function AutomationPermissions({ automationId, name }: { automationId: string; name: string }) {
-	const actions = useQuery(api.permissions.forAutomation, { automationId });
-	const review = useTurnOn(automationId, name, async () => {});
-	if (!actions || actions.length === 0) return null;
-	const allowed = actions.filter((a) => a.allowed).map(actionName);
-	const pending = actions.some((a) => a.state === "ask" && !a.allowed);
-	return (
-		<div className="flex items-center gap-2">
-			<span className="w-20 shrink-0 text-neutral-500">Allowed</span>
-			<span className="min-w-0 flex-1 text-neutral-600">
-				{allowed.length ? `Runs without asking: ${allowed.join(", ")}` : "Asks before acting for you"}
-			</span>
-			{pending && (
-				<button type="button" onClick={() => void review.start()} className="text-neutral-600 hover:text-neutral-900">
-					Review
-				</button>
-			)}
-			{review.dialog}
-		</div>
 	);
 }

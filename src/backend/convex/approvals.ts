@@ -13,7 +13,7 @@ import {
 import { ConvexError, v } from "convex/values";
 import { internalMutation } from "./_generated/server";
 import { mutation, query } from "./functions";
-import { canSee, namer } from "./chatOps";
+import { canSee, findOrCreateDm, insertMessage, namer } from "./chatOps";
 import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { erased, getMember, memberOf, nameOf, requireMember, toActor } from "./lib";
@@ -24,7 +24,7 @@ import { risk } from "./schema";
 import { enqueueTurn, runningTurn } from "./turns";
 
 // Approvals: a tool call an agent held until the person it acts for says yes (core
-// approvals.ts). The card sits in the agent's reply. Deciding queues a turn in the same
+// approvals.ts). Automation cards go to the actor's DM; deciding queues a turn in the original
 // place (so the one-turn-per-place queue holds); that turn runs the call if approved,
 // with the exact stored input, then tells the agent what happened.
 
@@ -36,14 +36,23 @@ export const request = internalMutation({
 	args: { turnId: v.id("agentTurns"), callId: v.string(), tool: v.string(), input: v.string(), risk: v.optional(risk) },
 	handler: async (ctx, { turnId, callId, tool, input, risk }) => {
 		const { turn } = await runningTurn(ctx, turnId);
-		return ctx.db.insert("approvals", {
+		const automation = await automationOfTurn(ctx, turn);
+		// Automation cards belong only in the acting person's DM, even for channel/thread runs.
+		// Keep chatId/threadId as the execution place: implicit targets must not change on approval.
+		const trigger = await ctx.db.get(turn.triggerId);
+		const dmId = trigger?.automation && await findOrCreateDm(ctx, turn.workspaceId, turn.actorId, [turn.actorId], [turn.agentId]);
+		const separate = !!dmId && dmId !== turn.chatId;
+		const replyId = separate ? await insertMessage(ctx, (await ctx.db.get(dmId!))!, {
+			authorAgentId: turn.agentId, text: "", parts: [], mentions: { userIds: [], agentIds: [] }, status: "done",
+		}) : turn.replyId;
+		const approvalId = await ctx.db.insert("approvals", {
 			workspaceId: turn.workspaceId,
 			agentId: turn.agentId,
 			actorId: turn.actorId,
 			chatId: turn.chatId,
 			threadId: turn.threadId,
 			turnId,
-			replyId: turn.replyId,
+			replyId,
 			callId,
 			tool,
 			input,
@@ -51,8 +60,10 @@ export const request = internalMutation({
 			status: "pending",
 			expiresAt: Date.now() + APPROVAL_TTL_MS,
 			risk,
-			automationInstallId: (await automationOfTurn(ctx, turn))?._id,
+			automationInstallId: automation?._id,
 		});
+		if (separate) await ctx.db.patch(replyId, { parts: [{ type: "approval", id: callId, approvalId, tool }] });
+		return { approvalId, separate };
 	},
 });
 

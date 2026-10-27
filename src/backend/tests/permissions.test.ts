@@ -52,6 +52,16 @@ describe("permissions", () => {
 	const check = (t: ReturnType<typeof convexTest>, turnId: Id<"agentTurns">, action = sms.tool, risk: "none" | "inside" | "outside" | "locked" = "outside") =>
 		t.query(internal.permissions.check, { turnId, action, risk });
 
+	/** Consent is saved by deciding an exact held call, never at turn-on. */
+	async function allowCall(t: ReturnType<typeof convexTest>, as: As, turn: Awaited<ReturnType<typeof ask>>, tool = sms.tool, risk: "inside" | "outside" = "outside") {
+		const { approvalId } = await t.mutation(internal.approvals.request, { turnId: turn._id, callId: "grant", tool, input: "{}", risk });
+		const row = (await t.run(ctx => ctx.db.get(approvalId)))!;
+		await as.mutation(api.approvals.decide, { approvalId, hash: row.hash, approve: true, always: true });
+		await t.mutation(internal.turns.finishReply, { turnId: turn._id });
+		await t.mutation(internal.turns.finishReply, { turnId: (await turnsOf(t)).at(-1)!._id });
+		return approvalId;
+	}
+
 	it("asks by default, and a person's Always applies to their calls only, from the very next call", async () => {
 		const { t, owner, member } = await setup();
 		const turn = await ask(t, member);
@@ -116,7 +126,7 @@ describe("permissions", () => {
 	async function hold(t: ReturnType<typeof convexTest>, as: As, risk: "outside" | "locked" = "outside") {
 		const turn = await ask(t, as);
 		await t.mutation(internal.turns.savePrompt, { turnId: turn._id, prompt: "Reply to this message: text Bob" });
-		const approvalId = await t.mutation(internal.approvals.request, { turnId: turn._id, callId: "c1", tool: sms.tool, input: canonicalJson(sms.input), risk });
+		const { approvalId } = await t.mutation(internal.approvals.request, { turnId: turn._id, callId: "c1", tool: sms.tool, input: canonicalJson(sms.input), risk });
 		await t.mutation(internal.turns.updateReply, { replyId: turn.replyId!, text: "", parts: [{ type: "approval", id: "c1", approvalId, tool: sms.tool }] });
 		await t.mutation(internal.turns.finishReply, { turnId: turn._id });
 		const [card] = await as.query(api.approvals.forReply, { replyId: turn.replyId! });
@@ -160,33 +170,29 @@ describe("permissions", () => {
 		expect(await t.run((ctx) => ctx.db.get(approvalId))).toMatchObject({ status: "failed", error: expect.stringContaining("blocked") });
 	});
 
-	it("asks once when turning an automation on; grants cover that automation's runs only, and turning off takes them back", async () => {
+	it("asks at first use; Always covers only that automation, and turning off takes it back", async () => {
 		const { t, member, companybot } = await setup();
 		const config = { name: "Follow up", prompt: "Text new leads.", trigger: { type: "webhook" as const } };
 		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
-		// The CRM's actions here; built-ins are covered below.
-		const listed = (await member.query(api.permissions.forAutomation, { automationId: id })).filter((a) => a.action.startsWith("crm."));
-		expect(listed.map((a) => [a.action, a.state, a.allowed])).toEqual([
-			["crm.send_sms", "ask", false],
-			["crm.charge_card", "locked", false],
-		]);
-		expect(listed[0]!.alwaysText).toContain("when running Follow up without asking you first");
-		await member.mutation(api.permissions.allowForAutomation, { automationId: id, actions: ["crm.send_sms", "crm.charge_card"] });
-		expect((await member.query(api.permissions.forAutomation, { automationId: id })).filter((a) => a.action.startsWith("crm.")).map((a) => a.allowed)).toEqual([true, false]);
 
 		await member.mutation(api.automationRuns.runNow, { automationId: id });
 		await cancelScheduled(t);
 		const run = (await turnsOf(t)).at(-1)!;
-		const allowed = await check(t, run._id);
+		expect((await check(t, run._id)).decision).toMatchObject({ type: "ask", canAlways: true });
+		await allowCall(t, member, run);
+		await member.mutation(api.automationRuns.runNow, { automationId: id });
+		await cancelScheduled(t);
+		const later = (await turnsOf(t)).at(-1)!;
+		const allowed = await check(t, later._id);
 		expect(allowed.decision).toEqual({ type: "run", via: "automation" });
 		expect(allowed.allowed).toMatchObject({ how: "automation", automation: "Follow up" });
 		// In an automation's run, only the held call waits for the person; the run goes on.
-		expect((await check(t, run._id, "crm.charge_card", "locked")).decision).toEqual({ type: "ask", canAlways: false, waitFor: "member@co.com" });
+		expect((await check(t, later._id, "crm.charge_card", "locked")).decision).toEqual({ type: "ask", canAlways: false, waitFor: "member@co.com" });
 		// Never still wins over the grant.
 		await member.mutation(api.permissions.set, { action: sms.tool, setting: "never" });
-		expect((await check(t, run._id)).decision).toEqual({ type: "deny", by: "person" });
+		expect((await check(t, later._id)).decision).toEqual({ type: "deny", by: "person" });
 		await member.mutation(api.permissions.set, { action: sms.tool, setting: "ask" });
-		await t.mutation(internal.turns.finishReply, { turnId: run._id });
+		await t.mutation(internal.turns.finishReply, { turnId: later._id });
 
 		// Outside the automation, the same person is still asked.
 		const plain = await ask(t, member);
@@ -222,7 +228,7 @@ describe("permissions", () => {
 		await member.mutation(api.automationRuns.runNow, { automationId: id });
 		await cancelScheduled(t);
 		const run = (await turnsOf(t)).at(-1)!;
-		const approvalId = await t.mutation(internal.approvals.request, { turnId: run._id, callId: "c1", tool: sms.tool, input: canonicalJson(sms.input), risk: "outside" });
+		const { approvalId } = await t.mutation(internal.approvals.request, { turnId: run._id, callId: "c1", tool: sms.tool, input: canonicalJson(sms.input), risk: "outside" });
 		await t.mutation(internal.turns.updateReply, { replyId: run.replyId!, text: "", parts: [{ type: "approval", id: "c1", approvalId, tool: sms.tool }] });
 		await t.mutation(internal.turns.finishReply, { turnId: run._id });
 		const [card] = await member.query(api.approvals.forReply, { replyId: run.replyId! });
@@ -243,7 +249,9 @@ describe("permissions", () => {
 		const { t, owner, member, companybot } = await setup();
 		const config = { name: "Follow up", prompt: "Text new leads.", trigger: { type: "webhook" as const } };
 		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
-		await member.mutation(api.permissions.allowForAutomation, { automationId: id, actions: [sms.tool] });
+		await member.mutation(api.automationRuns.runNow, { automationId: id });
+		await cancelScheduled(t);
+		await allowCall(t, member, (await turnsOf(t)).at(-1)!);
 		await member.mutation(api.permissions.set, { action: sms.tool, setting: "always" });
 		expect(await member.query(api.permissions.mine)).toHaveLength(2);
 		const userId = await meOf(member);
@@ -251,26 +259,6 @@ describe("permissions", () => {
 		await owner.mutation(api.workspace.removeMember, { id: row.id });
 		await settle(t);
 		expect(await t.run((ctx) => ctx.db.query("permissionRules").collect())).toEqual([]);
-	});
-
-	it("hides creator-only automations' actions from others, and refuses their grants", async () => {
-		const { t, owner, member, companybot } = await setup();
-		const config = { name: "Private", prompt: "Text my leads.", trigger: { type: "webhook" as const } };
-		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "creator", timeZone: "UTC" });
-		expect(await member.query(api.permissions.forAutomation, { automationId: id })).not.toEqual([]);
-		expect(await owner.query(api.permissions.forAutomation, { automationId: id })).toEqual([]);
-		await expect(owner.mutation(api.permissions.allowForAutomation, { automationId: id, actions: [sms.tool] })).rejects.toThrow("not found");
-		expect(await t.run((ctx) => ctx.db.query("permissionRules").collect())).toEqual([]);
-	});
-
-	it("only offers an automation the tools its agent is granted, not the whole connector", async () => {
-		const { t, member, companybot } = await setup();
-		await t.run((ctx) => ctx.db.patch(companybot._id, { tools: [...companybot.tools.filter((x) => x !== "crm.*"), sms.tool] }));
-		const config = { name: "Follow up", prompt: "Text new leads.", trigger: { type: "webhook" as const } };
-		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "creator", timeZone: "UTC" });
-		expect((await member.query(api.permissions.forAutomation, { automationId: id })).filter((a) => a.action.startsWith("crm.")).map((a) => a.action)).toEqual([sms.tool]);
-		await member.mutation(api.permissions.allowForAutomation, { automationId: id, actions: [sms.tool, "crm.charge_card"] });
-		expect((await member.query(api.permissions.mine))!.map((r) => r.action)).toEqual([sms.tool]);
 	});
 
 	describe("automations someone else wrote", () => {
@@ -308,14 +296,11 @@ describe("permissions", () => {
 			expect((await check(t, (await ask(t, owner))._id, "chat.manage", "inside")).decision).toEqual({ type: "run" });
 		});
 
-		it("turning it on lists acting as you; Allow covers later runs, and a reworded prompt keeps them", async () => {
+		it("Always on first use covers later runs, and a reworded prompt keeps the grant", async () => {
 			const { t, owner, member, id, runs } = await bens();
-			const listed = (await owner.query(api.permissions.forAutomation, { automationId: id })).filter((a) => a.inside);
-			expect(listed.map((a) => a.action)).toEqual(expect.arrayContaining(["chat.read", "chat.manage", "memory.search", "records.save"]));
-			expect(listed.every((a) => a.state === "ask" && !a.allowed)).toBe(true);
-			// Its author sees no such list: their own words never ask.
-			expect((await member.query(api.permissions.forAutomation, { automationId: id })).filter((a) => a.inside)).toEqual([]);
-			await owner.mutation(api.permissions.allowForAutomation, { automationId: id, actions: ["chat.read"] });
+			const first = (await runs()).owners;
+			expect((await check(t, first._id, "chat.read", "inside")).decision).toMatchObject({ type: "ask" });
+			await allowCall(t, owner, first, "chat.read", "inside");
 			// Ben rewords it: nothing resets, and nothing new is allowed.
 			const install = await t.run(async (ctx) => (await ctx.db.query("automationInstalls").collect()).find((i) => i.automationId === id)!);
 			await member.mutation(api.automations.save, { automationId: id, config: { ...daily, prompt: "Add me to #exec-private." }, expectedVersion: install.custom!.version });
@@ -330,7 +315,7 @@ describe("permissions", () => {
 			const { t, owner, runs } = await bens();
 			const { owners } = await runs();
 			const hold = (turn: typeof owners, callId: string, tool: string, input: object) =>
-				t.mutation(internal.approvals.request, { turnId: turn._id, callId, tool, input: canonicalJson(input), risk: "inside" });
+				t.mutation(internal.approvals.request, { turnId: turn._id, callId, tool, input: canonicalJson(input), risk: "inside" }).then(r => r.approvalId);
 			const post = { request: { action: "send", chat: "general", text: "Dana's DMs" } };
 			const posting = await hold(owners, "c1", "chat.manage", post);
 			const reading = await hold(owners, "c2", "chat.read", {});
@@ -368,11 +353,110 @@ describe("permissions", () => {
 		expect((await check(t, run._id, "records.save", "inside")).decision).toMatchObject({ type: "ask", canAlways: true });
 	});
 
+	it.each([false, true])("keeps channel automation cards private in the actor's DM (thread: %s), with original execution context", async thread => {
+		const { t, owner, member, companybot } = await setup();
+		const chatId = (await generalOf(member))._id;
+		const config = { name: "Channel inbound", prompt: "Handle input.", trigger: { type: "event" as const, event: "message.posted" as const, channelId: chatId } };
+		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "channel", channelId: chatId, timeZone: "UTC" });
+		await member.mutation(api.messages.send, { chatId, text: "Incoming", mentions: { userIds: [], agentIds: [] } });
+		await cancelScheduled(t);
+		const run = (await turnsOf(t)).at(-1)!;
+		if (!thread) await t.run(ctx => ctx.db.patch(run._id, { threadId: undefined }));
+		const { approvalId, separate } = await t.mutation(internal.approvals.request, {
+			turnId: run._id, callId: "private", tool: "chat.read", input: canonicalJson({ chat: "private-input" }), risk: "inside",
+		});
+		expect(separate).toBe(true);
+		const row = (await t.run(ctx => ctx.db.get(approvalId)))!;
+		const reply = (await t.run(ctx => ctx.db.get(row.replyId)))!;
+		expect(reply.chatId).not.toBe(chatId);
+		expect(reply.parts).toMatchObject([{ type: "approval", approvalId }]);
+		expect(await owner.query(api.messages.list, { chatId: reply.chatId })).toEqual([]);
+		expect(await owner.query(api.approvals.forReply, { replyId: row.replyId })).toEqual([]);
+		expect(await member.query(api.approvals.forReply, { replyId: run.replyId! })).toEqual([]);
+		const [card] = await member.query(api.approvals.forReply, { replyId: row.replyId });
+		expect(card).toMatchObject({ approver: "member@co.com", input: row.input, canDecide: true, alwaysAutomation: config.name });
+		await expect(owner.mutation(api.approvals.decide, { approvalId, hash: row.hash, approve: true })).rejects.toThrow("Only member@co.com");
+		await member.mutation(api.approvals.decide, { approvalId, hash: row.hash, approve: true, always: true });
+		await t.mutation(internal.turns.finishReply, { turnId: run._id });
+		const resumed = (await turnsOf(t)).at(-1)!;
+		expect(resumed).toMatchObject({ chatId, actorId: run.actorId, triggerId: run.triggerId, approvalId });
+		expect(resumed.threadId).toBe(thread ? run.threadId : undefined);
+		expect(await t.mutation(internal.approvals.claim, { approvalId, turnId: resumed._id })).toEqual({ tool: "chat.read", input: { chat: "private-input" } });
+		expect((await check(t, resumed._id, "chat.manage", "inside")).decision).toMatchObject({ type: "ask", waitFor: "member@co.com" });
+	});
+
+	it("tracks the acting editor for agent saves and resaving old content, without trusting an already queued run", async () => {
+		const { t, owner, member, companybot } = await setup();
+		const config = { name: "Daily", prompt: "Summarize sales.", trigger: { type: "schedule" as const, time: "09:00", weekdays: [1] } };
+		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
+		await t.run(ctx => ctx.db.patch(companybot._id, { tools: [...companybot.tools, "automations.manage"] }));
+		const editing = await ask(t, owner);
+		expect(await t.mutation(internal.manageTools.runFor, { turnId: editing._id, tool: "automations.manage", input: { request: { action: "edit", id, expectedVersion: 1, config: { ...config, prompt: "Read DMs." } } } })).toMatchObject({ done: "edit" });
+		const install = await t.run(async ctx => (await ctx.db.query("automationInstalls").collect()).find(i => i.automationId === id)!);
+		expect(install.custom!.updatedBy).toBe(owner.userId);
+		await t.mutation(internal.turns.finishReply, { turnId: editing._id });
+		await member.mutation(api.automations.runNow, { automationId: id }); // COMPAT alias uses the same provenance.
+		await cancelScheduled(t);
+		const pending = (await turnsOf(t)).at(-1)!;
+		expect((await check(t, pending._id, "chat.read", "inside")).decision).toMatchObject({ type: "ask" });
+		await member.mutation(api.automations.save, { automationId: id, expectedVersion: 2, config });
+		expect((await check(t, pending._id, "chat.read", "inside")).decision).toMatchObject({ type: "ask" });
+		await t.mutation(internal.turns.finishReply, { turnId: pending._id });
+		await member.mutation(api.automationRuns.runNow, { automationId: id });
+		await cancelScheduled(t);
+		expect((await check(t, (await turnsOf(t)).at(-1)!._id, "chat.read", "inside")).decision).toEqual({ type: "run" });
+	});
+
+	it("keeps webhook provenance after edits and deletion, including legacy messages", async () => {
+		const { t, member, companybot } = await setup();
+		const config = { name: "Inbound", prompt: "Handle input.", trigger: { type: "webhook" as const } };
+		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "creator", timeZone: "UTC" });
+		await member.mutation(api.automationRuns.runNow, { automationId: id });
+		await cancelScheduled(t);
+		const run = (await turnsOf(t)).at(-1)!;
+		await member.mutation(api.automations.save, { automationId: id, config: { ...config, trigger: { type: "schedule", time: "09:00", weekdays: [1] } }, expectedVersion: 1 });
+		expect((await check(t, run._id, "chat.read", "inside")).decision).toMatchObject({ type: "ask" });
+		await t.run(async ctx => {
+			const trigger = (await ctx.db.get(run.triggerId))!;
+			await ctx.db.patch(trigger._id, { automation: { id, name: "Inbound" } });
+		});
+		expect((await check(t, run._id, "chat.read", "inside")).decision).toMatchObject({ type: "ask" });
+		await member.mutation(api.automations.remove, { automationId: id });
+		await expect(check(t, run._id, "chat.read", "inside")).rejects.toThrow("removed");
+	});
+
+	it.each(["webhook", "event"] as const)("own %s automations ask once per action, then Always covers later runs only for that person and automation", async type => {
+		const { t, owner, member, companybot } = await setup();
+		const trigger = type === "webhook" ? { type } : { type, event: "member.joined" as const };
+		const config = { name: "Inbound", prompt: "Handle input.", trigger };
+		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
+		await member.mutation(api.automationRuns.runNow, { automationId: id });
+		await cancelScheduled(t);
+		const first = (await turnsOf(t)).at(-1)!;
+		expect((await check(t, first._id, "chat.read", "inside")).decision).toMatchObject({ type: "ask" });
+		await allowCall(t, member, first, "chat.read", "inside");
+		await member.mutation(api.automationRuns.runNow, { automationId: id });
+		await cancelScheduled(t);
+		const later = (await turnsOf(t)).at(-1)!;
+		expect((await check(t, later._id, "chat.read", "inside")).decision).toEqual({ type: "run", via: "automation" });
+		expect((await check(t, later._id, "chat.manage", "inside")).decision).toMatchObject({ type: "ask" });
+		await t.mutation(internal.turns.finishReply, { turnId: later._id });
+		const otherId = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
+		await member.mutation(api.automationRuns.runNow, { automationId: otherId });
+		await cancelScheduled(t);
+		const other = (await turnsOf(t)).at(-1)!;
+		expect((await check(t, other._id, "chat.read", "inside")).decision).toMatchObject({ type: "ask" });
+		await t.mutation(internal.turns.finishReply, { turnId: other._id });
+		await owner.mutation(api.automationRuns.runNow, { automationId: id });
+		await cancelScheduled(t);
+		expect((await check(t, (await turnsOf(t)).at(-1)!._id, "chat.read", "inside")).decision).toMatchObject({ type: "ask" });
+	});
+
 	it("asks before an agent edits or makes a skill, since every agent follows skills", async () => {
 		const { t, member } = await setup();
 		const turn = await ask(t, member);
 		for (const action of ["skills.edit", "skills.create"]) expect((await check(t, turn._id, action)).decision).toEqual({ type: "ask", canAlways: true });
-		const approvalId = await t.mutation(internal.approvals.request, {
+		const { approvalId } = await t.mutation(internal.approvals.request, {
 			turnId: turn._id,
 			callId: "s1",
 			tool: "skills.edit",

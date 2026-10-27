@@ -37,6 +37,8 @@ export function MessageRow({
 
 	const held = isAgent && !message.deleted ? message.fullParts.filter((p) => p.type === "approval") : [];
 
+	if (held.length > 0 && held.length === message.fullParts.length && !message.text) return <ApprovalMessages message={message} parts={held} />;
+
 	return (
 		<>
 			<div

@@ -6,7 +6,7 @@ import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/
 import { mutation } from "./functions";
 import { addToChat, canSee, findOrCreateDm, insertMessage } from "./chatOps";
 import { type Member, liveWorkspace, memberOf, nameOf, normalizeEmail, requireMember } from "./lib";
-import { audienceOf, definitionOf, postingProblem, requireEditable, subscribersOf } from "./automationOps";
+import { audienceOf, definitionOf, followsOthers, postingProblem, requireEditable, subscribersOf } from "./automationOps";
 import { enqueueTurn } from "./turns";
 
 /** Runs it once now, just for you (webhooks and events use a sample), so you can see what it does. */
@@ -220,7 +220,7 @@ async function runInDms(
 			parts: [{ type: "text", text: prompt }],
 			mentions: { userIds: [], agentIds: [] },
 			status: "done",
-			automation: { id: automation.id, name: automation.name },
+			automation: { id: automation.id, name: automation.name, foreign: followsOthers(install, userId) },
 		});
 		await enqueueTurn(ctx, chat, { agentId: agent._id, chatId, triggerId, actorId: userId });
 	}
@@ -280,7 +280,7 @@ async function runInChannel(
 		parts: [{ type: "text", text: prompt }],
 		mentions: { userIds: [], agentIds: [agent._id] },
 		status: "done",
-		automation: { id: automation.id, name: automation.name },
+		automation: { id: automation.id, name: automation.name, foreign: followsOthers(install, actorId) },
 	});
 	await enqueueTurn(ctx, chat, { agentId: agent._id, chatId: chat._id, threadId, triggerId, actorId });
 	return { ran: true, summary: await finish(ctx, install, `Posted in #${chat.name}.`) };

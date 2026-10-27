@@ -59,7 +59,6 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"permissions.set": { humanOnly: "Direct person sets Ask/Always/Never; agents cannot change their effective consent." },
 	"permissions.remove": { humanOnly: "Direct person revokes consent rules and automation grants." },
 	"permissions.setLock": { humanOnly: "Direct owner sets workspace-wide security policy." },
-	"permissions.allowForAutomation": { humanOnly: "Direct person grants automation-scoped Always consent; agents cannot preapprove themselves." },
 	"preferences.update": { agent: ["workspace.settings:update_preferences"], humanOnly: "Device time zone is measured by the device; agents can change explicit personal preferences." },
 	"recordTypes.create": { agent: ["records.save_database"] },
 	"recordTypes.update": { agent: ["records.save_database"] },

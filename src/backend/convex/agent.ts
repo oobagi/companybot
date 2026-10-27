@@ -331,13 +331,17 @@ async function streamReply(
 		const held = await actionOf(toolName, input, usable);
 		const at = parts.findIndex((p) => p.type === "tool" && p.id === toolCallId);
 		if (!held) return setTool(toolCallId, toolName, "error");
-		const approvalId = await ctx.runMutation(internal.approvals.request, {
+		const { approvalId, separate } = await ctx.runMutation(internal.approvals.request, {
 			turnId,
 			callId: toolCallId,
 			tool: held.tool.id,
 			input: canonicalJson(held.input),
 			risk: toolRisk(held.tool),
 		});
+		if (separate) {
+			if (at >= 0) parts.splice(at, 1);
+			return;
+		}
 		const card = { type: "approval" as const, id: toolCallId, approvalId, tool: held.tool.id };
 		if (at >= 0) parts[at] = card;
 		else parts.push(card);

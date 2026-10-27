@@ -10,7 +10,7 @@ import { useMutation, useQuery } from "../../convex";
 import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
 import { Field, Loading, Notice, Page, Section, compactControlClass, descriptionClass, inputClass, primaryButton, secondaryButton, timeAgo, useRun } from "../../ui";
-import { AutomationPermissions, useTurnOn } from "../Permissions";
+import { useTurnOn } from "../Permissions";
 import { Card, Detail, Facts, LibraryList, MadeItemDetail, Missing, NewItem } from "./shared";
 
 type AutomationItem = FunctionReturnType<typeof api.automations.list>[number];
@@ -72,11 +72,11 @@ function statusLine(a: AutomationItem) {
 	return `${who} · ${a.enabled ? (a.agentName ?? "No agent") : "Paused"}`;
 }
 
-/** "Turn on for me" asks once for what it will do (useTurnOn); turning off takes that back. */
+/** Confirm turn-on; actions request consent when first used. Turning off revokes grants. */
 function SubscribeButton({ automation: a, onError }: { automation: AutomationItem; onError: (p: Promise<unknown>) => void }) {
 	const subscribe = useMutation(api.automations.subscribe);
 	const on = a.subscribed;
-	const turnOn = useTurnOn(a.id, a.name, () => subscribe({ automationId: a.id, on: true }));
+	const turnOn = useTurnOn(a.name, () => subscribe({ automationId: a.id, on: true }));
 	return (
 		// The dialog sits inside a clickable card: keep its clicks from opening the card.
 		<span className="contents" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
@@ -398,7 +398,7 @@ function AutomationSettings({ automation: a }: { automation: AutomationItem }) {
 	const { error, run } = useRun();
 	const [ran, setRan] = useState(false);
 	const [copied, setCopied] = useState(false);
-	const resume = useTurnOn(a.id, a.name, () => update({ automationId: a.id, enabled: true }));
+	const resume = useTurnOn(a.name, () => update({ automationId: a.id, enabled: true }));
 	const active = agents?.filter((x) => !x.archived) ?? [];
 	const ungranted = a.needs.filter((n) => !n.granted);
 	const row = "flex items-center gap-2";
@@ -462,7 +462,6 @@ function AutomationSettings({ automation: a }: { automation: AutomationItem }) {
 						</div>
 					</>
 				)}
-				<AutomationPermissions automationId={a.id} name={a.name} />
 				{a.webhookUrl && (
 					<div className="flex flex-col gap-1">
 						<div className={row}>

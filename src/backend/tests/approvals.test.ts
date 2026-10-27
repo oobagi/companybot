@@ -27,7 +27,7 @@ describe("approvals", () => {
 		const turn = (await turnsOf(t)).at(-1)!;
 		// What the runner stores before calling the model; set here so no model call is needed.
 		await t.mutation(internal.turns.savePrompt, { turnId: turn._id, prompt: "Reply to this message: text Bob" });
-		const approvalId = await t.mutation(internal.approvals.request, {
+		const { approvalId } = await t.mutation(internal.approvals.request, {
 			turnId: turn._id,
 			callId: "c1",
 			tool: call.tool,

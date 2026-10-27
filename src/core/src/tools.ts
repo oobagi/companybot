@@ -78,7 +78,7 @@ export interface ToolDef<Input = any> {
 	 * What a call can do outside the workspace (action-rules.ts `Risk`): "outside" asks first,
 	 * "locked" always asks with no "Always allow". Set it on any built-in that sends, calls,
 	 * pays, deletes, or sends in bulk. Default: connector tools not marked read-only are
-	 * "outside"; everything else runs right away.
+	 * "outside"; built-in writes are "inside" (ask in runs following others' words), and reads are "none".
 	 */
 	risk?: Risk;
 	/** Per-call risk for grouped built-ins whose actions need different consent. */

@@ -390,8 +390,8 @@ export default defineSchema({
 		lastReplyAt: v.optional(v.number()),
 		/** Thread parents only: USD spent on agent replies and summaries in the thread. */
 		costUsd: v.optional(v.number()),
-		/** Set when an automation sent this message for the person. */
-		automation: v.optional(v.object({ id: v.string(), name: v.string() })),
+		/** Server-written provenance. `foreign` snapshots whose words the run follows; absent on older messages, which ask. */
+		automation: v.optional(v.object({ id: v.string(), name: v.string(), foreign: v.optional(v.boolean()) })),
 	})
 		.index("by_chat_thread", ["chatId", "threadId"])
 		.index("by_workspace", ["workspaceId"])
