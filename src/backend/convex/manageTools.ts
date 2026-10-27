@@ -4,13 +4,12 @@ import type { Id, TableNames } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { addChannelMembers, markReadAs, createChannelAs, joinChannel, leaveChannel, openDirectMessage, removeChannelMember, updateChannelAs } from "./chats";
 import { chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
-import { canView, definitionOf, installOf } from "./automationOps";
+import { automationScope, canView, definitionOf, installOf } from "./automationOps";
 import { installAutomation, removeAutomation, saveAutomation, updateAutomation } from "./automations";
 import { installSkill, removeSkill, saveSkill } from "./skills";
 import { editMessage, removeMessage, reactMessage, sendMessage } from "./messages";
 import { cancelMemberInvite, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
 import { asToolResult, checkPermission, type Member, nameOf, normalizeEmail, preferencesOf, requireAgent, timeZoneOf } from "./lib";
-import { automationOfTurn } from "./permissions";
 import { archiveAgent, createAgent, updateAgent } from "./agents";
 import { updatePreferences } from "./preferences";
 import { runNowAs } from "./automationRuns";
@@ -190,7 +189,7 @@ export const runFor = internalMutation({
 							lastResult: install.lastResult,
 						};
 					if (r.action === "run") {
-						if (automation) throw new ConvexError("An automation run cannot start another run.");
+						if ((await automationScope(ctx, turn)).trigger?.automation) throw new ConvexError("An automation run cannot start another run.");
 						await runNowAs(ctx, member, r.id);
 					}
 					if (r.action === "edit") await saveAutomation(ctx, member, { automationId: r.id, config: r.config, expectedVersion: r.expectedVersion });

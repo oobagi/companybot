@@ -2,7 +2,7 @@ import { asSchema } from "ai";
 import { describe, expect, it } from "vitest";
 import { builtinTools } from "./builtin-tools";
 import { actionOf, resolveTools, toolApprovalPolicy } from "./agents";
-import { toolRisk } from "./action-rules";
+import { permissionFor, toolRisk } from "./action-rules";
 import { platformGuide } from "./guide";
 import { manageInputs, manageTools } from "./manage-tools";
 import { modelToolName } from "./tools";
@@ -23,6 +23,39 @@ describe("grouped tools", () => {
 			expect(await actionOf(modelToolName(id), input, [tool])).toEqual({ tool, input });
 			expect(await toolApprovalPolicy([tool])({ toolCall: { toolCallId: "call", toolName: modelToolName(id), input } })).toBe("user-approval");
 		}
+	});
+
+	it.each([
+		["records.history", { source: "agents" }],
+		["memory.search", { query: "", agentId: "another-agent" }],
+		["memory.update", { id: "another-agents-memory", content: "Corrected" }],
+		["memory.forget", { id: "another-agents-memory" }],
+		["chat.manage", { request: { action: "edit", messageId: "m", text: "Corrected" } }],
+		["chat.manage", { request: { action: "react", messageId: "m", emoji: "✅" } }],
+		["chat.manage", { request: { action: "mark_read", chat: "c" } }],
+		["workspace.settings", { request: { action: "update_preferences", notify: "off" } }],
+		["automations.manage", { request: { action: "run", id: "a" } }],
+	] as const)("gates new parity action %s in foreign runs through its actual input", async (id, input) => {
+		const toolName = modelToolName(id);
+		const action = await actionOf(toolName, input, builtinTools);
+		expect(toolRisk(action!.tool)).toBe("inside");
+		const call = { toolCallId: "parity", toolName, input };
+		expect(await toolApprovalPolicy(builtinTools)({ toolCall: call })).toBeUndefined();
+		expect(await toolApprovalPolicy(builtinTools, async tool => {
+			const decision = permissionFor({ risk: toolRisk(tool), foreign: true });
+			return decision.type === "ask" ? { ...decision, waitFor: "Ada" } : decision;
+		})({ toolCall: call })).toMatchObject({ type: "denied", reason: expect.stringContaining("needs Ada's OK") });
+	});
+
+	it("keeps shared record history immediate while agent Activity asks, and describes runtime consent", async () => {
+		for (const input of [{}, { source: "records" }]) {
+			const action = await actionOf("records_history", input, builtinTools);
+			expect(toolRisk(action!.tool)).toBe("none");
+		}
+		const guide = platformGuide({ tools: ["records.history", "chat.manage", "workspace.settings"] });
+		expect(guide).toContain("Only that action waits as a card in their DM");
+		expect(guide).toContain("source agents reads visible tool activity");
+		expect(guide).toContain("mark a chat read only when explicitly asked");
 	});
 
 	it("locks message deletion without applying an Always for other chat actions", async () => {

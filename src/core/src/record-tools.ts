@@ -283,6 +283,7 @@ export const recordTools: ToolDef[] = [
 		description: "Read a record's full history by id, or the workspace Activity feed without id. Paged newest first, with raw old/new values and undo ids. source agents reads visible agent tool activity; outputs remain private to the person it acted for. Continue with continueCursor as cursor until isDone. Long results are trimmed; use fewer rows or change with an entry id to read full JSON in 20,000-character chunks (start/next).",
 		input: z.object({ id: z.string().optional(), source: z.enum(["records", "agents"]).optional(), cursor: z.string().optional(), limit: z.number().int().min(1).max(20).optional(), change: z.string().optional().describe("One recordHistory entry id for full detail"), start: z.number().int().min(0).optional() }),
 		readOnly: true,
+		riskFor: ({ source }) => source === "agents" ? "inside" : "none",
 		returnsData: true,
 		async execute({ start = 0, ...input }, { records }) {
 			const result = await records.history(input);

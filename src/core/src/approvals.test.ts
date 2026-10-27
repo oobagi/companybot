@@ -34,7 +34,7 @@ describe("approvals", () => {
 		expect(["records.find", "pages.read", "clock.now", "skills.load", "chat.react", "widgets.table"].map(risk)).toEqual(Array(6).fill("none"));
 		// Exhaust the low-risk list: new private reads cannot silently inherit `none`.
 		expect(builtinTools.filter(t => toolRisk(t) === "none" && !t.id.startsWith("widgets.")).map(t => t.id).sort()).toEqual([
-			"automations.list", "chat.react", "clock.now", "pages.find", "pages.read", "records.find", "records.get", "records.types", "records.views", "skills.load",
+			"automations.list", "chat.react", "clock.now", "pages.find", "pages.read", "records.find", "records.get", "records.history", "records.types", "records.views", "skills.load",
 		]);
 		// A built-in opts in by declaring risk; payments-style ones lock.
 		expect(toolRisk({ ...builtinTools[0]!, risk: "outside" })).toBe("outside");

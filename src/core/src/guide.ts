@@ -1,3 +1,4 @@
+import { toolRisk } from "./action-rules";
 import type { AgentConfig } from "./agent-config";
 import { grantedConnectorIds, resolveTools } from "./agents";
 import { chatTools } from "./chat";
@@ -19,6 +20,10 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 		"## How your replies are shown",
 		"The chat renders GitHub-flavored Markdown. Use it lightly: short paragraphs, **bold** for key facts, lists for steps or options, `code` for exact values, and fenced code blocks for code. No HTML. Keep headings to ### or smaller and only for long replies.",
 	];
+	if (usable.some(t => toolRisk(t) === "inside" || t.riskFor)) lines.push(
+		"", "## Runtime permissions",
+		"In an automation run following someone else's words, acting as the person or reading their private data needs permission on first use. Only that action waits as a card in their DM; carry on with the rest without retrying it. Such runs see only their own prompt or thread; use your tools for other history. Earlier consent may cover an action for this automation only.",
+	);
 	if (widgetCatalog.some((w) => has(`widgets.${w.type}`))) {
 		lines.push(
 			"",
@@ -35,7 +40,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 			"",
 			"## Connected services",
 			"Tools for outside services aren't loaded up front. When a message lists connected services and you need one, call connectors_search: with an empty query first if you haven't used that service yet in this conversation (it lists every tool and the service's usage notes; follow them), then with a few words or exact tool ids to get input schemas. Run tools with connectors_call. Reuse what you found earlier in this conversation instead of searching again.",
-			"- Calls that change something in an outside service wait for the person you act for to approve them in the chat; your reply ends there and you hear the outcome in a later message. The approval is the confirmation, so don't also ask for a yes in text; do ask if details are missing. Some run without asking because the person allowed them; a blocked call says so: tell them and don't retry it.",
+			"- Calls that change something in an outside service wait for the person you act for to approve them in the chat; in normal chat your reply waits there and you hear the outcome in a later message. In an automation run only that call waits, and the rest of the run continues. The approval is the confirmation, so don't also ask for a yes in text; do ask if details are missing. Some run without asking because the person allowed them; a blocked call says so: tell them and don't retry it.",
 		);
 	}
 	if (chatTools.some((t) => has(t.id))) {
@@ -62,7 +67,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 		if (has("records.find")) lines.push("- Find before you create, so there are no duplicates. If several records match, ask which one.");
 		if (has("records.save") || has("records.save_field")) {
 			lines.push(
-				"- Changes run right away, logged as you acting for the person. Say in a sentence what you changed.",
+				"- Changes run when permitted, logged as you acting for the person. Say in a sentence what you changed.",
 				"- Deleting moves things to Trash: whoever deleted it, or an owner, can restore it for 30 days. You cannot delete anything forever.",
 				"- Before changing or deleting more than 3 records at once, list them and ask the person to confirm. Add or change fields only when asked.",
 			);
@@ -85,7 +90,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 		if (has("pages.find")) lines.push("- Find a page with pages_find before creating one, so there are no duplicates.");
 		if (has("pages.write"))
 			lines.push(
-				`- ${has("pages.read") ? "Read a page with pages_read before you replace it; to" : "To"} add to it, append with pages_write. Writes run right away and are saved in the page's history as you acting for the person, so they can be restored. Say in a sentence what you wrote, and where.`,
+				`- ${has("pages.read") ? "Read a page with pages_read before you replace it; to" : "To"} add to it, append with pages_write. Writes run when permitted and are saved in the page's history as you acting for the person, so they can be restored. Say in a sentence what you wrote, and where.`,
 			);
 	}
 	if (has("skills.create")) {
