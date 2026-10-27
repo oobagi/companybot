@@ -54,6 +54,8 @@ export const chatTools: ToolDef[] = [
 		title: "React",
 		description: "React with one emoji to the message you're answering. The same emoji again removes it.",
 		input: z.object({ emoji: z.string().min(1).max(16) }),
+		// Only on the message it answers, as the agent: nothing to ask about.
+		risk: "none",
 		execute: ({ emoji }, { chat }) => chat.react(emoji),
 	}),
 	defineTool({
@@ -68,6 +70,8 @@ export const chatTools: ToolDef[] = [
 			limit: z.number().int().min(1).max(100).optional().describe("Default 30"),
 		}),
 		readOnly: true,
+		// Can read their private channels and DMs.
+		risk: "inside",
 		execute: (input, { chat }) => chat.read(input),
 	}),
 	defineTool({
@@ -76,6 +80,7 @@ export const chatTools: ToolDef[] = [
 		description: "Search messages in chats the person can see.",
 		input: z.object({ query: z.string().min(1), chat: z.string().optional().describe('Limit to a channel like "#sales"') }),
 		readOnly: true,
+		risk: "inside",
 		returnsData: true,
 		execute: (input, { chat }) => chat.search(input),
 	}),

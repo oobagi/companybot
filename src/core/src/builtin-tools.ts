@@ -21,6 +21,8 @@ export const builtinTools: ToolDef[] = [
 		description: "Search memories the current person can see; optionally target another workspace agent by agentId. Empty query lists all.",
 		input: z.object({ query: z.string().describe("Words to match; empty for all"), agentId: z.string().optional() }),
 		readOnly: true,
+		// Includes the person's personal memories.
+		risk: "inside",
 		returnsData: true,
 		async execute({ query, agentId }, { memory }) {
 			return (await memory.search(query, agentId)).map(({ id, scope, content }) => ({ id, scope, content }));
@@ -101,6 +103,8 @@ export const builtinTools: ToolDef[] = [
 				.describe(`What it does and when to use it, in one line under ${SKILL_DESCRIPTION_MAX} characters. Agents see only this until they load it.`),
 			instructions: z.string().describe("The steps, rules, and examples, in Markdown, written to an agent"),
 		}),
+		// Every agent here reads skills, so a new one is checked by a person first.
+		risk: "outside",
 		execute: (input, { skills }) => skills.create(input),
 	}),
 	...manageTools,

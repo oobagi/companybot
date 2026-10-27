@@ -38,8 +38,13 @@ describe("action wording", () => {
 		);
 		expect(askText("crm.list_deals", crm, {})).toBe("I'd like to list deals in your Fake CRM.");
 		expect(askText("crm.send_money", crm, {})).toBe("I'd like to send money in your Fake CRM.");
-		expect(askText("crm.x", crm, {}, "Update a contact's stage")).toBe("I'd like to update a contact's stage in your Fake CRM.");
+		expect(askText("crm.x", crm, {}, { title: "Update a contact's stage" })).toBe("I'd like to update a contact's stage in your Fake CRM.");
 		expect(askText("memory.forget", null, {})).toBe("I'd like to forget in Companybot.");
+		// The tool's words for the call name who; an automation's run says whose run it is and that it acts as you.
+		expect(askText("members.remove", null, {}, { said: "Remove ben@acme.com from the workspace" })).toBe("I'd like to remove ben@acme.com from the workspace.");
+		expect(askText("chat.manage", null, {}, { said: "Post in #general", automation: "Monday sales summary" })).toBe("Monday sales summary wants to post in #general as you.");
+		expect(askText("records.save", null, {}, { title: "Save a record", automation: "Digest" })).toBe("Digest wants to save a record as you.");
+		expect(askText("fake-crm.send_sms", crm, { to: "+15550100100" }, { automation: "Digest" })).toBe("Digest wants to send an SMS to +1 (555) 010-0100 from your Fake CRM.");
 	});
 
 	it("lays out phone numbers for reading, and leaves everything else alone", () => {

@@ -59,17 +59,28 @@ export function readableValue(value: string) {
 	return value;
 }
 
-/** The ask, in the agent's voice: "I'd like to send an email to dana@acme.com from your Gmail." */
-export function askText(tool: string, service: Parameters<typeof serviceWords>[0], input: unknown, title?: string) {
+/**
+ * The ask: "I'd like to send an email to dana@acme.com from your Gmail.", or from an automation's
+ * run, "Monday summary wants to post in #general as you." `said`: the tool's own words for this
+ * call (its `label`), which name who or where.
+ */
+export function askText(
+	tool: string,
+	service: Parameters<typeof serviceWords>[0],
+	input: unknown,
+	{ title, said, automation }: { title?: string; said?: string; automation?: string } = {},
+) {
 	const fields = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
 	const to = [fields.to, fields.recipient, fields.email, fields.phone]
 		.flat()
 		.filter((x): x is string => typeof x === "string")
 		.map(readableValue);
-	const action = withArticle(inSentence(actionLabel(tool, title)));
-	return to.length
-		? `I'd like to ${action} to ${to.join(", ")} ${serviceWords(service)}.`
-		: `I'd like to ${action} ${serviceWords(service, "in")}.`;
+	const who = automation ? `${automation} wants to` : "I'd like to";
+	const action = said ? inSentence(said) : withArticle(inSentence(actionLabel(tool, title)));
+	const target = !said && to.length ? ` to ${to.join(", ")}` : "";
+	// Built-ins act as the person; an automation's run says so, since its words may be someone else's.
+	const where = service ? serviceWords(service, target ? "from" : "in") : automation ? "as you" : said ? "" : "in Companybot";
+	return `${who} ${action}${target}${where && ` ${where}`}.`;
 }
 
 /**

@@ -8,16 +8,18 @@ import { manageInputs, manageTools } from "./manage-tools";
 import { modelToolName } from "./tools";
 
 describe("grouped tools", () => {
-	it("asks for exact invitations and locks irreversible removal tools", async () => {
-		for (const id of ["members.invite", "members.remove", "skills.remove", "automations.remove"] as const) {
+	it("asks for exact invitations and skill edits, and locks irreversible removal tools", async () => {
+		for (const id of ["members.invite", "skills.edit", "members.remove", "skills.remove", "automations.remove"] as const) {
 			const tool = manageTools.find((t) => t.id === id)!;
-			expect(toolRisk(tool)).toBe(id === "members.invite" ? "outside" : "locked");
+			expect(toolRisk(tool)).toBe(id === "members.invite" || id === "skills.edit" ? "outside" : "locked");
 			const input =
 				id === "members.invite"
 					? { request: { action: "invite", email: "next@co.com" } }
 					: id === "members.remove"
 						? { request: { action: "remove", email: "dana@co.com" } }
-						: { request: { action: "delete", id: "exact-id" } };
+						: id === "skills.edit"
+							? { request: { action: "edit", id: "custom-1", expectedVersion: 1, config: { name: "Tone", description: "d", instructions: "i" } } }
+							: { request: { action: "delete", id: "exact-id" } };
 			expect(await actionOf(modelToolName(id), input, [tool])).toEqual({ tool, input });
 			expect(await toolApprovalPolicy([tool])({ toolCall: { toolCallId: "call", toolName: modelToolName(id), input } })).toBe("user-approval");
 		}
@@ -57,6 +59,15 @@ describe("grouped tools", () => {
 		expect(await toolApprovalPolicy([tool])({ toolCall: { toolCallId: "delete", toolName: "channels_manage", input } })).toBe("user-approval");
 		for (const request of [{ action: "get", chat: "exact-channel" }, { action: "rename", chat: "exact-channel", name: "renamed" }])
 			expect(await toolApprovalPolicy([tool])({ toolCall: { toolCallId: "safe", toolName: "channels_manage", input: { request } } })).toBeUndefined();
+	});
+
+	it("names who a call is about, so the card says it", () => {
+		const label = (id: string, request: object) => manageTools.find((t) => t.id === id)!.label!({ request });
+		expect(label("members.remove", { action: "remove", email: "ben@acme.com" })).toBe("Remove ben@acme.com from the workspace");
+		expect(label("members.invite", { action: "invite", email: "ben@acme.com" })).toBe("Invite ben@acme.com to the workspace");
+		expect(label("members.invite", { action: "resend", email: "ben@acme.com" })).toBe("Resend the invitation to ben@acme.com");
+		expect(label("members.invite", { action: "cancel", email: "ben@acme.com" })).toBe("Cancel the invitation for ben@acme.com");
+		expect(label("chat.manage", { action: "send", chat: "general", text: "hi" })).toBe("Post in #general");
 	});
 
 	it("refuses authority escalation, unrelated action fields and invalid parameter combinations", () => {

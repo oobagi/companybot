@@ -25,18 +25,32 @@ describe("approvals", () => {
 	const send = connectorTool("send_sms");
 	const find = connectorTool("find_leads", { readOnly: true, input: z.object({}) });
 
-	it("asks for connector writes, not reads or built-ins, unless a tool declares its risk", () => {
+	it("asks for connector writes, not reads; built-in writes act as the person, unless a tool declares its risk", () => {
 		expect(toolRisk(send)).toBe("outside");
 		expect(toolRisk(find)).toBe("none");
-		expect(toolRisk(builtinTools.find((t) => t.id === "memory.remember")!)).toBe("none");
+		const risk = (id: string) => toolRisk(builtinTools.find((t) => t.id === id)!);
+		// Acting as the person, or reading what only they see: "inside". Shared reads and display: "none".
+		expect(["memory.remember", "memory.search", "chat.read", "chat.search", "chat.manage", "records.save", "pages.write"].map(risk)).toEqual(Array(7).fill("inside"));
+		expect(["records.find", "pages.read", "clock.now", "skills.load", "chat.react", "widgets.table"].map(risk)).toEqual(Array(6).fill("none"));
 		// A built-in opts in by declaring risk; payments-style ones lock.
 		expect(toolRisk({ ...builtinTools[0]!, risk: "outside" })).toBe("outside");
 		expect(toolRisk({ ...send, risk: "locked" })).toBe("locked");
 		expect(toolRisk({ ...send, risk: "none" })).toBe("none");
-		// External invitations ask; irreversible removals always ask.
-		expect(builtinTools.filter(t => toolRisk(t) !== "none").map(t => [t.id, toolRisk(t)])).toEqual([
-			["automations.remove", "locked"], ["skills.remove", "locked"], ["members.invite", "outside"], ["members.remove", "locked"],
+		// External invitations and anything that changes skills ask; irreversible removals always ask.
+		expect(builtinTools.filter((t) => ["outside", "locked"].includes(toolRisk(t))).map((t) => [t.id, toolRisk(t)])).toEqual([
+			["skills.create", "outside"], ["automations.remove", "locked"], ["skills.edit", "outside"], ["skills.remove", "locked"], ["members.invite", "outside"], ["members.remove", "locked"],
 		]);
+	});
+
+	it("asks before acting as the person only in runs that follow someone else's words, and only a grant for that automation covers it", () => {
+		expect(permissionFor({ risk: "inside" })).toEqual({ type: "run" });
+		expect(permissionFor({ risk: "inside", foreign: true })).toEqual({ type: "ask", canAlways: true });
+		expect(permissionFor({ risk: "inside", foreign: true, automation: true })).toEqual({ type: "run", via: "automation" });
+		// A person-wide Always never reaches into someone else's automation.
+		expect(permissionFor({ risk: "inside", foreign: true, rule: "always" })).toEqual({ type: "ask", canAlways: true });
+		expect(permissionFor({ risk: "inside", foreign: true, rule: "never", automation: true })).toEqual({ type: "deny", by: "person" });
+		// Outside actions keep today's rules either way.
+		expect(permissionFor({ risk: "outside", foreign: true, rule: "always" })).toEqual({ type: "run", via: "always" });
 	});
 
 	it("strictest wins: owner lock, then Never, then Ask, then Always", () => {
@@ -193,6 +207,38 @@ describe("approvals", () => {
 		// Built-ins with no risk never hit the rules.
 		await run([{ type: "tool-call" as const, toolCallId: "c4", toolName: "memory_search", input: JSON.stringify({ query: "" }) }]);
 		expect(checked).toEqual(["c1", "c2", "c3"]);
+	});
+
+	it("in an automation's run, only the held call waits: the rest of the run goes on", async () => {
+		const ran: string[] = [];
+		const track = (t: ToolDef): ToolDef => ({ ...t, execute: async () => (ran.push(t.id), { ok: true }) });
+		const available = [...builtinTools, track(send), track(find)];
+		const agent = { tools: ["crm.*"] };
+		const tools = buildToolSet(agent, ctx(owner), available, [{ id: "crm", name: "CRM" }]);
+		const usage = { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } };
+		const call = (id: string, tool: string, input: unknown) => ({ type: "tool-call" as const, toolCallId: id, toolName: "connectors_call", input: JSON.stringify({ tool, input }) });
+		const steps = [
+			[call("c1", "crm.send_sms", { to: "+1", body: "Hi" }), call("c2", "crm.find_leads", {})],
+			[{ type: "text-start" as const, id: "t" }, { type: "text-delta" as const, id: "t", delta: "Done the rest." }, { type: "text-end" as const, id: "t" }],
+		];
+		const model = new MockLanguageModelV4({
+			doStream: async () => {
+				const chunks = steps[model.doStreamCalls.length - 1]!;
+				const finish = chunks.length === 2 ? "tool-calls" : "stop";
+				return { stream: simulateReadableStream({ chunks: [...chunks, { type: "finish" as const, finishReason: { unified: finish, raw: undefined }, usage }] as never }) };
+			},
+		});
+		const check = async (t: ToolDef) => (t.id === "crm.send_sms" ? ({ type: "ask", canAlways: true, waitFor: "Ada" } as const) : permissionFor({ risk: toolRisk(t) }));
+		const result = streamText({ model, prompt: "go", tools, stopWhen: () => false, toolApproval: toolApprovalPolicy(resolveTools(agent, owner, available), check) });
+		const parts: { type: string; toolCallId?: string; isAutomatic?: boolean }[] = [];
+		for await (const part of result.stream) parts.push(part as never);
+		expect(parts.filter((p) => p.type === "tool-output-denied").map((p) => p.toolCallId)).toEqual(["c1"]);
+		expect(parts.filter((p) => p.type === "tool-approval-request" && !p.isAutomatic)).toEqual([]);
+		expect(ran).toEqual(["crm.find_leads"]);
+		// The model was told it's waiting, and carried on.
+		expect(model.doStreamCalls).toHaveLength(2);
+		expect(JSON.stringify(model.doStreamCalls[1]!.prompt)).toContain("needs Ada's OK first");
+		expect(await result.text).toContain("Done the rest.");
 	});
 
 	it("tells the agent the outcome instead of asking it to reply to a message", () => {
