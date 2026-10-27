@@ -1,3 +1,4 @@
+import prosemirrorSync from "@convex-dev/prosemirror-sync/test";
 import { convexTest } from "convex-test";
 import { vi } from "vitest";
 import { api } from "../convex/_generated/api";
@@ -38,8 +39,15 @@ export async function agentsOf(as: As) {
 	return { list, companybot: byName("Companybot"), scribe: byName("Scribe") };
 }
 
-export async function setup() {
+/** A fresh backend, with the components it uses. */
+export function newTest() {
 	const t = convexTest({ schema, modules, transactionLimits: true });
+	prosemirrorSync.register(t);
+	return t;
+}
+
+export async function setup() {
+	const t = newTest();
 	const owner = await signIn(t, "owner@co.com");
 	await owner.mutation(api.workspace.invite, { email: "Member@Co.com", role: "member" });
 	const member = await signIn(t, "member@co.com");

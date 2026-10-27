@@ -5,7 +5,7 @@ import type { Id, TableNames } from "../convex/_generated/dataModel";
 import { type Edge, type Lifecycle, edgesOf, lifecycle } from "../convex/lifecycle";
 import { memberOf } from "../convex/lib";
 import schema from "../convex/schema";
-import { agentTurn, generalOf, modules, noMentions, settle, setup, sideWorkspace, signIn, turnsOf, workspaceOf } from "./helpers";
+import { agentTurn, generalOf, modules, newTest, noMentions, settle, setup, sideWorkspace, signIn, turnsOf, workspaceOf } from "./helpers";
 import "./connectorFixtures";
 import { person } from "./person";
 
@@ -14,7 +14,7 @@ afterEach(() => void vi.useRealTimers());
 const tables = Object.keys(schema.tables) as TableNames[];
 const indexesOf = (table: TableNames) =>
 	new Map((schema.tables[table] as unknown as { " indexes"(): { indexDescriptor: string; fields: string[] }[] })[" indexes"]().map((i) => [i.indexDescriptor, i.fields]));
-const scopes = ["workspace", "member", "user", "connectorInstall", "automationInstall"] as const;
+const scopes = ["workspace", "member", "user", "connectorInstall", "automationInstall", "page"] as const;
 
 describe("the lifecycle registry", () => {
 	it("lists every table, so a new one fails until someone decides what happens to its rows", () => {
@@ -150,6 +150,8 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		await ctx.db.insert("recordValues", { recordId, fieldId, str: "roof", at: now });
 		await ctx.db.insert("recordHistory", { workspaceId, typeId, recordId, action: "created", changes: [], userId: memberId });
 		await ctx.db.insert("recordMentions", { recordId, messageId: said, chatId: channel });
+		const pageId = await ctx.db.insert("pages", { workspaceId, recordId, title: "", archived: false, createdBy: memberId, updatedAt: now, updatedBy: memberId });
+		await ctx.db.insert("pageVersions", { pageId, n: 1, version: 2, userId: memberId, editedAt: now });
 		return mine;
 	});
 }
@@ -169,7 +171,7 @@ async function seedAuth(t: T, userId: Id<"users">, email: string) {
 
 /** Owner A and owner B each with a workspace, and a member in both. Every table gets rows. */
 async function world() {
-	const t = convexTest({ schema, modules, transactionLimits: true });
+	const t = newTest();
 	const a = await signIn(t, "a@co.com");
 	const b = await signIn(t, "b@co.com");
 	const [A, B] = [(await a.query(api.workspace.me))!.workspaceId!, (await b.query(api.workspace.me))!.workspaceId!];
