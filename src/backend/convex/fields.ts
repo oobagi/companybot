@@ -4,7 +4,7 @@ import { requireMember } from "./lib";
 import { createField, setFieldArchived, toField, updateField } from "./recordOps";
 import { fieldKind } from "./schema";
 
-// Fields on record types. Anyone can add one (`fields.create`) and change the ones they
+// Fields on databases. Anyone can add one (`fields.create`) and change the ones they
 // added; owners can change any (`fields.manage`). See wiki/data.md.
 
 const options = v.array(v.object({ id: v.optional(v.string()), label: v.string() }));

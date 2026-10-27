@@ -18,7 +18,7 @@ describe("permissions", () => {
 		expect(canManageChannel(owner, { createdBy: "member" })).toBe(true);
 	});
 
-	it("lets members change records and add fields, but not manage record types", () => {
+	it("lets members change records and add fields, but not manage databases", () => {
 		expect(can(member, "records.edit")).toBe(true);
 		expect(can(member, "fields.create")).toBe(true);
 		expect(can(member, "fields.manage")).toBe(false);

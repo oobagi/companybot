@@ -1,3 +1,4 @@
+import { viewConfig } from "./recordValidators";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
@@ -614,10 +615,11 @@ export default defineSchema({
 		eventId: v.string(),
 	}).index("by_install", ["installId", "eventId"]),
 
-	// ---- Records: clients, deals, tasks, calls, and types people add. See wiki/data.md. ----
+	// ---- Databases and records: clients, deals, tasks, calls, and databases people add. See wiki/data.md. ----
 
-	// A kind of record. Built-ins come from core's recordTypeCatalog (`key` "client", "deal"…).
+	// A database. Built-ins come from core's recordTypeCatalog (`key` "client", "deal"…).
 	recordTypes: defineTable({
+		version: v.optional(v.number()),
 		workspaceId: v.id("workspaces"),
 		/** Stable, unique per workspace. */
 		key: v.string(),
@@ -628,8 +630,15 @@ export default defineSchema({
 		updatedAt: v.number(),
 	}).index("by_workspace", ["workspaceId", "key"]),
 
-	// A field on a record type: built-in or added by the workspace. Its values live on
-	// `records.values[key]`; `key` never changes, so renaming is free.
+	// Named sorting, filtering and columns, shared with the workspace.
+	databaseViews: defineTable({
+		workspaceId: v.id("workspaces"),
+		typeId: v.id("recordTypes"),
+		...viewConfig,
+		version: v.number(),
+	}).index("by_type", ["typeId"]),
+
+	// A field on a database. Its values live on `records.values[key]`; renaming keeps the key.
 	recordFields: defineTable({
 		workspaceId: v.id("workspaces"),
 		typeId: v.id("recordTypes"),
@@ -698,11 +707,18 @@ export default defineSchema({
 		typeId: v.id("recordTypes"),
 		recordId: v.optional(v.id("records")),
 		fieldId: v.optional(v.id("recordFields")),
+		subject: v.optional(v.string()),
 		action: v.union(
 			v.literal("created"),
 			v.literal("updated"),
 			v.literal("archived"),
 			v.literal("restored"),
+			v.literal("database.created"),
+			v.literal("database.updated"),
+			v.literal("database.archived"),
+			v.literal("view.created"),
+			v.literal("view.updated"),
+			v.literal("view.deleted"),
 			v.literal("field.created"),
 			v.literal("field.updated"),
 			v.literal("field.archived"),

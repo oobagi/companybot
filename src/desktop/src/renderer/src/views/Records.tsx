@@ -2,11 +2,10 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import type { Role } from "@companybot/core";
 import { Loading, Page } from "../ui";
 import { useTypes } from "./records/data";
-import { builtinTabs } from "./records/logic";
 import { RecordList } from "./records/RecordList";
 import { RecordPage } from "./records/RecordPage";
 
-/** Top-level tabs for business records. Each lists one record type (see wiki/data.md). */
+/** Top-level tabs for business records. Each lists one database (see wiki/data.md). */
 export const recordTabs = [
 	{ id: "clients", label: "Clients" },
 	{ id: "deals", label: "Deals" },
@@ -14,11 +13,6 @@ export const recordTabs = [
 	{ id: "calls", label: "Calls" },
 	{ id: "campaigns", label: "Campaigns" },
 ] as const;
-
-/** Types owners added, which get their own tabs under /records/<key>. */
-export function useAddedTypes() {
-	return useTypes()?.filter((t) => !builtinTabs[t.key]) ?? [];
-}
 
 /**
  * A type's list, or one record's page: /clients, /clients/<id>, /records/<key>[/<id>].
@@ -38,7 +32,7 @@ export function RecordsView({ typeKey, recordId, role }: { typeKey: string; reco
 	if (!type) {
 		return (
 			<Page title="Not found">
-				<p className="text-sm text-neutral-500">This record type may have been archived.</p>
+				<p className="text-sm text-neutral-500">This database may have been archived.</p>
 			</Page>
 		);
 	}

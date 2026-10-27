@@ -12,17 +12,18 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 - **Companybot absorbs Night Owl.** Everything Night Owl does for clients moves in, rebuilt around the records, agents and automations.
 
 ## CRM (data layer and screens built)
-- Records: clients, deals/pipeline, jobs or projects, tasks, invoices. Each type gets its own tab (e.g. Clients) and lives next to the chat about it.
-- **Built:** the data layer ([Data](data.md)): Clients, Deals, Tasks and Calls ship as built-in types; owners can add more. Custom fields, links between records, filtering and sorting on any field, history with undo, and chat messages that reference records.
-- **Screens (built):** one design for every type, built-in or added (added types get their own tab). Campaigns is still "Coming soon".
-  - **List:** a table with columns you pick (name plus the next four fields by default; remembered per computer). Click a column to sort. Filter bar: any number of conditions (is, is any of, at least/at most/more/less than, empty/not empty, checked). Search by name and text (top 20; filters don't apply). Archived behind "Show archived". Scrolls in more as you go. "+ New" asks for a name, then opens the record.
+- Records: clients, deals/pipeline, jobs or projects, tasks, invoices. Each database gets its own sidebar entry (e.g. Clients) and lives next to the chat about it.
+- **Built:** the data layer ([Data](data.md)): Clients, Deals, Tasks and Calls ship as built-in databases; owners can add more. Custom fields, links between records, filtering and sorting on any field, history with undo, and chat messages that reference records.
+- **Screens (built):** one design for every database, built-in or added. Campaigns is still "Coming soon".
+  - **List:** a table with columns you pick (name plus the next four fields by default; remembered per computer in All records, or saved as a shared named view). Click a column to sort. Filter bar: any number of conditions (is, is any of, at least/at most/more/less than, empty/not empty, checked). Search by name and text (top 20; filters don't apply). Archived behind "Show archived". Scrolls in more as you go. "+ New" asks for a name, then opens the record.
   - **Record page:** every field editable in place, with an input per kind (amounts with their currency, dates, choices, people, record pickers for links). Removed options show as "(removed)"; links to archived records as "(archived)". "+ Add field" (members); renaming, options and archiving for the field's maker or an owner. Linked records grouped by type and field. Discussion: chat messages that mention it, each opening the message. History: who ("Companybot, for Jaden"), old → new, Undo on each; refusals show as they come.
   - Permissions hide what you can't do (`records.edit`, `fields.create`, a field's `canEdit`).
 - **Custom fields from the start.** A field is one piece of info on a record (name, phone, "Roof type", "Monthly retainer"). Each business adds its own, so the facts that matter aren't buried in notes. Designing for this up front is cheap; adding it later means migrating every record.
 - **Agents are wired in natively.** They can read and change any field and add new ones ("start tracking roof type on clients"), limited to what the person who asked may do. Every change is in the activity log, and records keep history so changes can be undone.
 - Record changes are automation triggers ("deal moved to Won" → welcome email + onboarding tasks).
 - **Built:** agent tools for records (find, read, create, change, archive, undo, add fields), acting as the person who asked; Companybot has them. See [Data → Agent tools](data.md).
-- Next: record triggers for automations, a pipeline board, saved views.
+- Owners create databases from the sidebar and rename or archive them from the list. Built-ins can be renamed but not archived. Saved views share sorting, filtering and columns with the workspace; people and agents can create, update and delete them.
+- Next: record triggers for automations, a pipeline board.
 
 ## Calls (not built yet)
 - Voice agents (like Night Owl's receptionist) run from Companybot.

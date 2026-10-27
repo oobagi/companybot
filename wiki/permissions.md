@@ -5,7 +5,7 @@ How agents get the go-ahead for actions that leave the building. Start strict, l
 ## What asks
 - Every tool has a **risk** (`toolRisk`): `none` runs right away; `outside` asks first; `locked` always asks and never offers "Always allow".
 - Default: connector tools not marked read-only are `outside` (unlabeled tools ask; a server's read-only label is its claim). A connector tool the server marks `destructiveHint` is `locked`, even if it also claims read-only (hints only ever tighten). Built-ins are `none` unless they declare `risk`; none do yet. Future sends, calls and campaign tools declare `outside`; payments, deleting records and bulk sends declare `locked`.
-- Internal changes (CRM edits, moving a deal) run right away, are logged, and can be undone.
+- Internal changes (record edits, database management, shared sorting and filtering) run right away and are logged. Records have undo; database and saved-view changes do not. Owners create, rename and archive databases (`fields.manage`); owners and members manage shared views (`records.edit`). Both the app and agents use the same server checks.
 
 ## Rules
 - **Per person, per action.** An action is one tool on one connector install (`crm.send_sms`), or a built-in. A rule (`permissionRules`) is Always or Never; no rule = Ask. Agents act as whoever asked, so a rule only applies to that person's calls and never reaches anyone else's accounts.

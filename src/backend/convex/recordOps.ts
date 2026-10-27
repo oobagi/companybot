@@ -25,7 +25,7 @@ import {
 import { ConvexError, getDocumentSize } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { type Member, type Who, memberOf, nameOf, requireInWorkspace, toActor } from "./lib";
+import { type Member, type Who, checkVersion, memberOf, nameOf, requireInWorkspace, toActor } from "./lib";
 
 // Records, fields and their history. Shared by the app's functions (records.ts,
 // recordTypes.ts) and agent tools (recordTools.ts), so both follow the same rules. Agents pass
@@ -34,13 +34,13 @@ import { type Member, type Who, memberOf, nameOf, requireInWorkspace, toActor } 
 export type Values = Record<string, FieldValue>;
 type Change = Doc<"recordHistory">["changes"][number];
 
-function requireCan(member: Member, permission: Permission) {
+export function requireCan(member: Member, permission: Permission) {
 	if (!can(member.role, permission)) throw new ConvexError(deniedMessage(permission));
 }
 
-/** A record type in the person's workspace. Other workspaces' look like they don't exist. */
+/** A database in the person's workspace. Other workspaces' look like they don't exist. */
 export async function requireType(ctx: QueryCtx, member: Member, typeId: Id<"recordTypes">) {
-	return requireInWorkspace(member, await ctx.db.get(typeId), "Record type");
+	return requireInWorkspace(member, await ctx.db.get(typeId), "Database");
 }
 
 export async function requireRecord(ctx: QueryCtx, member: Member, recordId: Id<"records">) {
@@ -52,7 +52,7 @@ export async function fieldsOf(ctx: QueryCtx, typeId: Id<"recordTypes">) {
 	const rows = await ctx.db
 		.query("recordFields")
 		.withIndex("by_type", (q) => q.eq("typeId", typeId))
-		.collect();
+		.take(FIELDS_PER_TYPE_MAX);
 	return rows.sort((a, b) => a.position - b.position);
 }
 
@@ -66,7 +66,7 @@ export const toField = (f: Doc<"recordFields">): Field => ({
 });
 
 /** Changes go through here, so this is where record automations will hook in (`fireEvent`). */
-async function logChange(ctx: MutationCtx, who: Who, entry: Omit<Doc<"recordHistory">, "_id" | "_creationTime" | "workspaceId" | "userId" | "agentId">) {
+export async function logChange(ctx: MutationCtx, who: Who, entry: Omit<Doc<"recordHistory">, "_id" | "_creationTime" | "workspaceId" | "userId" | "agentId">) {
 	return ctx.db.insert("recordHistory", {
 		workspaceId: who.member.workspaceId,
 		userId: who.member.userId,
@@ -299,7 +299,7 @@ export async function createField(ctx: MutationCtx, who: Who, typeId: Id<"record
 	requireCan(who.member, "fields.create");
 	await requireType(ctx, who.member, typeId);
 	const fields = await fieldsOf(ctx, typeId);
-	if (fields.length >= FIELDS_PER_TYPE_MAX) throw new ConvexError(`A record type holds up to ${FIELDS_PER_TYPE_MAX} fields.`);
+	if (fields.length >= FIELDS_PER_TYPE_MAX) throw new ConvexError(`A database holds up to ${FIELDS_PER_TYPE_MAX} fields.`);
 	const { linkTypeId, ...rest } = input;
 	const config = normalizeFieldConfig({ ...rest, linkType: linkTypeId });
 	requireFieldConfig(config);
@@ -364,26 +364,47 @@ export async function setFieldArchived(ctx: MutationCtx, who: Who, fieldId: Id<"
 	await logChange(ctx, who, { typeId: field.typeId, fieldId, action: archived ? "field.archived" : "field.restored", changes: [] });
 }
 
-/** A new record type with just a name field. */
-export async function createType(ctx: MutationCtx, who: Who, input: { name: string; plural: string }) {
-	requireCan(who.member, "fields.manage");
+const TYPES_MAX = 32;
+
+function databaseNames(input: { name: string; plural: string }, types: Doc<"recordTypes">[], except?: Id<"recordTypes">) {
 	const name = input.name.trim();
 	const plural = input.plural.trim();
-	if (!name || !plural) throw new ConvexError("Give the record type a name.");
-	if (name.length > 40 || plural.length > 40) throw new ConvexError("Keep the name under 40 characters.");
+	if (!name || !plural || name.length > 120 || plural.length > 120) throw new ConvexError("Give the database a name and plural, each up to 120 characters.");
+	if (types.some((t) => t._id !== except && !t.archived && [t.name, t.plural].some((n) => [name, plural].some((m) => n.toLowerCase() === m.toLowerCase()))))
+		throw new ConvexError(`There's already a database called “${plural}”.`);
+	return { name, plural };
+}
+
+/** A new database with just a name field. */
+export async function createType(ctx: MutationCtx, who: Who, input: { name: string; plural: string }) {
+	requireCan(who.member, "fields.manage");
 	const types = await typesOf(ctx, who.member.workspaceId);
-	if (types.some((t) => !t.archived && [t.name, t.plural].some((n) => [name, plural].some((m) => n.toLowerCase() === m.toLowerCase()))))
-		throw new ConvexError(`There's already a record type called “${plural}”.`);
-	const typeId = await insertType(ctx, who.member, { key: keyOf(name, types.map((t) => t.key)), name, plural });
+	if (types.length >= TYPES_MAX) throw new ConvexError(`A workspace holds up to ${TYPES_MAX} databases, including archived ones.`);
+	const names = databaseNames(input, types);
+	const typeId = await insertType(ctx, who.member, { key: keyOf(names.name, [...types.map((t) => t.key), "campaign"]), ...names });
 	await insertField(ctx, who.member, typeId, { key: NAME_KEY, label: "Name", kind: "text" }, 0);
+	await logChange(ctx, who, { typeId, action: "database.created", changes: Object.entries(names).map(([key, value]) => ({ key, new: value })) });
 	return typeId;
 }
 
-export const typesOf = (ctx: QueryCtx, workspaceId: Id<"workspaces">) =>
-	ctx.db
-		.query("recordTypes")
-		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-		.collect();
+export async function updateType(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, input: { name?: string; plural?: string; archived?: boolean; version: number }) {
+	requireCan(who.member, "fields.manage");
+	const type = await requireType(ctx, who.member, typeId);
+	checkVersion(type.version ?? 0, input.version);
+	if (type.archived) throw new ConvexError("This database is archived.");
+	if (input.archived && recordTypeCatalog.some((t) => t.key === type.key)) throw new ConvexError("Built-in databases can be renamed, but not archived.");
+	const names = databaseNames({ name: input.name ?? type.name, plural: input.plural ?? type.plural }, await typesOf(ctx, who.member.workspaceId), typeId);
+	const changes = Object.entries(names).filter(([key, value]) => type[key as "name" | "plural"] !== value).map(([key, value]) => ({ key, old: type[key as "name" | "plural"], new: value }));
+	if (!changes.length && !input.archived) return;
+	await ctx.db.patch(typeId, { ...names, archived: input.archived ?? false, version: (type.version ?? 0) + 1, updatedAt: Date.now() });
+	await logChange(ctx, who, { typeId, action: input.archived ? "database.archived" : "database.updated", changes });
+}
+
+export async function typesOf(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
+	const types = await ctx.db.query("recordTypes").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).take(TYPES_MAX + 1);
+	if (types.length > TYPES_MAX) throw new ConvexError(`This workspace exceeds the ${TYPES_MAX}-database limit. Ask an owner for help.`);
+	return types;
+}
 
 const insertType = (ctx: MutationCtx, member: Pick<Member, "workspaceId" | "userId">, type: { key: string; name: string; plural: string }) =>
 	ctx.db.insert("recordTypes", { workspaceId: member.workspaceId, ...type, archived: false, createdBy: member.userId, updatedAt: Date.now() });

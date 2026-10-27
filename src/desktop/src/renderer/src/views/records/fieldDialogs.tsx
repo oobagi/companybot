@@ -64,7 +64,7 @@ export function AddField({ type, onClose }: { type: RecordType; onClose: () => v
 				{kind === "link" && (
 					<Field label="Links to">
 						<select value={linkTypeId} onChange={(e) => setLinkTypeId(e.target.value)} className={inputClass}>
-							<option value="">Pick a type…</option>
+							<option value="">Pick a database…</option>
 							{types?.map((t) => (
 								<option key={t._id} value={t._id}>
 									{t.plural}

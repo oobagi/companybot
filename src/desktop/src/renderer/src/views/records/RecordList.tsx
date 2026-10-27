@@ -5,8 +5,9 @@ import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { ErrorBoundary, Field, LoadMore, Loading, Notice, Page, compactControlClass, descriptionClass, inputClass, primaryButton, timeAgo, useRun } from "../../ui";
+import { ConflictNotice, ErrorBoundary, Field, LoadMore, Loading, Notice, Page, compactControlClass, descriptionClass, inputClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
 import { Modal, useDismiss } from "../chat/common";
+import { DatabaseDialog } from "./DatabaseDialog";
 import { type RecordType, type Row, useRefs } from "./data";
 import { Chip, RecordOptions, RecordPicker, useOptions } from "./fields";
 import {
@@ -15,43 +16,58 @@ import {
 	type Refs,
 	type TypeField,
 	defaultColumns,
+	fromConditions,
 	needsValue,
 	opLabels,
 	opsFor,
 	recordPath,
 	sortable,
-	toCondition,
+	toConditions,
 	valueText,
 } from "./logic";
 
-// One record type's list: a table with chosen columns, sort by any column, filters,
+// One database's list: a table with chosen columns, sort by any column, filters,
 // search, archived behind a toggle, and pages that keep loading as you scroll.
 
 type Sort = { field: string; order: "asc" | "desc" };
 
-/** Columns people picked, per type, on this computer. */
-function useColumns(type: RecordType) {
-	const storageKey = `records.columns.${type.key}`;
-	const live = type.fields.filter((f) => !f.archived).map((f) => f.key);
-	const [saved, setSaved] = useState<string[] | null>(() => JSON.parse(localStorage.getItem(storageKey) ?? "null"));
-	const columns = (saved ?? defaultColumns(type.fields)).filter((k) => live.includes(k));
-	const set = (keys: string[]) => {
-		setSaved(keys);
-		localStorage.setItem(storageKey, JSON.stringify(keys));
-	};
-	return [columns, set] as const;
-}
+type Settings = { filters: Filter[]; sort?: Sort; columns: string[] };
 
 export function RecordList({ type, role }: { type: RecordType; role: Role }) {
-	const [filters, setFilters] = useState<Filter[]>([]);
-	const [sort, setSort] = useState<Sort>();
+	const views = useQuery(api.databaseViews.list, { typeId: type._id });
+	const saveView = useMutation(api.databaseViews.save);
+	const removeView = useMutation(api.databaseViews.remove);
+	const [viewId, setViewId] = useState("");
+	const selected = views?.find((v) => v._id === viewId);
+	const storageKey = `records.view.${type._id}`;
+	const [local, setLocal] = useState<Settings>(() => JSON.parse(localStorage.getItem(storageKey) ?? "null") ?? {
+		filters: [], columns: JSON.parse(localStorage.getItem(`records.columns.${type.key}`) ?? "null") ?? defaultColumns(type.fields),
+	});
+	const draft = useDraft<Settings>(selected ? { filters: fromConditions(selected.filters, type.fields), sort: selected.sort, columns: selected.columns } : local, selected?.version ?? 0);
+	const { filters, sort } = draft.value;
+	const columns = draft.value.columns.filter((key) => type.fields.some((f) => f.key === key && !f.archived));
+	const change = (next: Partial<Settings>) => {
+		const value = { ...draft.value, ...next };
+		draft.set(value);
+		if (!selected) { setLocal(value); localStorage.setItem(storageKey, JSON.stringify(value)); }
+	};
+	const setFilters = (filters: Filter[]) => change({ filters });
+	const setSort = (sort: Sort | undefined) => change({ sort });
+	const setColumns = (columns: string[]) => change({ columns });
 	const [search, setSearch] = useState("");
 	const [archived, setArchived] = useState(false);
-	const [columns, setColumns] = useColumns(type);
+	const [editingDatabase, setEditingDatabase] = useState(false);
+	const [naming, setNaming] = useState<"new" | "rename">();
+	const [viewName, setViewName] = useState("");
+	const titleDraft = useDraft(selected?.name ?? "", selected?.version ?? 0);
+	const { error, run } = useRun();
+	useEffect(() => {
+		if (views && viewId && !selected) { setViewId(""); draft.discard(); }
+	}, [views, viewId, selected]);
 	const [creating, setCreating] = useState(false);
 	const fields = type.fields.filter((f) => !f.archived) as TypeField[];
 	const shown = columns.map((k) => fields.find((f) => f.key === k)!);
-	const conditions = filters.map(toCondition).filter((c) => c !== null);
+	const conditions = toConditions(filters);
 	const canEdit = can(role, "records.edit");
 	// Archived lists can't sort by a field (archived records aren't indexed).
 	const activeSort = archived && sort && !["createdAt", "updatedAt"].includes(sort.field) ? undefined : sort;
@@ -64,13 +80,30 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 			wide
 			title={type.plural}
 			actions={
-				canEdit && (
-					<button type="button" className={primaryButton} onClick={() => setCreating(true)}>
+				<>
+					{can(role, "fields.manage") && <button type="button" className={compactControlClass} onClick={() => setEditingDatabase(true)}>Edit database</button>}
+					{canEdit && <button type="button" className={primaryButton} onClick={() => setCreating(true)}>
 						+ New
-					</button>
-				)
+					</button>}
+				</>
 			}
 		>
+			{error && <Notice>{error}</Notice>}
+			{draft.stale && <ConflictNotice onDiscard={draft.discard} onKeep={draft.keepMine} />}
+			<div className="flex flex-wrap items-center gap-3 text-sm">
+				<select aria-label="Saved view" className={compactControlClass} value={viewId} onChange={(e) => { setViewId(e.target.value); draft.discard(); setSearch(""); setArchived(false); }}>
+					<option value="">All records</option>
+					{views?.map((v) => <option key={v._id} value={v._id}>{v.name}</option>)}
+				</select>
+				{canEdit && <>
+					{selected && draft.dirty && <button type="button" disabled={draft.stale} className={primaryButton} onClick={() => run(saveView({ typeId: type._id, viewId: selected._id, version: draft.base, name: selected.name, filters: conditions, sort, columns }), draft.discard)}>Save for everyone</button>}
+					<button type="button" className={compactControlClass} onClick={() => { setNaming("new"); setViewName(""); }}>+ Save view</button>
+					{selected && <>
+						<button type="button" className={compactControlClass} onClick={() => { setNaming("rename"); titleDraft.set(selected.name); }}>Rename view</button>
+						<button type="button" disabled={draft.stale} className={compactControlClass} onClick={() => run(removeView({ viewId: selected._id, version: draft.base }), () => { setViewId(""); draft.discard(); })}>Delete view</button>
+					</>}
+				</>}
+			</div>
 			<div className="flex flex-wrap items-center gap-3 text-sm">
 				<input
 					type="search"
@@ -86,6 +119,11 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 				>
 					+ Filter
 				</button>
+				<select aria-label="Sort by" className={compactControlClass} value={sort?.field ?? ""} onChange={(e) => setSort(e.target.value ? { field: e.target.value, order: "asc" } : undefined)}>
+					<option value="">Newest first</option>
+					{[...fields.filter(sortable).map((f) => ({ key: f.key, label: f.label })), { key: "createdAt", label: "Created" }, { key: "updatedAt", label: "Updated" }].map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
+				</select>
+				{sort && <button type="button" className={compactControlClass} onClick={() => setSort({ ...sort, order: sort.order === "asc" ? "desc" : "asc" })}>{sort.order === "asc" ? "Ascending ↑" : "Descending ↓"}</button>}
 				<ColumnsPicker fields={fields} columns={columns} onChange={setColumns} />
 				<label className="ml-auto flex items-center gap-2 text-neutral-600">
 					<input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} />
@@ -144,6 +182,19 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 					</ErrorBoundary>
 				</>
 			)}
+			{editingDatabase && <DatabaseDialog type={type} onClose={() => setEditingDatabase(false)} />}
+			{naming && <Modal title={naming === "rename" ? "Rename view" : "Save view"} onClose={() => { setNaming(undefined); titleDraft.discard(); }}>
+				<form className="flex flex-col gap-4" onSubmit={(e) => {
+					e.preventDefault();
+					run(saveView({ typeId: type._id, ...(naming === "rename" && selected && { viewId: selected._id, version: draft.dirty ? draft.base : titleDraft.base }), name: naming === "rename" ? titleDraft.value : viewName, filters: conditions, sort, columns }).then((id) => { setViewId(id); draft.discard(); titleDraft.discard(); setNaming(undefined); }));
+				}}>
+					{error && <Notice>{error}</Notice>}
+					{naming === "rename" && (draft.stale || titleDraft.stale) && <ConflictNotice onDiscard={() => { draft.discard(); titleDraft.discard(); }} onKeep={() => { draft.keepMine(); titleDraft.keepMine(); }} />}
+					<Field label="View name" hint="Sorting, filtering and columns shared with everyone in the workspace."><input autoFocus required maxLength={120} className={inputClass} value={naming === "rename" ? titleDraft.value : viewName} onChange={(e) => naming === "rename" ? titleDraft.set(e.target.value) : setViewName(e.target.value)} /></Field>
+					<button type="submit" disabled={(draft.stale || titleDraft.stale) && naming === "rename"} className={primaryButton}>Save for everyone</button>
+				</form>
+			</Modal>}
+
 			{creating && <NewRecord type={type} onClose={() => setCreating(false)} />}
 		</Page>
 	);

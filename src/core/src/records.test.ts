@@ -33,7 +33,7 @@ describe("records", () => {
 		expect(fieldConfigError({ label: "A", kind: "choice", options: [{ id: "a", label: "A" }, { id: "b", label: "a" }] })).toMatch("same name");
 		expect(fieldConfigError({ label: "A", kind: "text", options: [{ id: "a", label: "A" }] })).toMatch("Only choice");
 		expect(fieldConfigError({ label: "A", kind: "text", multiple: true })).toMatch("several");
-		expect(fieldConfigError({ label: "A", kind: "link" })).toMatch("record type");
+		expect(fieldConfigError({ label: "A", kind: "link" })).toMatch("database");
 		expect(fieldConfigError({ label: "A", kind: "blob" as Field["kind"] })).toMatch("one of");
 	});
 

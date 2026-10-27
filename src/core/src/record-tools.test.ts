@@ -73,10 +73,10 @@ describe("records tools", () => {
 
 	it("run right away: internal, undoable, nothing sent outside", () => {
 		const ids = builtinTools.filter((t) => t.id.startsWith("records.")).map((t) => t.id);
-		expect(ids).toEqual(["records.types", "records.find", "records.get", "records.save", "records.undo", "records.save_field"]);
+		expect(ids).toEqual(["records.types", "records.find", "records.get", "records.save", "records.undo", "records.save_field", "records.save_database", "records.views", "records.save_view"]);
 		for (const id of ids) expect(toolRisk(tool(id))).toBe("none");
-		expect(ids.filter((id) => tool(id).readOnly)).toEqual(["records.types", "records.find", "records.get"]);
-		expect(ids.filter((id) => tool(id).permission)).toEqual([]);
+		expect(ids.filter((id) => tool(id).readOnly)).toEqual(["records.types", "records.find", "records.get", "records.views"]);
+		expect(ids.filter((id) => tool(id).permission)).toEqual(["records.save_database", "records.save_view"]);
 		expect(toolLine(callLabel("records_undo", builtinTools, []), "done")).toBe("Undid a record change");
 		expect(toolLine(callLabel("records_save", builtinTools, []), "running")).toBe("Saving a record…");
 	});
@@ -87,7 +87,7 @@ describe("records tools", () => {
 		const created = { id: "r2", type: "deal", typeName: "Deal", name: "Reroof main warehouse", values: {}, change: "h2" };
 		const acme = { id: "r1", type: "client", typeName: "Client", name: "Acme Roofing", values: {}, change: "h1" };
 		const deal = { type: "deal", values: { name: "Reroof main warehouse" } };
-		expect(line("records_types", "done", {})).toBe("Looked up record types");
+		expect(line("records_types", "done", {})).toBe("Looked up databases");
 		expect(line("records_save", "running", deal)).toBe("Creating deal Reroof main warehouse…");
 		expect(line("records_save", "done", deal, created)).toBe("Created deal Reroof main warehouse");
 		expect(line("records_save", "error", deal)).toBe("Couldn't create deal Reroof main warehouse");
@@ -186,9 +186,9 @@ describe("records tools", () => {
 	});
 
 	it("teach agents records only when granted", () => {
-		expect(platformGuide({ tools: ["records.*"] })).toContain("## Records");
+		expect(platformGuide({ tools: ["records.*"] })).toContain("## Databases");
 		expect(platformGuide({ tools: ["records.find"] })).toContain("records_types");
-		expect(platformGuide({ tools: ["memory.*"] })).not.toContain("## Records");
+		expect(platformGuide({ tools: ["memory.*"] })).not.toContain("## Databases");
 	});
 
 	it("work in a real turn: the model lists deals, then shows them in a table by ref", async () => {

@@ -27,7 +27,7 @@ type List = FunctionReturnType<typeof api.records.list>;
 const titles = async (as: As, args: Omit<FunctionArgs<typeof api.records.list>, "paginationOpts">) =>
 	(await as.query(api.records.list, { ...args, paginationOpts: page })).page.map((r) => r.title);
 
-describe("record types", () => {
+describe("databases", () => {
 	it("gives new workspaces clients, deals, tasks and calls, linked to each other", async () => {
 		const { client, deal, task, call } = await setup();
 		expect([client, deal, task, call].map((t) => t.plural)).toEqual(["Clients", "Deals", "Tasks", "Calls"]);
@@ -37,7 +37,7 @@ describe("record types", () => {
 		expect(task.fields.find((f) => f.key === "status")?.options?.map((o) => o.id)).toEqual(["to_do", "doing", "done"]);
 	});
 
-	it("lets only owners add record types, each starting with a name field", async () => {
+	it("lets only owners add databases, each starting with a name field", async () => {
 		const { owner, member } = await setup();
 		await expect(member.mutation(api.recordTypes.create, { name: "Job", plural: "Jobs" })).rejects.toThrow("permission");
 		await owner.mutation(api.recordTypes.create, { name: "Job", plural: "Jobs" });
@@ -303,7 +303,7 @@ describe("fields", () => {
 		expect(await titles(member, { typeId: client._id, sort: { field: retainer.key, order: "desc" } })).toEqual(["Bolt", "Acme"]);
 		await expect(member.mutation(api.fields.create, { typeId: client._id, label: "roof TYPE", kind: "text" })).rejects.toThrow("already");
 		await expect(member.mutation(api.fields.create, { typeId: client._id, label: "Size", kind: "choice" })).rejects.toThrow("at least one option");
-		await expect(member.mutation(api.fields.create, { typeId: client._id, label: "Parent", kind: "link" })).rejects.toThrow("Pick the record type");
+		await expect(member.mutation(api.fields.create, { typeId: client._id, label: "Parent", kind: "link" })).rejects.toThrow("Pick the database");
 	});
 
 	it("lets people change fields they added; owners change any", async () => {
