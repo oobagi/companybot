@@ -95,6 +95,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	authRefreshTokens: { childOf: { table: "authSessions", index: "sessionId", field: "sessionId" } },
 	authVerifiers: { keep: "Sign-in handshakes Convex Auth deletes as they're used. They name no person or workspace." },
 	authRateLimits: { keep: "Sign-in attempt counters keyed by email: eraseAccount deletes the person's at once, while it still knows their email." },
+	modelCatalog: { keep: "AI Gateway's model list, shared by every workspace. Names no person or workspace." },
 	localSignInCodes: { keep: "Local backends only (`pnpm dev`): the latest code per email. eraseAccount deletes the person's at once, like authRateLimits." },
 
 	// ---- Workspaces and people ----

@@ -8,6 +8,7 @@
     "./approvals": "./src/approvals.ts",
     "./automations": "./src/automations.ts",
     "./local-auth": "./src/local-auth.ts",
+    "./models": "./src/models.ts",
     "./permissions": "./src/permissions.ts",
     "./records": "./src/records.ts",
     "./skills": "./src/skills.ts",

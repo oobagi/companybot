@@ -13,5 +13,7 @@ crons.interval("connector sign-ins", { hours: 1 }, internal.connectors.forgetExp
 crons.interval("trash", { hours: 1 }, internal.trash.sweep);
 // Deletions (cascade.ts) whose last run failed start again.
 crons.interval("cascades", { minutes: 15 }, internal.cascade.resume);
+// AI Gateway's model list, for the agent model picker (modelCatalog.ts).
+crons.interval("model catalog", { hours: 24 }, internal.modelCatalog.refresh);
 
 export default crons;

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api } from "../convex/_generated/api";
+import { api, internal } from "../convex/_generated/api";
 
 import { agentsOf, setup as ownerAndMember } from "./helpers";
 
@@ -57,5 +57,45 @@ describe("agents", () => {
 		await expect(owner.mutation(api.agents.setArchived, { agentId: companybot._id, archived: true })).rejects.toThrow(
 			"at least one",
 		);
+	});
+
+	it("offers the fallback models until the gateway catalog is cached", async () => {
+		const { owner } = await ownerAndMember();
+		expect(await owner.query(api.agents.options)).toMatchObject({ fetchedAt: null, defaultModel: "anthropic/claude-sonnet-5.5" });
+		expect((await owner.query(api.agents.options)).models.map((m) => m.id)).toContain("anthropic/claude-sonnet-5.5");
+	});
+
+	it("accepts any cached gateway model and keeps an agent's dropped model valid", async () => {
+		const { t, owner } = await ownerAndMember();
+		const { scribe } = await agentsOf(owner);
+		const config = { name: scribe.name, description: "", instructions: "", model: "openai/gpt-x", tools: [] as string[] };
+		const save = (expectedVersion: number, model: string) => owner.mutation(api.agents.update, { agentId: scribe._id, expectedVersion, config: { ...config, model } });
+		await expect(save(1, "openai/gpt-x")).rejects.toThrow("model");
+		await t.mutation(internal.modelCatalog.save, { models: [{ id: "openai/gpt-x", name: "GPT X", provider: "openai", contextWindow: 400_000, input: 1.25, output: 10 }] });
+		expect((await owner.query(api.agents.options)).models.map((m) => m.id)).toEqual(["openai/gpt-x"]);
+		await save(1, "openai/gpt-x");
+		// The gateway drops it: the agent keeps it through other edits, but can't switch back to it later.
+		await t.mutation(internal.modelCatalog.save, { models: [{ id: "openai/gpt-y", name: "GPT Y", provider: "openai" }] });
+		await owner.mutation(api.agents.update, { agentId: scribe._id, expectedVersion: 2, config: { ...config, name: "Kept" } });
+		await save(3, "anthropic/claude-haiku-5.5");
+		await expect(save(4, "openai/gpt-x")).rejects.toThrow("model");
+	});
+
+	it("refreshes a stale catalog from the gateway, and keeps the old copy when it's down", async () => {
+		const { t, owner } = await ownerAndMember();
+		const body = { data: [
+			{ id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", type: "language", tags: ["tool-use"], context_window: 1_000_000, pricing: { input: "0.000003", output: "0.000015" } },
+			{ id: "openai/text-embedding-3", name: "Embedding", type: "embedding", tags: [] },
+		] };
+		const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json(body));
+		await owner.action(api.modelCatalog.refreshIfStale);
+		expect((await owner.query(api.agents.options)).models).toEqual([{ id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", provider: "anthropic", contextWindow: 1_000_000, input: 3, output: 15 }]);
+		// Fresh: no second fetch.
+		await owner.action(api.modelCatalog.refreshIfStale);
+		expect(fetch).toHaveBeenCalledTimes(1);
+		fetch.mockResolvedValue(new Response("down", { status: 503 }));
+		await expect(t.action(internal.modelCatalog.refresh)).rejects.toThrow("503");
+		expect((await owner.query(api.agents.options)).models).toHaveLength(1);
+		fetch.mockRestore();
 	});
 });
