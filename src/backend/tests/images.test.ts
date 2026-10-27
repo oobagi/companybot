@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { agentTurn, agentsOf, generalOf, noMentions, settle, setup } from "./helpers";
+import { agentTurn, agentsOf, generalOf, noMentions, settle, setup, signIn } from "./helpers";
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+	vi.restoreAllMocks();
+	vi.useRealTimers();
+});
 
 type T = Awaited<ReturnType<typeof setup>>["t"];
 /** A file as the app would upload it. */
@@ -109,4 +112,46 @@ describe("pictures", () => {
 		expect(await exists(t, logo)).toBe(false);
 		expect(await exists(t, picture)).toBe(false);
 	});
+});
+
+it("refuses cross-workspace targets and member agent resets", async () => {
+	const { t, owner, member } = await setup();
+	const { scribe, companybot } = await agentsOf(owner);
+	const outsider = await signIn(t, "outsider@elsewhere.com");
+	const file = await store(t);
+	await owner.mutation(api.images.set, { of: scribe._id, file });
+	await expect(outsider.mutation(api.images.set, { of: scribe._id, file: null })).rejects.toThrow("not found");
+	const dm = await member.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
+	const turnId = await agentTurn(t, member, dm, companybot._id);
+	expect(await t.mutation(internal.manageTools.runFor, { turnId, tool: "agents.manage", input: { request: { action: "remove_image", id: scribe._id } } })).toMatchObject({ error: expect.stringMatching(/permission/) });
+	expect(await exists(t, file)).toBe(true);
+});
+
+it("resolves each picture URL once across chat and message lists", async () => {
+	const { t, owner } = await setup();
+	const { companybot } = await agentsOf(owner);
+	const file = await store(t);
+	await owner.mutation(api.images.set, { of: companybot._id, file });
+	await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
+	// convex-test exposes the active test runtime through a getter. Count real storage calls.
+	const convex = (globalThis as unknown as { Convex: { readonly asyncSyscall: unknown } }).Convex;
+	const getter = Object.getOwnPropertyDescriptor(convex, "asyncSyscall")!.get!;
+	const calls = vi.fn<(op: string, args: string) => void>();
+	vi.spyOn(convex, "asyncSyscall", "get").mockImplementation(() => {
+		const syscall = getter.call(convex);
+		return (op: string, args: string) => {
+			calls(op, args);
+			return syscall(op, args);
+		};
+	});
+	await owner.query(api.chats.list);
+	const resolutions = calls.mock.calls.filter(([op, args]) => op === "1.0/storageGetUrl" && JSON.parse(args).storageId === file).length;
+	expect(resolutions).toBe(1);
+	calls.mockClear();
+	const general = await generalOf(owner);
+	await owner.mutation(api.images.set, { of: "me", file: await store(t) });
+	for (let i = 0; i < 20; i++) await owner.mutation(api.messages.send, { chatId: general._id, text: "hi", mentions: noMentions });
+	calls.mockClear();
+	await owner.query(api.messages.list, { chatId: general._id });
+	expect(calls.mock.calls.filter(([op]) => op === "1.0/storageGetUrl")).toHaveLength(1);
 });

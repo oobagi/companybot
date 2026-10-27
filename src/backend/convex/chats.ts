@@ -21,7 +21,6 @@ import {
 	requireWorkspaceUsers,
 	visibleChat,
 } from "./chatOps";
-import { imageUrl } from "./images";
 import { type Member, checkPermission, getMember, preferencesOf, requireMember, toActor } from "./lib";
 import { trashInfo } from "./trashOps";
 import { sessionAt } from "./turns";
@@ -115,7 +114,7 @@ export const list = query({
 					_id: a._id,
 					name: a.name,
 					description: a.description,
-					image: await imageUrl(ctx, a.image),
+					image: (await names.agent(a._id)).image ?? null,
 					dmId: dm?._id ?? null,
 					unread: dm?.unread ?? false,
 					mentioned: dm?.mentioned ?? false,
