@@ -1,15 +1,15 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useWorkspace } from "../../convex";
 import { CaretRightIcon, MoreIcon, PageIcon, PlusIcon, TrashIcon } from "../../icons";
 import { navigate } from "../../router";
 import { LoadMore, Notice, primaryButton, secondaryButton, useRun } from "../../ui";
-import { Group, Item } from "../chat/Sidebar";
+import { Group, Item, trailingAction } from "../chat/Sidebar";
 import { MenuItem, Modal, Popover } from "../chat/common";
 
 type PageId = Id<"pages">;
-type Row = { _id: PageId; title: string };
+type Row = { _id: PageId; title: string; hasChildren?: boolean };
 
 /** Each expanded level loads independently; no workspace-wide list or fixed tree-size cutoff. */
 export function PagesNav({ openId }: { openId: string | undefined }) {
@@ -33,24 +33,24 @@ function PageNavTree({ openId, storageKey }: { openId?: string; storageKey: stri
 		});
 	};
 	const add = (parentId?: PageId) => run(create({ title: "Untitled", parentId }).then((id) => { if (parentId) toggle(parentId, true); navigate("pages", id); }));
-	const level = (parentId?: PageId): React.ReactNode => (
-		<PageLevel parentId={parentId} render={(p) => (
-			<div key={p._id} className="flex flex-col">
-				<div className="group/page flex items-center gap-px">
-					<button type="button" aria-label={`${expanded.has(p._id) ? "Collapse" : "Expand"} ${p.title}`} aria-expanded={expanded.has(p._id)} onClick={() => toggle(p._id)} className="flex size-5 shrink-0 items-center justify-center rounded text-neutral-400 hover:bg-neutral-200/70">
-						<CaretRightIcon className={expanded.has(p._id) ? "rotate-90" : ""} />
-					</button>
-					<div className="flex min-w-0 flex-1 flex-col">
-						<Item icon={<PageIcon />} active={p._id === openId} onClick={() => navigate("pages", p._id)}><span className="truncate">{p.title}</span></Item>
-					</div>
-					<button type="button" title="Add a page inside" aria-label={`Add a page inside ${p.title}`} onClick={() => add(p._id)} className="flex size-5 shrink-0 items-center justify-center rounded text-neutral-400 opacity-0 group-hover/page:opacity-100 focus:opacity-100 hover:bg-neutral-200/70"><PlusIcon /></button>
-					<Popover trigger={<MoreIcon />} label={`Page actions for ${p.title}`} className="rounded text-neutral-400 opacity-0 group-hover/page:opacity-100 focus:opacity-100" panelClassName="w-44 p-1">
-						{(close) => <><MenuItem onClick={() => { close(); setMoving(p); }}>Move to…</MenuItem><MenuItem danger onClick={() => { close(); run(remove({ kind: "page", id: p._id })); }}><TrashIcon /> Delete</MenuItem></>}
-					</Popover>
-				</div>
-				{expanded.has(p._id) && <div className="ml-4 border-l border-neutral-200 pl-1">{level(p._id)}</div>}
-			</div>
-		)} />
+	const level = (parentId?: PageId, depth = 0): React.ReactNode => (
+		<PageLevel parentId={parentId} render={(p) => {
+			const open = p.hasChildren && expanded.has(p._id);
+			const chevron = <button type="button" aria-label={`${open ? "Collapse" : "Expand"} ${p.title}`} aria-expanded={open} onClick={() => toggle(p._id)} className="relative z-10 hidden size-5 items-center justify-center text-neutral-400 hover:text-neutral-800 group-hover/item:flex"><CaretRightIcon className={open ? "rotate-90" : ""} /></button>;
+			return (
+				<Fragment key={p._id}>
+					<Item icon={p.hasChildren ? <><PageIcon className="group-hover/item:hidden" />{chevron}</> : <PageIcon />} indent={depth} active={p._id === openId} onClick={() => navigate("pages", p._id)} actions={<>
+						<Popover trigger={<MoreIcon />} label={`Page actions for ${p.title}`} className={trailingAction} panelClassName="w-44 p-1">
+							{(close) => <><MenuItem onClick={() => { close(); setMoving(p); }}>Move to…</MenuItem><MenuItem danger onClick={() => { close(); run(remove({ kind: "page", id: p._id })); }}><TrashIcon /> Delete</MenuItem></>}
+						</Popover>
+						<button type="button" title="Add a page inside" aria-label={`Add a page inside ${p.title}`} onClick={() => add(p._id)} className={trailingAction}><PlusIcon /></button>
+					</>}>
+						<span className="truncate">{p.title}</span>
+					</Item>
+					{open && level(p._id, depth + 1)}
+				</Fragment>
+			);
+		}} />
 	);
 	return (
 		<Group title="Pages" onTitle={() => navigate("pages")} onAdd={() => add()} addLabel="New page">

@@ -1,6 +1,6 @@
 import { Component, Fragment, useCallback, useLayoutEffect, useRef, useState } from "react";
 import { errorMessage } from "./api";
-import { CaretRightIcon, PlusIcon } from "./icons";
+import { PlusIcon } from "./icons";
 import { navigate } from "./router";
 
 /** A screen above this one, in the top bar's trail. */
@@ -14,13 +14,13 @@ export type Crumb = { label: string; to: string[] };
 export function TopBar({ crumbs = [], title, description, children }: { crumbs?: Crumb[]; title: React.ReactNode; description?: React.ReactNode; children?: React.ReactNode }) {
 	return (
 		<header className="drag flex h-12 shrink-0 items-center gap-3 px-5">
-			<nav className="flex min-w-0 items-center gap-1 overflow-x-auto text-sm">
+			<nav className="flex min-w-0 items-center overflow-x-auto text-sm">
 				{crumbs.map((c) => (
 					<Fragment key={c.to.join("/")}>
 						<button type="button" onClick={() => navigate(...c.to)} className="no-drag shrink-0 rounded-md px-1 py-0.5 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900">
 							{c.label}
 						</button>
-						<CaretRightIcon className="shrink-0 text-neutral-300" />
+						<span className="shrink-0 px-1 text-neutral-300">/</span>
 					</Fragment>
 				))}
 				<div className="flex min-w-0 items-baseline gap-2 px-1 font-semibold">
