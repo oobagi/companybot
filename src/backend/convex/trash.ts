@@ -1,5 +1,5 @@
 import { can, deniedMessage } from "@companybot/core";
-import { type PaginationResult, paginationOptsValidator } from "convex/server";
+import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id, TableNames } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
@@ -60,24 +60,10 @@ export async function purgeItem(ctx: MutationCtx, member: Member, itemId: string
 	await deleteEntry(ctx, entry);
 }
 
-export type TrashRow = {
-	_id: Id<"trash">;
-	kind: TrashKind;
-	itemId: string;
-	name: string;
-	/** Records and fields: their database's name, and its key (records open at it). */
-	in: string | null;
-	typeKey: string | null;
-	user: string;
-	agent: string | null;
-	deletedAt: number;
-	canRestore: boolean;
-};
-
 /** What's in Trash, newest first, optionally one kind, or matching words in names (best first, up to 50). */
 export const list = query({
 	args: { kind: v.optional(trashKind), search: v.optional(v.string()), paginationOpts: paginationOptsValidator },
-	handler: async (ctx, { kind, search, paginationOpts }): Promise<PaginationResult<TrashRow>> => {
+	handler: async (ctx, { kind, search, paginationOpts }) => {
 		const member = await getMember(ctx);
 		if (!member) return { page: [], isDone: true, continueCursor: "" };
 		const opts = { ...paginationOpts, numItems: Math.min(paginationOpts.numItems, PAGE_MAX) };
