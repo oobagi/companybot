@@ -2,7 +2,8 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
-import { LoadMore, Loading, Notice, Tabs, descriptionClass, metadataClass, primaryButton, useRun } from "../../ui";
+import { EmptyState, LoadMore, Loading, Notice, Tabs, metadataClass, primaryButton, useRun } from "../../ui";
+import { HistoryIcon } from "../../icons";
 import { Modal, clock, dayLabel } from "../chat/common";
 import { whoLabel } from "../records/logic";
 import { VersionPreview } from "./PageEditor";
@@ -28,7 +29,7 @@ export function PageHistory({ pageId, canRestore, onClose, tabs }: { pageId: Id<
 			{status === "LoadingFirstPage" ? (
 				<Loading />
 			) : results.length === 0 ? (
-				<p className={descriptionClass}>No edits yet.</p>
+				<EmptyState icon={<HistoryIcon />} title="No edits yet">Saved versions will appear here.</EmptyState>
 			) : (
 				<div className="flex min-h-0 gap-6">
 					<div className="min-w-0 flex-1 overflow-y-auto">{shown && <Preview versionId={shown} />}</div>
@@ -65,7 +66,7 @@ export function PageHistory({ pageId, canRestore, onClose, tabs }: { pageId: Id<
 function Preview({ versionId }: { versionId: Id<"pageVersions"> }) {
 	const content = useQuery(api.pages.version, { versionId });
 	if (content === undefined) return <Loading />;
-	if (content === null) return <p className={descriptionClass}>This version is no longer available.</p>;
+	if (content === null) return <EmptyState icon={<HistoryIcon />} title="Version unavailable">It may have been removed from history.</EmptyState>;
 	return <VersionPreview key={versionId} content={content} />;
 }
 
@@ -73,7 +74,7 @@ function Moves({ pageId }: { pageId: Id<"pages"> }) {
 	const { results, status, loadMore } = usePaginatedQuery(api.pages.moves, { pageId }, { initialNumItems: 20 });
 	return <div className="flex flex-col gap-3 text-sm">
 		{results.map((m) => <div key={m._id}><p>Moved from {m.from} to {m.to}</p><p className={metadataClass}>{whoLabel(m)} · {when(m._creationTime)}</p></div>)}
-		{status === "Exhausted" && !results.length && <p className={descriptionClass}>No moves yet.</p>}
+		{status === "Exhausted" && !results.length && <EmptyState icon={<HistoryIcon />} title="No moves yet">Moves between pages will appear here.</EmptyState>}
 		<LoadMore status={status} onMore={() => loadMore(20)} />
 	</div>;
 }

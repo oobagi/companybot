@@ -10,7 +10,7 @@ import { api, errorMessage } from "../../api";
 import { useMutation } from "../../convex";
 import { PageIcon } from "../../icons";
 import { navigate } from "../../router";
-import { Loading, Notice } from "../../ui";
+import { EmptyState, Loading, Notice } from "../../ui";
 import { useLinkedPages } from "./useLinkedPages";
 import { PageLevel } from "./PageTree";
 
@@ -48,7 +48,7 @@ export function PageEditor({ pageId, editable, standalone = false }: { pageId: I
 	const [error, setError] = useState<string>();
 	const sync = useBlockNoteSync<BlockNoteEditor>(api.pageSync, pageId, { editorOptions: { links }, onSyncError: (e) => setError(errorMessage(e)) });
 	if (sync.isLoading) return <Loading />;
-	if (!sync.editor) return <Notice>This page isn't available.</Notice>;
+	if (!sync.editor) return <EmptyState icon={<PageIcon />} title="Page unavailable">Try opening this page again.</EmptyState>;
 	return (
 		<>
 			{error && <Notice>{error}</Notice>}
