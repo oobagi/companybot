@@ -17,10 +17,7 @@ export const list = query({
 		if (!member) return [];
 		const actor = toActor(member);
 		const memories = await listMemories(ctx, member);
-		const names = await namesOf(
-			ctx,
-			memories.map((m) => m.updatedBy as Id<"users">),
-		);
+		const names = await namesOf(ctx, memories.map((m) => m.updatedBy as Id<"users">));
 		return memories.map((m) => ({
 			...m,
 			canEdit: canEditMemory(actor, m),

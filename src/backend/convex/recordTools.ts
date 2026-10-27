@@ -1,4 +1,3 @@
-import { databaseInput, fieldInput, isGranted, viewInput } from "@companybot/core";
 import { deleteView, saveView, viewsOf } from "./databaseViews";
 import {
 	type RecordFindInput,
@@ -7,8 +6,12 @@ import {
 	type RecordTypesResult,
 	MULTI_MAX,
 	NAME_KEY,
+	databaseInput,
 	displayValues,
+	fieldInput,
 	indexEntries,
+	isGranted,
+	viewInput,
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";

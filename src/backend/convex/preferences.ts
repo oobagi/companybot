@@ -17,8 +17,7 @@ export const get = query({
 	args: {},
 	handler: async (ctx) => {
 		const userId = await authUserId(ctx);
-		if (!userId) return { ...defaults, notify: defaultNotify, ...unset };
-		const prefs = await preferencesOf(ctx, userId);
+		const prefs = userId && (await preferencesOf(ctx, userId));
 		if (!prefs) return { ...defaults, notify: defaultNotify, ...unset };
 		return {
 			displayName: prefs.displayName,

@@ -11,9 +11,7 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"automations.save": { agent: ["automations.manage:edit"] },
 	"automations.update": { agent: ["automations.manage:pause", "automations.manage:resume", "automations.manage:set_agent", "automations.manage:set_audience"] },
 	"automations.remove": { agent: ["automations.remove:delete"] },
-	"automations.setInstalled": {
-		agent: ["automations.manage:install"],
-	},
+	"automations.setInstalled": { agent: ["automations.manage:install"] },
 	"automations.subscribe": { agent: ["automations.set_mine"] },
 	"automations.resetWebhook": { humanOnly: "Rotates an inbound credential and invalidates outside integrations; direct person controls webhook secrets." },
 	"chats.createChannel": { agent: ["channels.manage:create"] },
@@ -33,9 +31,7 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"fields.update": { agent: ["records.save_field"] },
 	"fields.archive": { agent: ["records.save_field"] },
 	"fields.restore": { agent: ["records.save_field"] },
-	"memory.create": {
-		agent: ["memory.remember", "memory.remember_for_team"],
-	},
+	"memory.create": { agent: ["memory.remember", "memory.remember_for_team"] },
 	"memory.update": { agent: ["memory.update"] },
 	"memory.remove": { agent: ["memory.forget"] },
 	"messages.send": { agent: ["chat.manage:send"] },

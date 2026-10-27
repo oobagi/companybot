@@ -66,10 +66,7 @@ export const list = query({
 			.query("agents")
 			.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
 			.collect();
-		const names = await namesOf(
-			ctx,
-			agents.map((a) => a.updatedBy),
-		);
+		const names = await namesOf(ctx, agents.map((a) => a.updatedBy));
 		const connectors = await connectorStates(ctx, member);
 		return Promise.all(
 			agents.map(async (a) => ({
@@ -121,10 +118,7 @@ export const history = query({
 			.withIndex("by_agent", (q) => q.eq("agentId", agentId))
 			.order("desc")
 			.take(50);
-		const names = await namesOf(
-			ctx,
-			versions.map((v) => v.savedBy),
-		);
+		const names = await namesOf(ctx, versions.map((v) => v.savedBy));
 		return versions.map((v) => ({
 			version: v.version,
 			config: v.config,
@@ -136,18 +130,12 @@ export const history = query({
 
 export const create = mutation({
 	args: {},
-	handler: async (ctx) => {
-		const owner = await requirePermission(ctx, "agents.manage");
-		return createAgent(ctx, owner);
-	},
+	handler: async (ctx) => createAgent(ctx, await requirePermission(ctx, "agents.manage")),
 });
 
 export const update = mutation({
 	args: { agentId: v.id("agents"), expectedVersion: v.number(), config: agentConfig },
-	handler: async (ctx, { agentId, expectedVersion, config }) => {
-		const owner = await requirePermission(ctx, "agents.manage");
-		await updateAgent(ctx, owner, agentId, expectedVersion, config);
-	},
+	handler: async (ctx, { agentId, expectedVersion, config }) => updateAgent(ctx, await requirePermission(ctx, "agents.manage"), agentId, expectedVersion, config),
 });
 
 /** Brings back an old version by saving it as the newest one. History is never rewritten. */

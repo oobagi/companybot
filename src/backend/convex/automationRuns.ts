@@ -12,9 +12,7 @@ import { enqueueTurn } from "./turns";
 /** Runs it once now, just for you (webhooks and events use a sample), so you can see what it does. */
 export const runNow = mutation({
 	args: { automationId: v.string() },
-	handler: async (ctx, { automationId }) => {
-		return runNowAs(ctx, await requireMember(ctx), automationId);
-	},
+	handler: async (ctx, { automationId }) => runNowAs(ctx, await requireMember(ctx), automationId),
 });
 
 // ---- Internal: triggers ----

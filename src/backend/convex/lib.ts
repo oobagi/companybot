@@ -152,7 +152,6 @@ export function checkPermission(member: Member, permission: Permission): Member 
 	return member;
 }
 
-/** An agent in the person's workspace. Other workspaces' agents look like they don't exist. */
 /**
  * A row from the workspace this request is for, or "<what> not found." Every public function
  * that takes an id checks the row with this (or a require* helper built on it): an id from
@@ -163,6 +162,7 @@ export function requireInWorkspace<T extends { workspaceId: Id<"workspaces"> }>(
 	return row;
 }
 
+/** An agent in the person's workspace. Other workspaces' agents look like they don't exist. */
 export async function requireAgent(ctx: QueryCtx, member: Member, agentId: Id<"agents">) {
 	return requireInWorkspace(member, await ctx.db.get(agentId), "Agent");
 }

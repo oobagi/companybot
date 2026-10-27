@@ -217,24 +217,18 @@ async function requireOwn(ctx: QueryCtx, who: Who, messageId: Id<"chatMessages">
 
 export const edit = mutation({
 	args: { messageId: v.id("chatMessages"), text: v.string() },
-	handler: async (ctx, { messageId, text }) => {
-		return editMessage(ctx, { member: await requireMember(ctx) }, messageId, text);
-	},
+	handler: async (ctx, { messageId, text }) => editMessage(ctx, { member: await requireMember(ctx) }, messageId, text),
 });
 
 /** Keeps the row (threads hang off it) but clears its content and reactions. */
 export const remove = mutation({
 	args: { messageId: v.id("chatMessages") },
-	handler: async (ctx, { messageId }) => {
-		return removeMessage(ctx, { member: await requireMember(ctx) }, messageId);
-	},
+	handler: async (ctx, { messageId }) => removeMessage(ctx, { member: await requireMember(ctx) }, messageId),
 });
 
 export const react = mutation({
 	args: { messageId: v.id("chatMessages"), emoji: v.string() },
-	handler: async (ctx, { messageId, emoji }) => {
-		return reactMessage(ctx, { member: await requireMember(ctx) }, messageId, emoji);
-	},
+	handler: async (ctx, { messageId, emoji }) => reactMessage(ctx, { member: await requireMember(ctx) }, messageId, emoji),
 });
 
 export async function editMessage(ctx: MutationCtx, who: Who, messageId: Id<"chatMessages">, text: string) {
