@@ -1,6 +1,6 @@
 "use node";
 
-import { BlockNoteEditor, blockToNode, docToBlocks } from "@blocknote/core";
+import { type Block, BlockNoteEditor, blockToNode, docToBlocks } from "@blocknote/core";
 import { Window } from "happy-dom";
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
@@ -13,7 +13,7 @@ let editor: BlockNoteEditor | undefined;
 function blockNote() {
 	if (!editor) {
 		globalThis.document ??= new Window().document as unknown as Document;
-		editor = BlockNoteEditor.create({ _headless: true });
+		editor = BlockNoteEditor.create();
 	}
 	return editor;
 }
@@ -23,7 +23,7 @@ export const toMarkdown = internalAction({
 	args: { doc: v.string() },
 	handler: async (_ctx, { doc }) => {
 		const bn = blockNote();
-		return bn.blocksToMarkdownLossy(docToBlocks(bn.pmSchema.nodeFromJSON(JSON.parse(doc))));
+		return bn.blocksToMarkdownLossy(docToBlocks(bn.pmSchema.nodeFromJSON(JSON.parse(doc))) as Block[]);
 	},
 });
 

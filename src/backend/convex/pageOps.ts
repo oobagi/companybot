@@ -30,8 +30,8 @@ export const VERSION_MS = 10 * 60_000;
 const STEPS_KEEP_MS = 24 * 60 * 60_000;
 
 let schema: Schema | undefined;
-/** BlockNote's ProseMirror schema, as the app's editor has it. Needs no DOM. */
-export const pageSchema = () => (schema ??= BlockNoteEditor.create({ _headless: true }).pmSchema);
+/** BlockNote's ProseMirror schema, as the app's editor has it. An unmounted editor needs no DOM. */
+export const pageSchema = () => (schema ??= BlockNoteEditor.create().pmSchema);
 
 /** An empty block, as BlockNote keeps at the end of every page. */
 const emptyBlock = () => ({ type: "blockContainer", attrs: { id: crypto.randomUUID() }, content: [{ type: "paragraph" }] });

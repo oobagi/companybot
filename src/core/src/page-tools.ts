@@ -15,7 +15,8 @@ export interface PageStore {
 }
 
 export interface PageRead {
-	id: string;
+	/** None for a record's body nobody has written in yet. */
+	id?: string;
 	title: string;
 	record?: string;
 	markdown: string;

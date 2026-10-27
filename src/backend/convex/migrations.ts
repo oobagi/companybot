@@ -55,22 +55,27 @@ export const automationAudiences = migrations.define({
 	},
 });
 
+/** Adds `tools` to each Companybot that still has its default skills.load grant, saved as a new version. */
+function grantCompanybot(tools: string[]) {
+	return migrations.define({
+		table: "agents",
+		migrateOne: async (ctx, agent) => {
+			if (agent.name !== "Companybot" || !agent.tools.includes("skills.load")) return;
+			const missing = tools.filter((t) => !agent.tools.includes(t));
+			if (missing.length === 0) return;
+			const config = { name: agent.name, description: agent.description, instructions: agent.instructions, model: agent.model, tools: [...agent.tools, ...missing] };
+			const version = agent.version + 1;
+			await ctx.db.patch(agent._id, { tools: config.tools, version, updatedAt: Date.now() });
+			await ctx.db.insert("agentVersions", { agentId: agent._id, version, config, savedBy: agent.updatedBy });
+		},
+	});
+}
+
 // Companybot got tools to make skills and automations from chat. New workspaces get them
 // from default-agents.ts; this adds them to each existing Companybot that still has its
 // default skills.load grant (so one an owner rebuilt on purpose is left alone). Saved as a
 // new version, like an edit, so it shows in the agent's history.
-export const companybotChatTools = migrations.define({
-	table: "agents",
-	migrateOne: async (ctx, agent) => {
-		if (agent.name !== "Companybot" || !agent.tools.includes("skills.load")) return;
-		const missing = ["skills.create", "automations.*"].filter((t) => !agent.tools.includes(t));
-		if (missing.length === 0) return;
-		const config = { name: agent.name, description: agent.description, instructions: agent.instructions, model: agent.model, tools: [...agent.tools, ...missing] };
-		const version = agent.version + 1;
-		await ctx.db.patch(agent._id, { tools: config.tools, version, updatedAt: Date.now() });
-		await ctx.db.insert("agentVersions", { agentId: agent._id, version, config, savedBy: agent.updatedBy });
-	},
-});
+export const companybotChatTools = grantCompanybot(["skills.create", "automations.*"]);
 
 // Records arrived: give workspaces from before them the built-in types (clients, deals,
 // tasks, calls). New workspaces get them in workspace.ensure. Seeding skips types that exist.
@@ -88,16 +93,10 @@ export const recordTypes = migrations.define({
 
 // Companybot got records tools (the CRM from chat). Same rule as companybotChatTools: only
 // Companybots that still have their default skills.load grant, saved as a new version.
-export const companybotRecordTools = migrations.define({
-	table: "agents",
-	migrateOne: async (ctx, agent) => {
-		if (agent.name !== "Companybot" || !agent.tools.includes("skills.load") || agent.tools.includes("records.*")) return;
-		const config = { name: agent.name, description: agent.description, instructions: agent.instructions, model: agent.model, tools: [...agent.tools, "records.*"] };
-		const version = agent.version + 1;
-		await ctx.db.patch(agent._id, { tools: config.tools, version, updatedAt: Date.now() });
-		await ctx.db.insert("agentVersions", { agentId: agent._id, version, config, savedBy: agent.updatedBy });
-	},
-});
+export const companybotRecordTools = grantCompanybot(["records.*"]);
+
+// Companybot got pages tools (wiki/pages.md). Same rule.
+export const companybotPageTools = grantCompanybot(["pages.*"]);
 
 // Apps that send no workspace act in a pinned one (lib.ts legacyMemberOf): pin everyone's first.
 export const legacyWorkspaces = migrations.define({
@@ -141,6 +140,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.companybotChatTools,
 	internal.migrations.recordTypes,
 	internal.migrations.companybotRecordTools,
+	internal.migrations.companybotPageTools,
 	internal.migrations.legacyWorkspaces,
 	internal.migrations.userMentions,
 ];

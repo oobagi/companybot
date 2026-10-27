@@ -55,6 +55,8 @@ export const submitSteps = mutation({
 	args: { id: v.string(), version: v.number(), clientId: v.union(v.string(), v.number()), steps: v.array(v.string()) },
 	handler: async (ctx, args) => {
 		await editable(ctx, args.id);
+		// One delta is one document: a paste past this can't be stored, or kept as a version.
+		if (args.steps.reduce((n, step) => n + step.length, 0) > PAGE_MAX_BYTES) throw new ConvexError("That's too much to add at once. Split it into several pages.");
 		return ctx.runMutation(lib.submitSteps, args);
 	},
 });

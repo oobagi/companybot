@@ -487,7 +487,7 @@ function pageStore(ctx: ActionCtx, turnId: Id<"agentTurns">): PageStore {
 			const page = await ctx.runQuery(internal.pageTools.readFor, { turnId, ...input });
 			if ("error" in page) return page;
 			const { doc, ...rest } = page;
-			return { ...rest, markdown: await ctx.runAction(internal.pageMarkdown.toMarkdown, { doc }) };
+			return { ...rest, markdown: doc === null ? "" : await ctx.runAction(internal.pageMarkdown.toMarkdown, { doc }) };
 		},
 		write: async (input) =>
 			ctx.runMutation(internal.pageTools.writeFor, {
