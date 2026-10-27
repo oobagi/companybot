@@ -480,6 +480,8 @@ export const saveViewFor = internalMutation({
 				filters: parsed.filters ? await conditionsFor(ctx, member, type, fields, parsed.filters) : old?.filters.filter((c) => live(c.field)) ?? [],
 				sort: parsed.sort === null ? undefined : sort ?? (old?.sort && (["createdAt", "updatedAt"].includes(old.sort.field) || live(old.sort.field)) ? old.sort : undefined),
 				columns: parsed.columns ?? old?.columns.filter(live) ?? ["name"],
+				layout: parsed.layout ?? old?.layout,
+				groupBy: parsed.groupBy === null ? undefined : parsed.groupBy ? fieldNamed(fields, parsed.groupBy, type).key : old?.groupBy && live(old.groupBy) ? old.groupBy : undefined,
 			}, viewId || undefined, parsed.version);
 			return ctx.db.get(id);
 		});

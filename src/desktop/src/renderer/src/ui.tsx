@@ -57,7 +57,7 @@ export function Page({
 			<TopBar crumbs={crumbs} title={<span className="truncate">{title}</span>}>
 				{actions}
 			</TopBar>
-			<div className="flex-1 overflow-y-auto">
+			<div className="@container flex-1 overflow-y-auto">
 				<div className={`mx-auto flex flex-col gap-6 px-6 pt-8 pb-10 ${wide ? "max-w-5xl" : "max-w-2xl"}`}>
 					{(heading || subtitle) && (
 						<header className="flex flex-col gap-1">

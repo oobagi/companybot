@@ -31,6 +31,8 @@ export interface Condition {
 	empty?: boolean;
 }
 export type Sort = { field: string; order: "asc" | "desc" };
+/** One board column: a single-option choice field's option id, or null for records without one. */
+export type Group = { field: string; option: string | null };
 
 export const CONDITIONS_MAX = 10;
 export const ANY_OF_MAX = 50;
@@ -396,6 +398,15 @@ async function choosePlan(ctx: QueryCtx, budget: Budget, checks: Check[], sort: 
 	return "t";
 }
 
+/** A board column as a condition. Removed options still list the records that keep them. */
+function groupCondition(fields: Fields, { field: key, option }: Group): Condition {
+	const field = fields.find((f) => f.key === key && !f.archived);
+	if (field?.kind !== "choice" || field.multiple) throw new ConvexError("Group a board by a live choice field that holds one option.");
+	if (option === null) return { field: key, empty: true };
+	if (!field.options?.some((o) => o.id === option)) throw new ConvexError(`“${field.label}” has no such option.`);
+	return { field: key, eq: option };
+}
+
 type Cursor = { q: string; p: string; a?: Key };
 
 function parseCursor(raw: string, fingerprint: string): Cursor {
@@ -416,19 +427,22 @@ function parseCursor(raw: string, fingerprint: string): Cursor {
  */
 export async function findRecords(
 	ctx: QueryCtx,
-	{ workspaceId, typeId, archived, fields, conditions, sort, currency, pageMax, paginationOpts }: {
+	{ workspaceId, typeId, archived, fields, conditions: filters, group, sort, currency, pageMax, paginationOpts }: {
 		workspaceId: Id<"workspaces">;
 		typeId: Id<"recordTypes">;
 		archived: boolean;
 		fields: Fields;
 		conditions: Condition[];
+		/** A board column, on top of the view's filters and outside their limit. */
+		group?: Group;
 		sort?: Sort;
 		currency: string;
 		pageMax: number;
 		paginationOpts: { numItems: number; cursor: string | null; endCursor?: string | null };
 	},
 ): Promise<PaginationResult<Doc<"records">>> {
-	if (conditions.length > CONDITIONS_MAX) throw new ConvexError(`Use up to ${CONDITIONS_MAX} filters.`);
+	if (filters.length > CONDITIONS_MAX) throw new ConvexError(`Use up to ${CONDITIONS_MAX} filters.`);
+	const conditions = group ? [...filters, groupCondition(fields, group)] : filters;
 	const budget = new Budget();
 	const live = new Liveness(ctx, budget);
 	const checks: Check[] = [];

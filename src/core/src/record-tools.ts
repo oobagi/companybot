@@ -132,7 +132,9 @@ export const viewInput = z.object({
 	name: z.string().max(120).optional(),
 	filters: z.array(filter).max(10).optional().describe("All must match. Field keys or labels; choice labels, teammate names or me, linked record exact names or ids."),
 	sort: z.object({ field: z.string(), order: z.enum(["asc", "desc"]) }).nullable().optional().describe("null clears sorting"),
-	columns: z.array(z.string()).max(100).optional().describe("Field keys in display order, including name"),
+	columns: z.array(z.string()).max(100).optional().describe("Field keys in display order, including name. On a board, the properties shown on each card."),
+	layout: z.enum(["table", "board"]).optional().describe("table (the default) or board: cards in columns, one per option of groupBy"),
+	groupBy: z.string().nullable().optional().describe("Board columns: a choice field holding one option (key or label). Moving a card is a records_save of that field. null clears it."),
 });
 export type ViewSaveInput = z.infer<typeof viewInput>;
 
@@ -342,7 +344,7 @@ export const recordTools: ToolDef[] = [
 	defineTool({
 		id: "records.views",
 		title: "Look up saved views",
-		description: "The database's shared saved views, with ids, versions, filters, sort and columns. Read before changing one. Field keys and filter values are stored ids, not display labels.",
+		description: "The database's shared saved views, with ids, versions, filters, sort, columns, layout (table unless board) and groupBy. Read before changing one. Field keys and filter values are stored ids, not display labels.",
 		input: z.object({ type: z.string() }),
 		readOnly: true,
 		returnsData: true,
@@ -352,7 +354,7 @@ export const recordTools: ToolDef[] = [
 	defineTool({
 		id: "records.save_view",
 		title: "Save a database view",
-		description: "Create, rename, change or delete a named filter, sort and columns for everyone in the workspace, when asked. New views need a name; default columns include Name. Changes run right away and are logged in Activity; record undo does not undo view changes. Filters accept field keys or labels, choice labels, teammates by name or me, and linked records by exact name or id.",
+		description: "Create, rename, change or delete a named filter, sort, columns and layout (table, or a board grouped by a choice field) for everyone in the workspace, when asked. New views need a name; default columns include Name. Changes run right away and are logged in Activity; record undo does not undo view changes. Filters accept field keys or labels, choice labels, teammates by name or me, and linked records by exact name or id.",
 		input: viewInput,
 		permission: "records.edit",
 		execute: (input, { records }) => records.saveView(input),

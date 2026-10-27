@@ -3,7 +3,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { memo } from "./lib";
 import { currencyOf, fieldsOf, typeTrashed } from "./recordOps";
-import { type Condition, type Sort, findRecords } from "./recordQuery";
+import { type Condition, type Group, type Sort, findRecords } from "./recordQuery";
 
 // Reads the app (records.ts) and agents (recordTools.ts) share, so their lists, search and
 // "what links here" can't drift. Callers check access first; these only read.
@@ -25,7 +25,7 @@ export async function listRecords(
 	ctx: QueryCtx,
 	workspaceId: Id<"workspaces">,
 	type: { typeId: Id<"recordTypes">; fields: Doc<"recordFields">[] },
-	opts: { archived: boolean; conditions: Condition[]; sort?: Sort; paginationOpts: PaginationOptions },
+	opts: { archived: boolean; conditions: Condition[]; group?: Group; sort?: Sort; paginationOpts: PaginationOptions },
 ) {
 	return findRecords(ctx, { workspaceId, ...type, ...opts, currency: await currencyOf(ctx, workspaceId), pageMax: PAGE_MAX });
 }
