@@ -152,19 +152,34 @@ describe("permissions", () => {
 		expect(await t.mutation(internal.approvals.claim, { approvalId, turnId: next._id })).toEqual(sms);
 	});
 
-	it("doesn't offer or accept Always allow on locked actions; old apps' Approve still works", async () => {
+	it("doesn't offer or accept Always allow on locked actions; Allow once still works", async () => {
 		const { t, member } = await setup();
 		const { approvalId, card } = await hold(t, member, "locked");
 		expect(card.alwaysText).toBeNull();
 		await expect(member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true, always: true })).rejects.toThrow("isn't available");
-		await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true });
+		await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true, always: false });
 		expect(await member.query(api.permissions.mine)).toEqual([]);
+	});
+
+	it("keeps unbackfilled approvals conservative: no Always grant, and later blocks still win", async () => {
+		const { t, owner, member } = await setup();
+		const { approvalId, card, turn } = await hold(t, member);
+		// The alpha.6 migrations never populated risk on older stored approvals.
+		await t.run(ctx => ctx.db.patch(approvalId, { risk: undefined }));
+		expect((await member.query(api.approvals.forReply, { replyId: turn.replyId! }))[0]?.alwaysText).toBeNull();
+		await expect(member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true, always: true })).rejects.toThrow("isn't available");
+		expect(await member.query(api.permissions.mine)).toEqual([]);
+		await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true, always: false });
+		await owner.mutation(api.permissions.setLock, { action: sms.tool, lock: "block" });
+		const next = (await turnsOf(t)).at(-1)!;
+		expect(await t.mutation(internal.approvals.claim, { approvalId, turnId: next._id })).toBeNull();
+		expect(await t.run(ctx => ctx.db.get(approvalId))).toMatchObject({ status: "failed", error: expect.stringContaining("blocked") });
 	});
 
 	it("doesn't run an approved call that was blocked before it ran", async () => {
 		const { t, owner, member } = await setup();
 		const { approvalId, card } = await hold(t, member);
-		await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true });
+		await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true, always: false });
 		await owner.mutation(api.permissions.setLock, { action: sms.tool, lock: "block" });
 		const next = (await turnsOf(t)).at(-1)!;
 		expect(await t.mutation(internal.approvals.claim, { approvalId, turnId: next._id })).toBeNull();
@@ -240,7 +255,7 @@ describe("permissions", () => {
 		await expect(member.mutation(api.approvals.decide, { approvalId, hash: card!.hash, approve: true, always: true })).rejects.toThrow("isn't available");
 		expect(await member.query(api.permissions.mine)).toEqual([]);
 		// Allowing once still works, and a normal chat call still asks.
-		await member.mutation(api.approvals.decide, { approvalId, hash: card!.hash, approve: true });
+		await member.mutation(api.approvals.decide, { approvalId, hash: card!.hash, approve: true, always: false });
 		await t.mutation(internal.turns.finishReply, { turnId: (await turnsOf(t)).at(-1)!._id });
 		const plain = await ask(t, member);
 		expect((await check(t, plain._id)).decision).toEqual({ type: "ask", canAlways: true });
@@ -331,7 +346,7 @@ describe("permissions", () => {
 			expect(card!.alwaysAutomation).toBe("Monday sales summary");
 			expect(card!.alwaysText).toContain("when running Monday sales summary");
 
-			await owner.mutation(api.approvals.decide, { approvalId: reading, hash: readCard!.hash, approve: false });
+			await owner.mutation(api.approvals.decide, { approvalId: reading, hash: readCard!.hash, approve: false, always: false });
 			await owner.mutation(api.approvals.decide, { approvalId: posting, hash: card!.hash, approve: true, always: true });
 			await cancelScheduled(t);
 			expect(await t.run((ctx) => ctx.db.get(reading))).toMatchObject({ status: "denied" });
@@ -376,7 +391,7 @@ describe("permissions", () => {
 		expect(await member.query(api.approvals.forReply, { replyId: run.replyId! })).toEqual([]);
 		const [card] = await member.query(api.approvals.forReply, { replyId: row.replyId });
 		expect(card).toMatchObject({ approver: "member@co.com", input: row.input, canDecide: true, alwaysAutomation: config.name });
-		await expect(owner.mutation(api.approvals.decide, { approvalId, hash: row.hash, approve: true })).rejects.toThrow("Only member@co.com");
+		await expect(owner.mutation(api.approvals.decide, { approvalId, hash: row.hash, approve: true, always: false })).rejects.toThrow("Only member@co.com");
 		await member.mutation(api.approvals.decide, { approvalId, hash: row.hash, approve: true, always: true });
 		await t.mutation(internal.turns.finishReply, { turnId: run._id });
 		const resumed = (await turnsOf(t)).at(-1)!;
@@ -396,7 +411,7 @@ describe("permissions", () => {
 		const install = await t.run(async ctx => (await ctx.db.query("automationInstalls").collect()).find(i => i.automationId === id)!);
 		expect(install.custom!.updatedBy).toBe(owner.userId);
 		await t.mutation(internal.turns.finishReply, { turnId: editing._id });
-		await member.mutation(api.automations.runNow, { automationId: id }); // COMPAT alias uses the same provenance.
+		await member.mutation(api.automationRuns.runNow, { automationId: id });
 		await cancelScheduled(t);
 		const pending = (await turnsOf(t)).at(-1)!;
 		expect((await check(t, pending._id, "chat.read", "inside")).decision).toMatchObject({ type: "ask" });

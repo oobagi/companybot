@@ -94,7 +94,6 @@ export async function createMemory(ctx: MutationCtx, { member, agentId: byAgent 
 		updatedBy: member.userId,
 		...(byAgent && { updatedByAgent: true }),
 		version: 1,
-		createdTs: ctx.db.vars.commitTs,
 	});
 	return toMemory((await ctx.db.get(id))!);
 }

@@ -25,10 +25,10 @@ How agents get the go-ahead for actions that leave the building, or that act as 
 - Actions are named the same everywhere (`actionLabel`): the MCP tool's title, else its name in words ("send_sms" → "Send SMS"). Phone numbers show laid out; what runs and what's hashed is the exact input. Tool lines under replies say what happened ("Sent SMS with Fake CRM", `toolLine`); a tool with `label` names what this call touched ("Saved Acme Roofing"). Labels are stored on the reply's tool part, never replayed to the model.
 - Under the buttons, in plain words, what "always" covers: "Always allow: agents can send email from your Gmail without asking you first. Only when acting for you." Settings uses the same text (`alwaysAllowText`), minus the pointer to Settings.
 - "Always allow" saves the rule and runs the call. Not shown for locked actions or to anyone but the person the agent acts for. The server enforces it too: `decide({ always: true })` is refused wherever the action always asks (locked, or an owner's "ask" lock), and scoped to the automation if the run was one's.
-- The runner saves the exact held call with its `risk` (`approvals.request`).
+- The runner must save the exact held call with its `risk` (`approvals.request`). Stored `risk` stays optional because no migration backfilled old rows; those rows cannot offer Always and use conservative risk checks.
 - The lock is SHA-256 of canonical JSON of the tool id and exact input (`approvalHash`). The app returns the hash it showed; `decide` refuses any other; `claim` re-hashes before running. Only the acting person decides, while they can see the chat, within 24h. Owners cannot decide for someone else. Compare nothing else: unrelated changes never void a call.
 - `approvals.decide` queues a normal turn in the same place with `approvalId`. It runs the approved call first, then gives the agent its outcome through `buildTurnPrompt`. Replays note the held call without its outcome, staying byte-identical.
-- Cards are `approval` message parts. `messages.list` returns them in `fullParts`; older apps get a text line in `parts`.
+- Cards are `approval` message parts. `messages.list` returns them in `parts`; `fullParts` remains an identical alias for alpha.6 apps.
 - Blocked calls (Never or owner block) don't run; the model is told why, and the tool line shows failed.
 
 ## Automations

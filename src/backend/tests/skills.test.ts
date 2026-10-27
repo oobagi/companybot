@@ -55,7 +55,7 @@ describe("customize", () => {
 			await owner.mutation(api.skills.save, { skillId, config: quote, expectedVersion: 2 });
 			const row = (await member.query(api.skills.list)).find((s) => s.id === skillId);
 			expect(row).toMatchObject({ canEdit: true, createdByName: "member@co.com", custom: { version: 3, updatedByName: "owner@co.com" } });
-			await owner.mutation(api.skills.setInstalled, { skillId, installed: false });
+			await owner.mutation(api.skills.remove, { skillId });
 			expect((await member.query(api.skills.list)).some((s) => s.id === skillId)).toBe(false);
 			await expect(member.mutation(api.skills.setInstalled, { skillId: "meeting-notes", installed: true })).rejects.toThrow("permission");
 		});
@@ -111,11 +111,11 @@ describe("customize", () => {
 
 		it("deletes like an uninstall", async () => {
 			const { owner, member, skillId, find } = await made();
-			await expect(member.mutation(api.skills.setInstalled, { skillId, installed: false })).rejects.toThrow("Only the person who made");
+			await expect(member.mutation(api.skills.remove, { skillId })).rejects.toThrow("Only the person who made");
 			await expect(owner.mutation(api.skills.setInstalled, { skillId, installed: true })).rejects.toThrow("always on");
-			await owner.mutation(api.skills.setInstalled, { skillId, installed: false });
+			await owner.mutation(api.skills.remove, { skillId });
 			expect(await find()).toBeUndefined();
-			await expect(owner.mutation(api.skills.setInstalled, { skillId, installed: false })).rejects.toThrow("Skill not found.");
+			await expect(owner.mutation(api.skills.remove, { skillId })).rejects.toThrow("Skill not found.");
 		});
 
 		it("lets an agent save one from chat as the person it's helping", async () => {

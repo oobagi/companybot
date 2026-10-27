@@ -113,17 +113,6 @@ describe("apps that name no workspace", () => {
 });
 
 describe("requests naming a workspace", () => {
-	it("old plugins.* names act in the workspace the request names", async () => {
-		const { A, B } = await setup();
-		await A.mutation(api.connectors.setInstalled, { connectorId: CONNECTOR, installed: true });
-		await B.mutation(api.connectors.setInstalled, { connectorId: CONNECTOR, installed: true });
-		await B.mutation(api.plugins.setRoles, { pluginId: CONNECTOR, roles: ["owner"] });
-		await B.mutation(api.plugins.setInstalled, { pluginId: CONNECTOR, installed: false });
-		expect((await A.query(api.connectors.list)).find((c) => c.id === CONNECTOR)).toMatchObject({ installed: true });
-		expect((await B.query(api.connectors.list)).find((c) => c.id === CONNECTOR)).toMatchObject({ installed: false });
-		expect((await A.query(api.plugins.list)).find((c) => c.id === CONNECTOR)).toMatchObject({ installed: true });
-	});
-
 	it("can't mark a chat in another workspace read, even one they were in", async () => {
 		const s = await setup();
 		const { t, userId, A, B } = s;

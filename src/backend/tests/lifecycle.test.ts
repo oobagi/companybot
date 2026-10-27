@@ -98,9 +98,6 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		const memberRowId = (await ctx.db.query("members").collect()).find((r) => r.userId === memberId && r.workspaceId === workspaceId)?._id;
 		const flow = { connectorId: "notes", userId: memberId, workspaceId, memberId: memberRowId, connectorInstallId, data: "sealed", expiresAt: now + 60_000 };
 		mine.push(await ctx.db.insert("connectorOAuthFlows", { ...flow, state: `s-${workspaceId}` }));
-		await ctx.db.insert("pluginInstalls", { workspaceId, pluginId: "notes", roles: ["owner"], installedBy: ownerId });
-		await ctx.db.insert("pluginConnections", { workspaceId, pluginId: "notes", userId: null, credentials: "sealed", connectedBy: ownerId });
-		await ctx.db.insert("pluginOAuthFlows", { state: `p-${workspaceId}`, pluginId: "notes", userId: memberId, data: "sealed", expiresAt: now });
 		const made = { version: 1, updatedBy: memberId, updatedAt: now };
 		await ctx.db.insert("skillInstalls", { workspaceId, skillId: "custom-skill", custom: { name: "Skill", createdBy: memberId, description: "d", instructions: "i", ...made } });
 
@@ -555,7 +552,7 @@ describe("writes that land after what they belong to went", () => {
 		const general = (await generalOf(member))._id;
 		const agentId = (await member.query(api.agents.list))[0]!._id;
 		const turnId = await agentTurn(t, member, general, agentId);
-		const { approvalId } = await t.mutation(internal.approvals.request, { turnId, callId: "c1", tool: "crm.find", input: "{}" });
+		const { approvalId } = await t.mutation(internal.approvals.request, { turnId, callId: "c1", tool: "crm.find", input: "{}", risk: "inside" });
 		await t.run((ctx) => ctx.db.patch(approvalId, { status: "running" }));
 		// The external call is in flight while they erase their account, and returns after cleanup finished.
 		await member.mutation(api.workspace.eraseAccount);

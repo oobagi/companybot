@@ -7,7 +7,7 @@ import { Notice, primaryButton, secondaryButton, timeAgo, useRun } from "../../u
 import { AgentBadge, Avatar, clock } from "./common";
 import type { Message } from "./data";
 
-type ApprovalPart = Extract<Message["fullParts"][number], { type: "approval" }>;
+type ApprovalPart = Extract<Message["parts"][number], { type: "approval" }>;
 type Approval = FunctionReturnType<typeof api.approvals.forReply>[number];
 
 /**

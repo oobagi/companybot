@@ -195,12 +195,12 @@ export default defineSchema({
 		/** Set when the agent made the last change, acting for `updatedBy`. */
 		updatedByAgent: v.optional(v.boolean()),
 		version: v.number(),
-		/** Commit timestamp. COMPAT(0.1.0-alpha.6): only memory.forgetForRemovedMember reads it; drop it with that. */
+		/** Retained for stored rows: no migration cleared this retired cleanup timestamp. */
 		createdTs: v.optional(v.commitTs()),
 	})
 		.index("by_workspace", ["workspaceId"])
 		// One person's personal memories in a workspace (team memories have no owner).
-		.index("by_owner", ["ownerId", "workspaceId", "createdTs"])
+		.index("by_owner", ["ownerId", "workspaceId"])
 		// Newest first within a scope, across owners (lists), or one owner's personal memories.
 		.index("by_agent_scope", ["agentId", "scope"])
 		.index("by_agent_owner", ["agentId", "scope", "ownerId"])
@@ -276,31 +276,6 @@ export default defineSchema({
 		.index("by_user", ["userId", "workspaceId"])
 		.index("by_workspace", ["workspaceId"])
 		.index("by_install", ["connectorInstallId"]),
-
-	// Legacy: the connector tables' names before "plugins" became "connectors". Emptied by
-	// the `connector*` migrations (migrations.ts).
-	// COMPAT(0.1.0-alpha.6): once those migrations have run on prod, drop these three tables and the migrations.
-	pluginInstalls: defineTable({
-		workspaceId: v.id("workspaces"),
-		pluginId: v.string(),
-		roles: v.array(role),
-		installedBy: v.id("users"),
-	}),
-	pluginConnections: defineTable({
-		workspaceId: v.id("workspaces"),
-		pluginId: v.string(),
-		userId: v.union(v.id("users"), v.null()),
-		credentials: v.string(),
-		connectedBy: v.id("users"),
-		error: v.optional(v.string()),
-	}),
-	pluginOAuthFlows: defineTable({
-		state: v.string(),
-		pluginId: v.string(),
-		userId: v.id("users"),
-		data: v.string(),
-		expiresAt: v.number(),
-	}),
 
 	skillInstalls: defineTable({
 		workspaceId: v.id("workspaces"),
@@ -514,16 +489,9 @@ export default defineSchema({
 		/** Approved calls: the result (JSON, clipped) or error. Shown only to the actor, like the activity log; cleared when their account is erased. */
 		result: v.optional(v.string()),
 		error: v.optional(v.string()),
-		/**
-		 * The tool's risk when it asked, so the card knows whether to offer "Always allow". Unset on old rows: no offer.
-		 * COMPAT(0.1.0-alpha.6): delete or backfill rows without it (only dev has any), then make it required.
-		 * Prod got approvals with `risk`. Drop the fallbacks marked in approvals.ts with it.
-		 */
+		/** Risk when it asked. Optional because old stored approvals have no backfill migration; they cannot offer Always. */
 		risk: v.optional(risk),
-		/**
-		 * Set when the call came from an automation's run: an Always grant is scoped to it, never wider.
-		 * COMPAT(0.1.0-alpha.6): rows from before it fall back to the turn's trigger in `alwaysFor`; drop that fallback.
-		 */
+		/** Set for automation calls, so Always grants stay scoped to that install. */
 		automationInstallId: v.optional(v.id("automationInstalls")),
 		/** Set when the actor chose "Always allow": a rule was saved too. */
 		always: v.optional(v.boolean()),
@@ -546,8 +514,8 @@ export default defineSchema({
 		lastRunAt: v.optional(v.number()),
 		/** What the last run did, in a line, e.g. "Sent to 3 people". */
 		lastResult: v.optional(v.string()),
-		/** Who it runs for. Unset on installs from before audiences: read with `audienceOf`. */
-		audience: v.optional(audience),
+		/** Who it runs for; automationAudiences backfilled existing installs in alpha.6. */
+		audience,
 		/** Audience "channel": post each run here, once. */
 		channelId: v.optional(v.id("chats")),
 		/** Who picked the channel. Library automations' channel runs act as them (or another owner if they've left); ones people make act as their maker. */

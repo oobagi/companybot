@@ -30,16 +30,6 @@ describe("connectors", () => {
 		expect(await decrypt(stored!.credentials)).toEqual({ type: "api_key", key: "secret-1" });
 	});
 
-	it("keeps the old plugins.* names working for apps that haven't updated", async () => {
-		const { owner, member } = await ownerAndMember();
-		await owner.mutation(api.plugins.setInstalled, { pluginId: "notes", installed: true });
-		await owner.mutation(api.plugins.setRoles, { pluginId: "notes", roles: ["owner", "member"] });
-		await member.action(api.plugins.connect, { pluginId: "notes", credentials: { type: "api_key", key: "k" } });
-		expect((await member.query(api.plugins.list)).find((p) => p.id === "notes")).toMatchObject({ installed: true, connected: true });
-		await member.mutation(api.plugins.disconnect, { pluginId: "notes" });
-		expect((await member.query(api.connectors.list)).find((p) => p.id === "notes")?.connected).toBe(false);
-	});
-
 	it("needs an owner to connect a workspace account", async () => {
 		const { owner, member } = await ownerAndMember();
 		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });

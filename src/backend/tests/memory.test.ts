@@ -100,7 +100,8 @@ describe("agent memory", () => {
 		const scribe = (await owner.query(api.agents.list)).find((a) => a.name === "Scribe")!._id;
 		await member.mutation(api.memory.create, { agentId: scribe, scope: "personal", content: "Archived agent note" });
 		await owner.mutation(api.agents.setArchived, { agentId: scribe, archived: true });
-		await member.mutation(api.memory.create, { agentId: companybot, scope: "personal", content: "Current note" });
+		const old = await member.mutation(api.memory.create, { agentId: companybot, scope: "personal", content: "Current note" });
+		await t.run(ctx => ctx.db.patch(old.id as Id<"memories">, { createdTs: ctx.db.vars.commitTs }));
 		await insertMemories(t, companybot, Array.from({ length: 205 }, (_, i) => ({ scope: "personal", ownerId: member.userId, content: `Old note ${i}` })));
 
 		await member.mutation(api.workspace.switchTo, { to: otherWorkspace });
@@ -110,18 +111,15 @@ describe("agent memory", () => {
 			await owner.mutation(api.workspace.removeMember, { id: row.id });
 		}
 		expect(await member.query(api.memory.list)).toEqual([]);
-		const workspaceId = (await owner.query(api.workspace.me))!.workspaceId!;
 		await settle(t);
-		const before = await t.run(async (ctx) => ctx.meta.getSnapshotTs());
 		await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
 		await member.mutation(api.workspace.acceptInvite, { id: (await member.query(api.workspace.mine))!.invitations[0]!.id });
 		const fresh = await member.mutation(api.memory.create, { agentId: companybot, scope: "personal", content: "After rejoining" });
+		expect((await t.run(ctx => ctx.db.get(fresh.id as Id<"memories">)))!.createdTs).toBeUndefined();
 		await t.finishAllScheduledFunctions(vi.runAllTimers);
 		expect((await member.query(api.memory.list)).map((m) => m.content)).toEqual(["Team note", "After rejoining"]);
 		expect((await elsewhere.query(api.memory.list)).map((m) => m.content)).toEqual(["Other workspace"]);
 		expect((await owner.query(api.memory.list)).map((m) => m.content)).toEqual(["Owner note", "Team note"]);
-		// Retrying an old cleanup must also spare the new membership's memory.
-		await t.mutation(internal.memory.forgetForRemovedMember, { workspaceId, userId: member.userId, before });
 		await member.mutation(api.memory.update, { id: fresh.id as Id<"memories">, content: "New note", expectedVersion: 1 });
 		expect((await member.query(api.memory.list)).at(-1)?.content).toBe("New note");
 	});

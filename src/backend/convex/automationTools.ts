@@ -4,7 +4,7 @@ import type { Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { channelNamed } from "./chatOps";
 import { asToolResult, nameOf, timeZoneOf } from "./lib";
-import { audienceOf, definitionOf, installOf, runsForLabel, subscribersOf, visibleInstalls, webhookUrl } from "./automationOps";
+import { definitionOf, installOf, runsForLabel, subscribersOf, visibleInstalls, webhookUrl } from "./automationOps";
 import { createAutomation, setSubscription } from "./automations";
 import { runningTurn } from "./turns";
 
@@ -19,7 +19,7 @@ export const listFor = internalQuery({
 			installs.map(async (install) => {
 				const automation = await definitionOf(ctx, install);
 				if (!automation) return null; // its library entry was removed
-				const audience = audienceOf(install);
+				const audience = install.audience;
 				const channel = (install.channelId && (await ctx.db.get(install.channelId))) || null;
 				return {
 					id: install.automationId,
