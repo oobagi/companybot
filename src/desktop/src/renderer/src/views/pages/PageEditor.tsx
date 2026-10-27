@@ -22,7 +22,15 @@ const theme: Theme = { ...lightDefaultTheme, fontFamily: "inherit", colors: { ..
 
 /** BlockNote pads the left for its block handles: pull it back so text lines up with the title. */
 const viewClass = "page-editor -mx-[54px]";
-const links = { isValidLink: validPageHref };
+const links = {
+	isValidLink: validPageHref,
+	// BlockNote's default opens every link with window.open, page links too; those navigate in openPageLink instead.
+	onClick: (event: globalThis.MouseEvent) => {
+		const anchor = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href]") : null;
+		if (anchor && !linkedPageId(anchor.getAttribute("href") ?? "")) window.open(anchor.href, anchor.target);
+		return true;
+	},
+};
 
 /** Capture before BlockNote opens a window; also works in read-only version previews. */
 function openPageLink(event: MouseEvent<HTMLDivElement>) {
