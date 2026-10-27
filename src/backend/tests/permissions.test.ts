@@ -2,10 +2,11 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { approvalHash, canonicalJson } from "@companybot/core";
+import { approvalHash, canonicalJson, findConnector, openConnector, toolApprovalPolicy, toolRisk } from "@companybot/core";
 
 import { type As, agentsOf, setup as ownerAndMember, meOf, generalOf, turnsOf, settle } from "./helpers";
 import "./connectorFixtures";
+import { fakeMcpServer } from "../../core/test/test-mcp-server";
 
 // The tests drive turns themselves; keep scheduled model replies back.
 beforeEach(() => void vi.useFakeTimers());
@@ -450,6 +451,45 @@ describe("permissions", () => {
 		await owner.mutation(api.automationRuns.runNow, { automationId: id });
 		await cancelScheduled(t);
 		expect((await check(t, (await turnsOf(t)).at(-1)!._id, "chat.read", "inside")).decision).toMatchObject({ type: "ask" });
+	});
+
+	it("personal connector reads use runtime consent scoped to the automation, while normal chat and workspace reads stay unchanged", async () => {
+		const { t, owner, member, companybot } = await setup();
+		await owner.mutation(api.connectors.setInstalled, { connectorId: "notes", installed: true });
+		const session = await openConnector(findConnector("notes")!, { transport: fakeMcpServer([{ name: "find", readOnly: true }]) });
+		try {
+			const tool = session.tools[0]!;
+			const risk = toolRisk(tool);
+			expect(risk).toBe("inside");
+			const install = (await t.run(async ctx => (await ctx.db.query("connectorInstalls").collect()).find(i => i.connectorId === "notes")))!;
+			await t.mutation(internal.connectorTools.saveTools, { workspaceId: install.workspaceId, installId: install._id, connectorId: "notes", tools: [{ name: "find", description: "Read personal notes", risk }] });
+			const id = await member.mutation(api.automations.create, { config: { name: "Inbound", prompt: "Read notes.", trigger: { type: "webhook" } }, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
+			await member.mutation(api.automationRuns.runNow, { automationId: id });
+			await cancelScheduled(t);
+			const run = (await turnsOf(t)).at(-1)!;
+			const call = { toolCallId: "notes", toolName: "connectors_call", input: { tool: tool.id, input: {} } };
+			const policy = (turnId: Id<"agentTurns">) => toolApprovalPolicy(session.tools, async tool => (await check(t, turnId, tool.id, toolRisk(tool))).decision);
+			expect(await policy(run._id)({ toolCall: call })).toMatchObject({ type: "denied", reason: expect.stringContaining("needs member@co.com's OK") });
+			expect((await check(t, run._id, "crm.find_leads", "none")).decision).toEqual({ type: "run" });
+			const plain = await ask(t, member);
+			expect(await policy(plain._id)({ toolCall: call })).toBeUndefined();
+			await t.mutation(internal.turns.finishReply, { turnId: plain._id });
+			// Per-person Never and clearing it still work in normal chat.
+			await member.mutation(api.permissions.set, { action: tool.id, setting: "never" });
+			expect((await check(t, run._id, tool.id, risk)).decision).toEqual({ type: "deny", by: "person" });
+			await member.mutation(api.permissions.set, { action: tool.id, setting: "ask" });
+			await allowCall(t, member, run, tool.id, "inside");
+			await member.mutation(api.automationRuns.runNow, { automationId: id });
+			await cancelScheduled(t);
+			const later = (await turnsOf(t)).at(-1)!;
+			expect(await policy(later._id)({ toolCall: call })).toBeUndefined();
+			expect((await check(t, later._id, tool.id, risk)).decision).toEqual({ type: "run", via: "automation" });
+			await owner.mutation(api.automationRuns.runNow, { automationId: id });
+			await cancelScheduled(t);
+			expect((await check(t, (await turnsOf(t)).at(-1)!._id, tool.id, risk)).decision).toMatchObject({ type: "ask" });
+		} finally {
+			await session.close();
+		}
 	});
 
 	it("asks before an agent edits or makes a skill, since every agent follows skills", async () => {

@@ -32,6 +32,8 @@ Built for prompt caching: the cache matches an exact prefix, so nothing earlier 
 4. **Compaction** — once the session passes ~40k tokens, older turns fold into the session's summary and a ~15k-token tail stays verbatim. One cache miss, then append-only again.
 5. **Chat tools** — `chat.react` (react to the trigger message), `chat.read` (older history or another place), `chat.search` (search chats the actor can see). Granted like other built-ins (`chat.*`).
 
+Foreign automation runs skip session replay and summaries and see only their trigger or its own thread. Other history must be read through the consent-gated chat tools.
+
 Code: `core/src/turn-input.ts` builds all of it (`systemPrompt`, `buildTurnPrompt`, `buildTurnInput`); change the strategy there. `backend/convex/turns.ts` runs the queue and reads turn context; `chatTools.ts` owns agent chat tools, using the shared channel lookup in `chatOps.ts`; `agent.ts` streams the reply.
 
 Not a skill: chat is the platform, so every agent has it.

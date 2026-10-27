@@ -71,7 +71,7 @@ function SettingSelect({ action: a }: { action: Action }) {
 				value={a.setting}
 				onChange={(e) => run(set({ action: a.action, setting: e.target.value as "ask" | "always" | "never" }))}
 			>
-				<option value="ask">{a.risk === "none" ? "Allowed" : "Ask"}</option>
+				<option value="ask">{a.risk === "none" || a.risk === "inside" ? "Allowed" : "Ask"}</option>
 				{(a.canAlways || a.setting === "always") && <option value="always">Always</option>}
 				<option value="never">Never</option>
 			</select>
@@ -84,6 +84,7 @@ const lockNote = (a: Action) => {
 	if (a.result === "deny") return a.lock === "block" ? "Blocked by an owner." : "Never: agents can't do this for you.";
 	if (a.result === "ask") return a.canAlways ? "Asks first." : "Always asks (locked).";
 	if (a.risk === "none") return "Only reads. Runs without asking.";
+	if (a.risk === "inside") return "Runs in your chats. Automations following others’ words ask first.";
 	return a.alwaysText;
 };
 

@@ -17,8 +17,8 @@ import { canSee, findOrCreateDm, insertMessage, namer } from "./chatOps";
 import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { erased, getMember, memberOf, nameOf, requireMember, toActor } from "./lib";
-import { automationOfTurn, decideFor, setRule } from "./permissions";
-import { automationName } from "./automationOps";
+import { decideFor, setRule } from "./permissions";
+import { automationName, automationScope } from "./automationOps";
 import { titleOf } from "./connectorTools";
 import { risk } from "./schema";
 import { enqueueTurn, runningTurn } from "./turns";
@@ -36,10 +36,9 @@ export const request = internalMutation({
 	args: { turnId: v.id("agentTurns"), callId: v.string(), tool: v.string(), input: v.string(), risk: v.optional(risk) },
 	handler: async (ctx, { turnId, callId, tool, input, risk }) => {
 		const { turn } = await runningTurn(ctx, turnId);
-		const automation = await automationOfTurn(ctx, turn);
+		const { automation, trigger } = await automationScope(ctx, turn);
 		// Automation cards belong only in the acting person's DM, even for channel/thread runs.
 		// Keep chatId/threadId as the execution place: implicit targets must not change on approval.
-		const trigger = await ctx.db.get(turn.triggerId);
 		const dmId = trigger?.automation && await findOrCreateDm(ctx, turn.workspaceId, turn.actorId, [turn.actorId], [turn.agentId]);
 		const separate = !!dmId && dmId !== turn.chatId;
 		const replyId = separate ? await insertMessage(ctx, (await ctx.db.get(dmId!))!, {
@@ -84,7 +83,7 @@ async function alwaysFor(ctx: QueryCtx, row: Doc<"approvals">) {
 	const automation = row.automationInstallId
 		? await ctx.db.get(row.automationInstallId)
 		: fromAutomation && turn
-			? await automationOfTurn(ctx, turn)
+			? (await automationScope(ctx, turn)).automation
 			: null;
 	if (fromAutomation && !automation) return null;
 	// Acting-as-you calls ask only in others' automations, and an Always for them is scoped to it.

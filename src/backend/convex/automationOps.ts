@@ -29,6 +29,15 @@ export function followsOthers(install: Doc<"automationInstalls">, userId: Id<"us
 	return (!!install.custom && (install.installedBy !== userId || install.custom.updatedBy !== userId)) || trigger?.type !== "schedule";
 }
 
+/** Live automation scope plus immutable provenance from the server-written trigger. */
+export async function automationScope(ctx: QueryCtx, turn: Doc<"agentTurns">) {
+	const trigger = await ctx.db.get(turn.triggerId);
+	const automation = trigger?.automation ? await installOf(ctx, turn.workspaceId, trigger.automation.id) : null;
+	// Legacy triggers without a provenance snapshot and removed installs stay foreign.
+	const foreign = !!trigger?.automation && ((trigger.automation.foreign ?? true) || !automation || followsOthers(automation, turn.actorId));
+	return { trigger, automation, foreign };
+}
+
 export function automationName(install: Doc<"automationInstalls">) {
 	if (install.custom) return install.custom.name;
 	return findAutomation(install.automationId)?.name ?? install.automationId;

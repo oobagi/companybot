@@ -50,7 +50,7 @@ export async function openConnector(
 					readOnly: t.annotations?.readOnlyHint === true,
 					// Trusted only to tighten: anything the server calls destructive is locked (always asks),
 					// even if it also claims to be read-only.
-					...(t.annotations?.destructiveHint === true && { risk: "locked" as const }),
+					risk: t.annotations?.destructiveHint === true ? "locked" : t.annotations?.readOnlyHint === true && connector.connection === "personal" ? "inside" : undefined,
 					returnsData: true,
 					source: { type: "connector", connectorId: connector.id },
 					async execute(input) {

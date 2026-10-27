@@ -17,7 +17,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalQuery } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { type Member, getMember, memberFor, nameOf, requireInWorkspace, requireMember, requirePermission } from "./lib";
-import { automationName, followsOthers, installOf } from "./automationOps";
+import { automationName, automationScope } from "./automationOps";
 import { riskOf, titleOf, toolsOf } from "./connectorTools";
 import { risk } from "./schema";
 import { runningTurn } from "./turns";
@@ -95,24 +95,13 @@ async function decideWith(
 	return { decision, rule, lock, own };
 }
 
-/** The automation install a turn runs for: its trigger message was posted by an automation. */
-export async function automationOfTurn(ctx: QueryCtx, turn: Doc<"agentTurns">) {
-	const trigger = await ctx.db.get(turn.triggerId);
-	if (!trigger?.automation) return null;
-	return installOf(ctx, turn.workspaceId, trigger.automation.id);
-}
-
 /** Called by the runner before every call that could ask: the decision, from the rules in force now. */
 export const check = internalQuery({
 	args: { turnId: v.id("agentTurns"), action: v.string(), risk },
 	handler: async (ctx, { turnId, action, risk }) => {
 		const { turn, member } = await runningTurn(ctx, turnId);
-		const automation = await automationOfTurn(ctx, turn);
-		const trigger = await ctx.db.get(turn.triggerId);
+		const { trigger, automation, foreign } = await automationScope(ctx, turn);
 		if (trigger?.automation && !automation) throw new ConvexError("This automation was removed. Nothing ran.");
-		// Keep the original run's provenance through edits and approval continuations. Old
-		// messages lack this snapshot, so fail toward asking rather than trusting their words.
-		const foreign = !!automation && ((trigger?.automation?.foreign ?? true) || followsOthers(automation, member.userId));
 		const decided = await decideFor(ctx, member, { action, risk, automationInstallId: automation?._id, foreign });
 		const { rule } = decided;
 		// An automation's run never stops as a whole: only this call waits for the person.
@@ -147,7 +136,7 @@ export async function setRule(
 	const scope = install?._id;
 	const risk = callRisk ?? (await riskOf(ctx, member.workspaceId, action));
 	// Acting as you only ever asks in others' automations, so it's only ever allowed for one.
-	if (risk === "inside" && !automationInstallId) throw new ConvexError("This only asks in automations someone else wrote; allow it there.");
+	if (risk === "inside" && setting === "always" && !automationInstallId) throw new ConvexError("This only asks in automations someone else wrote; allow it there.");
 	if (setting === "always") {
 		const { decision } = await decideFor(ctx, member, { action, risk, foreign: !!automationInstallId });
 		if (decision.type === "ask" && !decision.canAlways) throw new ConvexError("This action always asks, so it can't be set to Always.");
@@ -232,7 +221,7 @@ async function actionsFor(ctx: QueryCtx, member: Member): Promise<Action[]> {
 				lock: lock ?? null,
 				setting: own?.setting ?? "ask",
 				result: decision.type,
-				canAlways: d.risk !== "none" && !forced,
+				canAlways: d.risk !== "none" && d.risk !== "inside" && !forced,
 				// Shown beside its own Ask / Always / Never, so no pointer to Settings.
 				alwaysText: alwaysAllowText(d.action, connector, { title: d.title, whereToChange: false }),
 			};

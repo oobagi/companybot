@@ -8,6 +8,52 @@ afterEach(() => void vi.useRealTimers());
 describe("agent turns", () => {
 	// Keep the scheduled model reply back while the test drives its turn.
 	beforeEach(() => void vi.useFakeTimers());
+	it.each(["dm", "channel", "thread", "own-thread"] as const)("foreign automation %s runs receive their trigger without earlier private history, replay or summary", async place => {
+		const { t, owner, member } = await ownerAndMember();
+		const { companybot } = await agentsOf(owner);
+		const chatId = place === "dm"
+			? await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] })
+			: await owner.mutation(api.chats.createChannel, { name: "private-history", private: true });
+		const parent = place === "thread" ? await owner.mutation(api.messages.send, { chatId, text: "PRIVATE_PARENT", mentions: noMentions }) : undefined;
+		await owner.mutation(api.messages.send, { chatId, threadId: parent, text: "PRIVATE_MESSAGE", mentions: { userIds: [], agentIds: [companybot._id] } });
+		const first = (await turnsOf(t)).at(-1)!;
+		await t.mutation(internal.turns.savePrompt, { turnId: first._id, prompt: "PRIVATE_REPLAY" });
+		await t.run(ctx => ctx.db.patch(first.sessionId!, { summary: "PRIVATE_SUMMARY" }));
+		await t.mutation(internal.turns.finishReply, { turnId: first._id });
+		const config = { name: "Foreign", prompt: "AUTOMATION_TRIGGER", trigger: { type: "schedule" as const, time: "09:00", weekdays: [0, 1, 2, 3, 4, 5, 6] } };
+		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
+		await owner.mutation(api.automations.subscribe, { automationId: id, on: true });
+		await t.mutation(internal.automationRuns.tick, { now: Date.now() + 2 * 86_400_000 });
+		const run = (await turnsOf(t)).find(r => r.actorId === owner.userId && r._id !== first._id)!;
+		// Model each destination while preserving a real automation's server-written provenance.
+		await t.run(async ctx => {
+			await ctx.db.patch(run.triggerId, { chatId, threadId: parent });
+			const threadId = place === "own-thread" ? run.triggerId : parent;
+			await ctx.db.patch(run.replyId!, { chatId, threadId });
+			await ctx.db.patch(run._id, { chatId, threadId, sessionId: first.sessionId });
+		});
+		const context = await t.query(internal.turns.turnContext, { turnId: run._id });
+		expect(context.session).toMatchObject({ summary: null, turns: [] });
+		expect(context.messages.map(m => m.text)).toEqual(["AUTOMATION_TRIGGER"]);
+		if (place === "own-thread") expect(context.place.thread?.parent.text).toBe("AUTOMATION_TRIGGER");
+		else expect(context.place.thread).toBeNull();
+		expect(JSON.stringify(context)).not.toContain("PRIVATE_");
+		const readInput = place === "thread" ? { threadOf: parent } : place === "dm" ? {} : { chat: "#private-history" };
+		const held = await t.mutation(internal.approvals.request, { turnId: run._id, callId: "read", tool: "chat.read", input: JSON.stringify(readInput), risk: "inside" });
+		const row = (await t.run(ctx => ctx.db.get(held.approvalId)))!;
+		if (place === "own-thread") await owner.mutation(api.messages.send, { chatId, threadId: run.triggerId, text: "RUN_THREAD", mentions: noMentions });
+		await owner.mutation(api.approvals.decide, { approvalId: row._id, hash: row.hash, approve: true });
+		await t.mutation(internal.turns.finishReply, { turnId: run._id });
+		const resumed = (await turnsOf(t)).find(r => r.approvalId === row._id)!;
+		const continuation = await t.query(internal.turns.turnContext, { turnId: resumed._id });
+		expect(JSON.stringify(continuation)).not.toContain("PRIVATE_");
+		expect(continuation.session).toMatchObject({ summary: null, turns: [] });
+		if (place === "own-thread") expect(continuation.messages.some(m => m.text === "RUN_THREAD")).toBe(true);
+		// Consent unlocks an explicit read, not implicit prompt history.
+		expect(await t.mutation(internal.approvals.claim, { approvalId: row._id, turnId: resumed._id })).toEqual({ tool: "chat.read", input: readInput });
+		expect(JSON.stringify(await t.query(internal.chatTools.readFor, { turnId: resumed._id, ...readInput }))).toContain("PRIVATE_MESSAGE");
+	});
+
 	it("replies to mentions in channels, adding the agent to the channel", async () => {
 		const { t, owner } = await ownerAndMember();
 		const { companybot } = await agentsOf(owner);
