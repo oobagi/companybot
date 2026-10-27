@@ -102,6 +102,7 @@ export const inputClass = `rounded-xl px-3 py-2 ${controlClass}`;
 export const compactControlClass = `rounded-lg px-2 py-1 text-sm ${controlClass}`;
 export const disabledButtonClass = "disabled:opacity-50";
 export const primaryButton = `rounded-xl bg-neutral-900 px-4 py-2 text-sm text-white ${disabledButtonClass}`;
+export const dangerButton = `rounded-xl bg-red-600 px-4 py-2 text-sm text-white ${disabledButtonClass}`;
 export const secondaryButton = `rounded-xl border border-neutral-200 px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
 export const descriptionClass = "text-sm text-neutral-500";
 export const metadataClass = "text-xs text-neutral-400";

@@ -1,10 +1,12 @@
 import type { Role } from "@companybot/core";
 import { can } from "@companybot/core/permissions";
 import { currencyCodes } from "@companybot/core/records";
+import { useAuthActions } from "@convex-dev/auth/react";
 import { useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { describeUpdate, desktop, useUpdates } from "../desktop";
+import { navigate } from "../router";
 import {
 	ConflictNotice,
 	Field,
@@ -14,6 +16,7 @@ import {
 	SaveBar,
 	Section,
 	Tabs,
+	dangerButton,
 	descriptionClass,
 	disabledButtonClass,
 	inputClass,
@@ -56,12 +59,24 @@ export function SettingsView({ role, tab, onTab }: { role: Role; tab: SettingsTa
 /** Shared workspace settings: everyone sees them, owners change them. */
 function GeneralTab({ role }: { role: Role }) {
 	const settings = useQuery(api.workspace.settings);
+	const remove = useMutation(api.workspace.deleteWorkspace);
 	if (!settings) return <Loading />;
 	return (
 		<>
 			<GeneralForm settings={settings} isOwner={can(role, "workspace.manage")} />
 			{can(role, "actions.lock") && <WorkspaceLocks />}
 			<AppVersion />
+			{can(role, "workspace.delete") && (
+				<DangerZone
+					action="Delete workspace"
+					hint="Deletes this workspace and everything in it, for everyone."
+					confirm={settings.name}
+					onDelete={(name) => remove({ name }).then(() => navigate("chat"))}
+				>
+					Everyone in {settings.name} loses access at once, and its chats, records, agents, memory and connections are deleted. This
+					can't be undone.
+				</DangerZone>
+			)}
 		</>
 	);
 }
@@ -91,6 +106,61 @@ function AppVersion() {
 					</button>
 				)}
 			</div>
+		</Section>
+	);
+}
+
+/** Deletes something for good, once you've typed `confirm` (its name, or your email). */
+function DangerZone({
+	action,
+	hint,
+	confirm,
+	onDelete,
+	children,
+}: {
+	action: string;
+	hint: string;
+	confirm: string;
+	onDelete: (typed: string) => Promise<unknown>;
+	children: React.ReactNode;
+}) {
+	const [open, setOpen] = useState(false);
+	const [typed, setTyped] = useState("");
+	const { error, run } = useRun();
+	const close = () => (setOpen(false), setTyped(""));
+	return (
+		<Section title="Danger zone">
+			<div className="flex items-center gap-3 rounded-xl border border-neutral-200 px-4 py-3 text-sm">
+				<span className="flex-1">{hint}</span>
+				<button type="button" onClick={() => setOpen(true)} className="font-medium text-red-600 hover:underline">
+					{action}
+				</button>
+			</div>
+			{open && (
+				<Modal title={`${action}?`} onClose={close}>
+					<form
+						className="flex flex-col gap-4 text-sm"
+						onSubmit={(e) => {
+							e.preventDefault();
+							run(onDelete(typed.trim()));
+						}}
+					>
+						<p className="text-neutral-600">{children}</p>
+						{error && <Notice>{error}</Notice>}
+						<Field label={`Type “${confirm}” to confirm`}>
+							<input className={inputClass} autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} />
+						</Field>
+						<div className="flex justify-end gap-2">
+							<button type="button" onClick={close} className={secondaryButton}>
+								Cancel
+							</button>
+							<button type="submit" disabled={typed.trim() !== confirm} className={dangerButton}>
+								{action}
+							</button>
+						</div>
+					</form>
+				</Modal>
+			)}
 		</Section>
 	);
 }
@@ -186,6 +256,9 @@ const zoneLabel = (zone: string) => zone.replaceAll("_", " ");
 function ProfileTab() {
 	const prefs = useQuery(api.preferences.get);
 	const update = useMutation(api.preferences.update);
+	const me = useQuery(api.workspace.me);
+	const erase = useMutation(api.workspace.eraseAccount);
+	const { signOut } = useAuthActions();
 	const [name, setName] = useState<string>();
 	const { error, run } = useRun();
 	if (!prefs) return <Loading />;
@@ -262,6 +335,18 @@ function ProfileTab() {
 				))}
 			</Section>
 			<YourPermissions />
+			{me && (
+				<DangerZone
+					action="Delete account"
+					hint="Deletes your account and takes you out of every workspace."
+					confirm={me.email}
+					onDelete={() => erase().then(signOut)}
+				>
+					You'll leave every workspace and be signed out. Workspaces only you are in are deleted with everything in them. Your name,
+					preferences and connected accounts are deleted; what you said in shared chats stays, as a former member's. If you're the only
+					owner of a workspace with other people in it, make someone else an owner first. This can't be undone.
+				</DangerZone>
+			)}
 		</>
 	);
 }

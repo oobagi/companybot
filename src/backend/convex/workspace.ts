@@ -325,7 +325,8 @@ export const eraseAccount = mutation({
 		if (!userId) throw new ConvexError("Not signed in.");
 		// A few indexed reads per workspace however big it is. Leaving them is the cascade's (memberOf refuses an erased account until then).
 		for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId))) {
-			if (row.role !== "owner" || (await hasLiveOwner(ctx, row.workspaceId, userId))) continue;
+			// One being deleted is going anyway, however many memberships its cascade has left to delete.
+			if (row.role !== "owner" || !(await liveWorkspace(ctx, row.workspaceId)) || (await hasLiveOwner(ctx, row.workspaceId, userId))) continue;
 			const others = await ctx.db
 				.query("members")
 				.withIndex("by_workspace", (q) => q.eq("workspaceId", row.workspaceId))

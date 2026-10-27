@@ -342,6 +342,17 @@ describe("erasing an account", () => {
 		expect(await owner.query(api.workspace.me)).toMatchObject({ role: "owner" });
 	});
 
+	it("lets a sole owner erase their account while a workspace they deleted is still being cleaned up", async () => {
+		const t = convexTest({ schema, modules, transactionLimits: true });
+		const owner = await signIn(t, "a@co.com");
+		await owner.mutation(api.workspace.invite, { email: "m@co.com", role: "member" });
+		await signIn(t, "m@co.com");
+		vi.useFakeTimers();
+		await owner.mutation(api.workspace.deleteWorkspace, { name: "My company" });
+		await owner.mutation(api.workspace.eraseAccount);
+		await settle(t);
+	});
+
 	it("deletes a sole owner's workspace even if their pending invite is used before the cascade gets there", async () => {
 		const t = convexTest({ schema, modules, transactionLimits: true });
 		const owner = await signIn(t, "a@co.com");
