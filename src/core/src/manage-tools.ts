@@ -135,7 +135,7 @@ const descriptions: Record<ManageTool, string> = {
 		"Invite an email as a member, or resend or cancel the invitation for an email (owners). Invite and resend send email outside the workspace and wait for approval. Cannot invite owners or change roles.",
 	"members.remove":
 		"Remove another member by their email (owners). Deletes their personal workspace data and access. The exact call waits for approval; cannot remove yourself.",
-	"agents.manage": "Browse agents and their paged configuration history, create an agent with no tools, edit metadata, or archive an agent (owners). Other agents' instructions and model may be edited only when asked; you cannot change your own instructions/model, grant tools, restore grants or reactivate an agent. Use the current expectedVersion. Get includes the model catalog.",
+	"agents.manage": "Browse agents and their paged configuration history, create an agent with no tools, edit metadata, or archive an agent. Writes require an owner. Other agents' instructions and model may be edited only when asked; you cannot change your own instructions/model, grant tools, restore grants or reactivate an agent. Use the current expectedVersion. Get includes the model catalog.",
 	"workspace.settings":
 		"Read/update the acting person's display name, send shortcut, notification preference and explicit time zone (null = automatic). Device time zone is measured by the device. Read workspace name, default currency, memory switch and version; update these as an owner using the current expectedVersion. Existing amounts keep their currency; the default only affects new amounts. Memory off keeps stored memories. Change only when asked.",
 };
@@ -159,7 +159,6 @@ export const manageTools: ToolDef[] = (Object.keys(manageInputs) as ManageTool[]
 		input: manageInputs[id],
 		...((id === "members.invite" || id === "members.remove") && { permission: "members.manage" as const }),
 		...(id.endsWith(".remove") ? { risk: "locked" as const } : id === "members.invite" ? { risk: "outside" as const } : {}),
-		...(id === "agents.manage" && { permission: "agents.manage" as const }),
 		...((id === "channels.manage" || id === "chat.manage") && {
 			riskFor: (input: unknown) => {
 				const parsed = manageInputs[id as "channels.manage" | "chat.manage"].safeParse(input);

@@ -130,7 +130,7 @@ export const activity = query({
 type Entry = Awaited<ReturnType<typeof toEntries>>[number];
 
 /** History entries, display-ready, with names resolved once for the page. */
-async function toEntries(ctx: QueryCtx, workspaceId: Id<"workspaces">, items: { entry: Doc<"recordHistory">; fields: Doc<"recordFields">[] }[]) {
+export async function toEntries(ctx: QueryCtx, workspaceId: Id<"workspaces">, items: { entry: Doc<"recordHistory">; fields: Doc<"recordFields">[] }[]) {
 	const idsOf = items.map(({ entry, fields }) =>
 		entry.recordId ? entry.changes.flatMap((c) => [...idsIn(fields, { [c.key]: c.old }), ...idsIn(fields, { [c.key]: c.new })]) : [],
 	);
@@ -232,7 +232,6 @@ export const undo = mutation({
 		await undoChange(ctx, { member: await requireMember(ctx) }, historyId);
 	},
 });
-
 
 export async function historyAs(ctx: QueryCtx, member: Member, record: Doc<"records">, paginationOpts: PaginationOptions) {
 	const result = await ctx.db

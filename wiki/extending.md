@@ -68,6 +68,8 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 - `AgentConfig` is the editable shape (`core/src/agent-config.ts`). Stored per workspace, versioned on every save. `validateAgentConfig` runs on save; add checks there.
 - The runner reads the agent fresh each turn. Anything that changes how a reply runs belongs in `turns.turnContext` + `agent.ts`; what the model is fed belongs in `core/src/turn-input.ts`.
 
+- Agent management shares `createAgent`, `updateAgent` and `archiveAgent` with the app. Tool-free creation cannot expand grants; schemas omit tools/reactivation and the backend refuses edits to the acting agent's own instructions/model.
+
 ## The app and `core`
 - The app imports only dependency-free modules from core, by deep path: `@companybot/core/permissions`, `@companybot/core/agent-config`. Importing the barrel would bundle the agent runtime (`ai`, zod) into the renderer. To expose another module, add it to `exports` in `core/package.json`.
 
@@ -111,6 +113,6 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 - Member emails are normalized on join and indexed (`memberEmails` backfills older rows); invite checks fail closed until it's done instead of scanning the team.
 - `platformGuide` gets the runner's resolved tools and gates each line on exact ids; `manage-tools.test.ts` checks every single-tool grant and role so the guide never names a tool the agent lacks.
 
-Tool shape references: [Anthropic's tool definitions](https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools), [consolidating tools](https://www.anthropic.com/engineering/writing-tools-for-agents), [AI SDK tool schemas](https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling). At implementation: AI SDK 7.0.148, Zod 4.6.7, Gateway provider 4.0.121; Claude Sonnet/Haiku/Opus 5.5 through Vercel AI Gateway. Separate action tools give simpler schemas and individual grants but expand model choice; nested unions retain an object root while expressing action-specific fields. Risk boundaries take precedence over grouping.
+Page tool writes run in a nested mutation (`writeChecked`); expected errors are caught by its caller after Convex rolls its writes back. Keep this boundary so refused block edits cannot create blank pages or save partial renames.
 
-- Agent management shares `createAgent`, `updateAgent` and `archiveAgent` with the app. Tool-free creation cannot expand grants; schemas omit tools/reactivation and the backend refuses edits to the acting agent's own instructions/model.
+Tool shape references: [Anthropic's tool definitions](https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools), [consolidating tools](https://www.anthropic.com/engineering/writing-tools-for-agents), [AI SDK tool schemas](https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling). At implementation: AI SDK 7.0.148, Zod 4.6.7, Gateway provider 4.0.121; Claude Sonnet/Haiku/Opus 5.5 through Vercel AI Gateway. Separate action tools give simpler schemas and individual grants but expand model choice; nested unions retain an object root while expressing action-specific fields. Risk boundaries take precedence over grouping.

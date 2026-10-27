@@ -10,7 +10,7 @@ import { type ToolDef, defineTool, resultText as text } from "./tools";
  */
 export interface RecordStore {
 	types(input?: { trashed?: boolean }): Promise<RecordTypesResult>;
-	history(input: { id?: string; cursor?: string; source?: "records" | "agents" }): Promise<unknown>;
+	history(input: { id?: string; cursor?: string; source?: "records" | "agents"; change?: string; limit?: number }): Promise<unknown>;
 	/** One request's worth of a list or search. `numItems` is at most 50. */
 	find(input: RecordFindInput & { numItems: number }): Promise<RecordPage | { error: string }>;
 	get(input: { id: string }): Promise<unknown>;
@@ -280,11 +280,28 @@ export const recordTools: ToolDef[] = [
 	defineTool({
 		id: "records.history",
 		title: "Read history and Activity",
-		description: "Read a record's full history by id, or the workspace Activity feed without id. Paged newest first, with raw old/new values and undo ids. source agents reads visible agent tool activity; outputs remain private to the person it acted for. Continue with cursor until isDone.",
-		input: z.object({ id: z.string().optional(), source: z.enum(["records", "agents"]).optional(), cursor: z.string().optional() }),
+		description: "Read a record's full history by id, or the workspace Activity feed without id. Paged newest first, with raw old/new values and undo ids. source agents reads visible agent tool activity; outputs remain private to the person it acted for. Continue with continueCursor as cursor until isDone. Long results are trimmed; use fewer rows or change with an entry id to read full JSON in 20,000-character chunks (start/next).",
+		input: z.object({ id: z.string().optional(), source: z.enum(["records", "agents"]).optional(), cursor: z.string().optional(), limit: z.number().int().min(1).max(20).optional(), change: z.string().optional().describe("One recordHistory entry id for full detail"), start: z.number().int().min(0).optional() }),
 		readOnly: true,
 		returnsData: true,
-		execute: (input, { records }) => records.history(input),
+		async execute({ start = 0, ...input }, { records }) {
+			const result = await records.history(input);
+			if (input.change && !failed(result)) {
+				const json = JSON.stringify(result);
+				const end = start + 20_000;
+				return { change: input.change, json: json.slice(start, end), ...(json.length > end && { more: true, next: end }) };
+			}
+			if (result && typeof result === "object" && "page" in result) {
+				const { page, ...rest } = result;
+				return { ...rest, rows: page };
+			}
+			return result;
+		},
+		toModelOutput: ({ output }) => {
+			const data = output && typeof output === "object" && "data" in output ? output.data : output;
+			const detail = data && typeof data === "object" && "json" in data;
+			return { type: "json", value: (detail ? output : forModel(output, 20_000)) as never };
+		},
 	}),
 	defineTool({
 		id: "records.save",

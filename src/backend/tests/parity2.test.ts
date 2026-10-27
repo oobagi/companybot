@@ -1,9 +1,9 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { type ManageTool, pickAgentConfig } from "@companybot/core";
+import { type ManageTool } from "@companybot/core";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { IDLE_MS, readDoc } from "../convex/pageOps";
-import { agentTurn, agentsOf, generalOf, noMentions, setup, sideWorkspace, turnsOf, workspaceOf } from "./helpers";
+import { agentTurn, agentsOf, generalOf, noMentions, setup, sideWorkspace, turnsOf } from "./helpers";
 
 afterEach(() => vi.useRealTimers());
 
@@ -64,6 +64,7 @@ it("pages full record history and workspace Activity, with undo and cross-worksp
 	const id = await owner.mutation(api.records.create, { typeId, values: { name: "v0" } });
 	for (let i = 1; i <= 24; i++) await owner.mutation(api.records.update, { recordId: id, values: { name: `v${i}` } });
 	const first: any = await t.query(internal.recordTools.historyFor, { turnId, id });
+	expect(await t.query(internal.recordTools.historyFor, { turnId, change: first.page[0]._id })).toMatchObject(first.page[0]);
 	expect(first.page).toHaveLength(20);
 	expect(first.isDone).toBe(false);
 	const rest: any = await t.query(internal.recordTools.historyFor, { turnId, id, cursor: first.continueCursor });
@@ -76,6 +77,8 @@ it("pages full record history and workspace Activity, with undo and cross-worksp
 	const foreignType = await owner.in(side.workspaceId).mutation(api.recordTypes.create, { plural: "Secrets" });
 	const foreign = await owner.in(side.workspaceId).mutation(api.records.create, { typeId: foreignType, values: { name: "secret" } });
 	expect(await t.query(internal.recordTools.historyFor, { turnId, id: foreign })).toHaveProperty("error");
+	const foreignHistory = (await owner.in(side.workspaceId).query(api.records.history, { recordId: foreign, paginationOpts: { cursor: null, numItems: 1 } })).page[0]!;
+	expect(await t.query(internal.recordTools.historyFor, { turnId, change: foreignHistory._id })).toHaveProperty("error");
 });
 
 it("Activity keeps invisible chats and other people's private outputs out", async () => {
@@ -118,6 +121,8 @@ it("pages all retained versions, previews/restores one, preserves rich block pro
 	const side = await sideWorkspace(t, "owner@co.com");
 	const foreign = await owner.in(side.workspaceId).mutation(api.pages.create, { title: "Foreign" });
 	expect(await t.query(internal.pageTools.readFor, { turnId, page: foreign, version: oldest })).toHaveProperty("error");
+	const another = await owner.mutation(api.pages.create, { title: "Another" });
+	expect(await write({ page: another, restore: oldest })).toHaveProperty("error");
 	expect(await write({ markdown: "x", blocks: "[]" })).toHaveProperty("error");
 	await write({ trash: true });
 	expect((await t.query(internal.pageTools.findFor, { turnId, input: { trashed: true } })).rows).toContainEqual(expect.objectContaining({ id: page }));
@@ -133,6 +138,7 @@ it("manages safe agent config with version/owner checks and never expands tools 
 	expect(await t.run((ctx) => ctx.db.get(id))).toMatchObject({ tools: [] });
 	expect((await call("agents.manage", { action: "list" })).page).toContainEqual(expect.objectContaining({ id }));
 	expect(await call("agents.manage", { action: "get", id })).toMatchObject({ version: 1, tools: [], models: expect.any(Array) });
+	expect(await call("agents.manage", { action: "get", id }, true)).toMatchObject({ id });
 	expect(await call("agents.manage", { action: "history", id })).toMatchObject({ page: [expect.objectContaining({ version: 1 })] });
 	await call("agents.manage", { action: "update", id, expectedVersion: 1, name: "Research", description: "Researches", instructions: "Research", model: scribe.model });
 	expect(await call("agents.manage", { action: "update", id, expectedVersion: 1, name: "Stale" })).toHaveProperty("error");
@@ -188,6 +194,7 @@ it("installs library automations only as owners and sample-runs with the same ed
 	// This catalog entry has no required connectors.
 	const free = library.find((x: { id: string }) => x.id === "morning-brief")?.id ?? id;
 	expect(await call("automations.manage", { action: "install", id: free, timeZone: "UTC" })).toMatchObject({ installed: free });
+	expect(await call("automations.manage", { action: "run", id: free }, true)).toHaveProperty("error");
 	const custom = await member.mutation(api.automations.create, { config: { name: "Review", prompt: "Review", trigger: { type: "event", event: "member.joined" } }, agentId: scribe._id, audience: "subscribers", timeZone: "UTC" });
 	await t.run((ctx) => ctx.db.patch(scribe._id, { tools: ["automations.manage"] }));
 	const before = await turnsOf(t);
@@ -216,4 +223,14 @@ it("targets another agent's memories while preserving personal privacy, team rig
 	const settings = (await owner.query(api.workspace.settings))!;
 	await owner.mutation(api.workspace.updateSettings, { name: settings.name, expectedVersion: settings.version, memory: false });
 	await expect(t.query(internal.memory.searchFor, { turnId, agentId: scribe._id, query: "" })).rejects.toThrow("turned memory off");
+});
+
+it("rolls back refused rich writes and checks the exact page before restoring a version", async () => {
+	const { t, owner, turnId } = await ready();
+	const before = await owner.query(api.pages.list, {});
+	expect(await t.mutation(internal.pageTools.writeFor, { turnId, input: { title: "Invalid", blocks: "{}" } })).toHaveProperty("error");
+	expect(await owner.query(api.pages.list, {})).toEqual(before);
+	const page = await owner.mutation(api.pages.create, { title: "Original" });
+	expect(await t.mutation(internal.pageTools.writeFor, { turnId, input: { page, title: "Partial rename", blocks: "{}" } })).toHaveProperty("error");
+	expect((await owner.query(api.pages.get, { pageId: page }))!.title).toBe("Original");
 });

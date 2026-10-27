@@ -100,7 +100,7 @@ describe("tool visibility", () => {
 			"pages_find",
 			"pages_read",
 			"pages_write",
-			"chat_manage", "channels_manage", "automations_manage", "automations_remove", "skills_manage", "skills_remove", "workspace_settings",
+			"chat_manage", "channels_manage", "automations_manage", "automations_remove", "skills_manage", "skills_remove", "workspace_settings", "agents_manage",
 		].sort());
 	});
 

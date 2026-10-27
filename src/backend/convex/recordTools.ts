@@ -1,7 +1,6 @@
-import { databaseInput, fieldInput, viewInput } from "@companybot/core";
+import { databaseInput, fieldInput, isGranted, viewInput } from "@companybot/core";
 import { deleteView, saveView, viewsOf } from "./databaseViews";
 import {
-	type FieldSaveInput,
 	type RecordFindInput,
 	type RecordPage,
 	type RecordSaveInput,
@@ -14,7 +13,7 @@ import {
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
-import { type Member, asToolResult, nameOf } from "./lib";
+import { type Member, asToolResult, nameOf, requireInWorkspace } from "./lib";
 import {
 	createType,
 	updateType,
@@ -38,7 +37,7 @@ import {
 } from "./recordOps";
 import { ANY_OF_MAX, CONDITIONS_MAX, type Condition } from "./recordQuery";
 import { PAGE_MAX, linkingRecords, listRecords, searchRecords } from "./recordReads";
-import { historyAs, activityAs } from "./records";
+import { historyAs, activityAs, toEntries } from "./records";
 import { activityPage } from "./activity";
 import { runningTurn } from "./turns";
 
@@ -499,11 +498,20 @@ export const saveViewFor = internalMutation({
 });
 
 export const historyFor = internalQuery({
-	args: { turnId: v.id("agentTurns"), id: v.optional(v.string()), source: v.optional(v.union(v.literal("records"), v.literal("agents"))), cursor: v.optional(v.string()) },
-	handler: async (ctx, { turnId, id, source, cursor }) => {
-		const { member } = await runningTurn(ctx, turnId);
+	args: { turnId: v.id("agentTurns"), id: v.optional(v.string()), source: v.optional(v.union(v.literal("records"), v.literal("agents"))), cursor: v.optional(v.string()), change: v.optional(v.string()), limit: v.optional(v.number()) },
+	handler: async (ctx, { turnId, id, source, cursor, change, limit }) => {
+		const { member, turn } = await runningTurn(ctx, turnId);
+		const agent = await ctx.db.get(turn.agentId);
+		if (!agent || agent.archived || !isGranted(agent.tools, "records.history")) throw new ConvexError("This agent no longer has that tool.");
 		return asToolResult(async () => {
-			const opts = { numItems: 20, cursor: cursor ?? null };
+			const opts = { numItems: Math.min(Math.max(limit ?? 20, 1), 20), cursor: cursor ?? null };
+			if (change) {
+				if (source === "agents") throw new ConvexError("Use change only for record history.");
+				const entryId = ctx.db.normalizeId("recordHistory", change);
+				const entry = requireInWorkspace(member, entryId ? await ctx.db.get(entryId) : null, "Change");
+				if (id && entry.recordId !== id) throw new ConvexError("Change belongs to a different record.");
+				return (await toEntries(ctx, member.workspaceId, [{ entry, fields: await fieldsOf(ctx, entry.typeId) }]))[0]!;
+			}
 			if (source === "agents") {
 				if (id) throw new ConvexError("Use id only for record history.");
 				return activityPage(ctx, member, opts);

@@ -71,6 +71,22 @@ describe("records tools", () => {
 		]);
 	});
 
+	it("reads large history entries without losing content between chunks", async () => {
+		const entry = { _id: "h1", changes: [{ key: "notes", old: "x".repeat(10_000), new: '\"'.repeat(20_000) }] };
+		const c = { ...ctx(member), records: { history: async () => entry } as unknown as RecordStore };
+		let json = "";
+		let start = 0;
+		for (;;) {
+			const chunk: any = await tool("records.history").execute({ change: "h1", start }, c);
+			const output = { ref: "r1", data: chunk };
+			expect((await tool("records.history").toModelOutput!({ toolCallId: "c", input: { change: "h1" }, output }) as any).value).toEqual(output);
+			json += chunk.json;
+			if (!chunk.more) break;
+			start = chunk.next;
+		}
+		expect(JSON.parse(json)).toEqual(entry);
+	});
+
 	it("run right away: internal, undoable, nothing sent outside", () => {
 		const ids = builtinTools.filter((t) => t.id.startsWith("records.")).map((t) => t.id);
 		expect(ids).toEqual(["records.types", "records.find", "records.get", "records.history", "records.save", "records.undo", "records.save_field", "records.save_database", "records.views", "records.save_view"]);
