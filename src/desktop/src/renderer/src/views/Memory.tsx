@@ -29,9 +29,6 @@ export function MemoryTab({ role }: { role: Role }) {
 
 	return (
 		<>
-			<p className={descriptionClass}>
-				Each agent has its own memory. Team memories are shared. Only you can see your personal memories.
-			</p>
 			{!settings.memory && (
 				<p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
 					Memory is turned off by an owner. Agents don't read or save memories until it's back on. Yours are kept, and you can
@@ -55,7 +52,7 @@ export function MemoryTab({ role }: { role: Role }) {
 					<AgentOptions agents={agents} />
 				</select>
 			</div>
-			{shown.length === 0 ? (filter !== "all" ? <NoMatches onClear={() => setFilter("all")} /> : <EmptyState icon={<SkillIcon />} title="No memories yet">Add something to remember, or ask an agent to save it.</EmptyState>) : <>
+			{shown.length === 0 ? (filter !== "all" ? <NoMatches /> : <EmptyState icon={<SkillIcon />} title="No memories yet">Add something to remember, or ask an agent to save it.</EmptyState>) : <>
 				<MemoryList title="Team" empty="No team memories yet." items={team} agentName={agentName} />
 				<MemoryList title="Personal" empty="No personal memories yet." items={personal} agentName={agentName} />
 			</>}

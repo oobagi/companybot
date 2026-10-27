@@ -8,7 +8,7 @@ import { useMutation, useQuery } from "../../convex";
 import { SkillIcon } from "../../icons";
 import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
-import { Field, Loading, Notice, Section, inputClass, primaryButton, useRun } from "../../ui";
+import { Field, Loading, Notice, Section, inputClass, useRun } from "../../ui";
 import { Card, Detail, Facts, ItemList, MadeItemDetail, Missing, NewItem } from "./shared";
 
 type SkillItem = FunctionReturnType<typeof api.skills.list>[number];
@@ -31,14 +31,8 @@ export function SkillsTab({ role }: { role: Role }) {
 	return (
 		<ItemList
 			items={skills}
-			description="Instructions your agents load when a task calls for them. Agents see each skill's description, and read the rest only when they need it."
 			icon={<SkillIcon />} title="No skills yet" empty="Save a process your agents can follow."
 			card={card}
-			action={can(role, "skills.create") && (
-				<button type="button" className={`${primaryButton} shrink-0`} onClick={() => navigate("settings", "skills", "new")}>
-					New skill
-				</button>
-			)}
 		/>
 	);
 }

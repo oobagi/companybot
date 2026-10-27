@@ -25,9 +25,6 @@ export function ActivityTab() {
 	return (
 		<>
 			{(database.results.length > 0 || database.status !== "Exhausted") && <DatabaseActivity {...database} />}
-			<p className={descriptionClass}>
-				What agents did, in chats you can see. Results show only for what they did for you.
-			</p>
 			<div className="flex items-center gap-4 text-sm">
 				<select
 					value={agentId ?? ""}
@@ -42,7 +39,7 @@ export function ActivityTab() {
 					Changes only
 				</label>
 			</div>
-			{shown.length === 0 && database.status === "Exhausted" && (agentId || entries.length > 0 ? <NoMatches onClear={() => { setAgentId(undefined); setChangesOnly(false); }} /> : <EmptyState icon={<HistoryIcon />} title={database.results.length ? "No agent activity yet" : "No activity yet"}>Database changes and agent actions will appear here.</EmptyState>)}
+			{shown.length === 0 && database.status !== "LoadingFirstPage" && (agentId || entries.length > 0 ? <NoMatches /> : <EmptyState icon={<HistoryIcon />} title={database.results.length ? "No agent activity yet" : "No activity yet"}>Database changes and agent actions will appear here.</EmptyState>)}
 			<div className="flex shrink-0 flex-col gap-2 empty:hidden">
 				{shown.map((e) => (
 					<ActivityRow key={e._id} entry={e} />

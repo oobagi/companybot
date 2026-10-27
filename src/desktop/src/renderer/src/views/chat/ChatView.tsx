@@ -103,9 +103,9 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 						{title}
 					</h1>
 					{agent && <AgentBadge />}
-					{chat.topic && <p className="truncate font-normal text-neutral-500">{chat.topic}</p>}
 				</>
 			}
+			description={chat.topic}
 		>
 			{!agent && (
 				<button

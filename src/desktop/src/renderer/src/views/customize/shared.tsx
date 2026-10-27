@@ -5,12 +5,12 @@ import { type Crumb, EmptyState, ConflictNotice, NotFound, Notice, Page, SaveBar
 import { TrashNotice } from "../Trash";
 import { Confirm } from "../chat/common";
 
-// Agents, Connectors, Skills and Automations are Settings tabs: /settings/<tab>[/<item>].
+/** Each tab's description shows in the top bar. */
 export const customizeTabs = [
-	{ id: "agents", label: "Agents" },
-	{ id: "connectors", label: "Connectors" },
-	{ id: "skills", label: "Skills" },
-	{ id: "automations", label: "Automations" },
+	{ id: "agents", label: "Agents", description: "What each agent knows and can do. Only owners can change agents." },
+	{ id: "connectors", label: "Connectors", description: "Connect outside services like Gmail or Calendar. Agents granted a connector use it for the person they're helping." },
+	{ id: "skills", label: "Skills", description: "Instructions your agents load when a task calls for them. Agents see each skill's description, and read the rest only when they need it." },
+	{ id: "automations", label: "Automations", description: "Jobs that run on their own: on a schedule, when something happens here, or when another app sends a webhook. Each one asks an agent to do something." },
 ] as const;
 export type CustomizeTab = (typeof customizeTabs)[number]["id"];
 
@@ -20,30 +20,26 @@ type MadeTab = "skills" | "automations";
 const tabLabel = (tab: CustomizeTab) => customizeTabs.find((t) => t.id === tab)!.label;
 
 /** The top bar's trail for an item's own screen: Skills. */
-export const customizeCrumbs = (tab: CustomizeTab): Crumb[] => [{ label: tabLabel(tab), to: ["settings", tab] }];
+export const customizeCrumbs = (tab: CustomizeTab): Crumb[] => [
+	{ label: tabLabel(tab), to: ["settings", tab] },
+];
 
 /** Agents, skills and automations share one list of workspace items. */
 export function ItemList<T extends { trash?: unknown; archived?: boolean }>({
-	items, description, action, title, icon, empty, error, card,
+	items, title, icon, empty, error, card,
 }: {
 	items: T[];
 	title: string;
 	icon: React.ReactNode;
-	description: string;
 	empty: string;
-	action: React.ReactNode;
 	error?: string;
 	card: (item: T) => React.ReactNode;
 }) {
 	items = items.filter((item) => !item.trash && !item.archived);
 	return (
 		<>
-			<div className="flex items-start justify-between gap-4">
-				<p className={descriptionClass}>{description}</p>
-				{items.length > 0 && action}
-			</div>
 			{error && <Notice>{error}</Notice>}
-			{items.length ? <div className="flex flex-col gap-3">{items.map(card)}</div> : <EmptyState icon={icon} title={title} action={action}>{empty}</EmptyState>}
+			{items.length ? <div className="flex flex-col gap-3">{items.map(card)}</div> : <EmptyState icon={icon} title={title}>{empty}</EmptyState>}
 		</>
 	);
 }
@@ -137,7 +133,7 @@ export function Detail(props: {
 	return (
 		<Page
 			title={props.title}
-			subtitle={props.meta}
+			description={props.meta}
 			crumbs={customizeCrumbs(props.tab)}
 			actions={!props.trash && <InstallButton installed={props.installed} canManage={props.canManage} busy={props.busy} onToggle={() => props.confirmation ? setConfirming(true) : props.onToggle()} />}
 		>
@@ -216,7 +212,7 @@ export function MadeItemDetail<T>({
 	return (
 		<Page
 			title={name}
-			subtitle={`Made by ${createdByName ?? "your team"} · v${custom.version} · edited by ${custom.updatedByName} ${timeAgo(custom.updatedAt)}`}
+			description={`Made by ${createdByName ?? "your team"} · v${custom.version} · edited by ${custom.updatedByName} ${timeAgo(custom.updatedAt)}`}
 			crumbs={customizeCrumbs(tab)}
 			actions={
 				editable && (

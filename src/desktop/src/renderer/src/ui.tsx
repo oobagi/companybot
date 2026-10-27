@@ -1,6 +1,6 @@
 import { Component, Fragment, useCallback, useLayoutEffect, useRef, useState } from "react";
 import { errorMessage } from "./api";
-import { CaretRightIcon } from "./icons";
+import { CaretRightIcon, PlusIcon } from "./icons";
 import { navigate } from "./router";
 
 /** A screen above this one, in the top bar's trail. */
@@ -11,7 +11,7 @@ export type Crumb = { label: string; to: string[] };
  * (each screen above it is a link back), what you can do here on the right. It's also
  * where you drag the window.
  */
-export function TopBar({ crumbs = [], title, children }: { crumbs?: Crumb[]; title: React.ReactNode; children?: React.ReactNode }) {
+export function TopBar({ crumbs = [], title, description, children }: { crumbs?: Crumb[]; title: React.ReactNode; description?: React.ReactNode; children?: React.ReactNode }) {
 	return (
 		<header className="drag flex h-12 shrink-0 items-center gap-3 px-5">
 			<nav className="flex min-w-0 items-center gap-1 text-sm">
@@ -23,7 +23,11 @@ export function TopBar({ crumbs = [], title, children }: { crumbs?: Crumb[]; tit
 						<CaretRightIcon className="shrink-0 text-neutral-300" />
 					</Fragment>
 				))}
-				<div className="flex min-w-0 items-baseline gap-2 px-1 font-semibold">{title}</div>
+				<div className="flex min-w-0 items-baseline gap-2 px-1 font-semibold">
+					{title}
+					{/* Gives way before the title does: it only gets the room left over. */}
+					{description && <p className="min-w-0 flex-1 truncate font-normal text-neutral-500">{description}</p>}
+				</div>
 			</nav>
 			{children && <div className="no-drag ml-auto flex shrink-0 items-center gap-1">{children}</div>}
 		</header>
@@ -92,13 +96,13 @@ export function Scroll({
 /**
  * A screen: the top bar, then its content. The title lives in the top bar; `heading` is
  * a big title in the content, only for things you write in and rename there (pages, records).
- * `actions` go on the right of the top bar. `wide` for tables.
+ * `description` sits next to the title in the top bar; `actions` go on its right. `wide` for tables.
  */
 export function Page({
 	title,
 	crumbs,
 	heading,
-	subtitle,
+	description,
 	actions,
 	wide,
 	children,
@@ -106,7 +110,7 @@ export function Page({
 	title: string;
 	crumbs?: Crumb[];
 	heading?: React.ReactNode;
-	subtitle?: string;
+	description?: string;
 	actions?: React.ReactNode;
 	wide?: boolean;
 	children: React.ReactNode;
@@ -115,7 +119,7 @@ export function Page({
 		<Scroll
 			className="@container"
 			header={
-				<TopBar crumbs={crumbs} title={<span className="truncate">{title}</span>}>
+				<TopBar crumbs={crumbs} title={<span className="truncate">{title}</span>} description={description}>
 					{actions}
 				</TopBar>
 			}
@@ -126,12 +130,7 @@ export function Page({
 					wide ? "max-w-5xl [--bleed:max(1.5rem,calc((100cqw-64rem)/2+1.5rem))]" : "max-w-2xl [--bleed:max(1.5rem,calc((100cqw-42rem)/2+1.5rem))]"
 				}`}
 			>
-				{(heading || subtitle) && (
-					<header className="flex flex-col gap-1">
-						{heading && <h1 className="text-2xl font-semibold tracking-tight">{heading}</h1>}
-						{subtitle && <p className={descriptionClass}>{subtitle}</p>}
-					</header>
-				)}
+				{heading && <h1 className="text-2xl font-semibold tracking-tight">{heading}</h1>}
 				{children}
 			</div>
 		</Scroll>
@@ -228,30 +227,39 @@ export const disabledButtonClass = "disabled:opacity-50";
 export const primaryButton = `rounded-xl bg-neutral-900 px-4 py-2 text-sm text-white ${disabledButtonClass}`;
 export const dangerButton = `rounded-xl bg-red-600 px-4 py-2 text-sm text-white ${disabledButtonClass}`;
 export const secondaryButton = `rounded-xl border border-neutral-200 px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
-/** Buttons in the top bar: quiet ones, and the one main action. */
+/** Buttons in the top bar: quiet ones, and the create action (`NewButton`). */
 export const barButton = `flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
 export const barDangerButton = `flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm text-neutral-600 hover:bg-red-50 hover:text-red-700 ${disabledButtonClass}`;
-export const barPrimaryButton = `flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-1 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
+const barPrimaryButton = `flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-1 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
 export const descriptionClass = "text-sm text-neutral-500";
 export const metadataClass = "text-xs text-neutral-400";
 
-/** Fills the space left below a screen's controls. */
-export function EmptyState({ icon, title, children, action }: { icon: React.ReactNode; title: string; children: React.ReactNode; action?: React.ReactNode }) {
+/** A screen's create action, always in the top bar: the same look on every screen. */
+export function NewButton({ label, onClick }: { label: string; onClick: () => void }) {
+	return <button type="button" className={barPrimaryButton} onClick={onClick}><PlusIcon /> {label}</button>;
+}
+
+/**
+ * A screen with nothing in it yet: no button, since the top bar's create action is how you start.
+ * In the middle of the space under the top bar on every screen, however much sits above it:
+ * sticky `top-1/2` brings it down to the middle; when the controls above reach past that,
+ * it stays just below them.
+ */
+export function EmptyState({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
 	return (
-		<div className="flex min-h-48 flex-1 flex-col items-center justify-center gap-2 py-8 text-center">
-			<span aria-hidden="true" className="mb-2 text-[32px] text-neutral-400">{icon}</span>
-			<h2 className="text-base font-medium">{title}</h2>
-			<p className={descriptionClass}>{children}</p>
-			{action && <div className="mt-3">{action}</div>}
+		<div className="flex flex-1 flex-col items-center pt-24">
+			<div className="sticky top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 py-8 text-center">
+				<span aria-hidden="true" className="mb-2 text-[32px] text-neutral-400">{icon}</span>
+				<h2 className="text-base font-medium">{title}</h2>
+				<p className={descriptionClass}>{children}</p>
+			</div>
 		</div>
 	);
 }
 
-export function NoMatches({ onClear }: { onClear: () => void }) {
-	return <div className="flex flex-col items-center gap-2 py-8 text-sm text-neutral-500">
-		<p>No matches</p>
-		<button type="button" className={barButton} onClick={onClear}>Clear filters</button>
-	</div>;
+/** A filtered list with nothing left. The filters' own controls undo them. */
+export function NoMatches() {
+	return <p className="py-8 text-center text-sm text-neutral-500">No matches</p>;
 }
 
 /** A screen for one item: loading while `loaded` is false, then `children` says why it's gone. */

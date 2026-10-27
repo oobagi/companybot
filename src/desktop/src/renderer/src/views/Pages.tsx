@@ -4,7 +4,7 @@ import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { navigate } from "../router";
 import { HistoryIcon, PageIcon, PlusIcon, TrashIcon } from "../icons";
-import { EmptyState, Loading, NotFound, Notice, Page, barButton, barDangerButton, barPrimaryButton, metadataClass, timeAgo, useRun } from "../ui";
+import { EmptyState, Loading, NewButton, NotFound, Notice, Page, barButton, barDangerButton, metadataClass, timeAgo, useRun } from "../ui";
 import { Group, Item } from "./chat/Sidebar";
 import { PageEditor } from "./pages/PageEditor";
 import { PageHistory } from "./pages/PageHistory";
@@ -42,13 +42,9 @@ function PagesIndex({ canEdit }: { canEdit: boolean }) {
 	const pages = useQuery(api.pages.list, {});
 	const create = useMutation(api.pages.create);
 	const { error, run } = useRun();
-	const actions = canEdit && (
-		<button type="button" onClick={() => run(create({ title: "Untitled" }).then((id) => navigate("pages", id)))} className={barPrimaryButton}>
-			<PlusIcon /> New page
-		</button>
-	);
+	const actions = canEdit && <NewButton label="New page" onClick={() => run(create({ title: "Untitled" }).then((id) => navigate("pages", id)))} />;
 	return (
-		<Page title="Pages"  actions={actions}>
+		<Page title="Pages" description="Wiki pages, how-tos and meeting notes. Every record has a page too." actions={actions}>
 			{error && <Notice>{error}</Notice>}
 			{!pages ? (
 				<Loading />
@@ -63,7 +59,7 @@ function PagesIndex({ canEdit }: { canEdit: boolean }) {
 					))}
 				</div>
 			) : (
-				<EmptyState icon={<PageIcon />} title="No pages yet" action={actions}>Keep wiki pages, how-tos and meeting notes here.</EmptyState>
+				<EmptyState icon={<PageIcon />} title="No pages yet">Write down how your team works.</EmptyState>
 			)}
 		</Page>
 	);

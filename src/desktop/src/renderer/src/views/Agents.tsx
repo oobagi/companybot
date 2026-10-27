@@ -23,7 +23,6 @@ import {
 	SaveBar,
 	Section,
 	inputClass,
-	primaryButton,
 	timeAgo,
 	useRun,
 	useDraft,
@@ -31,11 +30,8 @@ import {
 
 type Agent = FunctionReturnType<typeof api.agents.list>[number];
 
-export function AgentsTab({ role }: { role: Role }) {
+export function AgentsTab() {
 	const agents = useQuery(api.agents.list);
-	const create = useMutation(api.agents.create);
-	const { error, run } = useRun();
-	const isOwner = can(role, "agents.manage");
 	const open = (id: Id<"agents">) => navigate("settings", "agents", id);
 
 	if (!agents) return <Loading />;
@@ -43,10 +39,7 @@ export function AgentsTab({ role }: { role: Role }) {
 	return (
 		<ItemList
 			items={agents}
-			description={isOwner ? "Edit what each agent knows and can do." : "Only owners can change agents."}
 			icon={<AgentIcon />} title="No agents yet" empty="Add a teammate to help with your team's work."
-			error={error}
-			action={isOwner && <button type="button" className={`${primaryButton} shrink-0`} onClick={() => run(create().then(open))}>New agent</button>}
 			card={(a) => <AgentRow key={a._id} agent={a} onOpen={() => open(a._id)} />}
 		/>
 	);
@@ -98,7 +91,7 @@ function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean;
 	return (
 		<Page
 			title={agent.name}
-			subtitle={`v${agent.version} · edited by ${agent.updatedByName} ${timeAgo(agent.updatedAt)}`}
+			description={`v${agent.version} · edited by ${agent.updatedByName} ${timeAgo(agent.updatedAt)}`}
 			crumbs={back}
 			actions={
 				isOwner && !agent.archived && (

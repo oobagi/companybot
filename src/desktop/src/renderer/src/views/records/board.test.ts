@@ -96,6 +96,8 @@ it.each(["table", "board"])("shows the whole-screen empty state only after %s pa
 	state.overview.status = "CanLoadMore";
 	await act(async () => { root = create(tree(), { createNodeMock: () => ({}) }); });
 	expect(JSON.stringify(root.toJSON())).not.toContain("No jobs yet");
+	// Still paging past empty pages: no empty state, and no table on a board.
+	expect(root.root.findAllByType("table")).toHaveLength(layout === "table" ? 1 : 0);
 	await act(async () => intersect([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver));
 	expect(state.overview.loadMore).toHaveBeenCalledExactlyOnceWith(25);
 	state.overview.status = "Exhausted";
@@ -104,6 +106,6 @@ it.each(["table", "board"])("shows the whole-screen empty state only after %s pa
 	expect(root.root.findAllByType("section")).toHaveLength(0);
 	expect(root.root.findAllByType("table")).toHaveLength(0);
 	await act(async () => root.update(createElement(RecordList, { type, role: "member" })));
-	// Members can create records too; the action follows records.edit, not ownership.
-	expect(root.root.findAllByType("button").some((b) => b.children.join("") === "New job")).toBe(true);
+	// The empty state has no button; New stays in the top bar, for members too (records.edit).
+	expect(root.root.findAllByType("button").filter((b) => b.children.includes("New job"))).toHaveLength(1);
 });
