@@ -2,7 +2,7 @@ import { Transform } from "@tiptap/pm/transform";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, components, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { IDLE_MS, VERSION_MS, PAGE_VERSIONS_MAX, pageSchema, readDoc, sync } from "../convex/pageOps";
+import { DELTA_MAX_BYTES, IDLE_MS, PAGE_MAX_BYTES, PAGE_VERSIONS_MAX, VERSION_MS, pageSchema, readDoc, sync } from "../convex/pageOps";
 import { type As, agentsOf, generalOf, agentTurn, settle, setup, signIn } from "./helpers";
 
 // Pages (pageOps.ts): the editor's sync, versions grouped like Notion's, restore, agent tools, and cleanup.
@@ -60,27 +60,32 @@ describe("page history", () => {
 		// The run's earlier snapshot went; the page's first (empty) one stays.
 		expect((await snapshotAt(t, pageId, 2)).version).toBe(1);
 
-		// A pause, another person, or an agent each start a new one.
+		// A pause starts a new one. Others editing meanwhile (people, or agents for them) join it, so
+		// co-editing can't flood history past PAGE_VERSIONS_MAX.
 		vi.advanceTimersByTime(IDLE_MS + 1);
 		await type(t, owner, pageId, "a ");
 		await type(t, member, pageId, "b ");
 		await (await turnFor(t, member)).write({ page: pageId, mode: "append" }, [paragraph("From the agent")]);
+		await type(t, owner, pageId, "1 ");
+		await type(t, member, pageId, "2 ");
 		const history = await historyOf(owner, pageId);
-		expect(history.map((h) => [h.user, h.agent])).toEqual([
-			["member@co.com", "Companybot"],
-			["member@co.com", null],
-			["owner@co.com", null],
-			["owner@co.com", null],
+		expect(history.map((h) => [h.user, h.agent, h.others])).toEqual([
+			["owner@co.com", null, [{ user: "member@co.com", agent: null }, { user: "member@co.com", agent: "Companybot" }]],
+			["owner@co.com", null, []],
 		]);
 		// Every version can still be opened.
 		for (const h of history) expect(await owner.query(api.pages.version, { versionId: h._id })).toBeTypeOf("string");
-		expect(await textOf(t, pageId)).toBe("b a there Hello From the agent");
+		expect(await textOf(t, pageId)).toBe("2 1 b a there Hello From the agent");
+		vi.advanceTimersByTime(IDLE_MS + 1);
+		await type(t, member, pageId, "c ");
+		expect((await historyOf(owner, pageId))[0]).toMatchObject({ user: "member@co.com", others: [] });
 	});
 
 	it("restores an old version as a new one, so nothing is lost", async () => {
 		const { t, owner, member } = await setup();
 		const pageId = await owner.mutation(api.pages.create, { title: "SOP" });
 		await type(t, owner, pageId, "Hello");
+		vi.advanceTimersByTime(IDLE_MS + 1);
 		await type(t, member, pageId, "World ");
 		const [newest, oldest] = await historyOf(owner, pageId);
 		await member.mutation(api.pages.restore, { versionId: oldest!._id });
@@ -98,6 +103,7 @@ describe("page history", () => {
 		const pageId = await owner.mutation(api.pages.create, { title: "Concurrent" });
 		await type(t, owner, pageId, "First");
 		const first = (await historyOf(owner, pageId))[0]!;
+		vi.advanceTimersByTime(IDLE_MS + 1);
 		const editor = t.withIdentity({ subject: `${member.userId}|session` });
 		const current = await t.run(async (ctx) => { const { doc, version } = await sync.getDoc(ctx, pageId, pageSchema()); return { doc: doc.toJSON(), version }; });
 		const tr = new Transform(pageSchema().nodeFromJSON(current.doc)).insert(3, pageSchema().text("Second "));
@@ -131,22 +137,34 @@ describe("page history", () => {
 		expect((await owner.query(api.pages.list, {}))[0]!.updatedAt).toBeGreaterThan(before);
 	});
 
-	it("bounds the accumulated document in bytes, including multibyte text, before accepting steps", async () => {
+	it("bounds the document, each block and each stored delta in bytes, including multibyte text", async () => {
+		// The component reads up to 100 deltas at once, twice when it deletes them, plus a few snapshots.
+		expect(2 * 100 * DELTA_MAX_BYTES + 4 * PAGE_MAX_BYTES).toBeLessThan(16 * 2 ** 20);
 		const { t, owner } = await setup();
 		const pageId = await owner.mutation(api.pages.create, { title: "Large" });
-		await type(t, owner, pageId, "a".repeat(260_000));
-		await expect(type(t, owner, pageId, "b".repeat(260_000))).rejects.toThrow("too long");
-		expect((await textOf(t, pageId)).length).toBe(260_000);
-		await expect(type(t, owner, pageId, "🌙".repeat(70_000))).rejects.toThrow("too long");
-		expect((await historyOf(owner, pageId)).length).toBe(1);
+		await expect(type(t, owner, pageId, "a".repeat(DELTA_MAX_BYTES))).rejects.toThrow("too much");
+		await expect(type(t, owner, pageId, "🌙".repeat(DELTA_MAX_BYTES / 4))).rejects.toThrow("too much");
+		await type(t, owner, pageId, "a".repeat(DELTA_MAX_BYTES / 2));
+		// Typing on in one block stops before it outgrows a delta.
+		await expect(type(t, owner, pageId, "a".repeat(DELTA_MAX_BYTES / 2))).rejects.toThrow("too much");
+		const tools = await turnFor(t, owner);
+		for (let i = 0; i < 9; i++) await tools.write({ page: pageId }, [paragraph("b".repeat(50_000))]);
+		expect(await tools.write({ page: pageId }, [paragraph("c".repeat(50_000))])).toMatchObject({ error: expect.stringContaining("too long") });
+		expect((await textOf(t, pageId)).length).toBe(DELTA_MAX_BYTES / 2 + 450_000);
+		// A whole-page change goes in a block at a time, so the biggest page can still be restored.
+		const [biggest] = await historyOf(owner, pageId);
+		vi.advanceTimersByTime(IDLE_MS + 1);
+		await tools.write({ page: pageId, mode: "replace" }, [paragraph("short")]);
+		await owner.mutation(api.pages.restore, { versionId: biggest!._id });
+		expect((await textOf(t, pageId)).length).toBe(DELTA_MAX_BYTES / 2 + 450_000);
 	});
 
 	it("compacts large deltas and deletes snapshots and deltas across bounded component batches", async () => {
 		const { t, owner } = await setup();
 		const pageId = await owner.mutation(api.pages.create, { title: "Large cleanup" });
 		const tools = await turnFor(t, owner);
-		// A hundred 200 KB replacements exceed the transaction read limit if cleanup reads 100.
-		for (let i = 0; i < 100; i++) await tools.write({ page: pageId, mode: "replace" }, [paragraph(String(i).padEnd(200_000, "x"))]);
+		// Over a hundred 50 KB deltas: the component cleans up 100 at a time, rescheduling the rest.
+		for (let i = 0; i < 60; i++) await tools.write({ page: pageId, mode: "replace" }, [paragraph(String(i).padEnd(50_000, "x")), paragraph("y".repeat(50_000))]);
 		vi.advanceTimersByTime(24 * 60 * 60_000 + 1);
 		await type(t, owner, pageId, "compacted");
 		await settle(t);
@@ -160,7 +178,10 @@ describe("page history", () => {
 	it(`keeps the latest ${PAGE_VERSIONS_MAX} versions, deleting older ones with their snapshots`, { timeout: 60_000 }, async () => {
 		const { t, owner, member } = await setup();
 		const pageId = await owner.mutation(api.pages.create, { title: "Busy" });
-		for (let i = 0; i < PAGE_VERSIONS_MAX + 2; i++) await type(t, i % 2 ? member : owner, pageId, "x");
+		for (let i = 0; i < PAGE_VERSIONS_MAX + 2; i++) {
+			await type(t, i % 2 ? member : owner, pageId, "x");
+			vi.advanceTimersByTime(IDLE_MS + 1);
+		}
 		const rows = await t.run((ctx) => ctx.db.query("pageVersions").collect());
 		expect(rows).toHaveLength(PAGE_VERSIONS_MAX);
 		expect(rows[0]!.n).toBe(3);

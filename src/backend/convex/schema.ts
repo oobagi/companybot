@@ -693,8 +693,8 @@ export default defineSchema({
 		.index("by_workspace", ["workspaceId", "recordId", "archived", "title"])
 		.searchIndex("search_title", { searchField: "title", filterFields: ["workspaceId", "archived"] }),
 
-	// A page's history: one row per run of edits by one person (or agent for them), like
-	// Notion's. Its content is the component's snapshot at `version`; the rest are pruned.
+	// A page's history: one row per run of edits, like Notion's: whoever started it, and
+	// anyone else who edited meanwhile. Its content is the component's snapshot at `version`; the rest are pruned.
 	pageVersions: defineTable({
 		pageId: v.id("pages"),
 		/** Counts up per page, so the oldest past PAGE_VERSIONS_MAX are found by index. */
@@ -703,6 +703,8 @@ export default defineSchema({
 		version: v.number(),
 		userId: v.id("users"),
 		agentId: v.optional(v.id("agents")),
+		/** Others who edited while it was open (an agent, for whom), in order. */
+		others: v.optional(v.array(v.object({ userId: v.id("users"), agentId: v.optional(v.id("agents")) }))),
 		editedAt: v.number(),
 		/** Set when it restored an older version: that version's time. */
 		restored: v.optional(v.number()),

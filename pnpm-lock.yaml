@@ -4,9 +4,6 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-patchedDependencies:
-  '@convex-dev/prosemirror-sync@0.2.7': 73e2f3f4451830f4392dcd9226d4ce0f87f3846ac7b95cdaf08cbff08bbc0fe4
-
 importers:
 
   .:
@@ -43,7 +40,7 @@ importers:
         version: 0.3.7(convex-helpers@0.1.128(@standard-schema/spec@1.1.0)(convex@1.47.0(react@19.3.1))(react@19.3.1)(typescript@7.0.2)(zod@4.6.7))(convex@1.47.0(react@19.3.1))
       '@convex-dev/prosemirror-sync':
         specifier: ^0.2.7
-        version: 0.2.7(patch_hash=73e2f3f4451830f4392dcd9226d4ce0f87f3846ac7b95cdaf08cbff08bbc0fe4)(ce748b89b654ae86743eac8a530a71a9)
+        version: 0.2.7(ce748b89b654ae86743eac8a530a71a9)
       '@tiptap/core':
         specifier: ^3.32.0
         version: 3.32.0(@tiptap/pm@3.32.0)
@@ -114,7 +111,7 @@ importers:
         version: 0.0.96(@auth/core@0.41.3)(convex@1.47.0(react@19.3.1))(react@19.3.1)
       '@convex-dev/prosemirror-sync':
         specifier: ^0.2.7
-        version: 0.2.7(patch_hash=73e2f3f4451830f4392dcd9226d4ce0f87f3846ac7b95cdaf08cbff08bbc0fe4)(ce748b89b654ae86743eac8a530a71a9)
+        version: 0.2.7(ce748b89b654ae86743eac8a530a71a9)
       '@mantine/core':
         specifier: ^8.3.18
         version: 8.3.18(@mantine/hooks@8.3.18(react@19.3.1))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -3937,7 +3934,7 @@ snapshots:
       convex: 1.47.0(react@19.3.1)
       convex-helpers: 0.1.128(@standard-schema/spec@1.1.0)(convex@1.47.0(react@19.3.1))(react@19.3.1)(typescript@7.0.2)(zod@4.6.7)
 
-  '@convex-dev/prosemirror-sync@0.2.7(patch_hash=73e2f3f4451830f4392dcd9226d4ce0f87f3846ac7b95cdaf08cbff08bbc0fe4)(ce748b89b654ae86743eac8a530a71a9)':
+  '@convex-dev/prosemirror-sync@0.2.7(ce748b89b654ae86743eac8a530a71a9)':
     dependencies:
       '@tiptap/core': 3.32.0(@tiptap/pm@3.32.0)
       convex: 1.47.0(react@19.3.1)

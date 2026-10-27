@@ -1,7 +1,7 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import type { Role } from "@companybot/core";
 import { can } from "@companybot/core/permissions";
-import type { FieldValue } from "@companybot/core/records";
+import { type FieldValue, NAME_KEY } from "@companybot/core/records";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../../api";
@@ -89,7 +89,8 @@ function Body({ recordId, pageId, editable }: { recordId: Id<"records">; pageId:
 function Fields({ type, record, role, editable }: { type: RecordType; record: RecordDoc; role: Role; editable: boolean }) {
 	const [adding, setAdding] = useState(false);
 	const [editing, setEditing] = useState<TypeField>();
-	const live = type.fields.filter((f) => !f.archived) as TypeField[];
+	// The name is the page's title, edited there like Notion's.
+	const live = type.fields.filter((f) => !f.archived && f.key !== NAME_KEY) as TypeField[];
 	const archived = type.fields.filter((f) => f.archived && f.canEdit) as TypeField[];
 	return (
 		<section className="flex flex-col gap-1">

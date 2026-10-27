@@ -2,9 +2,10 @@ import type { PageFindInput, PageWriteInput } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
-import { type Member, asToolResult, nameOf } from "./lib";
+import { type Member, asToolResult } from "./lib";
 import {
 	createPage,
+	editorsOf,
 	pageOfRecord,
 	readDoc,
 	renamePage,
@@ -83,12 +84,16 @@ export const readFor = internalQuery({
 				// A record nobody has written in yet has no page: it reads as empty.
 				doc: page ? JSON.stringify((await readDoc(ctx, page._id)).toJSON()) : null,
 				versions: await Promise.all(
-					versions.map(async (row) => ({
-						version: row._id,
-						time: new Date(row.editedAt).toISOString(),
-						by: await nameOf(ctx, row.userId),
-						...(row.agentId && { agent: (await ctx.db.get(row.agentId))?.name ?? "an agent" }),
-					})),
+					versions.map(async (row) => {
+						const [first, ...others] = await editorsOf(ctx, row);
+						return {
+							version: row._id,
+							time: new Date(row.editedAt).toISOString(),
+							by: first!.user,
+							...(first!.agent && { agent: first!.agent }),
+							...(others.length > 0 && { others: others.map((e) => (e.agent ? `${e.agent}, for ${e.user}` : e.user)) }),
+						};
+					}),
 				),
 			};
 		});

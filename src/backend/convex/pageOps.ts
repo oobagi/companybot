@@ -7,7 +7,7 @@ import { ConvexError, getDocumentSize } from "convex/values";
 import { components } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { type Member, type Who, requireInWorkspace } from "./lib";
+import { type Member, type Who, nameOf, requireInWorkspace } from "./lib";
 import { requireRecord } from "./recordOps";
 
 // Shared rules for standalone pages and record bodies. See wiki/pages.md.
@@ -17,12 +17,19 @@ const lib = components.prosemirrorSync.lib;
 
 /** Longest a page's content can be, as JSON: well under Convex's 1 MiB per document. */
 export const PAGE_MAX_BYTES = 500_000;
+/**
+ * Largest delta (batch of steps) stored. The component reads up to 100 at once, and cleaning up reads
+ * each twice (a delete reads too): 12 MB, under Convex's 16 MiB with room for a few snapshots.
+ */
+export const DELTA_MAX_BYTES = 60_000;
 /** Versions kept per page; older ones go, with their snapshots. */
 export const PAGE_VERSIONS_MAX = 100;
 const TITLE_MAX = 200;
-/** Like Notion: one author's run of edits stays one version until it pauses for 2 minutes, or runs 10. */
+/** Like Notion: a run of edits stays one version until the page rests for 2 minutes, or it runs 10. */
 export const IDLE_MS = 2 * 60_000;
 export const VERSION_MS = 10 * 60_000;
+/** Others credited on one version, besides whoever started it. */
+const OTHERS_MAX = 10;
 /** Steps behind the latest snapshot are kept this long, so a client that was briefly offline can catch up. */
 const STEPS_KEEP_MS = 24 * 60 * 60_000;
 
@@ -101,29 +108,30 @@ export const latestVersionOf = (ctx: QueryCtx, pageId: Id<"pages">) =>
 		.order("desc")
 		.first();
 
+/** A version's editors by name: whoever started it, then anyone who edited meanwhile. */
+export const editorsOf = (ctx: QueryCtx, row: Doc<"pageVersions">) =>
+	Promise.all(
+		[row, ...(row.others ?? [])].map(async (e) => ({ user: await nameOf(ctx, e.userId), agent: e.agentId ? ((await ctx.db.get(e.agentId))?.name ?? "An agent") : null })),
+	);
+
 /** Deletes the component's snapshot at exactly `version`. */
 const dropSnapshot = (ctx: MutationCtx, pageId: Id<"pages">, version: number) =>
 	ctx.runMutation(lib.deleteSnapshots, { id: pageId, afterVersion: version - 1, beforeVersion: version + 1 });
 
-/** Group continuous edits by author; restores start a new version. Prune history and snapshots together. */
+/** Group continuous edits, everyone's who edits meanwhile; restores start a new version. Prune history and snapshots together. */
 export async function recordVersion(ctx: MutationCtx, who: Who, page: Doc<"pages">, version: number, restored?: number) {
 	const now = Date.now();
 	await ctx.db.patch(page._id, { updatedAt: now, updatedBy: who.member.userId });
-	await ctx.runMutation(lib.deleteSteps, { id: page._id, beforeTs: now - STEPS_KEEP_MS });
 	const latest = await latestVersionOf(ctx, page._id);
-	if (
-		latest &&
-		!restored &&
-		!latest.restored &&
-		latest.userId === who.member.userId &&
-		latest.agentId === who.agentId &&
-		now - latest.editedAt < IDLE_MS &&
-		now - latest._creationTime < VERSION_MS
-	) {
+	if (latest && !restored && !latest.restored && now - latest.editedAt < IDLE_MS && now - latest._creationTime < VERSION_MS) {
+		const editor = { userId: who.member.userId, ...(who.agentId && { agentId: who.agentId }) };
+		const same = (e: { userId: Id<"users">; agentId?: Id<"agents"> }) => e.userId === editor.userId && e.agentId === editor.agentId;
+		const others = latest.others ?? [];
 		await dropSnapshot(ctx, page._id, latest.version);
-		await ctx.db.patch(latest._id, { version, editedAt: now });
+		await ctx.db.patch(latest._id, { version, editedAt: now, ...(!same(latest) && !others.some(same) && others.length < OTHERS_MAX && { others: [...others, editor] }) });
 		return;
 	}
+	await ctx.runMutation(lib.deleteSteps, { id: page._id, beforeTs: now - STEPS_KEEP_MS });
 	const n = (latest?.n ?? 0) + 1;
 	await ctx.db.insert("pageVersions", {
 		pageId: page._id,
@@ -147,17 +155,56 @@ export async function readDoc(ctx: QueryCtx, pageId: Id<"pages">) {
 	return (await sync.getDoc(ctx as unknown as MutationCtx, pageId, pageSchema())).doc;
 }
 
-/** Validate and save steps, their canonical snapshot and history in one transaction. */
+const tooMuch = () => new ConvexError("That's too much to add at once. Split it into smaller pieces.");
+
+/** Validate and save steps (in deltas of at most DELTA_MAX_BYTES), their canonical snapshot and history in one transaction. */
 export async function saveTransform(ctx: MutationCtx, who: Who, page: Doc<"pages">, version: number, tr: Transform, clientId: string | number = "transform", restored?: number) {
-	if (!tr.docChanged) return false;
+	if (!tr.docChanged || tr.doc.eq(tr.before)) return false;
 	const content = JSON.stringify(tr.doc.toJSON());
 	const steps = tr.steps.map((s) => JSON.stringify(s.toJSON()));
-	if (getDocumentSize({ content }) > PAGE_MAX_BYTES || getDocumentSize({ steps }) > PAGE_MAX_BYTES)
+	const bytes = getDocumentSize({ content });
+	if (bytes > PAGE_MAX_BYTES || getDocumentSize({ steps }) > PAGE_MAX_BYTES)
 		throw new ConvexError("That would make the page too long. Split it into several pages.");
-	await ctx.runMutation(lib.submitSteps, { id: page._id, version, clientId, steps });
-	await ctx.runMutation(lib.submitSnapshot, { id: page._id, version: version + steps.length, content });
-	await recordVersion(ctx, who, page, version + steps.length, restored);
+	// Every block fits a delta on its own, so any version can be put back a block at a time.
+	if (bytes > DELTA_MAX_BYTES)
+		tr.doc.firstChild!.forEach((block) => {
+			if (getDocumentSize({ block: JSON.stringify(block.toJSON()) }) > DELTA_MAX_BYTES - 1_000) throw tooMuch();
+		});
+	let at = version;
+	let batch: string[] = [];
+	let size = 0;
+	const flush = async () => {
+		await ctx.runMutation(lib.submitSteps, { id: page._id, version: at, clientId, steps: batch });
+		at += batch.length;
+		[batch, size] = [[], 0];
+	};
+	for (const step of steps) {
+		const bytes = getDocumentSize({ step });
+		if (bytes > DELTA_MAX_BYTES) throw tooMuch();
+		if (size + bytes > DELTA_MAX_BYTES) await flush();
+		batch.push(step);
+		size += bytes;
+	}
+	await flush();
+	await ctx.runMutation(lib.submitSnapshot, { id: page._id, version: at, content });
+	await recordVersion(ctx, who, page, at, restored);
 	return true;
+}
+
+/** Inserts blocks at `pos`, a step each so each fits a delta. Returns where they end. */
+function insertBlocks(tr: Transform, pos: number, blocks: readonly Node[]) {
+	for (const block of blocks) {
+		tr.insert(pos, block);
+		pos += block.nodeSize;
+	}
+	return pos;
+}
+
+/** Puts `blocks` in place of the page's: in front of them, then the old ones go. */
+function replaceBlocks(doc: Node, blocks: readonly Node[]) {
+	const tr = new Transform(doc);
+	const end = insertBlocks(tr, 1, blocks);
+	return tr.delete(end, tr.doc.content.size - 1);
 }
 
 export async function writeDoc(ctx: MutationCtx, who: Who, page: Doc<"pages">, change: (doc: Node) => Transform, restored?: number) {
@@ -171,16 +218,12 @@ export function writeBlocks(ctx: MutationCtx, who: Who, page: Doc<"pages">, json
 	const schema = pageSchema();
 	const blocks = JSON.parse(json) as object[];
 	return writeDoc(ctx, who, page, (doc) => {
-		const tr = new Transform(doc);
-		const group = doc.firstChild!;
-		if (mode === "replace") {
-			const next = schema.nodeFromJSON({ type: "doc", content: [{ type: "blockGroup", content: [...blocks, emptyBlock()] }] });
-			return tr.replaceWith(0, doc.content.size, next.content);
-		}
+		if (mode === "replace") return replaceBlocks(doc, [...blocks, emptyBlock()].map((b) => schema.nodeFromJSON(b)));
 		// Before the empty block BlockNote keeps at the end, if it's there.
-		const last = group.lastChild!;
-		const end = doc.content.size - 1 - (last.textContent === "" && last.childCount === 1 ? last.nodeSize : 0);
-		return blocks.length ? tr.insert(end, blocks.map((b) => schema.nodeFromJSON(b))) : tr;
+		const last = doc.firstChild!.lastChild!;
+		const tr = new Transform(doc);
+		insertBlocks(tr, doc.content.size - 1 - (last.textContent === "" && last.childCount === 1 ? last.nodeSize : 0), blocks.map((b) => schema.nodeFromJSON(b)));
+		return tr;
 	});
 }
 
@@ -189,5 +232,5 @@ export async function restoreVersion(ctx: MutationCtx, who: Who, page: Doc<"page
 	const snapshot = await ctx.runQuery(lib.getSnapshot, { id: page._id, version: row.version });
 	if (snapshot.content === null || snapshot.version !== row.version) throw new ConvexError("This version is no longer available.");
 	const old = pageSchema().nodeFromJSON(JSON.parse(snapshot.content));
-	return writeDoc(ctx, who, page, (doc) => new Transform(doc).replaceWith(0, doc.content.size, old.content), row.editedAt);
+	return writeDoc(ctx, who, page, (doc) => replaceBlocks(doc, old.firstChild!.content.content), row.editedAt);
 }

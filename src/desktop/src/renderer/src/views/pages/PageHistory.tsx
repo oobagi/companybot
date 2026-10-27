@@ -7,7 +7,7 @@ import { Modal, clock, dayLabel } from "../chat/common";
 import { whoLabel } from "../records/logic";
 import { VersionPreview } from "./PageEditor";
 
-// A page's versions, like Notion's: one per run of edits by one person (or an agent for them).
+// A page's versions, like Notion's: one per run of edits, crediting everyone who edited in it.
 // Pick one to see it; restoring it saves it as the newest version, so nothing is lost.
 
 const when = (ms: number) => `${dayLabel(ms)}, ${clock(ms)}`;
@@ -39,7 +39,7 @@ export function PageHistory({ pageId, canRestore, onClose, tabs }: { pageId: Id<
 							>
 								<span className="font-medium">{when(v.time)}</span>
 								<span className="text-neutral-600">
-									{v.restored ? "Restored" : "Edited"} by {whoLabel(v)}
+									{v.restored ? "Restored" : "Edited"} by {[v, ...v.others].map(whoLabel).join(", ")}
 								</span>
 								{v.restored && <span className={metadataClass}>the version from {when(v.restored)}</span>}
 								{i === 0 && <span className={metadataClass}>Current</span>}

@@ -16,7 +16,7 @@ export interface PageRead {
 	record?: string;
 	markdown: string;
 	/** Latest versions, newest first, with ids `restore` takes. */
-	versions: { version: string; time: string; by: string; agent?: string }[];
+	versions: { version: string; time: string; by: string; agent?: string; others?: string[] }[];
 }
 
 /** Markdown the model reads per call; longer pages come in parts. */

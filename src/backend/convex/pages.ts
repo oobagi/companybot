@@ -6,9 +6,10 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { startCascade } from "./cascade";
 import { mutation, query } from "./functions";
-import { type Member, getMember, nameOf, requireMember } from "./lib";
+import { type Member, getMember, requireMember } from "./lib";
 import {
 	createPage,
+	editorsOf,
 	pageOfRecord,
 	renamePage,
 	requireEditable,
@@ -102,7 +103,7 @@ export const remove = mutation({
 	},
 });
 
-/** Versions, newest first: who edited (an agent for whom), and when. */
+/** Versions, newest first: who edited (an agent for whom; `others` joined in meanwhile), and when. */
 export const history = query({
 	args: { pageId: v.id("pages"), paginationOpts: paginationOptsValidator },
 	handler: async (ctx, { pageId, paginationOpts }) => {
@@ -117,13 +118,10 @@ export const history = query({
 		return {
 			...result,
 			page: await Promise.all(
-				result.page.map(async (row) => ({
-					_id: row._id,
-					time: row.editedAt,
-					user: await nameOf(ctx, row.userId),
-					agent: row.agentId ? ((await ctx.db.get(row.agentId))?.name ?? "An agent") : null,
-					restored: row.restored ?? null,
-				})),
+				result.page.map(async (row) => {
+					const [first, ...others] = await editorsOf(ctx, row);
+					return { _id: row._id, time: row.editedAt, ...first!, others, restored: row.restored ?? null };
+				}),
 			),
 		};
 	},
