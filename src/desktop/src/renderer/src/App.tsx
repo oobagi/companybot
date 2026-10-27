@@ -115,7 +115,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	const types = useTypes();
 	const [newDatabase, setNewDatabase] = useState(false);
 	// The database on screen, by key, and the record open in it.
-	const builtinKey = Object.keys(builtinTabs).find((k) => builtinTabs[k] === view) ?? (view === "campaigns" ? "campaign" : undefined);
+	const builtinKey = Object.keys(builtinTabs).find((k) => builtinTabs[k] === view);
 	const typeKey = view === "records" ? route[1] : builtinKey;
 	const recordId = view === "records" ? route[2] : route[1];
 	// Each section reopens where you left it.
@@ -144,7 +144,6 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 						{can(role, "fields.manage") && <Item muted onClick={() => setNewDatabase(true)}>+ New database</Item>}
 					</Group>
 					<PagesNav openId={view === "pages" ? route[1] : undefined} />
-					<Item active={view === "campaigns"} onClick={() => navigate("campaigns")}>Campaigns</Item>
 					<ChatNav chats={chats} openId={view === "chat" ? openId : undefined} onOpen={open} onError={(e) => setError(errorMessage(e))} />
 				</div>
 				<nav className="no-drag flex flex-col gap-px border-t border-neutral-200 pt-3">
