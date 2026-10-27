@@ -4,10 +4,10 @@ import { useMutation, useQuery, useWorkspace } from "../convex";
 import { CaretDownIcon, CheckIcon } from "../icons";
 import { navigate } from "../router";
 import { Notice, useRun } from "../ui";
-import { MenuItem, Popover } from "./chat/common";
+import { Avatar, MenuItem, Popover } from "./chat/common";
 
 /** The workspace name at the top of the sidebar: switch workspaces, answer invites, or leave. */
-export function WorkspaceMenu({ name }: { name: string }) {
+export function WorkspaceMenu({ name, logo }: { name: string; logo: string | null }) {
 	const mine = useQuery(api.workspace.mine);
 	const accept = useMutation(api.workspace.acceptInvite);
 	const decline = useMutation(api.workspace.declineInvite);
@@ -21,12 +21,14 @@ export function WorkspaceMenu({ name }: { name: string }) {
 			<Popover
 				trigger={
 					<>
+						{/* The size of the sidebar's icons, so the name lines up with the labels below. */}
+						<Avatar name={name} image={logo} agent size="xs" />
 						<span className="truncate">{name}</span>
 						<CaretDownIcon className="shrink-0 text-neutral-400" />
 						{invitations.length > 0 && <span className="ml-auto size-2 shrink-0 rounded-full bg-sky-500" title="You have an invite" />}
 					</>
 				}
-				className="flex w-full items-center gap-1.5 rounded-lg px-2 py-1 text-left text-sm font-semibold hover:bg-neutral-100"
+				className="flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-sm font-semibold hover:bg-neutral-100"
 				panelClassName="flex w-56 flex-col gap-px p-1"
 			>
 				{(close) => {
@@ -37,6 +39,7 @@ export function WorkspaceMenu({ name }: { name: string }) {
 						<>
 							{mine?.workspaces.map((w) => (
 								<MenuItem key={w.id} onClick={() => (w.id === current?.id ? close() : goTo(w.id))}>
+									<Avatar name={w.name} image={w.image} agent size="xs" />
 									<span className="flex-1 truncate">{w.name}</span>
 									{w.id === current?.id && <CheckIcon className="text-neutral-500" />}
 								</MenuItem>

@@ -32,6 +32,7 @@ describe("settings", () => {
 			notify: "all",
 			timeZone: null,
 			deviceTimeZone: null,
+			image: null,
 		});
 		expect((await member.query(api.preferences.get)).displayName).toBe("");
 		expect((await member.query(api.workspace.team))?.members.map((m) => m.name)).toContain("Jaden");

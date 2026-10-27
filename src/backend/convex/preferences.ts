@@ -1,8 +1,9 @@
 import { isValidTimeZone } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
+import { imageUrl } from "./images";
 import { authUserId, preferencesOf } from "./lib";
 import { notify } from "./schema";
 
@@ -18,7 +19,7 @@ export const get = query({
 	handler: async (ctx) => {
 		const userId = await authUserId(ctx);
 		const prefs = userId && (await preferencesOf(ctx, userId));
-		if (!prefs) return { ...defaults, notify: defaultNotify, ...unset };
+		if (!prefs) return { ...defaults, notify: defaultNotify, ...unset, image: null };
 		return {
 			displayName: prefs.displayName,
 			sendWith: prefs.sendWith,
@@ -26,6 +27,8 @@ export const get = query({
 			/** Null means automatic. */
 			timeZone: prefs.timeZone ?? null,
 			deviceTimeZone: prefs.deviceTimeZone ?? null,
+			/** Your photo's URL, or null for your initials. */
+			image: await imageUrl(ctx, prefs.image),
 		};
 	},
 });
@@ -57,6 +60,11 @@ export async function updatePreferences(ctx: MutationCtx, userId: Id<"users">, {
 		changes.displayName = changes.displayName.trim();
 		if (changes.displayName.length > 60) throw new ConvexError("Keep your name under 60 characters.");
 	}
+	await savePreferences(ctx, userId, changes);
+}
+
+/** Writes someone's preferences, making their row the first time. */
+export async function savePreferences(ctx: MutationCtx, userId: Id<"users">, changes: Partial<Omit<Doc<"preferences">, "_id" | "_creationTime" | "userId">>) {
 	const prefs = await preferencesOf(ctx, userId);
 	if (prefs) await ctx.db.patch(prefs._id, changes);
 	else await ctx.db.insert("preferences", { userId, ...defaults, ...changes });

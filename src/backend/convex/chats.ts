@@ -21,6 +21,7 @@ import {
 	requireWorkspaceUsers,
 	visibleChat,
 } from "./chatOps";
+import { imageUrl } from "./images";
 import { type Member, checkPermission, getMember, preferencesOf, requireMember, toActor } from "./lib";
 import { trashInfo } from "./trashOps";
 import { sessionAt } from "./turns";
@@ -50,6 +51,8 @@ export type AgentItem = {
 	_id: Id<"agents">;
 	name: string;
 	description: string;
+	/** Its picture's URL, or null for its initials. */
+	image: string | null;
 	/** Their agent DM with you, once it exists. */
 	dmId: Id<"chats"> | null;
 	unread: boolean;
@@ -87,7 +90,7 @@ export const list = query({
 	): Promise<{ me: Id<"users">; channels: ChatItem[]; dms: ChatItem[]; agents: AgentItem[] } | null> => {
 		const member = await getMember(ctx);
 		if (!member) return null;
-		const names = namer(ctx);
+		const names = namer(ctx, { images: true });
 		const rows = await ctx.db
 			.query("chatMembers")
 			.withIndex("by_user", (q) => q.eq("userId", member.userId))
@@ -106,18 +109,19 @@ export const list = query({
 			me: member.userId,
 			channels: items.filter((c) => c.kind === "channel").sort((a, b) => a.title.localeCompare(b.title)),
 			dms: items.filter((c) => c.kind === "dm").sort((a, b) => b.lastMessageAt - a.lastMessageAt),
-			agents: agents.map((a) => {
+			agents: await Promise.all(agents.map(async (a) => {
 				const dm = items.find((c) => c.agentId === a._id);
 				return {
 					_id: a._id,
 					name: a.name,
 					description: a.description,
+					image: await imageUrl(ctx, a.image),
 					dmId: dm?._id ?? null,
 					unread: dm?.unread ?? false,
 					mentioned: dm?.mentioned ?? false,
 					lastMessageAt: dm?.lastMessageAt ?? null,
 				};
-			}),
+			})),
 		};
 	},
 });
@@ -211,7 +215,7 @@ export const get = query({
 		if (!visible) return null;
 		const { member, chat } = visible;
 		return {
-			...(await toChatItem(ctx, chat, member, namer(ctx))),
+			...(await toChatItem(ctx, chat, member, namer(ctx, { images: true }))),
 			canManage: chat.kind === "channel" && canManageChannel(toActor(member), chat),
 			trash: chat.archived ? await trashInfo(ctx, member, chat._id) : null,
 		};

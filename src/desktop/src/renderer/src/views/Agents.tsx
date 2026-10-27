@@ -8,6 +8,7 @@ import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { navigate } from "../router";
 import { ItemList, Missing, customizeCrumbs } from "./customize/shared";
+import { ImagePicker } from "./ImagePicker";
 import { ModelPicker } from "./ModelPicker";
 import { TrashNotice } from "./Trash";
 import { AgentIcon, TrashIcon } from "../icons";
@@ -110,6 +111,9 @@ function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean;
 			{error && <Notice>{error}</Notice>}
 
 			<fieldset disabled={!isOwner || agent.archived} className="flex flex-col gap-5">
+				<Field label="Picture" hint="PNG, JPEG, WebP or GIF, up to 2 MB.">
+					<ImagePicker of={agent._id} name={agent.name} image={agent.image} agent disabled={!isOwner || agent.archived} />
+				</Field>
 				<Field label="Name">
 					<input className={inputClass} value={config.name} onChange={(e) => edit({ name: e.target.value })} />
 				</Field>

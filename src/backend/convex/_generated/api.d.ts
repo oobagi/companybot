@@ -29,6 +29,7 @@ import type * as databaseViews from "../databaseViews.js";
 import type * as fields from "../fields.js";
 import type * as functions from "../functions.js";
 import type * as http from "../http.js";
+import type * as images from "../images.js";
 import type * as invites from "../invites.js";
 import type * as legacyCatalogs from "../legacyCatalogs.js";
 import type * as lib from "../lib.js";
@@ -91,6 +92,7 @@ declare const fullApi: ApiFromModules<{
   fields: typeof fields;
   functions: typeof functions;
   http: typeof http;
+  images: typeof images;
   invites: typeof invites;
   legacyCatalogs: typeof legacyCatalogs;
   lib: typeof lib;

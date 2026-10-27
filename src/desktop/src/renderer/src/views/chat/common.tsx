@@ -10,28 +10,45 @@ const initials = (name: string) =>
 		.map((w) => w[0]!.toUpperCase())
 		.join("") || "?";
 
-const sizes = { xs: "size-5 text-[9px]", sm: "size-6 text-[10px]", md: "size-9 text-xs" };
+const sizes = { xs: "size-5 text-[9px]", sm: "size-6 text-[10px]", md: "size-9 text-xs", lg: "size-14 text-base" };
 
-/** People are round; agents are rounded squares. `className` adds to it (a ring, in a stack). */
-export function Avatar({ name, agent, size = "md", className = "" }: { name: string; agent?: boolean; size?: keyof typeof sizes; className?: string }) {
+/**
+ * A person's photo, an agent's picture or a workspace's logo, cropped to fit; initials until
+ * there is one (or if it won't load). People are round; agents and workspaces are rounded
+ * squares. `className` adds to it (a ring, in a stack).
+ */
+export function Avatar({
+	name,
+	image,
+	agent,
+	size = "md",
+	className = "",
+}: {
+	name: string;
+	image?: string | null;
+	agent?: boolean;
+	size?: keyof typeof sizes;
+	className?: string;
+}) {
+	const [broken, setBroken] = useState<string>();
+	const shape = `shrink-0 ${sizes[size]} ${agent ? "rounded-md" : "rounded-full"} ${className}`;
+	if (image && broken !== image) return <img src={image} alt={name} title={name} onError={() => setBroken(image)} className={`object-cover ${shape}`} />;
 	return (
 		<span
 			title={name}
-			className={`flex shrink-0 items-center justify-center font-medium select-none ${sizes[size]} ${
-				agent ? "rounded-md bg-neutral-800 text-white" : "rounded-full bg-neutral-200 text-neutral-600"
-			} ${className}`}
+			className={`flex items-center justify-center font-medium select-none ${shape} ${agent ? "bg-neutral-800 text-white" : "bg-neutral-200 text-neutral-600"}`}
 		>
 			{initials(name)}
 		</span>
 	);
 }
 
-export function AvatarStack({ people, size = "sm" }: { people: { name: string; type: string }[]; size?: keyof typeof sizes }) {
+export function AvatarStack({ people, size = "sm" }: { people: { name: string; type: string; image?: string | null }[]; size?: keyof typeof sizes }) {
 	return (
 		<span className="flex -space-x-1">
 			{/* The ring is on the avatar itself, so it follows its shape: round for people, square for agents. */}
 			{people.slice(0, 3).map((p, i) => (
-				<Avatar key={i} name={p.name} agent={p.type === "agent"} size={size} className="ring-2 ring-white" />
+				<Avatar key={i} name={p.name} image={p.image} agent={p.type === "agent"} size={size} className="ring-2 ring-white" />
 			))}
 		</span>
 	);

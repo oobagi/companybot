@@ -164,7 +164,9 @@ export default defineSchema({
 		memory: v.optional(v.boolean()),
 		/** Set when an owner deletes it: every access refuses at once, then a cascade deletes its rows (lifecycle.ts). */
 		deleting: v.optional(v.boolean()),
-	}),
+		/** Its logo (images.ts). Unset shows its initials. */
+		image: v.optional(v.id("_storage")),
+	}).index("by_image", ["image"]),
 
 	members: defineTable({
 		workspaceId: v.id("workspaces"),
@@ -209,7 +211,9 @@ export default defineSchema({
 		version: v.number(),
 		updatedAt: v.number(),
 		updatedBy: v.id("users"),
-	}).index("by_workspace", ["workspaceId"]).index("by_workspace_active", ["workspaceId", "archived"]),
+		/** Its picture (images.ts): not part of its config, so versions and restores leave it alone. Unset shows its initials. */
+		image: v.optional(v.id("_storage")),
+	}).index("by_workspace", ["workspaceId"]).index("by_workspace_active", ["workspaceId", "archived"]).index("by_image", ["image"]),
 
 	agentVersions: defineTable({
 		agentId: v.id("agents"),
@@ -262,9 +266,12 @@ export default defineSchema({
 		deviceTimeZone: v.optional(v.string()),
 		/** The workspace they used last: only a hint for a device opening for the first time. Each device keeps its own. */
 		workspaceId: v.optional(v.id("workspaces")),
+		/** Their photo (images.ts), shown in every workspace. Unset shows their initials. */
+		image: v.optional(v.id("_storage")),
 	})
 		.index("by_user", ["userId"])
-		.index("by_workspace", ["workspaceId"]),
+		.index("by_workspace", ["workspaceId"])
+		.index("by_image", ["image"]),
 
 	// Connectors: an owner installs one and picks which roles may use it.
 	connectorInstalls: defineTable({

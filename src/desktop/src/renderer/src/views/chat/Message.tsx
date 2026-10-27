@@ -53,7 +53,7 @@ export function MessageRow({
 						</span>
 					) : (
 						<ProfileLink who={message.author}>
-							<Avatar name={message.author.name} agent={isAgent} />
+							<Avatar name={message.author.name} image={message.author.image} agent={isAgent} />
 						</ProfileLink>
 					)}
 				</div>

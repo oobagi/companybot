@@ -69,7 +69,7 @@ export const list = query({
 				.order("desc")
 				.take(LIST_LIMIT)
 		).reverse();
-		const names = namer(ctx);
+		const names = namer(ctx, { images: true });
 		return Promise.all((parent ? [parent, ...docs] : docs).map((m) => toMessage(ctx, m, visible.member, names)));
 	},
 });

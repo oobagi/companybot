@@ -2,14 +2,19 @@ import { canManageChannel, describeWidget } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { type Member, type Who, getMember, memberOf, memo, nameOf, toActor } from "./lib";
+import { imageUrls } from "./images";
+import { type Member, type Who, getMember, memberOf, memo, nameOf, personOf, toActor } from "./lib";
 import { putInTrash, takeFromTrash } from "./trashOps";
 
 // Shared by the app's chat functions (chats.ts, messages.ts) and the agent runner
 // (chatTools.ts), so both follow the same visibility rules. See wiki/chat.md.
 
 /** A person or agent, display-ready. Fits core's `Participant`. */
-export type Participant = { type: "user"; id: Id<"users">; name: string } | { type: "agent"; id: Id<"agents">; name: string };
+export type Participant = ({ type: "user"; id: Id<"users"> } | { type: "agent"; id: Id<"agents"> }) & {
+	name: string;
+	/** Their picture's URL, or null for initials. Only from `namer(ctx, { images: true })`: what the app shows, never what agents read. */
+	image?: string | null;
+};
 
 /** Finds a DM by who's in it: sorted "u:<id>" / "a:<id>" keys joined by ",". */
 export const dmKeyOf = (userIds: Id<"users">[], agentIds: Id<"agents">[]) =>
@@ -278,12 +283,20 @@ export async function toggleReaction(
 	return true;
 }
 
-/** Display names for people and agents, cached for one query. */
-export function namer(ctx: QueryCtx) {
-	const userName = memo((id: Id<"users">) => nameOf(ctx, id));
-	const agentName = memo(async (id: Id<"agents">) => (await ctx.db.get(id))?.name ?? "Agent");
-	const user = async (id: Id<"users">): Promise<Participant> => ({ type: "user", id, name: await userName(id) });
-	const agent = async (id: Id<"agents">): Promise<Participant> => ({ type: "agent", id, name: await agentName(id) });
+/** Display names (and with `images`, picture URLs) for people and agents, cached for one query. */
+export function namer(ctx: QueryCtx, { images = false } = {}) {
+	const person = memo((id: Id<"users">) => personOf(ctx, id));
+	const agentDoc = memo((id: Id<"agents">) => ctx.db.get(id));
+	const url = imageUrls(ctx);
+	const image = async (file: Id<"_storage"> | undefined) => (images ? { image: await url(file) } : {});
+	const user = async (id: Id<"users">): Promise<Participant> => {
+		const { name, image: file } = await person(id);
+		return { type: "user", id, name, ...(await image(file)) };
+	};
+	const agent = async (id: Id<"agents">): Promise<Participant> => {
+		const doc = await agentDoc(id);
+		return { type: "agent", id, name: doc?.name ?? "Agent", ...(await image(doc?.image)) };
+	};
 	/** A member row or message author: a person or an agent. */
 	const of = async (row: { userId?: Id<"users">; agentId?: Id<"agents"> } | { authorUserId?: Id<"users">; authorAgentId?: Id<"agents">; actingFor?: Id<"users"> }) => {
 		const userId = "authorUserId" in row ? row.authorUserId : "userId" in row ? row.userId : undefined;

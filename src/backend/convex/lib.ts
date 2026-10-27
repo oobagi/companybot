@@ -239,12 +239,15 @@ export async function namesOf(ctx: QueryCtx, userIds: Id<"users">[]) {
 	return names;
 }
 
-export async function nameOf(ctx: QueryCtx, userId: Id<"users">) {
+export const nameOf = async (ctx: QueryCtx, userId: Id<"users">) => (await personOf(ctx, userId)).name;
+
+/** Someone's display name and photo (a storage id: images.ts turns it into a URL). */
+export async function personOf(ctx: QueryCtx, userId: Id<"users">): Promise<{ name: string; image?: Id<"_storage"> }> {
 	const user = await ctx.db.get(userId);
 	// Erased accounts keep a scrubbed row (workspace.eraseAccount), whatever is left to clean up.
-	if (!user || user.erasedAt) return "Former member";
+	if (!user || user.erasedAt) return { name: "Former member" };
 	const prefs = await preferencesOf(ctx, userId);
-	return prefs?.displayName || user.email || "Former member";
+	return { name: prefs?.displayName || user.email || "Former member", image: prefs?.image };
 }
 
 /** Someone's time zone: the one they picked, else their computer's, else UTC. */

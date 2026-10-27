@@ -16,6 +16,7 @@ import { type MutationCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { type Member, type Who, checkPermission, checkVersion, getMember, namesOf, requireAgent, requirePermission, toActor } from "./lib";
 import { connectorStates } from "./connectors";
+import { imageUrl } from "./images";
 import { allowedModels, catalogModels } from "./modelCatalog";
 import { agentConfig } from "./schema";
 import { putInTrash, takeFromTrash, trashInfo } from "./trashOps";
@@ -72,6 +73,8 @@ export const list = query({
 		return Promise.all(
 			agents.map(async (a) => ({
 				...a,
+				/** Its picture's URL (not the storage id), or null for its initials. */
+				image: await imageUrl(ctx, a.image),
 				updatedByName: names.get(a.updatedBy) ?? "",
 				access: describeToolAccess(a, toActor(member), connectors),
 				/** Set while it's in Trash: who deleted it, when, and whether you can restore it. */
@@ -177,7 +180,7 @@ export async function updateAgent(ctx: MutationCtx, member: Member, agentId: Id<
 }
 
 /** An agent that isn't in Trash: one there is read-only until it's restored. */
-async function requireLiveAgent(ctx: MutationCtx, member: Member, agentId: Id<"agents">) {
+export async function requireLiveAgent(ctx: MutationCtx, member: Member, agentId: Id<"agents">) {
 	const agent = await requireAgent(ctx, member, agentId);
 	if (agent.archived) throw new ConvexError("This agent is in Trash. Restore it first.");
 	return agent;
