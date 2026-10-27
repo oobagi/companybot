@@ -43,11 +43,18 @@ describe("trash", () => {
 		expect((await owner.query(api.records.search, { query: "Acme" })).map((r) => r._id)).toEqual([acme]);
 	});
 
-	it("lets whoever deleted it, or an owner, restore; only owners delete forever", async () => {
-		const { t, owner, member, acme, roof } = await seeded();
+	it("lets anyone who could delete it restore it; only owners delete forever", async () => {
+		const { t, owner, member, client, acme, roof } = await seeded();
+		// A member can undo an owner's delete of something members can delete…
 		await owner.mutation(api.trash.move, { kind: "record", id: acme });
-		expect((await trashOf(member))[0]).toMatchObject({ canRestore: false });
-		await expect(member.mutation(api.trash.restore, { kind: "record", id: acme })).rejects.toThrow("Only owner@co.com, who deleted it, or an owner");
+		expect((await trashOf(member))[0]).toMatchObject({ canRestore: true });
+		await member.mutation(api.trash.restore, { kind: "record", id: acme });
+		// …but not of something only owners can delete.
+		await owner.mutation(api.trash.move, { kind: "database", id: client._id });
+		expect((await trashOf(member))[0]).toMatchObject({ kind: "database", canRestore: false });
+		await expect(member.mutation(api.trash.restore, { kind: "database", id: client._id })).rejects.toThrow("same access as deleting it");
+		await owner.mutation(api.trash.restore, { kind: "database", id: client._id });
+		await owner.mutation(api.trash.move, { kind: "record", id: acme });
 		await member.mutation(api.trash.move, { kind: "record", id: roof });
 		await owner.mutation(api.trash.restore, { kind: "record", id: roof });
 		await expect(member.mutation(api.trash.purge, { id: acme })).rejects.toThrow("permission");
@@ -86,13 +93,15 @@ describe("trash", () => {
 		await expect(member.in(other.workspaceId).mutation(api.trash.restore, { kind: "channel", id })).rejects.toThrow("Chat not found");
 	});
 
-	it("lets the deleter restore a database after losing the owner role", async () => {
+	it("goes by what you can do now, not who deleted it: a demoted owner can't restore a database", async () => {
 		const { t, owner, member, client } = await seeded();
 		await owner.mutation(api.trash.move, { kind: "database", id: client._id });
 		await t.run(async (ctx) => {
 			for (const row of await ctx.db.query("members").collect()) await ctx.db.patch(row._id, { role: row.userId === member.userId ? "owner" : "member" });
 		});
-		await owner.mutation(api.trash.restore, { kind: "database", id: client._id });
+		expect((await trashOf(owner))[0]).toMatchObject({ kind: "database", canRestore: false });
+		await expect(owner.mutation(api.trash.restore, { kind: "database", id: client._id })).rejects.toThrow("same access as deleting it");
+		await member.mutation(api.trash.restore, { kind: "database", id: client._id });
 		expect((await owner.query(api.recordTypes.list)).some((r) => r._id === client._id)).toBe(true);
 	});
 

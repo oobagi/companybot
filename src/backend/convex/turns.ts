@@ -200,6 +200,7 @@ export const turnContext = internalQuery({
 			/** Off when an owner turned it off; personal only in a DM with exactly one person. memory.ts checks again on every call. */
 			memory: !(await memoryOn(ctx, chat.workspaceId)) ? ("off" as const) : (await personalMemoryHere(ctx, chat)) ? ("personal" as const) : ("team" as const),
 			actor: {
+				id: member.userId,
 				name: (await names.user(member.userId)).name,
 				email: user?.email ?? "",
 				role: member.role,

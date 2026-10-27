@@ -8,7 +8,7 @@ import { TrashIcon } from "../icons";
 import { EmptyState, NoMatches, LoadMore, Notice, Page, compactControlClass, metadataClass, timeAgo, useRun } from "../ui";
 import { recordPath, whoLabel } from "./records/logic";
 
-// Trash: everything people deleted, like Notion's. Whoever deleted something, or an owner,
+// Trash: everything people deleted, like Notion's. Anyone who could delete something
 // can restore it; owners can delete forever, and the rest goes 30 days on. See wiki/data.md#trash.
 
 type TrashRow = FunctionReturnType<typeof api.trash.list>["page"][number];

@@ -59,7 +59,7 @@ describe("customize", () => {
 			const row = (await member.query(api.skills.list)).find((s) => s.id === skillId);
 			expect(row).toMatchObject({ canEdit: true, createdByName: "member@co.com", custom: { version: 3, updatedByName: "owner@co.com" } });
 			await owner.mutation(api.skills.remove, { skillId });
-			expect((await member.query(api.skills.list)).find((s) => s.id === skillId)?.trash).toMatchObject({ kind: "skill", user: "owner@co.com", canRestore: false });
+			expect((await member.query(api.skills.list)).find((s) => s.id === skillId)?.trash).toMatchObject({ kind: "skill", user: "owner@co.com", canRestore: true });
 			await expect(member.mutation(api.skills.setInstalled, { skillId: "meeting-notes", installed: true })).rejects.toThrow("permission");
 		});
 
