@@ -6,7 +6,7 @@ import type { Refs } from "./logic";
 export type RecordType = FunctionReturnType<typeof api.recordTypes.list>[number];
 export type Row = FunctionReturnType<typeof api.records.search>[number];
 
-/** Every live record type with its fields (archived ones last). */
+/** Every live database with its fields (archived ones last). */
 export const useTypes = () => useQuery(api.recordTypes.list);
 
 /**

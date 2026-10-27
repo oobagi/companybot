@@ -12,6 +12,7 @@ import {
 	normalizeValue,
 	recordTypeCatalog,
 	searchTextOf,
+	singularOf,
 } from "./records";
 
 describe("records", () => {
@@ -22,6 +23,8 @@ describe("records", () => {
 		expect(keyOf("Roof type", [])).toBe("roof_type");
 		expect(keyOf("Roof type", ["roof_type", "roof_type_2"])).toBe("roof_type_3");
 		expect(keyOf("2nd phone", [])).toBe("f_2nd_phone");
+		expect(["Projects", "Companies", "Boxes", "Classes", "Staff", "People", "Sales people", "Status", "Statuses", "Buses", "COMPANIES"].map(singularOf))
+			.toEqual(["Project", "Company", "Box", "Class", "Staff", "Person", "Sales person", "Status", "Status", "Bus", "COMPANY"]);
 		expect(keyOf("!!!", [])).toBe("field");
 		expect(keyOf("_secret", [])).toBe("secret");
 	});
@@ -33,7 +36,7 @@ describe("records", () => {
 		expect(fieldConfigError({ label: "A", kind: "choice", options: [{ id: "a", label: "A" }, { id: "b", label: "a" }] })).toMatch("same name");
 		expect(fieldConfigError({ label: "A", kind: "text", options: [{ id: "a", label: "A" }] })).toMatch("Only choice");
 		expect(fieldConfigError({ label: "A", kind: "text", multiple: true })).toMatch("several");
-		expect(fieldConfigError({ label: "A", kind: "link" })).toMatch("record type");
+		expect(fieldConfigError({ label: "A", kind: "link" })).toMatch("database");
 		expect(fieldConfigError({ label: "A", kind: "blob" as Field["kind"] })).toMatch("one of");
 	});
 

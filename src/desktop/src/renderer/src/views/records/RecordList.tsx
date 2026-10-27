@@ -5,8 +5,9 @@ import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { ErrorBoundary, Field, LoadMore, Loading, Notice, Page, compactControlClass, descriptionClass, inputClass, primaryButton, timeAgo, useRun } from "../../ui";
+import { ConflictNotice, ErrorBoundary, Field, LoadMore, Loading, Notice, Page, Tabs, compactControlClass, dangerButton, descriptionClass, inputClass, primaryButton, secondaryButton, timeAgo, useDraft, useRun } from "../../ui";
 import { Modal, useDismiss } from "../chat/common";
+import { DatabaseDialog } from "./DatabaseDialog";
 import { type RecordType, type Row, useRefs } from "./data";
 import { Chip, RecordOptions, RecordPicker, useOptions } from "./fields";
 import {
@@ -15,6 +16,7 @@ import {
 	type Refs,
 	type TypeField,
 	defaultColumns,
+	fromConditions,
 	needsValue,
 	opLabels,
 	opsFor,
@@ -24,32 +26,49 @@ import {
 	valueText,
 } from "./logic";
 
-// One record type's list: a table with chosen columns, sort by any column, filters,
+// One database's list: a table with chosen columns, sort by any column, filters,
 // search, archived behind a toggle, and pages that keep loading as you scroll.
 
 type Sort = { field: string; order: "asc" | "desc" };
 
-/** Columns people picked, per type, on this computer. */
-function useColumns(type: RecordType) {
-	const storageKey = `records.columns.${type.key}`;
-	const live = type.fields.filter((f) => !f.archived).map((f) => f.key);
-	const [saved, setSaved] = useState<string[] | null>(() => JSON.parse(localStorage.getItem(storageKey) ?? "null"));
-	const columns = (saved ?? defaultColumns(type.fields)).filter((k) => live.includes(k));
-	const set = (keys: string[]) => {
-		setSaved(keys);
-		localStorage.setItem(storageKey, JSON.stringify(keys));
-	};
-	return [columns, set] as const;
-}
+type Settings = { filters: Filter[]; sort?: Sort; columns: string[] };
 
 export function RecordList({ type, role }: { type: RecordType; role: Role }) {
-	const [filters, setFilters] = useState<Filter[]>([]);
-	const [sort, setSort] = useState<Sort>();
+	const views = useQuery(api.databaseViews.list, { typeId: type._id });
+	const saveView = useMutation(api.databaseViews.save);
+	const removeView = useMutation(api.databaseViews.remove);
+	const [viewId, setViewId] = useState("all");
+	const selected = views?.find((v) => v._id === viewId);
+	const fields = type.fields.filter((f) => !f.archived) as TypeField[];
+	const live = (key: string) => ["createdAt", "updatedAt", ...fields.map((f) => f.key)].includes(key);
+	// "All" keeps the columns people picked on this computer; a view's settings skip fields archived since.
+	const columnsKey = `records.columns.${type.key}`;
+	const draft = useDraft<Settings>(
+		selected
+			? { filters: fromConditions(selected.filters.filter((c) => live(c.field)), fields), sort: selected.sort && live(selected.sort.field) ? selected.sort : undefined, columns: selected.columns }
+			: { filters: [], columns: JSON.parse(localStorage.getItem(columnsKey) ?? "null") ?? defaultColumns(type.fields) },
+		selected?.version ?? 0,
+	);
+	const { filters, sort } = draft.value;
+	const columns = draft.value.columns.filter(live);
+	const change = (next: Partial<Settings>) => {
+		draft.set({ ...draft.value, ...next });
+		if (!selected && next.columns) localStorage.setItem(columnsKey, JSON.stringify(next.columns));
+	};
+	const setFilters = (filters: Filter[]) => change({ filters });
+	const setSort = (sort: Sort | undefined) => change({ sort });
+	const setColumns = (columns: string[]) => change({ columns });
+	const open = (id: string) => (setViewId(id), draft.discard());
+	// Someone deleted the open view.
+	useEffect(() => {
+		if (views && viewId !== "all" && !selected) open("all");
+	}, [views, viewId, selected]);
+	const [naming, setNaming] = useState<"new" | "edit">();
+	const [editingDatabase, setEditingDatabase] = useState(false);
 	const [search, setSearch] = useState("");
 	const [archived, setArchived] = useState(false);
-	const [columns, setColumns] = useColumns(type);
 	const [creating, setCreating] = useState(false);
-	const fields = type.fields.filter((f) => !f.archived) as TypeField[];
+	const { error, run } = useRun();
 	const shown = columns.map((k) => fields.find((f) => f.key === k)!);
 	const conditions = filters.map(toCondition).filter((c) => c !== null);
 	const canEdit = can(role, "records.edit");
@@ -58,19 +77,46 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 	const sortField = activeSort && fields.find((f) => f.key === activeSort.field);
 	const args = { typeId: type._id, archived, filters: conditions, sort: activeSort };
 	const noun = type.plural.toLowerCase();
+	const tabClass = "px-3 py-2 text-sm text-neutral-500 hover:text-neutral-800";
 
 	return (
 		<Page
 			wide
 			title={type.plural}
 			actions={
-				canEdit && (
-					<button type="button" className={primaryButton} onClick={() => setCreating(true)}>
-						+ New
-					</button>
-				)
+				<div className="flex items-center gap-2">
+					{can(role, "fields.manage") && (
+						<button type="button" className={secondaryButton} onClick={() => setEditingDatabase(true)}>
+							Edit database
+						</button>
+					)}
+					{canEdit && (
+						<button type="button" className={primaryButton} onClick={() => setCreating(true)}>
+							+ New
+						</button>
+					)}
+				</div>
 			}
 		>
+			<Tabs tabs={[{ id: "all", label: "All" }, ...(views ?? []).map((v) => ({ id: v._id as string, label: v.name }))]} value={selected ? viewId : "all"} onChange={open}>
+				{canEdit && selected && (
+					<button type="button" title="Rename or delete this view" className={tabClass} onClick={() => setNaming("edit")}>
+						⋯
+					</button>
+				)}
+				{canEdit && (
+					<button type="button" title="Save these filters as a view" className={tabClass} onClick={() => setNaming("new")}>
+						+
+					</button>
+				)}
+				{canEdit && selected && draft.dirty && (
+					<button type="button" disabled={draft.stale} className={`ml-auto self-center ${compactControlClass}`} onClick={() => run(saveView({ typeId: type._id, viewId: selected._id, version: draft.base, name: selected.name, filters: conditions, sort, columns }), draft.discard)}>
+						Save for everyone
+					</button>
+				)}
+			</Tabs>
+			{error && <Notice>{error}</Notice>}
+			{draft.stale && <ConflictNotice onDiscard={draft.discard} onKeep={draft.keepMine} />}
 			<div className="flex flex-wrap items-center gap-3 text-sm">
 				<input
 					type="search"
@@ -143,6 +189,35 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 						/>
 					</ErrorBoundary>
 				</>
+			)}
+			{editingDatabase && <DatabaseDialog type={type} onClose={() => setEditingDatabase(false)} />}
+			{naming && (
+				<Modal title={naming === "edit" ? "Edit view" : "Save view"} onClose={() => setNaming(undefined)}>
+					<form
+						className="flex flex-col gap-4"
+						onSubmit={(e) => {
+							e.preventDefault();
+							const name = String(new FormData(e.currentTarget).get("name"));
+							const edit = naming === "edit" && selected && { viewId: selected._id, version: draft.base };
+							run(saveView({ typeId: type._id, ...edit, name, filters: conditions, sort, columns }).then((id) => (open(id), setNaming(undefined))));
+						}}
+					>
+						{error && <Notice>{error}</Notice>}
+						<Field label="View name" hint="These filters, sort and columns, shared with everyone in the workspace.">
+							<input name="name" autoFocus required maxLength={120} defaultValue={naming === "edit" ? selected?.name : ""} className={inputClass} />
+						</Field>
+						<div className="flex items-center gap-2">
+							<button type="submit" disabled={naming === "edit" && draft.stale} className={primaryButton}>
+								Save for everyone
+							</button>
+							{naming === "edit" && selected && (
+								<button type="button" className={dangerButton} onClick={() => confirm(`Delete the view ${selected.name}?`) && run(removeView({ viewId: selected._id, version: draft.base }), () => (open("all"), setNaming(undefined)))}>
+									Delete view
+								</button>
+							)}
+						</div>
+					</form>
+				</Modal>
 			)}
 			{creating && <NewRecord type={type} onClose={() => setCreating(false)} />}
 		</Page>

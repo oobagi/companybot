@@ -1,13 +1,14 @@
 # Data
 
-The CRM half: records (clients, deals, tasks, calls…), their fields, links, and history. Built so every record feature in [Product](product.md) sits on it without a rewrite. Code: `core/src/records.ts` (rules), `backend/convex/recordOps.ts` (storage), `records.ts`, `recordTypes.ts`, `fields.ts` (API).
+Databases and their records: records (clients, deals, tasks, calls…), their fields, links, and history. Built so every record feature in [Product](product.md) sits on it without a rewrite. Code: `core/src/records.ts` (rules), `backend/convex/recordOps.ts` (storage), `records.ts`, `recordTypes.ts`, `fields.ts` (API).
 
 ## Model
-- **Record type** (`recordTypes`) — a kind of record: Client, Deal, Task, Call, or one an owner adds ("Job"). Built-ins come from `recordTypeCatalog`, seeded per workspace (`seedRecordTypes`: `workspace.ensure`, and migration `recordTypes` for older workspaces).
-- **Field** (`recordFields`) — one piece of info on a type: built-in ("Stage") or added ("Roof type"). Kinds: text, number, currency, date, checkbox, choice, email, phone, url, user (a teammate), link (another record). Choice, user and link can hold several (`multiple`). Every type has `name`, the record's title.
+- **Database** (`recordTypes`) — a collection of records: Client, Deal, Task, Call, or one an owner adds ("Job"). Built-ins come from `recordTypeCatalog`, seeded per workspace (`seedRecordTypes`: `workspace.ensure`, and migration `recordTypes` for older workspaces).
+- **Field** (`recordFields`) — one piece of info in a database: built-in ("Stage") or added ("Roof type"). Kinds: text, number, currency, date, checkbox, choice, email, phone, url, user (a teammate), link (another record). Choice, user and link can hold several (`multiple`). Every database has `name`, the record's title.
 - **Record** (`records`) — `values`: field key → value. Keys come from the label once ("Roof type" → `roof_type`) and never change, so renames are free. Empty values (and unchecked boxes) aren't stored. Dates are `YYYY-MM-DD`; currency is `{ minor, currency }` (see Money); choices store the option's id, so renaming an option changes nothing.
 - **Index** (`recordValues`) — one row per value of a live record: text and ids in `str`, numbers in `num`, links in `ref`. Lists filter and sort through it; never read for display. Text is case-insensitive: up to 100 chars it's its own key; longer, its first 80 chars plus a hash of the whole, so sorting goes by the first 80 and exact matches are re-checked against the value.
-- **History** (`recordHistory`) — every change to a record or field: action, each value's old → new, `userId`, and `agentId` when an agent did it for that person. Feeds a record's history and Settings → Activity (`records.activity`).
+- **History** (`recordHistory`) — every change to a record, field, database or saved view: action, each value's old → new, `userId`, and `agentId` when an agent did it for that person. Feeds a record's history and Settings → Activity (`records.activity`).
+- **Saved view** (`databaseViews`) — a named filter, sort and ordered columns shared with the workspace. Indexed by database (`by_type`); its lifecycle is `childOf: recordTypes`, so deleting a database in a cascade deletes its views. Removing a member keeps shared views.
 - **Mentions** (`recordMentions`) — a chat message that references a record (`messages.send` → `mentions.recordIds`). `records.discussion` lists the ones you can see.
 
 ## Money
@@ -50,7 +51,7 @@ Separate tables per type (Night Owl's way) means a migration for every new type 
   - *Intersecting two index streams* (leapfrog) only helps when values cluster, which CRM data rarely does; checking the record is as cheap and simpler.
 
 ## Rules
-- **Access:** every member reads every record. `records.edit` (owner, member): create, change, archive, restore, undo. `fields.create` (owner, member): add fields; makers can change their own. `fields.manage` (owner): change any field, add types (`canEditMade`).
+- **Access:** every member reads every record. `records.edit` (owner, member): create, change, archive, restore, undo. `fields.create` (owner, member): add fields; makers can change their own. `fields.manage` (owner): change any field, create, rename and archive databases, or manage anyone's fields (`canEditMade`). Shared views use `records.edit`.
 - **Agents act as the person who asked** (`Who = { member, agentId? }`), like memory and connectors: the person's role decides (read fresh each call), history names both. See Agent tools.
 - **Edits are field-level patches:** `records.update` sets only the keys given (null clears), so two people editing different fields never clash. No version check; history holds every old value.
 - **Undo** (`records.undo`) reverses one entry: archive ↔ restore, or old values back. Refused if any value it touched has changed since, or it was already undone. Old values go through the same checks as any write, against the fields as they are now: no archived fields, retired options, or archived link targets. The undo is itself a history entry (`undoes`).
@@ -61,7 +62,9 @@ Separate tables per type (Night Owl's way) means a migration for every new type 
 - **Automation hook:** every change goes through `logChange` (`recordOps.ts`). Record triggers ("deal moved to Won") fire from there via `fireEvent`; not wired yet.
 
 ## API
-**`recordTypes`** `list()` → types (oldest first) with fields (`_id`, `key`, `label`, `kind`, `options`, `linkType`, `multiple`, `archived`, `canEdit`). The data model agents read. `create({ name, plural })`.
+**`recordTypes`** `list()` → databases (oldest first) with fields (`_id`, `key`, `label`, `kind`, `options`, `linkType`, `multiple`, `archived`, `canEdit`). The data model agents read. `create({ plural })` (owners; the singular `name` is guessed by `singularOf`, and alpha.6 apps still send it), `update({ typeId, version, name?, plural?, archived? })` (owners; a new plural alone re-guesses the singular). Public paths and Convex table names stay the same for installed apps. Built-ins archive like any other; re-seeding skips keys that exist, archived or not. Keys and routes never change; names must be nonempty, unique against live database names/plurals, and at most 120 characters. At most 32 databases per workspace, including archived ones.
+
+**`databaseViews`** `list({ typeId })`, `save({ typeId, viewId?, version?, name, filters, sort?, columns })`, `remove({ viewId, version })`. Owners and members can create, update and delete shared views; all members read them. At most 50 per database; each config is at most 16,000 characters with a name up to 120 characters, up to 10 filters, sortable fields only, and live unique columns including `name`. Saves and deletes check the version; changing a stale draft is refused. Updates replace the whole config (omitting sort clears it). Filters use stored ids and field keys, validated through the list compiler. Database archive keeps records, fields, views and history, while hiding its sidebar entry and refusing view changes; there is no physical database-delete API.
 
 **`fields`** `create({ typeId, label, kind, options?, linkTypeId?, multiple? })` → field with its `key`. `update({ fieldId, label?, options? })` (send all options; keep `id`s to keep values). `archive` / `restore({ fieldId })`.
 
@@ -75,20 +78,30 @@ Separate tables per type (Night Owl's way) means a migration for every new type 
 - `discussion({ recordId })` — messages referencing it that you can see.
 - `create({ typeId, values })` → id. `update({ recordId, values })`. `archive` / `restore({ recordId })`. `undo({ historyId })`.
 
+## Sorting and filtering in the app
+- Sidebar **Databases → + New database** asks owners for one name ("Projects"), then opens it. **Edit database** (next to **+ New**) renames it, including the singular ("Project"), or archives it.
+- Above each list, tabs: **All** (columns remembered on this computer) and each shared view. Filters, sort and columns start from the open view; edits stay private until **Save for everyone**. **+** saves the current settings as a new view; **⋯** on an open view renames or deletes it. Search and Show archived are temporary and not saved.
+- **All records** keeps local filters, sort and columns per database on this computer. Old column preferences carry over. Shared settings use `useDraft` + `ConflictNotice` and versions, like agents and workspace settings.
+- Settings → Activity shows record, field, database and view history, naming the person and any agent acting for them. Database/view changes are logged but do not use record undo.
+- Wording: databases contain records; sorting, filtering and columns belong to a view. This follows [Notion's database views](https://www.notion.com/help/views-filters-and-sorts) and [Attio's shared filter and sort settings](https://attio.com/help/reference/managing-your-data/views/filter-and-sort-views).
+
 ## Agent tools
-`core/src/record-tools.ts` → `ToolContext.records` → `backend/convex/recordTools.ts` (internal `*For` per turn, through `recordOps`). Granted as `records.*`; Companybot has them (migration `companybotRecordTools` for existing ones). All `risk: none`: internal, logged, undoable.
-- `records_types` — types, fields (key, label, kind, options, `linksTo`), workspace currency.
-- `records_find` — one type with filters, sort and `cursor` (`records.list` underneath), or `search` (title and text, top 20, no filters). Asks up to 5 times to fill a short page; `more` + `cursor` when there's more. Data result: rows `{ _id, _type? (search across types), …field key: display value }` (keys start with a letter, so a field called "id" can't clash), so `widgets_table` shows them by ref (`path: "rows"`).
+`core/src/record-tools.ts` → `ToolContext.records` → `backend/convex/recordTools.ts` (internal `*For` per turn, through `recordOps`). Granted as `records.*`; Companybot has them (migration `companybotRecordTools` for existing ones). All `risk: none`: internal and logged. Record changes have undo; database/view changes do not.
+- `records_types` — databases with versions, fields (key, label, kind, options, `linksTo`), workspace currency.
+- `records_find` — one database with filters, sort and `cursor` (`records.list` underneath), or `search` (title and text, top 20, no filters). Asks up to 5 times to fill a short page; `more` + `cursor` when there's more. Data result: rows `{ _id, _type? (search across types), …field key: display value }` (keys start with a letter, so a field called "id" can't clash), so `widgets_table` shows them by ref (`path: "rows"`).
 - `records_get` — one record: values, `links` (with ids), `linkedFrom` (10), last 5 `changes` with change ids and who (person + agent).
 - `records_save` — create, patch values, or archive/restore (on its own). Returns the record and its `change` id.
 - `records_undo` — reverses one change (`undoChange`); undoing a create archives it.
 - `records_save_field` — add a field (`fields.create`), or rename one / set its options (maker or `fields.manage`).
-- **Named like people say them:** types by id or key, else name or plural; fields by key, else label (a name two could match is refused, listing both); teammates as "me", a name or an email; links as the record's exact name or id.
+- `records_save_database` — create (one `name`, e.g. "Projects"; `singular` optional), rename or archive (database key/id + version), owners only (`fields.manage`).
+- `records_views` — saved view ids, versions and complete configs for one database.
+- `records_save_view` — create, patch or delete (`remove: true`) a shared view (`records.edit`); updates/deletes require its current version. Omitted settings keep their previous values; `sort: null` clears it. Accepts field keys or labels, choice labels, teammates by name or "me", and linked records by exact name or id, like `records_find`. Saved choices use stable option ids.
+- **Named like people say them:** databases by id or key, else name or plural; fields by key, else label (a name two could match is refused, listing both); teammates as "me", a name or an email; links as the record's exact name or id.
 - **Link names are an exact lookup**, not a search: the target type's name field in `recordValues` (`by_field_str`, live records only), two rows to tell one from several. Lists are checked against their limits (50) first; lookups are memoized, and one call looks up at most 100 distinct names, so a call's reads stay small.
 - **What the model sees is capped** (`forModel`, ~24k characters): long text is cut (300 in lists, 2,000 on one record, shorter until it fits), then rows dropped, with a `trimmed` note. The full result stays behind the ref for widgets.
 - **Display:** `displayValues` (core): option labels, names, `formatMoney` in en-US so "$" is only USD, `formatDate` ("Nov 15, 2026", the same helper the record screens use). Input amounts follow Money; dates go in and filter as `YYYY-MM-DD` (the tool descriptions say so).
 - **Tool lines** say what the call did, from its input and result (`ToolDef.label`, `callLabel`): "Created deal Reroof main warehouse", "Saved Acme Roofing", "Found 1 deal", "Added field Roof type to Clients", "Undid a change to Acme Roofing". Results carry the type's names for this (`typeName`, `typePlural`). A call that fails (including an `{ error }` result) is labeled from its input alone: "Couldn't create deal Reroof main warehouse", else the tool's title.
-- Not exposed to agents: adding record types, archiving fields, workspace-wide history.
+- Not exposed to agents: archiving fields, workspace-wide history.
 
 ## Not built yet
 - Automation triggers. Screens are built ([Product](product.md#crm-data-layer-and-screens-built)); code in `desktop/…/views/records/`.

@@ -215,6 +215,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 
 	// ---- Records ----
 	recordTypes: { workspace: { index: "by_workspace", eq: ["workspaceId"] } },
+	databaseViews: { childOf: { table: "recordTypes", index: "by_type", field: "typeId" } },
 	recordFields: { childOf: { table: "recordTypes", index: "by_type", field: "typeId" } },
 	records: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },

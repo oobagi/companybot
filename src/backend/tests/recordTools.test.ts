@@ -99,7 +99,7 @@ describe("records tools", () => {
 	it("explain what's wrong instead of failing the reply", async () => {
 		const { t, member } = await setup();
 		const tools = await turnFor(t, member);
-		expect(await tools.save({ type: "job", values: { name: "x" } })).toEqual({ error: expect.stringContaining("no record type “job”") });
+		expect(await tools.save({ type: "job", values: { name: "x" } })).toEqual({ error: expect.stringContaining("no database “job”") });
 		expect(await tools.save({ type: "deal", values: { name: "x", client: "Nobody" } })).toEqual({ error: expect.stringContaining("No client named “Nobody”.") });
 		expect(await tools.save({ type: "deal", values: { name: "x", owner: "Bob" } })).toEqual({ error: expect.stringContaining("No teammate “Bob”") });
 		expect(await tools.save({ type: "deal", values: { name: "x", stage: "Maybe" } })).toEqual({ error: expect.stringContaining("is one of") });
@@ -163,7 +163,7 @@ describe("records tools", () => {
 		});
 		expect((await tools.save({ id: acme.id, values: { tier_level_2: "Gold" } })).values).toMatchObject({ tier_level_2: "Gold" });
 		// Types: a key beats another type's name; names two types share are refused.
-		await owner.mutation(api.recordTypes.create, { name: "Pipeline", plural: "Pipelines" });
+		await owner.mutation(api.recordTypes.create, { plural: "Pipelines" });
 		await t.run(async (ctx) => {
 			const type = (await ctx.db.query("recordTypes").collect()).find((x) => x.key === "pipeline")!;
 			await ctx.db.patch(type._id, { name: "deal", plural: "Deals" });
@@ -286,7 +286,7 @@ describe("records tools", () => {
 		expect((await tools.find({ search: "Their client" })).rows).toEqual([]);
 		expect(await tools.save({ type: "deal", values: { name: "x", client: secret.id } })).toEqual({ error: expect.stringContaining("doesn't exist") });
 		const otherType = (await other.query(api.recordTypes.list))[0]!._id;
-		expect(await tools.find({ type: otherType })).toEqual({ error: expect.stringContaining("no record type") });
+		expect(await tools.find({ type: otherType })).toEqual({ error: expect.stringContaining("no database") });
 		const row = await t.run((ctx) => ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", member.userId)).first());
 		await owner.mutation(api.workspace.removeMember, { id: row!._id as Id<"members"> });
 		await expect(tools.save({ type: "client", values: { name: "After" } })).rejects.toThrow("no longer in the workspace");

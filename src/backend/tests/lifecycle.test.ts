@@ -144,6 +144,7 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		await ctx.db.insert("permissionLocks", { workspaceId, action: "notes.read", connectorInstallId, lock: "ask", setBy: memberId, setAt: now });
 
 		const typeId = await ctx.db.insert("recordTypes", { workspaceId, key: "job", name: "Job", plural: "Jobs", archived: false, createdBy: memberId, updatedAt: now });
+		await ctx.db.insert("databaseViews", { workspaceId, typeId, name: "All jobs", filters: [], columns: ["name"], version: 1 });
 		const fieldId = await ctx.db.insert("recordFields", { workspaceId, typeId, key: "name", label: "Name", kind: "text", position: 0, archived: false, createdBy: memberId, updatedAt: now });
 		const recordId = await ctx.db.insert("records", { workspaceId, typeId, title: "Roof", values: { name: "Roof" }, searchText: "roof", archived: false, createdBy: memberId, updatedAt: now, updatedBy: memberId });
 		await ctx.db.insert("recordValues", { recordId, fieldId, str: "roof", at: now });

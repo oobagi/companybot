@@ -237,6 +237,22 @@ export async function compile(fields: Fields, c: Condition, currency: string, li
 	};
 }
 
+/** Validate saved filters without listing records or choosing a scan plan. */
+export async function validateView(ctx: QueryCtx, fields: Fields, conditions: Condition[], sort: Sort | undefined, currency: string) {
+	if (conditions.length > CONDITIONS_MAX) throw new ConvexError(`Use up to ${CONDITIONS_MAX} filters.`);
+	const live = new Liveness(ctx, new Budget());
+	for (const c of conditions) {
+		const values = [c.eq, ...(c.in ?? []), c.gt, c.gte, c.lt, c.lte].filter((v) => v !== undefined);
+		if (values.some((v) => !["string", "number", "boolean"].includes(typeof v))) throw new ConvexError("View filters use text, numbers or booleans.");
+		if ((c.gt !== undefined && c.gte !== undefined) || (c.lt !== undefined && c.lte !== undefined)) throw new ConvexError("Use one lower and one upper bound per range.");
+		await compile(fields, c, currency, live);
+	}
+	if (sort && !["createdAt", "updatedAt"].includes(sort.field)) {
+		const field = fields.find((f) => f.key === sort.field && !f.archived);
+		if (!field || field.multiple || field.kind === "link" || field.kind === "checkbox") throw new ConvexError("Pick a sortable field.");
+	}
+}
+
 function keyOf(s: Stream, row: Row): Key {
 	const r = row as unknown as Record<string, string | number | undefined>;
 	return s.table === "records" ? [...s.keys.map((k) => r[k]!), r._id!] : s.keys.map((k) => r[k]!);

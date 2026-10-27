@@ -29,10 +29,10 @@ export const permissions = {
 	"memory.team.write": { roles: ["owner"], label: "change team memories" },
 	/** Add, change, archive and restore records (clients, deals, tasks…), and undo changes. */
 	"records.edit": { roles: ["owner", "member"], label: "change records" },
-	/** Add fields to a record type. You can always change and archive the ones you added. */
+	/** Add fields to a database. You can always change and archive the ones you added. */
 	"fields.create": { roles: ["owner", "member"], label: "add fields" },
-	/** Add record types, and change or archive anyone's fields (`canEditMade`). */
-	"fields.manage": { roles: ["owner"], label: "manage fields and record types" },
+	/** Add databases, and change or archive anyone's fields (`canEditMade`). */
+	"fields.manage": { roles: ["owner"], label: "manage fields and databases" },
 	"channels.create": { roles: ["owner", "member"], label: "create channels" },
 	/** Rename, archive, and add members to any channel. Creators can always manage their own (`canManageChannel`). */
 	"channels.manage": { roles: ["owner"], label: "manage channels" },

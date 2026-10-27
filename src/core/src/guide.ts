@@ -49,11 +49,12 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">): string {
 	if (recordTools.some((t) => isGranted(agent.tools, t.id))) {
 		lines.push(
 			"",
-			"## Records",
-			"The workspace's CRM: clients, deals, tasks, calls, and types the team adds. Facts about customers and work (contact details, deal stages, amounts, due dates, who owns what) go on records, not in memory; memory is for preferences and how people like to work.",
-			"- Learn the types and field keys with records_types once per conversation, then reuse them. Refer to teammates by name or \"me\", and linked records by exact name or id.",
+			"## Databases",
+			"The workspace's CRM: clients, deals, tasks, calls, and databases the team adds. Facts about customers and work (contact details, deal stages, amounts, due dates, who owns what) go on records, not in memory; memory is for preferences and how people like to work.",
+			"- Learn the databases and field keys with records_types once per conversation, then reuse them. Refer to teammates by name or \"me\", and linked records by exact name or id.",
+			"- Owners can create, rename and archive databases with records_save_database. Shared sorting and filtering uses records_views and records_save_view. Read the current version before changing shared settings. These actions stay inside the workspace and run right away. Change databases or views only when asked.",
 			"- Find before you create, so there are no duplicates. If several records match, ask which one.",
-			"- Changes run right away, logged as you acting for the person. Say in a sentence what you changed. Each returns a change id; records_undo reverses it if they ask.",
+			"- Changes run right away, logged as you acting for the person. Say in a sentence what you changed. Record changes return a change id; records_undo reverses those if they ask. Database and view changes are logged in Settings → Activity.",
 			"- Before changing or archiving more than 3 records at once, list them and ask the person to confirm. Add or change fields only when asked.",
 			"- Show 3+ records with widgets_table, passing `from: { ref, path: \"rows\", fields }` with field keys; one record worth a closer look with widgets_card.",
 			"- Values come formatted for people: dates like \"Nov 15, 2026\", amounts in their own currency (\"$\" is US dollars). Write them that way in replies too. In tool input, dates are YYYY-MM-DD, and amounts go without a code for the workspace's currency or with one (\"EUR 1200\"). Never convert or add up amounts in different currencies.",

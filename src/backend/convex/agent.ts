@@ -468,6 +468,9 @@ function recordStore(ctx: ActionCtx, turnId: Id<"agentTurns">): RecordStore {
 		save: (input) => ctx.runMutation(internal.recordTools.saveFor, { turnId, input }),
 		undo: ({ change }) => ctx.runMutation(internal.recordTools.undoFor, { turnId, change }),
 		saveField: (input) => ctx.runMutation(internal.recordTools.saveFieldFor, { turnId, input }),
+		saveDatabase: (input) => ctx.runMutation(internal.recordTools.saveDatabaseFor, { turnId, input }),
+		views: ({ type }) => ctx.runQuery(internal.recordTools.viewsFor, { turnId, type }),
+		saveView: (input) => ctx.runMutation(internal.recordTools.saveViewFor, { turnId, input }),
 	};
 }
 

@@ -1,3 +1,5 @@
+import { databaseInput, viewInput } from "@companybot/core";
+import { deleteView, saveView, viewsOf } from "./databaseViews";
 import {
 	type FieldSaveInput,
 	type RecordFindInput,
@@ -14,6 +16,8 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
 import { type Member, asToolResult, nameOf } from "./lib";
 import {
+	createType,
+	updateType,
 	createField,
 	createRecord,
 	currencyOf,
@@ -65,7 +69,7 @@ async function typeNamed(ctx: QueryCtx, member: Member, name: string) {
 			raw,
 			(t) => `${t.plural} (${t.key})`,
 		);
-	if (!type) throw new ConvexError(`There's no record type “${name}”. Types: ${types.map((t) => t.key).join(", ")}.`);
+	if (!type) throw new ConvexError(`There's no database “${name}”. Types: ${types.map((t) => t.key).join(", ")}.`);
 	return type;
 }
 
@@ -180,6 +184,20 @@ async function valuesFor(names: Names, type: Doc<"recordTypes">, fields: Doc<"re
 	return out;
 }
 
+async function conditionsFor(ctx: QueryCtx, member: Member, type: Doc<"recordTypes">, fields: Doc<"recordFields">[], filters: NonNullable<RecordFindInput["filters"]>) {
+	if (filters.length > CONDITIONS_MAX) throw new ConvexError(`Use up to ${CONDITIONS_MAX} filters.`);
+	const names = new Names(ctx, member);
+	const conditions: Condition[] = [];
+	for (const { field: name, ...test } of filters) {
+		const field = fieldNamed(fields, name, type);
+		const c: Condition = { ...test, field: field.key };
+		if (c.eq !== undefined) c.eq = await names.id(field, c.eq);
+		if (c.in) c.in = (await names.ids(field, c.in, ANY_OF_MAX)) as unknown[];
+		conditions.push(c);
+	}
+	return conditions;
+}
+
 /**
  * Records as list tools return them: `_id` (and `_type` across types), then values as people
  * read them by field key. Field keys always start with a letter (keyOf), so they never clash.
@@ -214,6 +232,7 @@ export const typesFor = internalQuery({
 					type: t.key,
 					name: t.name,
 					plural: t.plural,
+					version: t.version ?? 0,
 					fields: (await fieldsOf(ctx, t._id))
 						.filter((f) => !f.archived)
 						.map((f) => ({
@@ -244,19 +263,10 @@ export const findFor = internalQuery({
 				const rows = await rowsOf(ctx, member, found, keys);
 				return { type: type?.plural ?? "Records", typeName: type?.name ?? "Record", rows, more: false };
 			}
-			if (!typeName) throw new ConvexError("Say which record type to list, or search.");
+			if (!typeName) throw new ConvexError("Say which database to list, or search.");
 			const type = await typeNamed(ctx, member, typeName);
 			const fields = await fieldsOf(ctx, type._id);
-			if (filters.length > CONDITIONS_MAX) throw new ConvexError(`Use up to ${CONDITIONS_MAX} filters.`);
-			const names = new Names(ctx, member);
-			const conditions: Condition[] = [];
-			for (const { field: name, ...test } of filters) {
-				const field = fieldNamed(fields, name, type);
-				const c: Condition = { ...test, field: field.key };
-				if (c.eq !== undefined) c.eq = await names.id(field, c.eq);
-				if (c.in) c.in = (await names.ids(field, c.in, ANY_OF_MAX)) as unknown[];
-				conditions.push(c);
-			}
+			const conditions = await conditionsFor(ctx, member, type, fields, filters);
 			const sortBy = sort && {
 				field: ["createdAt", "updatedAt"].includes(sort.field) ? sort.field : fieldNamed(fields, sort.field, type).key,
 				order: sort.order,
@@ -346,7 +356,7 @@ export const saveFor = internalMutation({
 				} else throw new ConvexError("Nothing to change: give values, or archived.");
 			} else {
 				if (archived !== undefined) throw new ConvexError("Create the record first.");
-				if (!typeName) throw new ConvexError("Say which record type to create.");
+				if (!typeName) throw new ConvexError("Say which database to create.");
 				const type = await typeNamed(ctx, member, typeName);
 				const fields = await fieldsOf(ctx, type._id);
 				({ id: recordId, change } = await createRecord(ctx, who, type._id, await valuesFor(new Names(ctx, member), type, fields, values)));
@@ -400,6 +410,69 @@ export const saveFieldFor = internalMutation({
 				...(f.linkTypeId && { linksTo: (await ctx.db.get(f.linkTypeId))?.key }),
 				...(f.multiple && { multiple: true }),
 			};
+		});
+	},
+});
+
+export const saveDatabaseFor = internalMutation({
+	args: { turnId: v.id("agentTurns"), input: v.any() },
+	handler: async (ctx, { turnId, input }) => {
+		const { member, who } = await runningTurn(ctx, turnId);
+		return asToolResult(async () => {
+			const parsed = databaseInput.safeParse(input);
+			if (!parsed.success) throw new ConvexError(parsed.error.issues[0]!.message);
+			const { type: key, name: plural, singular: name, version, archived } = parsed.data;
+			let id: Id<"recordTypes">;
+			if (key) {
+				id = (await typeNamed(ctx, member, key))._id;
+				await updateType(ctx, who, id, { name, plural, archived, version: version ?? -1 });
+			} else {
+				if (!plural || archived !== undefined) throw new ConvexError("Give the new database a name.");
+				id = await createType(ctx, who, { plural, name });
+			}
+			const type = (await ctx.db.get(id))!;
+			return { type: type.key, name: type.name, plural: type.plural, version: type.version ?? 0, archived: type.archived };
+		});
+	},
+});
+
+export const viewsFor = internalQuery({
+	args: { turnId: v.id("agentTurns"), type: v.string() },
+	handler: async (ctx, { turnId, type: name }) => {
+		const { member } = await runningTurn(ctx, turnId);
+		return asToolResult(async () => ({ rows: await viewsOf(ctx, member, (await typeNamed(ctx, member, name))._id) }));
+	},
+});
+
+export const saveViewFor = internalMutation({
+	args: { turnId: v.id("agentTurns"), input: v.any() },
+	handler: async (ctx, { turnId, input }) => {
+		const { member, who } = await runningTurn(ctx, turnId);
+		return asToolResult(async () => {
+			const checked = viewInput.safeParse(input);
+			if (!checked.success) throw new ConvexError(checked.error.issues[0]!.message);
+			const parsed = checked.data;
+			const type = await typeNamed(ctx, member, parsed.type);
+			const viewId = parsed.id ? ctx.db.normalizeId("databaseViews", parsed.id) : undefined;
+			if (parsed.id && !viewId) throw new ConvexError("View not found.");
+			const old = viewId ? (await viewsOf(ctx, member, type._id)).find((v) => v._id === viewId) : undefined;
+			if (viewId && !old) throw new ConvexError("View not found.");
+			if (parsed.remove) {
+				if (!old) throw new ConvexError("Pick a saved view to delete.");
+				await deleteView(ctx, who, old._id, parsed.version ?? -1);
+				return { deleted: old.name };
+			}
+			const fields = await fieldsOf(ctx, type._id);
+			// Kept settings drop fields archived since, so renaming an old view still works.
+			const live = (key: string) => fields.some((f) => f.key === key && !f.archived);
+			const sort = parsed.sort && { ...parsed.sort, field: ["createdAt", "updatedAt"].includes(parsed.sort.field) ? parsed.sort.field : fieldNamed(fields, parsed.sort.field, type).key };
+			const id = await saveView(ctx, who, type._id, {
+				name: parsed.name ?? old?.name ?? "",
+				filters: parsed.filters ? await conditionsFor(ctx, member, type, fields, parsed.filters) : old?.filters.filter((c) => live(c.field)) ?? [],
+				sort: parsed.sort === null ? undefined : sort ?? (old?.sort && (["createdAt", "updatedAt"].includes(old.sort.field) || live(old.sort.field)) ? old.sort : undefined),
+				columns: parsed.columns ?? old?.columns.filter(live) ?? ["name"],
+			}, viewId || undefined, parsed.version);
+			return ctx.db.get(id);
 		});
 	},
 });

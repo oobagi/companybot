@@ -4,9 +4,8 @@ import { type ToolDef, defineTool } from "./tools";
 
 /**
  * Agents use the CRM as the person they're helping: "add Acme Roofing as a client", "move
- * the Acme deal to won", "what deals close this month?". Six tools cover it, so the tool list
- * stays small and fixed. The backend runs every call through the same record rules as the
- * app (recordOps), re-reading the person's role each call, and history names both.
+ * the Acme deal to won", "what deals close this month?". The backend runs calls through the
+ * same rules as the app (recordOps, databaseViews), re-reading the person's role each call, and history names both.
  * Expected problems come back as `{ error }` for the model to fix or explain.
  */
 export interface RecordStore {
@@ -17,6 +16,9 @@ export interface RecordStore {
 	save(input: RecordSaveInput): Promise<unknown>;
 	undo(input: { change: string }): Promise<unknown>;
 	saveField(input: FieldSaveInput): Promise<unknown>;
+	saveDatabase(input: DatabaseSaveInput): Promise<unknown>;
+	views(input: { type: string }): Promise<unknown>;
+	saveView(input: ViewSaveInput): Promise<unknown>;
 }
 
 export interface RecordTypesResult {
@@ -26,6 +28,7 @@ export interface RecordTypesResult {
 		type: string;
 		name: string;
 		plural: string;
+		version: number;
 		fields: { key: string; label: string; kind: string; options?: string[]; linksTo?: string; multiple?: true }[];
 	}[];
 }
@@ -73,7 +76,7 @@ const filter = z.object({
 });
 
 const findInput = z.object({
-	type: z.string().optional().describe('Record type, e.g. "deal" or "Clients". Optional only with `search`.'),
+	type: z.string().optional().describe('Database, e.g. "deal" or "Clients". Optional only with `search`.'),
 	search: z.string().optional().describe("Words to match in names and text fields, best first, up to 20. Can't be combined with filters or sort."),
 	filters: z.array(filter).max(10).optional().describe("All must match"),
 	sort: z
@@ -88,14 +91,14 @@ export type RecordFindInput = z.infer<typeof findInput>;
 
 const saveInput = z.object({
 	id: z.string().optional().describe("The record to change. Omit to create one."),
-	type: z.string().optional().describe('Record type for a new record, e.g. "client"'),
+	type: z.string().optional().describe('Database for a new record, e.g. "client"'),
 	values: z.record(z.string(), value).optional().describe("Field key or label → value. Only the fields given change. New records need a name."),
 	archived: z.boolean().optional().describe("true archives the record (hidden from lists, kept with its history); false restores it. On its own, without values."),
 });
 export type RecordSaveInput = z.infer<typeof saveInput>;
 
 const fieldInput = z.object({
-	type: z.string().describe('Record type, e.g. "client"'),
+	type: z.string().describe('Database, e.g. "client"'),
 	field: z.string().optional().describe("An existing field's key or label, to rename it or change its options. Omit to add a field."),
 	label: z.string().optional().describe('The field\'s name, e.g. "Roof type". Required when adding.'),
 	kind: z.enum(fieldKinds).optional().describe("Required when adding; can't change later. user = a teammate; link = another record."),
@@ -103,10 +106,31 @@ const fieldInput = z.object({
 		.array(z.string())
 		.optional()
 		.describe("Choice fields: every option, in order. When changing, list all to keep: one left out is retired (records keep it; it can't be picked)."),
-	linksTo: z.string().optional().describe("Link fields: the record type it points at"),
+	linksTo: z.string().optional().describe("Link fields: the database it points at"),
 	multiple: z.boolean().optional().describe("Choice, user and link fields: holds several"),
 });
 export type FieldSaveInput = z.infer<typeof fieldInput>;
+
+export const databaseInput = z.object({
+	type: z.string().optional().describe("Existing database key or id. Omit to create."),
+	name: z.string().max(120).optional().describe('The name people see, e.g. "Projects"; required when creating'),
+	singular: z.string().max(120).optional().describe('One entry, e.g. "Project". Omit to guess it from name.'),
+	archived: z.boolean().optional().describe("true archives the database, keeping its records"),
+	version: z.number().int().optional().describe("Current version from records_types; required when changing"),
+});
+export type DatabaseSaveInput = z.infer<typeof databaseInput>;
+
+export const viewInput = z.object({
+	type: z.string().describe("Database key or id"),
+	id: z.string().optional().describe("View id from records_views. Omit to create."),
+	version: z.number().int().optional().describe("Current version from records_views; required when changing or deleting"),
+	remove: z.boolean().optional().describe("Delete this saved view"),
+	name: z.string().max(120).optional(),
+	filters: z.array(filter).max(10).optional().describe("All must match. Field keys or labels; choice labels, teammate names or me, linked record exact names or ids."),
+	sort: z.object({ field: z.string(), order: z.enum(["asc", "desc"]) }).nullable().optional().describe("null clears sorting"),
+	columns: z.array(z.string()).max(100).optional().describe("Field keys in display order, including name"),
+});
+export type ViewSaveInput = z.infer<typeof viewInput>;
 
 /** Requests one records_find call makes to fill its page, since a page can come back short. */
 const FIND_REQUESTS = 5;
@@ -208,9 +232,9 @@ function fieldLabel(input: FieldSaveInput, output: unknown) {
 export const recordTools: ToolDef[] = [
 	defineTool({
 		id: "records.types",
-		title: "Look up record types",
+		title: "Look up databases",
 		description:
-			"The workspace's record types (clients, deals, tasks, calls, and any the team added) with every field: key, label, kind, choice options, and what links point at. Also the workspace's currency. Call it before your first records tool in a conversation.",
+			"The workspace's databases (clients, deals, tasks, calls, and any the team added) with every field: key, label, kind, choice options, and what links point at. Also the workspace's currency. Call it before your first records tool in a conversation.",
 		input: z.object({}),
 		readOnly: true,
 		execute: (_input, { records }) => records.types(),
@@ -219,7 +243,7 @@ export const recordTools: ToolDef[] = [
 		id: "records.find",
 		title: "Find records",
 		description:
-			"List one type's records with filters and a sort, or search names and text. Rows have the record's `_id` and each field's value as people read it, by field key (dates like \"Nov 15, 2026\"; filter and save them as \"YYYY-MM-DD\"). If more is true there are more matches: call again with cursor before saying how many there are. Long results are trimmed for you (it says so); widgets showing the ref still get every row in full.",
+			"List one database's records with filters and a sort, or search names and text. Rows have the record's `_id` and each field's value as people read it, by field key (dates like \"Nov 15, 2026\"; filter and save them as \"YYYY-MM-DD\"). If more is true there are more matches: call again with cursor before saying how many there are. Long results are trimmed for you (it says so); widgets showing the ref still get every row in full.",
 		input: findInput,
 		readOnly: true,
 		returnsData: true,
@@ -276,9 +300,35 @@ export const recordTools: ToolDef[] = [
 		id: "records.save_field",
 		title: "Save a field",
 		description:
-			'Add a field to a record type ("start tracking roof type on clients"), or rename one or change its choice options. Only after the person asked for it or confirmed it.',
+			'Add a field to a database ("start tracking roof type on clients"), or rename one or change its choice options. Only after the person asked for it or confirmed it.',
 		input: fieldInput,
 		execute: (input, { records }) => records.saveField(input),
 		label: fieldLabel,
+	}),
+	defineTool({
+		id: "records.save_database",
+		title: "Save a database",
+		description: "Create, rename or archive a database, when asked. Owners only. Changes are logged in Activity; record undo does not undo database changes.",
+		input: databaseInput,
+		permission: "fields.manage",
+		execute: (input, { records }) => records.saveDatabase(input),
+	}),
+	defineTool({
+		id: "records.views",
+		title: "Look up saved views",
+		description: "The database's shared saved views, with ids, versions, filters, sort and columns. Read before changing one. Field keys and filter values are stored ids, not display labels.",
+		input: z.object({ type: z.string() }),
+		readOnly: true,
+		returnsData: true,
+		execute: (input, { records }) => records.views(input),
+		toModelOutput: ({ output }) => ({ type: "json", value: forModel(output, RECORD_TEXT_MAX) as never }),
+	}),
+	defineTool({
+		id: "records.save_view",
+		title: "Save a database view",
+		description: "Create, rename, change or delete a named filter, sort and columns for everyone in the workspace, when asked. New views need a name; default columns include Name. Changes run right away and are logged in Activity; record undo does not undo view changes. Filters accept field keys or labels, choice labels, teammates by name or me, and linked records by exact name or id.",
+		input: viewInput,
+		permission: "records.edit",
+		execute: (input, { records }) => records.saveView(input),
 	}),
 ];

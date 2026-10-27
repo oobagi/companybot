@@ -34,6 +34,9 @@ describe("tool visibility", () => {
 			"records.save",
 			"records.undo",
 			"records.save_field",
+			"records.save_database",
+			"records.views",
+			"records.save_view",
 		]);
 		expect(resolveTools(companybot, owner).map((t) => t.id)).toContain("memory.forget");
 	});
@@ -86,6 +89,8 @@ describe("tool visibility", () => {
 			"records_save",
 			"records_undo",
 			"records_save_field",
+			"records_views",
+			"records_save_view",
 		]);
 	});
 

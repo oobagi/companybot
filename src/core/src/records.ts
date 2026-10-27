@@ -1,6 +1,6 @@
 /**
  * Business records: clients, deals, tasks, calls, and any type a workspace adds.
- * Every type is data (a record type plus its fields), so a new type or field is
+ * Every type is data (a database plus its fields), so a new type or field is
  * a row, never a migration. Pure rules here; storage in backend/convex/recordOps.ts.
  * See wiki/data.md.
  */
@@ -52,7 +52,7 @@ export interface FieldConfig {
 	kind: FieldKind;
 	/** `choice` only. */
 	options?: ChoiceOption[];
-	/** `link` only: the record type it points at. */
+	/** `link` only: the database it points at. */
 	linkType?: string;
 	/** `choice`, `user` and `link` only: holds several. */
 	multiple?: boolean;
@@ -155,6 +155,13 @@ export function keyOf(label: string, taken: Iterable<string>) {
 	return key;
 }
 
+/** A best guess at one entry's name: "Projects" → "Project", "Companies" → "Company". Editable later. */
+export function singularOf(plural: string): string {
+	if (/people$/i.test(plural)) return plural.replace(/people$/i, (word) => word === "PEOPLE" ? "PERSON" : word[0] === "P" ? "Person" : "person");
+	if (/(ss|us)$/i.test(plural)) return plural;
+	return plural.replace(/ies$|(?<=(s|x|z|ch|sh))es$|s$/i, (suffix) => suffix.toLowerCase() === "ies" ? (suffix === "IES" ? "Y" : "y") : "");
+}
+
 /** Trims labels and gives new options an id. `options` may come without ids (labels only). */
 export function normalizeFieldConfig(config: Omit<FieldConfig, "options"> & { options?: (Omit<ChoiceOption, "id"> & { id?: string })[] }): FieldConfig {
 	const ids: string[] = [];
@@ -188,8 +195,8 @@ export function fieldConfigError(config: FieldConfig): string | null {
 		if (new Set(labels).size !== labels.length) return "Two options have the same name.";
 		if (new Set(options.map((o) => o.id)).size !== options.length) return "Two options have the same id.";
 	} else if (options) return "Only choice fields have options.";
-	if (kind === "link" && !linkType) return "Pick the record type this field links to.";
-	if (kind !== "link" && linkType) return "Only link fields point at a record type.";
+	if (kind === "link" && !linkType) return "Pick the database this field links to.";
+	if (kind !== "link" && linkType) return "Only link fields point at a database.";
 	if (multiple && !["choice", "user", "link"].includes(kind)) return "Only choice, person and link fields can hold several.";
 	return null;
 }

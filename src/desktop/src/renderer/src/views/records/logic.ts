@@ -2,7 +2,7 @@ import type { Field, FieldKind, FieldValue, Money } from "@companybot/core/recor
 import { formatDate, formatMoney, minorToDecimal } from "@companybot/core/records";
 
 // Pure rules for the record screens: columns, filters, sorting and how values read.
-// Shared by every record type, built-in or added later. See wiki/data.md.
+// Shared by every database, built-in or added later. See wiki/data.md.
 
 /** A field as the app gets it from `recordTypes.list` (key, kind, options…), plus its id. */
 export type TypeField = Field & { _id: string; archived?: boolean; canEdit?: boolean };
@@ -89,6 +89,22 @@ export function toCondition({ field, op, value }: Filter): Record<string, unknow
 	return { field, [op === "is" ? "eq" : op]: text };
 }
 
+/** Saved conditions back into the existing filter controls; ranges may have two bounds. */
+export function fromConditions(conditions: { field: string; eq?: unknown; in?: unknown[]; empty?: boolean; gt?: unknown; gte?: unknown; lt?: unknown; lte?: unknown }[], fields: TypeField[] = []): Filter[] {
+	return conditions.flatMap((c): Filter[] => {
+		const kind = fields.find((f) => f.key === c.field)?.kind;
+		const checkbox = kind === "checkbox";
+		if (c.empty !== undefined) return [{ field: c.field, op: checkbox ? (c.empty ? "unchecked" : "checked") : c.empty ? "empty" : "notEmpty", value: "" }];
+		if (c.in) return [{ field: c.field, op: "anyOf", value: c.in.map(String) }];
+		if (c.eq !== undefined) {
+			if (checkbox) return [{ field: c.field, op: c.eq ? "checked" : "unchecked", value: "" }];
+			if (kind && anyOfKinds.includes(kind)) return [{ field: c.field, op: "anyOf", value: [String(c.eq)] }];
+			return [{ field: c.field, op: "is", value: String(c.eq) }];
+		}
+		return (["gt", "gte", "lt", "lte"] as const).filter((op) => c[op] !== undefined).map((op) => ({ field: c.field, op, value: String(c[op]) }));
+	});
+}
+
 // ---- Values ----
 
 /**
@@ -132,4 +148,4 @@ export function moneyInput(money: Money | undefined, digits: number) {
 /** "Ada", or "Companybot, for Ada" when an agent made the change for them. */
 export const whoLabel = (entry: { user: string; agent: string | null }) => (entry.agent ? `${entry.agent}, for ${entry.user}` : entry.user);
 
-export const actionLabels: Record<string, string> = { created: "Created", updated: "Changed", archived: "Archived", restored: "Restored" };
+export const actionLabels: Record<string, string> = { created: "Created", updated: "Changed", archived: "Archived", restored: "Restored", deleted: "Deleted" };

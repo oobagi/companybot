@@ -1,22 +1,24 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import type { Role } from "@companybot/core";
+import { type Role, can } from "@companybot/core";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvexAuth } from "convex/react";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, errorMessage } from "./api";
 import { WorkspaceContext, useMutation, useQuery } from "./convex";
 import { desktop, useUpdates } from "./desktop";
 import { useAlerts } from "./notifications";
 import { navigate, useRoute } from "./router";
 import { Notice } from "./ui";
-import { RecordsView, recordTabs, useAddedTypes } from "./views/Records";
+import { RecordsView, recordTabs } from "./views/Records";
 import { SettingsView, settingsTabAliases, settingsTabs } from "./views/Settings";
 import { SignIn } from "./views/SignIn";
 import { WorkspaceMenu } from "./views/WorkspaceMenu";
 import { ChatView } from "./views/chat/ChatView";
-import { ChatNav, Item } from "./views/chat/Sidebar";
+import { ChatNav, Group, Item } from "./views/chat/Sidebar";
 import { CustomizeView, customizeTabs } from "./views/customize";
-import { builtinTabs } from "./views/records/logic";
+import { DatabaseDialog } from "./views/records/DatabaseDialog";
+import { useTypes } from "./views/records/data";
+import { builtinTabs, recordPath } from "./views/records/logic";
 
 const views = ["chat", ...recordTabs.map((t) => t.id), "records", "customize", "settings"] as const;
 type View = (typeof views)[number];
@@ -109,8 +111,9 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	const view: View = views.find((v) => v === route[0]) ?? "chat";
 	const customizeTab = customizeTabs.find((t) => t.id === route[1])?.id ?? "agents";
 	const settingsTab = settingsTabs.find((t) => t.id === (settingsTabAliases[route[1] ?? ""] ?? route[1]))?.id ?? "general";
-	const addedTypes = useAddedTypes();
-	// The record type on screen, by key, and the record open in it.
+	const types = useTypes();
+	const [newDatabase, setNewDatabase] = useState(false);
+	// The database on screen, by key, and the record open in it.
 	const builtinKey = Object.keys(builtinTabs).find((k) => builtinTabs[k] === view) ?? (view === "campaigns" ? "campaign" : undefined);
 	const typeKey = view === "records" ? route[1] : builtinKey;
 	const recordId = view === "records" ? route[2] : route[1];
@@ -133,19 +136,13 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 			<aside className="drag flex w-60 shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 px-3 pt-12 pb-3">
 				<WorkspaceMenu name={workspace} />
 				<nav className="no-drag mb-3 flex flex-col gap-px border-b border-neutral-200 pb-3">
-					{recordTabs.map((t) => (
-						<Fragment key={t.id}>
-							{t.id === "campaigns" &&
-								addedTypes.map((type) => (
-									<Item key={type._id} active={view === "records" && route[1] === type.key} onClick={() => navigate("records", type.key)}>
-										{type.plural}
-									</Item>
-								))}
-							<Item active={view === t.id} onClick={() => navigate(t.id)}>
-								{t.label}
-							</Item>
-						</Fragment>
-					))}
+					<Group title="Databases">
+						{types?.map((type) => (
+							<Item key={type._id} active={typeKey === type.key} onClick={() => navigate(...recordPath(type.key))}>{type.plural}</Item>
+						))}
+						{can(role, "fields.manage") && <Item muted onClick={() => setNewDatabase(true)}>+ New database</Item>}
+					</Group>
+					<Item active={view === "campaigns"} onClick={() => navigate("campaigns")}>Campaigns</Item>
 				</nav>
 				<ChatNav chats={chats} openId={view === "chat" ? openId : undefined} onOpen={open} onError={(e) => setError(errorMessage(e))} />
 				<nav className="no-drag flex flex-col gap-px border-t border-neutral-200 pt-3">
@@ -175,6 +172,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 				</div>
 			</aside>
 
+			{newDatabase && <DatabaseDialog onClose={() => setNewDatabase(false)} />}
 			<main className="flex min-w-0 flex-1 flex-col">
 				{error && <Notice>{error}</Notice>}
 				{view === "chat" &&

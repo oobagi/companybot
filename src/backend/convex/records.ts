@@ -1,3 +1,4 @@
+import { condition, recordSort } from "./recordValidators";
 import { type PaginationResult, paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -31,17 +32,6 @@ const capped = <T extends { numItems: number }>(opts: T, max: number) => ({ ...o
 
 const empty = <T>(): PaginationResult<T> => ({ page: [], isDone: true, continueCursor: "" });
 
-const condition = v.object({
-	field: v.string(),
-	eq: v.optional(v.any()),
-	in: v.optional(v.array(v.any())),
-	gt: v.optional(v.any()),
-	gte: v.optional(v.any()),
-	lt: v.optional(v.any()),
-	lte: v.optional(v.any()),
-	empty: v.optional(v.boolean()),
-});
-
 /**
  * One type's records, a page at a time, matching every filter (AND). Each filter is one
  * of: `eq`, `in` (any of: choice, person and link fields), a range (`gt`/`gte`/`lt`/`lte`:
@@ -57,7 +47,7 @@ export const list = query({
 		typeId: v.id("recordTypes"),
 		archived: v.optional(v.boolean()),
 		filters: v.optional(v.array(condition)),
-		sort: v.optional(v.object({ field: v.string(), order: v.union(v.literal("asc"), v.literal("desc")) })),
+		sort: v.optional(recordSort),
 		paginationOpts: paginationOptsValidator,
 	},
 	handler: async (ctx, { typeId, archived = false, filters = [], sort, paginationOpts }): Promise<PaginationResult<Row>> => {
@@ -165,6 +155,7 @@ async function toEntries(ctx: QueryCtx, workspaceId: Id<"workspaces">, items: { 
 				_id: e._id,
 				time: e._creationTime,
 				action: e.action,
+				subject: e.subject ?? null,
 				recordId: e.recordId ?? null,
 				/** Field changes: the field's current label. */
 				field: field ? field.label : null,

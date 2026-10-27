@@ -4,9 +4,10 @@ import { useState } from "react";
 import { describeAllowed } from "@companybot/core/action-words";
 import { AgentOptions } from "../agent-options";
 import { api } from "../api";
-import { useQuery } from "../convex";
+import { usePaginatedQuery, useQuery } from "../convex";
 import { navigate } from "../router";
-import { Loading, compactControlClass, descriptionClass, metadataClass, timeAgo } from "../ui";
+import { LoadMore, Loading, Section, compactControlClass, descriptionClass, metadataClass, timeAgo } from "../ui";
+import { actionLabels, valueText, whoLabel } from "./records/logic";
 
 export type ActivityEntry = FunctionReturnType<typeof api.activity.forReply>[number];
 
@@ -21,6 +22,7 @@ export function ActivityTab() {
 
 	return (
 		<>
+			<DatabaseActivity />
 			<p className={descriptionClass}>
 				What agents did, in chats you can see. Results show only for what they did for you.
 			</p>
@@ -45,6 +47,27 @@ export function ActivityTab() {
 				))}
 			</div>
 		</>
+	);
+}
+
+function DatabaseActivity() {
+	const { results, status, loadMore } = usePaginatedQuery(api.records.activity, {}, { initialNumItems: 20 });
+	return (
+		<Section title="Database changes" hint="Records, fields, databases and shared views, including changes made by agents.">
+			{results.map((e) => {
+				const [kind, action] = e.action.includes(".") ? e.action.split(".") : ["record", e.action];
+				return <div key={e._id} className="flex flex-col gap-1 rounded-xl border border-neutral-200 px-4 py-3 text-sm">
+					<div className="flex items-baseline gap-2">
+						<span className="font-medium">{e.undoes ? "Undid a change to" : actionLabels[action!] ?? action} {kind}: {e.subject ?? e.record ?? e.field ?? e.type}</span>
+						<span className={`ml-auto shrink-0 ${metadataClass}`}>{timeAgo(e.time)}</span>
+					</div>
+					<p className={descriptionClass}>By {whoLabel(e)}</p>
+					{e.changes.map((c) => <p key={c.key} className="break-words text-neutral-600">{c.label}: {valueText(undefined, c.old, e.refs) || "empty"} → {valueText(undefined, c.new, e.refs) || "empty"}</p>)}
+				</div>;
+			})}
+			{status === "Exhausted" && !results.length && <p className={descriptionClass}>No changes yet.</p>}
+			<LoadMore status={status} onMore={() => loadMore(20)} />
+		</Section>
 	);
 }
 

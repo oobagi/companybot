@@ -77,13 +77,13 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 - Delete custom items or uninstall library ones with `skills.remove` / `automations.remove`. `setInstalled(false)` stays for older apps; automation removal needs no time zone. New installs still need one.
 - `ToolContext.skills` holds the installed `list` and `create`, like the automations store.
 
-## Records — `core/src/records.ts`, `backend/convex/recordOps.ts`
-- Add a built-in type or field: `recordTypeCatalog`. New workspaces get it; existing ones need a migration that calls `seedRecordTypes` (it only adds types that are missing, so new fields on an existing type need their own migration).
+## Databases and records — `core/src/records.ts`, `backend/convex/recordOps.ts`
+- Add a built-in database or field: `recordTypeCatalog`. New workspaces get it; existing ones need a migration that calls `seedRecordTypes` (it only adds databases that are missing, so new fields on an existing type need their own migration).
 - New field kind: add it to `fieldKinds` and `fieldKind` (`schema.ts`), then `normalizeValue` and `indexEntries`.
 - Every change goes through `recordOps` (`Who` in `lib.ts`: member + optional agent), so permissions, history and the index can't drift. Never write `records` or `recordValues` directly.
 - Reads the app and agents share (lists, search, "what links here") live in `recordReads.ts`; use them instead of querying the indexes again.
 - Heavy data for a type (recordings, transcripts, line items) gets its own table keyed by `recordId`, not a field.
-- Agent tools (`core/src/record-tools.ts`, `backend/convex/recordTools.ts`) are the same `recordOps` calls with `agentId`, acting through `runningTurn` (role read fresh each call). Keep the list at six fixed tools: grow inputs, not tools, since every tool is sent every turn. Expected problems return `{ error }` (`asToolResult`); resolve names before any write so a refused call writes nothing.
+- Agent tools (`core/src/record-tools.ts`, `backend/convex/recordTools.ts`) are the same `recordOps` calls with `agentId`, acting through `runningTurn` (role read fresh each call). Keep the list small since every tool is sent every turn. Database/view tools share `recordOps` and `databaseViews` with the app; keep their version checks and role gates on the server. Expected problems return `{ error }` (`asToolResult`); resolve names before any write so a refused call writes nothing.
 
 ## Data lifecycle — `backend/convex/lifecycle.ts`, `cascade.ts`
 - New table → add it to `lifecycle` and decide, per scope, what happens to its rows when their workspace, member, account or install goes, or `keep` them with a reason. CI fails until you do. Rules: [Architecture](architecture.md#data-lifecycle).
