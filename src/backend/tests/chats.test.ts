@@ -49,6 +49,26 @@ describe("chats", () => {
 		expect(await member.query(api.chats.get, { chatId: theirs })).toMatchObject({ name: "design-team", topic: "Pixels" });
 	});
 
+	it("removes people from a channel only for its managers, and never from #general", async () => {
+		const { owner, member } = await ownerAndMember();
+		const [ownerId, memberId] = [await meOf(owner), await meOf(member)];
+		const ops = await owner.mutation(api.chats.createChannel, { name: "ops", private: false });
+		await member.mutation(api.chats.join, { chatId: ops });
+		const theirs = await member.mutation(api.chats.createChannel, { name: "design", private: false });
+		await owner.mutation(api.chats.join, { chatId: theirs });
+		const people = async (chatId: typeof ops) => (await owner.query(api.chats.get, { chatId }))!.members.map((m) => m.id);
+		// Not their channel: refused, and nothing changes.
+		await expect(member.mutation(api.chats.removeMember, { chatId: ops, userId: ownerId })).rejects.toThrow("creator or an owner");
+		expect(await people(ops)).toContain(ownerId);
+		// The creator removes from theirs; owners from any.
+		await member.mutation(api.chats.removeMember, { chatId: theirs, userId: ownerId });
+		expect(await people(theirs)).not.toContain(ownerId);
+		await owner.mutation(api.chats.removeMember, { chatId: ops, userId: memberId });
+		expect(await people(ops)).not.toContain(memberId);
+		const general = await generalOf(owner);
+		await expect(owner.mutation(api.chats.removeMember, { chatId: general._id, userId: memberId })).rejects.toThrow("Everyone stays");
+	});
+
 	it("finds an existing DM instead of making another", async () => {
 		const { owner, member } = await ownerAndMember();
 		const memberId = await meOf(member);

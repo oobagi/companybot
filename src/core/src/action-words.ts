@@ -98,6 +98,21 @@ export function alwaysAllowText(
 	return `Always allow: agents can ${inSentence(actionLabel(tool, title))} ${serviceWords(service)}${when} without asking you first. Only when acting for you.${change}`;
 }
 
+/** Acting as you, by area, for the turn-on screen: one plain line per area, like a phone's permission list. */
+const INSIDE_WORDS: Record<string, string> = {
+	chat: "Read your chats, including private channels and DMs, and post as you",
+	channels: "Create and change channels, and add or remove people",
+	memory: "Read and change your memories",
+	records: "Change records and databases",
+	pages: "Change pages",
+	automations: "Make and change automations",
+	skills: "Install skills",
+	workspace: "Change workspace settings",
+};
+
+/** One line for an "inside" action's area: "chat.read" → "Read your chats, including private channels and DMs, and post as you". */
+export const insideText = (tool: string, title?: string) => INSIDE_WORDS[tool.slice(0, tool.indexOf("."))] ?? actionLabel(tool, title);
+
 /** Verbs a tool line can put in the past or present: [past, -ing]. Others read "Used …". */
 const VERBS: Record<string, [string, string]> = {
 	send: ["Sent", "Sending"],

@@ -93,7 +93,7 @@ function Status({
 						</button>
 						{approval.alwaysText && (
 							<button type="button" disabled={busy} onClick={() => onDecide(true, true)} className={`${secondaryButton} bg-white py-1.5`}>
-								Always allow
+								{approval.alwaysAutomation ? "Always for this automation" : "Always allow"}
 							</button>
 						)}
 						<button type="button" disabled={busy} onClick={() => onDecide(false)} className={`${secondaryButton} bg-white py-1.5`}>

@@ -3,6 +3,7 @@ import { useState } from "react";
 import { api } from "../api";
 import { useAction, useMutation, useQuery } from "../convex";
 import { Loading, Notice, Section, compactControlClass, metadataClass, primaryButton, secondaryButton, useRun } from "../ui";
+import { insideText } from "@companybot/core/action-words";
 import { Modal } from "./chat/common";
 
 // What agents may do without asking: your own Always / Never per action (Your preferences,
@@ -172,17 +173,21 @@ export function WorkspaceLocks() {
 }
 
 /**
- * Turning an automation on, for you: lists what it will do that would ask, and asks once.
- * Allow saves Always for those actions, for this automation only. If nothing would ask,
- * it turns on without the screen.
+ * Turning an automation on, for you: lists what it will do that would ask, and asks once,
+ * like a phone asking for an app's permissions. Allow saves Always for those actions, for this
+ * automation only; "Ask each time" turns it on anyway, and each one asks in your chat when used.
+ * If nothing would ask, it turns on without the screen. `start(turnOn)` overrides what turning on does.
  */
 export function useTurnOn(automationId: string, name: string, turnOn: () => Promise<unknown>) {
 	const actions = useQuery(api.permissions.forAutomation, { automationId });
-	const [open, setOpen] = useState(false);
+	const [pending, setPending] = useState<(() => Promise<unknown>) | null>(null);
 	const askable = actions?.filter((a) => a.state === "ask" && !a.allowed) ?? [];
 	return {
-		start: () => (askable.length > 0 || actions?.some((a) => a.state === "locked") ? setOpen(true) : turnOn()),
-		dialog: open && actions ? <TurnOnDialog automationId={automationId} name={name} actions={actions} turnOn={turnOn} onClose={() => setOpen(false)} /> : null,
+		start: (then = turnOn) => (askable.length > 0 || actions?.some((a) => a.state === "locked") ? setPending(() => then) : then()),
+		dialog:
+			pending && actions ? (
+				<TurnOnDialog automationId={automationId} name={name} actions={actions} turnOn={pending} onClose={() => setPending(null)} />
+			) : null,
 	};
 }
 
@@ -207,23 +212,48 @@ function TurnOnDialog({
 		always: "Already set to Always.",
 		blocked: "Blocked. It won't run.",
 	};
+	// Acting as you, one line per area; outside actions one by one, as before.
+	const inside = [...new Set(actions.filter((a) => a.inside && a.state === "ask").map((a) => insideText(a.action)))];
+	const outside = actions.filter((a) => !a.inside);
 	return (
 		<Modal title={`Turn on ${name}?`} onClose={onClose}>
 			<div className="flex flex-col gap-4 text-sm">
-				<p className="text-neutral-600">When it runs for you, it may do these. Allow them now so it doesn't stop to ask:</p>
-				<ul className="flex flex-col gap-2">
-					{actions.map((a) => (
-						<li key={a.action} className="rounded-xl border border-neutral-200 px-3 py-2">
-							<p className="font-medium">{actionName(a)}</p>
-							<p className="text-neutral-500">{a.state === "ask" ? a.alwaysText : state[a.state]}</p>
-						</li>
-					))}
-				</ul>
-				<p className="text-xs text-neutral-500">Anything new it tries later pauses and asks in your chat with the agent. Change these anytime in Settings → Your preferences.</p>
+				{inside.length > 0 && (
+					<div className="flex flex-col gap-2">
+						<p className="text-neutral-600">
+							It runs as you, but someone else wrote or changed it, or it acts on data sent in from outside. Allow it to:
+						</p>
+						<ul className="flex flex-col gap-1 rounded-xl border border-neutral-200 px-3 py-2">
+							{inside.map((line) => (
+								<li key={line}>{line}</li>
+							))}
+						</ul>
+					</div>
+				)}
+				{outside.length > 0 && (
+					<div className="flex flex-col gap-2">
+						<p className="text-neutral-600">{inside.length ? "And outside Companybot:" : "When it runs for you, it may do these. Allow them now so it doesn't stop to ask:"}</p>
+						<ul className="flex flex-col gap-2">
+							{outside.map((a) => (
+								<li key={a.action} className="rounded-xl border border-neutral-200 px-3 py-2">
+									<p className="font-medium">{actionName(a)}</p>
+									<p className="text-neutral-500">{a.state === "ask" ? a.alwaysText : state[a.state]}</p>
+								</li>
+							))}
+						</ul>
+					</div>
+				)}
+				<p className="text-xs text-neutral-500">
+					Allowed for this automation only. Anything else it tries waits for you in your chat with the agent, and the rest of the run goes on. Change these anytime in
+					Settings → Your preferences.
+				</p>
 				{error && <Notice>{error}</Notice>}
 				<div className="flex justify-end gap-2">
 					<button type="button" onClick={onClose} className={secondaryButton}>
 						Cancel
+					</button>
+					<button type="button" onClick={() => run(turnOn(), onClose)} className={secondaryButton}>
+						Ask each time
 					</button>
 					<button
 						type="button"
@@ -249,7 +279,7 @@ export function AutomationPermissions({ automationId, name }: { automationId: st
 		<div className="flex items-center gap-2">
 			<span className="w-20 shrink-0 text-neutral-500">Allowed</span>
 			<span className="min-w-0 flex-1 text-neutral-600">
-				{allowed.length ? `Runs without asking: ${allowed.join(", ")}` : "Asks before anything that leaves Companybot"}
+				{allowed.length ? `Runs without asking: ${allowed.join(", ")}` : "Asks before acting for you"}
 			</span>
 			{pending && (
 				<button type="button" onClick={() => void review.start()} className="text-neutral-600 hover:text-neutral-900">

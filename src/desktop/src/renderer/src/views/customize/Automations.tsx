@@ -453,7 +453,11 @@ function AutomationSettings({ automation: a }: { automation: AutomationItem }) {
 										? { id: a.channelId, label: `#${a.channelName}${a.channelArchived ? " (archived)" : ""}` }
 										: undefined
 								}
-								onChange={(audience, channelId) => run(update({ automationId: a.id, audience, channelId }))}
+								// Posting in a channel runs as you: ask first, like turning it on.
+								onChange={(audience, channelId) => {
+									const save = () => update({ automationId: a.id, audience, channelId });
+									run(audience === "channel" ? Promise.resolve(resume.start(save)) : save());
+								}}
 							/>
 						</div>
 					</>
