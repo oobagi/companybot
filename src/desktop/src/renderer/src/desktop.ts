@@ -34,7 +34,7 @@ export function describeUpdate(status: UpdateStatus): string {
 		case "ready":
 			return `Version ${status.version} is ready. Restart to update.`;
 		case "error":
-			return `Couldn't check for updates: ${status.message}`;
+			return "Couldn't check for updates. Try again later.";
 		case "unsupported":
 			return "Updates only run in the installed app.";
 		default:
