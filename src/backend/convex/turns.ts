@@ -133,7 +133,7 @@ export async function memoryOn(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
 	return (await ctx.db.get(workspaceId))?.memory !== false;
 }
 
-/** Personal memories only in a DM with exactly one person; anywhere else, team memories only (wiki/chat.md). */
+/** Personal memories are read only in a DM with exactly one person; anywhere else agents can only save new ones for the person who asked (wiki/chat.md). */
 export async function personalMemoryHere(ctx: QueryCtx, chat: Doc<"chats">) {
 	if (chat.kind !== "dm") return false;
 	return (await chatMembersOf(ctx, chat._id)).filter((r) => r.userId).length === 1;

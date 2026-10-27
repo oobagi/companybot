@@ -37,7 +37,7 @@ describe("turn input", () => {
 				"Where you are: #sales, a public channel. Topic: Deals.",
 				"Here: Ada, Ben (people); Scribe (agents).",
 				"Ada <ada@co.com>, a workspace owner, asked for you. You act with their access. Their time zone: America/Los_Angeles.",
-				"Memory: team memories only. 2+ people can read this chat, so personal memories are off.",
+				"Memory: team memories, and you can save personal memories about the person who asked. 2+ people can read this chat, so you can't read or change personal memories here.",
 				"",
 				"New here since your last reply (times in America/Los_Angeles):",
 				"[Ben 10-22 08:01] Morning (3 replies in thread m1)",

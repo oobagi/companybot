@@ -13,14 +13,17 @@ export interface Memory {
 	content: string;
 	updatedAt: string;
 	updatedBy: string;
+	/** Who first saved it. */
+	createdBy: string;
 	/** True when the agent made the last change, acting for `updatedBy`. */
 	updatedByAgent?: boolean;
 	/** Goes up on every edit. Saves send the version they started from, so edits don't overwrite each other silently. */
 	version: number;
 }
 
-// Team memories: everyone reads, only roles with "memory.team.write" change them.
-// Personal memories: only their owner reads and changes them, regardless of role.
+// Team memories: everyone reads; roles with "memory.team.write" (everyone, today) add, change and
+// delete any of them, like a wiki: edits keep old versions and deletes go to Trash, so a wrong
+// change can be undone. Personal memories: only their owner reads and changes them, regardless of role.
 export function canReadMemory(actor: Actor, memory: Memory): boolean {
 	return memory.scope === "workspace" || memory.ownerId === actor.userId;
 }

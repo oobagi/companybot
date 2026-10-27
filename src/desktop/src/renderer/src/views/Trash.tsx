@@ -23,6 +23,7 @@ const kinds: { id: Kind; label: string; one: string }[] = [
 	{ id: "agent", label: "Agents", one: "Agent" },
 	{ id: "skill", label: "Skills", one: "Skill" },
 	{ id: "automation", label: "Automations", one: "Automation" },
+	{ id: "memory", label: "Team memories", one: "Team memory" },
 ];
 
 /** Where an item in Trash opens, read-only, if it has its own screen. */

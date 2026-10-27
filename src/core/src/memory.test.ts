@@ -20,15 +20,16 @@ describe("memory permissions", () => {
 		content: "",
 		updatedAt: "",
 		updatedBy: "owner",
+		createdBy: "owner",
 		version: 1,
 	};
 	const mine: Memory = { ...team, id: "m", scope: "personal", ownerId: "member" };
 
-	it("lets members edit only their own personal memories", () => {
+	it("lets members change any team memory, but only their own personal ones", () => {
 		expect(canEditMemory(member, { ...mine, ownerId: "other" })).toBe(false);
-		expect(canCreateMemory(member, "workspace")).toBe(false);
+		expect(canCreateMemory(member, "workspace")).toBe(true);
 		expect(canCreateMemory(member, "personal")).toBe(true);
-		expect(canEditMemory(member, team)).toBe(false);
+		expect(canEditMemory(member, team)).toBe(true);
 		expect(canEditMemory(member, mine)).toBe(true);
 		expect(canEditMemory(other, mine)).toBe(false);
 	});

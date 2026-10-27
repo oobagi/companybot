@@ -82,7 +82,7 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 		input.memory === "personal"
 			? "Memory: personal and team memories."
 			: input.memory === "team"
-				? "Memory: team memories only. 2+ people can read this chat, so personal memories are off."
+				? "Memory: team memories, and you can save personal memories about the person who asked. 2+ people can read this chat, so you can't read or change personal memories here."
 				: "Memory: off. An owner turned memory off for this workspace, so don't search or save memories.",
 		input.connectors.connected.length > 0 &&
 			`Connected services (find their tools with connectors_search): ${input.connectors.connected.map((p) => `${p.name}: ${p.description}`).join(" ")}`,

@@ -4,7 +4,7 @@ import type { Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { type Member, getMember, namesOf, requireAgent, requireMember, toActor } from "./lib";
-import { createMemory, listMemories, removeMemory, searchMemories, updateMemory } from "./memoryOps";
+import { createMemory, listMemories, memoryVersions, removeMemory, restoreMemoryVersion, searchMemories, updateMemory } from "./memoryOps";
 import { memoryOn, personalMemoryHere, runningTurn } from "./turns";
 
 const scope = v.union(v.literal("workspace"), v.literal("personal"));
@@ -17,11 +17,12 @@ export const list = query({
 		if (!member) return [];
 		const actor = toActor(member);
 		const memories = await listMemories(ctx, member);
-		const names = await namesOf(ctx, memories.map((m) => m.updatedBy as Id<"users">));
+		const names = await namesOf(ctx, memories.flatMap((m) => [m.updatedBy, m.createdBy] as Id<"users">[]));
 		return memories.map((m) => ({
 			...m,
 			canEdit: canEditMemory(actor, m),
 			updatedByName: names.get(m.updatedBy as Id<"users">) ?? "",
+			createdByName: names.get(m.createdBy as Id<"users">) ?? "",
 		}));
 	},
 });
@@ -38,16 +39,36 @@ export const update = mutation({
 		updateMemory(ctx, { member: await requireMember(ctx) }, id, content, expectedVersion),
 });
 
+/** Team memories go to Trash; personal ones are deleted. */
 export const remove = mutation({
 	args: { id: v.id("memories") },
 	handler: async (ctx, { id }) => removeMemory(ctx, { member: await requireMember(ctx) }, id),
+});
+
+/** What a memory said before each edit, newest first, with who saved it. */
+export const versions = query({
+	args: { id: v.id("memories") },
+	handler: async (ctx, { id }) => {
+		const member = await getMember(ctx);
+		if (!member) return [];
+		const versions = await memoryVersions(ctx, member, id);
+		const names = await namesOf(ctx, versions.map((v) => v.savedBy));
+		return versions.map((v) => ({ _id: v._id, content: v.content, savedAt: v.savedAt, savedByAgent: !!v.savedByAgent, savedByName: names.get(v.savedBy) ?? "" }));
+	},
+});
+
+/** Puts an old version back, as a new edit. `expectedVersion`: the memory's version the person was looking at. */
+export const restoreVersion = mutation({
+	args: { versionId: v.id("memoryVersions"), expectedVersion: v.number() },
+	handler: async (ctx, { versionId, expectedVersion }) =>
+		restoreMemoryVersion(ctx, { member: await requireMember(ctx) }, versionId, expectedVersion),
 });
 
 // Agent-facing versions: same rules, acting for the turn's person. runningTurn re-checks
 // on every call that the turn is still running, the person is still a member (with their
 // role now) and can still see the chat, so removals and role changes apply mid-reply.
 
-const SHARED_CHAT = "Personal memories are off in chats with 2+ people. Only team memories work here.";
+const SHARED_CHAT = "2+ people can read this chat, so personal memories can't be read or changed here. You can still save a new one for the person who asked.";
 const MEMORY_OFF = "An owner turned memory off for this workspace. Don't search or save memories.";
 
 /** The turn's person and agent, refusing memory use when off (read fresh on every call). */
@@ -76,8 +97,9 @@ export const searchFor = internalQuery({
 export const createFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), scope, content: v.string(), agentId: v.optional(v.id("agents")) },
 	handler: async (ctx, { turnId, scope, content, agentId: target }) => {
-		const { who, agentId, personal } = await acting(ctx, turnId, target);
-		if (!personal && scope === "personal") throw new ConvexError(SHARED_CHAT);
+		// Personal saves work in shared chats too: they go only to the person who asked, and what's
+		// saved was already said here, so nothing private leaks. Reading stays DM-only.
+		const { who, agentId } = await acting(ctx, turnId, target);
 		return createMemory(ctx, who, agentId, scope, content);
 	},
 });

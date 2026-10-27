@@ -45,6 +45,7 @@ export const trashKind = v.union(
 	v.literal("agent"),
 	v.literal("skill"),
 	v.literal("automation"),
+	v.literal("memory"),
 );
 
 /** core's Risk. */
@@ -228,6 +229,10 @@ export default defineSchema({
 		updatedBy: v.id("users"),
 		/** Set when the agent made the last change, acting for `updatedBy`. */
 		updatedByAgent: v.optional(v.boolean()),
+		/** Who first saved it. Missing on memories from before it was kept: read as `updatedBy`. */
+		createdBy: v.optional(v.id("users")),
+		/** Team memories in Trash (the `trash` table says who deleted it, and when). Agents don't see them. */
+		archived: v.optional(v.boolean()),
 		version: v.number(),
 		/** Retained for stored rows: no migration cleared this retired cleanup timestamp. */
 		createdTs: v.optional(v.commitTs()),
@@ -240,6 +245,16 @@ export default defineSchema({
 		.index("by_agent_owner", ["agentId", "scope", "ownerId"])
 		// Agent search over every memory, however many (memoryOps.searchMemories).
 		.searchIndex("search_content", { searchField: "content", filterFields: ["agentId", "scope", "ownerId"] }),
+
+	// What a memory said before each edit, newest kept (MEMORY_VERSIONS_MAX), so a wrong edit can be undone.
+	memoryVersions: defineTable({
+		memoryId: v.id("memories"),
+		content: v.string(),
+		/** Who saved this content, and when. */
+		savedBy: v.id("users"),
+		savedByAgent: v.optional(v.boolean()),
+		savedAt: v.number(),
+	}).index("by_memory", ["memoryId"]),
 
 	// Personal preferences: only the person sees them; they follow them across devices.
 	// Where apps that send no workspace act: the first workspace the person joined, set once.

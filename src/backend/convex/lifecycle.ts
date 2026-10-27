@@ -138,6 +138,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		// Personal memories are their owner's alone. Team memories they wrote stay with the team.
 		member: { index: "by_owner", eq: [["ownerId", "userId"], "workspaceId"] },
 	},
+	memoryVersions: { childOf: { table: "memories", index: "by_memory", field: "memoryId" } },
 
 	// ---- Connectors ----
 	connectorInstalls: {
