@@ -41,6 +41,7 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"messages.remove": { agent: ["chat.manage:delete"] },
 	"messages.react": { agent: ["chat.react", "chat.manage:react"] },
 	"pages.create": { agent: ["pages.write"] },
+	"pages.move": { agent: ["pages.write:move"] },
 	"pages.rename": { agent: ["pages.write"] },
 	"pages.setArchived": { agent: ["pages.write"] },
 	"pages.restore": { agent: ["pages.write"] },

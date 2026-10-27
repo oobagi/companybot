@@ -55,7 +55,10 @@ export async function trashInfo(ctx: QueryCtx, member: Member, itemId: string) {
 
 /** Shared attribution for the list and item banners; nameOf handles names, email and erased accounts. */
 export async function describeTrash(ctx: QueryCtx, member: Member, entry: Doc<"trash">) {
+	const pageId = entry.kind === "page" ? ctx.db.normalizeId("pages", entry.itemId) : null;
+	const hasChildren = pageId ? !!(await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", pageId)).first()) : false;
 	return {
+		hasChildren,
 		kind: entry.kind,
 		itemId: entry.itemId,
 		name: entry.name,

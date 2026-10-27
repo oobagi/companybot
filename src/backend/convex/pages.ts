@@ -4,7 +4,7 @@ import { components } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
-import { type Member, getMember, requireMember } from "./lib";
+import { type Member, getMember, nameOf, requireMember } from "./lib";
 import {
 	createPage,
 	editorsOf,
@@ -15,6 +15,7 @@ import {
 	restoreVersion,
 	setPageTrashed,
 } from "./pageOps";
+import { movePage, pageRow, pageState, pageStates } from "./pageTree";
 import { purgeItem } from "./trash";
 import { trashInfo } from "./trashOps";
 
@@ -41,23 +42,31 @@ export const list = query({
 			.query("pages")
 			.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("recordId", undefined).eq("archived", archived))
 			.take(LIST_MAX);
-		return pages.map((p) => ({ _id: p._id, title: p.title, updatedAt: p.updatedAt }));
+		// COMPAT(0.1.0-alpha.8): alpha.7 keeps its flat list; inherited Trash state still hides descendants.
+		const state = pageStates(ctx);
+		const visible = [];
+		for (const p of pages) if ((await state(p)).archived === archived) visible.push(pageRow(p));
+		return visible;
 	},
 });
 
 export const get = query({
-	args: { pageId: v.id("pages") },
+	args: { pageId: v.string() },
 	handler: async (ctx, { pageId }) => {
 		const member = await getMember(ctx);
-		const page = member && (await ctx.db.get(pageId));
+		const id = ctx.db.normalizeId("pages", pageId);
+		const page = member && id && (await ctx.db.get(id));
 		if (!member || page?.workspaceId !== member.workspaceId) return null;
+		const state = await pageState(ctx, page);
 		return {
 			_id: page._id,
 			title: page.title,
-			archived: page.archived,
+			archived: state.archived,
+			parentId: page.parentId ?? null,
+			ancestors: state.ancestors.slice().reverse().map(pageRow),
 			recordId: page.recordId ?? null,
 			canEdit: await canEdit(ctx, member, page),
-			trash: await trashInfo(ctx, member, page._id),
+			trash: await trashInfo(ctx, member, state.trashPage?._id ?? page._id),
 		};
 	},
 });
@@ -73,10 +82,49 @@ export const forRecord = query({
 
 /** A standalone page, or a record's body (its existing one, if any). */
 export const create = mutation({
-	args: { title: v.optional(v.string()), recordId: v.optional(v.id("records")) },
-	handler: async (ctx, { title, recordId }) => {
+	args: { title: v.optional(v.string()), recordId: v.optional(v.id("records")), parentId: v.optional(v.id("pages")) },
+	handler: async (ctx, { title, recordId, parentId }) => {
+		if (recordId && parentId) throw new ConvexError("Record bodies can't be nested.");
 		const who = { member: await requireMember(ctx) };
-		return createPage(ctx, who, recordId ? { recordId } : { title: title ?? "" });
+		return createPage(ctx, who, recordId ? { recordId } : { title: title ?? "", parentId });
+	},
+});
+
+/** A paged level of the tree; the sidebar and Move dialog share it. */
+export const children = query({
+	args: { parentId: v.optional(v.id("pages")), paginationOpts: paginationOptsValidator },
+	handler: async (ctx, { parentId, paginationOpts }) => {
+		const member = await getMember(ctx);
+		const empty = { page: [], isDone: true, continueCursor: "" };
+		if (!member) return empty;
+		if (parentId) {
+			const parent = await ctx.db.get(parentId);
+			if (parent?.workspaceId !== member.workspaceId || parent.recordId || (await pageState(ctx, parent)).archived) return empty;
+		}
+		const result = await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", parentId).eq("archived", false))
+			.paginate({ ...paginationOpts, numItems: Math.min(paginationOpts.numItems, 50) });
+		return { ...result, page: result.page.filter((p) => !p.recordId).map(pageRow) };
+	},
+});
+
+export const move = mutation({
+	args: { pageId: v.id("pages"), parentId: v.optional(v.id("pages")) },
+	handler: async (ctx, { pageId, parentId }) => {
+		const member = await requireMember(ctx);
+		await movePage(ctx, { member }, await requirePage(ctx, member, pageId), parentId);
+	},
+});
+
+/** Metadata moves stay separate from restorable content snapshots. */
+export const moves = query({
+	args: { pageId: v.id("pages"), paginationOpts: paginationOptsValidator },
+	handler: async (ctx, { pageId, paginationOpts }) => {
+		const member = await getMember(ctx);
+		const page = member && await ctx.db.get(pageId);
+		if (!member || page?.workspaceId !== member.workspaceId) return { page: [], isDone: true, continueCursor: "" };
+		const result = await ctx.db.query("pageMoves").withIndex("by_page", (q) => q.eq("pageId", pageId)).order("desc")
+			.paginate({ ...paginationOpts, numItems: Math.min(paginationOpts.numItems, 20) });
+		return { ...result, page: await Promise.all(result.page.map(async (r) => ({ ...r, user: await nameOf(ctx, r.userId), agent: r.agentId ? (await ctx.db.get(r.agentId))?.name ?? "An agent" : null }))) };
 	},
 });
 

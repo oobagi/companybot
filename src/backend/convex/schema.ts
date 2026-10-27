@@ -706,6 +706,8 @@ export default defineSchema({
 		workspaceId: v.id("workspaces"),
 		/** Set for a record's body; standalone pages have none. */
 		recordId: v.optional(v.id("records")),
+		/** Only standalone pages can be nested. */
+		parentId: v.optional(v.id("pages")),
 		/** Standalone pages only: a record's body shows the record's name. */
 		title: v.string(),
 		/** In Trash (the `trash` table says who deleted it, and when). */
@@ -715,7 +717,18 @@ export default defineSchema({
 		updatedBy: v.id("users"),
 	})
 		.index("by_workspace", ["workspaceId", "recordId", "archived", "title"])
+		.index("by_parent", ["workspaceId", "parentId", "archived", "title"])
 		.searchIndex("search_title", { searchField: "title", filterFields: ["workspaceId", "archived"] }),
+
+	pageMoves: defineTable({
+		workspaceId: v.id("workspaces"),
+		pageId: v.id("pages"),
+		n: v.number(),
+		userId: v.id("users"),
+		agentId: v.optional(v.id("agents")),
+		from: v.string(),
+		to: v.string(),
+	}).index("by_page", ["pageId", "n"]).index("by_workspace", ["workspaceId"]),
 
 	// A page's history: one row per run of edits, like Notion's: whoever started it, and
 	// anyone else who edited meanwhile. Its content is the component's snapshot at `version`; the rest are pruned.

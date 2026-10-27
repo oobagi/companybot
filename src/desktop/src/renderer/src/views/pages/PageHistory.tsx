@@ -2,7 +2,7 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
-import { LoadMore, Loading, Notice, descriptionClass, metadataClass, primaryButton, useRun } from "../../ui";
+import { LoadMore, Loading, Notice, Tabs, descriptionClass, metadataClass, primaryButton, useRun } from "../../ui";
 import { Modal, clock, dayLabel } from "../chat/common";
 import { whoLabel } from "../records/logic";
 import { VersionPreview } from "./PageEditor";
@@ -14,6 +14,7 @@ const when = (ms: number) => `${dayLabel(ms)}, ${clock(ms)}`;
 
 export function PageHistory({ pageId, canRestore, onClose, tabs }: { pageId: Id<"pages">; canRestore: boolean; onClose: () => void; tabs?: React.ReactNode }) {
 	const { results, status, loadMore } = usePaginatedQuery(api.pages.history, { pageId }, { initialNumItems: 20 });
+	const [tab, setTab] = useState<"content" | "moves">("content");
 	const [picked, setPicked] = useState<Id<"pageVersions">>();
 	const restore = useMutation(api.pages.restore);
 	const { error, run } = useRun();
@@ -21,6 +22,8 @@ export function PageHistory({ pageId, canRestore, onClose, tabs }: { pageId: Id<
 	return (
 		<Modal title="History" wide onClose={onClose}>
 			{tabs}
+			<Tabs tabs={[{ id: "content", label: "Content" }, { id: "moves", label: "Moves" }]} value={tab} onChange={setTab} />
+			{tab === "moves" ? <Moves pageId={pageId} /> : <>
 			{error && <Notice>{error}</Notice>}
 			{status === "LoadingFirstPage" ? (
 				<Loading />
@@ -54,6 +57,7 @@ export function PageHistory({ pageId, canRestore, onClose, tabs }: { pageId: Id<
 					Restore this version
 				</button>
 			)}
+			</>}
 		</Modal>
 	);
 }
@@ -63,4 +67,13 @@ function Preview({ versionId }: { versionId: Id<"pageVersions"> }) {
 	if (content === undefined) return <Loading />;
 	if (content === null) return <p className={descriptionClass}>This version is no longer available.</p>;
 	return <VersionPreview key={versionId} content={content} />;
+}
+
+function Moves({ pageId }: { pageId: Id<"pages"> }) {
+	const { results, status, loadMore } = usePaginatedQuery(api.pages.moves, { pageId }, { initialNumItems: 20 });
+	return <div className="flex flex-col gap-3 text-sm">
+		{results.map((m) => <div key={m._id}><p>Moved from {m.from} to {m.to}</p><p className={metadataClass}>{whoLabel(m)} · {when(m._creationTime)}</p></div>)}
+		{status === "Exhausted" && !results.length && <p className={descriptionClass}>No moves yet.</p>}
+		<LoadMore status={status} onMore={() => loadMore(20)} />
+	</div>;
 }

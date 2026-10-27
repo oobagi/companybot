@@ -7,8 +7,9 @@ import { components, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { type Member, type Who, checkPermission, nameOf, requireInWorkspace } from "./lib";
-import { startCascade } from "./cascade";
+import { cascading, startCascade } from "./cascade";
 import { inTrash, requireRecord } from "./recordOps";
+import { pageState, parentFor } from "./pageTree";
 import { putInTrash, takeFromTrash } from "./trashOps";
 
 // Shared rules for standalone pages and record bodies. See wiki/pages.md.
@@ -55,7 +56,7 @@ export const pageOfRecord = (ctx: QueryCtx, workspaceId: Id<"workspaces">, recor
 /** Every member reads every page; `pages.edit` changes them, unless the page or its record is in Trash. */
 export async function requireEditable(ctx: QueryCtx, member: Member, page: Doc<"pages">) {
 	checkPermission(member, "pages.edit");
-	if (page.archived) throw new ConvexError("This page is in Trash. Restore it to make changes.");
+	if ((await pageState(ctx, page)).archived) throw new ConvexError("This page is in Trash. Restore it to make changes.");
 	if (page.recordId && (await inTrash(ctx, await requireRecord(ctx, member, page.recordId)))) throw new ConvexError("This record is in Trash. Restore it to make changes.");
 }
 
@@ -67,8 +68,10 @@ function cleanTitle(title: string) {
 }
 
 /** A standalone page, or a record's body (returned if it already has one). Starts empty. */
-export async function createPage(ctx: MutationCtx, { member }: Who, to: { title: string } | { recordId: Id<"records"> }) {
+export async function createPage(ctx: MutationCtx, { member }: Who, to: { title: string; parentId?: Id<"pages"> } | { recordId: Id<"records"> }) {
 	checkPermission(member, "pages.edit");
+	const parentId = "parentId" in to ? to.parentId : undefined;
+	if (parentId) await parentFor(ctx, member, parentId);
 	let recordId: Id<"records"> | undefined;
 	if ("recordId" in to) {
 		const record = await requireRecord(ctx, member, to.recordId);
@@ -80,6 +83,7 @@ export async function createPage(ctx: MutationCtx, { member }: Who, to: { title:
 	const pageId = await ctx.db.insert("pages", {
 		workspaceId: member.workspaceId,
 		...(recordId && { recordId }),
+		...(parentId && { parentId }),
 		title: "title" in to ? cleanTitle(to.title) : "",
 		archived: false,
 		createdBy: member.userId,
@@ -101,16 +105,27 @@ export async function setPageTrashed(ctx: MutationCtx, who: Who, page: Doc<"page
 	checkPermission(who.member, "pages.edit");
 	if (page.recordId) throw new ConvexError("A record's page goes to Trash with its record.");
 	if (page.archived === archived) return;
+	if (archived) await requireEditable(ctx, who.member, page);
 	if (archived) await putInTrash(ctx, who, { kind: "page", id: page._id, name: page.title });
-	else await takeFromTrash(ctx, who, page._id);
+	else {
+		await takeFromTrash(ctx, who, page._id);
+		if (page.parentId) {
+			const parent = await ctx.db.get(page.parentId);
+			const state = parent ? await pageState(ctx, parent) : null;
+			const missingId = state?.missingId ?? (!parent ? page.parentId : undefined);
+			if (missingId && await cascading(ctx, "page", { workspaceId: page.workspaceId, pageId: missingId })) throw new ConvexError("This page is being deleted forever.");
+			if (!parent || state?.archived) await ctx.db.patch(page._id, { parentId: undefined });
+		}
+	}
 	await ctx.db.patch(page._id, { archived, updatedAt: Date.now(), updatedBy: who.member.userId });
 }
 
 /** Deletes a page for good: its row at once, then its content (a little at a time) and its versions. */
 export async function deletePage(ctx: MutationCtx, pageId: Id<"pages">) {
+	const page = await ctx.db.get(pageId);
 	await ctx.db.delete(pageId);
 	await ctx.scheduler.runAfter(0, internal.pageSync.deleteDoc, { id: pageId });
-	await startCascade(ctx, "page", { pageId });
+	await startCascade(ctx, "page", { pageId, ...(page && { workspaceId: page.workspaceId }) });
 }
 
 export const latestVersionOf = (ctx: QueryCtx, pageId: Id<"pages">) =>

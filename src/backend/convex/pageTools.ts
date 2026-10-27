@@ -1,4 +1,4 @@
-import { readInput, writeInput, type PageFindInput } from "@companybot/core";
+import { findInput, readInput, writeInput } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
@@ -14,6 +14,7 @@ import {
 	setPageTrashed,
 	writeBlocks,
 } from "./pageOps";
+import { movePage, pageState, pageStates } from "./pageTree";
 import { inTrash, recordById } from "./recordOps";
 import { pageHistory, requireVersion, versionContent } from "./pages";
 import { runningTurn } from "./turns";
@@ -29,11 +30,14 @@ const VERSIONS_SHOWN = 5;
 async function pageNamed(ctx: QueryCtx, member: Member, name: string, trashed = false) {
 	const id = ctx.db.normalizeId("pages", name);
 	if (id) return requirePage(ctx, member, id);
-	const rows = await ctx.db
+	const candidates = await ctx.db
 		.query("pages")
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("recordId", undefined).eq("archived", trashed).eq("title", name.trim()))
-		.take(2);
-	if (rows.length > 1) throw new ConvexError(`Several pages are titled “${name}”. Find them with pages_find and use an id.`);
+		.take(FIND_MAX + 1);
+	const state = pageStates(ctx);
+	const rows = [];
+	for (const p of candidates) if ((await state(p)).archived === trashed) rows.push(p);
+	if (candidates.length > FIND_MAX || rows.length > 1) throw new ConvexError(`Several pages are titled “${name}”. Find them with pages_find and use an id.`);
 	if (!rows[0]) throw new ConvexError(`No page titled “${name}”. Find it with pages_find, or use its id.`);
 	return rows[0];
 }
@@ -47,14 +51,21 @@ export const findFor = internalQuery({
 	args: { turnId: v.id("agentTurns"), input: v.any() },
 	handler: async (ctx, { turnId, input }) => {
 		const { member } = await runningTurn(ctx, turnId);
-		const { search, cursor, trashed = false } = input as PageFindInput;
-		const row = (p: Doc<"pages">) => ({ id: p._id, title: p.title, edited: new Date(p.updatedAt).toISOString() });
+		const { search, cursor, trashed = false, parent } = findInput.parse(input);
+		const parentPage = parent ? await pageNamed(ctx, member, parent) : null;
+		if (parentPage?.recordId) throw new ConvexError("Record bodies can't contain sub-pages.");
+		const row = (p: Doc<"pages">) => ({ id: p._id, title: p.title, parentId: p.parentId ?? null, edited: new Date(p.updatedAt).toISOString() });
 		const pages = ctx.db.query("pages");
-		const found = search?.trim()
+		const found = parent !== undefined
+			? pages.withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", parentPage?._id))
+			: search?.trim()
 			? pages.withSearchIndex("search_title", (q) => q.search("title", search).eq("workspaceId", member.workspaceId).eq("archived", trashed))
 			: pages.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("recordId", undefined).eq("archived", trashed));
 		const page = await found.paginate({ numItems: search?.trim() ? SEARCH_MAX : FIND_MAX, cursor: cursor ?? null });
-		return { rows: page.page.map(row), more: !page.isDone, ...(!page.isDone && { cursor: page.continueCursor }) };
+		const state = pageStates(ctx);
+		const rows = [];
+		for (const p of page.page) if (!p.recordId && (await state(p)).archived === trashed) rows.push(row(p));
+		return { rows, more: !page.isDone, ...(!page.isDone && { cursor: page.continueCursor }) };
 	},
 });
 
@@ -80,13 +91,18 @@ export const readFor = internalQuery({
 				...(r.others.length > 0 && { others: r.others.map((e) => (e.agent ? `${e.agent}, for ${e.user}` : e.user)) }),
 			}));
 			if (history) return { title: page ? await titleOf(ctx, page) : record!.title, doc: null, versions, moreVersions: !!result && !result.isDone, ...(result && !result.isDone && { cursor: result.continueCursor }) };
+			const state = page ? await pageState(ctx, page) : null;
+			const children = page && !page.recordId && !old ? await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", page._id).eq("archived", false)).take(51) : [];
 			const doc = old ? await versionContent(ctx, old.page, old.row) : page ? JSON.stringify((await readDoc(ctx, page._id)).toJSON()) : null;
 			if (old && doc === null) throw new ConvexError("This version is no longer available.");
 			return {
-				...(page && { id: page._id }),
+				...(page && { id: page._id, parentId: page.parentId ?? null }),
+				ancestors: state?.ancestors.slice().reverse().map((p) => ({ id: p._id, title: p.title })) ?? [],
+				subpages: children.slice(0, 50).map((p) => ({ id: p._id, title: p.title })),
+				subpagesMore: children.length > 50,
 				title: page ? await titleOf(ctx, page) : record!.title,
 				...(record && { record: record._id }),
-				...((page?.archived || (record && (await inTrash(ctx, record)))) && { inTrash: true }),
+				...((state?.archived || (record && (await inTrash(ctx, record)))) && { inTrash: true }),
 				// A record nobody has written in yet has no page: it reads as empty.
 				doc,
 				versions,
@@ -107,10 +123,19 @@ export const writeChecked = internalMutation({
 	args: writeArgs,
 	handler: async (ctx, { turnId, input, blocks }) => {
 		const { member, who } = await runningTurn(ctx, turnId);
-		const { page: name, record, title, markdown, blocks: rich, mode = "append", trash, restore } = writeInput.parse(input);
+		const { page: name, record, title, markdown, blocks: rich, mode = "append", trash, restore, parent, action = "write" } = writeInput.parse(input);
+		if (record && parent !== undefined) throw new ConvexError("Record bodies can't be nested.");
+		const parentId = parent ? (await pageNamed(ctx, member, parent))._id : undefined;
+		if (action === "move") {
+			if (!name || parent === undefined || record || [title, markdown, rich, trash, restore].some((x) => x !== undefined)) throw new ConvexError("Move with page and parent only; parent null means top level.");
+			const page = await pageNamed(ctx, member, name);
+			await movePage(ctx, who, page, parentId);
+			return { id: page._id, title: page.title, parentId: parentId ?? null };
+		}
+		if (name && parent !== undefined) throw new ConvexError("Use action move to change a page's parent.");
 		if (rich !== undefined && markdown !== undefined) throw new ConvexError("Use blocks or markdown, not both.");
 		const content = rich ?? blocks;
-		const changes = [title, markdown, rich, trash, restore].filter((x) => x !== undefined).length;
+		const changes = [title, markdown, rich, trash, restore, parent].filter((x) => x !== undefined).length;
 		if ((trash !== undefined || restore) && changes > 1) throw new ConvexError("Delete, restore or bring back a version on its own.");
 		let page: Doc<"pages">;
 		if (restore) {
@@ -127,7 +152,7 @@ export const writeChecked = internalMutation({
 		else if (name) page = await pageNamed(ctx, member, name, trash === false);
 		else {
 			if (!title) throw new ConvexError("Give the new page a title.");
-			page = (await ctx.db.get(await createPage(ctx, who, { title })))!;
+			page = (await ctx.db.get(await createPage(ctx, who, { title, parentId })))!;
 		}
 		if (trash !== undefined) await setPageTrashed(ctx, who, page, trash);
 		if (title !== undefined && (name || record)) await renamePage(ctx, who, page, title);

@@ -498,7 +498,7 @@ function pageStore(ctx: ActionCtx, turnId: Id<"agentTurns">): PageStore {
 			if ("error" in page) return page;
 			const { doc, ...rest } = page;
 			if (input.format === "blocks" && doc) return { ...rest, markdown: "", blocks: JSON.stringify(JSON.parse(doc).content[0].content) };
-			return { ...rest, markdown: doc === null ? "" : await ctx.runAction(internal.pageMarkdown.toMarkdown, { doc }) };
+			return { ...rest, markdown: doc === null ? "" : await ctx.runAction(internal.pageMarkdown.toMarkdown, { doc, subpages: "subpages" in rest ? rest.subpages : undefined, more: "subpagesMore" in rest ? rest.subpagesMore : undefined }) };
 		},
 		write: async (input) =>
 			ctx.runMutation(internal.pageTools.writeFor, {
