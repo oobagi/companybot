@@ -12,14 +12,15 @@ import { VersionPreview } from "./PageEditor";
 
 const when = (ms: number) => `${dayLabel(ms)}, ${clock(ms)}`;
 
-export function PageHistory({ pageId, canRestore, onClose }: { pageId: Id<"pages">; canRestore: boolean; onClose: () => void }) {
+export function PageHistory({ pageId, canRestore, onClose, tabs }: { pageId: Id<"pages">; canRestore: boolean; onClose: () => void; tabs?: React.ReactNode }) {
 	const { results, status, loadMore } = usePaginatedQuery(api.pages.history, { pageId }, { initialNumItems: 20 });
 	const [picked, setPicked] = useState<Id<"pageVersions">>();
 	const restore = useMutation(api.pages.restore);
 	const { error, run } = useRun();
 	const shown = picked ?? results[0]?._id;
 	return (
-		<Modal title="Page history" wide onClose={onClose}>
+		<Modal title="History" wide onClose={onClose}>
+			{tabs}
 			{error && <Notice>{error}</Notice>}
 			{status === "LoadingFirstPage" ? (
 				<Loading />

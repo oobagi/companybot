@@ -5,9 +5,7 @@ import { Window } from "happy-dom";
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 
-// Markdown ↔ page content, for agent tools. BlockNote converts through HTML, which needs a DOM:
-// happy-dom gives it one (jsdom reads files at runtime, so it can't be bundled), so this runs
-// in Node and does nothing else: pageTools.ts reads and writes the page. See wiki/pages.md.
+// BlockNote's Markdown conversion needs a DOM. happy-dom bundles in Node; jsdom reads runtime files.
 
 let editor: BlockNoteEditor | undefined;
 function blockNote() {

@@ -476,10 +476,7 @@ function recordStore(ctx: ActionCtx, turnId: Id<"agentTurns">): RecordStore {
 	};
 }
 
-/**
- * Pages as the turn's person may read and change them; pageTools.ts re-checks access on every
- * call. Markdown is converted in Node (pageMarkdown.ts), outside the read and the write.
- */
+/** Convert Markdown in Node; pageTools rechecks the acting person's access. */
 function pageStore(ctx: ActionCtx, turnId: Id<"agentTurns">): PageStore {
 	return {
 		find: (input) => ctx.runQuery(internal.pageTools.findFor, { turnId, input }),

@@ -44,3 +44,9 @@ body {
 		cursor: not-allowed;
 	}
 }
+
+/* Page headings stay below the title; inherit the app's typography. */
+.page-editor .bn-editor { font-family: inherit; }
+.page-editor .bn-editor h1 { font-size: 1.5rem; }
+.page-editor .bn-editor h2 { font-size: 1.25rem; }
+.page-editor .bn-editor h3 { font-size: 1.125rem; }

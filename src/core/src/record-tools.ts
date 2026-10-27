@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { fieldKinds } from "./records";
-import { type ToolDef, defineTool } from "./tools";
+import { type ToolDef, defineTool, resultText as text } from "./tools";
 
 /**
  * Agents use the CRM as the person they're helping: "add Acme Roofing as a client", "move
@@ -187,12 +187,6 @@ export function forModel(output: unknown, textMax: number): unknown {
 	}
 	if (notes.length === 0) return output;
 	return { ref, data: { ...view, trimmed: `Trimmed to save space: ${notes.join("; ")}. Widgets using ${ref} show everything; ask for fewer rows, or open one record, to read more.` } };
-}
-
-/** A string at `key` of a tool's input or result, if there is one. */
-function text(from: unknown, key: string) {
-	const v = from && typeof from === "object" ? (from as Record<string, unknown>)[key] : undefined;
-	return typeof v === "string" && v.trim() ? v.trim() : undefined;
 }
 
 /** A result that's an `{ error }`: labels fall back to the tool's title. */

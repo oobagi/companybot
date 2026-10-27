@@ -6,6 +6,7 @@ import { v } from "convex/values";
 import { addUserMentions } from "./chatOps";
 import { pinLegacyWorkspace } from "./lib";
 import { seedRecordTypes } from "./recordOps";
+import { saveVersion } from "./agents";
 
 // Data migrations. Deploys never change stored rows; these do, once per deployment.
 // `pnpm release` runs every pending one on prod right after deploying, and the
@@ -64,9 +65,7 @@ function grantCompanybot(tools: string[]) {
 			const missing = tools.filter((t) => !agent.tools.includes(t));
 			if (missing.length === 0) return;
 			const config = { name: agent.name, description: agent.description, instructions: agent.instructions, model: agent.model, tools: [...agent.tools, ...missing] };
-			const version = agent.version + 1;
-			await ctx.db.patch(agent._id, { tools: config.tools, version, updatedAt: Date.now() });
-			await ctx.db.insert("agentVersions", { agentId: agent._id, version, config, savedBy: agent.updatedBy });
+			await saveVersion(ctx, agent, config, agent.updatedBy);
 		},
 	});
 }

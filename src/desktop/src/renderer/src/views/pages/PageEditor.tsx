@@ -11,10 +11,10 @@ import { Loading, Notice } from "../../ui";
 // The sync calls name only the page; the backend finds its workspace. See wiki/pages.md.
 
 /** BlockNote's own light theme, in the app's font. */
-const theme: Theme = { ...lightDefaultTheme, fontFamily: "inherit" };
+const theme: Theme = { ...lightDefaultTheme, fontFamily: "inherit", colors: { ...lightDefaultTheme.colors, editor: { text: "var(--color-neutral-900)", background: "transparent" } } };
 
 /** BlockNote pads the left for its block handles: pull it back so text lines up with the title. */
-const viewClass = "-mx-[54px]";
+const viewClass = "page-editor -mx-[54px]";
 
 export function PageEditor({ pageId, editable }: { pageId: Id<"pages">; editable: boolean }) {
 	const [error, setError] = useState<string>();

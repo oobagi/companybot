@@ -3,17 +3,14 @@ import { can, deniedMessage } from "@companybot/core";
 import { ProsemirrorSync } from "@convex-dev/prosemirror-sync";
 import type { Node, Schema } from "@tiptap/pm/model";
 import { Transform } from "@tiptap/pm/transform";
-import { ConvexError } from "convex/values";
+import { ConvexError, getDocumentSize } from "convex/values";
 import { components } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { type Member, type Who, requireInWorkspace } from "./lib";
 import { requireRecord } from "./recordOps";
 
-// Pages: standalone docs and record bodies, one concept. Content lives in the prosemirrorSync
-// component (snapshots and steps, keyed by the page's id); history is `pageVersions`, each
-// pointing at one of its snapshots. The app (pages.ts, pageSync.ts) and agents (pageTools.ts)
-// both go through here with a `Who`, like records. See wiki/pages.md.
+// Shared rules for standalone pages and record bodies. See wiki/pages.md.
 
 export const sync = new ProsemirrorSync<Id<"pages">>(components.prosemirrorSync);
 const lib = components.prosemirrorSync.lib;
@@ -51,7 +48,7 @@ export const pageOfRecord = (ctx: QueryCtx, workspaceId: Id<"workspaces">, recor
 export async function requireEditable(ctx: QueryCtx, member: Member, page: Doc<"pages">) {
 	if (!can(member.role, "pages.edit")) throw new ConvexError(deniedMessage("pages.edit"));
 	if (page.archived) throw new ConvexError("This page is archived. Restore it to make changes.");
-	if (page.recordId && (await ctx.db.get(page.recordId))?.archived) throw new ConvexError("This record is archived. Restore it to make changes.");
+	if (page.recordId && (await requireRecord(ctx, member, page.recordId)).archived) throw new ConvexError("This record is archived. Restore it to make changes.");
 }
 
 function cleanTitle(title: string) {
@@ -108,13 +105,11 @@ export const latestVersionOf = (ctx: QueryCtx, pageId: Id<"pages">) =>
 const dropSnapshot = (ctx: MutationCtx, pageId: Id<"pages">, version: number) =>
 	ctx.runMutation(lib.deleteSnapshots, { id: pageId, afterVersion: version - 1, beforeVersion: version + 1 });
 
-/**
- * Logs that `who` brought the page to `version`, once the component has a snapshot there. The
- * author's open version grows (its old snapshot goes), or a new one starts; past
- * PAGE_VERSIONS_MAX the oldest goes. A restore always starts its own.
- */
+/** Group continuous edits by author; restores start a new version. Prune history and snapshots together. */
 export async function recordVersion(ctx: MutationCtx, who: Who, page: Doc<"pages">, version: number, restored?: number) {
 	const now = Date.now();
+	await ctx.db.patch(page._id, { updatedAt: now, updatedBy: who.member.userId });
+	await ctx.runMutation(lib.deleteSteps, { id: page._id, beforeTs: now - STEPS_KEEP_MS });
 	const latest = await latestVersionOf(ctx, page._id);
 	if (
 		latest &&
@@ -144,8 +139,6 @@ export async function recordVersion(ctx: MutationCtx, who: Who, page: Doc<"pages
 		await dropSnapshot(ctx, page._id, old.version);
 		await ctx.db.delete(old._id);
 	}
-	await ctx.runMutation(lib.deleteSteps, { id: page._id, beforeTs: now - STEPS_KEEP_MS });
-	await ctx.db.patch(page._id, { updatedAt: now, updatedBy: who.member.userId });
 }
 
 /** The page's content now. */
@@ -154,25 +147,23 @@ export async function readDoc(ctx: QueryCtx, pageId: Id<"pages">) {
 	return (await sync.getDoc(ctx as unknown as MutationCtx, pageId, pageSchema())).doc;
 }
 
-/**
- * Changes a page's content as `who` and logs it as a version, like an edit in the editor.
- * `change` gets the content now and returns the change (it may run again if the page moved).
- * Returns false if nothing changed.
- */
+/** Validate and save steps, their canonical snapshot and history in one transaction. */
+export async function saveTransform(ctx: MutationCtx, who: Who, page: Doc<"pages">, version: number, tr: Transform, clientId: string | number = "transform", restored?: number) {
+	if (!tr.docChanged) return false;
+	const content = JSON.stringify(tr.doc.toJSON());
+	const steps = tr.steps.map((s) => JSON.stringify(s.toJSON()));
+	if (getDocumentSize({ content }) > PAGE_MAX_BYTES || getDocumentSize({ steps }) > PAGE_MAX_BYTES)
+		throw new ConvexError("That would make the page too long. Split it into several pages.");
+	await ctx.runMutation(lib.submitSteps, { id: page._id, version, clientId, steps });
+	await ctx.runMutation(lib.submitSnapshot, { id: page._id, version: version + steps.length, content });
+	await recordVersion(ctx, who, page, version + steps.length, restored);
+	return true;
+}
+
 export async function writeDoc(ctx: MutationCtx, who: Who, page: Doc<"pages">, change: (doc: Node) => Transform, restored?: number) {
 	await requireEditable(ctx, who.member, page);
-	let changed = false;
-	await sync.transform(ctx, page._id, pageSchema(), (doc) => {
-		const tr = change(doc);
-		changed = tr.docChanged;
-		if (!changed) return null;
-		if (JSON.stringify(tr.doc.toJSON()).length > PAGE_MAX_BYTES) throw new ConvexError("That would make the page too long. Split it into several pages.");
-		return tr;
-	});
-	if (!changed) return false;
-	const version = (await ctx.runQuery(lib.latestVersion, { id: page._id }))!;
-	await recordVersion(ctx, who, page, version, restored);
-	return true;
+	const { doc, version } = await sync.getDoc(ctx, page._id, pageSchema());
+	return saveTransform(ctx, who, page, version, change(doc), "transform", restored);
 }
 
 /** Replaces the content, or adds to its end, with blocks (a JSON array, as pageMarkdown.ts makes). */

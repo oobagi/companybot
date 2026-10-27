@@ -17,8 +17,7 @@ import {
 	setPageArchived,
 } from "./pageOps";
 
-// Pages: the app's API. Content syncs through pageSync.ts; this is the list, settings and
-// history around it. Every member reads every page; `pages.edit` changes them. See wiki/pages.md.
+// Pages metadata and history; content syncs through pageSync.ts. See wiki/pages.md.
 
 /** Pages the sidebar lists, by title. */
 const LIST_MAX = 200;
@@ -95,6 +94,7 @@ export const remove = mutation({
 		const member = await requireMember(ctx);
 		const page = await requirePage(ctx, member, pageId);
 		if (!can(member.role, "pages.edit")) throw new ConvexError(deniedMessage("pages.edit"));
+		if (page.recordId) throw new ConvexError("Delete the record instead.");
 		if (!page.archived) throw new ConvexError("Archive the page first.");
 		await ctx.db.delete(page._id);
 		await ctx.scheduler.runAfter(0, internal.pageSync.deleteDoc, { id: page._id });

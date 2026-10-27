@@ -3,8 +3,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { navigate } from "../router";
-import { Loading, Notice, Page, dangerButton, descriptionClass, metadataClass, secondaryButton, timeAgo, useRun } from "../ui";
-import { Modal } from "./chat/common";
+import { Loading, Notice, Page, descriptionClass, metadataClass, timeAgo, useRun } from "../ui";
 import { Group, Item } from "./chat/Sidebar";
 import { PageEditor } from "./pages/PageEditor";
 import { PageHistory } from "./pages/PageHistory";
@@ -16,7 +15,8 @@ import { PageHistory } from "./pages/PageHistory";
 export function PagesNav({ openId }: { openId: string | undefined }) {
 	const pages = useQuery(api.pages.list, {});
 	const create = useMutation(api.pages.create);
-	const newPage = () => create({ title: "Untitled" }).then((id) => navigate("pages", id));
+	const { error, run } = useRun();
+	const newPage = () => run(create({ title: "Untitled" }).then((id) => navigate("pages", id)));
 	return (
 		<Group title="Pages" onAdd={() => void newPage()} addLabel="New page" onTitle={() => navigate("pages")}>
 			{pages?.map((p) => (
@@ -24,12 +24,11 @@ export function PagesNav({ openId }: { openId: string | undefined }) {
 					<span className="truncate">{p.title}</span>
 				</Item>
 			))}
-			{pages?.length === 0 && (
-				<Item onClick={() => void newPage()} muted>
+			<Item onClick={() => void newPage()} muted>
 					<span className="w-5 shrink-0 text-center">+</span>
 					New page
 				</Item>
-			)}
+			{error && <Notice>{error}</Notice>}
 		</Group>
 	);
 }
@@ -69,7 +68,8 @@ function PagesIndex() {
 function PageScreen({ pageId, canEdit }: { pageId: Id<"pages">; canEdit: boolean }) {
 	const page = useQuery(api.pages.get, { pageId });
 	const setArchived = useMutation(api.pages.setArchived);
-	const [dialog, setDialog] = useState<"history" | "delete">();
+	const remove = useMutation(api.pages.remove);
+	const [history, setHistory] = useState(false);
 	const { error, run } = useRun();
 	const back = { label: "Pages", to: ["pages"] };
 	if (page === undefined) return <Page title="" back={back}><Loading /></Page>;
@@ -88,7 +88,7 @@ function PageScreen({ pageId, canEdit }: { pageId: Id<"pages">; canEdit: boolean
 			back={back}
 			actions={
 				<div className="flex shrink-0 gap-4">
-					<button type="button" onClick={() => setDialog("history")} className={action}>
+					<button type="button" onClick={() => setHistory(true)} className={action}>
 						History
 					</button>
 					{canEdit && (
@@ -97,7 +97,7 @@ function PageScreen({ pageId, canEdit }: { pageId: Id<"pages">; canEdit: boolean
 						</button>
 					)}
 					{canEdit && page.archived && (
-						<button type="button" onClick={() => setDialog("delete")} className={`${descriptionClass} hover:text-red-600`}>
+						<button type="button" onClick={() => confirm(`Delete “${page.title}”? The page and its history will be deleted for good.`) && run(remove({ pageId }), () => navigate("pages"))} className={`${descriptionClass} hover:text-red-600`}>
 							Delete
 						</button>
 					)}
@@ -106,8 +106,7 @@ function PageScreen({ pageId, canEdit }: { pageId: Id<"pages">; canEdit: boolean
 		>
 			{error && <Notice>{error}</Notice>}
 			<PageEditor pageId={pageId} editable={page.canEdit} />
-			{dialog === "history" && <PageHistory pageId={pageId} canRestore={page.canEdit} onClose={() => setDialog(undefined)} />}
-			{dialog === "delete" && <DeletePage pageId={pageId} title={page.title} onClose={() => setDialog(undefined)} />}
+			{history && <PageHistory pageId={pageId} canRestore={page.canEdit} onClose={() => setHistory(false)} />}
 		</Page>
 	);
 }
@@ -118,7 +117,7 @@ function Title({ pageId, title, editable }: { pageId: Id<"pages">; title: string
 	const [draft, setDraft] = useState(title);
 	const { error, run } = useRun();
 	useEffect(() => setDraft(title), [title]);
-	if (!editable) return title;
+	if (!editable) return <span className="text-4xl font-bold">{title}</span>;
 	const save = () => draft.trim() && draft !== title && run(rename({ pageId, title: draft }));
 	return (
 		<>
@@ -130,28 +129,9 @@ function Title({ pageId, title, editable }: { pageId: Id<"pages">; title: string
 				autoFocus={title === "Untitled"}
 				onFocus={(e) => title === "Untitled" && e.currentTarget.select()}
 				aria-label="Title"
-				className="w-full bg-transparent outline-none"
+				className="w-full bg-transparent text-4xl font-bold outline-none"
 			/>
 			{error && <span className="block text-xs font-normal text-red-600">{error}</span>}
 		</>
-	);
-}
-
-function DeletePage({ pageId, title, onClose }: { pageId: Id<"pages">; title: string; onClose: () => void }) {
-	const remove = useMutation(api.pages.remove);
-	const { error, run } = useRun();
-	return (
-		<Modal title="Delete page" onClose={onClose}>
-			<p className="text-sm text-neutral-600">“{title}” and its history will be deleted for good.</p>
-			{error && <Notice>{error}</Notice>}
-			<div className="flex justify-end gap-2">
-				<button type="button" onClick={onClose} className={secondaryButton}>
-					Cancel
-				</button>
-				<button type="button" onClick={() => run(remove({ pageId }), () => navigate("pages"))} className={dangerButton}>
-					Delete
-				</button>
-			</div>
-		</Modal>
 	);
 }

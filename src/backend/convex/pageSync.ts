@@ -1,17 +1,12 @@
+import { Step, Transform } from "@tiptap/pm/transform";
 import { ConvexError, v } from "convex/values";
 import { components } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
-import { type QueryCtx, internalMutation, mutation, query } from "./_generated/server";
+import type { DataModel } from "./_generated/dataModel";
+import { type QueryCtx, internalMutation, mutation } from "./_generated/server";
 import { authUserId, memberOf } from "./lib";
-import { PAGE_MAX_BYTES, latestVersionOf, recordVersion, requireEditable } from "./pageOps";
+import { pageSchema, requireEditable, saveTransform, sync } from "./pageOps";
 
-// The editor's sync API: prosemirror-sync's useBlockNoteSync calls these with the page's id
-// alone, so the workspace comes from the page (whoever's in its workspace may read it) rather
-// than the request (functions.ts). They wrap the component's own functions with access checks,
-// and log versions as snapshots land. See wiki/pages.md.
-
-const lib = components.prosemirrorSync.lib;
-
+// Sync names a page alone, so resolve its workspace before checking access.
 async function pageFor(ctx: QueryCtx, id: string) {
 	const pageId = ctx.db.normalizeId("pages", id);
 	const page = pageId && (await ctx.db.get(pageId));
@@ -21,62 +16,37 @@ async function pageFor(ctx: QueryCtx, id: string) {
 	return { page, member };
 }
 
-async function editable(ctx: QueryCtx, id: string) {
-	const found = await pageFor(ctx, id);
-	await requireEditable(ctx, found.member, found.page);
-	return found;
-}
-
-export const getSnapshot = query({
-	args: { id: v.string(), version: v.optional(v.number()) },
-	handler: async (ctx, args) => {
-		await pageFor(ctx, args.id);
-		return ctx.runQuery(lib.getSnapshot, args);
-	},
-});
-
-export const latestVersion = query({
-	args: { id: v.string() },
-	handler: async (ctx, args) => {
-		await pageFor(ctx, args.id);
-		return ctx.runQuery(lib.latestVersion, args);
-	},
-});
-
-export const getSteps = query({
-	args: { id: v.string(), version: v.number() },
-	handler: async (ctx, args) => {
-		await pageFor(ctx, args.id);
-		return ctx.runQuery(lib.getSteps, args);
-	},
-});
+export const { getSnapshot, latestVersion, getSteps } = sync.syncApi<DataModel>({ checkRead: async (ctx, id) => { await pageFor(ctx, id); } });
 
 export const submitSteps = mutation({
 	args: { id: v.string(), version: v.number(), clientId: v.union(v.string(), v.number()), steps: v.array(v.string()) },
 	handler: async (ctx, args) => {
-		await editable(ctx, args.id);
-		// One delta is one document: a paste past this can't be stored, or kept as a version.
-		if (args.steps.reduce((n, step) => n + step.length, 0) > PAGE_MAX_BYTES) throw new ConvexError("That's too much to add at once. Split it into several pages.");
-		return ctx.runMutation(lib.submitSteps, args);
+		const { page, member } = await pageFor(ctx, args.id);
+		await requireEditable(ctx, member, page);
+		const { doc, version } = await sync.getDoc(ctx, page._id, pageSchema());
+		if (!Number.isSafeInteger(args.version) || args.version < 1 || args.version > version) throw new ConvexError("Invalid page version.");
+		if (args.version < version) {
+			const { steps, clientIds } = await ctx.runQuery(components.prosemirrorSync.lib.getSteps, { id: args.id, version: args.version });
+			return { status: "needs-rebase" as const, steps, clientIds };
+		}
+		const tr = new Transform(doc);
+		for (const step of args.steps) tr.step(Step.fromJSON(pageSchema(), JSON.parse(step)));
+		await saveTransform(ctx, { member }, page, version, tr, args.clientId);
+		return { status: "synced" as const };
 	},
 });
 
-/** Sent by the editor that made the last change, a second after it stops. */
+// The editor sends debounced snapshots. Accepted steps already saved the canonical one;
+// never trust client content or let a delayed snapshot change history or authorship.
 export const submitSnapshot = mutation({
 	args: { id: v.string(), version: v.number(), content: v.string() },
-	handler: async (ctx, args) => {
-		const { page, member } = await editable(ctx, args.id);
-		if (args.content.length > PAGE_MAX_BYTES) throw new ConvexError("This page is too long to save. Remove something, or split it into several pages.");
-		// A late one (a newer snapshot already landed) adds nothing.
-		if (args.version <= ((await latestVersionOf(ctx, page._id))?.version ?? 1)) return null;
-		await ctx.runMutation(lib.submitSnapshot, args);
-		await recordVersion(ctx, { member }, page, args.version);
+	handler: async (ctx, { id }) => {
+		await pageFor(ctx, id);
 		return null;
 	},
 });
 
-/** Deletes a page's content, a little at a time (the component schedules the rest). */
 export const deleteDoc = internalMutation({
 	args: { id: v.id("pages") },
-	handler: (ctx, { id }: { id: Id<"pages"> }) => ctx.runMutation(lib.deleteDocument, { id }),
+	handler: (ctx, args) => ctx.runMutation(components.prosemirrorSync.lib.deleteDocument, args),
 });

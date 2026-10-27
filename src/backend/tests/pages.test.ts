@@ -2,7 +2,7 @@ import { Transform } from "@tiptap/pm/transform";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, components, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { IDLE_MS, PAGE_VERSIONS_MAX, pageSchema, readDoc, sync } from "../convex/pageOps";
+import { IDLE_MS, VERSION_MS, PAGE_VERSIONS_MAX, pageSchema, readDoc, sync } from "../convex/pageOps";
 import { type As, agentsOf, generalOf, settle, setup, signIn } from "./helpers";
 
 // Pages (pageOps.ts): the editor's sync, versions grouped like Notion's, restore, agent tools, and cleanup.
@@ -93,6 +93,70 @@ describe("page history", () => {
 		expect(await textOf(t, pageId)).toBe("World Hello");
 	});
 
+	it("saves accepted edits before a client snapshot and ignores forged or delayed snapshots", async () => {
+		const { t, owner, member } = await setup();
+		const pageId = await owner.mutation(api.pages.create, { title: "Concurrent" });
+		await type(t, owner, pageId, "First");
+		const first = (await historyOf(owner, pageId))[0]!;
+		const editor = t.withIdentity({ subject: `${member.userId}|session` });
+		const current = await t.run(async (ctx) => { const { doc, version } = await sync.getDoc(ctx, pageId, pageSchema()); return { doc: doc.toJSON(), version }; });
+		const tr = new Transform(pageSchema().nodeFromJSON(current.doc)).insert(3, pageSchema().text("Second "));
+		const steps = tr.steps.map((s) => JSON.stringify(s.toJSON()));
+		await editor.mutation(api.pageSync.submitSteps, { id: pageId, version: current.version, clientId: "second", steps });
+		const second = (await historyOf(owner, pageId))[0]!;
+		expect(second.user).toBe("member@co.com");
+		await owner.mutation(api.pages.restore, { versionId: first._id });
+		expect(await textOf(t, pageId)).toBe("First");
+		// A snapshot can neither invent a future version nor rewrite an accepted one.
+		await editor.mutation(api.pageSync.submitSnapshot, { id: pageId, version: 999_999, content: "{}" });
+		await editor.mutation(api.pageSync.submitSnapshot, { id: pageId, version: current.version + steps.length, content: JSON.stringify(tr.doc.toJSON()) });
+		expect(await textOf(t, pageId)).toBe("First");
+		await owner.mutation(api.pages.restore, { versionId: second._id });
+		expect(await textOf(t, pageId)).toBe("Second First");
+		const stale = await editor.mutation(api.pageSync.submitSteps, { id: pageId, version: current.version, clientId: "second", steps });
+		expect(stale.status).toBe("needs-rebase");
+		await expect(editor.mutation(api.pageSync.submitSteps, { id: pageId, version: 999_999, clientId: "second", steps })).rejects.toThrow("Invalid page version");
+	});
+
+	it("ends continuous groups at ten minutes and updates edited time within a group", async () => {
+		const { t, owner } = await setup();
+		const pageId = await owner.mutation(api.pages.create, { title: "Long edit" });
+		for (let i = 0; i < 11; i++) {
+			await type(t, owner, pageId, "x");
+			vi.advanceTimersByTime(VERSION_MS / 10 + 1000);
+		}
+		expect(await historyOf(owner, pageId)).toHaveLength(2);
+		const before = (await owner.query(api.pages.list, {}))[0]!.updatedAt;
+		await type(t, owner, pageId, "y");
+		expect((await owner.query(api.pages.list, {}))[0]!.updatedAt).toBeGreaterThan(before);
+	});
+
+	it("bounds the accumulated document in bytes, including multibyte text, before accepting steps", async () => {
+		const { t, owner } = await setup();
+		const pageId = await owner.mutation(api.pages.create, { title: "Large" });
+		await type(t, owner, pageId, "a".repeat(260_000));
+		await expect(type(t, owner, pageId, "b".repeat(260_000))).rejects.toThrow("too long");
+		expect((await textOf(t, pageId)).length).toBe(260_000);
+		await expect(type(t, owner, pageId, "🌙".repeat(70_000))).rejects.toThrow("too long");
+		expect((await historyOf(owner, pageId)).length).toBe(1);
+	});
+
+	it("compacts large deltas and deletes snapshots and deltas across bounded component batches", async () => {
+		const { t, owner } = await setup();
+		const pageId = await owner.mutation(api.pages.create, { title: "Large cleanup" });
+		const tools = await turnFor(t, owner);
+		// A hundred 200 KB replacements exceed the transaction read limit if cleanup reads 100.
+		for (let i = 0; i < 100; i++) await tools.write({ page: pageId, mode: "replace" }, [paragraph(String(i).padEnd(200_000, "x"))]);
+		vi.advanceTimersByTime(24 * 60 * 60_000 + 1);
+		await type(t, owner, pageId, "compacted");
+		await settle(t);
+		await owner.mutation(api.pages.setArchived, { pageId, archived: true });
+		await owner.mutation(api.pages.remove, { pageId });
+		await settle(t);
+		expect(await snapshotAt(t, pageId)).toEqual({ content: null });
+		expect(await t.run((ctx) => ctx.runQuery(components.prosemirrorSync.lib.latestVersion, { id: pageId }))).toBeNull();
+	});
+
 	it(`keeps the latest ${PAGE_VERSIONS_MAX} versions, deleting older ones with their snapshots`, { timeout: 60_000 }, async () => {
 		const { t, owner, member } = await setup();
 		const pageId = await owner.mutation(api.pages.create, { title: "Busy" });
@@ -181,6 +245,22 @@ describe("pages tools", () => {
 		await tools.write({ page: pageId, archived: true });
 		expect(await tools.write({ page: pageId, markdown: "x" }, [paragraph("no")])).toMatchObject({ error: expect.stringContaining("archived") });
 		expect(await tools.write({ title: "A", archived: true })).toMatchObject({ error: expect.stringContaining("on its own") });
+	});
+
+	it("rechecks the acting person's membership and chat visibility on each call", async () => {
+		const { t, owner, member } = await setup();
+		const tools = await turnFor(t, member);
+		const pageId = await owner.mutation(api.pages.create, { title: "Workspace only" });
+		const other = await signIn(t, "other@co.com");
+		const otherPage = await other.mutation(api.pages.create, { title: "Other workspace" });
+		expect(await tools.read({ page: otherPage })).toMatchObject({ error: expect.any(String) });
+		expect(await tools.write({ page: otherPage, title: "Stolen" })).toMatchObject({ error: expect.any(String) });
+		await t.run(async (ctx) => {
+			const seat = await ctx.db.query("members").withIndex("by_user", q => q.eq("userId", member.userId)).first();
+			await ctx.db.delete(seat!._id);
+		});
+		await expect(tools.read({ page: pageId })).rejects.toThrow("no longer in the workspace");
+		await expect(tools.write({ page: pageId, title: "No" })).rejects.toThrow("no longer in the workspace");
 	});
 
 	it("write a record's body, creating it on first write", async () => {

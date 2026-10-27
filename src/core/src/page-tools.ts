@@ -1,12 +1,7 @@
 import { z } from "zod";
-import { type ToolDef, defineTool } from "./tools";
+import { type ToolDef, defineTool, resultText as text } from "./tools";
 
-/**
- * Agents use pages as the person they're helping: wiki pages, SOPs, meeting notes, and the
- * page body every record has. Three tools: find, read as Markdown, write from Markdown (create,
- * replace, append, rename, archive, restore a version). The backend runs every call through the
- * same rules as the app (pageOps) and logs each write as a version "by <agent> for <person>".
- */
+/** Pages and record bodies as Markdown; backend pageOps applies the acting person's permissions. */
 export interface PageStore {
 	find(input: PageFindInput): Promise<unknown>;
 	/** The whole page; the tool hands the model a part at a time. */
@@ -48,11 +43,6 @@ const writeInput = z.object({
 	restore: z.string().optional().describe("A version id from pages_read: its content comes back as a new version. On its own."),
 });
 export type PageWriteInput = z.infer<typeof writeInput>;
-
-const text = (from: unknown, key: string) => {
-	const v = from && typeof from === "object" ? (from as Record<string, unknown>)[key] : undefined;
-	return typeof v === "string" && v.trim() ? v.trim() : undefined;
-};
 
 /** "Create page Onboarding", "Write page Onboarding", "Archive page Onboarding". */
 function writeLabel(input: PageWriteInput, output: unknown) {

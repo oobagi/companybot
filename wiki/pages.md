@@ -9,16 +9,16 @@ Free-form writing, Notion's way: a **page** is a title plus blocks. Standalone p
 
 ## History, like Notion
 Notion saves a version every 10 minutes while you edit, and another 2 minutes after you stop ([help](https://www.notion.com/help/duplicate-delete-and-restore-content)). Same here (`recordVersion`):
-- The editor that made a change sends a snapshot a second after it stops typing (`pageSync.submitSnapshot`). Agents' and restores' writes snapshot at once (`writeDoc`).
-- Each snapshot extends the author's open version if it's the same person (and same agent, or none), the last edit was under 2 minutes ago (`IDLE_MS`), and the version started under 10 minutes ago (`VERSION_MS`). Its old snapshot is deleted. Otherwise it starts a new version. A late snapshot (a newer one already landed) is dropped.
+- Each accepted batch of steps saves its canonical snapshot and history atomically on the server (`saveTransform`), as do agent writes and restores. Client snapshots are ignored: they cannot invent versions, overwrite content, or change attribution.
+- Each batch extends the author's open version if it's the same person (and same agent, or none), the last edit was under 2 minutes ago (`IDLE_MS`), and the version started under 10 minutes ago (`VERSION_MS`). Its old snapshot is deleted. Otherwise it starts a new version.
 - Shown as "Edited by Dana" or "Edited by Companybot, for Dana" (`whoLabel`, as record history), with the time. Pick one to see it read-only.
 - **Restore** puts a version's content back as a new version ("Restored by Dana · the version from …"), so nothing is lost: the version it replaced can be restored too. It's a server-side transform, so open editors update live.
-- Two people typing at once each get versions as their snapshots land; who's credited is whoever's editor sent the snapshot. Good enough for "who changed this"; per-step authorship would need the component to store authors (on its roadmap).
+- Two people typing at once get versions as their accepted step batches land, credited to the person who submitted those steps. Good enough for "who changed this"; per-step authorship would need the component to store authors (on its roadmap).
 
 ## Storage bounds
-- **Per document:** a page's content is capped at 500 KB of JSON (`PAGE_MAX_BYTES`), checked on every snapshot and agent write, and a single submit of steps is capped the same, so nothing nears Convex's 1 MiB document limit. Past it: "Split it into several pages."
-- **Compaction:** the newest 100 versions per page are kept (`PAGE_VERSIONS_MAX`); older ones go with their snapshots. Merging an edit run deletes its previous snapshot. Deltas older than a day and behind the latest snapshot are deleted on each new version (the component's `deleteSteps`, which never deletes past the latest snapshot), so a client that was briefly offline can still catch up. So a page holds at most ~101 snapshots plus a day of steps.
-- **Reads:** lists take 200 pages (sidebar) or 50 (`pages_find`, paged), history 20 per page.
+- **Per document:** a page's content is capped at 500 KB of JSON (`PAGE_MAX_BYTES`), measured in encoded bytes on the resulting document and serialized steps before every editor or agent write, so nothing nears Convex's 1 MiB document limit. Past it: "Split it into several pages."
+- **Compaction:** the newest 100 versions per page are kept (`PAGE_VERSIONS_MAX`); older ones go with their snapshots. Merging an edit run deletes its previous snapshot. Deltas older than a day and behind the latest snapshot are deleted on every accepted edit (the component's `deleteSteps`, which never deletes past the latest snapshot), so a client that was briefly offline can still catch up. So a page holds at most ~101 snapshots plus a day of steps. A small pnpm patch limits component reads/cleanup to 10 deltas at once (up to ~5 MB), rather than 100 (up to ~50 MB).
+- **Reads:** lists take 200 pages (sidebar) or 50 (`pages_find` list, paged) or 20 (title search, paged), history 20 per page.
 
 ## Rules
 - **Access:** every member reads every page; `pages.edit` (owner, member) creates, writes, renames, archives, restores and deletes. A page is read-only while it or its record is archived.

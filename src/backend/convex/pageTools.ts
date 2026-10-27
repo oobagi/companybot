@@ -16,9 +16,7 @@ import {
 import { requireRecord } from "./recordOps";
 import { runningTurn } from "./turns";
 
-// Pages tools (core's PageStore), acting as the turn's person through runningTurn, like
-// records: their role is read fresh each call, and every write is a version naming them and
-// the agent. Markdown is converted before and after, in Node (pageMarkdown.ts). See wiki/pages.md.
+// PageStore as the turn's person; conversion runs separately in pageMarkdown.ts.
 
 const FIND_MAX = 50;
 const SEARCH_MAX = 20;
@@ -53,17 +51,11 @@ export const findFor = internalQuery({
 		const { member } = await runningTurn(ctx, turnId);
 		const { search, cursor } = input as PageFindInput;
 		const row = (p: Doc<"pages">) => ({ id: p._id, title: p.title, edited: new Date(p.updatedAt).toISOString() });
-		if (search?.trim()) {
-			const found = await ctx.db
-				.query("pages")
-				.withSearchIndex("search_title", (q) => q.search("title", search).eq("workspaceId", member.workspaceId).eq("archived", false))
-				.take(SEARCH_MAX);
-			return { rows: found.map(row), more: false };
-		}
-		const page = await ctx.db
-			.query("pages")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("recordId", undefined).eq("archived", false))
-			.paginate({ numItems: FIND_MAX, cursor: cursor ?? null });
+		const pages = ctx.db.query("pages");
+		const found = search?.trim()
+			? pages.withSearchIndex("search_title", (q) => q.search("title", search).eq("workspaceId", member.workspaceId).eq("archived", false))
+			: pages.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("recordId", undefined).eq("archived", false));
+		const page = await found.paginate({ numItems: search?.trim() ? SEARCH_MAX : FIND_MAX, cursor: cursor ?? null });
 		return { rows: page.page.map(row), more: !page.isDone, ...(!page.isDone && { cursor: page.continueCursor }) };
 	},
 });

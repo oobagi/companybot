@@ -109,3 +109,9 @@ export const isGranted = (grants: readonly string[], toolId: string) =>
 
 /** The name the model sees. Model APIs allow letters, digits, "_" and "-", up to 64 characters. */
 export const modelToolName = (id: string) => id.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64);
+
+/** A string at `key` of a tool's input or result, if there is one. */
+export function resultText(from: unknown, key: string) {
+	const v = from && typeof from === "object" ? (from as Record<string, unknown>)[key] : undefined;
+	return typeof v === "string" && v.trim() ? v.trim() : undefined;
+}
