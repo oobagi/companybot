@@ -6,8 +6,24 @@ import { SKILL_DESCRIPTION_MAX, SKILL_NAME_MAX } from "./skills";
 import { pageTools } from "./page-tools";
 import { recordTools } from "./record-tools";
 import { formatLocalTime } from "./time";
+import type { MemoryScope } from "./memory";
+import type { Permission } from "./permissions";
 import { type ToolDef, defineTool } from "./tools";
 import { widgetTools } from "./widgets";
+
+/** Saves a memory in `scope`, for you or another agent. */
+const remember = (id: string, title: string, description: string, scope: MemoryScope, permission?: Permission) =>
+	defineTool({
+		id,
+		title,
+		description,
+		input: z.object({ content: z.string(), agentId: z.string().optional().describe("Target agent id; defaults to you") }),
+		...(permission && { permission }),
+		async execute({ content, agentId }, { memory }) {
+			const saved = await memory.create({ scope, content, ...(agentId && { agentId }) });
+			return { saved: saved.id };
+		},
+	});
 
 /**
  * Tools every workspace has. Not connectors: no outside service involved.
@@ -28,27 +44,8 @@ export const builtinTools: ToolDef[] = [
 			return (await memory.search(query, agentId)).map(({ id, scope, content }) => ({ id, scope, content }));
 		},
 	}),
-	defineTool({
-		id: "memory.remember",
-		title: "Remember",
-		description: "Save a personal memory for the current person only.",
-		input: z.object({ content: z.string(), agentId: z.string().optional().describe("Target agent id; defaults to you") }),
-		async execute({ content, agentId }, { memory }) {
-			const saved = await memory.create({ scope: "personal", content, ...(agentId && { agentId }) });
-			return { saved: saved.id };
-		},
-	}),
-	defineTool({
-		id: "memory.remember_for_team",
-		title: "Remember for the team",
-		description: "Save a memory the whole workspace can see.",
-		input: z.object({ content: z.string(), agentId: z.string().optional().describe("Target agent id; defaults to you") }),
-		permission: "memory.team.write",
-		async execute({ content, agentId }, { memory }) {
-			const saved = await memory.create({ scope: "workspace", content, ...(agentId && { agentId }) });
-			return { saved: saved.id };
-		},
-	}),
+	remember("memory.remember", "Remember", "Save a personal memory for the current person only.", "personal"),
+	remember("memory.remember_for_team", "Remember for the team", "Save a memory the whole workspace can see.", "workspace", "memory.team.write"),
 	defineTool({
 		id: "memory.update",
 		title: "Update a memory",

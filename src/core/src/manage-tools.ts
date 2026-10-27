@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { CUSTOM_NAME_MAX, CUSTOM_PROMPT_MAX } from "./automations";
+import { SKILL_DESCRIPTION_MAX, SKILL_INSTRUCTIONS_MAX, SKILL_NAME_MAX } from "./skills";
 import { defineTool, type ToolDef } from "./tools";
 
 const id = z.string().min(1);
@@ -7,7 +9,7 @@ const userIds = ids.describe("User ids from find_people");
 const agentIds = ids.describe("Agent ids from find_people with kind \"agents\"");
 const version = z.number().int().describe("version from get; a stale one is refused");
 const page = { cursor: z.string().optional() };
-const skillConfig = z.object({ name: z.string().max(64), description: z.string().max(200), instructions: z.string().max(20_000) });
+const skillConfig = z.object({ name: z.string().max(SKILL_NAME_MAX), description: z.string().max(SKILL_DESCRIPTION_MAX), instructions: z.string().max(SKILL_INSTRUCTIONS_MAX) });
 const trigger = z.union([
 	z.object({ type: z.literal("schedule"), time: z.string(), weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7) }),
 	z.object({ type: z.literal("event"), event: z.literal("member.joined") }),
@@ -62,7 +64,7 @@ export const manageInputs = {
 				action: z.literal("edit"),
 				id,
 				expectedVersion: version,
-				config: z.object({ name: z.string(), prompt: z.string().max(20_000), trigger }),
+				config: z.object({ name: z.string().max(CUSTOM_NAME_MAX), prompt: z.string().max(CUSTOM_PROMPT_MAX), trigger }),
 			}),
 			z.strictObject({ action: z.literal("pause"), id }),
 			z.strictObject({ action: z.literal("resume"), id }),
@@ -120,40 +122,19 @@ export type ManageTool = keyof typeof manageInputs;
 export interface ManageStore {
 	run(tool: ManageTool, input: unknown): Promise<unknown>;
 }
-const descriptions: Record<ManageTool, string> = {
-	"chat.manage":
-		"Find people (paged directory, including agent ids), list your chats, open a DM with exact participant ids, deliver a message to a chosen chat/thread, edit your person's own messages, delete them with locked approval, react to an exact message, or explicitly mark a chat read when asked. Sent as you for the person; never triggers agents or automations. Only send when asked; do not copy private information to a wider audience without their request.",
-	"channels.manage":
-		"Browse public channels, inspect a visible channel and paged participants, create, rename, set/clear topic, add/remove members, join or leave. Use chat ids or #names. Managers remove members; everyone stays in general. Delete moves a channel to Trash for 30 days and waits for approval; only its creator or an owner can do it. Restore by its exact id as the deleter or an owner. Never deletes forever.",
-	"automations.manage":
-		"List or inspect visible automations (prompt, version, agent, state), edit custom config using its current expectedVersion, pause/resume globally, change agent/audience, install a library automation, or run a sample once just for the person. Runs cannot start other runs. Confirm changes first. Resuming grants no consent: future outside actions still ask. Webhook secrets are omitted.",
-	"automations.remove":
-		"Delete an automation someone made, or uninstall a library one, by id. A deleted one goes to Trash for 30 days and stops running; its maker or an owner can restore it from Trash. Uninstalling removes subscriptions and approval grants. The exact call waits for approval.",
-	"skills.manage":
-		"Browse custom and library skills, read full instructions and current version, or install a library skill (owners). Editing is a separate tool that asks first.",
-	"skills.edit":
-		"Edit a custom skill's name, description and instructions, using its current expectedVersion from skills_manage get. Every agent here follows skills, so the exact call waits for approval. Confirm the exact instructions with the person first.",
-	"skills.remove": "Delete a custom skill (to Trash for 30 days; agents stop seeing it; the maker or an owner can restore it) or uninstall a library skill, by id. The exact call waits for approval.",
-	"members.invite":
-		"Invite an email as a member, or resend or cancel the invitation for an email (owners). Invite and resend send email outside the workspace and wait for approval. Cannot invite owners or change roles.",
-	"members.remove":
-		"Remove another member by their email (owners). Deletes their personal workspace data and access. The exact call waits for approval; cannot remove yourself.",
-	"agents.manage": "Browse agents and their paged configuration history, create an agent with no tools, edit metadata, or delete an agent (to Trash for 30 days; the last agent stays). Writes require an owner. Deleting and changing another agent's instructions or model wait for approval; do them only when asked; you cannot change your own instructions/model, grant tools, restore grants or restore an agent from Trash. Use the current expectedVersion. models lists the AI Gateway models an agent can run on (id, context, $ per M input/output tokens); use one of those ids.",
-	"workspace.settings":
-		"Read/update the acting person's display name, send shortcut, notification preference and explicit time zone (null = automatic). Device time zone is measured by the device. Read workspace name, default currency, memory switch and version; update these as an owner using the current expectedVersion. Existing amounts keep their currency; the default only affects new amounts. Memory off keeps stored memories. Change only when asked.",
-};
-const titles: Record<ManageTool, string> = {
-	"chat.manage": "Manage messages and DMs",
-	"channels.manage": "Manage channels",
-	"automations.manage": "Manage automations",
-	"automations.remove": "Delete an automation",
-	"skills.manage": "Manage skills",
-	"skills.edit": "Edit a skill",
-	"skills.remove": "Delete or uninstall a skill",
-	"members.invite": "Manage member invitations",
-	"members.remove": "Remove a member",
-	"workspace.settings": "Manage workspace settings",
-	"agents.manage": "Manage agents",
+/** Each tool's title and description. */
+const about: Record<ManageTool, { title: string; description: string }> = {
+	"chat.manage": { title: "Manage messages and DMs", description: "Find people (paged directory, including agent ids), list your chats, open a DM with exact participant ids, deliver a message to a chosen chat/thread, edit your person's own messages, delete them with locked approval, react to an exact message, or explicitly mark a chat read when asked. Sent as you for the person; never triggers agents or automations. Only send when asked; do not copy private information to a wider audience without their request." },
+	"channels.manage": { title: "Manage channels", description: "Browse public channels, inspect a visible channel and paged participants, create, rename, set/clear topic, add/remove members, join or leave. Use chat ids or #names. Managers remove members; everyone stays in general. Delete moves a channel to Trash for 30 days and waits for approval; only its creator or an owner can do it. Restore by its exact id as the deleter or an owner. Never deletes forever." },
+	"automations.manage": { title: "Manage automations", description: "List or inspect visible automations (prompt, version, agent, state), edit custom config using its current expectedVersion, pause/resume globally, change agent/audience, install a library automation, or run a sample once just for the person. Runs cannot start other runs. Confirm changes first. Resuming grants no consent: future outside actions still ask. Webhook secrets are omitted." },
+	"automations.remove": { title: "Delete an automation", description: "Delete an automation someone made, or uninstall a library one, by id. A deleted one goes to Trash for 30 days and stops running; its maker or an owner can restore it from Trash. Uninstalling removes subscriptions and approval grants. The exact call waits for approval." },
+	"skills.manage": { title: "Manage skills", description: "Browse custom and library skills, read full instructions and current version, or install a library skill (owners). Editing is a separate tool that asks first." },
+	"skills.edit": { title: "Edit a skill", description: "Edit a custom skill's name, description and instructions, using its current expectedVersion from skills_manage get. Every agent here follows skills, so the exact call waits for approval. Confirm the exact instructions with the person first." },
+	"skills.remove": { title: "Delete or uninstall a skill", description: "Delete a custom skill (to Trash for 30 days; agents stop seeing it; the maker or an owner can restore it) or uninstall a library skill, by id. The exact call waits for approval." },
+	"members.invite": { title: "Manage member invitations", description: "Invite an email as a member, or resend or cancel the invitation for an email (owners). Invite and resend send email outside the workspace and wait for approval. Cannot invite owners or change roles." },
+	"members.remove": { title: "Remove a member", description: "Remove another member by their email (owners). Deletes their personal workspace data and access. The exact call waits for approval; cannot remove yourself." },
+	"agents.manage": { title: "Manage agents", description: "Browse agents and their paged configuration history, create an agent with no tools, edit metadata, or delete an agent (to Trash for 30 days; the last agent stays). Writes require an owner. Deleting and changing another agent's instructions or model wait for approval; do them only when asked; you cannot change your own instructions/model, grant tools, restore grants or restore an agent from Trash. Use the current expectedVersion. models lists the AI Gateway models an agent can run on (id, context, $ per M input/output tokens); use one of those ids." },
+	"workspace.settings": { title: "Manage workspace settings", description: "Read/update the acting person's display name, send shortcut, notification preference and explicit time zone (null = automatic). Device time zone is measured by the device. Read workspace name, default currency, memory switch and version; update these as an owner using the current expectedVersion. Existing amounts keep their currency; the default only affects new amounts. Memory off keeps stored memories. Change only when asked." },
 };
 /** What a call does to whom, for its card and tool line: "Remove ben@acme.com from the workspace", "Post in #sales". */
 function manageLabel(input: unknown): string | undefined {
@@ -182,8 +163,7 @@ function manageLabel(input: unknown): string | undefined {
 export const manageTools: ToolDef[] = (Object.keys(manageInputs) as ManageTool[]).map((id) =>
 	defineTool<unknown>({
 		id,
-		title: titles[id],
-		description: descriptions[id],
+		...about[id],
 		input: manageInputs[id],
 		...((id === "members.invite" || id === "members.remove") && { permission: "members.manage" as const }),
 		...(id.endsWith(".remove") ? { risk: "locked" as const } : id === "members.invite" || id === "skills.edit" ? { risk: "outside" as const } : {}),

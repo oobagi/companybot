@@ -5,13 +5,16 @@ import { type QueryCtx, internalMutation } from "./_generated/server";
 import { liveWorkspace } from "./lib";
 import { risk } from "./schema";
 
-/** An action's risk from its definition: built-ins in code, connector tools as their server last listed them (unlisted ones ask). */
-export async function riskOf(ctx: QueryCtx, workspaceId: Id<"workspaces">, action: string): Promise<Risk> {
+/** An action's definition: built-ins in code, connector tools as their server last listed them. */
+async function definitionOf(ctx: QueryCtx, workspaceId: Id<"workspaces">, action: string): Promise<{ risk?: Risk; title?: string } | undefined> {
 	const builtin = builtinTools.find((t) => t.id === action);
-	if (builtin) return toolRisk(builtin);
-	const listed = await toolsOf(ctx, workspaceId, toolGroup(action));
-	return listed.find((t) => `${toolGroup(action)}.${t.name}` === action)?.risk ?? "outside";
+	if (builtin) return { risk: toolRisk(builtin), title: builtin.title };
+	return (await toolsOf(ctx, workspaceId, toolGroup(action))).find((t) => `${toolGroup(action)}.${t.name}` === action);
 }
+
+/** An action's risk from its definition (unlisted connector tools ask). */
+export const riskOf = async (ctx: QueryCtx, workspaceId: Id<"workspaces">, action: string): Promise<Risk> =>
+	(await definitionOf(ctx, workspaceId, action))?.risk ?? "outside";
 
 export const toolsOf = async (ctx: QueryCtx, workspaceId: Id<"workspaces">, connectorId: string) =>
 	(
@@ -22,11 +25,7 @@ export const toolsOf = async (ctx: QueryCtx, workspaceId: Id<"workspaces">, conn
 	)?.tools ?? [];
 
 /** The title an action's server gave it, if any (built-ins carry their own). Use with `actionLabel`. */
-export async function titleOf(ctx: QueryCtx, workspaceId: Id<"workspaces">, action: string) {
-	const builtin = builtinTools.find((t) => t.id === action);
-	if (builtin) return builtin.title;
-	return (await toolsOf(ctx, workspaceId, toolGroup(action))).find((t) => `${toolGroup(action)}.${t.name}` === action)?.title;
-}
+export const titleOf = async (ctx: QueryCtx, workspaceId: Id<"workspaces">, action: string) => (await definitionOf(ctx, workspaceId, action))?.title;
 
 /**
  * Records the tools a connector's server listed, when they changed. Display only. Only while

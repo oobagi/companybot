@@ -1,4 +1,3 @@
-import { databaseInput, fieldInput, isGranted, viewInput } from "@companybot/core";
 import { deleteView, saveView, viewsOf } from "./databaseViews";
 import {
 	type RecordFindInput,
@@ -7,8 +6,12 @@ import {
 	type RecordTypesResult,
 	MULTI_MAX,
 	NAME_KEY,
+	databaseInput,
 	displayValues,
+	fieldInput,
 	indexEntries,
+	isGranted,
+	viewInput,
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -23,7 +26,7 @@ import {
 	fieldsOf,
 	idsIn,
 	inTrash,
-	requireRecord,
+	recordById,
 	resolveRefs,
 	setFieldTrashed,
 	setRecordTrashed,
@@ -223,6 +226,18 @@ async function recordOut(ctx: QueryCtx, member: Member, recordId: Id<"records">)
 	return { id: _id, type: type.key, typeName: type.name, name: record.title, ...((await inTrash(ctx, record)) && { inTrash: true }), values };
 }
 
+/** A field as agents see it. `linksTo`: the key of the database it links to. */
+const fieldOut = (f: Doc<"recordFields">, linksTo?: string) => ({
+	key: f.key,
+	label: f.label,
+	kind: f.kind,
+	position: f.position,
+	...(f.archived && { inTrash: true }),
+	...(f.options && { choices: f.options, options: f.options.filter((o) => !o.retired).map((o) => o.label) }),
+	...(f.linkTypeId && { linksTo }),
+	...(f.multiple && { multiple: true as const }),
+});
+
 export const typesFor = internalQuery({
 	args: { turnId: v.id("agentTurns"), trashed: v.optional(v.boolean()) },
 	handler: async (ctx, { turnId, trashed = false }): Promise<RecordTypesResult> => {
@@ -238,18 +253,7 @@ export const typesFor = internalQuery({
 					plural: t.plural,
 					version: t.version ?? 0,
 					...(t.archived && { inTrash: true }),
-					fields: (await fieldsOf(ctx, t._id))
-						.map((f) => ({
-							key: f.key,
-							label: f.label,
-							kind: f.kind,
-							position: f.position,
-							...(f.archived && { inTrash: true }),
-							...(f.options && { choices: f.options }),
-							...(f.options && { options: f.options.filter((o) => !o.retired).map((o) => o.label) }),
-							...(f.linkTypeId && { linksTo: keys.get(f.linkTypeId) ?? "(a deleted database)" }),
-							...(f.multiple && { multiple: true as const }),
-						})),
+					fields: (await fieldsOf(ctx, t._id)).map((f) => fieldOut(f, f.linkTypeId && (keys.get(f.linkTypeId) ?? "(a deleted database)"))),
 				})),
 			),
 		};
@@ -295,9 +299,8 @@ export const getFor = internalQuery({
 	handler: async (ctx, { turnId, id }) => {
 		const { member } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
-			const recordId = ctx.db.normalizeId("records", id);
-			if (!recordId) throw new ConvexError("Record not found.");
-			const record = await requireRecord(ctx, member, recordId);
+			const record = await recordById(ctx, member, id);
+			const recordId = record._id;
 			const fields = await fieldsOf(ctx, record.typeId);
 			const out = await recordOut(ctx, member, recordId);
 			const [row] = await toRows(ctx, member.workspaceId, [{ record, fields }]);
@@ -351,9 +354,7 @@ export const saveFor = internalMutation({
 			let recordId: Id<"records">;
 			let change: Id<"recordHistory"> | null;
 			if (id) {
-				const normalized = ctx.db.normalizeId("records", id);
-				if (!normalized) throw new ConvexError("Record not found.");
-				const record = await requireRecord(ctx, member, normalized);
+				const record = await recordById(ctx, member, id);
 				recordId = record._id;
 				if (trash !== undefined) change = await setRecordTrashed(ctx, who, recordId, trash);
 				else if (hasValues) {
@@ -413,19 +414,7 @@ export const saveFieldFor = internalMutation({
 				fieldId = (await createField(ctx, who, type._id, { label, kind, options, linkTypeId, multiple }))._id;
 			}
 			const f = (await ctx.db.get(fieldId))!;
-			return {
-				type: type.key,
-				typePlural: type.plural,
-				key: f.key,
-				label: f.label,
-				kind: f.kind,
-				position: f.position,
-				...(f.options && { choices: f.options }),
-				...(f.options && { options: f.options.filter((o) => !o.retired).map((o) => o.label) }),
-				...(f.linkTypeId && { linksTo: (await ctx.db.get(f.linkTypeId))?.key }),
-				...(f.multiple && { multiple: true }),
-				...(f.archived && { inTrash: true }),
-			};
+			return { type: type.key, typePlural: type.plural, ...fieldOut(f, f.linkTypeId && (await ctx.db.get(f.linkTypeId))?.key) };
 		});
 	},
 });
@@ -517,9 +506,7 @@ export const historyFor = internalQuery({
 				return activityPage(ctx, member, opts);
 			}
 			if (!id) return activityAs(ctx, member, opts);
-			const recordId = ctx.db.normalizeId("records", id);
-			if (!recordId) throw new ConvexError("Record not found.");
-			return historyAs(ctx, member, await requireRecord(ctx, member, recordId), opts);
+			return historyAs(ctx, member, await recordById(ctx, member, id), opts);
 		});
 	},
 });

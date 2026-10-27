@@ -324,10 +324,7 @@ export async function openDirectMessage(ctx: MutationCtx, member: Member, args: 
 
 export const markRead = mutation({
 	args: { chatId: v.id("chats") },
-	handler: async (ctx, { chatId }) => {
-		const member = await requireMember(ctx);
-		await markReadAs(ctx, member, chatId);
-	},
+	handler: async (ctx, { chatId }) => markReadAs(ctx, await requireMember(ctx), chatId),
 });
 
 /**

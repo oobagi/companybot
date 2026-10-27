@@ -277,7 +277,6 @@ async function read(ctx: QueryCtx, budget: Budget, s: Stream, order: "asc" | "de
 	const rows: Row[] = await ctx.db
 		.query(s.table)
 		// The index and its fields vary by stream, so the range is built untyped.
-		// biome-ignore lint/suspicious/noExplicitAny: see above
 		.withIndex(s.index as any, (q: any) => {
 			let r = q;
 			for (const [f, value] of s.prefix) r = r.eq(f, value);

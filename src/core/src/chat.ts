@@ -25,15 +25,13 @@ export interface ChatLine {
 	reactions?: { emoji: string; by: string[] }[];
 }
 
-export interface ChatReadInput {
-	/** A channel name like "#sales". Omit for the place this turn is in. */
-	chat?: string;
-	/** A message id: read its thread. */
-	threadOf?: string;
-	/** ISO time: only messages before it. */
-	before?: string;
-	limit?: number;
-}
+const readInput = z.object({
+	chat: z.string().optional().describe('Channel like "#sales". Omit for here.'),
+	threadOf: z.string().optional().describe("Message id whose thread to read"),
+	before: z.string().optional().describe("ISO time; only messages before it"),
+	limit: z.number().int().min(1).max(100).optional().describe("Default 30"),
+});
+export type ChatReadInput = z.infer<typeof readInput>;
 
 export type ChatResult = { messages: ChatLine[] } | { error: string };
 
@@ -63,12 +61,7 @@ export const chatTools: ToolDef[] = [
 		title: "Read the chat",
 		description:
 			"Read chat messages, oldest first: earlier ones here, a channel (\"#sales\"), or a thread (threadOf: message id).",
-		input: z.object({
-			chat: z.string().optional().describe('Channel like "#sales". Omit for here.'),
-			threadOf: z.string().optional().describe("Message id whose thread to read"),
-			before: z.string().optional().describe("ISO time; only messages before it"),
-			limit: z.number().int().min(1).max(100).optional().describe("Default 30"),
-		}),
+		input: readInput,
 		readOnly: true,
 		// Can read their private channels and DMs.
 		risk: "inside",

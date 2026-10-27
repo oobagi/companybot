@@ -136,13 +136,22 @@ export async function requirePermission(ctx: QueryCtx, permission: Permission): 
 	return checkPermission(await requireMember(ctx), permission);
 }
 
+/** `load`, called at most once per key: for a read many rows in one call share. */
+export function memo<K, V>(load: (key: K) => Promise<V>) {
+	const cache = new Map<K, Promise<V>>();
+	return (key: K) => {
+		let value = cache.get(key);
+		if (!value) cache.set(key, (value = load(key)));
+		return value;
+	};
+}
+
 /** Role check shared by app mutations and operations acting for a turn. */
 export function checkPermission(member: Member, permission: Permission): Member {
 	if (!can(member.role, permission)) throw new ConvexError(deniedMessage(permission));
 	return member;
 }
 
-/** An agent in the person's workspace. Other workspaces' agents look like they don't exist. */
 /**
  * A row from the workspace this request is for, or "<what> not found." Every public function
  * that takes an id checks the row with this (or a require* helper built on it): an id from
@@ -153,6 +162,7 @@ export function requireInWorkspace<T extends { workspaceId: Id<"workspaces"> }>(
 	return row;
 }
 
+/** An agent in the person's workspace. Other workspaces' agents look like they don't exist. */
 export async function requireAgent(ctx: QueryCtx, member: Member, agentId: Id<"agents">) {
 	return requireInWorkspace(member, await ctx.db.get(agentId), "Agent");
 }

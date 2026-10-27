@@ -1,9 +1,11 @@
 import { asSchema } from "ai";
 import { describe, expect, it } from "vitest";
+import type { z } from "zod";
 import { builtinTools } from "./builtin-tools";
 import { actionOf, resolveTools, toolApprovalPolicy } from "./agents";
 import { permissionFor, toolRisk } from "./action-rules";
 import { platformGuide } from "./guide";
+import { CUSTOM_NAME_MAX, CUSTOM_PROMPT_MAX } from "./automations";
 import { manageInputs, manageTools } from "./manage-tools";
 import { modelToolName } from "./tools";
 
@@ -56,6 +58,9 @@ describe("grouped tools", () => {
 		expect(guide).toContain("Only that action waits as a card in their DM");
 		expect(guide).toContain("source agents reads visible tool activity");
 		expect(guide).toContain("mark a chat read only when explicitly asked");
+		// Each bullet sits under its own section, not the one before it.
+		expect(guide).toMatch(/## Chat\n[^#]*chat_manage/);
+		expect(guide).toMatch(/## Workspace settings\n- workspace_settings/);
 	});
 
 	it("locks message deletion without applying an Always for other chat actions", async () => {
@@ -66,6 +71,19 @@ describe("grouped tools", () => {
 		expect(await toolApprovalPolicy([tool])({ toolCall: { toolCallId: "delete", toolName: "chat_manage", input: { request } } })).toBe("user-approval");
 		for (const request of [{ action: "edit", messageId: "m", text: "fixed" }, { action: "react", messageId: "m", emoji: "✅" }, { action: "mark_read", chat: "c" }])
 			expect(await toolApprovalPolicy([tool])({ toolCall: { toolCallId: "safe", toolName: "chat_manage", input: { request } } })).toBeUndefined();
+	});
+
+	it("caps automation edits and creates at the backend's limits", () => {
+		const edit = (name: string, prompt: string) =>
+			manageInputs["automations.manage"].safeParse({ request: { action: "edit", id: "a", expectedVersion: 1, config: { name, prompt, trigger: { type: "webhook" } } } }).success;
+		expect(edit("x".repeat(CUSTOM_NAME_MAX), "y".repeat(CUSTOM_PROMPT_MAX))).toBe(true);
+		expect(edit("x".repeat(CUSTOM_NAME_MAX + 1), "y")).toBe(false);
+		expect(edit("x", "y".repeat(CUSTOM_PROMPT_MAX + 1))).toBe(false);
+		const create = builtinTools.find((t) => t.id === "automations.create")!.input as z.ZodType;
+		const made = (name: string, prompt: string) => create.safeParse({ name, prompt, trigger: { type: "webhook" } }).success;
+		expect(made("x".repeat(CUSTOM_NAME_MAX), "y".repeat(CUSTOM_PROMPT_MAX))).toBe(true);
+		expect(made("x".repeat(CUSTOM_NAME_MAX + 1), "y")).toBe(false);
+		expect(made("x", "y".repeat(CUSTOM_PROMPT_MAX + 1))).toBe(false);
 	});
 
 	it("locks agent deleting and instruction/model rewrites, not metadata edits", async () => {

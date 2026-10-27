@@ -61,13 +61,12 @@ export const deliver = internalAction({
 		if (!(await ctx.runQuery(internal.invites.stillOpen, { id: inviteId }))) return;
 		// Local backends (`pnpm dev`) and tests send no email; the log shows what would have gone out.
 		if (isLocalBackend(process.env.CONVEX_CLOUD_URL) || !process.env.AUTH_RESEND_KEY) return void console.log(`Invite email to ${to}: ${subject}\n\n${text}`);
-		const { error } = await new Resend(process.env.AUTH_RESEND_KEY).emails.send({
-			from: process.env.AUTH_EMAIL_FROM ?? "Companybot <onboarding@resend.dev>",
-			to: [to],
-			subject,
-			text,
-			html,
-		});
-		if (error) throw new Error(JSON.stringify(error));
+		await sendEmail(process.env.AUTH_RESEND_KEY, { to, subject, text, html });
 	},
 });
+
+/** Sends one email through Resend, from AUTH_EMAIL_FROM. */
+export async function sendEmail(apiKey: string | undefined, email: { to: string; subject: string; text: string; html?: string }) {
+	const { error } = await new Resend(apiKey).emails.send({ from: process.env.AUTH_EMAIL_FROM ?? "Companybot <onboarding@resend.dev>", ...email, to: [email.to] });
+	if (error) throw new Error(JSON.stringify(error));
+}

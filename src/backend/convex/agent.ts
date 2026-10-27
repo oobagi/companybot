@@ -41,11 +41,10 @@ import {
 } from "@companybot/core";
 import { generateText, streamText } from "ai";
 import type { FunctionReturnType } from "convex/server";
-import { type Infer, v } from "convex/values";
+import { ConvexError, type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { ConvexError } from "convex/values";
 import { type ActionCtx, internalAction } from "./_generated/server";
 import { action } from "./functions";
 import { decrypt, encrypt } from "./crypto";

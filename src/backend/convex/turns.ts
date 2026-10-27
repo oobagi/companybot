@@ -248,9 +248,7 @@ async function toPlaceMessage(m: Doc<"chatMessages">, names: Namer, self: Id<"ag
 /** Stored before the model call, so later turns replay it exactly. */
 export const savePrompt = internalMutation({
 	args: { turnId: v.id("agentTurns"), prompt: v.string() },
-	handler: async (ctx, { turnId, prompt }) => {
-		await ctx.db.patch(turnId, { prompt });
-	},
+	handler: async (ctx, { turnId, prompt }) => ctx.db.patch(turnId, { prompt }),
 });
 
 export const updateReply = internalMutation({

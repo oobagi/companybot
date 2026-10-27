@@ -13,13 +13,11 @@ import {
 	Notice,
 	Page,
 	SaveBar,
-	Section,
 	Setting,
 	Settings,
 	Tabs,
 	compactControlClass,
 	dangerButton,
-	descriptionClass,
 	disabledButtonClass,
 	inputClass,
 	primaryButton,
@@ -28,7 +26,7 @@ import {
 	useRun,
 } from "../ui";
 import { ActivityTab } from "./Activity";
-import { Modal } from "./chat/common";
+import { Confirm, Modal, zoneLabel } from "./chat/common";
 import { MembersTab } from "./Members";
 import { MemoryTab } from "./Memory";
 import { WorkspaceLocks, YourPermissions } from "./Permissions";
@@ -126,8 +124,7 @@ function DangerZone({
 }) {
 	const [open, setOpen] = useState(false);
 	const [typed, setTyped] = useState("");
-	const [busy, setBusy] = useState(false);
-	const { error, run } = useRun();
+	const { error, busy, run } = useRun();
 	const matches = ignoreCase ? typed.trim().toLowerCase() === confirm.toLowerCase() : typed.trim() === confirm;
 	const close = () => !busy && (setOpen(false), setTyped(""));
 	return (
@@ -144,8 +141,7 @@ function DangerZone({
 						onSubmit={(e) => {
 							e.preventDefault();
 							if (busy || !matches) return;
-							setBusy(true);
-							run(onDelete(typed.trim())).finally(() => setBusy(false));
+							run(onDelete(typed.trim()));
 						}}
 					>
 						<p className="text-neutral-600">{children}</p>
@@ -240,21 +236,9 @@ function GeneralForm({
 				<SaveBar onDiscard={draft.discard} onSave={() => (currencyChanged && settings.hasAmounts ? setConfirming(true) : submit())} />
 			)}
 			{confirming && (
-				<Modal title="Change currency?" onClose={() => setConfirming(false)}>
-					<div className="flex flex-col gap-4 text-sm">
-						<p className="text-neutral-600">
-							Existing amounts stay in {settings.currency}. New amounts will use {draft.value.currency}.
-						</p>
-						<div className="flex justify-end gap-2">
-							<button type="button" onClick={() => setConfirming(false)} className={secondaryButton}>
-								Cancel
-							</button>
-							<button type="button" onClick={submit} className={primaryButton}>
-								Change currency
-							</button>
-						</div>
-					</div>
-				</Modal>
+				<Confirm title="Change currency?" action="Change currency" onConfirm={submit} onClose={() => setConfirming(false)}>
+					Existing amounts stay in {settings.currency}. New amounts will use {draft.value.currency}.
+				</Confirm>
 			)}
 		</>
 	);
@@ -262,8 +246,6 @@ function GeneralForm({
 
 const deviceTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 const timeZones = Intl.supportedValuesOf("timeZone");
-/** "America/Los_Angeles" → "America/Los Angeles". */
-const zoneLabel = (zone: string) => zone.replaceAll("_", " ");
 
 /** Personal: only you see these, and they follow you to every device. */
 function ProfileTab() {

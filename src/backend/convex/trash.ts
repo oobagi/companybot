@@ -1,4 +1,3 @@
-import { can, deniedMessage } from "@companybot/core";
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id, TableNames } from "./_generated/dataModel";
@@ -10,7 +9,7 @@ import { removeInstall, setAutomationTrashed } from "./automations";
 import { startCascade } from "./cascade";
 import { canSee, setChannelTrashed } from "./chatOps";
 import { mutation, query } from "./functions";
-import { type Member, type Who, getMember, requireMember } from "./lib";
+import { type Member, type Who, checkPermission, getMember, requireMember } from "./lib";
 import { deletePage, requirePage, setPageTrashed } from "./pageOps";
 import { setFieldTrashed, setRecordTrashed, setTypeTrashed } from "./recordOps";
 import { trashKind } from "./schema";
@@ -107,7 +106,7 @@ async function screenIdOf(ctx: QueryCtx, entry: Doc<"trash">) {
 
 /** "Delete forever": owners only, and never agents. */
 export async function purgeItem(ctx: MutationCtx, member: Member, itemId: string) {
-	if (!can(member.role, "trash.manage")) throw new ConvexError(deniedMessage("trash.manage"));
+	checkPermission(member, "trash.manage");
 	const entry = await trashEntry(ctx, itemId);
 	if (entry?.workspaceId !== member.workspaceId || !(await visibleEntry(ctx, member, entry))) throw new ConvexError("It's no longer in Trash.");
 	await deleteEntry(ctx, entry);

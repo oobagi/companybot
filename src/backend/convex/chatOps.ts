@@ -2,7 +2,7 @@ import { canManageChannel, describeWidget } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { type Member, type Who, getMember, memberOf, nameOf, toActor } from "./lib";
+import { type Member, type Who, getMember, memberOf, memo, nameOf, toActor } from "./lib";
 import { putInTrash, takeFromTrash } from "./trashOps";
 
 // Shared by the app's chat functions (chats.ts, messages.ts) and the agent runner
@@ -253,12 +253,6 @@ export async function addUserMentions(ctx: MutationCtx, message: Doc<"chatMessag
 	}
 }
 
-export async function removeUserMentions(ctx: MutationCtx, messageId: Id<"chatMessages">) {
-	for (const row of await ctx.db.query("userMentions").withIndex("by_message", (q) => q.eq("messageId", messageId)).collect()) {
-		await ctx.db.delete(row._id);
-	}
-}
-
 export const reactionsOf = (ctx: QueryCtx, messageId: Id<"chatMessages">) =>
 	ctx.db
 		.query("reactions")
@@ -273,7 +267,7 @@ export async function toggleReaction(
 	who: { userId: Id<"users"> } | { agentId: Id<"agents"> },
 ) {
 	const existing = await ctx.db.query("reactions")
-		.withIndex("by_actor", (q) => q.eq("messageId", message._id).eq("emoji", emoji)
+		.withIndex("by_message", (q) => q.eq("messageId", message._id).eq("emoji", emoji)
 			.eq("userId", "userId" in who ? who.userId : undefined).eq("agentId", "agentId" in who ? who.agentId : undefined))
 		.first();
 	if (existing) {
@@ -286,21 +280,10 @@ export async function toggleReaction(
 
 /** Display names for people and agents, cached for one query. */
 export function namer(ctx: QueryCtx) {
-	const cache = new Map<string, Promise<string>>();
-	const cached = (id: string, load: () => Promise<string>) => {
-		if (!cache.has(id)) cache.set(id, load());
-		return cache.get(id)!;
-	};
-	const user = async (id: Id<"users">): Promise<Participant> => ({
-		type: "user",
-		id,
-		name: await cached(id, () => nameOf(ctx, id)),
-	});
-	const agent = async (id: Id<"agents">): Promise<Participant> => ({
-		type: "agent",
-		id,
-		name: await cached(id, async () => (await ctx.db.get(id))?.name ?? "Agent"),
-	});
+	const userName = memo((id: Id<"users">) => nameOf(ctx, id));
+	const agentName = memo(async (id: Id<"agents">) => (await ctx.db.get(id))?.name ?? "Agent");
+	const user = async (id: Id<"users">): Promise<Participant> => ({ type: "user", id, name: await userName(id) });
+	const agent = async (id: Id<"agents">): Promise<Participant> => ({ type: "agent", id, name: await agentName(id) });
 	/** A member row or message author: a person or an agent. */
 	const of = async (row: { userId?: Id<"users">; agentId?: Id<"agents"> } | { authorUserId?: Id<"users">; authorAgentId?: Id<"agents">; actingFor?: Id<"users"> }) => {
 		const userId = "authorUserId" in row ? row.authorUserId : "userId" in row ? row.userId : undefined;

@@ -18,6 +18,7 @@ import { type MutationCtx, type QueryCtx, internalQuery } from "./_generated/ser
 import { mutation, query } from "./functions";
 import { type Member, getMember, memberFor, nameOf, requireInWorkspace, requireMember, requirePermission } from "./lib";
 import { automationName, automationScope } from "./automationOps";
+import { installOf } from "./connectors";
 import { riskOf, titleOf, toolsOf } from "./connectorTools";
 import { risk } from "./schema";
 import { runningTurn } from "./turns";
@@ -34,12 +35,7 @@ import { runningTurn } from "./turns";
 async function connectorInstallOf(ctx: QueryCtx, workspaceId: Id<"workspaces">, action: string) {
 	const connectorId = toolGroup(action);
 	if (!findConnector(connectorId)) return undefined;
-	return (
-		(await ctx.db
-			.query("connectorInstalls")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId).eq("connectorId", connectorId))
-			.first()) ?? null
-	);
+	return (await installOf(ctx, workspaceId, connectorId)) ?? null;
 }
 
 const lockOf = async (ctx: QueryCtx, workspaceId: Id<"workspaces">, action: string, scope?: Id<"connectorInstalls">) =>

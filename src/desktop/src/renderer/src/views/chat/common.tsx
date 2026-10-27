@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CloseIcon } from "../../icons";
+import { Notice, primaryButton, secondaryButton } from "../../ui";
 
 const initials = (name: string) =>
 	name
@@ -188,7 +189,25 @@ export function MenuItem({ onClick, danger, children }: { onClick: () => void; d
 	);
 }
 
-export const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+/** A yes/no question: Cancel, or `action`. */
+export function Confirm(props: { title: string; action: string; error?: string; onConfirm: () => void; onClose: () => void; children: React.ReactNode }) {
+	return (
+		<Modal title={props.title} onClose={props.onClose}>
+			<div className="flex flex-col gap-4 text-sm">
+				<p className="text-neutral-600">{props.children}</p>
+				{props.error && <Notice>{props.error}</Notice>}
+				<div className="flex justify-end gap-2">
+					<button type="button" onClick={props.onClose} className={secondaryButton}>Cancel</button>
+					<button type="button" onClick={props.onConfirm} className={primaryButton}>{props.action}</button>
+				</div>
+			</div>
+		</Modal>
+	);
+}
+
+export const clock = (ms: number, timeZone?: string) => new Date(ms).toLocaleTimeString([], { timeZone, hour: "numeric", minute: "2-digit" });
+/** "America/Los_Angeles" → "America/Los Angeles". */
+export const zoneLabel = (zone: string) => zone.replaceAll("_", " ");
 
 export function dayLabel(ms: number) {
 	const day = new Date(ms).toDateString();

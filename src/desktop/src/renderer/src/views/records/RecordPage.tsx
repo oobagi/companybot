@@ -8,7 +8,7 @@ import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { HistoryIcon, TrashIcon } from "../../icons";
-import { LoadMore, Loading, Notice, Page, Section, Tabs, barButton, barDangerButton, descriptionClass, metadataClass, timeAgo, useRun } from "../../ui";
+import { LoadMore, NotFound, Notice, Page, Section, Tabs, barButton, barDangerButton, descriptionClass, metadataClass, timeAgo, useRun } from "../../ui";
 import { Modal } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { PageEditor } from "../pages/PageEditor";
@@ -31,13 +31,8 @@ export function RecordPage({ type, recordId, role }: { type: RecordType; recordI
 	const update = useMutation(api.records.update);
 	const { error, run } = useRun();
 	const crumbs = [{ label: type.plural, to: recordPath(type.key) }];
-	if (record === undefined) return <Page title="" crumbs={crumbs}><Loading /></Page>;
-	if (record === null || record.typeId !== type._id) {
-		return (
-			<Page title="Not found" crumbs={crumbs}>
-				<p className={descriptionClass}>This {type.name.toLowerCase()} isn't in your workspace.</p>
-			</Page>
-		);
+	if (!record || record.typeId !== type._id) {
+		return <NotFound crumbs={crumbs} loaded={record !== undefined}>This {type.name.toLowerCase()} isn't in your workspace.</NotFound>;
 	}
 	const canEdit = can(role, "records.edit");
 

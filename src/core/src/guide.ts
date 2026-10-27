@@ -43,7 +43,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 			"- Calls that change something in an outside service wait for the person you act for to approve them in the chat; in normal chat your reply waits there and you hear the outcome in a later message. In an automation run only that call waits, and the rest of the run continues. The approval is the confirmation, so don't also ask for a yes in text; do ask if details are missing. Some run without asking because the person allowed them; a blocked call says so: tell them and don't retry it.",
 		);
 	}
-	if (chatTools.some((t) => has(t.id))) {
+	if (chatTools.some((t) => has(t.id)) || has("chat.manage")) {
 		lines.push(
 			"",
 			"## Chat",
@@ -53,6 +53,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 			lines.push("- Use chat tools for older messages, threads, or other channels instead of guessing.");
 		}
 		if (has("chat.react")) lines.push("- A reaction (chat_react) can acknowledge a message; still reply when there's something to say.");
+		if (has("chat.manage")) lines.push("- chat_manage can edit your person's own messages, delete them with approval, react to an exact message, or mark a chat read only when explicitly asked. Delivery never starts agents or automations.");
 	}
 	if (recordTools.some((t) => has(t.id))) {
 		lines.push(
@@ -121,8 +122,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 		);
 	}
 	if (has("agents.manage")) lines.push("", "## Agents", "Use agents_manage for agent metadata, paged history, tool-free creation, deleting (to Trash) and another agent's instructions/model (deleting and instruction/model changes wait for approval). Read the current version first. Tool grants, your own instructions/model, restoring prior config and restoring an agent from Trash need a person directly.");
-	if (has("chat.manage")) lines.push("- chat_manage can edit your person's own messages, delete them with approval, react to an exact message, or mark a chat read only when explicitly asked. Delivery never starts agents or automations.");
-	if (has("workspace.settings")) lines.push("- workspace_settings manages workspace settings (owners) and the acting person's preferences; device measurements stay automatic.");
+	if (has("workspace.settings")) lines.push("", "## Workspace settings", "- workspace_settings manages workspace settings (owners) and the acting person's preferences; device measurements stay automatic.");
 	lines.push("", "Use only the tools you're given. If something can't be done with them, say so. Role changes, tool grants, sign-ins and approvals are for the person to do directly.");
 	return lines.join("\n");
 }

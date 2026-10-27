@@ -1,9 +1,7 @@
 import {
 	type CustomSkillConfig,
-	can,
 	canEditMade,
 	customSkillError,
-	deniedMessage,
 	madeEditDenied,
 	normalizeCustomSkill,
 	skillCatalog,
@@ -33,7 +31,7 @@ import { runningTurn } from "./turns";
 // The maker or an owner can change or delete one (`canEditMade`); deleting moves it to Trash.
 
 /** A skill's install, unless it's in Trash. */
-const installOf = async (ctx: QueryCtx, workspaceId: Id<"workspaces">, skillId: string) => {
+export const installOf = async (ctx: QueryCtx, workspaceId: Id<"workspaces">, skillId: string) => {
 	const install = await ctx.db
 		.query("skillInstalls")
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId).eq("skillId", skillId))
@@ -90,7 +88,7 @@ const customConfig = v.object({ name: v.string(), description: v.string(), instr
 
 /** Makes a skill for the workspace, as `member`. Throws a ConvexError with the problem. */
 async function createSkill(ctx: MutationCtx, member: Member, config: CustomSkillConfig) {
-	if (!can(member, "skills.create")) throw new ConvexError(deniedMessage("skills.create"));
+	checkPermission(member, "skills.create");
 	config = normalizeCustomSkill(config);
 	const problem = customSkillError(config);
 	if (problem) throw new ConvexError(problem);

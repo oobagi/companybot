@@ -14,7 +14,7 @@ import {
 	setPageTrashed,
 	writeBlocks,
 } from "./pageOps";
-import { inTrash, requireRecord } from "./recordOps";
+import { inTrash, recordById } from "./recordOps";
 import { pageHistory, requireVersion, versionContent } from "./pages";
 import { runningTurn } from "./turns";
 
@@ -38,11 +38,7 @@ async function pageNamed(ctx: QueryCtx, member: Member, name: string, trashed = 
 	return rows[0];
 }
 
-const recordNamed = (ctx: QueryCtx, member: Member, id: string) => {
-	const recordId = ctx.db.normalizeId("records", id);
-	if (!recordId) throw new ConvexError("Record not found. Use its id, from records_find.");
-	return requireRecord(ctx, member, recordId);
-};
+const recordNamed = (ctx: QueryCtx, member: Member, id: string) => recordById(ctx, member, id, "Record not found. Use its id, from records_find.");
 
 /** What the page is called: its title, or its record's name. */
 const titleOf = async (ctx: QueryCtx, page: Doc<"pages">) => (page.recordId ? ((await ctx.db.get(page.recordId))?.title ?? "") : page.title);
