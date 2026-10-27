@@ -70,9 +70,8 @@ describe("agent memory", () => {
 		];
 		for (const turn of shared) {
 			expect((await turn.search()).map((m) => m.content)).toEqual(["We close at 5."]);
-			await expect(turn.create("personal", "x")).rejects.toThrow("Personal memories are off");
-			await expect(turn.update(mine.id, "x")).rejects.toThrow("Personal memories are off");
-			await expect(turn.remove(mine.id)).rejects.toThrow("Personal memories are off");
+			await expect(turn.update(mine.id, "x")).rejects.toThrow("can't be read or changed here");
+			await expect(turn.remove(mine.id)).rejects.toThrow("can't be read or changed here");
 		}
 		expect((await owner.query(api.memory.list)).find((m) => m.id === mine.id)?.content).toBe("I'm vegetarian.");
 	});
@@ -124,7 +123,7 @@ describe("agent memory", () => {
 		expect((await member.query(api.memory.list)).at(-1)?.content).toBe("New note");
 	});
 
-	it("applies a demotion to the very next call", async () => {
+	it("reads the role fresh each call, and a demotion never shows anyone else's personal memories", async () => {
 		const { t, owner, member, companybot } = await setup();
 		const row = (await owner.query(api.workspace.team))!.members.find((m) => !m.isYou)!;
 		await owner.mutation(api.workspace.setRole, { id: row.id, role: "owner" });
@@ -137,9 +136,9 @@ describe("agent memory", () => {
 
 		await owner.mutation(api.workspace.setRole, { id: row.id, role: "member" });
 		expect((await turn.search("note")).map((m) => m.content)).toEqual(["Member's note."]);
-		await expect(turn.create("workspace", "x")).rejects.toThrow("permission");
-		await expect(turn.update(team.id, "x")).rejects.toThrow("can't change");
-		await expect(turn.remove(team.id)).rejects.toThrow("can't change");
+		// Members change team memories too (wiki-style), so a demotion leaves that alone.
+		await turn.update(team.id, "Office is in Dallas.");
+		await turn.remove(team.id);
 	});
 
 	it("blocks reads and writes once the turn has stopped", async () => {

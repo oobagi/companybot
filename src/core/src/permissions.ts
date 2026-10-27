@@ -26,7 +26,8 @@ export const permissions = {
 	"automations.manage": { roles: ["owner"], label: "manage automations" },
 	/** Make your own automations. You can always change and delete the ones you made. */
 	"automations.create": { roles: ["owner", "member"], label: "make automations" },
-	"memory.team.write": { roles: ["owner"], label: "change team memories" },
+	/** Add, change and delete (to Trash) any team memory, and restore old versions. Wiki-style: anyone can fix a wrong fact; history undoes it. */
+	"memory.team.write": { roles: ["owner", "member"], label: "change team memories" },
 	/** Add, change, delete (to Trash) and restore records (clients, deals, tasks…), and undo changes. */
 	"records.edit": { roles: ["owner", "member"], label: "change records" },
 	/** Write, rename, delete (to Trash) and restore pages, and restore old versions (wiki/pages.md). */

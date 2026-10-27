@@ -49,9 +49,10 @@ describe("tool visibility", () => {
 	});
 
 	it("hides owner-only tools from members", () => {
-		const agent = { tools: ["memory.remember_for_team"] };
-		expect(describeToolAccess(agent, member)).toEqual([{ id: "memory.remember_for_team", visible: false, reason: "role" }]);
-		expect(resolveTools(companybot, member).map((t) => t.id)).not.toContain("memory.remember_for_team");
+		const agent = { tools: ["records.save_database"] };
+		expect(describeToolAccess(agent, member)).toEqual([{ id: "records.save_database", visible: false, reason: "role" }]);
+		expect(resolveTools(companybot, member).map((t) => t.id)).not.toContain("records.save_database");
+		expect(resolveTools(companybot, member).map((t) => t.id)).toContain("memory.remember_for_team");
 	});
 
 	it("covers a whole group with a wildcard grant", () => {
@@ -76,6 +77,7 @@ describe("tool visibility", () => {
 		expect(Object.keys(buildToolSet(companybot, ctx(member))).sort()).toEqual([
 			"memory_search",
 			"memory_remember",
+			"memory_remember_for_team",
 			"memory_update",
 			"memory_forget",
 			"clock_now",

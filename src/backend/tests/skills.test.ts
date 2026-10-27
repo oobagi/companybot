@@ -176,7 +176,7 @@ describe("customize", () => {
 	it("hides owner-only tools from members", async () => {
 		const { owner, member } = await ownerAndMember();
 		const tool = async (as: typeof owner) =>
-			(await agentsOf(as)).companybot.access.find((x) => x.id === "memory.remember_for_team");
+			(await agentsOf(as)).companybot.access.find((x) => x.id === "records.save_database");
 		expect((await tool(owner))?.visible).toBe(true);
 		expect((await tool(member))?.visible).toBe(false);
 	});

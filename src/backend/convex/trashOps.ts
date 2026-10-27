@@ -5,7 +5,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { type Member, type Who, nameOf } from "./lib";
 
 // Trash: what people deleted, until it's restored or deleted for good. Each kind's own rules
-// (recordOps, pageOps, chatOps, agents, skills, automations) move its items in and out through here; trash.ts lists and
+// (recordOps, pageOps, chatOps, agents, skills, automations, memoryOps) move its items in and out through here; trash.ts lists and
 // deletes for good. See wiki/data.md#trash.
 
 /** Days an item stays in Trash before `trash.sweep` deletes it for good. */

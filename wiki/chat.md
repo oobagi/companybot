@@ -17,7 +17,7 @@ Channels, DMs (people and agents), threads, and reactions. One model for all of 
 
 ## Whose access
 - The agent acts as **the person who triggered it** (`agentTurns.actorId`): their role, connector connections, and what chats they can see. Re-read each call, as before.
-- **Personal memories only in DMs with exactly one person.** Anywhere with 2+ people, agents read and write team memories only, so one person's private facts never land in a shared chat.
+- **Personal memories are read only in DMs with exactly one person.** Anywhere with 2+ people, agents read and change team memories only, so one person's private facts never land in a shared chat. They can still save a new personal memory there, always for the person who asked: it was already said in the chat, so nothing leaks, and it lets onboarding in #general build each person's own context.
 - Chat tools (`chat.read`, `chat.search`) only see chats the actor can see.
 
 ## What an agent is fed each turn

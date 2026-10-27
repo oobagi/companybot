@@ -86,7 +86,9 @@ function MemoryRow({ memory, agent }: { memory: MemoryItem; agent: string }) {
 	const remove = useMutation(api.memory.remove);
 	const draft = useDraft(memory.content, memory.version);
 	const { error, run } = useRun();
+	const [history, setHistory] = useState(false);
 	const id = memory.id as Id<"memories">;
+	const team = memory.scope === "workspace";
 
 	return (
 		<div className="flex flex-col gap-2 rounded-xl border border-neutral-200 px-4 py-3">
@@ -120,7 +122,17 @@ function MemoryRow({ memory, agent }: { memory: MemoryItem; agent: string }) {
 								>
 									Edit
 								</button>
-								<button type="button" onClick={() => run(remove({ id }))} className="hover:text-red-600">
+								{memory.version > 1 && (
+									<button type="button" onClick={() => setHistory(!history)} className="hover:text-neutral-900" aria-expanded={history}>
+										History
+									</button>
+								)}
+								<button
+									type="button"
+									onClick={() => run(remove({ id }))}
+									title={team ? "Moves it to Trash, where it can be restored" : "Deletes it for good"}
+									className="hover:text-red-600"
+								>
 									Delete
 								</button>
 							</>
@@ -144,11 +156,52 @@ function MemoryRow({ memory, agent }: { memory: MemoryItem; agent: string }) {
 				)}
 			</div>
 			<p className={metadataClass}>
-				<span className="rounded bg-neutral-100 px-1.5 py-0.5 text-neutral-600">{agent}</span> ·{" "}
-				{memory.updatedByName}
-				{memory.updatedByAgent && ", via agent"} ·{" "}
+				<span className="rounded bg-neutral-100 px-1.5 py-0.5 text-neutral-600">{agent}</span> · {provenance(memory)} ·{" "}
 				{timeAgo(Date.parse(memory.updatedAt))}
 			</p>
+			{history && <MemoryHistory memory={memory} onRestored={() => setHistory(false)} />}
+		</div>
+	);
+}
+
+/** "Saved by Ada", or "Saved by Ada · edited by Ben, via agent". */
+function provenance(m: MemoryItem) {
+	const via = m.updatedByAgent ? ", via agent" : "";
+	if (m.version === 1) return `Saved by ${m.createdByName}${via}`;
+	if (m.createdByName === m.updatedByName) return `Saved and edited by ${m.createdByName}${via}`;
+	return `Saved by ${m.createdByName} · edited by ${m.updatedByName}${via}`;
+}
+
+/** What it said before each edit, newest first. Restoring is an edit too, so it can be undone. */
+function MemoryHistory({ memory, onRestored }: { memory: MemoryItem; onRestored: () => void }) {
+	const versions = useQuery(api.memory.versions, { id: memory.id as Id<"memories"> });
+	const restore = useMutation(api.memory.restoreVersion);
+	const { error, run } = useRun();
+	if (!versions) return <Loading />;
+	return (
+		<div className="flex flex-col gap-2 border-t border-neutral-100 pt-2">
+			{error && <Notice>{error}</Notice>}
+			{versions.length === 0 && <p className="text-sm text-neutral-400">No earlier versions.</p>}
+			{versions.map((v) => (
+				<div key={v._id} className="flex items-start gap-3 text-sm">
+					<div className="flex flex-1 flex-col gap-0.5">
+						<p className="leading-relaxed text-neutral-600">{v.content}</p>
+						<p className={metadataClass}>
+							{v.savedByName}
+							{v.savedByAgent && ", via agent"} · {timeAgo(v.savedAt)}
+						</p>
+					</div>
+					{memory.canEdit && (
+						<button
+							type="button"
+							onClick={() => run(restore({ versionId: v._id, expectedVersion: memory.version }), onRestored)}
+							className={`${descriptionClass} hover:text-neutral-900`}
+						>
+							Restore
+						</button>
+					)}
+				</div>
+			))}
 		</div>
 	);
 }
@@ -197,7 +250,7 @@ function AddMemory({
 			>
 				<option value="personal">Personal</option>
 				<option value="workspace" disabled={!canAddTeam}>
-					Team{canAddTeam ? "" : " (owners only)"}
+					Team{canAddTeam ? "" : " (not allowed)"}
 				</option>
 			</select>
 			<button type="submit" className={primaryButton}>

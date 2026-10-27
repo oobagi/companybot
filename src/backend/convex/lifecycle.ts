@@ -7,6 +7,7 @@ import { privateTo } from "./automationOps";
 import { startCascade } from "./cascade";
 import { hasLiveOwner, liveWorkspace, pinLegacyWorkspace } from "./lib";
 import { deletePage, pageOfRecord } from "./pageOps";
+import { forgetTrashEntry } from "./memoryOps";
 import { toField } from "./recordOps";
 
 // What happens to every table's rows when what they belong to goes: a workspace is deleted,
@@ -134,10 +135,12 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	},
 	memories: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
-		agent: { index: "by_agent_scope", eq: ["agentId"] },
+		// Team memories in Trash take their entry: it couldn't be restored anymore.
+		agent: { index: "by_agent_scope", eq: ["agentId"], onDelete: forgetTrashEntry },
 		// Personal memories are their owner's alone. Team memories they wrote stay with the team.
 		member: { index: "by_owner", eq: [["ownerId", "userId"], "workspaceId"] },
 	},
+	memoryVersions: { childOf: { table: "memories", index: "by_memory", field: "memoryId" } },
 
 	// ---- Connectors ----
 	connectorInstalls: {

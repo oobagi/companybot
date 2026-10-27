@@ -53,7 +53,7 @@ const sections = [
 		tabs: [
 			{ id: "general", label: "General", icon: <SettingsIcon /> },
 			{ id: "members", label: "Members", description: "We email invited people a link to get the app. They join when they sign in with that email. Role changes apply right away.", icon: <MembersIcon /> },
-			{ id: "memory", label: "Memory", description: "Each agent has its own memory. Team memories are shared. Only you can see your personal memories.", icon: <MemoryIcon /> },
+			{ id: "memory", label: "Memory", description: "Each agent has its own memory. Team memories are shared, and anyone can fix them. Only you can see your personal memories.", icon: <MemoryIcon /> },
 			{ id: "activity", label: "Activity", description: "Database changes, and what agents did in chats you can see. Agent results show only for what they did for you.", icon: <ActivityIcon /> },
 			{ id: "trash", label: "Trash", icon: <TrashIcon /> },
 		],

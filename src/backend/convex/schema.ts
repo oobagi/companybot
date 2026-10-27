@@ -45,6 +45,7 @@ export const trashKind = v.union(
 	v.literal("agent"),
 	v.literal("skill"),
 	v.literal("automation"),
+	v.literal("memory"),
 );
 
 /** core's Risk. */
@@ -228,18 +229,34 @@ export default defineSchema({
 		updatedBy: v.id("users"),
 		/** Set when the agent made the last change, acting for `updatedBy`. */
 		updatedByAgent: v.optional(v.boolean()),
+		/** Who first saved it. Missing on memories from before it was kept: read as `updatedBy`. */
+		createdBy: v.optional(v.id("users")),
+		/** True while a team memory is in Trash (the `trash` table says who deleted it, and when); unset otherwise, which reads filter on by index. */
+		archived: v.optional(v.literal(true)),
 		version: v.number(),
 		/** Retained for stored rows: no migration cleared this retired cleanup timestamp. */
 		createdTs: v.optional(v.commitTs()),
 	})
-		.index("by_workspace", ["workspaceId"])
+		.index("by_workspace", ["workspaceId", "archived"])
 		// One person's personal memories in a workspace (team memories have no owner).
 		.index("by_owner", ["ownerId", "workspaceId"])
-		// Newest first within a scope, across owners (lists), or one owner's personal memories.
-		.index("by_agent_scope", ["agentId", "scope"])
+		// Newest first within a scope, across owners (lists), or one owner's personal memories (never in Trash).
+		.index("by_agent_scope", ["agentId", "scope", "archived"])
 		.index("by_agent_owner", ["agentId", "scope", "ownerId"])
 		// Agent search over every memory, however many (memoryOps.searchMemories).
-		.searchIndex("search_content", { searchField: "content", filterFields: ["agentId", "scope", "ownerId"] }),
+		.searchIndex("search_content", { searchField: "content", filterFields: ["agentId", "scope", "ownerId", "archived"] }),
+
+	// What a memory said before each edit, newest kept (MEMORY_VERSIONS_MAX), so a wrong edit can be undone.
+	memoryVersions: defineTable({
+		memoryId: v.id("memories"),
+		/** The memory's version this content was. */
+		version: v.number(),
+		content: v.string(),
+		/** Who saved this content, and when. */
+		savedBy: v.id("users"),
+		savedByAgent: v.optional(v.boolean()),
+		savedAt: v.number(),
+	}).index("by_memory", ["memoryId", "version"]),
 
 	// Personal preferences: only the person sees them; they follow them across devices.
 	// Where apps that send no workspace act: the first workspace the person joined, set once.

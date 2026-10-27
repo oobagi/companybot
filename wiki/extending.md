@@ -56,6 +56,7 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 
 ## Memory — `core/src/memory.ts`, `backend/convex/memoryOps.ts`
 - Each memory belongs to one agent; scope `workspace` or `personal`. Rules live in `canReadMemory` / `canEditMemory` / `canCreateMemory`.
+- Team memories are wiki-style (`memory.team.write`: every role). Don't narrow who can fix one; keep the undo instead: every edit saves the old content to `memoryVersions` first (`keepVersion`, last 20), a team delete goes to Trash (`removeMemory`), and anything reading memories skips `archived` ones.
 - Personal memories are their owner's alone. No role reads, edits or deletes someone else's, so never add a permission that does; owners get only the on/off switch. Removing a member deletes theirs, agents' in Trash included, through the member cascade (`lifecycle.ts`, index `by_owner`).
 - The switch is `workspaces.memory` (unset = on), read by `memoryOn`. Off: `memory.ts` refuses every agent call with a plain message, and the turn prompt says memory is off. People can still manage their memories in the app.
 - App and agents both go through `memoryOps.ts` with a `Who` (member + optional agent), so they can't drift. Agent calls take the `turnId` and act through `runningTurn`, like every other agent tool; whether personal memories work is read from the chat on each call (`personalMemoryHere`).

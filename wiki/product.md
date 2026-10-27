@@ -40,7 +40,7 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 
 ## Core
 - `#` text channels, threads, DMs, reactions, per-channel permissions.
-- Memory: each agent has its own. Team memories (shared) + personal memories. Editable in Settings → Memory. Everyone reads team memories; owners edit them. Personal memories belong to the person: only they can see, edit or delete them, owners included, in the app and through agents. Owners can turn memory off for the workspace (Settings → General): agents then neither read nor save memories, and nothing is deleted. Removing a member deletes their personal memories.
+- Memory: each agent has its own. Team memories (shared) + personal memories. Editable in Settings → Memory. Everyone reads, adds, fixes and deletes team memories, wiki-style: each shows who saved and last edited it, keeps old versions you can restore, and goes to Trash when deleted. Personal memories belong to the person: only they can see, edit or delete them, owners included, in the app and through agents. Owners can turn memory off for the workspace (Settings → General): agents then neither read nor save memories, and nothing is deleted. Removing a member deletes their personal memories.
   - How others do it: ChatGPT and Claude business plans treat personal memory as the person's. They view, edit and delete it; admins only turn memory on or off and can't browse anyone's. Slack keeps DMs from owners in the app.
 - Agents reply only when @mentioned or DM'd — never butt in. They can react to messages that @mention them, and only those.
 - Replies render Markdown and **widgets**: real UI under the message (tables, stat tiles; more later), e.g. "last 10 leads" → a table.
