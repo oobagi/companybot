@@ -4,7 +4,8 @@ import { api, internal } from "../convex/_generated/api";
 import type { Id, TableNames } from "../convex/_generated/dataModel";
 import { type Edge, type Lifecycle, edgesOf, lifecycle } from "../convex/lifecycle";
 import schema from "../convex/schema";
-import { modules, settle, signIn, workspaceOf } from "./helpers";
+import { agentTurn, generalOf, modules, noMentions, settle, setup, signIn, turnsOf, workspaceOf } from "./helpers";
+import "./connectorFixtures";
 import { person } from "./person";
 
 afterEach(() => void vi.useRealTimers());
@@ -97,7 +98,9 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		await ctx.db.insert("connectorConnections", { ...connection, userId: ownerId, connectedBy: ownerId });
 		await ctx.db.insert("connectorConnections", { ...connection, connectorId: "crm", userId: null, connectedBy: memberId });
 		await ctx.db.insert("connectorTools", { workspaceId, connectorId: "notes", tools: [] });
-		await ctx.db.insert("connectorOAuthFlows", { state: `s-${workspaceId}`, connectorId: "notes", userId: memberId, workspaceId, data: "sealed", expiresAt: now + 60_000 });
+		const memberRowId = (await ctx.db.query("members").collect()).find((r) => r.userId === memberId && r.workspaceId === workspaceId)?._id;
+		const flow = { connectorId: "notes", userId: memberId, workspaceId, memberId: memberRowId, connectorInstallId, data: "sealed", expiresAt: now + 60_000 };
+		mine.push(await ctx.db.insert("connectorOAuthFlows", { ...flow, state: `s-${workspaceId}` }));
 		await ctx.db.insert("pluginInstalls", { workspaceId, pluginId: "notes", roles: ["owner"], installedBy: ownerId });
 		await ctx.db.insert("pluginConnections", { workspaceId, pluginId: "notes", userId: null, credentials: "sealed", connectedBy: ownerId });
 		await ctx.db.insert("pluginOAuthFlows", { state: `p-${workspaceId}`, pluginId: "notes", userId: memberId, data: "sealed", expiresAt: now });
@@ -123,8 +126,9 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		const sessionId = await ctx.db.insert("agentSessions", { workspaceId, agentId, chatId: channel });
 		await ctx.db.patch(turnId, { sessionId });
 		const call = { workspaceId, agentId, actorId: memberId, chatId: channel, turnId, replyId: said, callId: "c1", tool: "crm.sms", input: "{}" };
-		await ctx.db.insert("agentActivity", { ...call, changes: true, status: "done" });
-		await ctx.db.insert("approvals", { ...call, hash: "h", status: "pending", expiresAt: now + 60_000 });
+		// What the agent got back for them: only they see it.
+		await ctx.db.insert("agentActivity", { ...call, changes: true, status: "done", output: "their inbox" });
+		await ctx.db.insert("approvals", { ...call, hash: "h", status: "done", result: "their inbox", expiresAt: now + 60_000 });
 
 		const install = { workspaceId, agentId, enabled: true, timeZone: "UTC" };
 		const trigger = { type: "webhook" as const };
@@ -296,28 +300,37 @@ describe("erasing an account", () => {
 			return workspaceId;
 		});
 		await seed(t, solo, m.userId, m.userId);
+		// A personal account left behind by a removal from before removals deleted them.
+		const leftBehind = await t.run((ctx) =>
+			ctx.db.insert("connectorConnections", { workspaceId: B, connectorId: "crm", userId: m.userId, credentials: "sealed", connectedBy: m.userId }),
+		);
 		const before = await dump(t);
 		const sessions = new Set([...before.values()].filter((r) => r.table === "authSessions" && r.row.userId === m.userId).map((r) => r.row._id));
 
 		await m.mutation(api.workspace.eraseAccount);
-		// At once: in no workspace, and their email can't sign back in to this account.
-		expect((await m.query(api.workspace.mine))!.workspaces).toEqual([]);
+		// At once: their sign-in acts as nobody, and their email can't sign back in to this account.
+		expect(await m.query(api.workspace.mine)).toBeNull();
 		await expect(m.mutation(api.workspace.ensure)).rejects.toThrow("erased");
 		await settle(t);
 		const after = await dump(t);
 		const { deleted, changed } = diff(before, after);
 
-		const theirs = new Set<string>([...mineIn[A]!, ...mineIn[B]!, ...seatsIn(before, A, m.userId), ...seatsIn(before, B, m.userId)]);
+		const theirs = new Set<string>([...mineIn[A]!, ...mineIn[B]!, ...seatsIn(before, A, m.userId), ...seatsIn(before, B, m.userId), leftBehind]);
 		for (const [id, { table, row }] of before) {
 			const own = row.userId === m.userId && ["members", "preferences", "legacyWorkspaces", "authAccounts", "authSessions", "connectorOAuthFlows"].includes(table);
+			const email = (table === "authRateLimits" && row.identifier === "m@co.com") || (table === "localSignInCodes" && row.email === "m@co.com");
+			if (email) theirs.add(id);
 			const child = (table === "authVerificationCodes" && !after.has(row.accountId as string)) || (table === "authRefreshTokens" && sessions.has(row.sessionId as string));
 			if (own || child) theirs.add(id);
 		}
 		for (const id of rowsOf(before, solo)) if (!keptWhenWorkspaceGoes(before.get(id)!.table)) theirs.add(id);
 		expect([...deleted].sort()).toEqual([...theirs].sort());
-		// Only the account row changed: it's still there for history, with nothing that names them.
-		expect([...changed]).toEqual([m.userId]);
-		expect(after.get(m.userId)!.row).toEqual({ _id: m.userId, _creationTime: before.get(m.userId)!.row._creationTime });
+		// The account row stays for history, with nothing that names them; what agents got back for them is cleared.
+		const scrubbed = [...after.values()].filter(({ table, row }) => ["agentActivity", "approvals"].includes(table) && row.actorId === m.userId).map(({ row }) => row._id);
+		expect(scrubbed).toHaveLength(4);
+		expect([...changed].sort()).toEqual([m.userId, ...scrubbed].sort());
+		for (const id of scrubbed) expect(after.get(id)!.row).not.toHaveProperty(before.get(id)!.table === "agentActivity" ? "output" : "result");
+		expect(after.get(m.userId)!.row).toEqual({ _id: m.userId, _creationTime: before.get(m.userId)!.row._creationTime, erasedAt: expect.any(Number) });
 		expect((await a.query(api.workspace.team))!.members.map((x) => x.email)).toEqual(["a@co.com"]);
 	});
 
@@ -345,5 +358,197 @@ describe("erasing an account", () => {
 		const again = person(t.withIdentity({ subject: `${await t.run((ctx) => ctx.db.insert("users", { email: "m@co.com" }))}|session` }));
 		await again.mutation(api.workspace.ensure);
 		expect((await again.query(api.workspace.mine))!.workspaces.map((w) => w.id)).not.toContain(await workspaceOf(owner));
+	});
+});
+
+describe("a sign-in from before an account was erased", () => {
+	it("acts as nobody: no preferences, name, workspace or invite, before and after cleanup", { timeout: 60_000 }, async () => {
+		const { t, owner, member } = await setup();
+		const general = (await generalOf(member))._id;
+		await member.mutation(api.preferences.update, { displayName: "Mo" });
+		await member.mutation(api.messages.send, { chatId: general, text: "Bye", mentions: noMentions });
+		const workspaceId = await workspaceOf(owner);
+		await member.mutation(api.workspace.eraseAccount);
+		const authorOfBye = async () => (await owner.query(api.messages.list, { chatId: general })).find((m) => m.text === "Bye")!.author;
+		const refused = async () => {
+			await expect(member.mutation(api.preferences.update, { displayName: "Back" })).rejects.toThrow("Not signed in");
+			expect(await member.query(api.preferences.get)).toMatchObject({ displayName: "" });
+			await expect(member.mutation(api.workspace.ensure)).rejects.toThrow("erased");
+			await expect(member.mutation(api.workspace.switchTo, { to: workspaceId })).rejects.toThrow("not in that workspace");
+			expect(await member.query(api.workspace.me)).toBeNull();
+			expect(await member.query(api.workspace.mine)).toBeNull();
+			// Their old name is still stored until cleanup runs, but they show as a former member at once.
+			expect(await authorOfBye()).toMatchObject({ name: "Former member" });
+		};
+		await refused();
+		// An invite to their old email isn't theirs to accept.
+		await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
+		const inviteId = (await t.run((ctx) => ctx.db.query("invites").first()))!._id;
+		await expect(member.mutation(api.workspace.acceptInvite, { id: inviteId })).rejects.toThrow("isn't available");
+		await settle(t);
+		await refused();
+		expect((await t.run((ctx) => ctx.db.query("preferences").collect())).map((p) => p.userId)).not.toContain(member.userId);
+	});
+});
+
+describe("a sign-in to a connector", () => {
+	it("only connects under the membership and install it started under, and is deleted with either", { timeout: 60_000 }, async () => {
+		const { t, owner, member } = await setup();
+		const workspaceId = await workspaceOf(owner);
+		await owner.mutation(api.connectors.setInstalled, { connectorId: "notes", installed: true });
+		const target = () => t.query(internal.connectors.connectTarget, { userId: member.userId, workspaceId, connectorId: "notes" });
+		const startFlow = async (state: string, bound: Awaited<ReturnType<typeof target>>) =>
+			t.mutation(internal.connectors.saveOAuthFlow, { userId: member.userId, ...bound, connectorId: "notes", state, data: "sealed" });
+		const save = (bound: Awaited<ReturnType<typeof target>>) =>
+			t.mutation(internal.connectors.saveConnection, { userId: member.userId, ...bound, connectorId: "notes", credentials: "sealed" });
+		const flows = () => t.run((ctx) => ctx.db.query("connectorOAuthFlows").collect());
+
+		// Started, then they're removed and rejoin before the provider sends them back.
+		const before = await target();
+		await startFlow("s1", before);
+		await owner.mutation(api.workspace.removeMember, { id: before.memberId });
+		await settle(t);
+		expect(await flows()).toEqual([]);
+		await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
+		await member.mutation(api.workspace.ensure);
+		await expect(save(before)).rejects.toThrow("Connect again");
+		await expect(startFlow("s2", before)).rejects.toThrow("Connect again");
+
+		// Started, then the connector is uninstalled and installed again.
+		const rejoined = await target();
+		await startFlow("s3", rejoined);
+		await owner.mutation(api.connectors.setInstalled, { connectorId: "notes", installed: false });
+		await settle(t);
+		expect(await flows()).toEqual([]);
+		await owner.mutation(api.connectors.setInstalled, { connectorId: "notes", installed: true });
+		await expect(save(rejoined)).rejects.toThrow("Connect again");
+
+		await save(await target());
+		expect(await t.run((ctx) => ctx.db.query("connectorConnections").collect())).toHaveLength(1);
+
+		// And a sign-in in progress goes with the workspace and the account.
+		await startFlow("s4", await target());
+		await member.mutation(api.workspace.eraseAccount);
+		await settle(t);
+		expect(await flows()).toEqual([]);
+	});
+
+	it("refuses a sign-in from before sign-ins named their membership and install", async () => {
+		const { t, member } = await setup();
+		const workspaceId = await workspaceOf(member);
+		await t.run((ctx) => ctx.db.insert("connectorOAuthFlows", { state: "old", connectorId: "notes", userId: member.userId, workspaceId, data: "sealed", expiresAt: Date.now() + 60_000 }));
+		const page = await (await t.fetch("/oauth/callback?state=old&code=c")).text();
+		expect(page).toContain("This sign-in link expired.");
+		expect(await t.run((ctx) => ctx.db.query("connectorOAuthFlows").collect())).toEqual([]);
+	});
+});
+
+describe("writes that land after what they belong to went", () => {
+	it("doesn't save a connector's tools for an install that's gone, or in a workspace being deleted", { timeout: 60_000 }, async () => {
+		const { t, owner } = await setup();
+		const workspaceId = await workspaceOf(owner);
+		const install = async () => (await t.run((ctx) => ctx.db.query("connectorInstalls").first()))!._id;
+		const save = (installId: Id<"connectorInstalls">) => t.mutation(internal.connectorTools.saveTools, { workspaceId, connectorId: "crm", installId, tools: [] });
+		const tools = () => t.run((ctx) => ctx.db.query("connectorTools").collect());
+		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
+		const old = await install();
+		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: false });
+		await settle(t);
+		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
+		await save(old);
+		expect(await tools()).toEqual([]);
+		await save(await install());
+		expect(await tools()).toHaveLength(1);
+		await t.run(async (ctx) => {
+			for (const row of await ctx.db.query("connectorTools").collect()) await ctx.db.delete(row._id);
+		});
+		await owner.mutation(api.workspace.deleteWorkspace, { name: "My company" });
+		await save(await install());
+		expect(await tools()).toEqual([]);
+	});
+
+	it("starts no queued reply, logs no activity and holds no approval in a workspace being deleted", { timeout: 60_000 }, async () => {
+		const { t, owner } = await setup();
+		const general = (await generalOf(owner))._id;
+		const agentId = (await owner.query(api.agents.list))[0]!._id;
+		const turnId = await agentTurn(t, owner, general, agentId);
+		// A second ask waits behind the running one.
+		await owner.mutation(api.messages.send, { chatId: general, text: "and?", mentions: { userIds: [], agentIds: [agentId] } });
+		await owner.mutation(api.workspace.deleteWorkspace, { name: "My company" });
+		const count = () => t.run(async (ctx) => [(await ctx.db.query("chatMessages").collect()).length, (await ctx.db.query("agentSessions").collect()).length]);
+		const before = await count();
+		await t.mutation(internal.activity.log, { turnId, callId: "c1", tool: "crm.send_sms", changes: true, input: "{}", output: "private" });
+		await expect(t.mutation(internal.approvals.request, { turnId, callId: "c2", tool: "crm.send_sms", input: "{}", risk: "outside" })).rejects.toThrow("stopped");
+		await t.mutation(internal.turns.finishReply, { turnId });
+		expect(await count()).toEqual(before);
+		expect(await t.run((ctx) => ctx.db.query("agentActivity").collect())).toEqual([]);
+		expect((await turnsOf(t)).map((x) => x.status)).toEqual(["done", "error"]);
+	});
+
+	it("sends no invite email once the invite is gone", async () => {
+		const { t, owner } = await setup();
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		vi.useFakeTimers();
+		await owner.mutation(api.workspace.invite, { email: "gone@co.com", role: "member" });
+		await owner.mutation(api.workspace.invite, { email: "kept@co.com", role: "member" });
+		const gone = (await owner.query(api.workspace.team))!.invites.find((i) => i.email === "gone@co.com")!;
+		await owner.mutation(api.workspace.cancelInvite, { id: gone.id });
+		await settle(t);
+		const sent = log.mock.calls.map(([line]) => String(line).split(":")[0]);
+		log.mockRestore();
+		expect(sent).toContain("Invite email to kept@co.com");
+		expect(sent).not.toContain("Invite email to gone@co.com");
+	});
+
+	it("answers no webhook and runs no schedule in a workspace being deleted", { timeout: 60_000 }, async () => {
+		const { t, owner } = await setup();
+		const agentId = (await owner.query(api.agents.list))[0]!._id;
+		const make = (name: string, trigger: { type: "webhook" } | { type: "schedule"; time: string; weekdays: number[] }) =>
+			owner.mutation(api.automations.create, { config: { name, prompt: "p", trigger }, agentId, audience: "creator", timeZone: "UTC" });
+		await make("Hook", { type: "webhook" });
+		await make("Daily", { type: "schedule", time: "09:00", weekdays: [0, 1, 2, 3, 4, 5, 6] });
+		const installs = () => t.run((ctx) => ctx.db.query("automationInstalls").collect());
+		const token = (await installs()).find((i) => i.webhookToken)!.webhookToken!;
+		await owner.mutation(api.workspace.deleteWorkspace, { name: "My company" });
+		const reply = await t.mutation(internal.automationRuns.receive, { token, body: JSON.stringify({ id: "e1", data: {} }) });
+		expect(reply.status).toBe(404);
+		await t.mutation(internal.automationRuns.tick, { now: Date.UTC(2026, 9, 26, 10) });
+		expect((await installs()).map((i) => i.lastRunDate ?? i.lastResult ?? null)).toEqual([null, null]);
+		expect(await t.run((ctx) => ctx.db.query("automationEvents").collect())).toEqual([]);
+	});
+});
+
+describe("a cascade that keeps failing", () => {
+	it("is marked stuck with its error, tells someone rejoining it's still cleaning up, and resumes with retry", { timeout: 60_000 }, async () => {
+		const { t, owner, member } = await setup();
+		vi.useFakeTimers();
+		const memberId = (await t.run((ctx) => ctx.db.query("members").collect())).find((r) => r.userId === member.userId)!._id;
+		await owner.mutation(api.workspace.removeMember, { id: memberId });
+		const job = async () => (await t.run((ctx) => ctx.db.query("cascades").first()))!;
+		// A run that throws every time (here, a cursor it can't read), as a bug would.
+		const first = edgesOf("member")[0]!;
+		await t.run(async (ctx) => ctx.db.patch((await ctx.db.query("cascades").first())!._id, { edge: `${first.table}.${String(first.index)}`, cursor: "not a cursor" }));
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		await settle(t);
+		for (let i = 0; i < 3; i++) {
+			await t.run(async (ctx) => ctx.db.patch((await ctx.db.query("cascades").first())!._id, { updatedAt: 0 }));
+			await t.mutation(internal.cascade.resume);
+			await settle(t);
+		}
+		expect(await job()).toMatchObject({ stuck: true, attempts: 3, error: expect.any(String) });
+		// Left alone from now on, not retried every 15 minutes.
+		await t.run(async (ctx) => ctx.db.patch((await ctx.db.query("cascades").first())!._id, { updatedAt: 0 }));
+		await t.mutation(internal.cascade.resume);
+		expect((await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())).filter((f) => f.state.kind === "pending")).toEqual([]);
+		await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
+		await expect(member.mutation(api.workspace.ensure)).rejects.toThrow("still being cleaned up");
+
+		// Once the cause is fixed, retry picks it up where it was.
+		await t.run(async (ctx) => ctx.db.patch((await ctx.db.query("cascades").first())!._id, { cursor: null }));
+		await t.mutation(internal.cascade.retry, { id: (await job())._id });
+		await settle(t);
+		expect(await t.run((ctx) => ctx.db.query("cascades").collect())).toEqual([]);
+		await member.mutation(api.workspace.ensure);
+		expect(await member.query(api.workspace.me)).toMatchObject({ role: "member" });
 	});
 });

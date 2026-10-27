@@ -4,7 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation } from "./_generated/server";
 import { query } from "./functions";
 import { type Namer, canSee, chatLabel, namer } from "./chatOps";
-import { type Member, getMember } from "./lib";
+import { type Member, getMember, liveWorkspace } from "./lib";
 import { titleOf } from "./connectorTools";
 import { allowedHow } from "./schema";
 
@@ -31,7 +31,8 @@ export const log = internalMutation({
 	},
 	handler: async (ctx, { turnId, error, allowed, ...call }) => {
 		const turn = await ctx.db.get(turnId);
-		if (!turn?.replyId) return;
+		// Not into a workspace being deleted: its cascade may be past this table.
+		if (!turn?.replyId || !(await liveWorkspace(ctx, turn.workspaceId))) return;
 		await ctx.db.insert("agentActivity", {
 			workspaceId: turn.workspaceId,
 			agentId: turn.agentId,

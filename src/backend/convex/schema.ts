@@ -107,6 +107,14 @@ export const audience = v.union(v.literal("creator"), v.literal("subscribers"), 
 
 export default defineSchema({
 	...authTables,
+	// Convex Auth's, plus `erasedAt`.
+	users: defineTable({
+		...authTables.users.validator.fields,
+		/** Set when the account is erased (workspace.eraseAccount): the row stays, scrubbed, so history shows a former member, and a sign-in from before acts as nobody. */
+		erasedAt: v.optional(v.number()),
+	})
+		.index("email", ["email"])
+		.index("phone", ["phone"]),
 
 	// Local backends only (`pnpm dev`): the latest sign-in code per email, read back by the app.
 	localSignInCodes: defineTable({ email: v.string(), code: v.string() }).index("by_email", ["email"]),
@@ -244,11 +252,20 @@ export default defineSchema({
 		userId: v.id("users"),
 		/** The workspace it connects in. Missing on sign-ins started before people could be in several. */
 		workspaceId: v.optional(v.id("workspaces")),
+		/**
+		 * The membership and install it started under. Saving checks both are still the ones there,
+		 * so a sign-in from before a removal and rejoin, or an uninstall and reinstall, can't connect.
+		 * Missing on sign-ins started before this; those are refused (they expire in 15 minutes anyway).
+		 */
+		memberId: v.optional(v.id("members")),
+		connectorInstallId: v.optional(v.id("connectorInstalls")),
 		data: v.string(),
 		expiresAt: v.number(),
 	})
 		.index("by_state", ["state"])
-		.index("by_user", ["userId"]),
+		.index("by_user", ["userId", "workspaceId"])
+		.index("by_workspace", ["workspaceId"])
+		.index("by_install", ["connectorInstallId"]),
 
 	// Legacy: the connector tables' names before "plugins" became "connectors". Emptied by
 	// the `connector*` migrations (migrations.ts).
@@ -446,6 +463,7 @@ export default defineSchema({
 		changes: v.boolean(),
 		/** JSON, cut to ACTIVITY_MAX_CHARS. */
 		input: v.string(),
+		/** Only `actorId` sees it (activity.ts). Cleared when their account is erased. */
 		output: v.optional(v.string()),
 		error: v.optional(v.string()),
 		status: v.union(v.literal("done"), v.literal("error")),
@@ -453,7 +471,8 @@ export default defineSchema({
 		allowed: v.optional(allowedHow),
 	})
 		.index("by_workspace", ["workspaceId"])
-		.index("by_reply", ["replyId"]),
+		.index("by_reply", ["replyId"])
+		.index("by_actor", ["actorId"]),
 
 	// A tool call an agent held for approval, shown as a card in its reply (see core approvals.ts).
 	// Locked to `hash` (SHA-256 of the exact tool + input): the approver confirms that hash,
@@ -476,7 +495,7 @@ export default defineSchema({
 		status: approvalStatus,
 		expiresAt: v.number(),
 		decidedAt: v.optional(v.number()),
-		/** Approved calls: the result (JSON, clipped) or error. Shown only to the actor, like the activity log. */
+		/** Approved calls: the result (JSON, clipped) or error. Shown only to the actor, like the activity log; cleared when their account is erased. */
 		result: v.optional(v.string()),
 		error: v.optional(v.string()),
 		/**
@@ -494,7 +513,8 @@ export default defineSchema({
 		always: v.optional(v.boolean()),
 	})
 		.index("by_reply", ["replyId"])
-		.index("by_workspace", ["workspaceId"]),
+		.index("by_workspace", ["workspaceId"])
+		.index("by_actor", ["actorId"]),
 
 	// Automations: an owner installs a library one, or anyone makes their own, and picks the agent that runs it.
 	automationInstalls: defineTable({
@@ -722,8 +742,17 @@ export default defineSchema({
 		/** The edge it's on, as "table.index" ("" before the first). */
 		edge: v.string(),
 		cursor: v.union(v.string(), v.null()),
+		/** Rows to read next, when the last page didn't fit in one run (cascade.ts). */
+		rows: v.optional(v.number()),
 		updatedAt: v.number(),
+		/** Its latest scheduled run, so `resume` can tell a failed run from a slow one. */
+		run: v.optional(v.id("_scheduled_functions")),
+		/** Runs that failed in a row, and the last one's error. */
+		attempts: v.optional(v.number()),
+		error: v.optional(v.string()),
+		/** Set after MAX_ATTEMPTS failures: `resume` leaves it until someone fixes the cause and runs `cascade:retry`. */
+		stuck: v.optional(v.boolean()),
 	})
 		.index("by_key", ["key"])
-		.index("by_updated", ["updatedAt"]),
+		.index("by_updated", ["stuck", "updatedAt"]),
 });

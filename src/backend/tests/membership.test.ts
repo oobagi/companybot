@@ -36,7 +36,7 @@ describe("workspaces", () => {
 		const { owner, member } = t;
 		const row = (await owner.query(api.workspace.team))!.members.find((m) => !m.isYou)!;
 		await owner.mutation(api.workspace.removeMember, { id: row.id });
-		await expect(acceptInvite(t)).rejects.toThrow("just removed");
+		await expect(acceptInvite(t)).rejects.toThrow("still being cleaned up");
 		await settle(t.t);
 		await acceptInvite(t);
 	}

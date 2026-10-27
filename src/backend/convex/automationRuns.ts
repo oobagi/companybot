@@ -5,7 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { mutation } from "./functions";
 import { addToChat, canSee, findOrCreateDm, insertMessage } from "./chatOps";
-import { memberOf, nameOf, normalizeEmail } from "./lib";
+import { liveWorkspace, memberOf, nameOf, normalizeEmail } from "./lib";
 import { audienceOf, definitionOf, postingProblem, requireEditable, subscribersOf } from "./automationOps";
 import { enqueueTurn } from "./turns";
 
@@ -34,7 +34,7 @@ export const tick = internalMutation({
 			.collect();
 		for (const install of installs) {
 			const automation = await definitionOf(ctx, install);
-			if (!automation) continue;
+			if (!automation || !(await liveWorkspace(ctx, install.workspaceId))) continue;
 			const due = scheduleDue(automation.trigger, now, install.timeZone, install.lastRunDate);
 			if (!due) continue;
 			await ctx.db.patch(install._id, { lastRunDate: due });
@@ -57,7 +57,9 @@ export const receive = internalMutation({
 					.first()
 			: null;
 		const automation = install && (await definitionOf(ctx, install));
-		if (!install || automation?.trigger.type !== "webhook") return { status: 404, ok: false, message: "Unknown webhook URL." };
+		// A workspace being deleted has no webhooks: nothing runs, and nothing new is saved behind its cascade.
+		if (!install || automation?.trigger.type !== "webhook" || !(await liveWorkspace(ctx, install.workspaceId)))
+			return { status: 404, ok: false, message: "Unknown webhook URL." };
 		let json: unknown;
 		try {
 			json = JSON.parse(body);
@@ -252,21 +254,20 @@ async function runInChannel(
 	const problem = await postingProblem(ctx, install.custom?.trigger, chat._id);
 	if (problem) return { ran: false, summary: await finish(ctx, install, `Didn't run: ${problem}`) };
 	const preferred = install.custom ? install.installedBy : (install.channelSetBy ?? install.installedBy);
-	const candidates = [
-		await memberOf(ctx, preferred, install.workspaceId),
-		...(install.custom
-			? []
-			: (
-					await ctx.db
-						.query("members")
-						.withIndex("by_workspace", (q) => q.eq("workspaceId", install.workspaceId))
-						.collect()
-				).filter((m) => m.role === "owner" && m.userId !== preferred)),
-	];
+	const owners = install.custom
+		? []
+		: (
+				await ctx.db
+					.query("members")
+					.withIndex("by_workspace", (q) => q.eq("workspaceId", install.workspaceId))
+					.collect()
+			).filter((m) => m.role === "owner" && m.userId !== preferred);
+	// Each read through memberOf, so a workspace being deleted has nobody to act as.
 	let actorId: Id<"users"> | null = null;
-	for (const m of candidates) {
-		if (m?.workspaceId === install.workspaceId && (await canSee(ctx, chat, m))) {
-			actorId = m.userId;
+	for (const userId of [preferred, ...owners.map((m) => m.userId)]) {
+		const member = await memberOf(ctx, userId, install.workspaceId);
+		if (member && (await canSee(ctx, chat, member))) {
+			actorId = userId;
 			break;
 		}
 	}

@@ -88,11 +88,21 @@ export async function pinLegacyWorkspace(ctx: MutationCtx, userId: Id<"users">, 
 }
 
 /**
+ * The signed-in person, unless their account was erased: a sign-in token from before stays
+ * valid until it expires, so everything keyed on the token's user goes through this.
+ */
+export async function authUserId(ctx: QueryCtx) {
+	const userId = await getAuthUserId(ctx);
+	const user = userId && (await ctx.db.get(userId));
+	return user && !user.erasedAt ? user._id : null;
+}
+
+/**
  * The signed-in person in the workspace this request is for (`functions.ts` puts it on ctx).
  * Null if they're not in it: a request can only act where its sender is a member.
  */
 export async function getMember(ctx: QueryCtx): Promise<Member | null> {
-	const userId = await getAuthUserId(ctx);
+	const userId = await authUserId(ctx);
 	if (!userId) return null;
 	return memberFor(ctx, userId, (ctx as QueryCtx & Partial<Requested>).workspaceId);
 }
@@ -194,13 +204,14 @@ export async function namesOf(ctx: QueryCtx, userIds: Id<"users">[]) {
 }
 
 export async function nameOf(ctx: QueryCtx, userId: Id<"users">) {
+	const user = await ctx.db.get(userId);
+	// Erased accounts keep a scrubbed row (workspace.eraseAccount), whatever is left to clean up.
+	if (!user || user.erasedAt) return "Former member";
 	const prefs = await ctx.db
 		.query("preferences")
 		.withIndex("by_user", (q) => q.eq("userId", userId))
 		.first();
-	if (prefs?.displayName) return prefs.displayName;
-	// Erased accounts keep a scrubbed row (workspace.eraseAccount).
-	return (await ctx.db.get(userId))?.email ?? "Former member";
+	return prefs?.displayName || user.email || "Former member";
 }
 
 /** Someone's time zone: the one they picked, else their computer's, else UTC. */

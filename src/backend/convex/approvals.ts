@@ -15,7 +15,7 @@ import { mutation, query } from "./functions";
 import { canSee, namer } from "./chatOps";
 import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { getMember, memberOf, nameOf, requireMember, toActor } from "./lib";
+import { getMember, liveWorkspace, memberOf, nameOf, requireMember, toActor } from "./lib";
 import { automationOfTurn, decideFor, setRule } from "./permissions";
 import { automationName } from "./automationOps";
 import { titleOf } from "./connectorTools";
@@ -35,7 +35,7 @@ export const request = internalMutation({
 	args: { turnId: v.id("agentTurns"), callId: v.string(), tool: v.string(), input: v.string(), risk: v.optional(risk) },
 	handler: async (ctx, { turnId, callId, tool, input, risk }) => {
 		const turn = await ctx.db.get(turnId);
-		if (!turn || turn.status !== "running" || !turn.replyId) throw new Error("This reply was stopped.");
+		if (!turn || turn.status !== "running" || !turn.replyId || !(await liveWorkspace(ctx, turn.workspaceId))) throw new Error("This reply was stopped.");
 		return ctx.db.insert("approvals", {
 			workspaceId: turn.workspaceId,
 			agentId: turn.agentId,

@@ -148,7 +148,7 @@ describe("invites", () => {
 		await expect(member.mutation(api.messages.send, { chatId: dm, text: "still here?", mentions: noMentions })).rejects.toThrow();
 		// Rejoining waits until what was theirs is gone.
 		await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
-		await expect(member.mutation(api.workspace.ensure)).rejects.toThrow("just removed");
+		await expect(member.mutation(api.workspace.ensure)).rejects.toThrow("still being cleaned up");
 		await settle(t);
 		// Their seat in channels is gone, so rejoining doesn't bring back private ones; DMs keep them listed.
 		expect((await owner.query(api.chats.get, { chatId: secret }))!.members).toHaveLength(1);

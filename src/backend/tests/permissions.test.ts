@@ -19,10 +19,11 @@ describe("permissions", () => {
 	async function setup() {
 		const { t, owner, member } = await ownerAndMember();
 		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
-		const workspaceId = await t.run(async (ctx) => (await ctx.db.query("workspaces").first())!._id);
+		const { workspaceId, _id: installId } = await t.run(async (ctx) => (await ctx.db.query("connectorInstalls").first())!);
 		await t.mutation(internal.connectorTools.saveTools, {
 			workspaceId,
 			connectorId: "crm",
+			installId,
 			tools: [
 				{ name: "send_sms", description: "Text someone", risk: "outside" },
 				{ name: "find_leads", description: "Find leads", risk: "none" },

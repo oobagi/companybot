@@ -13,7 +13,7 @@ import {
 	replyForModel,
 	textForModel,
 } from "./chatOps";
-import { type Who, installedSkills, memberOf, timeZoneOf } from "./lib";
+import { type Who, installedSkills, liveWorkspace, memberOf, timeZoneOf } from "./lib";
 import { messagePart, replyUsage } from "./schema";
 
 // The agent turn queue and everything the runner (agent.ts) reads and writes.
@@ -79,7 +79,8 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 	const next = await turnsAt(ctx, place, "queued").first();
 	if (!next) return;
 	const chat = await ctx.db.get(next.chatId);
-	if (!chat) {
+	// A workspace being deleted starts nothing: its cascade may already be past the rows this would add.
+	if (!chat || !(await liveWorkspace(ctx, chat.workspaceId))) {
 		await ctx.db.patch(next._id, { status: "error" });
 		return await settleApproval(ctx, next);
 	}

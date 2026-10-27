@@ -90,6 +90,8 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 - Workspace-scoped → give it a `workspaceId`-first index, or make it `childOf` the row it hangs off. Children go one level deep: a table whose rows have children of their own needs its own index.
 - Prefer indexes on fields every row already has; a new required field needs a backfill migration (`migrations.ts`) before anything reads it.
 - Never hand-write a delete loop for something going away. End access in the mutation (delete the gate row, or mark it), then `startCascade`. Anything that could bring old rows back (rejoining, reinstalling) checks `cascading` first.
+- A mutation an action calls after a wait (a model call, a connector, a provider's redirect) rechecks what it writes under: a live workspace, the same install or membership. Otherwise its row can land after the cascade passed that table.
+- Functions keyed on the signed-in person use `authUserId` (lib.ts), never `getAuthUserId`, so an erased account's old token acts as nobody.
 - Rows that own storage files list them in `files`, so they're deleted with the row.
 - Pointing at `users` is always safe: accounts are scrubbed, never deleted.
 

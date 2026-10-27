@@ -1,9 +1,9 @@
 import { isValidTimeZone } from "@companybot/core";
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
+import { authUserId } from "./lib";
 import { notify } from "./schema";
 
 // Personal preferences: only you see them, and they follow you to every device.
@@ -22,7 +22,7 @@ const find = (ctx: QueryCtx, userId: Id<"users">) =>
 export const get = query({
 	args: {},
 	handler: async (ctx) => {
-		const userId = await getAuthUserId(ctx);
+		const userId = await authUserId(ctx);
 		if (!userId) return { ...defaults, notify: defaultNotify, ...unset };
 		const prefs = await find(ctx, userId);
 		if (!prefs) return { ...defaults, notify: defaultNotify, ...unset };
@@ -47,7 +47,7 @@ export const update = mutation({
 		deviceTimeZone: v.optional(v.string()),
 	},
 	handler: async (ctx, { timeZone, ...rest }) => {
-		const userId = await getAuthUserId(ctx);
+		const userId = await authUserId(ctx);
 		if (!userId) throw new ConvexError("Not signed in.");
 		const changes = { ...rest, ...(timeZone !== undefined && { timeZone: timeZone ?? undefined }) };
 		for (const zone of [changes.timeZone, changes.deviceTimeZone]) {
