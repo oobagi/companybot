@@ -26,6 +26,8 @@ vi.mock("../convex", () => ({
 	useWorkspace: () => ({ id: "current", open: state.open }),
 }));
 vi.mock("../router", () => ({ navigate: vi.fn() }));
+// The test renderer has no page to put a popover's panel at the end of, so it stays in place.
+vi.mock("react-dom", async (actual) => ({ ...(await actual<typeof import("react-dom")>()), createPortal: (node: React.ReactNode) => node }));
 
 let root: ReactTestRenderer;
 const bounds = { left: 12, top: 100, right: 48, bottom: 136, width: 36, height: 36 };
