@@ -25,8 +25,11 @@ const remember = (id: string, title: string, description: string, scope: MemoryS
 		description,
 		input: z.object({ content: z.string(), agentId: z.string().optional().describe("Target agent id; defaults to you") }),
 		...(permission && { permission }),
-		label: ({ content }) =>
-			typeof content === "string" ? `Save ${scope === "personal" ? "a personal memory" : "to team memory"}: ${quote(content)}` : undefined,
+		// Only once it's saved: a refused or failed save doesn't publish what it would have said.
+		label: ({ content }, output) =>
+			typeof content === "string" && output && typeof output === "object" && "saved" in output
+				? `Save ${scope === "personal" ? "a personal memory" : "to team memory"}: ${quote(content)}`
+				: undefined,
 		async execute({ content, agentId }, { memory }) {
 			const saved = await memory.create({ scope, content, ...(agentId && { agentId }) });
 			return { saved: saved.id };

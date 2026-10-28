@@ -488,7 +488,7 @@ export default defineSchema({
 		chatId: v.id("chats"),
 		threadId: v.optional(v.id("chatMessages")),
 		agentId: v.id("agents"),
-		/** The message that mentioned the agent (or any message, in an agent DM). Unset for a welcome. */
+		/** The message that mentioned the agent (or any message, in an agent DM). Unset for a welcome, and the approvals that follow one. */
 		triggerId: v.optional(v.id("chatMessages")),
 		/** The agent speaks first: the actor just made the workspace, or joined it (onboarding.ts). */
 		welcome: v.optional(v.union(v.literal("new_workspace"), v.literal("joined"))),

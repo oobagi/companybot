@@ -1,7 +1,7 @@
 import { type TutorialStep, type Welcome, tutorialStepsFor } from "@companybot/core";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
-import { addToChat, ensureGeneral } from "./chatOps";
+import { addToChat } from "./chatOps";
 import { mutation, query } from "./functions";
 import { type Member, getMember, requireMember } from "./lib";
 import { enqueueTurn } from "./turns";
@@ -13,22 +13,22 @@ import { enqueueTurn } from "./turns";
 export const freshTutorial = (): NonNullable<Doc<"members">["tutorial"]> => ({ done: [] });
 
 /** The workspace's main agent (its oldest active one, Companybot unless renamed) speaks first in #general. */
-export async function welcome(ctx: MutationCtx, workspaceId: Id<"workspaces">, userId: Id<"users">, kind: Welcome) {
+export async function welcome(ctx: MutationCtx, general: Doc<"chats">, userId: Id<"users">, kind: Welcome) {
 	const agent = await ctx.db
 		.query("agents")
-		.withIndex("by_workspace_active", (q) => q.eq("workspaceId", workspaceId).eq("archived", false))
+		.withIndex("by_workspace_active", (q) => q.eq("workspaceId", general.workspaceId).eq("archived", false))
 		.first();
 	if (!agent) return;
-	const general = await ensureGeneral(ctx, workspaceId, userId);
 	await addToChat(ctx, general, { agentId: agent._id });
 	await enqueueTurn(ctx, general, { agentId: agent._id, chatId: general._id, actorId: userId, welcome: kind });
 }
 
-/** Ticks off a step someone just did. Free for people with no tutorial, or who finished or hid it. */
-export async function completeStep(ctx: MutationCtx, member: Member, step: TutorialStep) {
+/** Ticks off steps someone just did (falsy entries skipped). Free for people with no tutorial, or who hid it. */
+export async function completeSteps(ctx: MutationCtx, member: Member, steps: (TutorialStep | false | undefined)[]) {
 	const tutorial = (await ctx.db.get(member.id))?.tutorial;
-	if (!tutorial || tutorial.dismissed || tutorial.done.includes(step)) return;
-	await ctx.db.patch(member.id, { tutorial: { ...tutorial, done: [...tutorial.done, step] } });
+	if (!tutorial || tutorial.dismissed) return;
+	const fresh = steps.filter((s): s is TutorialStep => !!s && !tutorial.done.includes(s));
+	if (fresh.length > 0) await ctx.db.patch(member.id, { tutorial: { ...tutorial, done: [...tutorial.done, ...fresh] } });
 }
 
 /** Your tutorial's steps for your role, or null once it's done, hidden, or you never had one. */

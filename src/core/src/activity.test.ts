@@ -49,10 +49,12 @@ describe("activity log", () => {
 
 	it("quotes what a memory save saved, so no save is silent", () => {
 		const remember = modelToolName("memory.remember");
-		expect(toolLine(callLabel(remember, tools, [], { input: { content: "Prefers mornings" } }), "done")).toBe('Saved a personal memory: "Prefers mornings"');
-		expect(callLabel(modelToolName("memory.remember_for_team"), tools, [], { input: { content: "x".repeat(100) } })).toBe(`Save to team memory: "${"x".repeat(79)}…"`);
-		// Before its input is known.
-		expect(callLabel(remember, tools, [])).toBe("Remember");
+		const saved = { saved: "m1" };
+		expect(toolLine(callLabel(remember, tools, [], { input: { content: "Prefers mornings" }, output: saved }), "done")).toBe('Saved a personal memory: "Prefers mornings"');
+		expect(callLabel(modelToolName("memory.remember_for_team"), tools, [], { input: { content: "x".repeat(100) }, output: saved })).toBe(`Save to team memory: "${"x".repeat(79)}…"`);
+		// While it runs, or when it was refused, the content isn't shown.
+		expect(callLabel(remember, tools, [], { input: { content: "Prefers mornings" } })).toBe("Remember");
+		expect(callLabel(remember, tools, [], { input: { content: "Prefers mornings" }, output: { error: "Memory is off." } })).toBe("Remember");
 	});
 
 	it("skips widgets and tool search", () => {

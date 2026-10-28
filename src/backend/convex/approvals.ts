@@ -182,7 +182,8 @@ export const decide = mutation({
 			chatId: row.chatId,
 			threadId: row.threadId,
 			// The message that started it all, so chat.react still reacts to the person's message.
-			triggerId: asked?.triggerId ?? row.replyId,
+			// A welcome had none: then there's nothing to react to.
+			triggerId: asked ? asked.triggerId : row.replyId,
 			actorId: row.actorId,
 			approvalId,
 		});

@@ -32,7 +32,9 @@ export async function enqueueTurn(
 	ctx: MutationCtx,
 	chat: Doc<"chats">,
 	turn: Place & { actorId: Id<"users"> } & (
+			// After an approval, the original turn's trigger: none if it was a welcome.
 			| { triggerId: Id<"chatMessages">; approvalId?: Id<"approvals"> }
+			| { triggerId: Id<"chatMessages"> | undefined; approvalId: Id<"approvals"> }
 			| { welcome: NonNullable<Doc<"agentTurns">["welcome"]> }
 		),
 ) {

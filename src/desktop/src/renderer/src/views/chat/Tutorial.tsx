@@ -27,18 +27,18 @@ export function TutorialTray({ agent, nudge }: { agent: string; nudge: number })
 	const current = steps?.findIndex((s) => !s.done) ?? -1;
 	const onMention = steps?.[current]?.id === "mention";
 	useEffect(() => {
-		if (nudge === 0 || !onMention) return;
+		if (nudge === 0) return;
 		setPulsing(true);
 		const timer = setTimeout(() => setPulsing(false), 1600);
 		return () => clearTimeout(timer);
-	}, [nudge, onMention]);
+	}, [nudge]);
 
 	if (!steps || current < 0) return null;
 	const step = copy(agent)[steps[current]!.id];
 	return (
 		<div
 			className={`mx-4 flex items-start gap-3 rounded-t-xl border border-b-0 px-3 pt-2 pb-2.5 text-sm transition-colors ${
-				pulsing ? "animate-pulse border-amber-200 bg-amber-50" : "border-neutral-200 bg-neutral-50"
+				pulsing && onMention ? "animate-pulse border-amber-200 bg-amber-50" : "border-neutral-200 bg-neutral-50"
 			}`}
 		>
 			<div className="flex min-w-0 flex-1 flex-col gap-0.5">

@@ -53,8 +53,11 @@ describe("onboarding", () => {
 		expect(await steps(owner)).toEqual(["mention", "dm", "thread", "invite ✓"]);
 		expect(await steps(member)).toEqual(["mention", "dm", "thread"]);
 
-		// A message with no mention teaches nothing; mentioning an agent does.
+		// A message with no mention teaches nothing, nor does mentioning an agent that won't answer
+		// (a DM between people); mentioning one that answers does.
 		const parent = await member.mutation(api.messages.send, { chatId: general._id, text: "hello", mentions: noMentions });
+		const people = await member.mutation(api.chats.openDm, { userIds: [owner.userId], agentIds: [] });
+		await member.mutation(api.messages.send, { chatId: people, text: "@Companybot?", mentions: { userIds: [], agentIds: [companybot._id] } });
 		expect(await steps(member)).toEqual(["mention", "dm", "thread"]);
 		await member.mutation(api.messages.send, { chatId: general._id, text: "@Companybot hi", mentions: { userIds: [], agentIds: [companybot._id] } });
 		await member.mutation(api.messages.send, { chatId: general._id, threadId: parent, text: "more", mentions: noMentions });

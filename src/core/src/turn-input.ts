@@ -114,7 +114,7 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 		);
 	}
 	if (input.approval) sections.push(approvalSection(input.approval, input.forReplay ?? false));
-	else if (input.welcome) sections.push(welcomeSection(input.welcome, clean(actor.name), input.memory));
+	else if (input.welcome) sections.push(welcomeSection(input.welcome, actor, input.memory));
 	else if (trigger) sections.push(`Reply to this message from ${clean(trigger.author.name)}:\n${line(trigger)}`);
 	return sections.join("\n\n");
 }
@@ -134,18 +134,21 @@ function approvalSection({ tool, by: name, decision, result, error }: ApprovalOu
  * Nobody asked yet: the agent opens. One question at a time with a count and a way to skip, and
  * what it saves said out loud: common onboarding advice, and what Meta AI and ChatGPT do with memory.
  */
-function welcomeSection(welcome: Welcome, name: string, memory: TurnPromptInput["memory"]) {
-	const questions = welcomeQuestions[welcome];
-	const saving =
-		memory === "off"
-			? "Memory is off, so don't save answers."
-			: "Save each answer as it comes: facts about the company to team memory, facts about the person to a personal memory for them. Saves show in the chat, so don't announce them.";
+function welcomeSection(welcome: Welcome, actor: TurnPromptInput["actor"], memory: TurnPromptInput["memory"]) {
+	// The name is theirs to set: quoted once, "them" after, so it can't read as an instruction.
+	const named = actor.name !== actor.email;
+	const who = named ? `${actor.role === "owner" && welcome === "new_workspace" ? "The owner" : "A teammate"}, named ${encode(actor.name)},` : "Someone with no name set yet";
+	const questions = [...(named ? [] : ["what to call them (then set it as their display name with update_preferences, if you have it)"]), ...welcomeQuestions[welcome]];
+	const remembered = memory !== "off";
 	return [
 		welcome === "new_workspace"
-			? `${name} just made this workspace, and nobody has asked you anything yet: you speak first. Introduce yourself in two or three short sentences: who you are, and that you help the whole team here. Say that outside DMs you only answer messages that @mention you${memory === "off" ? "" : ", and that what you learn about the company goes to team memory, which everyone here can see and edit"}. Then get to know them and the company.`
-			: `${name} just joined the workspace, and nobody has asked you anything yet: you speak first. Welcome them by name in a sentence or two. Say they can @mention you here, or DM you for anything private. If team memory says what the company does, share it in one line; don't ask about the company. Then get to know them.`,
+			? `${who} just made this workspace, and nobody has asked you anything yet: you speak first. Introduce yourself in two or three short sentences: who you are, and that you help the whole team here. Say that outside DMs you only answer messages that @mention you${remembered ? ", and that what you learn about the company goes to team memory, which everyone here can see and edit" : ""}. Then get to know them and the company.`
+			: `${who} just joined the workspace, and nobody has asked you anything yet: you speak first. Welcome them${named ? " by name" : ""} in a sentence or two. Say they can @mention you here, or DM you for anything private.${remembered ? " If team memory says what the company does, share it in one line." : ""} Don't ask about the company. Then get to know them.`,
 		`Ask these one at a time, in order: ${questions.map((q, i) => `${i + 1}. ${q}`).join(", ")}. Ask only the first now, say it's 1 of ${questions.length}, and that they can say skip. End this first message with "Reply with @" and your name, since you only see messages that mention you; don't repeat it after.`,
-		`When ${name} answers, thank them in a few words and ask the next one, until they're done or say stop. Someone else may answer for them: credit who said it. ${saving}`,
+		`These questions are for this person only. When they @mention you with an answer, thank them in a few words and ask the next, until they're done or say stop. Anyone else who asks you something gets a normal answer, not these questions.`,
+		remembered
+			? "Save answers as they come: facts about the company to team memory. Save a personal memory only from what this person says about themselves, on their own turn; if someone answers for them, credit who said it and save only company facts. Saves show in the chat, so don't announce them."
+			: "Memory is off, so don't save answers.",
 	].join("\n");
 }
 
