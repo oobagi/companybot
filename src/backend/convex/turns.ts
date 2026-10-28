@@ -21,7 +21,7 @@ import { messagePart, replyUsage } from "./schema";
 // One `running` turn per agent per place (chat + thread); the rest wait in order.
 
 /** A running turn this old (e.g. the action crashed) is failed so the queue moves on. */
-const STALE_TURN_MS = 5 * 60_000;
+export const STALE_TURN_MS = 5 * 60_000;
 /** Newest turns kept verbatim when a session is compacted. */
 const KEEP_TOKENS = 15_000;
 
@@ -133,7 +133,7 @@ export async function memoryOn(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
 	return (await ctx.db.get(workspaceId))?.memory !== false;
 }
 
-/** Personal memories only in a DM with exactly one person; anywhere else, team memories only (wiki/chat.md). */
+/** Personal memories are read only in a DM with exactly one person; anywhere else agents can only save new ones for the person who asked (wiki/chat.md). */
 export async function personalMemoryHere(ctx: QueryCtx, chat: Doc<"chats">) {
 	if (chat.kind !== "dm") return false;
 	return (await chatMembersOf(ctx, chat._id)).filter((r) => r.userId).length === 1;
@@ -200,6 +200,7 @@ export const turnContext = internalQuery({
 			/** Off when an owner turned it off; personal only in a DM with exactly one person. memory.ts checks again on every call. */
 			memory: !(await memoryOn(ctx, chat.workspaceId)) ? ("off" as const) : (await personalMemoryHere(ctx, chat)) ? ("personal" as const) : ("team" as const),
 			actor: {
+				id: member.userId,
 				name: (await names.user(member.userId)).name,
 				email: user?.email ?? "",
 				role: member.role,

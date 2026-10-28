@@ -215,11 +215,13 @@ it("targets another agent's memories while preserving personal privacy, team rig
 	await t.mutation(internal.memory.updateFor, { turnId, id: mine.id as Id<"memories">, content: "Corrected" });
 	await expect(t.mutation(internal.memory.removeFor, { turnId: memberTurn, id: mine.id as Id<"memories"> })).rejects.toThrow("not found");
 	const team = await t.mutation(internal.memory.createFor, { turnId, agentId: scribe._id, scope: "workspace", content: "Shared" });
-	await expect(t.mutation(internal.memory.updateFor, { turnId: memberTurn, id: team.id as Id<"memories">, content: "No" })).rejects.toThrow("can't change");
-	await expect(t.mutation(internal.memory.createFor, { turnId: memberTurn, agentId: scribe._id, scope: "workspace", content: "No" })).rejects.toThrow("permission");
+	// Team memories are wiki-style: a member's agent can fix and add them too.
+	await t.mutation(internal.memory.updateFor, { turnId: memberTurn, id: team.id as Id<"memories">, content: "Fixed" });
+	await t.mutation(internal.memory.createFor, { turnId: memberTurn, agentId: scribe._id, scope: "workspace", content: "Also shared" });
 	await t.mutation(internal.memory.removeFor, { turnId, id: mine.id as Id<"memories"> });
 	const generalTurn = await agentTurn(t, member, (await generalOf(member))._id, scribe._id);
-	await expect(t.mutation(internal.memory.createFor, { turnId: generalTurn, agentId: scribe._id, scope: "personal", content: "No" })).rejects.toThrow("2+ people");
+	const saved = await t.mutation(internal.memory.createFor, { turnId: generalTurn, agentId: scribe._id, scope: "personal", content: "Prefers tea" });
+	await expect(t.mutation(internal.memory.removeFor, { turnId: generalTurn, id: saved.id as Id<"memories"> })).rejects.toThrow("2+ people");
 	const side = await sideWorkspace(t, "owner@co.com");
 	const foreign = await owner.in(side.workspaceId).mutation(api.agents.create);
 	await expect(t.query(internal.memory.searchFor, { turnId, agentId: foreign, query: "" })).rejects.toThrow("not found");

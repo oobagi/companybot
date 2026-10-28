@@ -1,6 +1,10 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import type { Role } from "@companybot/core";
-import { Page } from "../../ui";
+import { can } from "@companybot/core/permissions";
+import { api } from "../../api";
+import { useMutation } from "../../convex";
+import { navigate } from "../../router";
+import { NewButton, Notice, Page, useRun } from "../../ui";
 import { AgentScreen, AgentsTab } from "../Agents";
 import { AutomationScreen, AutomationsTab } from "./Automations";
 import { ConnectorScreen, ConnectorsTab } from "./Connectors";
@@ -9,8 +13,10 @@ import { SkillScreen, SkillsTab } from "./Skills";
 
 export { type CustomizeTab, customizeTabs } from "./shared";
 
-/** A Customize tab in Settings: its list, or with `itemId`, that item's own screen. */
+/** The tab's list, or with `itemId`, that item's own screen. */
 export function CustomizeView({ role, tab, itemId }: { role: Role; tab: CustomizeTab; itemId?: string }) {
+	const createAgent = useMutation(api.agents.create);
+	const { error, run } = useRun();
 	if (itemId) {
 		if (tab === "agents") return <AgentScreen role={role} agentId={itemId as Id<"agents">} />;
 		if (tab === "connectors") return <ConnectorScreen role={role} id={itemId} />;
@@ -18,8 +24,14 @@ export function CustomizeView({ role, tab, itemId }: { role: Role; tab: Customiz
 		return <AutomationScreen role={role} id={itemId} />;
 	}
 	return (
-		<Page title={customizeTabs.find((t) => t.id === tab)!.label}>
-			{tab === "agents" && <AgentsTab role={role} />}
+		<Page title={customizeTabs.find((t) => t.id === tab)!.label} description={customizeTabs.find((t) => t.id === tab)!.description} actions={{
+			agents: can(role, "agents.manage") && <NewButton label="New agent" onClick={() => run(createAgent().then((id) => navigate("settings", "agents", id)))} />,
+			connectors: null,
+			skills: can(role, "skills.create") && <NewButton label="New skill" onClick={() => navigate("settings", "skills", "new")} />,
+			automations: can(role, "automations.create") && <NewButton label="New automation" onClick={() => navigate("settings", "automations", "new")} />,
+		}[tab]}>
+			{error && <Notice>{error}</Notice>}
+			{tab === "agents" && <AgentsTab />}
 			{tab === "connectors" && <ConnectorsTab role={role} />}
 			{tab === "skills" && <SkillsTab role={role} />}
 			{tab === "automations" && <AutomationsTab role={role} />}

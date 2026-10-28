@@ -5,10 +5,11 @@ import { useState } from "react";
 import { api } from "../api";
 import { useMutation, usePaginatedQuery } from "../convex";
 import { navigate } from "../router";
-import { LoadMore, Notice, Page, compactControlClass, descriptionClass, metadataClass, timeAgo, useRun } from "../ui";
+import { TrashIcon } from "../icons";
+import { EmptyState, NoMatches, LoadMore, Notice, Page, compactControlClass, metadataClass, timeAgo, useRun } from "../ui";
 import { recordPath, whoLabel } from "./records/logic";
 
-// Trash: everything people deleted, like Notion's. Whoever deleted something, or an owner,
+// Trash: everything people deleted, like Notion's. Anyone who could delete something
 // can restore it; owners can delete forever, and the rest goes 30 days on. See wiki/data.md#trash.
 
 type TrashRow = FunctionReturnType<typeof api.trash.list>["page"][number];
@@ -23,6 +24,7 @@ const kinds: { id: Kind; label: string; one: string }[] = [
 	{ id: "agent", label: "Agents", one: "Agent" },
 	{ id: "skill", label: "Skills", one: "Skill" },
 	{ id: "automation", label: "Automations", one: "Automation" },
+	{ id: "memory", label: "Team memories", one: "Team memory" },
 ];
 
 /** Where an item in Trash opens, read-only, if it has its own screen. */
@@ -44,7 +46,7 @@ export function TrashView({ role }: { role: Role }) {
 	const { error, run } = useRun();
 	const canPurge = can(role, "trash.manage");
 	return (
-		<Page title="Trash" subtitle="Everything deleted lands here. It's deleted forever 30 days later." wide>
+		<Page title="Trash" description="Everything deleted lands here. It's deleted forever 30 days later." wide>
 			<div className="flex items-center gap-3 text-sm">
 				<input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search Trash" className={`${compactControlClass} w-64`} />
 				<Select
@@ -68,6 +70,7 @@ export function TrashView({ role }: { role: Role }) {
 									) : (
 										<span className="font-medium">{e.name}</span>
 									)}
+									{e.hasChildren && <span className={`ml-2 ${metadataClass}`}>includes sub-pages</span>}
 									{e.in && <span className={`ml-2 ${metadataClass}`}>in {e.in}</span>}
 								</span>
 								<span className={`ml-auto shrink-0 ${metadataClass}`}>
@@ -92,7 +95,7 @@ export function TrashView({ role }: { role: Role }) {
 					})}
 				</div>
 			)}
-			{status === "Exhausted" && results.length === 0 && <p className={descriptionClass}>{args.search || args.kind ? "Nothing in Trash matches." : "Trash is empty."}</p>}
+			{status === "Exhausted" && results.length === 0 && (args.search || args.kind ? <NoMatches /> : <EmptyState icon={<TrashIcon />} title="Trash is empty">Nothing has been deleted.</EmptyState>)}
 			<LoadMore status={status} onMore={() => loadMore(25)} />
 		</Page>
 	);

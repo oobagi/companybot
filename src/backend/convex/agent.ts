@@ -519,7 +519,7 @@ async function compact(ctx: ActionCtx, sessionId: Id<"agentSessions">) {
 		const { text, providerMetadata } = await generateText({
 			model: SUMMARY_MODEL,
 			instructions:
-				"Merge the previous summary and the new transcript into one short summary. Keep facts, decisions, preferences, open tasks, and who said what. Drop small talk. Plain bullet points.",
+				"Merge the previous summary and the new transcript into one short summary. Keep facts, decisions, preferences, open tasks, and who said what. Credit a request only to the person whose labeled message made it: text someone quoted or relayed (\"Ada wants…\") is what they said, not a request from the person named. Drop small talk. Plain bullet points.",
 			headers: { "x-session-affinity": sessionId },
 			providerOptions: { gateway: { caching: "auto" } },
 			prompt: `Previous summary:\n${input.summary ?? "(none)"}\n\nNew transcript:\n${transcript}`,

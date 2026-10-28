@@ -105,3 +105,12 @@ body {
 	padding-inline: var(--bleed);
 	overflow-x: auto;
 }
+
+/* Page references remain ordinary, editable link marks. */
+.page-editor .bn-editor a[href^="companybot://page/"] { color: inherit; text-decoration: none; cursor: pointer; }
+.page-editor .bn-editor a[href^="companybot://page/"]::before {
+	content: ""; display: inline-block; width: 1em; height: 1em; margin-right: .35em; vertical-align: -.12em;
+	background: currentColor; opacity: .5;
+	/* PageIcon (Phosphor FileText), external so the app's CSP permits the mask. */
+	mask: url("./views/pages/page-link.svg?no-inline") center / contain no-repeat;
+}

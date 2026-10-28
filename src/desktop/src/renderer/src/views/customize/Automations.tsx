@@ -8,9 +8,10 @@ import { useState } from "react";
 import { agentOptions } from "../../agent-options";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
+import { AutomationIcon } from "../../icons";
 import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
-import { Field, Loading, Notice, Page, Section, compactControlClass, descriptionClass, inputClass, primaryButton, secondaryButton, timeAgo, useRun } from "../../ui";
+import { Field, Loading, Notice, Page, Section, compactControlClass, descriptionClass, inputClass, secondaryButton, timeAgo, useRun } from "../../ui";
 import { useTurnOn } from "../Permissions";
 import { Card, Detail, Facts, ItemList, MadeItemDetail, Missing, NewItem, customizeCrumbs } from "./shared";
 
@@ -44,15 +45,9 @@ export function AutomationsTab({ role }: { role: Role }) {
 	return (
 		<ItemList
 			items={automations}
-			empty={can(role, "automations.create") ? "No automations yet. Make your own with New automation, or ask Companybot to set one up." : "No automations yet. Your team can create automations here."}
-			description="Jobs that run on their own: on a schedule, when something happens here, or when another app sends a webhook. Each one asks an agent to do something. Create one for your team, or turn on one they already use."
+			icon={<AutomationIcon />} title="No automations yet" empty="Let an agent handle routine work on a schedule or event."
 			error={error}
 			card={card}
-			action={can(role, "automations.create") && (
-				<button type="button" className={`${primaryButton} shrink-0`} onClick={() => navigate("settings", "automations", "new")}>
-					New automation
-				</button>
-			)}
 		/>
 	);
 }

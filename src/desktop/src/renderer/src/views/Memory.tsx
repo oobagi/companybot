@@ -7,7 +7,8 @@ import { useState } from "react";
 import { agentLabel, agentOptions } from "../agent-options";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
-import { ConflictNotice, Loading, Notice, Section, descriptionClass, inputClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../ui";
+import { MemoryIcon } from "../icons";
+import { EmptyState, NoMatches, ConflictNotice, Loading, Notice, Section, descriptionClass, inputClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../ui";
 
 type MemoryItem = FunctionReturnType<typeof api.memory.list>[number];
 type Agent = { _id: Id<"agents">; name: string; archived: boolean };
@@ -29,9 +30,6 @@ export function MemoryTab({ role }: { role: Role }) {
 
 	return (
 		<>
-			<p className={descriptionClass}>
-				Each agent has its own memory. Team memories are shared. Only you can see your personal memories.
-			</p>
 			{!settings.memory && (
 				<p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
 					Memory is turned off by an owner. Agents don't read or save memories until it's back on. Yours are kept, and you can
@@ -52,8 +50,10 @@ export function MemoryTab({ role }: { role: Role }) {
 					onChange={(f) => setFilter(f as typeof filter)}
 				/>
 			</div>
-			<MemoryList title="Team" empty="No team memories yet." items={team} agentName={agentName} />
-			<MemoryList title="Personal" empty="No personal memories yet." items={personal} agentName={agentName} />
+			{shown.length === 0 ? (filter !== "all" ? <NoMatches /> : <EmptyState icon={<MemoryIcon />} title="No memories yet">Add something to remember, or ask an agent to save it.</EmptyState>) : <>
+				<MemoryList title="Team" empty="No team memories yet." items={team} agentName={agentName} />
+				<MemoryList title="Personal" empty="No personal memories yet." items={personal} agentName={agentName} />
+			</>}
 		</>
 	);
 }
@@ -84,7 +84,9 @@ function MemoryRow({ memory, agent }: { memory: MemoryItem; agent: string }) {
 	const remove = useMutation(api.memory.remove);
 	const draft = useDraft(memory.content, memory.version);
 	const { error, run } = useRun();
+	const [history, setHistory] = useState(false);
 	const id = memory.id as Id<"memories">;
+	const team = memory.scope === "workspace";
 
 	return (
 		<div className="flex flex-col gap-2 rounded-xl border border-neutral-200 px-4 py-3">
@@ -118,7 +120,17 @@ function MemoryRow({ memory, agent }: { memory: MemoryItem; agent: string }) {
 								>
 									Edit
 								</button>
-								<button type="button" onClick={() => run(remove({ id }))} className="hover:text-red-600">
+								{memory.version > 1 && (
+									<button type="button" onClick={() => setHistory(!history)} className="hover:text-neutral-900" aria-expanded={history}>
+										History
+									</button>
+								)}
+								<button
+									type="button"
+									onClick={() => run(remove({ id }))}
+									title={team ? "Moves it to Trash, where it can be restored" : "Deletes it for good"}
+									className="hover:text-red-600"
+								>
 									Delete
 								</button>
 							</>
@@ -142,11 +154,52 @@ function MemoryRow({ memory, agent }: { memory: MemoryItem; agent: string }) {
 				)}
 			</div>
 			<p className={metadataClass}>
-				<span className="rounded bg-neutral-100 px-1.5 py-0.5 text-neutral-600">{agent}</span> ·{" "}
-				{memory.updatedByName}
-				{memory.updatedByAgent && ", via agent"} ·{" "}
+				<span className="rounded bg-neutral-100 px-1.5 py-0.5 text-neutral-600">{agent}</span> · {provenance(memory)} ·{" "}
 				{timeAgo(Date.parse(memory.updatedAt))}
 			</p>
+			{history && <MemoryHistory memory={memory} onRestored={() => setHistory(false)} />}
+		</div>
+	);
+}
+
+/** "Saved by Ada", or "Saved by Ada · edited by Ben, via agent". */
+function provenance(m: MemoryItem) {
+	const via = m.updatedByAgent ? ", via agent" : "";
+	if (m.version === 1) return `Saved by ${m.createdByName}${via}`;
+	if (m.createdByName === m.updatedByName) return `Saved and edited by ${m.createdByName}${via}`;
+	return `Saved by ${m.createdByName} · edited by ${m.updatedByName}${via}`;
+}
+
+/** What it said before each edit, newest first. Restoring is an edit too, so it can be undone. */
+function MemoryHistory({ memory, onRestored }: { memory: MemoryItem; onRestored: () => void }) {
+	const versions = useQuery(api.memory.versions, { id: memory.id as Id<"memories"> });
+	const restore = useMutation(api.memory.restoreVersion);
+	const { error, run } = useRun();
+	if (!versions) return <Loading />;
+	return (
+		<div className="flex flex-col gap-2 border-t border-neutral-100 pt-2">
+			{error && <Notice>{error}</Notice>}
+			{versions.length === 0 && <p className="text-sm text-neutral-400">No earlier versions.</p>}
+			{versions.map((v) => (
+				<div key={v._id} className="flex items-start gap-3 text-sm">
+					<div className="flex flex-1 flex-col gap-0.5">
+						<p className="leading-relaxed text-neutral-600">{v.content}</p>
+						<p className={metadataClass}>
+							{v.savedByName}
+							{v.savedByAgent && ", via agent"} · {timeAgo(v.savedAt)}
+						</p>
+					</div>
+					{memory.canEdit && (
+						<button
+							type="button"
+							onClick={() => run(restore({ versionId: v._id, expectedVersion: memory.version }), onRestored)}
+							className={`${descriptionClass} hover:text-neutral-900`}
+						>
+							Restore
+						</button>
+					)}
+				</div>
+			))}
 		</div>
 	);
 }
@@ -192,7 +245,7 @@ function AddMemory({
 				value={scope}
 				options={[
 					{ value: "personal", label: "Personal" },
-					{ value: "workspace", label: canAddTeam ? "Team" : "Team (owners only)", disabled: !canAddTeam },
+					{ value: "workspace", label: canAddTeam ? "Team" : "Team (not allowed)", disabled: !canAddTeam },
 				]}
 				onChange={setScope}
 			/>

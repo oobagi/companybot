@@ -1,6 +1,7 @@
 "use node";
 
 import { type Block, BlockNoteEditor, blockToNode, docToBlocks } from "@blocknote/core";
+import { validPageHref } from "@companybot/core/page-links";
 import { Window } from "happy-dom";
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
@@ -14,7 +15,7 @@ function blockNote() {
 		// BlockNote reads both: document to parse, window.document to serialize.
 		globalThis.window ??= window as unknown as typeof globalThis.window;
 		globalThis.document ??= window.document as unknown as Document;
-		editor = BlockNoteEditor.create();
+		editor = BlockNoteEditor.create({ links: { isValidLink: validPageHref } });
 	}
 	return editor;
 }

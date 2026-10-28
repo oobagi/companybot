@@ -15,8 +15,8 @@ export function useDirectory() {
 	const team = useQuery(api.workspace.team);
 	const chats = useQuery(api.chats.list);
 	const people: (Participant & { isYou: boolean })[] =
-		team?.members.map((m) => ({ type: "user" as const, id: m.userId, name: m.name || m.email, isYou: m.isYou })) ?? [];
-	const agents: Participant[] = chats?.agents.map((a) => ({ type: "agent" as const, id: a._id, name: a.name })) ?? [];
+		team?.members.map((m) => ({ type: "user" as const, id: m.userId, name: m.name || m.email, image: m.image, isYou: m.isYou })) ?? [];
+	const agents: Participant[] = chats?.agents.map((a) => ({ type: "agent" as const, id: a._id, name: a.name, image: a.image })) ?? [];
 	return {
 		people: people.filter((p) => !p.isYou),
 		agents,

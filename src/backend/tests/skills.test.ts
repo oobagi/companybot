@@ -59,7 +59,7 @@ describe("customize", () => {
 			const row = (await member.query(api.skills.list)).find((s) => s.id === skillId);
 			expect(row).toMatchObject({ canEdit: true, createdByName: "member@co.com", custom: { version: 3, updatedByName: "owner@co.com" } });
 			await owner.mutation(api.skills.remove, { skillId });
-			expect((await member.query(api.skills.list)).find((s) => s.id === skillId)?.trash).toMatchObject({ kind: "skill", user: "owner@co.com", canRestore: false });
+			expect((await member.query(api.skills.list)).find((s) => s.id === skillId)?.trash).toMatchObject({ kind: "skill", user: "owner@co.com", canRestore: true });
 			await expect(member.mutation(api.skills.setInstalled, { skillId: "meeting-notes", installed: true })).rejects.toThrow("permission");
 		});
 
@@ -176,7 +176,7 @@ describe("customize", () => {
 	it("hides owner-only tools from members", async () => {
 		const { owner, member } = await ownerAndMember();
 		const tool = async (as: typeof owner) =>
-			(await agentsOf(as)).companybot.access.find((x) => x.id === "memory.remember_for_team");
+			(await agentsOf(as)).companybot.access.find((x) => x.id === "records.save_database");
 		expect((await tool(owner))?.visible).toBe(true);
 		expect((await tool(member))?.visible).toBe(false);
 	});

@@ -45,6 +45,7 @@ export const trashKind = v.union(
 	v.literal("agent"),
 	v.literal("skill"),
 	v.literal("automation"),
+	v.literal("memory"),
 );
 
 /** core's Risk. */
@@ -164,6 +165,8 @@ export default defineSchema({
 		memory: v.optional(v.boolean()),
 		/** Set when an owner deletes it: every access refuses at once, then a cascade deletes its rows (lifecycle.ts). */
 		deleting: v.optional(v.boolean()),
+		/** Its logo (images.ts). Unset shows its initials. */
+		image: v.optional(v.id("_storage")),
 	}),
 
 	members: defineTable({
@@ -209,6 +212,8 @@ export default defineSchema({
 		version: v.number(),
 		updatedAt: v.number(),
 		updatedBy: v.id("users"),
+		/** Its picture (images.ts): not part of its config, so versions and restores leave it alone. Unset shows its initials. */
+		image: v.optional(v.id("_storage")),
 	}).index("by_workspace", ["workspaceId"]).index("by_workspace_active", ["workspaceId", "archived"]),
 
 	agentVersions: defineTable({
@@ -228,18 +233,34 @@ export default defineSchema({
 		updatedBy: v.id("users"),
 		/** Set when the agent made the last change, acting for `updatedBy`. */
 		updatedByAgent: v.optional(v.boolean()),
+		/** Who first saved it. Missing on memories from before it was kept: read as `updatedBy`. */
+		createdBy: v.optional(v.id("users")),
+		/** True while a team memory is in Trash (the `trash` table says who deleted it, and when); unset otherwise, which reads filter on by index. */
+		archived: v.optional(v.literal(true)),
 		version: v.number(),
 		/** Retained for stored rows: no migration cleared this retired cleanup timestamp. */
 		createdTs: v.optional(v.commitTs()),
 	})
-		.index("by_workspace", ["workspaceId"])
+		.index("by_workspace", ["workspaceId", "archived"])
 		// One person's personal memories in a workspace (team memories have no owner).
 		.index("by_owner", ["ownerId", "workspaceId"])
-		// Newest first within a scope, across owners (lists), or one owner's personal memories.
-		.index("by_agent_scope", ["agentId", "scope"])
+		// Newest first within a scope, across owners (lists), or one owner's personal memories (never in Trash).
+		.index("by_agent_scope", ["agentId", "scope", "archived"])
 		.index("by_agent_owner", ["agentId", "scope", "ownerId"])
 		// Agent search over every memory, however many (memoryOps.searchMemories).
-		.searchIndex("search_content", { searchField: "content", filterFields: ["agentId", "scope", "ownerId"] }),
+		.searchIndex("search_content", { searchField: "content", filterFields: ["agentId", "scope", "ownerId", "archived"] }),
+
+	// What a memory said before each edit, newest kept (MEMORY_VERSIONS_MAX), so a wrong edit can be undone.
+	memoryVersions: defineTable({
+		memoryId: v.id("memories"),
+		/** The memory's version this content was. */
+		version: v.number(),
+		content: v.string(),
+		/** Who saved this content, and when. */
+		savedBy: v.id("users"),
+		savedByAgent: v.optional(v.boolean()),
+		savedAt: v.number(),
+	}).index("by_memory", ["memoryId", "version"]),
 
 	// Personal preferences: only the person sees them; they follow them across devices.
 	// Where apps that send no workspace act: the first workspace the person joined, set once.
@@ -262,9 +283,25 @@ export default defineSchema({
 		deviceTimeZone: v.optional(v.string()),
 		/** The workspace they used last: only a hint for a device opening for the first time. Each device keeps its own. */
 		workspaceId: v.optional(v.id("workspaces")),
+		/** Their photo (images.ts), shown in every workspace. Unset shows their initials. */
+		image: v.optional(v.id("_storage")),
 	})
 		.index("by_user", ["userId"])
 		.index("by_workspace", ["workspaceId"]),
+
+	// Files people uploaded (images.ts), not yet attached to anything. Attaching one uses its row up;
+	// rows nobody claims go after a day, with their files (images.sweepUploads).
+	uploads: defineTable({
+		storageId: v.id("_storage"),
+		userId: v.id("users"),
+		/** The workspace the app had open. */
+		workspaceId: v.optional(v.id("workspaces")),
+		createdAt: v.number(),
+	})
+		.index("by_storage", ["storageId"])
+		.index("by_user", ["userId"])
+		.index("by_workspace", ["workspaceId"])
+		.index("by_created", ["createdAt"]),
 
 	// Connectors: an owner installs one and picks which roles may use it.
 	connectorInstalls: defineTable({
@@ -409,6 +446,20 @@ export default defineSchema({
 		.index("by_workspace", ["workspaceId"])
 		.searchIndex("search_text", { searchField: "text", filterFields: ["workspaceId", "chatId"] }),
 
+	// Who's typing where: one row per person per place (chat + thread), its `at` bumped every
+	// few seconds while they type, deleted when they send. Stale after TYPING_MS (typing.ts).
+	typing: defineTable({
+		workspaceId: v.id("workspaces"),
+		chatId: v.id("chats"),
+		threadId: v.optional(v.id("chatMessages")),
+		userId: v.id("users"),
+		at: v.number(),
+	})
+		.index("by_place", ["chatId", "threadId", "at"])
+		.index("by_user", ["userId", "chatId", "threadId"])
+		.index("by_workspace", ["workspaceId", "userId"])
+		.index("by_at", ["at"]),
+
 	// One emoji from one person or agent on one message.
 	reactions: defineTable({
 		messageId: v.id("chatMessages"),
@@ -453,7 +504,8 @@ export default defineSchema({
 		.index("by_place", ["agentId", "chatId", "threadId", "status"])
 		.index("by_session", ["sessionId"])
 		.index("by_workspace", ["workspaceId"])
-		.index("by_chat", ["chatId"]),
+		// Also: who's replying in a place right now (typing.ts).
+		.index("by_chat", ["chatId", "threadId", "status"]),
 
 	// One agent's ongoing context in one place (chat + thread). Append-only: past turns
 	// replay exactly as sent, so prompt caching hits. Older turns fold into `summary`.
@@ -706,6 +758,8 @@ export default defineSchema({
 		workspaceId: v.id("workspaces"),
 		/** Set for a record's body; standalone pages have none. */
 		recordId: v.optional(v.id("records")),
+		/** Only standalone pages can be nested. */
+		parentId: v.optional(v.id("pages")),
 		/** Standalone pages only: a record's body shows the record's name. */
 		title: v.string(),
 		/** In Trash (the `trash` table says who deleted it, and when). */
@@ -715,7 +769,18 @@ export default defineSchema({
 		updatedBy: v.id("users"),
 	})
 		.index("by_workspace", ["workspaceId", "recordId", "archived", "title"])
+		.index("by_parent", ["workspaceId", "parentId", "recordId", "archived", "title"])
 		.searchIndex("search_title", { searchField: "title", filterFields: ["workspaceId", "archived"] }),
+
+	pageMoves: defineTable({
+		workspaceId: v.id("workspaces"),
+		pageId: v.id("pages"),
+		n: v.number(),
+		userId: v.id("users"),
+		agentId: v.optional(v.id("agents")),
+		from: v.string(),
+		to: v.string(),
+	}).index("by_page", ["pageId", "n"]).index("by_workspace", ["workspaceId"]),
 
 	// A page's history: one row per run of edits, like Notion's: whoever started it, and
 	// anyone else who edited meanwhile. Its content is the component's snapshot at `version`; the rest are pruned.
@@ -816,6 +881,8 @@ export default defineSchema({
 		itemId: v.string(),
 		/** Its name when deleted, for listing and search. */
 		name: v.string(),
+		/** Page deletion included live children, captured when it entered Trash. */
+		includesSubpages: v.optional(v.boolean()),
 		/** Records and fields: their database. */
 		typeId: v.optional(v.id("recordTypes")),
 		deletedBy: v.id("users"),

@@ -8,10 +8,13 @@
     "./automations": "./src/automations.ts",
     "./local-auth": "./src/local-auth.ts",
     "./models": "./src/models.ts",
+    "./page-links": "./src/page-links.ts",
     "./permissions": "./src/permissions.ts",
     "./records": "./src/records.ts",
     "./skills": "./src/skills.ts",
-    "./action-words": "./src/action-words.ts"
+    "./action-words": "./src/action-words.ts",
+    "./typing": "./src/typing.ts",
+    "./images": "./src/images.ts"
   },
   "scripts": {
     "test": "vitest run",

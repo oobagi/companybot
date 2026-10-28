@@ -26,7 +26,8 @@ export const permissions = {
 	"automations.manage": { roles: ["owner"], label: "manage automations" },
 	/** Make your own automations. You can always change and delete the ones you made. */
 	"automations.create": { roles: ["owner", "member"], label: "make automations" },
-	"memory.team.write": { roles: ["owner"], label: "change team memories" },
+	/** Add, change and delete (to Trash) any team memory, and restore old versions. Wiki-style: anyone can fix a wrong fact; history undoes it. */
+	"memory.team.write": { roles: ["owner", "member"], label: "change team memories" },
 	/** Add, change, delete (to Trash) and restore records (clients, deals, tasks…), and undo changes. */
 	"records.edit": { roles: ["owner", "member"], label: "change records" },
 	/** Write, rename, delete (to Trash) and restore pages, and restore old versions (wiki/pages.md). */
@@ -38,7 +39,7 @@ export const permissions = {
 	"channels.create": { roles: ["owner", "member"], label: "create channels" },
 	/** Rename, delete, and add members to any channel. Creators can always manage their own (`canManageChannel`). */
 	"channels.manage": { roles: ["owner"], label: "manage channels" },
-	/** Delete forever from Trash, and restore what anyone deleted (wiki/data.md#trash). Agents never delete forever. */
+	/** Delete forever from Trash (wiki/data.md#trash). Agents never delete forever. */
 	"trash.manage": { roles: ["owner"], label: "manage Trash" },
 } as const satisfies Record<string, { roles: readonly Role[]; label: string }>;
 
@@ -64,3 +65,33 @@ export function canEditMade(who: Actor, managePermission: "skills.manage" | "aut
 }
 
 export const madeEditDenied = "Only the person who made this or an owner can change it.";
+
+export type TrashKind = "record" | "database" | "field" | "page" | "channel" | "agent" | "skill" | "automation" | "memory";
+
+/**
+ * Who can move an item to Trash, and so back out of it, whoever deleted it (Google Drive's shared
+ * drives work this way). `madeBy`: who made it, for kinds whose makers manage their own (a library
+ * skill or automation has none). The one place these rules meet; trashOps.canRestore uses it.
+ */
+export function canTrash(who: Actor, kind: TrashKind, madeBy?: string): boolean {
+	switch (kind) {
+		case "record":
+			return can(who, "records.edit");
+		case "page":
+			return can(who, "pages.edit");
+		case "memory":
+			return can(who, "memory.team.write");
+		case "database":
+			return can(who, "fields.manage");
+		case "agent":
+			return can(who, "agents.manage");
+		case "field":
+			return canEditMade(who, "fields.manage", madeBy);
+		case "skill":
+			return canEditMade(who, "skills.manage", madeBy);
+		case "automation":
+			return canEditMade(who, "automations.manage", madeBy);
+		case "channel":
+			return canManageChannel(who, { createdBy: madeBy ?? "" });
+	}
+}

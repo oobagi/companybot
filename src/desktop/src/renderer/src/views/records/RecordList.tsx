@@ -6,8 +6,8 @@ import { api } from "../../api";
 import { Segmented, Select } from "../../controls";
 import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { ArrowDownIcon, ArrowUpIcon, CloseIcon, EditIcon, FilterIcon, PlusIcon, PropertiesIcon, TrashIcon } from "../../icons";
-import { ConflictNotice, ErrorBoundary, Field, LoadMore, Loading, Notice, Page, Tabs, barButton, barPrimaryButton, compactButton, compactControlClass, descriptionClass, inputClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
+import { ArrowDownIcon, ArrowUpIcon, CloseIcon, DatabaseIcon, EditIcon, FilterIcon, PlusIcon, PropertiesIcon, TrashIcon } from "../../icons";
+import { ConflictNotice, EmptyState, NewButton, NoMatches, ErrorBoundary, Field, LoadMore, Loading, Notice, Page, Tabs, barButton, compactButton, compactControlClass, inputClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
 import { MenuItem, Modal, Popover } from "../chat/common";
 import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
@@ -106,11 +106,7 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 							<EditIcon /> Edit database
 						</button>
 					)}
-					{canEdit && (
-						<button type="button" className={barPrimaryButton} onClick={() => setCreating(true)}>
-							<PlusIcon /> New {type.name.toLowerCase()}
-						</button>
-					)}
+					{canEdit && <NewButton label={`New ${type.name.toLowerCase()}`} onClick={() => setCreating(true)} />}
 				</>
 			}
 		>
@@ -226,44 +222,12 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 					)}
 					{/* A query error (a bad filter, an old page) shows here; changing the list clears it. */}
 					<ErrorBoundary key={JSON.stringify([args, layout, group?.key])}>
-						{layout === "board" ? (
-							group ? (
-								<Board type={type} args={args} group={group} cards={shown} canEdit={canEdit} />
-							) : (
-								<div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-neutral-200 px-6 py-8">
-									<p className="text-neutral-600">
-										A board makes a column for each option of a choice field, like Status. This database has no choice field that holds one option yet.
-									</p>
-									{can(role, "fields.create") && (
-										<button type="button" className={primaryButton} onClick={() => setAddingField("choice")}>
-											Add a choice field
-										</button>
-									)}
-								</div>
-							)
-						) : (
-						<Table
-							type={type}
-							args={args}
-							columns={shown}
-							sort={sort}
-							onSort={setSort}
-							empty={
-								filters.length ? (
-									<p className={descriptionClass}>No {noun} match these filters.</p>
-								) : (
-									<div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-neutral-200 px-6 py-8">
-										<p className="text-neutral-600">No {noun} yet.</p>
-										{canEdit && (
-											<button type="button" className={primaryButton} onClick={() => setCreating(true)}>
-												Add the first {type.name.toLowerCase()}
-											</button>
-										)}
-									</div>
-								)
-							}
+						<RecordResults
+							type={type} args={args} columns={shown} sort={sort} onSort={setSort}
+							layout={layout} group={group} canEdit={canEdit}
+							noGroup={<EmptyState icon={<DatabaseIcon />} title="No choice field to group by">Open a record and use Add field to add a choice field for grouping cards.</EmptyState>}
+							empty={filters.length || sort ? <NoMatches /> : <EmptyState icon={<DatabaseIcon />} title={`No ${noun} yet`}>Keep your {noun} and their details here.</EmptyState>}
 						/>
-						)}
 					</ErrorBoundary>
 				</>
 			)}
@@ -294,12 +258,13 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 	);
 }
 
-function Table({
+function RecordResults({
 	type,
 	args,
 	columns,
 	sort,
 	onSort,
+	layout, group, canEdit, noGroup,
 	empty,
 }: {
 	type: RecordType;
@@ -308,6 +273,10 @@ function Table({
 	sort?: Sort;
 	onSort: (sort: Sort | undefined) => void;
 	empty: React.ReactNode;
+	layout: Layout;
+	group?: TypeField;
+	canEdit: boolean;
+	noGroup: React.ReactNode;
 }) {
 	const { rows, refs, status, loadMore, setEnd } = usePagedRows(args);
 
@@ -333,22 +302,21 @@ function Table({
 	};
 
 	if (status === "LoadingFirstPage") return <Loading />;
+	if (rows.length === 0 && status === "Exhausted") return empty;
+	if (layout === "board" && rows.length > 0) return group ? <Board type={type} args={args} group={group} cards={columns} canEdit={canEdit} /> : noGroup;
+	// A board still looking past empty pages shows only the loader, not a table.
 	return (
 		<div className="flex flex-col gap-2">
-			{rows.length === 0 && status === "Exhausted" ? (
-				empty
-			) : (
-				<RowsTable
-					type={type}
-					rows={rows}
-					refs={refs}
-					columns={columns}
-					head={[
-						...columns.map((f) => header(f.key, f.label, sortable(f))),
-						header("updatedAt", "Updated", true),
-					]}
-				/>
-			)}
+			{layout === "table" && <RowsTable
+				type={type}
+				rows={rows}
+				refs={refs}
+				columns={columns}
+				head={[
+					...columns.map((f) => header(f.key, f.label, sortable(f))),
+					header("updatedAt", "Updated", true),
+				]}
+			/>}
 			<div ref={setEnd} className="flex flex-col items-center py-2">
 				<LoadMore status={status} onMore={() => loadMore(25)} />
 			</div>
@@ -391,7 +359,7 @@ function SearchResults({ type, query, columns }: { type: RecordType; query: stri
 	const rows = useQuery(api.records.search, { query, typeId: type._id });
 	const refs = useRefs(rows ?? []);
 	if (!rows) return <Loading />;
-	if (rows.length === 0) return <p className={descriptionClass}>No matches.</p>;
+	if (rows.length === 0) return <NoMatches />;
 	const head = [...columns.map((f) => <th key={f.key} className="px-3 py-2 text-left font-medium">{f.label}</th>), <th key="u" className="px-3 py-2 text-left font-medium">Updated</th>];
 	return <RowsTable type={type} rows={rows} refs={refs} columns={columns} head={head} />;
 }

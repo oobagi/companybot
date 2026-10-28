@@ -30,7 +30,7 @@ export function ProfileCard({ who, onClose }: { who: Participant; onClose: () =>
 	return (
 		<div className="flex flex-col gap-3 p-4">
 			<div className="flex items-center gap-3">
-				<Avatar name={who.name} agent={who.type === "agent"} />
+				<Avatar name={who.name} image={who.image} agent={who.type === "agent"} />
 				<div className="min-w-0">
 					<p className="flex items-center gap-2 truncate font-semibold">
 						{who.name}

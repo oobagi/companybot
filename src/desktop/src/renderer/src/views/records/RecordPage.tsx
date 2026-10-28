@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { HistoryIcon, TrashIcon } from "../../icons";
+import { DatabaseIcon, HistoryIcon, TrashIcon } from "../../icons";
 import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, barButton, barDangerButton, descriptionClass, metadataClass, timeAgo, useRun } from "../../ui";
 import { Modal } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
@@ -32,7 +32,7 @@ export function RecordPage({ type, recordId, role }: { type: RecordType; recordI
 	const { error, run } = useRun();
 	const crumbs = [{ label: type.plural, to: recordPath(type.key) }];
 	if (!record || record.typeId !== type._id) {
-		return <NotFound crumbs={crumbs} loaded={record !== undefined}>This {type.name.toLowerCase()} isn't in your workspace.</NotFound>;
+		return <NotFound crumbs={crumbs} loaded={record !== undefined} icon={<DatabaseIcon />} title={`${type.name} not found`} />;
 	}
 	const canEdit = can(role, "records.edit");
 

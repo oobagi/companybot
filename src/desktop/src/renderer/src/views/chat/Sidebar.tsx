@@ -4,10 +4,16 @@ import { api } from "../../api";
 import { useMutation } from "../../convex";
 import { CaretRightIcon, ChannelIcon, PlusIcon, PrivateIcon } from "../../icons";
 import { AgentBadge, Avatar } from "./common";
-import type { ChatList } from "./data";
+import type { ChatList, Participant } from "./data";
 import { BrowseChannels, CreateChannel, NewMessage } from "./dialogs";
 
 type Dialog = "create" | "browse" | "message";
+
+/** The other person in a DM with just one, whose photo stands for it. */
+const soleOther = (members: Participant[], me: Id<"users">) => {
+	const others = members.filter((m) => m.id !== me);
+	return others.length === 1 ? others[0] : undefined;
+};
 
 /**
  * The chat list: channels, then direct messages. Agents sit with people (labeled Bot), and
@@ -31,11 +37,12 @@ export function ChatNav({
 
 	// Your DMs with people (and groups), and one per agent; most recent first, then the agents you haven't messaged.
 	const dms = [
-		...chats.dms.filter((d) => !d.agentId).map((d) => ({ key: d._id, dmId: d._id, name: d.title, agent: false, unread: d.unread, mentioned: d.mentioned, at: d.lastMessageAt, open: () => onOpen(d._id), title: undefined as string | undefined })),
+		...chats.dms.filter((d) => !d.agentId).map((d) => ({ key: d._id, dmId: d._id, name: d.title, image: soleOther(d.members, chats.me)?.image, agent: false, unread: d.unread, mentioned: d.mentioned, at: d.lastMessageAt, open: () => onOpen(d._id), title: undefined as string | undefined })),
 		...chats.agents.map((a) => ({
 			key: a._id,
 			dmId: a.dmId,
 			name: a.name,
+			image: a.image,
 			agent: true,
 			unread: a.unread,
 			mentioned: a.mentioned,
@@ -69,7 +76,7 @@ export function ChatNav({
 				{dms.map((d) => (
 					<Item
 						key={d.key}
-						icon={<Avatar name={d.name} agent={d.agent} size="xs" />}
+						icon={<Avatar name={d.name} image={d.image} agent={d.agent} size="xs" />}
 						active={!!d.dmId && d.dmId === openId}
 						unread={d.unread}
 						mentioned={d.mentioned}
@@ -125,7 +132,7 @@ export function Group({
 						onClick={onAdd}
 						title={addLabel}
 						aria-label={addLabel}
-						className="flex size-5 items-center justify-center rounded text-neutral-400 opacity-0 group-hover/section:opacity-100 hover:bg-neutral-200/70 hover:text-neutral-800"
+						className={`${trailingAction} opacity-0 group-hover/section:opacity-100 focus-visible:opacity-100`}
 					>
 						<PlusIcon />
 					</button>
@@ -136,6 +143,10 @@ export function Group({
 	);
 }
 
+/** A row's or section header's trailing control: same size and right edge everywhere, color-only hover. */
+export const trailingAction = "flex size-5 shrink-0 items-center justify-center text-neutral-400 hover:text-neutral-800";
+
+/** A sidebar row. The row is the only hover surface; `actions` show on hover at its right end. */
 export function Item({
 	icon,
 	active,
@@ -143,6 +154,8 @@ export function Item({
 	mentioned,
 	muted,
 	title,
+	indent = 0,
+	actions,
 	onClick,
 	children,
 }: {
@@ -153,24 +166,29 @@ export function Item({
 	mentioned?: boolean;
 	muted?: boolean;
 	title?: string;
+	/** Tree depth: 12px more left padding per level. */
+	indent?: number;
+	/** Controls in the row (in the icon or at the end) need `relative z-10` to sit above the row's click area. */
+	actions?: React.ReactNode;
 	onClick: () => void;
 	children: React.ReactNode;
 }) {
 	return (
-		<button
-			type="button"
-			title={title}
-			onClick={onClick}
-			className={`flex items-center gap-2 rounded-lg px-2 py-1 text-left text-sm ${itemTone({ active, unread, muted })}`}
+		<div
+			style={indent ? { paddingLeft: 8 + indent * 12 } : undefined}
+			className={`group/item relative flex items-center gap-2 rounded-lg px-2 py-1 text-sm ${itemTone({ active, unread, muted })}`}
 		>
 			{icon && <span className="flex w-5 shrink-0 items-center justify-center text-base text-neutral-400">{icon}</span>}
-			{children}
-			{mentioned && !active && (
-				<span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-neutral-900 px-1 text-[10px] font-medium text-white">
-					@
-				</span>
-			)}
-		</button>
+			<button type="button" title={title} onClick={onClick} className="flex min-w-0 flex-1 items-center gap-2 text-left after:absolute after:inset-0 after:rounded-lg">
+				{children}
+				{mentioned && !active && (
+					<span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-neutral-900 px-1 text-[10px] font-medium text-white">
+						@
+					</span>
+				)}
+			</button>
+			{actions && <span className="relative z-10 hidden items-center gap-1 group-focus-within/item:flex group-hover/item:flex has-[[aria-expanded=true]]:flex">{actions}</span>}
+		</div>
 	);
 }
 

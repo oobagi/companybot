@@ -13,6 +13,7 @@ import { cancelMemberInvite, inviteIn, inviteMember, removeWorkspaceMember, rese
 import { asToolResult, checkPermission, type Member, nameOf, normalizeEmail, preferencesOf, requireAgent, timeZoneOf } from "./lib";
 import { createAgent, setAgentTrashed, updateAgent } from "./agents";
 import { catalogModels } from "./modelCatalog";
+import { setImage } from "./images";
 import { updatePreferences } from "./preferences";
 import { runNowAs } from "./automationRuns";
 import { runningTurn } from "./turns";
@@ -271,6 +272,7 @@ export const runFor = internalMutation({
 					if (r.action === "get") return { id, ...pickAgentConfig(agent), version: agent.version, inTrash: agent.archived };
 					if (r.action === "history") return ctx.db.query("agentVersions").withIndex("by_agent", (q) => q.eq("agentId", id)).order("desc").paginate(paging(r.cursor));
 					if (r.action === "delete") await setAgentTrashed(ctx, who, id, true);
+					if (r.action === "remove_image") await setImage(ctx, member, id, null);
 					if (r.action === "update") {
 						if (id === turn.agentId && (r.instructions !== undefined || r.model !== undefined)) throw new ConvexError("Only a person can change your instructions or model.");
 						const { action, id: _, expectedVersion, ...changes } = r;
@@ -283,6 +285,10 @@ export const runFor = internalMutation({
 					if (r.action === "get_preferences") {
 						const prefs = await preferencesOf(ctx, member.userId);
 						return { displayName: prefs?.displayName ?? "", sendWith: prefs?.sendWith ?? "enter", notify: prefs?.notify ?? "all", timeZone: prefs?.timeZone ?? null };
+					}
+					if (r.action === "remove_image") {
+						await setImage(ctx, member, r.of, null);
+						return { done: r.action };
 					}
 					if (r.action === "update_preferences") {
 						const { action, ...changes } = r;

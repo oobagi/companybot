@@ -100,7 +100,7 @@ function Picker({ options, picked, onChange }: { options: Participant[]; picked:
 								checked={picked.includes(o.id)}
 								onChange={(e) => onChange(e.target.checked ? [...picked, o.id] : picked.filter((id) => id !== o.id))}
 							/>
-							<Avatar name={o.name} agent={o.type === "agent"} size="sm" />
+							<Avatar name={o.name} image={o.image} agent={o.type === "agent"} size="sm" />
 							<span className="flex-1 truncate text-sm">{o.name}</span>
 							{o.type === "agent" && <AgentBadge />}
 						</label>
@@ -181,7 +181,7 @@ export function ChannelDetails({ chat, onClose, onLeft }: { chat: ChatDetails; o
 						<ul className="flex flex-col gap-1">
 							{chat.members.map((m) => (
 								<li key={`${m.type}:${m.id}`} className="flex items-center gap-3 py-1">
-									<Avatar name={m.name} agent={m.type === "agent"} size="sm" />
+									<Avatar name={m.name} image={m.image} agent={m.type === "agent"} size="sm" />
 									<span className="flex-1 truncate text-sm">
 										<ProfileLink who={m} className="hover:underline">{m.name}</ProfileLink>
 									</span>

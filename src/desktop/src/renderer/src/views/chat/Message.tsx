@@ -53,7 +53,7 @@ export function MessageRow({
 						</span>
 					) : (
 						<ProfileLink who={message.author}>
-							<Avatar name={message.author.name} agent={isAgent} />
+							<Avatar name={message.author.name} image={message.author.image} agent={isAgent} />
 						</ProfileLink>
 					)}
 				</div>
@@ -226,20 +226,22 @@ function AgentBody({ message }: { message: Message }) {
 	const streaming = message.status === "streaming";
 	const lastText = message.parts.findLastIndex((p) => p.type === "text");
 	return (
-		<div className="flex flex-col gap-3">
-			{message.parts.map((part, i) =>
-				part.type === "text" ? (
-					<Markdown key={i} className="leading-relaxed" isAnimating={streaming && i === lastText}>
-						{part.text}
-					</Markdown>
-				) : part.type === "tool" ? (
-					<ToolPart key={part.id} replyId={message._id} part={part} />
-				) : part.type === "widget" ? (
-					<WidgetView key={part.id} widget={part.widget} />
-				) : null,
-			)}
-			{streaming && message.parts.length === 0 && <p className="text-sm text-neutral-400">Thinking…</p>}
-			{message.status === "error" && <Notice>{message.error ?? "Something went wrong."}</Notice>}
+		<div className="flex flex-col gap-1">
+			<div className="flex flex-col gap-3">
+				{message.parts.map((part, i) =>
+					part.type === "text" ? (
+						<Markdown key={i} className="leading-relaxed" isAnimating={streaming && i === lastText}>
+							{part.text}
+						</Markdown>
+					) : part.type === "tool" ? (
+						<ToolPart key={part.id} replyId={message._id} part={part} />
+					) : part.type === "widget" ? (
+						<WidgetView key={part.id} widget={part.widget} />
+					) : null,
+				)}
+				{streaming && message.parts.length === 0 && <p className="text-sm text-neutral-400">Thinking…</p>}
+				{message.status === "error" && <Notice>{message.error ?? "Something went wrong."}</Notice>}
+			</div>
 			{message.stats && <ReplyDetails stats={message.stats} />}
 		</div>
 	);
@@ -253,11 +255,11 @@ function ToolPart({ replyId, part }: { replyId: Message["_id"]; part: ToolPart }
 	const label = toolLine(part.label ?? (part.name === "connectors_search" ? "Look up connected actions" : actionLabel(part.name)), part.status);
 	if (part.status === "running") return <p className="text-xs text-neutral-400">{label}</p>;
 	return (
-		<span>
+		<div className="flex">
 			<Popover trigger={label} className="text-xs text-neutral-400 hover:text-neutral-600" panelClassName="w-[32rem] p-3">
 				<CallPanel replyId={replyId} callId={part.id} />
 			</Popover>
-		</span>
+		</div>
 	);
 }
 
@@ -284,7 +286,7 @@ function ReplyDetails({ stats }: { stats: Stats }) {
 		["Here so far", usd(stats.conversationCostUsd)],
 	];
 	return (
-		<span>
+		<div className="flex">
 			<Popover
 				trigger={`${shortModel(stats.model)} · ${seconds(stats.durationMs)} · ${tokens(stats.contextTokens)} context · ${usd(stats.costUsd)} · ${usd(stats.conversationCostUsd)} total`}
 				className="text-xs text-neutral-400 tabular-nums hover:text-neutral-600"
@@ -299,7 +301,7 @@ function ReplyDetails({ stats }: { stats: Stats }) {
 					))}
 				</dl>
 			</Popover>
-		</span>
+		</div>
 	);
 }
 

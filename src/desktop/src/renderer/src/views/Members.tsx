@@ -24,9 +24,6 @@ export function MembersTab({ role }: { role: Role }) {
 
 	return (
 		<>
-			<p className={descriptionClass}>
-				We email invited people a link to get the app. They join when they sign in with that email. Role changes apply right away.
-			</p>
 			{error && <Notice>{error}</Notice>}
 			{note && <p className={descriptionClass}>{note}</p>}
 

@@ -13,11 +13,12 @@ import { type Member, type Who, checkPermission, getMember, requireMember } from
 import { deletePage, requirePage, setPageTrashed } from "./pageOps";
 import { setFieldTrashed, setRecordTrashed, setTypeTrashed } from "./recordOps";
 import { trashKind } from "./schema";
+import { deleteMemory, setMemoryTrashed } from "./memoryOps";
 import { setSkillTrashed } from "./skills";
 import { TRASH_MS, type TrashKind, describeTrash, trashEntry } from "./trashOps";
 
-// Trash: one place for every deleted record, database, field, page, channel, agent, and skill or
-// automation installs. Deleting moves an item here; whoever deleted it (or an owner) can
+// Trash: one place for every deleted record, database, field, page, channel, agent, team memory,
+// and skill or automation installs. Deleting moves an item here; anyone who could delete it can
 // restore it, where it was, links included. Owners can delete forever; everything else goes for
 // good after TRASH_DAYS. See wiki/data.md#trash.
 
@@ -34,6 +35,7 @@ const tables = {
 	agent: "agents",
 	skill: "skillInstalls",
 	automation: "automationInstalls",
+	memory: "memories",
 } as const satisfies Record<TrashKind, TableNames>;
 
 function idOf<K extends TrashKind>(ctx: MutationCtx, kind: K, id: string) {
@@ -51,6 +53,7 @@ async function setTrashed(ctx: MutationCtx, who: Who, kind: TrashKind, id: strin
 	if (kind === "agent") return setAgentTrashed(ctx, who, idOf(ctx, kind, id), trashed);
 	if (kind === "skill") return setSkillTrashed(ctx, who, idOf(ctx, kind, id), trashed);
 	if (kind === "automation") return setAutomationTrashed(ctx, who, idOf(ctx, kind, id), trashed);
+	if (kind === "memory") return setMemoryTrashed(ctx, who, idOf(ctx, kind, id), trashed);
 	return setChannelTrashed(ctx, who, idOf(ctx, kind, id), trashed);
 }
 
@@ -76,6 +79,7 @@ async function deleteEntry(ctx: MutationCtx, entry: Doc<"trash">) {
 		const install = await ctx.db.get(idOf(ctx, "automation", entry.itemId));
 		if (install) await removeInstall(ctx, install);
 	}
+	if (entry.kind === "memory") await deleteMemory(ctx, idOf(ctx, "memory", entry.itemId));
 }
 
 /** Trash never widens a private channel's or just-them automation's audience, including for workspace owners. */

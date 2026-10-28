@@ -17,7 +17,7 @@ Channels, DMs (people and agents), threads, and reactions. One model for all of 
 
 ## Whose access
 - The agent acts as **the person who triggered it** (`agentTurns.actorId`): their role, connector connections, and what chats they can see. Re-read each call, as before.
-- **Personal memories only in DMs with exactly one person.** Anywhere with 2+ people, agents read and write team memories only, so one person's private facts never land in a shared chat.
+- **Personal memories are read only in DMs with exactly one person.** Anywhere with 2+ people, agents read and change team memories only, so one person's private facts never land in a shared chat. They can still save a new personal memory there, always for the person who asked: it was already said in the chat, so nothing leaks, and it lets onboarding in #general build each person's own context.
 - Chat tools (`chat.read`, `chat.search`) only see chats the actor can see.
 
 ## What an agent is fed each turn
@@ -27,7 +27,7 @@ Built for prompt caching: the cache matches an exact prefix, so nothing earlier 
 2. **A session per agent per place** (`agentSessions`: agent + chat + thread) — append-only. Each past turn replays exactly as sent: the stored user message (`agentTurns.prompt`), then the agent's reply as `assistant`. Never rebuilt from current messages, so edits elsewhere can't break the cache.
 3. **One new user message per turn**, appended at the end:
    - Where you are: chat, who's in it, who triggered you, memory mode.
-   - Everything said in the place since the agent's last reply, including messages not addressed to it, each labeled `[Name]`. A thread's first turn starts with its parent. Capped at ~50 messages; past that, a note says to use `chat.read`.
+   - Everything said in the place since the agent's last reply, including messages not addressed to it, each labeled `[Name time]` with its text as a JSON string. Names and topics lose brackets and line breaks, and the asker's lines are marked `(asker)`, so no message (or look-alike name) can fake a line from someone else: Anthropic's advice for untrusted text. The guide tells the agent only the asker can direct it, and compaction credits a request only to whoever's labeled line made it. A thread's first turn starts with its parent. Capped at ~50 messages; past that, a note says to use `chat.read`.
    - The trigger message, marked as the one to answer. A turn queued by an approval decision gets the outcome (approved + result, failed, or denied) here instead.
 4. **Compaction** — once the session passes ~40k tokens, older turns fold into the session's summary and a ~15k-token tail stays verbatim. One cache miss, then append-only again.
 5. **Chat tools** — `chat.react` (react to the trigger message), `chat.read` (older history or another place), `chat.search` (search chats the actor can see). Granted like other built-ins (`chat.*`).
@@ -66,7 +66,14 @@ Queries return display-ready data (names resolved) so the app never joins tables
 - `edit({ messageId, text })`, `remove({ messageId })` — your own messages. Removing keeps the row (threads hang off it) and clears text, parts, and reactions.
 - `react({ messageId, emoji })` — toggles your reaction.
 
+**`typing.ts`**
+- `ping({ chatId, threadId? })` — you're typing there. The app sends it on keystrokes, at most every 4s (`TYPING_PING_MS`, core `typing.ts`). Ignored in agent DMs (nobody else would see it) and for a thread that isn't one.
+- `list({ chatId, threadId? })` → `{ people: (Participant & { at })[], agents: Participant[] }`, at most 10 each. People who pinged in the last 6s (`TYPING_MS`), you left out. A query doesn't re-run as time passes, so the app also expires each ping 6s after it saw it (its own clock, so a computer with the wrong time still works). `agents`: turns running there (index `agentTurns.by_chat`), minus ones stuck past `STALE_TURN_MS`. No extra writes for them.
+- One `typing` row per person per place, overwritten by each ping, so one person can't grow the table. Sending a message deletes yours; an hourly cron deletes the rest (typed, never sent). Like Discord, there's no "stopped typing": a ping runs out.
+
 ## In the app
+Under every composer, one line says who's typing there ("Ada and Companybot are typing…"). Its space is always kept, so the box doesn't jump. A thread has its own line. The line (`TypingLine`) is its own component, so its timer doesn't re-render the messages.
+
 Click a name or avatar for a profile card (`views/chat/Profile.tsx`, from `workspace.team` and `chats.list`): name, email, role, local time, Message.
 
 ## Permissions

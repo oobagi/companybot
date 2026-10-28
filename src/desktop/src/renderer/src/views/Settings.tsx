@@ -38,6 +38,7 @@ import {
 } from "../icons";
 import { Select } from "../controls";
 import { ActivityTab } from "./Activity";
+import { ImagePicker } from "./ImagePicker";
 import { Confirm, Modal, zoneLabel } from "./chat/common";
 import { Group, Item } from "./chat/Sidebar";
 import { type CustomizeTab, CustomizeView, customizeTabs } from "./customize";
@@ -53,9 +54,9 @@ const sections = [
 		title: "Workspace",
 		tabs: [
 			{ id: "general", label: "General", icon: <SettingsIcon /> },
-			{ id: "members", label: "Members", icon: <MembersIcon /> },
-			{ id: "memory", label: "Memory", icon: <MemoryIcon /> },
-			{ id: "activity", label: "Activity", icon: <ActivityIcon /> },
+			{ id: "members", label: "Members", description: "We email invited people a link to get the app. They join when they sign in with that email. Role changes apply right away.", icon: <MembersIcon /> },
+			{ id: "memory", label: "Memory", description: "Each agent has its own memory. Team memories are shared, and anyone can fix them. Only you can see your personal memories.", icon: <MemoryIcon /> },
+			{ id: "activity", label: "Activity", description: "Database changes, and what agents did in chats you can see. Agent results show only for what they did for you.", icon: <ActivityIcon /> },
 			{ id: "trash", label: "Trash", icon: <TrashIcon /> },
 		],
 	},
@@ -85,7 +86,7 @@ export function SettingsView({ role, tab, itemId }: { role: Role; tab: SettingsT
 	if (isCustomize(tab)) return <CustomizeView role={role} tab={tab} itemId={itemId} />;
 	if (tab === "trash") return <TrashView role={role} />;
 	return (
-		<Page title={settingsTabs.find((t) => t.id === tab)!.label}>
+		<Page title={settingsTabs.find((t) => t.id === tab)!.label} description={(settingsTabs.find((t) => t.id === tab) as { description?: string } | undefined)?.description}>
 			{tab === "general" && <GeneralTab role={role} />}
 			{tab === "members" && <MembersTab role={role} />}
 			{tab === "memory" && <MemoryTab role={role} />}
@@ -247,7 +248,7 @@ function GeneralForm({
 	settings,
 	isOwner,
 }: {
-	settings: { name: string; currency: string; memory: boolean; hasAmounts: boolean; version: number };
+	settings: { name: string; currency: string; memory: boolean; hasAmounts: boolean; image: string | null; version: number };
 	isOwner: boolean;
 }) {
 	const save = useMutation(api.workspace.updateSettings);
@@ -262,6 +263,9 @@ function GeneralForm({
 			{draft.stale && <ConflictNotice onDiscard={draft.discard} onKeep={draft.keepMine} />}
 			{error && <Notice>{error}</Notice>}
 			<Settings title="Workspace" hint={ownerOnly}>
+				<Setting label="Logo" hint="Next to its name in the sidebar. PNG, JPEG, WebP or GIF, up to 2 MB.">
+					<ImagePicker of="workspace" name={settings.name} image={settings.image} agent disabled={!isOwner} />
+				</Setting>
 				<Setting label="Name">
 					<input
 						className={`${compactControlClass} w-64`}
@@ -312,7 +316,10 @@ function ProfileTab() {
 	return (
 		<>
 			{error && <Notice>{error}</Notice>}
-			<Settings title="You" hint="Only you see these, except your name and time zone. They follow you to every device.">
+			<Settings title="You" hint="Only you see these, except your photo, name and time zone. They follow you to every device.">
+				<Setting label="Photo" hint="Shown to your team in every workspace. PNG, JPEG, WebP or GIF, up to 2 MB.">
+					<ImagePicker of="me" name={prefs.displayName || me?.email || ""} image={prefs.image} />
+				</Setting>
 				<Setting label="Name" hint="What agents and teammates call you.">
 					<form
 						className="flex gap-2"

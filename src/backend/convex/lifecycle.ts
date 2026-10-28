@@ -7,6 +7,7 @@ import { privateTo } from "./automationOps";
 import { startCascade } from "./cascade";
 import { hasLiveOwner, liveWorkspace, pinLegacyWorkspace } from "./lib";
 import { deletePage, pageOfRecord } from "./pageOps";
+import { forgetTrashEntry } from "./memoryOps";
 import { toField } from "./recordOps";
 
 // What happens to every table's rows when what they belong to goes: a workspace is deleted,
@@ -45,6 +46,8 @@ export type Lifecycle<T extends TableNames> = { [S in Scope]?: Edge<T> } & {
 	keep?: string;
 	/** Deleted with each row of `table`, wherever one is deleted: the rows whose `field` is its id. One level only. */
 	childOf?: { table: TableNames; index: IndexNames<NamedTableInfo<DataModel, T>>; field: string };
+	/** Fields holding a storage id: the file is deleted with the row, wherever a cascade deletes it. */
+	files?: (keyof Doc<T> & string)[];
 };
 
 /** A channel seat, not a DM: DMs keep people who left as past participants. */
@@ -99,7 +102,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	localSignInCodes: { keep: "Local backends only (`pnpm dev`): the latest code per email. eraseAccount deletes the person's at once, like authRateLimits." },
 
 	// ---- Workspaces and people ----
-	workspaces: { keep: "Its own cascade deletes it last, once everything in it is gone (cascade.ts)." },
+	workspaces: { keep: "Its own cascade deletes it last, once everything in it is gone (cascade.ts).", files: ["image"] },
 	members: {
 		// COMPAT(0.1.0-alpha.7): pin before the membership goes, so old apps act nowhere rather than in another workspace.
 		workspace: { index: "by_workspace", eq: ["workspaceId"], onDelete: (ctx, row) => pinLegacyWorkspace(ctx, row.userId) },
@@ -115,8 +118,17 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		user: { index: "by_user", eq: ["userId"] },
 		keep: "A pin to a deleted workspace stays, so apps from before switching act nowhere, never in another workspace (legacyMemberOf).",
 	},
+	// Uploads not yet attached to anything (images.ts); unclaimed ones also go after a day (images.sweepUploads).
+	uploads: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		user: { index: "by_user", eq: ["userId"] },
+		keep: "A removed member's unclaimed uploads go with the hourly sweep, within a day.",
+		files: ["storageId"],
+	},
 	preferences: {
 		user: { index: "by_user", eq: ["userId"] },
+		// Their photo goes with their account.
+		files: ["image"],
 		// "Last used" pointing at a deleted workspace: the app opens another.
 		workspace: { index: "by_workspace", eq: ["workspaceId"], scrub: () => ({ workspaceId: undefined }) },
 	},
@@ -127,6 +139,8 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	agents: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		keep: "Agents are the workspace's. Who last saved one stays on it.",
+		// Its picture stays while it's in Trash, and goes when it's deleted for good.
+		files: ["image"],
 	},
 	agentVersions: {
 		childOf: { table: "agents", index: "by_agent", field: "agentId" },
@@ -134,10 +148,12 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	},
 	memories: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
-		agent: { index: "by_agent_scope", eq: ["agentId"] },
+		// Team memories in Trash take their entry: it couldn't be restored anymore.
+		agent: { index: "by_agent_scope", eq: ["agentId"], onDelete: forgetTrashEntry },
 		// Personal memories are their owner's alone. Team memories they wrote stay with the team.
 		member: { index: "by_owner", eq: [["ownerId", "userId"], "workspaceId"] },
 	},
+	memoryVersions: { childOf: { table: "memories", index: "by_memory", field: "memoryId" } },
 
 	// ---- Connectors ----
 	connectorInstalls: {
@@ -184,6 +200,11 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		// Deleting a message clears it but keeps the row (messages.remove). What agents already saw of a
 		// deleted or edited message stays in their sessions: a product decision is pending.
 		keep: "Team history: what someone said stays when they leave; once their account is erased it shows as a former member's.",
+	},
+	typing: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		member: { index: "by_workspace", eq: ["workspaceId", "userId"] },
+		channel: { index: "by_place", eq: ["chatId"] },
 	},
 	reactions: { childOf: { table: "chatMessages", index: "by_message", field: "messageId" } },
 	userMentions: {
@@ -299,9 +320,21 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	// ---- Pages ----
 	pages: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"], onDelete: deleteContent },
+		page: {
+			index: "by_parent", eq: ["workspaceId", ["parentId", "pageId"]],
+			onDelete: async (ctx, row) => {
+				await deleteContent(ctx, row);
+				await startCascade(ctx, "page", { workspaceId: row.workspaceId, pageId: row._id });
+			},
+		},
 		// A record's body goes with it.
 		record: { index: "by_workspace", eq: ["workspaceId", "recordId"], onDelete: deleteContent },
 		keep: "Pages are the workspace's, like records. Deleting one forever (trash.ts) deletes its row first, then its content and a page cascade.",
+	},
+	pageMoves: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		childOf: { table: "pages", index: "by_page", field: "pageId" },
+		page: { index: "by_page", eq: ["pageId"] },
 	},
 	pageVersions: {
 		childOf: { table: "pages", index: "by_page", field: "pageId" },
@@ -309,6 +342,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	},
 
 	trash: {
+		page: { index: "by_item", eq: [["itemId", "pageId"]] },
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		// Its records' and fields' entries: they go with it.
 		database: { index: "by_type", eq: ["typeId"] },
@@ -326,6 +360,10 @@ export const edgesOf = (scope: Scope): Step[] =>
 		const edge = (rules as Lifecycle<TableNames>)[scope];
 		return edge ? [{ ...(edge as Edge<TableNames>), table: table as TableNames }] : [];
 	});
+
+/** The storage files a row of `table` holds (`files`). */
+export const filesOf = (table: TableNames, row: Doc<TableNames>) =>
+	((lifecycle[table] as Lifecycle<TableNames>).files ?? []).flatMap((field) => (row[field] ? [row[field] as unknown as Id<"_storage">] : []));
 
 /** Tables deleted with each row of `table`. */
 export const childrenOf = (table: TableNames) =>

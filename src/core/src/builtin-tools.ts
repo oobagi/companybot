@@ -44,7 +44,7 @@ export const builtinTools: ToolDef[] = [
 			return (await memory.search(query, agentId)).map(({ id, scope, content }) => ({ id, scope, content }));
 		},
 	}),
-	remember("memory.remember", "Remember", "Save a personal memory for the current person only.", "personal"),
+	remember("memory.remember", "Remember", "Save a personal memory for the current person only: a fact about them or what they prefer, from what they said themselves.", "personal"),
 	remember("memory.remember_for_team", "Remember for the team", "Save a memory the whole workspace can see.", "workspace", "memory.team.write"),
 	defineTool({
 		id: "memory.update",

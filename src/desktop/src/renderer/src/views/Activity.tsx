@@ -7,7 +7,8 @@ import { agentOptions } from "../agent-options";
 import { api } from "../api";
 import { usePaginatedQuery, useQuery } from "../convex";
 import { navigate } from "../router";
-import { LoadMore, Loading, Section, descriptionClass, metadataClass, timeAgo } from "../ui";
+import { HistoryIcon } from "../icons";
+import { EmptyState, NoMatches, LoadMore, Loading, Section, descriptionClass, metadataClass, timeAgo } from "../ui";
 import { actionLabels, valueText, whoLabel } from "./records/logic";
 
 export type ActivityEntry = FunctionReturnType<typeof api.activity.forReply>[number];
@@ -15,6 +16,7 @@ export type ActivityEntry = FunctionReturnType<typeof api.activity.forReply>[num
 /** Every tool call agents made in chats you can see. Results show only for calls made for you. */
 export function ActivityTab() {
 	const agents = useQuery(api.agents.list);
+	const database = usePaginatedQuery(api.records.activity, {}, { initialNumItems: 20 });
 	const [agentId, setAgentId] = useState<Id<"agents">>();
 	const [changesOnly, setChangesOnly] = useState(true);
 	const entries = useQuery(api.activity.list, { agentId });
@@ -23,10 +25,7 @@ export function ActivityTab() {
 
 	return (
 		<>
-			<DatabaseActivity />
-			<p className={descriptionClass}>
-				What agents did, in chats you can see. Results show only for what they did for you.
-			</p>
+			{(database.results.length > 0 || database.status !== "Exhausted") && <DatabaseActivity {...database} />}
 			<div className="flex items-center gap-4 text-sm">
 				<Select
 					label="Agent"
@@ -39,8 +38,8 @@ export function ActivityTab() {
 					Changes only
 				</label>
 			</div>
-			{shown.length === 0 && <p className="text-sm text-neutral-400">Nothing yet.</p>}
-			<div className="flex flex-col gap-2">
+			{shown.length === 0 && database.status !== "LoadingFirstPage" && (agentId || entries.length > 0 ? <NoMatches /> : <EmptyState icon={<HistoryIcon />} title={database.results.length ? "No agent activity yet" : "No activity yet"}>Database changes and agent actions will appear here.</EmptyState>)}
+			<div className="flex shrink-0 flex-col gap-2 empty:hidden">
 				{shown.map((e) => (
 					<ActivityRow key={e._id} entry={e} />
 				))}
@@ -49,8 +48,7 @@ export function ActivityTab() {
 	);
 }
 
-function DatabaseActivity() {
-	const { results, status, loadMore } = usePaginatedQuery(api.records.activity, {}, { initialNumItems: 20 });
+function DatabaseActivity({ results, status, loadMore }: { results: FunctionReturnType<typeof api.records.activity>["page"]; status: string; loadMore: (count: number) => void }) {
 	return (
 		<Section title="Database changes" hint="Records, fields, databases and shared views, including changes made by agents.">
 			{results.map((e) => {
@@ -64,7 +62,6 @@ function DatabaseActivity() {
 					{e.changes.map((c) => <p key={c.key} className="break-words text-neutral-600">{c.label}: {valueText(undefined, c.old, e.refs) || "empty"} → {valueText(undefined, c.new, e.refs) || "empty"}</p>)}
 				</div>;
 			})}
-			{status === "Exhausted" && !results.length && <p className={descriptionClass}>No changes yet.</p>}
 			<LoadMore status={status} onMore={() => loadMore(20)} />
 		</Section>
 	);

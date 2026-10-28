@@ -21,6 +21,8 @@ export function person(identity: Identity, workspaceId?: Id<"workspaces">) {
 			identity.mutation(fn as FunctionReference<"mutation">, withWorkspace(args)) as Promise<FunctionReturnType<M>>,
 		action: <A extends FunctionReference<"action">>(fn: A, ...[args]: Rest<A>) =>
 			identity.action(fn as FunctionReference<"action">, withWorkspace(args)) as Promise<FunctionReturnType<A>>,
+		/** An HTTP request to the backend's site, signed in as them. */
+		fetch: (path: string, init?: RequestInit) => identity.fetch(path, init),
 		/** The same person, with a window that has `id` open. */
 		in: (id: Id<"workspaces">) => person(identity, id),
 	};

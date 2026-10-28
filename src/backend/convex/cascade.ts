@@ -3,7 +3,8 @@ import { getDocumentSize, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id, TableNames } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
-import { type Get, type Root, type Scope, type Step, childrenOf, edgesOf } from "./lifecycle";
+import { deleteFile } from "./images";
+import { type Get, type Root, type Scope, type Step, childrenOf, edgesOf, filesOf } from "./lifecycle";
 
 // Deletes what belonged to something that went, as lifecycle.ts says, a little at a time:
 // each run reads one page of one edge, deletes it (children first), saves where it got to
@@ -135,7 +136,7 @@ export const step = internalMutation({
 				break;
 			}
 			await edge.onDelete?.(ctx, row, job.root);
-			await ctx.db.delete(row._id);
+			await deleteRow(ctx, edge.table, row);
 			budget.writes--;
 			handled++;
 		}
@@ -148,15 +149,31 @@ export const step = internalMutation({
 	},
 });
 
-/** The row a scope deletes last, once everything that belonged to it is gone. The rest were gone before it started. */
-const lastOf = ({ scope, root }: Doc<"cascades">) =>
-	({ workspace: root.workspaceId, record: root.recordId, database: root.typeId, field: root.fieldId, channel: root.chatId, agent: root.agentId })[scope as string];
+/** The row a scope deletes last, once everything that belonged to it is gone, and its table. The rest were gone before it started. */
+const lastOf = ({ scope, root }: Doc<"cascades">): [TableNames, Id<TableNames> | undefined] | undefined =>
+	(
+		({
+			workspace: ["workspaces", root.workspaceId],
+			record: ["records", root.recordId],
+			database: ["recordTypes", root.typeId],
+			field: ["recordFields", root.fieldId],
+			channel: ["chats", root.chatId],
+			agent: ["agents", root.agentId],
+		}) as Record<string, [TableNames, Id<TableNames> | undefined]>
+	)[scope];
 
 /** Every edge is done: the root row goes last (a workspace, or something deleted from Trash), then the cascade. */
 async function finish(ctx: MutationCtx, job: Doc<"cascades">) {
-	const last = lastOf(job);
-	if (last && (await ctx.db.get(last))) await ctx.db.delete(last);
+	const [table, id] = lastOf(job) ?? [];
+	const last = id && (await ctx.db.get(id));
+	if (last) await deleteRow(ctx, table!, last);
 	await ctx.db.delete(job._id);
+}
+
+/** Deletes a row and the storage files it holds. */
+async function deleteRow(ctx: MutationCtx, table: TableNames, row: Doc<TableNames>) {
+	for (const file of filesOf(table, row)) await deleteFile(ctx, file);
+	await ctx.db.delete(row._id);
 }
 
 /** Deletes the row's children, one read at a time while there's room. Returns whether they're all gone. */
@@ -165,7 +182,7 @@ async function deleteChildren(ctx: MutationCtx, table: TableNames, row: Doc<Tabl
 		if (!room(budget)) return false;
 		for await (const r of range(ctx, child.table, child.index as string, [[child.field, row._id]])) {
 			spend(budget, r);
-			await ctx.db.delete(r._id);
+			await deleteRow(ctx, child.table, r);
 			budget.writes--;
 			if (!room(budget)) return false;
 		}

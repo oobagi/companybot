@@ -84,10 +84,13 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		await ctx.db.insert("agentVersions", { agentId, version: 1, config, savedBy: memberId });
 		await ctx.db.insert("invites", { workspaceId, email: "next@co.com", role: "member", invitedBy: ownerId });
 		await ctx.db.insert("inviteEmails", { workspaceId, email: "next@co.com" });
+		// Not the member's alone: removal leaves a pending upload to the sweep (images.ts).
+		await ctx.db.insert("uploads", { storageId: await ctx.storage.store(new Blob(["x"])), userId: memberId, workspaceId, createdAt: now });
 		const memory = { workspaceId, agentId, content: "Note", updatedAt: now, version: 1 };
 		await ctx.db.insert("memories", { ...memory, scope: "workspace", ownerId: null, updatedBy: memberId });
 		await ctx.db.insert("memories", { ...memory, scope: "personal", ownerId, updatedBy: ownerId });
-		mine.push(await ctx.db.insert("memories", { ...memory, scope: "personal", ownerId: memberId, updatedBy: memberId }));
+		const personal = await ctx.db.insert("memories", { ...memory, scope: "personal", ownerId: memberId, updatedBy: memberId });
+		mine.push(personal, await ctx.db.insert("memoryVersions", { memoryId: personal, version: 1, content: "Before", savedBy: memberId, savedAt: now }));
 
 		const connectorInstallId = await ctx.db.insert("connectorInstalls", { workspaceId, connectorId: "notes", roles: ["owner", "member"], installedBy: ownerId });
 		const connection = { workspaceId, connectorId: "notes", credentials: "sealed" };
@@ -112,6 +115,7 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		const said = await ctx.db.insert("chatMessages", { ...message, authorUserId: memberId, text: "Hi", mentions: { userIds: [], agentIds: [] } });
 		const mention = await ctx.db.insert("chatMessages", { ...message, authorUserId: ownerId, text: "@member", mentions: { userIds: [memberId], agentIds: [] } });
 		mine.push(await ctx.db.insert("userMentions", { userId: memberId, chatId: channel, messageId: mention, at: now }));
+		mine.push(await ctx.db.insert("typing", { workspaceId, chatId: channel, userId: memberId, at: now }));
 		// More reactions than one cascade run deletes, so a message's children span runs.
 		for (let i = 0; i < 150; i++) await ctx.db.insert("reactions", { messageId: said, chatId: channel, emoji: `e${i}`, userId: memberId });
 
@@ -149,6 +153,7 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		await ctx.db.insert("recordMentions", { recordId, messageId: said, chatId: channel });
 		const pageId = await ctx.db.insert("pages", { workspaceId, recordId, title: "", archived: false, createdBy: memberId, updatedAt: now, updatedBy: memberId });
 		await ctx.db.insert("pageVersions", { pageId, n: 1, version: 2, userId: memberId, editedAt: now });
+		await ctx.db.insert("pageMoves", { workspaceId, pageId, n: 1, userId: memberId, from: "Pages", to: "Wiki" });
 		const trashedId = await ctx.db.insert("records", { workspaceId, typeId, title: "Old", values: { name: "Old" }, searchText: "old", archived: true, createdBy: memberId, updatedAt: now, updatedBy: memberId });
 		await ctx.db.insert("trash", { workspaceId, kind: "record", itemId: trashedId, name: "Old", typeId, deletedBy: memberId, deletedAt: now });
 		return mine;
@@ -331,7 +336,7 @@ describe("erasing an account", () => {
 
 		const theirs = new Set<string>([...mineIn[A]!, ...mineIn[B]!, ...seatsIn(before, A, m.userId), ...seatsIn(before, B, m.userId), leftBehind]);
 		for (const [id, { table, row }] of before) {
-			const own = row.userId === m.userId && ["members", "preferences", "legacyWorkspaces", "authAccounts", "authSessions", "connectorOAuthFlows"].includes(table);
+			const own = row.userId === m.userId && ["members", "preferences", "legacyWorkspaces", "authAccounts", "authSessions", "connectorOAuthFlows", "uploads"].includes(table);
 			const email = (table === "authRateLimits" && row.identifier === "m@co.com") || (table === "localSignInCodes" && row.email === "m@co.com");
 			if (email) theirs.add(id);
 			const child = (table === "authVerificationCodes" && !after.has(row.accountId as string)) || (table === "authRefreshTokens" && sessions.has(row.sessionId as string));
