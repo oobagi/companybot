@@ -33,3 +33,4 @@ export * from "./widgets";
 export * from "./automation-tools";
 export * from "./manage-tools";
 export * from "./typing";
+export * from "./onboarding";

@@ -25,7 +25,7 @@ export function followsOthers(install: Doc<"automationInstalls">, userId: Id<"us
 
 /** Live automation scope plus immutable provenance from the server-written trigger. */
 export async function automationScope(ctx: QueryCtx, turn: Doc<"agentTurns">) {
-	const trigger = await ctx.db.get(turn.triggerId);
+	const trigger = turn.triggerId && (await ctx.db.get(turn.triggerId));
 	const automation = trigger?.automation ? await installOf(ctx, turn.workspaceId, trigger.automation.id) : null;
 	// Legacy triggers without a provenance snapshot and removed installs stay foreign.
 	const foreign = !!trigger?.automation && ((trigger.automation.foreign ?? true) || !automation || followsOthers(automation, turn.actorId));

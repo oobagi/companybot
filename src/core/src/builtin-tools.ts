@@ -11,7 +11,13 @@ import type { Permission } from "./permissions";
 import { type ToolDef, defineTool } from "./tools";
 import { widgetTools } from "./widgets";
 
-/** Saves a memory in `scope`, for you or another agent. */
+/** "abc…": a memory as its tool line quotes it. */
+const quote = (text: string) => JSON.stringify(text.length > 80 ? `${text.slice(0, 79).trimEnd()}…` : text);
+
+/**
+ * Saves a memory in `scope`, for you or another agent. Its tool line quotes what was saved, so
+ * a save is never silent (like Meta AI's "Memory updated"), and in a shared chat everyone sees it.
+ */
 const remember = (id: string, title: string, description: string, scope: MemoryScope, permission?: Permission) =>
 	defineTool({
 		id,
@@ -19,6 +25,8 @@ const remember = (id: string, title: string, description: string, scope: MemoryS
 		description,
 		input: z.object({ content: z.string(), agentId: z.string().optional().describe("Target agent id; defaults to you") }),
 		...(permission && { permission }),
+		label: ({ content }) =>
+			typeof content === "string" ? `Save ${scope === "personal" ? "a personal memory" : "to team memory"}: ${quote(content)}` : undefined,
 		async execute({ content, agentId }, { memory }) {
 			const saved = await memory.create({ scope, content, ...(agentId && { agentId }) });
 			return { saved: saved.id };

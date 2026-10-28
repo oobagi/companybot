@@ -10,7 +10,8 @@ describe("chats", () => {
 		const { owner, member } = await ownerAndMember();
 		const general = await generalOf(owner);
 		expect(general).toMatchObject({ name: "general", title: "general", private: false, agentId: null });
-		expect(general.members.map((m) => m.type)).toEqual(["user", "user"]);
+		// Companybot joined to welcome the owner.
+		expect(general.members.map((m) => m.type)).toEqual(["user", "agent", "user"]);
 		expect((await generalOf(member))._id).toBe(general._id);
 		await expect(member.mutation(api.chats.leave, { chatId: general._id })).rejects.toThrow("Everyone stays");
 	});

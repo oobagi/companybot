@@ -13,7 +13,9 @@ export const reactFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), emoji: v.string() },
 	handler: async (ctx, { turnId, emoji }): Promise<{ reacted: boolean } | { error: string }> => {
 		const { turn, who } = await runningTurn(ctx, turnId);
-		return asToolResult(async () => ({ reacted: await reactMessage(ctx, who, turn.triggerId, emoji) }));
+		if (!turn.triggerId) return { error: "Nobody asked you anything yet, so there's no message to react to." };
+		const triggerId = turn.triggerId;
+		return asToolResult(async () => ({ reacted: await reactMessage(ctx, who, triggerId, emoji) }));
 	},
 });
 

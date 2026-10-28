@@ -1,4 +1,5 @@
 import { fireEvent } from "./automationRuns";
+import { completeStep } from "./onboarding";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
@@ -182,6 +183,9 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	if (!who.agentId && !threadId) await markChatRead(ctx, chatId, member.userId);
 
 	if (who.agentId) return messageId;
+	if (threadId) await completeStep(ctx, member, "thread");
+	if (dmAgent) await completeStep(ctx, member, "dm");
+	else if (agentIds.length > 0) await completeStep(ctx, member, "mention");
 
 	// Channels gain mentioned agents as members. DMs are a fixed set, so only their own agents answer.
 	let responders: Id<"agents">[];

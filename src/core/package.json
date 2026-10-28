@@ -14,7 +14,8 @@
     "./skills": "./src/skills.ts",
     "./action-words": "./src/action-words.ts",
     "./typing": "./src/typing.ts",
-    "./images": "./src/images.ts"
+    "./images": "./src/images.ts",
+    "./onboarding": "./src/onboarding.ts"
   },
   "scripts": {
     "test": "vitest run",

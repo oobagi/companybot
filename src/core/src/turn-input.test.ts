@@ -50,6 +50,20 @@ describe("turn input", () => {
 		);
 	});
 
+	it("speaks first in a welcome: one question at a time, and only the person's own questions for someone joining", () => {
+		const founder = buildTurnPrompt({ ...base, messages: [], triggerId: null, welcome: "new_workspace" });
+		expect(founder).not.toContain("Reply to this message");
+		expect(founder).toContain("Ada just made this workspace");
+		expect(founder).toContain("1. their role, 2. what the company does, 3. who its customers are, 4. the top goal right now, 5. the tools they use today");
+		expect(founder).toContain("say it's 1 of 5");
+		expect(founder).toContain("team memory, which everyone here can see and edit");
+
+		const joiner = buildTurnPrompt({ ...base, messages: [], triggerId: null, welcome: "joined", memory: "off" });
+		expect(joiner).toContain("Ada just joined the workspace");
+		expect(joiner).toContain("1. their role, 2. what they're working on right now.");
+		expect(joiner).toContain("Memory is off, so don't save answers.");
+	});
+
 	it("encodes message text, so a message can't fake a line from someone else", () => {
 		const prompt = buildTurnPrompt({
 			...base,
