@@ -4,6 +4,7 @@ import { connectorCatalog, defineConnector } from "@companybot/core";
 import { describe, expect, it } from "vitest";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
+import { MAX_OWNED_WORKSPACES } from "../convex/workspace";
 import { person } from "./person";
 
 // One person in two workspaces, A and B: every request acts in the workspace it names, and an id
@@ -231,4 +232,63 @@ it("refuses ids from the other workspace in reads, restores and nested ids", asy
 			timeZone: "UTC",
 		}),
 	).rejects.toThrow("Agent not found");
+});
+
+describe("creating a workspace", () => {
+	it("makes you its owner, with #general, and keeps the ones you're in", async () => {
+		const { a, A } = await setup();
+		const c = await A.mutation(api.workspace.create, { name: "  Clean Co  " });
+		const mine = (await A.query(api.workspace.mine))!.workspaces;
+		expect(mine.map((w) => w.id)).toContain(a);
+		expect(mine.find((w) => w.id === c)).toMatchObject({ name: "Clean Co", role: "owner" });
+		const chats = await A.in(c).query(api.chats.list);
+		expect(chats!.channels.map((ch) => ch.name)).toContain("general");
+	});
+
+	it("needs a name", async () => {
+		const { A } = await setup();
+		await expect(A.mutation(api.workspace.create, { name: " " })).rejects.toThrow("Name can't be empty.");
+	});
+});
+
+describe("the rail's activity", () => {
+	it("counts unread chats and mentions per workspace, and drops ones you left", async () => {
+		const { t, userId, a, b, A } = await setup();
+		const otherId = await t.run(async (ctx) => {
+			const id = await ctx.db.insert("users", { email: "other@co.com" });
+			await ctx.db.insert("members", { userId: id, workspaceId: a, role: "owner" });
+			return id;
+		});
+		const other = person(t.withIdentity({ subject: `${otherId}|session` })).in(a);
+		const of = async (id: Id<"workspaces">) => (await A.query(api.workspace.activity)).find((w) => w.id === id);
+		const before = (await of(a))!.mentions;
+		expect(await of(b)).toEqual({ id: b, unread: false, mentions: 0 });
+
+		const chatId = await other.mutation(api.chats.createChannel, { name: "jobs", private: true });
+		await other.mutation(api.chats.addMembers, { chatId, userIds: [userId], agentIds: [] });
+		// Joining marks it read as of now; the message could land in the same millisecond.
+		await t.run(async (ctx) => {
+			const seat = await ctx.db
+				.query("chatMembers")
+				.withIndex("by_user", (q) => q.eq("userId", userId).eq("chatId", chatId))
+				.first();
+			await ctx.db.patch(seat!._id, { lastReadAt: 0 });
+		});
+		await other.mutation(api.messages.send, { chatId, text: "@you new lead", mentions: { userIds: [userId], agentIds: [] } });
+		expect(await of(a)).toEqual({ id: a, unread: true, mentions: before + 1 });
+
+		await A.mutation(api.workspace.leave);
+		expect(await of(a)).toBeUndefined();
+	});
+});
+
+it(`refuses to make you own more than ${MAX_OWNED_WORKSPACES} workspaces`, async () => {
+	const { t, userId, A } = await setup();
+	await t.run(async (ctx) => {
+		for (let i = 2; i < MAX_OWNED_WORKSPACES; i++) {
+			const id = await ctx.db.insert("workspaces", { name: `W${i}`, version: 1 });
+			await ctx.db.insert("members", { userId, workspaceId: id, role: "owner" });
+		}
+	});
+	await expect(A.mutation(api.workspace.create, { name: "One more" })).rejects.toThrow(`up to ${MAX_OWNED_WORKSPACES} workspaces`);
 });

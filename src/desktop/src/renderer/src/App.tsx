@@ -14,6 +14,7 @@ import { RecordsView, recordTabs } from "./views/Records";
 import { SettingsNav, SettingsView, settingsTabAliases, settingsTabs } from "./views/Settings";
 import { SignIn } from "./views/SignIn";
 import { WorkspaceMenu } from "./views/WorkspaceMenu";
+import { WorkspaceRail } from "./views/WorkspaceRail";
 import { ChatView } from "./views/chat/ChatView";
 import { Avatar, MenuItem, Popover, deviceTimeZone } from "./views/chat/common";
 import { ChatNav, Group, Item } from "./views/chat/Sidebar";
@@ -94,10 +95,10 @@ function Workspace() {
 function Opened() {
 	const me = useQuery(api.workspace.me);
 	if (!me?.role) return null;
-	return <Shell email={me.email} role={me.role} workspace={me.workspace ?? ""} logo={me.workspaceImage} />;
+	return <Shell email={me.email} role={me.role} workspace={me.workspace ?? ""} />;
 }
 
-function Shell({ email, role, workspace, logo }: { email: string; role: Role; workspace: string; logo: string | null }) {
+function Shell({ email, role, workspace }: { email: string; role: Role; workspace: string }) {
 	const { signOut } = useAuthActions();
 	const chats = useQuery(api.chats.list);
 	const prefs = useQuery(api.preferences.get);
@@ -142,6 +143,7 @@ function Shell({ email, role, workspace, logo }: { email: string; role: Role; wo
 
 	return (
 		<div className="flex h-screen text-[15px] text-neutral-900">
+			<WorkspaceRail />
 			{/* The sidebar's lists scroll under the workspace name and you. */}
 			<aside className="drag flex w-60 shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 [--scrim:var(--color-neutral-50)]">
 				<Scroll
@@ -155,7 +157,7 @@ function Shell({ email, role, workspace, logo }: { email: string; role: Role; wo
 									</Item>
 								</div>
 							) : (
-								<WorkspaceMenu name={workspace} logo={logo} />
+								<WorkspaceMenu name={workspace} />
 							)}
 						</div>
 					}
