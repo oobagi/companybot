@@ -1,8 +1,7 @@
-import { seedLegacyRecords, scribe } from "./legacyFixtures";
+import { scribe } from "./legacyFixtures";
 import migrationsTest from "@convex-dev/migrations/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, components, internal } from "../convex/_generated/api";
-import type { Id } from "../convex/_generated/dataModel";
 import { TRASH_MS } from "../convex/trashOps";
 import { agentTurn, agentsOf, generalOf, newTest, noMentions, settle, setup, sideWorkspace, signIn, workspaceOf } from "./helpers";
 
