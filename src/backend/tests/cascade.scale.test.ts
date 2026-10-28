@@ -144,7 +144,7 @@ it("removes a member subscribed to many near-1 MiB automations elsewhere without
 });
 
 // Someone in hundreds of 100-person workspaces: erasing them starts in a few reads per workspace,
-// and a workspace cascade pins each member's first workspace with one indexed read, not a scan.
+// and deleting a workspace whose members are each in hundreds stays within limits.
 it("erases an account in 331 workspaces of 100 people, then deletes one whose members are each in 331", { timeout: 600_000 }, async () => {
 	const t = convexTest({ schema, modules, transactionLimits: true });
 	const owner = await signIn(t, "owner@co.com");
@@ -177,8 +177,4 @@ it("erases an account in 331 workspaces of 100 people, then deletes one whose me
 	await settle(t);
 	expect(await t.run((ctx) => ctx.db.get(A))).toBeNull();
 	expect(await t.run((ctx) => ctx.db.query("cascades").first())).toBeNull();
-	// Each was pinned to A, the workspace they joined first, so old apps act nowhere.
-	const pins = await t.run((ctx) => ctx.db.query("legacyWorkspaces").collect());
-	expect(new Set(pins.filter((p) => p.userId !== owner.userId).map((p) => p.workspaceId))).toEqual(new Set([A]));
-	expect(pins).toHaveLength(100);
 });

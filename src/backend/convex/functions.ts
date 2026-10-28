@@ -8,7 +8,7 @@ import { action as rawAction, mutation as rawMutation, query as rawQuery } from 
 // hooks) and puts it on ctx, where `getMember` reads it. The workspace always comes from the
 // request, never from state another device could change. See wiki/architecture.md.
 
-/** The workspace a request is for. Missing from apps from before people could be in several. */
+/** The workspace a request is for. Missing before one is open (ensure, mine): those act nowhere. */
 export type Requested = { workspaceId: Id<"workspaces"> | undefined };
 
 const args = { workspaceId: v.optional(v.id("workspaces")) };

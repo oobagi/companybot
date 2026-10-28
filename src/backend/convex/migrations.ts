@@ -6,7 +6,7 @@ import { components, internal } from "./_generated/api";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { addUserMentions } from "./chatOps";
-import { normalizeEmail, pinLegacyWorkspace } from "./lib";
+import { normalizeEmail } from "./lib";
 import { saveVersion } from "./agents";
 import { type TrashKind, trashEntry } from "./trashOps";
 
@@ -66,12 +66,6 @@ export const companybotParityTools = grantCompanybot(["channels.*", "skills.mana
 
 // Editing skills moved out of skills.manage into its own tool, which asks first. Same rule.
 export const companybotSkillEdit = grantCompanybot(["skills.edit"]);
-
-// Apps that send no workspace act in a pinned one (lib.ts legacyMemberOf): pin everyone's first.
-export const legacyWorkspaces = migrations.define({
-	table: "members",
-	migrateOne: async (ctx, member) => pinLegacyWorkspace(ctx, member.userId),
-});
 
 // Unread mentions moved to an index (userMentions): add rows for messages sent before it.
 // Small batches, and a message mentioning many people adds its rows MENTIONS_PER_WRITE at a
@@ -152,6 +146,12 @@ export const storedAutomations = migrations.define({
 	},
 });
 
+// Apps that sent no workspace are gone (alpha.7), so their pins are too. Then the table can go.
+export const clearLegacyWorkspaces = migrations.define({
+	table: "legacyWorkspaces",
+	migrateOne: async (ctx, pin) => ctx.db.delete(pin._id),
+});
+
 /** Retire the internal test connector. Access ends before its bounded credential/settings cleanup. */
 export const retireNightOwl = migrations.define({
 	table: "connectorInstalls", batchSize: 20,
@@ -168,7 +168,6 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.companybotChatTools,
 	internal.migrations.recordTypes,
 	internal.migrations.companybotRecordTools,
-	internal.migrations.legacyWorkspaces,
 	internal.migrations.userMentions,
 	internal.migrations.companybotPageTools,
 	internal.migrations.companybotParityTools,
@@ -183,6 +182,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.storedSkills,
 	internal.migrations.storedAutomations,
 	internal.migrations.retireNightOwl,
+	internal.migrations.clearLegacyWorkspaces,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

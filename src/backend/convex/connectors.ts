@@ -226,7 +226,7 @@ export const connect = action({
 });
 
 /**
- * `workspaceId` is where it connects; without one (older apps), their first workspace. With
+ * `workspaceId` is where it connects; without one, nowhere. With
  * `bound` (a save after the check), the membership and install must be the ones it started
  * under: being removed and rejoining, or an uninstall and reinstall, in between refuses it.
  */

@@ -235,10 +235,10 @@ describe("deleting a workspace", () => {
 			expect(await a.in(A).query(api.messages.list, { chatId: general })).toEqual([]);
 			expect(await a.in(A).query(api.chats.alerts)).toBeNull();
 		};
-		// Every table has rows, so a cascade that missed one would show.
+		// Every live table has rows, so a cascade that missed one would show.
 		const before = await dump(t);
 		const seeded = new Set([...before.values()].map((r) => r.table));
-		expect(tables.filter((table) => !seeded.has(table) && table !== "cascades")).toEqual([]);
+		expect(tables.filter((table) => !seeded.has(table) && table !== "cascades" && table !== "legacyWorkspaces")).toEqual([]);
 
 		await expect(a.mutation(api.workspace.deleteWorkspace, { name: "Nope" })).rejects.toThrow("Type the workspace's name");
 		await expect(m.in(A).mutation(api.workspace.deleteWorkspace, { name: "My company" })).rejects.toThrow("permission");
@@ -337,7 +337,7 @@ describe("erasing an account", () => {
 
 		const theirs = new Set<string>([...mineIn[A]!, ...mineIn[B]!, ...seatsIn(before, A, m.userId), ...seatsIn(before, B, m.userId), leftBehind]);
 		for (const [id, { table, row }] of before) {
-			const own = row.userId === m.userId && ["members", "preferences", "legacyWorkspaces", "authAccounts", "authSessions", "connectorOAuthFlows", "uploads"].includes(table);
+			const own = row.userId === m.userId && ["members", "preferences", "authAccounts", "authSessions", "connectorOAuthFlows", "uploads"].includes(table);
 			const email = (table === "authRateLimits" && row.identifier === "m@co.com") || (table === "localSignInCodes" && row.email === "m@co.com");
 			if (email) theirs.add(id);
 			const child = (table === "authVerificationCodes" && !after.has(row.accountId as string)) || (table === "authRefreshTokens" && sessions.has(row.sessionId as string));

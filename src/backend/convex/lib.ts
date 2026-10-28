@@ -12,7 +12,7 @@ import { ConvexError } from "convex/values";
 import { legacySkills } from "./legacyCatalogs";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { Requested } from "./functions";
-import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type { QueryCtx } from "./_generated/server";
 
 export interface Member {
 	/** The `members` row. */
@@ -63,45 +63,6 @@ export async function liveWorkspace(ctx: QueryCtx, workspaceId: Id<"workspaces">
 }
 
 /**
- * Where apps from before workspace switching act, since they send no workspace: the first
- * workspace the person joined, pinned once (legacyWorkspaces). Fails closed: after they leave
- * it, those apps act nowhere, never in another workspace. Someone pinned before the table
- * existed (the migration backfills them) can only have one workspace, so that one is theirs.
- * COMPAT(0.1.0-alpha.7): once installs send `workspaceId` (alpha.6), require it and delete this.
- */
-export async function legacyMemberOf(ctx: QueryCtx, userId: Id<"users">): Promise<Member | null> {
-	const pinned = await ctx.db
-		.query("legacyWorkspaces")
-		.withIndex("by_user", (q) => q.eq("userId", userId))
-		.first();
-	if (pinned) return memberOf(ctx, userId, pinned.workspaceId);
-	const rows = await ctx.db
-		.query("members")
-		.withIndex("by_user", (q) => q.eq("userId", userId))
-		.take(2);
-	return rows.length === 1 ? memberOf(ctx, userId, rows[0]!.workspaceId) : null;
-}
-
-/**
- * Pins their legacy workspace (legacyMemberOf) to the first they joined, unless it's set.
- * Call after adding a membership and before removing one. `to` re-pins (ensure only).
- */
-export async function pinLegacyWorkspace(ctx: MutationCtx, userId: Id<"users">, to?: Id<"workspaces">) {
-	const pinned = await ctx.db.query("legacyWorkspaces").withIndex("by_user", (q) => q.eq("userId", userId)).first();
-	if (to) {
-		if (pinned) await ctx.db.patch(pinned._id, { workspaceId: to });
-		else await ctx.db.insert("legacyWorkspaces", { userId, workspaceId: to });
-		return;
-	}
-	if (pinned) return;
-	const first = await ctx.db
-		.query("members")
-		.withIndex("by_joined", (q) => q.eq("userId", userId))
-		.first();
-	if (first) await ctx.db.insert("legacyWorkspaces", { userId, workspaceId: first.workspaceId });
-}
-
-/**
  * The signed-in person, unless their account was erased: a sign-in token from before stays
  * valid until it expires, so everything keyed on the token's user goes through this.
  */
@@ -121,9 +82,9 @@ export async function getMember(ctx: QueryCtx): Promise<Member | null> {
 	return memberFor(ctx, userId, (ctx as QueryCtx & Partial<Requested>).workspaceId);
 }
 
-/** Their membership in the requested workspace; with none (older apps), their first. */
-export const memberFor = (ctx: QueryCtx, userId: Id<"users">, workspaceId: Id<"workspaces"> | undefined) =>
-	workspaceId ? memberOf(ctx, userId, workspaceId) : legacyMemberOf(ctx, userId);
+/** Their membership in the requested workspace; none named, none. */
+export const memberFor = async (ctx: QueryCtx, userId: Id<"users">, workspaceId: Id<"workspaces"> | undefined) =>
+	workspaceId ? memberOf(ctx, userId, workspaceId) : null;
 
 export async function requireMember(ctx: QueryCtx): Promise<Member> {
 	const member = await getMember(ctx);
