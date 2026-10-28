@@ -10,10 +10,11 @@ export interface ModelInfo {
 }
 
 /** The recommended pick, and what new agents start on. */
-export const defaultModel = "anthropic/claude-sonnet-5.5";
+export const defaultModel = "openai/gpt-6-luna";
 
 /** Offered while the gateway's catalog hasn't been fetched (or couldn't be). */
 export const fallbackModels: ModelInfo[] = [
+	{ id: "openai/gpt-6-luna", name: "GPT-6 Luna", provider: "openai" },
 	{ id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", provider: "anthropic" },
 	{ id: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5", provider: "anthropic" },
 	{ id: "anthropic/claude-opus-5.5", name: "Claude Opus 5.5", provider: "anthropic" },

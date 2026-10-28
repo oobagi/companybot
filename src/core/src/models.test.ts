@@ -32,7 +32,7 @@ describe("models", () => {
 	it("searches by every word in the name or id", () => {
 		expect(searchModels(fallbackModels, "claude HAIKU").map((m) => m.id)).toEqual(["anthropic/claude-haiku-5.5"]);
 		expect(searchModels(fallbackModels, "anthropic")).toHaveLength(3);
-		expect(searchModels(fallbackModels, "")).toHaveLength(3);
+		expect(searchModels(fallbackModels, "")).toHaveLength(4);
 	});
 
 	it("validates against the models it's given, the fallback list by default", () => {

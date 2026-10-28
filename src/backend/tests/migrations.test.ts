@@ -31,6 +31,26 @@ describe("migrations", () => {
 		expect(await t.run((ctx) => ctx.db.query("legacyWorkspaces").collect())).toEqual([]);
 	});
 
+	it("moves agents on the old default model to the new one, and leaves models picked on purpose", async () => {
+		const t = convexTest({ schema, modules, transactionLimits: true });
+		migrationsTest.register(t);
+		await signIn(t, "owner@co.com");
+		const [onDefault, picked] = await t.run(async (ctx) => {
+			const agent = (await ctx.db.query("agents").first())!;
+			await ctx.db.patch(agent._id, { model: "anthropic/claude-sonnet-5.5" });
+			const { _id, _creationTime, ...copy } = agent;
+			return [agent._id, await ctx.db.insert("agents", { ...copy, model: "anthropic/claude-opus-5.5" })];
+		});
+		vi.useFakeTimers();
+		try {
+			await t.mutation(internal.migrations.runAll);
+			await t.finishAllScheduledFunctions(vi.runAllTimers);
+		} finally {
+			vi.useRealTimers();
+		}
+		expect(await t.run(async (ctx) => [(await ctx.db.get(onDefault))!.model, (await ctx.db.get(picked))!.model])).toEqual(["openai/gpt-6-luna", "anthropic/claude-opus-5.5"]);
+	});
+
 	it("normalizes membership emails for bounded invitation checks, and fails closed on a row without one", async () => {
 		const t = convexTest({ schema, modules, transactionLimits: true });
 		const owner = await signIn(t, "MixedCase@Co.com");
