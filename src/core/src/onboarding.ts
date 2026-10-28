@@ -1,7 +1,7 @@
 import { can } from "./permissions";
 import type { Role } from "./types";
 
-// Onboarding: Companybot's welcome in #general, and the tutorial above the composer (wiki/chat.md).
+// Onboarding: Companybot's welcome (#general for a new workspace, a DM for each joiner), and the tutorial above the composer (wiki/chat.md).
 // No dependencies, so the app can import it.
 
 /** Why a turn starts with no message: someone made the workspace, or joined it. */
