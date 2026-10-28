@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, components, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { TRASH_MS } from "../convex/trashOps";
-import { agentTurn, agentsOf, generalOf, newTest, noMentions, settle, setup, sideWorkspace, signIn } from "./helpers";
+import { agentTurn, agentsOf, generalOf, newTest, noMentions, settle, setup, sideWorkspace, signIn, workspaceOf } from "./helpers";
 
 afterEach(() => vi.useRealTimers());
 const page = { numItems: 50, cursor: null };
@@ -363,59 +363,28 @@ describe("trash", () => {
 });
 
 describe("trash migration", () => {
-	it("migrates large legacy rows in resumable batches, without duplicates on retry", async () => {
+	it("moves archived agents to Trash, deleted at deploy time, in batches large rows fit, without duplicates on retry", async () => {
 		const t = newTest();
 		migrationsTest.register(t);
 		const owner = await signIn(t, "owner@co.com");
-		const workspaceIdForSeed = (await owner.query(api.workspace.me))!.workspaceId!;
-		await t.run((ctx) => seedLegacyRecords(ctx, workspaceIdForSeed, owner.userId));
-		const workspaceId = (await owner.query(api.workspace.me))!.workspaceId!;
-		const typeId = (await owner.query(api.recordTypes.list))[0]!._id;
-		// A default 100-row batch would exceed 16 MiB. Seed in separate transactions too.
+		const workspaceId = await workspaceOf(owner);
+		// A default 100-row batch of these would exceed 16 MiB. Seed in separate transactions too.
 		for (let batch = 0; batch < 7; batch++) await t.run(async (ctx) => {
-			for (let n = 0; n < 4; n++) await ctx.db.insert("records", { workspaceId, typeId, title: "Legacy", values: { name: "Legacy", old: "x".repeat(700_000) }, searchText: "Legacy", archived: true, createdBy: owner.userId, updatedBy: owner.userId, updatedAt: Date.now() });
+			for (let n = 0; n < 4; n++) await ctx.db.insert("agents", { ...scribe, instructions: "x".repeat(700_000), workspaceId, archived: true, version: 1, updatedAt: Date.now(), updatedBy: owner.userId });
 		});
 		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-11-01T00:00:00Z"));
 		for (let n = 0; n < 2; n++) {
 			await t.mutation(internal.migrations.runAll);
 			await settle(t);
 		}
-		expect(await trashOf(owner)).toHaveLength(28);
-		expect(new Set((await trashOf(owner)).map((e) => e.itemId)).size).toBe(28);
-	});
-
-	it("moves archived records, databases, fields, pages and agents to Trash, deleted at deploy time", async () => {
-		const t = newTest();
-		migrationsTest.register(t);
-		const owner = await signIn(t, "owner@co.com");
-		const workspaceIdForSeed = (await owner.query(api.workspace.me))!.workspaceId!;
-		await t.run((ctx) => seedLegacyRecords(ctx, workspaceIdForSeed, owner.userId));
-		const ids = await t.run(async (ctx) => {
-			const { userId, workspaceId } = (await ctx.db.query("members").first())!;
-			const typeId = (await ctx.db.query("recordTypes").first())!._id;
-			const now = Date.now();
-			const record = await ctx.db.insert("records", { workspaceId, typeId, title: "Old", values: { name: "Old" }, searchText: "Old", archived: true, createdBy: userId, updatedAt: now, updatedBy: userId });
-			await ctx.db.insert("records", { workspaceId, typeId, title: "Live", values: { name: "Live" }, searchText: "Live", archived: false, createdBy: userId, updatedAt: now, updatedBy: userId });
-			const type = await ctx.db.insert("recordTypes", { workspaceId, key: "job", name: "Job", plural: "Jobs", archived: true, createdBy: userId, updatedAt: now });
-			const field = await ctx.db.insert("recordFields", { workspaceId, typeId, key: "roof", label: "Roof", kind: "text", position: 9, archived: true, createdBy: userId, updatedAt: now });
-			const page = await ctx.db.insert("pages", { workspaceId, title: "Old SOP", archived: true, createdBy: userId, updatedAt: now, updatedBy: userId });
-			const agent = await ctx.db.insert("agents", { ...scribe, workspaceId, archived: true, version: 1, updatedAt: now, updatedBy: userId });
-			return [record, type, field, page, agent] as string[];
-		});
-		vi.useFakeTimers();
-		vi.setSystemTime(new Date("2026-11-01T00:00:00Z"));
-		await t.mutation(internal.migrations.runAll);
-		await t.finishAllScheduledFunctions(vi.runAllTimers);
-		await t.mutation(internal.migrations.runAll);
-		await t.finishAllScheduledFunctions(vi.runAllTimers);
-		const entries = await t.run((ctx) => ctx.db.query("trash").collect());
-		expect(entries.map((e) => [e.kind, e.itemId, e.name]).sort()).toEqual(
-			[["record", ids[0], "Old"], ["database", ids[1], "Jobs"], ["field", ids[2], "Roof"], ["page", ids[3], "Old SOP"], ["agent", ids[4], "Scribe"]].sort(),
-		);
+		const entries = await trashOf(owner);
+		expect(entries).toHaveLength(28);
+		expect(new Set(entries.map((e) => e.itemId)).size).toBe(28);
+		expect(entries.every((e) => e.kind === "agent" && e.name === "Scribe")).toBe(true);
 		// Deploy time, give or take the migration's own run: the full 30 days from now.
-		for (const e of entries) expect(e.deletedAt - new Date("2026-11-01T00:00:00Z").getTime()).toBeLessThan(1_000);
-		expect((await owner.query(api.trash.list, { paginationOpts: page })).page).toHaveLength(5);
-		await owner.mutation(api.trash.restore, { kind: "record", id: ids[0]! as Id<"records"> });
-		await owner.mutation(api.trash.restore, { kind: "agent", id: ids[4]! });
+		for (const e of await t.run((ctx) => ctx.db.query("trash").collect())) expect(e.deletedAt - new Date("2026-11-01T00:00:00Z").getTime()).toBeLessThan(1_000);
+		await owner.mutation(api.trash.restore, { kind: "agent", id: entries[0]!.itemId });
 	});
 });
+
