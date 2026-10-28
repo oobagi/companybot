@@ -4,7 +4,7 @@ import { api } from "../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../convex";
 import { navigate } from "../router";
 import { HistoryIcon, PageIcon, TrashIcon } from "../icons";
-import { EmptyState, LoadMore, Loading, NewButton, NotFound, Notice, Page, barButton, barDangerButton, metadataClass, timeAgo, useRun } from "../ui";
+import { EmptyState, LoadMore, Loading, NewButton, NotFound, Notice, Page, barButton, barDangerButton, listClass, metadataClass, timeAgo, useRun } from "../ui";
 import { MovePage } from "./pages/PageTree";
 import { PageEditor } from "./pages/PageEditor";
 import { PageHistory } from "./pages/PageHistory";
@@ -28,11 +28,11 @@ function PagesIndex({ canEdit }: { canEdit: boolean }) {
 	const actions = canEdit && <NewButton label="New page" onClick={() => run(create({ title: "Untitled" }).then((id) => navigate("pages", id)))} />;
 	return (
 		<Page title="Pages" description="Wiki pages, how-tos and meeting notes. Every record has a page too." actions={actions}>
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			{status === "LoadingFirstPage" ? (
 				<Loading />
 			) : pages.length > 0 ? (
-				<div className="flex flex-col divide-y divide-neutral-100 rounded-xl border border-neutral-200">
+				<div className={listClass}>
 					{pages.map((p) => (
 						<button key={p._id} type="button" onClick={() => navigate("pages", p._id)} className="flex items-baseline gap-3 px-4 py-2 text-left text-sm hover:bg-neutral-50">
 							<PageIcon className="shrink-0 self-center text-neutral-400" />
@@ -77,7 +77,7 @@ function PageScreen({ pageId, canEdit }: { pageId: Id<"pages">; canEdit: boolean
 				</>
 			}
 		>
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			{page.trash && <TrashNotice trash={page.trash} />}
 			<PageEditor pageId={pageId} editable={page.canEdit} standalone={!page.recordId} />
 			{moving && <MovePage page={page} onClose={() => setMoving(false)} />}

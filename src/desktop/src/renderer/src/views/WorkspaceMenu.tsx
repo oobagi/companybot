@@ -3,7 +3,7 @@ import { api } from "../api";
 import { useMutation, useQuery, useWorkspace } from "../convex";
 import { CaretDownIcon, CheckIcon } from "../icons";
 import { navigate } from "../router";
-import { Notice, useRun } from "../ui";
+import { MenuDivider, Notice, useRun } from "../ui";
 import { Avatar, MenuItem, Popover } from "./chat/common";
 
 /** The workspace name at the top of the sidebar: switch workspaces, answer invites, or leave. */
@@ -60,8 +60,8 @@ export function WorkspaceMenu({ name, logo }: { name: string; logo: string | nul
 									</div>
 								</div>
 							))}
-							{error && <Notice>{error}</Notice>}
-							<div className="my-1 border-t border-neutral-100" />
+							<Notice>{error}</Notice>
+							<MenuDivider />
 							<MenuItem danger onClick={() => confirm(`Leave ${name}? You'll need a new invite to come back.`) && run(leave(), opened)}>
 								Leave {name}
 							</MenuItem>

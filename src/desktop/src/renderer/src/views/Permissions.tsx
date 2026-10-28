@@ -3,7 +3,7 @@ import { Select } from "../controls";
 import { useState } from "react";
 import { api } from "../api";
 import { useAction, useMutation, useQuery } from "../convex";
-import { Loading, Notice, Section, Setting, Settings, compactControlClass, metadataClass, secondaryButton, useRun } from "../ui";
+import { Loading, Notice, Section, Setting, Settings, cardClass, compactControlClass, hintClass, metadataClass, secondaryButton, useRun } from "../ui";
 import { Confirm } from "./chat/common";
 
 // What agents may do without asking: your own Always / Never per action (Your preferences,
@@ -26,10 +26,10 @@ export function YourPermissions() {
 			title="Permissions"
 			hint="Agents ask before anything that leaves Companybot: sends, calls, payments, changes in other apps. These are the actions you've set to run without asking, or never."
 		>
-			{error && <Notice>{error}</Notice>}
-			{rules.length === 0 && <p className="text-sm text-neutral-400">Nothing yet. Everything asks first.</p>}
+			<Notice>{error}</Notice>
+			{rules.length === 0 && <p className={hintClass}>Nothing yet. Everything asks first.</p>}
 			{rules.map((r) => (
-				<div key={r._id} className="flex items-start gap-3 rounded-xl border border-neutral-200 px-4 py-3 text-sm">
+				<div key={r._id} className={`flex items-start gap-3 text-sm ${cardClass}`}>
 					<div className="min-w-0 flex-1">
 						<p className="font-medium">
 							{actionName(r)}
@@ -97,14 +97,14 @@ export function ConnectorActions({ connectorId, connected }: { connectorId: stri
 	if (!actions) return <Loading />;
 	return (
 		<Section title="Actions" hint="What agents can do here when acting for you. Anything that changes something asks first unless you say otherwise.">
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			{actions.length === 0 && (
-				<p className="text-sm text-neutral-400">
+				<p className={hintClass}>
 					{connected ? "Not listed yet." : "Connect it to see what agents can do."}
 				</p>
 			)}
 			{actions.map((a) => (
-				<div key={a.action} className="flex items-start gap-3 rounded-xl border border-neutral-200 px-4 py-3 text-sm">
+				<div key={a.action} className={`flex items-start gap-3 text-sm ${cardClass}`}>
 					<div className="min-w-0 flex-1">
 						<p className="font-medium">{a.label}</p>
 						<p className="line-clamp-2 text-neutral-500">{a.description}</p>

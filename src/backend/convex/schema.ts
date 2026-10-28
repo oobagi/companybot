@@ -155,7 +155,7 @@ export default defineSchema({
 		workspaceId: v.id("workspaces"),
 		userId: v.id("users"),
 		role,
-		/** Normalized for bounded invitation checks. COMPAT: backfilled by memberEmails. */
+		/** Normalized for bounded invitation checks. Every row has it; optional only in the type. */
 		email: v.optional(v.string()),
 		/** The tutorial above the composer (onboarding.ts): steps done, or hidden. Unset for people who joined before it: they get none. */
 		tutorial: v.optional(v.object({ done: v.array(v.string()), dismissed: v.optional(v.boolean()) })),

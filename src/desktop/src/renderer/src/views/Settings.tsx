@@ -1,45 +1,16 @@
-import type { Role } from "@companybot/core";
-import { can } from "@companybot/core/permissions";
+import { type Role, can } from "@companybot/core/permissions";
 import { currencyCodes } from "@companybot/core/records";
 import { useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { describeUpdate, desktop, useUpdates } from "../desktop";
 import { navigate } from "../router";
-import {
-	ConflictNotice,
-	Field,
-	Loading,
-	Notice,
-	Page,
-	SaveBar,
-	Setting,
-	Settings,
-	compactControlClass,
-	dangerButton,
-	disabledButtonClass,
-	inputClass,
-	primaryButton,
-	secondaryButton,
-	useDraft,
-	useRun,
-} from "../ui";
-import {
-	ActivityIcon,
-	AgentIcon,
-	AutomationIcon,
-	ConnectorIcon,
-	MembersIcon,
-	MemoryIcon,
-	SettingsIcon,
-	SkillIcon,
-	TrashIcon,
-	UserIcon,
-} from "../icons";
+import { ConflictNotice, Field, Form, Loading, Notice, Page, SaveBar, Setting, Settings, compactControlClass, dangerButton, disabledButtonClass, inputClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../ui";
+import { ActivityIcon, MembersIcon, MemoryIcon, SettingsIcon, TrashIcon, UserIcon } from "../icons";
 import { Select } from "../controls";
 import { ActivityTab } from "./Activity";
 import { ImagePicker } from "./ImagePicker";
-import { Confirm, Modal, zoneLabel } from "./chat/common";
+import { Confirm, Modal, deviceTimeZone, zoneLabel } from "./chat/common";
 import { Group, Item } from "./chat/Sidebar";
 import { type CustomizeTab, CustomizeView, customizeTabs } from "./customize";
 import { MembersTab } from "./Members";
@@ -62,16 +33,11 @@ const sections = [
 	},
 	{
 		title: "Customize",
-		tabs: [
-			{ id: "agents", label: "Agents", icon: <AgentIcon /> },
-			{ id: "connectors", label: "Connectors", icon: <ConnectorIcon /> },
-			{ id: "skills", label: "Skills", icon: <SkillIcon /> },
-			{ id: "automations", label: "Automations", icon: <AutomationIcon /> },
-		],
+		tabs: customizeTabs.map((t) => ({ id: t.id, label: t.label, icon: <t.icon /> })),
 	},
 ] as const;
 export const settingsTabs = sections.flatMap((s): readonly (typeof s.tabs)[number][] => s.tabs);
-export type SettingsTab = (typeof settingsTabs)[number]["id"];
+type SettingsTab = (typeof settingsTabs)[number]["id"];
 
 /**
  * Other paths that open a tab: the old "profile", and "permissions" (they're in Your preferences).
@@ -85,8 +51,9 @@ const isCustomize = (tab: SettingsTab): tab is CustomizeTab => customizeTabs.som
 export function SettingsView({ role, tab, itemId }: { role: Role; tab: SettingsTab; itemId?: string }) {
 	if (isCustomize(tab)) return <CustomizeView role={role} tab={tab} itemId={itemId} />;
 	if (tab === "trash") return <TrashView role={role} />;
+	const current = settingsTabs.find((t) => t.id === tab)!;
 	return (
-		<Page title={settingsTabs.find((t) => t.id === tab)!.label} description={(settingsTabs.find((t) => t.id === tab) as { description?: string } | undefined)?.description}>
+		<Page title={current.label} description={(current as { description?: string }).description}>
 			{tab === "general" && <GeneralTab role={role} />}
 			{tab === "members" && <MembersTab role={role} />}
 			{tab === "memory" && <MemoryTab role={role} />}
@@ -193,16 +160,15 @@ function DangerZone({
 			</Setting>
 			{open && (
 				<Modal title={`${action}?`} onClose={close}>
-					<form
+					<Form
 						className="flex flex-col gap-4 text-sm"
-						onSubmit={(e) => {
-							e.preventDefault();
+						onSubmit={() => {
 							if (busy || !matches) return;
 							run(onDelete(typed.trim()));
 						}}
 					>
 						<p className="text-neutral-600">{children}</p>
-						{error && <Notice>{error}</Notice>}
+						<Notice>{error}</Notice>
 						<Field label={`Type “${confirm}” to confirm`}>
 							<input className={inputClass} autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} />
 						</Field>
@@ -214,7 +180,7 @@ function DangerZone({
 								{busy ? "Deleting…" : action}
 							</button>
 						</div>
-					</form>
+					</Form>
 				</Modal>
 			)}
 		</Settings>
@@ -260,15 +226,15 @@ function GeneralForm({
 	const ownerOnly = isOwner ? undefined : "Only owners can change this.";
 	return (
 		<>
-			{draft.stale && <ConflictNotice onDiscard={draft.discard} onKeep={draft.keepMine} />}
-			{error && <Notice>{error}</Notice>}
+			<ConflictNotice draft={draft} />
+			<Notice>{error}</Notice>
 			<Settings title="Workspace" hint={ownerOnly}>
 				<Setting label="Logo" hint="Next to its name in the sidebar. PNG, JPEG, WebP or GIF, up to 2 MB.">
 					<ImagePicker of="workspace" name={settings.name} image={settings.image} agent disabled={!isOwner} />
 				</Setting>
 				<Setting label="Name">
 					<input
-						className={`${compactControlClass} w-64`}
+						className={wideControlClass}
 						disabled={!isOwner}
 						value={draft.value.name}
 						onChange={(e) => draft.set({ ...draft.value, name: e.target.value })}
@@ -276,7 +242,7 @@ function GeneralForm({
 				</Setting>
 				<Setting label="Currency" hint="For new amounts. Existing amounts keep theirs.">
 					<Select
-						className={`${compactControlClass} w-64`}
+						className={wideControlClass}
 						disabled={!isOwner}
 						value={draft.value.currency}
 						options={currencyCodes.map((code) => ({ value: code, label: currencyLabel(code) }))}
@@ -299,7 +265,6 @@ function GeneralForm({
 	);
 }
 
-const deviceTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 const timeZones = Intl.supportedValuesOf("timeZone");
 
 /** Personal: only you see these, and they follow you to every device. */
@@ -315,38 +280,32 @@ function ProfileTab() {
 
 	return (
 		<>
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			<Settings title="You" hint="Only you see these, except your photo, name and time zone. They follow you to every device.">
 				<Setting label="Photo" hint="Shown to your team in every workspace. PNG, JPEG, WebP or GIF, up to 2 MB.">
 					<ImagePicker of="me" name={prefs.displayName || me?.email || ""} image={prefs.image} />
 				</Setting>
 				<Setting label="Name" hint="What agents and teammates call you.">
-					<form
-						className="flex gap-2"
-						onSubmit={(e) => {
-							e.preventDefault();
-							run(update({ displayName: shownName }), () => setName(undefined));
-						}}
-					>
+					<Form className="flex gap-2" onSubmit={() => run(update({ displayName: shownName }), () => setName(undefined))}>
 						<input className={`${compactControlClass} w-48`} value={shownName} placeholder="e.g. Jaden" onChange={(e) => setName(e.target.value)} />
 						{name !== undefined && name !== prefs.displayName && (
 							<button type="submit" className={`${primaryButton} py-1`}>
 								Save
 							</button>
 						)}
-					</form>
+					</Form>
 				</Setting>
 				<Setting label="Time zone" hint="For dates and times agents give you.">
 					<Select
-						className={`${compactControlClass} w-64`}
+						className={wideControlClass}
 						value={prefs.timeZone ?? "auto"}
-						options={[{ value: "auto", label: `Automatic (${zoneLabel(deviceTimeZone)})` }, ...timeZones.map((zone) => ({ value: zone, label: zoneLabel(zone) }))]}
+						options={[{ value: "auto", label: `Automatic (${zoneLabel(deviceTimeZone())})` }, ...timeZones.map((zone) => ({ value: zone, label: zoneLabel(zone) }))]}
 						onChange={(zone) => run(update({ timeZone: zone === "auto" ? null : zone }))}
 					/>
 				</Setting>
 				<Setting label="Send messages with" hint={prefs.sendWith === "enter" ? "Shift+Enter adds a new line." : "Enter adds a new line."}>
 					<Select
-						className={`${compactControlClass} w-64`}
+						className={wideControlClass}
 						value={prefs.sendWith}
 						options={[
 							{ value: "enter", label: "Enter" },
@@ -357,7 +316,7 @@ function ProfileTab() {
 				</Setting>
 				<Setting label="Notifications" hint="When Companybot isn't in front, and the dock count.">
 					<Select
-						className={`${compactControlClass} w-64`}
+						className={wideControlClass}
 						value={prefs.notify}
 						options={[
 							{ value: "all", label: "DMs and mentions" },

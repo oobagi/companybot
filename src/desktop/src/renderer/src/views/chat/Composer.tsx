@@ -3,6 +3,7 @@ import { type ReactNode, useRef, useState } from "react";
 import { ArrowUpIcon } from "../../icons";
 import { Avatar } from "./common";
 import type { Mentions, Participant } from "./data";
+import { Form, metadataClass } from "../../ui";
 
 export type SendWith = Doc<"preferences">["sendWith"];
 
@@ -89,7 +90,7 @@ export function Composer({
 							>
 								<Avatar name={c.name} image={c.image} agent={c.type === "agent"} size="sm" />
 								<span className="flex-1 truncate">{c.name}</span>
-								{c.type === "agent" && <span className="text-xs text-neutral-400">Agent</span>}
+								{c.type === "agent" && <span className={metadataClass}>Agent</span>}
 							</button>
 						</li>
 					))}
@@ -97,13 +98,7 @@ export function Composer({
 			)}
 			<div className="flex flex-col">
 			{tray}
-			<form
-				className="flex w-full items-end gap-2 rounded-2xl border border-neutral-200 bg-white p-2 pl-4 shadow-sm focus-within:border-neutral-300"
-				onSubmit={(e) => {
-					e.preventDefault();
-					submit();
-				}}
-			>
+			<Form className="flex w-full items-end gap-2 rounded-2xl border border-neutral-200 bg-white p-2 pl-4 shadow-sm focus-within:border-neutral-300" onSubmit={() => submit()}>
 				<textarea
 					ref={input}
 					rows={1}
@@ -153,7 +148,7 @@ export function Composer({
 				>
 					<ArrowUpIcon weight="bold" />
 				</button>
-			</form>
+			</Form>
 			</div>
 			<p className="h-4 truncate px-4 text-xs text-neutral-400" aria-live="polite">
 				{status}

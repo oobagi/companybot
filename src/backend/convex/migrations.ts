@@ -1,14 +1,10 @@
 import { type MigrationFunctionReference, Migrations } from "@convex-dev/migrations";
-import { v } from "convex/values";
 import { legacySkills, legacyAutomation } from "./legacyCatalogs";
 import { startCascade } from "./cascade";
 import { components, internal } from "./_generated/api";
-import type { DataModel, Doc, Id } from "./_generated/dataModel";
+import type { DataModel } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
-import { addUserMentions } from "./chatOps";
-import { normalizeEmail } from "./lib";
-import { saveVersion } from "./agents";
-import { type TrashKind, trashEntry } from "./trashOps";
+import { trashEntry } from "./trashOps";
 
 // Data migrations. Deploys never change stored rows; these do, once per deployment.
 // `pnpm release` runs every pending one on prod right after deploying, and the
@@ -19,116 +15,19 @@ import { type TrashKind, trashEntry } from "./trashOps";
 
 export const migrations = new Migrations<DataModel>(components.migrations);
 
-// Automations got audiences: installs from before ran for everyone (or a channel). Keep
-// channels; the rest now run for people who turn them on, starting with whoever set it up.
-export const automationAudiences = migrations.define({
-	table: "automationInstalls",
-	migrateOne: async (ctx, install) => {
-		if (install.audience) return;
-		const audience = install.channelId ? "channel" : "subscribers";
-		await ctx.db.patch(install._id, { audience });
-		if (audience === "subscribers")
-			await ctx.db.insert("automationSubscriptions", { installId: install._id, userId: install.installedBy });
+// Migrations that shipped in a release ran on prod then, and are deleted after: the component
+// keys finished runs by name, so a retired one never runs again.
+
+// Archiving agents became Delete (Trash): archived ones go to Trash as deleted now, by whoever last
+// changed them, so they get the full 30 days. Small batches: even 1 MiB legacy documents fit.
+export const trashAgents = migrations.define({
+	table: "agents",
+	batchSize: 8,
+	migrateOne: async (ctx, agent) => {
+		if (!agent.archived || (await trashEntry(ctx, agent._id))) return;
+		await ctx.db.insert("trash", { workspaceId: agent.workspaceId, itemId: agent._id, deletedAt: Date.now(), kind: "agent", name: agent.name, deletedBy: agent.updatedBy });
 	},
 });
-
-/** Adds `tools` to each Companybot that still has its default skills.load grant, saved as a new version. */
-function grantCompanybot(tools: string[]) {
-	return migrations.define({
-		table: "agents",
-		migrateOne: async (ctx, agent) => {
-			if (agent.name !== "Companybot" || !agent.tools.includes("skills.load")) return;
-			const missing = tools.filter((t) => !agent.tools.includes(t));
-			if (missing.length === 0) return;
-			const config = { name: agent.name, description: agent.description, instructions: agent.instructions, model: agent.model, tools: [...agent.tools, ...missing] };
-			await saveVersion(ctx, agent, config, agent.updatedBy);
-		},
-	});
-}
-
-// Companybot got tools to make skills and automations from chat. New workspaces get them
-// from default-agents.ts; this adds them to each existing Companybot that still has its
-// default skills.load grant (so one an owner rebuilt on purpose is left alone). Saved as a
-// new version, like an edit, so it shows in the agent's history.
-export const companybotChatTools = grantCompanybot(["skills.create", "automations.*"]);
-
-// COMPAT(0.1.0-alpha.8): retain the shipped migration name for release bookkeeping; seeding is retired.
-export const recordTypes = migrations.define({ table: "workspaces", migrateOne: async () => {} });
-
-// Companybot got records tools (the CRM from chat). Same rule as companybotChatTools: only
-// Companybots that still have their default skills.load grant, saved as a new version.
-export const companybotRecordTools = grantCompanybot(["records.*"]);
-
-// Companybot got pages tools (wiki/pages.md). Same rule.
-export const companybotPageTools = grantCompanybot(["pages.*"]);
-
-export const companybotParityTools = grantCompanybot(["channels.*", "skills.manage", "skills.remove", "members.*", "workspace.*"]);
-
-// Editing skills moved out of skills.manage into its own tool, which asks first. Same rule.
-export const companybotSkillEdit = grantCompanybot(["skills.edit"]);
-
-// Unread mentions moved to an index (userMentions): add rows for messages sent before it.
-// Small batches, and a message mentioning many people adds its rows MENTIONS_PER_WRITE at a
-// time in its own mutations, so no transaction nears the write limit however many it names.
-const MENTIONS_PER_WRITE = 100;
-
-export const userMentions = migrations.define({
-	table: "chatMessages",
-	batchSize: 20,
-	migrateOne: async (ctx, message) => {
-		if (message.mentions.userIds.length === 0) return;
-		if (message.mentions.userIds.length <= MENTIONS_PER_WRITE) await addUserMentions(ctx, message);
-		else await ctx.scheduler.runAfter(0, internal.migrations.userMentionsFrom, { messageId: message._id, from: 0 });
-	},
-});
-
-/** Adds one slice of a message's mention rows, then schedules the next. */
-export const userMentionsFrom = internalMutation({
-	args: { messageId: v.id("chatMessages"), from: v.number() },
-	handler: async (ctx, { messageId, from }) => {
-		const message = await ctx.db.get(messageId);
-		if (!message) return;
-		const to = from + MENTIONS_PER_WRITE;
-		await addUserMentions(ctx, message, { from, to });
-		if (to < message.mentions.userIds.length) await ctx.scheduler.runAfter(0, internal.migrations.userMentionsFrom, { messageId, from: to });
-	},
-});
-
-// Invitation checks used to scan the team, normalizing every user's email. Keep that
-// case-insensitive behavior with one indexed membership lookup, including alpha.6 users.
-export const memberEmails = migrations.define({
-	table: "members",
-	migrateOne: async (ctx, member) => {
-		if (member.email !== undefined) return;
-		await ctx.db.patch(member._id, { email: normalizeEmail((await ctx.db.get(member.userId))?.email ?? "") });
-	},
-});
-// Archive became Trash (trash.ts): what was archived goes to Trash as deleted now, by whoever
-// last changed it, so it gets the full 30 days. Skips what's already there.
-function archivedToTrash<T extends "records" | "recordTypes" | "recordFields" | "pages" | "agents">(
-	table: T,
-	entry: (row: Doc<T>) => { kind: TrashKind; name: string; deletedBy: Id<"users">; typeId?: Id<"recordTypes"> },
-) {
-	return migrations.define({
-		table,
-		// Even legacy 1 MiB documents fit, with room for their Trash rows and bookkeeping.
-		batchSize: 8,
-		migrateOne: async (ctx, row) => {
-			if (!row.archived || (await trashEntry(ctx, row._id))) return;
-			await ctx.db.insert("trash", { workspaceId: row.workspaceId, itemId: row._id, deletedAt: Date.now(), ...entry(row as Doc<T>) });
-		},
-	});
-}
-
-export const trashRecords = archivedToTrash("records", (r) => ({ kind: "record", name: r.title, deletedBy: r.updatedBy, typeId: r.typeId }));
-export const trashDatabases = archivedToTrash("recordTypes", (t) => ({ kind: "database", name: t.plural, deletedBy: t.createdBy }));
-export const trashFields = archivedToTrash("recordFields", (f) => ({ kind: "field", name: f.label, deletedBy: f.createdBy, typeId: f.typeId }));
-export const trashPages = archivedToTrash("pages", (p) => ({ kind: "page", name: p.title, deletedBy: p.updatedBy }));
-
-export const companybotParity2Tools = grantCompanybot(["agents.manage"]);
-
-// Archiving agents became Delete (Trash): agents archived before go to Trash the same way.
-export const trashAgents = archivedToTrash("agents", (a) => ({ kind: "agent", name: a.name, deletedBy: a.updatedBy }));
 
 /** Snapshot live and trashed installs alike, without changing their Trash state or retention. */
 export const storedSkills = migrations.define({
@@ -164,20 +63,6 @@ export const retireNightOwl = migrations.define({
 
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
 const all: MigrationFunctionReference[] = [
-	internal.migrations.automationAudiences,
-	internal.migrations.companybotChatTools,
-	internal.migrations.recordTypes,
-	internal.migrations.companybotRecordTools,
-	internal.migrations.userMentions,
-	internal.migrations.companybotPageTools,
-	internal.migrations.companybotParityTools,
-	internal.migrations.memberEmails,
-	internal.migrations.trashRecords,
-	internal.migrations.trashDatabases,
-	internal.migrations.trashFields,
-	internal.migrations.trashPages,
-	internal.migrations.companybotParity2Tools,
-	internal.migrations.companybotSkillEdit,
 	internal.migrations.trashAgents,
 	internal.migrations.storedSkills,
 	internal.migrations.storedAutomations,
@@ -188,14 +73,14 @@ const all: MigrationFunctionReference[] = [
 /** Starts every pending migration, in order. Finished ones are skipped. */
 export const runAll = internalMutation({
 	args: {},
-	handler: async (ctx) => (all.length > 0 ? await migrations.runSerially(ctx, all) : null),
+	handler: async (ctx) => migrations.runSerially(ctx, all),
 });
 
 /** Whether any migration is still running or failed, for the release script to wait on. */
 export const status = internalQuery({
 	args: {},
 	handler: async (ctx) => {
-		const statuses = all.length > 0 ? await migrations.getStatus(ctx, { migrations: all }) : [];
+		const statuses = await migrations.getStatus(ctx, { migrations: all });
 		return statuses.map((s) => ({ name: s.name, state: s.state, error: s.error }));
 	},
 });

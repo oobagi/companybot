@@ -1,11 +1,11 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Select } from "../../controls";
 import { type FieldValue, type Money, TEXT_MAX, currencyCodes, formatMoney, minorDigits } from "@companybot/core/records";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api } from "../../api";
 import { useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { compactControlClass } from "../../ui";
+import { compactControlClass, hintClass, useDebounced, useSynced } from "../../ui";
 import { Popover } from "../chat/common";
 import { useCurrency, useTypes } from "./data";
 import { type Refs, type TypeField, moneyInput, recordPath, valueText } from "./logic";
@@ -114,8 +114,7 @@ export function ValueEditor({
 
 /** Text, number, email, phone and web address. Long text wraps onto more lines. */
 function TextEditor({ field, value, onSave }: { field: TypeField; value: string; onSave: (value: unknown) => void }) {
-	const [draft, setDraft] = useState(value);
-	useEffect(() => setDraft(value), [value]);
+	const [draft, setDraft] = useSynced(value);
 	const commit = () => draft.trim() !== value && onSave(draft.trim() || null);
 	const keys = (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
 		if (e.key === "Escape") setDraft(value);
@@ -145,10 +144,9 @@ function MoneyEditor({ value, onSave }: { value: Money | undefined; onSave: (val
 	const workspaceCurrency = useCurrency();
 	const currency = value?.currency ?? workspaceCurrency;
 	const saved = moneyInput(value, minorDigits(currency));
-	const [amount, setAmount] = useState(saved);
+	const [amount, setAmount] = useSynced(saved);
 	// Shown formatted ("$14,500.00") until you click in to change it.
 	const [focused, setFocused] = useState(false);
-	useEffect(() => setAmount(saved), [saved]);
 	const save = (text: string, code: string) => onSave(text.trim() ? { amount: text.trim(), currency: code } : null);
 	return (
 		<span className="flex items-center gap-1">
@@ -271,7 +269,8 @@ export function RecordPicker({
 
 function RecordSearch({ typeId, exclude, onPick }: { typeId: string; exclude: string[]; onPick: (id: string, title: string) => void }) {
 	const [query, setQuery] = useState("");
-	const results = useQuery(api.records.search, query.trim() ? { query, typeId: typeId as Id<"recordTypes"> } : "skip");
+	const settled = useDebounced(query);
+	const results = useQuery(api.records.search, settled.trim() ? { query: settled, typeId: typeId as Id<"recordTypes"> } : "skip");
 	return (
 		<>
 			<input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by name" className={compactControlClass} />
@@ -282,7 +281,7 @@ function RecordSearch({ typeId, exclude, onPick }: { typeId: string; exclude: st
 						{r.title}
 					</button>
 				))}
-			{results?.length === 0 && <span className="px-2 py-1 text-sm text-neutral-400">No matches.</span>}
+			{results?.length === 0 && <span className={`px-2 py-1 ${hintClass}`}>No matches.</span>}
 		</>
 	);
 }
