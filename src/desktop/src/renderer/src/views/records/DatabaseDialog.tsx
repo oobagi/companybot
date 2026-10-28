@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { useMutation } from "../../convex";
 import { navigate } from "../../router";
-import { ConflictNotice, Field, Notice, dangerButton, inputClass, primaryButton, useDraft, useRun } from "../../ui";
+import { ConflictNotice, Field, Form, Notice, dangerButton, inputClass, primaryButton, useDraft, useRun } from "../../ui";
 import { Modal } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { recordPath } from "./logic";
@@ -21,13 +21,14 @@ export function DatabaseDialog({ type, onClose }: { type?: RecordType; onClose: 
 	const { error, run } = useRun();
 	return (
 		<Modal title={type ? "Edit database" : "New database"} onClose={onClose}>
-			<form className="flex flex-col gap-4" onSubmit={(e) => {
-				e.preventDefault();
-				if (type) run(update({ typeId: type._id, ...draft.value, version: draft.base }), onClose);
-				else run(create({ plural: draft.value.plural }).then(setCreated));
-			}}>
-				{error && <Notice>{error}</Notice>}
-				{draft.stale && <ConflictNotice onDiscard={draft.discard} onKeep={draft.keepMine} />}
+			<Form
+				onSubmit={() => {
+					if (type) run(update({ typeId: type._id, ...draft.value, version: draft.base }), onClose);
+					else run(create({ plural: draft.value.plural }).then(setCreated));
+				}}
+			>
+				<Notice>{error}</Notice>
+				<ConflictNotice draft={draft} />
 				<Field label="Name" hint="For example Projects.">
 					<input autoFocus required maxLength={120} className={inputClass} value={draft.value.plural} onChange={(e) => draft.set({ ...draft.value, plural: e.target.value })} />
 				</Field>
@@ -40,7 +41,7 @@ export function DatabaseDialog({ type, onClose }: { type?: RecordType; onClose: 
 					<button type="submit" disabled={draft.stale} className={primaryButton}>{type ? "Save" : "Create database"}</button>
 					{type && <button type="button" className={dangerButton} onClick={() => confirm(`Delete ${type.plural}? It goes to Trash with its records, and can be restored for 30 days.`) && run(remove({ kind: "database", id: type._id }), () => { onClose(); navigate("chat"); })}>Delete database</button>}
 				</div>
-			</form>
+			</Form>
 		</Modal>
 	);
 }

@@ -1,7 +1,7 @@
 import { Fragment, useState } from "react";
 import { navigate } from "../../router";
 import { AgentIcon, AutomationIcon, ConnectorIcon, SkillIcon, TrashIcon } from "../../icons";
-import { type Crumb, EmptyState, ConflictNotice, NotFound, Notice, Page, SaveBar, barDangerButton, descriptionClass, disabledButtonClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
+import { ConflictNotice, type Crumb, EmptyState, NotFound, Notice, Page, SaveBar, barDangerButton, cardClass, descriptionClass, disabledButtonClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
 import { TrashNotice } from "../Trash";
 import { Confirm } from "../chat/common";
 
@@ -38,7 +38,7 @@ export function ItemList<T extends { trash?: unknown; archived?: boolean }>({
 	items = items.filter((item) => !item.trash && !item.archived);
 	return (
 		<>
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			{items.length ? <div className="flex flex-col gap-3">{items.map(card)}</div> : <EmptyState icon={icon} title={title}>{empty}</EmptyState>}
 		</>
 	);
@@ -50,10 +50,8 @@ export function Card(props: {
 	meta: string;
 	description: string;
 	status?: string;
-	installed: boolean;
-	canManage: boolean;
-	/** Without it there's no install button (things your team made are deleted from their page). */
-	onToggle?: () => void;
+	/** Its install button. Without it there's none (things your team made are deleted from their page). */
+	install?: { installed: boolean; canManage: boolean; onToggle: () => void };
 	/** Shown in place of the install button. */
 	action?: React.ReactNode;
 	onOpen: () => void;
@@ -75,13 +73,12 @@ export function Card(props: {
 				{props.status && <p className={`mt-1 ${metadataClass}`}>{props.status}</p>}
 			</div>
 			{props.action}
-			{props.onToggle && (
+			{props.install && (
 				<InstallButton
-					installed={props.installed}
-					canManage={props.canManage}
+					{...props.install}
 					onToggle={(e) => {
 						e.stopPropagation();
-						props.onToggle?.();
+						props.install?.onToggle();
 					}}
 				/>
 			)}
@@ -161,7 +158,7 @@ export function NewItem({
 }) {
 	return (
 		<Page title={`New ${noun}`} crumbs={customizeCrumbs(tab)}>
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			<div className="flex flex-col gap-5">
 				{children}
 				<button type="button" className={`${primaryButton} self-start`} onClick={onCreate}>
@@ -226,8 +223,8 @@ export function MadeItemDetail<T>({
 			}
 		>
 			{trash && <TrashNotice trash={trash} />}
-			{draft.stale && <ConflictNotice who={custom.updatedByName} onDiscard={draft.discard} onKeep={draft.keepMine} />}
-			{error && <Notice>{error}</Notice>}
+			<ConflictNotice draft={draft} who={custom.updatedByName} />
+			<Notice>{error}</Notice>
 			{!canEdit && <p className={descriptionClass}>Only the person who made it or an owner can change it.</p>}
 			<fieldset disabled={!editable} className="flex flex-col gap-5">
 				{fields(draft.value, draft.set)}
@@ -251,7 +248,7 @@ export function Missing({ tab, loaded }: { tab: CustomizeTab; loaded: boolean })
 
 export function Facts({ rows }: { rows: [string, string][] }) {
 	return (
-		<dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 rounded-xl border border-neutral-200 px-4 py-3 text-sm">
+		<dl className={`grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-sm ${cardClass}`}>
 			{rows.map(([label, value]) => (
 				<Fragment key={label}>
 					<dt className="text-neutral-500">{label}</dt>

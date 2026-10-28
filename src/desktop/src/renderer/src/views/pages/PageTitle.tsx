@@ -1,11 +1,9 @@
-import { useEffect, useState } from "react";
-import { useRun } from "../../ui";
+import { useRun, useSynced } from "../../ui";
 
 /** The title, edited in place; saved when you leave it or press Enter. */
 export function PageTitle({ title, editable, onSave }: { title: string; editable: boolean; onSave: (title: string) => Promise<unknown> }) {
-	const [draft, setDraft] = useState(title);
+	const [draft, setDraft] = useSynced(title);
 	const { error, run } = useRun();
-	useEffect(() => setDraft(title), [title]);
 	if (!editable) return <span className="text-4xl font-bold">{title}</span>;
 	const save = () => draft.trim() && draft !== title && run(onSave(draft));
 	return (

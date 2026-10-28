@@ -1,5 +1,4 @@
-import type { Role } from "@companybot/core";
-import { can } from "@companybot/core/permissions";
+import { type Role, can } from "@companybot/core/permissions";
 import { SKILL_DESCRIPTION_MAX, SKILL_NAME_MAX } from "@companybot/core/skills";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
@@ -13,7 +12,7 @@ import { Card, Detail, Facts, ItemList, MadeItemDetail, Missing, NewItem } from 
 
 type SkillItem = FunctionReturnType<typeof api.skills.list>[number];
 
-export function SkillsTab({ role }: { role: Role }) {
+export function SkillsTab() {
 	const skills = useQuery(api.skills.list);
 	if (!skills) return <Loading />;
 	const card = (s: SkillItem) => (
@@ -22,8 +21,6 @@ export function SkillsTab({ role }: { role: Role }) {
 			title={s.name}
 			meta={`v${s.version}`}
 			description={s.description}
-			installed={s.installed}
-			canManage={s.canEdit}
 			onOpen={() => navigate("settings", "skills", s.id)}
 		/>
 	);
@@ -137,7 +134,7 @@ export function SkillScreen({ role, id }: { role: Role; id: string }) {
 			busy={busy}
 			onToggle={() => run(removeSkill({ skillId: open.id }))}
 		>
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			<Facts rows={[["Used by", 'Agents granted "skills.load", when a task calls for it']]} />
 			<Section title="Instructions" hint="What the agent reads when it loads this skill.">
 				<Markdown className="rounded-xl bg-neutral-50 px-4 py-3 text-sm leading-relaxed">{open.instructions}</Markdown>

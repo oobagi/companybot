@@ -1,5 +1,5 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { can, type Role } from "@companybot/core";
+import { type Role, can } from "@companybot/core/permissions";
 import { useState } from "react";
 import { DatabaseIcon } from "../icons";
 import { EmptyState, NewButton, NotFound, Page } from "../ui";

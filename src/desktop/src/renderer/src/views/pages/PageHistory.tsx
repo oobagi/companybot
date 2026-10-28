@@ -25,7 +25,7 @@ export function PageHistory({ pageId, canRestore, onClose, tabs }: { pageId: Id<
 			{tabs}
 			<Tabs tabs={[{ id: "content", label: "Content" }, { id: "moves", label: "Moves" }]} value={tab} onChange={setTab} />
 			{tab === "moves" ? <Moves pageId={pageId} /> : <>
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			{status === "LoadingFirstPage" ? (
 				<Loading />
 			) : results.length === 0 ? (

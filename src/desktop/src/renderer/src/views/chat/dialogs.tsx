@@ -2,7 +2,7 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
-import { Field, Loading, Notice, inputClass, primaryButton, secondaryButton, useRun } from "../../ui";
+import { Field, Form, Loading, Notice, descriptionClass, inputClass, primaryButton, secondaryButton, useRun } from "../../ui";
 import { AgentBadge, Avatar, Modal } from "./common";
 import { navigate } from "../../router";
 import { ProfileLink } from "./Profile";
@@ -16,15 +16,7 @@ export function CreateChannel({ onClose, onOpen }: { onClose: () => void; onOpen
 	const { error, run } = useRun();
 	return (
 		<Modal title="Create a channel" onClose={onClose}>
-			<form
-				className="flex flex-col gap-4"
-				onSubmit={(e) => {
-					e.preventDefault();
-					run(
-						create({ name, topic: topic.trim() || undefined, private: isPrivate }).then((id) => (onOpen(id), onClose())),
-					);
-				}}
-			>
+			<Form onSubmit={() => run(create({ name, topic: topic.trim() || undefined, private: isPrivate }).then((id) => (onOpen(id), onClose())))}>
 				<Field label="Name">
 					<input value={name} autoFocus onChange={(e) => setName(e.target.value)} placeholder="e.g. sales" className={inputClass} />
 				</Field>
@@ -38,11 +30,11 @@ export function CreateChannel({ onClose, onOpen }: { onClose: () => void; onOpen
 						<span className="block text-neutral-500">Only people added can see it.</span>
 					</span>
 				</label>
-				{error && <Notice>{error}</Notice>}
+				<Notice>{error}</Notice>
 				<button type="submit" disabled={!name.trim()} className={`${primaryButton} self-end`}>
 					Create
 				</button>
-			</form>
+			</Form>
 		</Modal>
 	);
 }
@@ -53,11 +45,11 @@ export function BrowseChannels({ onClose, onOpen }: { onClose: () => void; onOpe
 	const { error, run } = useRun();
 	return (
 		<Modal title="Browse channels" onClose={onClose}>
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			{!channels ? (
 				<Loading />
 			) : channels.length === 0 ? (
-				<p className="text-sm text-neutral-500">You're in every public channel.</p>
+				<p className={descriptionClass}>You're in every public channel.</p>
 			) : (
 				<ul className="-mx-2 flex flex-col">
 					{channels.map((c) => (
@@ -133,7 +125,7 @@ export function NewMessage({ onClose, onOpen }: { onClose: () => void; onOpen: (
 	return (
 		<Modal title="New message" onClose={onClose}>
 			{people.length === 0 && (
-				<p className="text-sm text-neutral-500">
+				<p className={descriptionClass}>
 					Invite teammates in{" "}
 					<button type="button" onClick={() => (onClose(), navigate("settings", "members"))} className="underline hover:text-neutral-900">
 						Settings → Members
@@ -142,7 +134,7 @@ export function NewMessage({ onClose, onOpen }: { onClose: () => void; onOpen: (
 				</p>
 			)}
 			<Picker options={[...people, ...agents]} picked={picked} onChange={setPicked} />
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			<div className="flex items-center justify-end gap-3">
 				{existing && <p className="flex-1 text-sm text-neutral-500">You already have this conversation.</p>}
 				<button type="button" disabled={picked.length === 0} onClick={() => void open()} className={primaryButton}>
@@ -201,7 +193,7 @@ export function ChannelDetails({ chat, onClose, onLeft }: { chat: ChatDetails; o
 								</li>
 							))}
 						</ul>
-						{error && <Notice>{error}</Notice>}
+						<Notice>{error}</Notice>
 					</section>
 					{isChannel && !chat.isDefault && <LeaveButton chat={chat} onLeft={() => (onClose(), onLeft())} />}
 				</>
@@ -217,26 +209,20 @@ function EditChannel({ chat }: { chat: ChatDetails }) {
 	const { error, run } = useRun();
 	const dirty = name !== (chat.name ?? "") || topic !== (chat.topic ?? "");
 	return (
-		<form
-			className="flex flex-col gap-3"
-			onSubmit={(e) => {
-				e.preventDefault();
-				run(update({ chatId: chat._id, name: chat.isDefault ? undefined : name, topic }));
-			}}
-		>
+		<Form className="flex flex-col gap-3" onSubmit={() => run(update({ chatId: chat._id, name: chat.isDefault ? undefined : name, topic }))}>
 			<Field label="Name" hint={chat.isDefault ? "The default channel can't be renamed." : undefined}>
 				<input value={name} disabled={!!chat.isDefault} onChange={(e) => setName(e.target.value)} className={inputClass} />
 			</Field>
 			<Field label="Topic">
 				<input value={topic} onChange={(e) => setTopic(e.target.value)} className={inputClass} />
 			</Field>
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			{dirty && (
 				<button type="submit" className={`${primaryButton} self-end`}>
 					Save
 				</button>
 			)}
-		</form>
+		</Form>
 	);
 }
 
@@ -251,11 +237,11 @@ function AddMembers({ chat, onDone }: { chat: ChatDetails; onDone: () => void })
 	return (
 		<>
 			{options.length === 0 ? (
-				<p className="text-sm text-neutral-500">Everyone's already here.</p>
+				<p className={descriptionClass}>Everyone's already here.</p>
 			) : (
 				<Picker options={options} picked={picked} onChange={setPicked} />
 			)}
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			<div className="flex justify-end gap-2">
 				<button type="button" onClick={onDone} className={secondaryButton}>
 					Back
@@ -285,7 +271,7 @@ function LeaveButton({ chat, onLeft }: { chat: ChatDetails; onLeft: () => void }
 	const { error, run } = useRun();
 	return (
 		<>
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			<div className="flex gap-4 text-sm">
 				<button type="button" onClick={() => run(leave({ chatId: chat._id }), onLeft)} className="text-red-600 hover:text-red-800">
 					Leave channel

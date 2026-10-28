@@ -8,10 +8,10 @@ import { api } from "../api";
 import { usePaginatedQuery, useQuery } from "../convex";
 import { navigate } from "../router";
 import { HistoryIcon } from "../icons";
-import { EmptyState, NoMatches, LoadMore, Loading, Section, descriptionClass, metadataClass, timeAgo } from "../ui";
+import { EmptyState, LoadMore, Loading, NoMatches, Section, cardClass, descriptionClass, metadataClass, timeAgo } from "../ui";
 import { actionLabels, valueText, whoLabel } from "./records/logic";
 
-export type ActivityEntry = FunctionReturnType<typeof api.activity.forReply>[number];
+type ActivityEntry = FunctionReturnType<typeof api.activity.forReply>[number];
 
 /** Every tool call agents made in chats you can see. Results show only for calls made for you. */
 export function ActivityTab() {
@@ -53,7 +53,7 @@ function DatabaseActivity({ results, status, loadMore }: { results: FunctionRetu
 		<Section title="Database changes" hint="Records, fields, databases and shared views, including changes made by agents.">
 			{results.map((e) => {
 				const [kind, action] = e.action.includes(".") ? e.action.split(".") : ["record", e.action];
-				return <div key={e._id} className="flex flex-col gap-1 rounded-xl border border-neutral-200 px-4 py-3 text-sm">
+				return <div key={e._id} className={`flex flex-col gap-1 text-sm ${cardClass}`}>
 					<div className="flex items-baseline gap-2">
 						<span className="font-medium">{e.undoes ? "Undid a change to" : actionLabels[action!] ?? action} {kind}: {e.subject ?? e.record ?? e.field ?? e.type}</span>
 						<span className={`ml-auto shrink-0 ${metadataClass}`}>{timeAgo(e.time)}</span>
@@ -70,7 +70,7 @@ function DatabaseActivity({ results, status, loadMore }: { results: FunctionRetu
 function ActivityRow({ entry }: { entry: ActivityEntry & { chat: string } }) {
 	const [open, setOpen] = useState(false);
 	return (
-		<div className="flex flex-col gap-2 rounded-xl border border-neutral-200 px-4 py-3 text-sm">
+		<div className={`flex flex-col gap-2 text-sm ${cardClass}`}>
 			<button type="button" onClick={() => setOpen(!open)} className="flex items-baseline gap-2 text-left">
 				<span className="font-medium">{entry.agent}</span>
 				<span className="text-neutral-600">{entry.label}</span>
