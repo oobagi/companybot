@@ -3,10 +3,10 @@ import { useMutation } from "../convex";
 import { CaretDownIcon } from "../icons";
 import { navigate } from "../router";
 import { Notice, useRun } from "../ui";
-import { Avatar, MenuItem, Popover } from "./chat/common";
+import { MenuItem, Popover } from "./chat/common";
 
-/** The workspace name at the top of the sidebar: leave it. Switching and invites are in the rail (WorkspaceRail). */
-export function WorkspaceMenu({ name, logo }: { name: string; logo: string | null }) {
+/** The workspace name at the top of the sidebar: leave it. Its logo, switching and invites are in the rail (WorkspaceRail). */
+export function WorkspaceMenu({ name }: { name: string }) {
 	const leave = useMutation(api.workspace.leave);
 	const { error, run } = useRun();
 
@@ -15,8 +15,6 @@ export function WorkspaceMenu({ name, logo }: { name: string; logo: string | nul
 			<Popover
 				trigger={
 					<>
-						{/* The size of the sidebar's icons, so the name lines up with the labels below. */}
-						<Avatar name={name} image={logo} agent size="xs" />
 						<span className="truncate">{name}</span>
 						<CaretDownIcon className="shrink-0 text-neutral-400" />
 					</>

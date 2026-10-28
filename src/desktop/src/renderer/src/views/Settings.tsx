@@ -263,7 +263,7 @@ function GeneralForm({
 			{draft.stale && <ConflictNotice onDiscard={draft.discard} onKeep={draft.keepMine} />}
 			{error && <Notice>{error}</Notice>}
 			<Settings title="Workspace" hint={ownerOnly}>
-				<Setting label="Logo" hint="Next to its name in the sidebar. PNG, JPEG, WebP or GIF, up to 2 MB.">
+				<Setting label="Logo" hint="Its icon in the workspace rail at the far left. PNG, JPEG, WebP or GIF, up to 2 MB.">
 					<ImagePicker of="workspace" name={settings.name} image={settings.image} agent disabled={!isOwner} />
 				</Setting>
 				<Setting label="Name">

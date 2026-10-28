@@ -95,10 +95,10 @@ function Workspace() {
 function Opened() {
 	const me = useQuery(api.workspace.me);
 	if (!me?.role) return null;
-	return <Shell email={me.email} role={me.role} workspace={me.workspace ?? ""} logo={me.workspaceImage} />;
+	return <Shell email={me.email} role={me.role} workspace={me.workspace ?? ""} />;
 }
 
-function Shell({ email, role, workspace, logo }: { email: string; role: Role; workspace: string; logo: string | null }) {
+function Shell({ email, role, workspace }: { email: string; role: Role; workspace: string }) {
 	const { signOut } = useAuthActions();
 	const chats = useQuery(api.chats.list);
 	const prefs = useQuery(api.preferences.get);
@@ -157,7 +157,7 @@ function Shell({ email, role, workspace, logo }: { email: string; role: Role; wo
 									</Item>
 								</div>
 							) : (
-								<WorkspaceMenu name={workspace} logo={logo} />
+								<WorkspaceMenu name={workspace} />
 							)}
 						</div>
 					}
