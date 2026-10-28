@@ -1,17 +1,15 @@
 import { seedLegacyRecords } from "./legacyFixtures";
 import { modules } from "./helpers";
-import migrationsTest from "@convex-dev/migrations/test";
 import { connectorCatalog, defineConnector } from "@companybot/core";
 import { convexTest } from "convex-test";
-import { describe, expect, it, vi } from "vitest";
-import { api, internal } from "../convex/_generated/api";
+import { describe, expect, it } from "vitest";
+import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import schema from "../convex/schema";
 import { person } from "./person";
 
-// One person in two workspaces, A and B: every request acts in the workspace it names, an id
-// from the other one looks like it doesn't exist, and apps that name no workspace stay in the
-// first one they joined. See wiki/architecture.md (Workspaces).
+// One person in two workspaces, A and B: every request acts in the workspace it names, and an id
+// from the other one looks like it doesn't exist. See wiki/architecture.md (Workspaces).
 
 connectorCatalog.push(
 	defineConnector({
@@ -27,20 +25,20 @@ connectorCatalog.push(
 );
 const CONNECTOR = "twoworkspacecrm";
 
-/** Someone who started A (on an app that names no workspace: `old`), then got B. */
+/** Someone who started A, then got B. */
 async function setup() {
 	const t = convexTest({ schema, modules, transactionLimits: true });
 	const userId = await t.run((ctx) => ctx.db.insert("users", { email: "two@co.com" }));
-	const old = person(t.withIdentity({ subject: `${userId}|session` }));
-	await old.mutation(api.workspace.ensure);
-	const a = (await old.query(api.workspace.me))!.workspaceId!;
+	const as = person(t.withIdentity({ subject: `${userId}|session` }));
+	await as.mutation(api.workspace.ensure);
+	const a = (await as.query(api.workspace.mine))!.workspaces[0]!.id;
 	await t.run((ctx) => seedLegacyRecords(ctx, a, userId));
 	const b = await t.run(async (ctx) => {
 		const id = await ctx.db.insert("workspaces", { name: "B", version: 1 });
 		await ctx.db.insert("members", { userId, workspaceId: id, role: "owner" });
 		return id;
 	});
-	return { t, userId, old, a, b, A: old.in(a), B: old.in(b) };
+	return { t, userId, a, b, A: as.in(a), B: as.in(b) };
 }
 
 type Setup = Awaited<ReturnType<typeof setup>>;
@@ -61,58 +59,6 @@ const deputyIn = ({ t }: Setup, workspaceId: Id<"workspaces">) =>
 		const deputy = await ctx.db.insert("users", { email: "deputy@co.com" });
 		await ctx.db.insert("members", { userId: deputy, workspaceId, role: "owner" });
 	});
-
-describe("apps that name no workspace", () => {
-	it("stay in the first workspace after leaving it, and act nowhere rather than in another", async () => {
-		const s = await setup();
-		const { old, a, A, B } = s;
-		const settings = (await old.query(api.workspace.settings))!;
-		expect(settings.name).toBe((await A.query(api.workspace.settings))!.name);
-		await deputyIn(s, a);
-		await A.mutation(api.workspace.leave);
-
-		await expect(old.mutation(api.workspace.updateSettings, { name: "Draft for A", expectedVersion: settings.version })).rejects.toThrow(
-			"Sign in to a workspace first",
-		);
-		expect((await B.query(api.workspace.settings))!.name).toBe("B");
-		expect(await old.query(api.workspace.settings)).toBeNull();
-	});
-
-	it("keep the first workspace pinned, however memberships change after", async () => {
-		const s = await setup();
-		const { t, userId, old, a } = s;
-		expect(await t.run((ctx) => ctx.db.query("legacyWorkspaces").collect())).toMatchObject([{ userId, workspaceId: a }]);
-		// Joining more workspaces later never moves it.
-		await t.run(async (ctx) => {
-			const c = await ctx.db.insert("workspaces", { name: "C", version: 1 });
-			await ctx.db.insert("members", { workspaceId: c, userId: await ctx.db.insert("users", {}), role: "owner" });
-			await ctx.db.insert("invites", { workspaceId: c, email: "two@co.com", role: "member" });
-		});
-		const [invite] = (await old.query(api.workspace.mine))!.invitations;
-		await old.mutation(api.workspace.acceptInvite, { id: invite!.id });
-		expect((await old.query(api.workspace.me))!.workspaceId).toBe(a);
-	});
-
-	it("are backfilled: someone from before pinning keeps their only workspace", async () => {
-		const s = await setup();
-		const { t, userId, old, a } = s;
-		migrationsTest.register(t);
-		await t.run(async (ctx) => {
-			for (const row of await ctx.db.query("legacyWorkspaces").collect()) await ctx.db.delete(row._id);
-		});
-		// Unpinned with two workspaces is ambiguous, so it fails closed.
-		expect(await old.query(api.workspace.me)).toMatchObject({ workspaceId: null });
-		vi.useFakeTimers();
-		try {
-			await t.mutation(internal.migrations.runAll);
-			await t.finishAllScheduledFunctions(vi.runAllTimers);
-		} finally {
-			vi.useRealTimers();
-		}
-		expect(await t.run((ctx) => ctx.db.query("legacyWorkspaces").collect())).toMatchObject([{ userId, workspaceId: a }]);
-		expect((await old.query(api.workspace.me))!.workspaceId).toBe(a);
-	});
-});
 
 describe("requests naming a workspace", () => {
 	it("can't mark a chat in another workspace read, even one they were in", async () => {
@@ -239,4 +185,52 @@ describe("unread mentions", () => {
 		expect(await A.query(api.chats.alerts)).toBeNull();
 		expect(await B.query(api.chats.alerts)).toEqual([]);
 	});
+});
+
+it("refuses ids from the other workspace in reads, restores and nested ids", async () => {
+	const { A, B } = await setup();
+	const chat = (await A.query(api.chats.list))!.channels[0]!._id;
+	const agent = (await A.query(api.agents.list))[0]!;
+	const message = await A.mutation(api.messages.send, { chatId: chat, text: "secret", mentions: { userIds: [], agentIds: [] } });
+	const type = (await A.query(api.recordTypes.list))[0]!._id;
+	const field = (await A.mutation(api.fields.create, { typeId: type, label: "Review", kind: "text" }))._id;
+	const record = await A.mutation(api.records.create, { typeId: type, values: { name: "review secret" } });
+	const page = { numItems: 10, cursor: null };
+
+	expect(await B.query(api.chats.place, { chatId: chat })).toBeNull();
+	expect(await B.query(api.activity.forReply, { replyId: message })).toEqual([]);
+	expect(await B.query(api.activity.list, { agentId: agent._id })).toEqual([]);
+	expect(await B.query(api.approvals.forReply, { replyId: message })).toEqual([]);
+	expect((await B.query(api.records.list, { typeId: type, paginationOpts: page })).page).toEqual([]);
+	expect((await B.query(api.records.history, { recordId: record, paginationOpts: page })).page).toEqual([]);
+	expect((await B.query(api.records.linked, { recordId: record, fieldId: field, paginationOpts: page })).page).toEqual([]);
+	expect(await B.query(api.records.search, { query: "review", typeId: type })).toEqual([]);
+	expect(await B.query(api.records.discussion, { recordId: record })).toEqual([]);
+	expect(await B.query(api.records.refs, { ids: [record] })).toEqual({});
+
+	await expect(B.mutation(api.records.restore, { recordId: record })).rejects.toThrow("Record not found");
+	await expect(B.mutation(api.fields.restore, { fieldId: field })).rejects.toThrow("Field not found");
+	await expect(B.mutation(api.agents.restore, { agentId: agent._id, version: 1, expectedVersion: agent.version })).rejects.toThrow(
+		"Agent not found",
+	);
+	await expect(B.mutation(api.chats.openDm, { userIds: [], agentIds: [agent._id] })).rejects.toThrow(/available/);
+
+	const bChat = await B.mutation(api.chats.createChannel, { name: "b-chat", private: false });
+	expect(await B.query(api.messages.list, { chatId: bChat, threadId: message })).toEqual([]);
+	expect(await B.query(api.chats.place, { chatId: bChat, threadId: message })).toBeNull();
+	await expect(
+		B.mutation(api.messages.send, { chatId: bChat, threadId: message, text: "x", mentions: { userIds: [], agentIds: [] } }),
+	).rejects.toThrow("thread doesn't exist");
+	const bType: Id<"recordTypes"> = (await B.query(api.recordTypes.list))[0]?._id ?? (await B.mutation(api.recordTypes.create, { plural: "Things" }));
+	await expect(B.mutation(api.fields.create, { typeId: bType, label: "Leak", kind: "link", linkTypeId: type })).rejects.toThrow(
+		"Database not found",
+	);
+	await expect(
+		B.mutation(api.automations.create, {
+			config: { name: "x", prompt: "x", trigger: { type: "event", event: "member.joined" } },
+			agentId: agent._id,
+			audience: "creator",
+			timeZone: "UTC",
+		}),
+	).rejects.toThrow("Agent not found");
 });

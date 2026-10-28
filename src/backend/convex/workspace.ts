@@ -9,7 +9,7 @@ import { seedAgents } from "./agents";
 import { fieldsOf, typesOf } from "./recordOps";
 import { addToChat, ensureGeneral } from "./chatOps";
 import { sendInviteEmail } from "./invites";
-import { type Member, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, legacyMemberOf, liveWorkspace, memberOf, nameOf, normalizeEmail, personOf, pinLegacyWorkspace, preferencesOf, requireMember, requirePermission, timeZoneOf } from "./lib";
+import { type Member, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, liveWorkspace, memberOf, nameOf, normalizeEmail, personOf, preferencesOf, requireMember, requirePermission, timeZoneOf } from "./lib";
 import { cascading, startCascade } from "./cascade";
 import { imageUrl } from "./images";
 import { removeWorkspace } from "./lifecycle";
@@ -47,14 +47,7 @@ export const ensure = mutation({
 		let joined = false;
 		for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId)))
 			if (await liveWorkspace(ctx, row.workspaceId)) joined = true;
-		if (joined) {
-			// COMPAT(0.1.0-alpha.7): apps from before switching call this whenever they find no
-			// workspace (lib.ts legacyMemberOf), and show what it throws.
-			if (!(await legacyMemberOf(ctx, userId))) {
-				throw new ConvexError("Update Companybot to open your workspaces. This version only opens the first one you joined, and you're no longer in it.");
-			}
-			return;
-		}
+		if (joined) return;
 
 		const invites = await invitesFor(ctx, userId);
 		for (const invite of invites) await join(ctx, invite, userId);
@@ -62,9 +55,6 @@ export const ensure = mutation({
 
 		const workspaceId = await ctx.db.insert("workspaces", { name: "My company", version: 1 });
 		await ctx.db.insert("members", { workspaceId, userId, role: "owner", email: normalizeEmail((await ctx.db.get(userId))?.email ?? ""), tutorial: freshTutorial() });
-		// COMPAT(0.1.0-alpha.7): in no workspace at all, so old apps may as well act in this
-		// new one, theirs alone: nothing from an old draft can reach anyone else's.
-		await pinLegacyWorkspace(ctx, userId, workspaceId);
 		await seedAgents(ctx, workspaceId, userId);
 		const general = await ensureGeneral(ctx, workspaceId, userId);
 		await addToChat(ctx, general, { userId });
@@ -94,7 +84,6 @@ async function join(ctx: MutationCtx, invite: Doc<"invites">, userId: Id<"users"
 	await ctx.db.delete(invite._id);
 	if (await memberOf(ctx, userId, invite.workspaceId)) return;
 	await ctx.db.insert("members", { workspaceId: invite.workspaceId, userId, role: invite.role, email: invite.email, tutorial: freshTutorial() });
-	await pinLegacyWorkspace(ctx, userId);
 	const general = await ensureGeneral(ctx, invite.workspaceId, userId);
 	await addToChat(ctx, general, { userId });
 	await rememberLastUsed(ctx, userId, invite.workspaceId);
@@ -305,8 +294,6 @@ export const leave = mutation({
  */
 async function dropMember(ctx: MutationCtx, row: Doc<"members">) {
 	const { workspaceId, userId } = row;
-	// COMPAT(0.1.0-alpha.7): pin before the membership goes, or legacyMemberOf would pick the next one.
-	await pinLegacyWorkspace(ctx, userId);
 	await ctx.db.delete(row._id);
 	await startCascade(ctx, "member", { workspaceId, userId });
 }

@@ -123,7 +123,7 @@ describe("invites", () => {
 		await expect(theirs.mutation(api.workspace.updateSettings, { name: "Taken", expectedVersion: 1 })).rejects.toThrow();
 	});
 
-	it("keeps older apps, which name no workspace, in the first one the person joined", async () => {
+	it("acts where each request says, whichever workspace another device switched to", async () => {
 		const { t, member } = await ownerAndMember();
 		const acme = await workspaceOf(member);
 		const side = (await sideWorkspace(t, "member@co.com")).workspaceId;

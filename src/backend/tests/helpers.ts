@@ -9,13 +9,14 @@ import { person } from "./person";
 
 export const modules = import.meta.glob(["../convex/**/*.ts", "../convex/_generated/*.js"]);
 
-/** A signed-in person. Convex Auth reads the user id from the token subject. */
+/** A signed-in person, with their first workspace open. Convex Auth reads the user id from the token subject. */
 export async function signIn(t: ReturnType<typeof convexTest>, email: string) {
 	const userId = await t.run((ctx) => ctx.db.insert("users", { email }));
-	const as = person(t.withIdentity({ subject: `${userId}|session` }));
-	await as.mutation(api.workspace.ensure);
+	const identity = t.withIdentity({ subject: `${userId}|session` });
+	await person(identity).mutation(api.workspace.ensure);
+	const first = await t.run(async (ctx) => (await ctx.db.query("members").collect()).find((m) => m.userId === userId));
 	await skipWelcomes(t);
-	return Object.assign(as, { userId });
+	return Object.assign(person(identity, first?.workspaceId), { userId });
 }
 
 /**
@@ -32,7 +33,7 @@ export const skipWelcomes = (t: ReturnType<typeof convexTest>) =>
 		}
 	});
 
-/** The workspace a person's calls act in when they name none (older apps): their first. */
+/** The workspace a person's calls act in. */
 export const workspaceOf = async (as: As) => (await as.query(api.workspace.me))!.workspaceId!;
 
 /** A person's calls as the app makes them: each carries the workspace that window has open. */

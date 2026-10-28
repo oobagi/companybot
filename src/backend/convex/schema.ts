@@ -179,8 +179,6 @@ export default defineSchema({
 		tutorial: v.optional(v.object({ done: v.array(v.string()), dismissed: v.optional(v.boolean()) })),
 	})
 		.index("by_user", ["userId", "workspaceId"])
-		// Oldest first: Convex orders an index's ties by _creationTime.
-		.index("by_joined", ["userId"])
 		.index("by_workspace", ["workspaceId"])
 		.index("by_role", ["workspaceId", "role"])
 		.index("by_email", ["workspaceId", "email"]),
@@ -264,14 +262,14 @@ export default defineSchema({
 		savedAt: v.number(),
 	}).index("by_memory", ["memoryId", "version"]),
 
-	// Personal preferences: only the person sees them; they follow them across devices.
-	// Where apps that send no workspace act: the first workspace the person joined, set once.
-	// COMPAT(0.1.0-alpha.7): delete with legacyMemberOf.
+	// Retired: where apps that sent no workspace acted. Emptied by migrations.clearLegacyWorkspaces.
+	// COMPAT(0.1.0-alpha.8): once that has run on prod, drop this table with its lifecycle entry, the migration and their tests.
 	legacyWorkspaces: defineTable({
 		userId: v.id("users"),
 		workspaceId: v.id("workspaces"),
 	}).index("by_user", ["userId"]),
 
+	// Personal preferences: only the person sees them; they follow them across devices.
 	preferences: defineTable({
 		userId: v.id("users"),
 		/** What agents and teammates call you. */

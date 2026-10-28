@@ -8,9 +8,10 @@ afterEach(() => void vi.useRealTimers());
 /** Signs in without skipping the welcome, the way the app does. */
 async function arrive(t: ReturnType<typeof newTest>, email: string) {
 	const userId = await t.run((ctx) => ctx.db.insert("users", { email }));
-	const as = person(t.withIdentity({ subject: `${userId}|session` }));
-	await as.mutation(api.workspace.ensure);
-	return Object.assign(as, { userId });
+	const identity = t.withIdentity({ subject: `${userId}|session` });
+	await person(identity).mutation(api.workspace.ensure);
+	const first = await t.run(async (ctx) => (await ctx.db.query("members").collect()).find((m) => m.userId === userId));
+	return Object.assign(person(identity, first?.workspaceId), { userId });
 }
 
 describe("onboarding", () => {

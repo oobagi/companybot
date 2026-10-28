@@ -5,7 +5,7 @@ import type { DataModel, Doc, Id, TableNames } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { privateTo } from "./automationOps";
 import { startCascade } from "./cascade";
-import { hasLiveOwner, liveWorkspace, pinLegacyWorkspace } from "./lib";
+import { hasLiveOwner, liveWorkspace } from "./lib";
 import { deletePage, pageOfRecord } from "./pageOps";
 import { forgetTrashEntry } from "./memoryOps";
 import { toField } from "./recordOps";
@@ -104,8 +104,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	// ---- Workspaces and people ----
 	workspaces: { keep: "Its own cascade deletes it last, once everything in it is gone (cascade.ts).", files: ["image"] },
 	members: {
-		// COMPAT(0.1.0-alpha.7): pin before the membership goes, so old apps act nowhere rather than in another workspace.
-		workspace: { index: "by_workspace", eq: ["workspaceId"], onDelete: (ctx, row) => pinLegacyWorkspace(ctx, row.userId) },
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		user: { index: "by_user", eq: ["userId"], onDelete: leaveErased },
 		keep: "Removing someone deletes their row before the cascade starts (dropMember), so access ends at once.",
 	},
@@ -116,7 +115,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	inviteEmails: { workspace: { index: "by_workspace", eq: ["workspaceId"] } },
 	legacyWorkspaces: {
 		user: { index: "by_user", eq: ["userId"] },
-		keep: "A pin to a deleted workspace stays, so apps from before switching act nowhere, never in another workspace (legacyMemberOf).",
+		keep: "Retired: nothing writes it, and migrations.clearLegacyWorkspaces empties it.",
 	},
 	// Uploads not yet attached to anything (images.ts); unclaimed ones also go after a day (images.sweepUploads).
 	uploads: {

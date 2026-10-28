@@ -36,8 +36,6 @@ export type Message = {
 	text: string;
 	/** Every part, approval cards included. */
 	parts: Infer<typeof messagePart>[];
-	/** COMPAT(0.1.0-alpha.7): alpha.6 apps read fullParts; newer apps use parts. Delete this alias. */
-	fullParts: Infer<typeof messagePart>[];
 	status: "streaming" | "done" | "error";
 	error: string | null;
 	stats: Infer<typeof replyStats> | null;
@@ -104,7 +102,6 @@ async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, 
 		author: await names.of(m),
 		text: m.text,
 		parts: m.parts,
-		fullParts: m.parts,
 		status: m.status,
 		error: m.error ?? null,
 		stats: m.stats ?? null,
