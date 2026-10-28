@@ -10,7 +10,7 @@ type Rest<F extends Fn> = keyof Own<F> extends never ? [args?: Own<F>] : [args: 
 
 /**
  * A signed-in person's calls. With `workspaceId`, each carries it, as the app does; without,
- * they name none, like apps from before workspace switching.
+ * they name none, as before a workspace is open: only workspace-free calls (ensure, mine) work.
  */
 export function person(identity: Identity, workspaceId?: Id<"workspaces">) {
 	const withWorkspace = (args: object | undefined) => ({ ...args, ...(workspaceId && { workspaceId }) }) as never;

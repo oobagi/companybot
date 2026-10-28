@@ -1,18 +1,15 @@
-import { modules } from "./helpers";
+import { modules, signIn } from "./helpers";
 import { convexTest } from "convex-test";
 import { expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
 import schema from "../convex/schema";
-import { person } from "./person";
 
 it.each([
 	{ name: "16,100 personal memories", count: 16_100, contentSize: 20, batch: 1_000 },
 	{ name: "19 MB of personal memories", count: 24, contentSize: 800_000, batch: 5 },
 ])("removes a member with $name without exceeding transaction limits", { timeout: 600_000 }, async ({ count, contentSize, batch }) => {
 	const t = convexTest({ schema, modules, transactionLimits: true });
-	const ownerId = await t.run((ctx) => ctx.db.insert("users", { email: "owner@co.com" }));
-	const owner = person(t.withIdentity({ subject: `${ownerId}|session` }));
-	await owner.mutation(api.workspace.ensure);
+	const owner = await signIn(t, "owner@co.com");
 	const workspaceId = (await owner.query(api.workspace.me))!.workspaceId!;
 	const agentId = (await owner.query(api.agents.list))[0]!._id;
 	const memberId = await t.run(async (ctx) => {

@@ -37,6 +37,24 @@ describe("migrations", () => {
 		expect(rows.map((r) => r.messageId)).toEqual([messageId]);
 	});
 
+	it("empties the retired legacyWorkspaces pins", async () => {
+		const t = convexTest({ schema, modules, transactionLimits: true });
+		migrationsTest.register(t);
+		await signIn(t, "owner@co.com");
+		await t.run(async (ctx) => {
+			const { userId, workspaceId } = (await ctx.db.query("members").first())!;
+			await ctx.db.insert("legacyWorkspaces", { userId, workspaceId });
+		});
+		vi.useFakeTimers();
+		try {
+			await t.mutation(internal.migrations.runAll);
+			await t.finishAllScheduledFunctions(vi.runAllTimers);
+		} finally {
+			vi.useRealTimers();
+		}
+		expect(await t.run((ctx) => ctx.db.query("legacyWorkspaces").collect())).toEqual([]);
+	});
+
 	it("backfills normalized membership emails before bounded invitation checks, preserving mixed-case alpha.6 accounts", async () => {
 		const t = convexTest({ schema, modules, transactionLimits: true });
 		migrationsTest.register(t);
