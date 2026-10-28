@@ -1,3 +1,4 @@
+import { currencyCodes } from "@companybot/core/records";
 import { Fragment, useLayoutEffect, useRef, useState } from "react";
 import { CaretUpDownIcon, CheckIcon } from "./icons";
 import { compactControlClass } from "./ui";
@@ -156,4 +157,17 @@ export function Segmented<T extends string>({
 			))}
 		</div>
 	);
+}
+
+const currencyNames = new Intl.DisplayNames(undefined, { type: "currency" });
+/** "EUR — Euro", or just the code where the system has no name for it. */
+const currencyLabel = (code: string) => {
+	const name = currencyNames.of(code);
+	return name && name !== code ? `${code} — ${name}` : code;
+};
+const currencyOptions = currencyCodes.map((code) => ({ value: code, label: currencyLabel(code) }));
+
+/** Every ISO 4217 code, named: a workspace's default currency (Settings, onboarding). */
+export function CurrencySelect({ value, onChange, disabled, className }: { value: string; onChange: (code: string) => void; disabled?: boolean; className?: string }) {
+	return <Select className={className} disabled={disabled} value={value} options={currencyOptions} onChange={onChange} />;
 }
