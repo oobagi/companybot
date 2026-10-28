@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { CloseIcon } from "../../icons";
 import { Notice, primaryButton, secondaryButton } from "../../ui";
 
@@ -59,14 +60,20 @@ export function AgentBadge() {
 	return <span className="shrink-0 rounded bg-neutral-200/70 px-1 py-px text-[10px] leading-tight font-medium text-neutral-500 uppercase">Bot</span>;
 }
 
-/** Calls `onClose` on a click outside `ref` or on Escape. */
+/**
+ * Calls `onClose` on a click outside `ref` or on Escape. A popover's panel lives at the end of
+ * the page, outside whatever opened it, so a click in one counts as inside.
+ */
 export function useDismiss<T extends HTMLElement>(onClose: () => void, active = true) {
 	const ref = useRef<T>(null);
 	const close = useRef(onClose);
 	close.current = onClose;
 	useEffect(() => {
 		if (!active) return;
-		const down = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && close.current();
+		const down = (e: MouseEvent) => {
+			const target = e.target as Element;
+			if (ref.current && !ref.current.contains(target) && !target.closest?.("[data-popover]")) close.current();
+		};
 		const key = (e: KeyboardEvent) => e.key === "Escape" && close.current();
 		document.addEventListener("mousedown", down);
 		document.addEventListener("keydown", key);
@@ -195,15 +202,20 @@ export function Popover({
 			>
 				{trigger}
 			</button>
-			{anchor && (
-				<div
-					ref={panel}
-					style={at}
-					className={`no-drag fixed z-50 max-h-[70vh] overflow-y-auto rounded-xl border border-neutral-200 bg-white text-left text-sm font-normal text-neutral-900 shadow-lg ${panelClassName}`}
-				>
-					{typeof children === "function" ? children(close) : children}
-				</div>
-			)}
+			{/* At the end of the page: Electron lets a later window-drag area (a top bar) take the mouse
+			    from anything drawn over it, so the panel has to come after them all. */}
+			{anchor &&
+				createPortal(
+					<div
+						ref={panel}
+						data-popover
+						style={at}
+						className={`no-drag fixed z-50 max-h-[70vh] overflow-y-auto rounded-xl border border-neutral-200 bg-white text-left text-sm font-normal text-neutral-900 shadow-lg ${panelClassName}`}
+					>
+						{typeof children === "function" ? children(close) : children}
+					</div>,
+					document.body,
+				)}
 		</span>
 	);
 }

@@ -4,7 +4,7 @@ import { api } from "../api";
 import { useMutation, useQuery, useWorkspace } from "../convex";
 import { PlusIcon } from "../icons";
 import { navigate } from "../router";
-import { Notice, Scroll, compactControlClass, primaryButton, useRun } from "../ui";
+import { Notice, Scroll, compactControlClass, primaryButton, useRun, useTip } from "../ui";
 import { Avatar, Popover } from "./chat/common";
 
 /** Round until hovered or open, then a rounded square, as in Discord. */
@@ -21,18 +21,9 @@ export function WorkspaceRail() {
 	const mine = useQuery(api.workspace.mine);
 	const activity = useQuery(api.workspace.activity);
 	const current = useWorkspace();
-	// The name beside whatever's hovered, at once (a title waits a second and can't be styled).
-	const [tip, setTip] = useState<{ label: string; hint?: string; top: number }>();
-	const tipFor = (label: string, hint?: string) => ({
-		onMouseEnter: (e: React.MouseEvent<HTMLElement>) => {
-			const box = e.currentTarget.getBoundingClientRect();
-			setTip({ label, hint, top: box.top + box.height / 2 });
-		},
-		onMouseLeave: () => setTip(undefined),
-		onMouseDown: () => setTip(undefined),
-	});
+	const { tipFor, tip, hideTip } = useTip("right");
 	// Chats and records belong to one workspace, so a switch starts from the chat list.
-	const goTo = (workspaceId: Id<"workspaces">) => (setTip(undefined), current?.open(workspaceId), navigate("chat"));
+	const goTo = (workspaceId: Id<"workspaces">) => (hideTip(), current?.open(workspaceId), navigate("chat"));
 	// A join or create resolves before the list shows the workspace, and opening one you're not in is
 	// refused, so it opens once it's listed.
 	const [joined, setJoined] = useState<Id<"workspaces">>();
@@ -56,21 +47,14 @@ export function WorkspaceRail() {
 	}, [mine, current]);
 
 	return (
-		<nav className="flex w-[60px] shrink-0 flex-col border-r border-neutral-200 bg-neutral-100 [--scrim:var(--color-neutral-100)]">
-			{/* Workspaces and invites scroll under the window's top edge and +, fading out like the sidebar. */}
+		<nav className="flex w-[60px] shrink-0 flex-col [--scrim:var(--color-neutral-100)]">
+			{/* Workspaces and invites scroll under the title bar, fading out like the sidebar. */}
 			<Scroll
 				className="no-drag [scrollbar-width:none]"
-				onScroll={() => setTip(undefined)}
-				header={<div className="drag pt-8 pb-4" />}
-				footer={
-					<div className="flex justify-center pt-4 pb-3">
-						<span className="flex" {...tipFor("Create a workspace")}>
-							<CreateWorkspace onCreated={setJoined} />
-						</span>
-					</div>
-				}
+				onScroll={hideTip}
+				header={<div className="drag pt-3" />}
 			>
-				<div className="flex flex-col items-center gap-2">
+				<div className="flex flex-col items-center gap-2 pb-3">
 					{mine?.workspaces.map((w, i) => {
 						const active = w.id === current?.id;
 						const waiting = active ? undefined : activity?.find((a) => a.id === w.id);
@@ -103,17 +87,12 @@ export function WorkspaceRail() {
 							<Invite invite={i} onJoined={setJoined} />
 						</span>
 					))}
+					<span className="flex shrink-0" {...tipFor("Create a workspace")}>
+						<CreateWorkspace onCreated={setJoined} />
+					</span>
 				</div>
 			</Scroll>
-			{tip && (
-				<div
-					style={{ top: tip.top }}
-					className="pointer-events-none fixed left-[64px] z-50 flex -translate-y-1/2 gap-2 rounded-md bg-neutral-900 px-2 py-1 text-xs font-medium whitespace-nowrap text-white shadow-lg"
-				>
-					{tip.label}
-					{tip.hint && <span className="text-neutral-400">{tip.hint}</span>}
-				</div>
-			)}
+			{tip}
 		</nav>
 	);
 }
@@ -156,7 +135,7 @@ function Invite({ invite, onJoined }: { invite: Invitation; onJoined: (id: Id<"w
 	);
 }
 
-/** + at the bottom of the rail: name a new workspace, which you'll own. */
+/** + just under the workspaces: name a new workspace, which you'll own. */
 function CreateWorkspace({ onCreated }: { onCreated: (id: Id<"workspaces">) => void }) {
 	const create = useMutation(api.workspace.create);
 	const [name, setName] = useState("");
@@ -172,7 +151,7 @@ function CreateWorkspace({ onCreated }: { onCreated: (id: Id<"workspaces">) => v
 					<PlusIcon size={18} />
 				</>
 			}
-			className={`${shape} flex items-center justify-center rounded-[18px] bg-white text-neutral-500 hover:rounded-xl hover:bg-neutral-900 hover:text-white`}
+			className={`${shape} flex items-center justify-center rounded-[18px] border border-neutral-300 bg-white text-neutral-700 hover:rounded-xl hover:border-neutral-900 hover:bg-neutral-900 hover:text-white`}
 			panelClassName="w-64 p-3"
 		>
 			{(close) => (

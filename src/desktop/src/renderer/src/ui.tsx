@@ -4,6 +4,81 @@ import { PlusIcon } from "./icons";
 import { navigate } from "./router";
 import { Popover } from "./views/chat/common";
 
+/**
+ * The name (and shortcut) of whatever's hovered, at once: a title waits a second and can't be
+ * styled. Spread `tipFor(label, hint)` on the thing, and render `tip` anywhere. `right` clears
+ * the workspace rail's edge; `below` hangs under a title bar button.
+ */
+export function useTip(side: "right" | "below") {
+	const [at, setAt] = useState<{ label: string; hint?: string; left: number; top: number }>();
+	const hide = () => setAt(undefined);
+	const tipFor = (label: string, hint?: string) => ({
+		onMouseEnter: (e: React.MouseEvent<HTMLElement>) => {
+			// A popover's open panel counts as inside its button to React, though it's elsewhere on the page.
+			if (!e.currentTarget.contains(e.target as Node)) return;
+			const box = e.currentTarget.getBoundingClientRect();
+			setAt(side === "right" ? { label, hint, left: box.right + 16, top: box.top + box.height / 2 } : { label, hint, left: box.left + box.width / 2, top: box.bottom + 6 });
+		},
+		onMouseLeave: hide,
+		onMouseDown: hide,
+	});
+	const tip = at && (
+		<div
+			style={{ left: at.left, top: at.top }}
+			className={`pointer-events-none fixed z-50 flex gap-2 rounded-md bg-neutral-900 px-2 py-1 text-xs font-medium whitespace-nowrap text-white shadow-lg ${side === "right" ? "-translate-y-1/2" : "-translate-x-1/2"}`}
+		>
+			{at.label}
+			{at.hint && <span className="text-neutral-400">{at.hint}</span>}
+		</div>
+	);
+	return { tipFor, tip, hideTip: hide };
+}
+
+/**
+ * Text cut short anywhere (`truncate`, `line-clamp-*`) shows in full under it on hover, in the
+ * same tip, after a moment so sweeping across a list doesn't flash them. Mounted once, in App.
+ */
+export function TruncatedTips() {
+	const [at, setAt] = useState<{ text: string; left: number; top: number }>();
+	useEffect(() => {
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		let over: Element | null = null;
+		const hide = () => (clearTimeout(timer), (over = null), setAt(undefined));
+		const enter = (e: MouseEvent) => {
+			const el = (e.target as Element).closest?.('.truncate, [class*="line-clamp-"]');
+			if (el === over) return;
+			hide();
+			// Only when it's actually cut, and not where a title already says it.
+			if (!el || el.closest("[title]") || (el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight)) return;
+			over = el;
+			timer = setTimeout(() => {
+				const box = el.getBoundingClientRect();
+				const text = el.textContent?.trim();
+				if (text) setAt({ text, left: Math.max(8, Math.min(box.left, window.innerWidth - 8 - 384)), top: box.bottom + 6 });
+			}, 400);
+		};
+		document.addEventListener("mouseover", enter);
+		document.addEventListener("mousedown", hide);
+		document.addEventListener("scroll", hide, true);
+		return () => {
+			hide();
+			document.removeEventListener("mouseover", enter);
+			document.removeEventListener("mousedown", hide);
+			document.removeEventListener("scroll", hide, true);
+		};
+	}, []);
+	return (
+		at && (
+			<div
+				style={{ left: at.left, top: at.top }}
+				className="pointer-events-none fixed z-50 max-w-sm rounded-md bg-neutral-900 px-2 py-1 text-xs font-medium break-words text-white shadow-lg"
+			>
+				{at.text}
+			</div>
+		)
+	);
+}
+
 /** A screen above this one, in the top bar's trail. */
 export type Crumb = { label: string; to: string[] };
 

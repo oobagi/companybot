@@ -13,6 +13,8 @@ function createWindow() {
 		minWidth: 800,
 		minHeight: 560,
 		titleBarStyle: "hiddenInset",
+		// Centred in the 32px title bar (h-8 in App.tsx).
+		trafficLightPosition: { x: 12, y: 9 },
 		backgroundColor: "#ffffff",
 		show: false,
 		webPreferences: { preload: join(import.meta.dirname, "../preload/index.cjs") },

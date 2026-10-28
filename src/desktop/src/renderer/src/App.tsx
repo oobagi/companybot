@@ -9,10 +9,11 @@ import { desktop, useUpdates } from "./desktop";
 import { useAlerts } from "./notifications";
 import { navigate, useRoute } from "./router";
 import { ArrowLeftIcon, DatabaseIcon, PlusIcon, SettingsIcon, SignOutIcon } from "./icons";
-import { MenuDivider, Notice, Scroll, TopBar, useRun } from "./ui";
+import { MenuDivider, Notice, Scroll, TopBar, TruncatedTips, useRun } from "./ui";
 import { RecordsView, recordTabs } from "./views/Records";
 import { SettingsNav, SettingsView, settingsTabAliases, settingsTabs } from "./views/Settings";
 import { SignIn } from "./views/SignIn";
+import { TitleBar } from "./views/TitleBar";
 import { WorkspaceMenu } from "./views/WorkspaceMenu";
 import { WorkspaceRail } from "./views/WorkspaceRail";
 import { ChatView } from "./views/chat/ChatView";
@@ -140,91 +141,104 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 		fail();
 	};
 	useAlerts();
+	// Hidden or shown, the sidebar stays that way on this computer.
+	const [sidebar, setSidebar] = useState(() => localStorage.getItem("sidebar.hidden") !== "true");
+	const toggleSidebar = useCallback(() => setSidebar((shown) => (localStorage.setItem("sidebar.hidden", String(shown)), !shown)), []);
 
 	return (
-		<div className="flex h-screen text-[15px] text-neutral-900">
-			<WorkspaceRail />
-			{/* The sidebar's lists scroll under the workspace name and you. */}
-			<aside className="drag flex w-60 shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 [--scrim:var(--color-neutral-50)]">
-				<Scroll
-					className="no-drag"
-					header={
-						<div className="drag px-3 pt-12 pb-4">
-							{view === "settings" ? (
-								<div className="no-drag flex flex-col">
-									<Item icon={<ArrowLeftIcon />} onClick={() => navigate(...lastApp.current)}>
-										Back to app
-									</Item>
-								</div>
-							) : (
-								<WorkspaceMenu name={workspace} />
-							)}
-						</div>
-					}
-					footer={
-						<div className="flex flex-col gap-2 px-3 pt-4 pb-3">
-							{update?.state === "ready" && (
-								<button type="button" onClick={() => void desktop?.updates.install()} className="rounded-lg bg-neutral-900 px-3 py-2 text-left text-xs text-white">
-									Update ready · Restart
-								</button>
-							)}
-							<YouMenu
-								name={prefs?.displayName || email}
-								image={prefs?.image}
-								email={email}
-								role={role}
-								onSettings={() => navigate(...(lastPath.current.settings ?? ["settings"]))}
-								onSignOut={() => void signOut()}
-							/>
-						</div>
-					}
-				>
-					<div className="flex flex-col gap-4 px-3 pb-2">
-						{view === "settings" ? (
-							<SettingsNav tab={settingsTab} />
-						) : (
-							<>
-								{(!!types?.length || can(role, "fields.manage")) && (
-									<Group title="Databases" onTitle={() => navigate("records")} onAdd={can(role, "fields.manage") ? () => setNewDatabase(true) : undefined} addLabel="New database">
-										{types?.map((type) => (
-											<Item key={type._id} icon={<DatabaseIcon />} active={typeKey === type.key} onClick={() => navigate(...recordPath(type.key))}>
-												{type.plural}
-											</Item>
-										))}
-										{can(role, "fields.manage") && (
-											<Item icon={<PlusIcon />} muted onClick={() => setNewDatabase(true)}>
-												New database
-											</Item>
+		<div className="flex h-screen flex-col bg-neutral-100 text-[15px] text-neutral-900">
+			{/* A title bar the width of the window holds its buttons; everything else sits below it. */}
+			<TitleBar sidebar={sidebar} onSidebar={toggleSidebar} />
+			<TruncatedTips />
+			<div className="flex min-h-0 flex-1">
+				<WorkspaceRail />
+				{/* The sidebar and the open screen share one panel, its corner tucked under the title bar. */}
+				<div className="flex min-w-0 flex-1 overflow-hidden rounded-tl-xl border-t border-l border-neutral-200 bg-white">
+					{/* The sidebar's lists scroll under the workspace name and you. */}
+					{sidebar && (
+						<aside className="drag flex w-60 shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 [--scrim:var(--color-neutral-50)]">
+							<Scroll
+								className="no-drag"
+								header={
+									<div className="drag px-3 pt-3 pb-4">
+										{view === "settings" ? (
+											<div className="no-drag flex flex-col">
+												<Item icon={<ArrowLeftIcon />} onClick={() => navigate(...lastApp.current)}>
+													Back to app
+												</Item>
+											</div>
+										) : (
+											<WorkspaceMenu name={workspace} />
 										)}
-									</Group>
-								)}
-								<PagesNav openId={view === "pages" ? route[1] : undefined} />
-								<ChatNav chats={chats} openId={view === "chat" ? openId : undefined} onOpen={open} onError={fail} />
-							</>
-						)}
-					</div>
-				</Scroll>
-			</aside>
+									</div>
+								}
+								footer={
+									<div className="flex flex-col gap-2 px-3 pt-4 pb-3">
+										{update?.state === "ready" && (
+											<button type="button" onClick={() => void desktop?.updates.install()} className="rounded-lg bg-neutral-900 px-3 py-2 text-left text-xs text-white">
+												Update ready · Restart
+											</button>
+										)}
+										<YouMenu
+											name={prefs?.displayName || email}
+											image={prefs?.image}
+											email={email}
+											role={role}
+											onSettings={() => navigate(...(lastPath.current.settings ?? ["settings"]))}
+											onSignOut={() => void signOut()}
+										/>
+									</div>
+								}
+							>
+								<div className="flex flex-col gap-4 px-3 pb-2">
+									{view === "settings" ? (
+										<SettingsNav tab={settingsTab} />
+									) : (
+										<>
+											{(!!types?.length || can(role, "fields.manage")) && (
+												<Group title="Databases" onTitle={() => navigate("records")} onAdd={can(role, "fields.manage") ? () => setNewDatabase(true) : undefined} addLabel="New database">
+													{types?.map((type) => (
+														<Item key={type._id} icon={<DatabaseIcon />} active={typeKey === type.key} onClick={() => navigate(...recordPath(type.key))}>
+															{type.plural}
+														</Item>
+													))}
+													{can(role, "fields.manage") && (
+														<Item icon={<PlusIcon />} muted onClick={() => setNewDatabase(true)}>
+															New database
+														</Item>
+													)}
+												</Group>
+											)}
+											<PagesNav openId={view === "pages" ? route[1] : undefined} />
+											<ChatNav chats={chats} openId={view === "chat" ? openId : undefined} onOpen={open} onError={fail} />
+										</>
+									)}
+								</div>
+							</Scroll>
+						</aside>
+					)}
 
-			{newDatabase && <DatabaseDialog onClose={() => setNewDatabase(false)} />}
-			<main className="flex min-w-0 flex-1 flex-col">
-				<Notice>{error}</Notice>
-				{view === "chat" &&
-					(openId ? (
-						<ChatView
-							key={openId}
-							chatId={openId}
-							sendWith={prefs?.sendWith ?? "enter"}
-							focus={route[2] === "thread" && route[3] ? { thread: route[3] } : route[2] === "message" && route[3] ? { message: route[3] } : undefined}
-							onLeft={() => navigate("chat")}
-						/>
-					) : (
-						<TopBar title="" />
-					))}
-				{(typeKey || view === "records") && <RecordsView key={typeKey} typeKey={typeKey} recordId={recordId} role={role} />}
-				{view === "pages" && <PagesView pageId={route[1]} canEdit={can(role, "pages.edit")} />}
-				{view === "settings" && <SettingsView role={role} tab={settingsTab} itemId={route[2]} />}
-			</main>
+					{newDatabase && <DatabaseDialog onClose={() => setNewDatabase(false)} />}
+					<main className="flex min-w-0 flex-1 flex-col">
+						<Notice>{error}</Notice>
+						{view === "chat" &&
+							(openId ? (
+								<ChatView
+									key={openId}
+									chatId={openId}
+									sendWith={prefs?.sendWith ?? "enter"}
+									focus={route[2] === "thread" && route[3] ? { thread: route[3] } : route[2] === "message" && route[3] ? { message: route[3] } : undefined}
+									onLeft={() => navigate("chat")}
+								/>
+							) : (
+								<TopBar title="" />
+							))}
+						{(typeKey || view === "records") && <RecordsView key={typeKey} typeKey={typeKey} recordId={recordId} role={role} />}
+						{view === "pages" && <PagesView pageId={route[1]} canEdit={can(role, "pages.edit")} />}
+						{view === "settings" && <SettingsView role={role} tab={settingsTab} itemId={route[2]} />}
+					</main>
+				</div>
+			</div>
 		</div>
 	);
 }
