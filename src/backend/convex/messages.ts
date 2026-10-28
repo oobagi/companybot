@@ -21,6 +21,7 @@ import {
 } from "./chatOps";
 import { type Who, type Member, memberOf, nameOf, requireMember } from "./lib";
 import { noteMentions, workspaceRecords } from "./recordOps";
+import { installOf } from "./skills";
 import type { messagePart, replyStats } from "./schema";
 import { internal } from "./_generated/api";
 import { enqueueTurn, streamOf } from "./turns";
@@ -126,11 +127,12 @@ const sendMessageArgs = v.object({
 		chatId: v.id("chats"),
 		threadId: v.optional(v.id("chatMessages")),
 		text: v.string(),
-		/** `recordIds`: records the message references, so they can show where they were discussed. */
+		/** `recordIds`: records the message references, so they can show where they were discussed. `skillIds`: skills named with `/`, for the agents to load. */
 		mentions: v.object({
 			userIds: v.array(v.id("users")),
 			agentIds: v.array(v.id("agents")),
 			recordIds: v.optional(v.array(v.id("records"))),
+			skillIds: v.optional(v.array(v.string())),
 		}),
 	});
 
@@ -163,6 +165,11 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	}
 
 	const recordIds = await workspaceRecords(ctx, member.workspaceId, mentions.recordIds ?? []);
+	// Only skills installed here (and not in Trash), so a message can't point agents at a made-up one.
+	const skillIds: string[] = [];
+	for (const id of new Set(mentions.skillIds ?? [])) {
+		if (await installOf(ctx, member.workspaceId, id)) skillIds.push(id);
+	}
 
 	const dmAgent = agentOfDm(chat);
 	if (dmAgent && (await ctx.db.get(dmAgent))?.archived) throw new ConvexError("This agent is in Trash.");
@@ -172,7 +179,7 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 		...(who.agentId ? { authorAgentId: who.agentId, actingFor: member.userId } : { authorUserId: member.userId }),
 		text,
 		parts: [{ type: "text", text }],
-		mentions: { userIds, agentIds, ...(recordIds.length > 0 && { recordIds }) },
+		mentions: { userIds, agentIds, ...(recordIds.length > 0 && { recordIds }), ...(skillIds.length > 0 && { skillIds }) },
 		status: "done",
 	});
 	await addUserMentions(ctx, (await ctx.db.get(messageId))!);

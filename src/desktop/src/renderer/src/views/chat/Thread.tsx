@@ -5,7 +5,8 @@ import { Loading, Notice, useRun } from "../../ui";
 import { CloseIcon } from "../../icons";
 import { IconButton } from "./common";
 import { Composer, type SendWith } from "./Composer";
-import { type ChatDetails, type Participant, chatTitle } from "./data";
+import { type ChatDetails, type TokenNames, chatTitle } from "./data";
+import type { Sources } from "./editor";
 import { MessageList } from "./MessageList";
 import { TypingLine, useTypingPing } from "./Typing";
 
@@ -13,15 +14,15 @@ export function ThreadPanel({
 	chat,
 	threadId,
 	sendWith,
-	candidates,
-	names,
+	sources,
+	tokens,
 	onClose,
 }: {
 	chat: ChatDetails;
 	threadId: Id<"chatMessages">;
 	sendWith: SendWith;
-	candidates: Participant[];
-	names: string[];
+	sources: Sources;
+	tokens: TokenNames;
 	onClose: () => void;
 }) {
 	const messages = useQuery(api.messages.list, { chatId: chat._id, threadId });
@@ -47,7 +48,7 @@ export function ThreadPanel({
 				key={threadId}
 				sendWith={sendWith}
 				placeholder="Reply…"
-				candidates={candidates}
+				sources={sources}
 				status={<TypingLine chatId={chat._id} threadId={threadId} />}
 				onType={typing.ping}
 				onSend={(text, mentions) => {
@@ -72,7 +73,7 @@ export function ThreadPanel({
 					chatId={chat._id}
 					threadId={threadId}
 					messages={messages}
-					names={names}
+					tokens={tokens}
 					summaryLabel="Agents"
 					onError={fail}
 					header={header}

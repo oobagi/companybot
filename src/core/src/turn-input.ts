@@ -28,6 +28,8 @@ export interface PlaceMessage {
 	edited?: boolean;
 	/** Main-timeline thread parents only. */
 	replyCount?: number;
+	/** Skills the message named with `/`, by id: what to load before answering it. */
+	skills?: { id: string; name: string }[];
 }
 
 export interface TurnPlace {
@@ -111,7 +113,12 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 		);
 	}
 	if (input.approval) sections.push(approvalSection(input.approval, input.forReplay ?? false));
-	else if (trigger) sections.push(`Reply to this message from ${clean(trigger.author.name)}:\n${line(trigger)}`);
+	else if (trigger) {
+		const skills = trigger.skills?.length
+			? `\nIt names ${trigger.skills.length === 1 ? "a skill" : "skills"} with /: load ${trigger.skills.length === 1 ? "it" : "each"} with skills_load first and follow it: ${trigger.skills.map((s) => `${JSON.stringify(clean(s.name))} (${s.id})`).join(", ")}.`
+			: "";
+		sections.push(`Reply to this message from ${clean(trigger.author.name)}:\n${line(trigger)}${skills}`);
+	}
 	return sections.join("\n\n");
 }
 

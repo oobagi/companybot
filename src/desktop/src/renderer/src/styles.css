@@ -114,3 +114,23 @@ body {
 	/* PageIcon (Phosphor FileText), external so the app's CSP permits the mask. */
 	mask: url("./views/pages/page-link.svg?no-inline") center / contain no-repeat;
 }
+
+/* The chat composer (views/chat/editor.ts) and the chips messages show for @, # and /. */
+.composer .ProseMirror {
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+.composer .ProseMirror p.is-editor-empty:first-child::before {
+	content: attr(data-placeholder);
+	color: var(--color-neutral-400);
+	float: left;
+	height: 0;
+	pointer-events: none;
+}
+.token {
+	border-radius: var(--radius-sm);
+	background: var(--color-sky-50);
+	color: var(--color-sky-700);
+	font-weight: 500;
+	padding-inline: 0.125rem;
+}

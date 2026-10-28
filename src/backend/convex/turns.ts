@@ -1,4 +1,4 @@
-import type { PlaceMessage } from "@companybot/core";
+import type { PlaceMessage, Skill } from "@companybot/core";
 import { PROMPT_MESSAGE_CAP, approxTokens } from "@companybot/core";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
@@ -190,13 +190,14 @@ export const turnContext = internalQuery({
 			const trigger = await ctx.db.get(turn.triggerId);
 			if (trigger) recent.push(trigger);
 		}
+		const skills = await installedSkills(ctx, chat.workspaceId);
 		const messages = await Promise.all(
 			recent
 				.filter((m) => !m.deleted)
 				// Another agent's reply still streaming keeps its text so far apart from the message.
 				.map(async (m) => {
 					const stream = m.status === "streaming" && (await streamOf(ctx, m._id));
-					return toPlaceMessage(stream ? { ...m, text: stream.text, parts: stream.parts } : m, names, agent._id);
+					return toPlaceMessage(stream ? { ...m, text: stream.text, parts: stream.parts } : m, names, agent._id, skills);
 				}),
 		);
 
@@ -207,7 +208,7 @@ export const turnContext = internalQuery({
 			replyId: turn.replyId,
 			member,
 			agent: { id: agent._id, name: agent.name, instructions: agent.instructions, model: agent.model, tools: agent.tools },
-			skills: await installedSkills(ctx, chat.workspaceId),
+			skills,
 			session: { id: session._id, summary: foreign ? null : (session.summary ?? null), turns },
 			/** Off when an owner turned it off; personal only in a DM with exactly one person. memory.ts checks again on every call. */
 			memory: !(await memoryOn(ctx, chat.workspaceId)) ? ("off" as const) : (await personalMemoryHere(ctx, chat)) ? ("personal" as const) : ("team" as const),
@@ -246,8 +247,13 @@ export const turnContext = internalQuery({
 	},
 });
 
-async function toPlaceMessage(m: Doc<"chatMessages">, names: Namer, self: Id<"agents">): Promise<PlaceMessage> {
+async function toPlaceMessage(m: Doc<"chatMessages">, names: Namer, self: Id<"agents">, skills: Skill[] = []): Promise<PlaceMessage> {
 	const author = await names.of(m);
+	// Skills named with /, still installed. Gone ones are left out: the text still shows what was typed.
+	const named = (m.mentions.skillIds ?? []).flatMap((id) => {
+		const skill = skills.find((s) => s.id === id);
+		return skill ? [{ id, name: skill.name }] : [];
+	});
 	return {
 		id: m._id,
 		author,
@@ -255,6 +261,7 @@ async function toPlaceMessage(m: Doc<"chatMessages">, names: Namer, self: Id<"ag
 		time: m._creationTime,
 		...(m.editedAt && { edited: true }),
 		...(!m.threadId && m.replyCount && { replyCount: m.replyCount }),
+		...(named.length > 0 && { skills: named }),
 	};
 }
 
