@@ -58,7 +58,7 @@ export function ImagePicker({
 					</>
 				)}
 			</div>
-			{error && !removing && <Notice>{error}</Notice>}
+			{!removing && <Notice>{error}</Notice>}
 			{removing && (
 				<Confirm title="Remove picture?" action="Remove" error={error} onConfirm={() => run(save(null), () => setRemoving(false))} onClose={() => setRemoving(false)}>
 					{name} will show initials instead.

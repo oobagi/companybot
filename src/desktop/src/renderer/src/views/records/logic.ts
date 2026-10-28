@@ -47,7 +47,7 @@ export const groupable = (field: Field) => field.kind === "choice" && !field.mul
 
 // ---- Filters ----
 
-export type Op = "is" | "anyOf" | "gt" | "gte" | "lt" | "lte" | "empty" | "notEmpty" | "checked" | "unchecked";
+type Op = "is" | "anyOf" | "gt" | "gte" | "lt" | "lte" | "empty" | "notEmpty" | "checked" | "unchecked";
 
 export const opLabels: Record<Op, string> = {
 	is: "is",
