@@ -14,6 +14,7 @@ import {
 	markChatRead,
 	namer,
 	reactionsOf,
+	replyAuthorsOf,
 	requireChat,
 	toggleReaction,
 	visibleChat,
@@ -22,7 +23,7 @@ import { type Who, type Member, memberOf, nameOf, requireMember } from "./lib";
 import { noteMentions, workspaceRecords } from "./recordOps";
 import type { messagePart, replyStats } from "./schema";
 import { internal } from "./_generated/api";
-import { enqueueTurn } from "./turns";
+import { enqueueTurn, streamOf } from "./turns";
 import { stopTyping } from "./typing";
 
 // Messages in a chat's main timeline or a thread. See wiki/chat.md.
@@ -73,6 +74,17 @@ export const list = query({
 	},
 });
 
+/** A streaming reply's content so far, or null once it ended (then it's on the message). */
+export const stream = query({
+	args: { messageId: v.id("chatMessages") },
+	handler: async (ctx, { messageId }) => {
+		const message = await ctx.db.get(messageId);
+		if (message?.status !== "streaming" || !(await visibleChat(ctx, message.chatId))) return null;
+		const stream = await streamOf(ctx, messageId);
+		return { text: stream?.text ?? "", parts: stream?.parts ?? [] };
+	},
+});
+
 async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, names: Namer): Promise<Message> {
 	const reactions: Message["reactions"] = [];
 	for (const r of await reactionsOf(ctx, m._id)) {
@@ -82,18 +94,7 @@ async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, 
 		group.mine ||= r.userId === member.userId;
 		group.names.push((await names.of(r)).name);
 	}
-	const replyAuthors: Participant[] = [];
-	if (!m.threadId && m.replyCount) {
-		const replies = await ctx.db
-			.query("chatMessages")
-			.withIndex("by_chat_thread", (q) => q.eq("chatId", m.chatId).eq("threadId", m._id))
-			.order("desc")
-			.take(30);
-		for (const reply of replies) {
-			const author = await names.of(reply);
-			if (replyAuthors.length < 3 && !replyAuthors.some((a) => a.id === author.id)) replyAuthors.push(author);
-		}
-	}
+	const replyAuthors: Participant[] = m.threadId ? [] : await Promise.all((await replyAuthorsOf(ctx, m)).map(names.of));
 	return {
 		_id: m._id,
 		_creationTime: m._creationTime,

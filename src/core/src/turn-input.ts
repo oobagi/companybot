@@ -75,7 +75,7 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 	const people = others("user");
 	const agents = others("agent");
 	const here =
-		[people.length > 0 && `${people.join(", ")} (people)`, agents.length > 0 && `${agents.join(", ")} (agents)`]
+		[people.length > 0 && `${listed(people)} (people)`, agents.length > 0 && `${listed(agents)} (agents)`]
 			.filter(Boolean)
 			.join("; ") || "just you";
 
@@ -106,7 +106,7 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 		sections.push(
 			[
 				`New here since your last reply (times in ${actor.timeZone}):`,
-				hidden > 0 && `(${hidden} earlier messages not shown. Use chat_read for them.)`,
+				hidden > 0 && "(Earlier messages not shown. Use chat_read for them.)",
 				...shown.map(line),
 			]
 				.filter(Boolean)
@@ -160,6 +160,11 @@ function describePlace(place: TurnPlace, people: string[], agents: string[]) {
 	}
 	return people.length === 1 && agents.length === 0 ? `a DM with ${people[0]}` : "a group DM";
 }
+
+/** Names in a place, at most HERE_MAX: the line is replayed in every later turn, so a big #general stays cheap. */
+const HERE_MAX = 15;
+const listed = (names: string[]) =>
+	names.length > HERE_MAX ? `${names.slice(0, HERE_MAX).join(", ")} and ${names.length - HERE_MAX} more` : names.join(", ");
 
 /**
  * A name or email that people set, as one line with no brackets, so it can't fake a chat line or
