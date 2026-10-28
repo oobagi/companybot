@@ -23,7 +23,7 @@ describe("agent turns", () => {
 		const config = { name: "Foreign", prompt: "AUTOMATION_TRIGGER", trigger: { type: "schedule" as const, time: "09:00", weekdays: [0, 1, 2, 3, 4, 5, 6] } };
 		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
 		await owner.mutation(api.automations.subscribe, { automationId: id, on: true });
-		await t.mutation(internal.automationRuns.tick, { now: Date.now() + 2 * 86_400_000 });
+		await t.mutation(internal.automationRuns.tick, { now: (Math.floor(Date.now() / 86_400_000) + 2) * 86_400_000 + 10 * 3_600_000 });
 		const run = (await turnsOf(t)).find(r => r.actorId === owner.userId && r._id !== first._id)!;
 		// Model each destination while preserving a real automation's server-written provenance.
 		await t.run(async ctx => {

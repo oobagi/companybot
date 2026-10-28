@@ -1,13 +1,14 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
+import { Select } from "../controls";
 import type { MemoryScope, Role } from "@companybot/core";
 import { can } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
-import { AgentOptions, agentLabel } from "../agent-options";
+import { agentLabel, agentOptions } from "../agent-options";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { MemoryIcon } from "../icons";
-import { EmptyState, NoMatches, ConflictNotice, Loading, Notice, Section, compactControlClass, descriptionClass, inputClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../ui";
+import { EmptyState, NoMatches, ConflictNotice, Loading, Notice, Section, descriptionClass, inputClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../ui";
 
 type MemoryItem = FunctionReturnType<typeof api.memory.list>[number];
 type Agent = { _id: Id<"agents">; name: string; archived: boolean };
@@ -43,14 +44,11 @@ export function MemoryTab({ role }: { role: Role }) {
 			/>
 			<div className="flex items-center gap-2 text-sm">
 				<span className="text-neutral-500">Showing</span>
-				<select
+				<Select
 					value={filter}
-					onChange={(e) => setFilter(e.target.value as typeof filter)}
-					className={compactControlClass}
-				>
-					<option value="all">All agents</option>
-					<AgentOptions agents={agents} />
-				</select>
+					options={[{ value: "all", label: "All agents" }, ...agentOptions(agents)]}
+					onChange={(f) => setFilter(f as typeof filter)}
+				/>
 			</div>
 			{shown.length === 0 ? (filter !== "all" ? <NoMatches /> : <EmptyState icon={<MemoryIcon />} title="No memories yet">Add something to remember, or ask an agent to save it.</EmptyState>) : <>
 				<MemoryList title="Team" empty="No team memories yet." items={team} agentName={agentName} />
@@ -234,25 +232,23 @@ function AddMemory({
 				placeholder="Add something to remember…"
 				className={`${inputClass} flex-1`}
 			/>
-			<select
+			<Select
+				label="Agent"
+				className={inputClass}
 				value={agentId}
-				onChange={(e) => setAgentId(e.target.value as Id<"agents">)}
-				className={compactControlClass}
-				aria-label="Agent"
-			>
-				<AgentOptions agents={agents} />
-			</select>
-			<select
+				options={agentOptions(agents)}
+				onChange={(id) => setAgentId(id as Id<"agents">)}
+			/>
+			<Select
+				label="Who can see it"
+				className={inputClass}
 				value={scope}
-				onChange={(e) => setScope(e.target.value as MemoryScope)}
-				className={compactControlClass}
-				aria-label="Who can see it"
-			>
-				<option value="personal">Personal</option>
-				<option value="workspace" disabled={!canAddTeam}>
-					Team{canAddTeam ? "" : " (not allowed)"}
-				</option>
-			</select>
+				options={[
+					{ value: "personal", label: "Personal" },
+					{ value: "workspace", label: canAddTeam ? "Team" : "Team (not allowed)", disabled: !canAddTeam },
+				]}
+				onChange={setScope}
+			/>
 			<button type="submit" className={primaryButton}>
 				Add
 			</button>

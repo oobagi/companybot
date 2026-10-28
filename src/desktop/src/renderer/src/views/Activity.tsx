@@ -1,13 +1,14 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
+import { Select } from "../controls";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { describeAllowed } from "@companybot/core/action-words";
-import { AgentOptions } from "../agent-options";
+import { agentOptions } from "../agent-options";
 import { api } from "../api";
 import { usePaginatedQuery, useQuery } from "../convex";
 import { navigate } from "../router";
 import { HistoryIcon } from "../icons";
-import { EmptyState, NoMatches, LoadMore, Loading, Section, compactControlClass, descriptionClass, metadataClass, timeAgo } from "../ui";
+import { EmptyState, NoMatches, LoadMore, Loading, Section, descriptionClass, metadataClass, timeAgo } from "../ui";
 import { actionLabels, valueText, whoLabel } from "./records/logic";
 
 export type ActivityEntry = FunctionReturnType<typeof api.activity.forReply>[number];
@@ -26,14 +27,12 @@ export function ActivityTab() {
 		<>
 			{(database.results.length > 0 || database.status !== "Exhausted") && <DatabaseActivity {...database} />}
 			<div className="flex items-center gap-4 text-sm">
-				<select
+				<Select
+					label="Agent"
 					value={agentId ?? ""}
-					onChange={(e) => setAgentId((e.target.value || undefined) as Id<"agents"> | undefined)}
-					className={compactControlClass}
-				>
-					<option value="">All agents</option>
-					<AgentOptions agents={agents} />
-				</select>
+					options={[{ value: "", label: "All agents" }, ...agentOptions(agents)]}
+					onChange={(id) => setAgentId((id || undefined) as Id<"agents"> | undefined)}
+				/>
 				<label className="flex items-center gap-2 text-neutral-600">
 					<input type="checkbox" checked={changesOnly} onChange={(e) => setChangesOnly(e.target.checked)} />
 					Changes only

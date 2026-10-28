@@ -1,4 +1,5 @@
 import type { FunctionReturnType } from "convex/server";
+import { Select } from "../controls";
 import { useState } from "react";
 import { api } from "../api";
 import { useAction, useMutation, useQuery } from "../convex";
@@ -41,16 +42,16 @@ export function YourPermissions() {
 							Remove
 						</button>
 					) : (
-						<select
-							aria-label="Setting"
-							className={compactControlClass}
+						<Select
+							label="Setting"
 							value={r.setting}
-							onChange={(e) => run(set({ action: r.action, setting: e.target.value as "ask" | "always" | "never" }))}
-						>
-							<option value="ask">Ask</option>
-							<option value="always">Always</option>
-							<option value="never">Never</option>
-						</select>
+							options={[
+								{ value: "ask", label: "Ask" },
+								{ value: "always", label: "Always" },
+								{ value: "never", label: "Never" },
+							]}
+							onChange={(setting) => run(set({ action: r.action, setting }))}
+						/>
 					)}
 				</div>
 			))}
@@ -65,16 +66,16 @@ function SettingSelect({ action: a }: { action: Action }) {
 	if (a.lock === "block") return null;
 	return (
 		<div className="flex flex-col items-end gap-1">
-			<select
-				aria-label={`${a.label} setting`}
-				className={compactControlClass}
+			<Select
+				label={`${a.label} setting`}
 				value={a.setting}
-				onChange={(e) => run(set({ action: a.action, setting: e.target.value as "ask" | "always" | "never" }))}
-			>
-				<option value="ask">{a.risk === "none" || a.risk === "inside" ? "Allowed" : "Ask"}</option>
-				{(a.canAlways || a.setting === "always") && <option value="always">Always</option>}
-				<option value="never">Never</option>
-			</select>
+				options={[
+					{ value: "ask", label: a.risk === "none" || a.risk === "inside" ? "Allowed" : "Ask" },
+					...(a.canAlways || a.setting === "always" ? [{ value: "always" as const, label: "Always" }] : []),
+					{ value: "never", label: "Never" },
+				]}
+				onChange={(setting) => run(set({ action: a.action, setting }))}
+			/>
 			{error && <span className="text-xs text-red-700">{error}</span>}
 		</div>
 	);
@@ -145,20 +146,17 @@ export function WorkspaceLocks() {
 				const value = a.lock ?? "default";
 				return (
 					<Setting key={a.action} label={actionName(a)}>
-						<select
-							aria-label={`${a.label} lock`}
+						<Select
+							label={`${a.label} lock`}
 							className={`${compactControlClass} w-44`}
 							value={value}
-							onChange={(e) => {
-								const v = e.target.value;
-								run(setLock({ action: a.action, lock: v === "default" ? null : (v as "ask" | "block" | "none") }));
-							}}
-						>
-							<option value="default">{lockedByDefault ? "Locked (default)" : "No lock (default)"}</option>
-							{lockedByDefault && <option value="none">Unlocked</option>}
-							{!lockedByDefault && <option value="ask">Always ask</option>}
-							<option value="block">Blocked</option>
-						</select>
+							options={[
+								{ value: "default", label: lockedByDefault ? "Locked (default)" : "No lock (default)" },
+								...(lockedByDefault ? [{ value: "none" as const, label: "Unlocked" }] : [{ value: "ask" as const, label: "Always ask" }]),
+								{ value: "block", label: "Blocked" },
+							]}
+							onChange={(v) => run(setLock({ action: a.action, lock: v === "default" ? null : v }))}
+						/>
 					</Setting>
 				);
 			})}

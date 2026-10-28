@@ -3,12 +3,12 @@ import type { Role } from "@companybot/core";
 import { can } from "@companybot/core/permissions";
 import { type FieldValue, NAME_KEY } from "@companybot/core/records";
 import type { FunctionReturnType } from "convex/server";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { DatabaseIcon, HistoryIcon, TrashIcon } from "../../icons";
-import { LoadMore, NotFound, Notice, Page, Section, Tabs, barButton, barDangerButton, descriptionClass, metadataClass, timeAgo, useRun } from "../../ui";
+import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, barButton, barDangerButton, descriptionClass, metadataClass, timeAgo, useRun } from "../../ui";
 import { Modal } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { PageEditor } from "../pages/PageEditor";
@@ -67,21 +67,23 @@ export function RecordPage({ type, recordId, role }: { type: RecordType; recordI
 
 type RecordDoc = NonNullable<FunctionReturnType<typeof api.records.get>>;
 
-/** The record's page body. It's made when someone first writes in it. */
+/**
+ * The record's page body: always an editor, like a Notion page under its properties. It's
+ * made the first time someone who can edit opens the record (or an agent writes in it), so
+ * records nobody opens carry no empty documents. Creating is idempotent.
+ */
 function Body({ recordId, pageId, editable }: { recordId: Id<"records">; pageId: Id<"pages"> | null | undefined; editable: boolean }) {
 	const create = useMutation(api.pages.create);
 	const { error, run } = useRun();
+	const missing = pageId === null && editable;
+	useEffect(() => {
+		if (missing) void run(create({ recordId }));
+	}, [missing, recordId]);
 	if (pageId === undefined || (pageId === null && !editable)) return null;
 	return (
 		<section className="flex flex-col gap-2 border-t border-neutral-200 pt-4">
 			{error && <Notice>{error}</Notice>}
-			{pageId ? (
-				<PageEditor pageId={pageId} editable={editable} />
-			) : (
-				<button type="button" onClick={() => run(create({ recordId }))} className="py-1 text-left text-neutral-400 hover:text-neutral-600">
-					Write notes, plans, anything…
-				</button>
-			)}
+			{pageId ? <PageEditor pageId={pageId} editable={editable} /> : !error && <Loading />}
 		</section>
 	);
 }
@@ -123,12 +125,14 @@ function FieldRow({ field, record, editable, onEditField }: { field: TypeField; 
 	const value = record.values[field.key] as FieldValue | undefined;
 	return (
 		<>
-			<dt className={`group flex items-center gap-2 py-1.5 ${descriptionClass}`}>
-				<span className="truncate">{field.label}</span>
-				{onEditField && (
-					<button type="button" onClick={onEditField} className={`invisible ${metadataClass} group-hover:visible hover:text-neutral-700`}>
-						Edit
+			{/* The label opens the field's settings, for whoever may change them. */}
+			<dt className={`flex min-w-0 items-center py-1 ${descriptionClass}`}>
+				{onEditField ? (
+					<button type="button" onClick={onEditField} title="Edit field" className="-mx-1.5 max-w-full truncate rounded-md px-1.5 py-0.5 text-left hover:bg-neutral-100 hover:text-neutral-900">
+						{field.label}
 					</button>
+				) : (
+					<span className="truncate py-0.5">{field.label}</span>
 				)}
 			</dt>
 			<dd className="flex min-w-0 flex-col">

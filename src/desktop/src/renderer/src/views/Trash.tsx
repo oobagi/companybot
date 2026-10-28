@@ -1,4 +1,5 @@
 import { type Role, can } from "@companybot/core";
+import { Select } from "../controls";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../api";
@@ -48,12 +49,12 @@ export function TrashView({ role }: { role: Role }) {
 		<Page title="Trash" description="Everything deleted lands here. It's deleted forever 30 days later." wide>
 			<div className="flex items-center gap-3 text-sm">
 				<input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search Trash" className={`${compactControlClass} w-64`} />
-				<select value={kind} onChange={(e) => setKind(e.target.value as Kind | "")} className={compactControlClass}>
-					<option value="">Everything</option>
-					{kinds.map((k) => (
-						<option key={k.id} value={k.id}>{k.label}</option>
-					))}
-				</select>
+				<Select
+					label="Kind"
+					value={kind}
+					options={[{ value: "", label: "Everything" }, ...kinds.map((k) => ({ value: k.id, label: k.label }))]}
+					onChange={setKind}
+				/>
 			</div>
 			{error && <Notice>{error}</Notice>}
 			{results.length > 0 && (

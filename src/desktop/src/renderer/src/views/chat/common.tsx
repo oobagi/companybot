@@ -130,6 +130,9 @@ export function IconButton({ label, onClick, children }: { label: string; onClic
 	);
 }
 
+/** Invisible while it measures, but focusable, so a field in it can take focus as it opens. */
+const measuring: React.CSSProperties = { opacity: 0, pointerEvents: "none" };
+
 /**
  * A small panel that opens from the thing you clicked: profile cards, menus, details.
  * It sits below its button, or above when there's no room, and stays inside the window.
@@ -138,6 +141,8 @@ export function IconButton({ label, onClick, children }: { label: string; onClic
 export function Popover({
 	trigger,
 	label,
+	disabled,
+	matchWidth,
 	className = "",
 	panelClassName = "w-72",
 	children,
@@ -146,6 +151,9 @@ export function Popover({
 	trigger: React.ReactNode;
 	/** Tooltip and accessible name for the button, when the trigger is only an icon or avatar. */
 	label?: string;
+	disabled?: boolean;
+	/** The panel is at least as wide as the button, as for a picker. */
+	matchWidth?: boolean;
 	/** For the button. */
 	className?: string;
 	/** For the panel: its width, mostly. */
@@ -156,18 +164,24 @@ export function Popover({
 	const close = () => setAnchor(undefined);
 	const ref = useDismiss<HTMLSpanElement>(close, !!anchor);
 	const panel = useRef<HTMLDivElement>(null);
-	const [at, setAt] = useState<React.CSSProperties>({ visibility: "hidden" });
-	// Measure, then place: below if it fits, else above; nudged in from the window's edges.
+	const [at, setAt] = useState<React.CSSProperties>(measuring);
+	// Measure, then place: below if it fits, else above if it fits there, else on the roomier
+	// side, shortened to fit (it scrolls). Never over its button; nudged in from the window's edges.
 	useLayoutEffect(() => {
-		if (!anchor || !panel.current) return setAt({ visibility: "hidden" });
+		if (!anchor || !panel.current) return setAt(measuring);
 		const { width, height } = panel.current.getBoundingClientRect();
 		const gap = 6;
-		const below = anchor.bottom + gap + height <= window.innerHeight - 8;
+		const roomBelow = window.innerHeight - 8 - anchor.bottom - gap;
+		const roomAbove = anchor.top - gap - 8;
+		const below = height <= roomBelow || (height > roomAbove && roomBelow >= roomAbove);
+		const room = below ? roomBelow : roomAbove;
 		setAt({
 			left: Math.max(8, Math.min(anchor.left, window.innerWidth - width - 8)),
-			top: below ? anchor.bottom + gap : Math.max(8, anchor.top - gap - height),
+			top: below ? anchor.bottom + gap : anchor.top - gap - Math.min(height, room),
+			maxHeight: Math.min(room, window.innerHeight * 0.7),
+			minWidth: matchWidth ? anchor.width : undefined,
 		});
-	}, [anchor]);
+	}, [anchor, matchWidth]);
 	return (
 		<span ref={ref} className="contents">
 			<button
@@ -175,6 +189,7 @@ export function Popover({
 				title={label}
 				aria-label={label}
 				aria-expanded={!!anchor}
+				disabled={disabled}
 				onClick={(e) => (anchor ? close() : setAnchor(e.currentTarget.getBoundingClientRect()))}
 				className={className}
 			>
