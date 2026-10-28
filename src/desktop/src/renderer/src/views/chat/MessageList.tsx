@@ -5,7 +5,7 @@ import { useQuery } from "../../convex";
 import { Markdown } from "../../markdown";
 import { Scroll } from "../../ui";
 import { dayLabel, sameDay } from "./common";
-import type { Message } from "./data";
+import type { Message, TokenNames } from "./data";
 import { MessageRow } from "./Message";
 
 /** Consecutive messages from one author within this window share a header. */
@@ -23,7 +23,7 @@ export function MessageList({
 	chatId,
 	threadId,
 	messages,
-	names,
+	tokens,
 	summaryLabel,
 	onOpenThread,
 	onError,
@@ -34,7 +34,7 @@ export function MessageList({
 	chatId: Id<"chats">;
 	threadId?: Id<"chatMessages">;
 	messages: Message[];
-	names: string[];
+	tokens: TokenNames;
 	/** Who sees the summary, e.g. "Agents" or "Sales Bot". */
 	summaryLabel: string;
 	onOpenThread?: (id: Id<"chatMessages">) => void;
@@ -86,7 +86,7 @@ export function MessageList({
 							<MessageRow
 								message={m}
 								grouped={!newDay && grouped(m, prev) && !(threadId && i === 1)}
-								names={names}
+								tokens={tokens}
 								onOpenThread={onOpenThread && !threadId ? () => onOpenThread(m._id) : undefined}
 								onError={onError}
 							/>

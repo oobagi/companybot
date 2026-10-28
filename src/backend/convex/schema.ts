@@ -403,11 +403,12 @@ export default defineSchema({
 		actingFor: v.optional(v.id("users")),
 		text: v.string(),
 		parts: v.array(messagePart),
-		/** Who was @mentioned. Mentioned agents get a turn. `recordIds`: records the message references. */
+		/** Who was @mentioned. Mentioned agents get a turn. `recordIds`: records the message references. `skillIds`: skills named with `/`. */
 		mentions: v.object({
 			userIds: v.array(v.id("users")),
 			agentIds: v.array(v.id("agents")),
 			recordIds: v.optional(v.array(v.id("records"))),
+			skillIds: v.optional(v.array(v.string())),
 		}),
 		status: v.union(v.literal("streaming"), v.literal("done"), v.literal("error")),
 		error: v.optional(v.string()),

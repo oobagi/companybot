@@ -50,6 +50,14 @@ describe("turn input", () => {
 		);
 	});
 
+	it("tells the agent which skills the message named with /", () => {
+		const prompt = buildTurnPrompt({
+			...base,
+			messages: [msg("m3", ada, "@Companybot /Proposal for Acme", 3, { skills: [{ id: "custom-1", name: "Proposal" }] })],
+		});
+		expect(prompt.endsWith('[Ada (asker) 10-22 08:03] "@Companybot /Proposal for Acme"\nIt names a skill with /: load it with skills_load first and follow it: "Proposal" (custom-1).')).toBe(true);
+	});
+
 	it("lists at most 15 people in a big channel", () => {
 		const crowd = Array.from({ length: 20 }, (_, i) => ({ type: "user" as const, id: `p${i}`, name: `P${i}` }));
 		const prompt = buildTurnPrompt({ ...base, place: { ...base.place, members: [bot, ...crowd] } });

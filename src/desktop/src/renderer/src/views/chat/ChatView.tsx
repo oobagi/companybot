@@ -74,7 +74,6 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 	/** Set in an agent DM (you and one agent). */
 	const agent = chat.agentId ? chat.members.find((m) => m.id === chat.agentId) : undefined;
 	const title = chatTitle(chat);
-	const candidates = [...directory.people, ...directory.agents];
 	const typing = useTypingPing(chat._id);
 	const send = (text: string, mentions: Mentions) => {
 		fail();
@@ -92,7 +91,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 			tray={chat.kind === "channel" && <TutorialTray agent={directory.agents[0]?.name ?? "an agent"} nudge={nudge} />}
 			// Nobody else could see it in an agent DM.
 			onType={agent ? undefined : typing.ping}
-			candidates={candidates}
+			sources={directory}
 			onSend={send}
 		/>
 	);
@@ -149,7 +148,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 									<button
 										type="button"
 										key={s}
-										onClick={() => send(s, { userIds: [], agentIds: [] })}
+										onClick={() => send(s, { userIds: [], agentIds: [], skillIds: [] })}
 										className="rounded-full border border-neutral-200 px-3 py-1.5 text-sm text-neutral-600 hover:bg-neutral-50"
 									>
 										{s}
@@ -167,7 +166,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 					<MessageList
 						chatId={chat._id}
 						messages={messages}
-						names={directory.names}
+						tokens={directory.tokens}
 						summaryLabel={agent?.name ?? "Agents"}
 						onOpenThread={setThreadId}
 						onError={fail}
@@ -183,8 +182,8 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 					chat={chat}
 					threadId={threadId}
 					sendWith={sendWith}
-					candidates={candidates}
-					names={directory.names}
+					sources={directory}
+					tokens={directory.tokens}
 					onClose={() => setThreadId(undefined)}
 				/>
 			)}
