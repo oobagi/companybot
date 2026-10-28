@@ -71,7 +71,7 @@ function PageNavTree({ openId, storageKey }: { openId?: string; storageKey: stri
 			{batches.map((ids, i) => <PruneExpanded key={i} ids={ids} onPrune={prune} />)}
 			{level()}
 			<Item icon={<PlusIcon />} onClick={() => add()} muted>New page</Item>
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			{moving && <MovePage page={moving} onClose={() => setMoving(undefined)} />}
 		</Group>
 	);
@@ -98,7 +98,7 @@ export function MovePage({ page, onClose }: { page: Row; onClose: () => void }) 
 	const parent = trail.at(-1);
 	return (
 		<Modal title={`Move ${page.title}`} onClose={onClose}>
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			<nav className="flex flex-wrap gap-2 text-sm text-neutral-500">
 				<button type="button" onClick={() => setTrail([])}>Pages</button>
 				{trail.map((p, i) => <button key={p._id} type="button" onClick={() => setTrail(trail.slice(0, i + 1))}>/ {p.title}</button>)}

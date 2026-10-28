@@ -1,13 +1,12 @@
-import type { Role } from "@companybot/core";
 import { Select } from "../../controls";
-import { can } from "@companybot/core/permissions";
+import { type Role, can } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../../api";
 import { useAction, useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { ConnectorIcon } from "../../icons";
-import { EmptyState, Loading, Notice, Section, inputClass, metadataClass, primaryButton, useRun } from "../../ui";
+import { EmptyState, Form, Loading, Notice, Section, inputClass, metadataClass, primaryButton, useRun } from "../../ui";
 import { ConnectorActions } from "../Permissions";
 import { Card, Detail, Facts, Missing } from "./shared";
 
@@ -23,7 +22,7 @@ export function ConnectorsTab({ role }: { role: Role }) {
 
 	return (
 		<>
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			{connectors.length === 0 && <EmptyState icon={<ConnectorIcon />} title="No connectors available">Outside services will appear here when they’re available.</EmptyState>}
 			{connectors.map((p) => (
 				<Card
@@ -32,9 +31,7 @@ export function ConnectorsTab({ role }: { role: Role }) {
 					meta={`${p.publisher} · v${p.version}`}
 					description={p.description}
 					status={p.installed ? connectorStatus(p) : undefined}
-					installed={p.installed}
-					canManage={isOwner}
-					onToggle={() => toggle(p)}
+					install={{ installed: p.installed, canManage: isOwner, onToggle: () => toggle(p) }}
 					onOpen={() => navigate("settings", "connectors", p.id)}
 				/>
 			))}
@@ -72,7 +69,7 @@ function ConnectorDetail({ connector, isOwner }: { connector: ConnectorItem; isO
 			canManage={isOwner}
 			onToggle={() => run(setInstalled({ connectorId: connector.id, installed: !connector.installed }))}
 		>
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			<Facts
 				rows={[
 					["Account", connector.connection === "personal" ? "Each person connects their own" : "One shared account for the workspace"],
@@ -114,7 +111,7 @@ function Connection({ connector }: { connector: ConnectorItem }) {
 
 	return (
 		<div className="flex flex-col gap-2 text-sm">
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			{connector.auth.type === "none" ? (
 				<p className="text-emerald-700">Ready. No account needed.</p>
 			) : connector.connected ? (
@@ -146,13 +143,7 @@ function Connection({ connector }: { connector: ConnectorItem }) {
 					<span className="text-neutral-400">Opens your browser to sign in.</span>
 				</div>
 			) : connector.canUse && connector.canConnect ? (
-				<form
-					className="flex gap-2"
-					onSubmit={(e) => {
-						e.preventDefault();
-						run(connect({ connectorId: connector.id, credentials: { type: "api_key", key } }), () => setKey(""));
-					}}
-				>
+				<Form className="flex gap-2" onSubmit={() => run(connect({ connectorId: connector.id, credentials: { type: "api_key", key } }), () => setKey(""))}>
 					<input
 						type="password"
 						value={key}
@@ -163,7 +154,7 @@ function Connection({ connector }: { connector: ConnectorItem }) {
 					<button type="submit" className={primaryButton}>
 						Connect
 					</button>
-				</form>
+				</Form>
 			) : (
 				<p className="text-neutral-400">{connector.canUse ? "An owner needs to connect it." : "Your role can't use this connector."}</p>
 			)}

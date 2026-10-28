@@ -1,13 +1,12 @@
-import type { Role } from "@companybot/core";
 import type { FieldKind } from "@companybot/core/records";
-import { can } from "@companybot/core/permissions";
+import { type Role, can } from "@companybot/core/permissions";
 import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { Segmented, Select } from "../../controls";
 import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { ArrowDownIcon, ArrowUpIcon, CloseIcon, DatabaseIcon, EditIcon, FilterIcon, PlusIcon, PropertiesIcon, TrashIcon } from "../../icons";
-import { ConflictNotice, EmptyState, NewButton, NoMatches, ErrorBoundary, Field, LoadMore, Loading, Notice, Page, Tabs, barButton, compactButton, compactControlClass, inputClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
+import { ConflictNotice, EmptyState, ErrorBoundary, Field, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Tabs, barButton, compactButton, compactControlClass, inputClass, primaryButton, timeAgo, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
 import { MenuItem, Modal, Popover } from "../chat/common";
 import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
@@ -36,7 +35,14 @@ import {
 
 type Layout = "table" | "board";
 
-type Settings = { filters: Filter[]; sort?: Sort; columns: string[]; layout: Layout; groupBy?: string };
+/** Filters carry an id while in the bar, so each row keeps its own state as others come and go. */
+type Settings = { filters: (Filter & { id: string })[]; sort?: Sort; columns: string[]; layout: Layout; groupBy?: string };
+
+/** A value this computer keeps in localStorage: read once, written through. */
+function useStored<T>(key: string) {
+	const [value, setValue] = useState<T | undefined>(() => JSON.parse(localStorage.getItem(key) ?? "null") ?? undefined);
+	return [value, (next: T) => (localStorage.setItem(key, JSON.stringify(next)), setValue(next))] as const;
+}
 
 export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 	const views = useQuery(api.databaseViews.list, { typeId: type._id });
@@ -47,17 +53,17 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 	const fields = type.fields.filter((f) => !f.archived) as TypeField[];
 	const live = (key: string) => ["createdAt", "updatedAt", ...fields.map((f) => f.key)].includes(key);
 	// "All" keeps the columns and layout people picked on this computer; a view's settings skip fields archived since.
-	const columnsKey = `records.columns.${type.key}`;
-	const layoutKey = `records.layout.${type.key}`;
+	const [storedColumns, storeColumns] = useStored<string[]>(`records.columns.${type.key}`);
+	const [storedLayout, storeLayout] = useStored<{ layout: Layout; groupBy?: string }>(`records.layout.${type.key}`);
 	const saved: Settings | undefined = selected && {
-		filters: fromConditions(selected.filters.filter((c) => live(c.field)), fields),
+		filters: fromConditions(selected.filters.filter((c) => live(c.field)), fields).map((f, i) => ({ ...f, id: String(i) })),
 		sort: selected.sort && live(selected.sort.field) ? selected.sort : undefined,
 		columns: selected.columns,
 		layout: selected.layout ?? "table",
 		groupBy: selected.groupBy,
 	};
 	const draft = useDraft<Settings>(
-		saved ?? { filters: [], columns: JSON.parse(localStorage.getItem(columnsKey) ?? "null") ?? defaultColumns(type.fields), layout: "table", ...JSON.parse(localStorage.getItem(layoutKey) ?? "{}") },
+		saved ?? { filters: [], columns: storedColumns ?? defaultColumns(type.fields), layout: "table", ...storedLayout },
 		selected?.version ?? 0,
 	);
 	const { filters, sort, layout } = draft.value;
@@ -68,10 +74,10 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 	const change = (next: Partial<Settings>) => {
 		const value = { ...draft.value, ...next };
 		draft.set(value);
-		if (!selected && next.columns) localStorage.setItem(columnsKey, JSON.stringify(next.columns));
-		if (!selected && (next.layout || next.groupBy)) localStorage.setItem(layoutKey, JSON.stringify({ layout: value.layout, groupBy: value.groupBy }));
+		if (!selected && next.columns) storeColumns(next.columns);
+		if (!selected && (next.layout || next.groupBy)) storeLayout({ layout: value.layout, groupBy: value.groupBy });
 	};
-	const setFilters = (filters: Filter[]) => change({ filters });
+	const setFilters = (filters: Settings["filters"]) => change({ filters });
 	const setSort = (sort: Sort | undefined) => change({ sort });
 	const setColumns = (columns: string[]) => change({ columns });
 	const open = (id: string) => (setViewId(id), draft.discard());
@@ -79,13 +85,16 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 	useEffect(() => {
 		if (views && viewId !== "all" && !selected) open("all");
 	}, [views, viewId, selected]);
-	const [naming, setNaming] = useState(false);
+	const [savingView, setSavingView] = useState(false);
 	const [editingDatabase, setEditingDatabase] = useState(false);
 	const [search, setSearch] = useState("");
+	const query = useDebounced(search);
 	const [creating, setCreating] = useState(false);
 	// The field kind a new-field dialog starts on, while it's open.
 	const [addingField, setAddingField] = useState<FieldKind>();
 	const { error, run } = useRun();
+	// The Save view dialog's own errors, so they don't show on the page behind it too.
+	const naming = useRun();
 	const shown = columns.map((k) => fields.find((f) => f.key === k)!);
 	const conditions = filters.map(toCondition).filter((c) => c !== null);
 	const canEdit = can(role, "records.edit");
@@ -119,10 +128,10 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 						? (close) => (
 								<>
 									{/* Renaming keeps the view as saved; unsaved changes stay yours until "Save for everyone". */}
-									<form
-										onSubmit={(e) => {
-											e.preventDefault();
-											const name = String(new FormData(e.currentTarget).get("name")).trim();
+									<Form
+										className=""
+										onSubmit={(form) => {
+											const name = String(new FormData(form).get("name")).trim();
 											close();
 											if (name && name !== selected.name) {
 												const columns = saved.columns.filter(live);
@@ -133,8 +142,8 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 										}}
 									>
 										<input name="name" aria-label="View name" autoFocus required maxLength={120} defaultValue={selected.name} className={`${compactControlClass} w-full`} />
-									</form>
-									<div className="my-1 border-t border-neutral-100" />
+									</Form>
+									<MenuDivider />
 									<MenuItem
 										danger
 										onClick={() => (close(), confirm(`Delete the view ${selected.name}?`) && run(removeView({ viewId: selected._id, version: selected.version }), () => open("all")))}
@@ -147,7 +156,7 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 				}
 			>
 				{canEdit && (
-					<button type="button" title="Save these filters as a view" className={tabClass} onClick={() => setNaming(true)}>
+					<button type="button" title="Save these filters as a view" className={tabClass} onClick={() => setSavingView(true)}>
 						<PlusIcon />
 					</button>
 				)}
@@ -157,17 +166,17 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 					</button>
 				)}
 			</Tabs>
-			{error && <Notice>{error}</Notice>}
-			{draft.stale && <ConflictNotice onDiscard={draft.discard} onKeep={draft.keepMine} />}
+			<Notice>{error}</Notice>
+			<ConflictNotice draft={draft} />
 			<div className="flex flex-wrap items-center gap-3 text-sm">
 				<input
 					type="search"
 					value={search}
 					onChange={(e) => setSearch(e.target.value)}
 					placeholder={`Search ${noun}`}
-					className={`${compactControlClass} w-64`}
+					className={wideControlClass}
 				/>
-				<button type="button" onClick={() => setFilters([...filters, { field: fields[0]!.key, op: opsFor(fields[0]!)[0]!, value: "" }])} className={compactButton}>
+				<button type="button" onClick={() => setFilters([...filters, { id: crypto.randomUUID(), field: fields[0]!.key, op: opsFor(fields[0]!)[0]!, value: "" }])} className={compactButton}>
 					<FilterIcon className="text-neutral-400" /> Filter
 				</button>
 				<ColumnsPicker
@@ -197,21 +206,21 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 			</div>
 			{filters.length > 0 && (
 				<div className="-mt-2 flex flex-col gap-2">
-					{filters.map((f, i) => (
+					{filters.map((f) => (
 						<FilterRow
-							key={i}
+							key={f.id}
 							fields={fields}
 							filter={f}
-							onChange={(next) => setFilters(filters.map((g, j) => (j === i ? next : g)))}
-							onRemove={() => setFilters(filters.filter((_, j) => j !== i))}
+							onChange={(next) => setFilters(filters.map((g) => (g === f ? { ...next, id: f.id } : g)))}
+							onRemove={() => setFilters(filters.filter((g) => g !== f))}
 						/>
 					))}
 				</div>
 			)}
-			{search.trim() ? (
+			{query.trim() ? (
 				<>
 					<p className="-mt-2 text-xs text-neutral-500">Top 20 live {noun} matching the name or text. Filters and sort don't apply to search.</p>
-					<SearchResults type={type} query={search} columns={shown} />
+					<SearchResults type={type} query={query} columns={shown} />
 				</>
 			) : (
 				<>
@@ -232,24 +241,22 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 				</>
 			)}
 			{editingDatabase && <DatabaseDialog type={type} onClose={() => setEditingDatabase(false)} />}
-			{naming && (
-				<Modal title="Save view" onClose={() => setNaming(false)}>
-					<form
-						className="flex flex-col gap-4"
-						onSubmit={(e) => {
-							e.preventDefault();
-							const name = String(new FormData(e.currentTarget).get("name"));
-							run(saveView({ typeId: type._id, name, ...config }).then((id) => (open(id), setNaming(false))));
+			{savingView && (
+				<Modal title="Save view" onClose={() => setSavingView(false)}>
+					<Form
+						onSubmit={(form) => {
+							const name = String(new FormData(form).get("name"));
+							naming.run(saveView({ typeId: type._id, name, ...config }).then((id) => (open(id), setSavingView(false))));
 						}}
 					>
-						{error && <Notice>{error}</Notice>}
+						<Notice>{naming.error}</Notice>
 						<Field label="View name" hint="These filters, sort, columns and layout, shared with everyone in the workspace.">
 							<input name="name" autoFocus required maxLength={120} className={inputClass} />
 						</Field>
 						<button type="submit" className={`${primaryButton} self-start`}>
 							Save for everyone
 						</button>
-					</form>
+					</Form>
 				</Modal>
 			)}
 			{creating && <NewRecord type={type} onClose={() => setCreating(false)} />}
@@ -481,7 +488,7 @@ function ColumnsPicker({
 					))}
 					{onNewField && (
 						<>
-							<div className="my-1 border-t border-neutral-100" />
+							<MenuDivider />
 							<MenuItem onClick={() => (close(), onNewField())}>
 								<PlusIcon className="text-neutral-400" /> New field
 							</MenuItem>
@@ -501,21 +508,15 @@ function NewRecord({ type, onClose }: { type: RecordType; onClose: () => void })
 	const label = type.fields.find((f) => f.key === "name")?.label ?? "Name";
 	return (
 		<Modal title={`New ${type.name.toLowerCase()}`} onClose={onClose}>
-			<form
-				className="flex flex-col gap-4"
-				onSubmit={(e) => {
-					e.preventDefault();
-					run(create({ typeId: type._id, values: { name } }).then((id) => navigate(...recordPath(type.key, id))));
-				}}
-			>
-				{error && <Notice>{error}</Notice>}
+			<Form onSubmit={() => run(create({ typeId: type._id, values: { name } }).then((id) => navigate(...recordPath(type.key, id))))}>
+				<Notice>{error}</Notice>
 				<Field label={label}>
 					<input autoFocus value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
 				</Field>
 				<button type="submit" className={`${primaryButton} self-start`}>
 					Create
 				</button>
-			</form>
+			</Form>
 		</Modal>
 	);
 }

@@ -3,7 +3,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvex } from "convex/react";
 import { useState } from "react";
 import { api, errorMessage } from "../api";
-import { Notice, descriptionClass, inputClass, primaryButton } from "../ui";
+import { Form, Notice, descriptionClass, inputClass, primaryButton, useRun } from "../ui";
 
 export function SignIn() {
 	const { signIn } = useAuthActions();
@@ -11,31 +11,17 @@ export function SignIn() {
 	const [email, setEmail] = useState("");
 	const [code, setCode] = useState("");
 	const [sentTo, setSentTo] = useState<string>();
-	const [busy, setBusy] = useState(false);
-	const [error, setError] = useState<string>();
-
-	const run = async (fields: Record<string, string>, then?: () => unknown) => {
-		setBusy(true);
-		setError(undefined);
-		try {
-			await signIn("email-code", fields);
-			await then?.();
-		} catch (e) {
-			setError(sentTo ? "That code didn't work. Try again." : errorMessage(e));
-		} finally {
-			setBusy(false);
-		}
-	};
+	const { error, busy, run: submit, fail } = useRun((e) => (sentTo ? "That code didn't work. Try again." : errorMessage(e)));
+	const run = (fields: Record<string, string>, then?: () => unknown) => submit(signIn("email-code", fields).then(then));
 
 	return (
 		<div className="drag flex h-screen items-center justify-center bg-neutral-50">
-			<form
+			<Form
 				className="no-drag flex w-80 flex-col gap-3"
-				onSubmit={(e) => {
-					e.preventDefault();
+				onSubmit={() => {
 					const to = email.trim();
 					// The browser accepts "jaden@c"; a cut-off address would sign in as a new, wrong person.
-					if (!sentTo && !/^\S+@\S+\.\S+$/.test(to)) return setError("Enter your full email address.");
+					if (!sentTo && !/^\S+@\S+\.\S+$/.test(to)) return fail("Enter your full email address.");
 					if (sentTo) run({ email: sentTo, code: code.trim() });
 					else if (isLocalBackend(import.meta.env.CONVEX_URL)) {
 						// Local backend: no email is sent, so read the code back and sign straight in.
@@ -70,20 +56,20 @@ export function SignIn() {
 						className={`${inputClass} bg-white`}
 					/>
 				)}
-				{error && <Notice>{error}</Notice>}
+				<Notice>{error}</Notice>
 				<button type="submit" disabled={busy} className={primaryButton}>
 					{sentTo ? "Sign in" : "Email me a code"}
 				</button>
 				{sentTo && (
 					<button
 						type="button"
-						onClick={() => (setSentTo(undefined), setCode(""), setError(undefined))}
+						onClick={() => (setSentTo(undefined), setCode(""), fail())}
 						className={descriptionClass}
 					>
 						Use a different email
 					</button>
 				)}
-			</form>
+			</Form>
 		</div>
 	);
 }

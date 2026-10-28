@@ -1,7 +1,6 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import type { Role } from "@companybot/core";
 import { type AgentConfig, agentConfigKeys, pickAgentConfig } from "@companybot/core/agent-config";
-import { can } from "@companybot/core/permissions";
+import { type Role, can } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../api";
@@ -12,21 +11,7 @@ import { ImagePicker } from "./ImagePicker";
 import { ModelPicker } from "./ModelPicker";
 import { TrashNotice } from "./Trash";
 import { AgentIcon, TrashIcon } from "../icons";
-import {
-	type Crumb,
-	barDangerButton,
-	ConflictNotice,
-	Field,
-	Loading,
-	Notice,
-	Page,
-	SaveBar,
-	Section,
-	inputClass,
-	timeAgo,
-	useRun,
-	useDraft,
-} from "../ui";
+import { ConflictNotice, type Crumb, Field, Loading, Notice, Page, SaveBar, Section, barDangerButton, cardClass, descriptionClass, inputClass, metadataClass, timeAgo, useDraft, useRun } from "../ui";
 
 type Agent = FunctionReturnType<typeof api.agents.list>[number];
 
@@ -50,11 +35,11 @@ function AgentRow({ agent, onOpen }: { agent: Agent; onOpen: () => void }) {
 		<button
 			type="button"
 			onClick={onOpen}
-			className="flex flex-col gap-0.5 rounded-xl border border-neutral-200 px-4 py-3 text-left hover:bg-neutral-50"
+			className={`flex flex-col gap-0.5 text-left hover:bg-neutral-50 ${cardClass}`}
 		>
 			<span className="font-medium">{agent.name}</span>
-			{agent.description && <span className="text-sm text-neutral-500">{agent.description}</span>}
-			<span className="text-xs text-neutral-400">
+			{agent.description && <span className={descriptionClass}>{agent.description}</span>}
+			<span className={metadataClass}>
 				{agent.model.replace("anthropic/", "")} · v{agent.version} · edited by {agent.updatedByName}{" "}
 				{timeAgo(agent.updatedAt)}
 			</span>
@@ -107,8 +92,8 @@ function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean;
 			}
 		>
 			{agent.trash && <TrashNotice trash={agent.trash} />}
-			{draft.stale && <ConflictNotice who={agent.updatedByName} onDiscard={draft.discard} onKeep={draft.keepMine} />}
-			{error && <Notice>{error}</Notice>}
+			<ConflictNotice draft={draft} who={agent.updatedByName} />
+			<Notice>{error}</Notice>
 
 			<fieldset disabled={!isOwner || agent.archived} className="flex flex-col gap-5">
 				{/* Not a Field: its <label> would name the picker's buttons. */}
@@ -190,7 +175,7 @@ function ToolGroup({
 	const status = (id: string) => {
 		const a = access.get(id);
 		if (!a || isOwner) return null;
-		return <span className="text-xs text-neutral-400">{a.visible ? "You can use" : hiddenReasons[a.reason]}</span>;
+		return <span className={metadataClass}>{a.visible ? "You can use" : hiddenReasons[a.reason]}</span>;
 	};
 	return (
 		<div className="flex flex-col rounded-xl border border-neutral-200">
@@ -242,7 +227,7 @@ function History({ agent, isOwner }: { agent: Agent; isOwner: boolean }) {
 
 	return (
 		<Section title="History" hint="Every save is kept. Restoring saves an old version as the newest one.">
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			{versions.map((v, i) => {
 				const previous = versions[i + 1]?.config;
 				const changed = previous

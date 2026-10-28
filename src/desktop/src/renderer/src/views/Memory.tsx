@@ -1,14 +1,14 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Select } from "../controls";
-import type { MemoryScope, Role } from "@companybot/core";
-import { can } from "@companybot/core/permissions";
+import type { MemoryScope } from "@companybot/core/memory";
+import { type Role, can } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { agentLabel, agentOptions } from "../agent-options";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { MemoryIcon } from "../icons";
-import { EmptyState, NoMatches, ConflictNotice, Loading, Notice, Section, descriptionClass, inputClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../ui";
+import { ConflictNotice, EmptyState, Form, Loading, NoMatches, Notice, Section, cardClass, descriptionClass, hintClass, inputClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../ui";
 
 type MemoryItem = FunctionReturnType<typeof api.memory.list>[number];
 type Agent = { _id: Id<"agents">; name: string; archived: boolean };
@@ -36,7 +36,7 @@ export function MemoryTab({ role }: { role: Role }) {
 					still edit or delete them here.
 				</p>
 			)}
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			<AddMemory
 				agents={agents.filter((a) => !a.archived)}
 				canAddTeam={can(role, "memory.team.write")}
@@ -71,7 +71,7 @@ function MemoryList({
 }) {
 	return (
 		<Section title={title}>
-			{items.length === 0 && <p className="text-sm text-neutral-400">{empty}</p>}
+			{items.length === 0 && <p className={hintClass}>{empty}</p>}
 			{items.map((m) => (
 				<MemoryRow key={m.id} memory={m} agent={agentName.get(m.agentId) ?? "Unknown agent"} />
 			))}
@@ -89,15 +89,9 @@ function MemoryRow({ memory, agent }: { memory: MemoryItem; agent: string }) {
 	const team = memory.scope === "workspace";
 
 	return (
-		<div className="flex flex-col gap-2 rounded-xl border border-neutral-200 px-4 py-3">
-			{draft.stale && (
-				<ConflictNotice
-					who={memory.updatedByName}
-					onDiscard={draft.discard}
-					onKeep={draft.keepMine}
-				/>
-			)}
-			{error && <Notice>{error}</Notice>}
+		<div className={`flex flex-col gap-2 ${cardClass}`}>
+			<ConflictNotice draft={draft} who={memory.updatedByName} />
+			<Notice>{error}</Notice>
 			<div className="flex items-start gap-3">
 				{!draft.dirty ? (
 					<p className="flex-1 leading-relaxed">{memory.content}</p>
@@ -178,8 +172,8 @@ function MemoryHistory({ memory, onRestored }: { memory: MemoryItem; onRestored:
 	if (!versions) return <Loading />;
 	return (
 		<div className="flex flex-col gap-2 border-t border-neutral-100 pt-2">
-			{error && <Notice>{error}</Notice>}
-			{versions.length === 0 && <p className="text-sm text-neutral-400">No earlier versions.</p>}
+			<Notice>{error}</Notice>
+			{versions.length === 0 && <p className={hintClass}>No earlier versions.</p>}
 			{versions.map((v) => (
 				<div key={v._id} className="flex items-start gap-3 text-sm">
 					<div className="flex flex-1 flex-col gap-0.5">
@@ -217,10 +211,9 @@ function AddMemory({
 	const [agentId, setAgentId] = useState(agents[0]?._id);
 	const [scope, setScope] = useState<MemoryScope>("personal");
 	return (
-		<form
+		<Form
 			className="flex gap-2"
-			onSubmit={(e) => {
-				e.preventDefault();
+			onSubmit={() => {
 				if (!content.trim() || !agentId) return;
 				onAdd(agentId, scope, content.trim());
 				setContent("");
@@ -252,6 +245,6 @@ function AddMemory({
 			<button type="submit" className={primaryButton}>
 				Add
 			</button>
-		</form>
+		</Form>
 	);
 }

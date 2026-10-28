@@ -13,3 +13,15 @@ it("routes every Convex call through the workspace-aware hooks", () => {
 	);
 	expect(raw).toEqual([]);
 });
+
+// The core barrel pulls in the agent runtime (ai, zod); the app imports dependency-free modules by deep path.
+// widgets.ts uses zod, so only its types may come in.
+it("imports core by deep path, never the barrel", () => {
+	const dir = join(import.meta.dirname);
+	const files = readdirSync(dir, { recursive: true, encoding: "utf8" }).filter((f) => /\.tsx?$/.test(f));
+	const bad = files.filter((f) => {
+		const source = readFileSync(join(dir, f), "utf8");
+		return /from "@companybot\/core"/.test(source) || /import (?!type )[^;]*from "@companybot\/core\/widgets"/.test(source);
+	});
+	expect(bad).toEqual([]);
+});

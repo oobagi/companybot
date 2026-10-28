@@ -16,7 +16,7 @@ export function ProfileLink({ who, children, className = "" }: { who: Participan
 }
 
 /** Name, email, role, and local time for people; description for agents. "Message" opens your DM. */
-export function ProfileCard({ who, onClose }: { who: Participant; onClose: () => void }) {
+function ProfileCard({ who, onClose }: { who: Participant; onClose: () => void }) {
 	const team = useQuery(api.workspace.team);
 	const chats = useQuery(api.chats.list);
 	const openDm = useMutation(api.chats.openDm);
@@ -51,7 +51,7 @@ export function ProfileCard({ who, onClose }: { who: Participant; onClose: () =>
 			)}
 			{agent?.description && <p className="text-neutral-600">{agent.description}</p>}
 			{gone && <p className="text-neutral-500">No longer in this workspace.</p>}
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			{!gone && !person?.isYou && (
 				<button type="button" onClick={message} className={`${secondaryButton} self-start`}>
 					Message

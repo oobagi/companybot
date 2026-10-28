@@ -3,7 +3,7 @@ import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
-import { Notice, primaryButton, secondaryButton, timeAgo, useRun } from "../../ui";
+import { Notice, descriptionClass, hintClass, primaryButton, secondaryButton, timeAgo, useRun } from "../../ui";
 import { AgentBadge, Avatar, clock } from "./common";
 import type { Message } from "./data";
 
@@ -60,10 +60,10 @@ function ApprovalCard({ part, approval }: { part: ApprovalPart; approval: Approv
 						</button>
 					)}
 				</div>
-				{approval ? raw ? <Raw text={pretty(approval.input)} /> : <Fields input={approval.input} /> : <p className="text-sm text-neutral-400">Loading…</p>}
+				{approval ? raw ? <Raw text={pretty(approval.input)} /> : <Fields input={approval.input} /> : <p className={hintClass}>Loading…</p>}
 			</div>
 			{approval && <Status approval={approval} busy={busy} raw={raw} onDecide={send} />}
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 		</div>
 	);
 }
@@ -133,7 +133,7 @@ function Fields({ input }: { input: string }) {
 	const value: unknown = JSON.parse(input);
 	if (!value || typeof value !== "object" || Array.isArray(value)) return <Raw text={pretty(input)} />;
 	const entries = Object.entries(value);
-	if (entries.length === 0) return <p className="text-sm text-neutral-500">No input.</p>;
+	if (entries.length === 0) return <p className={descriptionClass}>No input.</p>;
 	return (
 		<dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
 			{entries.map(([key, v]) => (

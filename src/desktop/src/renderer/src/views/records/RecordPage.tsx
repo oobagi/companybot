@@ -1,6 +1,5 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import type { Role } from "@companybot/core";
-import { can } from "@companybot/core/permissions";
+import { type Role, can } from "@companybot/core/permissions";
 import { type FieldValue, NAME_KEY } from "@companybot/core/records";
 import type { FunctionReturnType } from "convex/server";
 import { useEffect, useState } from "react";
@@ -8,7 +7,7 @@ import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { DatabaseIcon, HistoryIcon, TrashIcon } from "../../icons";
-import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, barButton, barDangerButton, descriptionClass, metadataClass, timeAgo, useRun } from "../../ui";
+import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, barButton, barDangerButton, cardClass, descriptionClass, listClass, metadataClass, timeAgo, useRun } from "../../ui";
 import { Modal } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { PageEditor } from "../pages/PageEditor";
@@ -54,7 +53,7 @@ export function RecordPage({ type, recordId, role }: { type: RecordType; recordI
 				</>
 			}
 		>
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			{record.trash && <TrashNotice trash={record.trash} />}
 			<Fields type={type} record={record} role={role} editable={canEdit && !record.archived} />
 			<Body recordId={recordId} pageId={pageId} editable={can(role, "pages.edit") && !record.archived} />
@@ -82,7 +81,7 @@ function Body({ recordId, pageId, editable }: { recordId: Id<"records">; pageId:
 	if (pageId === undefined || (pageId === null && !editable)) return null;
 	return (
 		<section className="flex flex-col gap-2 border-t border-neutral-200 pt-4">
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			{pageId ? <PageEditor pageId={pageId} editable={editable} /> : !error && <Loading />}
 		</section>
 	);
@@ -173,7 +172,7 @@ function Linked({ recordId }: { recordId: Id<"records"> }) {
 							{type.plural}
 							{field && <span className="text-neutral-400"> · {field.label}</span>}
 						</p>
-						<div className="flex flex-col divide-y divide-neutral-100 rounded-xl border border-neutral-200">
+						<div className={listClass}>
 							{rows.map((r) => (
 								<button
 									key={r._id}
@@ -215,7 +214,7 @@ function Discussion({ recordId }: { recordId: Id<"records"> }) {
 						key={m.messageId}
 						type="button"
 						onClick={() => navigate("chat", m.chatId, ...(m.threadId ? ["thread", m.threadId] : ["message", m.messageId]))}
-						className="flex flex-col gap-1 rounded-xl border border-neutral-200 px-4 py-3 text-left text-sm hover:bg-neutral-50"
+						className={`flex flex-col gap-1 text-left text-sm hover:bg-neutral-50 ${cardClass}`}
 					>
 						<span className="flex items-baseline gap-2">
 							<span className="font-medium">{m.author}</span>
@@ -238,10 +237,10 @@ function History({ type, recordId, canUndo }: { type: RecordType; recordId: Id<"
 	if (status === "LoadingFirstPage") return null;
 	return (
 		<Section title="Property changes">
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			<div className="flex flex-col gap-2">
 				{results.map((e) => (
-					<div key={e._id} className="flex flex-col gap-1 rounded-xl border border-neutral-200 px-4 py-3 text-sm">
+					<div key={e._id} className={`flex flex-col gap-1 text-sm ${cardClass}`}>
 						<div className="flex items-baseline gap-2">
 							<span className="font-medium">{e.undoes ? "Undid a change" : (actionLabels[e.action] ?? e.action)}</span>
 							<span className="text-neutral-500">by {whoLabel(e)}</span>

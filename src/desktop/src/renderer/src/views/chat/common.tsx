@@ -227,7 +227,7 @@ export function Confirm(props: { title: string; action: string; error?: string; 
 		<Modal title={props.title} onClose={props.onClose}>
 			<div className="flex flex-col gap-4 text-sm">
 				<p className="text-neutral-600">{props.children}</p>
-				{props.error && <Notice>{props.error}</Notice>}
+				<Notice>{props.error}</Notice>
 				<div className="flex justify-end gap-2">
 					<button type="button" onClick={props.onClose} className={secondaryButton}>Cancel</button>
 					<button type="button" onClick={props.onConfirm} className={primaryButton}>{props.action}</button>
@@ -240,6 +240,8 @@ export function Confirm(props: { title: string; action: string; error?: string; 
 export const clock = (ms: number, timeZone?: string) => new Date(ms).toLocaleTimeString([], { timeZone, hour: "numeric", minute: "2-digit" });
 /** "America/Los_Angeles" → "America/Los Angeles". */
 export const zoneLabel = (zone: string) => zone.replaceAll("_", " ");
+/** This computer's time zone, read fresh: it changes when you travel. */
+export const deviceTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 export function dayLabel(ms: number) {
 	const day = new Date(ms).toDateString();

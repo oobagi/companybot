@@ -1,4 +1,4 @@
-import { type Role, can } from "@companybot/core";
+import { type Role, can } from "@companybot/core/permissions";
 import { Select } from "../controls";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
@@ -6,7 +6,7 @@ import { api } from "../api";
 import { useMutation, usePaginatedQuery } from "../convex";
 import { navigate } from "../router";
 import { TrashIcon } from "../icons";
-import { EmptyState, NoMatches, LoadMore, Notice, Page, compactControlClass, metadataClass, timeAgo, useRun } from "../ui";
+import { EmptyState, LoadMore, NoMatches, Notice, Page, listClass, metadataClass, timeAgo, useDebounced, useRun, wideControlClass } from "../ui";
 import { recordPath, whoLabel } from "./records/logic";
 
 // Trash: everything people deleted, like Notion's. Anyone who could delete something
@@ -38,8 +38,9 @@ function pathOf(e: TrashRow): string[] | undefined {
 
 export function TrashView({ role }: { role: Role }) {
 	const [search, setSearch] = useState("");
+	const query = useDebounced(search);
 	const [kind, setKind] = useState<Kind | "">("");
-	const args = { search: search.trim() || undefined, kind: kind || undefined };
+	const args = { search: query.trim() || undefined, kind: kind || undefined };
 	const { results, status, loadMore } = usePaginatedQuery(api.trash.list, args, { initialNumItems: 25 });
 	const restore = useMutation(api.trash.restore);
 	const purge = useMutation(api.trash.purge);
@@ -48,7 +49,7 @@ export function TrashView({ role }: { role: Role }) {
 	return (
 		<Page title="Trash" description="Everything deleted lands here. It's deleted forever 30 days later." wide>
 			<div className="flex items-center gap-3 text-sm">
-				<input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search Trash" className={`${compactControlClass} w-64`} />
+				<input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search Trash" className={wideControlClass} />
 				<Select
 					label="Kind"
 					value={kind}
@@ -56,9 +57,9 @@ export function TrashView({ role }: { role: Role }) {
 					onChange={setKind}
 				/>
 			</div>
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			{results.length > 0 && (
-				<div className="flex flex-col divide-y divide-neutral-100 rounded-xl border border-neutral-200">
+				<div className={listClass}>
 					{results.map((e) => {
 						const to = pathOf(e);
 						return (
@@ -107,7 +108,7 @@ export function TrashNotice({ trash }: { trash: NonNullable<NonNullable<Function
 	const { error, run } = useRun();
 	return (
 		<div className="flex flex-col gap-2">
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			<div className="flex items-center gap-3 rounded-xl bg-neutral-50 px-4 py-3 text-sm text-neutral-600">
 				<p className="flex-1">
 					In Trash: deleted by {whoLabel(trash)} {timeAgo(trash.at)}. It's deleted forever 30 days after that.
