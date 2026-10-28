@@ -44,9 +44,9 @@ Modeled on Android runtime permissions and OAuth incremental consent: ask for wh
 ## Where it shows up
 1. **Chat:** the permission message with three buttons.
 2. **Turning on an automation:** short confirmation → Turn on / Cancel; first-use cards offer Always for this automation.
-3. **Settings → Your preferences → Permissions:** your Always and Never rules and automation grants, editable.
+3. **Workspace settings → Permissions → Yours:** your Always and Never rules and automation grants in this workspace, editable. They're stored per workspace (`permissionRules.workspaceId`), so they live in Workspace settings, not Account.
 4. **Connector detail page → Actions:** each action Ask / Always / Never (same rules as #3). Listed from what the server last reported (`connectorTools`, updated each turn or with "Refresh list"); display only, calls are decided on the live tool.
-5. **Settings → General (owners) → Action locks.**
+5. **Workspace settings → Permissions → Action locks** (owners).
 6. **Activity:** each auto-allowed call says how ("Always allowed by Jaden, Oct 25"), links to the rule, or notes it was removed since.
 
 ## Code

@@ -21,6 +21,8 @@ const rehypePlugins = Object.values({
 const components: Components = {
 	ul: ({ node: _, className: __, ...props }) => <ul className="list-outside list-disc pl-6 whitespace-normal" {...props} />,
 	ol: ({ node: _, className: __, ...props }) => <ol className="list-outside list-decimal pl-6 whitespace-normal" {...props} />,
+	/** Items sit close (4px), like lines of one block; blocks are 12px apart (`Markdown`). */
+	li: ({ node: _, className: __, ...props }) => <li className="py-0.5 [&>p]:inline" {...props} />,
 	/** Page links open the page here; every other link keeps Streamdown's open-in-browser confirmation. */
 	a: (props) => {
 		const id = props.href && linkedPageId(props.href);
@@ -30,7 +32,10 @@ const components: Components = {
 	},
 };
 
-/** No `allowedTags`: Streamdown only applies it to its own default plugin list. */
-export function Markdown(props: Omit<ComponentProps<typeof Streamdown>, "plugins" | "components" | "rehypePlugins" | "allowedTags">) {
-	return <Streamdown plugins={plugins} components={components} rehypePlugins={rehypePlugins} {...props} />;
+/**
+ * No `allowedTags`: Streamdown only applies it to its own default plugin list. Paragraphs, lists
+ * and code are 12px apart.
+ */
+export function Markdown({ className = "", ...props }: Omit<ComponentProps<typeof Streamdown>, "plugins" | "components" | "rehypePlugins" | "allowedTags">) {
+	return <Streamdown plugins={plugins} components={components} rehypePlugins={rehypePlugins} className={`space-y-3 ${className}`} {...props} />;
 }

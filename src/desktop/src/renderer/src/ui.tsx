@@ -2,6 +2,7 @@ import { Component, Fragment, useCallback, useEffect, useLayoutEffect, useRef, u
 import { errorMessage } from "./api";
 import { PlusIcon } from "./icons";
 import { navigate } from "./router";
+import type { DragProps } from "./sortable";
 import { Popover } from "./views/chat/common";
 
 /**
@@ -218,11 +219,14 @@ export function Tabs<T extends string>({
 	value,
 	onChange,
 	menu,
+	drag,
 	children,
 }: {
 	tabs: readonly { id: T; label: string }[];
 	value: T;
 	onChange: (tab: T) => void;
+	/** From `useSortable(…, "x")`, for tabs that can be dragged into another order. */
+	drag?: (tab: T) => DragProps | undefined;
 	/** The open tab's menu, like Notion's view menu: clicking the open tab again opens it. */
 	menu?: (close: () => void) => React.ReactNode;
 	/** Extra controls after the last tab. */
@@ -232,17 +236,22 @@ export function Tabs<T extends string>({
 		`-mb-px max-w-full truncate border-b-2 px-3 py-2 text-sm ${open ? "border-neutral-900 font-medium" : "border-transparent text-neutral-500 hover:text-neutral-800"}`;
 	return (
 		<nav className="flex flex-wrap gap-1 border-b border-neutral-200">
-			{tabs.map((t) =>
-				t.id === value && menu ? (
-					<Popover key={t.id} trigger={t.label} className={tabClass(true)} panelClassName="w-60 p-1">
-						{menu}
-					</Popover>
-				) : (
-					<button type="button" key={t.id} onClick={() => onChange(t.id)} className={tabClass(t.id === value)}>
-						{t.label}
-					</button>
-				),
-			)}
+			{tabs.map((t) => {
+				const d = drag?.(t.id);
+				return (
+					<span key={t.id} {...d} className={`relative flex max-w-full ${d?.className ?? ""}`}>
+						{t.id === value && menu ? (
+							<Popover trigger={t.label} className={tabClass(true)} panelClassName="w-60 p-1">
+								{menu}
+							</Popover>
+						) : (
+							<button type="button" onClick={() => onChange(t.id)} className={tabClass(t.id === value)}>
+								{t.label}
+							</button>
+						)}
+					</span>
+				);
+			})}
 			{children}
 		</nav>
 	);

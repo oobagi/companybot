@@ -5,6 +5,7 @@ import { api } from "../../api";
 import { Segmented, Select } from "../../controls";
 import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
+import { useSortable } from "../../sortable";
 import { ArrowDownIcon, ArrowUpIcon, CloseIcon, DatabaseIcon, EditIcon, FilterIcon, PlusIcon, PropertiesIcon, TrashIcon } from "../../icons";
 import { ConflictNotice, EmptyState, ErrorBoundary, Field, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Tabs, barButton, compactButton, compactControlClass, inputClass, primaryButton, timeAgo, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
 import { MenuItem, Modal, Popover } from "../chat/common";
@@ -44,8 +45,13 @@ function useStored<T>(key: string) {
 	return [value, (next: T) => (localStorage.setItem(key, JSON.stringify(next)), setValue(next))] as const;
 }
 
+const noViews: never[] = [];
+const viewKey = (v: { _id: string }) => v._id;
+
 export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 	const views = useQuery(api.databaseViews.list, { typeId: type._id });
+	// Saved views are shared; their order is yours (drag a tab). "All" stays first.
+	const tabs = useSortable(`views.order:${type._id}`, views ?? noViews, viewKey, "x");
 	const saveView = useMutation(api.databaseViews.save);
 	const removeView = useMutation(api.databaseViews.remove);
 	const [viewId, setViewId] = useState("all");
@@ -120,7 +126,8 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 			}
 		>
 			<Tabs
-				tabs={[{ id: "all", label: "All" }, ...(views ?? []).map((v) => ({ id: v._id as string, label: v.name }))]}
+				tabs={[{ id: "all", label: "All" }, ...tabs.sorted.map((v) => ({ id: v._id as string, label: v.name }))]}
+				drag={(id) => (id === "all" ? undefined : tabs.drag(id))}
 				value={selected ? viewId : "all"}
 				onChange={open}
 				menu={

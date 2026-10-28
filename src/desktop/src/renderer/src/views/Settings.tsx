@@ -6,7 +6,7 @@ import { useMutation, useQuery } from "../convex";
 import { describeUpdate, desktop, useUpdates } from "../desktop";
 import { navigate } from "../router";
 import { ConflictNotice, Field, Form, Loading, Notice, Page, SaveBar, Setting, Settings, compactControlClass, dangerButton, disabledButtonClass, inputClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../ui";
-import { ActivityIcon, MembersIcon, MemoryIcon, SettingsIcon, TrashIcon, UserIcon } from "../icons";
+import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, SettingsIcon, TrashIcon, UserIcon } from "../icons";
 import { Select } from "../controls";
 import { ActivityTab } from "./Activity";
 import { ImagePicker } from "./ImagePicker";
@@ -19,13 +19,17 @@ import { WorkspaceLocks, YourPermissions } from "./Permissions";
 import { TrashView } from "./Trash";
 
 // Settings: /settings/<tab>[/<item>]. While it's open, the sidebar lists its tabs in place of the app's.
+// Two kinds, opened from different menus and never listed together: your account (your avatar, at
+// the bottom of the rail) and the open workspace (the workspace name, atop the sidebar).
 const sections = [
-	{ title: "Account", tabs: [{ id: "preferences", label: "Your preferences", icon: <UserIcon /> }] },
+	{ title: "Account", scope: "account", tabs: [{ id: "preferences", label: "Your preferences", icon: <UserIcon /> }] },
 	{
 		title: "Workspace",
+		scope: "workspace",
 		tabs: [
 			{ id: "general", label: "General", icon: <SettingsIcon /> },
 			{ id: "members", label: "Members", description: "We email invited people a link to get the app. They join when they sign in with that email. Role changes apply right away.", icon: <MembersIcon /> },
+			{ id: "permissions", label: "Permissions", description: "Agents ask before anything that leaves Companybot: sends, calls, payments, changes in other apps.", icon: <PermissionsIcon /> },
 			{ id: "memory", label: "Memory", description: "Each agent has its own memory. Team memories are shared, and anyone can fix them. Only you can see your personal memories.", icon: <MemoryIcon /> },
 			{ id: "activity", label: "Activity", description: "Database changes, and what agents did in chats you can see. Agent results show only for what they did for you.", icon: <ActivityIcon /> },
 			{ id: "trash", label: "Trash", icon: <TrashIcon /> },
@@ -33,17 +37,21 @@ const sections = [
 	},
 	{
 		title: "Customize",
+		scope: "workspace",
 		tabs: customizeTabs.map((t) => ({ id: t.id, label: t.label, icon: <t.icon /> })),
 	},
 ] as const;
 export const settingsTabs = sections.flatMap((s): readonly (typeof s.tabs)[number][] => s.tabs);
 type SettingsTab = (typeof settingsTabs)[number]["id"];
 
+/** Whether a tab is your account's or the workspace's. */
+export const settingsScope = (tab: SettingsTab) => sections.find((s) => s.tabs.some((t) => t.id === tab))!.scope;
+
 /**
- * Other paths that open a tab: the old "profile", and "permissions" (they're in Your preferences).
- * Old /customize/<tab> and /trash paths are redirected in App.
+ * Other paths that open a tab: the old "profile". Old /customize/<tab> and /trash paths are
+ * redirected in App.
  */
-export const settingsTabAliases: Record<string, SettingsTab> = { profile: "preferences", permissions: "preferences" };
+export const settingsTabAliases: Record<string, SettingsTab> = { profile: "preferences" };
 
 const isCustomize = (tab: SettingsTab): tab is CustomizeTab => customizeTabs.some((t) => t.id === tab);
 
@@ -58,16 +66,23 @@ export function SettingsView({ role, tab, itemId }: { role: Role; tab: SettingsT
 			{tab === "members" && <MembersTab role={role} />}
 			{tab === "memory" && <MemoryTab role={role} />}
 			{tab === "activity" && <ActivityTab />}
+			{tab === "permissions" && (
+				<>
+					<YourPermissions />
+					{can(role, "actions.lock") && <WorkspaceLocks />}
+				</>
+			)}
 			{tab === "preferences" && <ProfileTab />}
 		</Page>
 	);
 }
 
-/** The sidebar while Settings is open: every tab, by section. */
+/** The sidebar while Settings is open: the open tab's kind (account or workspace), by section. */
 export function SettingsNav({ tab }: { tab: SettingsTab }) {
+	const scope = settingsScope(tab);
 	return (
 		<>
-			{sections.map((s) => (
+			{sections.filter((s) => s.scope === scope).map((s) => (
 				<Group key={s.title} title={s.title}>
 					{s.tabs.map((t) => (
 						<Item key={t.id} icon={t.icon} active={t.id === tab} onClick={() => navigate("settings", t.id)}>
@@ -88,8 +103,6 @@ function GeneralTab({ role }: { role: Role }) {
 	return (
 		<>
 			<GeneralForm settings={settings} isOwner={can(role, "workspace.manage")} />
-			{can(role, "actions.lock") && <WorkspaceLocks />}
-			<AppVersion />
 			{can(role, "workspace.delete") && (
 				<DangerZone
 					action="Delete workspace"
@@ -327,7 +340,7 @@ function ProfileTab() {
 					/>
 				</Setting>
 			</Settings>
-			<YourPermissions />
+			<AppVersion />
 			{me && (
 				<DangerZone
 					action="Delete account"

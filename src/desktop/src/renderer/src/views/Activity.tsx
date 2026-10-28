@@ -102,7 +102,7 @@ function AllowedLine({ allowed, mine }: { allowed: NonNullable<ActivityEntry["al
 			{allowed.ruleStillOn && mine && (
 				<>
 					{" · "}
-					<button type="button" onClick={() => navigate("settings", "preferences")} className="hover:underline">
+					<button type="button" onClick={() => navigate("settings", "permissions")} className="hover:underline">
 						See rule
 					</button>
 				</>

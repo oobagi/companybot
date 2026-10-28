@@ -1,12 +1,15 @@
 import { api } from "../api";
 import { useMutation } from "../convex";
-import { CaretDownIcon } from "../icons";
+import { CaretDownIcon, SettingsIcon } from "../icons";
 import { navigate } from "../router";
-import { Notice, useRun } from "../ui";
+import { MenuDivider, Notice, useRun } from "../ui";
 import { MenuItem, Popover } from "./chat/common";
 
-/** The workspace name at the top of the sidebar: leave it. Its logo, switching and invites are in the rail (WorkspaceRail). */
-export function WorkspaceMenu({ name }: { name: string }) {
+/**
+ * The workspace name at the top of the sidebar: its settings, or leave it. Its logo, switching and
+ * invites are in the rail (WorkspaceRail); your own settings are under your avatar there.
+ */
+export function WorkspaceMenu({ name, onSettings }: { name: string; onSettings: () => void }) {
 	const leave = useMutation(api.workspace.leave);
 	const { error, run } = useRun();
 
@@ -25,6 +28,10 @@ export function WorkspaceMenu({ name }: { name: string }) {
 				{(close) => (
 					<>
 						<Notice>{error}</Notice>
+						<MenuItem onClick={() => (close(), onSettings())}>
+							<SettingsIcon className="text-neutral-500" /> Workspace settings
+						</MenuItem>
+						<MenuDivider />
 						<MenuItem danger onClick={() => confirm(`Leave ${name}? You'll need a new invite to come back.`) && run(leave(), () => (close(), navigate("chat")))}>
 							Leave {name}
 						</MenuItem>

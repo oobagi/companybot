@@ -5,18 +5,18 @@ import { useMutation, usePaginatedQuery, useQuery, useWorkspace } from "../../co
 import { CaretRightIcon, MoreIcon, PageIcon, PlusIcon, TrashIcon } from "../../icons";
 import { navigate } from "../../router";
 import { LoadMore, Notice, primaryButton, secondaryButton, useRun } from "../../ui";
-import { Group, Item, trailingAction } from "../chat/Sidebar";
+import { AddButton, Group, Item, type SectionProps, trailingAction } from "../chat/Sidebar";
 import { MenuItem, Modal, Popover } from "../chat/common";
 
 type PageId = Id<"pages">;
 type Row = { _id: PageId; title: string; hasChildren?: boolean };
 
 /** Each expanded level loads independently; no workspace-wide list or fixed tree-size cutoff. */
-export function PagesNav({ openId }: { openId: string | undefined }) {
+export function PagesNav({ openId, section }: { openId: string | undefined; section: SectionProps }) {
 	const workspace = useWorkspace();
-	return <PageNavTree key={workspace?.id} openId={openId} storageKey={`pages-expanded:${workspace?.id}`} />;
+	return <PageNavTree key={workspace?.id} openId={openId} section={section} storageKey={`pages-expanded:${workspace?.id}`} />;
 }
-function PageNavTree({ openId, storageKey }: { openId?: string; storageKey: string }) {
+function PageNavTree({ openId, section, storageKey }: { openId?: string; section: SectionProps; storageKey: string }) {
 	const [expanded, setExpanded] = useState<Set<string>>(() => {
 		try { const saved = JSON.parse(localStorage.getItem(storageKey) ?? "[]"); return new Set(Array.isArray(saved) ? saved.filter((id): id is string => typeof id === "string") : []); } catch { return new Set(); }
 	});
@@ -48,7 +48,7 @@ function PageNavTree({ openId, storageKey }: { openId?: string; storageKey: stri
 	};
 	const add = (parentId?: PageId) => run(create({ title: "Untitled", parentId }).then((id) => { if (parentId) toggle(parentId, true); navigate("pages", id); }));
 	const level = (parentId?: PageId, depth = 0): React.ReactNode => (
-		<PageLevel parentId={parentId} render={(p) => {
+		<PageLevel parentId={parentId} empty={depth === 0 && <Item icon={<PlusIcon />} onClick={() => add()} muted>New page</Item>} render={(p) => {
 			const open = p.hasChildren && expanded.has(p._id);
 			const chevron = <button type="button" aria-label={`${open ? "Collapse" : "Expand"} ${p.title}`} aria-expanded={open} onClick={() => toggle(p._id)} className="relative z-10 hidden size-5 items-center justify-center text-neutral-400 hover:text-neutral-800 group-hover/item:flex"><CaretRightIcon className={open ? "rotate-90" : ""} /></button>;
 			return (
@@ -67,10 +67,9 @@ function PageNavTree({ openId, storageKey }: { openId?: string; storageKey: stri
 		}} />
 	);
 	return (
-		<Group title="Pages" onTitle={() => navigate("pages")} onAdd={() => add()} addLabel="New page">
+		<Group title="Pages" section={section} add={<AddButton label="New page" onClick={() => add()} />}>
 			{batches.map((ids, i) => <PruneExpanded key={i} ids={ids} onPrune={prune} />)}
-			{level()}
-			<Item icon={<PlusIcon />} onClick={() => add()} muted>New page</Item>
+			{!section.collapsed && level()}
 			<Notice>{error}</Notice>
 			{moving && <MovePage page={moving} onClose={() => setMoving(undefined)} />}
 		</Group>
