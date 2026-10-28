@@ -1,5 +1,5 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery, useWorkspace } from "../convex";
 import { PlusIcon } from "../icons";
@@ -20,11 +20,6 @@ const mod = navigator.userAgent.includes("Mac") ? "⌘" : "Ctrl+";
 export function WorkspaceRail() {
 	const mine = useQuery(api.workspace.mine);
 	const activity = useQuery(api.workspace.activity);
-	const accept = useMutation(api.workspace.acceptInvite);
-	const decline = useMutation(api.workspace.declineInvite);
-	const create = useMutation(api.workspace.create);
-	const [name, setName] = useState("");
-	const { error, run } = useRun();
 	const current = useWorkspace();
 	// The name beside whatever's hovered, at once (a title waits a second and can't be styled).
 	const [tip, setTip] = useState<{ label: string; hint?: string; top: number }>();
@@ -62,99 +57,43 @@ export function WorkspaceRail() {
 
 	return (
 		<nav className="drag flex w-[60px] shrink-0 flex-col items-center gap-2 border-r border-neutral-200 bg-neutral-100 pt-12 pb-3">
-			{mine?.workspaces.map((w, i) => {
-				const active = w.id === current?.id;
-				const waiting = active ? undefined : activity?.find((a) => a.id === w.id);
-				return (
-					<div key={w.id} className="group relative flex w-full justify-center">
-						<span
-							className={`absolute top-1/2 left-0 w-1 -translate-y-1/2 rounded-r-full bg-neutral-900 transition-all ${active ? "h-7" : waiting?.unread ? "h-2 group-hover:h-3.5" : "h-0 group-hover:h-3.5"}`}
-						/>
-						<span className="relative" {...tipFor(w.name, i < 9 ? `${mod}${i + 1}` : undefined)}>
-							<button
-								type="button"
-								aria-label={waiting?.mentions ? `${w.name}, ${waiting.mentions} unread mentions` : w.name}
-								aria-current={active}
-								onClick={() => !active && goTo(w.id)}
-								className={`${shape} overflow-hidden ${active ? "rounded-xl" : "rounded-[18px] hover:rounded-xl"}`}
-							>
-								<Avatar name={w.name} image={w.image} agent className="pointer-events-none" />
-							</button>
-							{!!waiting?.mentions && (
-								<span className="pointer-events-none absolute -right-1 -bottom-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-neutral-100 bg-red-500 px-0.5 text-[10px] leading-none font-semibold text-white">
-									{waiting.mentions > 9 ? "9+" : waiting.mentions}
-								</span>
-							)}
-						</span>
-					</div>
-				);
-			})}
-			{mine?.invitations.map((i) => (
-				<span key={i.id} className="flex" {...tipFor(`Invite to ${i.workspace}`)}>
-					<Popover
-						trigger={
-							<>
-								<span className="sr-only">Invite to {i.workspace}</span>
-								<span className="flex size-full items-center justify-center rounded-[inherit] border-2 border-dashed border-neutral-300 text-xs font-medium text-neutral-500">
-									{i.workspace.slice(0, 1).toUpperCase()}
-								</span>
-								<span className="absolute top-0 right-0 size-2.5 rounded-full border-2 border-neutral-100 bg-sky-500" />
-							</>
-						}
-						className={`${shape} rounded-[18px] hover:rounded-xl`}
-						panelClassName="flex w-56 flex-col gap-1.5 p-3"
-					>
-						<p className="text-xs text-neutral-700">
-							{i.invitedBy ? `${i.invitedBy} invited you to ` : "You're invited to "}
-							<span className="font-medium">{i.workspace}</span>
-						</p>
-						<div className="flex gap-3 text-xs font-medium">
-							<button type="button" onClick={() => run(accept({ id: i.id }).then(setJoined))} className="text-sky-800 hover:underline">
-								Join
-							</button>
-							<button type="button" onClick={() => run(decline({ id: i.id }))} className="text-neutral-500 hover:underline">
-								Decline
-							</button>
-						</div>
-						{error && <Notice>{error}</Notice>}
-					</Popover>
-				</span>
-			))}
-			<span className="flex" {...tipFor("Create a workspace")}>
-				<Popover
-					trigger={
-						<>
-							<span className="sr-only">Create a workspace</span>
-							<PlusIcon size={18} />
-						</>
-					}
-					className={`${shape} flex items-center justify-center rounded-[18px] bg-white text-neutral-500 hover:rounded-xl hover:bg-neutral-900 hover:text-white`}
-					panelClassName="w-64 p-3"
-				>
-					{(close) => (
-						<form
-							className="flex flex-col gap-2"
-							onSubmit={(e) => {
-								e.preventDefault();
-								run(create({ name }).then((id) => (setJoined(id), setName(""), close())));
-							}}
-						>
-							<p className="font-medium">Create a workspace</p>
-							<p className="text-xs text-neutral-500">For another business. You'll be its owner; invite people from Settings → Members.</p>
-							<input
-								autoFocus
-								value={name}
-								onChange={(e) => setName(e.target.value)}
-								placeholder="Business name"
-								className={compactControlClass}
+			{/* Workspaces and invites scroll when there are many; + stays below them. */}
+			<div onScroll={() => setTip(undefined)} className="no-drag flex min-h-0 w-full flex-col items-center gap-2 overflow-y-auto [scrollbar-width:none]">
+				{mine?.workspaces.map((w, i) => {
+					const active = w.id === current?.id;
+					const waiting = active ? undefined : activity?.find((a) => a.id === w.id);
+					return (
+						<div key={w.id} className="group relative flex w-full shrink-0 justify-center">
+							<span
+								className={`absolute top-1/2 left-0 w-1 -translate-y-1/2 rounded-r-full bg-neutral-900 transition-all ${active ? "h-7" : waiting?.unread ? "h-2 group-hover:h-3.5" : "h-0 group-hover:h-3.5"}`}
 							/>
-							{error && <Notice>{error}</Notice>}
-							<button type="submit" disabled={!name.trim()} className={`${primaryButton} self-end`}>
-								Create
-							</button>
-						</form>
-					)}
-				</Popover>
+							<span className="relative" {...tipFor(w.name, i < 9 ? `${mod}${i + 1}` : undefined)}>
+								<button
+									type="button"
+									aria-label={waiting?.mentions ? `${w.name}, ${waiting.mentions} unread mentions` : w.name}
+									aria-current={active}
+									onClick={() => !active && goTo(w.id)}
+									className={`${shape} overflow-hidden ${active ? "rounded-xl" : "rounded-[18px] hover:rounded-xl"}`}
+								>
+									<Avatar name={w.name} image={w.image} agent className="pointer-events-none" />
+								</button>
+								{!!waiting?.mentions && (
+									<span className="pointer-events-none absolute -right-1 -bottom-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-neutral-100 bg-red-500 px-0.5 text-[10px] leading-none font-semibold text-white">
+										{waiting.mentions > 9 ? "9+" : waiting.mentions}
+									</span>
+								)}
+							</span>
+						</div>
+					);
+				})}
+				{mine?.invitations.map((i) => (
+					<span key={i.id} className="flex shrink-0" {...tipFor(`Invite to ${i.workspace}`)}>
+						<Invite invite={i} onJoined={setJoined} />
+					</span>
+				))}
+			</div>
+			<span className="flex shrink-0" {...tipFor("Create a workspace")}>
+				<CreateWorkspace onCreated={setJoined} />
 			</span>
 			{tip && (
 				<div
@@ -166,5 +105,85 @@ export function WorkspaceRail() {
 				</div>
 			)}
 		</nav>
+	);
+}
+
+type Invitation = { id: Id<"invites">; workspace: string; invitedBy: string | null };
+
+/** An invite waits in the rail, dashed, until you join or decline it. Its errors stay in its own popover. */
+function Invite({ invite, onJoined }: { invite: Invitation; onJoined: (id: Id<"workspaces">) => void }) {
+	const accept = useMutation(api.workspace.acceptInvite);
+	const decline = useMutation(api.workspace.declineInvite);
+	const { error, run } = useRun();
+	return (
+		<Popover
+			trigger={
+				<>
+					<span className="sr-only">Invite to {invite.workspace}</span>
+					<span className="flex size-full items-center justify-center rounded-[inherit] border-2 border-dashed border-neutral-300 text-xs font-medium text-neutral-500">
+						{invite.workspace.slice(0, 1).toUpperCase()}
+					</span>
+					<span className="absolute top-0 right-0 size-2.5 rounded-full border-2 border-neutral-100 bg-sky-500" />
+				</>
+			}
+			className={`${shape} rounded-[18px] hover:rounded-xl`}
+			panelClassName="flex w-56 flex-col gap-1.5 p-3"
+		>
+			<p className="text-xs text-neutral-700">
+				{invite.invitedBy ? `${invite.invitedBy} invited you to ` : "You're invited to "}
+				<span className="font-medium">{invite.workspace}</span>
+			</p>
+			<div className="flex gap-3 text-xs font-medium">
+				<button type="button" onClick={() => run(accept({ id: invite.id }).then(onJoined))} className="text-sky-800 hover:underline">
+					Join
+				</button>
+				<button type="button" onClick={() => run(decline({ id: invite.id }))} className="text-neutral-500 hover:underline">
+					Decline
+				</button>
+			</div>
+			{error && <Notice>{error}</Notice>}
+		</Popover>
+	);
+}
+
+/** + at the bottom of the rail: name a new workspace, which you'll own. */
+function CreateWorkspace({ onCreated }: { onCreated: (id: Id<"workspaces">) => void }) {
+	const create = useMutation(api.workspace.create);
+	const [name, setName] = useState("");
+	const { error, busy, run } = useRun();
+	// A second Enter or click before the first answer would start a second workspace (and welcome);
+	// `busy` only stops it once React has re-rendered.
+	const sending = useRef(false);
+	return (
+		<Popover
+			trigger={
+				<>
+					<span className="sr-only">Create a workspace</span>
+					<PlusIcon size={18} />
+				</>
+			}
+			className={`${shape} flex items-center justify-center rounded-[18px] bg-white text-neutral-500 hover:rounded-xl hover:bg-neutral-900 hover:text-white`}
+			panelClassName="w-64 p-3"
+		>
+			{(close) => (
+				<form
+					className="flex flex-col gap-2"
+					onSubmit={(e) => {
+						e.preventDefault();
+						if (sending.current || !name.trim()) return;
+						sending.current = true;
+						void run(create({ name }).then((id) => (onCreated(id), setName(""), close()))).finally(() => (sending.current = false));
+					}}
+				>
+					<p className="font-medium">Create a workspace</p>
+					<p className="text-xs text-neutral-500">For another business. You'll be its owner; invite people from Settings → Members.</p>
+					<input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Business name" className={compactControlClass} />
+					{error && <Notice>{error}</Notice>}
+					<button type="submit" disabled={!name.trim() || busy} className={`${primaryButton} self-end`}>
+						Create
+					</button>
+				</form>
+			)}
+		</Popover>
 	);
 }
