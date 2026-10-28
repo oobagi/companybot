@@ -22,6 +22,7 @@ export function Composer({
 	sendWith,
 	placeholder,
 	status,
+	tray,
 	onType,
 	candidates,
 }: {
@@ -30,6 +31,8 @@ export function Composer({
 	placeholder: string;
 	/** The line under the box (who's typing). Its space is kept when empty, so the box doesn't jump. */
 	status?: ReactNode;
+	/** Sits on top of the box, joined to it (the tutorial). */
+	tray?: ReactNode;
 	onType?: () => void;
 	/** People and agents offered by @mention autocomplete. */
 	candidates: Participant[];
@@ -92,6 +95,8 @@ export function Composer({
 					))}
 				</ul>
 			)}
+			<div className="flex flex-col">
+			{tray}
 			<form
 				className="flex w-full items-end gap-2 rounded-2xl border border-neutral-200 bg-white p-2 pl-4 shadow-sm focus-within:border-neutral-300"
 				onSubmit={(e) => {
@@ -149,6 +154,7 @@ export function Composer({
 					<ArrowUpIcon weight="bold" />
 				</button>
 			</form>
+			</div>
 			<p className="h-4 truncate px-4 text-xs text-neutral-400" aria-live="polite">
 				{status}
 			</p>

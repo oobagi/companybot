@@ -175,6 +175,8 @@ export default defineSchema({
 		role,
 		/** Normalized for bounded invitation checks. COMPAT: backfilled by memberEmails. */
 		email: v.optional(v.string()),
+		/** The tutorial above the composer (onboarding.ts): steps done, or hidden. Unset for people who joined before it: they get none. */
+		tutorial: v.optional(v.object({ done: v.array(v.string()), dismissed: v.optional(v.boolean()) })),
 	})
 		.index("by_user", ["userId", "workspaceId"])
 		.index("by_workspace", ["workspaceId"])
@@ -484,8 +486,10 @@ export default defineSchema({
 		chatId: v.id("chats"),
 		threadId: v.optional(v.id("chatMessages")),
 		agentId: v.id("agents"),
-		/** The message that mentioned the agent (or any message, in an agent DM). */
-		triggerId: v.id("chatMessages"),
+		/** The message that mentioned the agent (or any message, in an agent DM). Unset for a welcome, and the approvals that follow one. */
+		triggerId: v.optional(v.id("chatMessages")),
+		/** The agent speaks first: the actor just made the workspace, or joined it (onboarding.ts). */
+		welcome: v.optional(v.union(v.literal("new_workspace"), v.literal("joined"))),
 		/** The agent acts as this person: their role, connector connections, and access. */
 		actorId: v.id("users"),
 		/** The streaming reply, once running. */

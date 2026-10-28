@@ -5,6 +5,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { ACTIVITY_MAX_CHARS, callEnd, callLabel, clipJson, describeCall } from "./activity";
 import { buildToolSet } from "./agents";
 import { builtinTools } from "./builtin-tools";
+import { toolLine } from "./action-words";
 
 import { type ToolDef, modelToolName } from "./tools";
 import { z } from "zod";
@@ -44,6 +45,16 @@ describe("activity log", () => {
 		expect(callLabel("notes.find", tools, crm)).toBe("Find with Notes");
 		expect(callLabel(modelToolName("memory.search"), tools, crm)).toBe("Search memory");
 		expect(callLabel("gone.send_sms", tools, crm)).toBe("Send SMS");
+	});
+
+	it("quotes what a memory save saved, so no save is silent", () => {
+		const remember = modelToolName("memory.remember");
+		const saved = { saved: "m1" };
+		expect(toolLine(callLabel(remember, tools, [], { input: { content: "Prefers mornings" }, output: saved }), "done")).toBe('Saved a personal memory: "Prefers mornings"');
+		expect(callLabel(modelToolName("memory.remember_for_team"), tools, [], { input: { content: "x".repeat(100) }, output: saved })).toBe(`Save to team memory: "${"x".repeat(79)}…"`);
+		// While it runs, or when it was refused, the content isn't shown.
+		expect(callLabel(remember, tools, [], { input: { content: "Prefers mornings" } })).toBe("Remember");
+		expect(callLabel(remember, tools, [], { input: { content: "Prefers mornings" }, output: { error: "Memory is off." } })).toBe("Remember");
 	});
 
 	it("skips widgets and tool search", () => {

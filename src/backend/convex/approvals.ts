@@ -77,7 +77,7 @@ async function alwaysFor(ctx: QueryCtx, row: Doc<"approvals">) {
 	const automation = row.automationInstallId ? await ctx.db.get(row.automationInstallId) : null;
 	if (row.automationInstallId && (!automation || automation.archived)) return null;
 	const turn = !row.automationInstallId && (await ctx.db.get(row.turnId));
-	if (turn && (await ctx.db.get(turn.triggerId))?.automation) return null;
+	if (turn && turn.triggerId && (await ctx.db.get(turn.triggerId))?.automation) return null;
 	// Acting-as-you calls ask only in others' automations, and an Always for them is scoped to it.
 	const { decision } = await decideFor(ctx, member, { action: row.tool, risk: row.risk, foreign: !!automation });
 	if (decision.type !== "ask" || !decision.canAlways) return null;
@@ -182,7 +182,8 @@ export const decide = mutation({
 			chatId: row.chatId,
 			threadId: row.threadId,
 			// The message that started it all, so chat.react still reacts to the person's message.
-			triggerId: asked?.triggerId ?? row.replyId,
+			// A welcome had none: then there's nothing to react to.
+			triggerId: asked ? asked.triggerId : row.replyId,
 			actorId: row.actorId,
 			approvalId,
 		});

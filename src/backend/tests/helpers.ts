@@ -15,8 +15,23 @@ export async function signIn(t: ReturnType<typeof convexTest>, email: string) {
 	const identity = t.withIdentity({ subject: `${userId}|session` });
 	await person(identity).mutation(api.workspace.ensure);
 	const first = await t.run(async (ctx) => (await ctx.db.query("members").collect()).find((m) => m.userId === userId));
+	await skipWelcomes(t);
 	return Object.assign(person(identity, first?.workspaceId), { userId });
 }
+
+/**
+ * Takes back the welcomes agents just started (onboarding.ts), so tests start from a quiet
+ * #general. Tests of the welcome itself call `api.workspace.ensure` directly.
+ */
+export const skipWelcomes = (t: ReturnType<typeof convexTest>) =>
+	t.run(async (ctx) => {
+		for (const turn of await ctx.db.query("agentTurns").collect()) {
+			if (!turn.welcome) continue;
+			if (turn.replyId) await ctx.db.delete(turn.replyId);
+			if (turn.sessionId) await ctx.db.delete(turn.sessionId);
+			await ctx.db.delete(turn._id);
+		}
+	});
 
 /** The workspace a person's calls act in. */
 export const workspaceOf = async (as: As) => (await as.query(api.workspace.me))!.workspaceId!;

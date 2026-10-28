@@ -7,6 +7,7 @@ import { type Skill, skillsIndex } from "./skills";
 import { shortStamp } from "./time";
 import { isGranted } from "./tools";
 import type { Role } from "./types";
+import { type Welcome, welcomeQuestions } from "./onboarding";
 
 // What the model is fed each turn, built for prompt caching (wiki/chat.md):
 // 1. `instructions`: the same for every chat and turn, so it caches everywhere.
@@ -53,9 +54,12 @@ export interface TurnPromptInput {
 	connectors: { connected: { name: string; description: string }[]; unavailable: string[] };
 	/** Everything said in the place since the agent's last reply, oldest first, trigger included. */
 	messages: PlaceMessage[];
-	triggerId: string;
+	/** Null when nobody asked: a welcome. */
+	triggerId: string | null;
 	/** Set when this turn follows an approval decision: it answers that instead of a message. */
 	approval?: ApprovalOutcome;
+	/** Set when the agent speaks first: the actor just made the workspace, or joined it. */
+	welcome?: Welcome;
 	/**
 	 * The copy stored for later turns, which may act for someone else: an approved call's
 	 * result and error are left out, since only the person who approved it may see them.
@@ -110,6 +114,7 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 		);
 	}
 	if (input.approval) sections.push(approvalSection(input.approval, input.forReplay ?? false));
+	else if (input.welcome) sections.push(welcomeSection(input.welcome, actor, input.memory));
 	else if (trigger) sections.push(`Reply to this message from ${clean(trigger.author.name)}:\n${line(trigger)}`);
 	return sections.join("\n\n");
 }
@@ -123,6 +128,28 @@ function approvalSection({ tool, by: name, decision, result, error }: ApprovalOu
 	if (forReplay) return `${by} approved your ${tool} call. What came back was for ${by} only, so it isn't repeated here.`;
 	if (error !== undefined) return `${by} approved your ${tool} call, but it failed: ${error}\nTell them briefly and suggest a next step.`;
 	return `${by} approved your ${tool} call and it ran with exactly the input you sent. Result:\n\`\`\`json\n${result ?? "null"}\n\`\`\`\nTell them briefly what happened, then finish what they asked.`;
+}
+
+/**
+ * Nobody asked yet: the agent opens. One question at a time with a count and a way to skip, and
+ * what it saves said out loud: common onboarding advice, and what Meta AI and ChatGPT do with memory.
+ */
+function welcomeSection(welcome: Welcome, actor: TurnPromptInput["actor"], memory: TurnPromptInput["memory"]) {
+	// The name is theirs to set: quoted once, "them" after, so it can't read as an instruction.
+	const named = actor.name !== actor.email;
+	const who = named ? `${actor.role === "owner" && welcome === "new_workspace" ? "The owner" : "A teammate"}, named ${encode(actor.name)},` : "Someone with no name set yet";
+	const questions = [...(named ? [] : ["what to call them (then set it as their display name with update_preferences, if you have it)"]), ...welcomeQuestions[welcome]];
+	const remembered = memory !== "off";
+	return [
+		welcome === "new_workspace"
+			? `${who} just made this workspace, and nobody has asked you anything yet: you speak first. Introduce yourself in two or three short sentences: who you are, and that you help the whole team here. Say that outside DMs you only answer messages that @mention you${remembered ? ", and that what you learn about the company goes to team memory, which everyone here can see and edit" : ""}. Then get to know them and the company.`
+			: `${who} just joined the workspace, and nobody has asked you anything yet: you speak first. Welcome them${named ? " by name" : ""} in a sentence or two. Say they can @mention you here, or DM you for anything private.${remembered ? " If team memory says what the company does, share it in one line." : ""} Don't ask about the company. Then get to know them.`,
+		`Ask these one at a time, in order: ${questions.map((q, i) => `${i + 1}. ${q}`).join(", ")}. Ask only the first now, say it's 1 of ${questions.length}, and that they can say skip. End this first message with "Reply with @" and your name, since you only see messages that mention you; don't repeat it after.`,
+		`These questions are for this person only. When they @mention you with an answer, thank them in a few words and ask the next, until they're done or say stop. Anyone else who asks you something gets a normal answer, not these questions.`,
+		remembered
+			? "Save answers as they come: facts about the company to team memory. Save a personal memory only from what this person says about themselves, on their own turn; if someone answers for them, credit who said it and save only company facts. Saves show in the chat, so don't announce them."
+			: "Memory is off, so don't save answers.",
+	].join("\n");
 }
 
 /** "#sales, a public channel. Topic: …", "a DM with Ada", or "a group DM". */

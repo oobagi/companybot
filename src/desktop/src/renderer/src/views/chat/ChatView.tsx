@@ -11,6 +11,7 @@ import { ChannelDetails } from "./dialogs";
 import { MessageList } from "./MessageList";
 import { ThreadPanel } from "./Thread";
 import { TrashNotice } from "../Trash";
+import { TutorialTray } from "./Tutorial";
 import { TypingLine, useTypingPing } from "./Typing";
 
 const suggestions = [
@@ -46,6 +47,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 	const [threadId, setThreadId] = useState<Id<"chatMessages">>();
 	const [details, setDetails] = useState(false);
 	const [error, setError] = useState<string>();
+	const [nudge, setNudge] = useState(0);
 	const onError = (e: unknown) => setError(errorMessage(e));
 
 	// A link to a thread opens it; a link to a message scrolls to it once it's loaded.
@@ -78,6 +80,8 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 	const send = (text: string, mentions: Mentions) => {
 		setError(undefined);
 		typing.sent();
+		// Posting in #general without asking an agent: remind them of step 1.
+		if (chat.isDefault && mentions.agentIds.length === 0) setNudge((n) => n + 1);
 		sendMessage({ chatId: chat._id, text, mentions }).catch(onError);
 	};
 	const composer = (
@@ -85,6 +89,8 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 			sendWith={sendWith}
 			placeholder={`Message ${title}`}
 			status={<TypingLine chatId={chat._id} />}
+			// Channels only: it teaches @mentions, and a DM is a step of its own.
+			tray={chat.kind === "channel" && <TutorialTray agent={directory.agents[0]?.name ?? "an agent"} nudge={nudge} />}
 			// Nobody else could see it in an agent DM.
 			onType={agent ? undefined : typing.ping}
 			candidates={candidates}

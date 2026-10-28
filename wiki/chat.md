@@ -10,10 +10,16 @@ Channels, DMs (people and agents), threads, and reactions. One model for all of 
 
 ## When agents reply
 - **Agent DM** (one person + one agent): every message the person sends, including automation runs posted as them.
-- **Everywhere else:** only when @mentioned. Mentioning an agent in a channel adds it to the channel's members. In a DM, only agents already in it answer (a DM's participants are fixed).
+- **Everywhere else:** only when @mentioned. (One exception: the main agent speaks first to welcome someone new; see Onboarding.) Mentioning an agent in a channel adds it to the channel's members. In a DM, only agents already in it answer (a DM's participants are fixed).
 - The reply goes **where it was mentioned**: the main timeline, or the thread.
 - **Agents never trigger agents.** An agent's @mention of another agent is just text.
 - **One turn per agent per place** (chat + thread). Extra mentions queue in `agentTurns`; a person's message always posts. A turn stuck `running` over 5 minutes is failed and the queue moves on.
+
+## Onboarding
+- **Welcome turns.** Making a workspace, or joining one by invite, queues a turn for the workspace's main agent (its oldest active one: Companybot) in #general, acting as that person, with no trigger message (`agentTurns.welcome`: `new_workspace` or `joined`; backend `onboarding.ts`). The agent joins #general. The prompt's last section (`welcomeSection`, core `turn-input.ts`) has it introduce itself, say it only answers @mentions outside DMs and what goes to team memory, then ask `welcomeQuestions` (core `onboarding.ts`) one at a time with a count and "say skip", ending its first message with "Reply with @Companybot". Founders get the company questions; people joining get only theirs (role, current work), plus one line of what team memory already knows. Someone with no name set is first asked what to call them. The person's name is quoted once (JSON) and they're "them" after, so a name can't read as an instruction. Later answers are ordinary @mention turns; the session replay carries the script, which says it's for that person only (anyone else gets normal answers) and that personal memories come only from what they say about themselves on their own turn; answers others give for them save only company facts. No AI provider: the turn fails like any reply.
+- **Saves are never silent.** `memory.remember` and `memory.remember_for_team` label their tool line with what they saved ("Saved a personal memory: \"…\""), so everyone in a shared chat sees it, like Meta AI's "Memory updated". Only once saved: a refused save doesn't quote anything.
+- **Tutorial.** People who join after this shipped get `members.tutorial` (`{ done, dismissed? }`); older members get none. Steps (`tutorialSteps`): @mention an agent, DM an agent, reply in a thread, and (only for roles with `members.manage`) invite someone. Each ticks off on the server when they do it (`completeSteps`, from `messages.send` and `workspace.invite`); a mention counts only if an agent answers it. `onboarding.tutorial` returns the steps, or null once all are done or hidden (`dismissTutorial`). The app shows the current one in a tray joined to the top of a channel's composer (`views/chat/Tutorial.tsx`; not in DMs, where opening one is a step itself); posting in #general without mentioning an agent while step 1 is open makes it pulse.
+- **Why @mention from the first message:** it's how every reply outside DMs works, so the welcome teaches it instead of making an exception. Meta AI in WhatsApp groups and ChatGPT's mention-only mode work the same way.
 
 ## Whose access
 - The agent acts as **the person who triggered it** (`agentTurns.actorId`): their role, connector connections, and what chats they can see. Re-read each call, as before.
@@ -28,7 +34,7 @@ Built for prompt caching: the cache matches an exact prefix, so nothing earlier 
 3. **One new user message per turn**, appended at the end:
    - Where you are: chat, who's in it, who triggered you, memory mode.
    - Everything said in the place since the agent's last reply, including messages not addressed to it, each labeled `[Name time]` with its text as a JSON string. Names and topics lose brackets and line breaks, and the asker's lines are marked `(asker)`, so no message (or look-alike name) can fake a line from someone else: Anthropic's advice for untrusted text. The guide tells the agent only the asker can direct it, and compaction credits a request only to whoever's labeled line made it. A thread's first turn starts with its parent. Capped at ~50 messages; past that, a note says to use `chat.read`.
-   - The trigger message, marked as the one to answer. A turn queued by an approval decision gets the outcome (approved + result, failed, or denied) here instead.
+   - The trigger message, marked as the one to answer. A turn queued by an approval decision gets the outcome (approved + result, failed, or denied) here instead; a welcome gets its script (Onboarding).
 4. **Compaction** — once the session passes ~40k tokens, older turns fold into the session's summary and a ~15k-token tail stays verbatim. One cache miss, then append-only again.
 5. **Chat tools** — `chat.react` (react to the trigger message), `chat.read` (older history or another place), `chat.search` (search chats the actor can see). Granted like other built-ins (`chat.*`).
 

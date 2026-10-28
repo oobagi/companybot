@@ -13,6 +13,7 @@ import { type Member, checkPermission, authUserId, checkVersion, getMember, hasL
 import { cascading, startCascade } from "./cascade";
 import { imageUrl } from "./images";
 import { removeWorkspace } from "./lifecycle";
+import { completeSteps, freshTutorial, welcome } from "./onboarding";
 import { role } from "./schema";
 
 export const me = query({
@@ -53,9 +54,11 @@ export const ensure = mutation({
 		if (invites.length > 0) return;
 
 		const workspaceId = await ctx.db.insert("workspaces", { name: "My company", version: 1 });
-		await ctx.db.insert("members", { workspaceId, userId, role: "owner", email: normalizeEmail((await ctx.db.get(userId))?.email ?? "") });
+		await ctx.db.insert("members", { workspaceId, userId, role: "owner", email: normalizeEmail((await ctx.db.get(userId))?.email ?? ""), tutorial: freshTutorial() });
 		await seedAgents(ctx, workspaceId, userId);
-		await addToChat(ctx, await ensureGeneral(ctx, workspaceId, userId), { userId });
+		const general = await ensureGeneral(ctx, workspaceId, userId);
+		await addToChat(ctx, general, { userId });
+		await welcome(ctx, general, userId, "new_workspace");
 	},
 });
 
@@ -80,9 +83,11 @@ async function join(ctx: MutationCtx, invite: Doc<"invites">, userId: Id<"users"
 		throw new ConvexError("What you had in this workspace before is still being cleaned up. Try again in a few minutes.");
 	await ctx.db.delete(invite._id);
 	if (await memberOf(ctx, userId, invite.workspaceId)) return;
-	await ctx.db.insert("members", { workspaceId: invite.workspaceId, userId, role: invite.role, email: invite.email });
-	await addToChat(ctx, await ensureGeneral(ctx, invite.workspaceId, userId), { userId });
+	await ctx.db.insert("members", { workspaceId: invite.workspaceId, userId, role: invite.role, email: invite.email, tutorial: freshTutorial() });
+	const general = await ensureGeneral(ctx, invite.workspaceId, userId);
+	await addToChat(ctx, general, { userId });
 	await rememberLastUsed(ctx, userId, invite.workspaceId);
+	await welcome(ctx, general, userId, "joined");
 	await fireEvent(ctx, invite.workspaceId, "member.joined", {
 		data: { name: await nameOf(ctx, userId), email: invite.email, role: invite.role },
 	});
@@ -215,6 +220,7 @@ export async function inviteMember(ctx: MutationCtx, member: Member, args: Infer
 	if (await isMemberEmail(ctx, workspaceId, email)) throw new ConvexError("That person is already a member.");
 	if (await inviteIn(ctx, workspaceId, email)) throw new ConvexError("That person already has an invite.");
 	const id = await ctx.db.insert("invites", { workspaceId, email, role: args.role, invitedBy: userId });
+	await completeSteps(ctx, member, ["invite"]);
 	/** False when they got one a moment ago (say, an invite cancelled and made again). */
 	const emailed = await sendInviteEmail(ctx, (await ctx.db.get(id))!, userId);
 	return { emailed };

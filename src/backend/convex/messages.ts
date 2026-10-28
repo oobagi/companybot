@@ -1,4 +1,5 @@
 import { fireEvent } from "./automationRuns";
+import { completeSteps } from "./onboarding";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
@@ -193,6 +194,8 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	for (const agentId of responders) {
 		await enqueueTurn(ctx, chat, { agentId, chatId, threadId, triggerId: messageId, actorId: member.userId });
 	}
+	// The tutorial: steps count only when they did what the step teaches (an agent answers a mention).
+	await completeSteps(ctx, member, [threadId && "thread", dmAgent ? "dm" : responders.length > 0 && "mention"]);
 	// People's top-level channel messages can start automations. Agents' and automations'
 	// posts don't go through here, so automations can't set each other off.
 	if (chat.kind === "channel" && !threadId) {

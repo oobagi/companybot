@@ -72,7 +72,8 @@ describe("invites", () => {
 		expect((await pal.query(api.workspace.mine))!.lastUsed).toBe(acmeId);
 		const inAcme = inWorkspace(pal, acmeId);
 		expect(await inAcme.query(api.workspace.me)).toMatchObject({ workspace: "Acme", role: "member" });
-		expect((await inAcme.query(api.chats.list))!.channels[0]!.members).toHaveLength(2);
+		// The owner, Companybot (it welcomed the owner there) and Pal.
+		expect((await inAcme.query(api.chats.list))!.channels[0]!.members).toHaveLength(3);
 		await pal.mutation(api.workspace.declineInvite, { id: mine.invitations.find((i) => i.workspace !== "Acme")!.id });
 		expect((await pal.query(api.workspace.mine))!.invitations).toEqual([]);
 
