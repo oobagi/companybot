@@ -2,7 +2,7 @@ import { setup as ownerAndMember, signIn } from "./helpers";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { describe, expect, it } from "vitest";
 import { api } from "../convex/_generated/api";
-import { legacyMemberOf } from "../convex/lib";
+import { memberOf } from "../convex/lib";
 import { createRecord } from "../convex/recordOps";
 
 // Lists over thousands of records, under real transaction limits. Slow (seeding takes about a
@@ -47,7 +47,7 @@ describe("records: combined filters at scale", () => {
 		});
 		for (let start = 0; start < COUNT; start += 200) {
 			await t.run(async (ctx) => {
-				const who = { member: (await legacyMemberOf(ctx, owner.userId))! };
+				const who = { member: (await memberOf(ctx, owner.userId, (await ctx.db.get(task._id))!.workspaceId))! };
 				for (const s of seeds.slice(start, start + 200))
 					await createRecord(ctx, who, task._id, { name: s.name, status: s.status, assignee: users[s.owner], due: s.due, tags: s.tags });
 			});

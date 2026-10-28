@@ -57,11 +57,8 @@ describe("approvals", () => {
 		const [theirs] = await owner.query(api.approvals.forReply, { replyId: turn.replyId! });
 		expect(theirs).toMatchObject({ canDecide: false, input: card.input });
 
-		// Both fields include cards while alpha.6 apps still read the fullParts alias.
 		const reply = (await owner.query(api.messages.list, { chatId })).find((m) => m._id === turn.replyId)!;
 		expect(reply.parts).toMatchObject([{ type: "approval", tool: call.tool }]);
-		expect(reply.fullParts).toEqual(reply.parts);
-		expect(reply.fullParts).toMatchObject([{ type: "approval", tool: call.tool }]);
 
 		// Owners can't approve for someone else: the call would run as them.
 		await expect(owner.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true, always: false })).rejects.toThrow(

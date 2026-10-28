@@ -28,7 +28,7 @@ How agents get the go-ahead for actions that leave the building, or that act as 
 - The runner must save the exact held call with its `risk` (`approvals.request`). Stored `risk` stays optional because no migration backfilled old rows; those rows cannot offer Always and use conservative risk checks.
 - The lock is SHA-256 of canonical JSON of the tool id and exact input (`approvalHash`). The app returns the hash it showed; `decide` refuses any other; `claim` re-hashes before running. Only the acting person decides, while they can see the chat, within 24h. Owners cannot decide for someone else. Compare nothing else: unrelated changes never void a call.
 - `approvals.decide` queues a normal turn in the same place with `approvalId`. It runs the approved call first, then gives the agent its outcome through `buildTurnPrompt`. Replays note the held call without its outcome, staying byte-identical.
-- Cards are `approval` message parts. `messages.list` returns them in `parts`; `fullParts` remains an identical alias for alpha.6 apps.
+- Cards are `approval` message parts. `messages.list` returns them in `parts`.
 - Blocked calls (Never or owner block) don't run; the model is told why, and the tool line shows failed.
 
 ## Automations
