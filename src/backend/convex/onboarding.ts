@@ -1,18 +1,23 @@
 import { type TutorialStep, type Welcome, tutorialStepsFor } from "@companybot/core";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
-import { addToChat } from "./chatOps";
+import { addToChat, findOrCreateDm } from "./chatOps";
 import { mutation, query } from "./functions";
 import { type Member, getMember, requireMember } from "./lib";
 import { enqueueTurn } from "./turns";
 
-// Onboarding (wiki/chat.md): the main agent welcomes each new person in #general, and new
-// people get a tutorial above the composer whose steps tick off as they do them.
+// Onboarding (wiki/chat.md): the main agent welcomes a new workspace's owner in #general and
+// each person who joins in their DM with it. New people get a tutorial above the composer whose
+// steps tick off as they do them.
 
 /** A new member's tutorial: nothing done yet. People who joined before it get none. */
 export const freshTutorial = (): NonNullable<Doc<"members">["tutorial"]> => ({ done: [] });
 
-/** The workspace's main agent (its oldest active one, Companybot unless renamed) speaks first in #general. */
+/**
+ * The workspace's main agent (its oldest active one, Companybot unless renamed) speaks first: the
+ * company intro in #general, where everyone gains from it; getting to know someone who joins in
+ * their DM, so #general doesn't fill with one interview per person.
+ */
 export async function welcome(ctx: MutationCtx, general: Doc<"chats">, userId: Id<"users">, kind: Welcome) {
 	const agent = await ctx.db
 		.query("agents")
@@ -20,7 +25,8 @@ export async function welcome(ctx: MutationCtx, general: Doc<"chats">, userId: I
 		.first();
 	if (!agent) return;
 	await addToChat(ctx, general, { agentId: agent._id });
-	await enqueueTurn(ctx, general, { agentId: agent._id, chatId: general._id, actorId: userId, welcome: kind });
+	const chat = kind === "joined" ? await ctx.db.get(await findOrCreateDm(ctx, general.workspaceId, userId, [userId], [agent._id])) : general;
+	if (chat) await enqueueTurn(ctx, chat, { agentId: agent._id, chatId: chat._id, actorId: userId, welcome: kind });
 }
 
 /** Ticks off steps someone just did (falsy entries skipped). Free for people with no tutorial, or who hid it. */

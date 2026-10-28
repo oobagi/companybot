@@ -159,7 +159,7 @@ describe("chats", () => {
 
 describe("messages", () => {
 	it("threads, edits, deletes, and toggles reactions", async () => {
-		const { owner, member } = await ownerAndMember();
+		const { t, owner, member } = await ownerAndMember();
 		const chatId = (await generalOf(owner))._id;
 		const parent = await owner.mutation(api.messages.send, { chatId, text: "Plan?", mentions: noMentions });
 		await member.mutation(api.messages.send, { chatId, threadId: parent, text: "Yes", mentions: noMentions });
@@ -167,10 +167,16 @@ describe("messages", () => {
 		const [top] = await owner.query(api.messages.list, { chatId });
 		expect(top).toMatchObject({ text: "Plan?", replyCount: 2, mine: true });
 		expect(top!.replyAuthors.map((a) => a.name)).toEqual(["owner@co.com", "member@co.com"]);
+		// A thread from before authors were stored reads its replies, and its next reply stores them all.
+		await t.run((ctx) => ctx.db.patch(parent, { replyAuthors: undefined }));
+		expect((await owner.query(api.messages.list, { chatId }))[0]!.replyAuthors.map((a) => a.name)).toEqual(["owner@co.com", "member@co.com"]);
+		await member.mutation(api.messages.send, { chatId, threadId: parent, text: "Ok", mentions: noMentions });
+		expect((await t.run((ctx) => ctx.db.get(parent)))!.replyAuthors).toHaveLength(2);
 		expect((await owner.query(api.messages.list, { chatId, threadId: parent })).map((m) => m.text)).toEqual([
 			"Plan?",
 			"Yes",
 			"Good",
+			"Ok",
 		]);
 
 		await owner.mutation(api.messages.react, { messageId: parent, emoji: "👍" });
@@ -185,6 +191,6 @@ describe("messages", () => {
 		await owner.mutation(api.messages.edit, { messageId: parent, text: "Plan!" });
 		expect((await owner.query(api.messages.list, { chatId }))[0]?.editedAt).not.toBeNull();
 		await owner.mutation(api.messages.remove, { messageId: parent });
-		expect((await owner.query(api.messages.list, { chatId }))[0]).toMatchObject({ deleted: true, text: "", parts: [], replyCount: 2 });
+		expect((await owner.query(api.messages.list, { chatId }))[0]).toMatchObject({ deleted: true, text: "", parts: [], replyCount: 3 });
 	});
 });

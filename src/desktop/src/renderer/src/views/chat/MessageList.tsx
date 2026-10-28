@@ -47,13 +47,20 @@ export function MessageList({
 }) {
 	const place = useQuery(api.chats.place, { chatId, threadId });
 	const scroller = useRef<HTMLDivElement>(null);
+	const content = useRef<HTMLDivElement>(null);
 	const nearBottom = useRef(true);
 
-	// Follow new messages (and streaming replies) only if you're already at the bottom.
+	// Follow new messages and streaming replies (which grow inside their own rows) only if you're
+	// already at the bottom.
 	useLayoutEffect(() => {
 		const el = scroller.current;
-		if (el && nearBottom.current) el.scrollTop = el.scrollHeight;
-	}, [messages]);
+		if (!el || !content.current) return;
+		const follow = () => nearBottom.current && (el.scrollTop = el.scrollHeight);
+		follow();
+		const observer = new ResizeObserver(follow);
+		observer.observe(content.current);
+		return () => observer.disconnect();
+	}, []);
 
 	const upTo = place?.summarizedUpTo ?? null;
 
@@ -67,7 +74,7 @@ export function MessageList({
 				nearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
 			}}
 		>
-			<div className="flex flex-1 flex-col justify-end py-4">
+			<div ref={content} className="flex flex-1 flex-col justify-end py-4">
 				{intro}
 				{messages.map((m, i) => {
 					const prev = messages[i - 1];

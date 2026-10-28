@@ -218,6 +218,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		channel: { index: "by_place", eq: ["chatId"] },
 	},
 	reactions: { childOf: { table: "chatMessages", index: "by_message", field: "messageId" } },
+	replyStreams: { childOf: { table: "chatMessages", index: "by_message", field: "messageId" } },
 	userMentions: {
 		childOf: { table: "chatMessages", index: "by_message", field: "messageId" },
 		member: { index: "by_user_chat", eq: ["userId"], where: (get, row, root) => inWorkspace(get, row.chatId, root) },

@@ -229,9 +229,32 @@ export async function insertMessage(
 	const now = Date.now();
 	if (message.threadId) {
 		const parent = await ctx.db.get(message.threadId);
-		if (parent) await ctx.db.patch(parent._id, { replyCount: (parent.replyCount ?? 0) + 1, lastReplyAt: now });
+		if (parent) {
+			const author = authorOf(message);
+			const others = (await replyAuthorsOf(ctx, parent)).filter((a) => a.userId !== author.userId || a.agentId !== author.agentId);
+			await ctx.db.patch(parent._id, { replyCount: (parent.replyCount ?? 0) + 1, lastReplyAt: now, replyAuthors: [author, ...others].slice(0, 3) });
+		}
 	} else await ctx.db.patch(chat._id, { lastMessageAt: now });
 	return id;
+}
+
+type ReplyAuthor = NonNullable<Doc<"chatMessages">["replyAuthors"]>[number];
+const authorOf = (m: Pick<Doc<"chatMessages">, "authorUserId" | "authorAgentId">): ReplyAuthor =>
+	m.authorUserId ? { userId: m.authorUserId } : { agentId: m.authorAgentId };
+
+/** Up to three people who replied in a thread, newest first. Stored on the parent; threads from before that read their replies. */
+export async function replyAuthorsOf(ctx: QueryCtx, parent: Doc<"chatMessages">): Promise<ReplyAuthor[]> {
+	if (parent.replyAuthors || !parent.replyCount) return parent.replyAuthors ?? [];
+	const replies = await ctx.db
+		.query("chatMessages")
+		.withIndex("by_chat_thread", (q) => q.eq("chatId", parent.chatId).eq("threadId", parent._id))
+		.order("desc")
+		.take(30);
+	const authors: ReplyAuthor[] = [];
+	for (const author of replies.map(authorOf)) {
+		if (!authors.some((a) => a.userId === author.userId && a.agentId === author.agentId)) authors.push(author);
+	}
+	return authors.slice(0, 3);
 }
 
 /** Your newest mention in a chat's main timeline after `since`, if any. */

@@ -81,6 +81,17 @@ describe("agent turns", () => {
 		expect((await generalOf(owner)).members.some((m) => m.id === companybot._id)).toBe(true);
 		const messages = await owner.query(api.messages.list, { chatId });
 		expect(messages.at(-1)).toMatchObject({ _id: turn!.replyId, author: { type: "agent", name: "Companybot" }, status: "streaming" });
+
+		// Streaming writes go to the reply's own stream, not the message the timeline reads; ending moves them over.
+		const replyId = turn!.replyId!;
+		const parts = [{ type: "text" as const, text: "Hello" }];
+		await t.mutation(internal.turns.updateReply, { replyId, text: "Hello", parts });
+		expect(await owner.query(api.messages.stream, { messageId: replyId })).toEqual({ text: "Hello", parts });
+		expect((await owner.query(api.messages.list, { chatId })).at(-1)).toMatchObject({ text: "", parts: [] });
+		await t.mutation(internal.turns.finishReply, { turnId: turn!._id });
+		expect(await owner.query(api.messages.stream, { messageId: replyId })).toBeNull();
+		expect((await owner.query(api.messages.list, { chatId })).at(-1)).toMatchObject({ text: "Hello", parts, status: "done" });
+		expect(await t.run((ctx) => ctx.db.query("replyStreams").collect())).toEqual([]);
 	});
 
 	it("answers every message in an agent DM, one at a time", async () => {
