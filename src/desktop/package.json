@@ -4,7 +4,7 @@
   "version": "0.1.0-alpha.8",
   "description": "AI-first team chat. Agents are teammates.",
   "author": "Jaden Watson",
-  "license": "UNLICENSED",
+  "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
