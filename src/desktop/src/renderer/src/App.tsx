@@ -12,6 +12,7 @@ import { ArrowLeftIcon, DatabaseIcon, PlusIcon, SettingsIcon, SignOutIcon } from
 import { MenuDivider, Notice, Scroll, TopBar, TruncatedTips, useRun } from "./ui";
 import { RecordsView, recordTabs } from "./views/Records";
 import { SettingsNav, SettingsView, settingsScope, settingsTabAliases, settingsTabs } from "./views/Settings";
+import { Landing } from "./views/Landing";
 import { Onboarding } from "./views/Onboarding";
 import { SignIn } from "./views/SignIn";
 import { TitleBar } from "./views/TitleBar";
@@ -31,8 +32,11 @@ type View = (typeof views)[number];
 
 export function App() {
 	const { isLoading, isAuthenticated } = useConvexAuth();
+	// Signed out, the landing comes first; Get started opens sign-in.
+	const [started, setStarted] = useState(false);
 	if (isLoading) return null;
-	return isAuthenticated ? <Workspace /> : <SignIn />;
+	if (isAuthenticated) return <Workspace />;
+	return started ? <SignIn onBack={() => setStarted(false)} /> : <Landing onStart={() => setStarted(true)} />;
 }
 
 /** Where this device keeps the workspace it has open. Each device picks its own. */
