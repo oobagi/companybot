@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
-import type { Id } from "../convex/_generated/dataModel";
 
-import { signIn, agentsOf, setup as ownerAndMember, generalOf, agentTurn, settle } from "./helpers";
+import { signIn, agentsOf, ownerAndMember, generalOf, agentTurn, settle } from "./helpers";
 
 // The tests drive turns themselves; keep scheduled model replies back.
 beforeEach(() => void vi.useFakeTimers());
@@ -26,7 +25,7 @@ describe("memory", () => {
 		expect((await third.query(api.memory.list)).map((m) => m.content)).toEqual(["We close at 5pm."]);
 		// Anyone changes team memories (wiki-style), never anyone else's personal ones.
 		expect(await owner.query(api.memory.list)).toMatchObject([{ content: "We close at 5pm.", canEdit: true }]);
-		await member.mutation(api.memory.update, { id: team.id as never, content: "We close at 6pm.", expectedVersion: 1 });
+		await member.mutation(api.memory.update, { id: team.id, content: "We close at 6pm.", expectedVersion: 1 });
 		expect((await third.query(api.memory.list))[0]).toMatchObject({ content: "We close at 6pm.", createdByName: "owner@co.com", updatedByName: "member@co.com" });
 		expect((await member.query(api.memory.list)).map((m) => m.content)).toEqual(["We close at 6pm.", "I like mornings."]);
 	});
@@ -36,10 +35,10 @@ describe("memory", () => {
 		const agentId = (await agentsOf(owner)).companybot._id;
 		const theirs = await member.mutation(api.memory.create, { agentId, scope: "personal", content: "I'm job hunting." });
 		expect(await owner.query(api.memory.list)).toEqual([]);
-		await expect(owner.mutation(api.memory.update, { id: theirs.id as never, content: "x", expectedVersion: 1 })).rejects.toThrow(
+		await expect(owner.mutation(api.memory.update, { id: theirs.id, content: "x", expectedVersion: 1 })).rejects.toThrow(
 			"Memory not found",
 		);
-		await expect(owner.mutation(api.memory.remove, { id: theirs.id as never })).rejects.toThrow("Memory not found");
+		await expect(owner.mutation(api.memory.remove, { id: theirs.id })).rejects.toThrow("Memory not found");
 		expect(await member.query(api.memory.list)).toMatchObject([{ content: "I'm job hunting.", canEdit: true }]);
 	});
 
@@ -89,7 +88,7 @@ describe("memory", () => {
 		const { t, owner, member } = await ownerAndMember();
 		const agentId = (await agentsOf(owner)).companybot._id;
 		const team = await owner.mutation(api.memory.create, { agentId, scope: "workspace", content: "Office is in Austin." });
-		const id = team.id as Id<"memories">;
+		const id = team.id;
 		const turnId = await agentTurn(t, member, (await generalOf(member))._id, agentId);
 		await t.mutation(internal.memory.updateFor, { turnId, id, content: "Office is in Dallas." });
 		const [fixed] = await owner.query(api.memory.list);
@@ -108,19 +107,19 @@ describe("memory", () => {
 		const { t, owner } = await ownerAndMember();
 		const { scribe } = await agentsOf(owner);
 		const team = await owner.mutation(api.memory.create, { agentId: scribe._id, scope: "workspace", content: "Old fact" });
-		await owner.mutation(api.memory.remove, { id: team.id as never });
+		await owner.mutation(api.memory.remove, { id: team.id });
 		await owner.mutation(api.agents.setArchived, { agentId: scribe._id, archived: true });
 		await owner.mutation(api.trash.purge, { id: scribe._id });
 		await settle(t);
 		expect(await t.run((ctx) => ctx.db.query("trash").collect())).toEqual([]);
-		expect(await t.run((ctx) => ctx.db.get(team.id as Id<"memories">))).toBeNull();
+		expect(await t.run((ctx) => ctx.db.get(team.id))).toBeNull();
 	});
 
 	it("keeps at most 20 old versions of a memory", async () => {
 		const { owner } = await ownerAndMember();
 		const agentId = (await agentsOf(owner)).companybot._id;
 		const memory = await owner.mutation(api.memory.create, { agentId, scope: "workspace", content: "v1" });
-		const id = memory.id as Id<"memories">;
+		const id = memory.id;
 		for (let v = 2; v <= 25; v++) await owner.mutation(api.memory.update, { id, content: `v${v}`, expectedVersion: v - 1 });
 		const versions = await owner.query(api.memory.versions, { id });
 		expect(versions).toHaveLength(20);
@@ -133,7 +132,7 @@ describe("memory", () => {
 		const team = await owner.mutation(api.memory.create, { agentId, scope: "workspace", content: "Office is in Austin." });
 		const mine = await member.mutation(api.memory.create, { agentId, scope: "personal", content: "I like tea." });
 		const turnId = await agentTurn(t, member, (await generalOf(member))._id, agentId);
-		await t.mutation(internal.memory.removeFor, { turnId, id: team.id as Id<"memories"> });
+		await t.mutation(internal.memory.removeFor, { turnId, id: team.id });
 		expect((await owner.query(api.memory.list)).map((m) => m.content)).toEqual([]);
 		expect(await t.query(internal.memory.searchFor, { turnId, query: "Austin" })).toEqual([]);
 		const [entry] = (await owner.query(api.trash.list, { paginationOpts: { numItems: 10, cursor: null } })).page;
@@ -142,40 +141,40 @@ describe("memory", () => {
 		await owner.mutation(api.trash.restore, { kind: "memory", id: team.id });
 		expect((await owner.query(api.memory.list)).map((m) => m.content)).toEqual(["Office is in Austin."]);
 		// Wiki-style both ways: any member can undo anyone's delete.
-		await owner.mutation(api.memory.remove, { id: team.id as never });
+		await owner.mutation(api.memory.remove, { id: team.id });
 		await member.mutation(api.trash.restore, { kind: "memory", id: team.id });
 		expect((await member.query(api.memory.list)).map((m) => m.content)).toContain("Office is in Austin.");
 
-		await member.mutation(api.memory.remove, { id: mine.id as never });
+		await member.mutation(api.memory.remove, { id: mine.id });
 		expect((await member.query(api.trash.list, { paginationOpts: { numItems: 10, cursor: null } })).page).toEqual([]);
-		expect(await t.run((ctx) => ctx.db.get(mine.id as Id<"memories">))).toBeNull();
+		expect(await t.run((ctx) => ctx.db.get(mine.id))).toBeNull();
 
 		// History follows the memory's rules: none for someone else's personal memory, or one in Trash.
 		await member.mutation(api.memory.create, { agentId, scope: "personal", content: "Draft" });
 		const draft = (await member.query(api.memory.list)).find((m) => m.content === "Draft")!;
-		await member.mutation(api.memory.update, { id: draft.id as never, content: "Final", expectedVersion: 1 });
-		const [draftVersion] = await member.query(api.memory.versions, { id: draft.id as never });
-		expect(await owner.query(api.memory.versions, { id: draft.id as never })).toEqual([]);
+		await member.mutation(api.memory.update, { id: draft.id, content: "Final", expectedVersion: 1 });
+		const [draftVersion] = await member.query(api.memory.versions, { id: draft.id });
+		expect(await owner.query(api.memory.versions, { id: draft.id })).toEqual([]);
 		await expect(owner.mutation(api.memory.restoreVersion, { versionId: draftVersion!._id, expectedVersion: 2 })).rejects.toThrow("not found");
 
 		// Deleting forever takes its versions too.
-		await owner.mutation(api.memory.update, { id: team.id as never, content: "Office is in Dallas.", expectedVersion: 1 });
-		await owner.mutation(api.memory.remove, { id: team.id as never });
-		const [teamVersion] = await t.run((ctx) => ctx.db.query("memoryVersions").withIndex("by_memory", (q) => q.eq("memoryId", team.id as Id<"memories">)).collect());
+		await owner.mutation(api.memory.update, { id: team.id, content: "Office is in Dallas.", expectedVersion: 1 });
+		await owner.mutation(api.memory.remove, { id: team.id });
+		const [teamVersion] = await t.run((ctx) => ctx.db.query("memoryVersions").withIndex("by_memory", (q) => q.eq("memoryId", team.id)).collect());
 		await expect(owner.mutation(api.memory.restoreVersion, { versionId: teamVersion!._id, expectedVersion: 2 })).rejects.toThrow("not found");
-		expect(await owner.query(api.memory.versions, { id: team.id as never })).toEqual([]);
+		expect(await owner.query(api.memory.versions, { id: team.id })).toEqual([]);
 		await owner.mutation(api.trash.purge, { id: team.id });
 		expect((await t.run((ctx) => ctx.db.query("memoryVersions").collect())).map((v) => v.content)).toEqual(["Draft"]);
-		expect(await t.run((ctx) => ctx.db.get(team.id as Id<"memories">))).toBeNull();
+		expect(await t.run((ctx) => ctx.db.get(team.id))).toBeNull();
 	});
 
 	it("refuses an edit made against an old version", async () => {
 		const { owner } = await ownerAndMember();
 		const agentId = (await agentsOf(owner)).companybot._id;
 		const memory = await owner.mutation(api.memory.create, { agentId, scope: "personal", content: "v1" });
-		await owner.mutation(api.memory.update, { id: memory.id as never, content: "v2", expectedVersion: 1 });
+		await owner.mutation(api.memory.update, { id: memory.id, content: "v2", expectedVersion: 1 });
 		await expect(
-			owner.mutation(api.memory.update, { id: memory.id as never, content: "stale", expectedVersion: 1 }),
+			owner.mutation(api.memory.update, { id: memory.id, content: "stale", expectedVersion: 1 }),
 		).rejects.toThrow();
 		expect((await owner.query(api.memory.list))[0]!.content).toBe("v2");
 	});
@@ -204,8 +203,8 @@ describe("memory in shared chats", () => {
 		expect(saved).toMatchObject({ scope: "personal", ownerId: await t.run(async (ctx) => (await ctx.db.query("users").first())!._id) });
 		// Saved, but still not read back here.
 		expect((await t.query(internal.memory.searchFor, { ...shared, query: "" })).map((m) => m.content)).toEqual(["We close at 5."]);
-		await expect(t.mutation(internal.memory.removeFor, { ...shared, id: mine.id as Id<"memories"> })).rejects.toThrow("can't be read or changed here");
-		await expect(t.mutation(internal.memory.updateFor, { ...shared, id: saved.id as Id<"memories">, content: "x" })).rejects.toThrow("can't be read or changed here");
+		await expect(t.mutation(internal.memory.removeFor, { ...shared, id: mine.id })).rejects.toThrow("can't be read or changed here");
+		await expect(t.mutation(internal.memory.updateFor, { ...shared, id: saved.id, content: "x" })).rejects.toThrow("can't be read or changed here");
 		const dm = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [agentId] });
 		expect(await t.query(internal.memory.searchFor, { turnId: await agentTurn(t, owner, dm, agentId), query: "" })).toHaveLength(3);
 	});

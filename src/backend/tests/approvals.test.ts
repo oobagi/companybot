@@ -4,7 +4,7 @@ import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { APPROVAL_TTL_MS, approvalHash, canonicalJson } from "@companybot/core";
 
-import { type As, workspaceOf, inWorkspace, sideWorkspace, agentsOf, setup as ownerAndMember, meOf, generalOf, turnsOf } from "./helpers";
+import { type As, workspaceOf, inWorkspace, sideWorkspace, agentsOf, ownerAndMember, generalOf, turnsOf } from "./helpers";
 import "./connectorFixtures";
 
 // The tests drive turns themselves; keep scheduled model replies back.
@@ -113,7 +113,7 @@ describe("approvals", () => {
 	it("can't be decided once the person can't see the chat", async () => {
 		const { t, owner, member } = await ownerAndMember();
 		const chatId = await owner.mutation(api.chats.createChannel, { name: "board", private: true });
-		await owner.mutation(api.chats.addMembers, { chatId, userIds: [await meOf(member)], agentIds: [] });
+		await owner.mutation(api.chats.addMembers, { chatId, userIds: [member.userId], agentIds: [] });
 		const { approvalId, card } = await holdCall(t, member, chatId);
 		await member.mutation(api.chats.leave, { chatId });
 		await expect(member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true, always: false })).rejects.toThrow("not found");
@@ -155,7 +155,7 @@ describe("approvals", () => {
 		// The member also runs a workspace of their own, and switches to it on every device.
 		const side = (await sideWorkspace(t, "member@co.com")).workspaceId;
 		await member.mutation(api.workspace.switchTo, { to: side });
-		const userId = await meOf(member);
+		const userId = member.userId;
 		expect(await t.query(internal.connectors.forTurn, { userId, workspaceId: side, connectorIds: ["crm"] })).toEqual([]);
 
 		// Deciding from a window with the side workspace open finds nothing there...

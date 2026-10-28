@@ -3,9 +3,8 @@ import { ConvexError, type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, httpAction, internalMutation } from "./_generated/server";
-import { requireLiveAgent } from "./agents";
 import { mutation, query } from "./functions";
-import { type Member, authUserId, checkPermission, memberOf, memo, preferencesOf, requireMember } from "./lib";
+import { type Member, authUserId, checkPermission, memberOf, memo, preferencesOf, requireLiveAgent, requireMember, sweepExpired } from "./lib";
 import { savePreferences } from "./preferences";
 
 // Pictures people upload, on Convex file storage. The app POSTs the file to `upload` (an HTTP
@@ -129,15 +128,11 @@ export async function claimUpload(ctx: MutationCtx, member: Member, file: Id<"_s
 export const sweepUploads = internalMutation({
 	args: {},
 	handler: async (ctx) => {
-		const due = await ctx.db
-			.query("uploads")
-			.withIndex("by_created", (q) => q.lt("createdAt", Date.now() - UPLOAD_TTL_MS))
-			.take(SWEEP_MAX);
-		for (const row of due) {
+		const due = ctx.db.query("uploads").withIndex("by_created", (q) => q.lt("createdAt", Date.now() - UPLOAD_TTL_MS));
+		await sweepExpired(ctx, due, async (row) => {
 			await deleteFile(ctx, row.storageId);
 			await ctx.db.delete(row._id);
-		}
-		if (due.length === SWEEP_MAX) await ctx.scheduler.runAfter(0, internal.images.sweepUploads, {});
+		}, internal.images.sweepUploads, SWEEP_MAX);
 	},
 });
 

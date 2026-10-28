@@ -15,7 +15,9 @@
     "./action-words": "./src/action-words.ts",
     "./typing": "./src/typing.ts",
     "./images": "./src/images.ts",
-    "./onboarding": "./src/onboarding.ts"
+    "./onboarding": "./src/onboarding.ts",
+    "./memory": "./src/memory.ts",
+    "./widgets": "./src/widgets.ts"
   },
   "scripts": {
     "test": "vitest run",

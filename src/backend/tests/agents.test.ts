@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 
-import { newTest, signIn, agentsOf, setup as ownerAndMember } from "./helpers";
+import { newTest, signIn, agentsOf, ownerAndMember } from "./helpers";
 
 afterEach(() => void vi.useRealTimers());
 

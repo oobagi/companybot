@@ -4,7 +4,7 @@ import { api, internal } from "../convex/_generated/api";
 import { builtinTools, systemPrompt } from "@companybot/core";
 import { installedSkills } from "../convex/lib";
 
-import { agentsOf, setup as ownerAndMember, noMentions, generalOf, turnsOf } from "./helpers";
+import { agentsOf, ownerAndMember, noMentions, generalOf, turnsOf } from "./helpers";
 
 // The tests drive turns themselves; keep scheduled model replies back.
 beforeEach(() => void vi.useFakeTimers());

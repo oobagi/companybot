@@ -3,8 +3,8 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
-import { type Member, type Who, checkVersion, getMember, requireInWorkspace, requireMember } from "./lib";
-import { currencyOf, fieldsOf, logChange, requireCan, requireType, toField } from "./recordOps";
+import { type Member, type Who, checkPermission, checkVersion, getMember, requireInWorkspace, requireMember } from "./lib";
+import { currencyOf, fieldsOf, logChange, requireType, toField } from "./recordOps";
 import { validateView } from "./recordQuery";
 import { viewConfig } from "./recordValidators";
 
@@ -13,13 +13,12 @@ const VIEWS_MAX = 50;
 type Config = Pick<Doc<"databaseViews">, "name" | "filters" | "sort" | "columns" | "layout" | "groupBy">;
 
 export async function viewsOf(ctx: QueryCtx, member: Member, typeId: Id<"recordTypes">) {
-	const type = await requireType(ctx, member, typeId);
-	if (type.archived) throw new ConvexError("This database is in Trash.");
+	await requireType(ctx, member, typeId, true);
 	return ctx.db.query("databaseViews").withIndex("by_type", (q) => q.eq("typeId", typeId)).take(VIEWS_MAX);
 }
 
 export async function saveView(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, input: Config, viewId?: Id<"databaseViews">, version?: number) {
-	requireCan(who.member, "records.edit");
+	checkPermission(who.member, "records.edit");
 	const views = await viewsOf(ctx, who.member, typeId);
 	const old = viewId ? requireInWorkspace(who.member, await ctx.db.get(viewId), "View") : undefined;
 	if (old && old.typeId !== typeId) throw new ConvexError("View not found.");
@@ -60,7 +59,7 @@ export async function saveView(ctx: MutationCtx, who: Who, typeId: Id<"recordTyp
 }
 
 export async function deleteView(ctx: MutationCtx, who: Who, viewId: Id<"databaseViews">, version: number) {
-	requireCan(who.member, "records.edit");
+	checkPermission(who.member, "records.edit");
 	const view = requireInWorkspace(who.member, await ctx.db.get(viewId), "View");
 	await viewsOf(ctx, who.member, view.typeId);
 	checkVersion(view.version, version);

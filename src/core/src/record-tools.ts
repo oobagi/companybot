@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { fieldKinds } from "./records";
-import { type ToolDef, defineTool, resultText as text } from "./tools";
+import { type ToolDef, defineTool, jsonOutput, resultText as text } from "./tools";
 
 /**
  * Agents use the CRM as the person they're helping: "add Acme Roofing as a client", "move
@@ -264,7 +264,7 @@ export const recordTools: ToolDef[] = [
 			}
 			return { type, typeName, rows, more, ...(more && { cursor }) };
 		},
-		toModelOutput: ({ output }) => ({ type: "json", value: forModel(output, ROW_TEXT_MAX) as never }),
+		toModelOutput: ({ output }) => jsonOutput(forModel(output, ROW_TEXT_MAX)),
 		label: (_input, output) => foundLabel(output),
 	}),
 	defineTool({
@@ -276,7 +276,7 @@ export const recordTools: ToolDef[] = [
 		readOnly: true,
 		returnsData: true,
 		execute: (input, { records }) => records.get(input),
-		toModelOutput: ({ output }) => ({ type: "json", value: forModel(output, RECORD_TEXT_MAX) as never }),
+		toModelOutput: ({ output }) => jsonOutput(forModel(output, RECORD_TEXT_MAX)),
 		label: (_input, output) => (failed(output) || !text(output, "name") ? undefined : `Open ${text(output, "name")}`),
 	}),
 	defineTool({
@@ -303,7 +303,7 @@ export const recordTools: ToolDef[] = [
 		toModelOutput: ({ output }) => {
 			const data = output && typeof output === "object" && "data" in output ? output.data : output;
 			const detail = data && typeof data === "object" && "json" in data;
-			return { type: "json", value: (detail ? output : forModel(output, 20_000)) as never };
+			return jsonOutput(detail ? output : forModel(output, 20_000));
 		},
 	}),
 	defineTool({
@@ -349,7 +349,7 @@ export const recordTools: ToolDef[] = [
 		readOnly: true,
 		returnsData: true,
 		execute: (input, { records }) => records.views(input),
-		toModelOutput: ({ output }) => ({ type: "json", value: forModel(output, RECORD_TEXT_MAX) as never }),
+		toModelOutput: ({ output }) => jsonOutput(forModel(output, RECORD_TEXT_MAX)),
 	}),
 	defineTool({
 		id: "records.save_view",

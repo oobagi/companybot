@@ -4,7 +4,7 @@ import { type FieldKind, fieldKinds } from "@companybot/core/records";
 import { useState } from "react";
 import { api } from "../../api";
 import { useMutation } from "../../convex";
-import { Field, Notice, inputClass, primaryButton, useRun } from "../../ui";
+import { Field, Form, Notice, inputClass, metadataClass, primaryButton, useRun } from "../../ui";
 import { Modal } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { type TypeField, kindLabels } from "./logic";
@@ -48,14 +48,8 @@ export function AddField({
 		);
 	return (
 		<Modal title={`Add a field to ${type.plural.toLowerCase()}`} onClose={onClose}>
-			<form
-				className="flex flex-col gap-4"
-				onSubmit={(e) => {
-					e.preventDefault();
-					submit();
-				}}
-			>
-				{error && <Notice>{error}</Notice>}
+			<Form onSubmit={() => submit()}>
+				<Notice>{error}</Notice>
 				<Field label="Name">
 					<input autoFocus value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Roof type" className={inputClass} />
 				</Field>
@@ -87,7 +81,7 @@ export function AddField({
 				<button type="submit" className={`${primaryButton} self-start`}>
 					Add field
 				</button>
-			</form>
+			</Form>
 		</Modal>
 	);
 }
@@ -113,14 +107,8 @@ export function EditField({ field, onClose }: { field: TypeField; onClose: () =>
 		);
 	return (
 		<Modal title={`Edit “${field.label}”`} onClose={onClose}>
-			<form
-				className="flex flex-col gap-4"
-				onSubmit={(e) => {
-					e.preventDefault();
-					save();
-				}}
-			>
-				{error && <Notice>{error}</Notice>}
+			<Form onSubmit={() => save()}>
+				<Notice>{error}</Notice>
 				<Field label="Name" hint={`${kindLabels[field.kind]}${field.multiple ? ", holds several" : ""}`}>
 					<input autoFocus value={label} onChange={(e) => setLabel(e.target.value)} className={inputClass} />
 				</Field>
@@ -140,7 +128,7 @@ export function EditField({ field, onClose }: { field: TypeField; onClose: () =>
 								</span>
 							))}
 							<input value={added} onChange={(e) => setAdded(e.target.value)} placeholder="New option" className={`${inputClass} py-1.5`} />
-							{retired.length > 0 && <p className="text-xs text-neutral-400">Removed: {retired.map((o) => o.label).join(", ")}</p>}
+							{retired.length > 0 && <p className={metadataClass}>Removed: {retired.map((o) => o.label).join(", ")}</p>}
 						</div>
 					</Field>
 				)}
@@ -158,7 +146,7 @@ export function EditField({ field, onClose }: { field: TypeField; onClose: () =>
 						</button>
 					)}
 				</div>
-			</form>
+			</Form>
 		</Modal>
 	);
 }

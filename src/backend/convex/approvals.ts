@@ -16,7 +16,7 @@ import { mutation, query } from "./functions";
 import { canSee, findOrCreateDm, insertMessage, namer } from "./chatOps";
 import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { erased, getMember, memberOf, nameOf, requireMember, toActor } from "./lib";
+import { erased, getMember, memberOf, nameOf, requireLiveAgent, requireMember, toActor } from "./lib";
 import { decideFor, setRule } from "./permissions";
 import { automationName, automationScope } from "./automationOps";
 import { titleOf } from "./connectorTools";
@@ -167,8 +167,7 @@ export const decide = mutation({
 		if (status === "expired") throw new ConvexError("This request expired. Ask the agent again.");
 		if (status !== "pending") throw new ConvexError("This was already decided.");
 		if (hash !== row.hash) throw new ConvexError("This action isn't the one you were shown. Nothing ran.");
-		const agent = await ctx.db.get(row.agentId);
-		if (!agent || agent.archived) throw new ConvexError("This agent is in Trash.");
+		const agent = await requireLiveAgent(ctx, member, row.agentId);
 
 		if (approve && always) {
 			const allowed = await alwaysFor(ctx, row);

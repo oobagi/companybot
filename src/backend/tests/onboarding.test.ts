@@ -1,18 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
-import { agentsOf, generalOf, newTest, noMentions, setup, signIn, turnsOf } from "./helpers";
-import { person } from "./person";
+import { agentsOf, generalOf, newTest, noMentions, ownerAndMember, signIn, turnsOf } from "./helpers";
 
 afterEach(() => void vi.useRealTimers());
-
-/** Signs in without skipping the welcome, the way the app does. */
-async function arrive(t: ReturnType<typeof newTest>, email: string) {
-	const userId = await t.run((ctx) => ctx.db.insert("users", { email }));
-	const identity = t.withIdentity({ subject: `${userId}|session` });
-	await person(identity).mutation(api.workspace.ensure);
-	const first = await t.run(async (ctx) => (await ctx.db.query("members").collect()).find((m) => m.userId === userId));
-	return Object.assign(person(identity, first?.workspaceId), { userId });
-}
 
 describe("onboarding", () => {
 	// Hold the model reply back: the tests read the turn, not what the model says.
@@ -20,7 +10,7 @@ describe("onboarding", () => {
 
 	it("has the main agent speak first in #general when someone makes a workspace", async () => {
 		const t = newTest();
-		const owner = await arrive(t, "founder@co.com");
+		const owner = await signIn(t, "founder@co.com", { welcome: true });
 		const { companybot } = await agentsOf(owner);
 		const general = await generalOf(owner);
 		expect(general.members.some((m) => m.id === companybot._id)).toBe(true);
@@ -36,18 +26,21 @@ describe("onboarding", () => {
 		expect(await t.mutation(internal.chatTools.reactFor, { turnId: turn!._id, emoji: "👋" })).toMatchObject({ error: expect.stringContaining("Nobody asked") });
 	});
 
-	it("welcomes each person who joins, acting as them", async () => {
+	it("welcomes each person who joins in their DM with the main agent, acting as them", async () => {
 		const t = newTest();
 		const owner = await signIn(t, "owner@co.com");
+		const { companybot } = await agentsOf(owner);
 		await owner.mutation(api.workspace.invite, { email: "new@co.com", role: "member" });
-		const joiner = await arrive(t, "new@co.com");
+		const joiner = await signIn(t, "new@co.com", { welcome: true });
+		const dm = (await joiner.query(api.chats.list))!.agents.find((a) => a._id === companybot._id)!.dmId;
+		expect(dm).not.toBeNull();
 		const turns = await turnsOf(t);
 		expect(turns).toHaveLength(1);
-		expect(turns[0]).toMatchObject({ actorId: joiner.userId, welcome: "joined", chatId: (await generalOf(owner))._id });
+		expect(turns[0]).toMatchObject({ actorId: joiner.userId, welcome: "joined", chatId: dm });
 	});
 
 	it("ticks off tutorial steps as people do them, with Invite only for those who can invite", async () => {
-		const { owner, member } = await setup();
+		const { owner, member } = await ownerAndMember();
 		const { companybot } = await agentsOf(owner);
 		const general = await generalOf(owner);
 		const steps = async (as: typeof owner) => (await as.query(api.onboarding.tutorial))?.map((s) => `${s.id}${s.done ? " ✓" : ""}`) ?? null;
@@ -74,7 +67,7 @@ describe("onboarding", () => {
 	});
 
 	it("gives no tutorial to people who joined before it", async () => {
-		const { t, member } = await setup();
+		const { t, member } = await ownerAndMember();
 		await t.run(async (ctx) => {
 			for (const m of await ctx.db.query("members").collect()) await ctx.db.patch(m._id, { tutorial: undefined });
 		});
@@ -89,7 +82,7 @@ describe("onboarding", () => {
 		const { companybot } = await agentsOf(owner);
 		await t.run((ctx) => ctx.db.patch(companybot._id, { archived: true }));
 		await owner.mutation(api.workspace.invite, { email: "new@co.com", role: "member" });
-		await arrive(t, "new@co.com");
+		await signIn(t, "new@co.com", { welcome: true });
 		expect(await turnsOf(t)).toEqual([]);
 	});
 });

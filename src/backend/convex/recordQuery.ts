@@ -4,6 +4,7 @@ import { ConvexError, getDocumentSize } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { toField } from "./recordOps";
+import { emptyPage } from "./lib";
 
 // Record lists with any combination of filters (AND) and one sort. See wiki/data.md.
 //
@@ -462,7 +463,7 @@ export async function findRecords(
 		if (!field) throw new ConvexError(`There's no field “${sort.field}”.`);
 		if (field.multiple || field.kind === "link") throw new ConvexError(`Lists can't be sorted by “${field.label}”.`);
 		// Sorting by a field lists records that have it, so "is empty" on it matches nothing.
-		if (conditions.some((c) => c.field === field.key && c.empty === true)) return { page: [], isDone: true, continueCursor: "" };
+		if (conditions.some((c) => c.field === field.key && c.empty === true)) return emptyPage();
 		// A range on the sort field narrows the scan (and picks the currency).
 		const own = checks.find((c) => c.field._id === field._id && (c.rangeStream?.lo || c.rangeStream?.hi));
 		sortStream = own?.rangeStream ?? valueStream(field);

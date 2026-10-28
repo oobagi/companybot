@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import { decrypt } from "../convex/crypto";
 
-import { workspaceOf, agentsOf, setup as ownerAndMember, settle } from "./helpers";
+import { workspaceOf, agentsOf, ownerAndMember, settle } from "./helpers";
 import "./connectorFixtures";
 
 afterEach(() => void vi.useRealTimers());
@@ -48,7 +48,7 @@ describe("connectors", () => {
 		const config = { name: "Scribe", description: "", instructions: "", model: scribe.model, tools: ["crm.*"] };
 		await owner.mutation(api.agents.update, { agentId: scribe._id, expectedVersion: 1, config });
 
-		const memberId = (await member.query(api.workspace.me))!.userId;
+		const memberId = member.userId;
 		const workspaceId = await workspaceOf(owner);
 		const forTurn = () => t.query(internal.connectors.forTurn, { userId: memberId, workspaceId, connectorIds: ["crm"] });
 		expect(await forTurn()).toHaveLength(1);

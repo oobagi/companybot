@@ -8,12 +8,12 @@ import { WidgetView } from "../../widgets";
 import { CallDetails } from "../Activity";
 import { ApprovalMessages } from "./Approval";
 import { AutomationIcon, EditIcon, ReactIcon, ReplyIcon, TrashIcon } from "../../icons";
-import { AgentBadge, Avatar, AvatarStack, EmojiPicker, Popover, clock, useDismiss } from "./common";
+import { AgentBadge, Avatar, AvatarStack, EmojiPicker, IconButton, Popover, clock, useDismiss } from "./common";
 import type { Message } from "./data";
 import { ProfileLink } from "./Profile";
 
 export function MessageRow({
-	message,
+	message: row,
 	grouped,
 	names,
 	onOpenThread,
@@ -28,6 +28,9 @@ export function MessageRow({
 	onOpenThread?: () => void;
 	onError: (e: unknown) => void;
 }) {
+	// A reply streams into its own small query (backend replyStreams): only this row re-renders per token.
+	const live = useQuery(api.messages.stream, row.status === "streaming" ? { messageId: row._id } : "skip");
+	const message = live ? { ...row, ...live } : row;
 	const react = useMutation(api.messages.react);
 	const remove = useMutation(api.messages.remove);
 	const [picker, setPicker] = useState(false);
@@ -125,25 +128,25 @@ export function MessageRow({
 							picker ? "flex" : "hidden group-hover:flex"
 						}`}
 					>
-						<Action label="Add reaction" onClick={() => setPicker(!picker)}>
+						<IconButton label="Add reaction" onClick={() => setPicker(!picker)}>
 							<ReactIcon />
-						</Action>
+						</IconButton>
 						{onOpenThread && (
-							<Action label="Reply in thread" onClick={onOpenThread}>
+							<IconButton label="Reply in thread" onClick={onOpenThread}>
 								<ReplyIcon />
-							</Action>
+							</IconButton>
 						)}
 						{message.mine && !isAgent && (
 							<>
-								<Action label="Edit" onClick={() => setEditing(true)}>
+								<IconButton label="Edit" onClick={() => setEditing(true)}>
 									<EditIcon />
-								</Action>
-								<Action
+								</IconButton>
+								<IconButton
 									label="Delete"
 									onClick={() => confirm("Delete this message?") && remove({ messageId: message._id }).catch(onError)}
 								>
 									<TrashIcon />
-								</Action>
+								</IconButton>
 							</>
 						)}
 						{picker && <EmojiPicker className="absolute top-full right-0 mt-1" onPick={toggle} onClose={() => setPicker(false)} />}
@@ -153,20 +156,6 @@ export function MessageRow({
 			{/* Calls held for permission read as their own messages from the agent, after its reply. */}
 			{held.length > 0 && <ApprovalMessages message={message} parts={held} />}
 		</>
-	);
-}
-
-function Action({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
-	return (
-		<button
-			type="button"
-			title={label}
-			aria-label={label}
-			onClick={onClick}
-			className="flex size-7 items-center justify-center rounded-md text-base text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
-		>
-			{children}
-		</button>
 	);
 }
 

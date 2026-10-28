@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
 
-import { agentsOf, setup as ownerAndMember, noMentions, tick, meOf, generalOf } from "./helpers";
+import { agentsOf, ownerAndMember, noMentions, tick, generalOf } from "./helpers";
 
 afterEach(() => void vi.useRealTimers());
 
@@ -52,7 +52,7 @@ describe("chats", () => {
 
 	it("removes people from a channel only for its managers, and never from #general", async () => {
 		const { owner, member } = await ownerAndMember();
-		const [ownerId, memberId] = [await meOf(owner), await meOf(member)];
+		const [ownerId, memberId] = [owner.userId, member.userId];
 		const ops = await owner.mutation(api.chats.createChannel, { name: "ops", private: false });
 		await member.mutation(api.chats.join, { chatId: ops });
 		const theirs = await member.mutation(api.chats.createChannel, { name: "design", private: false });
@@ -72,8 +72,8 @@ describe("chats", () => {
 
 	it("finds an existing DM instead of making another", async () => {
 		const { owner, member } = await ownerAndMember();
-		const memberId = await meOf(member);
-		const ownerId = await meOf(owner);
+		const memberId = member.userId;
+		const ownerId = owner.userId;
 		const dm = await owner.mutation(api.chats.openDm, { userIds: [memberId], agentIds: [] });
 		expect(await member.mutation(api.chats.openDm, { userIds: [ownerId, memberId], agentIds: [] })).toBe(dm);
 		expect((await member.query(api.chats.get, { chatId: dm }))?.title).toBe("owner@co.com");
@@ -95,7 +95,7 @@ describe("chats", () => {
 		await owner.mutation(api.messages.send, { chatId: general._id, text: "hi all", mentions: noMentions });
 		expect(await generalOf(member)).toMatchObject({ unread: true, mentioned: false });
 		expect(await generalOf(owner)).toMatchObject({ unread: false });
-		const memberId = await meOf(member);
+		const memberId = member.userId;
 		await owner.mutation(api.messages.send, { chatId: general._id, text: "@member look", mentions: { userIds: [memberId], agentIds: [] } });
 		expect(await generalOf(member)).toMatchObject({ unread: true, mentioned: true });
 		await tick();
@@ -107,7 +107,7 @@ describe("chats", () => {
 		const { owner, member } = await ownerAndMember();
 		await owner.mutation(api.preferences.update, { displayName: "Jaden" });
 		const general = await generalOf(owner);
-		const memberId = await meOf(member);
+		const memberId = member.userId;
 		const dm = await owner.mutation(api.chats.openDm, { userIds: [memberId], agentIds: [] });
 		await tick();
 		await owner.mutation(api.messages.send, { chatId: general._id, text: "hi all", mentions: noMentions });
@@ -136,7 +136,7 @@ describe("chats", () => {
 		const { t, owner, member } = await ownerAndMember();
 		await member.mutation(api.preferences.update, { notify: "mentions" });
 		const general = await generalOf(owner);
-		const memberId = await meOf(member);
+		const memberId = member.userId;
 		await tick();
 		const mention = await owner.mutation(api.messages.send, {
 			chatId: general._id,
@@ -159,7 +159,7 @@ describe("chats", () => {
 
 describe("messages", () => {
 	it("threads, edits, deletes, and toggles reactions", async () => {
-		const { owner, member } = await ownerAndMember();
+		const { t, owner, member } = await ownerAndMember();
 		const chatId = (await generalOf(owner))._id;
 		const parent = await owner.mutation(api.messages.send, { chatId, text: "Plan?", mentions: noMentions });
 		await member.mutation(api.messages.send, { chatId, threadId: parent, text: "Yes", mentions: noMentions });
@@ -167,10 +167,16 @@ describe("messages", () => {
 		const [top] = await owner.query(api.messages.list, { chatId });
 		expect(top).toMatchObject({ text: "Plan?", replyCount: 2, mine: true });
 		expect(top!.replyAuthors.map((a) => a.name)).toEqual(["owner@co.com", "member@co.com"]);
+		// A thread from before authors were stored reads its replies, and its next reply stores them all.
+		await t.run((ctx) => ctx.db.patch(parent, { replyAuthors: undefined }));
+		expect((await owner.query(api.messages.list, { chatId }))[0]!.replyAuthors.map((a) => a.name)).toEqual(["owner@co.com", "member@co.com"]);
+		await member.mutation(api.messages.send, { chatId, threadId: parent, text: "Ok", mentions: noMentions });
+		expect((await t.run((ctx) => ctx.db.get(parent)))!.replyAuthors).toHaveLength(2);
 		expect((await owner.query(api.messages.list, { chatId, threadId: parent })).map((m) => m.text)).toEqual([
 			"Plan?",
 			"Yes",
 			"Good",
+			"Ok",
 		]);
 
 		await owner.mutation(api.messages.react, { messageId: parent, emoji: "👍" });
@@ -185,6 +191,6 @@ describe("messages", () => {
 		await owner.mutation(api.messages.edit, { messageId: parent, text: "Plan!" });
 		expect((await owner.query(api.messages.list, { chatId }))[0]?.editedAt).not.toBeNull();
 		await owner.mutation(api.messages.remove, { messageId: parent });
-		expect((await owner.query(api.messages.list, { chatId }))[0]).toMatchObject({ deleted: true, text: "", parts: [], replyCount: 2 });
+		expect((await owner.query(api.messages.list, { chatId }))[0]).toMatchObject({ deleted: true, text: "", parts: [], replyCount: 3 });
 	});
 });

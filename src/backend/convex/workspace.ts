@@ -9,7 +9,7 @@ import { seedAgents } from "./agents";
 import { fieldsOf, typesOf } from "./recordOps";
 import { addToChat, ensureGeneral, latestMentionSince } from "./chatOps";
 import { sendInviteEmail } from "./invites";
-import { type Member, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, liveWorkspace, memberOf, nameOf, normalizeEmail, personOf, preferencesOf, requireMember, requirePermission, timeZoneOf } from "./lib";
+import { type Member, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, liveWorkspace, memberOf, nameOf, normalizeEmail, personOf, preferencesOf, requireMember, requirePermission, requireUserId, timeZoneOf } from "./lib";
 import { cascading, startCascade } from "./cascade";
 import { imageUrl } from "./images";
 import { removeWorkspace } from "./lifecycle";
@@ -375,8 +375,7 @@ export const deleteWorkspace = mutation({
 export const eraseAccount = mutation({
 	args: {},
 	handler: async (ctx) => {
-		const userId = await authUserId(ctx);
-		if (!userId) throw new ConvexError("Not signed in.");
+		const userId = await requireUserId(ctx);
 		// A few indexed reads per workspace however big it is. Leaving them is the cascade's (memberOf refuses an erased account until then).
 		for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId))) {
 			// One being deleted is going anyway, however many memberships its cascade has left to delete.

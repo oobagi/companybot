@@ -1,5 +1,7 @@
 import type { Actor, Role } from "./types";
 
+export type { Role } from "./types";
+
 /**
  * Every workspace-level action and the roles allowed to take it. This is the one
  * place to change who can do what; the backend checks it with `requirePermission`.
@@ -66,7 +68,8 @@ export function canEditMade(who: Actor, managePermission: "skills.manage" | "aut
 
 export const madeEditDenied = "Only the person who made this or an owner can change it.";
 
-export type TrashKind = "record" | "database" | "field" | "page" | "channel" | "agent" | "skill" | "automation" | "memory";
+export const trashKinds = ["record", "database", "field", "page", "channel", "agent", "skill", "automation", "memory"] as const;
+export type TrashKind = (typeof trashKinds)[number];
 
 /**
  * Who can move an item to Trash, and so back out of it, whoever deleted it (Google Drive's shared

@@ -82,7 +82,6 @@ const fieldOf = async (get: Get, root: Root) => await get(root.fieldId!);
 /** Ends access to a workspace at once (memberOf refuses it), then deletes it in a cascade. */
 export async function removeWorkspace(ctx: MutationCtx, workspaceId: Id<"workspaces">) {
 	await ctx.db.patch(workspaceId, { deleting: true });
-	// Old apps' pins are set as the cascade deletes each membership (below); until then they act nowhere.
 	await startCascade(ctx, "workspace", { workspaceId });
 }
 
@@ -219,6 +218,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		channel: { index: "by_place", eq: ["chatId"] },
 	},
 	reactions: { childOf: { table: "chatMessages", index: "by_message", field: "messageId" } },
+	replyStreams: { childOf: { table: "chatMessages", index: "by_message", field: "messageId" } },
 	userMentions: {
 		childOf: { table: "chatMessages", index: "by_message", field: "messageId" },
 		member: { index: "by_user_chat", eq: ["userId"], where: (get, row, root) => inWorkspace(get, row.chatId, root) },

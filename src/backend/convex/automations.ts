@@ -25,7 +25,7 @@ import {
 	nameOf,
 	newCustomId,
 	randomHex,
-	requireAgent,
+	requireLiveAgent,
 	requireMember,
 	saveMade,
 } from "./lib";
@@ -33,7 +33,7 @@ import { automationName, canView, definitionOf, installOf, postingProblem, requi
 import { forgetAutomationGrants } from "./permissions";
 import { startCascade } from "./cascade";
 import { audience, customTrigger } from "./schema";
-import { putInTrash, takeFromTrash, trashInfo } from "./trashOps";
+import { toggleTrash, trashInfo } from "./trashOps";
 
 // An automation is a trigger (schedule, webhook, or something happening in the app), a
 // prompt, an agent, and who it runs for (`AutomationAudience`): just its creator, each
@@ -60,7 +60,7 @@ export const list = query({
 		return Promise.all(
 			rows.map(async ({ automation, install }) => {
 				const agent = await ctx.db.get(install.agentId);
-				const channel = (install?.channelId && (await ctx.db.get(install.channelId))) || null;
+				const channel = (install.channelId && (await ctx.db.get(install.channelId))) || null;
 				const scheduled = automation.trigger.type === "schedule";
 				const audience = install.audience;
 				const canEdit = canEditMade(member, "automations.manage", install.custom ? install.installedBy : undefined);
@@ -81,7 +81,7 @@ export const list = query({
 					// COMPAT(0.1.0-alpha.8): old desktops read dependency badges; no retained definition needs a connector.
 					needs: [],
 					/** Set for automations someone made: what can be edited, and who last did. */
-					custom: install?.custom
+					custom: install.custom
 						? {
 								name: automationName(install),
 								prompt: install.custom.prompt,
@@ -91,27 +91,27 @@ export const list = query({
 								updatedAt: install.custom.updatedAt,
 							}
 						: null,
-					createdByName: install?.custom ? creatorName : null,
+					createdByName: install.custom ? creatorName : null,
 					canEdit,
 					installed: true,
-					enabled: install?.enabled ?? false,
+					enabled: install.enabled,
 					audience,
 					/** Audience "subscribers": whether you turned it on, and how many have. */
 					subscribed: subscribers.includes(member.userId),
 					subscriberCount: subscribers.length,
-					agentId: install?.agentId ?? null,
+					agentId: install.agentId,
 					agentName: agent?.name ?? null,
 					agentArchived: agent?.archived ?? false,
-					channelId: install?.channelId ?? null,
+					channelId: install.channelId ?? null,
 					channelName: channel?.name ?? null,
 					channelArchived: channel?.archived ?? false,
 					/** Secret: only for people who can change it. */
-					webhookUrl: canEdit && install?.webhookToken ? webhookUrl(install.webhookToken) : null,
-					timeZone: install?.timeZone ?? null,
-					lastRunAt: install?.lastRunAt ?? null,
-					lastResult: install?.lastResult ?? null,
+					webhookUrl: canEdit && install.webhookToken ? webhookUrl(install.webhookToken) : null,
+					timeZone: install.timeZone,
+					lastRunAt: install.lastRunAt ?? null,
+					lastResult: install.lastResult ?? null,
 					/** Set while it's in Trash. */
-					trash: install?.archived ? await trashInfo(ctx, member, install._id) : null,
+					trash: install.archived ? await trashInfo(ctx, member, install._id) : null,
 				};
 			}),
 		);
@@ -183,8 +183,7 @@ export async function createAutomation(
 	config = normalizeCustomAutomation(config);
 	await checkConfig(ctx, member, config);
 	if (!timeZone || !isValidTimeZone(timeZone)) throw new ConvexError("Unknown time zone.");
-	const agent = await requireAgent(ctx, member, agentId);
-	if (agent.archived) throw new ConvexError("That agent is in Trash.");
+	await requireLiveAgent(ctx, member, agentId);
 	if (audience === "channel") {
 		if (!channelId) throw new ConvexError("Pick a channel to post in.");
 		await requireVisibleChannel(ctx, member, channelId);
@@ -241,9 +240,7 @@ export async function saveAutomation(ctx: MutationCtx, member: Member, { automat
 /** Moves any automation to Trash, retaining its opt-ins and grants for recovery. */
 export async function removeAutomation(ctx: MutationCtx, who: Who, automationId: string) {
 	const install = await installOf(ctx, who.member.workspaceId, automationId);
-	if (!install) return;
-	await requireEditable(ctx, automationId, who.member);
-	await setAutomationTrashed(ctx, who, install._id, true);
+	if (install) await setAutomationTrashed(ctx, who, install._id, true);
 }
 
 export const remove = mutation({
@@ -262,8 +259,7 @@ export async function setAutomationTrashed(ctx: MutationCtx, who: Who, installId
 	if (!install.custom) checkPermission(member, "automations.manage");
 	else if (!canEditMade(member, "automations.manage", install.installedBy)) throw new ConvexError(madeEditDenied);
 	if (!!install.archived === archived) return;
-	if (archived) await putInTrash(ctx, who, { kind: "automation", id: installId, name: automationName(install) });
-	else await takeFromTrash(ctx, who, installId);
+	await toggleTrash(ctx, who, archived, { kind: "automation", id: installId, name: automationName(install) });
 	await ctx.db.patch(installId, { archived });
 }
 
@@ -301,10 +297,7 @@ export const update = mutation({
 
 export async function updateAutomation(ctx: MutationCtx, member: Member, { automationId, enabled, agentId, audience, channelId }: Infer<typeof updateAutomationArgs>) {
 	const { install } = await requireEditable(ctx, automationId, member);
-	if (agentId) {
-		const agent = await requireAgent(ctx, member, agentId);
-		if (agent.archived) throw new ConvexError("That agent is in Trash.");
-	}
+	if (agentId) await requireLiveAgent(ctx, member, agentId);
 	if (audience === "creator" && !install.custom) throw new ConvexError("Library automations run for people who turn them on, or a channel.");
 	if (audience === "creator" && install.installedBy !== member.userId) throw new ConvexError("Only the person who made it can make it just for them.");
 	if (audience === "channel") {

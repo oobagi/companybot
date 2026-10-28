@@ -39,6 +39,7 @@ export type ChatItem = {
 	title: string;
 	/** Agent DMs only (one person + one agent): the agent. */
 	agentId: Id<"agents"> | null;
+	/** Everyone in it. Empty for channels in `list`, so one person reading a channel doesn't re-run everyone's list. */
 	members: Participant[];
 	unread: boolean;
 	/** An unread message mentions you. */
@@ -59,10 +60,16 @@ export type AgentItem = {
 	lastMessageAt: number | null;
 };
 
-async function toChatItem(ctx: QueryCtx, chat: Doc<"chats">, member: Member, names: Namer): Promise<ChatItem> {
-	const rows = await chatMembersOf(ctx, chat._id);
+/** `mine`: your row in it. `rows`: everyone's, or none for a channel in `list`. */
+async function toChatItem(
+	ctx: QueryCtx,
+	chat: Doc<"chats">,
+	member: Member,
+	names: Namer,
+	mine: Doc<"chatMembers"> | undefined,
+	rows: Doc<"chatMembers">[],
+): Promise<ChatItem> {
 	const members = await Promise.all(rows.map(names.of));
-	const mine = rows.find((r) => r.userId === member.userId);
 	const unread = !!mine && chat.lastMessageAt > (mine.lastReadAt ?? 0);
 	const others = members.filter((m) => m.id !== member.userId).map((m) => m.name);
 	return {
@@ -97,12 +104,11 @@ export const list = query({
 		const items: ChatItem[] = [];
 		for (const row of rows) {
 			const chat = await ctx.db.get(row.chatId);
-			if (chat && !chat.archived && chat.workspaceId === member.workspaceId) items.push(await toChatItem(ctx, chat, member, names));
+			if (chat && !chat.archived && chat.workspaceId === member.workspaceId) items.push(await toChatItem(ctx, chat, member, names, row, chat.kind === "dm" ? await chatMembersOf(ctx, chat._id) : []));
 		}
 		const agents = await ctx.db
 			.query("agents")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
-			.filter((q) => q.eq(q.field("archived"), false))
+			.withIndex("by_workspace_active", (q) => q.eq("workspaceId", member.workspaceId).eq("archived", false))
 			.collect();
 		return {
 			me: member.userId,
@@ -213,8 +219,9 @@ export const get = query({
 		const visible = await visibleChat(ctx, chatId);
 		if (!visible) return null;
 		const { member, chat } = visible;
+		const rows = await chatMembersOf(ctx, chat._id);
 		return {
-			...(await toChatItem(ctx, chat, member, namer(ctx, { images: true }))),
+			...(await toChatItem(ctx, chat, member, namer(ctx, { images: true }), rows.find((r) => r.userId === member.userId), rows)),
 			canManage: chat.kind === "channel" && canManageChannel(toActor(member), chat),
 			trash: chat.archived ? await trashInfo(ctx, member, chat._id) : null,
 		};

@@ -1,8 +1,8 @@
 import type { PaginationOptions, PaginationResult } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { memo } from "./lib";
-import { currencyOf, fieldsOf, typeTrashed } from "./recordOps";
+import { type Member, capped, memo, nameOf } from "./lib";
+import { currencyOf, fieldsOf, idsIn, resolveRefs, typeTrashed } from "./recordOps";
 import { type Condition, type Group, type Sort, findRecords } from "./recordQuery";
 
 // Reads the app (records.ts) and agents (recordTools.ts) share, so their lists, search and
@@ -64,7 +64,7 @@ export async function linkingRecords(
 	const rows = await ctx.db
 		.query("recordValues")
 		.withIndex("by_ref", (q) => (fieldId ? q.eq("ref", recordId).eq("fieldId", fieldId) : q.eq("ref", recordId)))
-		.paginate({ ...paginationOpts, numItems: Math.min(paginationOpts.numItems, PAGE_MAX) });
+		.paginate(capped(paginationOpts, PAGE_MAX));
 	const fields = fieldsByType(ctx);
 	const trashed = typeTrashed(ctx);
 	const page = [];
@@ -75,4 +75,63 @@ export async function linkingRecords(
 		if (recordFields.some((f) => f._id === row.fieldId && !f.archived)) page.push({ record, fields: recordFields, fieldId: row.fieldId });
 	}
 	return { ...rows, page };
+}
+
+/** History entries hold old and new values, so their pages are smaller than lists. */
+const HISTORY_PAGE_MAX = 20;
+
+/** History entries, display-ready, with names resolved once for the page. */
+export async function toEntries(ctx: QueryCtx, workspaceId: Id<"workspaces">, items: { entry: Doc<"recordHistory">; fields: Doc<"recordFields">[] }[]) {
+	const idsOf = items.map(({ entry, fields }) =>
+		entry.recordId ? entry.changes.flatMap((c) => [...idsIn(fields, { [c.key]: c.old }), ...idsIn(fields, { [c.key]: c.new })]) : [],
+	);
+	const { refs } = await resolveRefs(ctx, workspaceId, idsOf.flat());
+	return Promise.all(
+		items.map(async ({ entry: e, fields }, i) => {
+			const field = e.fieldId && fields.find((f) => f._id === e.fieldId);
+			return {
+				_id: e._id,
+				time: e._creationTime,
+				action: e.action,
+				subject: e.subject ?? null,
+				recordId: e.recordId ?? null,
+				/** Field changes: the field's current label. */
+				field: field ? field.label : null,
+				changes: e.changes.map((c) => ({ ...c, label: fields.find((f) => f.key === c.key)?.label ?? c.key })),
+				refs: Object.fromEntries(idsOf[i]!.filter((id) => refs[id]).map((id) => [id, refs[id]!])),
+				user: await nameOf(ctx, e.userId),
+				agent: e.agentId ? ((await ctx.db.get(e.agentId))?.name ?? null) : null,
+				undoes: e.undoes ?? null,
+				undone: !!e.undoneBy,
+			};
+		}),
+	);
+}
+
+/** A record's history, newest first. */
+export async function historyAs(ctx: QueryCtx, member: Member, record: Doc<"records">, paginationOpts: PaginationOptions) {
+	const result = await ctx.db
+		.query("recordHistory")
+		.withIndex("by_record", (q) => q.eq("recordId", record._id))
+		.order("desc")
+		.paginate(capped(paginationOpts, HISTORY_PAGE_MAX));
+	const fields = await fieldsOf(ctx, record.typeId);
+	return { ...result, page: await toEntries(ctx, member.workspaceId, result.page.map((entry) => ({ entry, fields }))) };
+}
+
+/** Every record and field change in the workspace, newest first, with each one's record and database. */
+export async function activityAs(ctx: QueryCtx, member: Member, paginationOpts: PaginationOptions) {
+	const result = await ctx.db
+		.query("recordHistory")
+		.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
+		.order("desc")
+		.paginate(capped(paginationOpts, HISTORY_PAGE_MAX));
+	const fields = fieldsByType(ctx);
+	const entries = await toEntries(ctx, member.workspaceId, await Promise.all(result.page.map(async (entry) => ({ entry, fields: await fields(entry.typeId) }))));
+	const page = [];
+	for (const [i, e] of result.page.entries()) {
+		const record = e.recordId && (await ctx.db.get(e.recordId));
+		page.push({ ...entries[i]!, record: record ? record.title : null, type: (await ctx.db.get(e.typeId))?.name ?? "" });
+	}
+	return { ...result, page };
 }

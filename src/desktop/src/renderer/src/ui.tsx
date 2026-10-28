@@ -1,4 +1,4 @@
-import { Component, Fragment, useCallback, useLayoutEffect, useRef, useState } from "react";
+import { Component, Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { errorMessage } from "./api";
 import { PlusIcon } from "./icons";
 import { navigate } from "./router";
@@ -198,7 +198,7 @@ export function Settings({ title, hint, children }: { title?: string; hint?: str
 					{hint && <p className={descriptionClass}>{hint}</p>}
 				</div>
 			)}
-			<div className="flex flex-col divide-y divide-neutral-100 rounded-xl border border-neutral-200">{children}</div>
+			<div className={listClass}>{children}</div>
 		</section>
 	);
 }
@@ -212,6 +212,15 @@ export function Setting({ label, hint, children }: { label: string; hint?: strin
 			</div>
 			<div className="flex shrink-0 items-center gap-2 text-sm">{children}</div>
 		</div>
+	);
+}
+
+/** A form that stays put on submit; `onSubmit` gets the form, for `FormData`. Fields stack unless `className` says otherwise. */
+export function Form({ className = "flex flex-col gap-4", onSubmit, children }: { className?: string; onSubmit: (form: HTMLFormElement) => void; children: React.ReactNode }) {
+	return (
+		<form className={className} onSubmit={(e) => (e.preventDefault(), onSubmit(e.currentTarget))}>
+			{children}
+		</form>
 	);
 }
 
@@ -240,6 +249,19 @@ export const barDangerButton = `flex items-center gap-1.5 rounded-lg px-2.5 py-1
 const barPrimaryButton = `flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-1 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
 export const descriptionClass = "text-sm text-neutral-500";
 export const metadataClass = "text-xs text-neutral-400";
+/** Quiet text in place of content: nothing here yet, loading. */
+export const hintClass = "text-sm text-neutral-400";
+/** One item as a bordered box: an entry, a rule, a member. */
+export const cardClass = "rounded-xl border border-neutral-200 px-4 py-3";
+/** Rows in one bordered box, split by lines. */
+export const listClass = "flex flex-col divide-y divide-neutral-100 rounded-xl border border-neutral-200";
+/** A compact control in a screen's toolbar or a settings row: search boxes, pickers. */
+export const wideControlClass = `${compactControlClass} w-64`;
+
+/** A line between groups in a menu. */
+export function MenuDivider() {
+	return <div className="my-1 border-t border-neutral-100" />;
+}
 
 /** A screen's create action, always in the top bar: the same look on every screen. */
 export function NewButton({ label, onClick }: { label: string; onClick: () => void }) {
@@ -289,7 +311,9 @@ export function Loading() {
 	);
 }
 
+/** An error in red. Renders nothing without one, so pass it straight in. */
 export function Notice({ children }: { children: React.ReactNode }) {
+	if (!children) return null;
 	return <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{children}</p>;
 }
 
@@ -304,20 +328,39 @@ export class ErrorBoundary extends Component<{ children: React.ReactNode }, { er
 	}
 }
 
-/** Runs a mutation and keeps its error message for display. `busy` while it runs. */
-export function useRun() {
+/**
+ * Runs a mutation and keeps its error message for display. `busy` while it runs.
+ * `fail` shows an error from anywhere else (no argument clears it); `message` words errors.
+ */
+export function useRun(message: (e: unknown) => string = errorMessage) {
 	const [error, setError] = useState<string>();
 	const [busy, setBusy] = useState(false);
+	const fail = (e?: unknown) => setError(e === undefined ? undefined : message(e));
 	const run = (action: Promise<unknown>, then?: () => void) => {
 		setBusy(true);
 		return action
-			.then(
-				() => (setError(undefined), then?.()),
-				(e) => setError(errorMessage(e)),
-			)
+			.then(() => (setError(undefined), then?.()), fail)
 			.finally(() => setBusy(false));
 	};
-	return { error, busy, run };
+	return { error, busy, run, fail };
+}
+
+/** Local state over a live value: starts as `value` and starts over whenever `value` changes. */
+export function useSynced<T>(value: T) {
+	const [state, setState] = useState(value);
+	const [synced, setSynced] = useState(value);
+	if (!Object.is(synced, value)) (setSynced(value), setState(value));
+	return [state, setState] as const;
+}
+
+/** `value`, once it has stopped changing for `ms`: for searches that query as you type. */
+export function useDebounced<T>(value: T, ms = 250) {
+	const [settled, setSettled] = useState(value);
+	useEffect(() => {
+		const timer = setTimeout(() => setSettled(value), ms);
+		return () => clearTimeout(timer);
+	}, [value, ms]);
+	return settled;
 }
 
 /**
@@ -339,14 +382,16 @@ export function useDraft<T>(saved: T, version: number) {
 	};
 }
 
-export function ConflictNotice({ who, onDiscard, onKeep }: { who?: string; onDiscard: () => void; onKeep: () => void }) {
+/** Shows only while `draft` is stale: asks whose change wins. */
+export function ConflictNotice({ draft, who }: { draft: { stale: boolean; discard: () => void; keepMine: () => void }; who?: string }) {
+	if (!draft.stale) return null;
 	return (
 		<div className="flex items-center gap-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
 			<p className="flex-1">{who || "Someone"} saved a change while you were editing.</p>
-			<button type="button" onClick={onDiscard} className="font-medium hover:underline">
+			<button type="button" onClick={draft.discard} className="font-medium hover:underline">
 				Use theirs
 			</button>
-			<button type="button" onClick={onKeep} className="font-medium hover:underline">
+			<button type="button" onClick={draft.keepMine} className="font-medium hover:underline">
 				Keep mine
 			</button>
 		</div>

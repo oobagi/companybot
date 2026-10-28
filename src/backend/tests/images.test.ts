@@ -4,14 +4,14 @@ import type { Id } from "../convex/_generated/dataModel";
 import { UPLOAD_TTL_MS } from "../convex/images";
 import { memberOf } from "../convex/lib";
 import { writeBlocks } from "../convex/pageOps";
-import { type As, agentTurn, agentsOf, generalOf, noMentions, settle, setup, sideWorkspace, signIn, workspaceOf } from "./helpers";
+import { type As, agentTurn, agentsOf, generalOf, noMentions, settle, ownerAndMember, sideWorkspace, signIn, workspaceOf, identityOf } from "./helpers";
 
 afterEach(() => {
 	vi.restoreAllMocks();
 	vi.useRealTimers();
 });
 
-type T = Awaited<ReturnType<typeof setup>>["t"];
+type T = Awaited<ReturnType<typeof ownerAndMember>>["t"];
 const png = (size = 16) => Object.assign(new Uint8Array(size), { 0: 0x89, 1: 0x50, 2: 0x4e, 3: 0x47, 4: 0x0d, 5: 0x0a, 6: 0x1a, 7: 0x0a });
 /** POSTs bytes to the upload endpoint as `as`, as the app does. */
 const post = (as: As, body: Uint8Array<ArrayBuffer>, type: string, workspaceId?: Id<"workspaces">) =>
@@ -40,7 +40,7 @@ const files = (t: T) => t.run(async (ctx) => (await ctx.db.system.query("_storag
 
 describe("pictures", () => {
 	it("sets, replaces and removes the workspace logo, deleting old files; only owners", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const first = await upload(owner);
 		await expect(member.mutation(api.images.set, { of: "workspace", file: first })).rejects.toThrow("permission");
 		await owner.mutation(api.images.set, { of: "workspace", file: first });
@@ -58,7 +58,7 @@ describe("pictures", () => {
 	});
 
 	it("takes only real pictures, by their bytes, from someone signed in and in the workspace", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const workspaceId = await workspaceOf(owner);
 		const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
 		const before = await files(t);
@@ -77,7 +77,7 @@ describe("pictures", () => {
 	});
 
 	it("attaches only the caller's own unclaimed upload", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const theirs = await upload(owner);
 		// Someone else who learns the id can't take it, or block its uploader.
 		await expect(member.mutation(api.images.set, { of: "me", file: theirs })).rejects.toThrow("isn't available");
@@ -91,7 +91,7 @@ describe("pictures", () => {
 	});
 
 	it.each([undefined, "1"])("stops reading an oversized stream with Content-Length %s", async (length) => {
-		const { t, owner } = await setup();
+		const { t, owner } = await ownerAndMember();
 		let reads = 0;
 		const cancel = vi.fn();
 		const body = new ReadableStream({
@@ -115,7 +115,7 @@ describe("pictures", () => {
 	});
 
 	it("accepts the exact limit and signatures split across chunks, using the sniffed type", async () => {
-		const { t, owner } = await setup();
+		const { t, owner } = await ownerAndMember();
 		const bytes = png(2 * 1024 * 1024);
 		const response = await owner.fetch("/images/upload", {
 			method: "POST",
@@ -135,7 +135,7 @@ describe("pictures", () => {
 	});
 
 	it("enforces the per-user cap across simultaneous uploads and frees a slot on claim", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const workspaceId = await workspaceOf(owner);
 		// Race the cap mutations. convex-test's action storage writes share whichever test
 		// transaction is active, so store first rather than racing that fake storage layer.
@@ -144,7 +144,7 @@ describe("pictures", () => {
 			for (let i = 0; i < 24; i++) ids.push(await ctx.storage.store(new Blob([png()])));
 			return ids;
 		});
-		const as = t.withIdentity({ subject: `${owner.userId}|session` });
+		const as = identityOf(t, owner.userId);
 		const results = await Promise.allSettled(stored.map((storageId) => as.mutation(internal.images.saveUpload, { storageId, workspaceId })));
 		expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(20);
 		expect(results.filter((r) => r.status === "rejected")).toHaveLength(4);
@@ -161,7 +161,7 @@ describe("pictures", () => {
 	});
 
 	it("lets only one of two simultaneous targets claim an upload", async () => {
-		const { t, owner } = await setup();
+		const { t, owner } = await ownerAndMember();
 		const file = await upload(owner);
 		const results = await Promise.allSettled([
 			owner.mutation(api.images.set, { of: "workspace", file }),
@@ -174,7 +174,7 @@ describe("pictures", () => {
 	});
 
 	it("keeps attachment and sweeping atomic when both try to consume a stale upload", async () => {
-		const { t, owner } = await setup();
+		const { t, owner } = await ownerAndMember();
 		const file = await upload(owner);
 		await t.run(async (ctx) => {
 			const row = await ctx.db.query("uploads").first();
@@ -191,9 +191,9 @@ describe("pictures", () => {
 	});
 
 	it("sweeps 100 rows at a time and schedules the remainder", async () => {
-		const { t, owner } = await setup();
+		const { t, owner } = await ownerAndMember();
 		vi.useFakeTimers();
-		const userId = (await owner.query(api.workspace.me))!.userId;
+		const userId = owner.userId;
 		await t.run(async (ctx) => {
 			for (let i = 0; i < 105; i++) {
 				const storageId = await ctx.storage.store(new Blob([png()]));
@@ -208,7 +208,7 @@ describe("pictures", () => {
 	});
 
 	it("deletes uploads nobody attached within a day", async () => {
-		const { t, owner } = await setup();
+		const { t, owner } = await ownerAndMember();
 		vi.useFakeTimers();
 		const stale = await upload(owner);
 		const attached = await upload(owner);
@@ -223,7 +223,7 @@ describe("pictures", () => {
 	});
 
 	it("shows people's photos and agents' pictures wherever they're listed", async () => {
-		const { owner, member } = await setup();
+		const { owner, member } = await ownerAndMember();
 		const { scribe } = await agentsOf(owner);
 		await member.mutation(api.images.set, { of: "me", file: await upload(member) });
 		await owner.mutation(api.images.set, { of: scribe._id, file: await upload(owner) });
@@ -240,7 +240,7 @@ describe("pictures", () => {
 	});
 
 	it("lets owners change agents' pictures, not in Trash; agents can reset them and photos", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const { scribe, companybot } = await agentsOf(owner);
 		const file = await upload(owner);
 		await expect(member.mutation(api.images.set, { of: scribe._id, file })).rejects.toThrow("permission");
@@ -262,7 +262,7 @@ describe("pictures", () => {
 	});
 
 	it("keeps an agent's picture in Trash and deletes it with the agent", async () => {
-		const { t, owner } = await setup();
+		const { t, owner } = await ownerAndMember();
 		const { scribe } = await agentsOf(owner);
 		const file = await upload(owner);
 		await owner.mutation(api.images.set, { of: scribe._id, file });
@@ -274,7 +274,7 @@ describe("pictures", () => {
 	});
 
 	it("puts pictures in pages anyone who can edit them can change, kept through Trash, deleted with the page", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		vi.useFakeTimers();
 		const pageId = await member.mutation(api.pages.create, { title: "Wiki" });
 		const file = await upload(member);
@@ -294,7 +294,7 @@ describe("pictures", () => {
 	});
 
 	it("shares a picture copied into another page: the file goes with the last page in the workspace that has it", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const [a, b] = [await member.mutation(api.pages.create, { title: "A" }), await member.mutation(api.pages.create, { title: "B" })];
 		const file = await upload(member);
 		const url = await member.mutation(api.pages.addImage, { pageId: a, file });
@@ -309,7 +309,7 @@ describe("pictures", () => {
 	});
 
 	it("deletes a record body's pictures with the record, keeping ones copied into a page", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const client = (await owner.query(api.recordTypes.list)).find((type) => type.key === "client")!;
 		const acme = await member.mutation(api.records.create, { typeId: client._id, values: { name: "Acme" } });
 		const body = await member.mutation(api.pages.create, { recordId: acme });
@@ -326,7 +326,7 @@ describe("pictures", () => {
 	});
 
 	it("deletes pictures and unclaimed uploads with the workspace, and a photo with its account", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const workspaceId = await workspaceOf(owner);
 		const { scribe } = await agentsOf(owner);
 		const [logo, picture, photo, pending, memberPending] = [await upload(owner), await upload(owner), await upload(member), await upload(owner), await upload(member)];
@@ -348,7 +348,7 @@ describe("pictures", () => {
 });
 
 it("refuses cross-workspace targets and member agent resets", async () => {
-	const { t, owner, member } = await setup();
+	const { t, owner, member } = await ownerAndMember();
 	const { scribe, companybot } = await agentsOf(owner);
 	const outsider = await signIn(t, "outsider@elsewhere.com");
 	const file = await upload(owner);
@@ -361,7 +361,7 @@ it("refuses cross-workspace targets and member agent resets", async () => {
 });
 
 it("resolves each picture URL once across chat and message lists", async () => {
-	const { t, owner } = await setup();
+	const { owner } = await ownerAndMember();
 	const { companybot } = await agentsOf(owner);
 	const file = await upload(owner);
 	await owner.mutation(api.images.set, { of: companybot._id, file });

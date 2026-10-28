@@ -1,14 +1,12 @@
-import { modules, signIn } from "./helpers";
-import { convexTest } from "convex-test";
+import { signIn, newTest } from "./helpers";
 import { expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
-import schema from "../convex/schema";
 
 // A busy webhook keeps a week of delivery ids: deleting its automation forever must stay under
 // Convex's 16,000-write limit however many there are.
 
 it("deletes an automation with 20,000 webhook deliveries without exceeding transaction limits", { timeout: 600_000 }, async () => {
-	const t = convexTest({ schema, modules, transactionLimits: true });
+	const t = newTest();
 	const owner = await signIn(t, "owner@co.com");
 	const agentId = (await owner.query(api.agents.list))[0]!._id;
 	const automationId = await owner.mutation(api.automations.create, {

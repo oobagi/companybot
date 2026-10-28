@@ -1,11 +1,15 @@
 import { viewConfig } from "./recordValidators";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
+import { fieldKinds, risks, roles, trashKinds } from "@companybot/core";
 import { v } from "convex/values";
+
+/** One of `values`, each a literal. */
+const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map((value) => v.literal(value)));
 
 export const notify = v.union(v.literal("all"), v.literal("mentions"), v.literal("off"));
 
-export const role = v.union(v.literal("owner"), v.literal("member"));
+export const role = oneOf(roles);
 
 export const agentConfig = v.object({
 	name: v.string(),
@@ -36,20 +40,10 @@ export const approvalStatus = v.union(
 	v.literal("denied"),
 );
 
-export const trashKind = v.union(
-	v.literal("record"),
-	v.literal("database"),
-	v.literal("field"),
-	v.literal("page"),
-	v.literal("channel"),
-	v.literal("agent"),
-	v.literal("skill"),
-	v.literal("automation"),
-	v.literal("memory"),
-);
+export const trashKind = oneOf(trashKinds);
 
 /** core's Risk. */
-export const risk = v.union(v.literal("none"), v.literal("inside"), v.literal("outside"), v.literal("locked"));
+export const risk = oneOf(risks);
 
 /** core's AllowedHow: why a call that would ask ran. */
 export const allowedHow = v.object({
@@ -101,19 +95,7 @@ export const fieldValue = v.union(
 );
 
 /** core's FieldKind. */
-export const fieldKind = v.union(
-	v.literal("text"),
-	v.literal("number"),
-	v.literal("currency"),
-	v.literal("date"),
-	v.literal("checkbox"),
-	v.literal("choice"),
-	v.literal("email"),
-	v.literal("phone"),
-	v.literal("url"),
-	v.literal("user"),
-	v.literal("link"),
-);
+export const fieldKind = oneOf(fieldKinds);
 
 /** core's AutomationAudience. */
 export const audience = v.union(v.literal("creator"), v.literal("subscribers"), v.literal("channel"));
@@ -173,7 +155,7 @@ export default defineSchema({
 		workspaceId: v.id("workspaces"),
 		userId: v.id("users"),
 		role,
-		/** Normalized for bounded invitation checks. COMPAT: backfilled by memberEmails. */
+		/** Normalized for bounded invitation checks. Every row has it; optional only in the type. */
 		email: v.optional(v.string()),
 		/** The tutorial above the composer (onboarding.ts): steps done, or hidden. Unset for people who joined before it: they get none. */
 		tutorial: v.optional(v.object({ done: v.array(v.string()), dismissed: v.optional(v.boolean()) })),
@@ -437,6 +419,8 @@ export default defineSchema({
 		/** Thread parents only. */
 		replyCount: v.optional(v.number()),
 		lastReplyAt: v.optional(v.number()),
+		/** Thread parents only: the last 3 to reply, newest first. Unset on parents from before it. */
+		replyAuthors: v.optional(v.array(v.object({ userId: v.optional(v.id("users")), agentId: v.optional(v.id("agents")) }))),
 		/** Thread parents only: USD spent on agent replies and summaries in the thread. */
 		costUsd: v.optional(v.number()),
 		/** Server-written provenance. `foreign` snapshots whose words the run follows; absent on older messages, which ask. */
@@ -445,6 +429,14 @@ export default defineSchema({
 		.index("by_chat_thread", ["chatId", "threadId"])
 		.index("by_workspace", ["workspaceId"])
 		.searchIndex("search_text", { searchField: "text", filterFields: ["workspaceId", "chatId"] }),
+
+	// A reply's content while it streams (turns.updateReply). Its many writes a second re-run only
+	// the streaming bubble's query, not every message list; it moves onto the message when it ends.
+	replyStreams: defineTable({
+		messageId: v.id("chatMessages"),
+		text: v.string(),
+		parts: v.array(messagePart),
+	}).index("by_message", ["messageId"]),
 
 	// Who's typing where: one row per person per place (chat + thread), its `at` bumped every
 	// few seconds while they type, deleted when they send. Stale after TYPING_MS (typing.ts).

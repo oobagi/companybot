@@ -9,21 +9,23 @@ import { person } from "./person";
 
 export const modules = import.meta.glob(["../convex/**/*.ts", "../convex/_generated/*.js"]);
 
-/** A signed-in person, with their first workspace open. Convex Auth reads the user id from the token subject. */
-export async function signIn(t: ReturnType<typeof convexTest>, email: string) {
+/** Raw calls as `userId`. Convex Auth reads the user id from the token subject. */
+export const identityOf = (t: ReturnType<typeof convexTest>, userId: Id<"users">) => t.withIdentity({ subject: `${userId}|session` });
+
+/**
+ * A signed-in person, with their first workspace open. Agents' welcomes (onboarding.ts) are
+ * taken back so tests start from a quiet #general, unless `welcome` keeps them.
+ */
+export async function signIn(t: ReturnType<typeof convexTest>, email: string, { welcome = false } = {}) {
 	const userId = await t.run((ctx) => ctx.db.insert("users", { email }));
-	const identity = t.withIdentity({ subject: `${userId}|session` });
+	const identity = identityOf(t, userId);
 	await person(identity).mutation(api.workspace.ensure);
 	const first = await t.run(async (ctx) => (await ctx.db.query("members").collect()).find((m) => m.userId === userId));
-	await skipWelcomes(t);
+	if (!welcome) await skipWelcomes(t);
 	return Object.assign(person(identity, first?.workspaceId), { userId });
 }
 
-/**
- * Takes back the welcomes agents just started (onboarding.ts), so tests start from a quiet
- * #general. Tests of the welcome itself call `api.workspace.ensure` directly.
- */
-export const skipWelcomes = (t: ReturnType<typeof convexTest>) =>
+const skipWelcomes = (t: ReturnType<typeof convexTest>) =>
 	t.run(async (ctx) => {
 		for (const turn of await ctx.db.query("agentTurns").collect()) {
 			if (!turn.welcome) continue;
@@ -63,7 +65,7 @@ export function newTest() {
 	return t;
 }
 
-export async function setup() {
+export async function ownerAndMember() {
 	const t = newTest();
 	const owner = await signIn(t, "owner@co.com");
 	const workspaceId = await workspaceOf(owner);
@@ -81,8 +83,9 @@ export type As = ReturnType<typeof person>;
 export const noMentions = { userIds: [], agentIds: [] };
 /** Read times are in ms; let the clock move so "after" means after. */
 export const tick = () => new Promise((r) => setTimeout(r, 3));
-export const meOf = async (as: As) => (await as.query(api.workspace.me))!.userId;
-export const generalOf = async (as: As) => (await as.query(api.chats.list))!.channels.find((c) => c.isDefault)!;
+/** #general with its members (chats.get: the list leaves channel members out). */
+export const generalOf = async (as: As) =>
+	(await as.query(api.chats.get, { chatId: (await as.query(api.chats.list))!.channels.find((c) => c.isDefault)!._id }))!;
 export const turnsOf = (t: ReturnType<typeof convexTest>) => t.run((ctx) => ctx.db.query("agentTurns").collect());
 /** A running turn of `agentId` for `as`, started by mentioning it in `chatId`. Fake timers hold its reply back. */
 export async function agentTurn(t: ReturnType<typeof convexTest>, as: As, chatId: Id<"chats">, agentId: Id<"agents">) {
@@ -91,18 +94,6 @@ export async function agentTurn(t: ReturnType<typeof convexTest>, as: As, chatId
 	await as.mutation(api.messages.send, { chatId, text: "hi", mentions: { userIds: [], agentIds: [agentId] } });
 	return (await turnsOf(t)).find((x) => !before.some((b) => b._id === x._id))!._id;
 }
-export const usage = (costUsd: number) => ({
-	model: "anthropic/claude-haiku-5.5",
-	steps: 1,
-	inputTokens: 100,
-	cachedInputTokens: 0,
-	outputTokens: 20,
-	contextTokens: 120,
-	costUsd,
-	durationMs: 900,
-});
-
-
 /** Runs everything scheduled (cascades, cleanups) until nothing is left. */
 export async function settle(t: ReturnType<typeof convexTest>) {
 	const fake = vi.isFakeTimers();

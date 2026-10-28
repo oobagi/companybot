@@ -1,11 +1,9 @@
 import { seedLegacyRecords } from "./legacyFixtures";
-import { modules } from "./helpers";
+import { newTest, identityOf } from "./helpers";
 import { connectorCatalog, defineConnector } from "@companybot/core";
-import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import schema from "../convex/schema";
 import { MAX_OWNED_WORKSPACES } from "../convex/workspace";
 import { person } from "./person";
 
@@ -28,9 +26,9 @@ const CONNECTOR = "twoworkspacecrm";
 
 /** Someone who started A, then got B. */
 async function setup() {
-	const t = convexTest({ schema, modules, transactionLimits: true });
+	const t = newTest();
 	const userId = await t.run((ctx) => ctx.db.insert("users", { email: "two@co.com" }));
-	const as = person(t.withIdentity({ subject: `${userId}|session` }));
+	const as = person(identityOf(t, userId));
 	await as.mutation(api.workspace.ensure);
 	const a = (await as.query(api.workspace.mine))!.workspaces[0]!.id;
 	await t.run((ctx) => seedLegacyRecords(ctx, a, userId));
@@ -165,7 +163,7 @@ describe("unread mentions", () => {
 			await ctx.db.insert("members", { userId: id, workspaceId: a, role: "owner" });
 			return id;
 		});
-		const other = person(t.withIdentity({ subject: `${otherId}|session` })).in(a);
+		const other = person(identityOf(t, otherId)).in(a);
 		const chatId = await other.mutation(api.chats.createChannel, { name: "private", private: true });
 		await other.mutation(api.chats.addMembers, { chatId, userIds: [userId], agentIds: [] });
 		await t.run(async (ctx) => {

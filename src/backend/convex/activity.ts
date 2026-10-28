@@ -5,7 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation } from "./_generated/server";
 import { query } from "./functions";
 import { type Namer, canSee, chatLabel, namer } from "./chatOps";
-import { type Member, erased, getMember, liveWorkspace } from "./lib";
+import { type Member, capped, erased, getMember, liveWorkspace } from "./lib";
 import { titleOf } from "./connectorTools";
 import { allowedHow } from "./schema";
 
@@ -139,7 +139,7 @@ async function toEntry(ctx: QueryCtx, row: Doc<"agentActivity">, member: Member,
 export async function activityPage(ctx: QueryCtx, member: Member, opts: PaginationOptions) {
 	const result = await ctx.db.query("agentActivity")
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
-		.order("desc").paginate({ ...opts, numItems: Math.min(opts.numItems, 20) });
+		.order("desc").paginate(capped(opts, 20));
 	const names = namer(ctx);
 	const page = [];
 	for (const row of result.page) {

@@ -11,7 +11,7 @@ import { type Member, type Who, checkPermission, nameOf, requireInWorkspace } fr
 import { cascading, startCascade } from "./cascade";
 import { inTrash, requireRecord } from "./recordOps";
 import { pageState, parentFor } from "./pageTree";
-import { putInTrash, takeFromTrash } from "./trashOps";
+import { toggleTrash } from "./trashOps";
 
 // Shared rules for standalone pages and record bodies. See wiki/pages.md.
 
@@ -121,19 +121,14 @@ export async function setPageTrashed(ctx: MutationCtx, who: Who, page: Doc<"page
 	if (page.recordId) throw new ConvexError("A record's page goes to Trash with its record.");
 	if (page.archived === archived) return;
 	if (archived) await requireEditable(ctx, who.member, page);
-	if (archived) {
-		const child = await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", page.workspaceId).eq("parentId", page._id).eq("recordId", undefined).eq("archived", false)).first();
-		await putInTrash(ctx, who, { kind: "page", id: page._id, name: page.title, includesSubpages: !!child });
-	}
-	else {
-		await takeFromTrash(ctx, who, page._id);
-		if (page.parentId) {
-			const parent = await ctx.db.get(page.parentId);
-			const state = parent ? await pageState(ctx, parent) : null;
-			const missingId = state?.missingId ?? (!parent ? page.parentId : undefined);
-			if (missingId && await cascading(ctx, "page", { workspaceId: page.workspaceId, pageId: missingId })) throw new ConvexError("This page is being deleted forever.");
-			if (!parent || state?.archived) await ctx.db.patch(page._id, { parentId: undefined });
-		}
+	const child = archived && await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", page.workspaceId).eq("parentId", page._id).eq("recordId", undefined).eq("archived", false)).first();
+	await toggleTrash(ctx, who, archived, { kind: "page", id: page._id, name: page.title, includesSubpages: !!child });
+	if (!archived && page.parentId) {
+		const parent = await ctx.db.get(page.parentId);
+		const state = parent ? await pageState(ctx, parent) : null;
+		const missingId = state?.missingId ?? (!parent ? page.parentId : undefined);
+		if (missingId && await cascading(ctx, "page", { workspaceId: page.workspaceId, pageId: missingId })) throw new ConvexError("This page is being deleted forever.");
+		if (!parent || state?.archived) await ctx.db.patch(page._id, { parentId: undefined });
 	}
 	await ctx.db.patch(page._id, { archived, updatedAt: Date.now(), updatedBy: who.member.userId });
 }

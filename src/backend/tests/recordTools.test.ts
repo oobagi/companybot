@@ -1,4 +1,4 @@
-import { setup, signIn } from "./helpers";
+import { ownerAndMember, signIn } from "./helpers";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
@@ -37,7 +37,7 @@ describe("records tools", () => {
 	afterEach(() => void vi.useRealTimers());
 
 	it("describe the types, fields and currency", async () => {
-		const { t, member } = await setup();
+		const { t, member } = await ownerAndMember();
 		const { types } = await turnFor(t, member);
 		const result = await types();
 		expect(result.currency).toBe("USD");
@@ -53,7 +53,7 @@ describe("records tools", () => {
 	});
 
 	it("create and change records as the person, named the way people say things, with history naming both", async () => {
-		const { t, member } = await setup();
+		const { t, member } = await ownerAndMember();
 		const tools = await turnFor(t, member);
 		const client = await tools.save({ type: "Clients", values: { Name: "Acme Roofing", status: "lead" } });
 		expect(client).toMatchObject({ type: "client", typeName: "Client", name: "Acme Roofing", values: { name: "Acme Roofing", status: "Lead" } });
@@ -87,7 +87,7 @@ describe("records tools", () => {
 	});
 
 	it("keep amounts in their own currency", async () => {
-		const { t, member } = await setup();
+		const { t, member } = await ownerAndMember();
 		const tools = await turnFor(t, member);
 		const deal = await tools.save({ type: "deal", values: { name: "Berlin", value: "EUR 1250.5" } });
 		expect(deal.values.value).toBe("€1,250.50");
@@ -97,7 +97,7 @@ describe("records tools", () => {
 	});
 
 	it("explain what's wrong instead of failing the reply", async () => {
-		const { t, member } = await setup();
+		const { t, member } = await ownerAndMember();
 		const tools = await turnFor(t, member);
 		expect(await tools.save({ type: "job", values: { name: "x" } })).toEqual({ error: expect.stringContaining("no database “job”") });
 		expect(await tools.save({ type: "deal", values: { name: "x", client: "Nobody" } })).toEqual({ error: expect.stringContaining("No client named “Nobody”.") });
@@ -108,7 +108,7 @@ describe("records tools", () => {
 	});
 
 	it("list with combined filters, a sort and pages, and search", async () => {
-		const { t, member, owner } = await setup();
+		const { t, member, owner } = await ownerAndMember();
 		const tools = await turnFor(t, member);
 		for (const [i, stage] of ["New", "Proposal", "Proposal", "Won", "Proposal"].entries())
 			await tools.save({ type: "deal", values: { name: `Deal ${i}`, stage, value: (i + 1) * 1000, close_date: `2026-10-${10 + i}`, owner: i % 2 ? "me" : "owner@co.com" } });
@@ -145,7 +145,7 @@ describe("records tools", () => {
 	});
 
 	it("resolve exact keys before labels, and refuse names that could mean two things", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const tools = await turnFor(t, member);
 		const first = await tools.saveField({ type: "client", label: "First slot", kind: "text" });
 		await tools.saveField({ type: "client", label: "Second slot", kind: "text" });
@@ -175,7 +175,7 @@ describe("records tools", () => {
 	});
 
 	it("find linked records by exact name, refusing duplicates beyond any search window", async () => {
-		const { t, member } = await setup();
+		const { t, member } = await ownerAndMember();
 		const tools = await turnFor(t, member);
 		// 25 near-misses that search ranks alike, and two exact duplicates after them.
 		for (let i = 0; i < 25; i++) await tools.save({ type: "client", values: { name: `Acme Roofing ${i}` } });
@@ -196,7 +196,7 @@ describe("records tools", () => {
 	});
 
 	it("bound name lookups: list limits first, repeats looked up once, a cap on distinct names", async () => {
-		const { t, member } = await setup();
+		const { t, member } = await ownerAndMember();
 		const tools = await turnFor(t, member);
 		await tools.saveField({ type: "deal", label: "Partners", kind: "link", linksTo: "client", multiple: true });
 		await tools.save({ type: "client", values: { name: "Acme" } });
@@ -216,7 +216,7 @@ describe("records tools", () => {
 	});
 
 	it("keep a custom field called id or type apart from the row's own id and type", async () => {
-		const { t, member } = await setup();
+		const { t, member } = await ownerAndMember();
 		const tools = await turnFor(t, member);
 		await tools.saveField({ type: "client", label: "ID", kind: "text" });
 		await tools.saveField({ type: "client", label: "Type", kind: "text" });
@@ -229,7 +229,7 @@ describe("records tools", () => {
 	});
 
 	it("delete to Trash, restore and undo", async () => {
-		const { t, member } = await setup();
+		const { t, member } = await ownerAndMember();
 		const tools = await turnFor(t, member);
 		const client = await tools.save({ type: "client", values: { name: "Acme", status: "Lead" } });
 		const changed = await tools.save({ id: client.id, values: { status: "Active" } });
@@ -248,7 +248,7 @@ describe("records tools", () => {
 	});
 
 	it("show a record's links and what links to it", async () => {
-		const { t, member } = await setup();
+		const { t, member } = await ownerAndMember();
 		const tools = await turnFor(t, member);
 		const client = await tools.save({ type: "client", values: { name: "Acme" } });
 		const deal = await tools.save({ type: "deal", values: { name: "Roof", client: client.id } });
@@ -257,7 +257,7 @@ describe("records tools", () => {
 	});
 
 	it("add fields as anyone, but change built-in ones only as an owner, read fresh each call", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const tools = await turnFor(t, member);
 		const roof = await tools.saveField({ type: "client", label: "Roof type", kind: "choice", options: ["Shingle", "Metal"] });
 		expect(roof).toMatchObject({ type: "client", typePlural: "Clients", key: "roof_type", label: "Roof type", kind: "choice", options: ["Shingle", "Metal"] });
@@ -275,7 +275,7 @@ describe("records tools", () => {
 	});
 
 	it("stop working once the person leaves, and never reach another workspace", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const tools = await turnFor(t, member);
 		const other = await signIn(t, "other@else.com");
 		await other.mutation(api.recordTypes.create, { plural: "Clients" });

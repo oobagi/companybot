@@ -1,17 +1,15 @@
-import { convexTest } from "convex-test";
 import { expect, it } from "vitest";
 import { api } from "../convex/_generated/api";
-import schema from "../convex/schema";
-import { modules, settle, signIn } from "./helpers";
+import { settle, signIn, newTest, workspaceOf, identityOf } from "./helpers";
 import { person } from "./person";
 
 // Deleting a workspace bigger than one transaction may write (16,000), with a message whose
 // reactions alone span several runs: every run must stay under Convex's limits.
 
 it("deletes a workspace with 17,000 messages and 2,500 reactions on one without exceeding transaction limits", { timeout: 600_000 }, async () => {
-	const t = convexTest({ schema, modules, transactionLimits: true });
+	const t = newTest();
 	const owner = await signIn(t, "owner@co.com");
-	const workspaceId = (await owner.query(api.workspace.me))!.workspaceId!;
+	const workspaceId = await workspaceOf(owner);
 	const chatId = (await owner.query(api.chats.list))!.channels[0]!._id;
 	const message = { chatId, workspaceId, authorUserId: owner.userId, text: "hi", parts: [], mentions: { userIds: [], agentIds: [] }, status: "done" as const };
 	for (let start = 0; start < 17_000; start += 2_000) {
@@ -31,7 +29,7 @@ it("deletes a workspace with 17,000 messages and 2,500 reactions on one without 
 
 // Removing someone takes one small transaction however much was theirs alone: the rest is the cascade's.
 it("removes a member at once when their just-me automation has 16,000 subscribers and grants, then deletes them in batches", { timeout: 600_000 }, async () => {
-	const t = convexTest({ schema, modules, transactionLimits: true });
+	const t = newTest();
 	const owner = await signIn(t, "owner@co.com");
 	await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
 	const member = await signIn(t, "member@co.com");
@@ -55,9 +53,9 @@ it("removes a member at once when their just-me automation has 16,000 subscriber
 
 // Rows are up to 1 MiB each: a run budgets the bytes it reads, not the rows, so big ones span runs.
 it("deletes a workspace whose fields and records are near Convex's 1 MiB document limit without exceeding 16 MiB reads", { timeout: 600_000 }, async () => {
-	const t = convexTest({ schema, modules, transactionLimits: true });
+	const t = newTest();
 	const owner = await signIn(t, "owner@co.com");
-	const workspaceId = (await owner.query(api.workspace.me))!.workspaceId!;
+	const workspaceId = await workspaceOf(owner);
 	const label = "x".repeat(600_000);
 	for (let type = 0; type < 3; type++) {
 		await t.run(async (ctx) => {
@@ -82,9 +80,9 @@ it("deletes a workspace whose fields and records are near Convex's 1 MiB documen
 
 // Deleting a workspace ends access in one small transaction, however many members it has.
 it("deletes a workspace with 4,100 members at once, and old apps of those also elsewhere act nowhere", { timeout: 600_000 }, async () => {
-	const t = convexTest({ schema, modules, transactionLimits: true });
+	const t = newTest();
 	const owner = await signIn(t, "owner@co.com");
-	const workspaceId = (await owner.query(api.workspace.me))!.workspaceId!;
+	const workspaceId = await workspaceOf(owner);
 	const elsewhere = await t.run((ctx) => ctx.db.insert("workspaces", { name: "Elsewhere", version: 1 }));
 	const users = await t.run(async (ctx) => {
 		const ids = [];
@@ -98,7 +96,7 @@ it("deletes a workspace with 4,100 members at once, and old apps of those also e
 		return ids;
 	});
 	await owner.mutation(api.workspace.deleteWorkspace, { name: "My company" });
-	const old = person(t.withIdentity({ subject: `${users[0]}|session` }));
+	const old = person(identityOf(t, users[0]!));
 	expect(await old.query(api.workspace.me)).toMatchObject({ workspaceId: null });
 	await settle(t);
 	expect(await t.run((ctx) => ctx.db.get(workspaceId))).toBeNull();
@@ -111,11 +109,11 @@ it("deletes a workspace with 4,100 members at once, and old apps of those also e
 // Rows an edge skips stay in its range: when deciding takes big reads, a run that runs out of
 // room must still move past them, never read the same ones again forever.
 it("removes a member subscribed to many near-1 MiB automations elsewhere without rereading them forever", { timeout: 600_000 }, async () => {
-	const t = convexTest({ schema, modules, transactionLimits: true });
+	const t = newTest();
 	const owner = await signIn(t, "owner@co.com");
 	await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
 	const member = await signIn(t, "member@co.com");
-	const here = (await owner.query(api.workspace.me))!.workspaceId!;
+	const here = await workspaceOf(owner);
 	const { elsewhere, agentId } = await t.run(async (ctx) => {
 		const elsewhere = await ctx.db.insert("workspaces", { name: "Elsewhere", version: 1 });
 		await ctx.db.insert("members", { workspaceId: elsewhere, userId: member.userId, role: "owner" });
@@ -146,9 +144,9 @@ it("removes a member subscribed to many near-1 MiB automations elsewhere without
 // Someone in hundreds of 100-person workspaces: erasing them starts in a few reads per workspace,
 // and deleting a workspace whose members are each in hundreds stays within limits.
 it("erases an account in 331 workspaces of 100 people, then deletes one whose members are each in 331", { timeout: 600_000 }, async () => {
-	const t = convexTest({ schema, modules, transactionLimits: true });
+	const t = newTest();
 	const owner = await signIn(t, "owner@co.com");
-	const A = (await owner.query(api.workspace.me))!.workspaceId!;
+	const A = await workspaceOf(owner);
 	const users = await t.run(async (ctx) => {
 		const ids = [];
 		for (let i = 0; i < 100; i++) {
@@ -167,7 +165,7 @@ it("erases an account in 331 workspaces of 100 people, then deletes one whose me
 		await t.run(async (ctx) => {
 			for (const userId of users.slice(start, start + 10)) for (const workspaceId of others) await ctx.db.insert("members", { workspaceId, userId, role: "member" });
 		});
-	const erased = person(t.withIdentity({ subject: `${users[0]}|session` }));
+	const erased = person(identityOf(t, users[0]!));
 	await erased.mutation(api.workspace.eraseAccount);
 	await settle(t);
 	expect(await t.run((ctx) => ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", users[0]!)).first())).toBeNull();

@@ -1,8 +1,7 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Segmented, Select } from "../../controls";
-import type { Role } from "@companybot/core";
 import { type AutomationAudience as Audience, CUSTOM_NAME_MAX, type CustomAutomationConfig } from "@companybot/core/automations";
-import { can } from "@companybot/core/permissions";
+import { type Role, can } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { agentOptions } from "../../agent-options";
@@ -13,15 +12,13 @@ import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
 import { Field, Loading, Notice, Page, Section, compactControlClass, descriptionClass, inputClass, secondaryButton, timeAgo, useRun } from "../../ui";
 import { useTurnOn } from "../Permissions";
+import { deviceTimeZone } from "../chat/common";
 import { Card, Detail, Facts, ItemList, MadeItemDetail, Missing, NewItem, customizeCrumbs } from "./shared";
 
 type AutomationItem = FunctionReturnType<typeof api.automations.list>[number];
 type Channel = { _id: Id<"chats">; title: string };
 
-/** Schedules run in the installer's time zone. */
-const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-export function AutomationsTab({ role }: { role: Role }) {
+export function AutomationsTab() {
 	const automations = useQuery(api.automations.list);
 	const { error, run } = useRun();
 	if (!automations) return <Loading />;
@@ -34,8 +31,6 @@ export function AutomationsTab({ role }: { role: Role }) {
 				meta={a.trigger}
 				description={a.custom ? a.prompt : a.description}
 				status={a.installed ? statusLine(a) : undefined}
-				installed={a.installed}
-				canManage={a.canEdit}
 				action={offered ? <SubscribeButton automation={a} onError={run} /> : undefined}
 				onOpen={() => navigate("settings", "automations", a.id)}
 			/>
@@ -277,8 +272,9 @@ function NewAutomation() {
 			tab="automations"
 			noun="automation"
 			error={error}
+			// Schedules run in the installer's time zone.
 			onCreate={() =>
-				run(create({ config, agentId: agent as Id<"agents">, ...audience, timeZone }).then((id) => navigate("settings", "automations", id)))
+				run(create({ config, agentId: agent as Id<"agents">, ...audience, timeZone: deviceTimeZone() }).then((id) => navigate("settings", "automations", id)))
 			}
 		>
 			<AutomationFields value={config} onChange={setConfig} channels={channels} />
@@ -338,7 +334,7 @@ function AutomationDetail({ automation: a, canManage }: { automation: Automation
 			busy={busy}
 			onToggle={() => run(remove({ automationId: a.id }))}
 		>
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			<Markdown className="text-sm leading-relaxed text-neutral-700">{a.details}</Markdown>
 			<Facts
 				rows={[
@@ -372,7 +368,7 @@ function AutomationSettings({ automation: a }: { automation: AutomationItem }) {
 	return (
 		<Section title="Settings">
 			<div className="flex flex-col gap-3 text-sm">
-				{error && <Notice>{error}</Notice>}
+				<Notice>{error}</Notice>
 				{a.audience === "subscribers" && (
 					<div className={row}>
 						<span className={label}>For you</span>

@@ -1,17 +1,14 @@
 import { condition, recordGroup, recordSort } from "./recordValidators";
-import { type PaginationOptions, type PaginationResult, paginationOptsValidator } from "convex/server";
+import { type PaginationResult, paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
-import type { Doc, Id } from "./_generated/dataModel";
-import { type QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { canSee } from "./chatOps";
-import { type Member, getMember, nameOf, requireMember } from "./lib";
+import { emptyPage, getMember, nameOf, requireMember } from "./lib";
 import { trashInfo } from "./trashOps";
-import { fieldsByType, linkingRecords, listRecords, searchRecords } from "./recordReads";
+import { activityAs, historyAs, linkingRecords, listRecords, searchRecords } from "./recordReads";
 import {
 	createRecord,
 	fieldsOf,
-	idsIn,
 	inTrash,
 	resolveRefs,
 	setRecordTrashed,
@@ -25,14 +22,7 @@ import {
 // takes `records.edit`. Lists page through indexes only, so they stay fast at any size.
 // See wiki/data.md.
 
-/** History entries hold old and new values, so their pages are smaller than lists. */
-const HISTORY_PAGE_MAX = 20;
-
 type Row = Awaited<ReturnType<typeof toRows>>[number];
-
-const capped = <T extends { numItems: number }>(opts: T, max: number) => ({ ...opts, numItems: Math.min(opts.numItems, max) });
-
-const empty = <T>(): PaginationResult<T> => ({ page: [], isDone: true, continueCursor: "" });
 
 /**
  * One type's records, a page at a time, matching every filter (AND). Each filter is one
@@ -58,7 +48,7 @@ export const list = query({
 	handler: async (ctx, { typeId, archived = false, filters = [], group, sort, paginationOpts }): Promise<PaginationResult<Row>> => {
 		const member = await getMember(ctx);
 		const type = member && (await ctx.db.get(typeId));
-		if (!member || type?.workspaceId !== member.workspaceId || type.archived) return empty();
+		if (!member || type?.workspaceId !== member.workspaceId || type.archived) return emptyPage();
 		const fields = await fieldsOf(ctx, typeId);
 		const result = await listRecords(ctx, member.workspaceId, { typeId, fields }, { archived, conditions: filters, group, sort, paginationOpts });
 		return { ...result, page: await toRows(ctx, member.workspaceId, result.page.map((record) => ({ record, fields }))) };
@@ -91,7 +81,7 @@ export const linked = query({
 	handler: async (ctx, { recordId, fieldId, paginationOpts }) => {
 		const member = await getMember(ctx);
 		const record = member && (await ctx.db.get(recordId));
-		if (!member || record?.workspaceId !== member.workspaceId || (await inTrash(ctx, record))) return empty<Row & { fieldId: Id<"recordFields"> }>();
+		if (!member || record?.workspaceId !== member.workspaceId || (await inTrash(ctx, record))) return emptyPage();
 		const result = await linkingRecords(ctx, recordId, { fieldId, paginationOpts });
 		const rows = await toRows(ctx, member.workspaceId, result.page);
 		return { ...result, page: rows.map((row, i) => ({ ...row, fieldId: result.page[i]!.fieldId })) };
@@ -114,7 +104,7 @@ export const history = query({
 	handler: async (ctx, { recordId, paginationOpts }) => {
 		const member = await getMember(ctx);
 		const record = member && (await ctx.db.get(recordId));
-		if (!member || record?.workspaceId !== member.workspaceId) return empty<Entry>();
+		if (!member || record?.workspaceId !== member.workspaceId) return emptyPage();
 		return historyAs(ctx, member, record, paginationOpts);
 	},
 });
@@ -124,40 +114,10 @@ export const activity = query({
 	args: { paginationOpts: paginationOptsValidator },
 	handler: async (ctx, { paginationOpts }) => {
 		const member = await getMember(ctx);
-		if (!member) return empty<Entry & { record: string | null; type: string }>();
+		if (!member) return emptyPage();
 		return activityAs(ctx, member, paginationOpts);
 	},
 });
-
-type Entry = Awaited<ReturnType<typeof toEntries>>[number];
-
-/** History entries, display-ready, with names resolved once for the page. */
-export async function toEntries(ctx: QueryCtx, workspaceId: Id<"workspaces">, items: { entry: Doc<"recordHistory">; fields: Doc<"recordFields">[] }[]) {
-	const idsOf = items.map(({ entry, fields }) =>
-		entry.recordId ? entry.changes.flatMap((c) => [...idsIn(fields, { [c.key]: c.old }), ...idsIn(fields, { [c.key]: c.new })]) : [],
-	);
-	const { refs } = await resolveRefs(ctx, workspaceId, idsOf.flat());
-	return Promise.all(
-		items.map(async ({ entry: e, fields }, i) => {
-			const field = e.fieldId && fields.find((f) => f._id === e.fieldId);
-			return {
-				_id: e._id,
-				time: e._creationTime,
-				action: e.action,
-				subject: e.subject ?? null,
-				recordId: e.recordId ?? null,
-				/** Field changes: the field's current label. */
-				field: field ? field.label : null,
-				changes: e.changes.map((c) => ({ ...c, label: fields.find((f) => f.key === c.key)?.label ?? c.key })),
-				refs: Object.fromEntries(idsOf[i]!.filter((id) => refs[id]).map((id) => [id, refs[id]!])),
-				user: await nameOf(ctx, e.userId),
-				agent: e.agentId ? ((await ctx.db.get(e.agentId))?.name ?? null) : null,
-				undoes: e.undoes ?? null,
-				undone: !!e.undoneBy,
-			};
-		}),
-	);
-}
 
 /** Names for ids a page couldn't resolve within its read budget (`unresolved`). Up to 200 at a time. */
 export const refs = query({
@@ -234,29 +194,3 @@ export const undo = mutation({
 		await undoChange(ctx, { member: await requireMember(ctx) }, historyId);
 	},
 });
-
-export async function historyAs(ctx: QueryCtx, member: Member, record: Doc<"records">, paginationOpts: PaginationOptions) {
-	const result = await ctx.db
-		.query("recordHistory")
-		.withIndex("by_record", (q) => q.eq("recordId", record._id))
-		.order("desc")
-		.paginate(capped(paginationOpts, HISTORY_PAGE_MAX));
-	const fields = await fieldsOf(ctx, record.typeId);
-	return { ...result, page: await toEntries(ctx, member.workspaceId, result.page.map((entry) => ({ entry, fields }))) };
-}
-
-export async function activityAs(ctx: QueryCtx, member: Member, paginationOpts: PaginationOptions) {
-	const result = await ctx.db
-		.query("recordHistory")
-		.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
-		.order("desc")
-		.paginate(capped(paginationOpts, HISTORY_PAGE_MAX));
-	const fields = fieldsByType(ctx);
-	const entries = await toEntries(ctx, member.workspaceId, await Promise.all(result.page.map(async (entry) => ({ entry, fields: await fields(entry.typeId) }))));
-	const page = [];
-	for (const [i, e] of result.page.entries()) {
-		const record = e.recordId && (await ctx.db.get(e.recordId));
-		page.push({ ...entries[i]!, record: record ? record.title : null, type: (await ctx.db.get(e.typeId))?.name ?? "" });
-	}
-	return { ...result, page };
-}

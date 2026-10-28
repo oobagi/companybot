@@ -1,6 +1,6 @@
 import type { ManageStore } from "./manage-tools";
 import type { AutomationStore } from "./automation-tools";
-import type { FlexibleSchema, Tool } from "ai";
+import type { FlexibleSchema, JSONValue, Tool } from "ai";
 import type { ChatStore } from "./chat";
 import type { MemoryStore } from "./memory";
 import type { PageStore } from "./page-tools";
@@ -95,6 +95,9 @@ export interface ToolDef<Input = any> {
 	 */
 	label?(input: Input, output?: unknown): string | undefined;
 }
+
+/** `toModelOutput` for a result the model reads as JSON. Tool results are plain data already. */
+export const jsonOutput = (value: unknown) => ({ type: "json" as const, value: value as JSONValue });
 
 export const defineTool = <Input>(tool: Omit<ToolDef<Input>, "source">): ToolDef<Input> => ({
 	...tool,

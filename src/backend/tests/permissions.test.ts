@@ -4,7 +4,7 @@ import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { approvalHash, canonicalJson, findConnector, openConnector, toolApprovalPolicy, toolRisk } from "@companybot/core";
 
-import { type As, agentsOf, setup as ownerAndMember, meOf, generalOf, turnsOf, settle } from "./helpers";
+import { type As, agentsOf, ownerAndMember, generalOf, turnsOf, settle } from "./helpers";
 import "./connectorFixtures";
 import { fakeMcpServer } from "../../core/test/test-mcp-server";
 
@@ -72,7 +72,7 @@ describe("permissions", () => {
 		await member.mutation(api.permissions.set, { action: sms.tool, setting: "always" });
 		const allowed = await check(t, turn._id);
 		expect(allowed.decision).toEqual({ type: "run", via: "always" });
-		expect(allowed.allowed).toMatchObject({ how: "always", by: await meOf(member) });
+		expect(allowed.allowed).toMatchObject({ how: "always", by: member.userId });
 
 		// The owner's turn: a member's grant never reaches anyone else.
 		await t.mutation(internal.turns.finishReply, { turnId: turn._id });
@@ -285,7 +285,7 @@ describe("permissions", () => {
 		await allowCall(t, member, (await turnsOf(t)).at(-1)!);
 		await member.mutation(api.permissions.set, { action: sms.tool, setting: "always" });
 		expect(await member.query(api.permissions.mine)).toHaveLength(2);
-		const userId = await meOf(member);
+		const userId = member.userId;
 		const row = (await owner.query(api.workspace.team))!.members.find((m) => m.userId === userId)!;
 		await owner.mutation(api.workspace.removeMember, { id: row.id });
 		await settle(t);

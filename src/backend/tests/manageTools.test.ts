@@ -2,13 +2,13 @@ import { seedSkill } from "./legacyFixtures";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ManageTool } from "@companybot/core";
 import { api, internal } from "../convex/_generated/api";
-import { agentTurn, agentsOf, generalOf, noMentions, setup, sideWorkspace } from "./helpers";
+import { agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, sideWorkspace } from "./helpers";
 import type { Id } from "../convex/_generated/dataModel";
 
 afterEach(() => vi.useRealTimers());
 
 async function ready() {
-	const { t, owner, member } = await setup();
+	const { t, owner, member } = await ownerAndMember();
 	const { companybot, scribe } = await agentsOf(owner);
 	const chat = await generalOf(owner);
 	const dm = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });

@@ -1,22 +1,22 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { type Role, can } from "@companybot/core";
+import { type Role, can } from "@companybot/core/permissions";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvexAuth } from "convex/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, errorMessage } from "./api";
+import { api } from "./api";
 import { WorkspaceContext, useMutation, useQuery } from "./convex";
 import { desktop, useUpdates } from "./desktop";
 import { useAlerts } from "./notifications";
 import { navigate, useRoute } from "./router";
 import { ArrowLeftIcon, DatabaseIcon, PlusIcon, SettingsIcon, SignOutIcon } from "./icons";
-import { Notice, Scroll, TopBar } from "./ui";
+import { MenuDivider, Notice, Scroll, TopBar, useRun } from "./ui";
 import { RecordsView, recordTabs } from "./views/Records";
 import { SettingsNav, SettingsView, settingsTabAliases, settingsTabs } from "./views/Settings";
 import { SignIn } from "./views/SignIn";
 import { WorkspaceMenu } from "./views/WorkspaceMenu";
 import { WorkspaceRail } from "./views/WorkspaceRail";
 import { ChatView } from "./views/chat/ChatView";
-import { Avatar, MenuItem, Popover } from "./views/chat/common";
+import { Avatar, MenuItem, Popover, deviceTimeZone } from "./views/chat/common";
 import { ChatNav, Group, Item } from "./views/chat/Sidebar";
 import { PagesNav, PagesView } from "./views/Pages";
 import { DatabaseDialog } from "./views/records/DatabaseDialog";
@@ -45,7 +45,7 @@ function Workspace() {
 	const ensure = useMutation(api.workspace.ensure);
 	const remember = useMutation(api.workspace.switchTo);
 	const [chosen, setChosen] = useState(() => localStorage.getItem(OPEN_KEY));
-	const [error, setError] = useState<string>();
+	const { error, fail } = useRun();
 	const ids = mine?.workspaces.map((w) => w.id) ?? [];
 	const id = [chosen, mine?.lastUsed].find((w) => w && ids.includes(w as Id<"workspaces">)) ?? ids[0];
 
@@ -56,7 +56,7 @@ function Workspace() {
 
 	// First sign-in (or after leaving your last one): join the workspaces that invited you, or start one.
 	useEffect(() => {
-		if (mine?.workspaces.length === 0) ensure().catch((e) => setError(errorMessage(e)));
+		if (mine?.workspaces.length === 0) ensure().catch(fail);
 	}, [mine, ensure]);
 
 	// Once this device has a workspace open it keeps it, even when another device later changes "last used".
@@ -104,10 +104,10 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	const prefs = useQuery(api.preferences.get);
 	const updatePrefs = useMutation(api.preferences.update);
 	// Automatic time zone: keep the backend's copy of this computer's zone current.
-	const deviceTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+	const timeZone = deviceTimeZone();
 	useEffect(() => {
-		if (prefs && prefs.deviceTimeZone !== deviceTimeZone) updatePrefs({ deviceTimeZone }).catch(() => {});
-	}, [prefs, deviceTimeZone, updatePrefs]);
+		if (prefs && prefs.deviceTimeZone !== timeZone) updatePrefs({ deviceTimeZone: timeZone }).catch(() => {});
+	}, [prefs, timeZone, updatePrefs]);
 	// Screens are paths: /chat[/<chat>[/thread|message/<id>]], /clients[/<record>] (and other record tabs), /records/<type>[/<record>]
 	// for types owners add, /pages[/<page>], /settings/<tab>[/<item>] (Trash, Agents, Connectors, Skills and Automations included).
 	const route = useRoute();
@@ -130,14 +130,14 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	// Where "Back to app" goes from Settings.
 	const lastApp = useRef<string[]>(["chat"]);
 	if (view !== "settings") lastApp.current = route;
-	const [error, setError] = useState<string>();
+	const { error, fail } = useRun();
 	const { status: update } = useUpdates();
 
 	const chatId = view === "chat" ? (route[1] as Id<"chats"> | undefined) : undefined;
 	const openId = chatId ?? (chats?.channels.find((c) => c.isDefault) ?? chats?.channels[0] ?? chats?.dms[0])?._id;
 	const open = (id: Id<"chats">) => {
 		navigate("chat", id);
-		setError(undefined);
+		fail();
 	};
 	useAlerts();
 
@@ -199,7 +199,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 									</Group>
 								)}
 								<PagesNav openId={view === "pages" ? route[1] : undefined} />
-								<ChatNav chats={chats} openId={view === "chat" ? openId : undefined} onOpen={open} onError={(e) => setError(errorMessage(e))} />
+								<ChatNav chats={chats} openId={view === "chat" ? openId : undefined} onOpen={open} onError={fail} />
 							</>
 						)}
 					</div>
@@ -208,7 +208,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 
 			{newDatabase && <DatabaseDialog onClose={() => setNewDatabase(false)} />}
 			<main className="flex min-w-0 flex-1 flex-col">
-				{error && <Notice>{error}</Notice>}
+				<Notice>{error}</Notice>
 				{view === "chat" &&
 					(openId ? (
 						<ChatView
@@ -269,7 +269,7 @@ function YouMenu({
 							{name !== email && <p className="truncate text-neutral-500">{email}</p>}
 						</div>
 					</div>
-					<div className="my-1 border-t border-neutral-100" />
+					<MenuDivider />
 					<MenuItem onClick={() => (close(), onSettings())}>
 						<SettingsIcon className="text-neutral-500" /> Settings
 					</MenuItem>

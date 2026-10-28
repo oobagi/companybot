@@ -24,7 +24,7 @@ export function WorkspaceMenu({ name }: { name: string }) {
 			>
 				{(close) => (
 					<>
-						{error && <Notice>{error}</Notice>}
+						<Notice>{error}</Notice>
 						<MenuItem danger onClick={() => confirm(`Leave ${name}? You'll need a new invite to come back.`) && run(leave(), () => (close(), navigate("chat")))}>
 							Leave {name}
 						</MenuItem>

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type ToolContext, type ToolDef, defineTool, modelToolName } from "./tools";
+import { type ToolContext, type ToolDef, defineTool, jsonOutput, modelToolName } from "./tools";
 
 /**
  * Widgets are UI the agent places in its reply: tables, stat tiles, and so on.
@@ -163,7 +163,7 @@ export const widgetTools: ToolDef[] = widgetCatalog.map((w) =>
 		toModelOutput: ({ output }) =>
 			isWidgetResult(output)
 				? { type: "text", value: "Shown to the person where you placed it. Don't describe it, point at it, or repeat what it shows. If the task needs more steps (changes still to make), keep going. Otherwise: if you haven't said what you did or found, say it in one sentence, then end your reply with no more tools." }
-				: { type: "json", value: output as never },
+				: jsonOutput(output),
 	}),
 );
 

@@ -22,7 +22,7 @@ import {
 	saveMade,
 	skillOf,
 } from "./lib";
-import { putInTrash, takeFromTrash, trashInfo } from "./trashOps";
+import { toggleTrash, trashInfo } from "./trashOps";
 import { runningTurn } from "./turns";
 
 // Skills people make live on their install and are shared with the workspace.
@@ -139,8 +139,7 @@ export async function setSkillTrashed(ctx: MutationCtx, who: Who, installId: Id<
 	if (!install.custom) checkPermission(who.member, "skills.manage");
 	else if (!canEditMade(who.member, "skills.manage", install.custom.createdBy)) throw new ConvexError(madeEditDenied);
 	if (!!install.archived === archived) return;
-	if (archived) await putInTrash(ctx, who, { kind: "skill", id: installId, name: skillOf(install)?.name ?? install.skillId });
-	else await takeFromTrash(ctx, who, installId);
+	await toggleTrash(ctx, who, archived, { kind: "skill", id: installId, name: skillOf(install)?.name ?? install.skillId });
 	await ctx.db.patch(installId, { archived });
 }
 
