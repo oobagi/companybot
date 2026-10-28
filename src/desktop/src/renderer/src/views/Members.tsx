@@ -1,9 +1,10 @@
 import type { Role } from "@companybot/core";
+import { Select } from "../controls";
 import { can } from "@companybot/core/permissions";
 import { useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
-import { Loading, Notice, compactControlClass, descriptionClass, inputClass, metadataClass, primaryButton, useRun } from "../ui";
+import { Loading, Notice, descriptionClass, inputClass, metadataClass, primaryButton, useRun } from "../ui";
 
 export function MembersTab({ role }: { role: Role }) {
 	const team = useQuery(api.workspace.team);
@@ -92,14 +93,15 @@ export function MembersTab({ role }: { role: Role }) {
 
 function RoleSelect({ value, onChange }: { value: Role; onChange: (role: Role) => void }) {
 	return (
-		<select
+		<Select
+			label="Role"
 			value={value}
-			onChange={(e) => onChange(e.target.value as Role)}
-			className={compactControlClass}
-		>
-			<option value="member">Member</option>
-			<option value="owner">Owner</option>
-		</select>
+			options={[
+				{ value: "member", label: "Member" },
+				{ value: "owner", label: "Owner" },
+			]}
+			onChange={onChange}
+		/>
 	);
 }
 

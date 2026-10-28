@@ -1,10 +1,11 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
+import { Segmented, Select } from "../../controls";
 import type { Role } from "@companybot/core";
 import { type AutomationAudience as Audience, CUSTOM_NAME_MAX, type CustomAutomationConfig } from "@companybot/core/automations";
 import { can } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
-import { AgentOptions } from "../../agent-options";
+import { agentOptions } from "../../agent-options";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { Markdown } from "../../markdown";
@@ -114,8 +115,6 @@ function AutomationFields({
 	channels: Channel[];
 }) {
 	const { trigger } = value;
-	const option = (active: boolean) =>
-		`rounded-full px-3 py-1 text-sm ${active ? "bg-neutral-900 text-white" : "border border-neutral-200 text-neutral-600 hover:bg-neutral-50"}`;
 	const setTrigger = (t: CustomAutomationConfig["trigger"]) => onChange({ ...value, trigger: t });
 	const firstChannel = channels[0]?._id ?? "";
 	const triggers: { label: string; value: CustomAutomationConfig["trigger"] }[] = [
@@ -138,18 +137,15 @@ function AutomationFields({
 			<div role="group" aria-label="When" className="flex flex-col gap-1.5">
 				<span className="text-sm font-medium">When</span>
 				<div className="flex flex-col gap-3">
-					<div className="flex flex-wrap gap-2">
-						{triggers.map(({ label, value }) => (
-							<button
-								key={value.type}
-								type="button"
-								aria-pressed={trigger.type === value.type}
-								className={option(trigger.type === value.type)}
-								onClick={() => (trigger.type !== value.type || value.type === "webhook") && setTrigger(value)}
-							>
-								{label}
-							</button>
-						))}
+					<div>
+						<Segmented
+							value={trigger.type}
+							options={triggers.map(({ label, value }) => ({ value: value.type, label }))}
+							onChange={(type) => {
+								const next = triggers.find((t) => t.value.type === type)!.value;
+								if (trigger.type !== type || type === "webhook") setTrigger(next);
+							}}
+						/>
 					</div>
 					{trigger.type === "schedule" && (
 						<div className="flex flex-wrap items-center gap-3">
@@ -183,40 +179,28 @@ function AutomationFields({
 					)}
 					{trigger.type === "event" && (
 						<div className="flex flex-wrap items-center gap-2 text-sm">
-							<select
-								aria-label="What happens"
-								className={compactControlClass}
+							<Select
+								label="What happens"
 								value={trigger.event}
-								onChange={(e) =>
-									setTrigger(
-										e.target.value === "member.joined"
-											? { type: "event", event: "member.joined" }
-											: { type: "event", event: "message.posted", channelId: firstChannel },
-									)
+								options={[
+									{ value: "message.posted", label: "Someone posts in", disabled: !firstChannel },
+									{ value: "member.joined", label: "Someone joins the workspace" },
+								]}
+								onChange={(event) =>
+									setTrigger(event === "member.joined" ? { type: "event", event: "member.joined" } : { type: "event", event: "message.posted", channelId: firstChannel })
 								}
-							>
-								<option value="message.posted" disabled={!firstChannel}>
-									Someone posts in
-								</option>
-								<option value="member.joined">Someone joins the workspace</option>
-							</select>
+							/>
 							{trigger.event === "message.posted" && (
-								<select
-									aria-label="Channel"
-									className={compactControlClass}
+								<Select
+									label="Channel"
 									value={trigger.channelId}
-									onChange={(e) => setTrigger({ ...trigger, channelId: e.target.value })}
-								>
-									{/* One it already watches that you can't see (an owner editing someone's): keep it selectable. */}
-									{!channels.some((c) => c._id === trigger.channelId) && (
-										<option value={trigger.channelId}>a channel you're not in</option>
-									)}
-									{channels.map((c) => (
-										<option key={c._id} value={c._id}>
-											#{c.title}
-										</option>
-									))}
-								</select>
+									options={[
+										// One it already watches that you can't see (an owner editing someone's): keep it selectable.
+										...(channels.some((c) => c._id === trigger.channelId) ? [] : [{ value: trigger.channelId, label: "a channel you're not in" }]),
+										...channels.map((c) => ({ value: c._id as string, label: `#${c.title}` })),
+									]}
+									onChange={(channelId) => setTrigger({ ...trigger, channelId })}
+								/>
 							)}
 						</div>
 					)}
@@ -260,28 +244,19 @@ function RunsForSelect({
 }) {
 	const value = audience === "channel" ? (channelId ?? "") : audience;
 	return (
-		<select
-			aria-label="Runs for"
+		<Select
+			label="Runs for"
 			disabled={disabled}
 			className={inputClass}
 			value={value}
-			onChange={(e) => {
-				const v = e.target.value;
-				if (v === "creator" || v === "subscribers") onChange(v);
-				else onChange("channel", v as Id<"chats">);
-			}}
-		>
-			{allowCreator && <option value="creator">Just me</option>}
-			<option value="subscribers">Anyone who turns it on</option>
-			<optgroup label="Post in a channel">
-				{extraChannel && <option value={extraChannel.id}>{extraChannel.label}</option>}
-				{channels.map((c) => (
-					<option key={c._id} value={c._id}>
-						#{c.title}
-					</option>
-				))}
-			</optgroup>
-		</select>
+			options={[
+				...(allowCreator ? [{ value: "creator", label: "Just me" }] : []),
+				{ value: "subscribers", label: "Anyone who turns it on" },
+				...(extraChannel ? [{ value: extraChannel.id, label: extraChannel.label, group: "Post in a channel" }] : []),
+				...channels.map((c) => ({ value: c._id as string, label: `#${c.title}`, group: "Post in a channel" })),
+			]}
+			onChange={(v) => (v === "creator" || v === "subscribers" ? onChange(v) : onChange("channel", v as Id<"chats">))}
+		/>
 	);
 }
 
@@ -313,9 +288,7 @@ function NewAutomation() {
 		>
 			<AutomationFields value={config} onChange={setConfig} channels={channels} />
 			<Field label="Agent">
-				<select className={inputClass} value={agent} onChange={(e) => setAgentId(e.target.value)}>
-					<AgentOptions agents={agents} />
-				</select>
+				<Select className={inputClass} value={agent} options={agentOptions(agents)} onChange={setAgentId} />
 			</Field>
 			<Field label="Runs for" hint="Nobody gets messages they didn't ask for: others choose whether to turn it on.">
 				<RunsForSelect
@@ -429,14 +402,11 @@ function AutomationSettings({ automation: a }: { automation: AutomationItem }) {
 						</div>
 						<label className={row}>
 							<span className={label}>Agent</span>
-							<select
+							<Select
 								value={a.agentId ?? ""}
-								onChange={(e) => run(update({ automationId: a.id, agentId: e.target.value as Id<"agents"> }))}
-								className={compactControlClass}
-							>
-								{a.agentArchived && <option value={a.agentId ?? ""}>{a.agentName} (deleted)</option>}
-								<AgentOptions agents={active} />
-							</select>
+								options={[...(a.agentArchived ? [{ value: a.agentId ?? "", label: `${a.agentName} (deleted)` }] : []), ...agentOptions(active)]}
+								onChange={(id) => run(update({ automationId: a.id, agentId: id as Id<"agents"> }))}
+							/>
 						</label>
 						<div className={row}>
 							<span className={label}>Runs for</span>

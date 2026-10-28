@@ -2,6 +2,7 @@ import { Component, Fragment, useCallback, useLayoutEffect, useRef, useState } f
 import { errorMessage } from "./api";
 import { CaretRightIcon } from "./icons";
 import { navigate } from "./router";
+import { Popover } from "./views/chat/common";
 
 /** A screen above this one, in the top bar's trail. */
 export type Crumb = { label: string; to: string[] };
@@ -122,7 +123,7 @@ export function Page({
 		>
 			{/* `--bleed`: from the column's content out to the screen's edge, for `.bleed`. */}
 			<div
-				className={`mx-auto flex w-full flex-col gap-6 px-6 pt-8 pb-10 ${
+				className={`mx-auto flex w-full flex-1 flex-col gap-6 px-6 pt-8 pb-10 ${
 					wide ? "max-w-5xl [--bleed:max(1.5rem,calc((100cqw-64rem)/2+1.5rem))]" : "max-w-2xl [--bleed:max(1.5rem,calc((100cqw-42rem)/2+1.5rem))]"
 				}`}
 			>
@@ -142,28 +143,32 @@ export function Tabs<T extends string>({
 	tabs,
 	value,
 	onChange,
+	menu,
 	children,
 }: {
 	tabs: readonly { id: T; label: string }[];
 	value: T;
 	onChange: (tab: T) => void;
+	/** The open tab's menu, like Notion's view menu: clicking the open tab again opens it. */
+	menu?: (close: () => void) => React.ReactNode;
 	/** Extra controls after the last tab. */
 	children?: React.ReactNode;
 }) {
+	const tabClass = (open: boolean) =>
+		`-mb-px max-w-full truncate border-b-2 px-3 py-2 text-sm ${open ? "border-neutral-900 font-medium" : "border-transparent text-neutral-500 hover:text-neutral-800"}`;
 	return (
 		<nav className="flex flex-wrap gap-1 border-b border-neutral-200">
-			{tabs.map((t) => (
-				<button
-					type="button"
-					key={t.id}
-					onClick={() => onChange(t.id)}
-					className={`-mb-px max-w-full truncate border-b-2 px-3 py-2 text-sm ${
-						t.id === value ? "border-neutral-900 font-medium" : "border-transparent text-neutral-500 hover:text-neutral-800"
-					}`}
-				>
-					{t.label}
-				</button>
-			))}
+			{tabs.map((t) =>
+				t.id === value && menu ? (
+					<Popover key={t.id} trigger={t.label} className={tabClass(true)} panelClassName="w-60 p-1">
+						{menu}
+					</Popover>
+				) : (
+					<button type="button" key={t.id} onClick={() => onChange(t.id)} className={tabClass(t.id === value)}>
+						{t.label}
+					</button>
+				),
+			)}
 			{children}
 		</nav>
 	);
@@ -221,10 +226,12 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
 	);
 }
 
+export const disabledButtonClass = "disabled:opacity-50";
 const controlClass = "border border-neutral-200 focus:border-neutral-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 disabled:bg-neutral-50 disabled:text-neutral-500";
 export const inputClass = `rounded-xl px-3 py-2 ${controlClass}`;
-export const compactControlClass = `rounded-lg px-2 py-1 text-sm ${controlClass}`;
-export const disabledButtonClass = "disabled:opacity-50";
+export const compactControlClass = `rounded-lg px-2.5 py-1 text-sm ${controlClass}`;
+/** A toolbar button beside compact controls (Filter, Properties): the same box, no fill. */
+export const compactButton = `inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-2.5 py-1 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
 export const primaryButton = `rounded-xl bg-neutral-900 px-4 py-2 text-sm text-white ${disabledButtonClass}`;
 export const dangerButton = `rounded-xl bg-red-600 px-4 py-2 text-sm text-white ${disabledButtonClass}`;
 export const secondaryButton = `rounded-xl border border-neutral-200 px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;

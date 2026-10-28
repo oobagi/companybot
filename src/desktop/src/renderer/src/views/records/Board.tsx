@@ -21,10 +21,11 @@ export function Board({ type, args, group, cards, canEdit }: { type: RecordType;
 	const lanes = [{ id: "", label: `No ${group.label}`, retired: false }, ...(group.options ?? []).map((o) => ({ ...o, retired: !!o.retired }))];
 	const props = cards.filter((f) => f.key !== "name" && f.key !== group.key);
 	return (
-		<div className="flex flex-col gap-2">
+		// Fills the rest of the screen, so lanes are full-height drop targets and the scrollbar sits at the bottom.
+		<div className="flex flex-1 flex-col gap-2">
 			{error && <Notice>{error}</Notice>}
 			{/* Lanes start at the column and scroll out to the screen's edges. */}
-			<div className="bleed flex items-start gap-3 pb-2">
+			<div className="bleed flex flex-1 gap-3 pb-2">
 				{lanes.map((lane) => (
 					<Lane
 						key={lane.id}

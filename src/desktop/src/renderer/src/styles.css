@@ -43,6 +43,11 @@ body {
 	fieldset:disabled * {
 		cursor: not-allowed;
 	}
+	/* Checkboxes and radios in the app's dark neutral, not the browser's blue. */
+	input[type="checkbox"],
+	input[type="radio"] {
+		accent-color: var(--color-neutral-900);
+	}
 }
 
 /* Page headings stay below the title; inherit the app's typography. */

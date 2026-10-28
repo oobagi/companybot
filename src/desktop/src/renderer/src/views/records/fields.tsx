@@ -1,11 +1,12 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
+import { Select } from "../../controls";
 import { type FieldValue, type Money, TEXT_MAX, currencyCodes, formatMoney, minorDigits } from "@companybot/core/records";
 import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { compactControlClass } from "../../ui";
-import { useDismiss } from "../chat/common";
+import { Popover } from "../chat/common";
 import { useCurrency, useTypes } from "./data";
 import { type Refs, type TypeField, moneyInput, recordPath, valueText } from "./logic";
 import { CloseIcon } from "../../icons";
@@ -13,11 +14,14 @@ import { CloseIcon } from "../../icons";
 // Showing and editing one field's value, for every kind. Edits save as you leave the
 // input (Enter, or clicking away); Escape puts it back.
 
-const editable = "w-full rounded-lg border border-transparent px-2 py-1 outline-none hover:border-neutral-200 focus:border-neutral-400";
+/** One box for every value, so each kind (text, pickers, chips, checkbox) lines up under the others. */
+const cell = "flex min-h-[calc(1.5em+0.5rem+2px)] w-full items-center rounded-lg border border-transparent px-2 py-1";
+const editable = `${cell} outline-none hover:border-neutral-200 focus:border-neutral-400`;
+const empty = "text-neutral-400";
 
 /** A value, read-only. Links open their record; ones to a deleted record say so and don't open. */
 export function ValueView({ field, value, refs }: { field: TypeField; value: FieldValue | undefined; refs: Refs }) {
-	if (value === undefined) return <span className="text-neutral-300">—</span>;
+	if (value === undefined) return <span className={empty}>—</span>;
 	if (field.kind === "link") return <LinkChips field={field} ids={[value].flat().map(String)} refs={refs} />;
 	if (field.kind === "url") {
 		return (
@@ -80,7 +84,7 @@ export function ValueEditor({
 	switch (field.kind) {
 		case "checkbox":
 			return (
-				<label className="flex items-center px-2 py-1">
+				<label className={cell}>
 					<input type="checkbox" checked={value === true} onChange={(e) => onSave(e.target.checked)} />
 				</label>
 			);
@@ -127,7 +131,7 @@ function TextEditor({ field, value, onSave }: { field: TypeField; value: string;
 		onKeyDown: keys,
 		maxLength: TEXT_MAX,
 		placeholder: "—",
-		className: `${editable} placeholder:text-neutral-300`,
+		className: `${editable} placeholder:text-neutral-400`,
 	};
 	if (field.kind === "text" && field.key !== "name") {
 		return <textarea {...common} rows={Math.min(8, Math.max(1, draft.split("\n").length, Math.ceil(draft.length / 60)))} className={`${common.className} resize-none`} />;
@@ -162,19 +166,17 @@ function MoneyEditor({ value, onSave }: { value: Money | undefined; onSave: (val
 					if (e.key === "Escape") setAmount(saved);
 					if (e.key === "Enter") e.currentTarget.blur();
 				}}
-				className={`${editable} placeholder:text-neutral-300`}
+				className={`${editable} placeholder:text-neutral-400`}
 			/>
-			<select
+			<Select
+				label="Currency"
 				value={currency}
 				disabled={!amount.trim()}
-				onChange={(e) => save(amount, e.target.value)}
-				title="Currency"
-				className="rounded-lg border border-transparent py-1 text-sm text-neutral-500 hover:border-neutral-200"
-			>
-				{currencyCodes.map((c) => (
-					<option key={c}>{c}</option>
-				))}
-			</select>
+				options={currencyCodes.map((c) => ({ value: c, label: c }))}
+				onChange={(c) => save(amount, c)}
+				caret={false}
+				className="inline-flex shrink-0 rounded-lg border border-transparent px-2 py-1 text-neutral-500 hover:border-neutral-200"
+			/>
 		</span>
 	);
 }
@@ -184,7 +186,7 @@ function OneEditor({ field, id, refs, onSave }: { field: TypeField; id: string |
 	const options = useOptions(field);
 	if (field.kind === "link") {
 		return (
-			<span className="flex items-center gap-2 px-2 py-1">
+			<span className={`${cell} gap-2`}>
 				{id && <LinkChips field={field} ids={[id]} refs={refs} onRemove={() => onSave(null)} />}
 				<RecordPicker typeId={field.linkType!} exclude={id ? [id] : []} label={id ? "Change" : "Pick"} onPick={(picked) => onSave(picked)} />
 			</span>
@@ -192,15 +194,18 @@ function OneEditor({ field, id, refs, onSave }: { field: TypeField; id: string |
 	}
 	const current = id && !options.some((o) => o.id === id) ? { id, label: valueText(field, id, refs) } : null;
 	return (
-		<select value={id ?? ""} onChange={(e) => onSave(e.target.value || null)} className={editable}>
-			<option value="">—</option>
-			{current && (
-				<option value={current.id} disabled>
-					{current.label}
-				</option>
-			)}
-			<RecordOptions options={options} />
-		</select>
+		<Select
+			value={id ?? ""}
+			placeholder="—"
+			caret={false}
+			options={[
+				...(id ? [{ value: "", label: "Clear" }] : []),
+				...(current ? [{ value: current.id, label: current.label, disabled: true }] : []),
+				...options.map((o) => ({ value: o.id, label: o.label })),
+			]}
+			onChange={(v) => onSave(v || null)}
+			className={editable}
+		/>
 	);
 }
 
@@ -210,7 +215,7 @@ function MultiEditor({ field, ids, refs, onSave }: { field: TypeField; ids: stri
 	const remove = (id: string) => onSave(ids.filter((i) => i !== id));
 	const add = (id: string) => onSave([...ids, id]);
 	return (
-		<span className="flex flex-wrap items-center gap-1.5 px-2 py-1">
+		<span className={`${cell} flex-wrap gap-1.5`}>
 			{field.kind === "link" ? (
 				<LinkChips field={field} ids={ids} refs={refs} onRemove={remove} />
 			) : (
@@ -224,20 +229,18 @@ function MultiEditor({ field, ids, refs, onSave }: { field: TypeField; ids: stri
 				<RecordPicker typeId={field.linkType!} exclude={ids} label="Add" onPick={(picked) => add(picked)} />
 			) : (
 				options.length > 0 && (
-					<select value="" onChange={(e) => e.target.value && add(e.target.value)} className="rounded-md text-sm text-neutral-500">
-						<option value="">Add…</option>
-						<RecordOptions options={options} />
-					</select>
+					<Select
+						value=""
+						placeholder="Add…"
+						options={options.map((o) => ({ value: o.id, label: o.label }))}
+						onChange={add}
+						caret={false}
+						className="inline-flex text-neutral-400 hover:text-neutral-700"
+					/>
 				)
 			)}
 		</span>
 	);
-}
-
-export function RecordOptions({ options }: { options: { id: string; label: string }[] }) {
-	return options.map((o) => (
-		<option key={o.id} value={o.id}>{o.label}</option>
-	));
 }
 
 /** What a choice or person field can be set to: live options, or the workspace's people. */
@@ -259,39 +262,27 @@ export function RecordPicker({
 	label: string;
 	onPick: (id: string, title: string) => void;
 }) {
-	const [open, setOpen] = useState(false);
-	const [query, setQuery] = useState("");
-	const ref = useDismiss<HTMLSpanElement>(() => setOpen(false), open);
-	const results = useQuery(api.records.search, open && query.trim() ? { query, typeId: typeId as Id<"recordTypes"> } : "skip");
-	const pick = (id: string, title: string) => {
-		onPick(id, title);
-		setOpen(false);
-		setQuery("");
-	};
 	return (
-		<span ref={ref} className="relative">
-			<button type="button" onClick={() => setOpen(!open)} className="text-sm text-neutral-400 hover:text-neutral-700">
-				{label}…
-			</button>
-			{open && (
-				<span className="absolute top-full left-0 z-20 mt-1 flex w-64 flex-col gap-1 rounded-xl border border-neutral-200 bg-white p-2 shadow-lg">
-					<input
-						autoFocus
-						value={query}
-						onChange={(e) => setQuery(e.target.value)}
-						placeholder="Search by name"
-						className={compactControlClass}
-					/>
-					{results
-						?.filter((r) => !exclude.includes(r._id))
-						.map((r) => (
-							<button key={r._id} type="button" onClick={() => pick(r._id, r.title)} className="truncate rounded-md px-2 py-1 text-left text-sm hover:bg-neutral-100">
-								{r.title}
-							</button>
-						))}
-					{results?.length === 0 && <span className="px-2 py-1 text-sm text-neutral-400">No matches.</span>}
-				</span>
-			)}
-		</span>
+		<Popover trigger={`${label}…`} className="text-neutral-400 hover:text-neutral-700" panelClassName="flex w-64 flex-col gap-1 p-2">
+			{(close) => <RecordSearch typeId={typeId} exclude={exclude} onPick={(id, title) => (close(), onPick(id, title))} />}
+		</Popover>
+	);
+}
+
+function RecordSearch({ typeId, exclude, onPick }: { typeId: string; exclude: string[]; onPick: (id: string, title: string) => void }) {
+	const [query, setQuery] = useState("");
+	const results = useQuery(api.records.search, query.trim() ? { query, typeId: typeId as Id<"recordTypes"> } : "skip");
+	return (
+		<>
+			<input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by name" className={compactControlClass} />
+			{results
+				?.filter((r) => !exclude.includes(r._id))
+				.map((r) => (
+					<button key={r._id} type="button" onClick={() => onPick(r._id, r.title)} className="truncate rounded-lg px-2 py-1.5 text-left text-sm hover:bg-neutral-100">
+						{r.title}
+					</button>
+				))}
+			{results?.length === 0 && <span className="px-2 py-1 text-sm text-neutral-400">No matches.</span>}
+		</>
 	);
 }

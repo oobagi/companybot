@@ -1,4 +1,5 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
+import { Select } from "../../controls";
 import { type FieldKind, fieldKinds } from "@companybot/core/records";
 import { useState } from "react";
 import { api } from "../../api";
@@ -13,7 +14,18 @@ import { type TypeField, kindLabels } from "./logic";
 
 const severalKinds: FieldKind[] = ["choice", "user", "link"];
 
-export function AddField({ type, kind: initialKind = "text", onClose }: { type: RecordType; kind?: FieldKind; onClose: () => void }) {
+export function AddField({
+	type,
+	kind: initialKind = "text",
+	onCreated,
+	onClose,
+}: {
+	type: RecordType;
+	kind?: FieldKind;
+	/** With the new field's key, e.g. to show it as a column. */
+	onCreated?: (key: string) => void;
+	onClose: () => void;
+}) {
 	const types = useTypes();
 	const create = useMutation(api.fields.create);
 	const [label, setLabel] = useState("");
@@ -31,7 +43,7 @@ export function AddField({ type, kind: initialKind = "text", onClose }: { type: 
 				...(kind === "choice" && { options: options.split("\n").map((l) => ({ label: l.trim() })).filter((o) => o.label) }),
 				...(kind === "link" && linkTypeId && { linkTypeId: linkTypeId as Id<"recordTypes"> }),
 				...(severalKinds.includes(kind) && multiple && { multiple: true }),
-			}),
+			}).then((field) => onCreated?.(field.key)),
 			onClose,
 		);
 	return (
@@ -48,13 +60,7 @@ export function AddField({ type, kind: initialKind = "text", onClose }: { type: 
 					<input autoFocus value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Roof type" className={inputClass} />
 				</Field>
 				<Field label="Kind" hint="A field's kind can't change later.">
-					<select value={kind} onChange={(e) => setKind(e.target.value as FieldKind)} className={inputClass}>
-						{fieldKinds.map((k) => (
-							<option key={k} value={k}>
-								{kindLabels[k]}
-							</option>
-						))}
-					</select>
+					<Select className={inputClass} value={kind} options={fieldKinds.map((k) => ({ value: k, label: kindLabels[k] }))} onChange={setKind} />
 				</Field>
 				{kind === "choice" && (
 					<Field label="Options" hint="One per line.">
@@ -63,14 +69,13 @@ export function AddField({ type, kind: initialKind = "text", onClose }: { type: 
 				)}
 				{kind === "link" && (
 					<Field label="Links to">
-						<select value={linkTypeId} onChange={(e) => setLinkTypeId(e.target.value)} className={inputClass}>
-							<option value="">Pick a database…</option>
-							{types?.map((t) => (
-								<option key={t._id} value={t._id}>
-									{t.plural}
-								</option>
-							))}
-						</select>
+						<Select
+							className={inputClass}
+							value={linkTypeId}
+							placeholder="Pick a database…"
+							options={(types ?? []).map((t) => ({ value: t._id as string, label: t.plural }))}
+							onChange={setLinkTypeId}
+						/>
 					</Field>
 				)}
 				{severalKinds.includes(kind) && (

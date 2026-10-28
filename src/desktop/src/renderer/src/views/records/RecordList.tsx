@@ -1,20 +1,21 @@
 import type { Role } from "@companybot/core";
+import type { FieldKind } from "@companybot/core/records";
 import { can } from "@companybot/core/permissions";
 import { useEffect, useState } from "react";
 import { api } from "../../api";
+import { Segmented, Select } from "../../controls";
 import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { ArrowDownIcon, ArrowUpIcon, CloseIcon, EditIcon, MoreIcon, PlusIcon } from "../../icons";
-import { ConflictNotice, ErrorBoundary, Field, LoadMore, Loading, Notice, Page, Tabs, barButton, barPrimaryButton, compactControlClass, dangerButton, descriptionClass, inputClass, primaryButton, secondaryButton, timeAgo, useDraft, useRun } from "../../ui";
-import { Modal, useDismiss } from "../chat/common";
+import { ArrowDownIcon, ArrowUpIcon, CloseIcon, EditIcon, FilterIcon, PlusIcon, PropertiesIcon, TrashIcon } from "../../icons";
+import { ConflictNotice, ErrorBoundary, Field, LoadMore, Loading, Notice, Page, Tabs, barButton, barPrimaryButton, compactButton, compactControlClass, descriptionClass, inputClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
+import { MenuItem, Modal, Popover } from "../chat/common";
 import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
 import { type ListArgs, type RecordType, type Row, type Sort, usePagedRows, useRefs } from "./data";
 import { AddField } from "./fieldDialogs";
-import { Chip, RecordOptions, RecordPicker, useOptions } from "./fields";
+import { Chip, RecordPicker, useOptions } from "./fields";
 import {
 	type Filter,
-	type Op,
 	type Refs,
 	type TypeField,
 	defaultColumns,
@@ -48,16 +49,15 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 	// "All" keeps the columns and layout people picked on this computer; a view's settings skip fields archived since.
 	const columnsKey = `records.columns.${type.key}`;
 	const layoutKey = `records.layout.${type.key}`;
+	const saved: Settings | undefined = selected && {
+		filters: fromConditions(selected.filters.filter((c) => live(c.field)), fields),
+		sort: selected.sort && live(selected.sort.field) ? selected.sort : undefined,
+		columns: selected.columns,
+		layout: selected.layout ?? "table",
+		groupBy: selected.groupBy,
+	};
 	const draft = useDraft<Settings>(
-		selected
-			? {
-					filters: fromConditions(selected.filters.filter((c) => live(c.field)), fields),
-					sort: selected.sort && live(selected.sort.field) ? selected.sort : undefined,
-					columns: selected.columns,
-					layout: selected.layout ?? "table",
-					groupBy: selected.groupBy,
-				}
-			: { filters: [], columns: JSON.parse(localStorage.getItem(columnsKey) ?? "null") ?? defaultColumns(type.fields), layout: "table", ...JSON.parse(localStorage.getItem(layoutKey) ?? "{}") },
+		saved ?? { filters: [], columns: JSON.parse(localStorage.getItem(columnsKey) ?? "null") ?? defaultColumns(type.fields), layout: "table", ...JSON.parse(localStorage.getItem(layoutKey) ?? "{}") },
 		selected?.version ?? 0,
 	);
 	const { filters, sort, layout } = draft.value;
@@ -79,11 +79,12 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 	useEffect(() => {
 		if (views && viewId !== "all" && !selected) open("all");
 	}, [views, viewId, selected]);
-	const [naming, setNaming] = useState<"new" | "edit">();
+	const [naming, setNaming] = useState(false);
 	const [editingDatabase, setEditingDatabase] = useState(false);
 	const [search, setSearch] = useState("");
 	const [creating, setCreating] = useState(false);
-	const [addingField, setAddingField] = useState(false);
+	// The field kind a new-field dialog starts on, while it's open.
+	const [addingField, setAddingField] = useState<FieldKind>();
 	const { error, run } = useRun();
 	const shown = columns.map((k) => fields.find((f) => f.key === k)!);
 	const conditions = filters.map(toCondition).filter((c) => c !== null);
@@ -113,14 +114,44 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 				</>
 			}
 		>
-			<Tabs tabs={[{ id: "all", label: "All" }, ...(views ?? []).map((v) => ({ id: v._id as string, label: v.name }))]} value={selected ? viewId : "all"} onChange={open}>
-				{canEdit && selected && (
-					<button type="button" title="Rename or delete this view" className={tabClass} onClick={() => setNaming("edit")}>
-						<MoreIcon />
-					</button>
-				)}
+			<Tabs
+				tabs={[{ id: "all", label: "All" }, ...(views ?? []).map((v) => ({ id: v._id as string, label: v.name }))]}
+				value={selected ? viewId : "all"}
+				onChange={open}
+				menu={
+					canEdit && selected && saved
+						? (close) => (
+								<>
+									{/* Renaming keeps the view as saved; unsaved changes stay yours until "Save for everyone". */}
+									<form
+										onSubmit={(e) => {
+											e.preventDefault();
+											const name = String(new FormData(e.currentTarget).get("name")).trim();
+											close();
+											if (name && name !== selected.name) {
+												const columns = saved.columns.filter(live);
+												const groupBy = saved.groupBy && live(saved.groupBy) ? saved.groupBy : undefined;
+												const filters = saved.filters.map(toCondition).filter((c) => c !== null);
+												run(saveView({ typeId: type._id, viewId: selected._id, version: selected.version, name, filters, sort: saved.sort, columns, layout: saved.layout, groupBy }));
+											}
+										}}
+									>
+										<input name="name" aria-label="View name" autoFocus required maxLength={120} defaultValue={selected.name} className={`${compactControlClass} w-full`} />
+									</form>
+									<div className="my-1 border-t border-neutral-100" />
+									<MenuItem
+										danger
+										onClick={() => (close(), confirm(`Delete the view ${selected.name}?`) && run(removeView({ viewId: selected._id, version: selected.version }), () => open("all")))}
+									>
+										<TrashIcon /> Delete view
+									</MenuItem>
+								</>
+							)
+						: undefined
+				}
+			>
 				{canEdit && (
-					<button type="button" title="Save these filters as a view" className={tabClass} onClick={() => setNaming("new")}>
+					<button type="button" title="Save these filters as a view" className={tabClass} onClick={() => setNaming(true)}>
 						<PlusIcon />
 					</button>
 				)}
@@ -140,38 +171,32 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 					placeholder={`Search ${noun}`}
 					className={`${compactControlClass} w-64`}
 				/>
-				<button
-					type="button"
-					onClick={() => setFilters([...filters, { field: fields[0]!.key, op: opsFor(fields[0]!)[0]!, value: "" }])}
-					className="text-neutral-600 hover:text-neutral-900"
-				>
-					+ Filter
+				<button type="button" onClick={() => setFilters([...filters, { field: fields[0]!.key, op: opsFor(fields[0]!)[0]!, value: "" }])} className={compactButton}>
+					<FilterIcon className="text-neutral-400" /> Filter
 				</button>
-				<ColumnsPicker label={layout === "board" ? "Properties" : "Columns"} fields={fields} columns={columns} onChange={setColumns} />
+				<ColumnsPicker
+					label={layout === "board" ? "Properties" : "Columns"}
+					fields={fields}
+					columns={columns}
+					onChange={setColumns}
+					onNewField={can(role, "fields.create") ? () => setAddingField("text") : undefined}
+				/>
 				{layout === "board" && group && (
 					<label className="flex items-center gap-2 text-neutral-600">
 						Group by
-						<select value={group.key} onChange={(e) => change({ groupBy: e.target.value })} className={compactControlClass}>
-							{groupFields.map((f) => (
-								<option key={f.key} value={f.key}>
-									{f.label}
-								</option>
-							))}
-						</select>
+						<Select value={group.key} options={groupFields.map((f) => ({ value: f.key, label: f.label }))} onChange={(groupBy) => change({ groupBy })} />
 					</label>
 				)}
-				<span className="ml-auto flex rounded-lg border border-neutral-200 p-0.5">
-					{(["table", "board"] as const).map((l) => (
-						<button
-							key={l}
-							type="button"
-							aria-pressed={layout === l}
-							onClick={() => change({ layout: l })}
-							className={`rounded-md px-2 py-0.5 ${layout === l ? "bg-neutral-100 text-neutral-900" : "text-neutral-500 hover:text-neutral-900"}`}
-						>
-							{l === "table" ? "Table" : "Board"}
-						</button>
-					))}
+				<span className="ml-auto">
+					<Segmented
+						label="Layout"
+						value={layout}
+						options={[
+							{ value: "table", label: "Table" },
+							{ value: "board", label: "Board" },
+						]}
+						onChange={(l) => change({ layout: l })}
+					/>
 				</span>
 			</div>
 			{filters.length > 0 && (
@@ -210,7 +235,7 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 										A board makes a column for each option of a choice field, like Status. This database has no choice field that holds one option yet.
 									</p>
 									{can(role, "fields.create") && (
-										<button type="button" className={primaryButton} onClick={() => setAddingField(true)}>
+										<button type="button" className={primaryButton} onClick={() => setAddingField("choice")}>
 											Add a choice field
 										</button>
 									)}
@@ -244,35 +269,27 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 			)}
 			{editingDatabase && <DatabaseDialog type={type} onClose={() => setEditingDatabase(false)} />}
 			{naming && (
-				<Modal title={naming === "edit" ? "Edit view" : "Save view"} onClose={() => setNaming(undefined)}>
+				<Modal title="Save view" onClose={() => setNaming(false)}>
 					<form
 						className="flex flex-col gap-4"
 						onSubmit={(e) => {
 							e.preventDefault();
 							const name = String(new FormData(e.currentTarget).get("name"));
-							const edit = naming === "edit" && selected && { viewId: selected._id, version: draft.base };
-							run(saveView({ typeId: type._id, ...edit, name, ...config }).then((id) => (open(id), setNaming(undefined))));
+							run(saveView({ typeId: type._id, name, ...config }).then((id) => (open(id), setNaming(false))));
 						}}
 					>
 						{error && <Notice>{error}</Notice>}
 						<Field label="View name" hint="These filters, sort, columns and layout, shared with everyone in the workspace.">
-							<input name="name" autoFocus required maxLength={120} defaultValue={naming === "edit" ? selected?.name : ""} className={inputClass} />
+							<input name="name" autoFocus required maxLength={120} className={inputClass} />
 						</Field>
-						<div className="flex items-center gap-2">
-							<button type="submit" disabled={naming === "edit" && draft.stale} className={primaryButton}>
-								Save for everyone
-							</button>
-							{naming === "edit" && selected && (
-								<button type="button" className={dangerButton} onClick={() => confirm(`Delete the view ${selected.name}?`) && run(removeView({ viewId: selected._id, version: draft.base }), () => (open("all"), setNaming(undefined)))}>
-									Delete view
-								</button>
-							)}
-						</div>
+						<button type="submit" className={`${primaryButton} self-start`}>
+							Save for everyone
+						</button>
 					</form>
 				</Modal>
 			)}
 			{creating && <NewRecord type={type} onClose={() => setCreating(false)} />}
-			{addingField && <AddField type={type} kind="choice" onClose={() => setAddingField(false)} />}
+			{addingField && <AddField type={type} kind={addingField} onCreated={(key) => setColumns([...columns, key])} onClose={() => setAddingField(undefined)} />}
 		</Page>
 	);
 }
@@ -393,27 +410,16 @@ function FilterRow({
 	const field = fields.find((f) => f.key === filter.field) ?? fields[0]!;
 	return (
 		<div className="flex flex-wrap items-center gap-2 text-sm">
-			<select
+			<Select
+				label="Field"
 				value={field.key}
-				onChange={(e) => {
-					const next = fields.find((f) => f.key === e.target.value)!;
+				options={fields.map((f) => ({ value: f.key, label: f.label }))}
+				onChange={(key) => {
+					const next = fields.find((f) => f.key === key)!;
 					onChange({ field: next.key, op: opsFor(next)[0]!, value: "" });
 				}}
-				className={compactControlClass}
-			>
-				{fields.map((f) => (
-					<option key={f.key} value={f.key}>
-						{f.label}
-					</option>
-				))}
-			</select>
-			<select value={filter.op} onChange={(e) => onChange({ ...filter, op: e.target.value as Op })} className={compactControlClass}>
-				{opsFor(field).map((op) => (
-					<option key={op} value={op}>
-						{opLabels[op]}
-					</option>
-				))}
-			</select>
+			/>
+			<Select label="Condition" value={filter.op} options={opsFor(field).map((op) => ({ value: op, label: opLabels[op] }))} onChange={(op) => onChange({ ...filter, op })} />
 			{needsValue(filter.op) && <FilterValue field={field} filter={filter} onChange={(value) => onChange({ ...filter, value })} />}
 			<button type="button" onClick={onRemove} className="text-neutral-400 hover:text-neutral-700" title="Remove filter" aria-label="Remove filter">
 				<CloseIcon />
@@ -445,10 +451,11 @@ function FilterValue({ field, filter, onChange }: { field: TypeField; filter: Fi
 						}}
 					/>
 				) : (
-					<select value="" onChange={(e) => e.target.value && onChange([...ids, e.target.value])} className={compactControlClass}>
-						<option value="">Pick…</option>
-						<RecordOptions options={options.filter((o) => !ids.includes(o.id))} />
-					</select>
+					<Select
+						value=""
+						options={options.filter((o) => !ids.includes(o.id)).map((o) => ({ value: o.id, label: o.label }))}
+						onChange={(id) => onChange([...ids, id])}
+					/>
 				)}
 			</span>
 		);
@@ -465,18 +472,34 @@ function FilterValue({ field, filter, onChange }: { field: TypeField; filter: Fi
 	);
 }
 
-function ColumnsPicker({ label, fields, columns, onChange }: { label: string; fields: TypeField[]; columns: string[]; onChange: (keys: string[]) => void }) {
-	const [open, setOpen] = useState(false);
-	const ref = useDismiss<HTMLSpanElement>(() => setOpen(false), open);
+function ColumnsPicker({
+	label,
+	fields,
+	columns,
+	onChange,
+	onNewField,
+}: {
+	label: string;
+	fields: TypeField[];
+	columns: string[];
+	onChange: (keys: string[]) => void;
+	/** Opens the new-field dialog; the field is shown once made. */
+	onNewField?: () => void;
+}) {
 	return (
-		<span ref={ref} className="relative">
-			<button type="button" onClick={() => setOpen(!open)} className="text-neutral-600 hover:text-neutral-900">
-				{label}
-			</button>
-			{open && (
-				<span className="absolute top-full left-0 z-20 mt-1 flex max-h-80 w-56 flex-col gap-1 overflow-y-auto rounded-xl border border-neutral-200 bg-white p-2 shadow-lg">
+		<Popover
+			trigger={
+				<>
+					<PropertiesIcon className="text-neutral-400" /> {label}
+				</>
+			}
+			className={compactButton}
+			panelClassName="flex w-56 flex-col gap-px p-1"
+		>
+			{(close) => (
+				<>
 					{fields.map((f) => (
-						<label key={f.key} className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-neutral-50">
+						<label key={f.key} className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-neutral-100">
 							<input
 								type="checkbox"
 								disabled={f.key === "name"}
@@ -488,9 +511,17 @@ function ColumnsPicker({ label, fields, columns, onChange }: { label: string; fi
 							{f.label}
 						</label>
 					))}
-				</span>
+					{onNewField && (
+						<>
+							<div className="my-1 border-t border-neutral-100" />
+							<MenuItem onClick={() => (close(), onNewField())}>
+								<PlusIcon className="text-neutral-400" /> New field
+							</MenuItem>
+						</>
+					)}
+				</>
 			)}
-		</span>
+		</Popover>
 	);
 }
 

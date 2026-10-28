@@ -1,11 +1,12 @@
 import type { Role } from "@companybot/core";
+import { Select } from "../../controls";
 import { can } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../../api";
 import { useAction, useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { Loading, Notice, Section, compactControlClass, descriptionClass, inputClass, metadataClass, primaryButton, useRun } from "../../ui";
+import { Loading, Notice, Section, descriptionClass, inputClass, metadataClass, primaryButton, useRun } from "../../ui";
 import { ConnectorActions } from "../Permissions";
 import { Card, Detail, Facts, Missing } from "./shared";
 
@@ -87,17 +88,16 @@ function ConnectorDetail({ connector, isOwner }: { connector: ConnectorItem; isO
 				<Section title="Access">
 					<label className="flex items-center gap-2 text-sm">
 						<span className="text-neutral-500">Who can use it</span>
-						<select
+						<Select
+							label="Who can use it"
 							disabled={!isOwner}
 							value={connector.roles.includes("member") ? "everyone" : "owners"}
-							onChange={(e) =>
-								run(setRoles({ connectorId: connector.id, roles: e.target.value === "everyone" ? ["owner", "member"] : ["owner"] }))
-							}
-							className={compactControlClass}
-						>
-							<option value="everyone">Everyone</option>
-							<option value="owners">Owners only</option>
-						</select>
+							options={[
+								{ value: "everyone", label: "Everyone" },
+								{ value: "owners", label: "Owners only" },
+							]}
+							onChange={(v) => run(setRoles({ connectorId: connector.id, roles: v === "everyone" ? ["owner", "member"] : ["owner"] }))}
+						/>
 					</label>
 					<Connection connector={connector} />
 				</Section>

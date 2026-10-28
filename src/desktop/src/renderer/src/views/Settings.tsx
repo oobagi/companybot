@@ -36,6 +36,7 @@ import {
 	TrashIcon,
 	UserIcon,
 } from "../icons";
+import { Select } from "../controls";
 import { ActivityTab } from "./Activity";
 import { Confirm, Modal, zoneLabel } from "./chat/common";
 import { Group, Item } from "./chat/Sidebar";
@@ -270,18 +271,13 @@ function GeneralForm({
 					/>
 				</Setting>
 				<Setting label="Currency" hint="For new amounts. Existing amounts keep theirs.">
-					<select
+					<Select
 						className={`${compactControlClass} w-64`}
 						disabled={!isOwner}
 						value={draft.value.currency}
-						onChange={(e) => draft.set({ ...draft.value, currency: e.target.value })}
-					>
-						{currencyCodes.map((code) => (
-							<option key={code} value={code}>
-								{currencyLabel(code)}
-							</option>
-						))}
-					</select>
+						options={currencyCodes.map((code) => ({ value: code, label: currencyLabel(code) }))}
+						onChange={(currency) => draft.set({ ...draft.value, currency })}
+					/>
 				</Setting>
 				<Setting label="Memory" hint="Agents remember what people tell them. Off keeps existing memories for later.">
 					<Toggle disabled={!isOwner} checked={draft.value.memory} onChange={(memory) => draft.set({ ...draft.value, memory })} />
@@ -334,31 +330,35 @@ function ProfileTab() {
 					</form>
 				</Setting>
 				<Setting label="Time zone" hint="For dates and times agents give you.">
-					<select
+					<Select
 						className={`${compactControlClass} w-64`}
 						value={prefs.timeZone ?? "auto"}
-						onChange={(e) => run(update({ timeZone: e.target.value === "auto" ? null : e.target.value }))}
-					>
-						<option value="auto">Automatic ({zoneLabel(deviceTimeZone)})</option>
-						{timeZones.map((zone) => (
-							<option key={zone} value={zone}>
-								{zoneLabel(zone)}
-							</option>
-						))}
-					</select>
+						options={[{ value: "auto", label: `Automatic (${zoneLabel(deviceTimeZone)})` }, ...timeZones.map((zone) => ({ value: zone, label: zoneLabel(zone) }))]}
+						onChange={(zone) => run(update({ timeZone: zone === "auto" ? null : zone }))}
+					/>
 				</Setting>
 				<Setting label="Send messages with" hint={prefs.sendWith === "enter" ? "Shift+Enter adds a new line." : "Enter adds a new line."}>
-					<select className={`${compactControlClass} w-64`} value={prefs.sendWith} onChange={(e) => run(update({ sendWith: e.target.value as typeof prefs.sendWith }))}>
-						<option value="enter">Enter</option>
-						<option value="mod-enter">⌘ Enter</option>
-					</select>
+					<Select
+						className={`${compactControlClass} w-64`}
+						value={prefs.sendWith}
+						options={[
+							{ value: "enter", label: "Enter" },
+							{ value: "mod-enter", label: "⌘ Enter" },
+						]}
+						onChange={(sendWith) => run(update({ sendWith }))}
+					/>
 				</Setting>
 				<Setting label="Notifications" hint="When Companybot isn't in front, and the dock count.">
-					<select className={`${compactControlClass} w-64`} value={prefs.notify} onChange={(e) => run(update({ notify: e.target.value as typeof prefs.notify }))}>
-						<option value="all">DMs and mentions</option>
-						<option value="mentions">Mentions only</option>
-						<option value="off">Off</option>
-					</select>
+					<Select
+						className={`${compactControlClass} w-64`}
+						value={prefs.notify}
+						options={[
+							{ value: "all", label: "DMs and mentions" },
+							{ value: "mentions", label: "Mentions only" },
+							{ value: "off", label: "Off" },
+						]}
+						onChange={(notify) => run(update({ notify }))}
+					/>
 				</Setting>
 			</Settings>
 			<YourPermissions />

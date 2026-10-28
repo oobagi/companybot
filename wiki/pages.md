@@ -24,7 +24,7 @@ Notion saves a version every 10 minutes while you edit, and another 2 minutes af
 ## Rules
 - **Access:** every member reads every page; `pages.edit` (owner, member) creates, writes, renames, deletes (to Trash) and restores. A page is read-only while it or its record is in Trash.
 - **Sync API:** `useBlockNoteSync` calls `pageSync.*` with the page's id alone, so those functions find the workspace from the page and check membership there (`memberOf`), not from the request like the rest of the API (`functions.ts`).
-- **Record bodies** are created on first write (clicking "Write notes…", or an agent writing), so 100k records don't carry 100k empty documents. They go to Trash with their record and can't be renamed or deleted on their own.
+- **Record bodies** are always an editor in the app, Notion-style, under the record's fields. The page is made when someone who can edit first opens the record (or an agent writes in it), so 100k records nobody opens don't carry 100k empty documents. Creating is idempotent. They go to Trash with their record and can't be renamed or deleted on their own.
 - **Delete goes to Trash** ([Data → Trash](data.md#trash)). Deleting forever (an owner, or 30 days on) deletes its row at once, then its content (`pageSync.deleteDoc` → the component's `deleteDocument`, which deletes in batches) and a `page` cascade for its versions (`deletePage`). A record's body goes in its record's cascade.
 
 ## Agent tools
