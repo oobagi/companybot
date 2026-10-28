@@ -1,9 +1,9 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useEffect, useState } from "react";
-import { api, errorMessage } from "../../api";
+import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { ChannelIcon, ChatIcon, PrivateIcon } from "../../icons";
-import { EmptyState, Loading, NotFound, Notice, Scroll, TopBar } from "../../ui";
+import { EmptyState, Loading, NotFound, Notice, Scroll, TopBar, useRun } from "../../ui";
 import { AgentBadge, AvatarStack } from "./common";
 import { Composer, type SendWith } from "./Composer";
 import { type ChatDetails, type Mentions, chatTitle, useDirectory } from "./data";
@@ -21,7 +21,7 @@ const suggestions = [
 ];
 
 /** A message to show on opening, from a link elsewhere (a record's discussion): its thread, or the message itself. */
-export type ChatFocus = { thread: string } | { message: string };
+type ChatFocus = { thread: string } | { message: string };
 
 export function ChatView({
 	chatId,
@@ -46,9 +46,8 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 	const directory = useDirectory();
 	const [threadId, setThreadId] = useState<Id<"chatMessages">>();
 	const [details, setDetails] = useState(false);
-	const [error, setError] = useState<string>();
+	const { error, fail } = useRun();
 	const [nudge, setNudge] = useState(0);
-	const onError = (e: unknown) => setError(errorMessage(e));
 
 	// A link to a thread opens it; a link to a message scrolls to it once it's loaded.
 	const focusThread = focus && "thread" in focus ? focus.thread : undefined;
@@ -78,11 +77,11 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 	const candidates = [...directory.people, ...directory.agents];
 	const typing = useTypingPing(chat._id);
 	const send = (text: string, mentions: Mentions) => {
-		setError(undefined);
+		fail();
 		typing.sent();
 		// Posting in #general without asking an agent: remind them of step 1.
 		if (chat.isDefault && mentions.agentIds.length === 0) setNudge((n) => n + 1);
-		sendMessage({ chatId: chat._id, text, mentions }).catch(onError);
+		sendMessage({ chatId: chat._id, text, mentions }).catch(fail);
 	};
 	const composer = (
 		<Composer
@@ -96,6 +95,12 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 			candidates={candidates}
 			onSend={send}
 		/>
+	);
+	const footer = (
+		<div className="flex flex-col gap-2 px-5 pt-4 pb-5">
+			<Notice>{error}</Notice>
+			{chat.trash ? <TrashNotice trash={chat.trash} /> : composer}
+		</div>
 	);
 
 	const bar = (
@@ -151,11 +156,11 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 									</button>
 								))}
 							</div>
-							{error && <Notice>{error}</Notice>}
+							<Notice>{error}</Notice>
 						</div>
 					</>
 				) : messages.length === 0 ? (
-					<Scroll header={bar} footer={<div className="flex flex-col gap-2 px-5 pt-4 pb-5">{error && <Notice>{error}</Notice>}{chat.trash ? <TrashNotice trash={chat.trash} /> : composer}</div>}>
+					<Scroll header={bar} footer={footer}>
 						<EmptyState icon={chat.kind === "channel" ? <ChannelIcon /> : <ChatIcon />} title="No messages yet">{chat.kind === "channel" ? `Start a conversation in ${title}.` : `Send your first message to ${title}.`}</EmptyState>
 					</Scroll>
 				) : (
@@ -165,15 +170,10 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 						names={directory.names}
 						summaryLabel={agent?.name ?? "Agents"}
 						onOpenThread={setThreadId}
-						onError={onError}
+						onError={fail}
 						intro={messages.length < 200 && <Intro title={title} channel={chat.kind === "channel"} />}
 						header={bar}
-						footer={
-							<div className="flex flex-col gap-2 px-5 pt-4 pb-5">
-								{error && <Notice>{error}</Notice>}
-								{chat.trash ? <TrashNotice trash={chat.trash} /> : composer}
-							</div>
-						}
+						footer={footer}
 					/>
 				)}
 			</div>

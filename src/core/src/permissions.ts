@@ -1,5 +1,7 @@
 import type { Actor, Role } from "./types";
 
+export type { Role } from "./types";
+
 /**
  * Every workspace-level action and the roles allowed to take it. This is the one
  * place to change who can do what; the backend checks it with `requirePermission`.

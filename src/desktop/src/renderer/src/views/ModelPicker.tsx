@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useAction } from "../convex";
 import { CaretUpDownIcon } from "../icons";
-import { compactControlClass, inputClass } from "../ui";
+import { compactControlClass, descriptionClass, inputClass } from "../ui";
 import { Popover } from "./chat/common";
 
 /** The agent editor's model field: the pick, and a searchable list of AI Gateway's models. */
@@ -46,7 +46,7 @@ function ModelList({ models, defaultModel, value, onPick }: { models: ModelInfo[
 	return (
 		<>
 			<input autoFocus className={`${compactControlClass} sticky top-0 z-10 bg-white`} placeholder="Search models or providers" value={search} onChange={(e) => setSearch(e.target.value)} />
-			{found.length === 0 && <p className="text-sm text-neutral-500">No models match.</p>}
+			{found.length === 0 && <p className={descriptionClass}>No models match.</p>}
 			{[...groups].map(([group, list]) => (
 				<section key={group} className="flex flex-col gap-0.5">
 					<h3 className="px-2 text-xs font-medium uppercase tracking-wide text-neutral-400">{group}</h3>

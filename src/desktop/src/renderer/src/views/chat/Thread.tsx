@@ -1,8 +1,7 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { useState } from "react";
-import { api, errorMessage } from "../../api";
+import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
-import { Loading, Notice } from "../../ui";
+import { Loading, Notice, useRun } from "../../ui";
 import { CloseIcon } from "../../icons";
 import { IconButton } from "./common";
 import { Composer, type SendWith } from "./Composer";
@@ -28,8 +27,7 @@ export function ThreadPanel({
 	const messages = useQuery(api.messages.list, { chatId: chat._id, threadId });
 	const send = useMutation(api.messages.send);
 	const typing = useTypingPing(chat._id, threadId);
-	const [error, setError] = useState<string>();
-	const onError = (e: unknown) => setError(errorMessage(e));
+	const { error, fail } = useRun();
 
 	const header = (
 		<header className="drag flex h-12 shrink-0 items-center gap-2 px-5">
@@ -44,7 +42,7 @@ export function ThreadPanel({
 	);
 	const footer = (
 		<div className="flex flex-col gap-2 px-4 pt-4 pb-4">
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			<Composer
 				key={threadId}
 				sendWith={sendWith}
@@ -53,9 +51,9 @@ export function ThreadPanel({
 				status={<TypingLine chatId={chat._id} threadId={threadId} />}
 				onType={typing.ping}
 				onSend={(text, mentions) => {
-					setError(undefined);
+					fail();
 					typing.sent();
-					send({ chatId: chat._id, threadId, text, mentions }).catch(onError);
+					send({ chatId: chat._id, threadId, text, mentions }).catch(fail);
 				}}
 			/>
 		</div>
@@ -76,7 +74,7 @@ export function ThreadPanel({
 					messages={messages}
 					names={names}
 					summaryLabel="Agents"
-					onError={onError}
+					onError={fail}
 					header={header}
 					footer={footer}
 				/>

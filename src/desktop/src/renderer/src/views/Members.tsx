@@ -1,10 +1,9 @@
-import type { Role } from "@companybot/core";
 import { Select } from "../controls";
-import { can } from "@companybot/core/permissions";
+import { type Role, can } from "@companybot/core/permissions";
 import { useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
-import { Loading, Notice, descriptionClass, inputClass, metadataClass, primaryButton, useRun } from "../ui";
+import { Form, Loading, Notice, cardClass, descriptionClass, inputClass, metadataClass, primaryButton, useRun } from "../ui";
 
 export function MembersTab({ role }: { role: Role }) {
 	const team = useQuery(api.workspace.team);
@@ -24,14 +23,13 @@ export function MembersTab({ role }: { role: Role }) {
 
 	return (
 		<>
-			{error && <Notice>{error}</Notice>}
+			<Notice>{error}</Notice>
 			{note && <p className={descriptionClass}>{note}</p>}
 
 			{isOwner && (
-				<form
+				<Form
 					className="flex gap-2"
-					onSubmit={(e) => {
-						e.preventDefault();
+					onSubmit={() => {
 						run(
 							invite({ email, role: inviteRole }).then(({ emailed }) => setNote(emailed ? undefined : `${email} got an invite email a few minutes ago, so we didn't send another.`)),
 							() => setEmail(""),
@@ -49,7 +47,7 @@ export function MembersTab({ role }: { role: Role }) {
 					<button type="submit" className={primaryButton}>
 						Invite
 					</button>
-				</form>
+				</Form>
 			)}
 
 			<section className="flex flex-col gap-2">
@@ -104,7 +102,7 @@ function RoleSelect({ value, onChange }: { value: Role; onChange: (role: Role) =
 
 function Row({ label, detail, you, children }: { label: string; detail?: string; you?: boolean; children?: React.ReactNode }) {
 	return (
-		<div className="flex items-center gap-3 rounded-xl border border-neutral-200 px-4 py-3">
+		<div className={`flex items-center gap-3 ${cardClass}`}>
 			<span className="flex min-w-0 flex-1 flex-col">
 				<span className="truncate">
 					{label}
