@@ -36,14 +36,17 @@ describe("onboarding", () => {
 		expect(await t.mutation(internal.chatTools.reactFor, { turnId: turn!._id, emoji: "👋" })).toMatchObject({ error: expect.stringContaining("Nobody asked") });
 	});
 
-	it("welcomes each person who joins, acting as them", async () => {
+	it("welcomes each person who joins in their DM with the main agent, acting as them", async () => {
 		const t = newTest();
 		const owner = await signIn(t, "owner@co.com");
+		const { companybot } = await agentsOf(owner);
 		await owner.mutation(api.workspace.invite, { email: "new@co.com", role: "member" });
 		const joiner = await arrive(t, "new@co.com");
+		const dm = (await joiner.query(api.chats.list))!.agents.find((a) => a._id === companybot._id)!.dmId;
+		expect(dm).not.toBeNull();
 		const turns = await turnsOf(t);
 		expect(turns).toHaveLength(1);
-		expect(turns[0]).toMatchObject({ actorId: joiner.userId, welcome: "joined", chatId: (await generalOf(owner))._id });
+		expect(turns[0]).toMatchObject({ actorId: joiner.userId, welcome: "joined", chatId: dm });
 	});
 
 	it("ticks off tutorial steps as people do them, with Invite only for those who can invite", async () => {

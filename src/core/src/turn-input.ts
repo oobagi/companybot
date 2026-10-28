@@ -138,13 +138,24 @@ function welcomeSection(welcome: Welcome, actor: TurnPromptInput["actor"], memor
 	// The name is theirs to set: quoted once, "them" after, so it can't read as an instruction.
 	const named = actor.name !== actor.email;
 	const who = named ? `${actor.role === "owner" && welcome === "new_workspace" ? "The owner" : "A teammate"}, named ${encode(actor.name)},` : "Someone with no name set yet";
-	const questions = [...(named ? [] : ["what to call them (then set it as their display name with update_preferences, if you have it)"]), ...welcomeQuestions[welcome]];
+	const questions = [
+		...(named ? [] : ["what to call them (don't guess from their email; then set it as their display name with update_preferences, if you have it)"]),
+		...welcomeQuestions[welcome],
+	];
 	const remembered = memory !== "off";
+	const ask = `Ask these one at a time, in order: ${questions.map((q, i) => `${i + 1}. ${q}`).join(", ")}. Ask only the first now, say it's 1 of ${questions.length}, and that they can say skip.`;
+	// Joining: a DM with them, where every message reaches you and personal memory is theirs.
+	if (welcome === "joined")
+		return [
+			`${who} just joined the workspace. This is your DM with them, and nobody has asked you anything yet: you speak first. Welcome them${named ? " by name" : ""} in a sentence or two. Say they can ask you anything here, and @mention you in channels.${remembered ? " If team memory says what the company does, share it in one line." : ""} Don't ask about the company. Then get to know them.`,
+			`${ask} When they answer, thank them in a few words and ask the next, until they're done or say stop.`,
+			remembered
+				? "Save answers as they come: what they say about themselves to personal memory, facts about the company to team memory. Saves show in the chat, so don't announce them."
+				: "Memory is off, so don't save answers.",
+		].join("\n");
 	return [
-		welcome === "new_workspace"
-			? `${who} just made this workspace, and nobody has asked you anything yet: you speak first. Introduce yourself in two or three short sentences: who you are, and that you help the whole team here. Say that outside DMs you only answer messages that @mention you${remembered ? ", and that what you learn about the company goes to team memory, which everyone here can see and edit" : ""}. Then get to know them and the company.`
-			: `${who} just joined the workspace, and nobody has asked you anything yet: you speak first. Welcome them${named ? " by name" : ""} in a sentence or two. Say they can @mention you here, or DM you for anything private.${remembered ? " If team memory says what the company does, share it in one line." : ""} Don't ask about the company. Then get to know them.`,
-		`Ask these one at a time, in order: ${questions.map((q, i) => `${i + 1}. ${q}`).join(", ")}. Ask only the first now, say it's 1 of ${questions.length}, and that they can say skip. End this first message with "Reply with @" and your name, since you only see messages that mention you; don't repeat it after.`,
+		`${who} just made this workspace, and nobody has asked you anything yet: you speak first. Introduce yourself in two or three short sentences: who you are, and that you help the whole team here. Say that outside DMs you only answer messages that @mention you${remembered ? ", and that what you learn about the company goes to team memory, which everyone here can see and edit" : ""}. Then get to know them and the company.`,
+		`${ask} End this first message with "Reply with @" and your name, since you only see messages that mention you; don't repeat it after.`,
 		`These questions are for this person only. When they @mention you with an answer, thank them in a few words and ask the next, until they're done or say stop. Anyone else who asks you something gets a normal answer, not these questions.`,
 		remembered
 			? "Save answers as they come: facts about the company to team memory. Save a personal memory only from what this person says about themselves, on their own turn; if someone answers for them, credit who said it and save only company facts. Saves show in the chat, so don't announce them."
