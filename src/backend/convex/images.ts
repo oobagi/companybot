@@ -11,8 +11,8 @@ import { savePreferences } from "./preferences";
 // Pictures people upload, on Convex file storage. The app POSTs the file to `upload` (an HTTP
 // action, signed in), which reads its type from its first bytes, stores it, and notes who
 // uploaded it (`uploads`). The app then hands the storage id to `set`, which takes only the
-// caller's own unclaimed upload and uses its row up. Rows hold storage ids; queries return
-// URLs. Replacing or removing a picture deletes the old file; so does deleting its row
+// caller's own unclaimed upload and uses its row up (pages.addImage does too, for a page's
+// pictures). Rows hold storage ids; queries return URLs. Replacing or removing a picture deletes the old file; so does deleting its row
 // (lifecycle.ts `files`). Uploads nobody claims go after a day (`sweepUploads`).
 
 /** Unclaimed uploads one person can have at once: enough for retries, not for filling storage. */
@@ -119,7 +119,7 @@ export async function setImage(ctx: MutationCtx, member: Member, of: Infer<typeo
 }
 
 /** Uses up the caller's own upload of `file`. Anyone else's, or one already used, is refused and left alone. */
-async function claimUpload(ctx: MutationCtx, member: Member, file: Id<"_storage">) {
+export async function claimUpload(ctx: MutationCtx, member: Member, file: Id<"_storage">) {
 	const upload = await ctx.db.query("uploads").withIndex("by_storage", (q) => q.eq("storageId", file)).unique();
 	if (upload?.userId !== member.userId) throw new ConvexError("That upload isn't available. Upload the image again.");
 	await ctx.db.delete(upload._id);

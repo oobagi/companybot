@@ -799,6 +799,10 @@ export default defineSchema({
 		restored: v.optional(v.number()),
 	}).index("by_page", ["pageId", "n"]),
 
+	// Pictures in a page (images.ts uploads, pages.addImage claims). Kept while the page is, even once
+	// out of its content, so restoring an older version brings them back; deleted with the page.
+	pageImages: defineTable({ pageId: v.id("pages"), storageId: v.id("_storage") }).index("by_page", ["pageId"]),
+
 	// The index behind filtering and sorting on any field: one row per value of a live
 	// record (core's indexEntries). Archived records have none. Never read for display.
 	// Rows linking to an archived record stay; queries treat that target as gone.

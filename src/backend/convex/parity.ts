@@ -47,6 +47,7 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"messages.remove": { agent: ["chat.manage:delete"] },
 	"messages.react": { agent: ["chat.react", "chat.manage:react"] },
 	"pages.create": { agent: ["pages.write"] },
+	"pages.addImage": { humanOnly: "Agents can't make image files: a person uploads one from their device. Agents read pictures as Markdown image links." },
 	"pages.move": { agent: ["pages.write:move"] },
 	"pages.rename": { agent: ["pages.write"] },
 	"pages.setArchived": { agent: ["pages.write"] },

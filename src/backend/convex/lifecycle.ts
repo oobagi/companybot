@@ -340,6 +340,11 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		childOf: { table: "pages", index: "by_page", field: "pageId" },
 		page: { index: "by_page", eq: ["pageId"] },
 	},
+	pageImages: {
+		childOf: { table: "pages", index: "by_page", field: "pageId" },
+		page: { index: "by_page", eq: ["pageId"] },
+		files: ["storageId"],
+	},
 
 	trash: {
 		page: { index: "by_item", eq: [["itemId", "pageId"]] },

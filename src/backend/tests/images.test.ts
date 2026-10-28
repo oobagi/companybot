@@ -258,6 +258,26 @@ describe("pictures", () => {
 		expect(await exists(t, file)).toBe(false);
 	});
 
+	it("puts pictures in pages anyone who can edit them can change, kept through Trash, deleted with the page", async () => {
+		const { t, owner, member } = await setup();
+		vi.useFakeTimers();
+		const pageId = await member.mutation(api.pages.create, { title: "Wiki" });
+		const file = await upload(member);
+		await expect(owner.mutation(api.pages.addImage, { pageId, file })).rejects.toThrow("isn't available");
+		expect(await member.mutation(api.pages.addImage, { pageId, file })).toBe(await t.run((ctx) => ctx.storage.getUrl(file)));
+		// Claimed: the sweep leaves it, and a page in Trash keeps it.
+		vi.setSystemTime(Date.now() + UPLOAD_TTL_MS + 1);
+		await t.mutation(internal.images.sweepUploads);
+		await member.mutation(api.trash.move, { kind: "page", id: pageId });
+		await expect(member.mutation(api.pages.addImage, { pageId, file: await upload(member) })).rejects.toThrow("in Trash");
+		await member.mutation(api.trash.restore, { kind: "page", id: pageId });
+		expect(await exists(t, file)).toBe(true);
+		await member.mutation(api.trash.move, { kind: "page", id: pageId });
+		await owner.mutation(api.trash.purge, { id: pageId });
+		await settle(t);
+		expect(await exists(t, file)).toBe(false);
+	});
+
 	it("deletes pictures and unclaimed uploads with the workspace, and a photo with its account", async () => {
 		const { t, owner, member } = await setup();
 		const workspaceId = await workspaceOf(owner);
