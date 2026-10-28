@@ -60,10 +60,16 @@ export type AgentItem = {
 	lastMessageAt: number | null;
 };
 
-async function toChatItem(ctx: QueryCtx, chat: Doc<"chats">, member: Member, names: Namer, withMembers: boolean): Promise<ChatItem> {
-	const rows = withMembers ? await chatMembersOf(ctx, chat._id) : [];
+/** `mine`: your row in it. `rows`: everyone's, or none for a channel in `list`. */
+async function toChatItem(
+	ctx: QueryCtx,
+	chat: Doc<"chats">,
+	member: Member,
+	names: Namer,
+	mine: Doc<"chatMembers"> | undefined,
+	rows: Doc<"chatMembers">[],
+): Promise<ChatItem> {
 	const members = await Promise.all(rows.map(names.of));
-	const mine = withMembers ? rows.find((r) => r.userId === member.userId) : await membership(ctx, chat._id, member.userId);
 	const unread = !!mine && chat.lastMessageAt > (mine.lastReadAt ?? 0);
 	const others = members.filter((m) => m.id !== member.userId).map((m) => m.name);
 	return {
@@ -98,7 +104,7 @@ export const list = query({
 		const items: ChatItem[] = [];
 		for (const row of rows) {
 			const chat = await ctx.db.get(row.chatId);
-			if (chat && !chat.archived && chat.workspaceId === member.workspaceId) items.push(await toChatItem(ctx, chat, member, names, chat.kind === "dm"));
+			if (chat && !chat.archived && chat.workspaceId === member.workspaceId) items.push(await toChatItem(ctx, chat, member, names, row, chat.kind === "dm" ? await chatMembersOf(ctx, chat._id) : []));
 		}
 		const agents = await ctx.db
 			.query("agents")
@@ -213,8 +219,9 @@ export const get = query({
 		const visible = await visibleChat(ctx, chatId);
 		if (!visible) return null;
 		const { member, chat } = visible;
+		const rows = await chatMembersOf(ctx, chat._id);
 		return {
-			...(await toChatItem(ctx, chat, member, namer(ctx, { images: true }), true)),
+			...(await toChatItem(ctx, chat, member, namer(ctx, { images: true }), rows.find((r) => r.userId === member.userId), rows)),
 			canManage: chat.kind === "channel" && canManageChannel(toActor(member), chat),
 			trash: chat.archived ? await trashInfo(ctx, member, chat._id) : null,
 		};

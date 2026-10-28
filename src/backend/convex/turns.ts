@@ -181,6 +181,7 @@ export const turnContext = internalQuery({
 					q.eq("chatId", chat._id).eq("threadId", turn.threadId).gt("_creationTime", since).lt("_creationTime", reply._creationTime),
 				)
 				.order("desc")
+				.filter((q) => q.neq(q.field("deleted"), true))
 				// The prompt shows PROMPT_MESSAGE_CAP; one more says there are earlier ones, one more for the trigger.
 				.take(PROMPT_MESSAGE_CAP + 2)
 		).reverse();
@@ -191,8 +192,13 @@ export const turnContext = internalQuery({
 			if (trigger) recent.push(trigger);
 		}
 		const messages = await Promise.all(
-			// Replies still streaming keep their text elsewhere until they end: leave them out.
-			recent.filter((m) => !m.deleted && m.status !== "streaming").map((m) => toPlaceMessage(m, names, agent._id)),
+			recent
+				.filter((m) => !m.deleted)
+				// Another agent's reply still streaming keeps its text so far apart from the message.
+				.map(async (m) => {
+					const stream = m.status === "streaming" && (await streamOf(ctx, m._id));
+					return toPlaceMessage(stream ? { ...m, text: stream.text, parts: stream.parts } : m, names, agent._id);
+				}),
 		);
 
 		const parent = turn.threadId && (!foreign || turn.threadId === trigger?._id) && (await ctx.db.get(turn.threadId));

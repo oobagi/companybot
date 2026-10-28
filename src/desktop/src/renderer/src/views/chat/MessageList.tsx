@@ -1,5 +1,5 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useLayoutEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import { useQuery } from "../../convex";
 import { Markdown } from "../../markdown";
@@ -52,7 +52,7 @@ export function MessageList({
 
 	// Follow new messages and streaming replies (which grow inside their own rows) only if you're
 	// already at the bottom.
-	useEffect(() => {
+	useLayoutEffect(() => {
 		const el = scroller.current;
 		if (!el || !content.current) return;
 		const follow = () => nearBottom.current && (el.scrollTop = el.scrollHeight);

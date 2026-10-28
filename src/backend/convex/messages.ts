@@ -14,6 +14,7 @@ import {
 	markChatRead,
 	namer,
 	reactionsOf,
+	replyAuthorsOf,
 	requireChat,
 	toggleReaction,
 	visibleChat,
@@ -93,19 +94,7 @@ async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, 
 		group.mine ||= r.userId === member.userId;
 		group.names.push((await names.of(r)).name);
 	}
-	// Stored on the parent, so a streaming reply doesn't re-run the whole timeline; older parents look.
-	const replyAuthors: Participant[] = m.replyAuthors ? await Promise.all(m.replyAuthors.map(names.of)) : [];
-	if (!m.threadId && m.replyCount && !m.replyAuthors) {
-		const replies = await ctx.db
-			.query("chatMessages")
-			.withIndex("by_chat_thread", (q) => q.eq("chatId", m.chatId).eq("threadId", m._id))
-			.order("desc")
-			.take(30);
-		for (const reply of replies) {
-			const author = await names.of(reply);
-			if (replyAuthors.length < 3 && !replyAuthors.some((a) => a.id === author.id)) replyAuthors.push(author);
-		}
-	}
+	const replyAuthors: Participant[] = m.threadId ? [] : await Promise.all((await replyAuthorsOf(ctx, m)).map(names.of));
 	return {
 		_id: m._id,
 		_creationTime: m._creationTime,
