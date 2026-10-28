@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { UPLOAD_TTL_MS } from "../convex/images";
-import { type As, agentTurn, agentsOf, generalOf, noMentions, settle, setup, signIn, workspaceOf } from "./helpers";
+import { memberOf } from "../convex/lib";
+import { writeBlocks } from "../convex/pageOps";
+import { type As, agentTurn, agentsOf, generalOf, noMentions, settle, setup, sideWorkspace, signIn, workspaceOf } from "./helpers";
 
 afterEach(() => {
 	vi.restoreAllMocks();
@@ -15,12 +17,25 @@ const png = (size = 16) => Object.assign(new Uint8Array(size), { 0: 0x89, 1: 0x5
 const post = (as: As, body: Uint8Array<ArrayBuffer>, type: string, workspaceId?: Id<"workspaces">) =>
 	as.fetch(`/images/upload${workspaceId ? `?workspaceId=${workspaceId}` : ""}`, { method: "POST", headers: { "Content-Type": type }, body });
 /** Uploads a picture as `as`, in their workspace, and returns its storage id. */
-const upload = async (as: As) => {
-	const response = await post(as, png(), "image/png", await workspaceOf(as));
+const upload = async (as: As, size?: number) => {
+	const response = await post(as, png(size), "image/png", await workspaceOf(as));
 	expect(response.status).toBe(200);
 	return ((await response.json()) as { storageId: Id<"_storage"> }).storageId;
 };
 const exists = (t: T, id: Id<"_storage">) => t.run(async (ctx) => !!(await ctx.db.system.get(id)));
+/** Appends an image block with `url` to a page, as `as` (an editor paste or an agent's block copy). */
+const paste = (t: T, as: Awaited<ReturnType<typeof signIn>>, pageId: Id<"pages">, url: string) =>
+	t.run(async (ctx) => {
+		const page = (await ctx.db.get(pageId))!;
+		const image = { type: "blockContainer", attrs: { id: crypto.randomUUID() }, content: [{ type: "image", attrs: { url } }] };
+		await writeBlocks(ctx, { member: (await memberOf(ctx, as.userId, page.workspaceId))! }, page, JSON.stringify([image]), "append");
+	});
+/** Moves something to Trash and deletes it forever, as an owner, and lets the cleanup finish. */
+const purge = async (t: T, owner: As, kind: "page" | "record", id: Id<"pages"> | Id<"records">) => {
+	await owner.mutation(api.trash.move, { kind, id });
+	await owner.mutation(api.trash.purge, { id });
+	await settle(t);
+};
 const files = (t: T) => t.run(async (ctx) => (await ctx.db.system.query("_storage").collect()).length);
 
 describe("pictures", () => {
@@ -256,6 +271,58 @@ describe("pictures", () => {
 		await owner.mutation(api.trash.purge, { id: scribe._id });
 		await settle(t);
 		expect(await exists(t, file)).toBe(false);
+	});
+
+	it("puts pictures in pages anyone who can edit them can change, kept through Trash, deleted with the page", async () => {
+		const { t, owner, member } = await setup();
+		vi.useFakeTimers();
+		const pageId = await member.mutation(api.pages.create, { title: "Wiki" });
+		const file = await upload(member);
+		await expect(owner.mutation(api.pages.addImage, { pageId, file })).rejects.toThrow("isn't available");
+		expect(await member.mutation(api.pages.addImage, { pageId, file })).toBe(await t.run((ctx) => ctx.storage.getUrl(file)));
+		// Claimed: the sweep leaves it, and a page in Trash keeps it.
+		vi.setSystemTime(Date.now() + UPLOAD_TTL_MS + 1);
+		await t.mutation(internal.images.sweepUploads);
+		await member.mutation(api.trash.move, { kind: "page", id: pageId });
+		await expect(member.mutation(api.pages.addImage, { pageId, file: await upload(member) })).rejects.toThrow("in Trash");
+		await member.mutation(api.trash.restore, { kind: "page", id: pageId });
+		expect(await exists(t, file)).toBe(true);
+		await member.mutation(api.trash.move, { kind: "page", id: pageId });
+		await owner.mutation(api.trash.purge, { id: pageId });
+		await settle(t);
+		expect(await exists(t, file)).toBe(false);
+	});
+
+	it("shares a picture copied into another page: the file goes with the last page in the workspace that has it", async () => {
+		const { t, owner, member } = await setup();
+		const [a, b] = [await member.mutation(api.pages.create, { title: "A" }), await member.mutation(api.pages.create, { title: "B" })];
+		const file = await upload(member);
+		const url = await member.mutation(api.pages.addImage, { pageId: a, file });
+		// Another workspace's page with the same URL doesn't keep it.
+		const side = (await sideWorkspace(t, "owner@co.com")).workspaceId;
+		await paste(t, owner, b, url);
+		await paste(t, owner, await owner.in(side).mutation(api.pages.create, { title: "Elsewhere" }), url);
+		await purge(t, owner, "page", a);
+		expect(await exists(t, file)).toBe(true);
+		await purge(t, owner, "page", b);
+		expect(await exists(t, file)).toBe(false);
+	});
+
+	it("deletes a record body's pictures with the record, keeping ones copied into a page", async () => {
+		const { t, owner, member } = await setup();
+		const client = (await owner.query(api.recordTypes.list)).find((type) => type.key === "client")!;
+		const acme = await member.mutation(api.records.create, { typeId: client._id, values: { name: "Acme" } });
+		const body = await member.mutation(api.pages.create, { recordId: acme });
+		// Different bytes: convex-test makes storage URLs from a file's hash.
+		const [only, copied] = [await upload(member), await upload(member, 17)];
+		await member.mutation(api.pages.addImage, { pageId: body, file: only });
+		const page = await member.mutation(api.pages.create, { title: "Wiki" });
+		await paste(t, owner, page, await member.mutation(api.pages.addImage, { pageId: body, file: copied }));
+		await purge(t, owner, "record", acme);
+		expect([await exists(t, only), await exists(t, copied)]).toEqual([false, true]);
+		expect((await t.run((ctx) => ctx.db.query("pageImages").collect())).map((r) => r.pageId)).toEqual([page]);
+		await purge(t, owner, "page", page);
+		expect(await exists(t, copied)).toBe(false);
 	});
 
 	it("deletes pictures and unclaimed uploads with the workspace, and a photo with its account", async () => {

@@ -4,6 +4,7 @@ import { components } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
+import { claimUpload, imageUrl } from "./images";
 import { type Member, getMember, nameOf, requireMember } from "./lib";
 import {
 	createPage,
@@ -145,6 +146,20 @@ export const moves = query({
 		const result = await ctx.db.query("pageMoves").withIndex("by_page", (q) => q.eq("pageId", pageId)).order("desc")
 			.paginate({ ...paginationOpts, numItems: Math.min(paginationOpts.numItems, 20) });
 		return { ...result, page: await Promise.all(result.page.map(async (r) => ({ ...r, user: await nameOf(ctx, r.userId), agent: r.agentId ? (await ctx.db.get(r.agentId))?.name ?? "An agent" : null }))) };
+	},
+});
+
+/** Puts one of your uploads in a page you can edit; returns its URL for the image block. */
+export const addImage = mutation({
+	args: { pageId: v.id("pages"), file: v.id("_storage") },
+	handler: async (ctx, { pageId, file }) => {
+		const member = await requireMember(ctx);
+		const page = await requirePage(ctx, member, pageId);
+		await requireEditable(ctx, member, page);
+		await claimUpload(ctx, member, file);
+		const url = (await imageUrl(ctx, file))!;
+		await ctx.db.insert("pageImages", { workspaceId: page.workspaceId, pageId, storageId: file, url });
+		return url;
 	},
 });
 

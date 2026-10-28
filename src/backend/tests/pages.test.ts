@@ -316,12 +316,14 @@ describe("pages tools", () => {
 describe("page markdown", () => {
 	it("converts both ways, for agent tools", async () => {
 		const { t } = await setup();
-		const markdown = "# Plan\n\n- [ ] Call Acme\n\n| a | b |\n| - | - |\n| 1 | 2 |\n";
+		const markdown = "# Plan\n\n- [ ] Call Acme\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\n![Roof](https://x.convex.cloud/api/storage/1)\n";
 		const blocks = JSON.parse(await t.action(internal.pageMarkdown.fromMarkdown, { markdown })) as object[];
 		const doc = JSON.stringify({ type: "doc", content: [{ type: "blockGroup", content: blocks }] });
 		const back = await t.action(internal.pageMarkdown.toMarkdown, { doc });
 		expect(back).toContain("# Plan");
 		expect(back).toContain("[ ] Call Acme");
 		expect(back).toMatch(/\| 1 +\| 2 +\|/);
+		// Agents see page pictures as image links.
+		expect(back).toContain("![Roof](https://x.convex.cloud/api/storage/1)");
 	});
 });

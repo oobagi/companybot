@@ -5,11 +5,12 @@ import "@blocknote/mantine/style.css";
 import { useBlockNoteSync } from "@convex-dev/prosemirror-sync/blocknote";
 import { SuggestionMenuController, getDefaultReactSlashMenuItems } from "@blocknote/react";
 import { linkedPageId, pageHref, validPageHref } from "@companybot/core/page-links";
-import { type MouseEvent, useMemo, useState } from "react";
+import { type MouseEvent, useMemo, useRef, useState } from "react";
 import { api, errorMessage } from "../../api";
 import { useMutation } from "../../convex";
 import { PageIcon } from "../../icons";
 import { navigate } from "../../router";
+import { useUpload } from "../../upload";
 import { EmptyState, Loading, Notice } from "../../ui";
 import { useLinkedPages } from "./useLinkedPages";
 import { PageLevel } from "./PageTree";
@@ -46,7 +47,12 @@ function openPageLink(event: MouseEvent<HTMLDivElement>) {
 export function PageEditor({ pageId, editable, standalone = false }: { pageId: Id<"pages">; editable: boolean; standalone?: boolean }) {
 	const create = useMutation(api.pages.create);
 	const [error, setError] = useState<string>();
-	const sync = useBlockNoteSync<BlockNoteEditor>(api.pageSync, pageId, { editorOptions: { links }, onSyncError: (e) => setError(errorMessage(e)) });
+	const upload = useUpload();
+	const addImage = useMutation(api.pages.addImage);
+	// Pasted, dropped or picked pictures (BlockNote's uploadFile). The editor is made once, so it calls the latest through a ref.
+	const uploadImage = useRef<(file: File) => Promise<string>>(null);
+	uploadImage.current = (file) => upload(file).then((id) => addImage({ pageId, file: id })).catch((e) => { setError(errorMessage(e)); throw e; });
+	const sync = useBlockNoteSync<BlockNoteEditor>(api.pageSync, pageId, { editorOptions: { links, uploadFile: (file) => uploadImage.current!(file) }, onSyncError: (e) => setError(errorMessage(e)) });
 	if (sync.isLoading) return <Loading />;
 	if (!sync.editor) return <EmptyState icon={<PageIcon />} title="Page unavailable">Try opening this page again.</EmptyState>;
 	return (
@@ -55,7 +61,8 @@ export function PageEditor({ pageId, editable, standalone = false }: { pageId: I
 			<div onClickCapture={openPageLink} onAuxClickCapture={openPageLink}>
 				<BlockNoteView editor={sync.editor} editable={editable} theme={theme} className={viewClass} slashMenu={false}>
 					<SuggestionMenuController triggerCharacter="/" getItems={async (query) => filterSuggestionItems([
-						...getDefaultReactSlashMenuItems(sync.editor),
+						// Uploads take pictures only, and the app loads no outside media: no video, audio or file blocks.
+						...getDefaultReactSlashMenuItems(sync.editor).filter((item) => !(["video", "audio", "file"] as const).some((k) => item.title === sync.editor.dictionary.slash_menu[k].title)),
 						...(standalone ? [{ title: "Page", subtext: "Add a page inside", aliases: ["page", "subpage"], group: "Pages", icon: <PageIcon />, onItemClick: async () => {
 							try {
 								const id = await create({ title: "Untitled", parentId: pageId });
