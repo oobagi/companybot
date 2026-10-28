@@ -25,6 +25,34 @@ describe("onboarding", () => {
 		expect(hello!.text).toContain("team memory");
 	});
 
+	it("leaves someone with no invites in no workspace until they set one up: their name, the company, its currency, and their team", async () => {
+		const t = newTest();
+		const userId = await t.run((ctx) => ctx.db.insert("users", { email: "ada@co.com" }));
+		const ada = person(identityOf(t, userId));
+		await ada.mutation(api.workspace.ensure);
+		expect((await ada.query(api.workspace.mine))!.workspaces).toEqual([]);
+
+		// A bad email refuses the whole thing: no name saved, no workspace made.
+		await expect(ada.mutation(api.workspace.setUp, { displayName: "Ada", name: "Acme", invites: ["nope"] })).rejects.toThrow("email");
+		await expect(ada.mutation(api.workspace.setUp, { displayName: "Ada", name: "Acme", currency: "XXX", invites: [] })).rejects.toThrow("currency");
+		await expect(ada.mutation(api.workspace.setUp, { displayName: "Ada", name: " ", invites: [] })).rejects.toThrow("empty");
+		expect((await ada.query(api.workspace.mine))!.workspaces).toEqual([]);
+		expect((await ada.query(api.preferences.get)).displayName).toBe("");
+
+		const id = await ada.mutation(api.workspace.setUp, { displayName: " Ada ", name: " Acme ", currency: "eur", invites: ["Bob@Co.com", "cy@co.com"] });
+		expect((await ada.query(api.workspace.mine))!.workspaces).toMatchObject([{ id, name: "Acme", role: "owner" }]);
+		expect((await ada.query(api.preferences.get)).displayName).toBe("Ada");
+		const inAcme = ada.in(id);
+		expect(await inAcme.query(api.workspace.settings)).toMatchObject({ name: "Acme", currency: "EUR" });
+		expect((await inAcme.query(api.workspace.team))!.invites.map((i) => `${i.email} ${i.role}`)).toEqual(["bob@co.com member", "cy@co.com member"]);
+		// Inviting counts as the tutorial's invite step, and the welcome knows their name.
+		expect((await inAcme.query(api.onboarding.tutorial))!.find((s) => s.id === "invite")).toMatchObject({ done: true });
+		const general = await generalOf(inAcme);
+		const [hello] = await inAcme.query(api.messages.list, { chatId: general._id });
+		expect(hello!.text).toMatch(/^Hi Ada, I'm Companybot\./);
+		expect(await turnsOf(t)).toEqual([]);
+	});
+
 	it("welcomes each person who joins in their DM with the main agent, by the name they set", async () => {
 		const t = newTest();
 		const owner = await signIn(t, "owner@co.com");

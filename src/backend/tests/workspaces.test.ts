@@ -29,8 +29,7 @@ async function setup() {
 	const t = newTest();
 	const userId = await t.run((ctx) => ctx.db.insert("users", { email: "two@co.com" }));
 	const as = person(identityOf(t, userId));
-	await as.mutation(api.workspace.ensure);
-	const a = (await as.query(api.workspace.mine))!.workspaces[0]!.id;
+	const a = await as.mutation(api.workspace.setUp, { displayName: "", name: "A", invites: [] });
 	await t.run((ctx) => seedLegacyRecords(ctx, a, userId));
 	const b = await t.run(async (ctx) => {
 		const id = await ctx.db.insert("workspaces", { name: "B", version: 1 });
@@ -291,4 +290,5 @@ it(`refuses to make you own more than ${MAX_OWNED_WORKSPACES} workspaces`, async
 		}
 	});
 	await expect(A.mutation(api.workspace.create, { name: "One more" })).rejects.toThrow(`up to ${MAX_OWNED_WORKSPACES} workspaces`);
+	await expect(A.mutation(api.workspace.setUp, { displayName: "", name: "One more", invites: [] })).rejects.toThrow(`up to ${MAX_OWNED_WORKSPACES} workspaces`);
 });

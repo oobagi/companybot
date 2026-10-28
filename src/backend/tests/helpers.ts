@@ -13,15 +13,18 @@ export const modules = import.meta.glob(["../convex/**/*.ts", "../convex/_genera
 export const identityOf = (t: ReturnType<typeof convexTest>, userId: Id<"users">) => t.withIdentity({ subject: `${userId}|session` });
 
 /**
- * A signed-in person, with their first workspace open. The main agent's welcome (onboarding.ts)
- * is taken back so tests start from a quiet #general, unless `welcome` keeps it.
+ * A signed-in person, with their first workspace open: the ones that invited them, else "My company"
+ * from onboarding (workspace.setUp). The main agent's welcome (onboarding.ts) is taken back so
+ * tests start from a quiet #general, unless `welcome` keeps it.
  */
 export async function signIn(t: ReturnType<typeof convexTest>, email: string, { welcome = false } = {}) {
 	const userId = await t.run((ctx) => ctx.db.insert("users", { email }));
 	const identity = identityOf(t, userId);
 	const before = new Set(await t.run(async (ctx) => (await ctx.db.query("chatMessages").collect()).map((m) => m._id)));
 	await person(identity).mutation(api.workspace.ensure);
-	const first = await t.run(async (ctx) => (await ctx.db.query("members").collect()).find((m) => m.userId === userId));
+	const memberRow = async () => t.run(async (ctx) => (await ctx.db.query("members").collect()).find((m) => m.userId === userId));
+	if (!(await memberRow())) await person(identity).mutation(api.workspace.setUp, { displayName: "", name: "My company", invites: [] });
+	const first = await memberRow();
 	if (!welcome)
 		await t.run(async (ctx) => {
 			for (const m of await ctx.db.query("chatMessages").collect())

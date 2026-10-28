@@ -12,6 +12,7 @@ import { ArrowLeftIcon, DatabaseIcon, PlusIcon, SettingsIcon, SignOutIcon } from
 import { MenuDivider, Notice, Scroll, TopBar, TruncatedTips, useRun } from "./ui";
 import { RecordsView, recordTabs } from "./views/Records";
 import { SettingsNav, SettingsView, settingsScope, settingsTabAliases, settingsTabs } from "./views/Settings";
+import { Onboarding } from "./views/Onboarding";
 import { SignIn } from "./views/SignIn";
 import { TitleBar } from "./views/TitleBar";
 import { WorkspaceMenu } from "./views/WorkspaceMenu";
@@ -39,7 +40,8 @@ const OPEN_KEY = "companybot.workspace";
 
 /**
  * Picks the workspace this window shows: the one this device had open, else the one you
- * used last anywhere (first launch), else your first. Every call below carries it.
+ * used last anywhere (first launch), else your first. Every call below carries it. In none
+ * (a first sign-in with no invites, or after deleting your last), onboarding makes one.
  */
 function Workspace() {
 	const mine = useQuery(api.workspace.mine);
@@ -47,6 +49,8 @@ function Workspace() {
 	const ensure = useMutation(api.workspace.ensure);
 	const remember = useMutation(api.workspace.switchTo);
 	const [chosen, setChosen] = useState(() => localStorage.getItem(OPEN_KEY));
+	// Whether invites have been checked, so onboarding doesn't flash before they're joined.
+	const [ensured, setEnsured] = useState(false);
 	const { error, fail } = useRun();
 	const ids = mine?.workspaces.map((w) => w.id) ?? [];
 	const id = [chosen, mine?.lastUsed].find((w) => w && ids.includes(w as Id<"workspaces">)) ?? ids[0];
@@ -56,9 +60,10 @@ function Workspace() {
 		if (mine === null) void signOut();
 	}, [mine, signOut]);
 
-	// First sign-in (or after leaving your last one): join the workspaces that invited you, or start one.
+	// In no workspace (a first sign-in, or after leaving or deleting your last one): join the
+	// workspaces that invited you. With none, onboarding below starts one.
 	useEffect(() => {
-		if (mine?.workspaces.length === 0) ensure().catch(fail);
+		if (mine?.workspaces.length === 0) ensure().then(() => setEnsured(true), fail);
 	}, [mine, ensure]);
 
 	// Once this device has a workspace open it keeps it, even when another device later changes "last used".
@@ -85,6 +90,8 @@ function Workspace() {
 	const workspace = useMemo(() => id && { id: id as Id<"workspaces">, open }, [id, open]);
 
 	if (error) return <div className="flex h-screen items-center justify-center p-8"><Notice>{error}</Notice></div>;
+	// The new workspace opens once `mine` lists it.
+	if (mine && ids.length === 0) return ensured ? <Onboarding onDone={(next) => (localStorage.setItem(OPEN_KEY, next), setChosen(next))} /> : null;
 	if (!workspace) return null;
 	// Keyed by workspace: switching starts every screen fresh.
 	return (

@@ -272,8 +272,10 @@ describe("deleting a workspace", () => {
 		expect([...changed].map((id) => before.get(id)!.table)).toEqual(["preferences"]);
 		expect(await b.query(api.workspace.me)).toMatchObject({ workspaceId: B, role: "owner" });
 		expect(await t.run((ctx) => ctx.db.query("cascades").collect())).toEqual([]);
-		// In no workspace now, they start a fresh one, as on first sign-in.
+		// In no workspace now, nothing is made for them (onboarding will); then they start a fresh one.
 		await a.mutation(api.workspace.ensure);
+		expect((await a.query(api.workspace.mine))!.workspaces).toEqual([]);
+		await a.mutation(api.workspace.setUp, { displayName: "", name: "Fresh", invites: [] });
 		const fresh = (await a.query(api.workspace.mine))!.workspaces.map((w) => w.id);
 		expect(fresh).toHaveLength(1);
 		expect(fresh).not.toContain(A);
