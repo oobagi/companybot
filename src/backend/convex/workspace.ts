@@ -53,14 +53,31 @@ export const ensure = mutation({
 		for (const invite of invites) await join(ctx, invite, userId);
 		if (invites.length > 0) return;
 
-		const workspaceId = await ctx.db.insert("workspaces", { name: "My company", version: 1 });
-		await ctx.db.insert("members", { workspaceId, userId, role: "owner", email: normalizeEmail((await ctx.db.get(userId))?.email ?? ""), tutorial: freshTutorial() });
-		await seedAgents(ctx, workspaceId, userId);
-		const general = await ensureGeneral(ctx, workspaceId, userId);
-		await addToChat(ctx, general, { userId });
-		await welcome(ctx, general, userId, "new_workspace");
+		await startWorkspace(ctx, userId, "My company");
 	},
 });
+
+/** Starts another workspace, with you as its owner (the rail's "+"). Returns it, for the app to open. */
+export const create = mutation({
+	args: { name: v.string() },
+	handler: async (ctx, { name }): Promise<Id<"workspaces">> => {
+		const userId = await authUserId(ctx);
+		if (!userId) throw new ConvexError("Not signed in.");
+		if (!name.trim()) throw new ConvexError("Name can't be empty.");
+		return startWorkspace(ctx, userId, name.trim());
+	},
+});
+
+/** A new workspace with `userId` as its owner: the default agents, #general, and a welcome there. */
+async function startWorkspace(ctx: MutationCtx, userId: Id<"users">, name: string) {
+	const workspaceId = await ctx.db.insert("workspaces", { name, version: 1 });
+	await ctx.db.insert("members", { workspaceId, userId, role: "owner", email: normalizeEmail((await ctx.db.get(userId))?.email ?? ""), tutorial: freshTutorial() });
+	await seedAgents(ctx, workspaceId, userId);
+	const general = await ensureGeneral(ctx, workspaceId, userId);
+	await addToChat(ctx, general, { userId });
+	await welcome(ctx, general, userId, "new_workspace");
+	return workspaceId;
+}
 
 /**
  * Pending invites to this person's (verified) email, from workspaces that aren't being deleted

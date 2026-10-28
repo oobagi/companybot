@@ -234,3 +234,20 @@ it("refuses ids from the other workspace in reads, restores and nested ids", asy
 		}),
 	).rejects.toThrow("Agent not found");
 });
+
+describe("creating a workspace", () => {
+	it("makes you its owner, with #general, and keeps the ones you're in", async () => {
+		const { a, A } = await setup();
+		const c = await A.mutation(api.workspace.create, { name: "  Clean Co  " });
+		const mine = (await A.query(api.workspace.mine))!.workspaces;
+		expect(mine.map((w) => w.id)).toContain(a);
+		expect(mine.find((w) => w.id === c)).toMatchObject({ name: "Clean Co", role: "owner" });
+		const chats = await A.in(c).query(api.chats.list);
+		expect(chats!.channels.map((ch) => ch.name)).toContain("general");
+	});
+
+	it("needs a name", async () => {
+		const { A } = await setup();
+		await expect(A.mutation(api.workspace.create, { name: " " })).rejects.toThrow("Name can't be empty.");
+	});
+});

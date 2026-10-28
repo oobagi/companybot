@@ -2,24 +2,27 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery, useWorkspace } from "../convex";
+import { PlusIcon } from "../icons";
 import { navigate } from "../router";
-import { Notice, useRun } from "../ui";
+import { Notice, compactControlClass, primaryButton, useRun } from "../ui";
 import { Avatar, Popover } from "./chat/common";
 
 /** Round until hovered or open, then a rounded square, as in Discord. */
 const shape = "no-drag relative size-9 transition-all";
 
-/** The strip at the far left: a logo per workspace you're in, then any invites. Click one to switch. */
+/** The strip at the far left: a logo per workspace you're in, then any invites, then + to start one. Click one to switch. */
 export function WorkspaceRail() {
 	const mine = useQuery(api.workspace.mine);
 	const accept = useMutation(api.workspace.acceptInvite);
 	const decline = useMutation(api.workspace.declineInvite);
+	const create = useMutation(api.workspace.create);
+	const [name, setName] = useState("");
 	const { error, run } = useRun();
 	const current = useWorkspace();
 	// Chats and records belong to one workspace, so a switch starts from the chat list.
 	const goTo = (workspaceId: Id<"workspaces">) => (current?.open(workspaceId), navigate("chat"));
-	// A join resolves before the list shows the workspace, and opening one you're not in is refused,
-	// so a joined workspace opens once it's listed.
+	// A join or create resolves before the list shows the workspace, and opening one you're not in is
+	// refused, so it opens once it's listed.
 	const [joined, setJoined] = useState<Id<"workspaces">>();
 	useEffect(() => {
 		if (joined && mine?.workspaces.some((w) => w.id === joined)) {
@@ -80,6 +83,36 @@ export function WorkspaceRail() {
 					{error && <Notice>{error}</Notice>}
 				</Popover>
 			))}
+			<Popover
+				label="Create a workspace"
+				trigger={<PlusIcon size={18} />}
+				className={`${shape} flex items-center justify-center rounded-[18px] bg-white text-neutral-500 hover:rounded-xl hover:bg-neutral-900 hover:text-white`}
+				panelClassName="w-64 p-3"
+			>
+				{(close) => (
+					<form
+						className="flex flex-col gap-2"
+						onSubmit={(e) => {
+							e.preventDefault();
+							run(create({ name }).then((id) => (setJoined(id), setName(""), close())));
+						}}
+					>
+						<p className="font-medium">Create a workspace</p>
+						<p className="text-xs text-neutral-500">For another business. You'll be its owner; invite people from Settings → Members.</p>
+						<input
+							autoFocus
+							value={name}
+							onChange={(e) => setName(e.target.value)}
+							placeholder="Business name"
+							className={compactControlClass}
+						/>
+						{error && <Notice>{error}</Notice>}
+						<button type="submit" disabled={!name.trim()} className={`${primaryButton} self-end`}>
+							Create
+						</button>
+					</form>
+				)}
+			</Popover>
 		</nav>
 	);
 }
