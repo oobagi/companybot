@@ -89,7 +89,8 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 			sendWith={sendWith}
 			placeholder={`Message ${title}`}
 			status={<TypingLine chatId={chat._id} />}
-			tray={<TutorialTray agent={directory.agents[0]?.name ?? "an agent"} nudge={nudge} />}
+			// Channels only: it teaches @mentions, and a DM is a step of its own.
+			tray={chat.kind === "channel" && <TutorialTray agent={directory.agents[0]?.name ?? "an agent"} nudge={nudge} />}
 			// Nobody else could see it in an agent DM.
 			onType={agent ? undefined : typing.ping}
 			candidates={candidates}
