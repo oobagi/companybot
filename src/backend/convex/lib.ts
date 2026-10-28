@@ -8,11 +8,12 @@ import {
 	resolveTimeZone,
 } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
+import type { FunctionReference, PaginationResult } from "convex/server";
 import { ConvexError } from "convex/values";
 import { legacySkills } from "./legacyCatalogs";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { Requested } from "./functions";
-import type { QueryCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 
 export interface Member {
 	/** The `members` row. */
@@ -72,6 +73,13 @@ export async function authUserId(ctx: QueryCtx) {
 	return user && !user.erasedAt ? user._id : null;
 }
 
+/** The signed-in person (as `authUserId`), or "Not signed in." */
+export async function requireUserId(ctx: QueryCtx) {
+	const userId = await authUserId(ctx);
+	if (!userId) throw new ConvexError("Not signed in.");
+	return userId;
+}
+
 /**
  * The signed-in person in the workspace this request is for (`functions.ts` puts it on ctx).
  * Null if they're not in it: a request can only act where its sender is a member.
@@ -128,6 +136,13 @@ export async function requireAgent(ctx: QueryCtx, member: Member, agentId: Id<"a
 	return requireInWorkspace(member, await ctx.db.get(agentId), "Agent");
 }
 
+/** An agent that isn't in Trash: one there is read-only until it's restored. */
+export async function requireLiveAgent(ctx: QueryCtx, member: Member, agentId: Id<"agents">) {
+	const agent = await requireAgent(ctx, member, agentId);
+	if (agent.archived) throw new ConvexError("This agent is in Trash. Restore it first.");
+	return agent;
+}
+
 /** Refuses a save that started from an older version than what's stored now. */
 export function checkVersion(current: number, expected: number) {
 	if (current !== expected) {
@@ -159,6 +174,19 @@ export async function saveMade<Config, Custom extends { version: number }>({
 	checkVersion(current.version, expectedVersion);
 	await validate();
 	await patch({ ...current, ...madeCustom(config, userId), version: current.version + 1 });
+}
+
+/** A page with nothing on it. */
+export const emptyPage = (): PaginationResult<never> => ({ page: [], isDone: true, continueCursor: "" });
+
+/** `opts`, asking for at most `max` rows. */
+export const capped = <T extends { numItems: number }>(opts: T, max: number) => ({ ...opts, numItems: Math.min(opts.numItems, max) });
+
+/** One batch of an hourly cleanup (crons.ts): `forget`s up to `max` rows of `due`, then runs `again` if it was full. */
+export async function sweepExpired<T>(ctx: MutationCtx, due: { take(n: number): Promise<T[]> }, forget: (row: T) => Promise<unknown>, again: FunctionReference<"mutation", "internal">, max = 500) {
+	const rows = await due.take(max);
+	for (const row of rows) await forget(row);
+	if (rows.length === max) await ctx.scheduler.runAfter(0, again, {});
 }
 
 /** Agent tools return expected problems to the model. */

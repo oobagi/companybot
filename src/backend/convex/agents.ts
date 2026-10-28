@@ -14,12 +14,12 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
-import { type Member, type Who, checkPermission, checkVersion, getMember, namesOf, requireAgent, requirePermission, toActor } from "./lib";
+import { type Member, type Who, checkPermission, checkVersion, getMember, namesOf, requireAgent, requireLiveAgent, requirePermission, toActor } from "./lib";
 import { connectorStates } from "./connectors";
 import { imageUrl } from "./images";
 import { allowedModels, catalogModels } from "./modelCatalog";
 import { agentConfig } from "./schema";
-import { putInTrash, takeFromTrash, trashInfo } from "./trashOps";
+import { toggleTrash, trashInfo } from "./trashOps";
 
 // Agents live in the database, one set per workspace. Owners edit them; every save
 // is kept in agentVersions so changes can be reviewed and restored. Replies read the
@@ -179,13 +179,6 @@ export async function updateAgent(ctx: MutationCtx, member: Member, agentId: Id<
 	await saveVersion(ctx, agent, await clean(ctx, agent, config), member.userId);
 }
 
-/** An agent that isn't in Trash: one there is read-only until it's restored. */
-export async function requireLiveAgent(ctx: MutationCtx, member: Member, agentId: Id<"agents">) {
-	const agent = await requireAgent(ctx, member, agentId);
-	if (agent.archived) throw new ConvexError("This agent is in Trash. Restore it first.");
-	return agent;
-}
-
 /**
  * Moves an agent to Trash, or back (owners). In Trash it leaves chat and runs nothing; its chats
  * and memories stay until it's deleted forever. The last agent stays: automations and chat need one.
@@ -201,7 +194,7 @@ export async function setAgentTrashed(ctx: MutationCtx, who: Who, agentId: Id<"a
 			.withIndex("by_workspace_active", (q) => q.eq("workspaceId", member.workspaceId).eq("archived", false))
 			.take(2);
 		if (active.length <= 1) throw new ConvexError("Keep at least one agent.");
-		await putInTrash(ctx, who, { kind: "agent", id: agentId, name: agent.name });
-	} else await takeFromTrash(ctx, who, agentId);
+	}
+	await toggleTrash(ctx, who, archived, { kind: "agent", id: agentId, name: agent.name });
 	await ctx.db.patch(agent._id, { archived });
 }

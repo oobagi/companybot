@@ -4,14 +4,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, components, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { TRASH_MS } from "../convex/trashOps";
-import { agentTurn, agentsOf, generalOf, newTest, noMentions, settle, setup, sideWorkspace, signIn } from "./helpers";
+import { agentTurn, agentsOf, generalOf, newTest, noMentions, settle, ownerAndMember, sideWorkspace, signIn, workspaceOf, identityOf } from "./helpers";
 
 afterEach(() => vi.useRealTimers());
 const page = { numItems: 50, cursor: null };
 
 /** Clients and deals, a deal linking to a client, and a channel the member made. */
 async function seeded() {
-	const s = await setup();
+	const s = await ownerAndMember();
 	const types = await s.owner.query(api.recordTypes.list);
 	const client = types.find((t) => t.key === "client")!;
 	const deal = types.find((t) => t.key === "deal")!;
@@ -20,7 +20,7 @@ async function seeded() {
 	return { ...s, client, deal, acme, roof };
 }
 
-const trashOf = async (as: Awaited<ReturnType<typeof setup>>["owner"], args: { kind?: "record" | "channel"; search?: string } = {}) =>
+const trashOf = async (as: Awaited<ReturnType<typeof ownerAndMember>>["owner"], args: { kind?: "record" | "channel"; search?: string } = {}) =>
 	(await as.query(api.trash.list, { ...args, paginationOpts: page })).page;
 
 describe("trash", () => {
@@ -79,7 +79,7 @@ describe("trash", () => {
 	});
 
 	it("keeps private channel Trash private, including search, owner purge and cross-workspace IDs", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const id = await member.mutation(api.chats.createChannel, { name: "confidential", private: true });
 		await member.mutation(api.trash.move, { kind: "channel", id });
 		expect((await trashOf(member))[0]?.name).toBe("#confidential");
@@ -134,7 +134,7 @@ describe("trash", () => {
 	it("bounds field cleanup across large records and skips large choice catalogs", async () => {
 		const { t, owner, member, client } = await seeded();
 		const field = await member.mutation(api.fields.create, { typeId: client._id, label: "Obsolete", kind: "text" });
-		const workspaceId = (await owner.query(api.workspace.me))!.workspaceId!;
+		const workspaceId = await workspaceOf(owner);
 		for (let batch = 0; batch < 5; batch++) await t.run(async (ctx) => {
 			for (let n = 0; n < 4; n++) await ctx.db.insert("recordFields", { workspaceId, typeId: client._id, key: `choice${batch * 4 + n}`, label: "Large choices", kind: "choice", position: 30 + batch * 4 + n, options: [{ id: "old", label: "x".repeat(900_000) }], archived: false, createdBy: member.userId, updatedAt: Date.now() });
 		});
@@ -167,7 +167,7 @@ describe("trash", () => {
 	it("continues the expiry sweep beyond its first hundred entries", async () => {
 		const { t, owner, member, client } = await seeded();
 		vi.useFakeTimers();
-		const workspaceId = (await owner.query(api.workspace.me))!.workspaceId!;
+		const workspaceId = await workspaceOf(owner);
 		await t.run(async (ctx) => {
 			for (let n = 0; n < 105; n++) {
 				const id = await ctx.db.insert("records", { workspaceId, typeId: client._id, title: `Expired ${n}`, values: { name: `Expired ${n}` }, searchText: "", archived: true, createdBy: member.userId, updatedBy: member.userId, updatedAt: Date.now() });
@@ -243,7 +243,7 @@ describe("trash", () => {
 	});
 
 	it("deletes channels as their managers may; their messages go forever, #general stays", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const chatId = await member.mutation(api.chats.createChannel, { name: "sales", private: false });
 		await member.mutation(api.messages.send, { chatId, text: "hello", mentions: noMentions });
 		await expect(owner.mutation(api.trash.move, { kind: "channel", id: (await generalOf(owner))._id })).rejects.toThrow("stays");
@@ -268,7 +268,7 @@ describe("trash", () => {
 	});
 
 	it("deletes agents as owners, keeping the last; forever takes its versions, memories and channel seats", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const { companybot, scribe } = await agentsOf(owner);
 		const chatId = await owner.mutation(api.chats.createChannel, { name: "ops", private: false });
 		await owner.mutation(api.chats.addMembers, { chatId, userIds: [], agentIds: [scribe._id] });
@@ -358,7 +358,7 @@ describe("trash", () => {
 		await expect(member.mutation(api.pages.remove, { pageId })).rejects.toThrow("permission");
 		await owner.mutation(api.pages.remove, { pageId });
 		expect(await owner.query(api.pages.get, { pageId })).toBeNull();
-		expect(await t.withIdentity({ subject: `${owner.userId}|session` }).query(api.pageSync.latestVersion, { id: pageId })).toBeNull();
+		expect(await identityOf(t, owner.userId).query(api.pageSync.latestVersion, { id: pageId })).toBeNull();
 	});
 });
 
@@ -367,9 +367,9 @@ describe("trash migration", () => {
 		const t = newTest();
 		migrationsTest.register(t);
 		const owner = await signIn(t, "owner@co.com");
-		const workspaceIdForSeed = (await owner.query(api.workspace.me))!.workspaceId!;
+		const workspaceIdForSeed = await workspaceOf(owner);
 		await t.run((ctx) => seedLegacyRecords(ctx, workspaceIdForSeed, owner.userId));
-		const workspaceId = (await owner.query(api.workspace.me))!.workspaceId!;
+		const workspaceId = await workspaceOf(owner);
 		const typeId = (await owner.query(api.recordTypes.list))[0]!._id;
 		// A default 100-row batch would exceed 16 MiB. Seed in separate transactions too.
 		for (let batch = 0; batch < 7; batch++) await t.run(async (ctx) => {
@@ -388,7 +388,7 @@ describe("trash migration", () => {
 		const t = newTest();
 		migrationsTest.register(t);
 		const owner = await signIn(t, "owner@co.com");
-		const workspaceIdForSeed = (await owner.query(api.workspace.me))!.workspaceId!;
+		const workspaceIdForSeed = await workspaceOf(owner);
 		await t.run((ctx) => seedLegacyRecords(ctx, workspaceIdForSeed, owner.userId));
 		const ids = await t.run(async (ctx) => {
 			const { userId, workspaceId } = (await ctx.db.query("members").first())!;

@@ -15,7 +15,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
 import { action, mutation, query } from "./functions";
 import { encrypt } from "./crypto";
-import { type Member, checkPermission, getMember, memberFor, memberOf, requireMember, requirePermission } from "./lib";
+import { type Member, checkPermission, getMember, memberFor, memberOf, requireMember, requirePermission, sweepExpired } from "./lib";
 import { cascading, startCascade } from "./cascade";
 import { role } from "./schema";
 
@@ -186,12 +186,8 @@ export const saveOAuthFlow = internalMutation({
 export const forgetExpiredOAuth = internalMutation({
 	args: {},
 	handler: async (ctx) => {
-		const expired = await ctx.db
-			.query("connectorOAuthFlows")
-			.withIndex("by_creation_time", (q) => q.lt("_creationTime", Date.now() - OAUTH_FLOW_MS))
-			.take(500);
-		for (const flow of expired) await ctx.db.delete(flow._id);
-		if (expired.length === 500) await ctx.scheduler.runAfter(0, internal.connectors.forgetExpiredOAuth);
+		const expired = ctx.db.query("connectorOAuthFlows").withIndex("by_creation_time", (q) => q.lt("_creationTime", Date.now() - OAUTH_FLOW_MS));
+		await sweepExpired(ctx, expired, (flow) => ctx.db.delete(flow._id), internal.connectors.forgetExpiredOAuth);
 	},
 });
 

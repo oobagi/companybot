@@ -1,10 +1,9 @@
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
-import schema from "../convex/schema";
 import { DOWNLOAD_URL, INVITE_EMAILS_PER_DAY, inviteEmail } from "@companybot/core";
 
-import { modules, signIn, workspaceOf, inWorkspace, sideWorkspace, setup as ownerAndMember, noMentions, meOf, settle } from "./helpers";
+import { signIn, workspaceOf, inWorkspace, sideWorkspace, ownerAndMember, noMentions, settle, newTest } from "./helpers";
 
 afterEach(() => void vi.useRealTimers());
 
@@ -51,7 +50,7 @@ describe("invites", () => {
 	});
 
 	it("lets someone who already has a workspace accept, then switch between both", async () => {
-		const t = convexTest({ schema, modules, transactionLimits: true });
+		const t = newTest();
 		const owner = await signIn(t, "owner@co.com");
 		await owner.mutation(api.workspace.updateSettings, { name: "Acme", expectedVersion: 1 });
 		const pal = await signIn(t, "pal@co.com");
@@ -84,7 +83,7 @@ describe("invites", () => {
 	});
 
 	it("joins every workspace that invited someone new", async () => {
-		const t = convexTest({ schema, modules, transactionLimits: true });
+		const t = newTest();
 		const a = await signIn(t, "a@co.com");
 		const b = await signIn(t, "b@co.com");
 		await a.mutation(api.workspace.invite, { email: "new@co.com", role: "member" });
@@ -138,7 +137,7 @@ describe("invites", () => {
 		const { t, owner, member } = await ownerAndMember();
 		await expect(owner.mutation(api.workspace.leave)).rejects.toThrow("only owner");
 		const secret = await owner.mutation(api.chats.createChannel, { name: "board", private: true });
-		const memberId = await meOf(member);
+		const memberId = member.userId;
 		await owner.mutation(api.chats.addMembers, { chatId: secret, userIds: [memberId], agentIds: [] });
 		const dm = await owner.mutation(api.chats.openDm, { userIds: [memberId], agentIds: [] });
 		expect(await member.query(api.chats.get, { chatId: secret })).not.toBeNull();

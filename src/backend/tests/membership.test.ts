@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
 
-import { type As, agentsOf, inWorkspace, setup as ownerAndMember, sideWorkspace, settle } from "./helpers";
+import { type As, agentsOf, inWorkspace, ownerAndMember, sideWorkspace, settle } from "./helpers";
 import "./connectorFixtures";
 
 afterEach(() => void vi.useRealTimers());

@@ -1,14 +1,14 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import { childrenOf } from "../convex/lifecycle";
-import { agentTurn, agentsOf, generalOf, setup, settle, signIn } from "./helpers";
+import { agentTurn, agentsOf, generalOf, ownerAndMember, settle, signIn } from "./helpers";
 
 afterEach(() => vi.useRealTimers());
 const page = { numItems: 20, cursor: null };
 const config = { name: "By name", filters: [], columns: ["name"], sort: { field: "name", order: "asc" as const } };
 
 it("owners create, rename and archive databases with stable keys and Activity history", async () => {
-	const { owner, member } = await setup();
+	const { owner, member } = await ownerAndMember();
 	const id = await owner.mutation(api.recordTypes.create, { plural: " Jobs " });
 	let database = (await member.query(api.recordTypes.list)).find((t) => t._id === id)!;
 	expect(database).toMatchObject({ key: "job", name: "Job", plural: "Jobs", version: 0 });
@@ -27,7 +27,7 @@ it("owners create, rename and archive databases with stable keys and Activity hi
 });
 
 it("renames and archives legacy databases and validates database names", async () => {
-	const { owner } = await setup();
+	const { owner } = await ownerAndMember();
 	const types = await owner.query(api.recordTypes.list);
 	for (const type of types) await owner.mutation(api.recordTypes.update, { typeId: type._id, name: `${type.name} new`, plural: `${type.plural} new`, version: type.version });
 	await expect(owner.mutation(api.recordTypes.create, { plural: "CLIENTS NEW" })).rejects.toThrow("already");
@@ -39,7 +39,7 @@ it("renames and archives legacy databases and validates database names", async (
 });
 
 it("shares sorting, filtering and ordered columns; refuses stale saves and deletions", async () => {
-	const { t, owner, member } = await setup();
+	const { t, owner, member } = await ownerAndMember();
 	const type = (await owner.query(api.recordTypes.list)).find((t) => t.key === "deal")!;
 	const input = { ...config, typeId: type._id, filters: [{ field: "stage", in: ["won"] }], columns: ["name", "stage", "value"] };
 	const id = await member.mutation(api.databaseViews.save, input);
@@ -60,7 +60,7 @@ it("shares sorting, filtering and ordered columns; refuses stale saves and delet
 });
 
 it("checks filter semantics, columns, names and per-database limits before writing", async () => {
-	const { owner } = await setup();
+	const { owner } = await ownerAndMember();
 	const [type] = await owner.query(api.recordTypes.list);
 	const input = { ...config, typeId: type!._id };
 	for (const patch of [
@@ -76,7 +76,7 @@ it("checks filter semantics, columns, names and per-database limits before writi
 });
 
 it("isolates every database and view operation across workspaces, including forged ids", async () => {
-	const { t, owner } = await setup();
+	const { t, owner } = await ownerAndMember();
 	const other = await signIn(t, "outsider@co.com");
 	// COMPAT(0.1.0-alpha.8): alpha.6 apps send both names.
 	const typeId = await owner.mutation(api.recordTypes.create, { name: "Mouse", plural: "Mice" });
@@ -92,7 +92,7 @@ it("isolates every database and view operation across workspaces, including forg
 });
 
 it("empties a live view subscription when its database is in Trash, keeping its data and refusing edits", async () => {
-	const { t, owner } = await setup();
+	const { t, owner } = await ownerAndMember();
 	const typeId = await owner.mutation(api.recordTypes.create, { plural: "Jobs" });
 	const viewId = await owner.mutation(api.databaseViews.save, { ...config, typeId });
 	await owner.mutation(api.recordTypes.update, { typeId, archived: true, version: 0 });
@@ -103,7 +103,7 @@ it("empties a live view subscription when its database is in Trash, keeping its 
 });
 
 it("keeps shared views when their maker leaves, and cascades them with their database", async () => {
-	const { t, owner, member } = await setup();
+	const { t, owner, member } = await ownerAndMember();
 	const [type] = await owner.query(api.recordTypes.list);
 	const id = await member.mutation(api.databaseViews.save, { ...config, typeId: type!._id });
 	const membership = await t.run((ctx) => ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", member.userId)).first());
@@ -118,7 +118,7 @@ it("keeps shared views when their maker leaves, and cascades them with their dat
 });
 
 it("gives agents database and view parity, names both actors, and rechecks roles on every call", async () => {
-	const { t, owner, member } = await setup();
+	const { t, owner, member } = await ownerAndMember();
 	const { companybot } = await agentsOf(owner);
 	const turnId = await agentTurn(t, owner, (await generalOf(owner))._id, companybot._id);
 	const database = await t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input: { name: "Jobs" } });
@@ -145,7 +145,7 @@ it("gives agents database and view parity, names both actors, and rechecks roles
 });
 
 it("agent renames drop archived view fields, preserve timestamp sorts, and still reject explicit invalid sorts", async () => {
-	const { t, owner } = await setup();
+	const { t, owner } = await ownerAndMember();
 	const type = (await owner.query(api.recordTypes.list)).find((t) => t.key === "deal")!;
 	const field = type.fields.find((f) => f.key === "value")!;
 	const id = await owner.mutation(api.databaseViews.save, { typeId: type._id, name: "Value", filters: [{ field: "value", gte: 1 }], sort: { field: "value", order: "asc" }, columns: ["name", "value"] });
@@ -161,7 +161,7 @@ it("agent renames drop archived view fields, preserve timestamp sorts, and still
 });
 
 it("shows links into a database in Trash as deleted, still readable and clearable", async () => {
-	const { t, owner } = await setup();
+	const { t, owner } = await ownerAndMember();
 	const types = await owner.query(api.recordTypes.list);
 	const client = types.find((t) => t.key === "client")!;
 	const deal = types.find((t) => t.key === "deal")!;
@@ -178,7 +178,7 @@ it("shows links into a database in Trash as deleted, still readable and clearabl
 });
 
 it("saves board views grouped by a single choice field, for people, agents and alpha.7 apps", async () => {
-	const { t, owner, member } = await setup();
+	const { t, owner, member } = await ownerAndMember();
 	const typeId = await owner.mutation(api.recordTypes.create, { plural: "Jobs" });
 	await owner.mutation(api.fields.create, { typeId, label: "Status", kind: "choice", options: [{ label: "To do" }, { label: "Done" }] });
 	await owner.mutation(api.fields.create, { typeId, label: "Tags", kind: "choice", options: [{ label: "Roof" }], multiple: true });
@@ -210,7 +210,7 @@ it("saves board views grouped by a single choice field, for people, agents and a
 });
 
 it("lets alpha.7 save a board after its grouping field is deleted", async () => {
-	const { owner } = await setup();
+	const { owner } = await ownerAndMember();
 	const typeId = await owner.mutation(api.recordTypes.create, { plural: "Jobs" });
 	const field = await owner.mutation(api.fields.create, { typeId, label: "Status", kind: "choice", options: [{ label: "To do" }] });
 	const config = { typeId, name: "Pipeline", columns: ["name"], filters: [] };
@@ -223,7 +223,7 @@ it("lets alpha.7 save a board after its grouping field is deleted", async () => 
 });
 
 it("lists a board column on top of ten filters, checking the grouping field and option", async () => {
-	const { owner } = await setup();
+	const { owner } = await ownerAndMember();
 	const typeId = await owner.mutation(api.recordTypes.create, { plural: "Jobs" });
 	const status = await owner.mutation(api.fields.create, { typeId, label: "Status", kind: "choice", options: [{ label: "To do" }, { label: "Old" }] });
 	await owner.mutation(api.fields.create, { typeId, label: "Tags", kind: "choice", options: [{ label: "Roof" }], multiple: true });

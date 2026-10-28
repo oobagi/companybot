@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 
-import { agentsOf, setup as ownerAndMember, generalOf, turnsOf, agentTurn } from "./helpers";
+import { agentsOf, ownerAndMember, generalOf, turnsOf, agentTurn } from "./helpers";
 
 // The tests drive turns themselves; keep scheduled model replies back.
 beforeEach(() => void vi.useFakeTimers());

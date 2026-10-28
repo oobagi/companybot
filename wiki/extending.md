@@ -5,12 +5,12 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 ## Permissions — `core/src/permissions.ts`
 - Every workspace action has a permission listing the roles allowed. Backend mutations call `requirePermission(ctx, "x.y")`; the app calls `can(role, "x.y")`.
 - New feature that needs a gate → add a permission first. Never check `role === "owner"` directly.
-- New role → add it to `Role` (`types.ts`) and to `role` in `backend/convex/schema.ts`, then to each permission it should have.
+- New role → add it to `roles` (`types.ts`; the schema's `role` validator is built from it), then to each permission it should have.
 
 ## Tools — `core/src/tools.ts`, `builtin-tools.ts`
 - One shape (`ToolDef`) for built-ins and connector tools. Ids are `group.name`; model names come from `modelToolName`.
 - Add a built-in: `defineTool` in `builtin-tools.ts`. Set `permission` if not everyone may trigger it (checked through the role table, like everything else), `readOnly: true` if it changes nothing, and `risk` if it reaches outside ([Permissions](permissions.md)).
-- Tools reach data only through `ToolContext` (`memory`, `chat`, `skills`, `automations`, `records`), which enforce permissions. Don't do permission checks inside tools.
+- Tools reach data only through `ToolContext` (`memory`, `chat`, `skills`, `automations`, `records`, `pages`, `manage`), which enforce permissions. Don't do permission checks inside tools.
 - Agents grant exact ids or whole groups (`memory.*`). `resolveTools` is the only place that decides what the model sees.
 
 ## Connectors — `core/src/connectors.ts`, `mcp.ts`, `backend/convex/connectors.ts`
@@ -80,7 +80,7 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 
 ## Databases and records — `core/src/records.ts`, `backend/convex/recordOps.ts`
 - Databases and fields are workspace data, created through the app or agent tools. Never seed demo databases or fields in workspace creation or migrations.
-- New field kind: add it to `fieldKinds` and `fieldKind` (`schema.ts`), then `normalizeValue` and `indexEntries`.
+- New field kind: add it to `fieldKinds` (`schema.ts` builds `fieldKind` from it), then `normalizeValue` and `indexEntries`.
 - Every change goes through `recordOps` (`Who` in `lib.ts`: member + optional agent), so permissions, history and the index can't drift. Never write `records` or `recordValues` directly.
 - Reads the app and agents share (lists, search, "what links here") live in `recordReads.ts`; use them instead of querying the indexes again.
 - Heavy data for a type (recordings, transcripts, line items) gets its own table keyed by `recordId`, not a field.

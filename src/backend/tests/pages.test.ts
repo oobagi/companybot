@@ -3,16 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, components, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { DELTA_MAX_BYTES, IDLE_MS, PAGE_MAX_BYTES, PAGE_VERSIONS_MAX, VERSION_MS, pageSchema, readDoc, sync } from "../convex/pageOps";
-import { type As, agentsOf, generalOf, agentTurn, settle, setup, signIn } from "./helpers";
+import { type As, agentsOf, generalOf, agentTurn, settle, ownerAndMember, signIn, identityOf } from "./helpers";
 
 // Pages (pageOps.ts): the editor's sync, versions grouped like Notion's, restore, agent tools, and cleanup.
 
-type T = Awaited<ReturnType<typeof setup>>["t"];
+type T = Awaited<ReturnType<typeof ownerAndMember>>["t"];
 type Person = Awaited<ReturnType<typeof signIn>>;
 
 /** Types `text` at the start of the page as `as`'s editor does: steps, then a snapshot. */
 async function type(t: T, as: Person, pageId: Id<"pages">, text: string) {
-	const editor = t.withIdentity({ subject: `${as.userId}|session` });
+	const editor = identityOf(t, as.userId);
 	const { doc, version } = await t.run(async (ctx) => {
 		const latest = await sync.getDoc(ctx, pageId, pageSchema());
 		return { doc: latest.doc.toJSON(), version: latest.version };
@@ -50,7 +50,7 @@ afterEach(() => void vi.useRealTimers());
 
 describe("page history", () => {
 	it("groups one person's continuous edits into one version, like Notion", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const pageId = await owner.mutation(api.pages.create, { title: "Onboarding" });
 		await type(t, owner, pageId, "Hello ");
 		const first = (await historyOf(owner, pageId))[0]!;
@@ -82,7 +82,7 @@ describe("page history", () => {
 	});
 
 	it("restores an old version as a new one, so nothing is lost", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const pageId = await owner.mutation(api.pages.create, { title: "SOP" });
 		await type(t, owner, pageId, "Hello");
 		vi.advanceTimersByTime(IDLE_MS + 1);
@@ -99,12 +99,12 @@ describe("page history", () => {
 	});
 
 	it("saves accepted edits before a client snapshot and ignores forged or delayed snapshots", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const pageId = await owner.mutation(api.pages.create, { title: "Concurrent" });
 		await type(t, owner, pageId, "First");
 		const first = (await historyOf(owner, pageId))[0]!;
 		vi.advanceTimersByTime(IDLE_MS + 1);
-		const editor = t.withIdentity({ subject: `${member.userId}|session` });
+		const editor = identityOf(t, member.userId);
 		const current = await t.run(async (ctx) => { const { doc, version } = await sync.getDoc(ctx, pageId, pageSchema()); return { doc: doc.toJSON(), version }; });
 		const tr = new Transform(pageSchema().nodeFromJSON(current.doc)).insert(3, pageSchema().text("Second "));
 		const steps = tr.steps.map((s) => JSON.stringify(s.toJSON()));
@@ -125,7 +125,7 @@ describe("page history", () => {
 	});
 
 	it("ends continuous groups at ten minutes and updates edited time within a group", async () => {
-		const { t, owner } = await setup();
+		const { t, owner } = await ownerAndMember();
 		const pageId = await owner.mutation(api.pages.create, { title: "Long edit" });
 		for (let i = 0; i < 11; i++) {
 			await type(t, owner, pageId, "x");
@@ -140,7 +140,7 @@ describe("page history", () => {
 	it("bounds the document, each block and each stored delta in bytes, including multibyte text", async () => {
 		// The component reads up to 100 deltas at once, twice when it deletes them, plus a few snapshots.
 		expect(2 * 100 * DELTA_MAX_BYTES + 4 * PAGE_MAX_BYTES).toBeLessThan(16 * 2 ** 20);
-		const { t, owner } = await setup();
+		const { t, owner } = await ownerAndMember();
 		const pageId = await owner.mutation(api.pages.create, { title: "Large" });
 		await expect(type(t, owner, pageId, "a".repeat(DELTA_MAX_BYTES))).rejects.toThrow("too much");
 		await expect(type(t, owner, pageId, "🌙".repeat(DELTA_MAX_BYTES / 4))).rejects.toThrow("too much");
@@ -160,7 +160,7 @@ describe("page history", () => {
 	});
 
 	it("compacts large deltas and deletes snapshots and deltas across bounded component batches", async () => {
-		const { t, owner } = await setup();
+		const { t, owner } = await ownerAndMember();
 		const pageId = await owner.mutation(api.pages.create, { title: "Large cleanup" });
 		const tools = await turnFor(t, owner);
 		// Over a hundred 50 KB deltas: the component cleans up 100 at a time, rescheduling the rest.
@@ -176,7 +176,7 @@ describe("page history", () => {
 	});
 
 	it(`keeps the latest ${PAGE_VERSIONS_MAX} versions, deleting older ones with their snapshots`, { timeout: 60_000 }, async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const pageId = await owner.mutation(api.pages.create, { title: "Busy" });
 		for (let i = 0; i < PAGE_VERSIONS_MAX + 2; i++) {
 			await type(t, i % 2 ? member : owner, pageId, "x");
@@ -192,7 +192,7 @@ describe("page history", () => {
 
 describe("pages", () => {
 	it("are created, renamed, deleted to Trash and deleted forever, content and history too", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const pageId = await member.mutation(api.pages.create, { title: "  Meeting   notes " });
 		await member.mutation(api.pages.rename, { pageId, title: "Weekly notes" });
 		expect(await owner.query(api.pages.list, {})).toEqual([expect.objectContaining({ _id: pageId, title: "Weekly notes" })]);
@@ -210,7 +210,7 @@ describe("pages", () => {
 	});
 
 	it("are deleted with their workspace, content included", async () => {
-		const { t, owner } = await setup();
+		const { t, owner } = await ownerAndMember();
 		const pageId = await owner.mutation(api.pages.create, { title: "Wiki" });
 		await type(t, owner, pageId, "Hi");
 		await owner.mutation(api.workspace.deleteWorkspace, { name: "My company" });
@@ -220,17 +220,17 @@ describe("pages", () => {
 	});
 
 	it("are only reachable from their own workspace", async () => {
-		const { t, owner } = await setup();
+		const { t, owner } = await ownerAndMember();
 		const pageId = await owner.mutation(api.pages.create, { title: "Private plans" });
 		const other = await signIn(t, "other@co.com");
-		await expect(t.withIdentity({ subject: `${other.userId}|session` }).query(api.pageSync.getSnapshot, { id: pageId })).rejects.toThrow("Page not found");
+		await expect(identityOf(t, other.userId).query(api.pageSync.getSnapshot, { id: pageId })).rejects.toThrow("Page not found");
 		await expect(type(t, other, pageId, "x")).rejects.toThrow("Page not found");
 		expect(await other.query(api.pages.get, { pageId })).toBeNull();
 		await expect(other.mutation(api.pages.rename, { pageId, title: "Mine" })).rejects.toThrow();
 	});
 
 	it("give every record a body, created when someone first writes in it", async () => {
-		const { t, owner } = await setup();
+		const { t, owner } = await ownerAndMember();
 		const types = await owner.query(api.recordTypes.list);
 		const client = types.find((x) => x.key === "client")!;
 		const recordId = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Acme" } });
@@ -248,7 +248,7 @@ describe("pages", () => {
 
 describe("pages tools", () => {
 	it("create, read, append, replace and restore as Companybot for the person", async () => {
-		const { t, member } = await setup();
+		const { t, member } = await ownerAndMember();
 		const tools = await turnFor(t, member);
 		const made = await tools.write({ title: "Pricing", markdown: "x" }, [paragraph("Roofs are $10/sqft")]);
 		expect(made).toMatchObject({ title: "Pricing" });
@@ -270,7 +270,7 @@ describe("pages tools", () => {
 	});
 
 	it("rechecks the acting person's membership on each call", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const tools = await turnFor(t, member);
 		const pageId = await owner.mutation(api.pages.create, { title: "Workspace only" });
 		const other = await signIn(t, "other@co.com");
@@ -286,7 +286,7 @@ describe("pages tools", () => {
 	});
 
 	it("stops page tools when the acting person loses access to a private chat", async () => {
-		const { t, member } = await setup();
+		const { t, member } = await ownerAndMember();
 		const chatId = await member.mutation(api.chats.createChannel, { name: "private-plans", private: true });
 		const { companybot } = await agentsOf(member);
 		const turnId = await agentTurn(t, member, chatId, companybot._id);
@@ -300,7 +300,7 @@ describe("pages tools", () => {
 	});
 
 	it("write a record's body, creating it on first write", async () => {
-		const { t, member } = await setup();
+		const { t, member } = await ownerAndMember();
 		const client = (await member.query(api.recordTypes.list)).find((x) => x.key === "client")!;
 		const recordId = await member.mutation(api.records.create, { typeId: client._id, values: { name: "Acme" } });
 		const tools = await turnFor(t, member);
@@ -315,7 +315,7 @@ describe("pages tools", () => {
 
 describe("page markdown", () => {
 	it("converts both ways, for agent tools", async () => {
-		const { t } = await setup();
+		const { t } = await ownerAndMember();
 		const markdown = "# Plan\n\n- [ ] Call Acme\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\n![Roof](https://x.convex.cloud/api/storage/1)\n";
 		const blocks = JSON.parse(await t.action(internal.pageMarkdown.fromMarkdown, { markdown })) as object[];
 		const doc = JSON.stringify({ type: "doc", content: [{ type: "blockGroup", content: blocks }] });

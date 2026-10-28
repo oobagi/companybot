@@ -3,12 +3,12 @@ import { type ManageTool } from "@companybot/core";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { IDLE_MS, readDoc } from "../convex/pageOps";
-import { agentTurn, agentsOf, generalOf, noMentions, setup, sideWorkspace, turnsOf } from "./helpers";
+import { agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, sideWorkspace, turnsOf } from "./helpers";
 
 afterEach(() => vi.useRealTimers());
 
 async function ready() {
-	const { t, owner, member } = await setup();
+	const { t, owner, member } = await ownerAndMember();
 	const { companybot, scribe } = await agentsOf(owner);
 	const dm = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
 	const mdm = await member.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });

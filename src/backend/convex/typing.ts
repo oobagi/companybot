@@ -5,7 +5,7 @@ import { type MutationCtx, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { type Participant, agentOfDm, namer, requireChat, visibleChat } from "./chatOps";
 import { mutation, query } from "./functions";
-import { requireMember } from "./lib";
+import { requireMember, sweepExpired } from "./lib";
 import { STALE_TURN_MS } from "./turns";
 
 // Typing indicators: who's typing in a place (chat + thread). Timing rules: core typing.ts.
@@ -79,11 +79,7 @@ const rowOf = (ctx: MutationCtx, chatId: Id<"chats">, threadId: Id<"chatMessages
 export const forgetStale = internalMutation({
 	args: {},
 	handler: async (ctx) => {
-		const stale = await ctx.db
-			.query("typing")
-			.withIndex("by_at", (q) => q.lt("at", Date.now() - TYPING_MS))
-			.take(500);
-		for (const row of stale) await ctx.db.delete(row._id);
-		if (stale.length === 500) await ctx.scheduler.runAfter(0, internal.typing.forgetStale);
+		const stale = ctx.db.query("typing").withIndex("by_at", (q) => q.lt("at", Date.now() - TYPING_MS));
+		await sweepExpired(ctx, stale, (row) => ctx.db.delete(row._id), internal.typing.forgetStale);
 	},
 });

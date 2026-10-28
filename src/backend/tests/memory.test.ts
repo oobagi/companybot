@@ -1,4 +1,4 @@
-import { setup as ownerAndMember, signIn, settle } from "./helpers";
+import { ownerAndMember, signIn, settle, workspaceOf } from "./helpers";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
@@ -88,7 +88,7 @@ describe("agent memory", () => {
 	it.each(["remove", "leave"])("cleans only that workspace on %s, including archived agents, and spares memories after rejoining", async (how) => {
 		const { t, owner, member, companybot } = await setup();
 		const other = await signIn(t, "other@co.com");
-		const otherWorkspace = (await other.query(api.workspace.me))!.workspaceId!;
+		const otherWorkspace = await workspaceOf(other);
 		await other.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
 		await member.mutation(api.workspace.acceptInvite, { id: (await member.query(api.workspace.mine))!.invitations[0]!.id });
 		const otherAgent = (await other.query(api.agents.list))[0]!._id;
@@ -232,7 +232,7 @@ describe("agent memory", () => {
 	it("keeps the switch scoped to the turn's workspace after the person switches away", async () => {
 		const { t, owner, companybot, general } = await setup();
 		const other = await signIn(t, "other@co.com");
-		const otherWorkspace = (await other.query(api.workspace.me))!.workspaceId!;
+		const otherWorkspace = await workspaceOf(other);
 		await other.mutation(api.workspace.invite, { email: "owner@co.com", role: "owner" });
 		await owner.mutation(api.workspace.acceptInvite, { id: (await owner.query(api.workspace.mine))!.invitations[0]!.id });
 		const otherAgent = (await other.query(api.agents.list))[0]!._id;

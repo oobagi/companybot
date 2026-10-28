@@ -1,4 +1,4 @@
-import { setup as ownerAndMember, signIn, modules } from "./helpers";
+import { ownerAndMember, signIn, newTest } from "./helpers";
 import migrationsTest from "@convex-dev/migrations/test";
 import { convexTest } from "convex-test";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
@@ -8,7 +8,6 @@ import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { memberOf } from "../convex/lib";
 import { createRecord, updateRecord } from "../convex/recordOps";
-import schema from "../convex/schema";
 
 type As = Awaited<ReturnType<typeof signIn>>;
 
@@ -47,7 +46,7 @@ describe("databases", () => {
 	});
 
 	it("never seeds databases when old migrations run, preserving existing databases", async () => {
-		const t = convexTest({ schema, modules, transactionLimits: true });
+		const t = newTest();
 		migrationsTest.register(t);
 		const owner = await signIn(t, "owner@co.com");
 		await t.run(async (ctx) => {

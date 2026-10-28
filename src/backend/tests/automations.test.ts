@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 
-import { signIn, agentsOf, setup as ownerAndMember, meOf, generalOf, turnsOf, settle } from "./helpers";
+import { signIn, agentsOf, ownerAndMember, generalOf, turnsOf, settle } from "./helpers";
 
 afterEach(() => void vi.useRealTimers());
 
@@ -440,7 +440,7 @@ describe("automations", () => {
 		it("runs ones people make only as their maker, never falling back to an owner", async () => {
 			const { t, owner, member } = await ownerAndMember();
 			const ops = await member.mutation(api.chats.createChannel, { name: "ops", private: true });
-			await member.mutation(api.chats.addMembers, { chatId: ops, userIds: [await meOf(owner)], agentIds: [] });
+			await member.mutation(api.chats.addMembers, { chatId: ops, userIds: [owner.userId], agentIds: [] });
 			const { companybot } = await agentsOf(member);
 			const id = await member.mutation(api.automations.create, {
 				config: { name: "Hook", prompt: "Act on it.", trigger: { type: "webhook" } },

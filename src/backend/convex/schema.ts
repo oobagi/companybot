@@ -1,11 +1,15 @@
 import { viewConfig } from "./recordValidators";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
+import { fieldKinds, risks, roles, trashKinds } from "@companybot/core";
 import { v } from "convex/values";
+
+/** One of `values`, each a literal. */
+const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map((value) => v.literal(value)));
 
 export const notify = v.union(v.literal("all"), v.literal("mentions"), v.literal("off"));
 
-export const role = v.union(v.literal("owner"), v.literal("member"));
+export const role = oneOf(roles);
 
 export const agentConfig = v.object({
 	name: v.string(),
@@ -36,20 +40,10 @@ export const approvalStatus = v.union(
 	v.literal("denied"),
 );
 
-export const trashKind = v.union(
-	v.literal("record"),
-	v.literal("database"),
-	v.literal("field"),
-	v.literal("page"),
-	v.literal("channel"),
-	v.literal("agent"),
-	v.literal("skill"),
-	v.literal("automation"),
-	v.literal("memory"),
-);
+export const trashKind = oneOf(trashKinds);
 
 /** core's Risk. */
-export const risk = v.union(v.literal("none"), v.literal("inside"), v.literal("outside"), v.literal("locked"));
+export const risk = oneOf(risks);
 
 /** core's AllowedHow: why a call that would ask ran. */
 export const allowedHow = v.object({
@@ -101,19 +95,7 @@ export const fieldValue = v.union(
 );
 
 /** core's FieldKind. */
-export const fieldKind = v.union(
-	v.literal("text"),
-	v.literal("number"),
-	v.literal("currency"),
-	v.literal("date"),
-	v.literal("checkbox"),
-	v.literal("choice"),
-	v.literal("email"),
-	v.literal("phone"),
-	v.literal("url"),
-	v.literal("user"),
-	v.literal("link"),
-);
+export const fieldKind = oneOf(fieldKinds);
 
 /** core's AutomationAudience. */
 export const audience = v.union(v.literal("creator"), v.literal("subscribers"), v.literal("channel"));

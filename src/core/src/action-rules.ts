@@ -8,7 +8,8 @@
  * - "locked": always asks; "Always allow" isn't offered (payments, deleting records, bulk sends).
  *   Owners can lift the lock (see `permissionFor`).
  */
-export type Risk = "none" | "inside" | "outside" | "locked";
+export const risks = ["none", "inside", "outside", "locked"] as const;
+export type Risk = (typeof risks)[number];
 
 /**
  * A tool's risk. Tools can say so themselves (`risk`); otherwise connector tools are

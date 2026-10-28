@@ -1,4 +1,4 @@
-import { canTrash } from "@companybot/core";
+import { type TrashKind, canTrash } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -12,7 +12,7 @@ import { type Member, type Who, nameOf, toActor } from "./lib";
 export const TRASH_DAYS = 30;
 export const TRASH_MS = TRASH_DAYS * 24 * 60 * 60_000;
 
-export type TrashKind = Doc<"trash">["kind"];
+export type { TrashKind };
 
 /** An item's Trash row. Ids are unique across tables, so the id alone finds it. */
 export const trashEntry = (ctx: QueryCtx, itemId: string) =>
@@ -35,6 +35,12 @@ export async function putInTrash(ctx: MutationCtx, who: Who, item: { kind: Trash
 		deletedAt: Date.now(),
 	});
 }
+
+type TrashItem = Parameters<typeof putInTrash>[2];
+
+/** Puts an item in Trash (`archived`) or takes it out, as `who`. The caller patches the item. */
+export const toggleTrash = (ctx: MutationCtx, who: Who, archived: boolean, item: TrashItem) =>
+	archived ? putInTrash(ctx, who, item) : takeFromTrash(ctx, who, item.id);
 
 /** Anyone who could delete it can restore it, whoever deleted it (core `canTrash`). */
 export async function canRestore(ctx: QueryCtx, member: Member, entry: Doc<"trash">) {

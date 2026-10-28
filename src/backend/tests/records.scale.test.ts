@@ -1,4 +1,4 @@
-import { setup as ownerAndMember, signIn } from "./helpers";
+import { ownerAndMember, signIn } from "./helpers";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { describe, expect, it } from "vitest";
 import { api } from "../convex/_generated/api";

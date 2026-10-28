@@ -9,7 +9,7 @@ import { removeInstall, setAutomationTrashed } from "./automations";
 import { startCascade } from "./cascade";
 import { canSee, setChannelTrashed } from "./chatOps";
 import { mutation, query } from "./functions";
-import { type Member, type Who, checkPermission, getMember, requireMember } from "./lib";
+import { type Member, type Who, capped, checkPermission, emptyPage, getMember, requireMember, sweepExpired } from "./lib";
 import { deletePage, requirePage, setPageTrashed } from "./pageOps";
 import { setFieldTrashed, setRecordTrashed, setTypeTrashed } from "./recordOps";
 import { trashKind } from "./schema";
@@ -121,8 +121,8 @@ export const list = query({
 	args: { kind: v.optional(trashKind), search: v.optional(v.string()), paginationOpts: paginationOptsValidator },
 	handler: async (ctx, { kind, search, paginationOpts }) => {
 		const member = await getMember(ctx);
-		if (!member) return { page: [], isDone: true, continueCursor: "" };
-		const opts = { ...paginationOpts, numItems: Math.min(paginationOpts.numItems, PAGE_MAX) };
+		if (!member) return emptyPage();
+		const opts = capped(paginationOpts, PAGE_MAX);
 		const trash = ctx.db.query("trash");
 		const result = search?.trim()
 			? await trash
@@ -174,11 +174,7 @@ export const purge = mutation({
 export const sweep = internalMutation({
 	args: {},
 	handler: async (ctx) => {
-		const due = await ctx.db
-			.query("trash")
-			.withIndex("by_deleted", (q) => q.lt("deletedAt", Date.now() - TRASH_MS))
-			.take(SWEEP_MAX);
-		for (const entry of due) await deleteEntry(ctx, entry);
-		if (due.length === SWEEP_MAX) await ctx.scheduler.runAfter(0, internal.trash.sweep, {});
+		const due = ctx.db.query("trash").withIndex("by_deleted", (q) => q.lt("deletedAt", Date.now() - TRASH_MS));
+		await sweepExpired(ctx, due, (entry) => deleteEntry(ctx, entry), internal.trash.sweep, SWEEP_MAX);
 	},
 });

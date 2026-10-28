@@ -5,7 +5,7 @@ import type { Id, TableNames } from "../convex/_generated/dataModel";
 import { type Edge, type Lifecycle, edgesOf, lifecycle } from "../convex/lifecycle";
 import { memberOf } from "../convex/lib";
 import schema from "../convex/schema";
-import { agentTurn, generalOf, modules, newTest, noMentions, settle, setup, sideWorkspace, signIn, turnsOf, workspaceOf } from "./helpers";
+import { agentTurn, generalOf, newTest, noMentions, settle, ownerAndMember, sideWorkspace, signIn, turnsOf, workspaceOf, identityOf } from "./helpers";
 import "./connectorFixtures";
 import { person } from "./person";
 
@@ -181,7 +181,7 @@ async function world() {
 	const b = await signIn(t, "b@co.com");
 	// Shared by every workspace.
 	await t.mutation(internal.modelCatalog.save, { models: [{ id: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5", provider: "anthropic" }] });
-	const [A, B] = [(await a.query(api.workspace.me))!.workspaceId!, (await b.query(api.workspace.me))!.workspaceId!];
+	const [A, B] = [await workspaceOf(a), await workspaceOf(b)];
 	await a.in(A).mutation(api.workspace.invite, { email: "m@co.com", role: "member" });
 	await b.in(B).mutation(api.workspace.invite, { email: "m@co.com", role: "member" });
 	const m = await signIn(t, "m@co.com");
@@ -355,7 +355,7 @@ describe("erasing an account", () => {
 	});
 
 	it("refuses while they're the only owner of a workspace with other people", async () => {
-		const t = convexTest({ schema, modules, transactionLimits: true });
+		const t = newTest();
 		const owner = await signIn(t, "a@co.com");
 		await owner.mutation(api.workspace.invite, { email: "m@co.com", role: "member" });
 		await signIn(t, "m@co.com");
@@ -364,7 +364,7 @@ describe("erasing an account", () => {
 	});
 
 	it("lets a sole owner erase their account while a workspace they deleted is still being cleaned up", async () => {
-		const t = convexTest({ schema, modules, transactionLimits: true });
+		const t = newTest();
 		const owner = await signIn(t, "a@co.com");
 		await owner.mutation(api.workspace.invite, { email: "m@co.com", role: "member" });
 		await signIn(t, "m@co.com");
@@ -375,7 +375,7 @@ describe("erasing an account", () => {
 	});
 
 	it("still refuses a sole owner of a live shared workspace when another workspace is being deleted", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const { workspaceId } = await sideWorkspace(t, "owner@co.com");
 		await t.run((ctx) => ctx.db.insert("members", { workspaceId, userId: member.userId, role: "member" }));
 		vi.useFakeTimers();
@@ -386,7 +386,7 @@ describe("erasing an account", () => {
 	});
 
 	it("deletes a sole owner's workspace even if their pending invite is used before the cascade gets there", async () => {
-		const t = convexTest({ schema, modules, transactionLimits: true });
+		const t = newTest();
 		const owner = await signIn(t, "a@co.com");
 		const workspaceId = await workspaceOf(owner);
 		await owner.mutation(api.workspace.invite, { email: "late@co.com", role: "member" });
@@ -400,7 +400,7 @@ describe("erasing an account", () => {
 	});
 
 	it("doesn't count an erased owner, so the last other owner can't leave while their membership is cleaned up", async () => {
-		const t = convexTest({ schema, modules, transactionLimits: true });
+		const t = newTest();
 		const a = await signIn(t, "a@co.com");
 		await a.mutation(api.workspace.invite, { email: "b@co.com", role: "owner" });
 		const b = await signIn(t, "b@co.com");
@@ -414,7 +414,7 @@ describe("erasing an account", () => {
 	});
 
 	it("shows what they wrote as a former member's", async () => {
-		const t = convexTest({ schema, modules, transactionLimits: true });
+		const t = newTest();
 		const owner = await signIn(t, "a@co.com");
 		await owner.mutation(api.workspace.invite, { email: "m@co.com", role: "member" });
 		const m = await signIn(t, "m@co.com");
@@ -425,7 +425,7 @@ describe("erasing an account", () => {
 		const [message] = await owner.query(api.messages.list, { chatId: general });
 		expect(message).toMatchObject({ text: "Bye", author: { type: "user", name: "Former member" } });
 		// A later sign-in with the same email is someone new, in none of the old workspaces.
-		const again = person(t.withIdentity({ subject: `${await t.run((ctx) => ctx.db.insert("users", { email: "m@co.com" }))}|session` }));
+		const again = person(identityOf(t, await t.run((ctx) => ctx.db.insert("users", { email: "m@co.com" }))));
 		await again.mutation(api.workspace.ensure);
 		expect((await again.query(api.workspace.mine))!.workspaces.map((w) => w.id)).not.toContain(await workspaceOf(owner));
 	});
@@ -433,7 +433,7 @@ describe("erasing an account", () => {
 
 describe("a sign-in from before an account was erased", () => {
 	it("acts as nobody: no preferences, name, workspace or invite, before and after cleanup", { timeout: 60_000 }, async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const general = (await generalOf(member))._id;
 		await member.mutation(api.preferences.update, { displayName: "Mo" });
 		await member.mutation(api.messages.send, { chatId: general, text: "Bye", mentions: noMentions });
@@ -463,7 +463,7 @@ describe("a sign-in from before an account was erased", () => {
 
 describe("a sign-in to a connector", () => {
 	it("only connects under the membership and install it started under, and is deleted with either", { timeout: 60_000 }, async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const workspaceId = await workspaceOf(owner);
 		await owner.mutation(api.connectors.setInstalled, { connectorId: "notes", installed: true });
 		const target = () => t.query(internal.connectors.connectTarget, { userId: member.userId, workspaceId, connectorId: "notes" });
@@ -504,7 +504,7 @@ describe("a sign-in to a connector", () => {
 	});
 
 	it("refuses a sign-in from before sign-ins named their membership and install", async () => {
-		const { t, member } = await setup();
+		const { t, member } = await ownerAndMember();
 		const workspaceId = await workspaceOf(member);
 		await t.run((ctx) => ctx.db.insert("connectorOAuthFlows", { state: "old", connectorId: "notes", userId: member.userId, workspaceId, data: "sealed", expiresAt: Date.now() + 60_000 }));
 		const page = await (await t.fetch("/oauth/callback?state=old&code=c")).text();
@@ -515,7 +515,7 @@ describe("a sign-in to a connector", () => {
 
 describe("writes that land after what they belong to went", () => {
 	it("doesn't save a connector's tools for an install that's gone, or in a workspace being deleted", { timeout: 60_000 }, async () => {
-		const { t, owner } = await setup();
+		const { t, owner } = await ownerAndMember();
 		const workspaceId = await workspaceOf(owner);
 		const install = async () => (await t.run((ctx) => ctx.db.query("connectorInstalls").first()))!._id;
 		const save = (installId: Id<"connectorInstalls">) => t.mutation(internal.connectorTools.saveTools, { workspaceId, connectorId: "crm", installId, tools: [] });
@@ -538,7 +538,7 @@ describe("writes that land after what they belong to went", () => {
 	});
 
 	it("starts no queued reply, logs no activity and holds no approval in a workspace being deleted", { timeout: 60_000 }, async () => {
-		const { t, owner } = await setup();
+		const { t, owner } = await ownerAndMember();
 		const general = (await generalOf(owner))._id;
 		const agentId = (await owner.query(api.agents.list))[0]!._id;
 		const turnId = await agentTurn(t, owner, general, agentId);
@@ -556,7 +556,7 @@ describe("writes that land after what they belong to went", () => {
 	});
 
 	it("keeps a call that finishes after its person's account is erased, without what it got back for them", { timeout: 60_000 }, async () => {
-		const { t, member } = await setup();
+		const { t, member } = await ownerAndMember();
 		const general = (await generalOf(member))._id;
 		const agentId = (await member.query(api.agents.list))[0]!._id;
 		const turnId = await agentTurn(t, member, general, agentId);
@@ -577,7 +577,7 @@ describe("writes that land after what they belong to went", () => {
 	});
 
 	it("sends no invite email once the invite is gone", async () => {
-		const { t, owner } = await setup();
+		const { t, owner } = await ownerAndMember();
 		const log = vi.spyOn(console, "log").mockImplementation(() => {});
 		vi.useFakeTimers();
 		await owner.mutation(api.workspace.invite, { email: "gone@co.com", role: "member" });
@@ -592,7 +592,7 @@ describe("writes that land after what they belong to went", () => {
 	});
 
 	it("answers no webhook and runs no schedule in a workspace being deleted", { timeout: 60_000 }, async () => {
-		const { t, owner } = await setup();
+		const { t, owner } = await ownerAndMember();
 		const agentId = (await owner.query(api.agents.list))[0]!._id;
 		const make = (name: string, trigger: { type: "webhook" } | { type: "schedule"; time: string; weekdays: number[] }) =>
 			owner.mutation(api.automations.create, { config: { name, prompt: "p", trigger }, agentId, audience: "creator", timeZone: "UTC" });
@@ -612,7 +612,7 @@ describe("writes that land after what they belong to went", () => {
 
 describe("a cascade that keeps failing", () => {
 	it("is marked stuck with its error, tells someone rejoining it's still cleaning up, and resumes with retry", { timeout: 60_000 }, async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		vi.useFakeTimers();
 		const memberId = (await t.run((ctx) => ctx.db.query("members").collect())).find((r) => r.userId === member.userId)!._id;
 		await owner.mutation(api.workspace.removeMember, { id: memberId });
