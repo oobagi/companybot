@@ -14,6 +14,7 @@ import { RecordsView, recordTabs } from "./views/Records";
 import { SettingsNav, SettingsView, settingsTabAliases, settingsTabs } from "./views/Settings";
 import { SignIn } from "./views/SignIn";
 import { WorkspaceMenu } from "./views/WorkspaceMenu";
+import { WorkspaceRail } from "./views/WorkspaceRail";
 import { ChatView } from "./views/chat/ChatView";
 import { Avatar, MenuItem, Popover } from "./views/chat/common";
 import { ChatNav, Group, Item } from "./views/chat/Sidebar";
@@ -142,6 +143,7 @@ function Shell({ email, role, workspace, logo }: { email: string; role: Role; wo
 
 	return (
 		<div className="flex h-screen text-[15px] text-neutral-900">
+			<WorkspaceRail />
 			{/* The sidebar's lists scroll under the workspace name and you. */}
 			<aside className="drag flex w-60 shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 [--scrim:var(--color-neutral-50)]">
 				<Scroll

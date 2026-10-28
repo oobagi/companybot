@@ -57,7 +57,7 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 - Desktop app first (Electron). Standalone mobile app later. No web app.
 - Cloud backend on Convex: agents run server-side so schedules work when nobody's online.
 - Sign-in: email code only.
-- Teammates: owners invite by email (the email links the download); one person can be in several workspaces and switches from the sidebar.
+- Teammates: owners invite by email (the email links the download); one person can be in several workspaces and switches from the rail of workspace logos at the far left (like Discord).
 
 ## UI
 - Profile cards (built): click a name or avatar in chat (or a channel's member list) to see name, email, role, time zone and local time, and **Message**. Agents show their description.
