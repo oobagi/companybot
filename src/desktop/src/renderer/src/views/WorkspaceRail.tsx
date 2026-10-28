@@ -4,7 +4,7 @@ import { api } from "../api";
 import { useMutation, useQuery, useWorkspace } from "../convex";
 import { PlusIcon } from "../icons";
 import { navigate } from "../router";
-import { Notice, compactControlClass, primaryButton, useRun } from "../ui";
+import { Notice, Scroll, compactControlClass, primaryButton, useRun } from "../ui";
 import { Avatar, Popover } from "./chat/common";
 
 /** Round until hovered or open, then a rounded square, as in Discord. */
@@ -56,45 +56,55 @@ export function WorkspaceRail() {
 	}, [mine, current]);
 
 	return (
-		<nav className="drag flex w-[60px] shrink-0 flex-col items-center gap-2 border-r border-neutral-200 bg-neutral-100 pt-12 pb-3">
-			{/* Workspaces and invites scroll when there are many; + stays below them. */}
-			<div onScroll={() => setTip(undefined)} className="no-drag flex min-h-0 w-full flex-col items-center gap-2 overflow-y-auto [scrollbar-width:none]">
-				{mine?.workspaces.map((w, i) => {
-					const active = w.id === current?.id;
-					const waiting = active ? undefined : activity?.find((a) => a.id === w.id);
-					return (
-						<div key={w.id} className="group relative flex w-full shrink-0 justify-center">
-							<span
-								className={`absolute top-1/2 left-0 w-1 -translate-y-1/2 rounded-r-full bg-neutral-900 transition-all ${active ? "h-7" : waiting?.unread ? "h-2 group-hover:h-3.5" : "h-0 group-hover:h-3.5"}`}
-							/>
-							<span className="relative" {...tipFor(w.name, i < 9 ? `${mod}${i + 1}` : undefined)}>
-								<button
-									type="button"
-									aria-label={waiting?.mentions ? `${w.name}, ${waiting.mentions} unread mentions` : w.name}
-									aria-current={active}
-									onClick={() => !active && goTo(w.id)}
-									className={`${shape} overflow-hidden ${active ? "rounded-xl" : "rounded-[18px] hover:rounded-xl"}`}
-								>
-									<Avatar name={w.name} image={w.image} agent className="pointer-events-none" />
-								</button>
-								{!!waiting?.mentions && (
-									<span className="pointer-events-none absolute -right-1 -bottom-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-neutral-100 bg-red-500 px-0.5 text-[10px] leading-none font-semibold text-white">
-										{waiting.mentions > 9 ? "9+" : waiting.mentions}
-									</span>
-								)}
-							</span>
-						</div>
-					);
-				})}
-				{mine?.invitations.map((i) => (
-					<span key={i.id} className="flex shrink-0" {...tipFor(`Invite to ${i.workspace}`)}>
-						<Invite invite={i} onJoined={setJoined} />
-					</span>
-				))}
-			</div>
-			<span className="flex shrink-0" {...tipFor("Create a workspace")}>
-				<CreateWorkspace onCreated={setJoined} />
-			</span>
+		<nav className="flex w-[60px] shrink-0 flex-col border-r border-neutral-200 bg-neutral-100 [--scrim:var(--color-neutral-100)]">
+			{/* Workspaces and invites scroll under the window's top edge and +, fading out like the sidebar. */}
+			<Scroll
+				className="no-drag [scrollbar-width:none]"
+				onScroll={() => setTip(undefined)}
+				header={<div className="drag pt-8 pb-4" />}
+				footer={
+					<div className="flex justify-center pt-4 pb-3">
+						<span className="flex" {...tipFor("Create a workspace")}>
+							<CreateWorkspace onCreated={setJoined} />
+						</span>
+					</div>
+				}
+			>
+				<div className="flex flex-col items-center gap-2">
+					{mine?.workspaces.map((w, i) => {
+						const active = w.id === current?.id;
+						const waiting = active ? undefined : activity?.find((a) => a.id === w.id);
+						return (
+							<div key={w.id} className="group relative flex w-full shrink-0 justify-center">
+								<span
+									className={`absolute top-1/2 left-0 w-1 -translate-y-1/2 rounded-r-full bg-neutral-900 transition-all ${active ? "h-7" : waiting?.unread ? "h-2 group-hover:h-3.5" : "h-0 group-hover:h-3.5"}`}
+								/>
+								<span className="relative" {...tipFor(w.name, i < 9 ? `${mod}${i + 1}` : undefined)}>
+									<button
+										type="button"
+										aria-label={waiting?.mentions ? `${w.name}, ${waiting.mentions} unread mentions` : w.name}
+										aria-current={active}
+										onClick={() => !active && goTo(w.id)}
+										className={`${shape} overflow-hidden ${active ? "rounded-xl" : "rounded-[18px] hover:rounded-xl"}`}
+									>
+										<Avatar name={w.name} image={w.image} agent className="pointer-events-none" />
+									</button>
+									{!!waiting?.mentions && (
+										<span className="pointer-events-none absolute -right-1 -bottom-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-neutral-100 bg-red-500 px-0.5 text-[10px] leading-none font-semibold text-white">
+											{waiting.mentions > 9 ? "9+" : waiting.mentions}
+										</span>
+									)}
+								</span>
+							</div>
+						);
+					})}
+					{mine?.invitations.map((i) => (
+						<span key={i.id} className="flex shrink-0" {...tipFor(`Invite to ${i.workspace}`)}>
+							<Invite invite={i} onJoined={setJoined} />
+						</span>
+					))}
+				</div>
+			</Scroll>
 			{tip && (
 				<div
 					style={{ top: tip.top }}

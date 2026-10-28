@@ -33,6 +33,8 @@ beforeEach(async () => {
 	(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 	vi.stubGlobal("document", { addEventListener: vi.fn(), removeEventListener: vi.fn() });
 	vi.stubGlobal("window", { innerHeight: 800, innerWidth: 1200, addEventListener: vi.fn(), removeEventListener: vi.fn() });
+	// The rail's Scroll measures what's under its fades.
+	vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
 	vi.resetAllMocks();
 	state.mine = {
 		workspaces: [{ id: "current", name: "Current", image: null, role: "owner" }],
