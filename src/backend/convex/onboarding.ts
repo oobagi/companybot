@@ -1,10 +1,10 @@
-import { type TutorialStep, type Welcome, tutorialStepsFor } from "@companybot/core";
+import { type TutorialStep, type Welcome, tutorialStepsFor, welcomeText } from "@companybot/core";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
-import { addToChat, findOrCreateDm } from "./chatOps";
+import { addToChat, findOrCreateDm, insertMessage } from "./chatOps";
 import { mutation, query } from "./functions";
-import { type Member, getMember, requireMember } from "./lib";
-import { enqueueTurn } from "./turns";
+import { type Member, getMember, preferencesOf, requireMember } from "./lib";
+import { memoryOn } from "./turns";
 
 // Onboarding (wiki/chat.md): the main agent welcomes a new workspace's owner in #general and
 // each person who joins in their DM with it. New people get a tutorial above the composer whose
@@ -16,7 +16,8 @@ export const freshTutorial = (): NonNullable<Doc<"members">["tutorial"]> => ({ d
 /**
  * The workspace's main agent (its oldest active one, Companybot unless renamed) speaks first: the
  * company intro in #general, where everyone gains from it; getting to know someone who joins in
- * their DM, so #general doesn't fill with one interview per person.
+ * their DM, so #general doesn't fill with one intro per person. Fixed text (core `welcomeText`),
+ * so it costs nothing.
  */
 export async function welcome(ctx: MutationCtx, general: Doc<"chats">, userId: Id<"users">, kind: Welcome) {
 	const agent = await ctx.db
@@ -26,7 +27,11 @@ export async function welcome(ctx: MutationCtx, general: Doc<"chats">, userId: I
 	if (!agent) return;
 	await addToChat(ctx, general, { agentId: agent._id });
 	const chat = kind === "joined" ? await ctx.db.get(await findOrCreateDm(ctx, general.workspaceId, userId, [userId], [agent._id])) : general;
-	if (chat) await enqueueTurn(ctx, chat, { agentId: agent._id, chatId: chat._id, actorId: userId, welcome: kind });
+	if (!chat) return;
+	// Only a name they set: an email isn't what anyone wants to be called.
+	const name = (await preferencesOf(ctx, userId))?.displayName || null;
+	const text = welcomeText(kind, { agent: agent.name, name, memory: await memoryOn(ctx, general.workspaceId) });
+	await insertMessage(ctx, chat, { authorAgentId: agent._id, text, parts: [{ type: "text", text }], mentions: { userIds: [], agentIds: [] }, status: "done" });
 }
 
 /** Ticks off steps someone just did (falsy entries skipped). Free for people with no tutorial, or who hid it. */

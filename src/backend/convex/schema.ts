@@ -478,9 +478,10 @@ export default defineSchema({
 		chatId: v.id("chats"),
 		threadId: v.optional(v.id("chatMessages")),
 		agentId: v.id("agents"),
-		/** The message that mentioned the agent (or any message, in an agent DM). Unset for a welcome, and the approvals that follow one. */
+		/** The message that mentioned the agent (or any message, in an agent DM). Unset on old welcome turns, and the approvals that follow one. */
 		triggerId: v.optional(v.id("chatMessages")),
-		/** The agent speaks first: the actor just made the workspace, or joined it (onboarding.ts). */
+		// Retired: welcomes were agent turns; now they're fixed text (onboarding.ts). Old rows keep it.
+		// COMPAT(0.1.0-alpha.8): drop once no turn has it (they're never read).
 		welcome: v.optional(v.union(v.literal("new_workspace"), v.literal("joined"))),
 		/** The agent acts as this person: their role, connector connections, and access. */
 		actorId: v.id("users"),

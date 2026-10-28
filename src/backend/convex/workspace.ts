@@ -57,7 +57,7 @@ export const ensure = mutation({
 	},
 });
 
-/** How many live workspaces one person may own. Each new one runs an agent's welcome, which costs. */
+/** How many live workspaces one person may own. */
 export const MAX_OWNED_WORKSPACES = 10;
 
 /** Starts another workspace, with you as its owner (the rail's "+"). Returns it, for the app to open. */
