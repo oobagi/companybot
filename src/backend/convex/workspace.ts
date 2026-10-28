@@ -7,7 +7,7 @@ import { type MutationCtx, type QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { seedAgents } from "./agents";
 import { fieldsOf, typesOf } from "./recordOps";
-import { addToChat, ensureGeneral } from "./chatOps";
+import { addToChat, ensureGeneral, latestMentionSince } from "./chatOps";
 import { sendInviteEmail } from "./invites";
 import { type Member, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, liveWorkspace, memberOf, nameOf, normalizeEmail, personOf, preferencesOf, requireMember, requirePermission, timeZoneOf } from "./lib";
 import { cascading, startCascade } from "./cascade";
@@ -57,6 +57,9 @@ export const ensure = mutation({
 	},
 });
 
+/** How many live workspaces one person may own. Each new one runs an agent's welcome, which costs. */
+export const MAX_OWNED_WORKSPACES = 10;
+
 /** Starts another workspace, with you as its owner (the rail's "+"). Returns it, for the app to open. */
 export const create = mutation({
 	args: { name: v.string() },
@@ -64,7 +67,39 @@ export const create = mutation({
 		const userId = await authUserId(ctx);
 		if (!userId) throw new ConvexError("Not signed in.");
 		if (!name.trim()) throw new ConvexError("Name can't be empty.");
+		let owned = 0;
+		for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId)))
+			if (row.role === "owner" && (await liveWorkspace(ctx, row.workspaceId))) owned++;
+		if (owned >= MAX_OWNED_WORKSPACES) throw new ConvexError(`You can own up to ${MAX_OWNED_WORKSPACES} workspaces. Delete or leave one first.`);
 		return startWorkspace(ctx, userId, name.trim());
+	},
+});
+
+/**
+ * For the rail, account-wide like `mine`: per workspace you're in, whether a chat has something
+ * unread, and how many chats have an unread @mention of you or an unread DM (the count on its icon).
+ */
+export const activity = query({
+	args: {},
+	handler: async (ctx): Promise<{ id: Id<"workspaces">; unread: boolean; mentions: number }[]> => {
+		const userId = await authUserId(ctx);
+		if (!userId) return [];
+		const byWorkspace = new Map<Id<"workspaces">, { id: Id<"workspaces">; unread: boolean; mentions: number }>();
+		for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId)))
+			if (await liveWorkspace(ctx, row.workspaceId)) byWorkspace.set(row.workspaceId, { id: row.workspaceId, unread: false, mentions: 0 });
+		// Chat seats outlive leaving a workspace, so only the workspaces above count.
+		for (const seat of await ctx.db
+			.query("chatMembers")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.collect()) {
+			const since = seat.lastReadAt ?? 0;
+			const chat = await ctx.db.get(seat.chatId);
+			const entry = chat && byWorkspace.get(chat.workspaceId);
+			if (!chat || !entry || chat.archived || chat.lastMessageAt <= since) continue;
+			entry.unread = true;
+			if (chat.kind === "dm" || (await latestMentionSince(ctx, chat._id, userId, since))) entry.mentions++;
+		}
+		return [...byWorkspace.values()];
 	},
 });
 
