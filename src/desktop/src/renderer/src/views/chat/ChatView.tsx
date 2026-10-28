@@ -97,7 +97,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 		/>
 	);
 	const footer = (
-		<div className="flex flex-col gap-2 px-5 pt-4 pb-5">
+		<div className="flex flex-col gap-2 px-5 pt-4 pb-7">
 			<Notice>{error}</Notice>
 			{chat.trash ? <TrashNotice trash={chat.trash} /> : composer}
 		</div>

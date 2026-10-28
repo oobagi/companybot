@@ -77,7 +77,7 @@ export function Composer({
 	};
 
 	return (
-		<div className="relative flex w-full flex-col gap-1.5">
+		<div className="relative flex w-full flex-col">
 			{open && (
 				<ul className="absolute bottom-full left-0 z-20 mb-2 w-72 overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-lg">
 					{options.map((c, i) => (
@@ -150,7 +150,8 @@ export function Composer({
 				</button>
 			</Form>
 			</div>
-			<p className="h-4 truncate px-4 text-xs text-neutral-400" aria-live="polite">
+			{/* Hangs in the footer's bottom padding, so the composer doesn't sit higher to make room for it. */}
+			<p className="absolute inset-x-0 top-full truncate px-4 pt-1.5 text-xs leading-4 text-neutral-400" aria-live="polite">
 				{status}
 			</p>
 		</div>

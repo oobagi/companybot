@@ -41,7 +41,7 @@ export function ThreadPanel({
 		</header>
 	);
 	const footer = (
-		<div className="flex flex-col gap-2 px-4 pt-4 pb-4">
+		<div className="flex flex-col gap-2 px-4 pt-4 pb-7">
 			<Notice>{error}</Notice>
 			<Composer
 				key={threadId}

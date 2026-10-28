@@ -4,21 +4,22 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvexAuth } from "convex/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
-import { WorkspaceContext, useMutation, useQuery } from "./convex";
+import { WorkspaceContext, useMutation, useQuery, useWorkspace } from "./convex";
 import { desktop, useUpdates } from "./desktop";
 import { useAlerts } from "./notifications";
 import { navigate, useRoute } from "./router";
 import { ArrowLeftIcon, DatabaseIcon, PlusIcon, SettingsIcon, SignOutIcon } from "./icons";
 import { MenuDivider, Notice, Scroll, TopBar, TruncatedTips, useRun } from "./ui";
 import { RecordsView, recordTabs } from "./views/Records";
-import { SettingsNav, SettingsView, settingsTabAliases, settingsTabs } from "./views/Settings";
+import { SettingsNav, SettingsView, settingsScope, settingsTabAliases, settingsTabs } from "./views/Settings";
 import { SignIn } from "./views/SignIn";
 import { TitleBar } from "./views/TitleBar";
 import { WorkspaceMenu } from "./views/WorkspaceMenu";
 import { WorkspaceRail } from "./views/WorkspaceRail";
 import { ChatView } from "./views/chat/ChatView";
 import { Avatar, MenuItem, Popover, deviceTimeZone } from "./views/chat/common";
-import { ChatNav, Group, Item } from "./views/chat/Sidebar";
+import { AddButton, ChannelsNav, DmsNav, Group, Item, type SectionProps } from "./views/chat/Sidebar";
+import { useSortable, useStoredIds } from "./sortable";
 import { PagesNav, PagesView } from "./views/Pages";
 import { DatabaseDialog } from "./views/records/DatabaseDialog";
 import { useTypes } from "./views/records/data";
@@ -125,9 +126,9 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	const builtinKey = Object.keys(builtinTabs).find((k) => builtinTabs[k] === view);
 	const typeKey = view === "records" ? route[1] : builtinKey;
 	const recordId = view === "records" ? route[2] : route[1];
-	// Each section reopens where you left it.
-	const lastPath = useRef<Partial<Record<View, string[]>>>({});
-	lastPath.current[view] = route;
+	// Workspace settings reopen on the tab you left them on.
+	const lastWorkspaceSettings = useRef<string[]>(["settings", "general"]);
+	if (view === "settings" && settingsScope(settingsTab) === "workspace") lastWorkspaceSettings.current = route;
 	// Where "Back to app" goes from Settings.
 	const lastApp = useRef<string[]>(["chat"]);
 	if (view !== "settings") lastApp.current = route;
@@ -141,6 +142,10 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 		fail();
 	};
 	useAlerts();
+	// The sidebar's sections: drag a title to move one, click it to fold it. Both stay on this computer.
+	const sections = useSortable("sidebar.sections", sectionIds, sectionKey);
+	const [folded, setFolded] = useStoredIds("sidebar.folded");
+	const fold = (id: string) => setFolded(folded.includes(id) ? folded.filter((f) => f !== id) : [...folded, id]);
 	// Hidden or shown, the sidebar stays that way on this computer.
 	const [sidebar, setSidebar] = useState(() => localStorage.getItem("sidebar.hidden") !== "true");
 	const toggleSidebar = useCallback(() => setSidebar((shown) => (localStorage.setItem("sidebar.hidden", String(shown)), !shown)), []);
@@ -151,7 +156,19 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 			<TitleBar sidebar={sidebar} onSidebar={toggleSidebar} />
 			<TruncatedTips />
 			<div className="flex min-h-0 flex-1">
-				<WorkspaceRail />
+				<WorkspaceRail
+					you={prefs?.displayName || email}
+					youMenu={
+						<YouMenu
+							name={prefs?.displayName || email}
+							image={prefs?.image}
+							email={email}
+							role={role}
+							onSettings={() => navigate("settings", "preferences")}
+							onSignOut={() => void signOut()}
+						/>
+					}
+				/>
 				{/* The sidebar and the open screen share one panel, its corner tucked under the title bar. */}
 				<div className="flex min-w-0 flex-1 overflow-hidden rounded-tl-xl border-t border-l border-neutral-200 bg-white">
 					{/* The sidebar's lists scroll under the workspace name and you. */}
@@ -168,26 +185,18 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 												</Item>
 											</div>
 										) : (
-											<WorkspaceMenu name={workspace} />
+											<WorkspaceMenu name={workspace} onSettings={() => navigate(...lastWorkspaceSettings.current)} />
 										)}
 									</div>
 								}
 								footer={
-									<div className="flex flex-col gap-2 px-3 pt-4 pb-3">
-										{update?.state === "ready" && (
+									update?.state === "ready" && (
+										<div className="flex flex-col px-3 pt-4 pb-3">
 											<button type="button" onClick={() => void desktop?.updates.install()} className="rounded-lg bg-neutral-900 px-3 py-2 text-left text-xs text-white">
 												Update ready · Restart
 											</button>
-										)}
-										<YouMenu
-											name={prefs?.displayName || email}
-											image={prefs?.image}
-											email={email}
-											role={role}
-											onSettings={() => navigate(...(lastPath.current.settings ?? ["settings"]))}
-											onSignOut={() => void signOut()}
-										/>
-									</div>
+										</div>
+									)
 								}
 							>
 								<div className="flex flex-col gap-4 px-3 pb-2">
@@ -195,22 +204,19 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 										<SettingsNav tab={settingsTab} />
 									) : (
 										<>
-											{(!!types?.length || can(role, "fields.manage")) && (
-												<Group title="Databases" onTitle={() => navigate("records")} onAdd={can(role, "fields.manage") ? () => setNewDatabase(true) : undefined} addLabel="New database">
-													{types?.map((type) => (
-														<Item key={type._id} icon={<DatabaseIcon />} active={typeKey === type.key} onClick={() => navigate(...recordPath(type.key))}>
-															{type.plural}
-														</Item>
-													))}
-													{can(role, "fields.manage") && (
-														<Item icon={<PlusIcon />} muted onClick={() => setNewDatabase(true)}>
-															New database
-														</Item>
-													)}
-												</Group>
-											)}
-											<PagesNav openId={view === "pages" ? route[1] : undefined} />
-											<ChatNav chats={chats} openId={view === "chat" ? openId : undefined} onOpen={open} onError={fail} />
+											{sections.sorted.map((id) => {
+												const section = { collapsed: folded.includes(id), onToggle: () => fold(id), drag: sections.drag(id) };
+												if (id === "databases")
+													return (
+														(!!types?.length || can(role, "fields.manage")) && (
+															<DatabasesNav key={id} types={types ?? []} openKey={typeKey} canCreate={can(role, "fields.manage")} onCreate={() => setNewDatabase(true)} section={section} />
+														)
+													);
+												if (id === "pages") return <PagesNav key={id} openId={view === "pages" ? route[1] : undefined} section={section} />;
+												const props = { chats, openId: view === "chat" ? openId : undefined, onOpen: open, onError: fail, section };
+												if (!chats) return null;
+												return id === "channels" ? <ChannelsNav key={id} {...props} chats={chats} /> : <DmsNav key={id} {...props} chats={chats} />;
+											})}
 										</>
 									)}
 								</div>
@@ -243,7 +249,44 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	);
 }
 
-/** You, at the bottom of the sidebar: who you're signed in as, Settings, and Sign out. */
+const sectionIds = ["databases", "pages", "channels", "dms"];
+const sectionKey = (id: string) => id;
+const typeKeyOf = (t: { key: string }) => t.key;
+
+/** Your databases, in your order. Folded, only the open one stays. */
+function DatabasesNav({
+	types,
+	openKey,
+	canCreate,
+	onCreate,
+	section,
+}: {
+	types: { _id: string; key: string; plural: string }[];
+	openKey: string | undefined;
+	canCreate: boolean;
+	onCreate: () => void;
+	section: SectionProps;
+}) {
+	const workspace = useWorkspace();
+	const { sorted, drag } = useSortable(`sidebar.databases:${workspace?.id}`, types, typeKeyOf);
+	const shown = section.collapsed ? sorted.filter((t) => t.key === openKey) : sorted;
+	return (
+		<Group title="Databases" section={section} add={canCreate && <AddButton label="New database" onClick={onCreate} />}>
+			{shown.map((type) => (
+				<Item key={type._id} drag={drag(type.key)} icon={<DatabaseIcon />} active={openKey === type.key} onClick={() => navigate(...recordPath(type.key))}>
+					{type.plural}
+				</Item>
+			))}
+			{!types.length && canCreate && !section.collapsed && (
+				<Item icon={<PlusIcon />} muted onClick={onCreate}>
+					New database
+				</Item>
+			)}
+		</Group>
+	);
+}
+
+/** You, at the bottom of the workspace rail: who you're signed in as, your account settings, and Sign out. */
 function YouMenu({
 	name,
 	image,
@@ -263,15 +306,11 @@ function YouMenu({
 		<Popover
 			trigger={
 				<>
-					{/* The size of the sidebar's icons, so your name lines up with the labels above. */}
-					<Avatar name={name} image={image} size="xs" />
-					<span className="min-w-0 flex-1">
-						<span className="block truncate font-medium text-neutral-800">{name}</span>
-						<span className="block text-xs text-neutral-500 capitalize">{role}</span>
-					</span>
+					<span className="sr-only">{name}</span>
+					<Avatar name={name} image={image} className="pointer-events-none" />
 				</>
 			}
-			className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-neutral-100"
+			className="no-drag flex rounded-full"
 			panelClassName="w-64 p-1"
 		>
 			{(close) => (
@@ -281,11 +320,12 @@ function YouMenu({
 						<div className="min-w-0">
 							<p className="truncate font-semibold">{name}</p>
 							{name !== email && <p className="truncate text-neutral-500">{email}</p>}
+							<p className="text-xs text-neutral-500 capitalize">{role}</p>
 						</div>
 					</div>
 					<MenuDivider />
 					<MenuItem onClick={() => (close(), onSettings())}>
-						<SettingsIcon className="text-neutral-500" /> Settings
+						<SettingsIcon className="text-neutral-500" /> Account settings
 					</MenuItem>
 					<MenuItem onClick={() => (close(), onSignOut())}>
 						<SignOutIcon className="text-neutral-500" /> Sign out

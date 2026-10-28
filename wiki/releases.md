@@ -23,7 +23,7 @@ The backend deploys before the app ships, and installed apps update within hours
 `pnpm release` saves a full export of prod to `backups/` (gitignored) before deploying. To undo a bad deploy or migration: `npx convex import --prod --replace-all backups/<file>.zip`. That replaces all prod data, so take a fresh export first. Scheduled backups in the Convex dashboard need the Pro plan; the free plan keeps up to 2 manual backups.
 
 ## In-app updates
-The installed app checks GitHub Releases on launch and every 4 hours, downloads in the background, and shows **Update ready · Restart** in the sidebar. Settings → General → App has "Check for updates". macOS only updates signed, notarized apps.
+The installed app checks GitHub Releases on launch and every 4 hours, downloads in the background, and shows **Update ready · Restart** in the sidebar. Account settings → Your preferences → App has "Check for updates". macOS only updates signed, notarized apps.
 
 ## One-time setup: repo secrets
 Same Apple Developer account as yap. Set them in companybot with `gh secret set NAME -R oobagi/companybot`:

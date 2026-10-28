@@ -97,11 +97,11 @@ export function MessageRow({
 									key={r.emoji}
 									title={r.names.join(", ")}
 									onClick={() => toggle(r.emoji)}
-									className={`flex h-6 items-center gap-1 rounded-full border px-2 text-xs tabular-nums ${
+									className={`flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-sm tabular-nums ${
 										r.mine ? "border-neutral-400 bg-neutral-100 text-neutral-900" : "border-neutral-200 text-neutral-600 hover:border-neutral-300"
 									}`}
 								>
-									<span>{r.emoji}</span>
+									<span className="text-base leading-none">{r.emoji}</span>
 									{r.count}
 								</button>
 							))}
@@ -216,16 +216,22 @@ function AgentBody({ message }: { message: Message }) {
 	const lastText = message.parts.findLastIndex((p) => p.type === "text");
 	return (
 		<div className="flex flex-col gap-1">
-			<div className="flex flex-col gap-3">
-				{message.parts.map((part, i) =>
-					part.type === "text" ? (
-						<Markdown key={i} className="leading-relaxed" isAnimating={streaming && i === lastText}>
-							{part.text}
+			{/* 8px: the text's line height adds ~4px above it, so this reads as the 12px between paragraphs. */}
+			<div className="flex flex-col gap-2">
+				{runs(message.parts).map((run) =>
+					Array.isArray(run) ? (
+						// A run of tool lines stays together, as tight as the stats line under the reply.
+						<div key={run[0]!.id} className="flex flex-col gap-1">
+							{run.map((part) => (
+								<ToolPart key={part.id} replyId={message._id} part={part} />
+							))}
+						</div>
+					) : run.part.type === "text" ? (
+						<Markdown key={run.i} className="leading-relaxed" isAnimating={streaming && run.i === lastText}>
+							{run.part.text}
 						</Markdown>
-					) : part.type === "tool" ? (
-						<ToolPart key={part.id} replyId={message._id} part={part} />
-					) : part.type === "widget" ? (
-						<WidgetView key={part.id} widget={part.widget} />
+					) : run.part.type === "widget" ? (
+						<WidgetView key={run.part.id} widget={run.part.widget} />
 					) : null,
 				)}
 				{streaming && message.parts.length === 0 && <p className="text-sm text-neutral-400">Thinking…</p>}
@@ -236,7 +242,20 @@ function AgentBody({ message }: { message: Message }) {
 	);
 }
 
-type ToolPart = Extract<Message["parts"][number], { type: "tool" }>;
+type Part = Message["parts"][number];
+type ToolPart = Extract<Part, { type: "tool" }>;
+
+/** Parts in order, with back-to-back tool calls gathered into one list. */
+function runs(parts: Part[]) {
+	const out: (ToolPart[] | { part: Part; i: number })[] = [];
+	parts.forEach((part, i) => {
+		const last = out.at(-1);
+		if (part.type !== "tool") out.push({ part, i });
+		else if (Array.isArray(last)) last.push(part);
+		else out.push([part]);
+	});
+	return out;
+}
 
 /** "Sent SMS with Fake CRM"; click to see what went in and came out (from the activity log). */
 function ToolPart({ replyId, part }: { replyId: Message["_id"]; part: ToolPart }) {

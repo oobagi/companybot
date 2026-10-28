@@ -4,8 +4,12 @@ import { api } from "../api";
 import { useMutation, useQuery, useWorkspace } from "../convex";
 import { PlusIcon } from "../icons";
 import { navigate } from "../router";
+import { useSortable } from "../sortable";
 import { Notice, Scroll, compactControlClass, primaryButton, useRun, useTip } from "../ui";
 import { Avatar, Popover } from "./chat/common";
+
+const none: never[] = [];
+const workspaceKey = (w: { id: string }) => w.id;
 
 /** Round until hovered or open, then a rounded square, as in Discord. */
 const shape = "no-drag relative size-9 transition-all";
@@ -15,13 +19,16 @@ const mod = navigator.userAgent.includes("Mac") ? "⌘" : "Ctrl+";
 
 /**
  * The strip at the far left: a logo per workspace you're in, then any invites, then + to start one.
- * Click one, or press ⌘ and its number, to switch. Others show what's waiting in them.
+ * Click one, or press ⌘ and its number, to switch. Others show what's waiting in them. `youMenu`
+ * (your avatar and its menu, named `you`) sits at the bottom.
  */
-export function WorkspaceRail() {
+export function WorkspaceRail({ you, youMenu }: { you?: string; youMenu?: React.ReactNode }) {
 	const mine = useQuery(api.workspace.mine);
 	const activity = useQuery(api.workspace.activity);
 	const current = useWorkspace();
 	const { tipFor, tip, hideTip } = useTip("right");
+	// Drag to reorder; ⌘1–9 follow your order.
+	const { sorted: workspaces, drag } = useSortable("rail.order", mine?.workspaces ?? none, workspaceKey);
 	// Chats and records belong to one workspace, so a switch starts from the chat list.
 	const goTo = (workspaceId: Id<"workspaces">) => (hideTip(), current?.open(workspaceId), navigate("chat"));
 	// A join or create resolves before the list shows the workspace, and opening one you're not in is
@@ -37,14 +44,14 @@ export function WorkspaceRail() {
 	useEffect(() => {
 		const key = (e: KeyboardEvent) => {
 			if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || !/^[1-9]$/.test(e.key)) return;
-			const w = mine?.workspaces[Number(e.key) - 1];
+			const w = workspaces[Number(e.key) - 1];
 			if (!w) return;
 			e.preventDefault();
 			if (w.id !== current?.id) goTo(w.id);
 		};
 		window.addEventListener("keydown", key);
 		return () => window.removeEventListener("keydown", key);
-	}, [mine, current]);
+	}, [workspaces, current]);
 
 	return (
 		<nav className="flex w-[60px] shrink-0 flex-col [--scrim:var(--color-neutral-100)]">
@@ -53,13 +60,24 @@ export function WorkspaceRail() {
 				className="no-drag [scrollbar-width:none]"
 				onScroll={hideTip}
 				header={<div className="drag pt-3" />}
+				footer={
+					youMenu && (
+						// Hovered, it names you, as the rail names each workspace.
+						<div className="flex justify-center pt-2 pb-3">
+							<span className="flex" {...tipFor(you ?? "")}>
+								{youMenu}
+							</span>
+						</div>
+					)
+				}
 			>
 				<div className="flex flex-col items-center gap-2 pb-3">
-					{mine?.workspaces.map((w, i) => {
+					{workspaces.map((w, i) => {
 						const active = w.id === current?.id;
 						const waiting = active ? undefined : activity?.find((a) => a.id === w.id);
+						const d = drag(w.id);
 						return (
-							<div key={w.id} className="group relative flex w-full shrink-0 justify-center">
+							<div key={w.id} {...d} onDragStart={(e) => (hideTip(), d.onDragStart(e))} className={`group relative flex w-full shrink-0 justify-center ${d.className}`}>
 								<span
 									className={`absolute top-1/2 left-0 w-1 -translate-y-1/2 rounded-r-full bg-neutral-900 transition-all ${active ? "h-7" : waiting?.unread ? "h-2 group-hover:h-3.5" : "h-0 group-hover:h-3.5"}`}
 								/>

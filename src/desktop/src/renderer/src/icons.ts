@@ -32,6 +32,7 @@ export {
 	SidebarSimpleIcon as SidebarIcon,
 	SignOutIcon,
 	SparkleIcon,
+	ShieldCheckIcon as PermissionsIcon,
 	SlidersHorizontalIcon as PropertiesIcon,
 	SmileyIcon as ReactIcon,
 	TableIcon as DatabaseIcon,

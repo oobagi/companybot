@@ -23,8 +23,8 @@ export function YourPermissions() {
 	if (!rules) return <Loading />;
 	return (
 		<Section
-			title="Permissions"
-			hint="Agents ask before anything that leaves Companybot: sends, calls, payments, changes in other apps. These are the actions you've set to run without asking, or never."
+			title="Yours"
+			hint="Actions you've set to run without asking, or never, in this workspace."
 		>
 			<Notice>{error}</Notice>
 			{rules.length === 0 && <p className={hintClass}>Nothing yet. Everything asks first.</p>}

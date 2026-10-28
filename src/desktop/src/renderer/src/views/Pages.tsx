@@ -1,10 +1,10 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
-import { useMutation, usePaginatedQuery, useQuery } from "../convex";
+import { useMutation, useQuery } from "../convex";
 import { navigate } from "../router";
 import { HistoryIcon, PageIcon, TrashIcon } from "../icons";
-import { EmptyState, LoadMore, Loading, NewButton, NotFound, Notice, Page, barButton, barDangerButton, listClass, metadataClass, timeAgo, useRun } from "../ui";
+import { NotFound, Notice, Page, barButton, barDangerButton, useRun } from "../ui";
 import { MovePage } from "./pages/PageTree";
 import { PageEditor } from "./pages/PageEditor";
 import { PageHistory } from "./pages/PageHistory";
@@ -16,37 +16,12 @@ import { TrashNotice } from "./Trash";
 
 export { PagesNav } from "./pages/PageTree";
 
+/** Pages are opened from the sidebar; /pages alone has nothing to show, so it goes to chat. */
 export function PagesView({ pageId, canEdit }: { pageId?: string; canEdit: boolean }) {
-	return pageId ? <PageScreen key={pageId} pageId={pageId as Id<"pages">} canEdit={canEdit} /> : <PagesIndex canEdit={canEdit} />;
-}
-
-/** Every page. Deleted ones are in Trash. */
-function PagesIndex({ canEdit }: { canEdit: boolean }) {
-	const { results: pages, status, loadMore } = usePaginatedQuery(api.pages.children, {}, { initialNumItems: 30 });
-	const create = useMutation(api.pages.create);
-	const { error, run } = useRun();
-	const actions = canEdit && <NewButton label="New page" onClick={() => run(create({ title: "Untitled" }).then((id) => navigate("pages", id)))} />;
-	return (
-		<Page title="Pages" description="Wiki pages, how-tos and meeting notes. Every record has a page too." actions={actions}>
-			<Notice>{error}</Notice>
-			{status === "LoadingFirstPage" ? (
-				<Loading />
-			) : pages.length > 0 ? (
-				<div className={listClass}>
-					{pages.map((p) => (
-						<button key={p._id} type="button" onClick={() => navigate("pages", p._id)} className="flex items-baseline gap-3 px-4 py-2 text-left text-sm hover:bg-neutral-50">
-							<PageIcon className="shrink-0 self-center text-neutral-400" />
-							<span className="font-medium">{p.title}</span>
-							<span className={`ml-auto ${metadataClass}`}>{timeAgo(p.updatedAt)}</span>
-						</button>
-					))}
-				</div>
-			) : (
-				<EmptyState icon={<PageIcon />} title="No pages yet">Write down how your team works.</EmptyState>
-			)}
-			<LoadMore status={status} onMore={() => loadMore(30)} />
-		</Page>
-	);
+	useEffect(() => {
+		if (!pageId) navigate("chat");
+	}, [pageId]);
+	return pageId ? <PageScreen key={pageId} pageId={pageId as Id<"pages">} canEdit={canEdit} /> : null;
 }
 
 function PageScreen({ pageId, canEdit }: { pageId: Id<"pages">; canEdit: boolean }) {
@@ -56,7 +31,7 @@ function PageScreen({ pageId, canEdit }: { pageId: Id<"pages">; canEdit: boolean
 	const [history, setHistory] = useState(false);
 	const [moving, setMoving] = useState(false);
 	const { error, run } = useRun();
-	const crumbs = [{ label: "Pages", to: ["pages"] }, ...(page?.ancestors ?? []).map((p) => ({ label: p.title, to: ["pages", p._id] }))];
+	const crumbs = (page?.ancestors ?? []).map((p) => ({ label: p.title, to: ["pages", p._id] }));
 	if (!page) return <NotFound crumbs={crumbs} loaded={page === null} icon={<PageIcon />} title="Page not found" />;
 	return (
 		<Page
@@ -70,7 +45,7 @@ function PageScreen({ pageId, canEdit }: { pageId: Id<"pages">; canEdit: boolean
 					</button>
 					{page.canEdit && <button type="button" onClick={() => setMoving(true)} className={barButton}>Move to…</button>}
 					{canEdit && !page.archived && (
-						<button type="button" onClick={() => run(remove({ kind: "page", id: pageId }), () => navigate("pages"))} className={barDangerButton}>
+						<button type="button" onClick={() => run(remove({ kind: "page", id: pageId }), () => navigate(...(page.ancestors.length ? ["pages", page.ancestors.at(-1)!._id] : ["chat"])))} className={barDangerButton}>
 							<TrashIcon /> Delete
 						</button>
 					)}

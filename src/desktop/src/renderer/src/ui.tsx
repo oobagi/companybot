@@ -2,6 +2,7 @@ import { Component, Fragment, useCallback, useEffect, useLayoutEffect, useRef, u
 import { errorMessage } from "./api";
 import { PlusIcon } from "./icons";
 import { navigate } from "./router";
+import type { DragProps } from "./sortable";
 import { Popover } from "./views/chat/common";
 
 /**
@@ -45,24 +46,25 @@ export function TruncatedTips() {
 		let over: Element | null = null;
 		const hide = () => (clearTimeout(timer), (over = null), setAt(undefined));
 		const enter = (e: MouseEvent) => {
-			const el = (e.target as Element).closest?.('.truncate, [class*="line-clamp-"]');
+			const el = cutUnder(e);
 			if (el === over) return;
 			hide();
-			// Only when it's actually cut, and not where a title already says it.
-			if (!el || el.closest("[title]") || (el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight)) return;
+			const text = el?.textContent?.trim();
+			// Only when it's actually cut, and not where a title already says it in full.
+			if (!el || !text || !isCut(el) || saidByTitle(el, text)) return;
 			over = el;
 			timer = setTimeout(() => {
 				const box = el.getBoundingClientRect();
-				const text = el.textContent?.trim();
-				if (text) setAt({ text, left: Math.max(8, Math.min(box.left, window.innerWidth - 8 - 384)), top: box.bottom + 6 });
+				setAt({ text, left: Math.max(8, Math.min(box.left, window.innerWidth - 8 - 384)), top: box.bottom + 6 });
 			}, 400);
 		};
-		document.addEventListener("mouseover", enter);
+		// mousemove, not mouseover: inside a row's overlay the target never changes as you move onto the text.
+		document.addEventListener("mousemove", enter);
 		document.addEventListener("mousedown", hide);
 		document.addEventListener("scroll", hide, true);
 		return () => {
 			hide();
-			document.removeEventListener("mouseover", enter);
+			document.removeEventListener("mousemove", enter);
 			document.removeEventListener("mousedown", hide);
 			document.removeEventListener("scroll", hide, true);
 		};
@@ -77,6 +79,43 @@ export function TruncatedTips() {
 			</div>
 		)
 	);
+}
+
+const CUTTABLE = '.truncate, [class*="line-clamp-"]';
+
+/**
+ * The cuttable text under the pointer. A row's click area (an `after:` overlay, as in sidebar
+ * rows) makes the row's button the target wherever you point, so look inside the button too.
+ */
+function cutUnder(e: MouseEvent) {
+	const target = e.target as Element;
+	const own = target.closest?.(CUTTABLE);
+	if (own) return own;
+	const control = target.closest?.("button, a");
+	for (const el of control?.querySelectorAll(CUTTABLE) ?? []) {
+		const box = el.getBoundingClientRect();
+		if (e.clientX >= box.left && e.clientX <= box.right && e.clientY >= box.top && e.clientY <= box.bottom) return el;
+	}
+	return null;
+}
+
+/**
+ * Cut short, counting text over by less than a pixel: the scroll sizes are whole pixels, so
+ * they can match the box while an ellipsis shows. The text's own width settles it.
+ */
+function isCut(el: Element) {
+	if (el.scrollWidth > el.clientWidth || el.scrollHeight > el.clientHeight) return true;
+	const range = document.createRange();
+	range.selectNodeContents(el);
+	return range.getBoundingClientRect().width > el.getBoundingClientRect().width + 0.5;
+}
+
+/** A title on it or around it that already holds the whole text. Unrelated titles (a "Setting" label, an agent's description) don't count. */
+function saidByTitle(el: Element, text: string) {
+	for (let at: Element | null = el.closest("[title]"); at; at = at.parentElement?.closest("[title]") ?? null) {
+		if (at.getAttribute("title")?.includes(text)) return true;
+	}
+	return false;
 }
 
 /** A screen above this one, in the top bar's trail. */
@@ -218,11 +257,14 @@ export function Tabs<T extends string>({
 	value,
 	onChange,
 	menu,
+	drag,
 	children,
 }: {
 	tabs: readonly { id: T; label: string }[];
 	value: T;
 	onChange: (tab: T) => void;
+	/** From `useSortable(…, "x")`, for tabs that can be dragged into another order. */
+	drag?: (tab: T) => DragProps | undefined;
 	/** The open tab's menu, like Notion's view menu: clicking the open tab again opens it. */
 	menu?: (close: () => void) => React.ReactNode;
 	/** Extra controls after the last tab. */
@@ -232,17 +274,22 @@ export function Tabs<T extends string>({
 		`-mb-px max-w-full truncate border-b-2 px-3 py-2 text-sm ${open ? "border-neutral-900 font-medium" : "border-transparent text-neutral-500 hover:text-neutral-800"}`;
 	return (
 		<nav className="flex flex-wrap gap-1 border-b border-neutral-200">
-			{tabs.map((t) =>
-				t.id === value && menu ? (
-					<Popover key={t.id} trigger={t.label} className={tabClass(true)} panelClassName="w-60 p-1">
-						{menu}
-					</Popover>
-				) : (
-					<button type="button" key={t.id} onClick={() => onChange(t.id)} className={tabClass(t.id === value)}>
-						{t.label}
-					</button>
-				),
-			)}
+			{tabs.map((t) => {
+				const d = drag?.(t.id);
+				return (
+					<span key={t.id} {...d} className={`relative flex max-w-full ${d?.className ?? ""}`}>
+						{t.id === value && menu ? (
+							<Popover trigger={t.label} className={tabClass(true)} panelClassName="w-60 p-1">
+								{menu}
+							</Popover>
+						) : (
+							<button type="button" onClick={() => onChange(t.id)} className={tabClass(t.id === value)}>
+								{t.label}
+							</button>
+						)}
+					</span>
+				);
+			})}
 			{children}
 		</nav>
 	);
