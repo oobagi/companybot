@@ -81,7 +81,7 @@ describe("agents", () => {
 
 	it("offers the fallback models until the gateway catalog is cached", async () => {
 		const { owner } = await ownerAndMember();
-		expect(await owner.query(api.agents.options)).toMatchObject({ fetchedAt: null, defaultModel: "anthropic/claude-sonnet-5.5" });
+		expect(await owner.query(api.agents.options)).toMatchObject({ fetchedAt: null, defaultModel: "openai/gpt-6-luna" });
 		expect((await owner.query(api.agents.options)).models.map((m) => m.id)).toContain("anthropic/claude-sonnet-5.5");
 	});
 
