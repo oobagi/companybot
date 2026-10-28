@@ -27,15 +27,14 @@ const KEEP_TOKENS = 15_000;
 
 type Place = { agentId: Id<"agents">; chatId: Id<"chats">; threadId?: Id<"chatMessages"> };
 
-/** Queues a reply from `agentId` to `triggerId` (or a welcome), and starts it if nothing is running there. */
+/** Queues a reply from `agentId` to `triggerId`, and starts it if nothing is running there. */
 export async function enqueueTurn(
 	ctx: MutationCtx,
 	chat: Doc<"chats">,
 	turn: Place & { actorId: Id<"users"> } & (
-			// After an approval, the original turn's trigger: none if it was a welcome.
+			// After an approval, the original turn's trigger: none if it followed an old welcome turn.
 			| { triggerId: Id<"chatMessages">; approvalId?: Id<"approvals"> }
 			| { triggerId: Id<"chatMessages"> | undefined; approvalId: Id<"approvals"> }
-			| { welcome: NonNullable<Doc<"agentTurns">["welcome"]> }
 		),
 ) {
 	await ctx.db.insert("agentTurns", { ...turn, workspaceId: chat.workspaceId, status: "queued" });
@@ -185,7 +184,7 @@ export const turnContext = internalQuery({
 				// The prompt shows PROMPT_MESSAGE_CAP; one more says there are earlier ones, one more for the trigger.
 				.take(PROMPT_MESSAGE_CAP + 2)
 		).reverse();
-		// A turn after an approval answers the decision, not a message; a welcome answers nobody.
+		// A turn after an approval answers the decision, not a message.
 		const approval = turn.approvalId && (await ctx.db.get(turn.approvalId));
 		if (!approval && turn.triggerId && !recent.some((m) => m._id === turn.triggerId)) {
 			const trigger = await ctx.db.get(turn.triggerId);
@@ -231,7 +230,6 @@ export const turnContext = internalQuery({
 			},
 			messages,
 			triggerId: turn.triggerId ?? null,
-			welcome: turn.welcome,
 			/** The approval this turn follows: the runner runs it if approved, then tells the agent. */
 			approval: approval
 				? {

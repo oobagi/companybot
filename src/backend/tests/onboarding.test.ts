@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api, internal } from "../convex/_generated/api";
-import { agentsOf, generalOf, newTest, noMentions, ownerAndMember, signIn, turnsOf } from "./helpers";
+import { api } from "../convex/_generated/api";
+import { agentsOf, generalOf, identityOf, newTest, noMentions, ownerAndMember, signIn, turnsOf } from "./helpers";
+import { person } from "./person";
 
 afterEach(() => void vi.useRealTimers());
 
@@ -8,35 +9,37 @@ describe("onboarding", () => {
 	// Hold the model reply back: the tests read the turn, not what the model says.
 	beforeEach(() => void vi.useFakeTimers());
 
-	it("has the main agent speak first in #general when someone makes a workspace", async () => {
+	it("has the main agent speak first in #general when someone makes a workspace, with fixed text and no model call", async () => {
 		const t = newTest();
 		const owner = await signIn(t, "founder@co.com", { welcome: true });
 		const { companybot } = await agentsOf(owner);
 		const general = await generalOf(owner);
 		expect(general.members.some((m) => m.id === companybot._id)).toBe(true);
+		expect(await turnsOf(t)).toEqual([]);
 
-		const [turn, ...rest] = await turnsOf(t);
+		const [hello, ...rest] = await owner.query(api.messages.list, { chatId: general._id });
 		expect(rest).toEqual([]);
-		expect(turn).toMatchObject({ chatId: general._id, agentId: companybot._id, actorId: owner.userId, welcome: "new_workspace", status: "running" });
-		expect(turn!.triggerId).toBeUndefined();
-
-		const context = await t.query(internal.turns.turnContext, { turnId: turn!._id });
-		expect(context).toMatchObject({ triggerId: null, welcome: "new_workspace", messages: [], approval: null });
-		// Nothing to react to yet.
-		expect(await t.mutation(internal.chatTools.reactFor, { turnId: turn!._id, emoji: "👋" })).toMatchObject({ error: expect.stringContaining("Nobody asked") });
+		expect(hello).toMatchObject({ author: { type: "agent", id: companybot._id }, status: "done", stats: null });
+		expect(hello!.text).toContain("I'm Companybot");
+		expect(hello!.text).toContain("@mention me with a few lines about the company");
+		expect(hello!.text).toContain("team memory");
 	});
 
-	it("welcomes each person who joins in their DM with the main agent, acting as them", async () => {
+	it("welcomes each person who joins in their DM with the main agent, by the name they set", async () => {
 		const t = newTest();
 		const owner = await signIn(t, "owner@co.com");
 		const { companybot } = await agentsOf(owner);
 		await owner.mutation(api.workspace.invite, { email: "new@co.com", role: "member" });
-		const joiner = await signIn(t, "new@co.com", { welcome: true });
+		const userId = await t.run((ctx) => ctx.db.insert("users", { email: "new@co.com" }));
+		await t.run((ctx) => ctx.db.insert("preferences", { userId, displayName: "Ada", sendWith: "enter" }));
+		await person(identityOf(t, userId)).mutation(api.workspace.ensure);
+		const joiner = person(identityOf(t, userId), await t.run(async (ctx) => (await ctx.db.query("members").collect()).find((m) => m.userId === userId)!.workspaceId));
 		const dm = (await joiner.query(api.chats.list))!.agents.find((a) => a._id === companybot._id)!.dmId;
 		expect(dm).not.toBeNull();
-		const turns = await turnsOf(t);
-		expect(turns).toHaveLength(1);
-		expect(turns[0]).toMatchObject({ actorId: joiner.userId, welcome: "joined", chatId: dm });
+		const [hello] = await joiner.query(api.messages.list, { chatId: dm! });
+		expect(hello!.text).toMatch(/^Welcome, Ada! I'm Companybot\./);
+		expect(hello!.text).toContain("I'll remember it");
+		expect(await turnsOf(t)).toEqual([]);
 	});
 
 	it("ticks off tutorial steps as people do them, with Invite only for those who can invite", async () => {
@@ -82,7 +85,7 @@ describe("onboarding", () => {
 		const { companybot } = await agentsOf(owner);
 		await t.run((ctx) => ctx.db.patch(companybot._id, { archived: true }));
 		await owner.mutation(api.workspace.invite, { email: "new@co.com", role: "member" });
-		await signIn(t, "new@co.com", { welcome: true });
-		expect(await turnsOf(t)).toEqual([]);
+		const joiner = await signIn(t, "new@co.com", { welcome: true });
+		expect(await joiner.query(api.chats.list)).toMatchObject({ dms: [] });
 	});
 });

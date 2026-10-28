@@ -12,7 +12,7 @@ const copy = (agent: string): Record<TutorialStep, { title: string; how: string 
 	},
 	dm: { title: "DM an agent for anything private", how: `Open ${agent} under Direct messages. Personal memories are only read there.` },
 	thread: { title: "Reply in a thread", how: "Hover a message and click Reply in thread, to keep side talk out of the channel." },
-	invite: { title: "Invite a teammate", how: `Settings → Members. ${agent} will welcome them in #general.` },
+	invite: { title: "Invite a teammate", how: `Settings → Members. ${agent} will welcome them in a DM.` },
 });
 
 /**

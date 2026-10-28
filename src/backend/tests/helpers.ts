@@ -13,27 +13,23 @@ export const modules = import.meta.glob(["../convex/**/*.ts", "../convex/_genera
 export const identityOf = (t: ReturnType<typeof convexTest>, userId: Id<"users">) => t.withIdentity({ subject: `${userId}|session` });
 
 /**
- * A signed-in person, with their first workspace open. Agents' welcomes (onboarding.ts) are
- * taken back so tests start from a quiet #general, unless `welcome` keeps them.
+ * A signed-in person, with their first workspace open. The main agent's welcome (onboarding.ts)
+ * is taken back so tests start from a quiet #general, unless `welcome` keeps it.
  */
 export async function signIn(t: ReturnType<typeof convexTest>, email: string, { welcome = false } = {}) {
 	const userId = await t.run((ctx) => ctx.db.insert("users", { email }));
 	const identity = identityOf(t, userId);
+	const before = new Set(await t.run(async (ctx) => (await ctx.db.query("chatMessages").collect()).map((m) => m._id)));
 	await person(identity).mutation(api.workspace.ensure);
 	const first = await t.run(async (ctx) => (await ctx.db.query("members").collect()).find((m) => m.userId === userId));
-	if (!welcome) await skipWelcomes(t);
+	if (!welcome)
+		await t.run(async (ctx) => {
+			for (const m of await ctx.db.query("chatMessages").collect())
+				// A welcome is done the moment it's posted; a reply started meanwhile is still streaming.
+				if (!before.has(m._id) && m.authorAgentId && m.status === "done" && !m.stats) await ctx.db.delete(m._id);
+		});
 	return Object.assign(person(identity, first?.workspaceId), { userId });
 }
-
-const skipWelcomes = (t: ReturnType<typeof convexTest>) =>
-	t.run(async (ctx) => {
-		for (const turn of await ctx.db.query("agentTurns").collect()) {
-			if (!turn.welcome) continue;
-			if (turn.replyId) await ctx.db.delete(turn.replyId);
-			if (turn.sessionId) await ctx.db.delete(turn.sessionId);
-			await ctx.db.delete(turn._id);
-		}
-	});
 
 /** The workspace a person's calls act in. */
 export const workspaceOf = async (as: As) => (await as.query(api.workspace.me))!.workspaceId!;
