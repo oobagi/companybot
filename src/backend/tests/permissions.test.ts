@@ -307,7 +307,7 @@ describe("permissions", () => {
 				});
 				for (const turn of await turnsOf(t)) if (turn.status === "running" || turn.status === "queued") await t.mutation(internal.turns.finishReply, { turnId: turn._id });
 				const before = await turnsOf(t);
-				await t.mutation(internal.automationRuns.tick, { now: Date.now() + 2 * 86_400_000 });
+				await t.mutation(internal.automationRuns.tick, { now: (Math.floor(Date.now() / 86_400_000) + 2) * 86_400_000 + 10 * 3_600_000 });
 				await cancelScheduled(t);
 				const fresh = (await turnsOf(t)).filter((x) => !before.some((b) => b._id === x._id));
 				return { owners: fresh.find((x) => x.actorId === owner.userId)!, bens: fresh.find((x) => x.actorId === member.userId)! };
