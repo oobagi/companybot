@@ -25,11 +25,12 @@ const components: Components = {
 	a: (props) => {
 		const id = props.href && linkedPageId(props.href);
 		if (!id) return <defaultComponents.a {...props} />;
-		const open = (e: MouseEvent) => { e.preventDefault(); navigate("pages", id); };
+		const open = (e: MouseEvent) => { if (e.button > 1) return; e.preventDefault(); navigate("pages", id); };
 		return <a className="page-link" href={props.href} onClick={open} onAuxClick={open}>{props.children}</a>;
 	},
 };
 
-export function Markdown(props: Omit<ComponentProps<typeof Streamdown>, "plugins" | "components" | "rehypePlugins">) {
+/** No `allowedTags`: Streamdown only applies it to its own default plugin list. */
+export function Markdown(props: Omit<ComponentProps<typeof Streamdown>, "plugins" | "components" | "rehypePlugins" | "allowedTags">) {
 	return <Streamdown plugins={plugins} components={components} rehypePlugins={rehypePlugins} {...props} />;
 }
