@@ -231,9 +231,30 @@ export async function saveTransform(ctx: MutationCtx, who: Who, page: Doc<"pages
 		size += bytes;
 	}
 	await flush();
+	await adoptImages(ctx, page, tr);
 	await ctx.runMutation(lib.submitSnapshot, { id: page._id, version: at, content });
 	await recordVersion(ctx, who, page, at, restored);
 	return true;
+}
+
+const imagesIn = (doc: Node) => {
+	const urls = new Set<string>();
+	doc.descendants((node) => void (node.type.name === "image" && node.attrs.url && urls.add(node.attrs.url)));
+	return urls;
+};
+
+/**
+ * Pictures copied in from another page in the workspace become this page's too, so the file stays
+ * while either has it. Only new ones are looked up: a page's own got their row when they arrived.
+ * Other URLs (another workspace's, anything else) are left alone.
+ */
+async function adoptImages(ctx: MutationCtx, page: Doc<"pages">, tr: Transform) {
+	const before = imagesIn(tr.before);
+	for (const url of imagesIn(tr.doc)) {
+		if (before.has(url) || (await ctx.db.query("pageImages").withIndex("by_page", (q) => q.eq("pageId", page._id).eq("url", url)).first())) continue;
+		const source = await ctx.db.query("pageImages").withIndex("by_url", (q) => q.eq("workspaceId", page.workspaceId).eq("url", url)).first();
+		if (source) await ctx.db.insert("pageImages", { workspaceId: page.workspaceId, pageId: page._id, storageId: source.storageId, url });
+	}
 }
 
 /** Inserts blocks at `pos`, a step each so each fits a delta. Returns where they end. */

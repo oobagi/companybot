@@ -5,6 +5,7 @@ import type { DataModel, Doc, Id, TableNames } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { privateTo } from "./automationOps";
 import { startCascade } from "./cascade";
+import { deleteFile } from "./images";
 import { hasLiveOwner, liveWorkspace, pinLegacyWorkspace } from "./lib";
 import { deletePage, pageOfRecord } from "./pageOps";
 import { forgetTrashEntry } from "./memoryOps";
@@ -62,6 +63,12 @@ async function deleteBody(ctx: MutationCtx, row: Doc<"records">) {
 
 /** A page's content is the prosemirrorSync component's, deleted by the component a little at a time. */
 const deleteContent = (ctx: MutationCtx, row: Doc<"pages">) => ctx.scheduler.runAfter(0, internal.pageSync.deleteDoc, { id: row._id });
+
+/** A page image's file goes with the last page that has it (copies share it). */
+async function deleteImageFile(ctx: MutationCtx, row: Doc<"pageImages">) {
+	const rows = await ctx.db.query("pageImages").withIndex("by_url", (q) => q.eq("workspaceId", row.workspaceId).eq("url", row.url)).take(2);
+	if (!rows.some((r) => r._id !== row._id)) await deleteFile(ctx, row.storageId);
+}
 
 /** The field being deleted, read once per run. */
 const fieldOf = async (get: Get, root: Root) => await get(root.fieldId!);
@@ -341,9 +348,8 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		page: { index: "by_page", eq: ["pageId"] },
 	},
 	pageImages: {
-		childOf: { table: "pages", index: "by_page", field: "pageId" },
-		page: { index: "by_page", eq: ["pageId"] },
-		files: ["storageId"],
+		workspace: { index: "by_url", eq: ["workspaceId"], onDelete: deleteImageFile },
+		page: { index: "by_page", eq: ["pageId"], onDelete: deleteImageFile },
 	},
 
 	trash: {

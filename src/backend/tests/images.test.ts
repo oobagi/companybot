@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { UPLOAD_TTL_MS } from "../convex/images";
-import { type As, agentTurn, agentsOf, generalOf, noMentions, settle, setup, signIn, workspaceOf } from "./helpers";
+import { memberOf } from "../convex/lib";
+import { writeBlocks } from "../convex/pageOps";
+import { type As, agentTurn, agentsOf, generalOf, noMentions, settle, setup, sideWorkspace, signIn, workspaceOf } from "./helpers";
 
 afterEach(() => {
 	vi.restoreAllMocks();
@@ -275,6 +277,33 @@ describe("pictures", () => {
 		await member.mutation(api.trash.move, { kind: "page", id: pageId });
 		await owner.mutation(api.trash.purge, { id: pageId });
 		await settle(t);
+		expect(await exists(t, file)).toBe(false);
+	});
+
+	it("shares a picture copied into another page: the file goes with the last page in the workspace that has it", async () => {
+		const { t, owner, member } = await setup();
+		const [a, b] = [await member.mutation(api.pages.create, { title: "A" }), await member.mutation(api.pages.create, { title: "B" })];
+		const file = await upload(member);
+		const url = await member.mutation(api.pages.addImage, { pageId: a, file });
+		// Another workspace's page with the same URL doesn't keep it.
+		const side = (await sideWorkspace(t, "owner@co.com")).workspaceId;
+		const elsewhere = await owner.in(side).mutation(api.pages.create, { title: "Elsewhere" });
+		const image = { type: "blockContainer", attrs: { id: crypto.randomUUID() }, content: [{ type: "image", attrs: { url } }] };
+		const paste = (pageId: Id<"pages">) =>
+			t.run(async (ctx) => {
+				const page = (await ctx.db.get(pageId))!;
+				await writeBlocks(ctx, { member: (await memberOf(ctx, owner.userId, page.workspaceId))! }, page, JSON.stringify([image]), "append");
+			});
+		await paste(b);
+		await paste(elsewhere);
+		const purge = async (pageId: Id<"pages">) => {
+			await owner.mutation(api.trash.move, { kind: "page", id: pageId });
+			await owner.mutation(api.trash.purge, { id: pageId });
+			await settle(t);
+		};
+		await purge(a);
+		expect(await exists(t, file)).toBe(true);
+		await purge(b);
 		expect(await exists(t, file)).toBe(false);
 	});
 

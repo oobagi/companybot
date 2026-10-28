@@ -157,8 +157,9 @@ export const addImage = mutation({
 		const page = await requirePage(ctx, member, pageId);
 		await requireEditable(ctx, member, page);
 		await claimUpload(ctx, member, file);
-		await ctx.db.insert("pageImages", { pageId, storageId: file });
-		return (await imageUrl(ctx, file))!;
+		const url = (await imageUrl(ctx, file))!;
+		await ctx.db.insert("pageImages", { workspaceId: page.workspaceId, pageId, storageId: file, url });
+		return url;
 	},
 });
 
