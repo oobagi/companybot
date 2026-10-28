@@ -49,7 +49,7 @@ Queries return display-ready data (names resolved) so the app never joins tables
 
 **`chats.ts`**
 - `list()` → `{ me, channels: ChatItem[], dms: ChatItem[], agents: AgentItem[] }`, or null before you're in a workspace. Only chats you're in; `dms` includes agent DMs. `me` is your user id.
-  - `ChatItem`: `{ _id, kind, name, topic, private, isDefault, title, agentId, members: Participant[], unread: boolean, mentioned: boolean, lastMessageAt }`. `title` is `name` for channels, other participants' names for DMs. `agentId` is set for agent DMs, else null.
+  - `ChatItem`: `{ _id, kind, name, topic, private, isDefault, title, agentId, members: Participant[], unread: boolean, mentioned: boolean, lastMessageAt }`. `title` is `name` for channels, other participants' names for DMs. `agentId` is set for agent DMs, else null. `list` leaves `members` empty for channels (`get` has them): it reads only your own membership there, so someone marking a channel read doesn't re-run everyone's list.
   - `AgentItem`: `{ _id, name, description, dmId, unread, mentioned, lastMessageAt }` for each active agent. `dmId` is its agent DM with you, or null; the rest come from that DM.
   - `Participant`: `{ type: "user", id: Id<"users">, name } | { type: "agent", id: Id<"agents">, name }`.
   - Unread: the chat's newest main-timeline message is after your `lastReadAt`. `mentioned`: an unread main-timeline message mentions you. Mentions are indexed in `userMentions` (one row per person mentioned in a main-timeline message, removed when the message is deleted), so an old unread mention is found however many messages follow it. The migration that backfilled it runs 20 messages a batch; a message naming over 100 people adds its rows 100 at a time in scheduled follow-ups (`userMentionsFrom`), which `migrations:status` doesn't track.
@@ -67,7 +67,8 @@ Queries return display-ready data (names resolved) so the app never joins tables
 **`messages.ts`**
 - `list({ chatId, threadId? })` → newest 200 of the main timeline (or the thread, parent first), oldest first. Each `Message`:
   `{ _id, _creationTime, chatId, threadId, author: Participant, text, parts, status, error, stats, editedAt, deleted, mine: boolean, replyCount, lastReplyAt, replyAuthors: Participant[] (up to 3), automation: { id, name } | null, reactions: { emoji, count, mine, names: string[] }[] }`.
-- `parts` includes approval cards.
+- `parts` includes approval cards. `replyAuthors` is stored on the parent as replies arrive (older parents fall back to reading their replies).
+- `stream({ messageId })` → `{ text, parts }` while a reply streams, else null. The runner writes a streaming reply's content to its own `replyStreams` row (`turns.updateReply`, ~5×/s), and moves it onto the message in one write when it ends (`endStream`). So the flushes re-run only the streaming bubble's query, not every viewer's `messages.list`; the app's row subscribes to it while `status` is streaming. Agents' prompts leave out replies still streaming.
 - `send({ chatId, threadId?, text, mentions: { userIds, agentIds, recordIds? } })` → messageId. The app sends mention ids picked from autocomplete; the server drops ids outside the workspace and agents in Trash. `recordIds` are records the message references ([Data](data.md)). Schedules agent turns, and starts automations watching the channel (`message.posted`, top-level channel messages only).
 - `edit({ messageId, text })`, `remove({ messageId })` — your own messages. Removing keeps the row (threads hang off it) and clears text, parts, and reactions.
 - `react({ messageId, emoji })` — toggles your reaction.

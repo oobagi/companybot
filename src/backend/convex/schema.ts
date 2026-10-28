@@ -437,6 +437,8 @@ export default defineSchema({
 		/** Thread parents only. */
 		replyCount: v.optional(v.number()),
 		lastReplyAt: v.optional(v.number()),
+		/** Thread parents only: the last 3 to reply, newest first. Unset on parents from before it. */
+		replyAuthors: v.optional(v.array(v.object({ userId: v.optional(v.id("users")), agentId: v.optional(v.id("agents")) }))),
 		/** Thread parents only: USD spent on agent replies and summaries in the thread. */
 		costUsd: v.optional(v.number()),
 		/** Server-written provenance. `foreign` snapshots whose words the run follows; absent on older messages, which ask. */
@@ -445,6 +447,14 @@ export default defineSchema({
 		.index("by_chat_thread", ["chatId", "threadId"])
 		.index("by_workspace", ["workspaceId"])
 		.searchIndex("search_text", { searchField: "text", filterFields: ["workspaceId", "chatId"] }),
+
+	// A reply's content while it streams (turns.updateReply). Its many writes a second re-run only
+	// the streaming bubble's query, not every message list; it moves onto the message when it ends.
+	replyStreams: defineTable({
+		messageId: v.id("chatMessages"),
+		text: v.string(),
+		parts: v.array(messagePart),
+	}).index("by_message", ["messageId"]),
 
 	// Who's typing where: one row per person per place (chat + thread), its `at` bumped every
 	// few seconds while they type, deleted when they send. Stale after TYPING_MS (typing.ts).

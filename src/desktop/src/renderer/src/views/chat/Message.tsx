@@ -13,7 +13,7 @@ import type { Message } from "./data";
 import { ProfileLink } from "./Profile";
 
 export function MessageRow({
-	message,
+	message: row,
 	grouped,
 	names,
 	onOpenThread,
@@ -28,6 +28,9 @@ export function MessageRow({
 	onOpenThread?: () => void;
 	onError: (e: unknown) => void;
 }) {
+	// A reply streams into its own small query (backend replyStreams): only this row re-renders per token.
+	const live = useQuery(api.messages.stream, row.status === "streaming" ? { messageId: row._id } : "skip");
+	const message = live ? { ...row, ...live } : row;
 	const react = useMutation(api.messages.react);
 	const remove = useMutation(api.messages.remove);
 	const [picker, setPicker] = useState(false);

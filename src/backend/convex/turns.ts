@@ -1,5 +1,5 @@
 import type { PlaceMessage } from "@companybot/core";
-import { approxTokens } from "@companybot/core";
+import { PROMPT_MESSAGE_CAP, approxTokens } from "@companybot/core";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -80,7 +80,7 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 		await ctx.db.patch(running._id, { status: "error" });
 		await settleApproval(ctx, running);
 		const reply = running.replyId && (await ctx.db.get(running.replyId));
-		if (reply?.status === "streaming") await ctx.db.patch(reply._id, { status: "error", error: "Reply timed out." });
+		if (reply?.status === "streaming") await endStream(ctx, reply, { status: "error", error: "Reply timed out." });
 	}
 	const next = await turnsAt(ctx, place, "queued").first();
 	if (!next) return;
@@ -181,7 +181,8 @@ export const turnContext = internalQuery({
 					q.eq("chatId", chat._id).eq("threadId", turn.threadId).gt("_creationTime", since).lt("_creationTime", reply._creationTime),
 				)
 				.order("desc")
-				.take(200)
+				// The prompt shows PROMPT_MESSAGE_CAP; one more says there are earlier ones, one more for the trigger.
+				.take(PROMPT_MESSAGE_CAP + 2)
 		).reverse();
 		// A turn after an approval answers the decision, not a message; a welcome answers nobody.
 		const approval = turn.approvalId && (await ctx.db.get(turn.approvalId));
@@ -190,7 +191,8 @@ export const turnContext = internalQuery({
 			if (trigger) recent.push(trigger);
 		}
 		const messages = await Promise.all(
-			recent.filter((m) => !m.deleted && (m.status !== "streaming" || m.text)).map((m) => toPlaceMessage(m, names, agent._id)),
+			// Replies still streaming keep their text elsewhere until they end: leave them out.
+			recent.filter((m) => !m.deleted && m.status !== "streaming").map((m) => toPlaceMessage(m, names, agent._id)),
 		);
 
 		const parent = turn.threadId && (!foreign || turn.threadId === trigger?._id) && (await ctx.db.get(turn.threadId));
@@ -258,13 +260,29 @@ export const savePrompt = internalMutation({
 	handler: async (ctx, { turnId, prompt }) => ctx.db.patch(turnId, { prompt }),
 });
 
+/** A streaming reply's content so far, kept apart from the message (schema `replyStreams`). */
+export const streamOf = (ctx: QueryCtx, messageId: Id<"chatMessages">) =>
+	ctx.db
+		.query("replyStreams")
+		.withIndex("by_message", (q) => q.eq("messageId", messageId))
+		.first();
+
 export const updateReply = internalMutation({
 	args: { replyId: v.id("chatMessages"), text: v.string(), parts: v.array(messagePart) },
 	handler: async (ctx, { replyId, text, parts }) => {
-		const reply = await ctx.db.get(replyId);
-		if (reply?.status === "streaming") await ctx.db.patch(replyId, { text, parts });
+		if ((await ctx.db.get(replyId))?.status !== "streaming") return;
+		const stream = await streamOf(ctx, replyId);
+		if (stream) await ctx.db.patch(stream._id, { text, parts });
+		else await ctx.db.insert("replyStreams", { messageId: replyId, text, parts });
 	},
 });
+
+/** A reply stops streaming: what it streamed moves onto the message, in one write. */
+async function endStream(ctx: MutationCtx, reply: Doc<"chatMessages">, end: Partial<Doc<"chatMessages">>) {
+	const stream = await streamOf(ctx, reply._id);
+	await ctx.db.patch(reply._id, { ...(stream && { text: stream.text, parts: stream.parts }), ...end });
+	if (stream) await ctx.db.delete(stream._id);
+}
 
 /** The running cost on a place: the thread parent, or the chat. */
 async function addPlaceCost(ctx: MutationCtx, chatId: Id<"chats">, threadId: Id<"chatMessages"> | undefined, cost: number) {
@@ -296,7 +314,7 @@ export const finishReply = internalMutation({
 			if (reply && stats) await ctx.db.patch(reply._id, { stats });
 			return;
 		}
-		if (reply) await ctx.db.patch(reply._id, error ? { status: "error", error, stats } : { status: "done", stats });
+		if (reply) await endStream(ctx, reply, error ? { status: "error", error, stats } : { status: "done", stats });
 		await ctx.db.patch(turnId, { status: error ? "error" : "done" });
 		await settleApproval(ctx, turn);
 		await startNext(ctx, turn);

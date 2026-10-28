@@ -229,7 +229,9 @@ export async function insertMessage(
 	const now = Date.now();
 	if (message.threadId) {
 		const parent = await ctx.db.get(message.threadId);
-		if (parent) await ctx.db.patch(parent._id, { replyCount: (parent.replyCount ?? 0) + 1, lastReplyAt: now });
+		const author = message.authorUserId ? { userId: message.authorUserId } : { agentId: message.authorAgentId };
+		const others = (parent?.replyAuthors ?? []).filter((a) => a.userId !== author.userId || a.agentId !== author.agentId);
+		if (parent) await ctx.db.patch(parent._id, { replyCount: (parent.replyCount ?? 0) + 1, lastReplyAt: now, replyAuthors: [author, ...others].slice(0, 3) });
 	} else await ctx.db.patch(chat._id, { lastMessageAt: now });
 	return id;
 }
