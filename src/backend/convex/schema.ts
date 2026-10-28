@@ -802,7 +802,8 @@ export default defineSchema({
 	// older version brings them back. The file goes with the last page that has it.
 	pageImages: defineTable({ workspaceId: v.id("workspaces"), pageId: v.id("pages"), storageId: v.id("_storage"), url: v.string() })
 		.index("by_page", ["pageId", "url"])
-		.index("by_url", ["workspaceId", "url"]),
+		.index("by_url", ["workspaceId", "url"])
+		.index("by_storage", ["storageId"]),
 
 	// The index behind filtering and sorting on any field: one row per value of a live
 	// record (core's indexEntries). Archived records have none. Never read for display.

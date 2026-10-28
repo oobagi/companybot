@@ -17,12 +17,25 @@ const png = (size = 16) => Object.assign(new Uint8Array(size), { 0: 0x89, 1: 0x5
 const post = (as: As, body: Uint8Array<ArrayBuffer>, type: string, workspaceId?: Id<"workspaces">) =>
 	as.fetch(`/images/upload${workspaceId ? `?workspaceId=${workspaceId}` : ""}`, { method: "POST", headers: { "Content-Type": type }, body });
 /** Uploads a picture as `as`, in their workspace, and returns its storage id. */
-const upload = async (as: As) => {
-	const response = await post(as, png(), "image/png", await workspaceOf(as));
+const upload = async (as: As, size?: number) => {
+	const response = await post(as, png(size), "image/png", await workspaceOf(as));
 	expect(response.status).toBe(200);
 	return ((await response.json()) as { storageId: Id<"_storage"> }).storageId;
 };
 const exists = (t: T, id: Id<"_storage">) => t.run(async (ctx) => !!(await ctx.db.system.get(id)));
+/** Appends an image block with `url` to a page, as `as` (an editor paste or an agent's block copy). */
+const paste = (t: T, as: Awaited<ReturnType<typeof signIn>>, pageId: Id<"pages">, url: string) =>
+	t.run(async (ctx) => {
+		const page = (await ctx.db.get(pageId))!;
+		const image = { type: "blockContainer", attrs: { id: crypto.randomUUID() }, content: [{ type: "image", attrs: { url } }] };
+		await writeBlocks(ctx, { member: (await memberOf(ctx, as.userId, page.workspaceId))! }, page, JSON.stringify([image]), "append");
+	});
+/** Moves something to Trash and deletes it forever, as an owner, and lets the cleanup finish. */
+const purge = async (t: T, owner: As, kind: "page" | "record", id: Id<"pages"> | Id<"records">) => {
+	await owner.mutation(api.trash.move, { kind, id });
+	await owner.mutation(api.trash.purge, { id });
+	await settle(t);
+};
 const files = (t: T) => t.run(async (ctx) => (await ctx.db.system.query("_storage").collect()).length);
 
 describe("pictures", () => {
@@ -287,24 +300,29 @@ describe("pictures", () => {
 		const url = await member.mutation(api.pages.addImage, { pageId: a, file });
 		// Another workspace's page with the same URL doesn't keep it.
 		const side = (await sideWorkspace(t, "owner@co.com")).workspaceId;
-		const elsewhere = await owner.in(side).mutation(api.pages.create, { title: "Elsewhere" });
-		const image = { type: "blockContainer", attrs: { id: crypto.randomUUID() }, content: [{ type: "image", attrs: { url } }] };
-		const paste = (pageId: Id<"pages">) =>
-			t.run(async (ctx) => {
-				const page = (await ctx.db.get(pageId))!;
-				await writeBlocks(ctx, { member: (await memberOf(ctx, owner.userId, page.workspaceId))! }, page, JSON.stringify([image]), "append");
-			});
-		await paste(b);
-		await paste(elsewhere);
-		const purge = async (pageId: Id<"pages">) => {
-			await owner.mutation(api.trash.move, { kind: "page", id: pageId });
-			await owner.mutation(api.trash.purge, { id: pageId });
-			await settle(t);
-		};
-		await purge(a);
+		await paste(t, owner, b, url);
+		await paste(t, owner, await owner.in(side).mutation(api.pages.create, { title: "Elsewhere" }), url);
+		await purge(t, owner, "page", a);
 		expect(await exists(t, file)).toBe(true);
-		await purge(b);
+		await purge(t, owner, "page", b);
 		expect(await exists(t, file)).toBe(false);
+	});
+
+	it("deletes a record body's pictures with the record, keeping ones copied into a page", async () => {
+		const { t, owner, member } = await setup();
+		const client = (await owner.query(api.recordTypes.list)).find((type) => type.key === "client")!;
+		const acme = await member.mutation(api.records.create, { typeId: client._id, values: { name: "Acme" } });
+		const body = await member.mutation(api.pages.create, { recordId: acme });
+		// Different bytes: convex-test makes storage URLs from a file's hash.
+		const [only, copied] = [await upload(member), await upload(member, 17)];
+		await member.mutation(api.pages.addImage, { pageId: body, file: only });
+		const page = await member.mutation(api.pages.create, { title: "Wiki" });
+		await paste(t, owner, page, await member.mutation(api.pages.addImage, { pageId: body, file: copied }));
+		await purge(t, owner, "record", acme);
+		expect([await exists(t, only), await exists(t, copied)]).toEqual([false, true]);
+		expect((await t.run((ctx) => ctx.db.query("pageImages").collect())).map((r) => r.pageId)).toEqual([page]);
+		await purge(t, owner, "page", page);
+		expect(await exists(t, copied)).toBe(false);
 	});
 
 	it("deletes pictures and unclaimed uploads with the workspace, and a photo with its account", async () => {

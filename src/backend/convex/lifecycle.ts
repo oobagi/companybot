@@ -64,9 +64,15 @@ async function deleteBody(ctx: MutationCtx, row: Doc<"records">) {
 /** A page's content is the prosemirrorSync component's, deleted by the component a little at a time. */
 const deleteContent = (ctx: MutationCtx, row: Doc<"pages">) => ctx.scheduler.runAfter(0, internal.pageSync.deleteDoc, { id: row._id });
 
+/** A page going inside another cascade: its content, then a page cascade for its versions, moves and images. */
+async function deleteContentAndRest(ctx: MutationCtx, row: Doc<"pages">) {
+	await deleteContent(ctx, row);
+	await startCascade(ctx, "page", { workspaceId: row.workspaceId, pageId: row._id });
+}
+
 /** A page image's file goes with the last page that has it (copies share it). */
 async function deleteImageFile(ctx: MutationCtx, row: Doc<"pageImages">) {
-	const rows = await ctx.db.query("pageImages").withIndex("by_url", (q) => q.eq("workspaceId", row.workspaceId).eq("url", row.url)).take(2);
+	const rows = await ctx.db.query("pageImages").withIndex("by_storage", (q) => q.eq("storageId", row.storageId)).take(2);
 	if (!rows.some((r) => r._id !== row._id)) await deleteFile(ctx, row.storageId);
 }
 
@@ -326,15 +332,9 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	// ---- Pages ----
 	pages: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"], onDelete: deleteContent },
-		page: {
-			index: "by_parent", eq: ["workspaceId", ["parentId", "pageId"]],
-			onDelete: async (ctx, row) => {
-				await deleteContent(ctx, row);
-				await startCascade(ctx, "page", { workspaceId: row.workspaceId, pageId: row._id });
-			},
-		},
+		page: { index: "by_parent", eq: ["workspaceId", ["parentId", "pageId"]], onDelete: deleteContentAndRest },
 		// A record's body goes with it.
-		record: { index: "by_workspace", eq: ["workspaceId", "recordId"], onDelete: deleteContent },
+		record: { index: "by_workspace", eq: ["workspaceId", "recordId"], onDelete: deleteContentAndRest },
 		keep: "Pages are the workspace's, like records. Deleting one forever (trash.ts) deletes its row first, then its content and a page cascade.",
 	},
 	pageMoves: {
