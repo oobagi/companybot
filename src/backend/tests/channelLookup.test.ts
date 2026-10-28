@@ -1,14 +1,14 @@
-import { setup, signIn } from "./helpers";
+import { ownerAndMember, signIn, workspaceOf } from "./helpers";
 import { expect, it } from "vitest";
 import { api } from "../convex/_generated/api";
 import { channelNamed, normalizeChannelName } from "../convex/chatOps";
 import { memberOf } from "../convex/lib";
 
 it("looks up only active channels the person can see, in their workspace", async () => {
-	const { t, owner, member } = await setup();
+	const { t, owner, member } = await ownerAndMember();
 	const stranger = await signIn(t, "stranger@co.com");
-	const workspaceId = (await owner.query(api.workspace.me))!.workspaceId!;
-	const elsewhereId = (await stranger.query(api.workspace.me))!.workspaceId!;
+	const workspaceId = await workspaceOf(owner);
+	const elsewhereId = await workspaceOf(stranger);
 	const publicId = await owner.mutation(api.chats.createChannel, { name: "sales-team", private: false });
 	const privateId = await member.mutation(api.chats.createChannel, { name: "private", private: true });
 	const archivedId = await owner.mutation(api.chats.createChannel, { name: "archived", private: false });
@@ -30,9 +30,9 @@ it("looks up only active channels the person can see, in their workspace", async
 });
 
 it("preserves the callers' existing channel-name handling", async () => {
-	const { t, owner: as } = await setup();
+	const { t, owner: as } = await ownerAndMember();
 	const userId = as.userId;
-	const workspaceId = (await as.query(api.workspace.me))!.workspaceId!;
+	const workspaceId = await workspaceOf(as);
 	const id = await as.mutation(api.chats.createChannel, { name: "sales-team", private: false });
 	await t.run(async (ctx) => {
 		const member = (await memberOf(ctx, userId, workspaceId))!;

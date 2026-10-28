@@ -5,7 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { mutation } from "./functions";
 import { addToChat, canSee, findOrCreateDm, insertMessage } from "./chatOps";
-import { type Member, liveWorkspace, memberOf, nameOf, normalizeEmail, requireMember } from "./lib";
+import { type Member, liveWorkspace, memberOf, nameOf, normalizeEmail, requireMember, sweepExpired } from "./lib";
 import { definitionOf, followsOthers, postingProblem, requireEditable, subscribersOf } from "./automationOps";
 import { enqueueTurn } from "./turns";
 
@@ -132,12 +132,8 @@ export const WEBHOOK_MEMORY_MS = 7 * 24 * 60 * 60 * 1000;
 export const forgetOldWebhooks = internalMutation({
 	args: {},
 	handler: async (ctx) => {
-		const old = await ctx.db
-			.query("automationEvents")
-			.withIndex("by_creation_time", (q) => q.lt("_creationTime", Date.now() - WEBHOOK_MEMORY_MS))
-			.take(500);
-		for (const delivery of old) await ctx.db.delete(delivery._id);
-		if (old.length === 500) await ctx.scheduler.runAfter(0, internal.automationRuns.forgetOldWebhooks);
+		const old = ctx.db.query("automationEvents").withIndex("by_creation_time", (q) => q.lt("_creationTime", Date.now() - WEBHOOK_MEMORY_MS));
+		await sweepExpired(ctx, old, (delivery) => ctx.db.delete(delivery._id), internal.automationRuns.forgetOldWebhooks);
 	},
 });
 

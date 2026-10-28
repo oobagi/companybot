@@ -16,7 +16,7 @@ import { putInTrash, takeFromTrash, trashEntry } from "./trashOps";
 // Shared by the app (public functions) and agents (internal functions), so both
 // follow the same permission rules from @companybot/core.
 
-export const toMemory = (d: Doc<"memories">): Memory => ({
+export const toMemory = (d: Doc<"memories">) => ({
 	id: d._id,
 	agentId: d.agentId,
 	scope: d.scope,
@@ -27,7 +27,7 @@ export const toMemory = (d: Doc<"memories">): Memory => ({
 	createdBy: d.createdBy ?? d.updatedBy,
 	...(d.updatedByAgent && { updatedByAgent: true }),
 	version: d.version,
-});
+}) satisfies Memory;
 
 /** Every memory the person can see, across all agents. For the app. */
 export async function listMemories(ctx: QueryCtx, member: Member) {

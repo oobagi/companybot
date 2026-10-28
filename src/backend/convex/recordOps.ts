@@ -23,7 +23,7 @@ import { ConvexError, getDocumentSize } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { type Member, type Who, checkPermission, checkVersion, memberOf, memo, nameOf, requireInWorkspace, toActor } from "./lib";
-import { putInTrash, takeFromTrash } from "./trashOps";
+import { toggleTrash } from "./trashOps";
 
 // Records, fields and their history. Shared by the app's functions (records.ts,
 // recordTypes.ts) and agent tools (recordTools.ts), so both follow the same rules. Agents pass
@@ -31,8 +31,6 @@ import { putInTrash, takeFromTrash } from "./trashOps";
 
 export type Values = Record<string, FieldValue>;
 type Change = Doc<"recordHistory">["changes"][number];
-
-export const requireCan = checkPermission;
 
 /** A database in the person's workspace. Other workspaces' look like they don't exist. */
 export async function requireType(ctx: QueryCtx, member: Member, typeId: Id<"recordTypes">, live = false) {
@@ -166,7 +164,7 @@ const stamp = (who: Who) => ({ updatedAt: Date.now(), updatedBy: who.member.user
 
 /** Returns the new record and its "created" history entry. */
 export async function createRecord(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, input: Record<string, unknown>) {
-	requireCan(who.member, "records.edit");
+	checkPermission(who.member, "records.edit");
 	const type = await requireType(ctx, who.member, typeId);
 	if (type.archived) throw new ConvexError(`${type.plural} is in Trash.`);
 	const fields = await fieldsOf(ctx, typeId);
@@ -202,7 +200,7 @@ export async function createRecord(ctx: MutationCtx, who: Who, typeId: Id<"recor
  * Returns the history entry, or null if nothing changed.
  */
 export async function updateRecord(ctx: MutationCtx, who: Who, recordId: Id<"records">, input: Record<string, unknown>) {
-	requireCan(who.member, "records.edit");
+	checkPermission(who.member, "records.edit");
 	const record = await requireRecord(ctx, who.member, recordId);
 	await requireLive(ctx, record);
 	const fields = await fieldsOf(ctx, record.typeId);
@@ -242,18 +240,15 @@ async function applyValues(
  * the fields as they are now; values on retired options or fields in Trash stay, as on any live record.
  */
 export async function setRecordTrashed(ctx: MutationCtx, who: Who, recordId: Id<"records">, archived: boolean, undoes?: Id<"recordHistory">) {
-	requireCan(who.member, "records.edit");
+	checkPermission(who.member, "records.edit");
 	const record = await requireRecord(ctx, who.member, recordId);
 	if (record.archived === archived) return null;
-	if (archived) {
-		await requireLive(ctx, record);
-		await putInTrash(ctx, who, { kind: "record", id: recordId, name: record.title, typeId: record.typeId });
-	}
+	if (archived) await requireLive(ctx, record);
 	else {
 		const type = await ctx.db.get(record.typeId);
 		if (type?.archived) throw new ConvexError(`${type.plural} is in Trash. Restore it first.`);
-		await takeFromTrash(ctx, who, recordId);
 	}
+	await toggleTrash(ctx, who, archived, { kind: "record", id: recordId, name: record.title, typeId: record.typeId });
 	await ctx.db.patch(recordId, { archived, ...stamp(who) });
 	if (archived) await clearIndex(ctx, recordId);
 	else await writeIndex(ctx, { ...record, archived }, await fieldsOf(ctx, record.typeId));
@@ -266,7 +261,7 @@ export async function setRecordTrashed(ctx: MutationCtx, who: Who, recordId: Id<
  * other write: no fields in Trash, retired options, or link targets in Trash.
  */
 export async function undoChange(ctx: MutationCtx, who: Who, historyId: Id<"recordHistory">) {
-	requireCan(who.member, "records.edit");
+	checkPermission(who.member, "records.edit");
 	const entry = await ctx.db.get(historyId);
 	if (!entry || entry.workspaceId !== who.member.workspaceId || !entry.recordId) throw new ConvexError("Change not found.");
 	if (entry.undoneBy) throw new ConvexError("That change was already undone.");
@@ -320,7 +315,7 @@ function requireFieldConfig(config: FieldConfig) {
 
 /** Adds a field to a type. Existing records just don't have a value yet: nothing to backfill. */
 export async function createField(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, input: FieldInput) {
-	requireCan(who.member, "fields.create");
+	checkPermission(who.member, "fields.create");
 	await requireType(ctx, who.member, typeId, true);
 	const fields = await fieldsOf(ctx, typeId);
 	if (fields.length >= FIELDS_PER_TYPE_MAX) throw new ConvexError(`A database holds up to ${FIELDS_PER_TYPE_MAX} fields.`);
@@ -373,7 +368,7 @@ export async function updateField(
 	const changes: Change[] = [];
 	let reordered: Doc<"recordFields">[] | undefined;
 	if (update.position !== undefined) {
-		requireCan(who.member, "fields.manage");
+		checkPermission(who.member, "fields.manage");
 		const fields = (await fieldsOf(ctx, field.typeId)).filter((f) => !f.archived);
 		if (field.key === NAME_KEY || !Number.isInteger(update.position) || update.position < 1 || update.position >= fields.length)
 			throw new ConvexError("Choose a field position after Name within the live fields.");
@@ -401,12 +396,11 @@ export async function setFieldTrashed(ctx: MutationCtx, who: Who, fieldId: Id<"r
 		: requireInWorkspace(who.member, await ctx.db.get(fieldId), "Field");
 	if (field.key === NAME_KEY) throw new ConvexError("Every record needs a name, so this field stays.");
 	if (field.archived === archived) return;
-	if (archived) await putInTrash(ctx, who, { kind: "field", id: fieldId, name: field.label, typeId: field.typeId });
-	else {
+	if (!archived) {
 		await requireType(ctx, who.member, field.typeId, true);
 		requireUniqueLabel(await fieldsOf(ctx, field.typeId), field.label, fieldId);
-		await takeFromTrash(ctx, who, fieldId);
 	}
+	await toggleTrash(ctx, who, archived, { kind: "field", id: fieldId, name: field.label, typeId: field.typeId });
 	await ctx.db.patch(fieldId, { archived, updatedAt: Date.now() });
 	await logChange(ctx, who, { typeId: field.typeId, fieldId, action: archived ? "field.archived" : "field.restored", changes: [] });
 }
@@ -424,7 +418,7 @@ function databaseNames(plural: string, singular: string | undefined, types: Doc<
 
 /** A new database with just a name field. */
 export async function createType(ctx: MutationCtx, who: Who, input: { plural: string; name?: string }) {
-	requireCan(who.member, "fields.manage");
+	checkPermission(who.member, "fields.manage");
 	const types = await typesOf(ctx, who.member.workspaceId);
 	if (types.length >= TYPES_MAX) throw new ConvexError(`A workspace holds up to ${TYPES_MAX} databases, including ones in Trash.`);
 	const names = databaseNames(input.plural, input.name, types);
@@ -436,10 +430,9 @@ export async function createType(ctx: MutationCtx, who: Who, input: { plural: st
 
 /** Rename. A new plural alone re-guesses the singular. */
 export async function updateType(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, input: { name?: string; plural?: string; version: number }) {
-	requireCan(who.member, "fields.manage");
-	const type = await requireType(ctx, who.member, typeId);
+	checkPermission(who.member, "fields.manage");
+	const type = await requireType(ctx, who.member, typeId, true);
 	checkVersion(type.version ?? 0, input.version);
-	if (type.archived) throw new ConvexError("This database is in Trash. Restore it to make changes.");
 	const names = databaseNames(input.plural ?? type.plural, input.name ?? (input.plural === undefined ? type.name : undefined), await typesOf(ctx, who.member.workspaceId), typeId);
 	const changes = (["name", "plural"] as const).filter((key) => type[key] !== names[key]).map((key) => ({ key, old: type[key], new: names[key] }));
 	if (!changes.length) return;
@@ -449,14 +442,11 @@ export async function updateType(ctx: MutationCtx, who: Who, typeId: Id<"recordT
 
 /** Moves a database to Trash, with its records, fields and views, or brings it back if its names are free. */
 export async function setTypeTrashed(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, archived: boolean) {
-	if (archived) requireCan(who.member, "fields.manage");
+	if (archived) checkPermission(who.member, "fields.manage");
 	const type = await requireType(ctx, who.member, typeId);
 	if (type.archived === archived) return;
-	if (archived) await putInTrash(ctx, who, { kind: "database", id: typeId, name: type.plural });
-	else {
-		databaseNames(type.plural, type.name, await typesOf(ctx, who.member.workspaceId), typeId);
-		await takeFromTrash(ctx, who, typeId);
-	}
+	if (!archived) databaseNames(type.plural, type.name, await typesOf(ctx, who.member.workspaceId), typeId);
+	await toggleTrash(ctx, who, archived, { kind: "database", id: typeId, name: type.plural });
 	await ctx.db.patch(typeId, { archived, version: (type.version ?? 0) + 1, updatedAt: Date.now() });
 	await logChange(ctx, who, { typeId, action: archived ? "database.archived" : "database.restored", changes: [] });
 }

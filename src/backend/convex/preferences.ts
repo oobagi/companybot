@@ -4,7 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { imageUrl } from "./images";
-import { authUserId, preferencesOf } from "./lib";
+import { authUserId, preferencesOf, requireUserId } from "./lib";
 import { notify } from "./schema";
 
 // Personal preferences: only you see them, and they follow you to every device.
@@ -45,9 +45,7 @@ const preferenceChanges = v.object({
 export const update = mutation({
 	args: preferenceChanges.fields,
 	handler: async (ctx, args) => {
-		const userId = await authUserId(ctx);
-		if (!userId) throw new ConvexError("Not signed in.");
-		return updatePreferences(ctx, userId, args);
+		return updatePreferences(ctx, await requireUserId(ctx), args);
 	},
 });
 

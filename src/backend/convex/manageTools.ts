@@ -1,6 +1,5 @@
 import { canEditMade, DEFAULT_CURRENCY, isGranted, manageInputs, modelNote, pickAgentConfig, searchModels } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
-import { legacySkills } from "./legacyCatalogs";
 import type { Id, TableNames } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { addChannelMembers, markReadAs, createChannelAs, joinChannel, leaveChannel, openDirectMessage, removeChannelMember, updateChannelAs } from "./chats";
@@ -10,7 +9,7 @@ import { removeAutomation, saveAutomation, updateAutomation } from "./automation
 import { installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
 import { editMessage, removeMessage, reactMessage, sendMessage } from "./messages";
 import { cancelMemberInvite, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
-import { asToolResult, checkPermission, type Member, nameOf, normalizeEmail, preferencesOf, requireAgent, timeZoneOf } from "./lib";
+import { asToolResult, checkPermission, type Member, nameOf, normalizeEmail, preferencesOf, requireAgent, skillOf, timeZoneOf } from "./lib";
 import { createAgent, setAgentTrashed, updateAgent } from "./agents";
 import { catalogModels } from "./modelCatalog";
 import { setImage } from "./images";
@@ -19,6 +18,9 @@ import { runNowAs } from "./automationRuns";
 import { runningTurn } from "./turns";
 
 const paging = (cursor?: string) => ({ cursor: cursor ?? null, numItems: 30 });
+/** One page of the workspace's rows of `table` (every one's by_workspace index starts with workspaceId). */
+const workspacePage = <T extends "invites" | "agents" | "members" | "automationInstalls" | "skillInstalls">(ctx: MutationCtx, table: T, member: Member, cursor?: string) =>
+	ctx.db.query(table).withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId as never)).paginate(paging(cursor));
 function rowId<T extends TableNames>(ctx: MutationCtx, table: T, raw: string): Id<T> {
 	const id = ctx.db.normalizeId(table, raw);
 	if (!id) throw new ConvexError("Invalid id.");
@@ -49,23 +51,14 @@ export const runFor = internalMutation({
 					if (r.action === "find_people") {
 						if (r.kind === "invites") {
 							checkPermission(member, "members.manage");
-							const result = await ctx.db
-								.query("invites")
-								.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
-								.paginate(paging(r.cursor));
+							const result = await workspacePage(ctx, "invites", member, r.cursor);
 							return { ...result, page: result.page.map((i) => ({ id: i._id, email: i.email, role: i.role })) };
 						}
 						if (r.kind === "agents") {
-							const result = await ctx.db
-								.query("agents")
-								.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
-								.paginate(paging(r.cursor));
+							const result = await workspacePage(ctx, "agents", member, r.cursor);
 							return { ...result, page: result.page.filter((a) => !a.archived).map((a) => ({ id: a._id, name: a.name, description: a.description })) };
 						}
-						const result = await ctx.db
-							.query("members")
-							.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
-							.paginate(paging(r.cursor));
+						const result = await workspacePage(ctx, "members", member, r.cursor);
 						return {
 							...result,
 							page: await Promise.all(
@@ -160,10 +153,7 @@ export const runFor = internalMutation({
 				case "automations.manage": {
 					const r = manageInputs[tool].parse(input).request;
 					if (r.action === "list") {
-						const result = await ctx.db
-							.query("automationInstalls")
-							.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
-							.paginate(paging(r.cursor));
+						const result = await workspacePage(ctx, "automationInstalls", member, r.cursor);
 						return {
 							...result,
 							page: result.page
@@ -210,19 +200,16 @@ export const runFor = internalMutation({
 				case "skills.manage": {
 					const r = manageInputs[tool].parse(input).request;
 					if (r.action === "list") {
-						const result = await ctx.db
-							.query("skillInstalls")
-							.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
-							.paginate(paging(r.cursor));
+						const result = await workspacePage(ctx, "skillInstalls", member, r.cursor);
 						return {
 							...result,
-							page: result.page.filter((i) => !i.archived).map((i) => ({ id: i.skillId, name: (i.custom ?? i.definition ?? legacySkills.find((s) => s.id === i.skillId))?.name, version: i.custom?.version ?? i.definition?.version })),
+							page: result.page.filter((i) => !i.archived).map((i) => ({ id: i.skillId, name: skillOf(i)?.name, version: i.custom?.version ?? i.definition?.version })),
 						};
 					}
 					const install = await skillInstallOf(ctx, member.workspaceId, r.id);
-					const skill = install && (install.custom ?? install.definition ?? legacySkills.find((s) => s.id === r.id));
+					const skill = install && skillOf(install);
 					if (!skill) throw new ConvexError("Skill not found.");
-					return { ...skill, id: r.id, installed: true, canEdit: canEditMade(member, "skills.manage", install.custom?.createdBy) };
+					return { ...skill, id: r.id, version: install.custom?.version ?? skill.version, installed: true, canEdit: canEditMade(member, "skills.manage", install.custom?.createdBy) };
 				}
 				case "skills.edit": {
 					const r = manageInputs[tool].parse(input).request;
@@ -259,7 +246,7 @@ export const runFor = internalMutation({
 				case "agents.manage": {
 					const r = manageInputs[tool].parse(input).request;
 					if (r.action === "list") {
-						const result = await ctx.db.query("agents").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId)).paginate(paging(r.cursor));
+						const result = await workspacePage(ctx, "agents", member, r.cursor);
 						return { ...result, page: result.page.map((a) => ({ id: a._id, name: a.name, description: a.description, inTrash: a.archived, version: a.version })) };
 					}
 					if (r.action === "models") {

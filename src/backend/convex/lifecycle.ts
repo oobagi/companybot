@@ -82,7 +82,6 @@ const fieldOf = async (get: Get, root: Root) => await get(root.fieldId!);
 /** Ends access to a workspace at once (memberOf refuses it), then deletes it in a cascade. */
 export async function removeWorkspace(ctx: MutationCtx, workspaceId: Id<"workspaces">) {
 	await ctx.db.patch(workspaceId, { deleting: true });
-	// Old apps' pins are set as the cascade deletes each membership (below); until then they act nowhere.
 	await startCascade(ctx, "workspace", { workspaceId });
 }
 

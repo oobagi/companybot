@@ -5,7 +5,7 @@ import { PAGE_DEPTH_MAX } from "../convex/pageTree";
 import { IDLE_MS, readDoc, writeBlocks } from "../convex/pageOps";
 import { memberOf } from "../convex/lib";
 import { TRASH_MS } from "../convex/trashOps";
-import { agentTurn, agentsOf, generalOf, settle, setup, signIn } from "./helpers";
+import { agentTurn, agentsOf, generalOf, settle, ownerAndMember, signIn, identityOf } from "./helpers";
 
 beforeEach(() => void vi.useFakeTimers());
 afterEach(() => void vi.useRealTimers());
@@ -13,7 +13,7 @@ const opts = { paginationOpts: { numItems: 50, cursor: null } };
 
 describe("nested pages", () => {
 	it("lists paged levels and breadcrumbs while old clients still get a flat list", async () => {
-		const { owner } = await setup();
+		const { owner } = await ownerAndMember();
 		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
 		const child = await owner.mutation(api.pages.create, { title: "Guide", parentId: root });
 		const leaf = await owner.mutation(api.pages.create, { title: "Checklist", parentId: child });
@@ -25,7 +25,7 @@ describe("nested pages", () => {
 	});
 
 	it("keeps record bodies out of the top level, so they can't page standalone pages out of view", async () => {
-		const { owner } = await setup();
+		const { owner } = await ownerAndMember();
 		const type = (await owner.query(api.recordTypes.list))[0]!;
 		for (let i = 0; i < 60; i++) await owner.mutation(api.pages.create, { recordId: await owner.mutation(api.records.create, { typeId: type._id, values: { name: `R${i}` } }) });
 		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
@@ -34,7 +34,7 @@ describe("nested pages", () => {
 	});
 
 	it("rejects cycles, foreign parents, record bodies and moves after membership is revoked", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const root = await owner.mutation(api.pages.create, { title: "Root" });
 		const child = await owner.mutation(api.pages.create, { title: "Child", parentId: root });
 		await expect(owner.mutation(api.pages.move, { pageId: root, parentId: child })).rejects.toThrow("descendants");
@@ -57,7 +57,7 @@ describe("nested pages", () => {
 	});
 
 	it("prunes saved expansion ids for deleted, inherited-Trash, foreign and invalid pages in bounded batches", async () => {
-		const { t, owner } = await setup();
+		const { t, owner } = await ownerAndMember();
 		const root = await owner.mutation(api.pages.create, { title: "Root" });
 		const child = await owner.mutation(api.pages.create, { title: "Child", parentId: root });
 		const other = await signIn(t, "other@co.com");
@@ -73,7 +73,7 @@ describe("nested pages", () => {
 	});
 
 	it("labels subtree Trash only when live children were actually deleted with the parent", async () => {
-		const { owner } = await setup();
+		const { owner } = await ownerAndMember();
 		const root = await owner.mutation(api.pages.create, { title: "Root" });
 		const child = await owner.mutation(api.pages.create, { title: "Child", parentId: root });
 		await owner.mutation(api.pages.create, { title: "Grandchild", parentId: child });
@@ -89,7 +89,7 @@ describe("nested pages", () => {
 	});
 
 	it("moves an entire branch and attributes metadata history without changing content history", async () => {
-		const { owner, member } = await setup();
+		const { owner, member } = await ownerAndMember();
 		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
 		const child = await owner.mutation(api.pages.create, { title: "Guide", parentId: root });
 		const leaf = await owner.mutation(api.pages.create, { title: "Checklist", parentId: child });
@@ -100,7 +100,7 @@ describe("nested pages", () => {
 	});
 
 	it("bounds depth on creation and deeper moves, including descendants", async () => {
-		const { owner } = await setup();
+		const { owner } = await ownerAndMember();
 		const root = await owner.mutation(api.pages.create, { title: "Root" });
 		let deepest = root;
 		for (let i = 1; i < PAGE_DEPTH_MAX; i++) deepest = await owner.mutation(api.pages.create, { title: `Level ${i}`, parentId: deepest });
@@ -111,7 +111,7 @@ describe("nested pages", () => {
 	});
 
 	it("gates the whole subtree atomically, restores it once, and preserves independently deleted children", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const root = await member.mutation(api.pages.create, { title: "Wiki" });
 		const child = await member.mutation(api.pages.create, { title: "Guide", parentId: root });
 		const leaf = await member.mutation(api.pages.create, { title: "Checklist", parentId: child });
@@ -125,7 +125,7 @@ describe("nested pages", () => {
 		await expect(owner.mutation(api.pages.rename, { pageId: child, title: "No" })).rejects.toThrow("in Trash");
 		await expect(owner.mutation(api.pages.move, { pageId: child })).rejects.toThrow("in Trash");
 		await expect(owner.mutation(api.pages.create, { title: "No", parentId: child })).rejects.toThrow("in Trash");
-		const raw = t.withIdentity({ subject: `${member.userId}|session` });
+		const raw = identityOf(t, member.userId);
 		await expect(raw.mutation(api.pageSync.submitSteps, { id: child, version: 1, clientId: "old-editor", steps: [] })).rejects.toThrow("in Trash");
 		await member.mutation(api.trash.restore, { kind: "page", id: root });
 		expect((await owner.query(api.pages.list, {})).map((p) => p._id)).toEqual([child, root]);
@@ -133,7 +133,7 @@ describe("nested pages", () => {
 	});
 
 	it("restores a separately trashed child to top level when its parent is unavailable, respecting restore authority", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const root = await member.mutation(api.pages.create, { title: "Wiki" });
 		const child = await owner.mutation(api.pages.create, { title: "Guide", parentId: root });
 		await owner.mutation(api.trash.move, { kind: "page", id: child });
@@ -151,7 +151,7 @@ describe("nested pages", () => {
 	});
 
 	it("purges all descendants, versions, content and separate Trash entries, refusing a mid-purge escape", async () => {
-		const { t, owner } = await setup();
+		const { t, owner } = await ownerAndMember();
 		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
 		const child = await owner.mutation(api.pages.create, { title: "Guide", parentId: root });
 		const leaf = await owner.mutation(api.pages.create, { title: "Checklist", parentId: child });
@@ -175,7 +175,7 @@ describe("nested pages", () => {
 	});
 
 	it("sweeps a subtree after 30 days", async () => {
-		const { t, owner } = await setup();
+		const { t, owner } = await ownerAndMember();
 		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
 		const child = await owner.mutation(api.pages.create, { title: "Guide", parentId: root });
 		await owner.mutation(api.trash.move, { kind: "page", id: root });
@@ -189,7 +189,7 @@ describe("nested pages", () => {
 	});
 
 	it("gives agents parent creation, tree reads, moves, sub-page lists and attribution through the same rules", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const turnId = await agentTurn(t, member, (await generalOf(member))._id, (await agentsOf(member)).companybot._id);
 		const write = (input: object) => t.mutation(internal.pageTools.writeFor, { turnId, input });
 		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
@@ -213,7 +213,7 @@ describe("nested pages", () => {
 	});
 
 	it("keeps alpha.7-compatible page link blocks through Markdown, sync and history, and removing one keeps the child", async () => {
-		const { t, owner } = await setup();
+		const { t, owner } = await ownerAndMember();
 		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
 		const child = await owner.mutation(api.pages.create, { title: "Guide", parentId: root });
 		const turnId = await agentTurn(t, owner, (await generalOf(owner))._id, (await agentsOf(owner)).companybot._id);
@@ -232,7 +232,7 @@ describe("nested pages", () => {
 	});
 
 	it("relabels the parent's links to a renamed child, as the renamer, unless they were reworded", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
 		const child = await owner.mutation(api.pages.create, { title: "Untitled", parentId: root });
 		const link = (text: string) => ({ type: "text", text, marks: [{ type: "link", attrs: { href: `companybot://page/${child}` } }] });

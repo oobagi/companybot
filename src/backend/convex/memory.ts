@@ -17,12 +17,12 @@ export const list = query({
 		if (!member) return [];
 		const actor = toActor(member);
 		const memories = await listMemories(ctx, member);
-		const names = await namesOf(ctx, memories.flatMap((m) => [m.updatedBy, m.createdBy] as Id<"users">[]));
+		const names = await namesOf(ctx, memories.flatMap((m) => [m.updatedBy, m.createdBy]));
 		return memories.map((m) => ({
 			...m,
 			canEdit: canEditMemory(actor, m),
-			updatedByName: names.get(m.updatedBy as Id<"users">) ?? "",
-			createdByName: names.get(m.createdBy as Id<"users">) ?? "",
+			updatedByName: names.get(m.updatedBy) ?? "",
+			createdByName: names.get(m.createdBy) ?? "",
 		}));
 	},
 });

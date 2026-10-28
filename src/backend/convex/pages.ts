@@ -5,7 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { claimUpload, imageUrl } from "./images";
-import { type Member, getMember, nameOf, requireMember } from "./lib";
+import { type Member, capped, emptyPage, getMember, nameOf, requireMember } from "./lib";
 import {
 	createPage,
 	editorsOf,
@@ -96,14 +96,13 @@ export const children = query({
 	args: { parentId: v.optional(v.id("pages")), paginationOpts: paginationOptsValidator },
 	handler: async (ctx, { parentId, paginationOpts }) => {
 		const member = await getMember(ctx);
-		const empty = { page: [], isDone: true, continueCursor: "" };
-		if (!member) return empty;
+		if (!member) return emptyPage();
 		if (parentId) {
 			const parent = await ctx.db.get(parentId);
-			if (parent?.workspaceId !== member.workspaceId || parent.recordId || (await pageState(ctx, parent)).archived) return empty;
+			if (parent?.workspaceId !== member.workspaceId || parent.recordId || (await pageState(ctx, parent)).archived) return emptyPage();
 		}
 		const result = await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", parentId).eq("recordId", undefined).eq("archived", false))
-			.paginate({ ...paginationOpts, numItems: Math.min(paginationOpts.numItems, 50) });
+			.paginate(capped(paginationOpts, 50));
 		const hasChildren = async (p: Doc<"pages">) => !!(await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", p._id).eq("recordId", undefined).eq("archived", false)).first());
 		return { ...result, page: await Promise.all(result.page.map(async (p) => ({ ...pageRow(p), hasChildren: await hasChildren(p) }))) };
 	},
@@ -142,9 +141,9 @@ export const moves = query({
 	handler: async (ctx, { pageId, paginationOpts }) => {
 		const member = await getMember(ctx);
 		const page = member && await ctx.db.get(pageId);
-		if (!member || page?.workspaceId !== member.workspaceId) return { page: [], isDone: true, continueCursor: "" };
+		if (!member || page?.workspaceId !== member.workspaceId) return emptyPage();
 		const result = await ctx.db.query("pageMoves").withIndex("by_page", (q) => q.eq("pageId", pageId)).order("desc")
-			.paginate({ ...paginationOpts, numItems: Math.min(paginationOpts.numItems, 20) });
+			.paginate(capped(paginationOpts, 20));
 		return { ...result, page: await Promise.all(result.page.map(async (r) => ({ ...r, user: await nameOf(ctx, r.userId), agent: r.agentId ? (await ctx.db.get(r.agentId))?.name ?? "An agent" : null }))) };
 	},
 });
@@ -197,7 +196,7 @@ export const history = query({
 	handler: async (ctx, { pageId, paginationOpts }) => {
 		const member = await getMember(ctx);
 		const page = member && (await ctx.db.get(pageId));
-		if (!member || page?.workspaceId !== member.workspaceId) return { page: [], isDone: true, continueCursor: "" };
+		if (!member || page?.workspaceId !== member.workspaceId) return emptyPage();
 		return pageHistory(ctx, page._id, paginationOpts);
 	},
 });
@@ -233,7 +232,7 @@ export async function pageHistory(ctx: QueryCtx, pageId: Id<"pages">, pagination
 		.query("pageVersions")
 		.withIndex("by_page", (q) => q.eq("pageId", pageId))
 		.order("desc")
-		.paginate({ ...paginationOpts, numItems: Math.min(paginationOpts.numItems, HISTORY_PAGE_MAX) });
+		.paginate(capped(paginationOpts, HISTORY_PAGE_MAX));
 	return {
 		...result,
 		page: await Promise.all(

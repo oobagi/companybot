@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import schema from "../convex/schema";
 
-import { modules, signIn, setup, settle } from "./helpers";
+import { modules, signIn, ownerAndMember, settle } from "./helpers";
 import "./connectorFixtures";
 
 afterEach(() => void vi.useRealTimers());
@@ -84,7 +84,7 @@ describe("migrations", () => {
 });
 
 it("snapshots trashed installs without reviving them or resetting their 30-day retention", async () => {
-	const { t, owner } = await setup();
+	const { t, owner } = await ownerAndMember();
 	migrationsTest.register(t);
 	await seedSkill(t, owner, "meeting-notes");
 	await seedAutomation(t, owner, "morning-brief");

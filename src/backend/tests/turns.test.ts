@@ -1,7 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 
-import { agentsOf, setup as ownerAndMember, noMentions, generalOf, turnsOf, usage } from "./helpers";
+import { agentsOf, ownerAndMember, noMentions, generalOf, turnsOf } from "./helpers";
+
+const usage = (costUsd: number) => ({
+	model: "anthropic/claude-haiku-5.5",
+	steps: 1,
+	inputTokens: 100,
+	cachedInputTokens: 0,
+	outputTokens: 20,
+	contextTokens: 120,
+	costUsd,
+	durationMs: 900,
+});
 
 afterEach(() => void vi.useRealTimers());
 

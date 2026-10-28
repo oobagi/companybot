@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
-import { agentTurn, agentsOf, generalOf, noMentions, setup } from "./helpers";
+import { agentTurn, agentsOf, generalOf, noMentions, ownerAndMember } from "./helpers";
 
 afterEach(() => void vi.useRealTimers());
 
 describe("typing", () => {
 	it("shows who's typing to others, per place, until they send", async () => {
-		const { owner, member } = await setup();
+		const { owner, member } = await ownerAndMember();
 		const general = (await generalOf(owner))._id;
 		await member.mutation(api.typing.ping, { chatId: general });
 		await member.mutation(api.typing.ping, { chatId: general });
@@ -21,7 +21,7 @@ describe("typing", () => {
 	});
 
 	it("never shows typing in a chat you can't see", async () => {
-		const { owner, member } = await setup();
+		const { owner, member } = await ownerAndMember();
 		const secret = await owner.mutation(api.chats.createChannel, { name: "board", private: true });
 		await owner.mutation(api.typing.ping, { chatId: secret });
 		expect(await member.query(api.typing.list, { chatId: secret })).toEqual({ people: [], agents: [] });
@@ -29,7 +29,7 @@ describe("typing", () => {
 	});
 
 	it("shows an agent as typing while its turn runs, not once it's stuck", async () => {
-		const { t, owner } = await setup();
+		const { t, owner } = await ownerAndMember();
 		const general = (await generalOf(owner))._id;
 		const { companybot } = await agentsOf(owner);
 		const turnId = await agentTurn(t, owner, general, companybot._id);
@@ -39,7 +39,7 @@ describe("typing", () => {
 	});
 
 	it("shows only recent pings, however many people typed and never sent", async () => {
-		const { t, owner, member } = await setup();
+		const { t, owner, member } = await ownerAndMember();
 		const general = (await generalOf(owner))._id;
 		await t.run(async (ctx) => {
 			const chat = (await ctx.db.get(general))!;
@@ -56,7 +56,7 @@ describe("typing", () => {
 	});
 
 	it("ignores pings nobody could see: agent DMs, and threads that aren't one", async () => {
-		const { t, owner } = await setup();
+		const { t, owner } = await ownerAndMember();
 		const { companybot } = await agentsOf(owner);
 		const dm = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
 		await owner.mutation(api.typing.ping, { chatId: dm });
