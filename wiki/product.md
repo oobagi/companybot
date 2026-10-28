@@ -72,6 +72,10 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 - Not possible: Claude subscriptions (Anthropic bans third-party use). OpenRouter takes API keys only — no service wraps every subscription.
 - Price per workspace with a usage pool. Pause at the limit; never surprise overage.
 
+## Open source
+- The code is AGPL-3.0 (`LICENSE`): anyone can self-host; anyone who runs a changed version as a service must publish their changes.
+- We charge for the hosted version, reselling AI usage (models, search, images) at a markup. Self-hosters bring their own keys as server config.
+
 ## Rollout
 Test with our own team first. Charge outsiders once the team opens it daily.
 

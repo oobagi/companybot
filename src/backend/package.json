@@ -1,6 +1,7 @@
 {
   "name": "@companybot/backend",
   "private": true,
+  "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
     "test": "vitest run",
