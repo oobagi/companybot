@@ -12,7 +12,7 @@ import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
 import { Field, Loading, Notice, Page, Section, compactControlClass, descriptionClass, inputClass, secondaryButton, timeAgo, useRun } from "../../ui";
 import { useTurnOn } from "../Permissions";
-import { deviceTimeZone } from "../chat/common";
+import { deviceTimeZone, useConfirm } from "../chat/common";
 import { Card, Detail, Facts, ItemList, MadeItemDetail, Missing, NewItem, customizeCrumbs } from "./shared";
 
 type AutomationItem = FunctionReturnType<typeof api.automations.list>[number];
@@ -358,6 +358,7 @@ function AutomationSettings({ automation: a }: { automation: AutomationItem }) {
 	const resetWebhook = useMutation(api.automations.resetWebhook);
 	const channels = useQuery(api.chats.list)?.channels ?? [];
 	const { error, run } = useRun();
+	const { confirm, dialog } = useConfirm();
 	const [ran, setRan] = useState(false);
 	const [copied, setCopied] = useState(false);
 	const resume = useTurnOn(a.name, () => update({ automationId: a.id, enabled: true }));
@@ -367,6 +368,7 @@ function AutomationSettings({ automation: a }: { automation: AutomationItem }) {
 
 	return (
 		<Section title="Settings">
+			{dialog}
 			<div className="flex flex-col gap-3 text-sm">
 				<Notice>{error}</Notice>
 				{a.audience === "subscribers" && (
@@ -441,8 +443,7 @@ function AutomationSettings({ automation: a }: { automation: AutomationItem }) {
 								type="button"
 								className={secondaryButton}
 								onClick={() =>
-									confirm("Make a new URL? The current one stops working right away.") &&
-									run(resetWebhook({ automationId: a.id }), () => setCopied(false))
+									confirm({ title: "Make a new URL?", action: "Make a new URL", body: "The current one stops working right away.", onConfirm: () => resetWebhook({ automationId: a.id }).then(() => setCopied(false)) })
 								}
 							>
 								New URL

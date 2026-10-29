@@ -1,5 +1,5 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { Select } from "../../controls";
+import { Checkbox, Select } from "../../controls";
 import { type FieldKind, fieldKinds } from "@companybot/core/records";
 import { useState } from "react";
 import { api } from "../../api";
@@ -74,7 +74,7 @@ export function AddField({
 				)}
 				{severalKinds.includes(kind) && (
 					<label className="flex items-center gap-2 text-sm">
-						<input type="checkbox" checked={multiple} onChange={(e) => setMultiple(e.target.checked)} />
+						<Checkbox checked={multiple} onChange={setMultiple} />
 						Holds several
 					</label>
 				)}
