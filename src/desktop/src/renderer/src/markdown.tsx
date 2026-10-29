@@ -17,8 +17,15 @@ const rehypePlugins = Object.values({
 	sanitize: [sanitize, { ...schema, protocols: { ...schema.protocols, href: [...schema.protocols.href, "companybot"] } }],
 }) as ComponentProps<typeof Streamdown>["rehypePlugins"];
 
-/** A screen's address, "#/settings/members" → ["settings", "members"]; undefined for any other link. */
-export const appRoute = (href: string) => (href.startsWith("#/") ? href.slice(2).split("/").filter(Boolean).map(decodeURIComponent) : undefined);
+/** A screen's address, "#/settings/members" → ["settings", "members"]; undefined for any other link (or a malformed one). */
+export function appRoute(href: string) {
+	if (!href.startsWith("#/")) return undefined;
+	try {
+		return href.slice(2).split("/").filter(Boolean).map(decodeURIComponent);
+	} catch {
+		return undefined;
+	}
+}
 
 /** Bullets sit outside the text, so wrapped lines align with the first line (hanging indent). */
 const components: Components = {

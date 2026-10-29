@@ -18,6 +18,7 @@ describe("Markdown links", () => {
 		expect(html).not.toContain("<button");
 		expect(appRoute("#/settings/members")).toEqual(["settings", "members"]);
 		expect(appRoute("#/chat")).toEqual(["chat"]);
+		expect(appRoute("#/settings/%E0")).toBeUndefined();
 		expect(appRoute("https://x.com/#/a")).toBeUndefined();
 	});
 
