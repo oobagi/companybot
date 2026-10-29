@@ -8,8 +8,8 @@ import { navigate } from "./router";
 /**
  * Unread DMs and mentions (by your setting in Your preferences) reach you outside the app:
  * a desktop notification for each new one while the window isn't in front, and a dock badge
- * with how many chats have one. Clicking a notification opens its chat, in its workspace,
- * even if this window has switched to another since.
+ * with how many chats have one. Clicking a notification opens its chat (or the thread, for a
+ * mention in one), in its workspace, even if this window has switched to another since.
  */
 export function useAlerts() {
 	const alerts = useQuery(api.chats.alerts);
@@ -50,7 +50,8 @@ export function useAlerts() {
  * outlives workspace switches and checks you're still in it): a notification can outlive the
  * screen that showed it, so its idea of which workspace is open may be stale.
  */
-export function openAlert(alert: { workspaceId: Id<"workspaces">; chatId: Id<"chats"> }, workspace: OpenWorkspace | null) {
+export function openAlert(alert: { workspaceId: Id<"workspaces">; chatId: Id<"chats">; threadId?: Id<"chatMessages"> }, workspace: OpenWorkspace | null) {
 	if (!workspace?.open(alert.workspaceId)) return;
-	navigate("chat", alert.chatId);
+	if (alert.threadId) navigate("chat", alert.chatId, "thread", alert.threadId);
+	else navigate("chat", alert.chatId);
 }

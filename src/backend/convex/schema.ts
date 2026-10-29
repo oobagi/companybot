@@ -462,8 +462,8 @@ export default defineSchema({
 		agentId: v.optional(v.id("agents")),
 	}).index("by_message", ["messageId", "emoji", "userId", "agentId"]),
 
-	// A person @mentioned in a main-timeline message, so unread mentions are found by index
-	// however much else was said since. `at`: the message's _creationTime. Gone when it's deleted.
+	// A person @mentioned in a message (main timeline or a thread), so unread mentions are found
+	// by index however much else was said since. `at`: the message's _creationTime. Gone when it's deleted.
 	userMentions: defineTable({
 		userId: v.id("users"),
 		chatId: v.id("chats"),
