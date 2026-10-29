@@ -9,6 +9,7 @@ import { formatLocalTime } from "./time";
 import type { MemoryScope } from "./memory";
 import type { Permission } from "./permissions";
 import { type ToolDef, defineTool } from "./tools";
+import { webTools } from "./web";
 import { widgetTools } from "./widgets";
 
 /** "abc…": a memory as its tool line quotes it. */
@@ -121,4 +122,5 @@ export const builtinTools: ToolDef[] = [
 	...automationTools,
 	...recordTools,
 	...pageTools,
+	...webTools,
 ];

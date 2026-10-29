@@ -72,6 +72,21 @@ export const lunaModel = migrations.define({
 	},
 });
 
+// Companybot got web search and pages. New workspaces get them from default-agents.ts; this adds
+// them to each existing Companybot that still has its default skills.load grant (one an owner
+// rebuilt on purpose is left alone). Saved as a new version, like an edit, so it shows in history.
+export const companybotWebTools = migrations.define({
+	table: "agents",
+	batchSize: 8,
+	migrateOne: async (ctx, agent) => {
+		if (agent.name !== "Companybot" || !agent.tools.includes("skills.load") || agent.tools.includes("web.*")) return;
+		const config = { name: agent.name, description: agent.description, instructions: agent.instructions, model: agent.model, tools: [...agent.tools, "web.*"] };
+		const version = agent.version + 1;
+		await ctx.db.patch(agent._id, { tools: config.tools, version, updatedAt: Date.now() });
+		await ctx.db.insert("agentVersions", { agentId: agent._id, version, config, savedBy: agent.updatedBy });
+	},
+});
+
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.trashAgents,
@@ -80,6 +95,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.retireNightOwl,
 	internal.migrations.clearLegacyWorkspaces,
 	internal.migrations.lunaModel,
+	internal.migrations.companybotWebTools,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

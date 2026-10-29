@@ -30,6 +30,8 @@ export * from "./turn-input";
 export * from "./types";
 export * from "./usage";
 export * from "./widgets";
+export * from "./web";
+export * from "./web-search";
 export * from "./automation-tools";
 export * from "./manage-tools";
 export * from "./typing";

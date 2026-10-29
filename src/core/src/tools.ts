@@ -9,6 +9,7 @@ import type { SkillStore } from "./skills";
 import type { Risk } from "./action-rules";
 import type { Permission } from "./permissions";
 import type { Actor } from "./types";
+import type { WebTurn } from "./web";
 
 /** What a tool can reach while it runs. */
 export interface ToolContext {
@@ -30,6 +31,8 @@ export interface ToolContext {
 	pages: PageStore;
 	/** This turn's data results, by ref, so widgets can show them. */
 	results: ResultStore;
+	/** Web search and pages, capped per turn (web.ts). */
+	web: WebTurn;
 }
 
 /**
