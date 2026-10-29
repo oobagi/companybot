@@ -46,12 +46,15 @@ async function attach(ctx: MutationCtx, message: Doc<"chatMessages">, rows: Doc<
 /**
  * Whenever a person's message text is set (sent or edited): cards for the links
  * already known show at once, and the rest are fetched in the background (`linkUnfurl.unfurl`).
+ * `byAgent`: an agent edited the person's message for them, so the text is the model's.
  */
-export async function previewMessage(ctx: MutationCtx, message: Doc<"chatMessages">) {
+export async function previewMessage(ctx: MutationCtx, message: Doc<"chatMessages">, { byAgent = false } = {}) {
 	// Never for agent-written text: fetching a link a model wrote, unclicked, would let injected
 	// instructions carry data out in its query string (the exfiltration web.fetch's allowlist stops).
 	if (message.authorAgentId) return;
 	const { rows, stale } = await savedFor(ctx, message);
+	// An agent's edit only keeps the cards the person's own links already had: nothing new is shown or fetched.
+	if (byAgent) return attach(ctx, message, rows.filter((row) => message.linkPreviews?.some((p) => p.previewId === row._id)));
 	await attach(ctx, message, rows);
 	if (stale.length > 0) await ctx.scheduler.runAfter(0, internal.linkUnfurl.unfurl, { messageId: message._id, urls: stale });
 }

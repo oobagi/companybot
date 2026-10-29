@@ -28,6 +28,8 @@ export interface FetchedBody {
 	status: number;
 	/** Lowercase, without parameters: "text/html". */
 	contentType: string;
+	/** The header's `charset`, lowercase, if it named one: decode with `textOf`. */
+	charset?: string;
 	bytes: Uint8Array;
 	/** The body was longer than `maxBytes`. */
 	cut: boolean;
@@ -50,9 +52,39 @@ export async function safeFetch(url: string, deps: SafeFetchDeps, { timeoutMs = 
 			continue;
 		}
 		const { bytes, cut } = await readUpTo(response, maxBytes);
-		const contentType = (response.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
-		return { url: current.href, status: response.status, contentType, bytes, cut };
+		const [type = "", ...params] = (response.headers.get("content-type") ?? "").split(";");
+		const charset = params.map((p) => /^\s*charset\s*=\s*["']?([^"'\s]+)/i.exec(p)?.[1]).find(Boolean)?.toLowerCase();
+		return { url: current.href, status: response.status, contentType: type.trim().toLowerCase(), ...(charset && { charset }), bytes, cut };
 	}
+}
+
+/**
+ * The body as text, in the encoding it came in, like a browser: a byte-order mark, then the
+ * header's charset, then a `<meta charset>` (or http-equiv) in the first 1 KB, else UTF-8.
+ * A label this runtime doesn't know is read as UTF-8.
+ */
+export function textOf({ bytes, charset }: Pick<FetchedBody, "bytes" | "charset">): string {
+	const label = bomOf(bytes) ?? charset ?? metaCharset(bytes) ?? "utf-8";
+	try {
+		return new TextDecoder(label).decode(bytes);
+	} catch {
+		return new TextDecoder().decode(bytes);
+	}
+}
+
+function bomOf(bytes: Uint8Array) {
+	if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) return "utf-8";
+	if (bytes[0] === 0xfe && bytes[1] === 0xff) return "utf-16be";
+	if (bytes[0] === 0xff && bytes[1] === 0xfe) return "utf-16le";
+	return undefined;
+}
+
+function metaCharset(bytes: Uint8Array) {
+	// Latin-1 maps each byte to one character, so the ASCII markup reads the same in any page encoding.
+	const head = new TextDecoder("latin1").decode(bytes.subarray(0, 1024));
+	const label = /<meta[^>]*?charset\s*=\s*["']?\s*([\w.:-]+)/i.exec(head)?.[1]?.toLowerCase();
+	// A page that says UTF-16 in ASCII markup isn't UTF-16 (browsers read it as UTF-8).
+	return label?.startsWith("utf-16") ? "utf-8" : label;
 }
 
 function checkedUrl(raw: string) {

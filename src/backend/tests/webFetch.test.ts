@@ -45,4 +45,13 @@ describe("web pages", () => {
 		expect(page("application/pdf", "%PDF")).toEqual({ error: expect.stringMatching(/application\/pdf/) });
 		expect(page("text/html", "", { status: 404 })).toEqual({ error: "The page answered 404." });
 	});
+
+	it("decodes a page in the encoding it names, in the header or in a meta tag", () => {
+		// "Café – naïve" in windows-1252: é, en dash and ï are single bytes that aren't valid UTF-8.
+		const cp1252 = new Uint8Array([...bytes("<html><head><title>Caf"), 0xe9, ...bytes(" "), 0x96, ...bytes(" na"), 0xef, ...bytes("ve</title></head><body><p>Caf"), 0xe9, ...bytes("</p></body></html>")]);
+		const page = (extra: Partial<Parameters<typeof pageFrom>[0]>) => pageFrom({ url: "https://acme.com/x", status: 200, contentType: "text/html", bytes: cp1252, cut: false, ...extra });
+		expect(page({ charset: "windows-1252" })).toMatchObject({ title: "Café – naïve", content: expect.stringContaining("Café") });
+		const meta = new Uint8Array([...bytes('<meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1">'), ...cp1252]);
+		expect(page({ bytes: meta })).toMatchObject({ title: "Café – naïve" });
+	});
 });
