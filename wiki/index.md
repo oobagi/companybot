@@ -8,7 +8,8 @@ One line per page: `- [Title](path.md) — what it covers`. Keep this file a tab
 - [Pages](pages.md) — standalone pages and every record's body, one concept; BlockNote + prosemirror-sync, Notion-style history and restore, agent tools, storage bounds
 - [Chat](chat.md) — channels, DMs, threads, reactions; when agents reply, what they're fed, the chat API
 - [Permissions](permissions.md) — what asks, Allow once / Always / Deny, per-person rules, owner locks, automation grants, where it shows up, how others do it
-- [Extending](extending.md) — how to add tools, connectors, skills, permissions, roles, memory rules; invariants to keep
+- [Extending](extending.md) — how to add tools, connectors, skills, permissions, roles, memory rules; keeping the in-app help docs current; invariants to keep
 - [Releases](releases.md) — cutting a release, CI, signing secrets, in-app updates
 - [Lessons](lessons.md) — what failed in Cottonwood/Night Owl and the rules that follow
 - [Competitors](competitors.md) — GoHighLevel, Dust, Lindy, Viktor, Polsia, Cofounder, Whop, Buzz, Sumus; gaps, what to copy, threat
+- [Sandbox](sandbox.md) — where agents run code, spreadsheets and a real browser: E2B vs Vercel Sandbox vs Daytona and others (license, self-host, price, isolation), recommendation, Convex fit, tool design, security rules

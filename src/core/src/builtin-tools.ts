@@ -5,6 +5,7 @@ import { chatTools } from "./chat";
 import { SKILL_DESCRIPTION_MAX, SKILL_NAME_MAX } from "./skills";
 import { pageTools } from "./page-tools";
 import { recordTools } from "./record-tools";
+import { readHelp } from "./help";
 import { formatLocalTime } from "./time";
 import type { MemoryScope } from "./memory";
 import type { Permission } from "./permissions";
@@ -87,6 +88,20 @@ export const builtinTools: ToolDef[] = [
 		async execute(_input, { timeZone = "UTC" }) {
 			const now = new Date();
 			return { local: formatLocalTime(now, timeZone), timeZone, utc: now.toISOString() };
+		},
+	}),
+	defineTool({
+		id: "help.read",
+		title: "Read help",
+		description:
+			"Read Companybot's help for people: what it is, where each setting lives, how to do things. No arguments lists the topics. topic reads one page. query searches by keywords. Pages link screens as #/settings/<tab>; pass those links on to the person.",
+		input: z.object({
+			topic: z.string().optional().describe("A topic id from the list"),
+			query: z.string().optional().describe("Keywords, like \"invite someone\""),
+		}),
+		readOnly: true,
+		async execute(input) {
+			return readHelp(input);
 		},
 	}),
 	defineTool({

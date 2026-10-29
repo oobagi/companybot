@@ -48,6 +48,13 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 - App-wide rules for how replies render live in `platformGuide`, added after each agent's own instructions. Change them there, never in default agent instructions.
 - Add a section only when the agent has the matching tools, so prompts stay small.
 
+## Help — `core/src/help/`
+- Docs for workspace members, not developers: plain short language, one module per area (`chat.ts`, `members.ts`…) exporting `{ id, title, summary, text }`, listed in `help/index.ts`. Plain TS strings, so they work in core, Convex's bundler and vitest alike (no `.md` loader).
+- Link screens as `[Members](#/settings/members)`; `#/chat`, `#/records/<key>`, `#/pages/<page id>` and `#/settings/<tab>` are real addresses (`router.ts`), and agent replies open them in the app. Refer to another page as `**help: topic-id**`. Write only what the code or wiki says is true.
+- **Add or change a settings tab or a top-level screen → update its help page in the same PR.** `desktop/.../help.test.ts` fails when a settings tab has no `(#/settings/<tab>)` link, a link names a tab that doesn't exist, or a top-level screen isn't mentioned; its message says which doc to edit. `settings.ts` lists every tab and who can change it, so keep it in step with permissions (`core/src/permissions.ts`).
+- `help.read` is read-only with no permission, so every role can use it. Grant it in an agent's tools (`help.*` or `help.read`); `guide.ts` adds its line only when granted. New tools that change what people can do belong in the relevant help page too.
+- Existing Companybots got `help.read` from the `companybotHelpTool` migration (only ones still on their default tools, as a new version); new workspaces from `default-agents.ts`.
+
 ## Skills — `core/src/skills.ts`
 - Agents with `skills.load` see installed skills' one-line descriptions and load full text on demand. Keep descriptions short; they're in every prompt.
 - Anyone can make their own (`skills.create` permission; `create` / `save` in `backend/convex/skills.ts`, or the `skills.create` agent tool; the guide adds a short how-to when it's granted). The maker or an owner can edit or delete (`canEditMade`). They live on their `skillInstalls` row (`custom`, id `custom-…`), are always installed, and `installedSkills` turns them into the same `Skill` shape, so agents can't tell them apart. Limits are in `customSkillError`: name 64 and no tags (Claude's SKILL.md rules), description 200 (stricter than Claude's 1,024, since it's in every prompt), instructions 20k chars.

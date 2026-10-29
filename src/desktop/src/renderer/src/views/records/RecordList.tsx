@@ -2,13 +2,13 @@ import type { FieldKind } from "@companybot/core/records";
 import { type Role, can } from "@companybot/core/permissions";
 import { useEffect, useState } from "react";
 import { api } from "../../api";
-import { Segmented, Select } from "../../controls";
+import { Checkbox, Segmented, Select } from "../../controls";
 import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useSortable } from "../../sortable";
 import { ArrowDownIcon, ArrowUpIcon, CloseIcon, DatabaseIcon, EditIcon, FilterIcon, PlusIcon, PropertiesIcon, TrashIcon } from "../../icons";
-import { ConflictNotice, EmptyState, ErrorBoundary, Field, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Tabs, barButton, compactButton, compactControlClass, inputClass, primaryButton, timeAgo, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
-import { MenuItem, Modal, Popover } from "../chat/common";
+import { ConflictNotice, EmptyState, ErrorBoundary, Field, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Tabs, barButton, compactButton, compactControlClass, inputClass, primaryButton, timeAgo, toolbarClass, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
+import { MenuItem, Modal, Popover, useConfirm } from "../chat/common";
 import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
 import { type ListArgs, type RecordType, type Row, type Sort, usePagedRows, useRefs } from "./data";
@@ -99,6 +99,7 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 	// The field kind a new-field dialog starts on, while it's open.
 	const [addingField, setAddingField] = useState<FieldKind>();
 	const { error, run } = useRun();
+	const { confirm, dialog } = useConfirm();
 	// The Save view dialog's own errors, so they don't show on the page behind it too.
 	const naming = useRun();
 	const shown = columns.map((k) => fields.find((f) => f.key === k)!);
@@ -153,7 +154,7 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 									<MenuDivider />
 									<MenuItem
 										danger
-										onClick={() => (close(), confirm(`Delete the view ${selected.name}?`) && run(removeView({ viewId: selected._id, version: selected.version }), () => open("all")))}
+										onClick={() => (close(), confirm({ title: `Delete the view ${selected.name}?`, action: "Delete view", onConfirm: () => removeView({ viewId: selected._id, version: selected.version }).then(() => open("all")) }))}
 									>
 										<TrashIcon /> Delete view
 									</MenuItem>
@@ -174,8 +175,9 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 				)}
 			</Tabs>
 			<Notice>{error}</Notice>
+			{dialog}
 			<ConflictNotice draft={draft} />
-			<div className="flex flex-wrap items-center gap-3 text-sm">
+			<div className={toolbarClass}>
 				<input
 					type="search"
 					value={search}
@@ -482,13 +484,10 @@ function ColumnsPicker({
 				<>
 					{fields.map((f) => (
 						<label key={f.key} className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-neutral-100">
-							<input
-								type="checkbox"
+							<Checkbox
 								disabled={f.key === "name"}
 								checked={columns.includes(f.key)}
-								onChange={(e) =>
-									onChange(e.target.checked ? fields.map((g) => g.key).filter((k) => k === f.key || columns.includes(k)) : columns.filter((k) => k !== f.key))
-								}
+								onChange={(on) => onChange(on ? fields.map((g) => g.key).filter((k) => k === f.key || columns.includes(k)) : columns.filter((k) => k !== f.key))}
 							/>
 							{f.label}
 						</label>

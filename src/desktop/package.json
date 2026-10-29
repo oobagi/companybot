@@ -49,6 +49,7 @@
     "electron-builder": "^26.15.3",
     "electron-updater": "^6.8.9",
     "electron-vite": "^6.0.0",
+    "emojibase-data": "^18.0.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-test-renderer": "19.3.1",

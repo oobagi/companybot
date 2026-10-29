@@ -3,7 +3,7 @@ import { Select } from "../controls";
 import { useState } from "react";
 import { api } from "../api";
 import { useAction, useMutation, useQuery } from "../convex";
-import { Loading, Notice, Section, Setting, Settings, cardClass, compactControlClass, hintClass, metadataClass, secondaryButton, useRun } from "../ui";
+import { Loading, Notice, Section, Setting, Settings, cardClass, hintClass, metadataClass, secondaryButton, useRun, wideControlClass } from "../ui";
 import { Confirm } from "./chat/common";
 
 // What agents may do without asking: your own Always / Never per action (Your preferences,
@@ -148,7 +148,7 @@ export function WorkspaceLocks() {
 					<Setting key={a.action} label={actionName(a)}>
 						<Select
 							label={`${a.label} lock`}
-							className={`${compactControlClass} w-44`}
+							className={wideControlClass}
 							value={value}
 							options={[
 								{ value: "default", label: lockedByDefault ? "Locked (default)" : "No lock (default)" },
