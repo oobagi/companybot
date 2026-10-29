@@ -84,7 +84,8 @@ export const defaultImageModel = "google/gemini-nano-banana-2.1";
 export const fallbackImageModels: ImageModelInfo[] = [
 	{ id: "google/gemini-nano-banana-2.1", name: "Gemini Nano Banana 2.1", provider: "google", multimodal: true, perImage: 0.0336 },
 	{ id: "google/gemini-3-pro-image", name: "Nano Banana Pro (Gemini 3 Pro Image)", provider: "google", multimodal: true, perImage: 0.1344 },
-	{ id: "openai/gpt-image-2", name: "GPT Image 2", provider: "openai" },
+	// Token-priced on the gateway ($30/M output): about a high-quality 1536px picture's ~6,240 output tokens.
+	{ id: "openai/gpt-image-2", name: "GPT Image 2", provider: "openai", perImage: 0.19 },
 	{ id: "bfl/flux-3-image", name: "FLUX 3 Image", provider: "bfl", perImage: 0.048 },
 ];
 

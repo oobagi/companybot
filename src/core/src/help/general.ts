@@ -15,7 +15,7 @@ export default {
 ## Pictures
 Agents with the picture tool (Companybot has it) make a picture when you ask ("make a logo for our roofing ad"), or edit one attached in the chat ("make the roof red"). The picture is attached to their reply. They can only edit pictures from chats you can see.
 - **Picture model**: what they make pictures with, from AI Gateway's list. Nano Banana is the default.
-- **Monthly budget**: what agents may spend on pictures each month, in US dollars ($20 to start). Owners also see what's been used this month. Once it's used up, agents say so until next month or until an owner raises it. **$0 turns pictures off.** Picture costs show under Images on [Usage](#/settings/usage).
+- **Monthly budget**: what agents may spend on pictures each month, in US dollars ($20 to start). Owners also see what's been used this month. Pictures still being made count too, so several at once can't go past it by more than one picture. Once it's used up, agents say so until next month or until an owner raises it. **$0 turns pictures off.** Picture costs show under Images on [Usage](#/settings/usage).
 
 - **Delete workspace** (owners, under Danger zone): deletes it and everything in it for everyone. Type its name to confirm.
 

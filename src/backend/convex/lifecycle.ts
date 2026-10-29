@@ -370,6 +370,11 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		keep: "The workspace's bill: what a removed or erased person's replies cost stays in its totals, shown as a former member's. Agents deleted forever leave theirs as \"Agent\".",
 	},
 
+	imageHolds: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		keep: "A hold names no person: it's settled or released within HOLD_MS (imageGen.ts).",
+	},
+
 	cascades: { keep: "The cascades themselves: each deletes its own row when it's done." },
 };
 

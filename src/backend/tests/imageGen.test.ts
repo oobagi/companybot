@@ -1,4 +1,4 @@
-import { defaultImageModel, usageMonth } from "@companybot/core";
+import { IMAGE_PRICE_UNKNOWN_USD, defaultImageModel, usageMonth } from "@companybot/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pngOf } from "../../core/test/files";
 import { api, internal } from "../convex/_generated/api";
@@ -95,6 +95,66 @@ describe("images.generate", () => {
 		await setImages(owner, { imageBudgetUsd: 0 });
 		expect(await t.action(internal.imageGen.generateFor, { turnId, prompt: "A logo" })).toEqual({ error: expect.stringContaining("turned off") });
 		expect(generateText).toHaveBeenCalledTimes(1);
+	});
+
+	it("holds a picture's cost while it's made, so parallel calls can't spend past the budget by more than one picture", async () => {
+		const { t, owner } = await ownerAndMember();
+		const workspaceId = await workspaceOf(owner);
+		await t.run((ctx) => ctx.db.insert("usage", { workspaceId, month: usageMonth(Date.now()), kind: "image", model: defaultImageModel, costUsd: 19.99 }));
+		const { turnId } = await turnOf(t, owner);
+		const results = await Promise.all([1, 2, 3, 4, 5].map(() => t.action(internal.imageGen.generateFor, { turnId, prompt: "A logo" })));
+		expect(results.filter((r) => "attached" in r)).toHaveLength(1);
+		expect(results.filter((r) => "error" in r)).toEqual(Array(4).fill({ error: expect.stringContaining("is used up") }));
+		expect(generateText).toHaveBeenCalledTimes(1);
+		expect(await t.run((ctx) => ctx.db.query("imageHolds").collect())).toEqual([]);
+	});
+
+	it("frees a hold when the call fails, and after a while if it never settles", async () => {
+		const { t, owner } = await ownerAndMember();
+		await setImages(owner, { imageBudgetUsd: 0.03 });
+		const { turnId } = await turnOf(t, owner);
+		generateText.mockRejectedValueOnce(new Error("Gateway down"));
+		await expect(t.action(internal.imageGen.generateFor, { turnId, prompt: "A logo" })).rejects.toThrow("Gateway down");
+		expect(await t.run((ctx) => ctx.db.query("imageHolds").collect())).toEqual([]);
+		expect(await usageRows(t)).toEqual([]);
+		// A call that crashed mid-way: its hold (Nano Banana's $0.0336 listed price) blocks the rest of the budget...
+		const ready = await t.mutation(internal.imageGen.prepareFor, { turnId, editFiles: [] });
+		if ("error" in ready) throw new Error(ready.error);
+		expect(await t.run((ctx) => ctx.db.get(ready.holdId))).toMatchObject({ costUsd: 0.0336 });
+		expect(await t.action(internal.imageGen.generateFor, { turnId, prompt: "A logo" })).toEqual({ error: expect.stringContaining("is used up") });
+		// ...until its release, scheduled when it was made, runs.
+		const release = (await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())).find((f) => f.name.includes("release") && f.args[0].holdId === ready.holdId);
+		expect(release!.scheduledTime - Date.now()).toBeGreaterThan(10 * 60_000);
+		await t.mutation(internal.imageGen.release, { holdId: ready.holdId });
+		expect(await t.action(internal.imageGen.generateFor, { turnId, prompt: "A logo" })).toHaveProperty("attached");
+	});
+
+	it("records a cost for every picture: the listed price, else a conservative default", async () => {
+		const { t, owner } = await ownerAndMember();
+		await setImages(owner, { imageModel: "openai/gpt-image-2" });
+		const { turnId } = await turnOf(t, owner);
+		await t.action(internal.imageGen.generateFor, { turnId, prompt: "A logo" });
+		expect((await usageRows(t))[0]).toMatchObject({ model: "openai/gpt-image-2", costUsd: 0.19 });
+		// A model with no listed price (the catalog had none for it), and no cost from the gateway.
+		await t.run(async (ctx) => {
+			await ctx.db.insert("modelCatalog", { models: [], imageModels: [{ id: "acme/painter", name: "Painter", provider: "acme" }], fetchedAt: Date.now() });
+		});
+		await setImages(owner, { imageModel: "acme/painter" });
+		await t.action(internal.imageGen.generateFor, { turnId, prompt: "A logo" });
+		expect((await usageRows(t)).find((r) => r.model === "acme/painter")).toMatchObject({ costUsd: IMAGE_PRICE_UNKNOWN_USD });
+	});
+
+	it("adds what pictures cost to the chat's running cost and the reply's stats, counted once in Usage", async () => {
+		const { t, owner } = await ownerAndMember();
+		const { turnId, replyId } = await turnOf(t, owner);
+		await t.action(internal.imageGen.generateFor, { turnId, prompt: "A logo" });
+		const usage = { model: "openai/gpt-6-luna", steps: 1, inputTokens: 10, cachedInputTokens: 0, outputTokens: 5, contextTokens: 15, costUsd: 0.01, durationMs: 100 };
+		await t.mutation(internal.turns.finishReply, { turnId, usage });
+		expect((await replyOf(t, replyId)).stats).toMatchObject({ costUsd: 0.01, imageCostUsd: 0.04, conversationCostUsd: 0.05 });
+		const generalId = (await generalOf(owner))._id;
+		expect((await t.run((ctx) => ctx.db.get(generalId)))!.costUsd).toBeCloseTo(0.05);
+		const rows = await usageRows(t);
+		expect(rows.map((r) => [r.kind, r.costUsd]).sort()).toEqual([["chat", 0.01], ["image", 0.04]]);
 	});
 
 	it("edits only pictures the person can see", async () => {

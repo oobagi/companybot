@@ -315,6 +315,12 @@ async function addPlaceCost(ctx: MutationCtx, chatId: Id<"chats">, threadId: Id<
 	return costUsd;
 }
 
+/** Pictures a turn made (imageGen.ts): on its place's running cost now, and on its reply's stats when it finishes. */
+export async function addPictureCost(ctx: MutationCtx, turn: Doc<"agentTurns">, cost: number) {
+	await addPlaceCost(ctx, turn.chatId, turn.threadId, cost);
+	await ctx.db.patch(turn._id, { imageCostUsd: (turn.imageCostUsd ?? 0) + cost });
+}
+
 /** Ends a turn, records what it cost, and starts the next queued turn in the place. */
 export const finishReply = internalMutation({
 	args: {
@@ -332,7 +338,8 @@ export const finishReply = internalMutation({
 		if (session) await ctx.db.patch(session._id, { costUsd: (session.costUsd ?? 0) + cost });
 		// The reply ran for the person whose turn it was: who wrote the message, or an automation's person.
 		const counted = !!usage && (await recordUsage(ctx, { workspaceId: turn.workspaceId, userId: turn.actorId, agentId: turn.agentId, kind: "chat", model: usage.model, costUsd: cost }));
-		const stats = usage && { ...usage, conversationCostUsd: placeCost, ...(counted && { counted }) };
+		// Its pictures are already in the place's cost and in `usage` as kind "image".
+		const stats = usage && { ...usage, conversationCostUsd: placeCost, ...(turn.imageCostUsd && { imageCostUsd: turn.imageCostUsd }), ...(counted && { counted }) };
 		const reply = turn.replyId && (await ctx.db.get(turn.replyId));
 		// A turn already failed as stale only gets its stats; the queue moved on without it.
 		if (turn.status !== "running") {

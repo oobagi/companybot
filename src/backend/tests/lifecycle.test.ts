@@ -132,6 +132,7 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 
 		// The workspace's bill: stays when a member goes or an account is erased, goes with the workspace.
 		await ctx.db.insert("usage", { workspaceId, month: "2026-10", userId: memberId, agentId, kind: "chat", model: "openai/gpt-6-luna", costUsd: 0.1 });
+		await ctx.db.insert("imageHolds", { workspaceId, costUsd: 0.04 });
 
 		const install = { workspaceId, agentId, enabled: true, timeZone: "UTC" };
 		const trigger = { type: "webhook" as const };

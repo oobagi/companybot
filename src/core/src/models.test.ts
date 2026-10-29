@@ -41,6 +41,8 @@ describe("models", () => {
 		expect(parseGatewayModels(body).map((m) => m.id)).toEqual(["anthropic/claude-sonnet-5.5"]);
 		expect(parseGatewayImageModels(null)).toEqual([]);
 		expect(fallbackImageModels.find((m) => m.id === defaultImageModel)?.multimodal).toBe(true);
+		// Every fallback lists a price, so a picture the gateway reports no cost for still counts against the budget.
+		expect(fallbackImageModels.filter((m) => !(m.perImage! > 0))).toEqual([]);
 		expect(imageModelNote(fallbackImageModels[0]!)).toBe("$0.034 per picture");
 	});
 

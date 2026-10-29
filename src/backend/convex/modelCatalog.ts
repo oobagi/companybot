@@ -18,10 +18,14 @@ export async function catalogModels(ctx: QueryCtx): Promise<{ models: ModelInfo[
 	return row && row.models.length > 0 ? { models: row.models, fetchedAt: row.fetchedAt } : { models: fallbackModels, fetchedAt: null };
 }
 
-/** The cached picture models, or the fallback list while there are none. */
+/** The cached picture models, or the fallback list while there are none. A token-priced one takes the fallback list's price. */
 export async function catalogImageModels(ctx: QueryCtx): Promise<ImageModelInfo[]> {
 	const row = await ctx.db.query("modelCatalog").first();
-	return row?.imageModels?.length ? row.imageModels : fallbackImageModels;
+	if (!row?.imageModels?.length) return fallbackImageModels;
+	return row.imageModels.map((m) => {
+		const perImage = m.perImage ?? fallbackImageModels.find((f) => f.id === m.id)?.perImage;
+		return perImage === undefined ? m : { ...m, perImage };
+	});
 }
 
 /** A picture model by id, from the catalog or the fallback list. */
