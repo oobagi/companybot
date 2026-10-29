@@ -1,7 +1,7 @@
 import { viewConfig } from "./recordValidators";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
-import { fieldKinds, fileTypes, risks, roles, trashKinds } from "@companybot/core";
+import { fieldKinds, fileTypes, risks, roles, trashKinds, usageKinds } from "@companybot/core";
 import { v } from "convex/values";
 
 /** One of `values`, each a literal. */
@@ -82,6 +82,8 @@ export const replyStats = v.object({
 	...replyUsage.fields,
 	/** The conversation's running total once this reply finished, summaries included. */
 	conversationCostUsd: v.number(),
+	/** Added to the `usage` table (usage.ts). Replies from before it are counted once by migrations.usageThisMonth. */
+	counted: v.optional(v.boolean()),
 });
 
 // Shared settings carry a `version` that goes up on every save. A save sends the
@@ -915,6 +917,21 @@ export default defineSchema({
 		.index("by_type", ["typeId"])
 		.index("by_deleted", ["deletedAt"])
 		.searchIndex("search", { searchField: "name", filterFields: ["workspaceId", "kind"] }),
+
+	// What AI cost, by month (UTC "2026-10"): one row per person, agent, kind and model, added to by
+	// `recordUsage` (usage.ts) as each paid call finishes, so the Usage screen reads a few rows, not messages.
+	usage: defineTable({
+		workspaceId: v.id("workspaces"),
+		month: v.string(),
+		/** Who it ran for. Unset for calls that ran for nobody in particular. */
+		userId: v.optional(v.id("users")),
+		agentId: v.optional(v.id("agents")),
+		kind: oneOf(usageKinds),
+		model: v.optional(v.string()),
+		costUsd: v.number(),
+	})
+		.index("by_bucket", ["workspaceId", "month", "userId", "agentId", "kind", "model"])
+		.index("by_user", ["workspaceId", "userId", "month"]),
 
 	// A cascade deleting what belonged to something that went (cascade.ts): one page of one
 	// edge of lifecycle.ts per run, resumed from `edge` and `cursor`. `key` names what's going,

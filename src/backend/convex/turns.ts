@@ -18,6 +18,7 @@ import { automationScope } from "./automationOps";
 import { messagePart, replyUsage } from "./schema";
 import { filesForModel, turnImages } from "./files";
 import { catalogModels } from "./modelCatalog";
+import { recordUsage } from "./usage";
 
 // The agent turn queue and everything the runner (agent.ts) reads and writes.
 // One `running` turn per agent per place (chat + thread); the rest wait in order.
@@ -328,7 +329,9 @@ export const finishReply = internalMutation({
 		const placeCost = await addPlaceCost(ctx, turn.chatId, turn.threadId, cost);
 		const session = turn.sessionId && (await ctx.db.get(turn.sessionId));
 		if (session) await ctx.db.patch(session._id, { costUsd: (session.costUsd ?? 0) + cost });
-		const stats = usage && { ...usage, conversationCostUsd: placeCost };
+		// The reply ran for the person whose turn it was: who wrote the message, or an automation's person.
+		const counted = !!usage && (await recordUsage(ctx, { workspaceId: turn.workspaceId, userId: turn.actorId, agentId: turn.agentId, kind: "chat", model: usage.model, costUsd: cost }));
+		const stats = usage && { ...usage, conversationCostUsd: placeCost, ...(counted && { counted }) };
 		const reply = turn.replyId && (await ctx.db.get(turn.replyId));
 		// A turn already failed as stale only gets its stats; the queue moved on without it.
 		if (turn.status !== "running") {
@@ -371,9 +374,11 @@ export const startCompaction = internalMutation({
 export const finishCompaction = internalMutation({
 	args: {
 		sessionId: v.id("agentSessions"),
-		result: v.optional(v.object({ summary: v.string(), upTo: v.number(), costUsd: v.number() })),
+		/** The turn that triggered it: the summary is counted as that person's. */
+		turnId: v.optional(v.id("agentTurns")),
+		result: v.optional(v.object({ summary: v.string(), upTo: v.number(), costUsd: v.number(), model: v.optional(v.string()) })),
 	},
-	handler: async (ctx, { sessionId, result }) => {
+	handler: async (ctx, { sessionId, turnId, result }) => {
 		const session = await ctx.db.get(sessionId);
 		if (!session) return;
 		if (!result) return await ctx.db.patch(sessionId, { compacting: false });
@@ -384,5 +389,7 @@ export const finishCompaction = internalMutation({
 			costUsd: (session.costUsd ?? 0) + result.costUsd,
 		});
 		await addPlaceCost(ctx, session.chatId, session.threadId, result.costUsd);
+		const turn = turnId && (await ctx.db.get(turnId));
+		await recordUsage(ctx, { workspaceId: session.workspaceId, userId: turn ? turn.actorId : undefined, agentId: session.agentId, kind: "summary", model: result.model, costUsd: result.costUsd });
 	},
 });

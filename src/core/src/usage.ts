@@ -44,3 +44,37 @@ export function gatewayCost(metadata: ProviderMetadata | undefined): number {
 	const cost = Number(metadata?.gateway?.cost);
 	return Number.isFinite(cost) ? cost : 0;
 }
+
+/** What a paid call was for. Every one is recorded through the backend's `recordUsage` (usage.ts). */
+export const usageKinds = ["chat", "summary", "search", "image", "dictation"] as const;
+export type UsageKind = (typeof usageKinds)[number];
+
+export const usageKindLabels: Record<UsageKind, string> = {
+	chat: "Replies",
+	summary: "Chat summaries",
+	search: "Web search",
+	image: "Images",
+	dictation: "Dictation",
+};
+
+/** The month a time falls in, as billing counts it: "2026-10", in UTC. */
+export const usageMonth = (time: number) => new Date(time).toISOString().slice(0, 7);
+
+export const isUsageMonth = (month: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(month);
+
+/** The month of `time` and the ones before it, newest first. */
+export function recentMonths(time: number, count = 6) {
+	const now = new Date(time);
+	return Array.from({ length: count }, (_, i) => usageMonth(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1)));
+}
+
+/** "October 2026". */
+export const monthLabel = (month: string) =>
+	new Date(`${month}-01T00:00:00Z`).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+
+/** Dollars for a total: cents, with "<$0.01" for a real but tiny amount. */
+export function formatUsd(n: number) {
+	if (n <= 0) return "$0.00";
+	if (n < 0.01) return "<$0.01";
+	return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}

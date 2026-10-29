@@ -14,6 +14,7 @@ import permissions from "./permissions";
 import settings from "./settings";
 import skills from "./skills";
 import trash from "./trash";
+import usage from "./usage";
 
 // Help for the people in a workspace, read by agents through `help.read`. Plain Markdown in
 // string modules, so it works unchanged in core, Convex's bundler and vitest. One page per area.
@@ -29,7 +30,7 @@ export interface HelpPage {
 	text: string;
 }
 
-export const helpPages: readonly HelpPage[] = [overview, chat, agents, memory, skills, automations, databases, pages, connectors, permissions, members, trash, activity, settings, accountSettings, general];
+export const helpPages: readonly HelpPage[] = [overview, chat, agents, memory, skills, automations, databases, pages, connectors, permissions, members, trash, activity, usage, settings, accountSettings, general];
 
 export const helpTopics = () => helpPages.map(({ id, title, summary }) => ({ id, title, summary }));
 

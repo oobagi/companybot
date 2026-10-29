@@ -16,6 +16,7 @@ export {
 	CheckIcon,
 	ChatCircleIcon as ChatIcon,
 	ClockCounterClockwiseIcon as HistoryIcon,
+	CoinsIcon as UsageIcon,
 	DotsThreeIcon as MoreIcon,
 	FileCsvIcon,
 	FileDocIcon,
