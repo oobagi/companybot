@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_REDIRECTS, type SafeFetchDeps, UnsafeUrlError, isPublicAddress, safeFetch } from "./safe-fetch";
+import { MAX_REDIRECTS, type SafeFetchDeps, UnsafeUrlError, isPublicAddress, safeFetch, textOf } from "./safe-fetch";
 
 describe("isPublicAddress", () => {
 	it.each([
@@ -125,5 +125,37 @@ describe("safeFetch", () => {
 		const page = await safeFetch("https://a.example/", deps, { maxBytes: 10 });
 		expect(page.bytes.length).toBe(10);
 		expect(page.cut).toBe(true);
+	});
+});
+
+describe("textOf", () => {
+	const enc = (s: string) => new TextEncoder().encode(s);
+	// "Café" in windows-1252: é is 0xE9, which isn't valid UTF-8 on its own.
+	const cafe = (prefix = "") => new Uint8Array([...enc(`${prefix}Caf`), 0xe9]);
+
+	it("keeps the header's charset, lowercase, and leaves it out when there's none", async () => {
+		const { deps } = network(
+			{ "a.example": ["8.8.8.8"] },
+			{
+				"https://a.example/1252": () => new Response(cafe(), { headers: { "content-type": 'text/html; Charset="Windows-1252"' } }),
+				"https://a.example/none": () => new Response(cafe(), { headers: { "content-type": "text/html" } }),
+			},
+		);
+		const page = await safeFetch("https://a.example/1252", deps);
+		expect(page).toMatchObject({ contentType: "text/html", charset: "windows-1252" });
+		expect(textOf(page)).toBe("Café");
+		expect(await safeFetch("https://a.example/none", deps)).not.toHaveProperty("charset");
+	});
+
+	it("reads a byte-order mark, then the header, then a meta tag in the first 1 KB, else UTF-8", () => {
+		expect(textOf({ bytes: enc("Café") })).toBe("Café");
+		expect(textOf({ bytes: cafe('<meta charset="iso-8859-1">') })).toBe('<meta charset="iso-8859-1">Café');
+		expect(textOf({ bytes: cafe("<META HTTP-EQUIV='content-type' CONTENT='text/html; charset=windows-1252'>") })).toMatch(/Café$/);
+		expect(textOf({ bytes: cafe('<meta charset="iso-8859-1">'), charset: "utf-8" })).toMatch(/Caf\uFFFD$/);
+		expect(textOf({ bytes: new Uint8Array([0xef, 0xbb, 0xbf, ...enc("Café")]), charset: "windows-1252" })).toBe("Café");
+		expect(textOf({ bytes: new Uint8Array([...enc(" ".repeat(1100)), ...cafe('<meta charset="windows-1252">')]) })).toMatch(/Caf\uFFFD$/);
+		// UTF-16 named in ASCII markup can't be true; an unknown label falls back to UTF-8.
+		expect(textOf({ bytes: enc('<meta charset="utf-16">Café') })).toBe('<meta charset="utf-16">Café');
+		expect(textOf({ bytes: enc("Café"), charset: "x-made-up" })).toBe("Café");
 	});
 });

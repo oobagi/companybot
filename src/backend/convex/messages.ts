@@ -269,7 +269,7 @@ export async function editMessage(ctx: MutationCtx, who: Who, messageId: Id<"cha
 	text = text.trim();
 	if (!text && !message.attachments?.length) throw new ConvexError("Write something first, or delete the message.");
 	await ctx.db.patch(message._id, { text, parts: text ? [{ type: "text", text }] : [], editedAt: Date.now() });
-	await previewMessage(ctx, { ...message, text });
+	await previewMessage(ctx, { ...message, text }, { byAgent: !!who.agentId });
 }
 
 export async function hideMessagePreview(ctx: MutationCtx, who: Who, messageId: Id<"chatMessages">, url: string) {
