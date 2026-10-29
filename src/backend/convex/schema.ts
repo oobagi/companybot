@@ -122,6 +122,13 @@ export const modelInfo = v.object({
 	output: v.optional(v.number()),
 	vision: v.optional(v.boolean()),
 });
+export const imageModelInfo = v.object({
+	id: v.string(),
+	name: v.string(),
+	provider: v.string(),
+	multimodal: v.optional(v.boolean()),
+	perImage: v.optional(v.number()),
+});
 
 // Stored definitions keep retired library installs independent of shipped catalogs.
 const skillDefinition = v.object({ id: v.string(), name: v.string(), description: v.string(), version: v.string(), instructions: v.string() });
@@ -148,8 +155,9 @@ export default defineSchema({
 
 	// Local backends only (`pnpm dev`): the latest sign-in code per email, read back by the app.
 	localSignInCodes: defineTable({ email: v.string(), code: v.string() }).index("by_email", ["email"]),
-	// AI Gateway's models that can run an agent, one row (modelCatalog.ts).
-	modelCatalog: defineTable({ models: v.array(modelInfo), fetchedAt: v.number() }),
+	// AI Gateway's models that can run an agent, and those that make pictures, one row (modelCatalog.ts).
+	// `imageModels` is unset on a row from before it, until the next refresh.
+	modelCatalog: defineTable({ models: v.array(modelInfo), imageModels: v.optional(v.array(imageModelInfo)), fetchedAt: v.number() }),
 
 	workspaces: defineTable({
 		name: v.string(),
@@ -158,6 +166,10 @@ export default defineSchema({
 		currency: v.optional(v.string()),
 		/** Whether agents read and write memories. Off keeps them, unused. Unset means on. */
 		memory: v.optional(v.boolean()),
+		/** What agents make pictures with (an AI Gateway model id). Unset means core's defaultImageModel. */
+		imageModel: v.optional(v.string()),
+		/** USD agents may spend on pictures a month; 0 turns them off. Unset means IMAGE_BUDGET_DEFAULT_USD. */
+		imageBudgetUsd: v.optional(v.number()),
 		/** Set when an owner deletes it: every access refuses at once, then a cascade deletes its rows (lifecycle.ts). */
 		deleting: v.optional(v.boolean()),
 		/** Its logo (images.ts). Unset shows its initials. */

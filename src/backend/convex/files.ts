@@ -72,12 +72,12 @@ export async function deleteAttachments(ctx: MutationCtx, message: Doc<"chatMess
 
 /**
  * Attaches a file the runner stored (`ctx.storage.store`, with its real type) to the reply a running
- * turn is writing: for agents that make files, like pictures. Refused, and the file deleted, if the
+ * turn is writing: for agents that make files, like pictures (imageGen.ts). Returns its file id. Refused, and the file deleted, if the
  * turn stopped, its person lost the chat, the type isn't one messages take, or the reply is full.
  */
 export const attachToReply = internalMutation({
 	args: { turnId: v.id("agentTurns"), storageId: v.id("_storage"), name: v.string(), width: v.optional(v.number()), height: v.optional(v.number()) },
-	handler: async (ctx, { turnId, storageId, name, width, height }): Promise<{ attached: true } | { error: string }> => {
+	handler: async (ctx, { turnId, storageId, name, width, height }): Promise<{ attached: true; id: string } | { error: string }> => {
 		const refuse = async (error: string) => (await deleteFile(ctx, storageId), { error });
 		const running = await runningTurn(ctx, turnId).catch((e: Error) => e);
 		if (running instanceof Error) return refuse(running.message);
@@ -89,7 +89,7 @@ export const attachToReply = internalMutation({
 		if (!reply || reply.deleted || attachments.length >= FILES_PER_MESSAGE) return refuse(`A reply holds up to ${FILES_PER_MESSAGE} files.`);
 		const size = width && height ? { width, height } : {};
 		await ctx.db.patch(reply._id, { attachments: [...attachments, { storageId, name: cleanFileName(name), type, size: file.size, ...size }] });
-		return { attached: true };
+		return { attached: true, id: fileId(reply._id, attachments.length) };
 	},
 });
 

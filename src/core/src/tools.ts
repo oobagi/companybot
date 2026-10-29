@@ -2,6 +2,7 @@ import type { ManageStore } from "./manage-tools";
 import type { AutomationStore } from "./automation-tools";
 import type { FlexibleSchema, JSONValue, Tool } from "ai";
 import type { ChatStore } from "./chat";
+import type { ImageStore } from "./image-tools";
 import type { MemoryStore } from "./memory";
 import type { PageStore } from "./page-tools";
 import type { RecordStore } from "./record-tools";
@@ -33,6 +34,8 @@ export interface ToolContext {
 	results: ResultStore;
 	/** Web search and pages, capped per turn (web.ts). */
 	web: WebTurn;
+	/** Making pictures for the reply, within the workspace's image budget (image-tools.ts). */
+	images: ImageStore;
 }
 
 /**

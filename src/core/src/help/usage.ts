@@ -10,6 +10,7 @@ export default {
 - **Owners** see the whole workspace: the total, then by agent, by person, by kind (replies, chat summaries, web search, images) and by model.
 - **Everyone else** sees only their own share, "Your usage".
 - A reply counts for the person it ran for: who wrote the message, or who an automation ran for (a channel automation counts for its maker). A chat summary counts for the person whose reply triggered it.
+- Pictures agents make count under images, and against the workspace's monthly image budget (**help: general**).
 - People who left stay in the totals as former members, so the workspace's bill never shrinks.
 
 Ask Companybot "what did we spend this month?" and it reads the same numbers with your rights.

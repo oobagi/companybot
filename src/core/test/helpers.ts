@@ -9,6 +9,7 @@ import type { SkillStore } from "../src/skills";
 import { createResultStore } from "../src/tools";
 import type { Actor } from "../src/types";
 import type { WebTurn } from "../src/web";
+import type { ImageStore } from "../src/image-tools";
 
 export const owner: Actor = { userId: "owner", role: "owner" };
 export const member: Actor = { userId: "member", role: "member" };
@@ -26,5 +27,6 @@ export const ctx = (actor: Actor) => ({
 	records: {} as RecordStore,
 	pages: {} as PageStore,
 	web: {} as WebTurn,
+	images: {} as ImageStore,
 });
 

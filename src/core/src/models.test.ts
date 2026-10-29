@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { validateAgentConfig } from "./agents";
 import { scribe } from "../test/fixtures";
-import { fallbackModels, modelNote, parseGatewayModels, searchModels } from "./models";
+import { defaultImageModel, fallbackImageModels, fallbackModels, imageModelNote, modelNote, parseGatewayImageModels, parseGatewayModels, searchModels } from "./models";
 
 const sonnet = { id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", type: "language", tags: ["reasoning", "tool-use"], context_window: 1_000_000, pricing: { input: "0.000003", output: "0.000015" } };
 
@@ -22,6 +22,26 @@ describe("models", () => {
 		]);
 		expect(parseGatewayModels({ error: "nope" })).toEqual([]);
 		expect(parseGatewayModels(null)).toEqual([]);
+	});
+
+	it("keeps picture models apart: image models, and language models that answer with pictures", () => {
+		const body = { data: [
+			sonnet,
+			{ id: "google/gemini-nano-banana-2.1", name: "Gemini Nano Banana 2.1", type: "language", tags: ["image-generation", "vision"], pricing: { input: "0.0000015", image_dimension_quality_pricing: [{ size: "1K", cost: "0.05" }, { size: "default", cost: "0.0336" }] } },
+			{ id: "bfl/flux-3-image", name: "FLUX 3 Image", type: "image", tags: ["image-generation"], pricing: { image: "0.048" } },
+			{ id: "openai/gpt-image-2", name: "GPT Image 2", type: "image", tags: ["image-generation"], pricing: { input: "0.000005" } },
+			{ id: "topaz/upscale", name: "Upscaler", type: "image", tags: [] },
+			{ id: "google/veo", name: "Veo", type: "video", tags: ["image-generation"] },
+		] };
+		expect(parseGatewayImageModels(body)).toEqual([
+			{ id: "bfl/flux-3-image", name: "FLUX 3 Image", provider: "bfl", perImage: 0.048 },
+			{ id: "google/gemini-nano-banana-2.1", name: "Gemini Nano Banana 2.1", provider: "google", multimodal: true, perImage: 0.0336 },
+			{ id: "openai/gpt-image-2", name: "GPT Image 2", provider: "openai" },
+		]);
+		expect(parseGatewayModels(body).map((m) => m.id)).toEqual(["anthropic/claude-sonnet-5.5"]);
+		expect(parseGatewayImageModels(null)).toEqual([]);
+		expect(fallbackImageModels.find((m) => m.id === defaultImageModel)?.multimodal).toBe(true);
+		expect(imageModelNote(fallbackImageModels[0]!)).toBe("$0.034 per picture");
 	});
 
 	it("writes a short note from context and price", () => {

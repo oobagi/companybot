@@ -10,6 +10,7 @@ import { formatLocalTime } from "./time";
 import type { MemoryScope } from "./memory";
 import type { Permission } from "./permissions";
 import { type ToolDef, defineTool } from "./tools";
+import { imageTools } from "./image-tools";
 import { webTools } from "./web";
 import { widgetTools } from "./widgets";
 
@@ -138,4 +139,5 @@ export const builtinTools: ToolDef[] = [
 	...recordTools,
 	...pageTools,
 	...webTools,
+	...imageTools,
 ];

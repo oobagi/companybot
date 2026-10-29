@@ -1,5 +1,5 @@
 import { fireEvent } from "./automationRuns";
-import { DEFAULT_CURRENCY, can, isCurrencyCode } from "@companybot/core";
+import { DEFAULT_CURRENCY, IMAGE_BUDGET_DEFAULT_USD, IMAGE_BUDGET_MAX_USD, can, defaultImageModel, isCurrencyCode } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -12,6 +12,8 @@ import { sendInviteEmail } from "./invites";
 import { type Member, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, liveWorkspace, memberOf, nameOf, normalizeEmail, personOf, preferencesOf, requireMember, requirePermission, requireUserId, timeZoneOf } from "./lib";
 import { cascading, startCascade } from "./cascade";
 import { imageUrl } from "./images";
+import { catalogImageModels, findImageModel } from "./modelCatalog";
+import { imageSpent } from "./usage";
 import { removeWorkspace } from "./lifecycle";
 import { updatePreferences } from "./preferences";
 import { completeSteps, freshTutorial, welcome } from "./onboarding";
@@ -478,6 +480,19 @@ async function hasAmounts(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
 	return false;
 }
 
+/**
+ * The picture settings: the model, the monthly budget in USD (0 = off), what the picker offers,
+ * and this month's spend for people who see the workspace's usage (`usage.view`), else null.
+ */
+export async function imageSettings(ctx: QueryCtx, member: Member, workspace: Doc<"workspaces">) {
+	return {
+		imageModel: workspace.imageModel ?? defaultImageModel,
+		imageBudgetUsd: workspace.imageBudgetUsd ?? IMAGE_BUDGET_DEFAULT_USD,
+		imageModels: await catalogImageModels(ctx),
+		imageSpentUsd: can(member.role, "usage.view") ? await imageSpent(ctx, workspace._id) : null,
+	};
+}
+
 /** Shared workspace settings. */
 export const settings = query({
 	args: {},
@@ -494,6 +509,7 @@ export const settings = query({
 			image: await imageUrl(ctx, workspace.image),
 			/** Whether any live record has an amount, so the app can say they keep their currency. */
 			hasAmounts: await hasAmounts(ctx, workspace._id),
+			...(await imageSettings(ctx, member, workspace)),
 			version: workspace.version ?? 0,
 		};
 	},
@@ -501,27 +517,44 @@ export const settings = query({
 
 /**
  * `currency` (ISO 4217) is the default for new amounts. Existing amounts keep their own
- * currency. `memory` turns agent memory on or off; off keeps every memory. Both optional,
- * so apps from before them keep working.
+ * currency. `memory` turns agent memory on or off; off keeps every memory. `imageModel` is what
+ * agents make pictures with; `imageBudgetUsd` what they may spend on them a month (0 = off). All
+ * optional, so apps from before them keep working.
  */
-const updateWorkspaceSettingsArgs = v.object({ name: v.string(), currency: v.optional(v.string()), memory: v.optional(v.boolean()), expectedVersion: v.number() });
+const updateWorkspaceSettingsArgs = v.object({
+	name: v.string(),
+	currency: v.optional(v.string()),
+	memory: v.optional(v.boolean()),
+	imageModel: v.optional(v.string()),
+	imageBudgetUsd: v.optional(v.number()),
+	expectedVersion: v.number(),
+});
 
 export const updateSettings = mutation({
 	args: updateWorkspaceSettingsArgs.fields,
 	handler: async (ctx, args) => updateWorkspaceSettings(ctx, await requireMember(ctx), args),
 });
 
-export async function updateWorkspaceSettings(ctx: MutationCtx, member: Member, { name, currency, memory, expectedVersion }: Infer<typeof updateWorkspaceSettingsArgs>) {
+export async function updateWorkspaceSettings(ctx: MutationCtx, member: Member, { name, currency, memory, imageModel, imageBudgetUsd, expectedVersion }: Infer<typeof updateWorkspaceSettingsArgs>) {
 	const { workspaceId } = checkPermission(member, "workspace.manage");
 	const workspace = (await ctx.db.get(workspaceId))!;
 	checkVersion(workspace.version ?? 0, expectedVersion);
 	if (!name.trim()) throw new ConvexError("Name can't be empty.");
 	currency = currency?.trim().toUpperCase();
 	if (currency !== undefined && !isCurrencyCode(currency)) throw new ConvexError("Pick a currency code like USD.");
+	// The current pick stays allowed, so a model that left the gateway doesn't block other edits.
+	if (imageModel !== undefined && imageModel !== (workspace.imageModel ?? defaultImageModel) && !(await findImageModel(ctx, imageModel))) {
+		throw new ConvexError("Pick a picture model AI Gateway lists.");
+	}
+	if (imageBudgetUsd !== undefined && !(imageBudgetUsd >= 0 && imageBudgetUsd <= IMAGE_BUDGET_MAX_USD)) {
+		throw new ConvexError(`Set an image budget from $0 (off) to $${IMAGE_BUDGET_MAX_USD.toLocaleString("en-US")} a month.`);
+	}
 	await ctx.db.patch(workspaceId, {
 		name: name.trim(),
 		...(currency && { currency }),
 		...(memory !== undefined && { memory }),
+		...(imageModel !== undefined && { imageModel }),
+		...(imageBudgetUsd !== undefined && { imageBudgetUsd: Math.round(imageBudgetUsd * 100) / 100 }),
 		version: (workspace.version ?? 0) + 1,
 	});
 }
