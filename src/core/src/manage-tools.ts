@@ -26,6 +26,7 @@ export const manageInputs = {
 			z.strictObject({ action: z.literal("edit"), messageId: id, text: z.string().min(1).max(20_000) }),
 			z.strictObject({ action: z.literal("delete"), messageId: id }),
 			z.strictObject({ action: z.literal("react"), messageId: id, emoji: z.string().min(1).max(16) }),
+			z.strictObject({ action: z.literal("hide_preview"), messageId: id, url: z.string().min(1).max(2048).describe("The link whose preview card to take down") }),
 			z.strictObject({ action: z.literal("open_dm"), userIds: userIds.describe("Others in the DM; you are added"), agentIds }),
 			z.strictObject({
 				action: z.literal("send"),
@@ -125,7 +126,7 @@ export interface ManageStore {
 }
 /** Each tool's title and description. */
 const about: Record<ManageTool, { title: string; description: string }> = {
-	"chat.manage": { title: "Manage messages and DMs", description: "Find people (paged directory, including agent ids), list your chats, open a DM with exact participant ids, deliver a message to a chosen chat/thread, edit your person's own messages, delete them with locked approval, react to an exact message, or explicitly mark a chat read when asked. Sent as you for the person; never triggers agents or automations. Only send when asked; do not copy private information to a wider audience without their request." },
+	"chat.manage": { title: "Manage messages and DMs", description: "Find people (paged directory, including agent ids), list your chats, open a DM with exact participant ids, deliver a message to a chosen chat/thread, edit your person's own messages, delete them with locked approval, react to an exact message, hide the link preview card on your person's own message, or explicitly mark a chat read when asked. Sent as you for the person; never triggers agents or automations. Only send when asked; do not copy private information to a wider audience without their request." },
 	"channels.manage": { title: "Manage channels", description: "Browse public channels, inspect a visible channel and paged participants, create, rename, set/clear topic, add/remove members, join or leave. Use chat ids or #names. Managers remove members; everyone stays in general. Delete moves a channel to Trash for 30 days and waits for approval; only its creator or an owner can do it. Restore by its exact id as the deleter or an owner. Never deletes forever." },
 	"automations.manage": { title: "Manage automations", description: "List or inspect visible automations (prompt, version, agent, state), edit custom config using its current expectedVersion, pause/resume globally, change agent/audience, or run a sample once just for the person. Runs cannot start other runs. Confirm changes first. Resuming grants no consent: future outside actions still ask. Webhook secrets are omitted." },
 	"automations.remove": { title: "Delete an automation", description: "Move an automation to Trash for 30 days, including retained library installs. It stops running; opt-ins and grants stay for restoration. The maker or an owner can restore custom automations; owners restore retained library installs. The exact call waits for approval." },

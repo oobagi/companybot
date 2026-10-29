@@ -47,6 +47,7 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"typing.ping": { humanOnly: "Comes from a keyboard; agents show as typing while their turn runs." },
 	"messages.edit": { agent: ["chat.manage:edit"] },
 	"messages.remove": { agent: ["chat.manage:delete"] },
+	"messages.hidePreview": { agent: ["chat.manage:hide_preview"] },
 	"messages.react": { agent: ["chat.react", "chat.manage:react"] },
 	"pages.create": { agent: ["pages.write"] },
 	"pages.addImage": { humanOnly: "Agents can't make image files: a person uploads one from their device. Agents read pictures as Markdown image links." },

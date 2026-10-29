@@ -34,6 +34,7 @@ describe("grouped tools", () => {
 		["memory.forget", { id: "another-agents-memory" }],
 		["chat.manage", { request: { action: "edit", messageId: "m", text: "Corrected" } }],
 		["chat.manage", { request: { action: "react", messageId: "m", emoji: "✅" } }],
+		["chat.manage", { request: { action: "hide_preview", messageId: "m", url: "https://a.com/" } }],
 		["chat.manage", { request: { action: "mark_read", chat: "c" } }],
 		["workspace.settings", { request: { action: "update_preferences", notify: "off" } }],
 		["automations.manage", { request: { action: "run", id: "a" } }],
@@ -69,7 +70,7 @@ describe("grouped tools", () => {
 		const action = await actionOf("chat_manage", { request }, [tool]);
 		expect(toolRisk(action!.tool)).toBe("locked");
 		expect(await toolApprovalPolicy([tool])({ toolCall: { toolCallId: "delete", toolName: "chat_manage", input: { request } } })).toBe("user-approval");
-		for (const request of [{ action: "edit", messageId: "m", text: "fixed" }, { action: "react", messageId: "m", emoji: "✅" }, { action: "mark_read", chat: "c" }])
+		for (const request of [{ action: "edit", messageId: "m", text: "fixed" }, { action: "react", messageId: "m", emoji: "✅" }, { action: "hide_preview", messageId: "m", url: "https://a.com/" }, { action: "mark_read", chat: "c" }])
 			expect(await toolApprovalPolicy([tool])({ toolCall: { toolCallId: "safe", toolName: "chat_manage", input: { request } } })).toBeUndefined();
 	});
 
