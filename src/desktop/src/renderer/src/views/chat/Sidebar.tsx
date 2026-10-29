@@ -39,7 +39,7 @@ export function ChannelsNav({ chats, openId, onOpen, section }: ChatNavProps) {
 				<Popover trigger={<PlusIcon />} label="Add channels" className={trailingAction} panelClassName="w-48 p-1">
 					{(close) => (
 						<>
-							<MenuItem onClick={() => (close(), setDialog("create"))}>Create a channel</MenuItem>
+							<MenuItem onClick={() => (close(), setDialog("create"))}>New channel</MenuItem>
 							<MenuItem onClick={() => (close(), setDialog("browse"))}>Browse channels</MenuItem>
 						</>
 					)}

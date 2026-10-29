@@ -1,9 +1,10 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useState } from "react";
 import { api } from "../../api";
+import { Checkbox } from "../../controls";
 import { useMutation, useQuery } from "../../convex";
 import { Field, Form, Loading, Notice, descriptionClass, inputClass, primaryButton, secondaryButton, useRun } from "../../ui";
-import { AgentBadge, Avatar, Modal } from "./common";
+import { AgentBadge, Avatar, Modal, useConfirm } from "./common";
 import { navigate } from "../../router";
 import { ProfileLink } from "./Profile";
 import { type ChatDetails, type Participant, chatTitle, useDirectory } from "./data";
@@ -15,7 +16,7 @@ export function CreateChannel({ onClose, onOpen }: { onClose: () => void; onOpen
 	const [isPrivate, setPrivate] = useState(false);
 	const { error, run } = useRun();
 	return (
-		<Modal title="Create a channel" onClose={onClose}>
+		<Modal title="New channel" onClose={onClose}>
 			<Form onSubmit={() => run(create({ name, topic: topic.trim() || undefined, private: isPrivate }).then((id) => (onOpen(id), onClose())))}>
 				<Field label="Name">
 					<input value={name} autoFocus onChange={(e) => setName(e.target.value)} placeholder="e.g. sales" className={inputClass} />
@@ -24,7 +25,7 @@ export function CreateChannel({ onClose, onOpen }: { onClose: () => void; onOpen
 					<input value={topic} onChange={(e) => setTopic(e.target.value)} className={inputClass} />
 				</Field>
 				<label className="flex items-start gap-2 text-sm">
-					<input type="checkbox" checked={isPrivate} onChange={(e) => setPrivate(e.target.checked)} className="mt-0.5" />
+					<Checkbox checked={isPrivate} onChange={setPrivate} className="mt-0.5" />
 					<span>
 						<span className="font-medium">Private</span>
 						<span className="block text-neutral-500">Only people added can see it.</span>
@@ -87,11 +88,7 @@ function Picker({ options, picked, onChange }: { options: Participant[]; picked:
 				{shown.map((o) => (
 					<li key={o.id}>
 						<label className="flex cursor-pointer items-center gap-3 rounded-xl px-2 py-1.5 hover:bg-neutral-50">
-							<input
-								type="checkbox"
-								checked={picked.includes(o.id)}
-								onChange={(e) => onChange(e.target.checked ? [...picked, o.id] : picked.filter((id) => id !== o.id))}
-							/>
+							<Checkbox checked={picked.includes(o.id)} onChange={(on) => onChange(on ? [...picked, o.id] : picked.filter((id) => id !== o.id))} />
 							<Avatar name={o.name} image={o.image} agent={o.type === "agent"} size="sm" />
 							<span className="flex-1 truncate text-sm">{o.name}</span>
 							{o.type === "agent" && <AgentBadge />}
@@ -148,10 +145,12 @@ export function ChannelDetails({ chat, onClose, onLeft }: { chat: ChatDetails; o
 	const me = useQuery(api.workspace.me);
 	const removeMember = useMutation(api.chats.removeMember);
 	const { error, run } = useRun();
+	const { confirm, dialog } = useConfirm();
 	// Managers remove others (you leave instead); everyone stays in the default channel. The server checks the same.
 	const removable = (m: Participant) => isChannel && chat.canManage && m.id !== me?.userId && !(chat.isDefault && m.type === "user");
 	return (
 		<Modal title={chatTitle(chat)} onClose={onClose}>
+			{dialog}
 			{adding ? (
 				<AddMembers chat={chat} onDone={() => setAdding(false)} />
 			) : (
@@ -160,7 +159,7 @@ export function ChannelDetails({ chat, onClose, onLeft }: { chat: ChatDetails; o
 					{isChannel && !chat.canManage && chat.topic && <p className="text-sm text-neutral-600">{chat.topic}</p>}
 					<section className="flex flex-col gap-2">
 						<div className="flex items-center justify-between">
-							<h3 className="text-sm font-medium">{chat.members.length} members</h3>
+							<h3 className="text-sm font-medium">{chat.members.length} {chat.members.length === 1 ? "member" : "members"}</h3>
 							{isChannel && (
 								<button type="button" onClick={() => setAdding(true)} className="text-sm text-neutral-500 hover:text-neutral-900">
 									Add people or agents
@@ -179,8 +178,11 @@ export function ChannelDetails({ chat, onClose, onLeft }: { chat: ChatDetails; o
 										<button
 											type="button"
 											onClick={() =>
-												confirm(`Remove ${m.name} from #${chat.name}?`) &&
-												run(removeMember({ chatId: chat._id, ...(m.type === "user" ? { userId: m.id as Id<"users"> } : { agentId: m.id as Id<"agents"> }) }))
+												confirm({
+													title: `Remove ${m.name} from #${chat.name}?`,
+													action: "Remove",
+													onConfirm: () => removeMember({ chatId: chat._id, ...(m.type === "user" ? { userId: m.id as Id<"users"> } : { agentId: m.id as Id<"agents"> }) }),
+												})
 											}
 											className="text-xs text-neutral-400 hover:text-red-700"
 										>
@@ -266,9 +268,11 @@ function LeaveButton({ chat, onLeft }: { chat: ChatDetails; onLeft: () => void }
 	const leave = useMutation(api.chats.leave);
 	const remove = useMutation(api.trash.move);
 	const { error, run } = useRun();
+	const { confirm, dialog } = useConfirm();
 	return (
 		<>
 			<Notice>{error}</Notice>
+			{dialog}
 			<div className="flex gap-4 text-sm">
 				<button type="button" onClick={() => run(leave({ chatId: chat._id }), onLeft)} className="text-red-600 hover:text-red-800">
 					Leave channel
@@ -276,7 +280,7 @@ function LeaveButton({ chat, onLeft }: { chat: ChatDetails; onLeft: () => void }
 				{chat.canManage && !chat.trash && (
 					<button
 						type="button"
-						onClick={() => confirm(`Delete #${chat.name}? It goes to Trash with its messages, and can be restored for 30 days.`) && run(remove({ kind: "channel", id: chat._id }), onLeft)}
+						onClick={() => confirm({ title: `Delete #${chat.name}?`, action: "Delete channel", body: "It goes to Trash with its messages, and can be restored for 30 days.", onConfirm: () => remove({ kind: "channel", id: chat._id }).then(onLeft) })}
 						className="text-red-600 hover:text-red-800"
 					>
 						Delete channel

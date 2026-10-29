@@ -6,6 +6,7 @@ import { api } from "../api";
 import { useMutation, usePaginatedQuery } from "../convex";
 import { navigate } from "../router";
 import { TrashIcon } from "../icons";
+import { useConfirm } from "./chat/common";
 import { EmptyState, LoadMore, NoMatches, Notice, Page, listClass, metadataClass, timeAgo, toolbarClass, useDebounced, useRun, wideControlClass } from "../ui";
 import { recordPath, whoLabel } from "./records/logic";
 
@@ -45,6 +46,7 @@ export function TrashView({ role }: { role: Role }) {
 	const restore = useMutation(api.trash.restore);
 	const purge = useMutation(api.trash.purge);
 	const { error, run } = useRun();
+	const { confirm, dialog } = useConfirm();
 	const canPurge = can(role, "trash.manage");
 	return (
 		<Page title="Trash" description="Everything deleted lands here. It's deleted forever 30 days later.">
@@ -58,6 +60,7 @@ export function TrashView({ role }: { role: Role }) {
 				/>
 			</div>
 			<Notice>{error}</Notice>
+			{dialog}
 			{results.length > 0 && (
 				<div className={listClass}>
 					{results.map((e) => {
@@ -85,7 +88,7 @@ export function TrashView({ role }: { role: Role }) {
 								{canPurge && (
 									<button
 										type="button"
-										onClick={() => confirm(`Delete “${e.name}” forever? This can't be undone.`) && run(purge({ id: e.itemId }))}
+										onClick={() => confirm({ title: `Delete “${e.name}” forever?`, action: "Delete forever", body: "This can't be undone.", onConfirm: () => purge({ id: e.itemId }) })}
 										className="shrink-0 text-neutral-400 hover:text-red-600"
 									>
 										Delete forever

@@ -8,7 +8,7 @@ import { WidgetView } from "../../widgets";
 import { CallDetails } from "../Activity";
 import { ApprovalMessages } from "./Approval";
 import { AutomationIcon, EditIcon, ReactIcon, ReplyIcon, TrashIcon } from "../../icons";
-import { AgentBadge, Avatar, AvatarStack, EmojiPicker, IconButton, Popover, clock, useDismiss } from "./common";
+import { AgentBadge, Avatar, AvatarStack, EmojiPicker, IconButton, Popover, clock, useConfirm, useDismiss } from "./common";
 import type { Message, TokenNames } from "./data";
 import { navigate } from "../../router";
 import { ProfileLink } from "./Profile";
@@ -37,6 +37,7 @@ export function MessageRow({
 	const [picker, setPicker] = useState(false);
 	const [editing, setEditing] = useState(false);
 	const toolbar = useDismiss<HTMLDivElement>(() => setPicker(false), picker);
+	const { confirm, dialog } = useConfirm();
 	const isAgent = message.author.type === "agent";
 	const toggle = (emoji: string) => react({ messageId: message._id, emoji }).catch(onError);
 
@@ -144,7 +145,7 @@ export function MessageRow({
 								</IconButton>
 								<IconButton
 									label="Delete"
-									onClick={() => confirm("Delete this message?") && remove({ messageId: message._id }).catch(onError)}
+									onClick={() => confirm({ title: "Delete this message?", action: "Delete", onConfirm: () => remove({ messageId: message._id }) })}
 								>
 									<TrashIcon />
 								</IconButton>
@@ -156,6 +157,7 @@ export function MessageRow({
 			</div>
 			{/* Calls held for permission read as their own messages from the agent, after its reply. */}
 			{held.length > 0 && <ApprovalMessages message={message} parts={held} />}
+			{dialog}
 		</>
 	);
 }
