@@ -64,6 +64,7 @@ import type * as trash from "../trash.js";
 import type * as trashOps from "../trashOps.js";
 import type * as turns from "../turns.js";
 import type * as typing from "../typing.js";
+import type * as webFetch from "../webFetch.js";
 import type * as workspace from "../workspace.js";
 
 import type {
@@ -129,6 +130,7 @@ declare const fullApi: ApiFromModules<{
   trashOps: typeof trashOps;
   turns: typeof turns;
   typing: typeof typing;
+  webFetch: typeof webFetch;
   workspace: typeof workspace;
 }>;
 
