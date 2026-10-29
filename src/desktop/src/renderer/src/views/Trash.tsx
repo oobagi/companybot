@@ -21,7 +21,7 @@ const kinds: { id: Kind; label: string; one: string }[] = [
 	{ id: "database", label: "Databases", one: "Database" },
 	{ id: "field", label: "Fields", one: "Field" },
 	{ id: "page", label: "Pages", one: "Page" },
-	{ id: "channel", label: "Channels", one: "Channel" },
+	{ id: "channel", label: "Chats", one: "Chat" },
 	{ id: "agent", label: "Agents", one: "Agent" },
 	{ id: "skill", label: "Skills", one: "Skill" },
 	{ id: "automation", label: "Automations", one: "Automation" },
