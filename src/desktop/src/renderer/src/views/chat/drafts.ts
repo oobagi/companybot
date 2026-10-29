@@ -66,6 +66,13 @@ const subscribe = (listener: () => void) => {
 	};
 };
 
+/** Puts back a message that didn't send, after its composer closed, unless something new was typed there since. */
+export function keepDraft(key: string, doc: JSONContent) {
+	if (loadDraft(localStorage, key)) return;
+	saveDraft(localStorage, key, doc);
+	changed();
+}
+
 /** The ids of chats with a draft, for the sidebar. */
 export function useDraftChats(workspaceId: string | undefined): Set<string> {
 	// A string, so React sees "same drafts" as the same value.

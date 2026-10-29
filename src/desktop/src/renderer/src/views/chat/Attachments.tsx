@@ -1,69 +1,93 @@
-import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { DOCX, FILES_PER_MESSAGE, XLSX, fileKind, formatFileSize, isImageType } from "@companybot/core/files";
-import { type ReactNode, useEffect, useRef, useState } from "react";
-import { useMutation } from "../../convex";
+import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useMutation, useQuery } from "../../convex";
 import { AttachIcon, CloseIcon, FileCsvIcon, FileDocIcon, FileIcon, FilePdfIcon, FileXlsIcon, PageIcon } from "../../icons";
 import { useFileUpload } from "../../upload";
 import { api } from "../../api";
 import { useDismiss } from "./common";
+import { type Pending, createPendingStore, pendingKey } from "./composerFiles";
 import type { Message } from "./data";
 
 // Files on messages: the composer's pending uploads (attach button, drop, paste), and the files
 // a message shows (thumbnails that open larger, chips that open the file). Uploads go to the
-// backend as they're added (files.ts); sending claims them.
+// backend as they're added (files.ts); sending claims them. Pending ones are kept per person and
+// per chat or thread (composerFiles.ts), so leaving a chat and coming back finds them.
 
-type Pending = { key: string; name: string; size: number; preview?: string; progress: number; file?: Id<"_storage">; error?: string };
+let store: ReturnType<typeof createPendingStore> | undefined;
+// Made on first use: there's no localStorage where tests import this.
+const pendingFiles = () => (store ??= createPendingStore(localStorage));
 
 export type Attachments = ReturnType<typeof useAttachments>;
 
-/** A composer's files: added, uploading, uploaded or failed. `ids` are the uploaded ones, to send. */
-export function useAttachments() {
+/**
+ * A composer's files: added, uploading, uploaded or failed. `ids` are the uploaded ones, to send.
+ * `draftKey` is the composer's (drafts.ts); an upload that finishes after you've left still lands there.
+ */
+export function useAttachments(draftKey: string) {
+	const pending = pendingFiles();
 	const upload = useFileUpload();
 	const discard = useMutation(api.files.discard);
-	const [items, setItems] = useState<Pending[]>([]);
+	const me = useQuery(api.chats.list)?.me;
+	const key = me ? pendingKey(me, draftKey) : undefined;
+	const items = useSyncExternalStore(pending.subscribe, () => pending.get(key));
 	const [notice, setNotice] = useState<string>();
-	// Read by uploads finishing after their item was removed, and by cleanup on unmount.
-	const current = useRef(items);
-	current.current = items;
-	const update = (key: string, patch: Partial<Pending>) => setItems((list) => list.map((i) => (i.key === key ? { ...i, ...patch } : i)));
-	useEffect(() => () => current.current.forEach((i) => i.preview && URL.revokeObjectURL(i.preview)), []);
+	useEffect(() => setNotice(undefined), [key]);
 
 	const add = (files: File[]) => {
-		const room = FILES_PER_MESSAGE - current.current.length;
+		if (!key) return;
+		const update = (itemKey: string, patch: Partial<Pending>) => pending.update(key, (list) => list.map((i) => (i.key === itemKey ? { ...i, ...patch } : i)));
+		const room = FILES_PER_MESSAGE - pending.get(key).length;
 		setNotice(files.length > room ? `Attach up to ${FILES_PER_MESSAGE} files to a message.` : undefined);
 		for (const file of files.slice(0, Math.max(0, room))) {
-			const key = crypto.randomUUID();
+			const itemKey = crypto.randomUUID();
 			const preview = isImageType(file.type) ? URL.createObjectURL(file) : undefined;
-			current.current = [...current.current, { key, name: file.name, size: file.size, preview, progress: 0 }];
-			setItems(current.current);
-			upload(file, (progress) => update(key, { progress })).then(
+			pending.update(key, (list) => [...list, { key: itemKey, name: file.name, size: file.size, preview, progress: 0 }]);
+			upload(file, (progress) => update(itemKey, { progress })).then(
 				(id) => {
-					if (current.current.some((i) => i.key === key)) update(key, { file: id, progress: 1 });
+					// Removed (or sent) while it uploaded: nobody wants it.
+					if (pending.get(key).some((i) => i.key === itemKey)) update(itemKey, { file: id, progress: 1, at: Date.now() });
 					else discard({ file: id }).catch(() => {});
 				},
-				(e: unknown) => update(key, { error: e instanceof Error ? e.message : String(e) }),
+				(e: unknown) => update(itemKey, { error: e instanceof Error ? e.message : String(e) }),
 			);
 		}
 	};
-	const remove = (key: string) => {
-		const item = current.current.find((i) => i.key === key);
+	const forget = (gone: Pending[]) => gone.forEach((i) => i.preview && URL.revokeObjectURL(i.preview));
+	const remove = (itemKey: string) => {
+		if (!key) return;
+		const item = pending.get(key).find((i) => i.key === itemKey);
 		if (item?.file) discard({ file: item.file }).catch(() => {});
-		if (item?.preview) URL.revokeObjectURL(item.preview);
+		if (item) forget([item]);
 		setNotice(undefined);
-		setItems((list) => list.filter((i) => i.key !== key));
+		pending.update(key, (list) => list.filter((i) => i.key !== itemKey));
 	};
-	/** After sending: the message has the files now. */
-	const clear = () => {
-		current.current.forEach((i) => i.preview && URL.revokeObjectURL(i.preview));
+	/**
+	 * On send: empties the composer and hands over its files. `sent` once the message has them;
+	 * `restore` if it didn't go, to put them back (ahead of any added since, up to the limit).
+	 */
+	const take = () => {
+		const taken = pending.get(key);
+		if (key) pending.update(key, () => []);
 		setNotice(undefined);
-		setItems([]);
+		return {
+			ids: taken.flatMap((i) => (i.file ? [i.file] : [])),
+			sent: () => forget(taken),
+			restore: () => {
+				if (!key) return;
+				const list = [...taken, ...pending.get(key)];
+				const over = list.slice(FILES_PER_MESSAGE);
+				over.forEach((i) => i.file && discard({ file: i.file }).catch(() => {}));
+				forget(over);
+				pending.update(key, () => list.slice(0, FILES_PER_MESSAGE));
+			},
+		};
 	};
 	return {
 		items,
 		notice,
 		add,
 		remove,
-		clear,
+		take,
 		ids: items.flatMap((i) => (i.file ? [i.file] : [])),
 		uploading: items.some((i) => !i.file && !i.error),
 	};
