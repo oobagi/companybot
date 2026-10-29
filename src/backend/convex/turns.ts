@@ -13,6 +13,7 @@ import {
 	replyForModel,
 	textForModel,
 } from "./chatOps";
+import { previewMessage } from "./linkPreviews";
 import { type Who, installedSkills, liveWorkspace, memberOf, timeZoneOf } from "./lib";
 import { automationScope } from "./automationOps";
 import { messagePart, replyUsage } from "./schema";
@@ -338,7 +339,10 @@ export const finishReply = internalMutation({
 			if (reply && stats) await ctx.db.patch(reply._id, { stats });
 			return;
 		}
-		if (reply) await endStream(ctx, reply, error ? { status: "error", error, stats } : { status: "done", stats });
+		if (reply) {
+			await endStream(ctx, reply, error ? { status: "error", error, stats } : { status: "done", stats });
+			if (!error) await previewMessage(ctx, (await ctx.db.get(reply._id))!);
+		}
 		await ctx.db.patch(turnId, { status: error ? "error" : "done" });
 		await settleApproval(ctx, turn);
 		await startNext(ctx, turn);

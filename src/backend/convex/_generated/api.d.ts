@@ -37,6 +37,8 @@ import type * as invites from "../invites.js";
 import type * as legacyCatalogs from "../legacyCatalogs.js";
 import type * as lib from "../lib.js";
 import type * as lifecycle from "../lifecycle.js";
+import type * as linkPreviews from "../linkPreviews.js";
+import type * as linkUnfurl from "../linkUnfurl.js";
 import type * as manageTools from "../manageTools.js";
 import type * as memory from "../memory.js";
 import type * as memoryOps from "../memoryOps.js";
@@ -106,6 +108,8 @@ declare const fullApi: ApiFromModules<{
   legacyCatalogs: typeof legacyCatalogs;
   lib: typeof lib;
   lifecycle: typeof lifecycle;
+  linkPreviews: typeof linkPreviews;
+  linkUnfurl: typeof linkUnfurl;
   manageTools: typeof manageTools;
   memory: typeof memory;
   memoryOps: typeof memoryOps;

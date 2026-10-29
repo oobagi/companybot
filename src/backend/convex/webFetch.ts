@@ -11,8 +11,9 @@ import TurndownService from "turndown";
 import { Agent, fetch } from "undici";
 import { internalAction } from "./_generated/server";
 
-// web.fetch's network side. Node, for DNS: safeFetch (core) checks every address a link resolves
-// to, and undici then connects only to those, so a link can't reach our own network.
+// web.fetch's network side (and link previews', linkUnfurl.ts). Node, for DNS: safeFetch (core)
+// checks every address a link resolves to, and undici then connects only to those, so a link can't
+// reach our own network.
 
 const USER_AGENT = "Mozilla/5.0 (compatible; Companybot/1.0; +https://github.com/oobagi/companybot)";
 
@@ -21,8 +22,7 @@ export const fetchPage = internalAction({
 	args: { url: v.string() },
 	handler: async (_ctx, { url }): Promise<WebPage | { error: string }> => {
 		try {
-			const body = await safeFetch(url, { resolve, request }, { timeoutMs: 15_000, maxBytes: 5_000_000, headers: { "user-agent": USER_AGENT, accept: "text/html, text/*;q=0.9, application/json;q=0.8" } });
-			return pageFrom(body);
+			return pageFrom(await fetchBody(url, { timeoutMs: 15_000, maxBytes: 5_000_000, accept: "text/html, text/*;q=0.9, application/json;q=0.8" }));
 		} catch (e) {
 			if (e instanceof UnsafeUrlError) return { error: e.message };
 			if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) return { error: "The page took too long to load." };
@@ -30,6 +30,12 @@ export const fetchPage = internalAction({
 		}
 	},
 });
+
+export type BodyFetcher = typeof fetchBody;
+
+/** One link someone else picked, read safely: the only way to fetch one (web pages, link previews, pictures on them). */
+export const fetchBody = (url: string, { timeoutMs, maxBytes, accept }: { timeoutMs: number; maxBytes: number; accept: string }) =>
+	safeFetch(url, { resolve, request }, { timeoutMs, maxBytes, headers: { "user-agent": USER_AGENT, accept } });
 
 async function resolve(hostname: string) {
 	return (await dnsLookup(hostname, { all: true })).map((a) => a.address);

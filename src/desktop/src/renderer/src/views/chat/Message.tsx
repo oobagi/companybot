@@ -13,6 +13,7 @@ import type { Message, TokenNames } from "./data";
 import { navigate } from "../../router";
 import { ProfileLink } from "./Profile";
 import { MessageFiles } from "./Attachments";
+import { LinkPreviews } from "./LinkPreviews";
 
 export function MessageRow({
 	message: row,
@@ -95,6 +96,7 @@ export function MessageRow({
 						)
 					)}
 					{!message.deleted && message.attachments.length > 0 && <MessageFiles files={message.attachments} />}
+					{!message.deleted && message.linkPreviews.length > 0 && <LinkPreviews message={message} onError={onError} />}
 					{message.reactions.length > 0 && (
 						<div className="flex flex-wrap gap-1 pt-0.5">
 							{message.reactions.map((r) => (

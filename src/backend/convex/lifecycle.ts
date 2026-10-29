@@ -213,6 +213,11 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		keep: "Team history: what someone said stays when they leave; once their account is erased it shows as a former member's.",
 		files: ["attachments"],
 	},
+	linkPreviews: {
+		workspace: { index: "by_workspace_url", eq: ["workspaceId"] },
+		files: ["image"],
+		keep: "Shared by URL across the workspace's messages (a public page's title, text and picture), so no channel, member or account owns one.",
+	},
 	typing: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		member: { index: "by_workspace", eq: ["workspaceId", "userId"] },
