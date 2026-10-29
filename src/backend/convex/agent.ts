@@ -71,17 +71,17 @@ export const respond = internalAction({
 		const usage: TurnUsage = emptyUsage("");
 		let error: string | undefined;
 		let sessionId: Id<"agentSessions"> | undefined;
+		const snapshot = () => ({ ...usage, durationMs: Date.now() - started });
+		// Saved after every finished model call, so an action killed mid-turn (time limit, crash) keeps
+		// what its calls cost. finishReply records only what's new since; a failed save is caught up there.
+		const saveStep = () => ctx.runMutation(internal.turns.saveUsage, { turnId, usage: snapshot() }).catch(() => {});
 		try {
-			sessionId = await runTurn(ctx, turnId, usage);
+			sessionId = await runTurn(ctx, turnId, usage, saveStep);
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 		} finally {
 			// Failed replies still cost what their finished calls cost.
-			await ctx.runMutation(internal.turns.finishReply, {
-				turnId,
-				error,
-				usage: usage.steps > 0 ? { ...usage, durationMs: Date.now() - started } : undefined,
-			});
+			await ctx.runMutation(internal.turns.finishReply, { turnId, error, usage: usage.steps > 0 ? snapshot() : undefined });
 		}
 		if (!error && sessionId && usage.contextTokens > COMPACT_TOKENS) await compact(ctx, sessionId, turnId);
 	},
@@ -90,12 +90,12 @@ export const respond = internalAction({
 /** Filled in as the reply streams, so a failed reply still reports what it used. */
 type TurnUsage = ReplyUsage & { firstTokenMs?: number };
 
-async function runTurn(ctx: ActionCtx, turnId: Id<"agentTurns">, usage: TurnUsage) {
+async function runTurn(ctx: ActionCtx, turnId: Id<"agentTurns">, usage: TurnUsage, saveStep: () => Promise<unknown>) {
 	const turn = await ctx.runQuery(internal.turns.turnContext, { turnId });
 	const connectors = await loadConnectors(ctx, turn.member, turn.agent);
 	await saveTools(ctx, turn.member.workspaceId, connectors);
 	try {
-		await streamReply(ctx, turnId, turn, connectors, usage);
+		await streamReply(ctx, turnId, turn, connectors, usage, saveStep);
 	} finally {
 		await Promise.allSettled(connectors.sessions.map((s) => s.close()));
 		await saveRefreshedTokens(ctx, connectors);
@@ -228,6 +228,7 @@ async function streamReply(
 	turn: Turn,
 	connectors: LoadedConnectors,
 	usage: TurnUsage,
+	saveStep: () => Promise<unknown>,
 ) {
 	const { agent, member, replyId } = turn;
 	usage.model = agent.model;
@@ -255,7 +256,7 @@ async function streamReply(
 		pages: pageStore(ctx, turnId),
 		results: createResultStore(),
 		// Links the person wrote (turns.ts `asked`) are the only ones web.fetch opens before searching.
-		web: createWebTurn(webClient(ctx, usage), turn.asked),
+		web: createWebTurn(webClient(ctx, turnId), turn.asked),
 		// imageGen.ts checks the budget and edit files as this person, then attaches and records each picture.
 		images: { generate: (request) => ctx.runAction(internal.imageGen.generateFor, { turnId, ...request }) },
 	};
@@ -407,6 +408,7 @@ async function streamReply(
 				if (!part.isAutomatic) await hold(part.toolCall.toolCallId, part.toolCall.toolName, part.toolCall.input);
 			} else if (part.type === "finish-step") {
 				addStep(usage, part.usage, part.providerMetadata);
+				await saveStep();
 				continue;
 			} else if (part.type === "error") throw part.error instanceof Error ? part.error : new Error(String(part.error));
 			else continue;
@@ -537,11 +539,11 @@ function pageStore(ctx: ActionCtx, turnId: Id<"agentTurns">): PageStore {
 }
 
 /**
- * Search through SEARCH_PROVIDER (core web-search.ts), its gateway cost added to this reply's;
- * pages through webFetch.ts, in Node for its DNS checks.
+ * Search through SEARCH_PROVIDER (core web-search.ts), each one's gateway cost recorded as it
+ * finishes, as kind "search" (turns.addSearchCost); pages through webFetch.ts, in Node for its DNS checks.
  */
-function webClient(ctx: ActionCtx, usage: ReplyUsage): WebClient {
-	const provider = searchProvider(process.env, { onCost: (usd) => (usage.costUsd += usd) });
+function webClient(ctx: ActionCtx, turnId: Id<"agentTurns">): WebClient {
+	const provider = searchProvider(process.env, { onCost: (costUsd, model) => ctx.runMutation(internal.turns.addSearchCost, { turnId, model, costUsd }) });
 	return {
 		search: (query, options) => provider.search(query, options),
 		fetch: (url) => ctx.runAction(internal.webFetch.fetchPage, { url }),

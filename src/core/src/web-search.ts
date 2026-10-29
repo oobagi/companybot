@@ -10,8 +10,13 @@ export interface SearchEnv {
 	SEARXNG_URL?: string;
 }
 
-/** `onCost` hears what a search cost in USD, where the provider bills through AI Gateway. */
-export function searchProvider(env: SearchEnv, { onCost }: { onCost?: (usd: number) => void } = {}): SearchProvider {
+/**
+ * `onCost` hears what a search cost in USD, and what to record it under, where the provider bills
+ * through AI Gateway. The search waits for it, so the cost is saved before its results are used.
+ */
+export type OnSearchCost = (usd: number, model: string) => unknown;
+
+export function searchProvider(env: SearchEnv, { onCost }: { onCost?: OnSearchCost } = {}): SearchProvider {
 	const name = env.SEARCH_PROVIDER || "gateway";
 	if (name === "gateway") return gatewaySearch(onCost);
 	if (name === "brave") return braveSearch(env.BRAVE_API_KEY);
@@ -21,6 +26,8 @@ export function searchProvider(env: SearchEnv, { onCost }: { onCost?: (usd: numb
 
 /** The small model that turns a query into one Exa call; its tokens are a fraction of a cent. */
 export const SEARCH_MODEL = "openai/gpt-6-luna";
+/** What gateway searches are recorded under in Usage: the search, not the small model that runs it. */
+export const GATEWAY_SEARCH_USAGE = "exa";
 
 /**
  * Exa through AI Gateway, billed with the models. Gateway search only runs as a
@@ -28,7 +35,7 @@ export const SEARCH_MODEL = "openai/gpt-6-luna";
  * exa_search with the query as given, stopped after that step. Exa over Parallel: its input is
  * a plain query and result count, like ours, so the small model only copies them.
  */
-export function gatewaySearch(onCost?: (usd: number) => void): SearchProvider {
+export function gatewaySearch(onCost?: OnSearchCost): SearchProvider {
 	return {
 		async search(query, { limit }) {
 			const { content, providerMetadata } = await generateText({
@@ -39,7 +46,7 @@ export function gatewaySearch(onCost?: (usd: number) => void): SearchProvider {
 				maxOutputTokens: 200,
 				prompt: `Call exa_search once with exactly this query and num_results ${limit}. Query: ${JSON.stringify(query)}`,
 			});
-			onCost?.(gatewayCost(providerMetadata));
+			await onCost?.(gatewayCost(providerMetadata), GATEWAY_SEARCH_USAGE);
 			const output = content.find((p) => p.type === "tool-result")?.output as ExaOutput | undefined;
 			if (!output) throw new Error("The search didn't run.");
 			if ("error" in output) throw new Error(output.message);

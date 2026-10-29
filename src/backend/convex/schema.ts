@@ -84,6 +84,8 @@ export const replyStats = v.object({
 	conversationCostUsd: v.number(),
 	/** What the pictures it made cost (imageGen.ts), apart from `costUsd`: they're in `usage` as kind "image", not "chat". */
 	imageCostUsd: v.optional(v.number()),
+	/** What its web searches cost (turns.addSearchCost), apart from `costUsd`: they're in `usage` as kind "search". */
+	searchCostUsd: v.optional(v.number()),
 	/** Added to the `usage` table (usage.ts). Replies from before it are counted once by migrations.usageThisMonth. */
 	counted: v.optional(v.boolean()),
 });
@@ -550,6 +552,13 @@ export default defineSchema({
 		approvalId: v.optional(v.id("approvals")),
 		/** What its pictures cost so far (imageGen.ts), for its reply's stats. */
 		imageCostUsd: v.optional(v.number()),
+		/** What its web searches cost so far (turns.addSearchCost), for its reply's stats. */
+		searchCostUsd: v.optional(v.number()),
+		/**
+		 * What its finished model calls used so far, saved after each one (turns.saveUsage) with its cost
+		 * already recorded, so a turn whose action dies keeps what it paid and its stats.
+		 */
+		usage: v.optional(v.object({ ...replyUsage.fields, counted: v.optional(v.boolean()) })),
 	})
 		.index("by_place", ["agentId", "chatId", "threadId", "status"])
 		.index("by_session", ["sessionId"])
