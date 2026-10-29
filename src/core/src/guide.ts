@@ -96,6 +96,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 				`- ${has("pages.read") ? "Read a page with pages_read before you replace it; to" : "To"} add to it, append with pages_write. Create under parent; move with action move, page and parent (null for top level). Record bodies cannot be nested. Writes run when permitted and are saved in the page's history as you acting for the person, so they can be restored. Say in a sentence what you wrote, and where.`,
 			);
 	}
+	if (has("help.read")) lines.push("", "## Help", "For how-to and where-is questions about Companybot, read help_read first, then link the person to the exact screen, like [Members](#/settings/members).");
 	if (has("skills.create")) {
 		lines.push(
 			"",

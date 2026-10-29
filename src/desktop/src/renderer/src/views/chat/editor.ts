@@ -1,4 +1,4 @@
-import { type Editor, Extension, mergeAttributes } from "@tiptap/core";
+import { type Editor, Extension, InputRule, mergeAttributes } from "@tiptap/core";
 import Document from "@tiptap/extension-document";
 import HardBreak from "@tiptap/extension-hard-break";
 import Mention, { type MentionNodeAttrs } from "@tiptap/extension-mention";
@@ -7,20 +7,25 @@ import Text from "@tiptap/extension-text";
 import { Placeholder, UndoRedo } from "@tiptap/extensions";
 import type { SuggestionKeyDownProps, SuggestionOptions, SuggestionProps } from "@tiptap/suggestion";
 import type { ChannelRef, Participant, SkillRef } from "./data";
+import { COMPLETED_SHORTCODE, type EmojiIndex, emojiForShortcode, loadEmoji, loadedEmoji, shortcodeMatches } from "./emoji";
 
 // The composer is a one-block Tiptap editor (the same ProseMirror BlockNote uses for pages).
 // Mentions are atomic `token` nodes, so a chip is picked, deleted and sent as one thing:
 // `@Ada` (people and agents), `#sales` (channels) and `/Proposal` (skills). The message is
-// sent as plain text: the chips serialize back to what was typed.
+// sent as plain text: the chips serialize back to what was typed. `:smi` opens a fourth menu,
+// of emoji; a pick (or a typed `:smile:`) is just the emoji in the text, not a chip.
 
-export type Trigger = "@" | "#" | "/";
+export type Trigger = "@" | "#" | "/" | ":";
 
 export type Candidate =
 	| { kind: "user" | "agent"; id: string; label: string; image?: string | null }
 	| { kind: "channel"; id: string; label: string; topic: string | null; private: boolean; joined: boolean }
-	| { kind: "skill"; id: string; label: string; description: string };
+	| { kind: "skill"; id: string; label: string; description: string }
+	/** `id` is the shortcode, `label` the emoji. */
+	| { kind: "emoji"; id: string; label: string };
 
-export type TokenKind = Candidate["kind"];
+/** What a chip can be: every candidate but emoji. */
+export type TokenKind = Exclude<Candidate["kind"], "emoji">;
 /** A chip's attributes; Mention's own (`mentionSuggestionChar`) come with it. */
 export type TokenAttrs = MentionNodeAttrs & { kind: TokenKind };
 
@@ -40,6 +45,8 @@ export interface Menu {
 }
 
 const MAX_ITEMS = 8;
+/** Shorter than this and `:` is more likely a smiley or a time than a shortcode. */
+const MIN_EMOJI_QUERY = 2;
 
 /** `query` matches a name's start or any word's start ("sa" finds "Sam Lee" and "Ada Sampson"). */
 export const matches = (name: string, query: string) => {
@@ -48,7 +55,13 @@ export const matches = (name: string, query: string) => {
 	return n.startsWith(q) || n.split(/[\s-]+/).some((w) => w.startsWith(q));
 };
 
-export function candidatesFor(sources: Sources, trigger: Trigger, query: string): Candidate[] {
+/** The emoji `:query` offers, by shortcode. */
+export function emojiCandidates(index: EmojiIndex, query: string): Candidate[] {
+	if (query.length < MIN_EMOJI_QUERY) return [];
+	return shortcodeMatches(index, query, MAX_ITEMS).map((m) => ({ kind: "emoji", id: m.shortcode, label: m.emoji.char }));
+}
+
+export function candidatesFor(sources: Sources, trigger: Exclude<Trigger, ":">, query: string): Candidate[] {
 	const all: Candidate[] =
 		trigger === "@"
 			? [...sources.people, ...sources.agents].map((p) => ({ kind: p.type, id: p.id, label: p.name, image: p.image }))
@@ -69,7 +82,7 @@ export function findTrigger(text: string, trigger: Trigger): { start: number; qu
 	return m ? { start: m.index + m[1]!.length, query: m[2]! } : null;
 }
 
-const triggerChar = (kind: TokenKind): Trigger => (kind === "channel" ? "#" : kind === "skill" ? "/" : "@");
+const triggerChar = (kind: TokenKind): Exclude<Trigger, ":"> => (kind === "channel" ? "#" : kind === "skill" ? "/" : "@");
 
 /**
  * Serves the three suggestion plugins and owns the menu: it publishes the state the
@@ -97,7 +110,8 @@ export class SuggestionMenu {
 
 	pick(index: number) {
 		const item = this.menu?.items[index];
-		if (item && this.command) this.command({ id: item.id, label: item.label, kind: item.kind });
+		// An emoji pick runs its own command (insertEmoji), which reads only the id and label.
+		if (item && this.command) this.command({ id: item.id, label: item.label, kind: item.kind as TokenKind });
 	}
 
 	highlight(index: number) {
@@ -118,7 +132,8 @@ export class SuggestionMenu {
 		};
 		return {
 			char: trigger,
-			items: ({ query }) => candidatesFor(this.sources(), trigger, query),
+			items: async ({ query }) => (trigger === ":" ? emojiCandidates(await loadEmoji(), query) : candidatesFor(this.sources(), trigger, query)),
+			...(trigger === ":" && { command: insertEmoji }),
 			findSuggestionMatch: ({ $position }) => {
 				const before = $position.nodeBefore;
 				const text = before?.isText ? (before.text ?? "") : "";
@@ -148,6 +163,30 @@ export class SuggestionMenu {
 		};
 	}
 }
+
+/** A picked emoji replaces the `:query` typed, with a space after like a chip. */
+const insertEmoji: SuggestionOptions<Candidate, TokenAttrs>["command"] = ({ editor, range, props }) => {
+	editor.chain().focus().insertContentAt(range, `${props.label} `).run();
+};
+
+/** A typed `:smile:` becomes 😄, once the emoji data is loaded (opening the menu loads it). */
+const EmojiShortcodes = Extension.create({
+	name: "emojiShortcodes",
+	addInputRules() {
+		return [
+			new InputRule({
+				find: COMPLETED_SHORTCODE,
+				handler: ({ state, range, match }) => {
+					const index = loadedEmoji();
+					const emoji = index && emojiForShortcode(index, match[1]!);
+					if (!emoji) return null;
+					// The range ends after the typed ":" (it's already in), so back up over ":name:".
+					state.tr.insertText(emoji.char, range.to - match[1]!.length - 2, range.to);
+				},
+			}),
+		];
+	},
+});
 
 /** `@Ada`, `#sales`, `/Proposal`: one inline atom per chip. */
 const Token = Mention.extend({
@@ -202,8 +241,9 @@ export function composerExtensions(options: {
 			deleteTriggerWithBackspace: true,
 			renderText: ({ node }) => chipText(node),
 			renderHTML: ({ options: o, node }) => ["span", mergeAttributes(o.HTMLAttributes, { class: "token" }), chipText(node)],
-			suggestions: (["@", "#", "/"] as const).map((t) => options.menu.suggestion(t) as Omit<SuggestionOptions, "editor">),
+			suggestions: (["@", "#", "/", ":"] as const).map((t) => options.menu.suggestion(t) as Omit<SuggestionOptions, "editor">),
 		}),
+		EmojiShortcodes,
 		Send.configure({ send: options.send, sendWith: options.sendWith, menuOpen: () => options.menu.open }),
 	];
 }

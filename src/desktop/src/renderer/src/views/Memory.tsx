@@ -8,7 +8,7 @@ import { agentLabel, agentOptions } from "../agent-options";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { MemoryIcon } from "../icons";
-import { ConflictNotice, EmptyState, Form, Loading, NoMatches, Notice, Section, cardClass, descriptionClass, hintClass, inputClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../ui";
+import { ConflictNotice, EmptyState, Form, Loading, NoMatches, Notice, Section, cardClass, compactControlClass, compactPrimaryButton, descriptionClass, hintClass, inputClass, metadataClass, timeAgo, toolbarClass, useDraft, useRun } from "../ui";
 
 type MemoryItem = FunctionReturnType<typeof api.memory.list>[number];
 type Agent = { _id: Id<"agents">; name: string; archived: boolean };
@@ -42,9 +42,9 @@ export function MemoryTab({ role }: { role: Role }) {
 				canAddTeam={can(role, "memory.team.write")}
 				onAdd={(agentId, scope, content) => run(create({ agentId, scope, content }))}
 			/>
-			<div className="flex items-center gap-2 text-sm">
-				<span className="text-neutral-500">Showing</span>
+			<div className={toolbarClass}>
 				<Select
+					label="Agent"
 					value={filter}
 					options={[{ value: "all", label: "All agents" }, ...agentOptions(agents)]}
 					onChange={(f) => setFilter(f as typeof filter)}
@@ -212,7 +212,7 @@ function AddMemory({
 	const [scope, setScope] = useState<MemoryScope>("personal");
 	return (
 		<Form
-			className="flex gap-2"
+			className={toolbarClass}
 			onSubmit={() => {
 				if (!content.trim() || !agentId) return;
 				onAdd(agentId, scope, content.trim());
@@ -223,18 +223,16 @@ function AddMemory({
 				value={content}
 				onChange={(e) => setContent(e.target.value)}
 				placeholder="Add something to remember…"
-				className={`${inputClass} flex-1`}
+				className={`${compactControlClass} min-w-48 flex-1`}
 			/>
 			<Select
 				label="Agent"
-				className={inputClass}
 				value={agentId}
 				options={agentOptions(agents)}
 				onChange={(id) => setAgentId(id as Id<"agents">)}
 			/>
 			<Select
 				label="Who can see it"
-				className={inputClass}
 				value={scope}
 				options={[
 					{ value: "personal", label: "Personal" },
@@ -242,7 +240,7 @@ function AddMemory({
 				]}
 				onChange={setScope}
 			/>
-			<button type="submit" className={primaryButton}>
+			<button type="submit" className={compactPrimaryButton}>
 				Add
 			</button>
 		</Form>

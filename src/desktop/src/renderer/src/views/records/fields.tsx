@@ -1,5 +1,5 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { Select } from "../../controls";
+import { Checkbox, Select } from "../../controls";
 import { type FieldValue, type Money, TEXT_MAX, currencyCodes, formatMoney, minorDigits } from "@companybot/core/records";
 import { useState } from "react";
 import { api } from "../../api";
@@ -85,7 +85,7 @@ export function ValueEditor({
 		case "checkbox":
 			return (
 				<label className={cell}>
-					<input type="checkbox" checked={value === true} onChange={(e) => onSave(e.target.checked)} />
+					<Checkbox label={field.label} checked={value === true} onChange={onSave} />
 				</label>
 			);
 		case "date":

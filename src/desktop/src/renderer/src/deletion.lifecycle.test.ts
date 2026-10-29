@@ -23,6 +23,8 @@ vi.mock("convex/react", async (original) => ({
 }));
 vi.mock("./desktop", () => ({ desktop: undefined, useUpdates: () => ({}) }));
 vi.mock("./router", () => ({ navigate: vi.fn() }));
+// The test renderer has no page to put a dialog at the end of, so it stays in place.
+vi.mock("react-dom", async (actual) => ({ ...(await actual<typeof import("react-dom")>()), createPortal: (node: React.ReactNode) => node }));
 
 let root: ReactTestRenderer;
 beforeEach(() => {

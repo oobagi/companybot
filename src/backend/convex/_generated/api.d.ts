@@ -26,6 +26,7 @@ import type * as connectors from "../connectors.js";
 import type * as crons from "../crons.js";
 import type * as crypto from "../crypto.js";
 import type * as databaseViews from "../databaseViews.js";
+import type * as dictation from "../dictation.js";
 import type * as fields from "../fields.js";
 import type * as fileText from "../fileText.js";
 import type * as files from "../files.js";
@@ -92,6 +93,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   crypto: typeof crypto;
   databaseViews: typeof databaseViews;
+  dictation: typeof dictation;
   fields: typeof fields;
   fileText: typeof fileText;
   files: typeof files;

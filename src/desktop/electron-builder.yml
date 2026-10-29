@@ -15,6 +15,11 @@ publish:
   repo: companybot
 mac:
   category: public.app-category.productivity
+  # The signed app may use the microphone (dictation), and macOS asks with this text.
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: Companybot uses the microphone when you dictate a message.
   # Auto-update on macOS only works for signed, notarized apps.
   notarize: true
   target:
