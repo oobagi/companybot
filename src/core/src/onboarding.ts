@@ -26,7 +26,7 @@ export function welcomeText(kind: Welcome, { agent, name, memory }: { agent: str
 }
 
 /** The tutorial's steps, in order. Each completes when the person does it (backend onboarding.ts). */
-export const tutorialSteps = ["mention", "dm", "thread", "invite"] as const;
+const tutorialSteps = ["mention", "dm", "thread", "invite"] as const;
 export type TutorialStep = (typeof tutorialSteps)[number];
 
 /** Everyone gets the same steps; people who can invite get that one too. */

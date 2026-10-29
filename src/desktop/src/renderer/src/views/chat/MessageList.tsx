@@ -107,11 +107,13 @@ export function MessageList({
 	);
 }
 
+const Rule = () => <div className="h-px flex-1 bg-neutral-200" />;
+
 function Divider({ children }: { children: React.ReactNode }) {
 	return (
 		<div className="flex items-center gap-3 px-5 py-2 text-xs text-neutral-400">
 			{children}
-			<div className="h-px flex-1 bg-neutral-200" />
+			<Rule />
 		</div>
 	);
 }
@@ -119,9 +121,9 @@ function Divider({ children }: { children: React.ReactNode }) {
 function DayDivider({ ms }: { ms: number }) {
 	return (
 		<div className="flex items-center gap-3 px-5 pt-4 pb-1 text-xs font-medium text-neutral-500">
-			<div className="h-px flex-1 bg-neutral-200" />
+			<Rule />
 			{dayLabel(ms)}
-			<div className="h-px flex-1 bg-neutral-200" />
+			<Rule />
 		</div>
 	);
 }
@@ -131,11 +133,11 @@ function SummaryDivider({ label, summary }: { label: string; summary: string }) 
 	return (
 		<div className="flex flex-col gap-2 px-5 py-2">
 			<div className="flex items-center gap-3 text-xs text-neutral-400">
-				<div className="h-px flex-1 bg-neutral-200" />
+				<Rule />
 				<button type="button" onClick={() => setOpen(!open)} className="hover:text-neutral-600">
 					{label} {label === "Agents" ? "see" : "sees"} a summary of the messages above · {open ? "Hide" : "Show"} summary
 				</button>
-				<div className="h-px flex-1 bg-neutral-200" />
+				<Rule />
 			</div>
 			{open && (
 				<Markdown className="rounded-xl bg-neutral-50 px-4 py-3 text-sm leading-relaxed text-neutral-600">{summary}</Markdown>

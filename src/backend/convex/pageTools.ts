@@ -51,21 +51,23 @@ export const findFor = internalQuery({
 	args: { turnId: v.id("agentTurns"), input: v.any() },
 	handler: async (ctx, { turnId, input }) => {
 		const { member } = await runningTurn(ctx, turnId);
-		const { search, cursor, trashed = false, parent } = findInput.parse(input);
-		const parentPage = parent ? await pageNamed(ctx, member, parent) : null;
-		if (parentPage?.recordId) throw new ConvexError("Record bodies can't contain sub-pages.");
-		const row = (p: Doc<"pages">) => ({ id: p._id, title: p.title, parentId: p.parentId ?? null, edited: new Date(p.updatedAt).toISOString() });
-		const pages = ctx.db.query("pages");
-		const found = parent !== undefined
-			? pages.withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", parentPage?._id).eq("recordId", undefined))
-			: search?.trim()
-			? pages.withSearchIndex("search_title", (q) => q.search("title", search).eq("workspaceId", member.workspaceId).eq("archived", trashed))
-			: pages.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("recordId", undefined).eq("archived", trashed));
-		const page = await found.paginate({ numItems: search?.trim() ? SEARCH_MAX : FIND_MAX, cursor: cursor ?? null });
-		const state = pageStates(ctx);
-		const rows = [];
-		for (const p of page.page) if (!p.recordId && (await state(p)).archived === trashed) rows.push(row(p));
-		return { rows, more: !page.isDone, ...(!page.isDone && { cursor: page.continueCursor }) };
+		return asToolResult(async () => {
+			const { search, cursor, trashed = false, parent } = findInput.parse(input);
+			const parentPage = parent ? await pageNamed(ctx, member, parent) : null;
+			if (parentPage?.recordId) throw new ConvexError("Record bodies can't contain sub-pages.");
+			const row = (p: Doc<"pages">) => ({ id: p._id, title: p.title, parentId: p.parentId ?? null, edited: new Date(p.updatedAt).toISOString() });
+			const pages = ctx.db.query("pages");
+			const found = parent !== undefined
+				? pages.withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", parentPage?._id).eq("recordId", undefined))
+				: search?.trim()
+				? pages.withSearchIndex("search_title", (q) => q.search("title", search).eq("workspaceId", member.workspaceId).eq("archived", trashed))
+				: pages.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("recordId", undefined).eq("archived", trashed));
+			const page = await found.paginate({ numItems: search?.trim() ? SEARCH_MAX : FIND_MAX, cursor: cursor ?? null });
+			const state = pageStates(ctx);
+			const rows = [];
+			for (const p of page.page) if (!p.recordId && (await state(p)).archived === trashed) rows.push(row(p));
+			return { rows, more: !page.isDone, ...(!page.isDone && { cursor: page.continueCursor }) };
+		});
 	},
 });
 
@@ -79,8 +81,9 @@ export const readFor = internalQuery({
 			if (version && !oldId) throw new ConvexError("Version not found.");
 			const old = oldId ? await requireVersion(ctx, member, oldId) : null;
 			const record = recordName ? await recordNamed(ctx, member, recordName) : null;
-			const page = old?.page ?? (record ? await pageOfRecord(ctx, member.workspaceId, record._id) : name ? await pageNamed(ctx, member, name) : null);
-			if (old && ((record && old.page.recordId !== record._id) || (name && (await pageNamed(ctx, member, name))._id !== old.page._id))) throw new ConvexError("Version belongs to a different page.");
+			const named = name ? await pageNamed(ctx, member, name) : null;
+			const page = old?.page ?? (record ? await pageOfRecord(ctx, member.workspaceId, record._id) : named);
+			if (old && ((record && old.page.recordId !== record._id) || (named && named._id !== old.page._id))) throw new ConvexError("Version belongs to a different page.");
 			if (!record && !page) throw new ConvexError("Say which page (page) or record (record) to read.");
 			const result = page ? await pageHistory(ctx, page._id, { cursor: history ? cursor ?? null : null, numItems: history ? 20 : VERSIONS_SHOWN }) : null;
 			const versions = (result?.page ?? []).map((r) => ({

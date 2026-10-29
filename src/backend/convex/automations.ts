@@ -13,7 +13,7 @@ import {
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx } from "./_generated/server";
-import { mutation, query } from "./functions";
+import { memberMutation, mutation, query } from "./functions";
 import { canSee } from "./chatOps";
 import {
 	type Member,
@@ -29,7 +29,7 @@ import {
 	requireMember,
 	saveMade,
 } from "./lib";
-import { automationName, canView, definitionOf, installOf, postingProblem, requireEditable, runsForLabel, subscribersOf, visibleInstalls, webhookUrl } from "./automationOps";
+import { automationName, canView, definitionOf, installOf, postingProblem, requireEditable, runsForLabel, subscribersOf, visibleInstall, visibleInstalls, webhookUrl } from "./automationOps";
 import { forgetAutomationGrants } from "./permissions";
 import { startCascade } from "./cascade";
 import { audience, customTrigger } from "./schema";
@@ -162,10 +162,7 @@ const audienceArgs = { audience, channelId: v.optional(v.id("chats")) };
  * Makes an automation someone wrote. Anyone with `automations.create` can; it starts
  * with them subscribed if it's for people who turn it on. Returns its id.
  */
-export const create = mutation({
-	args: { config: customConfig, agentId: v.id("agents"), ...audienceArgs, timeZone: v.string() },
-	handler: async (ctx, args) => createAutomation(ctx, await requireMember(ctx), args),
-});
+export const create = memberMutation({ config: customConfig, agentId: v.id("agents"), ...audienceArgs, timeZone: v.string() }, createAutomation);
 
 /** Shared by `create` and the agents' `automations.create` tool, so both follow the same rules. */
 export async function createAutomation(
@@ -211,10 +208,7 @@ export async function createAutomation(
 /** Saves an automation's name, prompt, and trigger. Refused if someone saved since `expectedVersion`. */
 const saveAutomationArgs = v.object({ automationId: v.string(), config: customConfig, expectedVersion: v.number() });
 
-export const save = mutation({
-	args: saveAutomationArgs.fields,
-	handler: async (ctx, args) => saveAutomation(ctx, await requireMember(ctx), args),
-});
+export const save = memberMutation(saveAutomationArgs.fields, saveAutomation);
 
 export async function saveAutomation(ctx: MutationCtx, member: Member, { automationId, config, expectedVersion }: Infer<typeof saveAutomationArgs>) {
 	const { install } = await requireEditable(ctx, automationId, member);
@@ -243,10 +237,7 @@ export async function removeAutomation(ctx: MutationCtx, who: Who, automationId:
 	if (install) await setAutomationTrashed(ctx, who, install._id, true);
 }
 
-export const remove = mutation({
-	args: { automationId: v.string() },
-	handler: async (ctx, { automationId }) => removeAutomation(ctx, { member: await requireMember(ctx) }, automationId),
-});
+export const remove = memberMutation({ automationId: v.string() }, (ctx, member, { automationId }) => removeAutomation(ctx, { member }, automationId));
 
 /**
  * Moves an automation to Trash, or back: whoever can change it. In Trash nothing
@@ -290,10 +281,7 @@ const updateAutomationArgs = v.object({
 		channelId: v.optional(v.id("chats")),
 	});
 
-export const update = mutation({
-	args: updateAutomationArgs.fields,
-	handler: async (ctx, args) => updateAutomation(ctx, await requireMember(ctx), args),
-});
+export const update = memberMutation(updateAutomationArgs.fields, updateAutomation);
 
 export async function updateAutomation(ctx: MutationCtx, member: Member, { automationId, enabled, agentId, audience, channelId }: Infer<typeof updateAutomationArgs>) {
 	const { install } = await requireEditable(ctx, automationId, member);
@@ -325,18 +313,15 @@ export async function updateAutomation(ctx: MutationCtx, member: Member, { autom
 }
 
 /** Turns an automation on or off for yourself. Only automations that run for people who turn them on. */
-export const subscribe = mutation({
-	args: { automationId: v.string(), on: v.boolean() },
-	handler: async (ctx, { automationId, on }) => {
-		const problem = await setSubscription(ctx, await requireMember(ctx), automationId, on);
-		if (problem) throw new ConvexError(problem);
-	},
+export const subscribe = memberMutation({ automationId: v.string(), on: v.boolean() }, async (ctx, member, { automationId, on }) => {
+	const problem = await setSubscription(ctx, member, automationId, on);
+	if (problem) throw new ConvexError(problem);
 });
 
 /** Turns an automation on or off for `member`. Returns why it can't, or null. Shared with the agents' tool. */
 export async function setSubscription(ctx: MutationCtx, member: Member, automationId: string, on: boolean) {
-	const install = await installOf(ctx, member.workspaceId, automationId);
-	if (!install || !canView(member, install)) return "Automation not found.";
+	const install = await visibleInstall(ctx, member, automationId);
+	if (!install) return "Automation not found.";
 	if (install.audience !== "subscribers") return "This automation isn't one people turn on for themselves.";
 	const existing = await ctx.db
 		.query("automationSubscriptions")

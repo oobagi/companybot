@@ -1,4 +1,5 @@
 import { isLocalBackend } from "@companybot/core/local-auth";
+import { isEmail } from "@companybot/core/records";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvex } from "convex/react";
 import { useState } from "react";
@@ -28,7 +29,7 @@ export function SignIn({ onBack }: { onBack?: () => void }) {
 					onSubmit={() => {
 						const to = email.trim();
 						// The browser accepts "jaden@c"; a cut-off address would sign in as a new, wrong person.
-						if (!sentTo && !/^\S+@\S+\.\S+$/.test(to)) return fail("Enter your full email address.");
+						if (!sentTo && !isEmail(to)) return fail("Enter your full email address.");
 						if (sentTo) run({ email: sentTo, code: code.trim() });
 						else if (isLocalBackend(import.meta.env.CONVEX_URL)) {
 							// Local backend: no email is sent, so read the code back and sign straight in.

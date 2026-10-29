@@ -7,7 +7,7 @@ import { api } from "./api";
 import { WorkspaceContext, useMutation, useQuery, useWorkspace } from "./convex";
 import { desktop, useUpdates } from "./desktop";
 import { useAlerts } from "./notifications";
-import { navigate, useRoute } from "./router";
+import { navigate, redirect, useRoute } from "./router";
 import { ArrowLeftIcon, DatabaseIcon, PlusIcon, SettingsIcon, SignOutIcon } from "./icons";
 import { MenuDivider, Notice, Scroll, TopBar, TruncatedTips, useRun } from "./ui";
 import { RecordsView, recordTabs } from "./views/Records";
@@ -126,8 +126,8 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	const route = useRoute();
 	// Trash and Customize used to be their own screens.
 	useEffect(() => {
-		if (route[0] === "customize") navigate("settings", ...(route.length > 1 ? route.slice(1) : ["agents"]));
-		if (route[0] === "trash") navigate("settings", "trash");
+		if (route[0] === "customize") redirect("settings", ...(route.length > 1 ? route.slice(1) : ["agents"]));
+		if (route[0] === "trash") redirect("settings", "trash");
 	}, [route]);
 	const view: View = views.find((v) => v === route[0]) ?? "chat";
 	const settingsTab = settingsTabs.find((t) => t.id === (settingsTabAliases[route[1] ?? ""] ?? route[1]))?.id ?? "general";

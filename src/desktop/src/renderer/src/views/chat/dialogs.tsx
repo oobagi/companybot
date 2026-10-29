@@ -2,7 +2,7 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
-import { Field, Form, Loading, Notice, descriptionClass, inputClass, primaryButton, secondaryButton, useRun } from "../../ui";
+import { Field, Form, Loading, Notice, descriptionClass, inputClass, primaryButton, secondaryButton, useRun, useSynced } from "../../ui";
 import { AgentBadge, Avatar, Modal } from "./common";
 import { navigate } from "../../router";
 import { ProfileLink } from "./Profile";
@@ -40,7 +40,7 @@ export function CreateChannel({ onClose, onOpen }: { onClose: () => void; onOpen
 }
 
 export function BrowseChannels({ onClose, onOpen }: { onClose: () => void; onOpen: (chatId: Id<"chats">) => void }) {
-	const channels = useQuery(api.chats.browse);
+	const channels = useQuery(api.chats.browse, { withCounts: true });
 	const join = useMutation(api.chats.join);
 	const { error, run } = useRun();
 	return (
@@ -204,8 +204,9 @@ export function ChannelDetails({ chat, onClose, onLeft }: { chat: ChatDetails; o
 
 function EditChannel({ chat }: { chat: ChatDetails }) {
 	const update = useMutation(api.chats.updateChannel);
-	const [name, setName] = useState(chat.name ?? "");
-	const [topic, setTopic] = useState(chat.topic ?? "");
+	// Live: a teammate's rename shows here instead of being overwritten by a stale draft.
+	const [name, setName] = useSynced(chat.name ?? "");
+	const [topic, setTopic] = useSynced(chat.topic ?? "");
 	const { error, run } = useRun();
 	const dirty = name !== (chat.name ?? "") || topic !== (chat.topic ?? "");
 	return (

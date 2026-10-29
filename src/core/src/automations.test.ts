@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { describeTrigger, isValidTimeZone, scheduleDue } from "./automations";
+import { describeTrigger, scheduleDue } from "./automations";
+import { isValidTimeZone } from "./time";
 
 describe("automations", () => {
 	const brief = { trigger: { type: "schedule" as const, time: "08:00", weekdays: [1, 2, 3, 4, 5] } };

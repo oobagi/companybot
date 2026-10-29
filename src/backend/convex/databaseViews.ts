@@ -61,7 +61,7 @@ export async function saveView(ctx: MutationCtx, who: Who, typeId: Id<"recordTyp
 export async function deleteView(ctx: MutationCtx, who: Who, viewId: Id<"databaseViews">, version: number) {
 	checkPermission(who.member, "records.edit");
 	const view = requireInWorkspace(who.member, await ctx.db.get(viewId), "View");
-	await viewsOf(ctx, who.member, view.typeId);
+	await requireType(ctx, who.member, view.typeId, true);
 	checkVersion(view.version, version);
 	await ctx.db.delete(viewId);
 	await logChange(ctx, who, { typeId: view.typeId, subject: view.name, action: "view.deleted", changes: [{ key: "name", old: view.name }] });

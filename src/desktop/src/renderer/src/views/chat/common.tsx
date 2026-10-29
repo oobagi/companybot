@@ -60,9 +60,13 @@ export function AgentBadge() {
 	return <span className="shrink-0 rounded bg-neutral-200/70 px-1 py-px text-[10px] leading-tight font-medium text-neutral-500 uppercase">Bot</span>;
 }
 
+/** Everything open that Escape could close, in opening order: only the newest closes. */
+const dismissable: object[] = [];
+
 /**
  * Calls `onClose` on a click outside `ref` or on Escape. A popover's panel lives at the end of
- * the page, outside whatever opened it, so a click in one counts as inside.
+ * the page, outside whatever opened it, so a click in one counts as inside. Escape closes the
+ * one opened last (a picker inside a dialog, not the dialog with it).
  */
 export function useDismiss<T extends HTMLElement>(onClose: () => void, active = true) {
 	const ref = useRef<T>(null);
@@ -70,14 +74,17 @@ export function useDismiss<T extends HTMLElement>(onClose: () => void, active = 
 	close.current = onClose;
 	useEffect(() => {
 		if (!active) return;
+		const me = {};
+		dismissable.push(me);
 		const down = (e: MouseEvent) => {
 			const target = e.target as Element;
 			if (ref.current && !ref.current.contains(target) && !target.closest?.("[data-popover]")) close.current();
 		};
-		const key = (e: KeyboardEvent) => e.key === "Escape" && close.current();
+		const key = (e: KeyboardEvent) => e.key === "Escape" && dismissable.at(-1) === me && close.current();
 		document.addEventListener("mousedown", down);
 		document.addEventListener("keydown", key);
 		return () => {
+			dismissable.splice(dismissable.indexOf(me), 1);
 			document.removeEventListener("mousedown", down);
 			document.removeEventListener("keydown", key);
 		};

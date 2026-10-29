@@ -102,7 +102,7 @@ export async function createMemory(ctx: MutationCtx, { member, agentId: byAgent 
 }
 
 /** A memory the person can read, not in Trash. Others look like they don't exist. */
-export async function requireReadable(ctx: QueryCtx, member: Member, id: Id<"memories">) {
+async function requireReadable(ctx: QueryCtx, member: Member, id: Id<"memories">) {
 	const doc = await ctx.db.get(id);
 	if (!doc || doc.workspaceId !== member.workspaceId || doc.archived || !canReadMemory(toActor(member), toMemory(doc))) {
 		throw new ConvexError("Memory not found.");

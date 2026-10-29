@@ -1,5 +1,6 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import type { FunctionReturnType } from "convex/server";
+import { useMemo } from "react";
 import { api } from "../../api";
 import { useQuery } from "../../convex";
 
@@ -22,7 +23,7 @@ export type TokenNames = { names: string[]; channels: { name: string; id: Id<"ch
 export function useDirectory() {
 	const team = useQuery(api.workspace.team);
 	const chats = useQuery(api.chats.list);
-	const browse = useQuery(api.chats.browse);
+	const browse = useQuery(api.chats.browse, {});
 	const skillRows = useQuery(api.skills.list);
 	const people: (Participant & { isYou: boolean })[] =
 		team?.members.map((m) => ({ type: "user" as const, id: m.userId, name: m.name || m.email, image: m.image, isYou: m.isYou })) ?? [];
@@ -32,17 +33,16 @@ export function useDirectory() {
 		...(browse ?? []).map((c) => ({ id: c._id, name: c.name, topic: c.topic, private: false, joined: false })),
 	].sort((a, b) => a.name.localeCompare(b.name));
 	const skills: SkillRef[] = (skillRows ?? []).filter((s) => !s.trash).map((s) => ({ id: s.id, name: s.name, description: s.description }));
-	return {
-		people: people.filter((p) => !p.isYou),
-		agents,
-		channels,
-		skills,
-		tokens: {
+	// Stable while the lists are, so every message row doesn't rebuild its chip pattern per render.
+	const tokens = useMemo(
+		(): TokenNames => ({
 			names: [...people, ...agents].map((p) => p.name).filter(Boolean),
 			channels: channels.map((c) => ({ name: c.name, id: c.id })),
 			skills: skills.map((s) => s.name),
-		} satisfies TokenNames,
-	};
+		}),
+		[team, chats, browse, skillRows],
+	);
+	return { people: people.filter((p) => !p.isYou), agents, channels, skills, tokens };
 }
 
 export const chatTitle = (chat: Pick<ChatItem, "kind" | "name" | "title">) =>

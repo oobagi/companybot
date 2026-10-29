@@ -22,9 +22,11 @@ export const { getSnapshot, getSteps } = sync.syncApi<DataModel>({ checkRead: as
 export const latestVersion = query({
 	args: { id: v.string() },
 	handler: async (ctx, { id }): Promise<number | null> => {
-		const pageId = ctx.db.normalizeId("pages", id);
-		if (!pageId || !(await ctx.db.get(pageId))) return null;
-		await pageFor(ctx, id);
+		try {
+			await pageFor(ctx, id);
+		} catch {
+			return null;
+		}
 		return ctx.runQuery(components.prosemirrorSync.lib.latestVersion, { id });
 	},
 });

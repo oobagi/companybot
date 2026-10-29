@@ -18,8 +18,11 @@ export const canView = (member: Member, install: Doc<"automationInstalls">) => {
  * made or last edited it, or its trigger brings in others' text (webhooks and in-app events).
  * Those runs ask before acting as them in the workspace (core `Risk` "inside").
  */
+/** A retained library automation's definition: stored on its row, or (COMPAT, until `storedAutomations` ran) from the old catalog. */
+const storedDefinition = (install: Doc<"automationInstalls">) => install.definition ?? legacyAutomation(install.automationId);
+
 export function followsOthers(install: Doc<"automationInstalls">, userId: Id<"users">) {
-	const trigger = install.custom?.trigger ?? (install.definition ?? legacyAutomation(install.automationId))?.trigger;
+	const trigger = install.custom?.trigger ?? storedDefinition(install)?.trigger;
 	return (!!install.custom && (install.installedBy !== userId || install.custom.updatedBy !== userId)) || trigger?.type !== "schedule";
 }
 
@@ -33,8 +36,7 @@ export async function automationScope(ctx: QueryCtx, turn: Doc<"agentTurns">) {
 }
 
 export function automationName(install: Doc<"automationInstalls">) {
-	if (install.custom) return install.custom.name;
-	return (install.definition ?? legacyAutomation(install.automationId))?.name ?? install.automationId;
+	return install.custom?.name ?? storedDefinition(install)?.name ?? install.automationId;
 }
 
 /** An automation's install, unless it's in Trash: one there is gone to everything but Trash. */
@@ -44,6 +46,12 @@ export const installOf = async (ctx: QueryCtx, workspaceId: Id<"workspaces">, au
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId).eq("automationId", automationId))
 		.first();
 	return install?.archived ? null : install;
+};
+
+/** A live install this person can see, by automation id. */
+export const visibleInstall = async (ctx: QueryCtx, member: Member, automationId: string) => {
+	const install = await installOf(ctx, member.workspaceId, automationId);
+	return install && canView(member, install) ? install : null;
 };
 
 /** The workspace's installs this person can see; ones in Trash only if `trashed`. */
@@ -57,7 +65,7 @@ export const visibleInstalls = async (ctx: QueryCtx, member: Member, trashed = f
 
 /** What an install runs: its custom config or its retained stored definition. */
 export async function definitionOf(ctx: QueryCtx, install: Doc<"automationInstalls">): Promise<Automation | undefined> {
-	if (!install.custom) return install.definition ?? legacyAutomation(install.automationId);
+	if (!install.custom) return storedDefinition(install);
 	const { trigger } = install.custom;
 	const channel = trigger.type === "event" && trigger.event === "message.posted" ? await ctx.db.get(trigger.channelId as Id<"chats">) : null;
 	return customAutomation(install.automationId, install.custom, install.custom.version, channel?.name);
@@ -66,8 +74,8 @@ export async function definitionOf(ctx: QueryCtx, install: Doc<"automationInstal
 /** An installed automation the signed-in person may change: theirs, or any if they manage automations. */
 export async function requireEditable(ctx: QueryCtx, automationId: string, acting?: Member) {
 	const member = acting ?? await requireMember(ctx);
-	const install = await installOf(ctx, member.workspaceId, automationId);
-	if (!install || !canView(member, install)) throw new ConvexError("Automation not found.");
+	const install = await visibleInstall(ctx, member, automationId);
+	if (!install) throw new ConvexError("Automation not found.");
 	if (!canEditMade(member, "automations.manage", install.custom ? install.installedBy : undefined))
 		throw new ConvexError(install.custom ? madeEditDenied : deniedMessage("automations.manage"));
 	return { member, install };

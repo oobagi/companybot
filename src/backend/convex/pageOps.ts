@@ -141,7 +141,7 @@ export async function deletePage(ctx: MutationCtx, pageId: Id<"pages">) {
 	await startCascade(ctx, "page", { pageId, ...(page && { workspaceId: page.workspaceId }) });
 }
 
-export const latestVersionOf = (ctx: QueryCtx, pageId: Id<"pages">) =>
+const latestVersionOf = (ctx: QueryCtx, pageId: Id<"pages">) =>
 	ctx.db
 		.query("pageVersions")
 		.withIndex("by_page", (q) => q.eq("pageId", pageId))

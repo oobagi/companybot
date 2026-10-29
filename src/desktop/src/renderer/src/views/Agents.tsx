@@ -11,6 +11,7 @@ import { ImagePicker } from "./ImagePicker";
 import { ModelPicker } from "./ModelPicker";
 import { TrashNotice } from "./Trash";
 import { AgentIcon, TrashIcon } from "../icons";
+import { shortModel } from "@companybot/core/models";
 import { ConflictNotice, type Crumb, Field, Loading, Notice, Page, SaveBar, Section, barDangerButton, cardClass, descriptionClass, inputClass, metadataClass, timeAgo, useDraft, useRun } from "../ui";
 
 type Agent = FunctionReturnType<typeof api.agents.list>[number];
@@ -40,7 +41,7 @@ function AgentRow({ agent, onOpen }: { agent: Agent; onOpen: () => void }) {
 			<span className="font-medium">{agent.name}</span>
 			{agent.description && <span className={descriptionClass}>{agent.description}</span>}
 			<span className={metadataClass}>
-				{agent.model.replace("anthropic/", "")} · v{agent.version} · edited by {agent.updatedByName}{" "}
+				{shortModel(agent.model)} · v{agent.version} · edited by {agent.updatedByName}{" "}
 				{timeAgo(agent.updatedAt)}
 			</span>
 		</button>
@@ -269,7 +270,7 @@ function History({ agent, isOwner }: { agent: Agent; isOwner: boolean }) {
 						{openVersion === v.version && (
 							<div className="mt-2 flex flex-col gap-1 border-t border-neutral-100 pt-2 text-neutral-600">
 								<p>
-									<b>{v.config.name}</b> · {v.config.model.replace("anthropic/", "")} · {v.config.tools.join(", ") || "no tools"}
+									<b>{v.config.name}</b> · {shortModel(v.config.model)} · {v.config.tools.join(", ") || "no tools"}
 								</p>
 								<pre className="whitespace-pre-wrap font-mono text-xs">{v.config.instructions || "(no instructions)"}</pre>
 							</div>

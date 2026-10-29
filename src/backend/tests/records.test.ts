@@ -183,6 +183,14 @@ describe("records", () => {
 		const created = (await history()).at(-1)!;
 		await owner.mutation(api.records.undo, { historyId: created._id });
 		expect((await owner.query(api.records.get, { recordId: id }))!.archived).toBe(true);
+
+		// A Trash move that a later move came after can't be undone either: the later one stands.
+		const trashed = (await history())[0]!;
+		await owner.mutation(api.records.restore, { recordId: id });
+		await owner.mutation(api.records.archive, { recordId: id });
+		await expect(owner.mutation(api.records.undo, { historyId: trashed._id })).rejects.toThrow("moved to or from Trash since");
+		await owner.mutation(api.records.undo, { historyId: (await history())[0]!._id });
+		expect((await owner.query(api.records.get, { recordId: id }))!.archived).toBe(false);
 	});
 
 	it("archives records out of lists, filters and links, and restores them", async () => {

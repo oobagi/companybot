@@ -66,9 +66,9 @@ export interface Field extends FieldConfig {
 /** Every type has it. Its value is the record's title. */
 export const NAME_KEY = "name";
 
-export const FIELD_LABEL_MAX = 60;
+const FIELD_LABEL_MAX = 60;
 export const FIELDS_PER_TYPE_MAX = 100;
-export const OPTIONS_MAX = 100;
+const OPTIONS_MAX = 100;
 export const TEXT_MAX = 10_000;
 /** Most values a `multiple` field holds. */
 export const MULTI_MAX = 50;
@@ -139,6 +139,8 @@ export function formatDate(day: string, locale?: string) {
 }
 
 export const isCurrencyCode = (code: unknown): code is string => typeof code === "string" && currencyCodes.includes(code);
+/** A whole address, loosely: something@somewhere.tld. Shared by sign-in, invites and email fields. */
+export const isEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 
 /** A key from a label: "Roof type" → "roof_type", unique among `taken`. */
 export function keyOf(label: string, taken: Iterable<string>) {
@@ -257,7 +259,9 @@ function normalizeOne(field: Field, raw: unknown, label: string, mode: ValueMode
 		}
 		case "date": {
 			const day = text?.slice(0, 10) ?? "";
-			const ok = /^\d{4}-\d{2}-\d{2}$/.test(day) && new Date(`${day}T00:00:00Z`).toISOString().startsWith(day);
+			// An out-of-range month or day parses as NaN; toISOString() on it would throw.
+			const ms = /^\d{4}-\d{2}-\d{2}$/.test(day) ? new Date(`${day}T00:00:00Z`).getTime() : Number.NaN;
+			const ok = !Number.isNaN(ms) && new Date(ms).toISOString().startsWith(day);
 			return ok ? { value: day } : { error: `${label} is a date like 2026-10-25.` };
 		}
 		case "checkbox":
@@ -272,7 +276,7 @@ function normalizeOne(field: Field, raw: unknown, label: string, mode: ValueMode
 			return { value: option.id };
 		}
 		case "email":
-			if (!text || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) return { error: `${label} is an email address.` };
+			if (!text || !isEmail(text)) return { error: `${label} is an email address.` };
 			return { value: text.toLowerCase() };
 		case "phone":
 			if (!text || !/^\+?[\d\s().-]+$/.test(text) || text.replace(/\D/g, "").length < 7)

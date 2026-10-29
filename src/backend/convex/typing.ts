@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { type MutationCtx, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { type Participant, agentOfDm, namer, requireChat, visibleChat } from "./chatOps";
+import { type Participant, agentOfDm, namer, requireChat, threadParent, visibleChat } from "./chatOps";
 import { mutation, query } from "./functions";
 import { requireMember, sweepExpired } from "./lib";
 import { STALE_TURN_MS } from "./turns";
@@ -23,10 +23,7 @@ export const ping = mutation({
 		const member = await requireMember(ctx);
 		const chat = await requireChat(ctx, member, chatId);
 		if (chat.archived || agentOfDm(chat)) return;
-		if (threadId) {
-			const parent = await ctx.db.get(threadId);
-			if (!parent || parent.chatId !== chatId || parent.threadId) return;
-		}
+		if (threadId && !(await threadParent(ctx, chatId, threadId))) return;
 		const row = await rowOf(ctx, chatId, threadId, member.userId);
 		if (row) await ctx.db.patch(row._id, { at: Date.now() });
 		else await ctx.db.insert("typing", { workspaceId: member.workspaceId, chatId, threadId, userId: member.userId, at: Date.now() });

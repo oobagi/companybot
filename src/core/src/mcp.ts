@@ -18,12 +18,16 @@ export interface ConnectorSession {
  * Pass `transport` to talk to a server in-process (tests); otherwise it uses the
  * connector's URL with the connection's credentials. OAuth connectors also need an
  * `authProvider` (a ConnectorOAuth), which sends the token and refreshes it.
+ *
+ * Gives up after `timeoutMs` (connecting and listing tools). A server that answers later
+ * anyway is closed, not leaked.
  */
 export async function openConnector(
 	connector: Connector,
 	connection: { credentials: ConnectorCredentials; authProvider?: OAuthClientProvider } | { transport: MCPTransport },
+	timeoutMs = 10_000,
 ): Promise<ConnectorSession> {
-	const client = await createMCPClient({
+	const connecting = createMCPClient({
 		transport:
 			"transport" in connection
 				? connection.transport
@@ -34,8 +38,13 @@ export async function openConnector(
 						authProvider: connection.authProvider,
 					},
 	});
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => reject(new Error("Timed out connecting.")), timeoutMs);
+	});
 	try {
-		const { tools } = await client.listTools();
+		const client = await Promise.race([connecting, timeout]);
+		const { tools } = await Promise.race([client.listTools(), timeout]);
 		return {
 			connector: { id: connector.id, name: connector.name },
 			instructions: client.instructions,
@@ -61,8 +70,10 @@ export async function openConnector(
 			),
 		};
 	} catch (e) {
-		await client.close();
+		connecting.then((client) => client.close()).catch(() => {});
 		throw e;
+	} finally {
+		clearTimeout(timer);
 	}
 }
 

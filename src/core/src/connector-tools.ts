@@ -1,6 +1,6 @@
 import { type ToolSet, asSchema, tool } from "ai";
 import { z } from "zod";
-import type { ToolDef } from "./tools";
+import { type ToolDef, resultText } from "./tools";
 
 /**
  * Connector tools aren't sent to the model up front: one MCP server can carry dozens of
@@ -26,6 +26,8 @@ export function connectorMetaTools(
 	run: (t: ToolDef, input: unknown) => Promise<unknown>,
 ): ToolSet {
 	const byId = new Map(tools.map((t) => [t.id, t]));
+	// Tools are fixed for the turn: index them once, on the first search.
+	let docs: ReturnType<typeof indexTools> | undefined;
 	return {
 		[CONNECTOR_SEARCH]: tool({
 			description:
@@ -39,7 +41,7 @@ export function connectorMetaTools(
 						tools: tools.map((t) => ({ tool: t.id, description: firstLine(t.description) })),
 					};
 				}
-				const matches = (await rank(tools, query)).slice(0, SEARCH_LIMIT);
+				const matches = rank(await (docs ??= indexTools(tools)), query).slice(0, SEARCH_LIMIT);
 				if (matches.length === 0) return { tools: [], note: "No match. Try other words, or an empty query to list all." };
 				return { tools: matches.map(({ t, schema }) => ({ tool: t.id, description: t.description, input: schema })) };
 			},
@@ -63,19 +65,22 @@ export function connectorMetaTools(
 
 const words = (s: string) => s.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
 
-/**
- * Tools ranked by query words found in their id, description, and argument names.
- * Rare words count more (words every tool shares, like the service's name, count
- * for nothing), and an exact tool id always wins.
- */
-async function rank(tools: ToolDef[], query: string) {
-	const docs = await Promise.all(
+/** Each tool's schema and the words in its id, description and argument names. */
+const indexTools = (tools: ToolDef[]) =>
+	Promise.all(
 		tools.map(async (t) => {
 			const schema = await asSchema(t.input).jsonSchema;
 			const props = Object.keys((schema as { properties?: object }).properties ?? {}).join(" ");
 			return { t, schema, id: new Set(words(t.id)), text: new Set(words(`${t.description} ${props}`)) };
 		}),
 	);
+
+/**
+ * Tools ranked by query words found in their id, description, and argument names.
+ * Rare words count more (words every tool shares, like the service's name, count
+ * for nothing), and an exact tool id always wins.
+ */
+function rank(docs: Awaited<ReturnType<typeof indexTools>>, query: string) {
 	const q = [...new Set(words(query))];
 	const weight = new Map(q.map((w) => [w, Math.log(1 + docs.length / Math.max(1, docs.filter((d) => d.id.has(w) || d.text.has(w)).length))]));
 	const exact = new Set(query.split(/[\s,]+/));
@@ -91,5 +96,4 @@ async function rank(tools: ToolDef[], query: string) {
 const firstLine = (s: string) => s.split("\n")[0]!.slice(0, 160);
 
 /** Which tool a `connectors_call` ran, for showing tool activity. */
-export const calledConnectorTool = (input: unknown) =>
-	input && typeof input === "object" && "tool" in input && typeof input.tool === "string" ? input.tool : undefined;
+export const calledConnectorTool = (input: unknown) => resultText(input, "tool");

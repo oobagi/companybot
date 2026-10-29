@@ -112,6 +112,24 @@ describe("agent turns", () => {
 		expect((await owner.query(api.chats.place, { chatId }))?.costUsd).toBeCloseTo(0.03);
 	});
 
+	it("makes an agent's finished DM reply unread: sidebar, rail and alerts", async () => {
+		const { t, owner } = await ownerAndMember();
+		const { scribe } = await agentsOf(owner);
+		const chatId = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [scribe._id] });
+		// Fake timers hold Date.now() still, as Convex does inside one mutation: the reply's
+		// placeholder lands at the very moment the message marked the chat read.
+		await owner.mutation(api.messages.send, { chatId, text: "one", mentions: noMentions });
+		const turn = (await turnsOf(t)).at(-1)!;
+		const dm = async () => (await owner.query(api.chats.list))!.agents.find((a) => a.dmId === chatId)!;
+		expect((await dm()).unread).toBe(false);
+		await t.mutation(internal.turns.updateReply, { replyId: turn.replyId!, text: "Hi", parts: [{ type: "text", text: "Hi" }] });
+		vi.setSystemTime(Date.now() + 1000);
+		await t.mutation(internal.turns.finishReply, { turnId: turn._id, usage: usage(0.01) });
+		expect((await dm()).unread).toBe(true);
+		expect((await owner.query(api.chats.alerts))!.map((a) => a.text)).toEqual(["Hi"]);
+		expect((await owner.query(api.workspace.activity)).map((w) => w.mentions)).toEqual([1]);
+	});
+
 	it("never lets agents trigger agents, and drops mentions of archived agents", async () => {
 		const { t, owner } = await ownerAndMember();
 		const { companybot, scribe } = await agentsOf(owner);

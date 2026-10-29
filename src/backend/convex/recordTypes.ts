@@ -2,7 +2,7 @@ import { canEditMade } from "@companybot/core";
 import { v } from "convex/values";
 import { mutation, query } from "./functions";
 import { getMember, requireMember, toActor } from "./lib";
-import { createType, fieldsOf, setTypeTrashed, toField, typesOf, updateType } from "./recordOps";
+import { createType, fieldsOf, liveTypesOf, setTypeTrashed, toField, updateType } from "./recordOps";
 
 // Databases: the workspace's data model. Owners add types (`fields.manage`); fields
 // are in fields.ts. See wiki/data.md.
@@ -14,7 +14,7 @@ export const list = query({
 		const member = await getMember(ctx);
 		if (!member) return [];
 		const actor = toActor(member);
-		const types = (await typesOf(ctx, member.workspaceId)).filter((t) => !t.archived).sort((a, b) => a._creationTime - b._creationTime);
+		const types = await liveTypesOf(ctx, member.workspaceId);
 		return Promise.all(
 			types.map(async (t) => {
 				const fields = await fieldsOf(ctx, t._id);

@@ -1,8 +1,7 @@
-import { manageTools } from "./manage-tools";
+import { manageTools, skillConfigInput } from "./manage-tools";
 import { z } from "zod";
 import { automationTools } from "./automation-tools";
 import { chatTools } from "./chat";
-import { SKILL_DESCRIPTION_MAX, SKILL_NAME_MAX } from "./skills";
 import { pageTools } from "./page-tools";
 import { recordTools } from "./record-tools";
 import { formatLocalTime } from "./time";
@@ -104,13 +103,7 @@ export const builtinTools: ToolDef[] = [
 		title: "Create a skill",
 		description:
 			"Save a skill for the whole team: instructions any agent here loads when a task calls for it. Only after the person confirmed the name, description, and instructions you showed them.",
-		input: z.object({
-			name: z.string().describe(`Short display name, under ${SKILL_NAME_MAX} characters`),
-			description: z
-				.string()
-				.describe(`What it does and when to use it, in one line under ${SKILL_DESCRIPTION_MAX} characters. Agents see only this until they load it.`),
-			instructions: z.string().describe("The steps, rules, and examples, in Markdown, written to an agent"),
-		}),
+		input: skillConfigInput,
 		// Every agent here reads skills, so a new one is checked by a person first.
 		risk: "outside",
 		execute: (input, { skills }) => skills.create(input),

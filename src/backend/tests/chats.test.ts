@@ -21,7 +21,8 @@ describe("chats", () => {
 		const open = await owner.mutation(api.chats.createChannel, { name: "  Sales Team!", private: false });
 		const secret = await owner.mutation(api.chats.createChannel, { name: "#Board", private: true });
 		expect((await owner.query(api.chats.get, { chatId: open }))?.name).toBe("sales-team");
-		expect((await member.query(api.chats.browse)).map((c) => c.name)).toEqual(["sales-team"]);
+		expect((await member.query(api.chats.browse, {})).map((c) => [c.name, c.memberCount])).toEqual([["sales-team", undefined]]);
+		expect((await member.query(api.chats.browse, { withCounts: true })).map((c) => [c.name, c.memberCount])).toEqual([["sales-team", 1]]);
 		expect(await member.query(api.chats.get, { chatId: secret })).toBeNull();
 		await owner.mutation(api.messages.send, { chatId: secret, text: "Q4 numbers", mentions: noMentions });
 		expect(await member.query(api.messages.list, { chatId: secret })).toEqual([]);
@@ -177,10 +178,12 @@ describe("chats", () => {
 		});
 		expect(await generalOf(member)).toMatchObject({ unread: false, mentioned: true });
 		expect((await member.query(api.chats.alerts))!.map((a) => [a.messageId, a.threadId, a.text])).toEqual([[reply, parent, "@member in here"]]);
+		expect((await member.query(api.workspace.activity)).map((w) => [w.unread, w.mentions])).toEqual([[true, 1]]);
 		await tick();
 		await member.mutation(api.chats.markRead, { chatId: general._id });
 		expect((await generalOf(member)).mentioned).toBe(false);
 		expect(await member.query(api.chats.alerts)).toEqual([]);
+		expect((await member.query(api.workspace.activity)).map((w) => [w.unread, w.mentions])).toEqual([[false, 0]]);
 	});
 });
 

@@ -1,7 +1,7 @@
-import { Fragment, useState } from "react";
+import { useState } from "react";
 import { navigate } from "../../router";
 import { AgentIcon, AutomationIcon, ConnectorIcon, SkillIcon, TrashIcon } from "../../icons";
-import { ConflictNotice, type Crumb, EmptyState, NotFound, Notice, Page, SaveBar, barDangerButton, cardClass, descriptionClass, disabledButtonClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
+import { ConflictNotice, type Crumb, EmptyState, Facts as UiFacts, NotFound, Notice, Page, SaveBar, barDangerButton, cardClass, descriptionClass, disabledButtonClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
 import { TrashNotice } from "../Trash";
 import { Confirm } from "../chat/common";
 
@@ -246,15 +246,5 @@ export function Missing({ tab, loaded }: { tab: CustomizeTab; loaded: boolean })
 	);
 }
 
-export function Facts({ rows }: { rows: [string, string][] }) {
-	return (
-		<dl className={`grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-sm ${cardClass}`}>
-			{rows.map(([label, value]) => (
-				<Fragment key={label}>
-					<dt className="text-neutral-500">{label}</dt>
-					<dd className="break-words">{value}</dd>
-				</Fragment>
-			))}
-		</dl>
-	);
-}
+/** An item's facts, in its card. */
+export const Facts = ({ rows }: { rows: [string, string][] }) => <UiFacts rows={rows} className={`gap-x-6 gap-y-1.5 text-sm ${cardClass}`} />;

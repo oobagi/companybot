@@ -132,14 +132,13 @@ describe("requests naming a workspace", () => {
 			["agents.update", () => B.mutation(api.agents.update, { agentId, expectedVersion: agent.version, config: { name: agent.name, description: agent.description, instructions: agent.instructions, model: agent.model, tools: agent.tools } })],
 			["agents.setArchived", () => B.mutation(api.agents.setArchived, { agentId, archived: true })],
 			["workspace.resendInvite", () => B.mutation(api.workspace.resendInvite, { id: invite.id })],
+			["workspace.cancelInvite", () => B.mutation(api.workspace.cancelInvite, { id: invite.id })],
 			["workspace.setRole", () => B.mutation(api.workspace.setRole, { id: deputy.id, role: "member" })],
+			["workspace.removeMember", () => B.mutation(api.workspace.removeMember, { id: deputy.id })],
 		];
 		for (const [name, call] of refused) {
 			await expect(call(), name).rejects.toThrow(/not found|isn't available|can't/i);
 		}
-		// These quietly do nothing.
-		await B.mutation(api.workspace.cancelInvite, { id: invite.id });
-		await B.mutation(api.workspace.removeMember, { id: deputy.id });
 		const after = (await A.query(api.workspace.team))!;
 		expect(after.invites.map((i) => i.id)).toEqual([invite.id]);
 		expect(after.members.map((m) => m.id)).toContain(deputy.id);

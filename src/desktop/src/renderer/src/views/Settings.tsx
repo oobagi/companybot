@@ -264,7 +264,7 @@ function GeneralForm({
 	);
 }
 
-const timeZones = Intl.supportedValuesOf("timeZone");
+const timeZoneOptions = Intl.supportedValuesOf("timeZone").map((zone) => ({ value: zone, label: zoneLabel(zone) }));
 
 /** Personal: only you see these, and they follow you to every device. */
 function ProfileTab() {
@@ -298,7 +298,7 @@ function ProfileTab() {
 					<Select
 						className={wideControlClass}
 						value={prefs.timeZone ?? "auto"}
-						options={[{ value: "auto", label: `Automatic (${zoneLabel(deviceTimeZone())})` }, ...timeZones.map((zone) => ({ value: zone, label: zoneLabel(zone) }))]}
+						options={[{ value: "auto", label: `Automatic (${zoneLabel(deviceTimeZone())})` }, ...timeZoneOptions]}
 						onChange={(zone) => run(update({ timeZone: zone === "auto" ? null : zone }))}
 					/>
 				</Setting>

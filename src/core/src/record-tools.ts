@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { fieldKinds } from "./records";
-import { type ToolDef, defineTool, jsonOutput, resultText as text } from "./tools";
+import { type ToolDef, dataOf, defineTool, jsonOutput, resultText as text } from "./tools";
 
 /**
  * Agents use the CRM as the person they're helping: "add Acme Roofing as a client", "move
@@ -167,7 +167,8 @@ export function forModel(output: unknown, textMax: number): unknown {
 			return `${v.slice(0, max)}… (cut from ${v.length} characters)`;
 		}
 		if (Array.isArray(v)) return v.map((x) => clip(x, max));
-		if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, clip(x, max)]));
+		// The page cursor is opaque text the next call sends back; cut, it's useless.
+		if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, k === "cursor" ? x : clip(x, max)]));
 		return v;
 	};
 	const size = (v: unknown) => JSON.stringify(v).length;
@@ -301,7 +302,7 @@ export const recordTools: ToolDef[] = [
 			return result;
 		},
 		toModelOutput: ({ output }) => {
-			const data = output && typeof output === "object" && "data" in output ? output.data : output;
+			const data = dataOf(output);
 			const detail = data && typeof data === "object" && "json" in data;
 			return jsonOutput(detail ? output : forModel(output, 20_000));
 		},

@@ -56,6 +56,9 @@ export function parseGatewayModels(body: unknown): ModelInfo[] {
 const tokens = (n: number) => (n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : `${Math.round(n / 1e3)}K`);
 const usd = (n: number) => `$${+n.toFixed(n < 1 ? 3 : 2)}`;
 
+/** "anthropic/claude-sonnet-5.5" → "claude-sonnet-5.5", for labels. */
+export const shortModel = (id: string) => id.split("/").at(-1) ?? id;
+
 /** "1M context · $3 / $15 per M tokens", or "" when the gateway said neither. */
 export function modelNote(m: ModelInfo) {
 	const parts = [];

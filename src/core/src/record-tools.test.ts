@@ -190,6 +190,10 @@ describe("records tools", () => {
 		// Widgets read the whole result by ref.
 		const table = await widgetTools.find((t) => t.id === "widgets.table")!.execute({ columns: ["Deal"], from: { ref: "r1", path: "rows", fields: ["name"] } }, c);
 		expect((table as any).widget.props.rows).toHaveLength(50);
+		// The page cursor is sent back as is, however short text gets cut.
+		const cursor = JSON.stringify({ q: "0123456789abcdef", p: "c0", a: ["x".repeat(200), 1] });
+		const paged = forModel({ ref: "r9", data: { type: "Deals", typeName: "Deal", rows: big, more: true, cursor } }, 300) as any;
+		expect(paged.data.cursor).toBe(cursor);
 		// Small results and errors reach the model as they are.
 		const small = { ref: "r2", data: { type: "Deals", typeName: "Deal", rows: [deal(1)], more: false } };
 		expect(forModel(small, 300)).toBe(small);

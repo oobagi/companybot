@@ -4,7 +4,7 @@ import type { Id, TableNames } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { addChannelMembers, markReadAs, createChannelAs, joinChannel, leaveChannel, openDirectMessage, removeChannelMember, updateChannelAs } from "./chats";
 import { chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
-import { automationName, automationScope, canView, definitionOf, installOf } from "./automationOps";
+import { automationName, automationScope, canView, definitionOf, visibleInstall } from "./automationOps";
 import { removeAutomation, saveAutomation, updateAutomation } from "./automations";
 import { installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
 import { editMessage, removeMessage, reactMessage, sendMessage } from "./messages";
@@ -162,8 +162,8 @@ export const runFor = internalMutation({
 						};
 					}
 
-					const install = await installOf(ctx, member.workspaceId, r.id);
-					if (!install || !canView(member, install)) throw new ConvexError("Automation not found.");
+					const install = await visibleInstall(ctx, member, r.id);
+					if (!install) throw new ConvexError("Automation not found.");
 					if (r.action === "get")
 						return {
 							id: r.id,

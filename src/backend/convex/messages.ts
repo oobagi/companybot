@@ -3,7 +3,7 @@ import { completeSteps } from "./onboarding";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
-import { mutation, query } from "./functions";
+import { memberMutation, query } from "./functions";
 import {
 	type Namer,
 	type Participant,
@@ -16,10 +16,12 @@ import {
 	reactionsOf,
 	replyAuthorsOf,
 	requireChat,
+	threadParent,
 	toggleReaction,
 	visibleChat,
+	visibleReply,
 } from "./chatOps";
-import { type Who, type Member, memberOf, nameOf, requireMember } from "./lib";
+import { type Who, type Member, memberOf, nameOf } from "./lib";
 import { noteMentions, workspaceRecords } from "./recordOps";
 import { installOf } from "./skills";
 import type { messagePart, replyStats } from "./schema";
@@ -61,8 +63,8 @@ export const list = query({
 	handler: async (ctx, { chatId, threadId }): Promise<Message[]> => {
 		const visible = await visibleChat(ctx, chatId);
 		if (!visible) return [];
-		const parent = threadId && (await ctx.db.get(threadId));
-		if (threadId && (!parent || parent.chatId !== chatId)) return [];
+		const parent = threadId && (await threadParent(ctx, chatId, threadId));
+		if (threadId && !parent) return [];
 		const docs = (
 			await ctx.db
 				.query("chatMessages")
@@ -79,8 +81,8 @@ export const list = query({
 export const stream = query({
 	args: { messageId: v.id("chatMessages") },
 	handler: async (ctx, { messageId }) => {
-		const message = await ctx.db.get(messageId);
-		if (message?.status !== "streaming" || !(await visibleChat(ctx, message.chatId))) return null;
+		const visible = await visibleReply(ctx, messageId);
+		if (visible?.reply.status !== "streaming") return null;
 		const stream = await streamOf(ctx, messageId);
 		return { text: stream?.text ?? "", parts: stream?.parts ?? [] };
 	},
@@ -136,10 +138,7 @@ const sendMessageArgs = v.object({
 		}),
 	});
 
-export const send = mutation({
-	args: sendMessageArgs.fields,
-	handler: async (ctx, args) => sendMessage(ctx, { member: await requireMember(ctx) }, args),
-});
+export const send = memberMutation(sendMessageArgs.fields, (ctx, member, args) => sendMessage(ctx, { member }, args));
 
 export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId, text, mentions }: Infer<typeof sendMessageArgs>): Promise<Id<"chatMessages">> {
 	const { member } = who;
@@ -147,10 +146,7 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	if (chat.archived) throw new ConvexError("This channel is in Trash.");
 	text = text.trim();
 	if (!text) throw new ConvexError("Write something first.");
-	if (threadId) {
-		const parent = await ctx.db.get(threadId);
-		if (!parent || parent.chatId !== chatId || parent.threadId) throw new ConvexError("That thread doesn't exist.");
-	}
+	if (threadId && !(await threadParent(ctx, chatId, threadId))) throw new ConvexError("That thread doesn't exist.");
 	await addToChat(ctx, chat, { userId: member.userId });
 
 	// Mentions outside the workspace (or of archived agents) are dropped, not trusted.
@@ -225,21 +221,12 @@ async function requireOwn(ctx: QueryCtx, who: Who, messageId: Id<"chatMessages">
 	return message;
 }
 
-export const edit = mutation({
-	args: { messageId: v.id("chatMessages"), text: v.string() },
-	handler: async (ctx, { messageId, text }) => editMessage(ctx, { member: await requireMember(ctx) }, messageId, text),
-});
+export const edit = memberMutation({ messageId: v.id("chatMessages"), text: v.string() }, (ctx, member, { messageId, text }) => editMessage(ctx, { member }, messageId, text));
 
 /** Keeps the row (threads hang off it) but clears its content and reactions. */
-export const remove = mutation({
-	args: { messageId: v.id("chatMessages") },
-	handler: async (ctx, { messageId }) => removeMessage(ctx, { member: await requireMember(ctx) }, messageId),
-});
+export const remove = memberMutation({ messageId: v.id("chatMessages") }, (ctx, member, { messageId }) => removeMessage(ctx, { member }, messageId));
 
-export const react = mutation({
-	args: { messageId: v.id("chatMessages"), emoji: v.string() },
-	handler: async (ctx, { messageId, emoji }) => reactMessage(ctx, { member: await requireMember(ctx) }, messageId, emoji),
-});
+export const react = memberMutation({ messageId: v.id("chatMessages"), emoji: v.string() }, (ctx, member, { messageId, emoji }) => reactMessage(ctx, { member }, messageId, emoji));
 
 export async function editMessage(ctx: MutationCtx, who: Who, messageId: Id<"chatMessages">, text: string) {
 	const message = await requireOwn(ctx, who, messageId);

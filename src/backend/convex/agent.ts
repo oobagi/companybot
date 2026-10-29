@@ -20,7 +20,6 @@ import {
 	callLabel,
 	clipJson,
 	describeCall,
-	buildToolSet,
 	buildTurnInput,
 	buildTurnPrompt,
 	builtinTools,
@@ -35,6 +34,7 @@ import {
 	agentStopWhen,
 	openConnector,
 	resolveTools,
+	toolSetOf,
 	deniedReason,
 	toolApprovalPolicy,
 	toolRisk,
@@ -174,7 +174,7 @@ async function loadConnectors(
 					authProvider = new ConnectorOAuth(creds.oauth, oauthRedirectUrl(), false);
 					oauth.push({ connectionId, provider: authProvider });
 				}
-				const opened = await openWithTimeout(openConnector(connector, { credentials: creds, authProvider }));
+				const opened = await openConnector(connector, { credentials: creds, authProvider }, CONNECTOR_CONNECT_MS);
 				if (connectionId) await ctx.runMutation(internal.connectors.setConnectionError, { connectionId });
 				// Access is read fresh before every call, so a role change or disconnect applies mid-reply.
 				const stillAllowed = async () =>
@@ -203,18 +203,6 @@ async function loadConnectors(
 		oauth,
 		installs: Object.fromEntries(usable.map((u) => [u.connectorId, u.installId])),
 	};
-}
-
-/** Gives up after CONNECTOR_CONNECT_MS. A session that connects later anyway is closed, not leaked. */
-function openWithTimeout(opening: Promise<ConnectorSession>): Promise<ConnectorSession> {
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	const timeout = new Promise<never>((_, reject) => {
-		timer = setTimeout(() => {
-			reject(new Error("Timed out connecting."));
-			opening.then((s) => s.close()).catch(() => {});
-		}, CONNECTOR_CONNECT_MS);
-	});
-	return Promise.race([opening, timeout]).finally(() => clearTimeout(timer));
 }
 
 async function streamReply(
@@ -250,14 +238,14 @@ async function streamReply(
 		pages: pageStore(ctx, turnId),
 		results: createResultStore(),
 	};
-	const tools = buildToolSet(
-		agent,
-		toolCtx,
-		available,
-		connectors.sessions.map((s) => ({ ...s.connector, instructions: s.instructions })),
-	);
 	/** What this person can run now; calls that ask are held (approvals.ts). */
 	const usable = resolveTools(agent, toolCtx.actor, available);
+	const tools = toolSetOf(
+		agent,
+		toolCtx,
+		usable,
+		connectors.sessions.map((s) => ({ ...s.connector, instructions: s.instructions })),
+	);
 	// Each call is decided from the rules in force right then (permissions.check), never cached.
 	// Remembered per call so the activity log says how it was allowed, or why it was blocked.
 	const allowedCalls = new Map<string, FunctionReturnType<typeof internal.permissions.check>["allowed"] & {}>();
@@ -324,6 +312,8 @@ async function streamReply(
 		toolApproval: toolApprovalPolicy(usable, check),
 	});
 
+	// Each tool call goes to the activity log once it finishes (activity.ts).
+	const calls = new Map<string, LoggedCall>();
 	// Held, not run: save the exact call and show a card in its place. Logged only if it runs later.
 	const hold = async (toolCallId: string, toolName: string, input: unknown) => {
 		calls.delete(toolCallId);
@@ -346,8 +336,6 @@ async function streamReply(
 		else parts.push(card);
 	};
 
-	// Each tool call goes to the activity log once it finishes (activity.ts).
-	const calls = new Map<string, LoggedCall>();
 	const logCall = async (callId: string, end: { output: unknown } | { error: string }) => {
 		const call = calls.get(callId);
 		if (!call) return;

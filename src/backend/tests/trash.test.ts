@@ -322,7 +322,7 @@ describe("trash", () => {
 		// Pages too, by title once in Trash.
 		const pageId = await member.mutation(api.pages.create, { title: "SOP" });
 		await t.mutation(internal.pageTools.writeFor, { turnId, input: { page: pageId, trash: true } });
-		expect((await t.query(internal.pageTools.findFor, { turnId, input: { trashed: true } })).rows.map((r) => r.title)).toEqual(["SOP"]);
+		expect(await t.query(internal.pageTools.findFor, { turnId, input: { trashed: true } })).toMatchObject({ rows: [expect.objectContaining({ title: "SOP" })] });
 		await t.mutation(internal.pageTools.writeFor, { turnId, input: { page: "SOP", trash: false } });
 		expect(await member.query(api.pages.get, { pageId })).toMatchObject({ archived: false });
 		// No agent tool reaches delete forever.

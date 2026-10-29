@@ -230,13 +230,17 @@ export async function namesOf(ctx: QueryCtx, userIds: Id<"users">[]) {
 
 export const nameOf = async (ctx: QueryCtx, userId: Id<"users">) => (await personOf(ctx, userId)).name;
 
-/** Someone's display name and photo (a storage id: images.ts turns it into a URL). */
-export async function personOf(ctx: QueryCtx, userId: Id<"users">): Promise<{ name: string; image?: Id<"_storage"> }> {
+/**
+ * Someone's display name, photo (a storage id: images.ts turns it into a URL), email and time
+ * zone, from one read each of their account and preferences.
+ */
+export async function personOf(ctx: QueryCtx, userId: Id<"users">): Promise<{ name: string; image?: Id<"_storage">; email: string; timeZone: string }> {
 	const user = await ctx.db.get(userId);
+	const prefs = user && !user.erasedAt ? await preferencesOf(ctx, userId) : null;
+	const timeZone = resolveTimeZone(prefs?.timeZone, prefs?.deviceTimeZone);
 	// Erased accounts keep a scrubbed row (workspace.eraseAccount), whatever is left to clean up.
-	if (!user || user.erasedAt) return { name: "Former member" };
-	const prefs = await preferencesOf(ctx, userId);
-	return { name: prefs?.displayName || user.email || "Former member", image: prefs?.image };
+	if (!user || user.erasedAt) return { name: "Former member", email: "", timeZone };
+	return { name: prefs?.displayName || user.email || "Former member", image: prefs?.image, email: user.email ?? "", timeZone };
 }
 
 /** Someone's time zone: the one they picked, else their computer's, else UTC. */

@@ -2,8 +2,8 @@ import { canEditMemory } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
-import { mutation, query } from "./functions";
-import { type Member, getMember, namesOf, requireAgent, requireMember, toActor } from "./lib";
+import { memberMutation, query } from "./functions";
+import { type Member, getMember, namesOf, requireAgent, toActor } from "./lib";
 import { createMemory, listMemories, memoryVersions, removeMemory, restoreMemoryVersion, searchMemories, updateMemory } from "./memoryOps";
 import { memoryOn, personalMemoryHere, runningTurn } from "./turns";
 
@@ -27,23 +27,13 @@ export const list = query({
 	},
 });
 
-export const create = mutation({
-	args: { agentId: v.id("agents"), scope, content: v.string() },
-	handler: async (ctx, { agentId, scope, content }) =>
-		createMemory(ctx, { member: await requireMember(ctx) }, agentId, scope, content),
-});
+export const create = memberMutation({ agentId: v.id("agents"), scope, content: v.string() }, (ctx, member, { agentId, scope, content }) => createMemory(ctx, { member }, agentId, scope, content));
 
-export const update = mutation({
-	args: { id: v.id("memories"), content: v.string(), expectedVersion: v.number() },
-	handler: async (ctx, { id, content, expectedVersion }) =>
-		updateMemory(ctx, { member: await requireMember(ctx) }, id, content, expectedVersion),
-});
+export const update = memberMutation({ id: v.id("memories"), content: v.string(), expectedVersion: v.number() }, (ctx, member, { id, content, expectedVersion }) =>
+	updateMemory(ctx, { member }, id, content, expectedVersion));
 
 /** Team memories go to Trash; personal ones are deleted. */
-export const remove = mutation({
-	args: { id: v.id("memories") },
-	handler: async (ctx, { id }) => removeMemory(ctx, { member: await requireMember(ctx) }, id),
-});
+export const remove = memberMutation({ id: v.id("memories") }, (ctx, member, { id }) => removeMemory(ctx, { member }, id));
 
 /** What a memory said before each edit, newest first, with who saved it. */
 export const versions = query({
@@ -58,11 +48,8 @@ export const versions = query({
 });
 
 /** Puts an old version back, as a new edit. `expectedVersion`: the memory's version the person was looking at. */
-export const restoreVersion = mutation({
-	args: { versionId: v.id("memoryVersions"), expectedVersion: v.number() },
-	handler: async (ctx, { versionId, expectedVersion }) =>
-		restoreMemoryVersion(ctx, { member: await requireMember(ctx) }, versionId, expectedVersion),
-});
+export const restoreVersion = memberMutation({ versionId: v.id("memoryVersions"), expectedVersion: v.number() }, (ctx, member, { versionId, expectedVersion }) =>
+	restoreMemoryVersion(ctx, { member }, versionId, expectedVersion));
 
 // Agent-facing versions: same rules, acting for the turn's person. runningTurn re-checks
 // on every call that the turn is still running, the person is still a member (with their

@@ -16,7 +16,7 @@ import {
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
-import { type Member, asToolResult, nameOf, requireInWorkspace } from "./lib";
+import { type Member, asToolResult, memo, nameOf, requireInWorkspace } from "./lib";
 import {
 	createType,
 	updateType,
@@ -26,6 +26,7 @@ import {
 	fieldsOf,
 	idsIn,
 	inTrash,
+	liveTypesOf,
 	recordById,
 	resolveRefs,
 	setFieldTrashed,
@@ -53,8 +54,6 @@ const SEARCH_MAX = 20;
 const LINKED_MAX = 10;
 const CHANGES_MAX = 5;
 
-const liveTypes = async (ctx: QueryCtx, member: Member) =>
-	(await typesOf(ctx, member.workspaceId)).filter((t) => !t.archived).sort((a, b) => a._creationTime - b._creationTime);
 
 /** Pick one by name, or say which ones it could be. */
 function pickOne<T>(matches: T[], what: string, describe: (m: T) => string) {
@@ -64,7 +63,7 @@ function pickOne<T>(matches: T[], what: string, describe: (m: T) => string) {
 
 /** A type by id or key, else by name or plural ("deal", "Deals"). Ambiguous names are refused. `trashed`: one in Trash. */
 async function typeNamed(ctx: QueryCtx, member: Member, name: string, trashed = false) {
-	const types = trashed ? (await typesOf(ctx, member.workspaceId)).filter((t) => t.archived) : await liveTypes(ctx, member);
+	const types = trashed ? (await typesOf(ctx, member.workspaceId)).filter((t) => t.archived) : await liveTypesOf(ctx, member.workspaceId);
 	const raw = name.trim();
 	const n = raw.toLowerCase();
 	const type =
@@ -108,6 +107,11 @@ const LOOKUPS_MAX = 100;
 class Names {
 	private cache = new Map<string, Promise<string>>();
 	private team?: Promise<{ id: Id<"users">; name: string; email: string }[]>;
+	/** A linked database and its name field, once per database however many names link into it. */
+	private target = memo(async (typeId: Id<"recordTypes">) => ({
+		type: (await this.ctx.db.get(typeId))!,
+		nameField: (await fieldsOf(this.ctx, typeId)).find((f) => f.key === NAME_KEY)!,
+	}));
 	constructor(
 		private ctx: QueryCtx,
 		private member: Member,
@@ -161,8 +165,7 @@ class Names {
 	/** The live record of `typeId` named exactly `text` (case-insensitive). */
 	private async record(typeId: Id<"recordTypes">, text: string) {
 		const ctx = this.ctx;
-		const type = (await ctx.db.get(typeId))!;
-		const nameField = (await fieldsOf(ctx, typeId)).find((f) => f.key === NAME_KEY)!;
+		const { type, nameField } = await this.target(typeId);
 		const entry = indexEntries(toField(nameField), text)[0] as { str: string };
 		const rows = await ctx.db
 			.query("recordValues")
@@ -217,12 +220,15 @@ async function rowsOf(ctx: QueryCtx, member: Member, items: { record: Doc<"recor
 	}));
 }
 
+/** One record as agents read it (`out`), with the record, fields and resolved links it took. */
 async function recordOut(ctx: QueryCtx, member: Member, recordId: Id<"records">) {
 	const record = (await ctx.db.get(recordId))!;
 	const type = (await ctx.db.get(record.typeId))!;
-	const [row] = await rowsOf(ctx, member, [{ record, fields: await fieldsOf(ctx, record.typeId) }]);
-	const { _id, ...values } = row!;
-	return { id: _id, type: type.key, typeName: type.name, name: record.title, ...((await inTrash(ctx, record)) && { inTrash: true }), values };
+	const fields = await fieldsOf(ctx, record.typeId);
+	const [row] = await toRows(ctx, member.workspaceId, [{ record, fields }]);
+	const values = displayValues(fields.filter((f) => !f.archived).map(toField), row!.values, row!.refs);
+	const out = { id: record._id, type: type.key, typeName: type.name, name: record.title, ...((await inTrash(ctx, record)) && { inTrash: true }), values };
+	return { out, record, fields, row: row! };
 }
 
 /** A field as agents see it. `linksTo`: the key of the database it links to. */
@@ -269,7 +275,7 @@ export const findFor = internalQuery({
 				if (filters.length || sort || cursor || trashed) throw new ConvexError("Search on its own, or list with filters and a sort instead.");
 				const type = typeName ? await typeNamed(ctx, member, typeName) : null;
 				const found = await searchRecords(ctx, member.workspaceId, search, { typeId: type?._id, limit: Math.min(numItems, SEARCH_MAX) });
-				const keys = type ? undefined : new Map((await liveTypes(ctx, member)).map((t) => [t._id, t.key]));
+				const keys = type ? undefined : new Map((await liveTypesOf(ctx, member.workspaceId)).map((t) => [t._id, t.key]));
 				const rows = await rowsOf(ctx, member, found, keys);
 				return { type: type?.plural ?? "Records", typeName: type?.name ?? "Record", rows, more: false };
 			}
@@ -298,15 +304,12 @@ export const getFor = internalQuery({
 	handler: async (ctx, { turnId, id }) => {
 		const { member } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
-			const record = await recordById(ctx, member, id);
-			const recordId = record._id;
-			const fields = await fieldsOf(ctx, record.typeId);
-			const out = await recordOut(ctx, member, recordId);
-			const [row] = await toRows(ctx, member.workspaceId, [{ record, fields }]);
+			const recordId = (await recordById(ctx, member, id))._id;
+			const { out, record, fields, row } = await recordOut(ctx, member, recordId);
 			const links = Object.fromEntries(
 				fields
 					.filter((f) => f.kind === "link" && !f.archived && record.values[f.key] !== undefined)
-					.map((f) => [f.key, [record.values[f.key]!].flat().map((x) => ({ id: String(x), name: row!.refs[String(x)]?.name ?? String(x) }))]),
+					.map((f) => [f.key, [record.values[f.key]!].flat().map((x) => ({ id: String(x), name: row.refs[String(x)]?.name ?? String(x) }))]),
 			);
 			const linkedFrom = [];
 			for (const { record: other, fields: theirs, fieldId } of (await linkingRecords(ctx, recordId, { paginationOpts: { numItems: LINKED_MAX, cursor: null } })).page) {
@@ -368,7 +371,7 @@ export const saveFor = internalMutation({
 				const fields = await fieldsOf(ctx, type._id);
 				({ id: recordId, change } = await createRecord(ctx, who, type._id, await valuesFor(new Names(ctx, member), type, fields, values)));
 			}
-			return { ...(await recordOut(ctx, member, recordId)), ...(change ? { change } : { unchanged: true }) };
+			return { ...(await recordOut(ctx, member, recordId)).out, ...(change ? { change } : { unchanged: true }) };
 		});
 	},
 });
@@ -382,7 +385,7 @@ export const undoFor = internalMutation({
 			if (!historyId) throw new ConvexError("Change not found.");
 			const undoneBy = await undoChange(ctx, who, historyId);
 			const entry = (await ctx.db.get(historyId))!;
-			return { undone: change, ...(await recordOut(ctx, member, entry.recordId!)), change: undoneBy };
+			return { undone: change, ...(await recordOut(ctx, member, entry.recordId!)).out, change: undoneBy };
 		});
 	},
 });
