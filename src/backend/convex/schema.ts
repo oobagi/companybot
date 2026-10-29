@@ -174,7 +174,7 @@ export default defineSchema({
 		imageModel: v.optional(v.string()),
 		/** USD agents may spend on pictures a month; 0 turns them off. Unset means IMAGE_BUDGET_DEFAULT_USD. */
 		imageBudgetUsd: v.optional(v.number()),
-		/** Hours a thread stays under its channel in the sidebar after its last reply (core `threadWindows`). Unset means THREAD_HOURS_DEFAULT. */
+		/** Hours a thread stays under its channel in the sidebar after its last reply (core `threadWindows`; 0 forever). Unset means THREAD_HOURS_DEFAULT. */
 		threadHours: v.optional(v.number()),
 		/** Set when an owner deletes it: every access refuses at once, then a cascade deletes its rows (lifecycle.ts). */
 		deleting: v.optional(v.boolean()),

@@ -251,6 +251,10 @@ describe("messages", () => {
 		expect((await member.query(api.chats.activeThreads, { now: Date.now() })).map((x) => x.title)).toEqual(["Deleted message", "Plan for Q3?"]);
 		await owner.mutation(api.workspace.updateSettings, { name: settings.name, threadHours: 1, expectedVersion: settings.version + 1 });
 		expect(await member.query(api.chats.activeThreads, { now: Date.now() + 2 * 60 * 60 * 1000 })).toEqual([]);
+		// Forever keeps every thread that has a reply, however old; one with none still isn't a thread.
+		await owner.mutation(api.workspace.updateSettings, { name: settings.name, threadHours: 0, expectedVersion: settings.version + 2 });
+		await t.run((ctx) => ctx.db.patch(plan, { lastReplyAt: Date.now() - 400 * 24 * 60 * 60 * 1000 }));
+		expect((await member.query(api.chats.activeThreads, { now: Date.now() })).map((x) => x.title)).toEqual(["Deleted message", "Plan for Q3?"]);
 	});
 
 	it("threads, edits, deletes, and toggles reactions", async () => {
