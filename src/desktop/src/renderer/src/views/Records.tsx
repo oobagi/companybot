@@ -2,7 +2,7 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import type { Role } from "@companybot/core/permissions";
 import { useEffect } from "react";
 import { DatabaseIcon } from "../icons";
-import { navigate } from "../router";
+import { redirect } from "../router";
 import { NotFound } from "../ui";
 import { useTypes } from "./records/data";
 import { RecordList } from "./records/RecordList";
@@ -24,7 +24,7 @@ export function RecordsView({ typeKey, recordId, role }: { typeKey?: string; rec
 	const types = useTypes();
 	// Databases are opened from the sidebar; /records alone has nothing to show, so it goes to chat.
 	useEffect(() => {
-		if (!typeKey) navigate("chat");
+		if (!typeKey) redirect("chat");
 	}, [typeKey]);
 	if (!typeKey) return null;
 	if (!types) return <NotFound loaded={false} icon={<DatabaseIcon />} title="Database not found" />;

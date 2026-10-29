@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
+import { storedIds, useStored } from "./ui";
 
 // Drag to reorder: sidebar sections and rows, the workspace rail, database view tabs.
 // Each list's order is yours and stays on this computer (localStorage), like the sidebar's
@@ -21,28 +22,7 @@ export type DragProps = {
 let dragging: { list: string; id: string } | undefined;
 
 /** A list of ids kept on this computer under `key`. */
-export function useStoredIds(key: string) {
-	const [ids, setIds] = useState<string[]>(() => {
-		try {
-			const saved = JSON.parse(localStorage.getItem(key) ?? "[]");
-			return Array.isArray(saved) ? saved.filter((id): id is string => typeof id === "string") : [];
-		} catch {
-			return [];
-		}
-	});
-	const save = useCallback(
-		(next: string[]) => {
-			setIds(next);
-			try {
-				localStorage.setItem(key, JSON.stringify(next));
-			} catch {
-				// Storage may be unavailable; it still holds until reload.
-			}
-		},
-		[key],
-	);
-	return [ids, save] as const;
-}
+export const useStoredIds = (key: string) => useStored(key, storedIds);
 
 /** `items` in the saved order; unsaved ones keep their place relative to each other, after the saved ones. */
 export function applyOrder<T>(order: readonly string[], items: readonly T[], id: (item: T) => string): T[] {

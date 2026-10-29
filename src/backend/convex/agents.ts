@@ -13,7 +13,7 @@ import {
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx } from "./_generated/server";
-import { mutation, query } from "./functions";
+import { memberMutation, mutation, query } from "./functions";
 import { type Member, type Who, checkPermission, checkVersion, getMember, namesOf, requireAgent, requireLiveAgent, requirePermission, toActor } from "./lib";
 import { connectorStates } from "./connectors";
 import { imageUrl } from "./images";
@@ -132,15 +132,10 @@ export const history = query({
 	},
 });
 
-export const create = mutation({
-	args: {},
-	handler: async (ctx) => createAgent(ctx, await requirePermission(ctx, "agents.manage")),
-});
+export const create = memberMutation({}, (ctx, member) => createAgent(ctx, member));
 
-export const update = mutation({
-	args: { agentId: v.id("agents"), expectedVersion: v.number(), config: agentConfig },
-	handler: async (ctx, { agentId, expectedVersion, config }) => updateAgent(ctx, await requirePermission(ctx, "agents.manage"), agentId, expectedVersion, config),
-});
+export const update = memberMutation({ agentId: v.id("agents"), expectedVersion: v.number(), config: agentConfig }, (ctx, member, { agentId, expectedVersion, config }) =>
+	updateAgent(ctx, member, agentId, expectedVersion, config));
 
 /** Brings back an old version by saving it as the newest one. History is never rewritten. */
 export const restore = mutation({

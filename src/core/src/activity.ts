@@ -1,6 +1,6 @@
 import { actionLabel } from "./action-words";
 import { CONNECTOR_CALL, CONNECTOR_SEARCH, type ConnectorService, calledConnectorTool } from "./connector-tools";
-import { type ToolDef, modelToolName } from "./tools";
+import { type ToolDef, modelToolName, dataOf } from "./tools";
 import { isWidgetToolName } from "./widgets";
 
 /**
@@ -52,9 +52,6 @@ export function callLabel(
 	const service = t?.source.type === "connector" ? services.find((s) => t.source.type === "connector" && s.id === t.source.connectorId) : undefined;
 	return `${(call && t?.label?.(call.input ?? {}, dataOf(call.output))) || actionLabel(t?.id ?? name, t?.title)}${service ? ` with ${service.name}` : ""}`;
 }
-
-/** A data tool's result is `{ ref, data }` (agents.ts `withRef`); labels read the data. */
-const dataOf = (output: unknown) => (output && typeof output === "object" && "ref" in output && "data" in output ? output.data : output);
 
 /**
  * How a finished call ended. Tools report expected problems as `{ error }` instead of

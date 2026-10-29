@@ -3,7 +3,8 @@ import { Fragment, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { Markdown } from "../../markdown";
-import { Notice, timeAgo } from "../../ui";
+import { Facts, Notice, timeAgo } from "../../ui";
+import { shortModel } from "@companybot/core/models";
 import { WidgetView } from "../../widgets";
 import { CallDetails } from "../Activity";
 import { ApprovalMessages } from "./Approval";
@@ -300,20 +301,12 @@ function ReplyDetails({ stats }: { stats: Stats }) {
 				className="text-xs text-neutral-400 tabular-nums hover:text-neutral-600"
 				panelClassName="w-80 p-3"
 			>
-				<dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs tabular-nums">
-					{rows.map(([label, value]) => (
-						<Fragment key={label}>
-							<dt className="text-neutral-500">{label}</dt>
-							<dd className="break-words">{value}</dd>
-						</Fragment>
-					))}
-				</dl>
+				<Facts rows={rows} className="gap-x-4 gap-y-1 text-xs tabular-nums" />
 			</Popover>
 		</div>
 	);
 }
 
-const shortModel = (id: string) => id.split("/").at(-1) ?? id;
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 const tokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 const usd = (n: number) => `$${n.toFixed(n < 0.01 ? 4 : n < 1 ? 3 : 2)}`;

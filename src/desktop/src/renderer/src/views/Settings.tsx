@@ -222,6 +222,7 @@ const currencyLabel = (code: string) => {
 	const name = currencyNames.of(code);
 	return name && name !== code ? `${code} — ${name}` : code;
 };
+const currencyOptions = currencyCodes.map((code) => ({ value: code, label: currencyLabel(code) }));
 
 function GeneralForm({
 	settings,
@@ -258,7 +259,7 @@ function GeneralForm({
 						className={wideControlClass}
 						disabled={!isOwner}
 						value={draft.value.currency}
-						options={currencyCodes.map((code) => ({ value: code, label: currencyLabel(code) }))}
+						options={currencyOptions}
 						onChange={(currency) => draft.set({ ...draft.value, currency })}
 					/>
 				</Setting>
@@ -278,7 +279,7 @@ function GeneralForm({
 	);
 }
 
-const timeZones = Intl.supportedValuesOf("timeZone");
+const timeZoneOptions = Intl.supportedValuesOf("timeZone").map((zone) => ({ value: zone, label: zoneLabel(zone) }));
 
 /** Personal: only you see these, and they follow you to every device. */
 function ProfileTab() {
@@ -312,7 +313,7 @@ function ProfileTab() {
 					<Select
 						className={wideControlClass}
 						value={prefs.timeZone ?? "auto"}
-						options={[{ value: "auto", label: `Automatic (${zoneLabel(deviceTimeZone())})` }, ...timeZones.map((zone) => ({ value: zone, label: zoneLabel(zone) }))]}
+						options={[{ value: "auto", label: `Automatic (${zoneLabel(deviceTimeZone())})` }, ...timeZoneOptions]}
 						onChange={(zone) => run(update({ timeZone: zone === "auto" ? null : zone }))}
 					/>
 				</Setting>

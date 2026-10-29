@@ -5,6 +5,11 @@ import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { Form, Loading, Notice, cardClass, descriptionClass, inputClass, metadataClass, primaryButton, useRun } from "../ui";
 
+const roleOptions: { value: Role; label: string }[] = [
+	{ value: "member", label: "Member" },
+	{ value: "owner", label: "Owner" },
+];
+
 export function MembersTab({ role }: { role: Role }) {
 	const team = useQuery(api.workspace.team);
 	const invite = useMutation(api.workspace.invite);
@@ -43,7 +48,7 @@ export function MembersTab({ role }: { role: Role }) {
 						placeholder="teammate@company.com"
 						className={`${inputClass} flex-1`}
 					/>
-					<RoleSelect value={inviteRole} onChange={setInviteRole} />
+					<Select label="Role" value={inviteRole} options={roleOptions} onChange={setInviteRole} />
 					<button type="submit" className={primaryButton}>
 						Invite
 					</button>
@@ -55,7 +60,7 @@ export function MembersTab({ role }: { role: Role }) {
 					<Row key={m.id} label={m.name} detail={m.name === m.email ? undefined : m.email} you={m.isYou}>
 						{isOwner ? (
 							<>
-								<RoleSelect value={m.role} onChange={(r) => run(setRole({ id: m.id, role: r }))} />
+								<Select label="Role" value={m.role} options={roleOptions} onChange={(r) => run(setRole({ id: m.id, role: r }))} />
 								{!m.isYou && (
 									<button type="button" onClick={() => run(removeMember({ id: m.id }))} className="hover:text-red-600">
 										Remove
@@ -86,19 +91,6 @@ export function MembersTab({ role }: { role: Role }) {
 	);
 }
 
-function RoleSelect({ value, onChange }: { value: Role; onChange: (role: Role) => void }) {
-	return (
-		<Select
-			label="Role"
-			value={value}
-			options={[
-				{ value: "member", label: "Member" },
-				{ value: "owner", label: "Owner" },
-			]}
-			onChange={onChange}
-		/>
-	);
-}
 
 function Row({ label, detail, you, children }: { label: string; detail?: string; you?: boolean; children?: React.ReactNode }) {
 	return (

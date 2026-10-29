@@ -65,10 +65,17 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 		return () => clearTimeout(timer);
 	}, [loaded, focusMessage]);
 
-	// Reading the open chat clears its unread state, including for messages that arrive while it's open.
+	// Reading the open chat clears its unread state, including for messages that arrive while it's
+	// open, once the window is in front: in the background, the message still alerts (notifications.ts).
 	const unread = chat.unread || chat.mentioned;
 	useEffect(() => {
-		if (unread) markRead({ chatId: chat._id }).catch(() => {});
+		if (!unread) return;
+		const read = () => {
+			if (document.hasFocus()) markRead({ chatId: chat._id }).catch(() => {});
+		};
+		read();
+		window.addEventListener("focus", read);
+		return () => window.removeEventListener("focus", read);
 	}, [unread, chat._id, markRead]);
 
 	/** Set in an agent DM (you and one agent). */

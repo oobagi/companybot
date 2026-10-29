@@ -286,6 +286,9 @@ async function endStream(ctx: MutationCtx, reply: Doc<"chatMessages">, end: Part
 	const stream = await streamOf(ctx, reply._id);
 	await ctx.db.patch(reply._id, { ...(stream && { text: stream.text, parts: stream.parts }), ...end });
 	if (stream) await ctx.db.delete(stream._id);
+	// The placeholder was inserted in the same mutation that marked the asker's chat read, at the
+	// same Date.now(), so it never made the chat unread. The finished reply does.
+	if (!reply.threadId) await ctx.db.patch(reply.chatId, { lastMessageAt: Date.now() });
 }
 
 /** The running cost on a place: the thread parent, or the chat. */

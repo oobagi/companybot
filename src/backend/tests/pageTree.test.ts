@@ -194,8 +194,8 @@ describe("nested pages", () => {
 		const write = (input: object) => t.mutation(internal.pageTools.writeFor, { turnId, input });
 		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
 		const made = await write({ title: "Guide", parent: "Wiki" }) as { id: Id<"pages"> };
-		const tree = await t.query(internal.pageTools.findFor, { turnId, input: { parent: root } });
-		expect(tree.rows).toEqual([expect.objectContaining({ id: made.id, parentId: root })]);
+		const find = async (input: object) => (await t.query(internal.pageTools.findFor, { turnId, input })) as { rows: { id: string; title: string; parentId: string | null }[] };
+		expect((await find({ parent: root })).rows).toEqual([expect.objectContaining({ id: made.id, parentId: root })]);
 		const read = await t.query(internal.pageTools.readFor, { turnId, page: root });
 		expect(read).toMatchObject({ subpages: [{ id: made.id, title: "Guide" }], subpagesMore: false });
 		expect(await write({ action: "move", page: root, parent: made.id })).toMatchObject({ error: expect.stringContaining("descendants") });
@@ -206,7 +206,8 @@ describe("nested pages", () => {
 		expect(await write({ title: "No blank page", parent: root })).toMatchObject({ error: expect.any(String) });
 		const trashedChild = await owner.mutation(api.pages.create, { title: "Guide", parentId: made.id });
 		await owner.mutation(api.trash.move, { kind: "page", id: made.id });
-		expect((await t.query(internal.pageTools.findFor, { turnId, input: { parent: made.id, trashed: true } })).rows).toEqual([expect.objectContaining({ id: trashedChild })]);
+		expect((await find({ parent: made.id, trashed: true })).rows).toEqual([expect.objectContaining({ id: trashedChild })]);
+		expect(await find({ parent: "Nope" })).toHaveProperty("error");
 		const live = await write({ title: "Guide" }) as { id: string };
 		expect(await t.query(internal.pageTools.readFor, { turnId, page: "Guide" })).toMatchObject({ id: live.id });
 		expect((await owner.query(api.pages.list, {})).map((p) => p.title)).toEqual(["Guide"]);

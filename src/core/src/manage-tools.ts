@@ -9,7 +9,12 @@ const userIds = ids.describe("User ids from find_people");
 const agentIds = ids.describe("Agent ids from find_people with kind \"agents\"");
 const version = z.number().int().describe("version from get; a stale one is refused");
 const page = { cursor: z.string().optional() };
-const skillConfig = z.object({ name: z.string().max(SKILL_NAME_MAX), description: z.string().max(SKILL_DESCRIPTION_MAX), instructions: z.string().max(SKILL_INSTRUCTIONS_MAX) });
+/** A skill as someone writes it: shared by skills.create and skills.edit. */
+export const skillConfigInput = z.object({
+	name: z.string().max(SKILL_NAME_MAX).describe(`Short display name, under ${SKILL_NAME_MAX} characters`),
+	description: z.string().max(SKILL_DESCRIPTION_MAX).describe(`What it does and when to use it, in one line under ${SKILL_DESCRIPTION_MAX} characters. Agents see only this until they load it.`),
+	instructions: z.string().max(SKILL_INSTRUCTIONS_MAX).describe("The steps, rules, and examples, in Markdown, written to an agent"),
+});
 const trigger = z.union([
 	z.object({ type: z.literal("schedule"), time: z.string(), weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7) }),
 	z.object({ type: z.literal("event"), event: z.literal("member.joined") }),
@@ -78,7 +83,7 @@ export const manageInputs = {
 			z.strictObject({ action: z.literal("get"), id }),
 		]),
 	}),
-	"skills.edit": z.object({ request: z.strictObject({ action: z.literal("edit"), id, expectedVersion: version, config: skillConfig }) }),
+	"skills.edit": z.object({ request: z.strictObject({ action: z.literal("edit"), id, expectedVersion: version, config: skillConfigInput }) }),
 	"skills.remove": z.object({ request: z.strictObject({ action: z.literal("delete"), id }) }),
 	"members.invite": z.object({
 		request: z.discriminatedUnion("action", [

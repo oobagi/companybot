@@ -6,6 +6,8 @@
  * Who it runs for (`AutomationAudience`): just the person who made it, each person who
  * turned it on, or one channel. Nobody gets messages they didn't ask for.
  */
+import { dayNames, localTime } from "./time";
+
 export interface Automation {
 	id: string;
 	name: string;
@@ -50,8 +52,8 @@ export const appEvents = {
 export type AppEvent = keyof typeof appEvents;
 
 /** Named events a webhook can carry. Add one here, then a library automation can require it. */
-export const webhookEvents = ["call.ended"] as const;
-export type WebhookEvent = (typeof webhookEvents)[number];
+const webhookEvents = ["call.ended"] as const;
+type WebhookEvent = (typeof webhookEvents)[number];
 
 /**
  * What a sender POSTs to an automation's webhook URL. `id` is unique per event, so a
@@ -192,7 +194,6 @@ export function customAutomation(id: string, config: CustomAutomationConfig, ver
 	};
 }
 
-const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /** "Weekdays at 8:00 AM", "When a call ends". */
 export function describeTrigger(trigger: AutomationTrigger): string {
@@ -203,29 +204,6 @@ export function describeTrigger(trigger: AutomationTrigger): string {
 	const when =
 		days === "1,2,3,4,5" ? "Weekdays" : days === "0,1,2,3,4,5,6" ? "Every day" : trigger.weekdays.map((d) => dayNames[d]).join(", ");
 	return `${when} at ${time}`;
-}
-
-/** The date ("2026-10-22"), weekday, and "HH:MM" time it is now in a time zone. */
-export function localTime(now: number, timeZone: string) {
-	const parts = Object.fromEntries(
-		new Intl.DateTimeFormat("en-US", {
-			timeZone,
-			year: "numeric",
-			month: "2-digit",
-			day: "2-digit",
-			weekday: "short",
-			hour: "2-digit",
-			minute: "2-digit",
-			hourCycle: "h23",
-		})
-			.formatToParts(now)
-			.map((p) => [p.type, p.value]),
-	);
-	return {
-		date: `${parts.year}-${parts.month}-${parts.day}`,
-		weekday: dayNames.indexOf(parts.weekday!),
-		time: `${parts.hour}:${parts.minute}`,
-	};
 }
 
 /**
@@ -244,12 +222,3 @@ export function scheduleDue(
 	if (local.time < trigger.time || local.date === lastRunDate) return null;
 	return local.date;
 }
-
-export const isValidTimeZone = (timeZone: string) => {
-	try {
-		new Intl.DateTimeFormat("en-US", { timeZone });
-		return true;
-	} catch {
-		return false;
-	}
-};

@@ -128,7 +128,7 @@ it("pages all retained versions, previews/restores one, preserves rich block pro
 	expect(await write({ page: another, restore: oldest })).toHaveProperty("error");
 	expect(await write({ markdown: "x", blocks: "[]" })).toHaveProperty("error");
 	await write({ trash: true });
-	expect((await t.query(internal.pageTools.findFor, { turnId, input: { trashed: true } })).rows).toContainEqual(expect.objectContaining({ id: page }));
+	expect(await t.query(internal.pageTools.findFor, { turnId, input: { trashed: true } })).toMatchObject({ rows: expect.arrayContaining([expect.objectContaining({ id: page })]) });
 	expect(await write({ restore: oldest })).toHaveProperty("error");
 	await write({ trash: false });
 	expect(await write({ restore: oldest })).not.toHaveProperty("error");

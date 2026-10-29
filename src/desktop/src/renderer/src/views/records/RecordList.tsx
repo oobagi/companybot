@@ -7,7 +7,7 @@ import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useSortable } from "../../sortable";
 import { ArrowDownIcon, ArrowUpIcon, CloseIcon, DatabaseIcon, EditIcon, FilterIcon, PlusIcon, PropertiesIcon, TrashIcon } from "../../icons";
-import { ConflictNotice, EmptyState, ErrorBoundary, Field, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Tabs, barButton, compactButton, compactControlClass, inputClass, primaryButton, timeAgo, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
+import { ConflictNotice, EmptyState, ErrorBoundary, Field, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Tabs, barButton, compactButton, compactControlClass, inputClass, primaryButton, timeAgo, useDebounced, useDraft, useRun, wideControlClass, storedIds, useStored } from "../../ui";
 import { MenuItem, Modal, Popover } from "../chat/common";
 import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
@@ -39,12 +39,6 @@ type Layout = "table" | "board";
 /** Filters carry an id while in the bar, so each row keeps its own state as others come and go. */
 type Settings = { filters: (Filter & { id: string })[]; sort?: Sort; columns: string[]; layout: Layout; groupBy?: string };
 
-/** A value this computer keeps in localStorage: read once, written through. */
-function useStored<T>(key: string) {
-	const [value, setValue] = useState<T | undefined>(() => JSON.parse(localStorage.getItem(key) ?? "null") ?? undefined);
-	return [value, (next: T) => (localStorage.setItem(key, JSON.stringify(next)), setValue(next))] as const;
-}
-
 const noViews: never[] = [];
 const viewKey = (v: { _id: string }) => v._id;
 
@@ -59,8 +53,10 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 	const fields = type.fields.filter((f) => !f.archived) as TypeField[];
 	const live = (key: string) => ["createdAt", "updatedAt", ...fields.map((f) => f.key)].includes(key);
 	// "All" keeps the columns and layout people picked on this computer; a view's settings skip fields archived since.
-	const [storedColumns, storeColumns] = useStored<string[]>(`records.columns.${type.key}`);
-	const [storedLayout, storeLayout] = useStored<{ layout: Layout; groupBy?: string }>(`records.layout.${type.key}`);
+	const [storedColumns, storeColumns] = useStored(`records.columns.${type.key}`, (saved) => (Array.isArray(saved) ? storedIds(saved) : undefined));
+	const [storedLayout, storeLayout] = useStored(`records.layout.${type.key}`, (saved) =>
+		saved && typeof saved === "object" && "layout" in saved ? (saved as { layout: Layout; groupBy?: string }) : undefined,
+	);
 	const saved: Settings | undefined = selected && {
 		filters: fromConditions(selected.filters.filter((c) => live(c.field)), fields).map((f, i) => ({ ...f, id: String(i) })),
 		sort: selected.sort && live(selected.sort.field) ? selected.sort : undefined,

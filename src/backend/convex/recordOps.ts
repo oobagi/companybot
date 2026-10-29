@@ -57,7 +57,7 @@ export const typeTrashed = (ctx: QueryCtx) => memo((typeId: Id<"recordTypes">) =
 export const inTrash = async (ctx: QueryCtx, record: Doc<"records">) => record.archived || (await typeTrashed(ctx)(record.typeId));
 
 /** Refuses changes to a record in Trash. */
-export async function requireLive(ctx: QueryCtx, record: Doc<"records">) {
+async function requireLive(ctx: QueryCtx, record: Doc<"records">) {
 	if (await inTrash(ctx, record)) throw new ConvexError("This record is in Trash. Restore it to make changes.");
 }
 
@@ -131,15 +131,18 @@ async function normalizeInput(
 	return out;
 }
 
-/** Rewrites the index rows (recordValues) of `keys`, or of every field. */
+/** Rewrites the index rows (recordValues) of `keys`, or of every field (one clearing read, not one per field). */
 async function writeIndex(ctx: MutationCtx, record: Doc<"records">, fields: Doc<"recordFields">[], keys?: Set<string>) {
+	if (!keys) await clearIndex(ctx, record._id);
 	for (const field of fields) {
-		if (keys && !keys.has(field.key)) continue;
-		const old = await ctx.db
-			.query("recordValues")
-			.withIndex("by_record", (q) => q.eq("recordId", record._id).eq("fieldId", field._id))
-			.collect();
-		for (const row of old) await ctx.db.delete(row._id);
+		if (keys) {
+			if (!keys.has(field.key)) continue;
+			const old = await ctx.db
+				.query("recordValues")
+				.withIndex("by_record", (q) => q.eq("recordId", record._id).eq("fieldId", field._id))
+				.collect();
+			for (const row of old) await ctx.db.delete(row._id);
+		}
 		for (const entry of indexEntries(toField(field), record.values[field.key])) {
 			const ref = "ref" in entry ? { ref: entry.ref as Id<"records"> } : entry;
 			await ctx.db.insert("recordValues", { recordId: record._id, fieldId: field._id, ...ref, at: record._creationTime });
@@ -165,8 +168,7 @@ const stamp = (who: Who) => ({ updatedAt: Date.now(), updatedBy: who.member.user
 /** Returns the new record and its "created" history entry. */
 export async function createRecord(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, input: Record<string, unknown>) {
 	checkPermission(who.member, "records.edit");
-	const type = await requireType(ctx, who.member, typeId);
-	if (type.archived) throw new ConvexError(`${type.plural} is in Trash.`);
+	const type = await requireType(ctx, who.member, typeId, true);
 	const fields = await fieldsOf(ctx, typeId);
 	const values: Values = {};
 	for (const [key, value] of Object.entries(await normalizeInput(ctx, who.member, fields, input))) {
@@ -278,7 +280,15 @@ export async function undoChange(ctx: MutationCtx, who: Who, historyId: Id<"reco
 		}
 		const old = Object.fromEntries(entry.changes.map((c) => [c.key, c.old ?? null]));
 		undoneBy = await applyValues(ctx, who, record, fields, await normalizeInput(ctx, who.member, fields, old, "stored"), historyId);
-	} else undoneBy = await setRecordTrashed(ctx, who, record._id, entry.action !== "archived", historyId);
+	} else {
+		// The same rule for Trash: the newest move to or from Trash (or the creation) is the one that stands.
+		for await (const later of ctx.db.query("recordHistory").withIndex("by_record", (q) => q.eq("recordId", record._id)).order("desc")) {
+			if (later.action === "updated") continue;
+			if (later._id !== entry._id) throw new ConvexError("This record was moved to or from Trash since, so this can't be undone.");
+			break;
+		}
+		undoneBy = await setRecordTrashed(ctx, who, record._id, entry.action !== "archived", historyId);
+	}
 	if (!undoneBy) throw new ConvexError("Nothing to undo.");
 	await ctx.db.patch(historyId, { undoneBy });
 	return undoneBy;
@@ -454,6 +464,10 @@ export async function setTypeTrashed(ctx: MutationCtx, who: Who, typeId: Id<"rec
 /** Bounded by TYPES_MAX, which createType enforces. */
 export const typesOf = (ctx: QueryCtx, workspaceId: Id<"workspaces">) =>
 	ctx.db.query("recordTypes").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).take(TYPES_MAX);
+
+/** The databases not in Trash, oldest first: the order the app and agents list them in. */
+export const liveTypesOf = async (ctx: QueryCtx, workspaceId: Id<"workspaces">) =>
+	(await typesOf(ctx, workspaceId)).filter((t) => !t.archived).sort((a, b) => a._creationTime - b._creationTime);
 
 const insertType = (ctx: MutationCtx, member: Pick<Member, "workspaceId" | "userId">, type: { key: string; name: string; plural: string }) =>
 	ctx.db.insert("recordTypes", { workspaceId: member.workspaceId, ...type, archived: false, createdBy: member.userId, updatedAt: Date.now() });

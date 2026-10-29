@@ -13,10 +13,10 @@ import {
 import { ConvexError, v } from "convex/values";
 import { internalMutation } from "./_generated/server";
 import { mutation, query } from "./functions";
-import { canSee, findOrCreateDm, insertMessage, namer } from "./chatOps";
+import { canSee, findOrCreateDm, insertMessage, namer, visibleReply } from "./chatOps";
 import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { erased, getMember, memberOf, nameOf, requireLiveAgent, requireMember, toActor } from "./lib";
+import { erased, memberOf, nameOf, requireLiveAgent, requireMember, toActor } from "./lib";
 import { decideFor, setRule } from "./permissions";
 import { automationName, automationScope } from "./automationOps";
 import { titleOf } from "./connectorTools";
@@ -88,10 +88,9 @@ async function alwaysFor(ctx: QueryCtx, row: Doc<"approvals">) {
 export const forReply = query({
 	args: { replyId: v.id("chatMessages") },
 	handler: async (ctx, { replyId }) => {
-		const member = await getMember(ctx);
-		const reply = await ctx.db.get(replyId);
-		const chat = reply && (await ctx.db.get(reply.chatId));
-		if (!member || !chat || chat.archived || !(await canSee(ctx, chat, member))) return [];
+		const visible = await visibleReply(ctx, replyId);
+		if (!visible) return [];
+		const { member } = visible;
 		const rows = await ctx.db
 			.query("approvals")
 			.withIndex("by_reply", (q) => q.eq("replyId", replyId))
@@ -209,7 +208,7 @@ export const claim = internalMutation({
 		}
 		// Rules are read fresh: a block or Never set since the approval wins.
 		// Stored rows without risk were never backfilled; treat them conservatively.
-		const { decision } = member ? await decideFor(ctx, member, { action: row.tool, risk: row.risk ?? "outside" }) : { decision: null };
+		const { decision } = await decideFor(ctx, member, { action: row.tool, risk: row.risk ?? "outside" });
 		if (decision?.type === "deny") {
 			const who = decision.by === "owner" ? "A workspace owner blocked this" : `${await nameOf(ctx, row.actorId)} set this to Never`;
 			await ctx.db.patch(approvalId, { status: "failed", error: `${who} after it was approved, so it didn't run.` });

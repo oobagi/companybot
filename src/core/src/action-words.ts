@@ -39,7 +39,7 @@ function withArticle(phrase: string) {
 }
 
 /** Where an action happens, in words: "from your Gmail", "with the workspace's Stripe", "in Companybot". */
-export function serviceWords(service: { name: string; connection: "workspace" | "personal" } | null, from = "from") {
+function serviceWords(service: { name: string; connection: "workspace" | "personal" } | null, from = "from") {
 	if (!service) return "in Companybot";
 	return service.connection === "personal" ? `${from} your ${service.name}` : `with the workspace's ${service.name}`;
 }

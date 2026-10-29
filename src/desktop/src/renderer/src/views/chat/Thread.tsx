@@ -1,7 +1,7 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
-import { Loading, Notice, useRun } from "../../ui";
+import { Loading, Notice, TopBar, useRun } from "../../ui";
 import { CloseIcon } from "../../icons";
 import { IconButton } from "./common";
 import { Composer, type SendWith } from "./Composer";
@@ -30,15 +30,11 @@ export function ThreadPanel({
 	const { error, fail } = useRun();
 
 	const header = (
-		<header className="drag flex h-12 shrink-0 items-center gap-2 px-5">
-			<h2 className="text-sm font-semibold">Thread</h2>
-			<span className="truncate text-sm text-neutral-400">{chatTitle(chat)}</span>
-			<span className="ml-auto">
-				<IconButton label="Close thread" onClick={onClose}>
-					<CloseIcon />
-				</IconButton>
-			</span>
-		</header>
+		<TopBar title="Thread" description={chatTitle(chat)}>
+			<IconButton label="Close thread" onClick={onClose}>
+				<CloseIcon />
+			</IconButton>
+		</TopBar>
 	);
 	const footer = (
 		<div className="flex flex-col gap-2 px-4 pt-4 pb-7">

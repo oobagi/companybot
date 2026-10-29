@@ -457,14 +457,59 @@ export class ErrorBoundary extends Component<{ children: React.ReactNode }, { er
 export function useRun(message: (e: unknown) => string = errorMessage) {
 	const [error, setError] = useState<string>();
 	const [busy, setBusy] = useState(false);
-	const fail = (e?: unknown) => setError(e === undefined ? undefined : message(e));
-	const run = (action: Promise<unknown>, then?: () => void) => {
-		setBusy(true);
-		return action
-			.then(() => (setError(undefined), then?.()), fail)
-			.finally(() => setBusy(false));
-	};
+	// Stable, so they can be passed down (onError) without re-rendering every row.
+	const fail = useCallback((e?: unknown) => setError(e === undefined ? undefined : message(e)), [message]);
+	const run = useCallback(
+		(action: Promise<unknown>, then?: () => void) => {
+			setBusy(true);
+			return action.then(() => (setError(undefined), then?.()), fail).finally(() => setBusy(false));
+		},
+		[fail],
+	);
 	return { error, busy, run, fail };
+}
+
+/**
+ * A value this computer keeps in localStorage under `key`: read once through `parse` (which
+ * gets whatever was saved, or null, and drops anything unusable), written through.
+ */
+export function useStored<T>(key: string, parse: (saved: unknown) => T) {
+	const [value, setValue] = useState<T>(() => {
+		try {
+			return parse(JSON.parse(localStorage.getItem(key) ?? "null"));
+		} catch {
+			return parse(null);
+		}
+	});
+	const save = useCallback(
+		(next: T) => {
+			setValue(next);
+			try {
+				localStorage.setItem(key, JSON.stringify(next));
+			} catch {
+				// Storage may be unavailable; it still holds until reload.
+			}
+		},
+		[key],
+	);
+	return [value, save] as const;
+}
+
+/** The strings in a saved list, for `useStored`. */
+export const storedIds = (saved: unknown) => (Array.isArray(saved) ? saved.filter((id): id is string => typeof id === "string") : []);
+
+/** Labels and values, two columns. */
+export function Facts({ rows, className = "gap-x-6 gap-y-1.5 text-sm" }: { rows: [string, React.ReactNode][]; className?: string }) {
+	return (
+		<dl className={`grid grid-cols-[auto_1fr] ${className}`}>
+			{rows.map(([label, value]) => (
+				<Fragment key={label}>
+					<dt className="text-neutral-500">{label}</dt>
+					<dd className="break-words">{value}</dd>
+				</Fragment>
+			))}
+		</dl>
+	);
 }
 
 /** Local state over a live value: starts as `value` and starts over whenever `value` changes. */

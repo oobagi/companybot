@@ -39,6 +39,13 @@ describe("records", () => {
 		expect(fieldConfigError({ label: "A", kind: "blob" as Field["kind"] })).toMatch("one of");
 	});
 
+	it("refuses impossible dates instead of crashing on them", () => {
+		const date: Field = { key: "due", label: "Due", kind: "date" };
+		expect(value(date, "2026-02-30")).toEqual({ error: "“Due” is a date like 2026-10-25." });
+		for (const bad of ["2026-13-01", "2026-00-10", "2026-10-32"]) expect(value(date, bad)).toEqual({ error: "“Due” is a date like 2026-10-25." });
+		expect(value(date, "2026-10-25T13:00:00Z")).toEqual({ value: "2026-10-25" });
+	});
+
 	it("normalizes values, and empty ones clear", () => {
 		expect(value(field("text"), "  hi ")).toEqual({ value: "hi" });
 		expect(value(field("text"), "")).toEqual({ value: null });

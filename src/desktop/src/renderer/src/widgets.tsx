@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { CardProps, StatsProps, TableProps } from "@companybot/core/widgets";
 import { ArrowDownIcon, ArrowRightIcon, ArrowUpIcon } from "./icons";
-import { descriptionClass } from "./ui";
+import { Facts, descriptionClass } from "./ui";
 
 // Components for widgets agents place in replies. Types and props are defined in
 // core/src/widgets.ts; add a component here for each one. Unknown types (from a
@@ -115,14 +115,7 @@ function CardWidget({ props }: { props: CardProps }) {
 				<p className="font-medium">{props.title}</p>
 				{props.subtitle && <p className={descriptionClass}>{props.subtitle}</p>}
 			</figcaption>
-			<dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 px-4 py-3 text-sm">
-				{props.fields.map((f, i) => (
-					<div key={i} className="contents">
-						<dt className="text-neutral-500">{f.label}</dt>
-						<dd className="break-words">{f.value}</dd>
-					</div>
-				))}
-			</dl>
+			<Facts rows={props.fields.map((f) => [f.label, f.value])} className="gap-x-4 gap-y-1.5 px-4 py-3 text-sm" />
 		</figure>
 	);
 }

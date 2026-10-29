@@ -99,17 +99,19 @@ export function resolveTools(
  */
 export const agentStopWhen = isStepCount(10);
 
-/** Builds the AI SDK tool set for one run. */
-export function buildToolSet(
+/** Builds the AI SDK tool set for one run from what's `available`. */
+export const buildToolSet = (
 	agent: Pick<AgentConfig, "tools">,
 	ctx: ToolContext,
 	available: ToolDef[] = builtinTools,
 	/** Connected connectors' names and usage notes, shown by connectors_search. */
 	services: ConnectorService[] = [],
-): ToolSet {
+): ToolSet => toolSetOf(agent, ctx, resolveTools(agent, ctx.actor, available), services);
+
+/** The AI SDK tool set for tools already `resolved` for this agent and person (the runner resolves once per turn). */
+export function toolSetOf(agent: Pick<AgentConfig, "tools">, ctx: ToolContext, resolved: ToolDef[], services: ConnectorService[]): ToolSet {
 	const tools: ToolSet = {};
 	const run = (t: ToolDef, input: unknown) => (t.returnsData ? withRef(t.execute(input, ctx), ctx) : t.execute(input, ctx));
-	const resolved = resolveTools(agent, ctx.actor, available);
 	for (const t of resolved.filter((t) => t.source.type === "builtin")) {
 		tools[modelToolName(t.id)] = tool({
 			description: t.description,

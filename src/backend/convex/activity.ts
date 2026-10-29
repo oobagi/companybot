@@ -4,7 +4,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation } from "./_generated/server";
 import { query } from "./functions";
-import { type Namer, canSee, chatLabel, namer } from "./chatOps";
+import { type Namer, canSee, chatLabel, namer, visibleReply } from "./chatOps";
 import { type Member, capped, erased, getMember, liveWorkspace } from "./lib";
 import { titleOf } from "./connectorTools";
 import { allowedHow } from "./schema";
@@ -83,10 +83,9 @@ export const list = query({
 export const forReply = query({
 	args: { replyId: v.id("chatMessages") },
 	handler: async (ctx, { replyId }) => {
-		const member = await getMember(ctx);
-		const reply = await ctx.db.get(replyId);
-		const chat = reply && (await ctx.db.get(reply.chatId));
-		if (!member || !chat || chat.archived || !(await canSee(ctx, chat, member))) return [];
+		const visible = await visibleReply(ctx, replyId);
+		if (!visible) return [];
+		const { member } = visible;
 		const names = namer(ctx);
 		const rows = await ctx.db
 			.query("agentActivity")

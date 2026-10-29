@@ -17,7 +17,7 @@ export type Participant = ({ type: "user"; id: Id<"users"> } | { type: "agent"; 
 };
 
 /** Finds a DM by who's in it: sorted "u:<id>" / "a:<id>" keys joined by ",". */
-export const dmKeyOf = (userIds: Id<"users">[], agentIds: Id<"agents">[]) =>
+const dmKeyOf = (userIds: Id<"users">[], agentIds: Id<"agents">[]) =>
 	[...new Set([...userIds.map((id) => `u:${id}`), ...agentIds.map((id) => `a:${id}`)])].sort().join(",");
 
 /** The agent in an agent DM (exactly one person and one agent), else null. */
@@ -66,7 +66,7 @@ export async function channelNamed(ctx: QueryCtx, member: Member, name: string) 
 		.query("chats")
 		.withIndex("by_name", (q) => q.eq("workspaceId", member.workspaceId).eq("name", clean).eq("archived", false))
 		.first();
-	return chat && chat.kind === "channel" && !chat.archived && (await canSee(ctx, chat, member)) ? chat : null;
+	return chat && chat.kind === "channel" && (await canSee(ctx, chat, member)) ? chat : null;
 }
 
 /** A chat by id, or a channel by name, that the person can see. */
@@ -83,6 +83,21 @@ export async function visibleChat(ctx: QueryCtx, chatId: Id<"chats">) {
 	const chat = member && (await ctx.db.get(chatId));
 	if (!member || !chat || !(await canSee(ctx, chat, member))) return null;
 	return { member, chat };
+}
+
+/** You, a reply and its chat, if you can see it and it isn't in Trash. For queries about one reply. */
+export async function visibleReply(ctx: QueryCtx, replyId: Id<"chatMessages">) {
+	const member = await getMember(ctx);
+	const reply = member && (await ctx.db.get(replyId));
+	const chat = reply && (await ctx.db.get(reply.chatId));
+	if (!member || !reply || !chat || chat.archived || !(await canSee(ctx, chat, member))) return null;
+	return { member, reply, chat };
+}
+
+/** A thread's parent: a top-level message of `chatId`. Null if `threadId` names anything else. */
+export async function threadParent(ctx: QueryCtx, chatId: Id<"chats">, threadId: Id<"chatMessages">) {
+	const parent = await ctx.db.get(threadId);
+	return parent && parent.chatId === chatId && !parent.threadId ? parent : null;
 }
 
 /** A chat the person can see. Others look like they don't exist. */

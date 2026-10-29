@@ -9,7 +9,8 @@ import { seedAgents } from "./agents";
 import { fieldsOf, typesOf } from "./recordOps";
 import { addToChat, ensureGeneral, latestMentionSince } from "./chatOps";
 import { sendInviteEmail } from "./invites";
-import { type Member, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, liveWorkspace, memberOf, nameOf, normalizeEmail, personOf, preferencesOf, requireMember, requirePermission, requireUserId, timeZoneOf } from "./lib";
+import { type Member, checkPermission, authUserId, checkVersion, erased, getMember, hasLiveOwner, liveWorkspace, memberOf, nameOf, normalizeEmail, personOf, preferencesOf, requireInWorkspace, requireMember, requirePermission, requireUserId } from "./lib";
+import { savePreferences } from "./preferences";
 import { cascading, startCascade } from "./cascade";
 import { imageUrl } from "./images";
 import { removeWorkspace } from "./lifecycle";
@@ -30,8 +31,6 @@ export const me = query({
 			role: member?.role ?? null,
 			workspace: workspace?.name ?? null,
 			workspaceId: workspace?._id ?? null,
-			/** Its logo's URL, or null for its initials. */
-			workspaceImage: await imageUrl(ctx, workspace?.image),
 		};
 	},
 });
@@ -64,8 +63,7 @@ export const MAX_OWNED_WORKSPACES = 10;
 export const create = mutation({
 	args: { name: v.string() },
 	handler: async (ctx, { name }): Promise<Id<"workspaces">> => {
-		const userId = await authUserId(ctx);
-		if (!userId) throw new ConvexError("Not signed in.");
+		const userId = await requireUserId(ctx);
 		if (!name.trim()) throw new ConvexError("Name can't be empty.");
 		let owned = 0;
 		for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId)))
@@ -84,22 +82,21 @@ export const activity = query({
 	handler: async (ctx): Promise<{ id: Id<"workspaces">; unread: boolean; mentions: number }[]> => {
 		const userId = await authUserId(ctx);
 		if (!userId) return [];
-		const byWorkspace = new Map<Id<"workspaces">, { id: Id<"workspaces">; unread: boolean; mentions: number }>();
-		for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId)))
-			if (await liveWorkspace(ctx, row.workspaceId)) byWorkspace.set(row.workspaceId, { id: row.workspaceId, unread: false, mentions: 0 });
-		// Chat seats outlive leaving a workspace, so only the workspaces above count.
-		for (const seat of await ctx.db
-			.query("chatMembers")
-			.withIndex("by_user", (q) => q.eq("userId", userId))
-			.collect()) {
-			const since = seat.lastReadAt ?? 0;
-			const chat = await ctx.db.get(seat.chatId);
-			const entry = chat && byWorkspace.get(chat.workspaceId);
-			if (!chat || !entry || chat.archived || chat.lastMessageAt <= since) continue;
-			entry.unread = true;
-			if (chat.kind === "dm" || (await latestMentionSince(ctx, chat._id, userId, since))) entry.mentions++;
+		const out = [];
+		for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId))) {
+			if (!(await liveWorkspace(ctx, row.workspaceId))) continue;
+			const entry = { id: row.workspaceId, unread: false, mentions: 0 };
+			// Only this workspace's seats: ones left behind by leaving another never load.
+			for await (const seat of ctx.db.query("chatMembers").withIndex("by_workspace", (q) => q.eq("workspaceId", row.workspaceId).eq("userId", userId))) {
+				const since = seat.lastReadAt ?? 0;
+				const chat = await ctx.db.get(seat.chatId);
+				if (!chat || chat.archived || chat.lastMessageAt <= since) continue;
+				entry.unread = true;
+				if (chat.kind === "dm" || (await latestMentionSince(ctx, chat._id, userId, since))) entry.mentions++;
+			}
+			out.push(entry);
 		}
-		return [...byWorkspace.values()];
+		return out;
 	},
 });
 
@@ -138,17 +135,11 @@ async function join(ctx: MutationCtx, invite: Doc<"invites">, userId: Id<"users"
 	await ctx.db.insert("members", { workspaceId: invite.workspaceId, userId, role: invite.role, email: invite.email, tutorial: freshTutorial() });
 	const general = await ensureGeneral(ctx, invite.workspaceId, userId);
 	await addToChat(ctx, general, { userId });
-	await rememberLastUsed(ctx, userId, invite.workspaceId);
+	await savePreferences(ctx, userId, { workspaceId: invite.workspaceId });
 	await welcome(ctx, general, userId, "joined");
 	await fireEvent(ctx, invite.workspaceId, "member.joined", {
 		data: { name: await nameOf(ctx, userId), email: invite.email, role: invite.role },
 	});
-}
-
-async function rememberLastUsed(ctx: MutationCtx, userId: Id<"users">, workspaceId: Id<"workspaces">) {
-	const prefs = await preferencesOf(ctx, userId);
-	if (prefs) await ctx.db.patch(prefs._id, { workspaceId });
-	else await ctx.db.insert("preferences", { userId, displayName: "", sendWith: "enter", workspaceId });
 }
 
 /**
@@ -191,7 +182,7 @@ export const switchTo = mutation({
 	handler: async (ctx, { to: workspaceId }) => {
 		const userId = await authUserId(ctx);
 		if (!userId || !(await memberOf(ctx, userId, workspaceId))) throw new ConvexError("You're not in that workspace.");
-		await rememberLastUsed(ctx, userId, workspaceId);
+		await savePreferences(ctx, userId, { workspaceId });
 	},
 });
 
@@ -226,7 +217,10 @@ export const team = query({
 	handler: async (ctx) => {
 		const member = await getMember(ctx);
 		if (!member) return null;
-		const rows = await membersOf(ctx, member.workspaceId);
+		const rows = await ctx.db
+			.query("members")
+			.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
+			.collect();
 		const members = await Promise.all(
 			rows.map(async (r) => {
 				const person = await personOf(ctx, r.userId);
@@ -237,10 +231,10 @@ export const team = query({
 					name: person.name,
 					/** Their photo's URL, or null for their initials. */
 					image: await imageUrl(ctx, person.image),
-					email: (await ctx.db.get(r.userId))?.email ?? "",
+					email: person.email,
 					isYou: r.userId === member.userId,
 					/** For profiles: the zone they picked, else their computer's. */
-					timeZone: await timeZoneOf(ctx, r.userId),
+					timeZone: person.timeZone,
 				};
 			}),
 		);
@@ -287,9 +281,8 @@ export const resendInvite = mutation({
 });
 
 export async function resendMemberInvite(ctx: MutationCtx, member: Member, { id }: Infer<typeof resendMemberInviteArgs>) {
-	const { workspaceId, userId } = checkPermission(member, "members.manage");
-	const invite = await ctx.db.get(id);
-	if (invite?.workspaceId !== workspaceId) throw new ConvexError("That invite isn't available anymore.");
+	const { userId } = checkPermission(member, "members.manage");
+	const invite = requireInWorkspace(member, await ctx.db.get(id), "Invite");
 	await sendInviteEmail(ctx, invite, userId, { resend: true });
 }
 
@@ -304,9 +297,8 @@ export const cancelInvite = mutation({
 });
 
 export async function cancelMemberInvite(ctx: MutationCtx, member: Member, { id }: Infer<typeof cancelMemberInviteArgs>) {
-	const { workspaceId } = checkPermission(member, "members.manage");
-	const invite = await ctx.db.get(id);
-	if (invite?.workspaceId === workspaceId) await ctx.db.delete(id);
+	checkPermission(member, "members.manage");
+	await ctx.db.delete(requireInWorkspace(member, await ctx.db.get(id), "Invite")._id);
 }
 
 const removeWorkspaceMemberArgs = v.object({ id: v.id("members") });
@@ -318,8 +310,7 @@ export const removeMember = mutation({
 
 export async function removeWorkspaceMember(ctx: MutationCtx, member: Member, { id }: Infer<typeof removeWorkspaceMemberArgs>) {
 	const owner = checkPermission(member, "members.manage");
-	const row = await ctx.db.get(id);
-	if (!row || row.workspaceId !== owner.workspaceId) return;
+	const row = requireInWorkspace(owner, await ctx.db.get(id), "Member");
 	if (row.userId === owner.userId) throw new ConvexError("You can't remove yourself.");
 	await dropMember(ctx, row);
 }
@@ -380,11 +371,9 @@ export const eraseAccount = mutation({
 		for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId))) {
 			// One being deleted is going anyway, however many memberships its cascade has left to delete.
 			if (row.role !== "owner" || !(await liveWorkspace(ctx, row.workspaceId)) || (await hasLiveOwner(ctx, row.workspaceId, userId))) continue;
-			const others = await ctx.db
-				.query("members")
-				.withIndex("by_workspace", (q) => q.eq("workspaceId", row.workspaceId))
-				.take(2);
-			if (others.length > 1) {
+			// An erased account's row is only waiting for its cascade: nobody is there.
+			for await (const other of ctx.db.query("members").withIndex("by_workspace", (q) => q.eq("workspaceId", row.workspaceId))) {
+				if (other.userId === userId || (await erased(ctx, other.userId))) continue;
 				const workspace = await ctx.db.get(row.workspaceId);
 				throw new ConvexError(`You're the only owner of ${workspace?.name ?? "a workspace"}. Make someone else an owner first, or remove everyone else.`);
 			}
@@ -412,20 +401,13 @@ export const setRole = mutation({
 	args: { id: v.id("members"), role },
 	handler: async (ctx, { id, role }) => {
 		const owner = await requirePermission(ctx, "members.manage");
-		const row = await ctx.db.get(id);
-		if (!row || row.workspaceId !== owner.workspaceId) throw new ConvexError("Member not found.");
+		const row = requireInWorkspace(owner, await ctx.db.get(id), "Member");
 		if (row.role === "owner" && role !== "owner" && !(await hasLiveOwner(ctx, owner.workspaceId, row.userId))) {
 			throw new ConvexError("A workspace needs at least one owner.");
 		}
 		await ctx.db.patch(id, { role });
 	},
 });
-
-const membersOf = (ctx: QueryCtx, workspaceId: Id<"workspaces">) =>
-	ctx.db
-		.query("members")
-		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-		.collect();
 
 /** Whether someone with this (normalized) email is already in the workspace. */
 async function isMemberEmail(ctx: QueryCtx, workspaceId: Id<"workspaces">, email: string) {

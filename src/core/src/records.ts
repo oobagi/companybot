@@ -66,9 +66,9 @@ export interface Field extends FieldConfig {
 /** Every type has it. Its value is the record's title. */
 export const NAME_KEY = "name";
 
-export const FIELD_LABEL_MAX = 60;
+const FIELD_LABEL_MAX = 60;
 export const FIELDS_PER_TYPE_MAX = 100;
-export const OPTIONS_MAX = 100;
+const OPTIONS_MAX = 100;
 export const TEXT_MAX = 10_000;
 /** Most values a `multiple` field holds. */
 export const MULTI_MAX = 50;
@@ -257,7 +257,9 @@ function normalizeOne(field: Field, raw: unknown, label: string, mode: ValueMode
 		}
 		case "date": {
 			const day = text?.slice(0, 10) ?? "";
-			const ok = /^\d{4}-\d{2}-\d{2}$/.test(day) && new Date(`${day}T00:00:00Z`).toISOString().startsWith(day);
+			// An out-of-range month or day parses as NaN; toISOString() on it would throw.
+			const ms = /^\d{4}-\d{2}-\d{2}$/.test(day) ? new Date(`${day}T00:00:00Z`).getTime() : Number.NaN;
+			const ok = !Number.isNaN(ms) && new Date(ms).toISOString().startsWith(day);
 			return ok ? { value: day } : { error: `${label} is a date like 2026-10-25.` };
 		}
 		case "checkbox":

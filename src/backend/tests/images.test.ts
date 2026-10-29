@@ -46,7 +46,6 @@ describe("pictures", () => {
 		await owner.mutation(api.images.set, { of: "workspace", file: first });
 		const url = (await owner.query(api.workspace.settings))!.image;
 		expect(url).toBeTruthy();
-		expect((await member.query(api.workspace.me))!.workspaceImage).toBe(url);
 		expect((await member.query(api.workspace.mine))!.workspaces[0]!.image).toBe(url);
 
 		const second = await upload(owner);

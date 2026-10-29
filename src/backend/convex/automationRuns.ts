@@ -3,17 +3,14 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
-import { mutation } from "./functions";
+import { memberMutation } from "./functions";
 import { addToChat, canSee, findOrCreateDm, insertMessage } from "./chatOps";
-import { type Member, liveWorkspace, memberOf, nameOf, normalizeEmail, requireMember, sweepExpired } from "./lib";
+import { type Member, liveWorkspace, memberOf, nameOf, normalizeEmail, sweepExpired } from "./lib";
 import { definitionOf, followsOthers, postingProblem, requireEditable, subscribersOf } from "./automationOps";
 import { enqueueTurn } from "./turns";
 
 /** Runs it once now, just for you (webhooks and events use a sample), so you can see what it does. */
-export const runNow = mutation({
-	args: { automationId: v.string() },
-	handler: async (ctx, { automationId }) => runNowAs(ctx, await requireMember(ctx), automationId),
-});
+export const runNow = memberMutation({ automationId: v.string() }, (ctx, member, { automationId }) => runNowAs(ctx, member, automationId));
 
 // ---- Internal: triggers ----
 
@@ -76,8 +73,9 @@ export const receive = internalMutation({
 
 		let person: Id<"users"> | undefined;
 		if (delivery.person) {
+			// A named person must be here (and subscribed, or the maker of a just-me one: runFor). Channel runs post as whoever picked the channel.
 			const found = await workspaceUserByEmail(ctx, install.workspaceId, delivery.person.email);
-			if (!found && install.audience === "subscribers")
+			if (!found && install.audience !== "channel")
 				return { status: 200, ok: true, message: await finish(ctx, install, `Didn't run: nobody here has the email ${delivery.person.email}.`) };
 			person = found ?? undefined;
 		}
@@ -126,7 +124,7 @@ async function workspaceUserByEmail(ctx: QueryCtx, workspaceId: Id<"workspaces">
 }
 
 /** Webhook delivery ids outlive sender retries. */
-export const WEBHOOK_MEMORY_MS = 7 * 24 * 60 * 60 * 1000;
+const WEBHOOK_MEMORY_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Runs hourly (crons.ts): deletes webhook delivery ids older than WEBHOOK_MEMORY_MS, in batches. */
 export const forgetOldWebhooks = internalMutation({
@@ -247,12 +245,7 @@ async function runInChannel(
 	const preferred = install.custom ? install.installedBy : (install.channelSetBy ?? install.installedBy);
 	const owners = install.custom
 		? []
-		: (
-				await ctx.db
-					.query("members")
-					.withIndex("by_workspace", (q) => q.eq("workspaceId", install.workspaceId))
-					.collect()
-			).filter((m) => m.role === "owner" && m.userId !== preferred);
+		: (await ctx.db.query("members").withIndex("by_role", (q) => q.eq("workspaceId", install.workspaceId).eq("role", "owner")).collect()).filter((m) => m.userId !== preferred);
 	// Each read through memberOf, so a workspace being deleted has nobody to act as.
 	let actorId: Id<"users"> | null = null;
 	for (const userId of [preferred, ...owners.map((m) => m.userId)]) {

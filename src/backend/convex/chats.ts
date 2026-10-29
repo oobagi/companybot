@@ -2,7 +2,7 @@ import { canManageChannel } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx } from "./_generated/server";
-import { mutation, query } from "./functions";
+import { memberMutation, mutation, query } from "./functions";
 import {
 	type Namer,
 	type Participant,
@@ -18,6 +18,7 @@ import {
 	requireActiveAgents,
 	requireChat,
 	requireManagedChannel,
+	threadParent,
 	requireWorkspaceUsers,
 	visibleChat,
 } from "./chatOps";
@@ -99,12 +100,12 @@ export const list = query({
 		const names = namer(ctx, { images: true });
 		const rows = await ctx.db
 			.query("chatMembers")
-			.withIndex("by_user", (q) => q.eq("userId", member.userId))
+			.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("userId", member.userId))
 			.collect();
 		const items: ChatItem[] = [];
 		for (const row of rows) {
 			const chat = await ctx.db.get(row.chatId);
-			if (chat && !chat.archived && chat.workspaceId === member.workspaceId) items.push(await toChatItem(ctx, chat, member, names, row, chat.kind === "dm" ? await chatMembersOf(ctx, chat._id) : []));
+			if (chat && !chat.archived) items.push(await toChatItem(ctx, chat, member, names, row, chat.kind === "dm" ? await chatMembersOf(ctx, chat._id) : []));
 		}
 		const agents = await ctx.db
 			.query("agents")
@@ -158,21 +159,23 @@ export const alerts = query({
 		const alerts: Alert[] = [];
 		for (const row of await ctx.db
 			.query("chatMembers")
-			.withIndex("by_user", (q) => q.eq("userId", member.userId))
+			.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("userId", member.userId))
 			.collect()) {
 			const since = row.lastReadAt ?? 0;
 			const chat = await ctx.db.get(row.chatId);
-			if (!chat || chat.archived || chat.workspaceId !== member.workspaceId || chat.lastMessageAt <= since) continue;
-			const fromOthers = (m: Doc<"chatMessages"> | null) => (m && !m.deleted && m.authorUserId !== member.userId ? m : null);
+			if (!chat || chat.archived || chat.lastMessageAt <= since) continue;
+			// Nothing to say for an empty message (an approval card posted in your DM, approvals.ts).
+			const fromOthers = (m: Doc<"chatMessages"> | null) => (m && !m.deleted && m.text && m.authorUserId !== member.userId ? m : null);
 			// Mentions come from their index, so any number of newer messages can't hide one.
 			const mention = await latestMentionSince(ctx, chat._id, member.userId, since);
 			let message = fromOthers(mention && (await ctx.db.get(mention.messageId)));
 			if (chat.kind === "dm" && notify === "all") {
 				// Your own posts mark the chat read, so what's unread here is others'. Agent replies
-				// still streaming are skipped until they finish.
+				// still streaming are skipped until they finish; a reply to your post was created at
+				// the moment it marked the chat read, so the read time itself counts.
 				const recent = await ctx.db
 					.query("chatMessages")
-					.withIndex("by_chat_thread", (q) => q.eq("chatId", chat._id).eq("threadId", undefined).gt("_creationTime", since))
+					.withIndex("by_chat_thread", (q) => q.eq("chatId", chat._id).eq("threadId", undefined).gte("_creationTime", since))
 					.order("desc")
 					.take(20);
 				const newest = recent.map(fromOthers).find((m) => m?.status === "done");
@@ -230,10 +233,7 @@ export const get = query({
 
 const createChannelArgs = v.object({ name: v.string(), topic: v.optional(v.string()), private: v.boolean() });
 
-export const createChannel = mutation({
-	args: createChannelArgs.fields,
-	handler: async (ctx, args) => createChannelAs(ctx, await requireMember(ctx), args),
-});
+export const createChannel = memberMutation(createChannelArgs.fields, createChannelAs);
 
 export async function createChannelAs(ctx: MutationCtx, member: Member, args: Infer<typeof createChannelArgs>): Promise<Id<"chats">> {
 	checkPermission(member, "channels.create");
@@ -254,10 +254,7 @@ export async function createChannelAs(ctx: MutationCtx, member: Member, args: In
 
 const updateChannelArgs = v.object({ chatId: v.id("chats"), name: v.optional(v.string()), topic: v.optional(v.string()) });
 
-export const updateChannel = mutation({
-	args: updateChannelArgs.fields,
-	handler: async (ctx, args) => updateChannelAs(ctx, await requireMember(ctx), args),
-});
+export const updateChannel = memberMutation(updateChannelArgs.fields, updateChannelAs);
 
 export async function updateChannelAs(ctx: MutationCtx, member: Member, { chatId, name, topic }: Infer<typeof updateChannelArgs>) {
 	const chat = await requireManagedChannel(ctx, member, chatId);
@@ -270,10 +267,7 @@ export async function updateChannelAs(ctx: MutationCtx, member: Member, { chatId
 
 const joinChannelArgs = v.object({ chatId: v.id("chats") });
 
-export const join = mutation({
-	args: joinChannelArgs.fields,
-	handler: async (ctx, args) => joinChannel(ctx, await requireMember(ctx), args),
-});
+export const join = memberMutation(joinChannelArgs.fields, joinChannel);
 
 export async function joinChannel(ctx: MutationCtx, member: Member, { chatId }: Infer<typeof joinChannelArgs>) {
 	const chat = await requireChat(ctx, member, chatId);
@@ -283,10 +277,7 @@ export async function joinChannel(ctx: MutationCtx, member: Member, { chatId }: 
 
 const leaveChannelArgs = v.object({ chatId: v.id("chats") });
 
-export const leave = mutation({
-	args: leaveChannelArgs.fields,
-	handler: async (ctx, args) => leaveChannel(ctx, await requireMember(ctx), args),
-});
+export const leave = memberMutation(leaveChannelArgs.fields, leaveChannel);
 
 export async function leaveChannel(ctx: MutationCtx, member: Member, { chatId }: Infer<typeof leaveChannelArgs>) {
 	const chat = await requireChat(ctx, member, chatId);
@@ -299,10 +290,7 @@ export async function leaveChannel(ctx: MutationCtx, member: Member, { chatId }:
 /** Channels only. Members of a channel can add people; managers can add to any channel they see. */
 const addChannelMembersArgs = v.object({ chatId: v.id("chats"), userIds: v.array(v.id("users")), agentIds: v.array(v.id("agents")) });
 
-export const addMembers = mutation({
-	args: addChannelMembersArgs.fields,
-	handler: async (ctx, args) => addChannelMembers(ctx, await requireMember(ctx), args),
-});
+export const addMembers = memberMutation(addChannelMembersArgs.fields, addChannelMembers);
 
 export async function addChannelMembers(ctx: MutationCtx, member: Member, { chatId, userIds, agentIds }: Infer<typeof addChannelMembersArgs>) {
 	const chat = await requireChat(ctx, member, chatId);
@@ -319,10 +307,7 @@ export async function addChannelMembers(ctx: MutationCtx, member: Member, { chat
 /** Finds or creates the DM with exactly these people and agents (and you). */
 const openDirectMessageArgs = v.object({ userIds: v.array(v.id("users")), agentIds: v.array(v.id("agents")) });
 
-export const openDm = mutation({
-	args: openDirectMessageArgs.fields,
-	handler: async (ctx, args) => openDirectMessage(ctx, await requireMember(ctx), args),
-});
+export const openDm = memberMutation(openDirectMessageArgs.fields, openDirectMessage);
 
 export async function openDirectMessage(ctx: MutationCtx, member: Member, args: Infer<typeof openDirectMessageArgs>): Promise<Id<"chats">> {
 	const userIds = [...new Set([member.userId, ...args.userIds])];
@@ -332,10 +317,7 @@ export async function openDirectMessage(ctx: MutationCtx, member: Member, args: 
 	return findOrCreateDm(ctx, member.workspaceId, member.userId, userIds, agentIds);
 }
 
-export const markRead = mutation({
-	args: { chatId: v.id("chats") },
-	handler: async (ctx, { chatId }) => markReadAs(ctx, await requireMember(ctx), chatId),
-});
+export const markRead = memberMutation({ chatId: v.id("chats") }, (ctx, member, { chatId }) => markReadAs(ctx, member, chatId));
 
 /**
  * For the summary divider and running cost. Summaries belong to agent sessions, so
@@ -349,8 +331,8 @@ export const place = query({
 	): Promise<{ summary: string | null; summarizedUpTo: number | null; compacting: boolean; costUsd: number } | null> => {
 		const chat = (await visibleChat(ctx, chatId))?.chat;
 		if (!chat) return null;
-		const parent = threadId && (await ctx.db.get(threadId));
-		if (threadId && parent?.chatId !== chatId) return null;
+		const parent = threadId && (await threadParent(ctx, chatId, threadId));
+		if (threadId && !parent) return null;
 		const costUsd = (parent ? parent.costUsd : chat.costUsd) ?? 0;
 		const agentId = agentOfDm(chat);
 		const session = agentId && (await sessionAt(ctx, { agentId, chatId, threadId }));

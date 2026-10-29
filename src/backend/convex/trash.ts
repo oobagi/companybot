@@ -9,7 +9,7 @@ import { removeInstall, setAutomationTrashed } from "./automations";
 import { startCascade } from "./cascade";
 import { canSee, setChannelTrashed } from "./chatOps";
 import { mutation, query } from "./functions";
-import { type Member, type Who, capped, checkPermission, emptyPage, getMember, requireMember, sweepExpired } from "./lib";
+import { type Member, type Who, capped, checkPermission, emptyPage, getMember, memo, requireMember, sweepExpired } from "./lib";
 import { deletePage, requirePage, setPageTrashed } from "./pageOps";
 import { setFieldTrashed, setRecordTrashed, setTypeTrashed } from "./recordOps";
 import { trashKind } from "./schema";
@@ -135,9 +135,10 @@ export const list = query({
 				? await trash.withIndex("by_kind", (q) => q.eq("workspaceId", member.workspaceId).eq("kind", kind)).order("desc").paginate(opts)
 				: await trash.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId)).order("desc").paginate(opts);
 		const page = [];
+		const typeOf = memo((id: Id<"recordTypes">) => ctx.db.get(id));
 		for (const e of result.page) {
 			if (!(await visibleEntry(ctx, member, e))) continue;
-			const type = e.typeId && (await ctx.db.get(e.typeId));
+			const type = e.typeId && (await typeOf(e.typeId));
 			page.push({
 				_id: e._id,
 				...(await describeTrash(ctx, member, e)),

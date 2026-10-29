@@ -2,7 +2,7 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
-import { navigate } from "../router";
+import { navigate, redirect } from "../router";
 import { HistoryIcon, PageIcon, TrashIcon } from "../icons";
 import { NotFound, Notice, Page, barButton, barDangerButton, useRun } from "../ui";
 import { MovePage } from "./pages/PageTree";
@@ -19,7 +19,7 @@ export { PagesNav } from "./pages/PageTree";
 /** Pages are opened from the sidebar; /pages alone has nothing to show, so it goes to chat. */
 export function PagesView({ pageId, canEdit }: { pageId?: string; canEdit: boolean }) {
 	useEffect(() => {
-		if (!pageId) navigate("chat");
+		if (!pageId) redirect("chat");
 	}, [pageId]);
 	return pageId ? <PageScreen key={pageId} pageId={pageId as Id<"pages">} canEdit={canEdit} /> : null;
 }

@@ -18,7 +18,7 @@ export const PAGE_MAX = 50;
 export type RecordItem = { record: Doc<"records">; fields: Doc<"recordFields">[] };
 
 /** Each type's fields, read once per call however many records share it. */
-export const fieldsByType = (ctx: QueryCtx) => memo((typeId: Id<"recordTypes">) => fieldsOf(ctx, typeId));
+const fieldsByType = (ctx: QueryCtx) => memo((typeId: Id<"recordTypes">) => fieldsOf(ctx, typeId));
 
 /** One page of a type's records matching every condition, in the workspace's currency (recordQuery.findRecords). */
 export async function listRecords(
@@ -86,6 +86,8 @@ export async function toEntries(ctx: QueryCtx, workspaceId: Id<"workspaces">, it
 		entry.recordId ? entry.changes.flatMap((c) => [...idsIn(fields, { [c.key]: c.old }), ...idsIn(fields, { [c.key]: c.new })]) : [],
 	);
 	const { refs } = await resolveRefs(ctx, workspaceId, idsOf.flat());
+	const name = memo((id: Id<"users">) => nameOf(ctx, id));
+	const agent = memo((id: Id<"agents">) => ctx.db.get(id));
 	return Promise.all(
 		items.map(async ({ entry: e, fields }, i) => {
 			const field = e.fieldId && fields.find((f) => f._id === e.fieldId);
@@ -99,8 +101,8 @@ export async function toEntries(ctx: QueryCtx, workspaceId: Id<"workspaces">, it
 				field: field ? field.label : null,
 				changes: e.changes.map((c) => ({ ...c, label: fields.find((f) => f.key === c.key)?.label ?? c.key })),
 				refs: Object.fromEntries(idsOf[i]!.filter((id) => refs[id]).map((id) => [id, refs[id]!])),
-				user: await nameOf(ctx, e.userId),
-				agent: e.agentId ? ((await ctx.db.get(e.agentId))?.name ?? null) : null,
+				user: await name(e.userId),
+				agent: e.agentId ? ((await agent(e.agentId))?.name ?? null) : null,
 				undoes: e.undoes ?? null,
 				undone: !!e.undoneBy,
 			};
@@ -127,11 +129,12 @@ export async function activityAs(ctx: QueryCtx, member: Member, paginationOpts: 
 		.order("desc")
 		.paginate(capped(paginationOpts, HISTORY_PAGE_MAX));
 	const fields = fieldsByType(ctx);
+	const type = memo((id: Id<"recordTypes">) => ctx.db.get(id));
 	const entries = await toEntries(ctx, member.workspaceId, await Promise.all(result.page.map(async (entry) => ({ entry, fields: await fields(entry.typeId) }))));
 	const page = [];
 	for (const [i, e] of result.page.entries()) {
 		const record = e.recordId && (await ctx.db.get(e.recordId));
-		page.push({ ...entries[i]!, record: record ? record.title : null, type: (await ctx.db.get(e.typeId))?.name ?? "" });
+		page.push({ ...entries[i]!, record: record ? record.title : null, type: (await type(e.typeId))?.name ?? "" });
 	}
 	return { ...result, page };
 }

@@ -1,7 +1,7 @@
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { Notice, secondaryButton, useRun } from "../../ui";
+import { Facts, Notice, secondaryButton, useRun } from "../../ui";
 import { AgentBadge, Avatar, Popover, clock, zoneLabel } from "./common";
 import type { Participant } from "./data";
 
@@ -40,14 +40,13 @@ function ProfileCard({ who, onClose }: { who: Participant; onClose: () => void }
 				</div>
 			</div>
 			{person && (
-				<dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-					<dt className="text-neutral-500">Role</dt>
-					<dd className="capitalize">{person.role}</dd>
-					<dt className="text-neutral-500">Local time</dt>
-					<dd>
-						{clock(Date.now(), person.timeZone)} <span className="text-neutral-500">· {zoneLabel(person.timeZone)}</span>
-					</dd>
-				</dl>
+				<Facts
+					className="gap-x-3 gap-y-1"
+					rows={[
+						["Role", <span className="capitalize">{person.role}</span>],
+						["Local time", <>{clock(Date.now(), person.timeZone)} <span className="text-neutral-500">· {zoneLabel(person.timeZone)}</span></>],
+					]}
+				/>
 			)}
 			{agent?.description && <p className="text-neutral-600">{agent.description}</p>}
 			{gone && <p className="text-neutral-500">No longer in this workspace.</p>}
