@@ -54,10 +54,6 @@ An agency's worth of work (finding leads, following up, running the pipeline) do
 
 <sub>Screenshots are the real app with a demo workspace. Every record and page in them was made by Companybot from the chat messages shown.</sub>
 
-### Coming next
-
-Voice agents that answer calls and log them on the client's record, lead gen and email campaigns, agent-built client sites, and a hosted Cloud edition. See [Product](wiki/product.md).
-
 ## Get it
 
 **macOS:** download the latest `.dmg` from [Releases](https://github.com/oobagi/companybot/releases). The app updates itself.
