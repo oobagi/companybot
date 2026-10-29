@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+	<!-- The welcome screen's art (views/Art.tsx), packed into a tile. -->
+	<rect width="1024" height="1024" rx="230" fill="#f6f4ef" />
+	<circle cx="322" cy="322" r="170" fill="#2f6bea" />
+	<path d="M532 492V322a170 170 0 0 1 340 0v170z" fill="#f27a62" />
+	<rect x="152" y="532" width="340" height="340" rx="70" fill="#f9c64e" />
+	<path d="M532 872V532a340 340 0 0 1 340 340z" fill="#7fd3b0" />
+</svg>
