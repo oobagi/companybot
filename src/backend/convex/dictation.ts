@@ -29,8 +29,8 @@ export const transcribeAudio = action({
 		if (!userId || !workspaceId) throw new ConvexError("Sign in to a workspace first.");
 		if (audio.byteLength === 0) return "";
 		if (audio.byteLength > MAX_AUDIO_BYTES) throw new ConvexError("That recording is too long. Try a shorter one.");
-		const { text } = await transcribeClip(new Uint8Array(audio));
-		// TODO(usage): record `costUsd` (from `transcribeClip`) for this workspace once the usage recorder lands.
+		const { text, costUsd } = await transcribeClip(new Uint8Array(audio));
+		await ctx.runMutation(internal.usage.record, { workspaceId, userId, kind: "dictation", model: DICTATION_MODEL, costUsd });
 		return text;
 	},
 });

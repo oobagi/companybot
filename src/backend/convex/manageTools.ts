@@ -16,6 +16,7 @@ import { setImage } from "./images";
 import { updatePreferences } from "./preferences";
 import { runNowAs } from "./automationRuns";
 import { runningTurn } from "./turns";
+import { usageReport } from "./usage";
 
 const paging = (cursor?: string) => ({ cursor: cursor ?? null, numItems: 30 });
 /** One page of the workspace's rows of `table` (every one's by_workspace index starts with workspaceId). */
@@ -269,6 +270,7 @@ export const runFor = internalMutation({
 				}
 				case "workspace.settings": {
 					const r = manageInputs[tool].parse(input).request;
+					if (r.action === "usage") return usageReport(ctx, member, r.month);
 					if (r.action === "get_preferences") {
 						const prefs = await preferencesOf(ctx, member.userId);
 						return { displayName: prefs?.displayName ?? "", sendWith: prefs?.sendWith ?? "enter", notify: prefs?.notify ?? "all", timeZone: prefs?.timeZone ?? null };

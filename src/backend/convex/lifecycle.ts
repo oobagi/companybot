@@ -359,6 +359,11 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		keep: "Deleting forever deletes the entry first (trash.ts). Who deleted something stays, as a former member once they leave.",
 	},
 
+	usage: {
+		workspace: { index: "by_bucket", eq: ["workspaceId"] },
+		keep: "The workspace's bill: what a removed or erased person's replies cost stays in its totals, shown as a former member's. Agents deleted forever leave theirs as \"Agent\".",
+	},
+
 	cascades: { keep: "The cascades themselves: each deletes its own row when it's done." },
 };
 
