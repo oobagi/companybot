@@ -1,14 +1,16 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../api";
-import { useMutation, useQuery } from "../../convex";
+import { useMutation, useQuery, useWorkspace } from "../../convex";
 import { navigate } from "../../router";
 import { ChannelIcon, ChatIcon, CloseIcon, EditIcon, PlusIcon, PrivateIcon } from "../../icons";
 import { EmptyState, Loading, NotFound, Notice, Scroll, TopBar, useRun } from "../../ui";
+import { FileDrop, useAttachments } from "./Attachments";
 import { AgentBadge, AvatarStack, MenuItem, Popover } from "./common";
 import { Composer, type SendWith } from "./Composer";
 import { type ChatDetails, type Mentions, chatTitle, useDirectory } from "./data";
 import { ChannelDetails, RenameChat } from "./dialogs";
+import { draftKey } from "./drafts";
 import { MessageList } from "./MessageList";
 import { ThreadPanel } from "./Thread";
 import { TrashNotice } from "../Trash";
@@ -45,6 +47,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 	const sendMessage = useMutation(api.messages.send);
 	const markRead = useMutation(api.chats.markRead);
 	const directory = useDirectory();
+	const workspace = useWorkspace();
 	const [details, setDetails] = useState(false);
 	const { error, fail } = useRun();
 
@@ -73,12 +76,13 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 	const agent = chat.agentId ? chat.members.find((m) => m.id === chat.agentId) : undefined;
 	const title = chatTitle(chat);
 	const typing = useTypingPing(chat._id);
-	const send = (text: string, mentions: Mentions) => {
+	const files = useAttachments();
+	const send = (text: string, mentions: Mentions, attachments: Id<"_storage">[] = []) => {
 		fail();
 		typing.sent();
 		// Posting in #general without asking an agent: remind them of step 1.
 		if (chat.isDefault && mentions.agentIds.length === 0) nudgeTutorial();
-		sendMessage({ chatId: chat._id, text, mentions }).catch(fail);
+		sendMessage({ chatId: chat._id, text, mentions, attachments }).catch(fail);
 	};
 	const composer = (
 		<Composer
@@ -88,7 +92,9 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 			// Nobody else could see it in an agent DM.
 			onType={agent ? undefined : typing.ping}
 			sources={directory}
+			draftKey={draftKey(workspace?.id, chat._id)}
 			onSend={send}
+			attachments={chat.trash ? undefined : files}
 		/>
 	);
 	const footer = (
@@ -102,8 +108,9 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 		<TopBar
 			title={
 				<>
-					<h1 className="flex min-w-24 items-center gap-1 truncate">
-						{chat.private && chat.kind === "channel" && <PrivateIcon className="shrink-0 text-neutral-400" />}
+					{/* Inline, not flex: a flex row would take its baseline from the icon, not the name. Keeps a little room beside an agent's tabs. */}
+					<h1 className="min-w-24 truncate">
+						{chat.private && chat.kind === "channel" && <PrivateIcon className="mr-1 inline align-[-0.125em] text-neutral-400" />}
 						{title}
 					</h1>
 					{agent && <AgentBadge />}
@@ -128,7 +135,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 
 	return (
 		<div className="flex min-h-0 flex-1">
-			<div className="flex min-w-0 flex-1 flex-col">
+			<FileDrop attachments={chat.trash ? undefined : files} className="flex min-w-0 flex-1 flex-col">
 				{!messages ? (
 					<>
 						{bar}
@@ -172,7 +179,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 						footer={footer}
 					/>
 				)}
-			</div>
+			</FileDrop>
 			{threadId && (
 				<ThreadPanel
 					key={threadId}

@@ -35,6 +35,22 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 - Flow: the agent writes the emails → the person approves (see [Permissions](permissions.md)) → the service sends from warmed mailboxes → replies come back by webhook, land on the lead's record, move it in the pipeline, and the agent drafts an answer.
 - Email to people who already know the business (leads, past clients, check-ins) uses the same pipeline.
 
+## Sites (not built yet)
+- **The business's public website and lead funnels, built and run by agents.** Agencies build and maintain small businesses' sites, so firing the agency includes the website.
+- **Start from what they have.** Optionally, hand the agent the current site. It pulls the logo, colors, fonts, photos and copy, and fills the databases (services, team, locations, hours). What it pulls is a draft until someone confirms it.
+- **The site reads from the databases.** Services, hours, team and reviews come from records, so editing a record updates the site. Content is data; layout and design are a versioned site.
+- **Funnels write to the databases.** Forms and landing pages create or update records (a lead in Clients) and can start automations.
+- **Leads land in chat.** Form fills, texts, emails and calls show up in chat like Night Owl's. Agents answer there while the team watches or jumps in. Each lead is a record with its conversation. Replies to customers follow [Permissions](permissions.md) (ask first).
+- **Agents keep it up.** Edits, new pages, seasonal changes, fixes and upgrades happen by asking in chat. Nobody signs in to a CMS, GitHub or a host.
+- **Making a site is table stakes.** ChatGPT Sites, Wix in ChatGPT and Teable's app builder all make one from a prompt ([Competitors](competitors.md)). What they lack is the loop: records behind the forms, someone answering leads, and upkeep.
+- **Rules, from the Cottonwood Library site** (built by hand: chat → CMS → preview → "Ready to save?" → live):
+  - Every change gets a preview (phone and desktop). Publishing needs an explicit OK for that exact version; a changed version needs a new OK. The last good version stays for rollback.
+  - Never invent facts (hours, prices, dates, testimonials, payment links). Ask only for what's missing.
+  - The business owns its domain, billing and the final publish. Domain transfers take 5–15 days, so start early.
+  - Scheduled jobs report; they don't change the live site on their own.
+  - Picture generation matters: it was the library staff's favorite part.
+- **Depends on** the [Sandbox](sandbox.md) (to build and preview sites) and email and phone (to answer leads).
+
 ## Later
 - **Ads manager:** run marketing campaigns from Companybot, with results tied back to the leads they brought in.
 
@@ -45,7 +61,7 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 - Agents reply only when @mentioned or DM'd — never butt in. They can react to messages that @mention them, and only those.
 - Replies render Markdown and **widgets**: real UI under the message (tables, stat tiles; more later), e.g. "last 10 leads" → a table.
 - One continuous conversation per agent; it auto-compacts. No separate sessions. Channels keep normal threads.
-- Settings come in two kinds, never listed together; the sidebar swaps to the open kind's tabs. **Account settings** (your avatar, bottom of the rail): Your preferences (name, time zone, send key, notifications, app updates). **Workspace settings** (the workspace name's menu): Workspace → General (workspace name, currency, memory on/off), Members, Permissions (your rules, owners' locks), Memory, Activity, Trash; Customize → Agents, Connectors, Skills, Automations.
+- Settings come in two kinds, never listed together; the sidebar swaps to the open kind's tabs. **Account settings** (your avatar, bottom of the rail): Your preferences (name, time zone, send key, notifications, app updates). **Workspace settings** (the workspace name's menu): Workspace → General (workspace name, currency, memory on/off, picture model and monthly image budget), Members, Permissions (your rules, owners' locks), Memory, Activity, Usage (what AI cost this month: owners see the whole workspace by agent, person, kind and model; everyone else only their own share), Trash; Customize → Agents, Connectors, Skills, Automations.
 - Notifications: a desktop notification for each DM and @mention while the app isn't in front, and the count on the dock icon. Per person: DMs and mentions, mentions only, or off. Time zone defaults to automatic (the computer's). Shared settings are saved explicitly, with a conflict warning.
 - Customize (in Settings): **Agents** (owners edit; every save is versioned and restorable), **Connectors** (links to outside services over MCP — Gmail, Calendar…), **Skills** (instructions anyone can write, or ask Companybot to save one ("here's how we write proposals"); they're shared with the team, only the maker or an owner can change them) and **Automations** (below). Memory and clock are built in, not connectors.
 - **Onboarding (built):** signed in with no workspace (first time, or after deleting your last), three steps: your name, the company and its currency, and emails to invite; one call makes it all ([Architecture](architecture.md), Workspaces). Then Companybot speaks first with a fixed message (no model call, so it's free): in #general when someone makes a workspace (a short intro, then one ask: @mention it about the company), and in their DM with it when someone joins (role and current work). Answers are ordinary turns, saved to memory in plain sight. New people get a tutorial tray on the composer ([Chat](chat.md#onboarding)).
@@ -70,7 +86,7 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 - Default: workspace-paid plan via Vercel AI Gateway. Teammates need no AI subscription.
 - Later: bring-your-own API keys; "Sign in with ChatGPT" (OpenAI partner program).
 - Not possible: Claude subscriptions (Anthropic bans third-party use). OpenRouter takes API keys only — no service wraps every subscription.
-- Price per workspace with a usage pool. Pause at the limit; never surprise overage.
+- Price per workspace with a usage pool. Pause at the limit; never surprise overage. The monthly cost per workspace is already tracked (Settings → Usage), as the foundation for plans.
 
 ## Open source
 - The code is AGPL-3.0 (`LICENSE`): anyone can self-host; anyone who runs a changed version as a service must publish their changes.

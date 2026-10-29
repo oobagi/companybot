@@ -26,6 +26,7 @@ export const manageInputs = {
 			z.strictObject({ action: z.literal("edit"), messageId: id, text: z.string().min(1).max(20_000) }),
 			z.strictObject({ action: z.literal("delete"), messageId: id }),
 			z.strictObject({ action: z.literal("react"), messageId: id, emoji: z.string().min(1).max(16) }),
+			z.strictObject({ action: z.literal("hide_preview"), messageId: id, url: z.string().min(1).max(2048).describe("The link whose preview card to take down") }),
 			z.strictObject({ action: z.literal("open_dm"), userIds: userIds.describe("Others in the DM; you are added"), agentIds }),
 			z.strictObject({
 				action: z.literal("send"),
@@ -106,6 +107,7 @@ export const manageInputs = {
 		request: z.discriminatedUnion("action", [
 			z.strictObject({ action: z.literal("get") }),
 			z.strictObject({ action: z.literal("get_preferences") }),
+			z.strictObject({ action: z.literal("usage"), month: z.string().optional().describe("Like 2026-10; this month if left out") }),
 			z.strictObject({ action: z.literal("remove_image"), of: z.enum(["workspace", "me"]).describe("The workspace's logo (owners), or the person's own photo") }),
 			z.strictObject({ action: z.literal("update_preferences"), displayName: z.string().max(60).optional(), sendWith: z.enum(["enter", "mod-enter"]).optional(), notify: z.enum(["all", "mentions", "off"]).optional(), timeZone: z.string().nullable().optional() }),
 			z.strictObject({
@@ -114,6 +116,8 @@ export const manageInputs = {
 				name: z.string().min(1).optional(),
 				currency: z.string().optional(),
 				memory: z.boolean().optional(),
+				imageModel: z.string().optional().describe("An AI Gateway picture model id, like google/gemini-nano-banana-2.1"),
+				imageBudgetUsd: z.number().min(0).optional().describe("USD agents may spend on pictures a month; 0 turns pictures off"),
 			}),
 		]),
 	}),
@@ -124,7 +128,7 @@ export interface ManageStore {
 }
 /** Each tool's title and description. */
 const about: Record<ManageTool, { title: string; description: string }> = {
-	"chat.manage": { title: "Manage messages and DMs", description: "Find people (paged directory, including agent ids), list your chats, open a DM with exact participant ids, deliver a message to a chosen chat/thread, edit your person's own messages, delete them with locked approval, react to an exact message, or explicitly mark a chat read when asked. Sent as you for the person; never triggers agents or automations. Only send when asked; do not copy private information to a wider audience without their request." },
+	"chat.manage": { title: "Manage messages and DMs", description: "Find people (paged directory, including agent ids), list your chats, open a DM with exact participant ids, deliver a message to a chosen chat/thread, edit your person's own messages, delete them with locked approval, react to an exact message, hide the link preview card on your person's own message, or explicitly mark a chat read when asked. Sent as you for the person; never triggers agents or automations. Only send when asked; do not copy private information to a wider audience without their request." },
 	"channels.manage": { title: "Manage channels", description: "Browse public channels, inspect a visible channel and paged participants, create, rename, set/clear topic, add/remove members, join or leave. Use chat ids or #names. Managers remove members; everyone stays in general. Delete moves a channel to Trash for 30 days and waits for approval; only its creator or an owner can do it. Restore by its exact id as the deleter or an owner. Never deletes forever." },
 	"automations.manage": { title: "Manage automations", description: "List or inspect visible automations (prompt, version, agent, state), edit custom config using its current expectedVersion, pause/resume globally, change agent/audience, or run a sample once just for the person. Runs cannot start other runs. Confirm changes first. Resuming grants no consent: future outside actions still ask. Webhook secrets are omitted." },
 	"automations.remove": { title: "Delete an automation", description: "Move an automation to Trash for 30 days, including retained library installs. It stops running; opt-ins and grants stay for restoration. The maker or an owner can restore custom automations; owners restore retained library installs. The exact call waits for approval." },
@@ -134,7 +138,7 @@ const about: Record<ManageTool, { title: string; description: string }> = {
 	"members.invite": { title: "Manage member invitations", description: "Invite an email as a member, or resend or cancel the invitation for an email (owners). Invite and resend send email outside the workspace and wait for approval. Cannot invite owners or change roles." },
 	"members.remove": { title: "Remove a member", description: "Remove another member by their email (owners). Deletes their personal workspace data and access. The exact call waits for approval; cannot remove yourself." },
 	"agents.manage": { title: "Manage agents", description: "Browse agents and their paged configuration history, create an agent with no tools, edit metadata, reset its picture to initials, or delete an agent (to Trash for 30 days; the last agent stays). Writes require an owner. Deleting and changing another agent's instructions or model wait for approval; do them only when asked; you cannot change your own instructions/model, grant tools, restore grants or restore an agent from Trash. Use the current expectedVersion. models lists the AI Gateway models an agent can run on (id, context, $ per M input/output tokens); use one of those ids." },
-	"workspace.settings": { title: "Manage workspace settings", description: "Read/update the acting person's display name, reset their photo or (owners) the workspace logo to initials, send shortcut, notification preference and explicit time zone (null = automatic). Device time zone is measured by the device. Read workspace name, default currency, memory switch and version; update these as an owner using the current expectedVersion. Existing amounts keep their currency; the default only affects new amounts. Memory off keeps stored memories. Change only when asked." },
+	"workspace.settings": { title: "Manage workspace settings", description: "Read/update the acting person's display name, reset their photo or (owners) the workspace logo to initials, send shortcut, notification preference and explicit time zone (null = automatic). Device time zone is measured by the device. Read workspace name, default currency, memory switch, picture model, monthly image budget (USD; 0 = pictures off; owners also see this month's image spend; imageModels lists the ids to pick from) and version; update these as an owner using the current expectedVersion. Existing amounts keep their currency; the default only affects new amounts. Memory off keeps stored memories. Change only when asked. usage: what AI cost in a month, in USD: the whole workspace's by agent, person, kind and model for owners, otherwise only the person's own." },
 };
 /** What a call does to whom, for its card and tool line: "Remove ben@acme.com from the workspace", "Post in #sales". */
 function manageLabel(input: unknown): string | undefined {

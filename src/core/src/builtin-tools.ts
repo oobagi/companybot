@@ -5,10 +5,13 @@ import { chatTools } from "./chat";
 import { SKILL_DESCRIPTION_MAX, SKILL_NAME_MAX } from "./skills";
 import { pageTools } from "./page-tools";
 import { recordTools } from "./record-tools";
+import { readHelp } from "./help";
 import { formatLocalTime } from "./time";
 import type { MemoryScope } from "./memory";
 import type { Permission } from "./permissions";
 import { type ToolDef, defineTool } from "./tools";
+import { imageTools } from "./image-tools";
+import { webTools } from "./web";
 import { widgetTools } from "./widgets";
 
 /** "abc…": a memory as its tool line quotes it. */
@@ -89,6 +92,20 @@ export const builtinTools: ToolDef[] = [
 		},
 	}),
 	defineTool({
+		id: "help.read",
+		title: "Read help",
+		description:
+			"Read Companybot's help for people: what it is, where each setting lives, how to do things. No arguments lists the topics. topic reads one page. query searches by keywords. Pages link screens as #/settings/<tab>; pass those links on to the person.",
+		input: z.object({
+			topic: z.string().optional().describe("A topic id from the list"),
+			query: z.string().optional().describe("Keywords, like \"invite someone\""),
+		}),
+		readOnly: true,
+		async execute(input) {
+			return readHelp(input);
+		},
+	}),
+	defineTool({
 		id: "skills.load",
 		title: "Load a skill",
 		description: "Load an installed skill's full instructions by id.",
@@ -121,4 +138,6 @@ export const builtinTools: ToolDef[] = [
 	...automationTools,
 	...recordTools,
 	...pageTools,
+	...webTools,
+	...imageTools,
 ];

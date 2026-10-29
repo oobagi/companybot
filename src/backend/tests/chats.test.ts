@@ -194,6 +194,33 @@ describe("chats", () => {
 		expect(await member.query(api.chats.alerts)).toEqual([]);
 		expect((await generalOf(member)).mentioned).toBe(false);
 	});
+
+	it("alerts a mention in a thread, pointing at the thread, and reading the chat clears it", async () => {
+		const { owner, member } = await ownerAndMember();
+		await member.mutation(api.preferences.update, { notify: "mentions" });
+		const general = await generalOf(owner);
+		const memberId = member.userId;
+		const parent = await owner.mutation(api.messages.send, { chatId: general._id, text: "topic", mentions: noMentions });
+		await tick();
+		await member.mutation(api.chats.markRead, { chatId: general._id });
+		await tick();
+		// A thread reply doesn't make the chat unread, but a mention in one still reaches you.
+		await owner.mutation(api.messages.send, { chatId: general._id, threadId: parent, text: "plain reply", mentions: noMentions });
+		expect(await generalOf(member)).toMatchObject({ unread: false, mentioned: false });
+		expect(await member.query(api.chats.alerts)).toEqual([]);
+		const reply = await owner.mutation(api.messages.send, {
+			chatId: general._id,
+			threadId: parent,
+			text: "@member in here",
+			mentions: { userIds: [memberId], agentIds: [] },
+		});
+		expect(await generalOf(member)).toMatchObject({ unread: false, mentioned: true });
+		expect((await member.query(api.chats.alerts))!.map((a) => [a.messageId, a.threadId, a.text])).toEqual([[reply, parent, "@member in here"]]);
+		await tick();
+		await member.mutation(api.chats.markRead, { chatId: general._id });
+		expect((await generalOf(member)).mentioned).toBe(false);
+		expect(await member.query(api.chats.alerts)).toEqual([]);
+	});
 });
 
 describe("messages", () => {

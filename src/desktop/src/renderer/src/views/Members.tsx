@@ -3,7 +3,7 @@ import { type Role, can } from "@companybot/core/permissions";
 import { useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
-import { Form, Loading, Notice, cardClass, descriptionClass, inputClass, metadataClass, primaryButton, useRun } from "../ui";
+import { Form, Loading, Notice, cardClass, compactControlClass, compactPrimaryButton, descriptionClass, metadataClass, toolbarClass, useRun } from "../ui";
 
 export function MembersTab({ role }: { role: Role }) {
 	const team = useQuery(api.workspace.team);
@@ -28,7 +28,7 @@ export function MembersTab({ role }: { role: Role }) {
 
 			{isOwner && (
 				<Form
-					className="flex gap-2"
+					className={toolbarClass}
 					onSubmit={() => {
 						run(
 							invite({ email, role: inviteRole }).then(({ emailed }) => setNote(emailed ? undefined : `${email} got an invite email a few minutes ago, so we didn't send another.`)),
@@ -41,10 +41,10 @@ export function MembersTab({ role }: { role: Role }) {
 						value={email}
 						onChange={(e) => setEmail(e.target.value)}
 						placeholder="teammate@company.com"
-						className={`${inputClass} flex-1`}
+						className={`${compactControlClass} min-w-48 flex-1`}
 					/>
 					<RoleSelect value={inviteRole} onChange={setInviteRole} />
-					<button type="submit" className={primaryButton}>
+					<button type="submit" className={compactPrimaryButton}>
 						Invite
 					</button>
 				</Form>

@@ -25,7 +25,7 @@ export type ChatItem = {
 	/** Everyone in it. Empty for channels in `list`, so one person reading a channel doesn't re-run everyone's list. */
 	members: Participant[];
 	unread: boolean;
-	/** An unread message mentions you. */
+	/** A message since you last read the chat mentions you, in its main timeline or a thread. */
 	mentioned: boolean;
 	lastMessageAt: number;
 	/** Channels: you can rename it, delete it and manage its members (`canManageChannel`). */
@@ -72,7 +72,8 @@ async function toChatItem(
 		agentId: agentOfDm(chat),
 		members,
 		unread,
-		mentioned: unread && !!(await latestMentionSince(ctx, chat._id, member.userId, mine?.lastReadAt ?? 0)),
+		// Not gated on `unread`: a thread reply doesn't move the chat's lastMessageAt.
+		mentioned: !!mine && !!(await latestMentionSince(ctx, chat._id, member.userId, mine.lastReadAt ?? 0)),
 		lastMessageAt: chat.lastMessageAt,
 		canManage: chat.kind === "channel" && canManageChannel(toActor(member), chat),
 		parentId: chat.parentId ?? null,
@@ -165,14 +166,16 @@ export type Alert = {
 	workspaceId: Id<"workspaces">;
 	chatId: Id<"chats">;
 	messageId: Id<"chatMessages">;
+	/** Set when the message is a thread reply, so a click opens the thread. */
+	threadId?: Id<"chatMessages">;
 	title: string;
 	text: string;
 };
 
 /**
  * What should reach you outside the app, by your notification setting: unread DMs
- * (agents' replies once finished) and unread @mentions, main timelines only. `latest` is
- * each such chat's newest one, for desktop notifications; its length is the dock badge.
+ * (agents' replies once finished, main timelines) and unread @mentions (main timelines and
+ * threads). Each such chat's newest one, for desktop notifications; the length is the dock badge.
  */
 export const alerts = query({
 	args: {},
@@ -190,12 +193,13 @@ export const alerts = query({
 			.collect()) {
 			const since = row.lastReadAt ?? 0;
 			const chat = await ctx.db.get(row.chatId);
-			if (!chat || chat.archived || chat.workspaceId !== member.workspaceId || chat.lastMessageAt <= since) continue;
+			if (!chat || chat.archived || chat.workspaceId !== member.workspaceId) continue;
 			const fromOthers = (m: Doc<"chatMessages"> | null) => (m && !m.deleted && m.authorUserId !== member.userId ? m : null);
-			// Mentions come from their index, so any number of newer messages can't hide one.
+			// Mentions come from their index, so any number of newer messages can't hide one,
+			// and a thread reply (which doesn't move lastMessageAt) is found all the same.
 			const mention = await latestMentionSince(ctx, chat._id, member.userId, since);
 			let message = fromOthers(mention && (await ctx.db.get(mention.messageId)));
-			if (chat.kind === "dm" && notify === "all") {
+			if (chat.kind === "dm" && notify === "all" && chat.lastMessageAt > since) {
 				// Your own posts mark the chat read, so what's unread here is others'. Agent replies
 				// still streaming are skipped until they finish.
 				const recent = await ctx.db
@@ -212,6 +216,7 @@ export const alerts = query({
 				workspaceId: chat.workspaceId,
 				chatId: chat._id,
 				messageId: message._id,
+				...(message.threadId && { threadId: message.threadId }),
 				title: chat.kind === "channel" ? `${author} in #${chat.name}` : author,
 				text: message.text.slice(0, 200),
 			});

@@ -1,5 +1,5 @@
 import type { PlaceMessage, Skill } from "@companybot/core";
-import { PROMPT_MESSAGE_CAP, approxTokens } from "@companybot/core";
+import { PROMPT_MESSAGE_CAP, approxTokens, fallbackModels } from "@companybot/core";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -13,9 +13,13 @@ import {
 	replyForModel,
 	textForModel,
 } from "./chatOps";
+import { previewMessage } from "./linkPreviews";
 import { type Who, installedSkills, liveWorkspace, memberOf, timeZoneOf } from "./lib";
 import { automationScope } from "./automationOps";
 import { messagePart, replyUsage } from "./schema";
+import { filesForModel, turnImages } from "./files";
+import { catalogModels } from "./modelCatalog";
+import { recordUsage } from "./usage";
 
 // The agent turn queue and everything the runner (agent.ts) reads and writes.
 // One `running` turn per agent per place (chat + thread); the rest wait in order.
@@ -202,7 +206,11 @@ export const turnContext = internalQuery({
 		);
 
 		const parent = turn.threadId && (!foreign || turn.threadId === trigger?._id) && (await ctx.db.get(turn.threadId));
+		/** A thread's first turn starts with its parent. */
+		const first = turns.length === 0 && (foreign || !session.summary);
 		const rows = await chatMembersOf(ctx, chat._id);
+		const { models } = await catalogModels(ctx);
+		const vision = [models, fallbackModels].some((list) => list.find((m) => m.id === agent.model)?.vision);
 		const user = await ctx.db.get(member.userId);
 		return {
 			replyId: turn.replyId,
@@ -225,12 +233,15 @@ export const turnContext = internalQuery({
 				private: chat.private,
 				topic: chat.topic ?? null,
 				thread: parent
-					? { parent: await toPlaceMessage(parent, names, agent._id), first: turns.length === 0 && (foreign || !session.summary) }
+					? { parent: await toPlaceMessage(parent, names, agent._id), first }
 					: null,
 				members: await Promise.all(rows.map(names.of)),
 			},
 			messages,
 			triggerId: turn.triggerId ?? null,
+			vision,
+			/** Pictures for the model, newest kept: the runner loads and sends them when it sees pictures. */
+			images: vision ? turnImages([...(parent && first ? [parent] : []), ...recent.filter((m) => !m.deleted)]) : [],
 			/** The approval this turn follows: the runner runs it if approved, then tells the agent. */
 			approval: approval
 				? {
@@ -262,6 +273,7 @@ async function toPlaceMessage(m: Doc<"chatMessages">, names: Namer, self: Id<"ag
 		...(m.editedAt && { edited: true }),
 		...(!m.threadId && m.replyCount && { replyCount: m.replyCount }),
 		...(named.length > 0 && { skills: named }),
+		...(m.attachments?.length && { files: filesForModel(m) }),
 	};
 }
 
@@ -318,14 +330,19 @@ export const finishReply = internalMutation({
 		const placeCost = await addPlaceCost(ctx, turn.chatId, turn.threadId, cost);
 		const session = turn.sessionId && (await ctx.db.get(turn.sessionId));
 		if (session) await ctx.db.patch(session._id, { costUsd: (session.costUsd ?? 0) + cost });
-		const stats = usage && { ...usage, conversationCostUsd: placeCost };
+		// The reply ran for the person whose turn it was: who wrote the message, or an automation's person.
+		const counted = !!usage && (await recordUsage(ctx, { workspaceId: turn.workspaceId, userId: turn.actorId, agentId: turn.agentId, kind: "chat", model: usage.model, costUsd: cost }));
+		const stats = usage && { ...usage, conversationCostUsd: placeCost, ...(counted && { counted }) };
 		const reply = turn.replyId && (await ctx.db.get(turn.replyId));
 		// A turn already failed as stale only gets its stats; the queue moved on without it.
 		if (turn.status !== "running") {
 			if (reply && stats) await ctx.db.patch(reply._id, { stats });
 			return;
 		}
-		if (reply) await endStream(ctx, reply, error ? { status: "error", error, stats } : { status: "done", stats });
+		if (reply) {
+			await endStream(ctx, reply, error ? { status: "error", error, stats } : { status: "done", stats });
+			if (!error) await previewMessage(ctx, (await ctx.db.get(reply._id))!);
+		}
 		await ctx.db.patch(turnId, { status: error ? "error" : "done" });
 		await settleApproval(ctx, turn);
 		await startNext(ctx, turn);
@@ -361,9 +378,11 @@ export const startCompaction = internalMutation({
 export const finishCompaction = internalMutation({
 	args: {
 		sessionId: v.id("agentSessions"),
-		result: v.optional(v.object({ summary: v.string(), upTo: v.number(), costUsd: v.number() })),
+		/** The turn that triggered it: the summary is counted as that person's. */
+		turnId: v.optional(v.id("agentTurns")),
+		result: v.optional(v.object({ summary: v.string(), upTo: v.number(), costUsd: v.number(), model: v.optional(v.string()) })),
 	},
-	handler: async (ctx, { sessionId, result }) => {
+	handler: async (ctx, { sessionId, turnId, result }) => {
 		const session = await ctx.db.get(sessionId);
 		if (!session) return;
 		if (!result) return await ctx.db.patch(sessionId, { compacting: false });
@@ -374,5 +393,7 @@ export const finishCompaction = internalMutation({
 			costUsd: (session.costUsd ?? 0) + result.costUsd,
 		});
 		await addPlaceCost(ctx, session.chatId, session.threadId, result.costUsd);
+		const turn = turnId && (await ctx.db.get(turnId));
+		await recordUsage(ctx, { workspaceId: session.workspaceId, userId: turn ? turn.actorId : undefined, agentId: session.agentId, kind: "summary", model: result.model, costUsd: result.costUsd });
 	},
 });

@@ -18,6 +18,7 @@ describe("tool visibility", () => {
 			"memory.update",
 			"memory.forget",
 			"clock.now",
+			"help.read",
 			"skills.load",
 			"skills.create",
 			"skills.edit",
@@ -27,6 +28,7 @@ describe("tool visibility", () => {
 			"chat.react",
 			"chat.read",
 			"chat.search",
+			"chat.read_file",
 			"automations.list",
 			"automations.create",
 			"automations.set_mine",
@@ -43,6 +45,9 @@ describe("tool visibility", () => {
 			"pages.find",
 			"pages.read",
 			"pages.write",
+			"web.search",
+			"web.fetch",
+			"images.generate",
 			"chat.manage", "channels.manage", "automations.manage", "automations.remove", "skills.manage", "skills.remove", "members.invite", "members.remove", "workspace.settings", "agents.manage",
 		].sort());
 		expect(resolveTools(companybot, owner).map((t) => t.id)).toContain("memory.forget");
@@ -81,6 +86,7 @@ describe("tool visibility", () => {
 			"memory_update",
 			"memory_forget",
 			"clock_now",
+			"help_read",
 			"skills_load",
 			"skills_create",
 			"skills_edit",
@@ -90,6 +96,7 @@ describe("tool visibility", () => {
 			"chat_react",
 			"chat_read",
 			"chat_search",
+			"chat_read_file",
 			"automations_list",
 			"automations_create",
 			"automations_set_mine",
@@ -105,6 +112,9 @@ describe("tool visibility", () => {
 			"pages_find",
 			"pages_read",
 			"pages_write",
+			"web_search",
+			"web_fetch",
+			"images_generate",
 			"chat_manage", "channels_manage", "automations_manage", "automations_remove", "skills_manage", "skills_remove", "workspace_settings", "agents_manage",
 		].sort());
 	});

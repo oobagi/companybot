@@ -9,16 +9,22 @@
     "./automations": "./src/automations.ts",
     "./local-auth": "./src/local-auth.ts",
     "./models": "./src/models.ts",
+    "./help": "./src/help/index.ts",
     "./page-links": "./src/page-links.ts",
     "./permissions": "./src/permissions.ts",
     "./records": "./src/records.ts",
     "./skills": "./src/skills.ts",
     "./action-words": "./src/action-words.ts",
     "./typing": "./src/typing.ts",
+    "./usage": "./src/usage.ts",
     "./images": "./src/images.ts",
+    "./files": "./src/files.ts",
+    "./file-text": "./src/file-text.ts",
     "./onboarding": "./src/onboarding.ts",
     "./memory": "./src/memory.ts",
-    "./widgets": "./src/widgets.ts"
+    "./widgets": "./src/widgets.ts",
+    "./safe-fetch": "./src/safe-fetch.ts",
+    "./link-preview": "./src/link-preview.ts"
   },
   "scripts": {
     "test": "vitest run",
@@ -27,6 +33,8 @@
   "dependencies": {
     "@ai-sdk/mcp": "^2.0.81",
     "ai": "^7.0.148",
+    "fflate": "^0.8.3",
+    "unpdf": "^1.9.1",
     "zod": "^4.6.7"
   }
 }

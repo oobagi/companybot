@@ -6,9 +6,10 @@ import { AgentIcon, CaretRightIcon, ChannelIcon, ChatIcon, CheckIcon, EditIcon, 
 import { navigate } from "../../router";
 import { type DragProps, useSortable, useStoredIds } from "../../sortable";
 import { Notice, useRun } from "../../ui";
-import { AgentBadge, Avatar, MenuItem, Popover, PopoverPanel } from "./common";
+import { AgentBadge, Avatar, MenuItem, Popover, PopoverPanel, useConfirm } from "./common";
 import type { ChatList, Participant } from "./data";
 import { BrowseChannels, ChannelDetailsFor, CreateChannel, NewMessage, RenameChat } from "./dialogs";
+import { useDraftChats } from "./drafts";
 
 type Dialog = "create" | "browse" | "message";
 
@@ -44,6 +45,8 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 	const leave = useMutation(api.chats.leave);
 	const remove = useMutation(api.trash.move);
 	const { error, run } = useRun();
+	const { confirm, dialog: confirming } = useConfirm();
+	const drafts = useDraftChats(workspace?.id);
 	const { sorted, drag } = useSortable(`sidebar.channels:${workspace?.id}`, chats.channels, chatKey);
 	const shown = section.collapsed ? sorted.filter((c) => c._id === openId || c.unread || c.mentioned) : sorted;
 	/** Leaving or deleting the open channel: nothing to show there anymore. */
@@ -56,7 +59,7 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 				<Popover trigger={<PlusIcon />} label="Add channels" className={trailingAction} panelClassName="w-48 p-1">
 					{(close) => (
 						<>
-							<MenuItem onClick={() => (close(), setDialog("create"))}>Create a channel</MenuItem>
+							<MenuItem onClick={() => (close(), setDialog("create"))}>New channel</MenuItem>
 							<MenuItem onClick={() => (close(), setDialog("browse"))}>Browse channels</MenuItem>
 						</>
 					)}
@@ -77,6 +80,7 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 					active={c._id === openId}
 					unread={c.unread}
 					mentioned={c.mentioned}
+					draft={drafts.has(c._id)}
 					onClick={() => onOpen(c._id)}
 					menu={(close) => (
 						<>
@@ -84,7 +88,7 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 							<MenuItem onClick={() => (close(), run(markRead({ chatId: c._id })))}><CheckIcon /> Mark as read</MenuItem>
 							{!c.isDefault && <MenuItem onClick={() => (close(), run(leave({ chatId: c._id }), () => left(c._id)))}><SignOutIcon /> Leave channel</MenuItem>}
 							{c.canManage && (
-								<MenuItem danger onClick={() => (close(), confirm(`Delete #${c.name}? It goes to Trash with its messages, and can be restored for 30 days.`) && run(remove({ kind: "channel", id: c._id }), () => left(c._id)))}>
+								<MenuItem danger onClick={() => (close(), confirm({ title: `Delete #${c.name}?`, action: "Delete", body: "It goes to Trash with its messages, and can be restored for 30 days.", onConfirm: () => remove({ kind: "channel", id: c._id }).then(() => left(c._id)) }))}>
 									<TrashIcon /> Delete channel
 								</MenuItem>
 							)}
@@ -102,6 +106,7 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 				);
 			})}
 			<Notice>{error}</Notice>
+			{confirming}
 			{dialog === "create" && <CreateChannel onClose={() => setDialog(undefined)} onOpen={onOpen} />}
 			{dialog === "browse" && <BrowseChannels onClose={() => setDialog(undefined)} onOpen={onOpen} />}
 			{details && <ChannelDetailsFor chatId={details} onClose={() => setDetails(undefined)} onLeft={() => left(details)} />}
@@ -123,7 +128,9 @@ export function DmsNav({ chats, openId, onOpen, onError, section }: ChatNavProps
 	const [renaming, setRenaming] = useState<{ _id: Id<"chats">; label: string | null }>();
 	const [folded, setFolded] = useStoredIds(`sidebar.dms.folded:${workspace?.id}`);
 	const { error, run } = useRun();
+	const { confirm, dialog: confirming } = useConfirm();
 	const sidesOf = (dmId: Id<"chats"> | null) => (dmId ? chats.dms.filter((d) => d.parentId === dmId) : []);
+	const drafts = useDraftChats(workspace?.id);
 	// Your DMs with people (and groups), and one per agent; most recent first, then the agents you haven't messaged.
 	const dms = useMemo(
 		() =>
@@ -157,6 +164,7 @@ export function DmsNav({ chats, openId, onOpen, onError, section }: ChatNavProps
 					active={!!d.dmId && d.dmId === openId}
 					unread={d.unread}
 					mentioned={d.mentioned}
+					draft={!!d.dmId && drafts.has(d.dmId)}
 					title={d.title}
 					expanded={open}
 					onToggle={sides.length ? () => setFolded(open ? [...folded, d.key] : folded.filter((id) => id !== d.key)) : undefined}
@@ -191,7 +199,7 @@ export function DmsNav({ chats, openId, onOpen, onError, section }: ChatNavProps
 							<>
 								<MenuItem onClick={() => (close(), setRenaming(c))}><EditIcon /> Rename</MenuItem>
 								<MenuItem onClick={() => (close(), markRead({ chatId: c._id }).catch(onError))}><CheckIcon /> Mark as read</MenuItem>
-								<MenuItem danger onClick={() => (close(), confirm(`Delete "${c.label}"? It goes to Trash and can be restored for 30 days.`) && run(remove({ kind: "channel", id: c._id }), () => c._id === openId && d.dmId && onOpen(d.dmId)))}><TrashIcon /> Delete</MenuItem>
+								<MenuItem danger onClick={() => (close(), confirm({ title: `Delete "${c.label}"?`, action: "Delete", body: "It goes to Trash and can be restored for 30 days.", onConfirm: () => remove({ kind: "channel", id: c._id }).then(() => c._id === openId && d.dmId && onOpen(d.dmId)) }))}><TrashIcon /> Delete</MenuItem>
 							</>
 						)}
 					>
@@ -202,6 +210,7 @@ export function DmsNav({ chats, openId, onOpen, onError, section }: ChatNavProps
 				);
 			})}
 			<Notice>{error}</Notice>
+			{confirming}
 			{dialog === "message" && <NewMessage onClose={() => setDialog(undefined)} onOpen={onOpen} />}
 			{renaming && <RenameChat chatId={renaming._id} title={renaming.label ?? ""} onClose={() => setRenaming(undefined)} />}
 		</Group>
@@ -263,6 +272,7 @@ export function Item({
 	active,
 	unread,
 	mentioned,
+	draft,
 	muted,
 	title,
 	guides = [],
@@ -281,6 +291,8 @@ export function Item({
 	active?: boolean;
 	unread?: boolean;
 	mentioned?: boolean;
+	/** Something typed in it and not sent; shown unless the chat is open, where the composer has it. */
+	draft?: boolean;
 	muted?: boolean;
 	title?: string;
 	/**
@@ -337,6 +349,7 @@ export function Item({
 			)}
 			<button type="button" title={title} onClick={onClick} className="flex min-w-0 flex-1 items-center gap-2 text-left after:absolute after:inset-0 after:rounded-lg">
 				{children}
+				{draft && !active && <span className="ml-auto shrink-0 text-[10px] font-normal text-neutral-400">Draft</span>}
 				{mentioned && !active && (
 					<span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-neutral-900 px-1 text-[10px] font-medium text-white">
 						@

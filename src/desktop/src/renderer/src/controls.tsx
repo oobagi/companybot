@@ -1,12 +1,12 @@
 import { currencyCodes } from "@companybot/core/records";
 import { Fragment, useLayoutEffect, useRef, useState } from "react";
 import { CaretUpDownIcon, CheckIcon } from "./icons";
-import { compactControlClass } from "./ui";
+import { compactControlClass, disabledButtonClass } from "./ui";
 import { Popover } from "./views/chat/common";
 
 // The app's pickers. One look everywhere: a control with the pick and a caret, opening a
-// list in a Popover (the same panel as every menu), and a segmented control for a few
-// choices side by side. No native <select>: its menu looks like the OS, not like the app.
+// list in a Popover (the same panel as every menu), a segmented control for a few
+// choices side by side, and a checkbox. No native <select>: its menu looks like the OS, not like the app.
 
 export type Option<T extends string = string> = {
 	value: T;
@@ -170,4 +170,24 @@ const currencyOptions = currencyCodes.map((code) => ({ value: code, label: curre
 /** Every ISO 4217 code, named: a workspace's default currency (Settings, onboarding). */
 export function CurrencySelect({ value, onChange, disabled, className }: { value: string; onChange: (code: string) => void; disabled?: boolean; className?: string }) {
 	return <Select className={className} disabled={disabled} value={value} options={currencyOptions} onChange={onChange} />;
+}
+
+/**
+ * On or off, in the app's look: a rounded box, dark with a check when on. A real checkbox
+ * underneath, so the <label> around it (with its text) toggles it and it takes focus.
+ */
+export function Checkbox({ checked, disabled, onChange, label, className = "" }: { checked: boolean; disabled?: boolean; onChange: (checked: boolean) => void; label?: string; className?: string }) {
+	return (
+		<span className={`relative inline-flex size-4 shrink-0 ${className}`}>
+			<input
+				type="checkbox"
+				aria-label={label}
+				checked={checked}
+				disabled={disabled}
+				onChange={(e) => onChange(e.target.checked)}
+				className={`peer size-4 appearance-none rounded border border-neutral-300 bg-white checked:border-neutral-900 checked:bg-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 ${disabledButtonClass}`}
+			/>
+			<CheckIcon weight="bold" className="pointer-events-none absolute inset-0 m-auto size-3 text-white opacity-0 peer-checked:opacity-100" />
+		</span>
+	);
 }

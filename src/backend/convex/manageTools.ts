@@ -7,8 +7,8 @@ import { chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
 import { automationName, automationScope, canView, definitionOf, installOf } from "./automationOps";
 import { removeAutomation, saveAutomation, updateAutomation } from "./automations";
 import { installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
-import { editMessage, removeMessage, reactMessage, sendMessage } from "./messages";
-import { cancelMemberInvite, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
+import { editMessage, hideMessagePreview, removeMessage, reactMessage, sendMessage } from "./messages";
+import { cancelMemberInvite, imageSettings, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
 import { asToolResult, checkPermission, type Member, nameOf, normalizeEmail, preferencesOf, requireAgent, skillOf, timeZoneOf } from "./lib";
 import { createAgent, setAgentTrashed, updateAgent } from "./agents";
 import { catalogModels } from "./modelCatalog";
@@ -16,6 +16,7 @@ import { setImage } from "./images";
 import { updatePreferences } from "./preferences";
 import { runNowAs } from "./automationRuns";
 import { runningTurn } from "./turns";
+import { usageReport } from "./usage";
 
 const paging = (cursor?: string) => ({ cursor: cursor ?? null, numItems: 30 });
 /** One page of the workspace's rows of `table` (every one's by_workspace index starts with workspaceId). */
@@ -88,11 +89,12 @@ export const runFor = internalMutation({
 						await markReadAs(ctx, member, await chatId(ctx, member, r.chat));
 						return { done: r.action };
 					}
-					if (r.action === "edit" || r.action === "delete" || r.action === "react") {
+					if (r.action === "edit" || r.action === "delete" || r.action === "react" || r.action === "hide_preview") {
 						const id = rowId(ctx, "chatMessages", r.messageId);
 						if (r.action === "edit") await editMessage(ctx, who, id, r.text);
 						if (r.action === "delete") await removeMessage(ctx, who, id);
 						if (r.action === "react") await reactMessage(ctx, who, id, r.emoji);
+						if (r.action === "hide_preview") await hideMessagePreview(ctx, who, id, r.url);
 						return { done: r.action, messageId: id };
 					}
 					if (r.action === "open_dm")
@@ -269,6 +271,7 @@ export const runFor = internalMutation({
 				}
 				case "workspace.settings": {
 					const r = manageInputs[tool].parse(input).request;
+					if (r.action === "usage") return usageReport(ctx, member, r.month);
 					if (r.action === "get_preferences") {
 						const prefs = await preferencesOf(ctx, member.userId);
 						return { displayName: prefs?.displayName ?? "", sendWith: prefs?.sendWith ?? "enter", notify: prefs?.notify ?? "all", timeZone: prefs?.timeZone ?? null };
@@ -283,7 +286,10 @@ export const runFor = internalMutation({
 						return { updated: true };
 					}
 					const w = (await ctx.db.get(member.workspaceId))!;
-					if (r.action === "get") return { name: w.name, currency: w.currency ?? DEFAULT_CURRENCY, memory: w.memory ?? true, version: w.version ?? 0 };
+					if (r.action === "get") {
+						const images = await imageSettings(ctx, member, w);
+						return { name: w.name, currency: w.currency ?? DEFAULT_CURRENCY, memory: w.memory ?? true, ...images, imageModels: images.imageModels.map((m) => m.id), version: w.version ?? 0 };
+					}
 					await updateWorkspaceSettings(ctx, member, { ...r, name: r.name ?? w.name });
 					return { updated: true };
 				}

@@ -2,16 +2,17 @@ import { imageMaxBytes, sniffImage } from "@companybot/core/images";
 import { ConvexError, type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { type MutationCtx, type QueryCtx, httpAction, internalMutation } from "./_generated/server";
+import { type ActionCtx, type MutationCtx, type QueryCtx, httpAction, internalMutation } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { type Member, authUserId, checkPermission, memberOf, memo, preferencesOf, requireLiveAgent, requireMember, sweepExpired } from "./lib";
 import { savePreferences } from "./preferences";
+import { fileInfo } from "./schema";
 
 // Pictures people upload, on Convex file storage. The app POSTs the file to `upload` (an HTTP
 // action, signed in), which reads its type from its first bytes, stores it, and notes who
 // uploaded it (`uploads`). The app then hands the storage id to `set`, which takes only the
 // caller's own unclaimed upload and uses its row up (pages.addImage does too, for a page's
-// pictures). Rows hold storage ids; queries return URLs. Replacing or removing a picture deletes the old file; so does deleting its row
+// pictures). Files for messages share the upload path and rows (files.ts). Rows hold storage ids; queries return URLs. Replacing or removing a picture deletes the old file; so does deleting its row
 // (lifecycle.ts `files`). Uploads nobody claims go after a day (`sweepUploads`).
 
 /** Unclaimed uploads one person can have at once: enough for retries, not for filling storage. */
@@ -27,22 +28,21 @@ const cors = {
 	"Access-Control-Allow-Headers": "Authorization, Content-Type",
 	"Access-Control-Max-Age": "86400",
 };
-const reply = (status: number, body: { storageId: Id<"_storage"> } | { error: string }) =>
+export const reply = (status: number, body: { storageId: Id<"_storage"> } | { error: string }) =>
 	new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
 /** Where the app uploads: `POST <site>/images/upload?workspaceId=…`, with the sign-in token. */
 export const uploadEndpoint = query({ args: {}, handler: async () => `${process.env.CONVEX_SITE_URL}/images/upload` });
 
-/** The CORS preflight for `upload`. */
+/** The CORS preflight for `upload` (and files.ts's). */
 export const uploadOptions = httpAction(async () => new Response(null, { status: 204, headers: cors }));
 
-/** Takes one picture: 401 signed out, 413 too big, 415 not a PNG/JPEG/WebP/GIF by its bytes, 403 not allowed. */
-export const upload = httpAction(async (ctx, request) => {
-	if (!(await ctx.auth.getUserIdentity())) return reply(401, { error: "Sign in to upload." });
-	const tooBig = () => reply(413, { error: "Pick an image under 2 MB." });
-	if (Number(request.headers.get("content-length") ?? 0) > imageMaxBytes) return tooBig();
-	// Raw HTTP bodies have no Convex size cap. Stop at our limit even without Content-Length.
-	const buffer = new Uint8Array(imageMaxBytes);
+/** A request's body, or null past `max` bytes. Raw HTTP bodies have no Convex size cap: this stops at ours, even without Content-Length. */
+export async function readBody(request: Request, max: number) {
+	const length = Number(request.headers.get("content-length") ?? 0);
+	if (length > max) return null;
+	// Sized by Content-Length when there is one, so a small file doesn't hold the whole limit's memory.
+	let buffer = new Uint8Array(length || max);
 	let size = 0;
 	const reader = request.body?.getReader();
 	if (reader) {
@@ -50,9 +50,14 @@ export const upload = httpAction(async (ctx, request) => {
 			while (true) {
 				const { done, value } = await reader.read();
 				if (done) break;
-				if (size + value.byteLength > imageMaxBytes) {
+				if (size + value.byteLength > max) {
 					await reader.cancel();
-					return tooBig();
+					return null;
+				}
+				if (size + value.byteLength > buffer.length) {
+					const grown = new Uint8Array(max);
+					grown.set(buffer.subarray(0, size));
+					buffer = grown;
 				}
 				buffer.set(value, size);
 				size += value.byteLength;
@@ -61,31 +66,43 @@ export const upload = httpAction(async (ctx, request) => {
 			reader.releaseLock();
 		}
 	}
-	const bytes = buffer.subarray(0, size);
-	const type = sniffImage(bytes);
-	if (!type) return reply(415, { error: "Pick a PNG, JPEG, WebP or GIF image." });
+	return buffer.subarray(0, size);
+}
+
+/** Stores an upload with the type its bytes say, and notes who uploaded it; 403 (and the file deleted) if `saveUpload` refuses. */
+export async function storeUpload(ctx: ActionCtx, request: Request, bytes: Uint8Array<ArrayBuffer>, type: string, file?: Infer<typeof fileInfo>) {
 	const storageId = await ctx.storage.store(new Blob([bytes], { type }));
 	const workspaceId = new URL(request.url).searchParams.get("workspaceId") ?? undefined;
 	try {
-		await ctx.runMutation(internal.images.saveUpload, { storageId, workspaceId });
+		await ctx.runMutation(internal.images.saveUpload, { storageId, workspaceId, file });
 	} catch (e) {
 		await ctx.storage.delete(storageId);
 		return reply(403, { error: e instanceof ConvexError ? String(e.data) : "Upload refused." });
 	}
 	return reply(200, { storageId });
+}
+
+/** Takes one picture: 401 signed out, 413 too big, 415 not a PNG/JPEG/WebP/GIF by its bytes, 403 not allowed. */
+export const upload = httpAction(async (ctx, request) => {
+	if (!(await ctx.auth.getUserIdentity())) return reply(401, { error: "Sign in to upload." });
+	const bytes = await readBody(request, imageMaxBytes);
+	if (!bytes) return reply(413, { error: "Pick an image under 2 MB." });
+	const type = sniffImage(bytes);
+	if (!type) return reply(415, { error: "Pick a PNG, JPEG, WebP or GIF image." });
+	return storeUpload(ctx, request, bytes, type);
 });
 
-/** Notes who uploaded a file. Runs as them (the action passes their sign-in on). */
+/** Notes who uploaded a file. Runs as them (the action passes their sign-in on). Files for messages must name a workspace that's theirs. */
 export const saveUpload = internalMutation({
-	args: { storageId: v.id("_storage"), workspaceId: v.optional(v.string()) },
-	handler: async (ctx, { storageId, workspaceId: requested }) => {
+	args: { storageId: v.id("_storage"), workspaceId: v.optional(v.string()), file: v.optional(fileInfo) },
+	handler: async (ctx, { storageId, workspaceId: requested, file }) => {
 		const userId = await authUserId(ctx);
 		if (!userId) throw new ConvexError("Sign in to upload.");
 		const workspaceId = requested ? ctx.db.normalizeId("workspaces", requested) : undefined;
-		if (requested && !(workspaceId && (await memberOf(ctx, userId, workspaceId)))) throw new ConvexError("You're not in that workspace.");
+		if ((requested || file) && !(workspaceId && (await memberOf(ctx, userId, workspaceId)))) throw new ConvexError("You're not in that workspace.");
 		const pending = await ctx.db.query("uploads").withIndex("by_user", (q) => q.eq("userId", userId)).take(PENDING_MAX);
 		if (pending.length >= PENDING_MAX) throw new ConvexError("Too many uploads waiting. Try again tomorrow.");
-		await ctx.db.insert("uploads", { storageId, userId, workspaceId: workspaceId ?? undefined, createdAt: Date.now() });
+		await ctx.db.insert("uploads", { storageId, userId, workspaceId: workspaceId ?? undefined, createdAt: Date.now(), ...(file && { file }) });
 	},
 });
 
@@ -117,12 +134,14 @@ export async function setImage(ctx: MutationCtx, member: Member, of: Infer<typeo
 	else await ctx.db.patch(row!._id, { image });
 }
 
-/** Uses up the caller's own upload of `file`. Anyone else's, or one already used, is refused and left alone. */
+/** Uses up the caller's own picture upload of `file`. Anyone else's, a file for a message, or one already used, is refused and left alone. */
 export async function claimUpload(ctx: MutationCtx, member: Member, file: Id<"_storage">) {
-	const upload = await ctx.db.query("uploads").withIndex("by_storage", (q) => q.eq("storageId", file)).unique();
-	if (upload?.userId !== member.userId) throw new ConvexError("That upload isn't available. Upload the image again.");
+	const upload = await uploadOf(ctx, file);
+	if (upload?.userId !== member.userId || upload.file) throw new ConvexError("That upload isn't available. Upload the image again.");
 	await ctx.db.delete(upload._id);
 }
+
+export const uploadOf = (ctx: QueryCtx, file: Id<"_storage">) => ctx.db.query("uploads").withIndex("by_storage", (q) => q.eq("storageId", file)).unique();
 
 /** Hourly (crons.ts): deletes uploads nobody attached within a day, and their files. */
 export const sweepUploads = internalMutation({

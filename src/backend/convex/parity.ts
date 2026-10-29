@@ -31,6 +31,7 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"connectors.disconnect": { humanOnly: "Revokes the personal or shared account credential; direct person controls connected account authority." },
 	"databaseViews.save": { agent: ["records.save_view"] },
 	"databaseViews.remove": { agent: ["records.save_view"] },
+	"files.discard": { humanOnly: "Drops a person's own upload from their composer before sending; agents never upload." },
 	"images.set": {
 		agent: ["workspace.settings:remove_image", "agents.manage:remove_image"],
 		humanOnly: "Agents can't make image files: a person uploads one from their device (an HTTP upload, then this). Agents can reset a picture to initials.",
@@ -48,6 +49,7 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"typing.ping": { humanOnly: "Comes from a keyboard; agents show as typing while their turn runs." },
 	"messages.edit": { agent: ["chat.manage:edit"] },
 	"messages.remove": { agent: ["chat.manage:delete"] },
+	"messages.hidePreview": { agent: ["chat.manage:hide_preview"] },
 	"messages.react": { agent: ["chat.react", "chat.manage:react"] },
 	"pages.create": { agent: ["pages.write"] },
 	"pages.addImage": { humanOnly: "Agents can't make image files: a person uploads one from their device. Agents read pictures as Markdown image links." },

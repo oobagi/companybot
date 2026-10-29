@@ -2,8 +2,11 @@ import type { Doc, Id } from "@companybot/backend/convex/_generated/dataModel";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { type ReactNode, useMemo, useRef, useState } from "react";
 import { ArrowUpIcon, ChannelIcon, PrivateIcon, SkillIcon } from "../../icons";
+import { AttachButton, type Attachments, PendingFiles } from "./Attachments";
 import { Avatar } from "./common";
+import { ComposerTools } from "./ComposerTools";
 import type { Mentions } from "./data";
+import { useDraft } from "./drafts";
 import { type Candidate, type Menu, type Sources, SuggestionMenu, composerExtensions, plainText, tokensIn } from "./editor";
 import { Form, metadataClass } from "../../ui";
 
@@ -16,8 +19,10 @@ export function Composer({
 	status,
 	onType,
 	sources,
+	attachments,
+	draftKey,
 }: {
-	onSend: (text: string, mentions: Mentions) => void;
+	onSend: (text: string, mentions: Mentions, files: Id<"_storage">[]) => void;
 	sendWith: SendWith;
 	placeholder: string;
 	/** The line under the box (who's typing). Its space is kept when empty, so the box doesn't jump. */
@@ -26,12 +31,16 @@ export function Composer({
 	onType?: () => void;
 	/** What @, # and / offer. */
 	sources: Sources;
+	/** Files to send with the message: the paperclip, pasting, and dropping on the chat add them. */
+	attachments?: Attachments;
+	/** Where an unsent message is kept for this chat or thread (drafts.ts). */
+	draftKey?: string;
 }) {
 	const [menu, setMenu] = useState<Menu | null>(null);
 	const [empty, setEmpty] = useState(true);
 	// The editor is made once; it reads the latest props (and this render's submit) through this ref.
-	const latest = useRef({ sources, placeholder, sendWith, onSend, onType, submit: () => {} });
-	latest.current = { ...latest.current, sources, placeholder, sendWith, onSend, onType };
+	const latest = useRef({ sources, placeholder, sendWith, onSend, onType, attachments, submit: () => {} });
+	latest.current = { ...latest.current, sources, placeholder, sendWith, onSend, onType, attachments };
 	const suggestions = useMemo(() => new SuggestionMenu(() => latest.current.sources, setMenu), []);
 
 	const editor = useEditor({
@@ -42,7 +51,15 @@ export function Composer({
 			send: () => latest.current.submit(),
 		}),
 		autofocus: "end",
-		editorProps: { attributes: { class: "max-h-48 overflow-y-auto py-1.5 outline-none break-words", role: "textbox", "aria-multiline": "true" } },
+		editorProps: {
+			attributes: { class: "max-h-48 overflow-y-auto py-1.5 outline-none break-words", role: "textbox", "aria-multiline": "true" },
+			handlePaste: (_view, event) => {
+				const files = [...(event.clipboardData?.files ?? [])];
+				if (files.length === 0 || !latest.current.attachments) return false;
+				latest.current.attachments.add(files);
+				return true;
+			},
+		},
 		onUpdate: ({ editor }) => {
 			setEmpty(editor.isEmpty);
 			if (!editor.isEmpty) latest.current.onType?.();
@@ -50,12 +67,16 @@ export function Composer({
 		onBlur: () => suggestions.hide(),
 	});
 
+	useDraft(editor, draftKey, setEmpty);
+
 	const submit = () => {
 		if (!editor) return;
 		const text = plainText(editor);
-		if (!text) return;
+		const files = latest.current.attachments;
+		if (files?.uploading || (!text && !files?.ids.length)) return;
 		const tokens = tokensIn(editor);
-		latest.current.onSend(text, { userIds: tokens.user as Id<"users">[], agentIds: tokens.agent as Id<"agents">[], skillIds: tokens.skill });
+		latest.current.onSend(text, { userIds: tokens.user as Id<"users">[], agentIds: tokens.agent as Id<"agents">[], skillIds: tokens.skill }, files?.ids ?? []);
+		files?.clear();
 		editor.commands.clearContent(true);
 		setEmpty(true);
 	};
@@ -65,11 +86,14 @@ export function Composer({
 		<div className="relative flex w-full flex-col">
 			{menu && <Picker menu={menu} onHighlight={(i) => suggestions.highlight(i)} onPick={(i) => suggestions.pick(i)} />}
 			<div className="flex flex-col">
-				<Form className="flex w-full items-end gap-2 rounded-2xl border border-neutral-200 bg-white p-2 pl-4 shadow-sm focus-within:border-neutral-300" onSubmit={submit}>
+				<Form className={`flex w-full flex-wrap items-end gap-2 rounded-2xl border border-neutral-200 bg-white p-2 shadow-sm focus-within:border-neutral-300 ${attachments ? "" : "pl-4"}`} onSubmit={submit}>
+					{attachments && <PendingFiles attachments={attachments} />}
+					{attachments && <AttachButton attachments={attachments} />}
 					<EditorContent editor={editor} className="composer min-w-0 flex-1" />
+					<ComposerTools editor={editor} />
 					<button
 						type="submit"
-						disabled={empty}
+						disabled={attachments?.uploading || (empty && !attachments?.ids.length)}
 						className="flex size-8 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-white disabled:bg-neutral-200"
 						aria-label="Send"
 					>
@@ -85,7 +109,7 @@ export function Composer({
 	);
 }
 
-const hints: Record<Menu["trigger"], string> = { "@": "People and agents", "#": "Channels", "/": "Skills" };
+const hints: Record<Menu["trigger"], string> = { "@": "People and agents", "#": "Channels", "/": "Skills", ":": "Emoji" };
 
 /** The menu over the box. Arrows move, Enter or Tab picks, Escape closes; the mouse works too. */
 function Picker({ menu, onHighlight, onPick }: { menu: Menu; onHighlight: (i: number) => void; onPick: (i: number) => void }) {
@@ -119,6 +143,14 @@ function Row({ candidate: c }: { candidate: Candidate }) {
 				<span className="truncate">{c.label}</span>
 				{c.topic && <span className={`min-w-0 flex-1 truncate ${metadataClass}`}>{c.topic}</span>}
 				{!c.joined && <span className={`ml-auto shrink-0 ${metadataClass}`}>Not joined</span>}
+			</>
+		);
+	}
+	if (c.kind === "emoji") {
+		return (
+			<>
+				<span className="flex size-6 shrink-0 items-center justify-center text-lg">{c.label}</span>
+				<span className="truncate">:{c.id}:</span>
 			</>
 		);
 	}

@@ -24,6 +24,11 @@ describe("permissions", () => {
 		expect(can(member, "fields.manage")).toBe(false);
 	});
 
+	it("shows the whole workspace's AI usage to owners only; everyone's own share needs no permission", () => {
+		expect(can(owner, "usage.view")).toBe(true);
+		expect(can(member, "usage.view")).toBe(false);
+	});
+
 	it.each(["skills.manage", "automations.manage", "fields.manage"] as const)("lets makers and managers edit through %s", (permission) => {
 		expect(canEditMade(member, permission, member.userId)).toBe(true);
 		expect(canEditMade(member, permission, owner.userId)).toBe(false);

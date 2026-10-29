@@ -5,9 +5,11 @@ import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
+import { Checkbox } from "../controls";
 import { navigate } from "../router";
 import { ItemList, Missing, customizeCrumbs } from "./customize/shared";
 import { ImagePicker } from "./ImagePicker";
+import { modelNote } from "@companybot/core/models";
 import { ModelPicker } from "./ModelPicker";
 import { TrashNotice } from "./Trash";
 import { AgentIcon, TrashIcon } from "../icons";
@@ -112,7 +114,7 @@ function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean;
 						onChange={(e) => edit({ description: e.target.value })}
 					/>
 				</Field>
-				<ModelPicker models={options.models} defaultModel={options.defaultModel} value={config.model} onChange={(model) => edit({ model })} />
+				<ModelPicker label="Model" note={modelNote} models={options.models} defaultModel={options.defaultModel} value={config.model} onChange={(model) => edit({ model })} />
 				<div className="flex flex-col gap-1.5">
 					<span className="text-sm font-medium">Tools</span>
 					{options.groups.map((g) => (
@@ -180,11 +182,7 @@ function ToolGroup({
 	return (
 		<div className="flex flex-col rounded-xl border border-neutral-200">
 			<label className="flex items-center gap-3 px-3 py-2">
-				<input
-					type="checkbox"
-					checked={whole}
-					onChange={() => onChange(whole ? grants.filter((x) => !inGroup(x)) : [...grants.filter((x) => !inGroup(x)), all])}
-				/>
+				<Checkbox checked={whole} onChange={() => onChange(whole ? grants.filter((x) => !inGroup(x)) : [...grants.filter((x) => !inGroup(x)), all])} />
 				<span className="flex-1 text-sm font-medium">
 					{group.connector ? `${group.name} (connector)` : group.name}
 					{group.tools.length > 1 && <span className="ml-2 font-normal text-neutral-400">all, including future ones</span>}
@@ -196,13 +194,7 @@ function ToolGroup({
 					const on = whole || grants.includes(t.id);
 					return (
 						<label key={t.id} className="flex items-start gap-3 border-t border-neutral-100 py-2 pr-3 pl-9">
-							<input
-								type="checkbox"
-								className="mt-1"
-								checked={on}
-								disabled={whole}
-								onChange={() => onChange(on ? grants.filter((x) => x !== t.id) : [...grants, t.id])}
-							/>
+							<Checkbox className="mt-0.5" checked={on} disabled={whole} onChange={() => onChange(on ? grants.filter((x) => x !== t.id) : [...grants, t.id])} />
 							<span className="flex flex-1 flex-col">
 								<span className="text-sm">
 									<code>{t.id}</code>

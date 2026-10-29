@@ -1,14 +1,17 @@
+import { type ImageModelInfo, defaultImageModel, imageModelNote } from "@companybot/core/models";
 import { type Role, can } from "@companybot/core/permissions";
+import { formatUsd, monthLabel, usageMonth } from "@companybot/core/usage";
 import { useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { describeUpdate, desktop, useUpdates } from "../desktop";
 import { navigate } from "../router";
-import { ConflictNotice, Field, Form, Loading, Notice, Page, SaveBar, Setting, Settings, compactControlClass, dangerButton, disabledButtonClass, inputClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../ui";
-import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, SettingsIcon, TrashIcon, UserIcon } from "../icons";
+import { ConflictNotice, Field, Form, Loading, Notice, Page, SaveBar, Setting, Settings, compactPrimaryButton, dangerButton, disabledButtonClass, inputClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../ui";
+import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, SettingsIcon, TrashIcon, UsageIcon, UserIcon } from "../icons";
 import { CurrencySelect, Select } from "../controls";
 import { ActivityTab } from "./Activity";
 import { ImagePicker } from "./ImagePicker";
+import { ModelPicker } from "./ModelPicker";
 import { Confirm, Modal, deviceTimeZone, zoneLabel } from "./chat/common";
 import { Group, Item } from "./chat/Sidebar";
 import { type CustomizeTab, CustomizeView, customizeTabs } from "./customize";
@@ -16,6 +19,7 @@ import { MembersTab } from "./Members";
 import { MemoryTab } from "./Memory";
 import { WorkspaceLocks, YourPermissions } from "./Permissions";
 import { TrashView } from "./Trash";
+import { UsageTab } from "./Usage";
 
 // Settings: /settings/<tab>[/<item>]. While it's open, the sidebar lists its tabs in place of the app's.
 // Two kinds, opened from different menus and never listed together: your account (your avatar, at
@@ -31,6 +35,7 @@ const sections = [
 			{ id: "permissions", label: "Permissions", description: "Agents ask before anything that leaves Companybot: sends, calls, payments, changes in other apps.", icon: <PermissionsIcon /> },
 			{ id: "memory", label: "Memory", description: "Each agent has its own memory. Team memories are shared, and anyone can fix them. Only you can see your personal memories.", icon: <MemoryIcon /> },
 			{ id: "activity", label: "Activity", description: "Database changes, and what agents did in chats you can see. Agent results show only for what they did for you.", icon: <ActivityIcon /> },
+			{ id: "usage", label: "Usage", description: "What AI has cost this month. Owners see the whole workspace; everyone else sees only their own share.", icon: <UsageIcon /> },
 			{ id: "trash", label: "Trash", icon: <TrashIcon /> },
 		],
 	},
@@ -65,6 +70,7 @@ export function SettingsView({ role, tab, itemId }: { role: Role; tab: SettingsT
 			{tab === "members" && <MembersTab role={role} />}
 			{tab === "memory" && <MemoryTab role={role} />}
 			{tab === "activity" && <ActivityTab />}
+			{tab === "usage" && <UsageTab />}
 			{tab === "permissions" && (
 				<>
 					<YourPermissions />
@@ -219,14 +225,33 @@ function GeneralForm({
 	settings,
 	isOwner,
 }: {
-	settings: { name: string; currency: string; memory: boolean; hasAmounts: boolean; image: string | null; version: number };
+	settings: {
+		name: string;
+		currency: string;
+		memory: boolean;
+		hasAmounts: boolean;
+		image: string | null;
+		imageModel: string;
+		imageModels: ImageModelInfo[];
+		imageBudgetUsd: number;
+		imageSpentUsd: number | null;
+		version: number;
+	};
 	isOwner: boolean;
 }) {
 	const save = useMutation(api.workspace.updateSettings);
-	const draft = useDraft({ name: settings.name, currency: settings.currency, memory: settings.memory }, settings.version);
+	// The budget is edited as typed; the server checks the number.
+	const draft = useDraft(
+		{ name: settings.name, currency: settings.currency, memory: settings.memory, imageModel: settings.imageModel, imageBudget: String(settings.imageBudgetUsd) },
+		settings.version,
+	);
 	const [confirming, setConfirming] = useState(false);
 	const { error, run } = useRun();
-	const submit = () => run(save({ ...draft.value, expectedVersion: draft.base }), () => (draft.discard(), setConfirming(false)));
+	const submit = () => {
+		const { imageBudget, ...rest } = draft.value;
+		run(save({ ...rest, imageBudgetUsd: Number(imageBudget || 0), expectedVersion: draft.base }), () => (draft.discard(), setConfirming(false)));
+	};
+	const spent = settings.imageSpentUsd === null ? "" : ` ${formatUsd(settings.imageSpentUsd)} used in ${monthLabel(usageMonth(Date.now()))}.`;
 	const currencyChanged = draft.value.currency !== settings.currency;
 	const ownerOnly = isOwner ? undefined : "Only owners can change this.";
 	return (
@@ -250,6 +275,28 @@ function GeneralForm({
 				</Setting>
 				<Setting label="Memory" hint="Agents remember what people tell them. Off keeps existing memories for later.">
 					<Toggle disabled={!isOwner} checked={draft.value.memory} onChange={(memory) => draft.set({ ...draft.value, memory })} />
+				</Setting>
+			</Settings>
+			<Settings title="Pictures" hint={ownerOnly ?? "Agents make and edit pictures when asked, through AI Gateway."}>
+				<Setting label="Picture model" hint="What agents make pictures with.">
+					<ModelPicker
+						models={settings.imageModels}
+						defaultModel={defaultImageModel}
+						value={draft.value.imageModel}
+						note={imageModelNote}
+						disabled={!isOwner}
+						className={wideControlClass}
+						onChange={(imageModel) => draft.set({ ...draft.value, imageModel })}
+					/>
+				</Setting>
+				<Setting label="Monthly budget" hint={`What agents may spend on pictures each month, in US dollars. $0 turns pictures off.${spent}`}>
+					<input
+						className={wideControlClass}
+						disabled={!isOwner}
+						inputMode="decimal"
+						value={draft.value.imageBudget}
+						onChange={(e) => draft.set({ ...draft.value, imageBudget: e.target.value.replace(/[^\d.]/g, "") })}
+					/>
 				</Setting>
 			</Settings>
 			{draft.dirty && (
@@ -286,9 +333,9 @@ function ProfileTab() {
 				</Setting>
 				<Setting label="Name" hint="What agents and teammates call you.">
 					<Form className="flex gap-2" onSubmit={() => run(update({ displayName: shownName }), () => setName(undefined))}>
-						<input className={`${compactControlClass} w-48`} value={shownName} placeholder="e.g. Jaden" onChange={(e) => setName(e.target.value)} />
+						<input className={wideControlClass} value={shownName} placeholder="e.g. Jaden" onChange={(e) => setName(e.target.value)} />
 						{name !== undefined && name !== prefs.displayName && (
-							<button type="submit" className={`${primaryButton} py-1`}>
+							<button type="submit" className={compactPrimaryButton}>
 								Save
 							</button>
 						)}

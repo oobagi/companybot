@@ -8,10 +8,12 @@ import { WidgetView } from "../../widgets";
 import { CallDetails } from "../Activity";
 import { ApprovalMessages } from "./Approval";
 import { AutomationIcon, EditIcon, ReactIcon, ReplyIcon, TrashIcon } from "../../icons";
-import { AgentBadge, Avatar, AvatarStack, EmojiPicker, IconButton, Popover, clock, useDismiss } from "./common";
+import { AgentBadge, Avatar, AvatarStack, EmojiPicker, IconButton, Popover, clock, useConfirm, useDismiss } from "./common";
 import type { Message, TokenNames } from "./data";
 import { navigate } from "../../router";
 import { ProfileLink } from "./Profile";
+import { MessageFiles } from "./Attachments";
+import { LinkPreviews } from "./LinkPreviews";
 
 export function MessageRow({
 	message: row,
@@ -37,6 +39,7 @@ export function MessageRow({
 	const [picker, setPicker] = useState(false);
 	const [editing, setEditing] = useState(false);
 	const toolbar = useDismiss<HTMLDivElement>(() => setPicker(false), picker);
+	const { confirm, dialog } = useConfirm();
 	const isAgent = message.author.type === "agent";
 	const toggle = (emoji: string) => react({ messageId: message._id, emoji }).catch(onError);
 
@@ -85,11 +88,15 @@ export function MessageRow({
 					) : isAgent ? (
 						<AgentBody message={message} />
 					) : (
-						<p className="leading-relaxed break-words whitespace-pre-wrap">
-							<TokenText text={message.text} tokens={tokens} />
-							{message.editedAt && <span className="text-xs text-neutral-400"> (edited)</span>}
-						</p>
+						(message.text || message.editedAt) && (
+							<p className="leading-relaxed break-words whitespace-pre-wrap">
+								<TokenText text={message.text} tokens={tokens} />
+								{message.editedAt && <span className="text-xs text-neutral-400"> (edited)</span>}
+							</p>
+						)
 					)}
+					{!message.deleted && message.attachments.length > 0 && <MessageFiles files={message.attachments} />}
+					{!message.deleted && message.linkPreviews.length > 0 && <LinkPreviews message={message} onError={onError} />}
 					{message.reactions.length > 0 && (
 						<div className="flex flex-wrap gap-1 pt-0.5">
 							{message.reactions.map((r) => (
@@ -144,7 +151,7 @@ export function MessageRow({
 								</IconButton>
 								<IconButton
 									label="Delete"
-									onClick={() => confirm("Delete this message?") && remove({ messageId: message._id }).catch(onError)}
+									onClick={() => confirm({ title: "Delete this message?", action: "Delete", onConfirm: () => remove({ messageId: message._id }) })}
 								>
 									<TrashIcon />
 								</IconButton>
@@ -156,6 +163,7 @@ export function MessageRow({
 			</div>
 			{/* Calls held for permission read as their own messages from the agent, after its reply. */}
 			{held.length > 0 && <ApprovalMessages message={message} parts={held} />}
+			{dialog}
 		</>
 	);
 }

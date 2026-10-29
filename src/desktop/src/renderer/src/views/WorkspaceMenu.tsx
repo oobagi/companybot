@@ -2,8 +2,8 @@ import { api } from "../api";
 import { useMutation } from "../convex";
 import { CaretDownIcon, SettingsIcon } from "../icons";
 import { navigate } from "../router";
-import { MenuDivider, Notice, useRun } from "../ui";
-import { MenuItem, Popover } from "./chat/common";
+import { MenuDivider } from "../ui";
+import { MenuItem, Popover, useConfirm } from "./chat/common";
 
 /**
  * The workspace name at the top of the sidebar: its settings, or leave it. Its logo, switching and
@@ -11,7 +11,7 @@ import { MenuItem, Popover } from "./chat/common";
  */
 export function WorkspaceMenu({ name, onSettings }: { name: string; onSettings: () => void }) {
 	const leave = useMutation(api.workspace.leave);
-	const { error, run } = useRun();
+	const { confirm, dialog } = useConfirm();
 
 	return (
 		<div className="no-drag flex">
@@ -27,17 +27,23 @@ export function WorkspaceMenu({ name, onSettings }: { name: string; onSettings: 
 			>
 				{(close) => (
 					<>
-						<Notice>{error}</Notice>
 						<MenuItem onClick={() => (close(), onSettings())}>
 							<SettingsIcon className="text-neutral-500" /> Workspace settings
 						</MenuItem>
 						<MenuDivider />
-						<MenuItem danger onClick={() => confirm(`Leave ${name}? You'll need a new invite to come back.`) && run(leave(), () => (close(), navigate("chat")))}>
+						<MenuItem
+							danger
+							onClick={() => (
+								close(),
+								confirm({ title: `Leave ${name}?`, action: "Leave", body: "You'll need a new invite to come back.", onConfirm: () => leave().then(() => navigate("chat")) })
+							)}
+						>
 							Leave {name}
 						</MenuItem>
 					</>
 				)}
 			</Popover>
+			{dialog}
 		</div>
 	);
 }

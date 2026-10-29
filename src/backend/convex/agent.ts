@@ -12,6 +12,8 @@ import {
 	type ConnectorSession,
 	ConnectorOAuth,
 	type ReplyUsage,
+	type TurnImage,
+	type WebClient,
 	CONNECTOR_CALL,
 	actionOf,
 	addStep,
@@ -26,6 +28,7 @@ import {
 	builtinTools,
 	canonicalJson,
 	createResultStore,
+	createWebTurn,
 	emptyUsage,
 	findConnector,
 	gatewayCost,
@@ -35,7 +38,9 @@ import {
 	agentStopWhen,
 	openConnector,
 	resolveTools,
+	searchProvider,
 	deniedReason,
+	isImageType,
 	toolApprovalPolicy,
 	toolRisk,
 } from "@companybot/core";
@@ -78,7 +83,7 @@ export const respond = internalAction({
 				usage: usage.steps > 0 ? { ...usage, durationMs: Date.now() - started } : undefined,
 			});
 		}
-		if (!error && sessionId && usage.contextTokens > COMPACT_TOKENS) await compact(ctx, sessionId);
+		if (!error && sessionId && usage.contextTokens > COMPACT_TOKENS) await compact(ctx, sessionId, turnId);
 	},
 });
 
@@ -249,6 +254,13 @@ async function streamReply(
 		records: recordStore(ctx, turnId),
 		pages: pageStore(ctx, turnId),
 		results: createResultStore(),
+		// Links the person wrote this turn are the only ones web.fetch opens before searching.
+		web: createWebTurn(
+			webClient(ctx, usage),
+			turn.messages.filter((m) => m.author.type === "user" && m.author.id === member.userId).map((m) => m.text),
+		),
+		// imageGen.ts checks the budget and edit files as this person, then attaches and records each picture.
+		images: { generate: (request) => ctx.runAction(internal.imageGen.generateFor, { turnId, ...request }) },
 	};
 	const tools = buildToolSet(
 		agent,
@@ -309,7 +321,7 @@ async function streamReply(
 	// Later turns replay what's stored. They can act for someone else, so an approved call's
 	// result stays out of it (only its approver may see it); this turn alone gets it.
 	await ctx.runMutation(internal.turns.savePrompt, { turnId, prompt: approval ? buildTurnPrompt({ ...promptInput, forReplay: true }) : prompt });
-	const input = buildTurnInput({ agent, skills: turn.skills, session: turn.session, prompt, available: usable });
+	const input = buildTurnInput({ agent, skills: turn.skills, session: turn.session, prompt, available: usable, images: await loadImages(ctx, turn.images) });
 
 	const started = Date.now();
 	const result = streamText({
@@ -464,12 +476,30 @@ function memoryStore(ctx: ActionCtx, turnId: Id<"agentTurns">): MemoryStore {
 	};
 }
 
-/** Chats as the turn's person sees them; chatTools.ts re-checks access on every call. */
+/** The turn's pictures, for a model that sees them. One that's gone since is left out. */
+async function loadImages(ctx: ActionCtx, images: Turn["images"]): Promise<TurnImage[]> {
+	const loaded = await Promise.all(
+		images.map(async ({ id, storageId, type }) => {
+			const blob = await ctx.storage.get(storageId);
+			return blob ? [{ id, type, data: new Uint8Array(await blob.arrayBuffer()) }] : [];
+		}),
+	);
+	return loaded.flat();
+}
+
+/** Chats as the turn's person sees them; chatTools.ts and files.ts re-check access on every call. */
 function chatStore(ctx: ActionCtx, turnId: Id<"agentTurns">): ChatStore {
 	return {
 		react: (emoji) => ctx.runMutation(internal.chatTools.reactFor, { turnId, emoji }),
 		read: (input) => ctx.runQuery(internal.chatTools.readFor, { turnId, ...input }),
 		search: (input) => ctx.runQuery(internal.chatTools.searchFor, { turnId, ...input }),
+		async readFile({ id, page }) {
+			const file = await ctx.runQuery(internal.files.readFor, { turnId, id });
+			if (!file) return { error: `No file "${id}" in a chat you can see.` };
+			if (isImageType(file.type)) return { error: `${file.name} is a picture, with no text to read. Pictures reach you with the message they're attached to, if your model sees pictures.` };
+			const text = await ctx.runAction(internal.fileText.page, { storageId: file.storageId, type: file.type, page });
+			return text ? { name: file.name, type: file.type, ...text } : { error: `${file.name} was deleted.` };
+		},
 	};
 }
 
@@ -509,11 +539,23 @@ function pageStore(ctx: ActionCtx, turnId: Id<"agentTurns">): PageStore {
 	};
 }
 
+/**
+ * Search through SEARCH_PROVIDER (core web-search.ts), its gateway cost added to this reply's;
+ * pages through webFetch.ts, in Node for its DNS checks.
+ */
+function webClient(ctx: ActionCtx, usage: ReplyUsage): WebClient {
+	const provider = searchProvider(process.env, { onCost: (usd) => (usage.costUsd += usd) });
+	return {
+		search: (query, options) => provider.search(query, options),
+		fetch: (url) => ctx.runAction(internal.webFetch.fetchPage, { url }),
+	};
+}
+
 /** Folds a session's older turns into its summary so context stays small. The UI still shows everything. */
-async function compact(ctx: ActionCtx, sessionId: Id<"agentSessions">) {
+async function compact(ctx: ActionCtx, sessionId: Id<"agentSessions">, turnId: Id<"agentTurns">) {
 	const input = await ctx.runMutation(internal.turns.startCompaction, { sessionId });
 	if (!input) return;
-	let result: { summary: string; upTo: number; costUsd: number } | undefined;
+	let result: { summary: string; upTo: number; costUsd: number; model: string } | undefined;
 	try {
 		const transcript = input.turns.map((t) => `Sent to you:\n${t.prompt}\n\nYou replied:\n${t.reply}`).join("\n\n---\n\n");
 		const { text, providerMetadata } = await generateText({
@@ -524,8 +566,8 @@ async function compact(ctx: ActionCtx, sessionId: Id<"agentSessions">) {
 			providerOptions: { gateway: { caching: "auto" } },
 			prompt: `Previous summary:\n${input.summary ?? "(none)"}\n\nNew transcript:\n${transcript}`,
 		});
-		result = { summary: text, upTo: input.upTo, costUsd: gatewayCost(providerMetadata) };
+		result = { summary: text, upTo: input.upTo, costUsd: gatewayCost(providerMetadata), model: SUMMARY_MODEL };
 	} finally {
-		await ctx.runMutation(internal.turns.finishCompaction, { sessionId, result });
+		await ctx.runMutation(internal.turns.finishCompaction, { sessionId, turnId, result });
 	}
 }

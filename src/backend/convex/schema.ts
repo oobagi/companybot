@@ -1,7 +1,7 @@
 import { viewConfig } from "./recordValidators";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
-import { fieldKinds, risks, roles, trashKinds } from "@companybot/core";
+import { fieldKinds, fileTypes, risks, roles, trashKinds, usageKinds } from "@companybot/core";
 import { v } from "convex/values";
 
 /** One of `values`, each a literal. */
@@ -18,6 +18,16 @@ export const agentConfig = v.object({
 	model: v.string(),
 	tools: v.array(v.string()),
 });
+
+/** A file on a message: its name, the type its bytes say it is, and (pictures) its size in pixels. */
+export const fileInfo = v.object({
+	name: v.string(),
+	type: oneOf(fileTypes),
+	size: v.number(),
+	width: v.optional(v.number()),
+	height: v.optional(v.number()),
+});
+export const attachment = v.object({ storageId: v.id("_storage"), ...fileInfo.fields });
 
 export const toolStatus = v.union(v.literal("running"), v.literal("done"), v.literal("error"));
 
@@ -72,6 +82,8 @@ export const replyStats = v.object({
 	...replyUsage.fields,
 	/** The conversation's running total once this reply finished, summaries included. */
 	conversationCostUsd: v.number(),
+	/** Added to the `usage` table (usage.ts). Replies from before it are counted once by migrations.usageThisMonth. */
+	counted: v.optional(v.boolean()),
 });
 
 // Shared settings carry a `version` that goes up on every save. A save sends the
@@ -108,6 +120,14 @@ export const modelInfo = v.object({
 	contextWindow: v.optional(v.number()),
 	input: v.optional(v.number()),
 	output: v.optional(v.number()),
+	vision: v.optional(v.boolean()),
+});
+export const imageModelInfo = v.object({
+	id: v.string(),
+	name: v.string(),
+	provider: v.string(),
+	multimodal: v.optional(v.boolean()),
+	perImage: v.optional(v.number()),
 });
 
 // Stored definitions keep retired library installs independent of shipped catalogs.
@@ -135,8 +155,9 @@ export default defineSchema({
 
 	// Local backends only (`pnpm dev`): the latest sign-in code per email, read back by the app.
 	localSignInCodes: defineTable({ email: v.string(), code: v.string() }).index("by_email", ["email"]),
-	// AI Gateway's models that can run an agent, one row (modelCatalog.ts).
-	modelCatalog: defineTable({ models: v.array(modelInfo), fetchedAt: v.number() }),
+	// AI Gateway's models that can run an agent, and those that make pictures, one row (modelCatalog.ts).
+	// `imageModels` is unset on a row from before it, until the next refresh.
+	modelCatalog: defineTable({ models: v.array(modelInfo), imageModels: v.optional(v.array(imageModelInfo)), fetchedAt: v.number() }),
 
 	workspaces: defineTable({
 		name: v.string(),
@@ -145,6 +166,10 @@ export default defineSchema({
 		currency: v.optional(v.string()),
 		/** Whether agents read and write memories. Off keeps them, unused. Unset means on. */
 		memory: v.optional(v.boolean()),
+		/** What agents make pictures with (an AI Gateway model id). Unset means core's defaultImageModel. */
+		imageModel: v.optional(v.string()),
+		/** USD agents may spend on pictures a month; 0 turns them off. Unset means IMAGE_BUDGET_DEFAULT_USD. */
+		imageBudgetUsd: v.optional(v.number()),
 		/** Set when an owner deletes it: every access refuses at once, then a cascade deletes its rows (lifecycle.ts). */
 		deleting: v.optional(v.boolean()),
 		/** Its logo (images.ts). Unset shows its initials. */
@@ -279,6 +304,8 @@ export default defineSchema({
 		/** The workspace the app had open. */
 		workspaceId: v.optional(v.id("workspaces")),
 		createdAt: v.number(),
+		/** Set for a file for a message (files.ts), unset for a picture; each is only claimed as its own kind. */
+		file: v.optional(fileInfo),
 	})
 		.index("by_storage", ["storageId"])
 		.index("by_user", ["userId"])
@@ -407,6 +434,10 @@ export default defineSchema({
 		actingFor: v.optional(v.id("users")),
 		text: v.string(),
 		parts: v.array(messagePart),
+		/** Files attached to it (files.ts), in order. Deleted with the message, or when it is. */
+		attachments: v.optional(v.array(attachment)),
+		/** Cards for the first links in its text (linkPreviews.ts), in text order. `hidden`: the sender took it down. */
+		linkPreviews: v.optional(v.array(v.object({ previewId: v.id("linkPreviews"), hidden: v.optional(v.boolean()) }))),
 		/** Who was @mentioned. Mentioned agents get a turn. `recordIds`: records the message references. `skillIds`: skills named with `/`. */
 		mentions: v.object({
 			userIds: v.array(v.id("users")),
@@ -436,6 +467,19 @@ export default defineSchema({
 		.index("by_chat_lastReply", ["chatId", "lastReplyAt"])
 		.index("by_workspace", ["workspaceId"])
 		.searchIndex("search_text", { searchField: "text", filterFields: ["workspaceId", "chatId"] }),
+
+	// What a link looked like when we fetched it (linkUnfurl.ts), one row per URL per workspace, shared
+	// by every message that posts it and refetched when a day old. The picture is our own copy.
+	linkPreviews: defineTable({
+		workspaceId: v.id("workspaces"),
+		url: v.string(),
+		/** None of these: the page had nothing to show (or couldn't be read); asked again after an hour. */
+		title: v.optional(v.string()),
+		description: v.optional(v.string()),
+		siteName: v.optional(v.string()),
+		image: v.optional(v.id("_storage")),
+		fetchedAt: v.number(),
+	}).index("by_workspace_url", ["workspaceId", "url"]),
 
 	// A reply's content while it streams (turns.updateReply). Its many writes a second re-run only
 	// the streaming bubble's query, not every message list; it moves onto the message when it ends.
@@ -468,8 +512,8 @@ export default defineSchema({
 		agentId: v.optional(v.id("agents")),
 	}).index("by_message", ["messageId", "emoji", "userId", "agentId"]),
 
-	// A person @mentioned in a main-timeline message, so unread mentions are found by index
-	// however much else was said since. `at`: the message's _creationTime. Gone when it's deleted.
+	// A person @mentioned in a message (main timeline or a thread), so unread mentions are found
+	// by index however much else was said since. `at`: the message's _creationTime. Gone when it's deleted.
 	userMentions: defineTable({
 		userId: v.id("users"),
 		chatId: v.id("chats"),
@@ -906,6 +950,21 @@ export default defineSchema({
 		.index("by_type", ["typeId"])
 		.index("by_deleted", ["deletedAt"])
 		.searchIndex("search", { searchField: "name", filterFields: ["workspaceId", "kind"] }),
+
+	// What AI cost, by month (UTC "2026-10"): one row per person, agent, kind and model, added to by
+	// `recordUsage` (usage.ts) as each paid call finishes, so the Usage screen reads a few rows, not messages.
+	usage: defineTable({
+		workspaceId: v.id("workspaces"),
+		month: v.string(),
+		/** Who it ran for. Unset for calls that ran for nobody in particular. */
+		userId: v.optional(v.id("users")),
+		agentId: v.optional(v.id("agents")),
+		kind: oneOf(usageKinds),
+		model: v.optional(v.string()),
+		costUsd: v.number(),
+	})
+		.index("by_bucket", ["workspaceId", "month", "userId", "agentId", "kind", "model"])
+		.index("by_user", ["workspaceId", "userId", "month"]),
 
 	// A cascade deleting what belonged to something that went (cascade.ts): one page of one
 	// edge of lifecycle.ts per run, resumed from `edge` and `cursor`. `key` names what's going,

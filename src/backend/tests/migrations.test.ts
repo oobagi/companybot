@@ -51,6 +51,88 @@ describe("migrations", () => {
 		expect(await t.run(async (ctx) => [(await ctx.db.get(onDefault))!.model, (await ctx.db.get(picked))!.model])).toEqual(["openai/gpt-6-luna", "anthropic/claude-opus-5.5"]);
 	});
 
+	it("grants help.read to Companybots on their default tools, as a new version, and leaves rebuilt ones", async () => {
+		const t = convexTest({ schema, modules, transactionLimits: true });
+		migrationsTest.register(t);
+		await signIn(t, "owner@co.com");
+		const [old, rebuilt] = await t.run(async (ctx) => {
+			const agent = (await ctx.db.query("agents").first())!;
+			const tools = agent.tools.filter((x) => x !== "help.read");
+			await ctx.db.patch(agent._id, { tools });
+			const { _id, _creationTime, ...copy } = agent;
+			return [agent._id, await ctx.db.insert("agents", { ...copy, tools: ["memory.*"] })];
+		});
+		vi.useFakeTimers();
+		try {
+			await t.mutation(internal.migrations.runAll);
+			await t.finishAllScheduledFunctions(vi.runAllTimers);
+		} finally {
+			vi.useRealTimers();
+		}
+		const after = await t.run(async (ctx) => ({ old: (await ctx.db.get(old))!, rebuilt: (await ctx.db.get(rebuilt))!, versions: await ctx.db.query("agentVersions").collect() }));
+		expect(after.old.tools).toContain("help.read");
+		expect(after.rebuilt.tools).toEqual(["memory.*"]);
+		expect(after.versions.find((v) => v.agentId === old && v.version === after.old.version)!.config.tools).toContain("help.read");
+	});
+
+	it("grants web tools to Companybots that keep their default grants, as a new version", async () => {
+		const t = convexTest({ schema, modules, transactionLimits: true });
+		migrationsTest.register(t);
+		await signIn(t, "owner@co.com");
+		const [stock, rebuilt] = await t.run(async (ctx) => {
+			const agent = (await ctx.db.query("agents").first())!;
+			const { _id, _creationTime, ...copy } = agent;
+			await ctx.db.patch(agent._id, { tools: agent.tools.filter((id) => id !== "web.*") });
+			return [agent._id, await ctx.db.insert("agents", { ...copy, tools: ["chat.*"] })];
+		});
+		const before = (await t.run((ctx) => ctx.db.get(stock)))!.version;
+		vi.useFakeTimers();
+		try {
+			await t.mutation(internal.migrations.runAll);
+			await t.finishAllScheduledFunctions(vi.runAllTimers);
+		} finally {
+			vi.useRealTimers();
+		}
+		const [after, other, saved] = await t.run(async (ctx) => [
+			(await ctx.db.get(stock))!,
+			(await ctx.db.get(rebuilt))!,
+			await ctx.db.query("agentVersions").withIndex("by_agent", (q) => q.eq("agentId", stock).eq("version", before + 1)).unique(),
+		] as const);
+		expect(after.tools).toContain("web.*");
+		expect(after.version).toBe(before + 1);
+		expect(saved?.config.tools).toEqual(after.tools);
+		expect(other.tools).toEqual(["chat.*"]);
+	});
+
+	it("grants images.generate to Companybots that keep their default grants, once, as a new version", async () => {
+		const t = convexTest({ schema, modules, transactionLimits: true });
+		migrationsTest.register(t);
+		await signIn(t, "owner@co.com");
+		const [stock, rebuilt] = await t.run(async (ctx) => {
+			const agent = (await ctx.db.query("agents").first())!;
+			const { _id, _creationTime, ...copy } = agent;
+			await ctx.db.patch(agent._id, { tools: agent.tools.filter((id) => id !== "images.generate") });
+			return [agent._id, await ctx.db.insert("agents", { ...copy, tools: ["chat.*"] })];
+		});
+		const before = (await t.run((ctx) => ctx.db.get(stock)))!.version;
+		vi.useFakeTimers();
+		try {
+			await t.mutation(internal.migrations.runAll);
+			await t.finishAllScheduledFunctions(vi.runAllTimers);
+		} finally {
+			vi.useRealTimers();
+		}
+		const [after, other, saved] = await t.run(async (ctx) => [
+			(await ctx.db.get(stock))!,
+			(await ctx.db.get(rebuilt))!,
+			await ctx.db.query("agentVersions").withIndex("by_agent", (q) => q.eq("agentId", stock).eq("version", before + 1)).unique(),
+		] as const);
+		expect(after.tools.filter((id) => id === "images.generate")).toHaveLength(1);
+		expect(after.version).toBe(before + 1);
+		expect(saved?.config.tools).toEqual(after.tools);
+		expect(other.tools).toEqual(["chat.*"]);
+	});
+
 	it("normalizes membership emails for bounded invitation checks, and fails closed on a row without one", async () => {
 		const t = convexTest({ schema, modules, transactionLimits: true });
 		const owner = await signIn(t, "MixedCase@Co.com");

@@ -176,7 +176,7 @@ it("updates only the acting person's preferences, validates zones and refuses de
 });
 
 it("edits/deletes only own visible messages, reacts to chosen messages and marks read explicitly", async () => {
-	const { call, owner, member, companybot } = await ready();
+	const { t, call, owner, member, companybot } = await ready();
 	const chatId = (await generalOf(owner))._id;
 	const mine = await owner.mutation(api.messages.send, { chatId, text: "Original", mentions: noMentions });
 	const theirs = await member.mutation(api.messages.send, { chatId, text: "Member", mentions: noMentions });
@@ -184,6 +184,13 @@ it("edits/deletes only own visible messages, reacts to chosen messages and marks
 	for (const action of ["edit", "delete"])
 		expect(await call("chat.manage", { action, messageId: theirs, ...(action === "edit" && { text: "No" }) })).toHaveProperty("error");
 	await call("chat.manage", { action: "react", messageId: theirs, emoji: "✅" });
+	// A card on your person's own message can be taken down; on someone else's it can't.
+	const linked = await owner.mutation(api.messages.send, { chatId, text: "https://news.example.com/story", mentions: noMentions });
+	await t.mutation(internal.linkPreviews.save, { messageId: linked, results: [{ url: "https://news.example.com/story", title: "Story" }] });
+	expect((await owner.query(api.messages.list, { chatId })).find((m) => m._id === linked)!.linkPreviews).toHaveLength(1);
+	expect(await call("chat.manage", { action: "hide_preview", messageId: linked, url: "https://news.example.com/story" })).toHaveProperty("done", "hide_preview");
+	expect((await owner.query(api.messages.list, { chatId })).find((m) => m._id === linked)!.linkPreviews).toEqual([]);
+	expect(await call("chat.manage", { action: "hide_preview", messageId: theirs, url: "https://news.example.com/story" })).toHaveProperty("error");
 	expect((await owner.query(api.messages.list, { chatId })).find((m) => m._id === theirs)!.reactions[0]!.names).toContain(companybot.name);
 	expect(await call("chat.manage", { action: "mark_read", chat: chatId })).toHaveProperty("done", "mark_read");
 	const { messageId } = await call("chat.manage", { action: "send", chat: chatId, text: "Agent delivery" });

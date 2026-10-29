@@ -20,7 +20,7 @@ import { WorkspaceMenu } from "./views/WorkspaceMenu";
 import { WorkspaceRail } from "./views/WorkspaceRail";
 import { ChatView } from "./views/chat/ChatView";
 import { GettingStarted } from "./views/chat/Tutorial";
-import { Avatar, MenuItem, Popover, deviceTimeZone } from "./views/chat/common";
+import { Avatar, MenuItem, Popover, deviceTimeZone, useConfirm } from "./views/chat/common";
 import { AddButton, ChannelsNav, DmsNav, Group, Item, type SectionProps } from "./views/chat/Sidebar";
 import { useSortable, useStoredIds } from "./sortable";
 import { PagesNav, PagesView } from "./views/Pages";
@@ -28,7 +28,7 @@ import { DatabaseDialog } from "./views/records/DatabaseDialog";
 import { type RecordType, useTypes } from "./views/records/data";
 import { builtinTabs, recordPath } from "./views/records/logic";
 
-const views = ["chat", ...recordTabs.map((t) => t.id), "records", "pages", "settings"] as const;
+export const views = ["chat", ...recordTabs.map((t) => t.id), "records", "pages", "settings"] as const;
 type View = (typeof views)[number];
 
 export function App() {
@@ -290,6 +290,7 @@ function DatabasesNav({
 	const [editing, setEditing] = useState<RecordType>();
 	const remove = useMutation(api.trash.move);
 	const { error, run } = useRun();
+	const { confirm, dialog } = useConfirm();
 	return (
 		<Group title="Databases" section={section} add={canCreate && <AddButton label="New database" onClick={onCreate} />}>
 			{shown.map((type) => (
@@ -305,7 +306,7 @@ function DatabasesNav({
 							? (close) => (
 									<>
 										<MenuItem onClick={() => (close(), setEditing(type))}><EditIcon /> Edit database</MenuItem>
-										<MenuItem danger onClick={() => (close(), confirm(`Delete ${type.plural}? It goes to Trash with its records, and can be restored for 30 days.`) && run(remove({ kind: "database", id: type._id }), () => openKey === type.key && navigate("chat")))}>
+										<MenuItem danger onClick={() => (close(), confirm({ title: `Delete ${type.plural}?`, action: "Delete", body: "It goes to Trash with its records, and can be restored for 30 days.", onConfirm: () => remove({ kind: "database", id: type._id }).then(() => openKey === type.key && navigate("chat")) }))}>
 											<TrashIcon /> Delete database
 										</MenuItem>
 									</>
@@ -318,6 +319,7 @@ function DatabasesNav({
 			))}
 			<Notice>{error}</Notice>
 			{editing && <DatabaseDialog type={editing} onClose={() => setEditing(undefined)} />}
+			{dialog}
 			{!types.length && canCreate && !section.collapsed && (
 				<Item icon={<PlusIcon />} muted onClick={onCreate}>
 					New database

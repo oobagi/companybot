@@ -1,11 +1,13 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { api } from "../../api";
-import { useMutation, useQuery } from "../../convex";
+import { useMutation, useQuery, useWorkspace } from "../../convex";
 import { Loading, Notice, ResizeHandle, useRun, useStoredWidth } from "../../ui";
 import { CloseIcon } from "../../icons";
+import { FileDrop, useAttachments } from "./Attachments";
 import { IconButton } from "./common";
 import { Composer, type SendWith } from "./Composer";
 import { type ChatDetails, type TokenNames, chatTitle } from "./data";
+import { draftKey } from "./drafts";
 import type { Sources } from "./editor";
 import { MessageList } from "./MessageList";
 import { TypingLine, useTypingPing } from "./Typing";
@@ -29,6 +31,8 @@ export function ThreadPanel({
 	const messages = useQuery(api.messages.list, { chatId: chat._id, threadId });
 	const send = useMutation(api.messages.send);
 	const typing = useTypingPing(chat._id, threadId);
+	const files = useAttachments();
+	const workspace = useWorkspace();
 	const { error, fail } = useRun();
 
 	const header = (
@@ -50,12 +54,14 @@ export function ThreadPanel({
 				sendWith={sendWith}
 				placeholder="Reply…"
 				sources={sources}
+				draftKey={draftKey(workspace?.id, chat._id, threadId)}
 				status={<TypingLine chatId={chat._id} threadId={threadId} />}
 				onType={typing.ping}
-				onSend={(text, mentions) => {
+				attachments={files}
+				onSend={(text, mentions, attachments) => {
 					fail();
 					typing.sent();
-					send({ chatId: chat._id, threadId, text, mentions }).catch(fail);
+					send({ chatId: chat._id, threadId, text, mentions, attachments }).catch(fail);
 				}}
 			/>
 		</div>
@@ -64,6 +70,7 @@ export function ThreadPanel({
 	return (
 		<aside style={{ width: size.width }} className="relative flex shrink-0 flex-col border-l border-neutral-200">
 			<ResizeHandle side="left" label="Resize thread" size={size} />
+			<FileDrop attachments={files} className="flex min-h-0 flex-1 flex-col">
 			{!messages || messages.length === 0 ? (
 				<>
 					{header}
@@ -82,6 +89,7 @@ export function ThreadPanel({
 					footer={footer}
 				/>
 			)}
+			</FileDrop>
 		</aside>
 	);
 }

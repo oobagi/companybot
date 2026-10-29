@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
 import { type Namer, canSee, chatByRef, chatLabel, namer, reactionsOf, textForModel } from "./chatOps";
+import { filesForModel } from "./files";
 import { asToolResult } from "./lib";
 import { reactMessage } from "./messages";
 import { runningTurn } from "./turns";
@@ -34,6 +35,7 @@ async function toLine(ctx: QueryCtx, m: Doc<"chatMessages">, names: Namer, label
 		text: textForModel(m, author),
 		...(!m.threadId && m.replyCount && { replies: m.replyCount }),
 		...(reactions.size > 0 && { reactions: [...reactions].map(([emoji, by]) => ({ emoji, by })) }),
+		...(m.attachments?.length && { files: filesForModel(m) }),
 	};
 }
 

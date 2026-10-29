@@ -10,8 +10,13 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 ## Tools — `core/src/tools.ts`, `builtin-tools.ts`
 - One shape (`ToolDef`) for built-ins and connector tools. Ids are `group.name`; model names come from `modelToolName`.
 - Add a built-in: `defineTool` in `builtin-tools.ts`. Set `permission` if not everyone may trigger it (checked through the role table, like everything else), `readOnly: true` if it changes nothing, and `risk` if it reaches outside ([Permissions](permissions.md)).
-- Tools reach data only through `ToolContext` (`memory`, `chat`, `skills`, `automations`, `records`, `pages`, `manage`), which enforce permissions. Don't do permission checks inside tools.
+- Tools reach data only through `ToolContext` (`memory`, `chat`, `skills`, `automations`, `records`, `pages`, `manage`, `web`), which enforce permissions. Don't do permission checks inside tools.
 - Agents grant exact ids or whole groups (`memory.*`). `resolveTools` is the only place that decides what the model sees.
+
+## Web — `core/src/web.ts`, `web-search.ts`, `safe-fetch.ts`, `backend/convex/webFetch.ts`
+- New search provider: one function returning a `SearchProvider` (`search(query, { limit })` → title, url, snippet, published) in `web-search.ts`, picked by name in `searchProvider`. Test it with a stubbed `fetch`.
+- `createWebTurn` is the only place that decides what `web.fetch` may open and how many calls a reply gets. Never let a fetch skip it, and never loosen `urlKey` to ignore the query string: that's where data would be smuggled out.
+- Anything that fetches a URL someone else picked (imports, a page's picture) goes through `fetchBody` (`webFetch.ts`: `safeFetch` in a Node action, Node's DNS for `resolve` and a client that connects only to the checked addresses). Link previews (`linkUnfurl.ts`) are the model: bounded size and time, bytes sniffed before anything is stored, our own copy of any file, and the write-back rechecks the message and a live workspace.
 
 ## Connectors — `core/src/connectors.ts`, `mcp.ts`, `backend/convex/connectors.ts`
 - A connector is a catalog entry pointing at a remote MCP server. Add it with `defineConnector` to `connectorCatalog`; `validateConnector` must pass (https only).
@@ -43,6 +48,13 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 - App-wide rules for how replies render live in `platformGuide`, added after each agent's own instructions. Change them there, never in default agent instructions.
 - Add a section only when the agent has the matching tools, so prompts stay small.
 
+## Help — `core/src/help/`
+- Docs for workspace members, not developers: plain short language, one module per area (`chat.ts`, `members.ts`…) exporting `{ id, title, summary, text }`, listed in `help/index.ts`. Plain TS strings, so they work in core, Convex's bundler and vitest alike (no `.md` loader).
+- Link screens as `[Members](#/settings/members)`; `#/chat`, `#/records/<key>`, `#/pages/<page id>` and `#/settings/<tab>` are real addresses (`router.ts`), and agent replies open them in the app. Refer to another page as `**help: topic-id**`. Write only what the code or wiki says is true.
+- **Add or change a settings tab or a top-level screen → update its help page in the same PR.** `desktop/.../help.test.ts` fails when a settings tab has no `(#/settings/<tab>)` link, a link names a tab that doesn't exist, or a top-level screen isn't mentioned; its message says which doc to edit. `settings.ts` lists every tab and who can change it, so keep it in step with permissions (`core/src/permissions.ts`).
+- `help.read` is read-only with no permission, so every role can use it. Grant it in an agent's tools (`help.*` or `help.read`); `guide.ts` adds its line only when granted. New tools that change what people can do belong in the relevant help page too.
+- Existing Companybots got `help.read` from the `companybotHelpTool` migration (only ones still on their default tools, as a new version); new workspaces from `default-agents.ts`.
+
 ## Skills — `core/src/skills.ts`
 - Agents with `skills.load` see installed skills' one-line descriptions and load full text on demand. Keep descriptions short; they're in every prompt.
 - Anyone can make their own (`skills.create` permission; `create` / `save` in `backend/convex/skills.ts`, or the `skills.create` agent tool; the guide adds a short how-to when it's granted). The maker or an owner can edit or delete (`canEditMade`). They live on their `skillInstalls` row (`custom`, id `custom-…`), are always installed, and `installedSkills` turns them into the same `Skill` shape, so agents can't tell them apart. Limits are in `customSkillError`: name 64 and no tags (Claude's SKILL.md rules), description 200 (stricter than Claude's 1,024, since it's in every prompt), instructions 20k chars.
@@ -70,7 +82,7 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 - Agent management shares `createAgent`, `updateAgent` and `setAgentTrashed` with the app (delete goes to Trash, like every other delete tool: `skills.remove` and `automations.remove` trash custom and retained library installs), so both accept the same models (`allowedModels`). Tool-free creation cannot expand grants; schemas omit tools/reactivation and the backend refuses edits to the acting agent's own instructions/model. `agents_manage` lists models with `models` (search, 50 at a time), not inside `get`: the catalog runs to hundreds.
 
 ## The app and `core`
-- The app imports only dependency-free modules from core, by deep path: `@companybot/core/permissions`, `@companybot/core/agent-config`. Importing the barrel would bundle the agent runtime (`ai`, zod) into the renderer. To expose another module, add it to `exports` in `core/package.json`.
+- The app imports only dependency-free modules from core, by deep path: `@companybot/core/permissions`, `@companybot/core/agent-config`. One exception: `@companybot/core/files` uses `fflate` (small, browser-safe) to list a ZIP's parts. `@companybot/core/file-text` pulls in PDF.js (unpdf), so only the backend's Node action (`fileText.ts`) imports it; it's kept out of the barrel. Importing the barrel would bundle the agent runtime (`ai`, zod) into the renderer. To expose another module, add it to `exports` in `core/package.json`.
 
 ## Things people make
 - Skills and automations share `canEditMade(who, managePermission, createdBy)` and one denial message. Pass no creator for library installs. Skills store the maker in `custom.createdBy`; automations use `installedBy`.
@@ -93,9 +105,15 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 - Never hand-write a delete loop for something going away. End access in the mutation (delete the gate row, or mark it), then `startCascade`. Anything that could bring old rows back (rejoining, reinstalling) checks `cascading` first.
 - A mutation an action calls after a wait (a model call, a connector, a provider's redirect) rechecks what it writes under: a live workspace, the same install or membership. Otherwise its row can land after the cascade passed that table.
 - Functions keyed on the signed-in person use `authUserId` (lib.ts), never `getAuthUserId`, so an erased account's old token acts as nobody.
-- Rows that hold storage files list those fields in `files`; the runner deletes the files with each row. Replacing a file in a mutation deletes the old one (`deleteFile`, images.ts).
+- Rows that hold storage files list those fields in `files` (an id, or a list of `{ storageId }`); the runner deletes the files with each row. Replacing a file in a mutation deletes the old one (`deleteFile`, images.ts).
 - Write-backs of what only the actor sees (`agentActivity.output`, `approvals.result`) drop it if the actor was erased (`erased`, lib.ts).
 - Pointing at `users` is always safe: accounts are scrubbed, never deleted.
+
+## Paid calls — `backend/convex/usage.ts`
+- Anything that costs money (a model call, web search, an image) records its cost with `recordUsage(ctx, { workspaceId, userId?, agentId?, kind, model?, costUsd })`, in the mutation that saves its result, so the Usage screen and later plans' allowance see it. Add a `kind` to `usageKinds` (core `usage.ts`) with its label; the table's validator is built from it.
+- `userId` is the person it ran for (the acting member, an automation's person); leave it out only when nobody did. Pass the cost as AI Gateway or the provider billed it, in USD.
+- Pictures (`images.generate`, `backend/convex/imageGen.ts`) record kind `image` and are capped by the workspace's monthly image budget, read from the same rows (`imageSpent`). Anything else that spends per call without a turn's reply to show it should get a budget the same way: a workspace setting, checked before the call.
+- Don't read costs from messages for totals: read `usage` rows (`usageReport`). The whole workspace's numbers need `usage.view`; everyone can read their own share.
 
 ## Shared settings
 - Editable shared data gets a `version` field. Saves send the version they started from; `checkVersion` refuses stale ones. In the app, use `useDraft` + `ConflictNotice`.

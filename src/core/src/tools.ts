@@ -2,6 +2,7 @@ import type { ManageStore } from "./manage-tools";
 import type { AutomationStore } from "./automation-tools";
 import type { FlexibleSchema, JSONValue, Tool } from "ai";
 import type { ChatStore } from "./chat";
+import type { ImageStore } from "./image-tools";
 import type { MemoryStore } from "./memory";
 import type { PageStore } from "./page-tools";
 import type { RecordStore } from "./record-tools";
@@ -9,6 +10,7 @@ import type { SkillStore } from "./skills";
 import type { Risk } from "./action-rules";
 import type { Permission } from "./permissions";
 import type { Actor } from "./types";
+import type { WebTurn } from "./web";
 
 /** What a tool can reach while it runs. */
 export interface ToolContext {
@@ -30,6 +32,10 @@ export interface ToolContext {
 	pages: PageStore;
 	/** This turn's data results, by ref, so widgets can show them. */
 	results: ResultStore;
+	/** Web search and pages, capped per turn (web.ts). */
+	web: WebTurn;
+	/** Making pictures for the reply, within the workspace's image budget (image-tools.ts). */
+	images: ImageStore;
 }
 
 /**

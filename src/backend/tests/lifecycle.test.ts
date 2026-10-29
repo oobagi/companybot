@@ -117,6 +117,7 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		mine.push(await ctx.db.insert("userMentions", { userId: memberId, chatId: channel, messageId: mention, at: now }));
 		mine.push(await ctx.db.insert("typing", { workspaceId, chatId: channel, userId: memberId, at: now }));
 		await ctx.db.insert("replyStreams", { messageId: said, text: "Hi", parts: [] });
+		await ctx.db.insert("linkPreviews", { workspaceId, url: "https://example.com/", title: "Example", image: await ctx.storage.store(new Blob(["x"])), fetchedAt: now });
 		// More reactions than one cascade run deletes, so a message's children span runs.
 		for (let i = 0; i < 150; i++) await ctx.db.insert("reactions", { messageId: said, chatId: channel, emoji: `e${i}`, userId: memberId });
 
@@ -128,6 +129,9 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		// What the agent got back for them: only they see it.
 		await ctx.db.insert("agentActivity", { ...call, changes: true, status: "done", output: "their inbox" });
 		await ctx.db.insert("approvals", { ...call, hash: "h", status: "done", result: "their inbox", expiresAt: now + 60_000 });
+
+		// The workspace's bill: stays when a member goes or an account is erased, goes with the workspace.
+		await ctx.db.insert("usage", { workspaceId, month: "2026-10", userId: memberId, agentId, kind: "chat", model: "openai/gpt-6-luna", costUsd: 0.1 });
 
 		const install = { workspaceId, agentId, enabled: true, timeZone: "UTC" };
 		const trigger = { type: "webhook" as const };

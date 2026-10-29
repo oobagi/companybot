@@ -43,6 +43,8 @@ export const permissions = {
 	"channels.manage": { roles: ["owner"], label: "manage channels" },
 	/** Delete forever from Trash (wiki/data.md#trash). Agents never delete forever. */
 	"trash.manage": { roles: ["owner"], label: "manage Trash" },
+	/** See the whole workspace's AI usage and cost. Everyone sees their own share (usage.ts). */
+	"usage.view": { roles: ["owner"], label: "see the workspace's AI usage" },
 } as const satisfies Record<string, { roles: readonly Role[]; label: string }>;
 
 export type Permission = keyof typeof permissions;

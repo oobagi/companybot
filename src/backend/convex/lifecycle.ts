@@ -47,7 +47,7 @@ export type Lifecycle<T extends TableNames> = { [S in Scope]?: Edge<T> } & {
 	keep?: string;
 	/** Deleted with each row of `table`, wherever one is deleted: the rows whose `field` is its id. One level only. */
 	childOf?: { table: TableNames; index: IndexNames<NamedTableInfo<DataModel, T>>; field: string };
-	/** Fields holding a storage id: the file is deleted with the row, wherever a cascade deletes it. */
+	/** Fields holding a storage id, or a list of `{ storageId }`: the files are deleted with the row, wherever a cascade deletes it. */
 	files?: (keyof Doc<T> & string)[];
 };
 
@@ -208,9 +208,15 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	chatMessages: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		channel: { index: "by_chat_thread", eq: ["chatId"] },
-		// Deleting a message clears it but keeps the row (messages.remove). What agents already saw of a
-		// deleted or edited message stays in their sessions: a product decision is pending.
+		// Deleting a message clears it but keeps the row (messages.remove), and deletes its files. What agents
+		// already saw of a deleted or edited message stays in their sessions: a product decision is pending.
 		keep: "Team history: what someone said stays when they leave; once their account is erased it shows as a former member's.",
+		files: ["attachments"],
+	},
+	linkPreviews: {
+		workspace: { index: "by_workspace_url", eq: ["workspaceId"] },
+		files: ["image"],
+		keep: "Shared by URL across the workspace's messages (a public page's title, text and picture), so no channel, member or account owns one.",
 	},
 	typing: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
@@ -359,6 +365,11 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		keep: "Deleting forever deletes the entry first (trash.ts). Who deleted something stays, as a former member once they leave.",
 	},
 
+	usage: {
+		workspace: { index: "by_bucket", eq: ["workspaceId"] },
+		keep: "The workspace's bill: what a removed or erased person's replies cost stays in its totals, shown as a former member's. Agents deleted forever leave theirs as \"Agent\".",
+	},
+
 	cascades: { keep: "The cascades themselves: each deletes its own row when it's done." },
 };
 
@@ -373,7 +384,10 @@ export const edgesOf = (scope: Scope): Step[] =>
 
 /** The storage files a row of `table` holds (`files`). */
 export const filesOf = (table: TableNames, row: Doc<TableNames>) =>
-	((lifecycle[table] as Lifecycle<TableNames>).files ?? []).flatMap((field) => (row[field] ? [row[field] as unknown as Id<"_storage">] : []));
+	((lifecycle[table] as Lifecycle<TableNames>).files ?? []).flatMap((field) => {
+		const value = row[field] as unknown as Id<"_storage"> | { storageId: Id<"_storage"> }[] | undefined;
+		return Array.isArray(value) ? value.map((a) => a.storageId) : value ? [value] : [];
+	});
 
 /** Tables deleted with each row of `table`. */
 export const childrenOf = (table: TableNames) =>
