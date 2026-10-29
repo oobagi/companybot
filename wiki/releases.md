@@ -35,5 +35,8 @@ Same Apple Developer account as yap. Set them in companybot with `gh secret set 
 ## Build locally
 `pnpm package:desktop` (signs with your keychain's Developer ID if present). Output: `src/desktop/release/`.
 
+## App icon
+`src/desktop/resources/icon.png` (1024px; electron-builder makes the `.icns`). Its source is `icon.svg` beside it, the repo logo (`.github/assets/logo.svg`) on Apple's icon grid. After editing the SVG, render it to a 1024px PNG with a transparent background.
+
 ## Not done yet
-App icon (uses Electron's default), Windows builds.
+Windows builds.

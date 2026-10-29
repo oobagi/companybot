@@ -15,6 +15,8 @@ publish:
   repo: companybot
 mac:
   category: public.app-category.productivity
+  # 1024px PNG; electron-builder makes the .icns. Source: resources/icon.svg.
+  icon: resources/icon.png
   # The signed app may use the microphone (dictation), and macOS asks with this text.
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist

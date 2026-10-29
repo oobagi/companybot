@@ -16,7 +16,7 @@ pnpm dev
 ```
 
 - It unsets `ELECTRON_RUN_AS_NODE` (set in T3 Code terminals) itself.
-- First run (about 30s): installs packages, downloads Electron if pnpm skipped it, creates the local deployment (state in `.convex/`, gitignored), and sets its secrets. `AI_GATEWAY_API_KEY` is copied from cloud dev; sign-in and encryption keys are generated fresh. Later runs start in seconds.
+- First run (about 30s): installs packages, downloads Electron if pnpm skipped it, creates the local deployment (state in `.convex/`, gitignored), and sets its secrets. `AI_GATEWAY_API_KEY` is copied from cloud dev (else taken from your shell); sign-in and encryption keys are generated fresh. Without access to the team's Convex project (outside contributors), the backend is an anonymous local one: no Convex account needed. Later runs start in seconds.
 - Ready when the log shows `Convex functions ready` and then `starting electron app...`. `convex dev` keeps watching: backend edits deploy on save, renderer edits hot-reload.
 - Another checkout already running? The CLI moves this one to the next free ports (3212/3213, …) and `.env.local` follows.
 
