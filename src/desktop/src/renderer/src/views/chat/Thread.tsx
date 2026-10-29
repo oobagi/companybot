@@ -3,6 +3,7 @@ import { api } from "../../api";
 import { useMutation, useQuery, useWorkspace } from "../../convex";
 import { Loading, Notice, useRun } from "../../ui";
 import { CloseIcon } from "../../icons";
+import { FileDrop, useAttachments } from "./Attachments";
 import { IconButton } from "./common";
 import { Composer, type SendWith } from "./Composer";
 import { type ChatDetails, type TokenNames, chatTitle } from "./data";
@@ -29,6 +30,7 @@ export function ThreadPanel({
 	const messages = useQuery(api.messages.list, { chatId: chat._id, threadId });
 	const send = useMutation(api.messages.send);
 	const typing = useTypingPing(chat._id, threadId);
+	const files = useAttachments();
 	const workspace = useWorkspace();
 	const { error, fail } = useRun();
 
@@ -54,17 +56,18 @@ export function ThreadPanel({
 				draftKey={draftKey(workspace?.id, chat._id, threadId)}
 				status={<TypingLine chatId={chat._id} threadId={threadId} />}
 				onType={typing.ping}
-				onSend={(text, mentions) => {
+				attachments={files}
+				onSend={(text, mentions, attachments) => {
 					fail();
 					typing.sent();
-					send({ chatId: chat._id, threadId, text, mentions }).catch(fail);
+					send({ chatId: chat._id, threadId, text, mentions, attachments }).catch(fail);
 				}}
 			/>
 		</div>
 	);
 
 	return (
-		<aside className="flex w-[26rem] shrink-0 flex-col border-l border-neutral-200">
+		<FileDrop attachments={files} className="flex w-[26rem] shrink-0 flex-col border-l border-neutral-200">
 			{!messages || messages.length === 0 ? (
 				<>
 					{header}
@@ -83,6 +86,6 @@ export function ThreadPanel({
 					footer={footer}
 				/>
 			)}
-		</aside>
+		</FileDrop>
 	);
 }

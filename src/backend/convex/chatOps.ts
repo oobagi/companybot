@@ -353,6 +353,7 @@ export function replyForModel(m: Doc<"chatMessages">) {
 		textForModel(m),
 		tools.length > 0 && `[Tools you used: ${tools.join(", ")}]`,
 		held.length > 0 && `[Held for approval: ${held.join(", ")}]`,
+		m.attachments?.length && `[Files you attached: ${m.attachments.map((f) => JSON.stringify(f.name)).join(", ")}]`,
 	]
 		.filter(Boolean)
 		.join("\n");

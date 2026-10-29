@@ -7,6 +7,8 @@ export interface ModelInfo {
 	contextWindow?: number;
 	input?: number;
 	output?: number;
+	/** Takes pictures in the prompt (the gateway's `vision` tag). */
+	vision?: boolean;
 }
 
 /** The recommended pick, and what new agents start on. */
@@ -15,9 +17,9 @@ export const defaultModel = "openai/gpt-6-luna";
 /** Offered while the gateway's catalog hasn't been fetched (or couldn't be). */
 export const fallbackModels: ModelInfo[] = [
 	{ id: "openai/gpt-6-luna", name: "GPT-6 Luna", provider: "openai" },
-	{ id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", provider: "anthropic" },
-	{ id: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5", provider: "anthropic" },
-	{ id: "anthropic/claude-opus-5.5", name: "Claude Opus 5.5", provider: "anthropic" },
+	{ id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", provider: "anthropic", vision: true },
+	{ id: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5", provider: "anthropic", vision: true },
+	{ id: "anthropic/claude-opus-5.5", name: "Claude Opus 5.5", provider: "anthropic", vision: true },
 ];
 
 /** AI Gateway's model list. Public: no key needed. */
@@ -48,6 +50,7 @@ export function parseGatewayModels(body: unknown): ModelInfo[] {
 				...(typeof m.context_window === "number" && { contextWindow: m.context_window }),
 				...(input !== undefined && { input }),
 				...(output !== undefined && { output }),
+				...(m.tags.includes("vision") && { vision: true }),
 			}];
 		})
 		.sort((a, b) => a.id.localeCompare(b.id));

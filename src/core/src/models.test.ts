@@ -12,10 +12,12 @@ describe("models", () => {
 			{ id: "openai/gpt-no-tools", name: "No tools", type: "language", tags: ["reasoning"] },
 			{ id: "openai/text-embedding-3", name: "Embedding", type: "embedding", tags: ["tool-use"] },
 			{ id: "meta/llama", type: "language", tags: ["tool-use"], pricing: null },
+			{ id: "google/gemini", name: "Gemini", type: "language", tags: ["tool-use", "vision"] },
 			{ name: "No id", type: "language", tags: ["tool-use"] },
 		] };
 		expect(parseGatewayModels(body)).toEqual([
 			{ id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", provider: "anthropic", contextWindow: 1_000_000, input: 3, output: 15 },
+			{ id: "google/gemini", name: "Gemini", provider: "google", vision: true },
 			{ id: "meta/llama", name: "meta/llama", provider: "meta" },
 		]);
 		expect(parseGatewayModels({ error: "nope" })).toEqual([]);

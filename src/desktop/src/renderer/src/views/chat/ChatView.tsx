@@ -4,6 +4,7 @@ import { api } from "../../api";
 import { useMutation, useQuery, useWorkspace } from "../../convex";
 import { ChannelIcon, ChatIcon, PrivateIcon } from "../../icons";
 import { EmptyState, Loading, NotFound, Notice, Scroll, TopBar, useRun } from "../../ui";
+import { FileDrop, useAttachments } from "./Attachments";
 import { AgentBadge, AvatarStack } from "./common";
 import { Composer, type SendWith } from "./Composer";
 import { type ChatDetails, type Mentions, chatTitle, useDirectory } from "./data";
@@ -77,12 +78,13 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 	const agent = chat.agentId ? chat.members.find((m) => m.id === chat.agentId) : undefined;
 	const title = chatTitle(chat);
 	const typing = useTypingPing(chat._id);
-	const send = (text: string, mentions: Mentions) => {
+	const files = useAttachments();
+	const send = (text: string, mentions: Mentions, attachments: Id<"_storage">[] = []) => {
 		fail();
 		typing.sent();
 		// Posting in #general without asking an agent: remind them of step 1.
 		if (chat.isDefault && mentions.agentIds.length === 0) setNudge((n) => n + 1);
-		sendMessage({ chatId: chat._id, text, mentions }).catch(fail);
+		sendMessage({ chatId: chat._id, text, mentions, attachments }).catch(fail);
 	};
 	const composer = (
 		<Composer
@@ -96,6 +98,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 			sources={directory}
 			draftKey={draftKey(workspace?.id, chat._id)}
 			onSend={send}
+			attachments={chat.trash ? undefined : files}
 		/>
 	);
 	const footer = (
@@ -135,7 +138,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 
 	return (
 		<div className="flex min-h-0 flex-1">
-			<div className="flex min-w-0 flex-1 flex-col">
+			<FileDrop attachments={chat.trash ? undefined : files} className="flex min-w-0 flex-1 flex-col">
 				{!messages ? (
 					<>
 						{bar}
@@ -179,7 +182,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 						footer={footer}
 					/>
 				)}
-			</div>
+			</FileDrop>
 			{threadId && (
 				<ThreadPanel
 					key={threadId}

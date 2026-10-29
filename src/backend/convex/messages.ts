@@ -26,6 +26,8 @@ import type { messagePart, replyStats } from "./schema";
 import { internal } from "./_generated/api";
 import { enqueueTurn, streamOf } from "./turns";
 import { stopTyping } from "./typing";
+import { claimFiles, deleteAttachments } from "./files";
+import type { fileInfo } from "./schema";
 
 // Messages in a chat's main timeline or a thread. See wiki/chat.md.
 
@@ -51,6 +53,8 @@ export type Message = {
 	reactions: { emoji: string; count: number; mine: boolean; names: string[] }[];
 	/** Set when an automation posted this for its author. */
 	automation: { id: string; name: string } | null;
+	/** Attached files, with URLs to show or download them (null if the file is gone). */
+	attachments: (Infer<typeof fileInfo> & { url: string | null })[];
 };
 
 const LIST_LIMIT = 200;
@@ -115,6 +119,7 @@ async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, 
 		replyAuthors,
 		reactions,
 		automation: m.automation ?? null,
+		attachments: await Promise.all((m.attachments ?? []).map(async ({ storageId, ...file }) => ({ ...file, url: await ctx.storage.getUrl(storageId) }))),
 	};
 }
 
@@ -134,6 +139,8 @@ const sendMessageArgs = v.object({
 			recordIds: v.optional(v.array(v.id("records"))),
 			skillIds: v.optional(v.array(v.string())),
 		}),
+		/** Your uploads (files.ts), in order. A message with files needs no text. */
+		attachments: v.optional(v.array(v.id("_storage"))),
 	});
 
 export const send = mutation({
@@ -141,12 +148,12 @@ export const send = mutation({
 	handler: async (ctx, args) => sendMessage(ctx, { member: await requireMember(ctx) }, args),
 });
 
-export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId, text, mentions }: Infer<typeof sendMessageArgs>): Promise<Id<"chatMessages">> {
+export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId, text, mentions, attachments: files = [] }: Infer<typeof sendMessageArgs>): Promise<Id<"chatMessages">> {
 	const { member } = who;
 	const chat = await requireChat(ctx, member, chatId);
 	if (chat.archived) throw new ConvexError("This channel is in Trash.");
 	text = text.trim();
-	if (!text) throw new ConvexError("Write something first.");
+	if (!text && files.length === 0) throw new ConvexError("Write something first.");
 	if (threadId) {
 		const parent = await ctx.db.get(threadId);
 		if (!parent || parent.chatId !== chatId || parent.threadId) throw new ConvexError("That thread doesn't exist.");
@@ -173,12 +180,15 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 
 	const dmAgent = agentOfDm(chat);
 	if (dmAgent && (await ctx.db.get(dmAgent))?.archived) throw new ConvexError("This agent is in Trash.");
+	// Last: a refused message keeps its uploads, to attach again.
+	const attachments = await claimFiles(ctx, member, files);
 
 	const messageId = await insertMessage(ctx, chat, {
 		threadId,
 		...(who.agentId ? { authorAgentId: who.agentId, actingFor: member.userId } : { authorUserId: member.userId }),
 		text,
-		parts: [{ type: "text", text }],
+		parts: text ? [{ type: "text", text }] : [],
+		...(attachments.length > 0 && { attachments }),
 		mentions: { userIds, agentIds, ...(recordIds.length > 0 && { recordIds }), ...(skillIds.length > 0 && { skillIds }) },
 		status: "done",
 	});
@@ -244,13 +254,14 @@ export const react = mutation({
 export async function editMessage(ctx: MutationCtx, who: Who, messageId: Id<"chatMessages">, text: string) {
 	const message = await requireOwn(ctx, who, messageId);
 	text = text.trim();
-	if (!text) throw new ConvexError("Write something first, or delete the message.");
-	await ctx.db.patch(message._id, { text, parts: [{ type: "text", text }], editedAt: Date.now() });
+	if (!text && !message.attachments?.length) throw new ConvexError("Write something first, or delete the message.");
+	await ctx.db.patch(message._id, { text, parts: text ? [{ type: "text", text }] : [], editedAt: Date.now() });
 }
 
 export async function removeMessage(ctx: MutationCtx, who: Who, messageId: Id<"chatMessages">) {
 	const message = await requireOwn(ctx, who, messageId);
-	await ctx.db.patch(message._id, { text: "", parts: [], deleted: true });
+	await deleteAttachments(ctx, message);
+	await ctx.db.patch(message._id, { text: "", parts: [], attachments: undefined, deleted: true });
 	await clearMessageLinks(ctx, messageId);
 }
 

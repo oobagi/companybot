@@ -1,5 +1,5 @@
 import type { PlaceMessage, Skill } from "@companybot/core";
-import { PROMPT_MESSAGE_CAP, approxTokens } from "@companybot/core";
+import { PROMPT_MESSAGE_CAP, approxTokens, fallbackModels } from "@companybot/core";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -16,6 +16,8 @@ import {
 import { type Who, installedSkills, liveWorkspace, memberOf, timeZoneOf } from "./lib";
 import { automationScope } from "./automationOps";
 import { messagePart, replyUsage } from "./schema";
+import { filesForModel, turnImages } from "./files";
+import { catalogModels } from "./modelCatalog";
 import { recordUsage } from "./usage";
 
 // The agent turn queue and everything the runner (agent.ts) reads and writes.
@@ -203,7 +205,11 @@ export const turnContext = internalQuery({
 		);
 
 		const parent = turn.threadId && (!foreign || turn.threadId === trigger?._id) && (await ctx.db.get(turn.threadId));
+		/** A thread's first turn starts with its parent. */
+		const first = turns.length === 0 && (foreign || !session.summary);
 		const rows = await chatMembersOf(ctx, chat._id);
+		const { models } = await catalogModels(ctx);
+		const vision = [models, fallbackModels].some((list) => list.find((m) => m.id === agent.model)?.vision);
 		const user = await ctx.db.get(member.userId);
 		return {
 			replyId: turn.replyId,
@@ -226,12 +232,15 @@ export const turnContext = internalQuery({
 				private: chat.private,
 				topic: chat.topic ?? null,
 				thread: parent
-					? { parent: await toPlaceMessage(parent, names, agent._id), first: turns.length === 0 && (foreign || !session.summary) }
+					? { parent: await toPlaceMessage(parent, names, agent._id), first }
 					: null,
 				members: await Promise.all(rows.map(names.of)),
 			},
 			messages,
 			triggerId: turn.triggerId ?? null,
+			vision,
+			/** Pictures for the model, newest kept: the runner loads and sends them when it sees pictures. */
+			images: vision ? turnImages([...(parent && first ? [parent] : []), ...recent.filter((m) => !m.deleted)]) : [],
 			/** The approval this turn follows: the runner runs it if approved, then tells the agent. */
 			approval: approval
 				? {
@@ -263,6 +272,7 @@ async function toPlaceMessage(m: Doc<"chatMessages">, names: Namer, self: Id<"ag
 		...(m.editedAt && { edited: true }),
 		...(!m.threadId && m.replyCount && { replyCount: m.replyCount }),
 		...(named.length > 0 && { skills: named }),
+		...(m.attachments?.length && { files: filesForModel(m) }),
 	};
 }
 

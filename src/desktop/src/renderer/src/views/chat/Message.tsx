@@ -12,6 +12,7 @@ import { AgentBadge, Avatar, AvatarStack, EmojiPicker, IconButton, Popover, cloc
 import type { Message, TokenNames } from "./data";
 import { navigate } from "../../router";
 import { ProfileLink } from "./Profile";
+import { MessageFiles } from "./Attachments";
 
 export function MessageRow({
 	message: row,
@@ -86,11 +87,14 @@ export function MessageRow({
 					) : isAgent ? (
 						<AgentBody message={message} />
 					) : (
-						<p className="leading-relaxed break-words whitespace-pre-wrap">
-							<TokenText text={message.text} tokens={tokens} />
-							{message.editedAt && <span className="text-xs text-neutral-400"> (edited)</span>}
-						</p>
+						(message.text || message.editedAt) && (
+							<p className="leading-relaxed break-words whitespace-pre-wrap">
+								<TokenText text={message.text} tokens={tokens} />
+								{message.editedAt && <span className="text-xs text-neutral-400"> (edited)</span>}
+							</p>
+						)
 					)}
+					{!message.deleted && message.attachments.length > 0 && <MessageFiles files={message.attachments} />}
 					{message.reactions.length > 0 && (
 						<div className="flex flex-wrap gap-1 pt-0.5">
 							{message.reactions.map((r) => (

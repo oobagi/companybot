@@ -12,6 +12,7 @@ import {
 	type ConnectorSession,
 	ConnectorOAuth,
 	type ReplyUsage,
+	type TurnImage,
 	type WebClient,
 	CONNECTOR_CALL,
 	actionOf,
@@ -39,6 +40,7 @@ import {
 	resolveTools,
 	searchProvider,
 	deniedReason,
+	isImageType,
 	toolApprovalPolicy,
 	toolRisk,
 } from "@companybot/core";
@@ -317,7 +319,7 @@ async function streamReply(
 	// Later turns replay what's stored. They can act for someone else, so an approved call's
 	// result stays out of it (only its approver may see it); this turn alone gets it.
 	await ctx.runMutation(internal.turns.savePrompt, { turnId, prompt: approval ? buildTurnPrompt({ ...promptInput, forReplay: true }) : prompt });
-	const input = buildTurnInput({ agent, skills: turn.skills, session: turn.session, prompt, available: usable });
+	const input = buildTurnInput({ agent, skills: turn.skills, session: turn.session, prompt, available: usable, images: await loadImages(ctx, turn.images) });
 
 	const started = Date.now();
 	const result = streamText({
@@ -472,12 +474,30 @@ function memoryStore(ctx: ActionCtx, turnId: Id<"agentTurns">): MemoryStore {
 	};
 }
 
-/** Chats as the turn's person sees them; chatTools.ts re-checks access on every call. */
+/** The turn's pictures, for a model that sees them. One that's gone since is left out. */
+async function loadImages(ctx: ActionCtx, images: Turn["images"]): Promise<TurnImage[]> {
+	const loaded = await Promise.all(
+		images.map(async ({ id, storageId, type }) => {
+			const blob = await ctx.storage.get(storageId);
+			return blob ? [{ id, type, data: new Uint8Array(await blob.arrayBuffer()) }] : [];
+		}),
+	);
+	return loaded.flat();
+}
+
+/** Chats as the turn's person sees them; chatTools.ts and files.ts re-check access on every call. */
 function chatStore(ctx: ActionCtx, turnId: Id<"agentTurns">): ChatStore {
 	return {
 		react: (emoji) => ctx.runMutation(internal.chatTools.reactFor, { turnId, emoji }),
 		read: (input) => ctx.runQuery(internal.chatTools.readFor, { turnId, ...input }),
 		search: (input) => ctx.runQuery(internal.chatTools.searchFor, { turnId, ...input }),
+		async readFile({ id, page }) {
+			const file = await ctx.runQuery(internal.files.readFor, { turnId, id });
+			if (!file) return { error: `No file "${id}" in a chat you can see.` };
+			if (isImageType(file.type)) return { error: `${file.name} is a picture, with no text to read. Pictures reach you with the message they're attached to, if your model sees pictures.` };
+			const text = await ctx.runAction(internal.fileText.page, { storageId: file.storageId, type: file.type, page });
+			return text ? { name: file.name, type: file.type, ...text } : { error: `${file.name} was deleted.` };
+		},
 	};
 }
 

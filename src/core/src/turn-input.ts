@@ -2,6 +2,7 @@ import type { ToolDef } from "./tools";
 import type { AgentConfig } from "./agent-config";
 import type { ApprovalOutcome } from "./approvals";
 import type { Participant } from "./chat";
+import { formatFileSize, isImageType } from "./files";
 import { platformGuide } from "./guide";
 import { type Skill, skillsIndex } from "./skills";
 import { shortStamp } from "./time";
@@ -30,6 +31,8 @@ export interface PlaceMessage {
 	replyCount?: number;
 	/** Skills the message named with `/`, by id: what to load before answering it. */
 	skills?: { id: string; name: string }[];
+	/** Attached files. `id` is what chat.read_file takes. */
+	files?: { id: string; name: string; type: string; size: number }[];
 }
 
 export interface TurnPlace {
@@ -57,6 +60,8 @@ export interface TurnPromptInput {
 	messages: PlaceMessage[];
 	/** Null when nobody asked (a turn after an approval on an old welcome turn). */
 	triggerId: string | null;
+	/** Whether the agent's model sees pictures: they're sent with the prompt (`buildTurnInput`'s `images`). */
+	vision?: boolean;
 	/** Set when this turn follows an approval decision: it answers that instead of a message. */
 	approval?: ApprovalOutcome;
 	/**
@@ -110,6 +115,13 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 			]
 				.filter(Boolean)
 				.join("\n"),
+		);
+	}
+	if ([...shown, ...(trigger ? [trigger] : [])].some((m) => m.files?.some((f) => isImageType(f.type)))) {
+		sections.push(
+			input.vision
+				? "The newest pictures attached here come after this message, each after its file id."
+				: "Your model can't see pictures, so you only get their names.",
 		);
 	}
 	if (input.approval) sections.push(approvalSection(input.approval, input.forReplay ?? false));
@@ -166,6 +178,7 @@ function chatLine(m: PlaceMessage, actor: { id: string; timeZone: string }) {
 	const notes = [
 		m.edited && "(edited)",
 		m.replyCount && `(${m.replyCount} ${m.replyCount === 1 ? "reply" : "replies"} in thread ${m.id})`,
+		m.files?.length && `(attached: ${m.files.map((f) => `${encode(f.name)} ${f.type} ${formatFileSize(f.size)} id ${f.id}`).join("; ")})`,
 	].filter(Boolean);
 	const name = clean(m.author.name) + (m.author.type === "user" && m.author.id === actor.id ? " (asker)" : "");
 	return [`[${name} ${shortStamp(m.time, actor.timeZone)}] ${encode(m.text)}`, ...notes].join(" ");
@@ -185,7 +198,18 @@ export interface SessionTurn {
 	reply: string;
 }
 
-export type TurnMessage = { role: "user" | "assistant"; content: string };
+export type TurnMessage = {
+	role: "user" | "assistant";
+	content: string | ({ type: "text"; text: string } | { type: "file"; mediaType: string; data: Uint8Array })[];
+};
+
+/** A picture sent with this turn's prompt (never replayed: later turns have the agent's reply about it). */
+export interface TurnImage {
+	/** Its file id, as the prompt lists it. */
+	id: string;
+	type: string;
+	data: Uint8Array;
+}
 
 /**
  * Everything the model gets for one turn. The only place that decides context;
@@ -197,9 +221,11 @@ export function buildTurnInput(input: {
 	session: { summary: string | null; turns: SessionTurn[] };
 	prompt: string;
 	available?: readonly ToolDef[];
+	/** Only for a model that sees pictures. They go after the prompt, so its text stays a cacheable prefix. */
+	images?: TurnImage[];
 }): { instructions: string; messages: TurnMessage[] } {
 	const { session } = input;
-	const messages: TurnMessage[] = [];
+	const messages: (TurnMessage & { content: string })[] = [];
 	const push = (role: TurnMessage["role"], content: string) => {
 		// Consecutive same-role messages merge, since some providers require alternating roles.
 		const last = messages.at(-1);
@@ -212,7 +238,14 @@ export function buildTurnInput(input: {
 		push("assistant", turn.reply || "(No reply.)");
 	}
 	push("user", input.prompt);
-	return { instructions: systemPrompt(input.agent, input.skills, input.available), messages };
+	const instructions = systemPrompt(input.agent, input.skills, input.available);
+	if (!input.images?.length) return { instructions, messages };
+	const last = messages.at(-1)!;
+	const pictures = input.images.flatMap((i) => [
+		{ type: "text" as const, text: `Picture ${i.id}:` },
+		{ type: "file" as const, mediaType: i.type, data: i.data },
+	]);
+	return { instructions, messages: [...messages.slice(0, -1), { role: "user", content: [{ type: "text", text: last.content }, ...pictures] }] };
 }
 
 /** Rough token count, for deciding what compaction keeps. */

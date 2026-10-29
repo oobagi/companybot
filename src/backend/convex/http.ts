@@ -3,6 +3,7 @@ import { httpRouter } from "convex/server";
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 import { auth } from "./auth";
+import { upload as uploadFile } from "./files";
 import { upload, uploadOptions } from "./images";
 import { callback } from "./oauth";
 
@@ -12,6 +13,9 @@ http.route({ path: "/oauth/callback", method: "GET", handler: callback });
 /** Pictures from the app (images.ts), signed in. */
 http.route({ path: "/images/upload", method: "POST", handler: upload });
 http.route({ path: "/images/upload", method: "OPTIONS", handler: uploadOptions });
+/** Files for messages (files.ts), signed in. */
+http.route({ path: "/files/upload", method: "POST", handler: uploadFile });
+http.route({ path: "/files/upload", method: "OPTIONS", handler: uploadOptions });
 
 /** Webhook automations' URLs: POST /automations/<token> (automationRuns.receive). */
 http.route({

@@ -82,7 +82,7 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 - Agent management shares `createAgent`, `updateAgent` and `setAgentTrashed` with the app (delete goes to Trash, like every other delete tool: `skills.remove` and `automations.remove` trash custom and retained library installs), so both accept the same models (`allowedModels`). Tool-free creation cannot expand grants; schemas omit tools/reactivation and the backend refuses edits to the acting agent's own instructions/model. `agents_manage` lists models with `models` (search, 50 at a time), not inside `get`: the catalog runs to hundreds.
 
 ## The app and `core`
-- The app imports only dependency-free modules from core, by deep path: `@companybot/core/permissions`, `@companybot/core/agent-config`. Importing the barrel would bundle the agent runtime (`ai`, zod) into the renderer. To expose another module, add it to `exports` in `core/package.json`.
+- The app imports only dependency-free modules from core, by deep path: `@companybot/core/permissions`, `@companybot/core/agent-config`. One exception: `@companybot/core/files` uses `fflate` (small, browser-safe) to list a ZIP's parts. `@companybot/core/file-text` pulls in PDF.js (unpdf), so only the backend's Node action (`fileText.ts`) imports it; it's kept out of the barrel. Importing the barrel would bundle the agent runtime (`ai`, zod) into the renderer. To expose another module, add it to `exports` in `core/package.json`.
 
 ## Things people make
 - Skills and automations share `canEditMade(who, managePermission, createdBy)` and one denial message. Pass no creator for library installs. Skills store the maker in `custom.createdBy`; automations use `installedBy`.
@@ -105,7 +105,7 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 - Never hand-write a delete loop for something going away. End access in the mutation (delete the gate row, or mark it), then `startCascade`. Anything that could bring old rows back (rejoining, reinstalling) checks `cascading` first.
 - A mutation an action calls after a wait (a model call, a connector, a provider's redirect) rechecks what it writes under: a live workspace, the same install or membership. Otherwise its row can land after the cascade passed that table.
 - Functions keyed on the signed-in person use `authUserId` (lib.ts), never `getAuthUserId`, so an erased account's old token acts as nobody.
-- Rows that hold storage files list those fields in `files`; the runner deletes the files with each row. Replacing a file in a mutation deletes the old one (`deleteFile`, images.ts).
+- Rows that hold storage files list those fields in `files` (an id, or a list of `{ storageId }`); the runner deletes the files with each row. Replacing a file in a mutation deletes the old one (`deleteFile`, images.ts).
 - Write-backs of what only the actor sees (`agentActivity.output`, `approvals.result`) drop it if the actor was erased (`erased`, lib.ts).
 - Pointing at `users` is always safe: accounts are scrubbed, never deleted.
 

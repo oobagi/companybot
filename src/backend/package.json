@@ -31,7 +31,8 @@
   "devDependencies": {
     "@edge-runtime/vm": "^5.0.0",
     "@types/turndown": "^5.0.6",
-    "convex-test": "^0.0.63"
+    "convex-test": "^0.0.63",
+    "fflate": "^0.8.3"
   },
   "exports": {
     "./convex/_generated/*": "./convex/_generated/*.js"
