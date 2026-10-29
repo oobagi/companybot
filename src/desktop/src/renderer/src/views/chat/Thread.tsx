@@ -1,7 +1,7 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { api } from "../../api";
 import { useMutation, useQuery, useWorkspace } from "../../convex";
-import { Loading, Notice, useRun } from "../../ui";
+import { Loading, Notice, ResizeHandle, useRun, useStoredWidth } from "../../ui";
 import { CloseIcon } from "../../icons";
 import { FileDrop, useAttachments } from "./Attachments";
 import { IconButton } from "./common";
@@ -27,6 +27,7 @@ export function ThreadPanel({
 	tokens: TokenNames;
 	onClose: () => void;
 }) {
+	const size = useStoredWidth("thread.width", 416, 280, 800);
 	const messages = useQuery(api.messages.list, { chatId: chat._id, threadId });
 	const send = useMutation(api.messages.send);
 	const typing = useTypingPing(chat._id, threadId);
@@ -69,7 +70,9 @@ export function ThreadPanel({
 	);
 
 	return (
-		<FileDrop attachments={files} className="flex w-[26rem] shrink-0 flex-col border-l border-neutral-200">
+		<aside style={{ width: size.width }} className="relative flex shrink-0 flex-col border-l border-neutral-200">
+			<ResizeHandle side="left" label="Resize thread" size={size} />
+			<FileDrop attachments={files} className="flex min-h-0 flex-1 flex-col">
 			{!messages || messages.length === 0 ? (
 				<>
 					{header}
@@ -88,6 +91,7 @@ export function ThreadPanel({
 					footer={footer}
 				/>
 			)}
-		</FileDrop>
+			</FileDrop>
+		</aside>
 	);
 }

@@ -121,7 +121,7 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 		sections.push(
 			input.vision
 				? "The newest pictures attached here come after this message, each after its file id."
-				: "Your model can't see pictures, so you only get their names.",
+				: "Your model can't see pictures, so you only get their names. If someone asks about one, tell them your model can't see pictures; don't guess what's in it.",
 		);
 	}
 	if (input.approval) sections.push(approvalSection(input.approval, input.forReplay ?? false));

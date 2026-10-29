@@ -254,11 +254,8 @@ async function streamReply(
 		records: recordStore(ctx, turnId),
 		pages: pageStore(ctx, turnId),
 		results: createResultStore(),
-		// Links the person wrote this turn are the only ones web.fetch opens before searching.
-		web: createWebTurn(
-			webClient(ctx, usage),
-			turn.messages.filter((m) => m.author.type === "user" && m.author.id === member.userId).map((m) => m.text),
-		),
+		// Links the person wrote (turns.ts `asked`) are the only ones web.fetch opens before searching.
+		web: createWebTurn(webClient(ctx, usage), turn.asked),
 		// imageGen.ts checks the budget and edit files as this person, then attaches and records each picture.
 		images: { generate: (request) => ctx.runAction(internal.imageGen.generateFor, { turnId, ...request }) },
 	};

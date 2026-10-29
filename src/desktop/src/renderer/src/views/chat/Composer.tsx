@@ -18,7 +18,6 @@ export function Composer({
 	sendWith,
 	placeholder,
 	status,
-	tray,
 	onType,
 	sources,
 	attachments,
@@ -30,8 +29,7 @@ export function Composer({
 	placeholder: string;
 	/** The line under the box (who's typing). Its space is kept when empty, so the box doesn't jump. */
 	status?: ReactNode;
-	/** Sits on top of the box, joined to it (the tutorial). */
-	tray?: ReactNode;
+	/** Each keystroke (typing pings). */
 	onType?: () => void;
 	/** What @, # and / offer. */
 	sources: Sources;
@@ -108,7 +106,6 @@ export function Composer({
 		<div className="relative flex w-full flex-col">
 			{menu && <Picker menu={menu} onHighlight={(i) => suggestions.highlight(i)} onPick={(i) => suggestions.pick(i)} />}
 			<div className="flex flex-col">
-				{tray}
 				<Form className={`flex w-full flex-wrap items-end gap-2 rounded-2xl border border-neutral-200 bg-white p-2 shadow-sm focus-within:border-neutral-300 ${attachments ? "" : "pl-4"}`} onSubmit={submit}>
 					{attachments && <PendingFiles attachments={attachments} />}
 					{attachments && <AttachButton attachments={attachments} />}

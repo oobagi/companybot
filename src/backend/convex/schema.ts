@@ -389,8 +389,12 @@ export default defineSchema({
 		topic: v.optional(v.string()),
 		/** Private channels are visible to their members only. DMs are always private. */
 		private: v.boolean(),
-		/** DMs only: sorted participant keys ("u:<id>", "a:<id>") joined by ",", to find an existing DM. */
+		/** DMs only: sorted participant keys ("u:<id>", "a:<id>") joined by ",", to find an existing DM. A side chat copies its parent's. */
 		dmKey: v.optional(v.string()),
+		/** Side chats only: a separate conversation with an agent, under the person's agent DM (`parentId`). */
+		parentId: v.optional(v.id("chats")),
+		/** Side chats only: what it's about, from its first message until renamed. */
+		title: v.optional(v.string()),
 		/** The channel everyone joins (#general). Can't be left or made private. */
 		isDefault: v.optional(v.boolean()),
 		/** In Trash (the `trash` table says who deleted it, and when). */
@@ -459,6 +463,8 @@ export default defineSchema({
 		automation: v.optional(v.object({ id: v.string(), name: v.string(), foreign: v.optional(v.boolean()) })),
 	})
 		.index("by_chat_thread", ["chatId", "threadId"])
+		/** Thread parents, newest reply first: the sidebar's active threads. Messages without replies have no `lastReplyAt` and sort first. */
+		.index("by_chat_lastReply", ["chatId", "lastReplyAt"])
 		.index("by_workspace", ["workspaceId"])
 		.searchIndex("search_text", { searchField: "text", filterFields: ["workspaceId", "chatId"] }),
 

@@ -23,6 +23,8 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"chats.join": { agent: ["channels.manage:join"] },
 	"chats.leave": { agent: ["channels.manage:leave"] },
 	"chats.openDm": { agent: ["chat.manage:open_dm"] },
+	"chats.createSideChat": { humanOnly: "A person's own separate conversation with an agent; the agent already has the DM." },
+	"chats.renameChat": { humanOnly: "Names the person's own side chat; nothing an agent needs to change." },
 	"chats.markRead": { agent: ["chat.manage:mark_read"] },
 	"connectors.setInstalled": { humanOnly: "Installing grants default role access to external account authority; uninstalling resets security locks and consent. Direct owner decision." },
 	"connectors.setRoles": { humanOnly: "Direct owner decides who can use connected account authority." },

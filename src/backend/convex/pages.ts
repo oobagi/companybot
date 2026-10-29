@@ -108,6 +108,25 @@ export const children = query({
 	},
 });
 
+/** Standalone pages whose titles match, with their ancestors' titles: the Move dialog's search. At most 20. */
+export const search = query({
+	args: { query: v.string() },
+	handler: async (ctx, { query: text }) => {
+		const member = await getMember(ctx);
+		if (!member || !text.trim()) return [];
+		// Record bodies can't be filtered out by the index, so walk hits until enough standalone, live pages are found.
+		const state = pageStates(ctx);
+		const rows = [];
+		for await (const p of ctx.db.query("pages").withSearchIndex("search_title", (q) => q.search("title", text).eq("workspaceId", member.workspaceId).eq("archived", false))) {
+			if (p.recordId) continue;
+			const { archived, ancestors } = await state(p);
+			if (!archived) rows.push({ ...pageRow(p), path: ancestors.map((a) => a.title).reverse() });
+			if (rows.length === 20) break;
+		}
+		return rows;
+	},
+});
+
 /** Validate saved expansion ids without scanning or truncating the workspace's page tree. */
 export const liveIds = query({
 	args: { ids: v.array(v.string()) },

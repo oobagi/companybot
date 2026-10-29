@@ -10,6 +10,7 @@ import {
 	addToChat,
 	addUserMentions,
 	agentOfDm,
+	titleFrom,
 	insertMessage,
 	markChatRead,
 	namer,
@@ -156,7 +157,7 @@ export const send = mutation({
 export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId, text, mentions, attachments: files = [] }: Infer<typeof sendMessageArgs>): Promise<Id<"chatMessages">> {
 	const { member } = who;
 	const chat = await requireChat(ctx, member, chatId);
-	if (chat.archived) throw new ConvexError("This channel is in Trash.");
+	if (chat.archived) throw new ConvexError("This chat is in Trash.");
 	text = text.trim();
 	if (!text && files.length === 0) throw new ConvexError("Write something first.");
 	if (threadId) {
@@ -185,6 +186,8 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 
 	const dmAgent = agentOfDm(chat);
 	if (dmAgent && (await ctx.db.get(dmAgent))?.archived) throw new ConvexError("This agent is in Trash.");
+	// A side chat takes its name from the person's first message.
+	if (chat.parentId && !chat.title && !threadId && !who.agentId) await ctx.db.patch(chat._id, { title: titleFrom(text) });
 	// Last: a refused message keeps its uploads, to attach again.
 	const attachments = await claimFiles(ctx, member, files);
 
@@ -269,7 +272,7 @@ export async function editMessage(ctx: MutationCtx, who: Who, messageId: Id<"cha
 	text = text.trim();
 	if (!text && !message.attachments?.length) throw new ConvexError("Write something first, or delete the message.");
 	await ctx.db.patch(message._id, { text, parts: text ? [{ type: "text", text }] : [], editedAt: Date.now() });
-	await previewMessage(ctx, { ...message, text });
+	await previewMessage(ctx, { ...message, text }, { byAgent: !!who.agentId });
 }
 
 export async function hideMessagePreview(ctx: MutationCtx, who: Who, messageId: Id<"chatMessages">, url: string) {

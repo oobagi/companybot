@@ -6,7 +6,7 @@ import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { fetchPreview, previewFrom } from "../convex/linkUnfurl";
 import { fetchBody } from "../convex/webFetch";
-import { type As, agentsOf, generalOf, noMentions, ownerAndMember, settle, workspaceOf } from "./helpers";
+import { type As, agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, settle, workspaceOf } from "./helpers";
 
 afterEach(() => void vi.useRealTimers());
 
@@ -41,6 +41,15 @@ describe("reading a page's details", () => {
 		expect(found).toMatchObject({ title: "First", siteName: "acme.com", imageUrl: undefined });
 		expect(found!.description).toHaveLength(300);
 		expect(found!.description).toMatch(/…$/);
+	});
+
+	it("reads a page in the encoding it names, so titles in windows-1252 or Shift_JIS aren't garbled", () => {
+		const title = (head: Uint8Array, charset?: string) =>
+			previewFrom({ url: link, status: 200, contentType: "text/html", ...(charset && { charset }), bytes: new Uint8Array([...head, ...bytes("</title>")]), cut: false })?.title;
+		expect(title(new Uint8Array([...bytes('<meta charset="windows-1252"><title>Caf'), 0xe9]))).toBe("Café");
+		// 日本 in Shift_JIS.
+		expect(title(new Uint8Array([...bytes("<title>"), 0x93, 0xfa, 0x96, 0x7b]), "shift_jis")).toBe("日本");
+		expect(title(new Uint8Array([...bytes("<title>Caf"), 0xc3, 0xa9]), "no-such-charset")).toBe("Café");
 	});
 
 	it("gives nothing for a page with no title or description, an error page, or a file that isn't HTML", () => {
@@ -192,6 +201,26 @@ describe("previews on messages", () => {
 		const turn = (await t.run((ctx) => ctx.db.query("agentTurns").collect())).at(-1)!;
 		await t.mutation(internal.turns.updateReply, { replyId: turn.replyId!, text: `Here: ${link}`, parts: [{ type: "text", text: `Here: ${link}` }] });
 		await t.mutation(internal.turns.finishReply, { turnId: turn._id });
+		expect(await fetches(t)).toEqual([]);
+	});
+
+	it("never fetches or shows new links when an agent edits its person's message: only the cards it had stay", async () => {
+		const { t, owner } = await ownerAndMember();
+		const { companybot } = await agentsOf(owner);
+		const id = await post(owner, link);
+		await store(t, id, found);
+		const known = await post(owner, "https://b.org/y");
+		await store(t, known, { ...found, url: "https://b.org/y" });
+		const turnId = await agentTurn(t, owner, (await generalOf(owner))._id, companybot._id);
+		await fetches(t);
+		const edit = (text: string) => t.mutation(internal.manageTools.runFor, { turnId, tool: "chat.manage", input: { request: { action: "edit", messageId: id, text } } });
+		expect(await edit(`${link} https://b.org/y https://attacker.example/c?d=secret`)).toEqual({ done: "edit", messageId: id });
+		expect(await fetches(t)).toEqual([]);
+		expect(await cards(owner, id)).toMatchObject([{ url: link }]);
+		await edit("no link now");
+		expect(await cards(owner, id)).toEqual([]);
+		await edit(link);
+		expect(await cards(owner, id)).toEqual([]);
 		expect(await fetches(t)).toEqual([]);
 	});
 
