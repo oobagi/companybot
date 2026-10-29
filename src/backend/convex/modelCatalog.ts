@@ -1,4 +1,4 @@
-import { type ImageModelInfo, type ModelInfo, GATEWAY_MODELS_URL, fallbackImageModels, fallbackModels, knownImagePrice, parseGatewayImageModels, parseGatewayModels } from "@companybot/core";
+import { type ImageModelInfo, type ModelInfo, GATEWAY_MODELS_URL, defaultImageModel, fallbackModels, imageModels, parseGatewayImageModels, parseGatewayModels } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
@@ -18,19 +18,22 @@ export async function catalogModels(ctx: QueryCtx): Promise<{ models: ModelInfo[
 	return row && row.models.length > 0 ? { models: row.models, fetchedAt: row.fetchedAt } : { models: fallbackModels, fetchedAt: null };
 }
 
-/** The cached picture models, or the fallback list while there are none. One without a listed price takes a known one (`knownImagePrice`). */
+/** The picture models we offer (core `imageModels`) that the gateway still lists; all of them before its catalog is fetched. */
 export async function catalogImageModels(ctx: QueryCtx): Promise<ImageModelInfo[]> {
 	const row = await ctx.db.query("modelCatalog").first();
-	if (!row?.imageModels?.length) return fallbackImageModels;
-	return row.imageModels.map((m) => {
-		const perImage = m.perImage ?? knownImagePrice(m.id);
-		return perImage === undefined ? m : { ...m, perImage };
-	});
+	if (!row?.imageModels?.length) return imageModels;
+	const listed = new Set(row.imageModels.map((m) => m.id));
+	return imageModels.filter((m) => listed.has(m.id));
 }
 
-/** A picture model by id, from the catalog or the fallback list. */
+/** A picture model we offer now, by id. */
 export async function findImageModel(ctx: QueryCtx, id: string) {
-	return [...(await catalogImageModels(ctx)), ...fallbackImageModels].find((m) => m.id === id);
+	return (await catalogImageModels(ctx)).find((m) => m.id === id);
+}
+
+/** The workspace's picture model: its pick while we offer it, else the default (one we dropped, or the gateway did). */
+export async function workspaceImageModel(ctx: QueryCtx, picked: string | undefined): Promise<ImageModelInfo> {
+	return (picked && (await findImageModel(ctx, picked))) || imageModels.find((m) => m.id === defaultImageModel)!;
 }
 
 /**

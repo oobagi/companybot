@@ -73,40 +73,29 @@ export interface ImageModelInfo {
 	name: string;
 	provider: string;
 	multimodal?: boolean;
-	/** USD for one picture at the default size, when the gateway lists it. */
+	/** USD for one picture at the default settings. */
 	perImage?: number;
+	/** What it's best at, for the picker. */
+	use?: string;
 }
 
-/** What workspaces make pictures with until an owner picks another: the newest Nano Banana. */
-export const defaultImageModel = "google/gemini-nano-banana-2.1";
-
-/** Offered while the gateway's catalog hasn't been fetched (or couldn't be). */
-export const fallbackImageModels: ImageModelInfo[] = [
-	{ id: "google/gemini-nano-banana-2.1", name: "Gemini Nano Banana 2.1", provider: "google", multimodal: true, perImage: 0.0336 },
-	{ id: "google/gemini-3-pro-image", name: "Nano Banana Pro (Gemini 3 Pro Image)", provider: "google", multimodal: true, perImage: 0.1344 },
-	{ id: "openai/gpt-image-2", name: "GPT Image 2", provider: "openai", perImage: 0.007 },
-	{ id: "bfl/flux-3-image", name: "FLUX 3 Image", provider: "bfl", perImage: 0.048 },
-];
+/** What workspaces make pictures with until an owner picks another. */
+export const defaultImageModel = "openai/gpt-image-2.5-flare";
 
 /**
- * What one picture at the default settings cost through AI Gateway, measured 2026-10-29 (one
- * picture each), for models the catalog prices by token or not at all. Shown in the picker and
- * held against the budget while a call runs; the gateway's reported cost is what's recorded.
+ * The picture models we offer: a short list we've tried, not the gateway's whole catalog, where
+ * models come and go. One the gateway stops listing drops out (`catalogImageModels`); adding one
+ * is a line here after a test picture. `perImage` is what one default picture cost through AI
+ * Gateway on 2026-10-29 (Recraft's is its listed price): shown in the picker and held against the
+ * budget while a call runs. The cost recorded is the gateway's.
  */
-export const measuredImagePrices: Record<string, number> = {
-	"openai/gpt-image-2": 0.007,
-	"openai/gpt-image-2.5-flare": 0.007,
-	"openai/gpt-image-2.5-sunburst": 0.007,
-	"openai/gpt-image-1.5": 0.142,
-	"openai/gpt-image-1-mini": 0.05,
-	"bfl/flux-2-pro": 0.03,
-	"bfl/flux-2-max": 0.07,
-	"bfl/flux-2-flex": 0.05,
-	"bfl/flux-2-klein-9b": 0.015,
-};
-
-/** One picture's price when the catalog lists none: measured, else the fallback list's. */
-export const knownImagePrice = (id: string) => measuredImagePrices[id] ?? fallbackImageModels.find((f) => f.id === id)?.perImage;
+export const imageModels: ImageModelInfo[] = [
+	{ id: "openai/gpt-image-2.5-flare", name: "GPT Image 2.5 Flare", provider: "openai", perImage: 0.007, use: "Fast, everyday pictures" },
+	{ id: "openai/gpt-image-2.5-sunburst", name: "GPT Image 2.5 Sunburst", provider: "openai", perImage: 0.007, use: "Precise edits" },
+	{ id: "google/gemini-nano-banana-2.1", name: "Nano Banana 2.1", provider: "google", multimodal: true, perImage: 0.039, use: "Google's newest" },
+	{ id: "bfl/flux-3-image", name: "FLUX 3", provider: "bfl", perImage: 0.048, use: "Photo-real" },
+	{ id: "recraft/recraft-v4.1", name: "Recraft V4.1", provider: "recraft", perImage: 0.035, use: "Logos and design" },
+];
 
 /** A USD string as a number, if it is one. */
 function dollars(price: unknown) {
@@ -145,8 +134,8 @@ export function parseGatewayImageModels(body: unknown): ImageModelInfo[] {
 		.sort((a, b) => a.id.localeCompare(b.id));
 }
 
-/** "$0.034 per picture", or "" when the gateway didn't say. */
-export const imageModelNote = (m: ImageModelInfo) => (m.perImage !== undefined ? `${usd(m.perImage)} per picture` : "");
+/** "Fast, everyday pictures · $0.007 per picture". */
+export const imageModelNote = (m: ImageModelInfo) => [m.use, m.perImage !== undefined && `${usd(m.perImage)} per picture`].filter(Boolean).join(" · ");
 
 const tokens = (n: number) => (n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : `${Math.round(n / 1e3)}K`);
 const usd = (n: number) => `$${+n.toFixed(n < 1 ? 3 : 2)}`;
