@@ -74,7 +74,11 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 
 ## Open source
 - The code is AGPL-3.0 (`LICENSE`): anyone can self-host; anyone who runs a changed version as a service must publish their changes.
-- We charge for the hosted version, reselling AI usage (models, search, images) at a markup. Self-hosters bring their own keys as server config.
+- Three editions, like Dify:
+  - **Community** — free, AGPL, self-hosted. Self-hosters bring their own keys as server config.
+  - **Cloud** — we host it. Paid plans with a monthly AI allowance (models, search, images) we resell at a markup; pauses at the limit, top-ups available.
+  - **Enterprise** — a paid license to self-host with enterprise features (single sign-on, audit logs, compliance, support). Those features live in an `ee/` folder under a commercial license. Not built yet.
+- Outside contributors sign a contributor agreement (CLA) before their code is merged, so we can sell it in Enterprise.
 
 ## Rollout
 Test with our own team first. Charge outsiders once the team opens it daily.
