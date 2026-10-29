@@ -104,6 +104,35 @@ describe("migrations", () => {
 		expect(other.tools).toEqual(["chat.*"]);
 	});
 
+	it("grants images.generate to Companybots that keep their default grants, once, as a new version", async () => {
+		const t = convexTest({ schema, modules, transactionLimits: true });
+		migrationsTest.register(t);
+		await signIn(t, "owner@co.com");
+		const [stock, rebuilt] = await t.run(async (ctx) => {
+			const agent = (await ctx.db.query("agents").first())!;
+			const { _id, _creationTime, ...copy } = agent;
+			await ctx.db.patch(agent._id, { tools: agent.tools.filter((id) => id !== "images.generate") });
+			return [agent._id, await ctx.db.insert("agents", { ...copy, tools: ["chat.*"] })];
+		});
+		const before = (await t.run((ctx) => ctx.db.get(stock)))!.version;
+		vi.useFakeTimers();
+		try {
+			await t.mutation(internal.migrations.runAll);
+			await t.finishAllScheduledFunctions(vi.runAllTimers);
+		} finally {
+			vi.useRealTimers();
+		}
+		const [after, other, saved] = await t.run(async (ctx) => [
+			(await ctx.db.get(stock))!,
+			(await ctx.db.get(rebuilt))!,
+			await ctx.db.query("agentVersions").withIndex("by_agent", (q) => q.eq("agentId", stock).eq("version", before + 1)).unique(),
+		] as const);
+		expect(after.tools.filter((id) => id === "images.generate")).toHaveLength(1);
+		expect(after.version).toBe(before + 1);
+		expect(saved?.config.tools).toEqual(after.tools);
+		expect(other.tools).toEqual(["chat.*"]);
+	});
+
 	it("normalizes membership emails for bounded invitation checks, and fails closed on a row without one", async () => {
 		const t = convexTest({ schema, modules, transactionLimits: true });
 		const owner = await signIn(t, "MixedCase@Co.com");

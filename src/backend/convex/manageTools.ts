@@ -8,7 +8,7 @@ import { automationName, automationScope, canView, definitionOf, installOf } fro
 import { removeAutomation, saveAutomation, updateAutomation } from "./automations";
 import { installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
 import { editMessage, hideMessagePreview, removeMessage, reactMessage, sendMessage } from "./messages";
-import { cancelMemberInvite, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
+import { cancelMemberInvite, imageSettings, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
 import { asToolResult, checkPermission, type Member, nameOf, normalizeEmail, preferencesOf, requireAgent, skillOf, timeZoneOf } from "./lib";
 import { createAgent, setAgentTrashed, updateAgent } from "./agents";
 import { catalogModels } from "./modelCatalog";
@@ -286,7 +286,10 @@ export const runFor = internalMutation({
 						return { updated: true };
 					}
 					const w = (await ctx.db.get(member.workspaceId))!;
-					if (r.action === "get") return { name: w.name, currency: w.currency ?? DEFAULT_CURRENCY, memory: w.memory ?? true, version: w.version ?? 0 };
+					if (r.action === "get") {
+						const images = await imageSettings(ctx, member, w);
+						return { name: w.name, currency: w.currency ?? DEFAULT_CURRENCY, memory: w.memory ?? true, ...images, imageModels: images.imageModels.map((m) => m.id), version: w.version ?? 0 };
+					}
 					await updateWorkspaceSettings(ctx, member, { ...r, name: r.name ?? w.name });
 					return { updated: true };
 				}

@@ -15,7 +15,7 @@ Open settings from your avatar (account) or the workspace name above the sidebar
 ## Workspace settings
 | Tab | What | Who can change |
 |---|---|---|
-| [General](#/settings/general) | Logo, name, currency, memory on/off, delete workspace | Owners (everyone can look) |
+| [General](#/settings/general) | Logo, name, currency, memory on/off, picture model and monthly image budget, delete workspace | Owners (everyone can look) |
 | [Members](#/settings/members) | Invite, roles, remove | Owners |
 | [Permissions](#/settings/permissions) | Your Always/Never rules; action locks | You (rules); owners (locks) |
 | [Memory](#/settings/memory) | Team and personal memories | Everyone (personal: only you) |

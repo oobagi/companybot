@@ -184,8 +184,8 @@ describe("agents and files", () => {
 		const turnId = await agentTurn(t, owner, (await generalOf(owner))._id, companybot._id);
 		const store = () => t.run((ctx) => ctx.storage.store(new Blob([pngOf(4, 4)], { type: "image/png" })));
 		const made = await store();
-		expect(await t.mutation(internal.files.attachToReply, { turnId, storageId: made, name: "chart.png", width: 4, height: 4 })).toEqual({ attached: true });
 		const replyId = (await t.run((ctx) => ctx.db.get("agentTurns", turnId)))!.replyId!;
+		expect(await t.mutation(internal.files.attachToReply, { turnId, storageId: made, name: "chart.png", width: 4, height: 4 })).toEqual({ attached: true, id: `${replyId}/0` });
 		expect((await messageOf(t, replyId)).attachments).toEqual([{ storageId: made, name: "chart.png", type: "image/png", size: 64, width: 4, height: 4 }]);
 
 		const html = await t.run((ctx) => ctx.storage.store(new Blob(["<html>"], { type: "text/html" })));

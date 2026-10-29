@@ -11,6 +11,7 @@ export * from "./default-agents";
 export * from "./guide";
 export * from "./files";
 export * from "./images";
+export * from "./image-tools";
 export * from "./invite-email";
 export * from "./local-auth";
 export * from "./mcp";

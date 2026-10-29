@@ -46,6 +46,12 @@ export const record = internalMutation({
 	handler: (ctx, entry) => recordUsage(ctx, entry),
 });
 
+/** What the workspace's agents spent on pictures in a month (default this one), for the image budget. */
+export async function imageSpent(ctx: QueryCtx, workspaceId: Id<"workspaces">, month = usageMonth(Date.now())) {
+	const rows = await ctx.db.query("usage").withIndex("by_bucket", (q) => q.eq("workspaceId", workspaceId).eq("month", month)).take(MAX_ROWS);
+	return round(rows.reduce((sum, r) => sum + (r.kind === "image" ? r.costUsd : 0), 0));
+}
+
 type Line = { id: string | null; name: string; costUsd: number };
 
 /** Sums rows by a key, biggest first. Costs are rounded to a millionth of a dollar. */

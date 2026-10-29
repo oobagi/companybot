@@ -103,6 +103,21 @@ export const companybotWebTools = migrations.define({
 	},
 });
 
+// Companybot got images.generate, to make and edit pictures. New workspaces get it from
+// default-agents.ts; this adds it to each existing Companybot that still has its default skills.load
+// grant (one an owner rebuilt on purpose is left alone), saved as a new version like an edit.
+export const companybotImageTool = migrations.define({
+	table: "agents",
+	batchSize: 8,
+	migrateOne: async (ctx, agent) => {
+		if (agent.name !== "Companybot" || !agent.tools.includes("skills.load") || agent.tools.includes("images.generate") || agent.tools.includes("images.*")) return;
+		const config = { name: agent.name, description: agent.description, instructions: agent.instructions, model: agent.model, tools: [...agent.tools, "images.generate"] };
+		const version = agent.version + 1;
+		await ctx.db.patch(agent._id, { tools: config.tools, version, updatedAt: Date.now() });
+		await ctx.db.insert("agentVersions", { agentId: agent._id, version, config, savedBy: agent.updatedBy });
+	},
+});
+
 // The Usage screen reads the `usage` table, which replies only fill from now on: add this month's earlier
 // replies (summaries before it weren't kept apart from replies, so they're missed). `counted` marks each reply
 // as in the table, so ones recorded live meanwhile, or a second run, can't be added twice.
@@ -131,6 +146,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.companybotHelpTool,
 	internal.migrations.companybotWebTools,
 	internal.migrations.usageThisMonth,
+	internal.migrations.companybotImageTool,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

@@ -32,6 +32,7 @@ import type * as fileText from "../fileText.js";
 import type * as files from "../files.js";
 import type * as functions from "../functions.js";
 import type * as http from "../http.js";
+import type * as imageGen from "../imageGen.js";
 import type * as images from "../images.js";
 import type * as invites from "../invites.js";
 import type * as legacyCatalogs from "../legacyCatalogs.js";
@@ -103,6 +104,7 @@ declare const fullApi: ApiFromModules<{
   files: typeof files;
   functions: typeof functions;
   http: typeof http;
+  imageGen: typeof imageGen;
   images: typeof images;
   invites: typeof invites;
   legacyCatalogs: typeof legacyCatalogs;

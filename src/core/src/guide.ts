@@ -106,6 +106,14 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 			"- Cite what you used as Markdown links to the pages, and say when you couldn't find something.",
 		);
 	}
+	if (has("images.generate")) {
+		lines.push(
+			"",
+			"## Pictures",
+			"- Make or edit a picture with images_generate only when asked (logos, illustrations, mockups, edits of a picture someone attached: pass its file id in editFiles). It's attached to your reply and costs from the workspace's monthly image budget, so don't remake it unasked.",
+			"- Say what you made in one line. Never paste image data or links to it. If it's refused for the budget, pass the message on as it is.",
+		);
+	}
 	if (has("skills.create")) {
 		lines.push(
 			"",

@@ -112,6 +112,7 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 ## Paid calls — `backend/convex/usage.ts`
 - Anything that costs money (a model call, web search, an image) records its cost with `recordUsage(ctx, { workspaceId, userId?, agentId?, kind, model?, costUsd })`, in the mutation that saves its result, so the Usage screen and later plans' allowance see it. Add a `kind` to `usageKinds` (core `usage.ts`) with its label; the table's validator is built from it.
 - `userId` is the person it ran for (the acting member, an automation's person); leave it out only when nobody did. Pass the cost as AI Gateway or the provider billed it, in USD.
+- Pictures (`images.generate`, `backend/convex/imageGen.ts`) record kind `image` and are capped by the workspace's monthly image budget, read from the same rows (`imageSpent`). Anything else that spends per call without a turn's reply to show it should get a budget the same way: a workspace setting, checked before the call.
 - Don't read costs from messages for totals: read `usage` rows (`usageReport`). The whole workspace's numbers need `usage.view`; everyone can read their own share.
 
 ## Shared settings

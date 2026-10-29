@@ -259,6 +259,8 @@ async function streamReply(
 			webClient(ctx, usage),
 			turn.messages.filter((m) => m.author.type === "user" && m.author.id === member.userId).map((m) => m.text),
 		),
+		// imageGen.ts checks the budget and edit files as this person, then attaches and records each picture.
+		images: { generate: (request) => ctx.runAction(internal.imageGen.generateFor, { turnId, ...request }) },
 	};
 	const tools = buildToolSet(
 		agent,

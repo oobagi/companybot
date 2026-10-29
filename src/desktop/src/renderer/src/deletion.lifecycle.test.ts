@@ -15,6 +15,8 @@ vi.mock("./convex", async (original) => ({
 	...(await original<typeof import("./convex")>()),
 	useQuery: (fn: Parameters<typeof getFunctionName>[0]) => state.queries[getFunctionName(fn)],
 	useMutation: () => state.mutate,
+	// The picture model picker refreshes the catalog as it opens.
+	useAction: () => () => Promise.resolve(),
 }));
 vi.mock("@convex-dev/auth/react", () => ({ useAuthActions: () => ({ signOut: state.signOut }), useAuthToken: () => null }));
 vi.mock("convex/react", async (original) => ({
@@ -33,7 +35,7 @@ beforeEach(() => {
 	vi.stubGlobal("localStorage", { getItem: () => null });
 	vi.clearAllMocks();
 	state.queries = {
-		"workspace:settings": { name: "My company", currency: "USD", memory: true, version: 1 },
+		"workspace:settings": { name: "My company", currency: "USD", memory: true, imageModel: "google/gemini-nano-banana-2.1", imageModels: [], imageBudgetUsd: 20, imageSpentUsd: 0, version: 1 },
 		"workspace:me": { email: "Owner@Co.com" },
 		"preferences:get": { displayName: "", sendWith: "enter", notify: "all" },
 	};

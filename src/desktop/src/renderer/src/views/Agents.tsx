@@ -9,6 +9,7 @@ import { Checkbox } from "../controls";
 import { navigate } from "../router";
 import { ItemList, Missing, customizeCrumbs } from "./customize/shared";
 import { ImagePicker } from "./ImagePicker";
+import { modelNote } from "@companybot/core/models";
 import { ModelPicker } from "./ModelPicker";
 import { TrashNotice } from "./Trash";
 import { AgentIcon, TrashIcon } from "../icons";
@@ -113,7 +114,7 @@ function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean;
 						onChange={(e) => edit({ description: e.target.value })}
 					/>
 				</Field>
-				<ModelPicker models={options.models} defaultModel={options.defaultModel} value={config.model} onChange={(model) => edit({ model })} />
+				<ModelPicker label="Model" note={modelNote} models={options.models} defaultModel={options.defaultModel} value={config.model} onChange={(model) => edit({ model })} />
 				<div className="flex flex-col gap-1.5">
 					<span className="text-sm font-medium">Tools</span>
 					{options.groups.map((g) => (
