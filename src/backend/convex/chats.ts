@@ -136,7 +136,7 @@ export type ActiveThread = { chatId: Id<"chats">; messageId: Id<"chatMessages">;
 export const ACTIVE_THREADS_MAX = 100;
 
 /**
- * Threads replied to lately (the workspace's `threadHours`, default 3 days), in channels you're in,
+ * Threads replied to lately (the workspace's `threadHours`, default 3 days, 0 forever), in channels you're in,
  * newest reply first. `now` comes from the app, rounded to 5 minutes (`useClock`): a query re-runs
  * when its arguments change, not as time passes, so this is what makes a quiet thread drop off on time.
  */
@@ -146,7 +146,9 @@ export const activeThreads = query({
 		const member = await getMember(ctx);
 		if (!member) return [];
 		const workspace = (await ctx.db.get(member.workspaceId))!;
-		const since = now - (workspace.threadHours ?? THREAD_HOURS_DEFAULT) * 60 * 60 * 1000;
+		const hours = workspace.threadHours ?? THREAD_HOURS_DEFAULT;
+		// 0 is forever: every thread with a reply (a parent without one has no lastReplyAt).
+		const since = hours ? now - hours * 60 * 60 * 1000 : 0;
 		const rows = await ctx.db.query("chatMembers").withIndex("by_user", (q) => q.eq("userId", member.userId)).collect();
 		const threads: ActiveThread[] = [];
 		for (const row of rows) {

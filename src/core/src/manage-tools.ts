@@ -118,7 +118,7 @@ export const manageInputs = {
 				memory: z.boolean().optional(),
 				imageModel: z.string().optional().describe("An AI Gateway picture model id, like google/gemini-nano-banana-2.1"),
 				imageBudgetUsd: z.number().min(0).optional().describe("USD agents may spend on pictures a month; 0 turns pictures off"),
-				threadHours: z.number().optional().describe("Hours a thread stays under its channel in the sidebar after its last reply: 1, 24, 72 or 168"),
+				threadHours: z.number().optional().describe("Hours a thread stays under its channel in the sidebar after its last reply: 1, 24, 72, 168, or 0 for forever"),
 			}),
 		]),
 	}),

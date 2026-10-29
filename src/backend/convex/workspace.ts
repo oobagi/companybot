@@ -552,7 +552,7 @@ export async function updateWorkspaceSettings(ctx: MutationCtx, member: Member, 
 	if (imageBudgetUsd !== undefined && !(imageBudgetUsd >= 0 && imageBudgetUsd <= IMAGE_BUDGET_MAX_USD)) {
 		throw new ConvexError(`Set an image budget from $0 (off) to $${IMAGE_BUDGET_MAX_USD.toLocaleString("en-US")} a month.`);
 	}
-	if (threadHours !== undefined && !isThreadWindow(threadHours)) throw new ConvexError(`Threads stay in the sidebar for ${threadWindows.map((w) => w.hours).join(", ")} hours.`);
+	if (threadHours !== undefined && !isThreadWindow(threadHours)) throw new ConvexError(`Threads stay in the sidebar for ${threadWindows.map((w) => w.hours).join(", ")} hours (0 is forever).`);
 	await ctx.db.patch(workspaceId, {
 		name: name.trim(),
 		...(currency && { currency }),

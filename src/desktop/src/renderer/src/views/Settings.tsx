@@ -275,7 +275,7 @@ function GeneralForm({
 				<Setting label="Currency" hint="For new amounts. Existing amounts keep theirs.">
 					<CurrencySelect className={wideControlClass} disabled={!isOwner} value={draft.value.currency} onChange={(currency) => draft.set({ ...draft.value, currency })} />
 				</Setting>
-				<Setting label="Threads in the sidebar" hint="How long a thread stays under its channel after its last reply. It's still there under its message.">
+				<Setting label="Threads in the sidebar" hint="How long a thread stays under its channel after its last reply. It's still there under its message either way.">
 					<Select
 						className={wideControlClass}
 						disabled={!isOwner}
