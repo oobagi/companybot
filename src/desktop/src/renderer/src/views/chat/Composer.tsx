@@ -1,13 +1,15 @@
 import type { Doc, Id } from "@companybot/backend/convex/_generated/dataModel";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { type ReactNode, useMemo, useRef, useState } from "react";
+import { api } from "../../api";
+import { useQuery } from "../../convex";
 import { ArrowUpIcon, ChannelIcon, PrivateIcon, SkillIcon } from "../../icons";
 import { AttachButton, type Attachments, PendingFiles } from "./Attachments";
 import { Avatar } from "./common";
 import { ComposerTools } from "./ComposerTools";
 import type { Mentions } from "./data";
 import { pastedFiles } from "./composerFiles";
-import { keepDraft, useDraft } from "./drafts";
+import { keepDraft, textKey, useDraft } from "./drafts";
 import { type Candidate, type Menu, type Sources, SuggestionMenu, composerExtensions, plainText, tokensIn } from "./editor";
 import { Form, metadataClass } from "../../ui";
 
@@ -38,11 +40,14 @@ export function Composer({
 	/** Where an unsent message is kept for this chat or thread (drafts.ts). */
 	draftKey?: string;
 }) {
+	const me = useQuery(api.chats.list)?.me;
+	// Each person's own, and none until we know who's here.
+	const saveAt = me && draftKey ? textKey(me, draftKey) : undefined;
 	const [menu, setMenu] = useState<Menu | null>(null);
 	const [empty, setEmpty] = useState(true);
 	// The editor is made once; it reads the latest props (and this render's submit) through this ref.
-	const latest = useRef({ sources, placeholder, sendWith, onSend, onType, attachments, draftKey, submit: () => {} });
-	latest.current = { ...latest.current, sources, placeholder, sendWith, onSend, onType, attachments, draftKey };
+	const latest = useRef({ sources, placeholder, sendWith, onSend, onType, attachments, saveAt, submit: () => {} });
+	latest.current = { ...latest.current, sources, placeholder, sendWith, onSend, onType, attachments, saveAt };
 	const suggestions = useMemo(() => new SuggestionMenu(() => latest.current.sources, setMenu), []);
 
 	const editor = useEditor({
@@ -74,7 +79,7 @@ export function Composer({
 		onBlur: () => suggestions.hide(),
 	});
 
-	useDraft(editor, draftKey, setEmpty);
+	useDraft(editor, saveAt, setEmpty);
 
 	const submit = () => {
 		if (!editor) return;
@@ -83,7 +88,7 @@ export function Composer({
 		if (files?.uploading || (!text && !files?.ids.length)) return;
 		const tokens = tokensIn(editor);
 		const doc = editor.getJSON();
-		const key = latest.current.draftKey;
+		const key = latest.current.saveAt;
 		// Emptied at once, so it feels sent; a send that fails puts it all back.
 		const taken = files?.take();
 		const sending = latest.current.onSend(text, { userIds: tokens.user as Id<"users">[], agentIds: tokens.agent as Id<"agents">[], skillIds: tokens.skill }, taken?.ids ?? []);
@@ -94,7 +99,7 @@ export function Composer({
 			() => {
 				taken?.restore();
 				// Still open on the same place: back in the box (an edit, so the draft saves it), unless they've typed since.
-				if (!editor.isDestroyed && latest.current.draftKey === key) {
+				if (!editor.isDestroyed && latest.current.saveAt === key) {
 					if (editor.isEmpty) editor.commands.setContent(doc);
 				} else if (key) keepDraft(key, doc);
 			},

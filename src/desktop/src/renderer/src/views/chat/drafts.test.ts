@@ -1,6 +1,6 @@
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, it } from "vitest";
-import { DRAFT_TTL_MS, chatsWithDrafts, draftKey, loadDraft, saveDraft } from "./drafts";
+import { DRAFT_TTL_MS, chatsWithDrafts, draftKey, loadDraft, saveDraft, sweepDrafts, textKey } from "./drafts";
 
 const memory = () => {
 	const data = new Map<string, string>();
@@ -25,6 +25,16 @@ describe("drafts", () => {
 		expect(draftKey("w1", "c1")).toBe("draft:w1:c1");
 		expect(draftKey("w1", "c1", "t1")).toBe("draft:w1:c1:t1");
 		expect(draftKey("w1", "c1")).not.toBe(draftKey("w2", "c1"));
+	});
+
+	it("saves each person's text apart", () => {
+		expect(textKey("u1", draftKey("w1", "c1"))).toBe("text:u1:draft:w1:c1");
+		const s = memory();
+		saveDraft(s, textKey("u1", draftKey("w1", "c1")), doc("mine"));
+		expect(loadDraft(s, textKey("u2", draftKey("w1", "c1")))).toBeNull();
+		saveDraft(s, textKey("u2", draftKey("w1", "c1")), doc("theirs"));
+		// Switching back finds yours.
+		expect(loadDraft(s, textKey("u1", draftKey("w1", "c1")))).toEqual(doc("mine"));
 	});
 
 	it("brings back what was saved, chips included", () => {
@@ -60,14 +70,30 @@ describe("drafts", () => {
 		expect(s.length).toBe(0);
 	});
 
-	it("lists the chats with a draft in this workspace, counting threads once", () => {
+	it("lists the chats where this person has a draft in this workspace, counting threads once", () => {
 		const s = memory();
-		saveDraft(s, draftKey("w1", "c1"), doc("a"));
-		saveDraft(s, draftKey("w1", "c1", "t1"), doc("b"));
-		saveDraft(s, draftKey("w1", "c2", "t9"), doc("c"));
-		saveDraft(s, draftKey("w2", "c3"), doc("other workspace"));
+		const mine = (chat: string, thread?: string) => textKey("u1", draftKey("w1", chat, thread));
+		saveDraft(s, mine("c1"), doc("a"));
+		saveDraft(s, mine("c1", "t1"), doc("b"));
+		saveDraft(s, mine("c2", "t9"), doc("c"));
+		saveDraft(s, textKey("u1", draftKey("w2", "c3")), doc("other workspace"));
+		saveDraft(s, textKey("u2", draftKey("w1", "c4")), doc("someone else"));
+		saveDraft(s, draftKey("w1", "c5"), doc("nobody's"));
 		s.setItem("sidebar.hidden", "true");
-		expect(chatsWithDrafts(s, "w1")).toEqual(new Set(["c1", "c2"]));
-		expect(chatsWithDrafts(s, "w3")).toEqual(new Set());
+		expect(chatsWithDrafts(s, "u1", "w1")).toEqual(new Set(["c1", "c2"]));
+		expect(chatsWithDrafts(s, "u2", "w1")).toEqual(new Set(["c4"]));
+		expect(chatsWithDrafts(s, "u1", "w3")).toEqual(new Set());
+	});
+
+	it("drops drafts saved before they were per person, and expired ones, and nothing else", () => {
+		const s = memory();
+		saveDraft(s, draftKey("w1", "c1"), doc("nobody's"));
+		saveDraft(s, draftKey("w1", "c1", "t1"), doc("nobody's thread"));
+		saveDraft(s, textKey("u1", draftKey("w1", "c1")), doc("old"), 1000);
+		saveDraft(s, textKey("u1", draftKey("w1", "c2")), doc("new"), 5000);
+		s.setItem("files:u1:draft:w1:c1", "[]");
+		s.setItem("sidebar.hidden", "true");
+		sweepDrafts(s, 1000 + DRAFT_TTL_MS);
+		expect([...Array(s.length)].map((_, i) => s.key(i))).toEqual(["text:u1:draft:w1:c2", "files:u1:draft:w1:c1", "sidebar.hidden"]);
 	});
 });

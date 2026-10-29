@@ -70,6 +70,17 @@ describe("pending files", () => {
 		expect(restarted.get(pendingKey("u2", draftKey("w1", "c1")))).toEqual([]);
 	});
 
+	it("lists one person's composers with files, in memory or saved", () => {
+		const s = memory();
+		savePending(s, pendingKey("u1", draftKey("w1", "c1")), [uploaded("saved", 1500)]);
+		const store = createPendingStore(s, () => 2000);
+		store.update(pendingKey("u1", draftKey("w1", "c2", "t1")), () => [uploading("live")]);
+		store.update(pendingKey("u1", draftKey("w1", "c3")), () => []);
+		store.update(pendingKey("u2", draftKey("w1", "c4")), () => [uploading("theirs")]);
+		store.update(pendingKey("u1", draftKey("w2", "c5")), () => [uploading("elsewhere")]);
+		expect(store.withFiles(pendingKey("u1", draftKey("w1", ""))).sort()).toEqual([pendingKey("u1", draftKey("w1", "c1")), pendingKey("u1", draftKey("w1", "c2", "t1"))]);
+	});
+
 	it("sweeps expired saved lists at start", () => {
 		const s = memory();
 		savePending(s, pendingKey("u1", draftKey("w1", "c1")), [uploaded("a", 1000)]);
