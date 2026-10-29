@@ -1,4 +1,4 @@
-// The rail: join and create open the new workspace once listed; one create per submit; errors stay in their popover.
+// The rail: join and create open the new workspace once listed; one create per submit; errors stay where they happened.
 import { getFunctionName } from "convex/server";
 import { act, createElement } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
@@ -53,7 +53,7 @@ afterEach(async () => {
 	vi.unstubAllGlobals();
 });
 
-/** Opens or closes the popover whose button reads `label` to screen readers. */
+/** Clicks the button (a popover's, or +) that reads `label` to screen readers. */
 async function toggle(label: string) {
 	const button = root.root.find(
 		(n) => n.type === "button" && n.findAll((c) => c.type === "span" && c.props.className === "sr-only" && c.children.join("") === label).length > 0,
@@ -64,7 +64,7 @@ async function toggle(label: string) {
 it.each(["create", "accept"] as const)("waits for membership before auto-opening after %s", async (action) => {
 	state[action].mockResolvedValueOnce("new-workspace");
 	if (action === "create") {
-		await toggle("Create a workspace");
+		await toggle("New workspace");
 		await act(async () => root.root.findByType("input").props.onChange({ target: { value: "New Co" } }));
 		await act(async () => root.root.findByType("form").props.onSubmit({ preventDefault() {} }));
 		expect(root.root.findAllByType("form")).toHaveLength(0);
@@ -86,7 +86,7 @@ it.each(["create", "accept"] as const)("waits for membership before auto-opening
 
 it("submits only one workspace creation while the first request is pending", async () => {
 	state.create.mockImplementation(() => new Promise(() => {}));
-	await toggle("Create a workspace");
+	await toggle("New workspace");
 	await act(async () => root.root.findByType("input").props.onChange({ target: { value: "New Co" } }));
 	await act(async () => root.root.findByType("form").props.onSubmit({ preventDefault() {} }));
 	// A second click/Enter before the first response must not create another workspace.
@@ -94,13 +94,13 @@ it("submits only one workspace creation while the first request is pending", asy
 	expect(state.create).toHaveBeenCalledTimes(1);
 });
 
-it("does not show an invitation failure in the unrelated create form", async () => {
+it("does not show an invitation failure in the unrelated create dialog", async () => {
 	state.decline.mockRejectedValueOnce(new Error("That invite isn't available anymore."));
 	await toggle("Invite to Invited Co");
 	await act(async () => root.root.findAllByType("button").find((b) => b.children[0] === "Decline")!.props.onClick());
 	expect(JSON.stringify(root.toJSON())).toContain("That invite isn't available anymore.");
 	await toggle("Invite to Invited Co");
-	await toggle("Create a workspace");
+	await toggle("New workspace");
 	expect(root.root.findByType("form").findAllByType("p").map((p) => p.children.join("")).join("\n"))
 		.not.toContain("That invite isn't available anymore.");
 });
