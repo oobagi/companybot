@@ -541,6 +541,20 @@ export function ResizeHandle({ side, label, size }: { side: "left" | "right"; la
 	);
 }
 
+/**
+ * The time, rounded down to 5 minutes and updated as it passes: an argument for a query that depends
+ * on the clock (a Convex query re-runs when its arguments change, never on the clock alone).
+ */
+export function useClock(stepMs = 5 * 60_000) {
+	const now = () => Math.floor(Date.now() / stepMs) * stepMs;
+	const [time, setTime] = useState(now);
+	useEffect(() => {
+		const timer = setInterval(() => setTime(now()), 15_000);
+		return () => clearInterval(timer);
+	}, [stepMs]);
+	return time;
+}
+
 /** `value`, once it has stopped changing for `ms`: for searches that query as you type. */
 export function useDebounced<T>(value: T, ms = 250) {
 	const [settled, setSettled] = useState(value);

@@ -224,7 +224,7 @@ describe("chats", () => {
 });
 
 describe("messages", () => {
-	it("lists active threads for the sidebar: a week of replies, newest first, parents' first lines", async () => {
+	it("lists active threads for the sidebar: recent replies by the workspace's window, newest first, parents' first lines", async () => {
 		const { t, owner, member } = await ownerAndMember();
 		const chatId = (await generalOf(owner))._id;
 		const quiet = await owner.mutation(api.messages.send, { chatId, text: "No replies here", mentions: noMentions });
@@ -233,15 +233,24 @@ describe("messages", () => {
 		await member.mutation(api.messages.send, { chatId, threadId: plan, text: "Yes", mentions: noMentions });
 		await tick();
 		await owner.mutation(api.messages.send, { chatId, threadId: lunch, text: "Sure", mentions: noMentions });
-		expect((await member.query(api.chats.activeThreads)).map((x) => [x.messageId, x.title])).toEqual([
+		expect((await member.query(api.chats.activeThreads, { now: Date.now() })).map((x) => [x.messageId, x.title])).toEqual([
 			[lunch, "Lunch?"],
 			[plan, "Plan for Q3?"],
 		]);
-		expect(await member.query(api.chats.activeThreads)).not.toContainEqual(expect.objectContaining({ messageId: quiet }));
-		// Old threads drop off; a deleted parent keeps its thread listed under a stand-in title.
-		await t.run((ctx) => ctx.db.patch(plan, { lastReplyAt: Date.now() - 8 * 24 * 60 * 60 * 1000 }));
+		expect(await member.query(api.chats.activeThreads, { now: Date.now() })).not.toContainEqual(expect.objectContaining({ messageId: quiet }));
+		// Threads older than the window (3 days until an owner changes it) drop off; a deleted parent keeps its thread listed under a stand-in title.
+		await t.run((ctx) => ctx.db.patch(plan, { lastReplyAt: Date.now() - 4 * 24 * 60 * 60 * 1000 }));
 		await member.mutation(api.messages.remove, { messageId: lunch });
-		expect((await member.query(api.chats.activeThreads)).map((x) => x.title)).toEqual(["Deleted message"]);
+		expect((await member.query(api.chats.activeThreads, { now: Date.now() })).map((x) => x.title)).toEqual(["Deleted message"]);
+		// A week keeps it; an hour drops the other too. Only the listed windows are allowed, and only owners set it.
+		const settings = (await owner.query(api.workspace.settings))!;
+		expect(settings.threadHours).toBe(72);
+		await expect(owner.mutation(api.workspace.updateSettings, { name: settings.name, threadHours: 48, expectedVersion: settings.version })).rejects.toThrow("hours");
+		await expect(member.mutation(api.workspace.updateSettings, { name: settings.name, threadHours: 168, expectedVersion: settings.version })).rejects.toThrow();
+		await owner.mutation(api.workspace.updateSettings, { name: settings.name, threadHours: 168, expectedVersion: settings.version });
+		expect((await member.query(api.chats.activeThreads, { now: Date.now() })).map((x) => x.title)).toEqual(["Deleted message", "Plan for Q3?"]);
+		await owner.mutation(api.workspace.updateSettings, { name: settings.name, threadHours: 1, expectedVersion: settings.version + 1 });
+		expect(await member.query(api.chats.activeThreads, { now: Date.now() + 2 * 60 * 60 * 1000 })).toEqual([]);
 	});
 
 	it("threads, edits, deletes, and toggles reactions", async () => {

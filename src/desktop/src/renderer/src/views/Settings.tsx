@@ -1,3 +1,4 @@
+import { threadWindows } from "@companybot/core/chat";
 import { type ImageModelInfo, defaultImageModel, imageModelNote } from "@companybot/core/models";
 import { type Role, can } from "@companybot/core/permissions";
 import { formatUsd, monthLabel, usageMonth } from "@companybot/core/usage";
@@ -235,6 +236,7 @@ function GeneralForm({
 		imageModels: ImageModelInfo[];
 		imageBudgetUsd: number;
 		imageSpentUsd: number | null;
+		threadHours: number;
 		version: number;
 	};
 	isOwner: boolean;
@@ -242,14 +244,14 @@ function GeneralForm({
 	const save = useMutation(api.workspace.updateSettings);
 	// The budget is edited as typed; the server checks the number.
 	const draft = useDraft(
-		{ name: settings.name, currency: settings.currency, memory: settings.memory, imageModel: settings.imageModel, imageBudget: String(settings.imageBudgetUsd) },
+		{ name: settings.name, currency: settings.currency, memory: settings.memory, imageModel: settings.imageModel, imageBudget: String(settings.imageBudgetUsd), threadHours: String(settings.threadHours) },
 		settings.version,
 	);
 	const [confirming, setConfirming] = useState(false);
 	const { error, run } = useRun();
 	const submit = () => {
-		const { imageBudget, ...rest } = draft.value;
-		run(save({ ...rest, imageBudgetUsd: Number(imageBudget || 0), expectedVersion: draft.base }), () => (draft.discard(), setConfirming(false)));
+		const { imageBudget, threadHours, ...rest } = draft.value;
+		run(save({ ...rest, imageBudgetUsd: Number(imageBudget || 0), threadHours: Number(threadHours), expectedVersion: draft.base }), () => (draft.discard(), setConfirming(false)));
 	};
 	const spent = settings.imageSpentUsd === null ? "" : ` ${formatUsd(settings.imageSpentUsd)} used in ${monthLabel(usageMonth(Date.now()))}.`;
 	const currencyChanged = draft.value.currency !== settings.currency;
@@ -272,6 +274,15 @@ function GeneralForm({
 				</Setting>
 				<Setting label="Currency" hint="For new amounts. Existing amounts keep theirs.">
 					<CurrencySelect className={wideControlClass} disabled={!isOwner} value={draft.value.currency} onChange={(currency) => draft.set({ ...draft.value, currency })} />
+				</Setting>
+				<Setting label="Threads in the sidebar" hint="How long a thread stays under its channel after its last reply. It's still there under its message.">
+					<Select
+						className={wideControlClass}
+						disabled={!isOwner}
+						value={draft.value.threadHours}
+						options={threadWindows.map((w) => ({ value: String(w.hours), label: w.label }))}
+						onChange={(threadHours) => draft.set({ ...draft.value, threadHours })}
+					/>
 				</Setting>
 				<Setting label="Memory" hint="Agents remember what people tell them. Off keeps existing memories for later.">
 					<Toggle disabled={!isOwner} checked={draft.value.memory} onChange={(memory) => draft.set({ ...draft.value, memory })} />
