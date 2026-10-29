@@ -1,6 +1,6 @@
 import type { PlaceMessage, Skill } from "@companybot/core";
 import { PROMPT_MESSAGE_CAP, approxTokens, fallbackModels } from "@companybot/core";
-import { v } from "convex/values";
+import { type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
@@ -16,7 +16,7 @@ import {
 import { previewMessage } from "./linkPreviews";
 import { type Who, installedSkills, liveWorkspace, memberOf, timeZoneOf } from "./lib";
 import { automationScope } from "./automationOps";
-import { messagePart, replyUsage } from "./schema";
+import { messagePart, replyStats, replyUsage } from "./schema";
 import { filesForModel, turnImages } from "./files";
 import { catalogModels } from "./modelCatalog";
 import { recordUsage } from "./usage";
@@ -83,7 +83,9 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 		await ctx.db.patch(running._id, { status: "error" });
 		await settleApproval(ctx, running);
 		const reply = running.replyId && (await ctx.db.get(running.replyId));
-		if (reply?.status === "streaming") await endStream(ctx, reply, { status: "error", error: "Reply timed out." });
+		// Its finished model calls were saved as they finished (saveUsage), so it keeps their stats.
+		if (reply?.status === "streaming")
+			await endStream(ctx, reply, { status: "error", error: "Reply timed out.", ...(running.usage && { stats: await statsOf(ctx, running, running.usage) }) });
 	}
 	const next = await turnsAt(ctx, place, "queued").first();
 	if (!next) return;
@@ -321,13 +323,70 @@ async function addPlaceCost(ctx: MutationCtx, chatId: Id<"chats">, threadId: Id<
 	return costUsd;
 }
 
-/** Pictures a turn made (imageGen.ts): on its place's running cost now, and on its reply's stats when it finishes. */
-export async function addPictureCost(ctx: MutationCtx, turn: Doc<"agentTurns">, cost: number) {
+/**
+ * A paid call a turn made besides its model calls (pictures in imageGen.ts, searches in
+ * addSearchCost): on its place's running cost now, and on its reply's stats when it finishes.
+ */
+export async function addTurnCost(ctx: MutationCtx, turn: Doc<"agentTurns">, field: "imageCostUsd" | "searchCostUsd", cost: number) {
 	await addPlaceCost(ctx, turn.chatId, turn.threadId, cost);
-	await ctx.db.patch(turn._id, { imageCostUsd: (turn.imageCostUsd ?? 0) + cost });
+	await ctx.db.patch(turn._id, { [field]: (turn[field] ?? 0) + cost });
 }
 
-/** Ends a turn, records what it cost, and starts the next queued turn in the place. */
+/** One web search finished (agent.ts webClient): its cost, for the turn's person and agent, as kind "search". */
+export const addSearchCost = internalMutation({
+	args: { turnId: v.id("agentTurns"), model: v.string(), costUsd: v.number() },
+	handler: async (ctx, { turnId, model, costUsd }) => {
+		const turn = await ctx.db.get(turnId);
+		if (!turn) return;
+		const counted = await recordUsage(ctx, { workspaceId: turn.workspaceId, userId: turn.actorId, agentId: turn.agentId, kind: "search", model, costUsd });
+		if (counted) await addTurnCost(ctx, turn, "searchCostUsd", costUsd);
+	},
+});
+
+type SavedUsage = NonNullable<Doc<"agentTurns">["usage"]>;
+
+/**
+ * Saves what a turn's model calls used so far and records only what's new since the last save, on
+ * the place's, session's and month's (`usage`, kind "chat") cost. Totals only grow, so saving the
+ * same calls again, or an older total late, records nothing twice.
+ */
+async function saveTurnUsage(ctx: MutationCtx, turn: Doc<"agentTurns">, usage: Infer<typeof replyUsage>): Promise<SavedUsage> {
+	const before = turn.usage;
+	if (before && usage.steps < before.steps) return before;
+	const cost = usage.costUsd - (before?.costUsd ?? 0);
+	if (cost > 0) {
+		await addPlaceCost(ctx, turn.chatId, turn.threadId, cost);
+		const session = turn.sessionId && (await ctx.db.get(turn.sessionId));
+		if (session) await ctx.db.patch(session._id, { costUsd: (session.costUsd ?? 0) + cost });
+	}
+	// The reply ran for the person whose turn it was: who wrote the message, or an automation's person.
+	const counted = (await recordUsage(ctx, { workspaceId: turn.workspaceId, userId: turn.actorId, agentId: turn.agentId, kind: "chat", model: usage.model, costUsd: cost })) || !!before?.counted;
+	const saved = { ...usage, ...(counted && { counted }) };
+	await ctx.db.patch(turn._id, { usage: saved });
+	return saved;
+}
+
+/** A reply's stats: its model calls, its pictures and searches apart (already in `usage` as their own kinds), and its place's total. */
+async function statsOf(ctx: QueryCtx, turn: Doc<"agentTurns">, usage: SavedUsage): Promise<Infer<typeof replyStats>> {
+	const place = turn.threadId ? await ctx.db.get(turn.threadId) : await ctx.db.get(turn.chatId);
+	return {
+		...usage,
+		conversationCostUsd: place?.costUsd ?? 0,
+		...(turn.imageCostUsd && { imageCostUsd: turn.imageCostUsd }),
+		...(turn.searchCostUsd && { searchCostUsd: turn.searchCostUsd }),
+	};
+}
+
+/** After each finished model call (agent.ts), so its cost is recorded even if the action dies before finishReply. */
+export const saveUsage = internalMutation({
+	args: { turnId: v.id("agentTurns"), usage: replyUsage },
+	handler: async (ctx, { turnId, usage }) => {
+		const turn = await ctx.db.get(turnId);
+		if (turn) await saveTurnUsage(ctx, turn, usage);
+	},
+});
+
+/** Ends a turn, records what it cost that wasn't saved yet, and starts the next queued turn in the place. */
 export const finishReply = internalMutation({
 	args: {
 		turnId: v.id("agentTurns"),
@@ -338,14 +397,8 @@ export const finishReply = internalMutation({
 	handler: async (ctx, { turnId, error, usage }) => {
 		const turn = await ctx.db.get(turnId);
 		if (!turn) return;
-		const cost = usage?.costUsd ?? 0;
-		const placeCost = await addPlaceCost(ctx, turn.chatId, turn.threadId, cost);
-		const session = turn.sessionId && (await ctx.db.get(turn.sessionId));
-		if (session) await ctx.db.patch(session._id, { costUsd: (session.costUsd ?? 0) + cost });
-		// The reply ran for the person whose turn it was: who wrote the message, or an automation's person.
-		const counted = !!usage && (await recordUsage(ctx, { workspaceId: turn.workspaceId, userId: turn.actorId, agentId: turn.agentId, kind: "chat", model: usage.model, costUsd: cost }));
-		// Its pictures are already in the place's cost and in `usage` as kind "image".
-		const stats = usage && { ...usage, conversationCostUsd: placeCost, ...(turn.imageCostUsd && { imageCostUsd: turn.imageCostUsd }), ...(counted && { counted }) };
+		const saved = usage ? await saveTurnUsage(ctx, turn, usage) : turn.usage;
+		const stats = saved && (await statsOf(ctx, turn, saved));
 		const reply = turn.replyId && (await ctx.db.get(turn.replyId));
 		// A turn already failed as stale only gets its stats; the queue moved on without it.
 		if (turn.status !== "running") {

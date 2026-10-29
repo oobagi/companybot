@@ -303,7 +303,7 @@ type Stats = NonNullable<Message["stats"]>;
 
 /** The line under a reply (model, time, cost); click for the full breakdown. */
 function ReplyDetails({ stats }: { stats: Stats }) {
-	const cost = stats.costUsd + (stats.imageCostUsd ?? 0);
+	const cost = stats.costUsd + (stats.imageCostUsd ?? 0) + (stats.searchCostUsd ?? 0);
 	const rows: [string, string][] = [
 		["Model", stats.model],
 		["Time", `${seconds(stats.durationMs)}${stats.firstTokenMs !== undefined ? `, first words after ${seconds(stats.firstTokenMs)}` : ""}`],
@@ -312,6 +312,7 @@ function ReplyDetails({ stats }: { stats: Stats }) {
 		["Output", `${tokens(stats.outputTokens)} tokens`],
 		["Model calls", String(stats.steps)],
 		...(stats.imageCostUsd ? ([["Pictures", usd(stats.imageCostUsd)]] as [string, string][]) : []),
+		...(stats.searchCostUsd ? ([["Web search", usd(stats.searchCostUsd)]] as [string, string][]) : []),
 		["This reply", usd(cost)],
 		["Here so far", usd(stats.conversationCostUsd)],
 	];

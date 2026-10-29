@@ -21,7 +21,7 @@ import type { Id } from "./_generated/dataModel";
 import { type QueryCtx, internalAction, internalMutation } from "./_generated/server";
 import { visibleFile } from "./files";
 import { findImageModel } from "./modelCatalog";
-import { addPictureCost, runningTurn } from "./turns";
+import { addTurnCost, runningTurn } from "./turns";
 import { imageSpent, recordUsage } from "./usage";
 
 // Pictures agents make (images.generate), through AI Gateway with the workspace's picture model
@@ -87,7 +87,7 @@ export const settle = internalMutation({
 		const turn = await ctx.db.get(turnId);
 		if (!turn) return;
 		const counted = await recordUsage(ctx, { workspaceId: turn.workspaceId, userId: turn.actorId, agentId: turn.agentId, kind: "image", model, costUsd });
-		if (counted) await addPictureCost(ctx, turn, costUsd);
+		if (counted) await addTurnCost(ctx, turn, "imageCostUsd", costUsd);
 	},
 });
 
