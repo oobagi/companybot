@@ -2,7 +2,7 @@
 
 import { lookup as dnsLookup } from "node:dns/promises";
 import type { LookupFunction } from "node:net";
-import { type FetchedBody, UnsafeUrlError, safeFetch } from "@companybot/core/safe-fetch";
+import { type FetchedBody, UnsafeUrlError, safeFetch, textOf } from "@companybot/core/safe-fetch";
 import { type WebPage, clipPage } from "@companybot/core";
 import { Readability } from "@mozilla/readability";
 import { v } from "convex/values";
@@ -58,9 +58,10 @@ async function request(url: URL, addresses: string[], { signal, headers }: { sig
 }
 
 /** HTML through Readability to Markdown; text and JSON as served; anything else refused. */
-export function pageFrom({ url, status, contentType, bytes, cut }: FetchedBody): WebPage | { error: string } {
+export function pageFrom(body: FetchedBody): WebPage | { error: string } {
+	const { url, status, contentType, cut } = body;
 	if (status >= 400) return { error: `The page answered ${status}.` };
-	const text = new TextDecoder().decode(bytes);
+	const text = textOf(body);
 	const note = cut ? "\n\n[The page was too large; only its start was read.]" : "";
 	if (contentType === "text/html" || contentType === "application/xhtml+xml" || (!contentType && /^\s*</.test(text))) {
 		const { title, markdown } = readable(text, url);

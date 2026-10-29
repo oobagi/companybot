@@ -29,6 +29,26 @@ export function micError(e: unknown) {
 	return errorMessage(e);
 }
 
+/**
+ * Asks for the microphone one request at a time: while one is pending, another resolves to nothing
+ * (a double click starts one recording). A stream granted after `keep()` turns false, because the
+ * composer closed or a recording already runs, has its tracks stopped so the mic goes off.
+ */
+export function micOnce(getUserMedia: () => Promise<MediaStream>) {
+	let pending = false;
+	return async (keep: () => boolean) => {
+		if (pending) return;
+		pending = true;
+		try {
+			const stream = await getUserMedia();
+			if (keep()) return stream;
+			stream.getTracks().forEach((t) => t.stop());
+		} finally {
+			pending = false;
+		}
+	};
+}
+
 export type DictationState = "idle" | "recording" | "transcribing";
 
 /** Click to start, click again to stop and get the words; `onText` receives them. */
@@ -37,6 +57,8 @@ export function useDictation(onText: (text: string) => void) {
 	const [state, setState] = useState<DictationState>("idle");
 	const [error, setError] = useState<string>();
 	const recorder = useRef<MediaRecorder>(undefined);
+	const mounted = useRef(false);
+	const [openMic] = useState(() => micOnce(() => navigator.mediaDevices.getUserMedia({ audio: true })));
 	const latest = useRef({ onText, transcribe });
 	latest.current = { onText, transcribe };
 
@@ -48,22 +70,24 @@ export function useDictation(onText: (text: string) => void) {
 	}, [error]);
 
 	const stop = () => recorder.current?.state === "recording" && recorder.current.stop();
-	// Leaving the composer mid-recording lets go of the microphone and drops the clip.
-	useEffect(
-		() => () => {
+	// Leaving the composer mid-recording lets go of the microphone and drops the clip; mid-start, `openMic` does.
+	useEffect(() => {
+		mounted.current = true;
+		return () => {
+			mounted.current = false;
 			const r = recorder.current;
 			if (!r || r.state === "inactive") return;
 			r.ondataavailable = r.onstop = null;
 			r.stop();
 			r.stream.getTracks().forEach((t) => t.stop());
-		},
-		[],
-	);
+		};
+	}, []);
 
 	const start = async () => {
 		setError(undefined);
 		try {
-			const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+			const stream = await openMic(() => mounted.current && recorder.current?.state !== "recording");
+			if (!stream) return;
 			const mimeType = pickMimeType((t) => MediaRecorder.isTypeSupported(t));
 			const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
 			const chunks: Blob[] = [];
