@@ -71,8 +71,7 @@ pnpm dev        # a local Convex backend for this checkout, plus the desktop app
 
 Sign in with any email. Local backends skip the email code. `pnpm dev --reset` wipes your local data.
 
-> [!IMPORTANT]
-> `pnpm dev` currently copies the AI key from the team's Convex project, so it only works for team members. Outside contributors: see [CONTRIBUTING.md](CONTRIBUTING.md#running-it-outside-the-team).
+No Convex account needed: outside the team, `pnpm dev` runs an anonymous local backend. For agent replies, export an [AI Gateway](https://vercel.com/ai-gateway) key first: `export AI_GATEWAY_API_KEY=…`.
 
 ```sh
 pnpm test && pnpm typecheck

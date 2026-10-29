@@ -24,7 +24,7 @@ pnpm dev            # this checkout's own local Convex backend + the desktop app
 
 ### Running it outside the team
 
-`pnpm dev` copies `AI_GATEWAY_API_KEY` from the team's cloud dev deployment, which you won't have access to. Until that's smoothed out, open an issue and we'll help you get a backend running.
+You don't need a Convex account. Without access to the team's Convex project, `pnpm dev` runs an anonymous local backend instead. Agents need an [AI Gateway](https://vercel.com/ai-gateway) key: `export AI_GATEWAY_API_KEY=…` before `pnpm dev`. Without one, everything else works and agents don't reply.
 
 ## Checks
 
