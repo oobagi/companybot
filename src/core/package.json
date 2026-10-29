@@ -21,7 +21,8 @@
     "./file-text": "./src/file-text.ts",
     "./onboarding": "./src/onboarding.ts",
     "./memory": "./src/memory.ts",
-    "./widgets": "./src/widgets.ts"
+    "./widgets": "./src/widgets.ts",
+    "./safe-fetch": "./src/safe-fetch.ts"
   },
   "scripts": {
     "test": "vitest run",

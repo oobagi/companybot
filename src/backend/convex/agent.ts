@@ -13,6 +13,7 @@ import {
 	ConnectorOAuth,
 	type ReplyUsage,
 	type TurnImage,
+	type WebClient,
 	CONNECTOR_CALL,
 	actionOf,
 	addStep,
@@ -27,6 +28,7 @@ import {
 	builtinTools,
 	canonicalJson,
 	createResultStore,
+	createWebTurn,
 	emptyUsage,
 	findConnector,
 	gatewayCost,
@@ -36,6 +38,7 @@ import {
 	agentStopWhen,
 	openConnector,
 	resolveTools,
+	searchProvider,
 	deniedReason,
 	isImageType,
 	toolApprovalPolicy,
@@ -251,6 +254,11 @@ async function streamReply(
 		records: recordStore(ctx, turnId),
 		pages: pageStore(ctx, turnId),
 		results: createResultStore(),
+		// Links the person wrote this turn are the only ones web.fetch opens before searching.
+		web: createWebTurn(
+			webClient(ctx, usage),
+			turn.messages.filter((m) => m.author.type === "user" && m.author.id === member.userId).map((m) => m.text),
+		),
 	};
 	const tools = buildToolSet(
 		agent,
@@ -526,6 +534,18 @@ function pageStore(ctx: ActionCtx, turnId: Id<"agentTurns">): PageStore {
 				input,
 				...(input.markdown !== undefined && { blocks: await ctx.runAction(internal.pageMarkdown.fromMarkdown, { markdown: input.markdown }) }),
 			}),
+	};
+}
+
+/**
+ * Search through SEARCH_PROVIDER (core web-search.ts), its gateway cost added to this reply's;
+ * pages through webFetch.ts, in Node for its DNS checks.
+ */
+function webClient(ctx: ActionCtx, usage: ReplyUsage): WebClient {
+	const provider = searchProvider(process.env, { onCost: (usd) => (usage.costUsd += usd) });
+	return {
+		search: (query, options) => provider.search(query, options),
+		fetch: (url) => ctx.runAction(internal.webFetch.fetchPage, { url }),
 	};
 }
 
