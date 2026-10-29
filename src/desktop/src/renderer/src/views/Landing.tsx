@@ -21,7 +21,7 @@ export function Split({ children }: { children: React.ReactNode }) {
 	return (
 		<div className="drag flex h-screen bg-neutral-50">
 			<div className="flex w-full flex-col items-center justify-center px-8 lg:w-1/2">
-				<div className="no-drag flex w-80 flex-col items-center gap-8 text-center">{children}</div>
+				<div className="no-drag flex w-[360px] flex-col items-center gap-8 text-center">{children}</div>
 			</div>
 			<div className="hidden p-3 pl-0 lg:block lg:w-1/2">
 				<Art className="size-full rounded-2xl" />
