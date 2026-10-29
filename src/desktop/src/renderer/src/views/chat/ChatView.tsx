@@ -1,13 +1,14 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useEffect, useState } from "react";
 import { api } from "../../api";
-import { useMutation, useQuery } from "../../convex";
+import { useMutation, useQuery, useWorkspace } from "../../convex";
 import { ChannelIcon, ChatIcon, PrivateIcon } from "../../icons";
 import { EmptyState, Loading, NotFound, Notice, Scroll, TopBar, useRun } from "../../ui";
 import { AgentBadge, AvatarStack } from "./common";
 import { Composer, type SendWith } from "./Composer";
 import { type ChatDetails, type Mentions, chatTitle, useDirectory } from "./data";
 import { ChannelDetails } from "./dialogs";
+import { draftKey } from "./drafts";
 import { MessageList } from "./MessageList";
 import { ThreadPanel } from "./Thread";
 import { TrashNotice } from "../Trash";
@@ -44,6 +45,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 	const sendMessage = useMutation(api.messages.send);
 	const markRead = useMutation(api.chats.markRead);
 	const directory = useDirectory();
+	const workspace = useWorkspace();
 	const [threadId, setThreadId] = useState<Id<"chatMessages">>();
 	const [details, setDetails] = useState(false);
 	const { error, fail } = useRun();
@@ -92,6 +94,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 			// Nobody else could see it in an agent DM.
 			onType={agent ? undefined : typing.ping}
 			sources={directory}
+			draftKey={draftKey(workspace?.id, chat._id)}
 			onSend={send}
 		/>
 	);

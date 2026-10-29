@@ -1,6 +1,7 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { describe, expect, it } from "vitest";
-import { type Sources, candidatesFor, findTrigger, matches } from "./editor";
+import { emojiCandidates, type Sources, candidatesFor, findTrigger, matches } from "./editor";
+import { buildIndex } from "./emoji";
 
 describe("composer triggers", () => {
 	it("finds the trigger being typed at the caret, at the start or after a space", () => {
@@ -41,5 +42,19 @@ describe("composer triggers", () => {
 		expect(candidatesFor(sources, "#", "sa")).toMatchObject([{ kind: "channel", id: "c1", label: "sales" }]);
 		expect(candidatesFor(sources, "/", "pro")).toMatchObject([{ kind: "skill", id: "s1", label: "Proposal" }]);
 		expect(candidatesFor(sources, "/", "zzz")).toEqual([]);
+	});
+
+	it("opens the emoji menu on a colon, at the start or after a space, not in a time or a word", () => {
+		expect(findTrigger(":smi", ":")).toEqual({ start: 0, query: "smi" });
+		expect(findTrigger("nice :+1", ":")).toEqual({ start: 5, query: "+1" });
+		expect(findTrigger(":smile: ", ":")).toBeNull();
+		expect(findTrigger("10:30", ":")).toBeNull();
+		expect(findTrigger("note:smi", ":")).toBeNull();
+	});
+
+	it("offers emoji from two letters, named by shortcode", () => {
+		const index = buildIndex([{ hexcode: "1F604", label: "grinning face with smiling eyes", unicode: "😄", group: 0, order: 1 }], { "1F604": "smile" });
+		expect(emojiCandidates(index, "s")).toEqual([]);
+		expect(emojiCandidates(index, "sm")).toEqual([{ kind: "emoji", id: "smile", label: "😄" }]);
 	});
 });

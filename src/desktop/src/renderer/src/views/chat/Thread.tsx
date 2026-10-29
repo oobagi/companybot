@@ -1,11 +1,12 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { api } from "../../api";
-import { useMutation, useQuery } from "../../convex";
+import { useMutation, useQuery, useWorkspace } from "../../convex";
 import { Loading, Notice, useRun } from "../../ui";
 import { CloseIcon } from "../../icons";
 import { IconButton } from "./common";
 import { Composer, type SendWith } from "./Composer";
 import { type ChatDetails, type TokenNames, chatTitle } from "./data";
+import { draftKey } from "./drafts";
 import type { Sources } from "./editor";
 import { MessageList } from "./MessageList";
 import { TypingLine, useTypingPing } from "./Typing";
@@ -28,6 +29,7 @@ export function ThreadPanel({
 	const messages = useQuery(api.messages.list, { chatId: chat._id, threadId });
 	const send = useMutation(api.messages.send);
 	const typing = useTypingPing(chat._id, threadId);
+	const workspace = useWorkspace();
 	const { error, fail } = useRun();
 
 	const header = (
@@ -49,6 +51,7 @@ export function ThreadPanel({
 				sendWith={sendWith}
 				placeholder="Reply…"
 				sources={sources}
+				draftKey={draftKey(workspace?.id, chat._id, threadId)}
 				status={<TypingLine chatId={chat._id} threadId={threadId} />}
 				onType={typing.ping}
 				onSend={(text, mentions) => {
