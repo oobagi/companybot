@@ -1,4 +1,4 @@
-import { canManageChannel } from "@companybot/core";
+import { THREAD_HOURS_DEFAULT, canManageChannel } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx } from "./_generated/server";
@@ -132,16 +132,21 @@ export const list = query({
 
 /** A thread with replies lately, for the sidebar. `title` is its parent message's first line. */
 export type ActiveThread = { chatId: Id<"chats">; messageId: Id<"chatMessages">; title: string; lastReplyAt: number };
-export const ACTIVE_THREAD_MS = 7 * 24 * 60 * 60 * 1000;
-export const ACTIVE_THREADS_PER_CHANNEL = 5;
+/** A bound on one channel's rows, so a runaway channel can't make the query read everything. */
+export const ACTIVE_THREADS_MAX = 100;
 
-/** Threads replied to in the last week, in channels you're in: up to 5 per channel, newest reply first. */
+/**
+ * Threads replied to lately (the workspace's `threadHours`, default 3 days), in channels you're in,
+ * newest reply first. `now` comes from the app, rounded to 5 minutes (`useClock`): a query re-runs
+ * when its arguments change, not as time passes, so this is what makes a quiet thread drop off on time.
+ */
 export const activeThreads = query({
-	args: {},
-	handler: async (ctx): Promise<ActiveThread[]> => {
+	args: { now: v.number() },
+	handler: async (ctx, { now }): Promise<ActiveThread[]> => {
 		const member = await getMember(ctx);
 		if (!member) return [];
-		const since = Date.now() - ACTIVE_THREAD_MS;
+		const workspace = (await ctx.db.get(member.workspaceId))!;
+		const since = now - (workspace.threadHours ?? THREAD_HOURS_DEFAULT) * 60 * 60 * 1000;
 		const rows = await ctx.db.query("chatMembers").withIndex("by_user", (q) => q.eq("userId", member.userId)).collect();
 		const threads: ActiveThread[] = [];
 		for (const row of rows) {
@@ -151,7 +156,7 @@ export const activeThreads = query({
 				.query("chatMessages")
 				.withIndex("by_chat_lastReply", (q) => q.eq("chatId", chat._id).gt("lastReplyAt", since))
 				.order("desc")
-				.take(ACTIVE_THREADS_PER_CHANNEL);
+				.take(ACTIVE_THREADS_MAX);
 			for (const m of parents) threads.push({ chatId: chat._id, messageId: m._id, title: threadTitle(m), lastReplyAt: m.lastReplyAt! });
 		}
 		return threads;

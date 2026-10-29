@@ -5,7 +5,7 @@ import { useMutation, useQuery, useWorkspace } from "../../convex";
 import { AgentIcon, CaretRightIcon, ChannelIcon, ChatIcon, CheckIcon, EditIcon, MembersIcon, MoreIcon, PlusIcon, PrivateIcon, SignOutIcon, ThreadIcon, TrashIcon } from "../../icons";
 import { navigate } from "../../router";
 import { type DragProps, useSortable, useStoredIds } from "../../sortable";
-import { Notice, useRun } from "../../ui";
+import { Notice, useClock, useRun } from "../../ui";
 import { AgentBadge, Avatar, MenuItem, Popover, PopoverPanel, useConfirm } from "./common";
 import type { ChatList, Participant } from "./data";
 import { BrowseChannels, ChannelDetailsFor, CreateChannel, NewMessage, RenameChat } from "./dialogs";
@@ -32,12 +32,13 @@ type ChatNavProps = {
 
 /**
  * Channels, in your own order (drag to change), each with its active threads nested under it
- * (replied to this week; `chats.activeThreads`). Collapsed, it keeps only the open one and
- * unread ones, like Slack.
+ * (replied to lately, by the workspace's setting; `chats.activeThreads`). Collapsed, it keeps
+ * only the open one and unread ones, like Slack.
  */
 export function ChannelsNav({ chats, openId, openThread, onOpen, section }: ChatNavProps) {
 	const workspace = useWorkspace();
-	const threads = useQuery(api.chats.activeThreads, section.collapsed ? "skip" : {}) ?? [];
+	const now = useClock();
+	const threads = useQuery(api.chats.activeThreads, section.collapsed ? "skip" : { now }) ?? [];
 	const [folded, setFolded] = useStoredIds(`sidebar.channels.folded:${workspace?.id}`);
 	const [dialog, setDialog] = useState<Dialog>();
 	const [details, setDetails] = useState<Id<"chats">>();

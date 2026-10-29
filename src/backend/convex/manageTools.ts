@@ -1,4 +1,4 @@
-import { canEditMade, DEFAULT_CURRENCY, isGranted, manageInputs, modelNote, pickAgentConfig, searchModels } from "@companybot/core";
+import { canEditMade, DEFAULT_CURRENCY, THREAD_HOURS_DEFAULT, isGranted, manageInputs, modelNote, pickAgentConfig, searchModels } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Id, TableNames } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
@@ -288,7 +288,7 @@ export const runFor = internalMutation({
 					const w = (await ctx.db.get(member.workspaceId))!;
 					if (r.action === "get") {
 						const images = await imageSettings(ctx, member, w);
-						return { name: w.name, currency: w.currency ?? DEFAULT_CURRENCY, memory: w.memory ?? true, ...images, imageModels: images.imageModels.map((m) => m.id), version: w.version ?? 0 };
+						return { name: w.name, currency: w.currency ?? DEFAULT_CURRENCY, memory: w.memory ?? true, ...images, imageModels: images.imageModels.map((m) => m.id), threadHours: w.threadHours ?? THREAD_HOURS_DEFAULT, version: w.version ?? 0 };
 					}
 					await updateWorkspaceSettings(ctx, member, { ...r, name: r.name ?? w.name });
 					return { updated: true };
