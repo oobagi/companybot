@@ -85,6 +85,13 @@ describe("agents", () => {
 		expect((await owner.query(api.agents.options)).models.map((m) => m.id)).toContain("anthropic/claude-sonnet-5.5");
 	});
 
+	it("offers web search and pages in the tool picker, and new Companybots have them", async () => {
+		const { owner } = await ownerAndMember();
+		const web = (await owner.query(api.agents.options)).groups.find((g) => g.id === "web");
+		expect(web?.tools.map((t) => [t.id, t.ownersOnly])).toEqual([["web.search", false], ["web.fetch", false]]);
+		expect((await agentsOf(owner)).companybot.tools).toContain("web.*");
+	});
+
 	it("accepts any cached gateway model and keeps an agent's dropped model valid", async () => {
 		const { t, owner } = await ownerAndMember();
 		const { scribe } = await agentsOf(owner);

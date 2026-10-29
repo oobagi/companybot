@@ -10,8 +10,13 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 ## Tools — `core/src/tools.ts`, `builtin-tools.ts`
 - One shape (`ToolDef`) for built-ins and connector tools. Ids are `group.name`; model names come from `modelToolName`.
 - Add a built-in: `defineTool` in `builtin-tools.ts`. Set `permission` if not everyone may trigger it (checked through the role table, like everything else), `readOnly: true` if it changes nothing, and `risk` if it reaches outside ([Permissions](permissions.md)).
-- Tools reach data only through `ToolContext` (`memory`, `chat`, `skills`, `automations`, `records`, `pages`, `manage`), which enforce permissions. Don't do permission checks inside tools.
+- Tools reach data only through `ToolContext` (`memory`, `chat`, `skills`, `automations`, `records`, `pages`, `manage`, `web`), which enforce permissions. Don't do permission checks inside tools.
 - Agents grant exact ids or whole groups (`memory.*`). `resolveTools` is the only place that decides what the model sees.
+
+## Web — `core/src/web.ts`, `web-search.ts`, `safe-fetch.ts`, `backend/convex/webFetch.ts`
+- New search provider: one function returning a `SearchProvider` (`search(query, { limit })` → title, url, snippet, published) in `web-search.ts`, picked by name in `searchProvider`. Test it with a stubbed `fetch`.
+- `createWebTurn` is the only place that decides what `web.fetch` may open and how many calls a reply gets. Never let a fetch skip it, and never loosen `urlKey` to ignore the query string: that's where data would be smuggled out.
+- Anything that fetches a URL someone else picked (link previews, imports) goes through `safeFetch`, in a Node action, with Node's DNS for `resolve` and a client that connects only to the checked addresses (`webFetch.ts`'s `request`).
 
 ## Connectors — `core/src/connectors.ts`, `mcp.ts`, `backend/convex/connectors.ts`
 - A connector is a catalog entry pointing at a remote MCP server. Add it with `defineConnector` to `connectorCatalog`; `validateConnector` must pass (https only).

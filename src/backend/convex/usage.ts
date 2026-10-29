@@ -1,7 +1,7 @@
-import { type UsageKind, can, isUsageMonth, usageMonth } from "@companybot/core";
+import { type UsageKind, can, isUsageMonth, usageKinds, usageMonth } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { namer } from "./chatOps";
 import { query } from "./functions";
 import { type Member, getMember, liveWorkspace } from "./lib";
@@ -39,6 +39,12 @@ export async function recordUsage(ctx: MutationCtx, { workspaceId, userId, agent
 	else await ctx.db.insert("usage", { workspaceId, month, userId, agentId, kind, model, costUsd });
 	return true;
 }
+
+/** recordUsage for actions, which can't write themselves (dictation). */
+export const record = internalMutation({
+	args: { workspaceId: v.id("workspaces"), userId: v.optional(v.id("users")), agentId: v.optional(v.id("agents")), kind: v.union(...usageKinds.map((k) => v.literal(k))), model: v.optional(v.string()), costUsd: v.number() },
+	handler: (ctx, entry) => recordUsage(ctx, entry),
+});
 
 type Line = { id: string | null; name: string; costUsd: number };
 

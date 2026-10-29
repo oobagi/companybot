@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { CloseIcon } from "../../icons";
+import { CloseIcon, PlusIcon } from "../../icons";
 import { Notice, dangerButton, primaryButton, secondaryButton, useRun } from "../../ui";
+import { EmojiPanel } from "./EmojiPanel";
 
 const initials = (name: string) =>
 	name
@@ -95,6 +96,7 @@ export function useDismiss<T extends HTMLElement>(onClose: () => void, active = 
 
 const EMOJI = ["👍", "❤️", "😂", "🎉", "👀", "🙏", "✅", "🔥"];
 
+/** The quick row of reactions, and "more" for the full picker. */
 export function EmojiPicker({ onPick, onClose, className = "" }: { onPick: (emoji: string) => void; onClose: () => void; className?: string }) {
 	return (
 		<div className={`z-20 flex gap-0.5 rounded-xl border border-neutral-200 bg-white p-1 shadow-lg ${className}`}>
@@ -108,6 +110,9 @@ export function EmojiPicker({ onPick, onClose, className = "" }: { onPick: (emoj
 					{e}
 				</button>
 			))}
+			<Popover trigger={<PlusIcon />} label="More emoji" className="flex size-8 items-center justify-center rounded-lg text-base text-neutral-500 hover:bg-neutral-100" panelClassName="w-auto">
+				{(close) => <EmojiPanel onPick={(e) => (onPick(e), close(), onClose())} />}
+			</Popover>
 		</div>
 	);
 }

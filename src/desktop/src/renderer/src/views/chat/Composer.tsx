@@ -3,7 +3,9 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import { type ReactNode, useMemo, useRef, useState } from "react";
 import { ArrowUpIcon, ChannelIcon, PrivateIcon, SkillIcon } from "../../icons";
 import { Avatar } from "./common";
+import { ComposerTools } from "./ComposerTools";
 import type { Mentions } from "./data";
+import { useDraft } from "./drafts";
 import { type Candidate, type Menu, type Sources, SuggestionMenu, composerExtensions, plainText, tokensIn } from "./editor";
 import { Form, metadataClass } from "../../ui";
 
@@ -17,6 +19,7 @@ export function Composer({
 	tray,
 	onType,
 	sources,
+	draftKey,
 }: {
 	onSend: (text: string, mentions: Mentions) => void;
 	sendWith: SendWith;
@@ -28,6 +31,8 @@ export function Composer({
 	onType?: () => void;
 	/** What @, # and / offer. */
 	sources: Sources;
+	/** Where an unsent message is kept for this chat or thread (drafts.ts). */
+	draftKey?: string;
 }) {
 	const [menu, setMenu] = useState<Menu | null>(null);
 	const [empty, setEmpty] = useState(true);
@@ -52,6 +57,8 @@ export function Composer({
 		onBlur: () => suggestions.hide(),
 	});
 
+	useDraft(editor, draftKey, setEmpty);
+
 	const submit = () => {
 		if (!editor) return;
 		const text = plainText(editor);
@@ -70,6 +77,7 @@ export function Composer({
 				{tray}
 				<Form className="flex w-full items-end gap-2 rounded-2xl border border-neutral-200 bg-white p-2 pl-4 shadow-sm focus-within:border-neutral-300" onSubmit={submit}>
 					<EditorContent editor={editor} className="composer min-w-0 flex-1" />
+					<ComposerTools editor={editor} />
 					<button
 						type="submit"
 						disabled={empty}
@@ -88,7 +96,7 @@ export function Composer({
 	);
 }
 
-const hints: Record<Menu["trigger"], string> = { "@": "People and agents", "#": "Channels", "/": "Skills" };
+const hints: Record<Menu["trigger"], string> = { "@": "People and agents", "#": "Channels", "/": "Skills", ":": "Emoji" };
 
 /** The menu over the box. Arrows move, Enter or Tab picks, Escape closes; the mouse works too. */
 function Picker({ menu, onHighlight, onPick }: { menu: Menu; onHighlight: (i: number) => void; onPick: (i: number) => void }) {
@@ -122,6 +130,14 @@ function Row({ candidate: c }: { candidate: Candidate }) {
 				<span className="truncate">{c.label}</span>
 				{c.topic && <span className={`min-w-0 flex-1 truncate ${metadataClass}`}>{c.topic}</span>}
 				{!c.joined && <span className={`ml-auto shrink-0 ${metadataClass}`}>Not joined</span>}
+			</>
+		);
+	}
+	if (c.kind === "emoji") {
+		return (
+			<>
+				<span className="flex size-6 shrink-0 items-center justify-center text-lg">{c.label}</span>
+				<span className="truncate">:{c.id}:</span>
 			</>
 		);
 	}

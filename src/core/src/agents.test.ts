@@ -44,6 +44,8 @@ describe("tool visibility", () => {
 			"pages.find",
 			"pages.read",
 			"pages.write",
+			"web.search",
+			"web.fetch",
 			"chat.manage", "channels.manage", "automations.manage", "automations.remove", "skills.manage", "skills.remove", "members.invite", "members.remove", "workspace.settings", "agents.manage",
 		].sort());
 		expect(resolveTools(companybot, owner).map((t) => t.id)).toContain("memory.forget");
@@ -107,6 +109,8 @@ describe("tool visibility", () => {
 			"pages_find",
 			"pages_read",
 			"pages_write",
+			"web_search",
+			"web_fetch",
 			"chat_manage", "channels_manage", "automations_manage", "automations_remove", "skills_manage", "skills_remove", "workspace_settings", "agents_manage",
 		].sort());
 	});
