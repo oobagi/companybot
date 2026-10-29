@@ -182,7 +182,7 @@ describe("previews on messages", () => {
 		expect(await cards(owner, id)).toEqual([]);
 	});
 
-	it("previews the links in an agent's finished reply", async () => {
+	it("never fetches links an agent wrote, so injected text can't send data out through a preview", async () => {
 		const { t, owner } = await ownerAndMember();
 		vi.useFakeTimers();
 		const { companybot } = await agentsOf(owner);
@@ -192,7 +192,7 @@ describe("previews on messages", () => {
 		const turn = (await t.run((ctx) => ctx.db.query("agentTurns").collect())).at(-1)!;
 		await t.mutation(internal.turns.updateReply, { replyId: turn.replyId!, text: `Here: ${link}`, parts: [{ type: "text", text: `Here: ${link}` }] });
 		await t.mutation(internal.turns.finishReply, { turnId: turn._id });
-		expect(await fetches(t)).toEqual([[link]]);
+		expect(await fetches(t)).toEqual([]);
 	});
 
 	it("drops what comes back for a message deleted meanwhile, or in a workspace being deleted, picture included", async () => {

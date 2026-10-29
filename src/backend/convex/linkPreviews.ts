@@ -44,10 +44,13 @@ async function attach(ctx: MutationCtx, message: Doc<"chatMessages">, rows: Doc<
 }
 
 /**
- * Whenever a message's text is set (sent, edited, an agent's reply finished): cards for the links
+ * Whenever a person's message text is set (sent or edited): cards for the links
  * already known show at once, and the rest are fetched in the background (`linkUnfurl.unfurl`).
  */
 export async function previewMessage(ctx: MutationCtx, message: Doc<"chatMessages">) {
+	// Never for agent-written text: fetching a link a model wrote, unclicked, would let injected
+	// instructions carry data out in its query string (the exfiltration web.fetch's allowlist stops).
+	if (message.authorAgentId) return;
 	const { rows, stale } = await savedFor(ctx, message);
 	await attach(ctx, message, rows);
 	if (stale.length > 0) await ctx.scheduler.runAfter(0, internal.linkUnfurl.unfurl, { messageId: message._id, urls: stale });
