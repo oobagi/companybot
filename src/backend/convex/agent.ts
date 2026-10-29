@@ -78,7 +78,7 @@ export const respond = internalAction({
 				usage: usage.steps > 0 ? { ...usage, durationMs: Date.now() - started } : undefined,
 			});
 		}
-		if (!error && sessionId && usage.contextTokens > COMPACT_TOKENS) await compact(ctx, sessionId);
+		if (!error && sessionId && usage.contextTokens > COMPACT_TOKENS) await compact(ctx, sessionId, turnId);
 	},
 });
 
@@ -510,10 +510,10 @@ function pageStore(ctx: ActionCtx, turnId: Id<"agentTurns">): PageStore {
 }
 
 /** Folds a session's older turns into its summary so context stays small. The UI still shows everything. */
-async function compact(ctx: ActionCtx, sessionId: Id<"agentSessions">) {
+async function compact(ctx: ActionCtx, sessionId: Id<"agentSessions">, turnId: Id<"agentTurns">) {
 	const input = await ctx.runMutation(internal.turns.startCompaction, { sessionId });
 	if (!input) return;
-	let result: { summary: string; upTo: number; costUsd: number } | undefined;
+	let result: { summary: string; upTo: number; costUsd: number; model: string } | undefined;
 	try {
 		const transcript = input.turns.map((t) => `Sent to you:\n${t.prompt}\n\nYou replied:\n${t.reply}`).join("\n\n---\n\n");
 		const { text, providerMetadata } = await generateText({
@@ -524,8 +524,8 @@ async function compact(ctx: ActionCtx, sessionId: Id<"agentSessions">) {
 			providerOptions: { gateway: { caching: "auto" } },
 			prompt: `Previous summary:\n${input.summary ?? "(none)"}\n\nNew transcript:\n${transcript}`,
 		});
-		result = { summary: text, upTo: input.upTo, costUsd: gatewayCost(providerMetadata) };
+		result = { summary: text, upTo: input.upTo, costUsd: gatewayCost(providerMetadata), model: SUMMARY_MODEL };
 	} finally {
-		await ctx.runMutation(internal.turns.finishCompaction, { sessionId, result });
+		await ctx.runMutation(internal.turns.finishCompaction, { sessionId, turnId, result });
 	}
 }

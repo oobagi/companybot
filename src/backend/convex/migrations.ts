@@ -5,7 +5,8 @@ import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { trashEntry } from "./trashOps";
-import { defaultModel } from "@companybot/core";
+import { defaultModel, usageMonth } from "@companybot/core";
+import { recordUsage } from "./usage";
 
 // Data migrations. Deploys never change stored rows; these do, once per deployment.
 // `pnpm release` runs every pending one on prod right after deploying, and the
@@ -87,6 +88,23 @@ export const companybotHelpTool = migrations.define({
 	},
 });
 
+// The Usage screen reads the `usage` table, which replies only fill from now on: add this month's earlier
+// replies (summaries before it weren't kept apart from replies, so they're missed). `counted` marks each reply
+// as in the table, so ones recorded live meanwhile, or a second run, can't be added twice.
+export const usageThisMonth = migrations.define({
+	table: "agentTurns",
+	batchSize: 20,
+	migrateOne: async (ctx, turn) => {
+		const thisMonth = usageMonth(Date.now());
+		if (usageMonth(turn._creationTime) !== thisMonth || !turn.replyId) return;
+		const reply = await ctx.db.get(turn.replyId);
+		const stats = reply?.stats;
+		if (!reply || !stats || stats.counted) return;
+		const counted = await recordUsage(ctx, { workspaceId: turn.workspaceId, userId: turn.actorId, agentId: turn.agentId, kind: "chat", model: stats.model, costUsd: stats.costUsd });
+		if (counted) await ctx.db.patch(reply._id, { stats: { ...stats, counted } });
+	},
+});
+
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.trashAgents,
@@ -96,6 +114,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.clearLegacyWorkspaces,
 	internal.migrations.lunaModel,
 	internal.migrations.companybotHelpTool,
+	internal.migrations.usageThisMonth,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */
