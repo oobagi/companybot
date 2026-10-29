@@ -257,7 +257,7 @@ export async function replyAuthorsOf(ctx: QueryCtx, parent: Doc<"chatMessages">)
 	return authors.slice(0, 3);
 }
 
-/** Your newest mention in a chat's main timeline after `since`, if any. */
+/** Your newest mention in a chat (main timeline or a thread) after `since`, if any. */
 export const latestMentionSince = (ctx: QueryCtx, chatId: Id<"chats">, userId: Id<"users">, since: number) =>
 	ctx.db
 		.query("userMentions")
@@ -266,11 +266,12 @@ export const latestMentionSince = (ctx: QueryCtx, chatId: Id<"chats">, userId: I
 		.first();
 
 /**
- * Records who a main-timeline message mentions (see userMentions), or `slice` of them.
+ * Records who a message mentions (see userMentions), or `slice` of them. Thread replies
+ * count: a mention is how someone is called into a thread they aren't following.
  * Skips anyone already recorded, so it's safe to re-run.
  */
 export async function addUserMentions(ctx: MutationCtx, message: Doc<"chatMessages">, slice?: { from: number; to: number }) {
-	if (message.threadId || message.deleted) return;
+	if (message.deleted) return;
 	const userIds = [...new Set(message.mentions.userIds)].slice(slice?.from, slice?.to);
 	for (const userId of userIds) {
 		const existing = await ctx.db
