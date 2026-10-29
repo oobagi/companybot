@@ -303,6 +303,7 @@ type Stats = NonNullable<Message["stats"]>;
 
 /** The line under a reply (model, time, cost); click for the full breakdown. */
 function ReplyDetails({ stats }: { stats: Stats }) {
+	const cost = stats.costUsd + (stats.imageCostUsd ?? 0);
 	const rows: [string, string][] = [
 		["Model", stats.model],
 		["Time", `${seconds(stats.durationMs)}${stats.firstTokenMs !== undefined ? `, first words after ${seconds(stats.firstTokenMs)}` : ""}`],
@@ -310,13 +311,14 @@ function ReplyDetails({ stats }: { stats: Stats }) {
 		["Input", `${tokens(stats.inputTokens)} tokens${stats.cachedInputTokens ? `, ${tokens(stats.cachedInputTokens)} cached` : ""}`],
 		["Output", `${tokens(stats.outputTokens)} tokens`],
 		["Model calls", String(stats.steps)],
-		["This reply", usd(stats.costUsd)],
+		...(stats.imageCostUsd ? ([["Pictures", usd(stats.imageCostUsd)]] as [string, string][]) : []),
+		["This reply", usd(cost)],
 		["Here so far", usd(stats.conversationCostUsd)],
 	];
 	return (
 		<div className="flex">
 			<Popover
-				trigger={`${shortModel(stats.model)} · ${seconds(stats.durationMs)} · ${tokens(stats.contextTokens)} context · ${usd(stats.costUsd)} · ${usd(stats.conversationCostUsd)} total`}
+				trigger={`${shortModel(stats.model)} · ${seconds(stats.durationMs)} · ${tokens(stats.contextTokens)} context · ${usd(cost)} · ${usd(stats.conversationCostUsd)} total`}
 				className="text-xs text-neutral-400 tabular-nums hover:text-neutral-600"
 				panelClassName="w-80 p-3"
 			>

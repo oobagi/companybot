@@ -82,6 +82,8 @@ export const replyStats = v.object({
 	...replyUsage.fields,
 	/** The conversation's running total once this reply finished, summaries included. */
 	conversationCostUsd: v.number(),
+	/** What the pictures it made cost (imageGen.ts), apart from `costUsd`: they're in `usage` as kind "image", not "chat". */
+	imageCostUsd: v.optional(v.number()),
 	/** Added to the `usage` table (usage.ts). Replies from before it are counted once by migrations.usageThisMonth. */
 	counted: v.optional(v.boolean()),
 });
@@ -546,6 +548,8 @@ export default defineSchema({
 		startedAt: v.optional(v.number()),
 		/** Set when the turn follows a decision on this approval: it runs the call if approved, then tells the agent. */
 		approvalId: v.optional(v.id("approvals")),
+		/** What its pictures cost so far (imageGen.ts), for its reply's stats. */
+		imageCostUsd: v.optional(v.number()),
 	})
 		.index("by_place", ["agentId", "chatId", "threadId", "status"])
 		.index("by_session", ["sessionId"])
@@ -965,6 +969,10 @@ export default defineSchema({
 	})
 		.index("by_bucket", ["workspaceId", "month", "userId", "agentId", "kind", "model"])
 		.index("by_user", ["workspaceId", "userId", "month"]),
+
+	// A picture call's estimated cost, held against the monthly image budget while the gateway works
+	// (imageGen.ts), so parallel calls can't all pass it. Settled into `usage`, or released on failure or after HOLD_MS.
+	imageHolds: defineTable({ workspaceId: v.id("workspaces"), costUsd: v.number() }).index("by_workspace", ["workspaceId"]),
 
 	// A cascade deleting what belonged to something that went (cascade.ts): one page of one
 	// edge of lifecycle.ts per run, resumed from `edge` and `cursor`. `key` names what's going,

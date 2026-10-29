@@ -6,6 +6,11 @@ import { type ToolDef, defineTool, resultText } from "./tools";
 export const IMAGE_BUDGET_DEFAULT_USD = 20;
 /** The most an owner can set: a typo shouldn't open the tap. */
 export const IMAGE_BUDGET_MAX_USD = 10_000;
+/**
+ * What one picture is counted as when the gateway reports no cost and the model lists no price (token-priced
+ * models): more than nearly any listed picture costs, so the budget still runs out.
+ */
+export const IMAGE_PRICE_UNKNOWN_USD = 0.25;
 /** Pictures one call can edit from. */
 export const EDIT_FILES_MAX = 4;
 
