@@ -139,6 +139,8 @@ export function formatDate(day: string, locale?: string) {
 }
 
 export const isCurrencyCode = (code: unknown): code is string => typeof code === "string" && currencyCodes.includes(code);
+/** A whole address, loosely: something@somewhere.tld. Shared by sign-in, invites and email fields. */
+export const isEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 
 /** A key from a label: "Roof type" → "roof_type", unique among `taken`. */
 export function keyOf(label: string, taken: Iterable<string>) {
@@ -274,7 +276,7 @@ function normalizeOne(field: Field, raw: unknown, label: string, mode: ValueMode
 			return { value: option.id };
 		}
 		case "email":
-			if (!text || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) return { error: `${label} is an email address.` };
+			if (!text || !isEmail(text)) return { error: `${label} is an email address.` };
 			return { value: text.toLowerCase() };
 		case "phone":
 			if (!text || !/^\+?[\d\s().-]+$/.test(text) || text.replace(/\D/g, "").length < 7)

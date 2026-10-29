@@ -200,10 +200,10 @@ export const alerts = query({
 	},
 });
 
-/** Public channels you're not in. */
+/** Public channels you're not in. `withCounts`: how many are in each (reads every seat, so only the Browse dialog asks). */
 export const browse = query({
-	args: {},
-	handler: async (ctx): Promise<{ _id: Id<"chats">; name: string; topic: string | null; memberCount: number }[]> => {
+	args: { withCounts: v.optional(v.boolean()) },
+	handler: async (ctx, { withCounts }): Promise<{ _id: Id<"chats">; name: string; topic: string | null; memberCount?: number }[]> => {
 		const member = await getMember(ctx);
 		if (!member) return [];
 		const channels = await ctx.db
@@ -214,8 +214,7 @@ export const browse = query({
 		const result = [];
 		for (const c of channels) {
 			if (await membership(ctx, c._id, member.userId)) continue;
-			const memberCount = (await chatMembersOf(ctx, c._id)).length;
-			result.push({ _id: c._id, name: c.name ?? "", topic: c.topic ?? null, memberCount });
+			result.push({ _id: c._id, name: c.name ?? "", topic: c.topic ?? null, ...(withCounts && { memberCount: (await chatMembersOf(ctx, c._id)).length }) });
 		}
 		return result.sort((a, b) => a.name.localeCompare(b.name));
 	},

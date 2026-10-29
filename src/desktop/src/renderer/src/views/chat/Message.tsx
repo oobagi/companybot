@@ -1,5 +1,5 @@
 import { actionLabel, toolLine } from "@companybot/core/action-words";
-import { Fragment, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { Markdown } from "../../markdown";
@@ -165,14 +165,18 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const alternation = (names: string[]) => [...names].sort((a, b) => b.length - a.length).map(escape).join("|");
 
 /** `@Ada`, `#sales` (opens the channel) and `/Proposal` as chips, like in the composer. */
-function TokenText({ text, tokens }: { text: string; tokens: TokenNames }) {
+const tokenPattern = (tokens: TokenNames) => {
 	const parts = [
 		tokens.names.length > 0 && `@(?:${alternation(tokens.names)})(?!\\w)`,
 		tokens.channels.length > 0 && `#(?:${alternation(tokens.channels.map((c) => c.name))})(?![\\w-])`,
 		tokens.skills.length > 0 && `\\/(?:${alternation(tokens.skills)})(?!\\w)`,
 	].filter(Boolean);
-	if (parts.length === 0) return text;
-	const pattern = new RegExp(`(${parts.join("|")})`, "g");
+	return parts.length > 0 ? new RegExp(`(${parts.join("|")})`, "g") : null;
+};
+
+function TokenText({ text, tokens }: { text: string; tokens: TokenNames }) {
+	const pattern = useMemo(() => tokenPattern(tokens), [tokens]);
+	if (!pattern) return text;
 	return text.split(pattern).map((chunk, i) => {
 		if (i % 2 === 0) return <Fragment key={i}>{chunk}</Fragment>;
 		const channel = chunk.startsWith("#") ? tokens.channels.find((c) => c.name === chunk.slice(1)) : undefined;

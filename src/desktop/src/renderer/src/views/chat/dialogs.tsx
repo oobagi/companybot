@@ -40,7 +40,7 @@ export function CreateChannel({ onClose, onOpen }: { onClose: () => void; onOpen
 }
 
 export function BrowseChannels({ onClose, onOpen }: { onClose: () => void; onOpen: (chatId: Id<"chats">) => void }) {
-	const channels = useQuery(api.chats.browse);
+	const channels = useQuery(api.chats.browse, { withCounts: true });
 	const join = useMutation(api.chats.join);
 	const { error, run } = useRun();
 	return (

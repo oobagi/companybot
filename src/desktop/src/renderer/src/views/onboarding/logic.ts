@@ -1,7 +1,6 @@
-// Onboarding's logic, kept out of the screen so it can be tested.
+import { isEmail } from "@companybot/core/records";
 
-/** Whole addresses only: a cut-off one would invite a stranger, or nobody. */
-const emailPattern = /^\S+@\S+\.\S+$/;
+// Onboarding's logic, kept out of the screen so it can be tested.
 
 /**
  * The emails typed into "Invite your team": one per line, or separated by commas, semicolons
@@ -14,7 +13,8 @@ export function parseInvites(text: string, except = ""): { emails: string[]; inv
 	for (const raw of text.split(/[\s,;]+/)) {
 		const email = raw.trim().toLowerCase();
 		if (!email || email === except.trim().toLowerCase() || emails.includes(email) || invalid.includes(email)) continue;
-		(emailPattern.test(email) ? emails : invalid).push(email);
+		// Whole addresses only: a cut-off one would invite a stranger, or nobody.
+		(isEmail(email) ? emails : invalid).push(email);
 	}
 	return { emails, invalid };
 }

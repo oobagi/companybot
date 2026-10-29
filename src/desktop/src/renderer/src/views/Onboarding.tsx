@@ -40,24 +40,23 @@ export function Onboarding({ onDone }: { onDone: (id: Id<"workspaces">) => void 
 	const at = onboardingSteps.indexOf(step);
 	const go = (to: OnboardingStep) => (fail(), setStep(to));
 
-	/** Turns the typed text into chips. Returns what wasn't an email, left in the box. */
+	/** Turns the typed text into chips: every invite so far, and what wasn't an email (left in the box). */
 	const addInvites = (text: string) => {
 		const parsed = parseInvites(text, me?.email);
-		const fresh = parsed.emails.filter((e) => !invites.includes(e));
-		if (fresh.length > 0) setInvites([...invites, ...fresh]);
+		const all = [...new Set([...invites, ...parsed.emails])];
+		if (all.length > invites.length) setInvites(all);
 		setDraft(parsed.invalid.join(" "));
-		return parsed.invalid;
+		return { all, invalid: parsed.invalid };
 	};
 
 	const submit = () => {
 		if (step === "you") return name.trim() ? go("company") : fail("Enter your name.");
 		if (step === "company") return company.trim() ? go("team") : fail("Enter your company's name.");
-		const invalid = addInvites(draft);
+		const { all, invalid } = addInvites(draft);
 		if (invalid.length > 0) return fail(`Not an email: ${invalid.join(", ")}`);
 		if (sending.current) return;
 		sending.current = true;
-		const emails = [...new Set([...invites, ...parseInvites(draft, me?.email).emails])];
-		void run(setUp({ displayName: name, name: company, currency, invites: emails }).then(onDone)).finally(() => (sending.current = false));
+		void run(setUp({ displayName: name, name: company, currency, invites: all }).then(onDone)).finally(() => (sending.current = false));
 	};
 
 	return (

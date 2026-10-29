@@ -1,5 +1,5 @@
 import { fireEvent } from "./automationRuns";
-import { DEFAULT_CURRENCY, can, isCurrencyCode } from "@companybot/core";
+import { DEFAULT_CURRENCY, can, isCurrencyCode, isEmail } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -114,9 +114,13 @@ export const activity = query({
 			for await (const seat of ctx.db.query("chatMembers").withIndex("by_workspace", (q) => q.eq("workspaceId", row.workspaceId).eq("userId", userId))) {
 				const since = seat.lastReadAt ?? 0;
 				const chat = await ctx.db.get(seat.chatId);
-				if (!chat || chat.archived || chat.lastMessageAt <= since) continue;
+				if (!chat || chat.archived) continue;
+				const fresh = chat.lastMessageAt > since;
+				// A thread reply doesn't move lastMessageAt, so a mention in one is looked for regardless.
+				const mentioned = (chat.kind === "dm" && fresh) || !!(await latestMentionSince(ctx, chat._id, userId, since));
+				if (!fresh && !mentioned) continue;
 				entry.unread = true;
-				if (chat.kind === "dm" || (await latestMentionSince(ctx, chat._id, userId, since))) entry.mentions++;
+				if (mentioned) entry.mentions++;
 			}
 			out.push(entry);
 		}
@@ -286,7 +290,7 @@ export const invite = mutation({
 export async function inviteMember(ctx: MutationCtx, member: Member, args: Infer<typeof inviteMemberArgs>) {
 	const { workspaceId, userId } = checkPermission(member, "members.manage");
 	const email = normalizeEmail(args.email);
-	if (!/^\S+@\S+\.\S+$/.test(email)) throw new ConvexError("That doesn't look like an email.");
+	if (!isEmail(email)) throw new ConvexError("That doesn't look like an email.");
 	if (await isMemberEmail(ctx, workspaceId, email)) throw new ConvexError("That person is already a member.");
 	if (await inviteIn(ctx, workspaceId, email)) throw new ConvexError("That person already has an invite.");
 	const id = await ctx.db.insert("invites", { workspaceId, email, role: args.role, invitedBy: userId });
