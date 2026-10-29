@@ -7,7 +7,7 @@ import { chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
 import { automationName, automationScope, canView, definitionOf, installOf } from "./automationOps";
 import { removeAutomation, saveAutomation, updateAutomation } from "./automations";
 import { installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
-import { editMessage, removeMessage, reactMessage, sendMessage } from "./messages";
+import { editMessage, hideMessagePreview, removeMessage, reactMessage, sendMessage } from "./messages";
 import { cancelMemberInvite, imageSettings, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
 import { asToolResult, checkPermission, type Member, nameOf, normalizeEmail, preferencesOf, requireAgent, skillOf, timeZoneOf } from "./lib";
 import { createAgent, setAgentTrashed, updateAgent } from "./agents";
@@ -89,11 +89,12 @@ export const runFor = internalMutation({
 						await markReadAs(ctx, member, await chatId(ctx, member, r.chat));
 						return { done: r.action };
 					}
-					if (r.action === "edit" || r.action === "delete" || r.action === "react") {
+					if (r.action === "edit" || r.action === "delete" || r.action === "react" || r.action === "hide_preview") {
 						const id = rowId(ctx, "chatMessages", r.messageId);
 						if (r.action === "edit") await editMessage(ctx, who, id, r.text);
 						if (r.action === "delete") await removeMessage(ctx, who, id);
 						if (r.action === "react") await reactMessage(ctx, who, id, r.emoji);
+						if (r.action === "hide_preview") await hideMessagePreview(ctx, who, id, r.url);
 						return { done: r.action, messageId: id };
 					}
 					if (r.action === "open_dm")

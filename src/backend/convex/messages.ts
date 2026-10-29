@@ -27,6 +27,8 @@ import { internal } from "./_generated/api";
 import { enqueueTurn, streamOf } from "./turns";
 import { stopTyping } from "./typing";
 import { claimFiles, deleteAttachments } from "./files";
+import { type LinkPreview, previewMessage, previewRow, previewsOf } from "./linkPreviews";
+import { previewUrl } from "@companybot/core/link-preview";
 import type { fileInfo } from "./schema";
 
 // Messages in a chat's main timeline or a thread. See wiki/chat.md.
@@ -55,6 +57,8 @@ export type Message = {
 	automation: { id: string; name: string } | null;
 	/** Attached files, with URLs to show or download them (null if the file is gone). */
 	attachments: (Infer<typeof fileInfo> & { url: string | null })[];
+	/** Cards for its first links (linkPreviews.ts), without ones its sender hid. */
+	linkPreviews: LinkPreview[];
 };
 
 const LIST_LIMIT = 200;
@@ -120,6 +124,7 @@ async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, 
 		reactions,
 		automation: m.automation ?? null,
 		attachments: await Promise.all((m.attachments ?? []).map(async ({ storageId, ...file }) => ({ ...file, url: await ctx.storage.getUrl(storageId) }))),
+		linkPreviews: await previewsOf(ctx, m),
 	};
 }
 
@@ -192,7 +197,9 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 		mentions: { userIds, agentIds, ...(recordIds.length > 0 && { recordIds }), ...(skillIds.length > 0 && { skillIds }) },
 		status: "done",
 	});
-	await addUserMentions(ctx, (await ctx.db.get(messageId))!);
+	const sent = (await ctx.db.get(messageId))!;
+	await addUserMentions(ctx, sent);
+	await previewMessage(ctx, sent);
 	await noteMentions(ctx, { _id: messageId, chatId }, recordIds);
 	if (!who.agentId) await stopTyping(ctx, chatId, threadId, member.userId);
 	if (!who.agentId && !threadId) await markChatRead(ctx, chatId, member.userId);
@@ -246,6 +253,12 @@ export const remove = mutation({
 	handler: async (ctx, { messageId }) => removeMessage(ctx, { member: await requireMember(ctx) }, messageId),
 });
 
+/** Takes down the card for one of your message's links (an agent's too, if it wrote it for you). The link stays in the text. */
+export const hidePreview = mutation({
+	args: { messageId: v.id("chatMessages"), url: v.string() },
+	handler: async (ctx, { messageId, url }) => hideMessagePreview(ctx, { member: await requireMember(ctx) }, messageId, url),
+});
+
 export const react = mutation({
 	args: { messageId: v.id("chatMessages"), emoji: v.string() },
 	handler: async (ctx, { messageId, emoji }) => reactMessage(ctx, { member: await requireMember(ctx) }, messageId, emoji),
@@ -256,12 +269,22 @@ export async function editMessage(ctx: MutationCtx, who: Who, messageId: Id<"cha
 	text = text.trim();
 	if (!text && !message.attachments?.length) throw new ConvexError("Write something first, or delete the message.");
 	await ctx.db.patch(message._id, { text, parts: text ? [{ type: "text", text }] : [], editedAt: Date.now() });
+	await previewMessage(ctx, { ...message, text });
+}
+
+export async function hideMessagePreview(ctx: MutationCtx, who: Who, messageId: Id<"chatMessages">, url: string) {
+	const message = await requireOwn(ctx, who, messageId);
+	const key = previewUrl(url);
+	const row = key && (await previewRow(ctx, message.workspaceId, key));
+	const cards = message.linkPreviews ?? [];
+	if (!row || !cards.some((p) => p.previewId === row._id)) throw new ConvexError("That message has no preview for that link.");
+	await ctx.db.patch(message._id, { linkPreviews: cards.map((p) => (p.previewId === row._id ? { ...p, hidden: true } : p)) });
 }
 
 export async function removeMessage(ctx: MutationCtx, who: Who, messageId: Id<"chatMessages">) {
 	const message = await requireOwn(ctx, who, messageId);
 	await deleteAttachments(ctx, message);
-	await ctx.db.patch(message._id, { text: "", parts: [], attachments: undefined, deleted: true });
+	await ctx.db.patch(message._id, { text: "", parts: [], attachments: undefined, linkPreviews: undefined, deleted: true });
 	await clearMessageLinks(ctx, messageId);
 }
 

@@ -16,7 +16,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 ## Web — `core/src/web.ts`, `web-search.ts`, `safe-fetch.ts`, `backend/convex/webFetch.ts`
 - New search provider: one function returning a `SearchProvider` (`search(query, { limit })` → title, url, snippet, published) in `web-search.ts`, picked by name in `searchProvider`. Test it with a stubbed `fetch`.
 - `createWebTurn` is the only place that decides what `web.fetch` may open and how many calls a reply gets. Never let a fetch skip it, and never loosen `urlKey` to ignore the query string: that's where data would be smuggled out.
-- Anything that fetches a URL someone else picked (link previews, imports) goes through `safeFetch`, in a Node action, with Node's DNS for `resolve` and a client that connects only to the checked addresses (`webFetch.ts`'s `request`).
+- Anything that fetches a URL someone else picked (imports, a page's picture) goes through `fetchBody` (`webFetch.ts`: `safeFetch` in a Node action, Node's DNS for `resolve` and a client that connects only to the checked addresses). Link previews (`linkUnfurl.ts`) are the model: bounded size and time, bytes sniffed before anything is stored, our own copy of any file, and the write-back rechecks the message and a live workspace.
 
 ## Connectors — `core/src/connectors.ts`, `mcp.ts`, `backend/convex/connectors.ts`
 - A connector is a catalog entry pointing at a remote MCP server. Add it with `defineConnector` to `connectorCatalog`; `validateConnector` must pass (https only).

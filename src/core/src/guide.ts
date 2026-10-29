@@ -55,7 +55,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 		}
 		if (has("chat.read_file")) lines.push("- Messages list their attached files. Read a file's text with chat_read_file before answering about it.");
 		if (has("chat.react")) lines.push("- A reaction (chat_react) can acknowledge a message; still reply when there's something to say.");
-		if (has("chat.manage")) lines.push("- chat_manage can edit your person's own messages, delete them with approval, react to an exact message, or mark a chat read only when explicitly asked. Delivery never starts agents or automations.");
+		if (has("chat.manage")) lines.push("- chat_manage can edit your person's own messages, delete them with approval, react to an exact message, hide the link preview card on a message of theirs, or mark a chat read only when explicitly asked. Delivery never starts agents or automations.");
 	}
 	if (recordTools.some((t) => has(t.id))) {
 		lines.push(

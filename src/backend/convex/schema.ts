@@ -432,6 +432,8 @@ export default defineSchema({
 		parts: v.array(messagePart),
 		/** Files attached to it (files.ts), in order. Deleted with the message, or when it is. */
 		attachments: v.optional(v.array(attachment)),
+		/** Cards for the first links in its text (linkPreviews.ts), in text order. `hidden`: the sender took it down. */
+		linkPreviews: v.optional(v.array(v.object({ previewId: v.id("linkPreviews"), hidden: v.optional(v.boolean()) }))),
 		/** Who was @mentioned. Mentioned agents get a turn. `recordIds`: records the message references. `skillIds`: skills named with `/`. */
 		mentions: v.object({
 			userIds: v.array(v.id("users")),
@@ -459,6 +461,19 @@ export default defineSchema({
 		.index("by_chat_thread", ["chatId", "threadId"])
 		.index("by_workspace", ["workspaceId"])
 		.searchIndex("search_text", { searchField: "text", filterFields: ["workspaceId", "chatId"] }),
+
+	// What a link looked like when we fetched it (linkUnfurl.ts), one row per URL per workspace, shared
+	// by every message that posts it and refetched when a day old. The picture is our own copy.
+	linkPreviews: defineTable({
+		workspaceId: v.id("workspaces"),
+		url: v.string(),
+		/** None of these: the page had nothing to show (or couldn't be read); asked again after an hour. */
+		title: v.optional(v.string()),
+		description: v.optional(v.string()),
+		siteName: v.optional(v.string()),
+		image: v.optional(v.id("_storage")),
+		fetchedAt: v.number(),
+	}).index("by_workspace_url", ["workspaceId", "url"]),
 
 	// A reply's content while it streams (turns.updateReply). Its many writes a second re-run only
 	// the streaming bubble's query, not every message list; it moves onto the message when it ends.

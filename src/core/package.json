@@ -23,7 +23,8 @@
     "./onboarding": "./src/onboarding.ts",
     "./memory": "./src/memory.ts",
     "./widgets": "./src/widgets.ts",
-    "./safe-fetch": "./src/safe-fetch.ts"
+    "./safe-fetch": "./src/safe-fetch.ts",
+    "./link-preview": "./src/link-preview.ts"
   },
   "scripts": {
     "test": "vitest run",

@@ -17,6 +17,7 @@ Open [Chat](#/chat) from the sidebar.
 ## The message box
 - **@** picks a person or agent, **#** a channel, **/** a skill. Each becomes a chip. Enter sends (or ⌘Enter, your choice in [Your preferences](#/settings/preferences)); Shift+Enter makes a new line.
 - A line under the box shows who is typing.
+- **Link previews**: the first three links in a message get a small card with the page's title, text and picture (not for links in code). Click one to open the page in your browser. On your own message, hover a card and click × to hide it; the link stays.
 
 ## When agents reply
 - **In a DM with an agent**, it answers every message.
