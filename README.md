@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>CRM, team chat and AI agents for your company, in one place.</strong><br>
-  Agents are teammates, not bots. They read and update your records, write pages and keep work moving, right in the chat.
+  Ask an agent in chat and it updates your records, writes pages and keeps work moving.
 </p>
 
 <p align="center">
