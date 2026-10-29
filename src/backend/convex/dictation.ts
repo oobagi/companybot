@@ -11,8 +11,8 @@ import { action } from "./functions";
 
 /** Cheap (~$0.003 a minute, billed by tokens), takes webm/opus as recorded, and is on AI Gateway. */
 export const DICTATION_MODEL = "openai/gpt-4o-mini-transcribe";
-/** A few minutes of webm/opus; the app stops recording well before this. */
-export const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
+/** Under Convex's 5 MiB action-argument limit, so a big clip gets this message, not a transport error. Two minutes of webm/opus is ~1 MB. */
+export const MAX_AUDIO_BYTES = 4 * 1024 * 1024;
 
 /** The words in a clip and what the gateway charged for them. */
 export async function transcribeClip(audio: Uint8Array): Promise<{ text: string; costUsd: number }> {
