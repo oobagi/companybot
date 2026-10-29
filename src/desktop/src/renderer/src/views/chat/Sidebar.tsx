@@ -7,6 +7,7 @@ import { type DragProps, useSortable } from "../../sortable";
 import { AgentBadge, Avatar, MenuItem, Popover } from "./common";
 import type { ChatList, Participant } from "./data";
 import { BrowseChannels, CreateChannel, NewMessage } from "./dialogs";
+import { useDraftChats } from "./drafts";
 
 type Dialog = "create" | "browse" | "message";
 
@@ -29,6 +30,7 @@ type ChatNavProps = {
 export function ChannelsNav({ chats, openId, onOpen, section }: ChatNavProps) {
 	const workspace = useWorkspace();
 	const [dialog, setDialog] = useState<Dialog>();
+	const drafts = useDraftChats(workspace?.id);
 	const { sorted, drag } = useSortable(`sidebar.channels:${workspace?.id}`, chats.channels, chatKey);
 	const shown = section.collapsed ? sorted.filter((c) => c._id === openId || c.unread || c.mentioned) : sorted;
 	return (
@@ -54,6 +56,7 @@ export function ChannelsNav({ chats, openId, onOpen, section }: ChatNavProps) {
 					active={c._id === openId}
 					unread={c.unread}
 					mentioned={c.mentioned}
+					draft={drafts.has(c._id)}
 					onClick={() => onOpen(c._id)}
 				>
 					<span className="truncate">{c.name}</span>
@@ -73,6 +76,7 @@ export function DmsNav({ chats, openId, onOpen, onError, section }: ChatNavProps
 	const workspace = useWorkspace();
 	const openDm = useMutation(api.chats.openDm);
 	const [dialog, setDialog] = useState<Dialog>();
+	const drafts = useDraftChats(workspace?.id);
 	// Your DMs with people (and groups), and one per agent; most recent first, then the agents you haven't messaged.
 	const dms = useMemo(
 		() =>
@@ -94,6 +98,7 @@ export function DmsNav({ chats, openId, onOpen, onError, section }: ChatNavProps
 					active={!!d.dmId && d.dmId === openId}
 					unread={d.unread}
 					mentioned={d.mentioned}
+					draft={!!d.dmId && drafts.has(d.dmId)}
 					title={d.title}
 					onClick={() => (d.dmId ? onOpen(d.dmId) : d.agentId && openDm({ userIds: [], agentIds: [d.agentId] }).then(onOpen, onError))}
 				>
@@ -156,6 +161,7 @@ export function Item({
 	active,
 	unread,
 	mentioned,
+	draft,
 	muted,
 	title,
 	indent = 0,
@@ -169,6 +175,8 @@ export function Item({
 	active?: boolean;
 	unread?: boolean;
 	mentioned?: boolean;
+	/** Something typed in it and not sent; shown unless the chat is open, where the composer has it. */
+	draft?: boolean;
 	muted?: boolean;
 	title?: string;
 	/** Tree depth: 12px more left padding per level. */
@@ -189,6 +197,7 @@ export function Item({
 			{icon && <span className="flex size-[22px] shrink-0 items-center justify-center text-lg text-neutral-500">{icon}</span>}
 			<button type="button" title={title} onClick={onClick} className="flex min-w-0 flex-1 items-center gap-2 text-left after:absolute after:inset-0 after:rounded-lg">
 				{children}
+				{draft && !active && <span className="ml-auto shrink-0 text-[10px] font-normal text-neutral-400">Draft</span>}
 				{mentioned && !active && (
 					<span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-neutral-900 px-1 text-[10px] font-medium text-white">
 						@
