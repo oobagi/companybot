@@ -134,7 +134,7 @@ describe("images.generate", () => {
 		await setImages(owner, { imageModel: "openai/gpt-image-2" });
 		const { turnId } = await turnOf(t, owner);
 		await t.action(internal.imageGen.generateFor, { turnId, prompt: "A logo" });
-		expect((await usageRows(t))[0]).toMatchObject({ model: "openai/gpt-image-2", costUsd: 0.19 });
+		expect((await usageRows(t))[0]).toMatchObject({ model: "openai/gpt-image-2", costUsd: 0.007 });
 		// A model with no listed price (the catalog had none for it), and no cost from the gateway.
 		await t.run(async (ctx) => {
 			await ctx.db.insert("modelCatalog", { models: [], imageModels: [{ id: "acme/painter", name: "Painter", provider: "acme" }], fetchedAt: Date.now() });

@@ -84,10 +84,29 @@ export const defaultImageModel = "google/gemini-nano-banana-2.1";
 export const fallbackImageModels: ImageModelInfo[] = [
 	{ id: "google/gemini-nano-banana-2.1", name: "Gemini Nano Banana 2.1", provider: "google", multimodal: true, perImage: 0.0336 },
 	{ id: "google/gemini-3-pro-image", name: "Nano Banana Pro (Gemini 3 Pro Image)", provider: "google", multimodal: true, perImage: 0.1344 },
-	// Token-priced on the gateway ($30/M output): about a high-quality 1536px picture's ~6,240 output tokens.
-	{ id: "openai/gpt-image-2", name: "GPT Image 2", provider: "openai", perImage: 0.19 },
+	{ id: "openai/gpt-image-2", name: "GPT Image 2", provider: "openai", perImage: 0.007 },
 	{ id: "bfl/flux-3-image", name: "FLUX 3 Image", provider: "bfl", perImage: 0.048 },
 ];
+
+/**
+ * What one picture at the default settings cost through AI Gateway, measured 2026-10-29 (one
+ * picture each), for models the catalog prices by token or not at all. Shown in the picker and
+ * held against the budget while a call runs; the gateway's reported cost is what's recorded.
+ */
+export const measuredImagePrices: Record<string, number> = {
+	"openai/gpt-image-2": 0.007,
+	"openai/gpt-image-2.5-flare": 0.007,
+	"openai/gpt-image-2.5-sunburst": 0.007,
+	"openai/gpt-image-1.5": 0.142,
+	"openai/gpt-image-1-mini": 0.05,
+	"bfl/flux-2-pro": 0.03,
+	"bfl/flux-2-max": 0.07,
+	"bfl/flux-2-flex": 0.05,
+	"bfl/flux-2-klein-9b": 0.015,
+};
+
+/** One picture's price when the catalog lists none: measured, else the fallback list's. */
+export const knownImagePrice = (id: string) => measuredImagePrices[id] ?? fallbackImageModels.find((f) => f.id === id)?.perImage;
 
 /** A USD string as a number, if it is one. */
 function dollars(price: unknown) {

@@ -1,4 +1,4 @@
-import { type ImageModelInfo, type ModelInfo, GATEWAY_MODELS_URL, fallbackImageModels, fallbackModels, parseGatewayImageModels, parseGatewayModels } from "@companybot/core";
+import { type ImageModelInfo, type ModelInfo, GATEWAY_MODELS_URL, fallbackImageModels, fallbackModels, knownImagePrice, parseGatewayImageModels, parseGatewayModels } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
@@ -18,12 +18,12 @@ export async function catalogModels(ctx: QueryCtx): Promise<{ models: ModelInfo[
 	return row && row.models.length > 0 ? { models: row.models, fetchedAt: row.fetchedAt } : { models: fallbackModels, fetchedAt: null };
 }
 
-/** The cached picture models, or the fallback list while there are none. A token-priced one takes the fallback list's price. */
+/** The cached picture models, or the fallback list while there are none. One without a listed price takes a known one (`knownImagePrice`). */
 export async function catalogImageModels(ctx: QueryCtx): Promise<ImageModelInfo[]> {
 	const row = await ctx.db.query("modelCatalog").first();
 	if (!row?.imageModels?.length) return fallbackImageModels;
 	return row.imageModels.map((m) => {
-		const perImage = m.perImage ?? fallbackImageModels.find((f) => f.id === m.id)?.perImage;
+		const perImage = m.perImage ?? knownImagePrice(m.id);
 		return perImage === undefined ? m : { ...m, perImage };
 	});
 }
