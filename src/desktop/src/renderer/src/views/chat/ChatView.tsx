@@ -106,8 +106,9 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 		<TopBar
 			title={
 				<>
-					<h1 className="flex min-w-0 items-center gap-1 truncate">
-						{chat.private && chat.kind === "channel" && <PrivateIcon className="shrink-0 text-neutral-400" />}
+					{/* Inline, not flex: a flex row would take its baseline from the icon, not the name. */}
+					<h1 className="min-w-0 truncate">
+						{chat.private && chat.kind === "channel" && <PrivateIcon className="mr-1 inline align-[-0.125em] text-neutral-400" />}
 						{title}
 					</h1>
 					{agent && <AgentBadge />}

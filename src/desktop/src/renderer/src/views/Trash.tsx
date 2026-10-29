@@ -6,7 +6,7 @@ import { api } from "../api";
 import { useMutation, usePaginatedQuery } from "../convex";
 import { navigate } from "../router";
 import { TrashIcon } from "../icons";
-import { EmptyState, LoadMore, NoMatches, Notice, Page, listClass, metadataClass, timeAgo, useDebounced, useRun, wideControlClass } from "../ui";
+import { EmptyState, LoadMore, NoMatches, Notice, Page, listClass, metadataClass, timeAgo, toolbarClass, useDebounced, useRun, wideControlClass } from "../ui";
 import { recordPath, whoLabel } from "./records/logic";
 
 // Trash: everything people deleted, like Notion's. Anyone who could delete something
@@ -47,8 +47,8 @@ export function TrashView({ role }: { role: Role }) {
 	const { error, run } = useRun();
 	const canPurge = can(role, "trash.manage");
 	return (
-		<Page title="Trash" description="Everything deleted lands here. It's deleted forever 30 days later." wide>
-			<div className="flex items-center gap-3 text-sm">
+		<Page title="Trash" description="Everything deleted lands here. It's deleted forever 30 days later.">
+			<div className={toolbarClass}>
 				<input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search Trash" className={wideControlClass} />
 				<Select
 					label="Kind"

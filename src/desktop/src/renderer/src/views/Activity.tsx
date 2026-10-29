@@ -8,7 +8,7 @@ import { api } from "../api";
 import { usePaginatedQuery, useQuery } from "../convex";
 import { navigate } from "../router";
 import { HistoryIcon } from "../icons";
-import { EmptyState, LoadMore, Loading, NoMatches, Section, cardClass, descriptionClass, metadataClass, timeAgo } from "../ui";
+import { EmptyState, LoadMore, Loading, NoMatches, Section, cardClass, descriptionClass, metadataClass, timeAgo, toolbarClass } from "../ui";
 import { actionLabels, valueText, whoLabel } from "./records/logic";
 
 type ActivityEntry = FunctionReturnType<typeof api.activity.forReply>[number];
@@ -26,17 +26,22 @@ export function ActivityTab() {
 	return (
 		<>
 			{(database.results.length > 0 || database.status !== "Exhausted") && <DatabaseActivity {...database} />}
-			<div className="flex items-center gap-4 text-sm">
+			<div className={toolbarClass}>
 				<Select
 					label="Agent"
 					value={agentId ?? ""}
 					options={[{ value: "", label: "All agents" }, ...agentOptions(agents)]}
 					onChange={(id) => setAgentId((id || undefined) as Id<"agents"> | undefined)}
 				/>
-				<label className="flex items-center gap-2 text-neutral-600">
-					<input type="checkbox" checked={changesOnly} onChange={(e) => setChangesOnly(e.target.checked)} />
-					Changes only
-				</label>
+				<Select
+					label="Kind"
+					value={changesOnly ? "changes" : "all"}
+					options={[
+						{ value: "changes", label: "Changes only" },
+						{ value: "all", label: "All actions" },
+					]}
+					onChange={(v) => setChangesOnly(v === "changes")}
+				/>
 			</div>
 			{shown.length === 0 && database.status !== "LoadingFirstPage" && (agentId || entries.length > 0 ? <NoMatches /> : <EmptyState icon={<HistoryIcon />} title={database.results.length ? "No agent activity yet" : "No activity yet"}>Database changes and agent actions will appear here.</EmptyState>)}
 			<div className="flex shrink-0 flex-col gap-2 empty:hidden">

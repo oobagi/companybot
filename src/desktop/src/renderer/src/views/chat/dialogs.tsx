@@ -106,7 +106,7 @@ function Picker({ options, picked, onChange }: { options: Participant[]; picked:
 
 /**
  * A DM with one or more people, and agents if you like (they answer when @mentioned).
- * If you already have that conversation, it opens it rather than starting another.
+ * If you already have that conversation, it just opens it, as Slack and Discord do.
  */
 export function NewMessage({ onClose, onOpen }: { onClose: () => void; onOpen: (chatId: Id<"chats">) => void }) {
 	const openDm = useMutation(api.chats.openDm);
@@ -135,12 +135,9 @@ export function NewMessage({ onClose, onOpen }: { onClose: () => void; onOpen: (
 			)}
 			<Picker options={[...people, ...agents]} picked={picked} onChange={setPicked} />
 			<Notice>{error}</Notice>
-			<div className="flex items-center justify-end gap-3">
-				{existing && <p className="flex-1 text-sm text-neutral-500">You already have this conversation.</p>}
-				<button type="button" disabled={picked.length === 0} onClick={() => void open()} className={primaryButton}>
-					{existing ? "Go to conversation" : "Start conversation"}
-				</button>
-			</div>
+			<button type="button" disabled={picked.length === 0} onClick={() => void open()} className={`${primaryButton} self-end`}>
+				Message
+			</button>
 		</Modal>
 	);
 }

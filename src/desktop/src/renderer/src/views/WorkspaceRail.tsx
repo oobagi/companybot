@@ -5,8 +5,8 @@ import { useMutation, useQuery, useWorkspace } from "../convex";
 import { PlusIcon } from "../icons";
 import { navigate } from "../router";
 import { useSortable } from "../sortable";
-import { Notice, Scroll, compactControlClass, primaryButton, useRun, useTip } from "../ui";
-import { Avatar, Popover } from "./chat/common";
+import { Field, Form, Notice, Scroll, inputClass, primaryButton, useRun, useTip } from "../ui";
+import { Avatar, Modal, Popover } from "./chat/common";
 
 const none: never[] = [];
 const workspaceKey = (w: { id: string }) => w.id;
@@ -34,6 +34,7 @@ export function WorkspaceRail({ you, youMenu }: { you?: string; youMenu?: React.
 	// A join or create resolves before the list shows the workspace, and opening one you're not in is
 	// refused, so it opens once it's listed.
 	const [joined, setJoined] = useState<Id<"workspaces">>();
+	const [creating, setCreating] = useState(false);
 	useEffect(() => {
 		if (joined && mine?.workspaces.some((w) => w.id === joined)) {
 			setJoined(undefined);
@@ -81,7 +82,7 @@ export function WorkspaceRail({ you, youMenu }: { you?: string; youMenu?: React.
 								<span
 									className={`absolute top-1/2 left-0 w-1 -translate-y-1/2 rounded-r-full bg-neutral-900 transition-all ${active ? "h-7" : waiting?.unread ? "h-2 group-hover:h-3.5" : "h-0 group-hover:h-3.5"}`}
 								/>
-								<span className="relative" {...tipFor(w.name, i < 9 ? `${mod}${i + 1}` : undefined)}>
+								<span className="relative flex" {...tipFor(w.name, i < 9 ? `${mod}${i + 1}` : undefined)}>
 									<button
 										type="button"
 										aria-label={waiting?.mentions ? `${w.name}, ${waiting.mentions} unread mentions` : w.name}
@@ -105,12 +106,20 @@ export function WorkspaceRail({ you, youMenu }: { you?: string; youMenu?: React.
 							<Invite invite={i} onJoined={setJoined} />
 						</span>
 					))}
-					<span className="flex shrink-0" {...tipFor("Create a workspace")}>
-						<CreateWorkspace onCreated={setJoined} />
+					<span className="flex shrink-0" {...tipFor("New workspace")}>
+						<button
+							type="button"
+							onClick={() => (hideTip(), setCreating(true))}
+							className={`${shape} flex items-center justify-center rounded-[18px] border border-neutral-300 bg-white text-neutral-700 hover:rounded-xl hover:border-neutral-900 hover:bg-neutral-900 hover:text-white`}
+						>
+							<span className="sr-only">New workspace</span>
+							<PlusIcon size={18} />
+						</button>
 					</span>
 				</div>
 			</Scroll>
 			{tip}
+			{creating && <NewWorkspace onClose={() => setCreating(false)} onCreated={setJoined} />}
 		</nav>
 	);
 }
@@ -153,8 +162,8 @@ function Invite({ invite, onJoined }: { invite: Invitation; onJoined: (id: Id<"w
 	);
 }
 
-/** + just under the workspaces: name a new workspace, which you'll own. */
-function CreateWorkspace({ onCreated }: { onCreated: (id: Id<"workspaces">) => void }) {
+/** From + just under the workspaces: name a new workspace, which you'll own. Like New database. */
+function NewWorkspace({ onClose, onCreated }: { onClose: () => void; onCreated: (id: Id<"workspaces">) => void }) {
 	const create = useMutation(api.workspace.create);
 	const [name, setName] = useState("");
 	const { error, busy, run } = useRun();
@@ -162,35 +171,22 @@ function CreateWorkspace({ onCreated }: { onCreated: (id: Id<"workspaces">) => v
 	// `busy` only stops it once React has re-rendered.
 	const sending = useRef(false);
 	return (
-		<Popover
-			trigger={
-				<>
-					<span className="sr-only">Create a workspace</span>
-					<PlusIcon size={18} />
-				</>
-			}
-			className={`${shape} flex items-center justify-center rounded-[18px] border border-neutral-300 bg-white text-neutral-700 hover:rounded-xl hover:border-neutral-900 hover:bg-neutral-900 hover:text-white`}
-			panelClassName="w-64 p-3"
-		>
-			{(close) => (
-				<form
-					className="flex flex-col gap-2"
-					onSubmit={(e) => {
-						e.preventDefault();
-						if (sending.current || !name.trim()) return;
-						sending.current = true;
-						void run(create({ name }).then((id) => (onCreated(id), setName(""), close()))).finally(() => (sending.current = false));
-					}}
-				>
-					<p className="font-medium">Create a workspace</p>
-					<p className="text-xs text-neutral-500">For another business. You'll be its owner; invite people from Settings → Members.</p>
-					<input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Business name" className={compactControlClass} />
-					{error && <Notice>{error}</Notice>}
-					<button type="submit" disabled={!name.trim() || busy} className={`${primaryButton} self-end`}>
-						Create
-					</button>
-				</form>
-			)}
-		</Popover>
+		<Modal title="New workspace" onClose={onClose}>
+			<Form
+				onSubmit={() => {
+					if (sending.current || !name.trim()) return;
+					sending.current = true;
+					void run(create({ name }).then((id) => (onCreated(id), onClose()))).finally(() => (sending.current = false));
+				}}
+			>
+				<Notice>{error}</Notice>
+				<Field label="Name">
+					<input autoFocus value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
+				</Field>
+				<button type="submit" disabled={!name.trim() || busy} className={`${primaryButton} self-start`}>
+					Create workspace
+				</button>
+			</Form>
+		</Modal>
 	);
 }
