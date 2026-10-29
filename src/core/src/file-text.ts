@@ -9,8 +9,9 @@ import { DOCX, XLSX, isImageType } from "./files";
 export const PAGE_CHARS = 20_000;
 /** Text kept from one file; past it, the rest is left out with a note. */
 const TEXT_MAX = 2_000_000;
-/** A part of a Word or Excel file whose unpacked size says it's more than this isn't read (zip bombs). */
-const PART_MAX = 50 * 1024 * 1024;
+/** Bytes unpacked from one Word or Excel file, all parts together; past it, the file isn't read (zip bombs). */
+const UNZIP_MAX = 50 * 1024 * 1024;
+const TOO_LONG = "(This file is too long to read.)";
 
 /** A file's text: a PDF's pages, a Word file's paragraphs, each sheet of an Excel file as CSV, or text as is. */
 export async function fileText(bytes: Uint8Array, type: string): Promise<string> {
@@ -21,8 +22,14 @@ export async function fileText(bytes: Uint8Array, type: string): Promise<string>
 async function extract(bytes: Uint8Array, type: string) {
 	if (isImageType(type)) return "";
 	if (type === "application/pdf") return pdfText(bytes);
-	if (type === DOCX) return docxText(unzip(bytes, (name) => name === "word/document.xml"));
-	if (type === XLSX) return xlsxText(unzip(bytes, (name) => (name.startsWith("xl/") && name.endsWith(".xml")) || name.endsWith(".rels")));
+	if (type === DOCX) {
+		const part = unzip(bytes, (name) => name === "word/document.xml");
+		return part ? docxText(part) : TOO_LONG;
+	}
+	if (type === XLSX) {
+		const part = unzip(bytes, (name) => (name.startsWith("xl/") && name.endsWith(".xml")) || name.endsWith(".rels"));
+		return part ? xlsxText(part) : TOO_LONG;
+	}
 	return new TextDecoder().decode(bytes);
 }
 
@@ -40,8 +47,20 @@ async function pdfText(bytes: Uint8Array) {
 	return text.map((page, i) => `--- Page ${i + 1} ---\n${page.trim()}`).join("\n\n");
 }
 
+/** The wanted parts of a ZIP, or undefined if together they'd unpack past UNZIP_MAX. */
 function unzip(bytes: Uint8Array, wanted: (name: string) => boolean) {
-	const parts = unzipSync(bytes, { filter: (f) => wanted(f.name) && f.originalSize <= PART_MAX });
+	// Sizes come from the ZIP's headers, read without unpacking anything. A header can lie, but
+	// fflate inflates each part into a buffer of its stated size and drops what doesn't fit, so
+	// what's held never passes the total. Stored (uncompressed) parts are copied at their packed size.
+	let total = 0;
+	unzipSync(bytes, {
+		filter: (f) => {
+			if (wanted(f.name)) total += f.compression ? f.originalSize : f.size;
+			return false;
+		},
+	});
+	if (total > UNZIP_MAX) return;
+	const parts = unzipSync(bytes, { filter: (f) => wanted(f.name) });
 	return (name: string) => (parts[name] ? strFromU8(parts[name]) : "");
 }
 
