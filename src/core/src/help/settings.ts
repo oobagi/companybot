@@ -20,6 +20,7 @@ Open settings from your avatar (account) or the workspace name above the sidebar
 | [Permissions](#/settings/permissions) | Your Always/Never rules; action locks | You (rules); owners (locks) |
 | [Memory](#/settings/memory) | Team and personal memories | Everyone (personal: only you) |
 | [Activity](#/settings/activity) | Database changes and agent activity | Read only |
+| [Usage](#/settings/usage) | What AI cost, by month | Read only (owners see everyone; others their own) |
 | [Trash](#/settings/trash) | Deleted things; restore | Anyone restores what they could delete; owners delete forever |
 | [Agents](#/settings/agents) | Agents, models, tools, instructions | Owners |
 | [Connectors](#/settings/connectors) | Outside services | Owners install; everyone connects their own |
