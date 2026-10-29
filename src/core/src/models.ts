@@ -16,7 +16,7 @@ export const defaultModel = "openai/gpt-6-luna";
 
 /** Offered while the gateway's catalog hasn't been fetched (or couldn't be). */
 export const fallbackModels: ModelInfo[] = [
-	{ id: "openai/gpt-6-luna", name: "GPT-6 Luna", provider: "openai" },
+	{ id: "openai/gpt-6-luna", name: "GPT-6 Luna", provider: "openai", vision: true },
 	{ id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", provider: "anthropic", vision: true },
 	{ id: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5", provider: "anthropic", vision: true },
 	{ id: "anthropic/claude-opus-5.5", name: "Claude Opus 5.5", provider: "anthropic", vision: true },

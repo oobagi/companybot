@@ -72,6 +72,12 @@ describe("turn input", () => {
 		expect(input.messages).toEqual([
 			{ role: "user", content: [{ type: "text", text: prompt }, { type: "text", text: "Picture m3/0:" }, { type: "file", mediaType: "image/png", data }] },
 		]);
+
+		// After replayed turns, only the new prompt carries them: replays stay plain text.
+		const later = buildTurnInput({ agent: { instructions: "Be brief.", tools: [] }, skills: [], session: { summary: null, turns: [{ prompt: "Hi", reply: "Hello" }] }, prompt, images: [{ id: "m3/0", type: "image/png", data }] });
+		expect(later.messages.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
+		expect(later.messages.slice(0, 2).every((m) => typeof m.content === "string")).toBe(true);
+		expect(later.messages.at(-1)!.content).toContainEqual({ type: "file", mediaType: "image/png", data });
 	});
 
 	it("lists at most 15 people in a big channel", () => {
