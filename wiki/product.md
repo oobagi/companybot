@@ -48,7 +48,7 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 - Settings come in two kinds, never listed together; the sidebar swaps to the open kind's tabs. **Account settings** (your avatar, bottom of the rail): Your preferences (name, time zone, send key, notifications, app updates). **Workspace settings** (the workspace name's menu): Workspace → General (workspace name, currency, memory on/off), Members, Permissions (your rules, owners' locks), Memory, Activity, Trash; Customize → Agents, Connectors, Skills, Automations.
 - Notifications: a desktop notification for each DM and @mention while the app isn't in front, and the count on the dock icon. Per person: DMs and mentions, mentions only, or off. Time zone defaults to automatic (the computer's). Shared settings are saved explicitly, with a conflict warning.
 - Customize (in Settings): **Agents** (owners edit; every save is versioned and restorable), **Connectors** (links to outside services over MCP — Gmail, Calendar…), **Skills** (instructions anyone can write, or ask Companybot to save one ("here's how we write proposals"); they're shared with the team, only the maker or an owner can change them) and **Automations** (below). Memory and clock are built in, not connectors.
-- **Onboarding (built):** Companybot speaks first with a fixed message (no model call, so it's free): in #general when someone makes a workspace (a short intro, then one ask: @mention it about the company), and in their DM with it when someone joins (role and current work). Answers are ordinary turns, saved to memory in plain sight. New people get a tutorial tray on the composer ([Chat](chat.md#onboarding)).
+- **Onboarding (built):** signed in with no workspace (first time, or after deleting your last), three steps: your name, the company and its currency, and emails to invite; one call makes it all ([Architecture](architecture.md), Workspaces). Then Companybot speaks first with a fixed message (no model call, so it's free): in #general when someone makes a workspace (a short intro, then one ask: @mention it about the company), and in their DM with it when someone joins (role and current work). Answers are ordinary turns, saved to memory in plain sight. New people get a tutorial tray on the composer ([Chat](chat.md#onboarding)).
 - New workspaces start with **#general** and **Companybot** only. Connectors are currently unavailable; skills and automations start empty with a path to create your own. Existing databases, agents, pages and installed skills/automations remain available after upgrading.
 - **Automations**: short jobs that run on their own: a schedule, an in-app event, or a webhook; a prompt; an agent; and who it runs for. Anyone can create one in Settings → Automations or by asking Companybot. The maker or an owner can edit, pause or delete it. Each shows when it last ran and what it did.
 - **Naming** follows Claude and ChatGPT: a **connector** links to an outside service (an MCP server); a **skill** is instructions; a **plugin** (later) bundles connectors, skills, and automations into one install. Triggers are a **schedule**, an in-app **event** (a message posted in a channel, someone joined), or a **webhook** from another app.
@@ -74,7 +74,11 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 
 ## Open source
 - The code is AGPL-3.0 (`LICENSE`): anyone can self-host; anyone who runs a changed version as a service must publish their changes.
-- We charge for the hosted version, reselling AI usage (models, search, images) at a markup. Self-hosters bring their own keys as server config.
+- Three editions, like Dify:
+  - **Community** — free, AGPL, self-hosted. Self-hosters bring their own keys as server config.
+  - **Cloud** — we host it. Paid plans with a monthly AI allowance (models, search, images) we resell at a markup; pauses at the limit, top-ups available.
+  - **Enterprise** — a paid license to self-host with enterprise features (single sign-on, audit logs, compliance, support). Those features live in an `ee/` folder under a commercial license. Not built yet.
+- Outside contributors sign a contributor agreement (CLA) before their code is merged, so we can sell it in Enterprise.
 
 ## Rollout
 Test with our own team first. Charge outsiders once the team opens it daily.

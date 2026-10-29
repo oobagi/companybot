@@ -1,22 +1,13 @@
 import type { Doc, Id } from "@companybot/backend/convex/_generated/dataModel";
-import { type ReactNode, useRef, useState } from "react";
-import { ArrowUpIcon } from "../../icons";
+import { EditorContent, useEditor } from "@tiptap/react";
+import { type ReactNode, useMemo, useRef, useState } from "react";
+import { ArrowUpIcon, ChannelIcon, PrivateIcon, SkillIcon } from "../../icons";
 import { Avatar } from "./common";
-import type { Mentions, Participant } from "./data";
+import type { Mentions } from "./data";
+import { type Candidate, type Menu, type Sources, SuggestionMenu, composerExtensions, plainText, tokensIn } from "./editor";
 import { Form, metadataClass } from "../../ui";
 
 export type SendWith = Doc<"preferences">["sendWith"];
-
-/** The `@query` being typed before the caret: `@` and up to one space ("@Sam L"). */
-const mentionAt = (text: string, caret: number) => {
-	const m = /(^|\s)@([^\s@]*(?: [^\s@]*)?)$/.exec(text.slice(0, caret));
-	return m ? { start: caret - m[2]!.length - 1, query: m[2]!.toLowerCase() } : null;
-};
-
-const matches = (name: string, query: string) => {
-	const n = name.toLowerCase();
-	return n.startsWith(query) || n.split(/\s+/).some((w) => w.startsWith(query));
-};
 
 export function Composer({
 	onSend,
@@ -25,7 +16,7 @@ export function Composer({
 	status,
 	tray,
 	onType,
-	candidates,
+	sources,
 }: {
 	onSend: (text: string, mentions: Mentions) => void;
 	sendWith: SendWith;
@@ -35,125 +26,121 @@ export function Composer({
 	/** Sits on top of the box, joined to it (the tutorial). */
 	tray?: ReactNode;
 	onType?: () => void;
-	/** People and agents offered by @mention autocomplete. */
-	candidates: Participant[];
+	/** What @, # and / offer. */
+	sources: Sources;
 }) {
-	const [text, setText] = useState("");
-	const [caret, setCaret] = useState(0);
-	const [picked, setPicked] = useState<Participant[]>([]);
-	const [index, setIndex] = useState(0);
-	const [dismissed, setDismissed] = useState<number>();
-	const input = useRef<HTMLTextAreaElement>(null);
+	const [menu, setMenu] = useState<Menu | null>(null);
+	const [empty, setEmpty] = useState(true);
+	// The editor is made once; it reads the latest props (and this render's submit) through this ref.
+	const latest = useRef({ sources, placeholder, sendWith, onSend, onType, submit: () => {} });
+	latest.current = { ...latest.current, sources, placeholder, sendWith, onSend, onType };
+	const suggestions = useMemo(() => new SuggestionMenu(() => latest.current.sources, setMenu), []);
 
-	const at = mentionAt(text, caret);
-	const options = at && at.start !== dismissed ? candidates.filter((c) => matches(c.name, at.query)).slice(0, 8) : [];
-	const open = options.length > 0;
-	const active = Math.min(index, options.length - 1);
-
-	const track = (el: HTMLTextAreaElement) => setCaret(el.selectionStart);
-
-	const pick = (c: Participant) => {
-		if (!at) return;
-		const insert = `@${c.name} `;
-		const next = text.slice(0, at.start) + insert + text.slice(caret);
-		const pos = at.start + insert.length;
-		setText(next);
-		setCaret(pos);
-		setIndex(0);
-		if (!picked.some((p) => p.id === c.id)) setPicked([...picked, c]);
-		requestAnimationFrame(() => input.current?.setSelectionRange(pos, pos));
-	};
+	const editor = useEditor({
+		extensions: composerExtensions({
+			menu: suggestions,
+			placeholder: () => latest.current.placeholder,
+			sendWith: () => latest.current.sendWith,
+			send: () => latest.current.submit(),
+		}),
+		autofocus: "end",
+		editorProps: { attributes: { class: "max-h-48 overflow-y-auto py-1.5 outline-none break-words", role: "textbox", "aria-multiline": "true" } },
+		onUpdate: ({ editor }) => {
+			setEmpty(editor.isEmpty);
+			if (!editor.isEmpty) latest.current.onType?.();
+		},
+		onBlur: () => suggestions.hide(),
+	});
 
 	const submit = () => {
-		if (!text.trim()) return;
-		// Only mentions still in the text count.
-		const kept = picked.filter((p) => text.includes(`@${p.name}`));
-		onSend(text, {
-			userIds: kept.filter((p) => p.type === "user").map((p) => p.id as Id<"users">),
-			agentIds: kept.filter((p) => p.type === "agent").map((p) => p.id as Id<"agents">),
-		});
-		setText("");
-		setPicked([]);
+		if (!editor) return;
+		const text = plainText(editor);
+		if (!text) return;
+		const tokens = tokensIn(editor);
+		latest.current.onSend(text, { userIds: tokens.user as Id<"users">[], agentIds: tokens.agent as Id<"agents">[], skillIds: tokens.skill });
+		editor.commands.clearContent(true);
+		setEmpty(true);
 	};
+	latest.current.submit = submit;
 
 	return (
 		<div className="relative flex w-full flex-col">
-			{open && (
-				<ul className="absolute bottom-full left-0 z-20 mb-2 w-72 overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-lg">
-					{options.map((c, i) => (
-						<li key={c.id}>
-							<button
-								type="button"
-								onMouseDown={(e) => (e.preventDefault(), pick(c))}
-								onMouseEnter={() => setIndex(i)}
-								className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm ${i === active ? "bg-neutral-100" : ""}`}
-							>
-								<Avatar name={c.name} image={c.image} agent={c.type === "agent"} size="sm" />
-								<span className="flex-1 truncate">{c.name}</span>
-								{c.type === "agent" && <span className={metadataClass}>Agent</span>}
-							</button>
-						</li>
-					))}
-				</ul>
-			)}
+			{menu && <Picker menu={menu} onHighlight={(i) => suggestions.highlight(i)} onPick={(i) => suggestions.pick(i)} />}
 			<div className="flex flex-col">
-			{tray}
-			<Form className="flex w-full items-end gap-2 rounded-2xl border border-neutral-200 bg-white p-2 pl-4 shadow-sm focus-within:border-neutral-300" onSubmit={() => submit()}>
-				<textarea
-					ref={input}
-					rows={1}
-					value={text}
-					autoFocus
-					onChange={(e) => {
-						setText(e.target.value);
-						if (e.target.value.trim()) onType?.();
-						track(e.target);
-						setIndex(0);
-						setDismissed(undefined);
-					}}
-					onSelect={(e) => track(e.currentTarget)}
-					onKeyDown={(e) => {
-						if (open) {
-							if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-								e.preventDefault();
-								const step = e.key === "ArrowDown" ? 1 : -1;
-								setIndex((active + step + options.length) % options.length);
-								return;
-							}
-							if (e.key === "Enter" || e.key === "Tab") {
-								e.preventDefault();
-								pick(options[active]!);
-								return;
-							}
-							if (e.key === "Escape") {
-								e.preventDefault();
-								setDismissed(at?.start);
-								return;
-							}
-						}
-						const mod = e.metaKey || e.ctrlKey;
-						if (e.key === "Enter" && (sendWith === "enter" ? !e.shiftKey && !mod : mod)) {
-							e.preventDefault();
-							submit();
-						}
-					}}
-					placeholder={placeholder}
-					className="max-h-48 flex-1 resize-none bg-transparent py-1.5 outline-none [field-sizing:content] placeholder:text-neutral-400"
-				/>
-				<button
-					type="submit"
-					disabled={!text.trim()}
-					className="flex size-8 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-white disabled:bg-neutral-200"
-					aria-label="Send"
-				>
-					<ArrowUpIcon weight="bold" />
-				</button>
-			</Form>
+				{tray}
+				<Form className="flex w-full items-end gap-2 rounded-2xl border border-neutral-200 bg-white p-2 pl-4 shadow-sm focus-within:border-neutral-300" onSubmit={submit}>
+					<EditorContent editor={editor} className="composer min-w-0 flex-1" />
+					<button
+						type="submit"
+						disabled={empty}
+						className="flex size-8 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-white disabled:bg-neutral-200"
+						aria-label="Send"
+					>
+						<ArrowUpIcon weight="bold" />
+					</button>
+				</Form>
 			</div>
 			{/* Hangs in the footer's bottom padding, so the composer doesn't sit higher to make room for it. */}
 			<p className="absolute inset-x-0 top-full truncate px-4 pt-1.5 text-xs leading-4 text-neutral-400" aria-live="polite">
 				{status}
 			</p>
 		</div>
+	);
+}
+
+const hints: Record<Menu["trigger"], string> = { "@": "People and agents", "#": "Channels", "/": "Skills" };
+
+/** The menu over the box. Arrows move, Enter or Tab picks, Escape closes; the mouse works too. */
+function Picker({ menu, onHighlight, onPick }: { menu: Menu; onHighlight: (i: number) => void; onPick: (i: number) => void }) {
+	return (
+		<div className="absolute bottom-full left-0 z-20 mb-2 w-80 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-lg">
+			<p className={`px-3 pt-2 pb-1 ${metadataClass}`}>{hints[menu.trigger]}</p>
+			<ul role="listbox" className="pb-1">
+				{menu.items.map((c, i) => (
+					<li key={`${c.kind}:${c.id}`} role="option" aria-selected={i === menu.index}>
+						<button
+							type="button"
+							// mousedown, not click: the editor must keep focus, or the chip lands nowhere.
+							onMouseDown={(e) => (e.preventDefault(), onPick(i))}
+							onMouseEnter={() => onHighlight(i)}
+							className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm ${i === menu.index ? "bg-neutral-100" : ""}`}
+						>
+							<Row candidate={c} />
+						</button>
+					</li>
+				))}
+			</ul>
+		</div>
+	);
+}
+
+function Row({ candidate: c }: { candidate: Candidate }) {
+	if (c.kind === "channel") {
+		return (
+			<>
+				<span className="flex size-6 shrink-0 items-center justify-center text-neutral-500">{c.private ? <PrivateIcon /> : <ChannelIcon />}</span>
+				<span className="truncate">{c.label}</span>
+				{c.topic && <span className={`min-w-0 flex-1 truncate ${metadataClass}`}>{c.topic}</span>}
+				{!c.joined && <span className={`ml-auto shrink-0 ${metadataClass}`}>Not joined</span>}
+			</>
+		);
+	}
+	if (c.kind === "skill") {
+		return (
+			<>
+				<span className="flex size-6 shrink-0 items-center justify-center text-neutral-500">
+					<SkillIcon />
+				</span>
+				<span className="truncate">{c.label}</span>
+				<span className={`min-w-0 flex-1 truncate ${metadataClass}`}>{c.description}</span>
+			</>
+		);
+	}
+	return (
+		<>
+			<Avatar name={c.label} image={c.image} agent={c.kind === "agent"} size="sm" />
+			<span className="flex-1 truncate">{c.label}</span>
+			{c.kind === "agent" && <span className={metadataClass}>Agent</span>}
+		</>
 	);
 }

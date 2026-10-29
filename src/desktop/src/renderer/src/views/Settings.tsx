@@ -1,5 +1,4 @@
 import { type Role, can } from "@companybot/core/permissions";
-import { currencyCodes } from "@companybot/core/records";
 import { useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
@@ -7,7 +6,7 @@ import { describeUpdate, desktop, useUpdates } from "../desktop";
 import { navigate } from "../router";
 import { ConflictNotice, Field, Form, Loading, Notice, Page, SaveBar, Setting, Settings, compactControlClass, dangerButton, disabledButtonClass, inputClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../ui";
 import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, SettingsIcon, TrashIcon, UserIcon } from "../icons";
-import { Select } from "../controls";
+import { CurrencySelect, Select } from "../controls";
 import { ActivityTab } from "./Activity";
 import { ImagePicker } from "./ImagePicker";
 import { Confirm, Modal, deviceTimeZone, zoneLabel } from "./chat/common";
@@ -216,14 +215,6 @@ function Toggle({ checked, disabled, onChange }: { checked: boolean; disabled?: 
 	);
 }
 
-const currencyNames = new Intl.DisplayNames(undefined, { type: "currency" });
-/** "EUR — Euro", or just the code where the system has no name for it. */
-const currencyLabel = (code: string) => {
-	const name = currencyNames.of(code);
-	return name && name !== code ? `${code} — ${name}` : code;
-};
-const currencyOptions = currencyCodes.map((code) => ({ value: code, label: currencyLabel(code) }));
-
 function GeneralForm({
 	settings,
 	isOwner,
@@ -255,13 +246,7 @@ function GeneralForm({
 					/>
 				</Setting>
 				<Setting label="Currency" hint="For new amounts. Existing amounts keep theirs.">
-					<Select
-						className={wideControlClass}
-						disabled={!isOwner}
-						value={draft.value.currency}
-						options={currencyOptions}
-						onChange={(currency) => draft.set({ ...draft.value, currency })}
-					/>
+					<CurrencySelect className={wideControlClass} disabled={!isOwner} value={draft.value.currency} onChange={(currency) => draft.set({ ...draft.value, currency })} />
 				</Setting>
 				<Setting label="Memory" hint="Agents remember what people tell them. Off keeps existing memories for later.">
 					<Toggle disabled={!isOwner} checked={draft.value.memory} onChange={(memory) => draft.set({ ...draft.value, memory })} />

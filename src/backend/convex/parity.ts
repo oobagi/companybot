@@ -78,6 +78,7 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"skills.remove": { agent: ["skills.remove:delete"] },
 	"skills.setInstalled": { humanOnly: "Retired library install endpoint, retained only for older desktops." },
 	"workspace.ensure": { humanOnly: "Account setup and initial invite acceptance happen before workspace-scoped agents exist." },
+	"workspace.setUp": { humanOnly: "Onboarding: a direct person names themself and starts the trust domain they own, before any workspace-scoped agent exists." },
 	"workspace.create": { humanOnly: "Direct person starts a new trust domain they own; agents act inside one workspace." },
 	"workspace.switchTo": { humanOnly: "Device/account navigation; agents act only in their turn's workspace." },
 	"workspace.acceptInvite": { humanOnly: "Direct signed-in person joins a new trust domain." },

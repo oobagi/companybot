@@ -10,21 +10,22 @@ import { CallDetails } from "../Activity";
 import { ApprovalMessages } from "./Approval";
 import { AutomationIcon, EditIcon, ReactIcon, ReplyIcon, TrashIcon } from "../../icons";
 import { AgentBadge, Avatar, AvatarStack, EmojiPicker, IconButton, Popover, clock, useDismiss } from "./common";
-import type { Message } from "./data";
+import type { Message, TokenNames } from "./data";
+import { navigate } from "../../router";
 import { ProfileLink } from "./Profile";
 
 export function MessageRow({
 	message: row,
 	grouped,
-	names,
+	tokens,
 	onOpenThread,
 	onError,
 }: {
 	message: Message;
 	/** Same author as the message above: no avatar or name. */
 	grouped: boolean;
-	/** Names to highlight as @mentions. */
-	names: string[];
+	/** What to show as chips: @names, #channels, /skills. */
+	tokens: TokenNames;
 	/** Absent inside a thread: threads are one level deep. */
 	onOpenThread?: () => void;
 	onError: (e: unknown) => void;
@@ -86,7 +87,7 @@ export function MessageRow({
 						<AgentBody message={message} />
 					) : (
 						<p className="leading-relaxed break-words whitespace-pre-wrap">
-							<MentionText text={message.text} names={names} />
+							<TokenText text={message.text} tokens={tokens} />
 							{message.editedAt && <span className="text-xs text-neutral-400"> (edited)</span>}
 						</p>
 					)}
@@ -161,19 +162,30 @@ export function MessageRow({
 }
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const alternation = (names: string[]) => [...names].sort((a, b) => b.length - a.length).map(escape).join("|");
 
-function MentionText({ text, names }: { text: string; names: string[] }) {
-	if (names.length === 0) return text;
-	const pattern = new RegExp(`(@(?:${[...names].sort((a, b) => b.length - a.length).map(escape).join("|")}))`, "g");
-	return text.split(pattern).map((chunk, i) =>
-		i % 2 === 1 ? (
-			<span key={i} className="rounded bg-sky-50 px-0.5 font-medium text-sky-700">
+/** `@Ada`, `#sales` (opens the channel) and `/Proposal` as chips, like in the composer. */
+function TokenText({ text, tokens }: { text: string; tokens: TokenNames }) {
+	const parts = [
+		tokens.names.length > 0 && `@(?:${alternation(tokens.names)})(?!\\w)`,
+		tokens.channels.length > 0 && `#(?:${alternation(tokens.channels.map((c) => c.name))})(?![\\w-])`,
+		tokens.skills.length > 0 && `\\/(?:${alternation(tokens.skills)})(?!\\w)`,
+	].filter(Boolean);
+	if (parts.length === 0) return text;
+	const pattern = new RegExp(`(${parts.join("|")})`, "g");
+	return text.split(pattern).map((chunk, i) => {
+		if (i % 2 === 0) return <Fragment key={i}>{chunk}</Fragment>;
+		const channel = chunk.startsWith("#") ? tokens.channels.find((c) => c.name === chunk.slice(1)) : undefined;
+		return channel ? (
+			<button type="button" key={i} onClick={() => navigate("chat", channel.id)} className="token hover:underline">
+				{chunk}
+			</button>
+		) : (
+			<span key={i} className="token">
 				{chunk}
 			</span>
-		) : (
-			<Fragment key={i}>{chunk}</Fragment>
-		),
-	);
+		);
+	});
 }
 
 function EditForm({ message, onDone, onError }: { message: Message; onDone: () => void; onError: (e: unknown) => void }) {

@@ -14,6 +14,7 @@ import { savePreferences } from "./preferences";
 import { cascading, startCascade } from "./cascade";
 import { imageUrl } from "./images";
 import { removeWorkspace } from "./lifecycle";
+import { updatePreferences } from "./preferences";
 import { completeSteps, freshTutorial, welcome } from "./onboarding";
 import { role } from "./schema";
 
@@ -35,7 +36,11 @@ export const me = query({
 	},
 });
 
-/** Runs after sign-in. Someone new joins every workspace that invited them, or starts one as owner. */
+/**
+ * Runs after sign-in, and whenever you're in no workspace. Someone new joins every workspace
+ * that invited them. With none, they're left in none: the app shows onboarding, which ends in
+ * `setUp`. Nothing is made on their behalf, so deleting your last workspace leaves you with none.
+ */
 export const ensure = mutation({
 	args: {},
 	handler: async (ctx) => {
@@ -47,12 +52,26 @@ export const ensure = mutation({
 		for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId)))
 			if (await liveWorkspace(ctx, row.workspaceId)) joined = true;
 		if (joined) return;
+		for (const invite of await invitesFor(ctx, userId)) await join(ctx, invite, userId);
+	},
+});
 
-		const invites = await invitesFor(ctx, userId);
-		for (const invite of invites) await join(ctx, invite, userId);
-		if (invites.length > 0) return;
-
-		await startWorkspace(ctx, userId, "My company");
+/**
+ * Onboarding's last step, one transaction: your name (so the welcome greets you by it), a
+ * workspace you own with its currency, and invites to your team, as members. A bad email
+ * refuses the whole thing, so nothing is half set up. Returns the workspace, for the app to open.
+ */
+export const setUp = mutation({
+	args: { displayName: v.string(), name: v.string(), currency: v.optional(v.string()), invites: v.array(v.string()) },
+	handler: async (ctx, { displayName, name, currency, invites }): Promise<Id<"workspaces">> => {
+		const userId = await requireUserId(ctx);
+		currency = currency?.trim().toUpperCase();
+		if (currency !== undefined && !isCurrencyCode(currency)) throw new ConvexError("Pick a currency code like USD.");
+		await updatePreferences(ctx, userId, { displayName });
+		const workspaceId = await startOwned(ctx, userId, name, currency);
+		const member = (await memberOf(ctx, userId, workspaceId))!;
+		for (const email of invites) await inviteMember(ctx, member, { email, role: "member" });
+		return workspaceId;
 	},
 });
 
@@ -64,14 +83,19 @@ export const create = mutation({
 	args: { name: v.string() },
 	handler: async (ctx, { name }): Promise<Id<"workspaces">> => {
 		const userId = await requireUserId(ctx);
-		if (!name.trim()) throw new ConvexError("Name can't be empty.");
-		let owned = 0;
-		for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId)))
-			if (row.role === "owner" && (await liveWorkspace(ctx, row.workspaceId))) owned++;
-		if (owned >= MAX_OWNED_WORKSPACES) throw new ConvexError(`You can own up to ${MAX_OWNED_WORKSPACES} workspaces. Delete or leave one first.`);
-		return startWorkspace(ctx, userId, name.trim());
+		return startOwned(ctx, userId, name);
 	},
 });
+
+/** A workspace of your own, named, within the cap. */
+async function startOwned(ctx: MutationCtx, userId: Id<"users">, name: string, currency?: string) {
+	if (!name.trim()) throw new ConvexError("Name can't be empty.");
+	let owned = 0;
+	for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId)))
+		if (row.role === "owner" && (await liveWorkspace(ctx, row.workspaceId))) owned++;
+	if (owned >= MAX_OWNED_WORKSPACES) throw new ConvexError(`You can own up to ${MAX_OWNED_WORKSPACES} workspaces. Delete or leave one first.`);
+	return startWorkspace(ctx, userId, name.trim(), currency);
+}
 
 /**
  * For the rail, account-wide like `mine`: per workspace you're in, whether a chat has something
@@ -101,8 +125,8 @@ export const activity = query({
 });
 
 /** A new workspace with `userId` as its owner: the default agents, #general, and a welcome there. */
-async function startWorkspace(ctx: MutationCtx, userId: Id<"users">, name: string) {
-	const workspaceId = await ctx.db.insert("workspaces", { name, version: 1 });
+async function startWorkspace(ctx: MutationCtx, userId: Id<"users">, name: string, currency?: string) {
+	const workspaceId = await ctx.db.insert("workspaces", { name, version: 1, ...(currency && { currency }) });
 	await ctx.db.insert("members", { workspaceId, userId, role: "owner", email: normalizeEmail((await ctx.db.get(userId))?.email ?? ""), tutorial: freshTutorial() });
 	await seedAgents(ctx, workspaceId, userId);
 	const general = await ensureGeneral(ctx, workspaceId, userId);
