@@ -5,17 +5,13 @@ import { AttachIcon, CloseIcon, FileCsvIcon, FileDocIcon, FileIcon, FilePdfIcon,
 import { useFileUpload } from "../../upload";
 import { api } from "../../api";
 import { useDismiss } from "./common";
-import { type Pending, createPendingStore, pendingKey } from "./composerFiles";
+import { type Pending, pendingFiles, pendingKey } from "./composerFiles";
 import type { Message } from "./data";
 
 // Files on messages: the composer's pending uploads (attach button, drop, paste), and the files
 // a message shows (thumbnails that open larger, chips that open the file). Uploads go to the
 // backend as they're added (files.ts); sending claims them. Pending ones are kept per person and
 // per chat or thread (composerFiles.ts), so leaving a chat and coming back finds them.
-
-let store: ReturnType<typeof createPendingStore> | undefined;
-// Made on first use: there's no localStorage where tests import this.
-const pendingFiles = () => (store ??= createPendingStore(localStorage));
 
 export type Attachments = ReturnType<typeof useAttachments>;
 

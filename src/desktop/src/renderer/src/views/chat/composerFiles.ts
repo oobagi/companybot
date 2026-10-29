@@ -95,8 +95,21 @@ export function createPendingStore(store: Store, now = Date.now) {
 			listeners.add(listener);
 			return () => void listeners.delete(listener);
 		},
+		/** The keys under `prefix` with files in them, uploaded or not, saved or only in memory. */
+		withFiles(prefix: string): string[] {
+			const saved: string[] = [];
+			for (let i = 0; i < store.length; i++) {
+				const k = store.key(i);
+				if (k?.startsWith(prefix) && !lists.has(k)) saved.push(k);
+			}
+			return [...lists.keys(), ...saved].filter((k) => k.startsWith(prefix) && get(k).length);
+		},
 	};
 }
+
+let shared: ReturnType<typeof createPendingStore> | undefined;
+/** The app's one store. Made on first use: there's no localStorage where tests import this. */
+export const pendingFiles = () => (shared ??= createPendingStore(localStorage));
 
 type Clipboard = { types: readonly string[]; files: ArrayLike<File>; getData: (format: string) => string };
 

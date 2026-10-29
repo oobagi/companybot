@@ -46,7 +46,7 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 	const remove = useMutation(api.trash.move);
 	const { error, run } = useRun();
 	const { confirm, dialog: confirming } = useConfirm();
-	const drafts = useDraftChats(workspace?.id);
+	const drafts = useDraftChats(chats.me, workspace?.id);
 	const { sorted, drag } = useSortable(`sidebar.channels:${workspace?.id}`, chats.channels, chatKey);
 	const shown = section.collapsed ? sorted.filter((c) => c._id === openId || c.unread || c.mentioned) : sorted;
 	/** Leaving or deleting the open channel: nothing to show there anymore. */
@@ -130,7 +130,7 @@ export function DmsNav({ chats, openId, onOpen, onError, section }: ChatNavProps
 	const { error, run } = useRun();
 	const { confirm, dialog: confirming } = useConfirm();
 	const sidesOf = (dmId: Id<"chats"> | null) => (dmId ? chats.dms.filter((d) => d.parentId === dmId) : []);
-	const drafts = useDraftChats(workspace?.id);
+	const drafts = useDraftChats(chats.me, workspace?.id);
 	// Your DMs with people (and groups), and one per agent; most recent first, then the agents you haven't messaged.
 	const dms = useMemo(
 		() =>
