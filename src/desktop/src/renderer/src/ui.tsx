@@ -138,7 +138,7 @@ export function TopBar({ crumbs = [], title, description, children }: { crumbs?:
 						<span className="shrink-0 px-1 text-neutral-300">/</span>
 					</Fragment>
 				))}
-				<div className="flex min-w-0 items-baseline gap-2 px-1 font-semibold">
+				<div className="flex min-w-0 items-center gap-2 px-1 font-semibold">
 					{title}
 					{/* Gives way before the title does: it only gets the room left over. */}
 					{description && <p className="min-w-0 flex-1 truncate font-normal text-neutral-500">{description}</p>}
@@ -480,6 +480,65 @@ export function useSynced<T>(value: T) {
 	const [synced, setSynced] = useState(value);
 	if (!Object.is(synced, value)) (setSynced(value), setState(value));
 	return [state, setState] as const;
+}
+
+/** A panel's width, kept per computer under `key` (localStorage) within `min`…`max`, with `fallback` until you set one. */
+export function useStoredWidth(key: string, fallback: number, min: number, max: number) {
+	const clamp = useCallback((w: number) => Math.round(Math.min(max, Math.max(min, w))), [min, max]);
+	const [width, setWidth] = useState(() => clamp(Number(localStorage.getItem(key)) || fallback));
+	const save = useCallback(
+		(w: number) => {
+			const next = clamp(w);
+			setWidth(next);
+			try {
+				localStorage.setItem(key, String(next));
+			} catch {
+				// Storage may be unavailable; it still holds until reload.
+			}
+		},
+		[key, clamp],
+	);
+	return { width, min, max, fallback, preview: useCallback((w: number) => setWidth(clamp(w)), [clamp]), save };
+}
+
+/**
+ * A panel's resizable edge (`side`: which edge of the panel it is). Drag it; double-click for
+ * the default; arrow keys when focused. Only the release is saved. The panel needs `relative`.
+ */
+export function ResizeHandle({ side, label, size }: { side: "left" | "right"; label: string; size: ReturnType<typeof useStoredWidth> }) {
+	const start = useRef<{ x: number; width: number } | null>(null);
+	const sign = side === "right" ? 1 : -1;
+	const at = (e: React.PointerEvent) => start.current!.width + sign * (e.clientX - start.current!.x);
+	return (
+		<div
+			role="separator"
+			aria-orientation="vertical"
+			aria-label={label}
+			aria-valuenow={size.width}
+			aria-valuemin={size.min}
+			aria-valuemax={size.max}
+			tabIndex={0}
+			onPointerDown={(e) => {
+				if (e.button !== 0) return;
+				e.preventDefault();
+				e.currentTarget.setPointerCapture(e.pointerId);
+				start.current = { x: e.clientX, width: size.width };
+			}}
+			onPointerMove={(e) => start.current && size.preview(at(e))}
+			onPointerUp={(e) => {
+				if (!start.current) return;
+				size.save(at(e));
+				start.current = null;
+			}}
+			// The OS or a gesture can cancel a drag without a pointerup; keep what was previewed and stop following the mouse.
+			onPointerCancel={() => start.current && ((start.current = null), size.save(size.width))}
+			onDoubleClick={() => size.save(size.fallback)}
+			onKeyDown={(e) => {
+				if (e.key === "ArrowLeft" || e.key === "ArrowRight") (e.preventDefault(), size.save(size.width + sign * (e.key === "ArrowLeft" ? -16 : 16)));
+			}}
+			className={`no-drag absolute inset-y-0 z-40 w-2 cursor-col-resize after:absolute after:inset-y-0 after:left-[3px] after:w-0.5 after:rounded-full after:bg-neutral-400 after:opacity-0 after:transition-opacity hover:after:opacity-100 focus-visible:outline-none focus-visible:after:opacity-100 active:after:opacity-100 ${side === "right" ? "-right-1" : "-left-1"}`}
+		/>
+	);
 }
 
 /** `value`, once it has stopped changing for `ms`: for searches that query as you type. */

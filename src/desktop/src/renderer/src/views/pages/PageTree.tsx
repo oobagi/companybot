@@ -2,21 +2,23 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery, useWorkspace } from "../../convex";
-import { CaretRightIcon, MoreIcon, PageIcon, PlusIcon, TrashIcon } from "../../icons";
+import { ArrowRightIcon, ArrowUpIcon, PageIcon, PlusIcon, TrashIcon } from "../../icons";
 import { navigate } from "../../router";
-import { LoadMore, Notice, primaryButton, secondaryButton, useRun } from "../../ui";
+import { type DragProps, useSortable } from "../../sortable";
+import { LoadMore, Notice, inputClass, useDebounced, useRun } from "../../ui";
 import { AddButton, Group, Item, type SectionProps, trailingAction } from "../chat/Sidebar";
-import { MenuItem, Modal, Popover } from "../chat/common";
+import { MenuItem, Modal } from "../chat/common";
 
 type PageId = Id<"pages">;
-type Row = { _id: PageId; title: string; hasChildren?: boolean };
+type Row = { _id: PageId; title: string; hasChildren?: boolean; parentId?: PageId | null };
 
 /** Each expanded level loads independently; no workspace-wide list or fixed tree-size cutoff. */
 export function PagesNav({ openId, section }: { openId: string | undefined; section: SectionProps }) {
 	const workspace = useWorkspace();
-	return <PageNavTree key={workspace?.id} openId={openId} section={section} storageKey={`pages-expanded:${workspace?.id}`} />;
+	return <PageNavTree key={workspace?.id} openId={openId} section={section} workspaceId={workspace?.id ?? ""} />;
 }
-function PageNavTree({ openId, section, storageKey }: { openId?: string; section: SectionProps; storageKey: string }) {
+function PageNavTree({ openId, section, workspaceId }: { openId?: string; section: SectionProps; workspaceId: string }) {
+	const storageKey = `pages-expanded:${workspaceId}`;
 	const [expanded, setExpanded] = useState<Set<string>>(() => {
 		try { const saved = JSON.parse(localStorage.getItem(storageKey) ?? "[]"); return new Set(Array.isArray(saved) ? saved.filter((id): id is string => typeof id === "string") : []); } catch { return new Set(); }
 	});
@@ -47,21 +49,23 @@ function PageNavTree({ openId, section, storageKey }: { openId?: string; section
 		});
 	};
 	const add = (parentId?: PageId) => run(create({ title: "Untitled", parentId }).then((id) => { if (parentId) toggle(parentId, true); navigate("pages", id); }));
-	const level = (parentId?: PageId, depth = 0): React.ReactNode => (
-		<PageLevel parentId={parentId} empty={depth === 0 && <Item icon={<PlusIcon />} onClick={() => add()} muted>New page</Item>} render={(p) => {
+	/** `above`: for each level above this one, whether its line continues past these rows. */
+	const level = (parentId?: PageId, above: boolean[] = []): React.ReactNode => (
+		<PageLevel parentId={parentId} sortKey={`sidebar.pages:${workspaceId}:${parentId ?? "top"}`} empty={!above.length && <Item icon={<PlusIcon />} onClick={() => add()} muted>New page</Item>} render={(p, drag, last) => {
 			const open = p.hasChildren && expanded.has(p._id);
-			const chevron = <button type="button" aria-label={`${open ? "Collapse" : "Expand"} ${p.title}`} aria-expanded={open} onClick={() => toggle(p._id)} className="relative z-10 hidden size-5 items-center justify-center text-neutral-400 hover:text-neutral-800 group-hover/item:flex"><CaretRightIcon className={open ? "rotate-90" : ""} /></button>;
+			const guides = parentId ? [...above, !last] : [];
 			return (
 				<Fragment key={p._id}>
-					<Item icon={p.hasChildren ? <><PageIcon className="group-hover/item:hidden" />{chevron}</> : <PageIcon />} indent={depth} active={p._id === openId} onClick={() => navigate("pages", p._id)} actions={<>
-						<Popover trigger={<MoreIcon />} label={`Page actions for ${p.title}`} className={trailingAction} panelClassName="w-44 p-1">
-							{(close) => <><MenuItem onClick={() => { close(); setMoving(p); }}>Move to…</MenuItem><MenuItem danger onClick={() => { close(); run(remove({ kind: "page", id: p._id })); }}><TrashIcon /> Delete</MenuItem></>}
-						</Popover>
-						<button type="button" title="Add a page inside" aria-label={`Add a page inside ${p.title}`} onClick={() => add(p._id)} className={trailingAction}><PlusIcon /></button>
-					</>}>
+					<Item drag={drag} icon={<PageIcon />} expanded={open} onToggle={p.hasChildren ? () => toggle(p._id) : undefined} label={p.title} guides={guides} active={p._id === openId} onClick={() => navigate("pages", p._id)}
+						menu={(close) => <>
+							<MenuItem onClick={() => { close(); add(p._id); }}><PlusIcon /> New page inside</MenuItem>
+							<MenuItem onClick={() => { close(); setMoving({ ...p, parentId }); }}><ArrowRightIcon /> Move to…</MenuItem>
+							<MenuItem danger onClick={() => { close(); run(remove({ kind: "page", id: p._id })); }}><TrashIcon /> Delete</MenuItem>
+						</>}
+						actions={<button type="button" title="Add a page inside" aria-label={`Add a page inside ${p.title}`} onClick={() => add(p._id)} className={trailingAction}><PlusIcon /></button>}>
 						<span className="truncate">{p.title}</span>
 					</Item>
-					{open && level(p._id, depth + 1)}
+					{open && level(p._id, guides)}
 				</Fragment>
 			);
 		}} />
@@ -84,31 +88,57 @@ function PruneExpanded({ ids, onPrune }: { ids: string[]; onPrune: (ids: string[
 	return null;
 }
 
-export function PageLevel({ parentId, render, empty }: { parentId?: PageId; render: (row: Row) => React.ReactNode; empty?: React.ReactNode }) {
+/** One level of the tree. With `sortKey`, drag rows to reorder them within the level; the order is yours, kept on this computer (`useSortable`). */
+export function PageLevel({ parentId, sortKey = "", render, empty }: { parentId?: PageId; sortKey?: string; render: (row: Row, drag: DragProps | undefined, last: boolean) => React.ReactNode; empty?: React.ReactNode }) {
 	const { results, status, loadMore } = usePaginatedQuery(api.pages.children, { parentId }, { initialNumItems: 30 });
-	return <>{status === "Exhausted" && !results.length && empty}{results.map(render)}<LoadMore status={status} onMore={() => loadMore(30)} /></>;
+	const { sorted, drag } = useSortable(sortKey, results, rowId);
+	return <>{status === "Exhausted" && !results.length && empty}{sorted.map((p, i) => render(p, sortKey ? drag(p._id) : undefined, i === sorted.length - 1 && status !== "CanLoadMore"))}<LoadMore status={status} onMore={() => loadMore(30)} /></>;
 }
+const rowId = (p: Row) => p._id;
 
-/** Browse a destination a level at a time, including top-level Pages. Server checks cycles. */
+/**
+ * Where a page goes: the top level, a top-level page, or any page found by title (nested ones
+ * show their path). One click moves it; the server checks cycles and depth.
+ */
 export function MovePage({ page, onClose }: { page: Row; onClose: () => void }) {
-	const [trail, setTrail] = useState<Row[]>([]);
+	const [query, setQuery] = useState("");
+	const text = useDebounced(query.trim());
+	const found = useQuery(api.pages.search, text ? { query: text } : "skip");
 	const move = useMutation(api.pages.move);
 	const { error, busy, run } = useRun();
-	const parent = trail.at(-1);
+	const here = page.parentId ?? null;
+	const moveTo = (parentId: PageId | null) => !busy && parentId !== here && run(move({ pageId: page._id, parentId: parentId ?? undefined }), onClose);
+	const destination = (p: Row & { path?: string[] }) => (
+		<Item key={p._id} icon={<PageIcon />} muted={p._id === here} onClick={() => moveTo(p._id)}>
+			<span className="truncate">
+				{!!p.path?.length && <span className="text-neutral-400">{p.path.join(" / ")} / </span>}
+				{p.title}
+			</span>
+			{p._id === here && <Current />}
+		</Item>
+	);
 	return (
 		<Modal title={`Move ${page.title}`} onClose={onClose}>
+			<input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search pages…" aria-label="Search pages" className={inputClass} />
 			<Notice>{error}</Notice>
-			<nav className="flex flex-wrap gap-2 text-sm text-neutral-500">
-				<button type="button" onClick={() => setTrail([])}>Pages</button>
-				{trail.map((p, i) => <button key={p._id} type="button" onClick={() => setTrail(trail.slice(0, i + 1))}>/ {p.title}</button>)}
-			</nav>
 			<div className="flex max-h-72 flex-col overflow-y-auto">
-				<PageLevel parentId={parent?._id} render={(p) => p._id !== page._id && <Item key={p._id} icon={<PageIcon />} onClick={() => setTrail([...trail, p])}><span className="truncate">{p.title}</span><CaretRightIcon className="ml-auto" /></Item>} />
-			</div>
-			<div className="flex justify-end gap-2">
-				<button type="button" onClick={onClose} className={secondaryButton}>Cancel</button>
-				<button type="button" disabled={busy} onClick={() => run(move({ pageId: page._id, parentId: parent?._id }), onClose)} className={primaryButton}>Move to {parent?.title ?? "Pages"}</button>
+				{text ? (
+					<>
+						{found?.filter((p) => p._id !== page._id).map(destination)}
+						{found && !found.some((p) => p._id !== page._id) && <p className="px-2 py-1 text-sm text-neutral-400">No pages match.</p>}
+					</>
+				) : (
+					<>
+						<Item icon={<ArrowUpIcon />} muted={here === null} onClick={() => moveTo(null)}>
+							<span className="truncate">Top level</span>
+							{here === null && <Current />}
+						</Item>
+						<PageLevel parentId={undefined} render={(p) => p._id !== page._id && destination(p)} />
+					</>
+				)}
 			</div>
 		</Modal>
 	);
 }
+
+const Current = () => <span className="ml-auto text-xs text-neutral-400">Current</span>;

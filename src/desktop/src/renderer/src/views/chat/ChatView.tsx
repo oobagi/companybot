@@ -1,19 +1,20 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery, useWorkspace } from "../../convex";
-import { ChannelIcon, ChatIcon, PrivateIcon } from "../../icons";
+import { navigate } from "../../router";
+import { ChannelIcon, ChatIcon, CloseIcon, EditIcon, PlusIcon, PrivateIcon } from "../../icons";
 import { EmptyState, Loading, NotFound, Notice, Scroll, TopBar, useRun } from "../../ui";
 import { FileDrop, useAttachments } from "./Attachments";
-import { AgentBadge, AvatarStack } from "./common";
+import { AgentBadge, AvatarStack, MenuItem, Popover } from "./common";
 import { Composer, type SendWith } from "./Composer";
 import { type ChatDetails, type Mentions, chatTitle, useDirectory } from "./data";
-import { ChannelDetails } from "./dialogs";
+import { ChannelDetails, RenameChat } from "./dialogs";
 import { draftKey } from "./drafts";
 import { MessageList } from "./MessageList";
 import { ThreadPanel } from "./Thread";
 import { TrashNotice } from "../Trash";
-import { TutorialTray } from "./Tutorial";
+import { nudgeTutorial } from "./Tutorial";
 import { TypingLine, useTypingPing } from "./Typing";
 
 const suggestions = [
@@ -47,17 +48,14 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 	const markRead = useMutation(api.chats.markRead);
 	const directory = useDirectory();
 	const workspace = useWorkspace();
-	const [threadId, setThreadId] = useState<Id<"chatMessages">>();
 	const [details, setDetails] = useState(false);
 	const { error, fail } = useRun();
-	const [nudge, setNudge] = useState(0);
 
-	// A link to a thread opens it; a link to a message scrolls to it once it's loaded.
-	const focusThread = focus && "thread" in focus ? focus.thread : undefined;
+	// The open thread is in the route (/chat/<id>/thread/<message>), so the sidebar's thread rows,
+	// Back, and the channel row (which closes it) all agree. A link to a message scrolls to it once loaded.
+	const threadId = focus && "thread" in focus ? (focus.thread as Id<"chatMessages">) : undefined;
+	const openThread = (id?: Id<"chatMessages">) => navigate(...(id ? ["chat", chat._id, "thread", id] : ["chat", chat._id]));
 	const focusMessage = focus && "message" in focus ? focus.message : undefined;
-	useEffect(() => {
-		if (focusThread) setThreadId(focusThread as Id<"chatMessages">);
-	}, [focusThread]);
 	const loaded = !!messages;
 	useEffect(() => {
 		const el = loaded && focusMessage && document.getElementById(`message-${focusMessage}`);
@@ -83,7 +81,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 		fail();
 		typing.sent();
 		// Posting in #general without asking an agent: remind them of step 1.
-		if (chat.isDefault && mentions.agentIds.length === 0) setNudge((n) => n + 1);
+		if (chat.isDefault && mentions.agentIds.length === 0) nudgeTutorial();
 		sendMessage({ chatId: chat._id, text, mentions, attachments }).catch(fail);
 	};
 	const composer = (
@@ -91,8 +89,6 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 			sendWith={sendWith}
 			placeholder={`Message ${title}`}
 			status={<TypingLine chatId={chat._id} />}
-			// Channels only: it teaches @mentions, and a DM is a step of its own.
-			tray={chat.kind === "channel" && <TutorialTray agent={directory.agents[0]?.name ?? "an agent"} nudge={nudge} />}
 			// Nobody else could see it in an agent DM.
 			onType={agent ? undefined : typing.ping}
 			sources={directory}
@@ -112,15 +108,16 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 		<TopBar
 			title={
 				<>
-					{/* Inline, not flex: a flex row would take its baseline from the icon, not the name. */}
-					<h1 className="min-w-0 truncate">
+					{/* Inline, not flex: a flex row would take its baseline from the icon, not the name. Keeps a little room beside an agent's tabs. */}
+					<h1 className="min-w-24 truncate">
 						{chat.private && chat.kind === "channel" && <PrivateIcon className="mr-1 inline align-[-0.125em] text-neutral-400" />}
 						{title}
 					</h1>
 					{agent && <AgentBadge />}
+					{agent && <SideChatTabs chat={chat} />}
 				</>
 			}
-			description={chat.topic}
+			description={agent ? undefined : chat.topic}
 		>
 			{!agent && (
 				<button
@@ -175,7 +172,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 						messages={messages}
 						tokens={directory.tokens}
 						summaryLabel={agent?.name ?? "Agents"}
-						onOpenThread={setThreadId}
+						onOpenThread={openThread}
 						onError={fail}
 						intro={messages.length < 200 && <Intro title={title} channel={chat.kind === "channel"} />}
 						header={bar}
@@ -191,7 +188,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 					sendWith={sendWith}
 					sources={directory}
 					tokens={directory.tokens}
-					onClose={() => setThreadId(undefined)}
+					onClose={() => openThread()}
 				/>
 			)}
 			{details && <ChannelDetails chat={chat} onClose={() => setDetails(false)} onLeft={onLeft} />}
@@ -207,5 +204,68 @@ function Intro({ title, channel }: { title: string; channel: boolean }) {
 				{channel ? `This is the very beginning of ${title}.` : `This is the beginning of your conversation with ${title}.`}
 			</p>
 		</div>
+	);
+}
+
+/**
+ * An agent DM's conversations, as plain text beside its name: Main (the DM), each side chat (its
+ * own session and memory context, like a fresh chat in a chat app) with an × on hover that closes
+ * it to Trash, and + for another. Clicking the open side chat's name opens its menu (Rename). The
+ * sidebar nests the same ones under the agent.
+ */
+function SideChatTabs({ chat }: { chat: ChatDetails }) {
+	const list = useQuery(api.chats.list);
+	const create = useMutation(api.chats.createSideChat);
+	const remove = useMutation(api.trash.move);
+	const [renaming, setRenaming] = useState(false);
+	const { error, run } = useRun();
+	const mainId = chat.parentId ?? chat._id;
+	const sides = (list?.dms ?? []).filter((d) => d.parentId === mainId);
+	const tabs = [{ id: mainId, label: "Main", side: false }, ...sides.map((d) => ({ id: d._id, label: d.label ?? "New chat", side: true }))];
+	const side = chat.parentId ? chat : undefined;
+	const close = (id: Id<"chats">) => run(remove({ kind: "channel", id }), () => id === chat._id && navigate("chat", mainId));
+	// The open tab wears the sidebar's selected pill; the others are quiet text until hovered. A side
+	// chat's × shows on hover at the pill's right edge, on a patch of the pill's own colour (`--pill`)
+	// that fades in over the label's tail, so every tab keeps the same width and nothing shifts.
+	const pill = (open: boolean) =>
+		`group/tab relative flex shrink-0 rounded-md bg-(--pill) text-sm ${open ? "font-medium text-neutral-900 [--pill:color-mix(in_oklab,var(--color-neutral-200)_70%,white)]" : "font-normal text-neutral-500 hover:text-neutral-900 hover:[--pill:var(--color-neutral-100)]"}`;
+	const label = "max-w-48 shrink-0 truncate px-2 py-1";
+	// More tabs than fit scroll sideways (no scrollbar; the open one is scrolled into view), while the agent's name and + stay put.
+	const strip = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		strip.current?.querySelector('[aria-current="page"], [aria-expanded]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
+	}, [chat._id]);
+	return (
+		<nav aria-label={`Chats with ${chat.title}`} className="no-drag flex min-w-0 flex-1 items-center gap-1 self-center">
+			<span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-neutral-200" />
+			<div ref={strip} className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none]">
+			{tabs.map((t) => (
+				<div key={t.id} className={pill(t.id === chat._id)}>
+					{t.id === chat._id && side ? (
+						<Popover trigger={t.label} className={label} panelClassName="w-52 p-1">
+							{(close) => <MenuItem onClick={() => (close(), setRenaming(true))}><EditIcon /> Rename</MenuItem>}
+						</Popover>
+					) : (
+						<button type="button" aria-current={t.id === chat._id ? "page" : undefined} onClick={() => navigate("chat", t.id)} className={label}>
+							{t.label}
+						</button>
+					)}
+					{t.side && (
+						// Only the glyph takes clicks; the faded patch under it is just paint, so the label's tail still opens the tab.
+						<span className="pointer-events-none absolute inset-y-0 right-0 flex w-9 items-center justify-end rounded-r-md bg-[linear-gradient(to_right,transparent,var(--pill)_14px)] pr-1 opacity-0 focus-within:opacity-100 group-hover/tab:opacity-100">
+							<button type="button" title="Close (goes to Trash)" aria-label={`Close ${t.label}`} onClick={() => close(t.id)} className="pointer-events-auto flex size-5 items-center justify-center rounded text-neutral-500 hover:bg-neutral-300/60 hover:text-neutral-900">
+								<CloseIcon className="size-3.5" weight="bold" />
+							</button>
+						</span>
+					)}
+				</div>
+			))}
+			</div>
+			<button type="button" title="New chat" aria-label={`New chat with ${chat.title}`} onClick={() => run(create({ parentId: mainId }).then((id) => navigate("chat", id)))} className="flex size-6 shrink-0 items-center justify-center rounded-md text-neutral-400 hover:bg-neutral-100 hover:text-neutral-900">
+				<PlusIcon />
+			</button>
+			<Notice>{error}</Notice>
+			{renaming && side && <RenameChat chatId={side._id} title={side.label ?? ""} onClose={() => setRenaming(false)} />}
+		</nav>
 	);
 }

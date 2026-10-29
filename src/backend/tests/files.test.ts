@@ -152,13 +152,15 @@ describe("agents and files", () => {
 			{ id: `${messageId}/0`, name: "roof.png", type: "image/png", size: 64 },
 			{ id: `${messageId}/1`, name: "quote.docx", type: DOCX, size: docx("Quote: $12,000").length },
 		]);
-		// The default model doesn't see pictures; Claude does.
-		expect(context).toMatchObject({ vision: false, images: [] });
-		await t.run((ctx) => ctx.db.patch(companybot._id, { model: "anthropic/claude-sonnet-5.5" }));
-		expect(await t.query(internal.turns.turnContext, { turnId: turn._id })).toMatchObject({
-			vision: true,
-			images: [{ id: `${messageId}/0`, storageId: photo, type: "image/png" }],
-		});
+		// The default model sees pictures, before the gateway's catalog is ever fetched (a fresh deployment).
+		const images = [{ id: `${messageId}/0`, storageId: photo, type: "image/png" }];
+		expect(context).toMatchObject({ vision: true, images });
+		// A catalog saved before it kept the vision tag still can't hide the default model's.
+		await t.mutation(internal.modelCatalog.save, { models: [{ id: "openai/gpt-6-luna", name: "GPT-6 Luna", provider: "openai" }, { id: "deepseek/deepseek-v4", name: "DeepSeek V4", provider: "deepseek" }] });
+		expect(await t.query(internal.turns.turnContext, { turnId: turn._id })).toMatchObject({ vision: true, images });
+		// A model that doesn't see pictures gets none.
+		await t.run((ctx) => ctx.db.patch(companybot._id, { model: "deepseek/deepseek-v4" }));
+		expect(await t.query(internal.turns.turnContext, { turnId: turn._id })).toMatchObject({ vision: false, images: [] });
 
 		// chat.read_file finds it as the turn's person, and reads the Word file's text.
 		const found = await t.query(internal.files.readFor, { turnId: turn._id, id: `${messageId}/1` });
