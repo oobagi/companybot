@@ -7,6 +7,7 @@ Channels, DMs (people and agents), threads, and reactions. One model for all of 
 - **DM** — a fixed set of participants, found by `dmKey`. Person ↔ person, a group of people, or person ↔ agent (an **agent DM**). Each active agent shows in the sidebar as a DM even before the first message.
 - **Thread** — replies under a message (`threadId` = parent). The parent keeps `replyCount` and `lastReplyAt`. Threads are one level deep.
 - **Reaction** — one emoji from one person or agent on one message. Toggling again removes it.
+- **Files** — up to 10 per message (`chatMessages.attachments`), like Slack's: pictures (PNG, JPEG, WebP, GIF), PDF, Word, Excel, and text (plain, Markdown, CSV, JSON), up to 20 MB each. Upload and rules: `files.ts` under [Backend API](#backend-api-backendconvexchatsts-messagests-filests).
 
 ## When agents reply
 - **Agent DM** (one person + one agent): every message the person sends, including automation runs posted as them.
@@ -39,8 +40,9 @@ Built for prompt caching: the cache matches an exact prefix, so nothing earlier 
    - Where you are: chat, who's in it, who triggered you, memory mode.
    - Everything said in the place since the agent's last reply, including messages not addressed to it, each labeled `[Name time]` with its text as a JSON string. Names and topics lose brackets and line breaks, and the asker's lines are marked `(asker)`, so no message (or look-alike name) can fake a line from someone else: Anthropic's advice for untrusted text. The guide tells the agent only the asker can direct it, and compaction credits a request only to whoever's labeled line made it. A thread's first turn starts with its parent. Capped at ~50 messages; past that, a note says to use `chat.read`.
    - The trigger message, marked as the one to answer. A turn queued by an approval decision gets the outcome (approved + result, failed, or denied) here instead.
+   - Each message's files, after its text: name, type, size and file id (`<message id>/<n>`). If any are pictures, a line says whether they follow (the model sees pictures: the catalog's `vision` tag) or that it can't see them. The newest 8 pictures under 5 MB and 8000px go after the prompt as image parts, each after its id (`buildTurnInput`'s `images`). Only that turn gets them: replays are the stored text, so the cached prefix stays the same and later turns have the agent's own reply about them.
 4. **Compaction** — once the session passes ~40k tokens, older turns fold into the session's summary and a ~15k-token tail stays verbatim. One cache miss, then append-only again.
-5. **Chat tools** — `chat.react` (react to the trigger message), `chat.read` (older history or another place), `chat.search` (search chats the actor can see). Granted like other built-ins (`chat.*`).
+5. **Chat tools** — `chat.react` (react to the trigger message), `chat.read` (older history or another place; lines list their files), `chat.search` (search chats the actor can see), `chat.read_file` (a file's text by id, 20k characters a page: a PDF's pages, a Word file's paragraphs, each Excel sheet as CSV, text as is; `inside`, like `chat.read`). Granted like other built-ins (`chat.*`), so every agent with chat has it.
 
 Foreign automation runs skip session replay and summaries and see only their trigger or its own thread. Other history must be read through the consent-gated chat tools.
 
@@ -48,7 +50,7 @@ Code: `core/src/turn-input.ts` builds all of it (`systemPrompt`, `buildTurnPromp
 
 Not a skill: chat is the platform, so every agent has it.
 
-## Backend API (`backend/convex/chats.ts`, `messages.ts`)
+## Backend API (`backend/convex/chats.ts`, `messages.ts`, `files.ts`)
 Queries return display-ready data (names resolved) so the app never joins tables.
 
 **`chats.ts`**
@@ -73,9 +75,15 @@ Queries return display-ready data (names resolved) so the app never joins tables
   `{ _id, _creationTime, chatId, threadId, author: Participant, text, parts, status, error, stats, editedAt, deleted, mine: boolean, replyCount, lastReplyAt, replyAuthors: Participant[] (up to 3), automation: { id, name } | null, reactions: { emoji, count, mine, names: string[] }[] }`.
 - `parts` includes approval cards. `replyAuthors` is stored on the parent as replies arrive (older parents fall back to reading their replies).
 - `stream({ messageId })` → `{ text, parts }` while a reply streams, else null. The runner writes a streaming reply's content to its own `replyStreams` row (`turns.updateReply`, ~5×/s), and moves it onto the message in one write when it ends (`endStream`). So the flushes re-run only the streaming bubble's query, not every viewer's `messages.list`; the app's row subscribes to it while `status` is streaming. Agents' prompts leave out replies still streaming.
-- `send({ chatId, threadId?, text, mentions: { userIds, agentIds, recordIds?, skillIds? } })` → messageId. The app sends mention ids picked from the composer's menus; the server drops ids outside the workspace, agents in Trash, and skills not installed. `recordIds` are records the message references ([Data](data.md)). `skillIds` are skills named with `/`: the trigger message's turn prompt tells the agent to load them with `skills_load` first (`PlaceMessage.skills`, from `turns.turnContext`). Schedules agent turns, and starts automations watching the channel (`message.posted`, top-level channel messages only).
-- `edit({ messageId, text })`, `remove({ messageId })` — your own messages. Removing keeps the row (threads hang off it) and clears text, parts, and reactions.
+- `send({ chatId, threadId?, text, mentions: { userIds, agentIds, recordIds?, skillIds? }, attachments? })` → messageId. `attachments`: up to 10 of your own unclaimed file uploads from this workspace (below), in order; with files, text may be empty. The app sends mention ids picked from the composer's menus; the server drops ids outside the workspace, agents in Trash, and skills not installed. `recordIds` are records the message references ([Data](data.md)). `skillIds` are skills named with `/`: the trigger message's turn prompt tells the agent to load them with `skills_load` first (`PlaceMessage.skills`, from `turns.turnContext`). Schedules agent turns, and starts automations watching the channel (`message.posted`, top-level channel messages only).
+- `edit({ messageId, text })`, `remove({ messageId })` — your own messages. Removing keeps the row (threads hang off it), clears text, parts and reactions, and deletes its files.
 - `react({ messageId, emoji })` — toggles your reaction.
+
+**`files.ts`**
+- Upload: `POST <site>/files/upload?workspaceId=…&name=…` with the sign-in token (`uploadEndpoint` gives the URL), the same path as pictures ([Architecture](architecture.md), Pictures): the type is read from the bytes (`sniffFile`, core `files.ts`): picture signatures, `%PDF-`, ZIPs told apart by the parts they list (`word/document.xml`, `xl/workbook.xml`, plus `[Content_Types].xml`; other ZIPs refused), else UTF-8 text with no NUL bytes that doesn't start like HTML or SVG, its kind from the extension. HTML, SVG and anything else are refused (415), so nothing a browser runs is ever stored or served. Stored with the sniffed type; the `uploads` row keeps `file` (name without folders or control characters, type, size, a picture's width and height from its header). 20 MB is Convex's HTTP body limit. The workspace must be named and theirs.
+- A picture upload can't be attached and a file upload can't become a picture (`claimUpload` / `claimFiles` check `file`). Sending uses the rows up, so an id someone else learns is worthless; a refused message claims nothing.
+- `discard({ file })` — drops one of your unclaimed uploads and its file (removed from the composer). Unclaimed ones also go with the hourly sweep after a day.
+- `attachToReply({ turnId, storageId, name, width?, height? })` (internal) — puts a file the runner stored (`ctx.storage.store` with its real type) on the reply the running turn is writing; for agents that make files. Returns `{ attached: true }`, or `{ error }` with the file deleted if the turn stopped, its person lost the chat, the type isn't one messages take, or the reply has 10.
 
 **`typing.ts`**
 - `ping({ chatId, threadId? })` — you're typing there. The app sends it on keystrokes, at most every 4s (`TYPING_PING_MS`, core `typing.ts`). Ignored in agent DMs (nobody else would see it) and for a thread that isn't one.
@@ -86,6 +94,8 @@ Queries return display-ready data (names resolved) so the app never joins tables
 **The composer** (`views/chat/Composer.tsx`, extensions in `editor.ts`) is a one-block Tiptap editor, the same ProseMirror BlockNote uses for pages. Three triggers open a menu above the box, keyboard-driven like Slack's (arrows, Enter or Tab to pick, Escape to close, mouse too): `@` people and agents (one space allowed, so "@Sam L" finds Sam Lee), `#` channels you're in plus public ones you aren't (agents read them with `chat_read`; the platform guide says a `#name` is a channel), `/` installed skills. A pick becomes an atomic chip (a `token` node: `kind`, `id`, `label`) that Backspace removes whole. The message is sent as plain text (`@Ada`, `#sales`, `/Proposal`) plus the ids by kind, so nothing else changes shape. Enter sends (or ⌘Enter, by the `sendWith` preference); Shift-Enter breaks the line. Messages show the same chips (`TokenText` in `Message.tsx`); `#channel` chips open the channel. `useDirectory` (`data.ts`) supplies all of it.
 
 Under every composer, one line says who's typing there ("Ada and Companybot are typing…"). Its space is always kept, so the box doesn't jump. A thread has its own line. The line (`TypingLine`) is its own component, so its timer doesn't re-render the messages.
+
+**Files** (`views/chat/Attachments.tsx`): the paperclip in the composer, pasting, or dropping files on the chat or thread attaches them. Each uploads as it's added, showing a picture or icon, name, a progress bar (XMLHttpRequest; fetch can't report it) or its error, and a remove button (`files.discard`). Send waits until they're uploaded. The app checks each file's bytes before uploading (`fileError`); the backend checks again. Messages show pictures as thumbnails (click: larger, over everything) and other files as chips (icon, name, kind and size) that open the file in the browser.
 
 Click a name or avatar for a profile card (`views/chat/Profile.tsx`, from `workspace.team` and `chats.list`): name, email, role, local time, Message.
 

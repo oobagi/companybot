@@ -58,6 +58,22 @@ describe("turn input", () => {
 		expect(prompt.endsWith('[Ada (asker) 10-22 08:03] "@Companybot /Proposal for Acme"\nIt names a skill with /: load it with skills_load first and follow it: "Proposal" (custom-1).')).toBe(true);
 	});
 
+	it("lists attached files with their ids, and sends pictures after the prompt for models that see them", () => {
+		const photo = { id: "m3/0", name: "roof.png", type: "image/png", size: 2048 };
+		const files = [msg("m3", ada, "What's this?", 3, { files: [photo, { id: "m3/1", name: 'q3 "final".pdf', type: "application/pdf", size: 3 * 1024 * 1024 }] })];
+		const prompt = buildTurnPrompt({ ...base, messages: files, vision: true });
+		expect(prompt).toContain('[Ada (asker) 10-22 08:03] "What\'s this?" (attached: "roof.png" image/png 2 KB id m3/0; "q3 \\"final\\".pdf" application/pdf 3 MB id m3/1)');
+		expect(prompt).toContain("The newest pictures attached here come after this message");
+		expect(buildTurnPrompt({ ...base, messages: files })).toContain("Your model can't see pictures");
+		expect(buildTurnPrompt(base)).not.toContain("pictures");
+
+		const data = new Uint8Array([1, 2, 3]);
+		const input = buildTurnInput({ agent: { instructions: "Be brief.", tools: [] }, skills: [], session: { summary: null, turns: [] }, prompt, images: [{ id: "m3/0", type: "image/png", data }] });
+		expect(input.messages).toEqual([
+			{ role: "user", content: [{ type: "text", text: prompt }, { type: "text", text: "Picture m3/0:" }, { type: "file", mediaType: "image/png", data }] },
+		]);
+	});
+
 	it("lists at most 15 people in a big channel", () => {
 		const crowd = Array.from({ length: 20 }, (_, i) => ({ type: "user" as const, id: `p${i}`, name: `P${i}` }));
 		const prompt = buildTurnPrompt({ ...base, place: { ...base.place, members: [bot, ...crowd] } });

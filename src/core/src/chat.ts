@@ -23,6 +23,8 @@ export interface ChatLine {
 	replies?: number;
 	/** Emoji and who added each. */
 	reactions?: { emoji: string; by: string[] }[];
+	/** Attached files. `id` is what chat.read_file takes. */
+	files?: { id: string; name: string; type: string; size: number }[];
 }
 
 const readInput = z.object({
@@ -35,6 +37,9 @@ export type ChatReadInput = z.infer<typeof readInput>;
 
 export type ChatResult = { messages: ChatLine[] } | { error: string };
 
+/** One page of an attached file's text. */
+export type FileResult = { name: string; type: string; page: number; pages: number; text: string } | { error: string };
+
 /**
  * Chats as the person the agent acts for sees them. Implementations must check
  * visibility on every call (re-reading membership); tools rely on that.
@@ -44,6 +49,8 @@ export interface ChatStore {
 	react(emoji: string): Promise<{ reacted: boolean } | { error: string }>;
 	read(input: ChatReadInput): Promise<ChatResult>;
 	search(input: { query: string; chat?: string }): Promise<ChatResult>;
+	/** A file attached to a message in a chat they can see. */
+	readFile(input: { id: string; page?: number }): Promise<FileResult>;
 }
 
 export const chatTools: ToolDef[] = [
@@ -76,5 +83,22 @@ export const chatTools: ToolDef[] = [
 		risk: "inside",
 		returnsData: true,
 		execute: (input, { chat }) => chat.search(input),
+	}),
+	defineTool({
+		id: "chat.read_file",
+		title: "Read a file",
+		description: "Read the text of a file attached to a message (PDF, Word, Excel, CSV, text), by the file id shown with it. Long files come in pages: ask for the next with page.",
+		input: z.object({
+			id: z.string().describe('The file id, like "<message id>/0"'),
+			page: z.number().int().min(1).optional().describe("Default 1"),
+		}),
+		readOnly: true,
+		// Can read files in their private channels and DMs.
+		risk: "inside",
+		label: (_input, output) => {
+			const name = output && typeof output === "object" && "name" in output ? String(output.name) : undefined;
+			return name && `Read ${JSON.stringify(name)}`;
+		},
+		execute: (input, { chat }) => chat.readFile(input),
 	}),
 ];

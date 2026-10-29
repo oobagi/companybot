@@ -16,6 +16,8 @@
     "./action-words": "./src/action-words.ts",
     "./typing": "./src/typing.ts",
     "./images": "./src/images.ts",
+    "./files": "./src/files.ts",
+    "./file-text": "./src/file-text.ts",
     "./onboarding": "./src/onboarding.ts",
     "./memory": "./src/memory.ts",
     "./widgets": "./src/widgets.ts"
@@ -27,6 +29,8 @@
   "dependencies": {
     "@ai-sdk/mcp": "^2.0.81",
     "ai": "^7.0.148",
+    "fflate": "^0.8.3",
+    "unpdf": "^1.9.1",
     "zod": "^4.6.7"
   }
 }

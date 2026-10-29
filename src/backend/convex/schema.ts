@@ -1,7 +1,7 @@
 import { viewConfig } from "./recordValidators";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
-import { fieldKinds, risks, roles, trashKinds } from "@companybot/core";
+import { fieldKinds, fileTypes, risks, roles, trashKinds } from "@companybot/core";
 import { v } from "convex/values";
 
 /** One of `values`, each a literal. */
@@ -18,6 +18,16 @@ export const agentConfig = v.object({
 	model: v.string(),
 	tools: v.array(v.string()),
 });
+
+/** A file on a message: its name, the type its bytes say it is, and (pictures) its size in pixels. */
+export const fileInfo = v.object({
+	name: v.string(),
+	type: oneOf(fileTypes),
+	size: v.number(),
+	width: v.optional(v.number()),
+	height: v.optional(v.number()),
+});
+export const attachment = v.object({ storageId: v.id("_storage"), ...fileInfo.fields });
 
 export const toolStatus = v.union(v.literal("running"), v.literal("done"), v.literal("error"));
 
@@ -108,6 +118,7 @@ export const modelInfo = v.object({
 	contextWindow: v.optional(v.number()),
 	input: v.optional(v.number()),
 	output: v.optional(v.number()),
+	vision: v.optional(v.boolean()),
 });
 
 // Stored definitions keep retired library installs independent of shipped catalogs.
@@ -279,6 +290,8 @@ export default defineSchema({
 		/** The workspace the app had open. */
 		workspaceId: v.optional(v.id("workspaces")),
 		createdAt: v.number(),
+		/** Set for a file for a message (files.ts), unset for a picture; each is only claimed as its own kind. */
+		file: v.optional(fileInfo),
 	})
 		.index("by_storage", ["storageId"])
 		.index("by_user", ["userId"])
@@ -403,6 +416,8 @@ export default defineSchema({
 		actingFor: v.optional(v.id("users")),
 		text: v.string(),
 		parts: v.array(messagePart),
+		/** Files attached to it (files.ts), in order. Deleted with the message, or when it is. */
+		attachments: v.optional(v.array(attachment)),
 		/** Who was @mentioned. Mentioned agents get a turn. `recordIds`: records the message references. `skillIds`: skills named with `/`. */
 		mentions: v.object({
 			userIds: v.array(v.id("users")),

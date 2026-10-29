@@ -27,6 +27,8 @@ import type * as crons from "../crons.js";
 import type * as crypto from "../crypto.js";
 import type * as databaseViews from "../databaseViews.js";
 import type * as fields from "../fields.js";
+import type * as fileText from "../fileText.js";
+import type * as files from "../files.js";
 import type * as functions from "../functions.js";
 import type * as http from "../http.js";
 import type * as images from "../images.js";
@@ -91,6 +93,8 @@ declare const fullApi: ApiFromModules<{
   crypto: typeof crypto;
   databaseViews: typeof databaseViews;
   fields: typeof fields;
+  fileText: typeof fileText;
+  files: typeof files;
   functions: typeof functions;
   http: typeof http;
   images: typeof images;
