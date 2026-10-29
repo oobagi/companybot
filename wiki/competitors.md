@@ -16,6 +16,7 @@
 | [Anytwo](https://community.anytype.io/t/anytwo-and-the-future-of-anytype/31235) (Anytype) | Rebuild of Anytype (Berlin, ~$13M Series A 2023), a Notion alternative that keeps data on your devices, encrypted end to end. Public v1 by end of 2026. Runs on [Any](https://docs.any.org) (MIT, developer preview): typed records, block docs, live queries, an agent with tools, memory and connectors, chat, and Python scripts on schedules or events. **Closest to our design.** | Personal notes first (a separate Anytype for Business); no business data (CRM, calls, pipelines); end-to-end encryption makes always-on server agents hard. Not backward compatible: Anytype users must migrate. |
 | [Baserow](https://baserow.io) | Open-source Airtable (Dutch, since 2020, ~$6M raised, claims 200k active users; 6.2k GitHub stars, Python). Views (grid, kanban, calendar, timeline, form), app builder, automations, dashboards, AI assistant (Kuma) that builds databases, formulas, automations and apps; MCP server. SOC 2, HIPAA; $10–18/user/mo | A toolkit someone has to set up; no chat, no CRM out of the box. Sells to enterprises and the EU on compliance. Open core: MIT, with paid features in `premium/` and `enterprise/` |
 | [Teable](https://teable.ai) | "AI Spreadsheet for Business" (Teable Inc., angel round Sep 2025; **21.9k GitHub stars**, TypeScript). Every table is real Postgres, millions of rows. An agent builds apps in a sandbox and deploys each to its own URL; scheduled AI routines; MCP server + CLI for Claude Code and Cursor. $13–20/seat/mo with 2–3k AI credits per seat | No chat, no CRM, no follow-up: it builds tools, it doesn't run the business. **Closest open-source rival for Databases: same license (AGPL), stack and "agents inside your data" pitch.** |
+| ChatGPT Sites (OpenAI) | Describe a site or small web app in chat and ChatGPT builds and hosts it (public beta Jul 2026, paid plans). A small database (SQLite), file storage, custom domains. Wix also has a site builder inside ChatGPT | One-off builds: no CRM behind the forms, nobody answering leads, no upkeep. No payments; not in the EEA or UK at launch. **Makes "AI builds your website" table stakes** ([Product → Sites](product.md#sites-not-built-yet)). |
 
 ## Gaps
 - The bundle (CRM + calls + email + ads) already exists in GoHighLevel. What doesn't exist is one AI that runs it end to end.
@@ -36,7 +37,7 @@
 - Sumus: outside agents (Codex, Claude) join a chat as themselves; a free tier for small teams; sponsoring mcp.so to reach agent-savvy early adopters.
 - Teable and Baserow: an MCP server of our own, so outside agents (Claude Code, Cursor) can work in a workspace. Today we only connect out to other tools' MCP servers (connectors).
 - Teable: AGPL plus a Section 7 clause that stops forks from rebranding it, with SDK packages under MIT.
-- Baserow: the open-core split for our Enterprise tier: paid features (SSO, audit) in an `enterprise/` folder under a commercial license.
+- Baserow: proof that the open-core split we planned for Enterprise works (paid features in their own folder under a commercial license; ours is `ee/`, see [Product → Open source](product.md#open-source)).
 - Pricing benchmark: $10–20 per seat per month; Teable includes AI credits per seat.
 
 ## Threat

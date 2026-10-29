@@ -35,6 +35,22 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 - Flow: the agent writes the emails → the person approves (see [Permissions](permissions.md)) → the service sends from warmed mailboxes → replies come back by webhook, land on the lead's record, move it in the pipeline, and the agent drafts an answer.
 - Email to people who already know the business (leads, past clients, check-ins) uses the same pipeline.
 
+## Sites (not built yet)
+- **The business's public website and lead funnels, built and run by agents.** Agencies build and maintain small businesses' sites, so firing the agency includes the website.
+- **Start from what they have.** Optionally, hand the agent the current site. It pulls the logo, colors, fonts, photos and copy, and fills the databases (services, team, locations, hours). What it pulls is a draft until someone confirms it.
+- **The site reads from the databases.** Services, hours, team and reviews come from records, so editing a record updates the site. Content is data; layout and design are a versioned site.
+- **Funnels write to the databases.** Forms and landing pages create or update records (a lead in Clients) and can start automations.
+- **Leads land in chat.** Form fills, texts, emails and calls show up in chat like Night Owl's. Agents answer there while the team watches or jumps in. Each lead is a record with its conversation. Replies to customers follow [Permissions](permissions.md) (ask first).
+- **Agents keep it up.** Edits, new pages, seasonal changes, fixes and upgrades happen by asking in chat. Nobody signs in to a CMS, GitHub or a host.
+- **Making a site is table stakes.** ChatGPT Sites, Wix in ChatGPT and Teable's app builder all make one from a prompt ([Competitors](competitors.md)). What they lack is the loop: records behind the forms, someone answering leads, and upkeep.
+- **Rules, from the Cottonwood Library site** (built by hand: chat → CMS → preview → "Ready to save?" → live):
+  - Every change gets a preview (phone and desktop). Publishing needs an explicit OK for that exact version; a changed version needs a new OK. The last good version stays for rollback.
+  - Never invent facts (hours, prices, dates, testimonials, payment links). Ask only for what's missing.
+  - The business owns its domain, billing and the final publish. Domain transfers take 5–15 days, so start early.
+  - Scheduled jobs report; they don't change the live site on their own.
+  - Picture generation matters: it was the library staff's favorite part.
+- **Depends on** the [Sandbox](sandbox.md) (to build and preview sites) and email and phone (to answer leads).
+
 ## Later
 - **Ads manager:** run marketing campaigns from Companybot, with results tied back to the leads they brought in.
 
