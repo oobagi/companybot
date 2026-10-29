@@ -64,7 +64,7 @@ export function AgentBadge() {
  * Calls `onClose` on a click outside `ref` or on Escape. A popover's panel lives at the end of
  * the page, outside whatever opened it, so a click in one counts as inside.
  */
-export function useDismiss<T extends HTMLElement>(onClose: () => void, active = true) {
+export function useDismiss<T extends HTMLElement>(onClose: () => void, active = true, ignore?: React.RefObject<HTMLElement | null>) {
 	const ref = useRef<T>(null);
 	const close = useRef(onClose);
 	close.current = onClose;
@@ -72,7 +72,7 @@ export function useDismiss<T extends HTMLElement>(onClose: () => void, active = 
 		if (!active) return;
 		const down = (e: MouseEvent) => {
 			const target = e.target as Element;
-			if (ref.current && !ref.current.contains(target) && !target.closest?.("[data-popover]")) close.current();
+			if (ref.current && !ref.current.contains(target) && !ignore?.current?.contains(target) && !target.closest?.("[data-popover]")) close.current();
 		};
 		const key = (e: KeyboardEvent) => e.key === "Escape" && close.current();
 		document.addEventListener("mousedown", down);
@@ -81,7 +81,7 @@ export function useDismiss<T extends HTMLElement>(onClose: () => void, active = 
 			document.removeEventListener("mousedown", down);
 			document.removeEventListener("keydown", key);
 		};
-	}, [active]);
+	}, [active, ignore]);
 	return ref;
 }
 
@@ -151,7 +151,7 @@ export function Popover({
 	disabled,
 	matchWidth,
 	className = "",
-	panelClassName = "w-72",
+	panelClassName,
 	children,
 }: {
 	/** What you click. */
@@ -169,13 +169,55 @@ export function Popover({
 }) {
 	const [anchor, setAnchor] = useState<DOMRect>();
 	const close = () => setAnchor(undefined);
-	const ref = useDismiss<HTMLSpanElement>(close, !!anchor);
-	const panel = useRef<HTMLDivElement>(null);
+	const button = useRef<HTMLButtonElement>(null);
+	return (
+		<>
+			<button
+				ref={button}
+				type="button"
+				title={label}
+				aria-label={label}
+				aria-expanded={!!anchor}
+				disabled={disabled}
+				onClick={(e) => (anchor ? close() : setAnchor(e.currentTarget.getBoundingClientRect()))}
+				className={className}
+			>
+				{trigger}
+			</button>
+			{anchor && (
+				<PopoverPanel anchor={anchor} ignore={button} matchWidth={matchWidth} className={panelClassName} onClose={close}>
+					{typeof children === "function" ? children(close) : children}
+				</PopoverPanel>
+			)}
+		</>
+	);
+}
+
+/**
+ * A Popover's panel on its own, placed by `anchor`: a button's box, or a point (a right-click).
+ * A click outside or Escape closes it; a click on `ignore` (the button that toggles it) is left to that button.
+ */
+export function PopoverPanel({
+	anchor,
+	ignore,
+	matchWidth,
+	className = "w-72",
+	onClose,
+	children,
+}: {
+	anchor: DOMRect;
+	ignore?: React.RefObject<HTMLElement | null>;
+	matchWidth?: boolean;
+	className?: string;
+	onClose: () => void;
+	children: React.ReactNode;
+}) {
+	const panel = useDismiss<HTMLDivElement>(onClose, true, ignore);
 	const [at, setAt] = useState<React.CSSProperties>(measuring);
 	// Measure, then place: below if it fits, else above if it fits there, else on the roomier
 	// side, shortened to fit (it scrolls). Never over its button; nudged in from the window's edges.
 	useLayoutEffect(() => {
-		if (!anchor || !panel.current) return setAt(measuring);
+		if (!panel.current) return;
 		const { width, height } = panel.current.getBoundingClientRect();
 		const gap = 6;
 		const roomBelow = window.innerHeight - 8 - anchor.bottom - gap;
@@ -188,35 +230,19 @@ export function Popover({
 			maxHeight: Math.min(room, window.innerHeight * 0.7),
 			minWidth: matchWidth ? anchor.width : undefined,
 		});
-	}, [anchor, matchWidth]);
-	return (
-		<span ref={ref} className="contents">
-			<button
-				type="button"
-				title={label}
-				aria-label={label}
-				aria-expanded={!!anchor}
-				disabled={disabled}
-				onClick={(e) => (anchor ? close() : setAnchor(e.currentTarget.getBoundingClientRect()))}
-				className={className}
-			>
-				{trigger}
-			</button>
-			{/* At the end of the page: Electron lets a later window-drag area (a top bar) take the mouse
-			    from anything drawn over it, so the panel has to come after them all. */}
-			{anchor &&
-				createPortal(
-					<div
-						ref={panel}
-						data-popover
-						style={at}
-						className={`no-drag fixed z-50 max-h-[70vh] overflow-y-auto rounded-xl border border-neutral-200 bg-white text-left text-sm font-normal text-neutral-900 shadow-lg ${panelClassName}`}
-					>
-						{typeof children === "function" ? children(close) : children}
-					</div>,
-					document.body,
-				)}
-		</span>
+	}, [anchor, matchWidth, panel]);
+	// At the end of the page: Electron lets a later window-drag area (a top bar) take the mouse
+	// from anything drawn over it, so the panel has to come after them all.
+	return createPortal(
+		<div
+			ref={panel}
+			data-popover
+			style={at}
+			className={`no-drag fixed z-50 max-h-[70vh] overflow-y-auto rounded-xl border border-neutral-200 bg-white text-left text-sm font-normal text-neutral-900 shadow-lg ${className}`}
+		>
+			{children}
+		</div>,
+		document.body,
 	);
 }
 

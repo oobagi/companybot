@@ -10,6 +10,7 @@ import {
 	addToChat,
 	addUserMentions,
 	agentOfDm,
+	titleFrom,
 	insertMessage,
 	markChatRead,
 	namer,
@@ -144,7 +145,7 @@ export const send = mutation({
 export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId, text, mentions }: Infer<typeof sendMessageArgs>): Promise<Id<"chatMessages">> {
 	const { member } = who;
 	const chat = await requireChat(ctx, member, chatId);
-	if (chat.archived) throw new ConvexError("This channel is in Trash.");
+	if (chat.archived) throw new ConvexError("This chat is in Trash.");
 	text = text.trim();
 	if (!text) throw new ConvexError("Write something first.");
 	if (threadId) {
@@ -173,6 +174,8 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 
 	const dmAgent = agentOfDm(chat);
 	if (dmAgent && (await ctx.db.get(dmAgent))?.archived) throw new ConvexError("This agent is in Trash.");
+	// A side chat takes its name from the person's first message.
+	if (chat.parentId && !chat.title && !threadId && !who.agentId) await ctx.db.patch(chat._id, { title: titleFrom(text) });
 
 	const messageId = await insertMessage(ctx, chat, {
 		threadId,

@@ -3,24 +3,7 @@ import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
-import {
-	type Namer,
-	type Participant,
-	addToChat,
-	agentOfDm,
-	availableName,
-	chatMembersOf,
-	findOrCreateDm,
-	latestMentionSince,
-	markChatRead,
-	membership,
-	namer,
-	requireActiveAgents,
-	requireChat,
-	requireManagedChannel,
-	requireWorkspaceUsers,
-	visibleChat,
-} from "./chatOps";
+import { addToChat, agentOfDm, availableName, chatMembersOf, findOrCreateDm, latestMentionSince, markChatRead, membership, namer, requireActiveAgents, requireChat, requireManagedChannel, requireWorkspaceUsers, sideChatTitle, titleFrom, type Namer, type Participant, visibleChat } from "./chatOps";
 import { type Member, checkPermission, getMember, preferencesOf, requireMember, toActor } from "./lib";
 import { trashInfo } from "./trashOps";
 import { sessionAt } from "./turns";
@@ -45,6 +28,12 @@ export type ChatItem = {
 	/** An unread message mentions you. */
 	mentioned: boolean;
 	lastMessageAt: number;
+	/** Channels: you can rename it, delete it and manage its members (`canManageChannel`). */
+	canManage: boolean;
+	/** Side chats: the agent DM they sit under. Else null. */
+	parentId: Id<"chats"> | null;
+	/** Side chats: what it's about ("New chat" until its first message). Else null. */
+	label: string | null;
 };
 
 export type AgentItem = {
@@ -85,6 +74,9 @@ async function toChatItem(
 		unread,
 		mentioned: unread && !!(await latestMentionSince(ctx, chat._id, member.userId, mine?.lastReadAt ?? 0)),
 		lastMessageAt: chat.lastMessageAt,
+		canManage: chat.kind === "channel" && canManageChannel(toActor(member), chat),
+		parentId: chat.parentId ?? null,
+		label: chat.parentId ? sideChatTitle(chat) : null,
 	};
 }
 
@@ -102,10 +94,16 @@ export const list = query({
 			.withIndex("by_user", (q) => q.eq("userId", member.userId))
 			.collect();
 		const items: ChatItem[] = [];
+		const createdAt = new Map<Id<"chats">, number>();
 		for (const row of rows) {
 			const chat = await ctx.db.get(row.chatId);
-			if (chat && !chat.archived && chat.workspaceId === member.workspaceId) items.push(await toChatItem(ctx, chat, member, names, row, chat.kind === "dm" ? await chatMembersOf(ctx, chat._id) : []));
+			if (!chat || chat.archived || chat.workspaceId !== member.workspaceId) continue;
+			createdAt.set(chat._id, chat._creationTime);
+			items.push(await toChatItem(ctx, chat, member, names, row, chat.kind === "dm" ? await chatMembersOf(ctx, chat._id) : []));
 		}
+		// DMs most recent first; side chats in the order they were made, so a new tab lands at the end.
+		const dms = items.filter((c) => c.kind === "dm" && !c.parentId).sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+		const sides = items.filter((c) => c.parentId).sort((a, b) => createdAt.get(a._id)! - createdAt.get(b._id)!);
 		const agents = await ctx.db
 			.query("agents")
 			.withIndex("by_workspace_active", (q) => q.eq("workspaceId", member.workspaceId).eq("archived", false))
@@ -113,9 +111,9 @@ export const list = query({
 		return {
 			me: member.userId,
 			channels: items.filter((c) => c.kind === "channel").sort((a, b) => a.title.localeCompare(b.title)),
-			dms: items.filter((c) => c.kind === "dm").sort((a, b) => b.lastMessageAt - a.lastMessageAt),
+			dms: [...dms, ...sides],
 			agents: await Promise.all(agents.map(async (a) => {
-				const dm = items.find((c) => c.agentId === a._id);
+				const dm = items.find((c) => c.agentId === a._id && !c.parentId);
 				return {
 					_id: a._id,
 					name: a.name,
@@ -130,6 +128,36 @@ export const list = query({
 		};
 	},
 });
+
+/** A thread with replies lately, for the sidebar. `title` is its parent message's first line. */
+export type ActiveThread = { chatId: Id<"chats">; messageId: Id<"chatMessages">; title: string; lastReplyAt: number };
+export const ACTIVE_THREAD_MS = 7 * 24 * 60 * 60 * 1000;
+export const ACTIVE_THREADS_PER_CHANNEL = 5;
+
+/** Threads replied to in the last week, in channels you're in: up to 5 per channel, newest reply first. */
+export const activeThreads = query({
+	args: {},
+	handler: async (ctx): Promise<ActiveThread[]> => {
+		const member = await getMember(ctx);
+		if (!member) return [];
+		const since = Date.now() - ACTIVE_THREAD_MS;
+		const rows = await ctx.db.query("chatMembers").withIndex("by_user", (q) => q.eq("userId", member.userId)).collect();
+		const threads: ActiveThread[] = [];
+		for (const row of rows) {
+			const chat = await ctx.db.get(row.chatId);
+			if (chat?.kind !== "channel" || chat.archived || chat.workspaceId !== member.workspaceId) continue;
+			const parents = await ctx.db
+				.query("chatMessages")
+				.withIndex("by_chat_lastReply", (q) => q.eq("chatId", chat._id).gt("lastReplyAt", since))
+				.order("desc")
+				.take(ACTIVE_THREADS_PER_CHANNEL);
+			for (const m of parents) threads.push({ chatId: chat._id, messageId: m._id, title: threadTitle(m), lastReplyAt: m.lastReplyAt! });
+		}
+		return threads;
+	},
+});
+
+const threadTitle = (m: Doc<"chatMessages">) => (m.deleted ? "Deleted message" : titleFrom(m.text) || "Thread");
 
 /** A chat's alert: its newest unread message meant for you. */
 export type Alert = {
@@ -222,7 +250,6 @@ export const get = query({
 		const rows = await chatMembersOf(ctx, chat._id);
 		return {
 			...(await toChatItem(ctx, chat, member, namer(ctx, { images: true }), rows.find((r) => r.userId === member.userId), rows)),
-			canManage: chat.kind === "channel" && canManageChannel(toActor(member), chat),
 			trash: chat.archived ? await trashInfo(ctx, member, chat._id) : null,
 		};
 	},
@@ -331,6 +358,49 @@ export async function openDirectMessage(ctx: MutationCtx, member: Member, args: 
 	await requireActiveAgents(ctx, member.workspaceId, agentIds);
 	return findOrCreateDm(ctx, member.workspaceId, member.userId, userIds, agentIds);
 }
+
+/**
+ * A new, separate conversation with the agent of one of your agent DMs: same two members, its
+ * own session and memory context, listed under the DM. Named by its first message until renamed.
+ */
+export const createSideChat = mutation({
+	args: { parentId: v.id("chats") },
+	handler: async (ctx, { parentId }): Promise<Id<"chats">> => {
+		const member = await requireMember(ctx);
+		const parent = await requireChat(ctx, member, parentId);
+		const agentId = agentOfDm(parent);
+		if (!agentId || parent.parentId) throw new ConvexError("Side chats go under a DM with an agent.");
+		if (parent.archived) throw new ConvexError("This chat is in Trash.");
+		await requireActiveAgents(ctx, member.workspaceId, [agentId]);
+		const chatId = await ctx.db.insert("chats", {
+			workspaceId: member.workspaceId,
+			kind: "dm",
+			private: true,
+			dmKey: parent.dmKey,
+			parentId,
+			archived: false,
+			createdBy: member.userId,
+			lastMessageAt: Date.now(),
+		});
+		const chat = (await ctx.db.get(chatId))!;
+		await addToChat(ctx, chat, { userId: member.userId });
+		await addToChat(ctx, chat, { agentId });
+		return chatId;
+	},
+});
+
+/** Side chats only. */
+export const renameChat = mutation({
+	args: { chatId: v.id("chats"), title: v.string() },
+	handler: async (ctx, { chatId, title }) => {
+		const member = await requireMember(ctx);
+		const chat = await requireChat(ctx, member, chatId);
+		if (!chat.parentId) throw new ConvexError("Only side chats are renamed here.");
+		title = title.trim().slice(0, 120);
+		if (!title) throw new ConvexError("Give it a name.");
+		await ctx.db.patch(chatId, { title });
+	},
+});
 
 export const markRead = mutation({
 	args: { chatId: v.id("chats") },

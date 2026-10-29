@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
 
-import { agentsOf, ownerAndMember, noMentions, tick, generalOf } from "./helpers";
+import { agentsOf, ownerAndMember, noMentions, tick, generalOf, turnsOf } from "./helpers";
 
 afterEach(() => void vi.useRealTimers());
 
@@ -88,6 +88,45 @@ describe("chats", () => {
 		expect(await member.query(api.chats.get, { chatId: agentDm })).toBeNull();
 	});
 
+	it("keeps side chats with an agent under its DM: titled by the first message, renamable, trashable", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		const { companybot } = await agentsOf(owner);
+		const dm = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
+		const side = await owner.mutation(api.chats.createSideChat, { parentId: dm });
+		expect(side).not.toBe(dm);
+		// The DM stays the agent's primary chat; the side chat lists under it without a title yet.
+		let list = (await owner.query(api.chats.list))!;
+		expect(list.agents.find((a) => a._id === companybot._id)?.dmId).toBe(dm);
+		expect(list.dms.find((d) => d._id === side)).toMatchObject({ parentId: dm, label: "New chat", agentId: companybot._id, title: "Companybot" });
+		expect(await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] })).toBe(dm);
+		// Writing in it names it after the first line and starts the agent's turn, as in the DM itself.
+		const before = await turnsOf(t);
+		await owner.mutation(api.messages.send, { chatId: side, text: "Draft the Q3 plan\nwith three goals", mentions: noMentions });
+		expect((await turnsOf(t)).length).toBe(before.length + 1);
+		expect((await owner.query(api.chats.list))!.dms.find((d) => d._id === side)?.label).toBe("Draft the Q3 plan");
+		await owner.mutation(api.chats.renameChat, { chatId: side, title: "  Q3 plan  " });
+		expect((await owner.query(api.chats.get, { chatId: side }))?.label).toBe("Q3 plan");
+		await expect(owner.mutation(api.chats.renameChat, { chatId: dm, title: "x" })).rejects.toThrow("side chat");
+		// Only under an agent DM, only one level deep, and only yours.
+		await expect(owner.mutation(api.chats.createSideChat, { parentId: side })).rejects.toThrow("under a DM");
+		await expect(member.mutation(api.chats.createSideChat, { parentId: dm })).rejects.toThrow();
+		const peopleDm = await owner.mutation(api.chats.openDm, { userIds: [member.userId], agentIds: [] });
+		await expect(owner.mutation(api.chats.createSideChat, { parentId: peopleDm })).rejects.toThrow("under a DM");
+		// Trash takes it like a channel, under its title; restoring brings it back under the DM.
+		await owner.mutation(api.trash.move, { kind: "channel", id: side });
+		list = (await owner.query(api.chats.list))!;
+		expect(list.dms.find((d) => d._id === side)).toBeUndefined();
+		expect((await owner.query(api.trash.list, { paginationOpts: { numItems: 10, cursor: null } })).page).toContainEqual(expect.objectContaining({ itemId: side, name: "Q3 plan" }));
+		await expect(owner.mutation(api.messages.send, { chatId: side, text: "hi", mentions: noMentions })).rejects.toThrow("Trash");
+		await owner.mutation(api.trash.restore, { kind: "channel", id: side });
+		expect((await owner.query(api.chats.list))!.dms.find((d) => d._id === side)).toMatchObject({ parentId: dm, label: "Q3 plan" });
+		// A newer side chat lists after the older one, whatever was written where; DMs come first.
+		await tick();
+		const later = await owner.mutation(api.chats.createSideChat, { parentId: dm });
+		await owner.mutation(api.messages.send, { chatId: side, text: "again", mentions: noMentions });
+		expect((await owner.query(api.chats.list))!.dms.map((d) => d._id)).toEqual([peopleDm, dm, side, later]);
+	});
+
 	it("tracks unread and mentions, and clears them on read", async () => {
 		const { owner, member } = await ownerAndMember();
 		const general = await generalOf(owner);
@@ -158,6 +197,26 @@ describe("chats", () => {
 });
 
 describe("messages", () => {
+	it("lists active threads for the sidebar: a week of replies, newest first, parents' first lines", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		const chatId = (await generalOf(owner))._id;
+		const quiet = await owner.mutation(api.messages.send, { chatId, text: "No replies here", mentions: noMentions });
+		const plan = await owner.mutation(api.messages.send, { chatId, text: "Plan for Q3?\nDetails below", mentions: noMentions });
+		const lunch = await member.mutation(api.messages.send, { chatId, text: "Lunch?", mentions: noMentions });
+		await member.mutation(api.messages.send, { chatId, threadId: plan, text: "Yes", mentions: noMentions });
+		await tick();
+		await owner.mutation(api.messages.send, { chatId, threadId: lunch, text: "Sure", mentions: noMentions });
+		expect((await member.query(api.chats.activeThreads)).map((x) => [x.messageId, x.title])).toEqual([
+			[lunch, "Lunch?"],
+			[plan, "Plan for Q3?"],
+		]);
+		expect(await member.query(api.chats.activeThreads)).not.toContainEqual(expect.objectContaining({ messageId: quiet }));
+		// Old threads drop off; a deleted parent keeps its thread listed under a stand-in title.
+		await t.run((ctx) => ctx.db.patch(plan, { lastReplyAt: Date.now() - 8 * 24 * 60 * 60 * 1000 }));
+		await member.mutation(api.messages.remove, { messageId: lunch });
+		expect((await member.query(api.chats.activeThreads)).map((x) => x.title)).toEqual(["Deleted message"]);
+	});
+
 	it("threads, edits, deletes, and toggles reactions", async () => {
 		const { t, owner, member } = await ownerAndMember();
 		const chatId = (await generalOf(owner))._id;

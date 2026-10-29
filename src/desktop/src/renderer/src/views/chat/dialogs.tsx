@@ -117,7 +117,7 @@ export function NewMessage({ onClose, onOpen }: { onClose: () => void; onOpen: (
 	const of = (list: Participant[]) => list.filter((p) => picked.includes(p.id)).map((p) => p.id);
 	// The DM whose other members are exactly who's picked.
 	const sameAs = (ids: string[]) => ids.length === picked.length && ids.every((id) => picked.includes(id));
-	const existing = chats?.dms.find((d) => sameAs(d.members.filter((m) => m.id !== chats.me).map((m) => m.id)));
+	const existing = chats?.dms.find((d) => !d.parentId && sameAs(d.members.filter((m) => m.id !== chats.me).map((m) => m.id)));
 	const open = () =>
 		existing
 			? (onOpen(existing._id), onClose())
@@ -143,6 +143,33 @@ export function NewMessage({ onClose, onOpen }: { onClose: () => void; onOpen: (
 			</div>
 		</Modal>
 	);
+}
+
+/** Rename a side chat. */
+export function RenameChat({ chatId, title, onClose }: { chatId: Id<"chats">; title: string; onClose: () => void }) {
+	const rename = useMutation(api.chats.renameChat);
+	const [name, setName] = useState(title);
+	const { error, run } = useRun();
+	return (
+		<Modal title="Rename chat" onClose={onClose}>
+			<Form onSubmit={() => run(rename({ chatId, title: name }), onClose)}>
+				<Field label="Name">
+					<input autoFocus required maxLength={120} value={name} onChange={(e) => setName(e.target.value)} onFocus={(e) => e.target.select()} className={inputClass} />
+				</Field>
+				<Notice>{error}</Notice>
+				<div className="flex justify-end gap-2">
+					<button type="button" onClick={onClose} className={secondaryButton}>Cancel</button>
+					<button type="submit" className={primaryButton}>Rename</button>
+				</div>
+			</Form>
+		</Modal>
+	);
+}
+
+/** `ChannelDetails` for a chat the sidebar knows only by id. */
+export function ChannelDetailsFor({ chatId, onClose, onLeft }: { chatId: Id<"chats">; onClose: () => void; onLeft: () => void }) {
+	const chat = useQuery(api.chats.get, { chatId });
+	return chat ? <ChannelDetails chat={chat} onClose={onClose} onLeft={onLeft} /> : null;
 }
 
 export function ChannelDetails({ chat, onClose, onLeft }: { chat: ChatDetails; onClose: () => void; onLeft: () => void }) {

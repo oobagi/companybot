@@ -15,6 +15,7 @@ export {
 	CaretRightIcon,
 	CheckIcon,
 	ChatCircleIcon as ChatIcon,
+	ChatTeardropTextIcon as ThreadIcon,
 	ClockCounterClockwiseIcon as HistoryIcon,
 	DotsThreeIcon as MoreIcon,
 	FileTextIcon as PageIcon,
