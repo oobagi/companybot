@@ -362,6 +362,8 @@ export const inputClass = `rounded-xl px-3 py-2 ${controlClass}`;
 export const compactControlClass = `rounded-lg px-2.5 py-1 text-sm ${controlClass}`;
 /** A toolbar button beside compact controls (Filter, Properties): the same box, no fill. */
 export const compactButton = `inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-2.5 py-1 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
+/** Submits a row of compact controls (Invite, Add, Save): their box, filled. */
+export const compactPrimaryButton = `rounded-lg border border-neutral-900 bg-neutral-900 px-2.5 py-1 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
 export const primaryButton = `rounded-xl bg-neutral-900 px-4 py-2 text-sm text-white ${disabledButtonClass}`;
 export const dangerButton = `rounded-xl bg-red-600 px-4 py-2 text-sm text-white ${disabledButtonClass}`;
 export const secondaryButton = `rounded-xl border border-neutral-200 px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
@@ -377,6 +379,11 @@ export const hintClass = "text-sm text-neutral-400";
 export const cardClass = "rounded-xl border border-neutral-200 px-4 py-3";
 /** Rows in one bordered box, split by lines. */
 export const listClass = "flex flex-col divide-y divide-neutral-100 rounded-xl border border-neutral-200";
+/**
+ * The row of compact controls atop a screen's content: search and filters, or a one-line add
+ * form (`Form className`). One class so every screen's row has the same height and spacing.
+ */
+export const toolbarClass = "flex flex-wrap items-center gap-2 text-sm";
 /** A compact control in a screen's toolbar or a settings row: search boxes, pickers. */
 export const wideControlClass = `${compactControlClass} w-64`;
 

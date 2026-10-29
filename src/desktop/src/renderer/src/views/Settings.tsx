@@ -4,7 +4,7 @@ import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { describeUpdate, desktop, useUpdates } from "../desktop";
 import { navigate } from "../router";
-import { ConflictNotice, Field, Form, Loading, Notice, Page, SaveBar, Setting, Settings, compactControlClass, dangerButton, disabledButtonClass, inputClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../ui";
+import { ConflictNotice, Field, Form, Loading, Notice, Page, SaveBar, Setting, Settings, compactPrimaryButton, dangerButton, disabledButtonClass, inputClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../ui";
 import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, SettingsIcon, TrashIcon, UserIcon } from "../icons";
 import { CurrencySelect, Select } from "../controls";
 import { ActivityTab } from "./Activity";
@@ -286,9 +286,9 @@ function ProfileTab() {
 				</Setting>
 				<Setting label="Name" hint="What agents and teammates call you.">
 					<Form className="flex gap-2" onSubmit={() => run(update({ displayName: shownName }), () => setName(undefined))}>
-						<input className={`${compactControlClass} w-48`} value={shownName} placeholder="e.g. Jaden" onChange={(e) => setName(e.target.value)} />
+						<input className={wideControlClass} value={shownName} placeholder="e.g. Jaden" onChange={(e) => setName(e.target.value)} />
 						{name !== undefined && name !== prefs.displayName && (
-							<button type="submit" className={`${primaryButton} py-1`}>
+							<button type="submit" className={compactPrimaryButton}>
 								Save
 							</button>
 						)}

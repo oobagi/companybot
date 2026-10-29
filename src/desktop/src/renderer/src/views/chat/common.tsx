@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { CloseIcon, PlusIcon } from "../../icons";
-import { Notice, primaryButton, secondaryButton } from "../../ui";
+import { Notice, dangerButton, primaryButton, secondaryButton, useRun } from "../../ui";
 import { EmojiPanel } from "./EmojiPanel";
 
 const initials = (name: string) =>
@@ -61,9 +61,13 @@ export function AgentBadge() {
 	return <span className="shrink-0 rounded bg-neutral-200/70 px-1 py-px text-[10px] leading-tight font-medium text-neutral-500 uppercase">Bot</span>;
 }
 
+/** What's open that a click outside or Escape closes, oldest first. Only the newest one closes. */
+const layers: object[] = [];
+
 /**
- * Calls `onClose` on a click outside `ref` or on Escape. A popover's panel lives at the end of
- * the page, outside whatever opened it, so a click in one counts as inside.
+ * Calls `onClose` on a click outside `ref` or on Escape, when it's the newest open popover or
+ * modal: Escape in a Confirm over a dialog closes just the Confirm. A popover's panel lives at
+ * the end of the page, outside whatever opened it, so a click in one counts as inside.
  */
 export function useDismiss<T extends HTMLElement>(onClose: () => void, active = true) {
 	const ref = useRef<T>(null);
@@ -71,14 +75,18 @@ export function useDismiss<T extends HTMLElement>(onClose: () => void, active = 
 	close.current = onClose;
 	useEffect(() => {
 		if (!active) return;
+		const layer = {};
+		layers.push(layer);
+		const newest = () => layers.at(-1) === layer;
 		const down = (e: MouseEvent) => {
 			const target = e.target as Element;
-			if (ref.current && !ref.current.contains(target) && !target.closest?.("[data-popover]")) close.current();
+			if (newest() && ref.current && !ref.current.contains(target) && !target.closest?.("[data-popover]")) close.current();
 		};
-		const key = (e: KeyboardEvent) => e.key === "Escape" && close.current();
+		const key = (e: KeyboardEvent) => e.key === "Escape" && newest() && close.current();
 		document.addEventListener("mousedown", down);
 		document.addEventListener("keydown", key);
 		return () => {
+			layers.splice(layers.indexOf(layer), 1);
 			document.removeEventListener("mousedown", down);
 			document.removeEventListener("keydown", key);
 		};
@@ -109,11 +117,14 @@ export function EmojiPicker({ onPick, onClose, className = "" }: { onPick: (emoj
 	);
 }
 
-/** `wide` for side-by-side content (page history). */
+/**
+ * `wide` for side-by-side content (page history). At the end of the page, like a popover's
+ * panel, so it can open from anywhere (a menu, another dialog) and still take the mouse.
+ */
 export function Modal({ title, wide, onClose, children }: { title: string; wide?: boolean; onClose: () => void; children: React.ReactNode }) {
 	const ref = useDismiss<HTMLDivElement>(onClose);
-	return (
-		<div className="no-drag fixed inset-0 z-50 flex items-start justify-center bg-neutral-900/20 px-6 pt-[12vh]">
+	return createPortal(
+		<div className="no-drag fixed inset-0 z-50 flex items-start justify-center bg-neutral-900/20 px-6 pt-[12vh] text-[15px] text-neutral-900">
 			<div ref={ref} className={`flex max-h-[76vh] w-full ${wide ? "max-w-4xl" : "max-w-md"} flex-col gap-4 overflow-y-auto rounded-2xl bg-white p-6 shadow-xl`}>
 				<header className="flex items-center justify-between">
 					<h2 className="text-lg font-medium">{title}</h2>
@@ -123,7 +134,8 @@ export function Modal({ title, wide, onClose, children }: { title: string; wide?
 				</header>
 				{children}
 			</div>
-		</div>
+		</div>,
+		document.body,
 	);
 }
 
@@ -238,20 +250,47 @@ export function MenuItem({ onClick, danger, children }: { onClick: () => void; d
 	);
 }
 
-/** A yes/no question: Cancel, or `action`. */
-export function Confirm(props: { title: string; action: string; error?: string; onConfirm: () => void; onClose: () => void; children: React.ReactNode }) {
+/** A yes/no question: Cancel, or `action` (red when `danger`). */
+export function Confirm(props: { title: string; action: string; danger?: boolean; busy?: boolean; error?: string; onConfirm: () => void; onClose: () => void; children?: React.ReactNode }) {
 	return (
 		<Modal title={props.title} onClose={props.onClose}>
 			<div className="flex flex-col gap-4 text-sm">
-				<p className="text-neutral-600">{props.children}</p>
+				{props.children && <p className="text-neutral-600">{props.children}</p>}
 				<Notice>{props.error}</Notice>
 				<div className="flex justify-end gap-2">
 					<button type="button" onClick={props.onClose} className={secondaryButton}>Cancel</button>
-					<button type="button" onClick={props.onConfirm} className={primaryButton}>{props.action}</button>
+					<button type="button" disabled={props.busy} onClick={props.onConfirm} className={props.danger ? dangerButton : primaryButton}>{props.action}</button>
 				</div>
 			</div>
 		</Modal>
 	);
+}
+
+type Question = { title: string; action: string; body?: React.ReactNode; onConfirm: () => Promise<unknown> | void };
+
+/**
+ * The app's own confirm(), for destructive actions: `confirm({ title, action, onConfirm })` opens a
+ * red Confirm that runs `onConfirm`, shows its error, and closes once it's done. Render `dialog`
+ * anywhere; it shows at the end of the page, so it outlives the menu that asked.
+ */
+export function useConfirm() {
+	const [open, setOpen] = useState<Question>();
+	const { error, busy, run, fail } = useRun();
+	const close = () => (fail(), setOpen(undefined));
+	const dialog = open && (
+		<Confirm
+			title={open.title}
+			action={open.action}
+			danger
+			busy={busy}
+			error={error}
+			onConfirm={() => void run(Promise.resolve().then(open.onConfirm), () => setOpen(undefined))}
+			onClose={close}
+		>
+			{open.body}
+		</Confirm>
+	);
+	return { confirm: setOpen, dialog };
 }
 
 export const clock = (ms: number, timeZone?: string) => new Date(ms).toLocaleTimeString([], { timeZone, hour: "numeric", minute: "2-digit" });
