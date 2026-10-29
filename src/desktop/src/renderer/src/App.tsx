@@ -27,7 +27,7 @@ import { DatabaseDialog } from "./views/records/DatabaseDialog";
 import { useTypes } from "./views/records/data";
 import { builtinTabs, recordPath } from "./views/records/logic";
 
-const views = ["chat", ...recordTabs.map((t) => t.id), "records", "pages", "settings"] as const;
+export const views = ["chat", ...recordTabs.map((t) => t.id), "records", "pages", "settings"] as const;
 type View = (typeof views)[number];
 
 export function App() {
