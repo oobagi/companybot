@@ -76,13 +76,15 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 	const agent = chat.agentId ? chat.members.find((m) => m.id === chat.agentId) : undefined;
 	const title = chatTitle(chat);
 	const typing = useTypingPing(chat._id);
-	const files = useAttachments();
+	const files = useAttachments(draftKey(workspace?.id, chat._id));
 	const send = (text: string, mentions: Mentions, attachments: Id<"_storage">[] = []) => {
 		fail();
 		typing.sent();
 		// Posting in #general without asking an agent: remind them of step 1.
 		if (chat.isDefault && mentions.agentIds.length === 0) nudgeTutorial();
-		sendMessage({ chatId: chat._id, text, mentions, attachments }).catch(fail);
+		const sending = sendMessage({ chatId: chat._id, text, mentions, attachments });
+		sending.catch(fail);
+		return sending;
 	};
 	const composer = (
 		<Composer

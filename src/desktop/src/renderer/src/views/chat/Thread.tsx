@@ -31,8 +31,8 @@ export function ThreadPanel({
 	const messages = useQuery(api.messages.list, { chatId: chat._id, threadId });
 	const send = useMutation(api.messages.send);
 	const typing = useTypingPing(chat._id, threadId);
-	const files = useAttachments();
 	const workspace = useWorkspace();
+	const files = useAttachments(draftKey(workspace?.id, chat._id, threadId));
 	const { error, fail } = useRun();
 
 	const header = (
@@ -61,7 +61,9 @@ export function ThreadPanel({
 				onSend={(text, mentions, attachments) => {
 					fail();
 					typing.sent();
-					send({ chatId: chat._id, threadId, text, mentions, attachments }).catch(fail);
+					const sending = send({ chatId: chat._id, threadId, text, mentions, attachments });
+					sending.catch(fail);
+					return sending;
 				}}
 			/>
 		</div>
