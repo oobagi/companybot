@@ -40,7 +40,7 @@ export function SignIn({ onBack }: { onBack?: () => void }) {
 				<div className="flex flex-col items-center gap-5 text-center">
 					<Mark className="size-12 rounded-xl text-xl" />
 					<h1 className="text-xl font-semibold tracking-tight text-neutral-900">{sentTo ? "Check your email" : "Sign in to Companybot"}</h1>
-					<p className={descriptionClass}>{sentTo ? `We sent a 6-digit code to ${sentTo}.` : "New here? Your first sign-in makes your account."}</p>
+					{sentTo && <p className={descriptionClass}>We sent a 6-digit code to {sentTo}.</p>}
 				</div>
 				{sentTo ? (
 					<Field label="Code">
@@ -55,7 +55,7 @@ export function SignIn({ onBack }: { onBack?: () => void }) {
 						/>
 					</Field>
 				) : (
-					<Field label="Email" hint="No password. We'll email you a code.">
+					<Field label="Email">
 						<input autoFocus type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" className={`${inputClass} bg-white py-2.5`} />
 					</Field>
 				)}
