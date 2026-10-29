@@ -5,7 +5,7 @@ export default {
 	title: "Workspace settings: General, and managing workspaces",
 	summary: "Logo, name, currency, memory on/off, the picture model and monthly image budget, deleting the workspace, and starting more.",
 	text: `# General
-[General](#/settings/general): open the workspace name above the sidebar → Workspace settings. Everyone can look; **only owners** change it. Edits are saved with the Save bar.
+[General](#/settings/general): open the workspace name above the sidebar → Workspace settings. Everyone can look; **only owners** change it. Edits are saved with **Save** at the top right (**Discard** drops them); both stay off until something changes.
 
 - **Logo**: its icon in the rail. PNG, JPEG, WebP or GIF, up to 2 MB.
 - **Name**: the workspace's name.

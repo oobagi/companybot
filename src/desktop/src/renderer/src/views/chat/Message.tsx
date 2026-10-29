@@ -284,7 +284,7 @@ function ToolPart({ replyId, part }: { replyId: Message["_id"]; part: ToolPart }
 	if (part.status === "running") return <p className="text-xs text-neutral-400">{label}</p>;
 	return (
 		<div className="flex">
-			<Popover trigger={label} className="text-xs text-neutral-400 hover:text-neutral-600" panelClassName="w-[32rem] p-3">
+			<Popover trigger={label} className="text-left text-xs text-neutral-400 hover:text-neutral-600" panelClassName="w-[32rem] p-3">
 				<CallPanel replyId={replyId} callId={part.id} />
 			</Popover>
 		</div>
@@ -320,7 +320,7 @@ function ReplyDetails({ stats }: { stats: Stats }) {
 		<div className="flex">
 			<Popover
 				trigger={`${shortModel(stats.model)} · ${seconds(stats.durationMs)} · ${tokens(stats.contextTokens)} context · ${usd(cost)} · ${usd(stats.conversationCostUsd)} total`}
-				className="text-xs text-neutral-400 tabular-nums hover:text-neutral-600"
+				className="text-left text-xs text-neutral-400 tabular-nums hover:text-neutral-600"
 				panelClassName="w-80 p-3"
 			>
 				<dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs tabular-nums">

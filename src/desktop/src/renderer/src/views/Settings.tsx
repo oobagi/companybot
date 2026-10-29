@@ -310,9 +310,7 @@ function GeneralForm({
 					/>
 				</Setting>
 			</Settings>
-			{draft.dirty && (
-				<SaveBar onDiscard={draft.discard} onSave={() => (currencyChanged && settings.hasAmounts ? setConfirming(true) : submit())} />
-			)}
+			{isOwner && <SaveBar dirty={draft.dirty} onDiscard={draft.discard} onSave={() => (currencyChanged && settings.hasAmounts ? setConfirming(true) : submit())} />}
 			{confirming && (
 				<Confirm title="Change currency?" action="Change currency" onConfirm={submit} onClose={() => setConfirming(false)}>
 					Existing amounts stay in {settings.currency}. New amounts will use {draft.value.currency}.

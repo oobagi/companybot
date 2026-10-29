@@ -1,4 +1,5 @@
-import { Component, Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Component, Fragment, createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { errorMessage } from "./api";
 import { PlusIcon } from "./icons";
 import { navigate } from "./router";
@@ -208,6 +209,9 @@ export function Scroll({
 	);
 }
 
+/** The page's top-bar spot for `PageActions`. */
+const actionSlot = createContext<HTMLElement | null>(null);
+
 /**
  * A screen: the top bar, then its content. The title lives in the top bar; `heading` is
  * a big title in the content, only for things you write in and rename there (pages, records).
@@ -230,24 +234,29 @@ export function Page({
 	wide?: boolean;
 	children: React.ReactNode;
 }) {
+	// Where `PageActions` from the content land, after `actions`.
+	const [slot, setSlot] = useState<HTMLElement | null>(null);
 	return (
 		<Scroll
 			className="@container"
 			header={
 				<TopBar crumbs={crumbs} title={<span className="truncate">{title}</span>} description={description}>
 					{actions}
+					<span ref={setSlot} className="contents" />
 				</TopBar>
 			}
 		>
-			{/* `--bleed`: from the column's content out to the screen's edge, for `.bleed`. */}
-			<div
-				className={`mx-auto flex w-full flex-1 flex-col gap-6 px-6 pt-8 pb-10 ${
-					wide ? "max-w-5xl [--bleed:max(1.5rem,calc((100cqw-64rem)/2+1.5rem))]" : "max-w-2xl [--bleed:max(1.5rem,calc((100cqw-42rem)/2+1.5rem))]"
-				}`}
-			>
-				{heading && <h1 className="text-2xl font-semibold tracking-tight">{heading}</h1>}
-				{children}
-			</div>
+			<actionSlot.Provider value={slot}>
+				{/* `--bleed`: from the column's content out to the screen's edge, for `.bleed`. */}
+				<div
+					className={`mx-auto flex w-full flex-1 flex-col gap-6 px-6 pt-8 pb-10 ${
+						wide ? "max-w-5xl [--bleed:max(1.5rem,calc((100cqw-64rem)/2+1.5rem))]" : "max-w-2xl [--bleed:max(1.5rem,calc((100cqw-42rem)/2+1.5rem))]"
+					}`}
+				>
+					{heading && <h1 className="text-2xl font-semibold tracking-tight">{heading}</h1>}
+					{children}
+				</div>
+			</actionSlot.Provider>
 		</Scroll>
 	);
 }
@@ -600,16 +609,23 @@ export function ConflictNotice({ draft, who }: { draft: { stale: boolean; discar
 	);
 }
 
-export function SaveBar({ onSave, onDiscard }: { onSave: () => void; onDiscard: () => void }) {
+/** Buttons for the page's top bar, from anywhere in its content (a tab inside Settings, say). */
+export function PageActions({ children }: { children: React.ReactNode }) {
+	const slot = useContext(actionSlot);
+	return slot ? createPortal(children, slot) : null;
+}
+
+/** Discard and Save in the page's top bar; both off until something changed. */
+export function SaveBar({ dirty, onSave, onDiscard }: { dirty: boolean; onSave: () => void; onDiscard: () => void }) {
 	return (
-		<div className="sticky bottom-4 flex justify-end gap-2 rounded-2xl border border-neutral-200 bg-white/90 p-2 shadow-sm backdrop-blur">
-			<button type="button" onClick={onDiscard} className={secondaryButton}>
+		<PageActions>
+			<button type="button" disabled={!dirty} onClick={onDiscard} className={barButton}>
 				Discard
 			</button>
-			<button type="button" onClick={onSave} className={primaryButton}>
+			<button type="button" disabled={!dirty} onClick={onSave} className={compactPrimaryButton}>
 				Save
 			</button>
-		</div>
+		</PageActions>
 	);
 }
 
