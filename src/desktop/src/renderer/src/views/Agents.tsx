@@ -131,8 +131,9 @@ function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean;
 				</Field>
 			</fieldset>
 
-			{isOwner && !agent.archived && draft.dirty && (
+			{isOwner && !agent.archived && (
 				<SaveBar
+					dirty={draft.dirty}
 					onDiscard={draft.discard}
 					onSave={() => run(update({ agentId: agent._id, expectedVersion: draft.base, config }), draft.discard)}
 				/>

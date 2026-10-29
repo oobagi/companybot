@@ -230,7 +230,7 @@ export function MadeItemDetail<T>({
 				{fields(draft.value, draft.set)}
 			</fieldset>
 			{children}
-			{editable && draft.dirty && <SaveBar onDiscard={draft.discard} onSave={() => run(onSave(draft.value, draft.base), draft.discard)} />}
+			{editable && <SaveBar dirty={draft.dirty} onDiscard={draft.discard} onSave={() => run(onSave(draft.value, draft.base), draft.discard)} />}
 		</Page>
 	);
 }
