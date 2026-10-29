@@ -37,12 +37,10 @@ export function SignIn({ onBack }: { onBack?: () => void }) {
 					} else run({ email: to }, () => setSentTo(to));
 				}}
 			>
-				<Mark className="size-10 self-center rounded-xl text-lg" />
-				<div className="flex flex-col items-center gap-2 text-center">
-					<h1 className="text-2xl font-semibold tracking-tight text-neutral-900">{sentTo ? "Check your email" : "Sign in to Companybot"}</h1>
-					<p className={descriptionClass}>
-						{sentTo ? `We sent a 6-digit code to ${sentTo}.` : "We'll email you a code. No password, and the first sign-in makes your account."}
-					</p>
+				<div className="flex flex-col items-center gap-5 text-center">
+					<Mark className="size-12 rounded-xl text-xl" />
+					<h1 className="text-xl font-semibold tracking-tight text-neutral-900">{sentTo ? "Check your email" : "Sign in to Companybot"}</h1>
+					{sentTo && <p className={descriptionClass}>We sent a 6-digit code to {sentTo}.</p>}
 				</div>
 				{sentTo ? (
 					<Field label="Code">
@@ -53,16 +51,16 @@ export function SignIn({ onBack }: { onBack?: () => void }) {
 							value={code}
 							onChange={(e) => setCode(e.target.value)}
 							placeholder="123456"
-							className={`${inputClass} bg-white tracking-widest`}
+							className={`${inputClass} bg-white py-2.5 tracking-widest`}
 						/>
 					</Field>
 				) : (
 					<Field label="Email">
-						<input autoFocus type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" className={`${inputClass} bg-white`} />
+						<input autoFocus type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" className={`${inputClass} bg-white py-2.5`} />
 					</Field>
 				)}
 				<Notice>{error}</Notice>
-				<div className="flex flex-col gap-3">
+				<div className="flex flex-col gap-4">
 					<button type="submit" disabled={busy} className={`${primaryButton} py-2.5`}>
 						{sentTo ? "Sign in" : "Email me a code"}
 					</button>

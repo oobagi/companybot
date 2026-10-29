@@ -6,8 +6,8 @@ import { useRef, useState } from "react";
 import { api } from "../api";
 import { CurrencySelect } from "../controls";
 import { useMutation, useQuery } from "../convex";
-import { CaretDownIcon, ChannelIcon, CheckIcon, CloseIcon, PlusIcon } from "../icons";
-import { Field, Form, Notice, inputClass, primaryButton, secondaryButton, useRun } from "../ui";
+import { CaretDownIcon, ChannelIcon, CloseIcon, PlusIcon } from "../icons";
+import { Field, Form, Notice, descriptionClass, inputClass, primaryButton, useRun } from "../ui";
 import { AgentBadge, Avatar, AvatarStack } from "./chat/common";
 import { Group, Item } from "./chat/Sidebar";
 import { type OnboardingStep, onboardingSteps, parseInvites } from "./onboarding/logic";
@@ -62,9 +62,9 @@ export function Onboarding({ onDone }: { onDone: (id: Id<"workspaces">) => void 
 
 	return (
 		<div className="drag relative flex h-screen overflow-hidden bg-neutral-50">
-			{/* The form: its own column, left-aligned, centered in the window's height. */}
-			<div className="no-drag relative z-10 flex w-full shrink-0 flex-col justify-center px-10 py-8 lg:w-[460px] lg:px-16">
-				<Form className="flex flex-col gap-6" onSubmit={submit}>
+			{/* The form: its own column, centered like sign-in, so the two screens read as one flow. */}
+			<div className="no-drag relative z-10 flex w-full shrink-0 flex-col items-center justify-center px-10 py-8 lg:w-[480px]">
+				<Form className="flex w-[360px] flex-col gap-6" onSubmit={submit}>
 					<Steps at={at} />
 					{step === "you" && (
 						<Intro title="First, your name" body="Companybot and your teammates call you by it." />
@@ -78,16 +78,16 @@ export function Onboarding({ onDone }: { onDone: (id: Id<"workspaces">) => void 
 
 					{step === "you" && (
 						<Field label="Your name">
-							<input autoFocus value={name} onChange={(e) => setTypedName(e.target.value)} placeholder="e.g. Jaden" maxLength={60} className={`${inputClass} bg-white`} />
+							<input autoFocus value={name} onChange={(e) => setTypedName(e.target.value)} placeholder="e.g. Jaden" maxLength={60} className={`${inputClass} bg-white py-2.5`} />
 						</Field>
 					)}
 					{step === "company" && (
 						<>
 							<Field label="Company">
-								<input autoFocus value={company} onChange={(e) => setCompany(e.target.value)} placeholder="e.g. Acme" className={`${inputClass} bg-white`} />
+								<input autoFocus value={company} onChange={(e) => setCompany(e.target.value)} placeholder="e.g. Acme" className={`${inputClass} bg-white py-2.5`} />
 							</Field>
 							<Field label="Currency" hint="For amounts on deals and invoices. Changeable later in Settings.">
-								<CurrencySelect className={`${inputClass} w-full bg-white`} value={currency} onChange={setCurrency} />
+								<CurrencySelect className={`${inputClass} w-full bg-white py-2.5`} value={currency} onChange={setCurrency} />
 							</Field>
 						</>
 					)}
@@ -102,19 +102,19 @@ export function Onboarding({ onDone }: { onDone: (id: Id<"workspaces">) => void 
 					)}
 
 					<Notice>{error}</Notice>
-					<div className="flex items-center gap-2">
-						<button type="submit" disabled={busy} className={primaryButton}>
+					<div className="flex flex-col gap-4">
+						<button type="submit" disabled={busy} className={`${primaryButton} py-2.5`}>
 							{step !== "team" ? "Continue" : busy ? "Creating…" : "Create workspace"}
 						</button>
 						{at > 0 && (
-							<button type="button" onClick={() => go(onboardingSteps[at - 1]!)} disabled={busy} className={secondaryButton}>
+							<button type="button" onClick={() => go(onboardingSteps[at - 1]!)} disabled={busy} className={`${descriptionClass} hover:text-neutral-700`}>
 								Back
 							</button>
 						)}
 					</div>
 				</Form>
 				{me?.email && (
-					<p className="absolute bottom-8 left-10 text-xs text-neutral-400 lg:left-16">
+					<p className="absolute inset-x-0 bottom-8 text-center text-xs text-neutral-400">
 						Signed in as {me.email}. Not you?{" "}
 						<button type="button" onClick={() => void signOut()} className="underline hover:text-neutral-700">
 							Sign out
@@ -135,24 +135,19 @@ export function Onboarding({ onDone }: { onDone: (id: Id<"workspaces">) => void 
 
 function Intro({ title, body }: { title: string; body: string }) {
 	return (
-		<div className="flex flex-col gap-2">
-			<h1 className="text-2xl font-semibold tracking-tight text-neutral-900">{title}</h1>
-			<p className="max-w-xs text-sm text-neutral-500">{body}</p>
+		<div className="flex flex-col items-center gap-2 text-center">
+			<h1 className="text-xl font-semibold tracking-tight text-neutral-900">{title}</h1>
+			<p className={descriptionClass}>{body}</p>
 		</div>
 	);
 }
 
-const stepLabels: Record<OnboardingStep, string> = { you: "You", company: "Company", team: "Team" };
-
-/** Where they are in the three steps: done ones checked, the current one dark. */
+/** Where they are in the three steps: one bar each, filled up to the current one. */
 function Steps({ at }: { at: number }) {
 	return (
-		<ol className="flex items-center gap-3 text-xs font-medium" aria-label={`Step ${at + 1} of ${onboardingSteps.length}`}>
+		<ol className="flex items-center justify-center gap-1.5" aria-label={`Step ${at + 1} of ${onboardingSteps.length}`}>
 			{onboardingSteps.map((id, i) => (
-				<li key={id} className={`flex items-center gap-1.5 ${i === at ? "text-neutral-900" : i < at ? "text-neutral-500" : "text-neutral-400"}`}>
-					{i < at ? <CheckIcon weight="bold" /> : <span className={`size-1.5 rounded-full ${i === at ? "bg-neutral-900" : "bg-neutral-300"}`} />}
-					{stepLabels[id]}
-				</li>
+				<li key={id} className={`h-1 w-8 rounded-full ${i <= at ? "bg-neutral-900" : "bg-neutral-200"}`} />
 			))}
 		</ol>
 	);
