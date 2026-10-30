@@ -6,6 +6,7 @@ import {
 	defaultAgents,
 	describeToolAccess,
 	defaultModel,
+	defaultReasoning,
 	findConnector,
 	toolGroup,
 	validateAgentConfig,
@@ -27,7 +28,14 @@ import { toggleTrash, trashInfo } from "./trashOps";
 
 async function clean(ctx: MutationCtx, agent: Doc<"agents">, config: AgentConfig): Promise<AgentConfig> {
 	// Night Owl's connector is retired: drop its grants so agents (and versions from before) still save and restore. Not COMPAT: old versions keep them forever.
-	const tidy = { ...config, name: config.name.trim(), description: config.description.trim(), tools: config.tools.filter((id) => toolGroup(id) !== "night-owl") };
+	// A config without reasoning (an older app's save, or a version from before it) keeps the agent's.
+	const tidy = {
+		...config,
+		name: config.name.trim(),
+		description: config.description.trim(),
+		reasoning: config.reasoning ?? agent.reasoning ?? defaultReasoning,
+		tools: config.tools.filter((id) => toolGroup(id) !== "night-owl"),
+	};
 	const problem = validateAgentConfig(tidy, await allowedModels(ctx, agent.model));
 	if (problem) throw new ConvexError(problem);
 	// Sorted and deduped so versions compare cleanly.

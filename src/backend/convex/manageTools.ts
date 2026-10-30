@@ -263,7 +263,7 @@ export const runFor = internalMutation({
 					if (r.action === "delete") await setAgentTrashed(ctx, who, id, true);
 					if (r.action === "remove_image") await setImage(ctx, member, id, null);
 					if (r.action === "update") {
-						if (id === turn.agentId && (r.instructions !== undefined || r.model !== undefined)) throw new ConvexError("Only a person can change your instructions or model.");
+						if (id === turn.agentId && (r.instructions !== undefined || r.model !== undefined || r.reasoning !== undefined)) throw new ConvexError("Only a person can change your instructions, model or reasoning.");
 						const { action, id: _, expectedVersion, ...changes } = r;
 						await updateAgent(ctx, member, id, expectedVersion, { ...pickAgentConfig(agent), ...changes });
 					}

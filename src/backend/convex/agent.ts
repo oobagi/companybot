@@ -324,6 +324,7 @@ async function streamReply(
 	const started = Date.now();
 	const result = streamText({
 		model: agent.model,
+		reasoning: agent.reasoning,
 		instructions: input.instructions,
 		messages: input.messages,
 		tools,
