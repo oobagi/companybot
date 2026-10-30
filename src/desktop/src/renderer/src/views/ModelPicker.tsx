@@ -68,7 +68,8 @@ function ModelList<M extends Pickable>({ models, defaultModel, value, note, onPi
 	const found = searchModels(models, search);
 	const recommended = found.filter((m) => m.id === defaultModel);
 	const groups = new Map<string, M[]>(recommended.length ? [["Recommended", recommended]] : []);
-	for (const m of found) groups.set(m.provider, [...(groups.get(m.provider) ?? []), m]);
+	// The recommended model is listed once, under Recommended.
+	for (const m of found) if (m.id !== defaultModel) groups.set(m.provider, [...(groups.get(m.provider) ?? []), m]);
 	return (
 		<>
 			<input autoFocus className={`${compactControlClass} sticky top-0 z-10 bg-white`} placeholder="Search models or providers" value={search} onChange={(e) => setSearch(e.target.value)} />

@@ -159,7 +159,10 @@ describe("reading usage", () => {
 		]);
 		expect(report!.byPerson.map((l) => [l.id, l.costUsd])).toEqual([[owner.userId, 0.5], [member.userId, 0.4375]]);
 		expect(report!.byKind).toEqual([{ kind: "chat", costUsd: 0.875 }, { kind: "image", costUsd: 0.0625 }]);
-		expect(report!.byModel).toEqual([{ model: "openai/gpt-6-luna", costUsd: 0.75 }, { model: "anthropic/claude-haiku-5.5", costUsd: 0.125 }]);
+		expect(report!.byModel).toEqual([
+			{ model: "openai/gpt-6-luna", name: "GPT-6 Luna", costUsd: 0.75 },
+			{ model: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5", costUsd: 0.125 },
+		]);
 		expect(await owner.query(api.usage.report, { month: "2020-01" })).toMatchObject({ total: 9 });
 		expect(await owner.query(api.usage.report, { month: "2020-02" })).toMatchObject({ total: 0, byAgent: [] });
 		await expect(owner.query(api.usage.report, { month: "last" })).rejects.toThrow("Month must look like");

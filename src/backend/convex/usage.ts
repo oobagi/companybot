@@ -1,8 +1,9 @@
-import { type UsageKind, can, isUsageMonth, usageKinds, usageMonth } from "@companybot/core";
+import { type UsageKind, GATEWAY_SEARCH_USAGE, can, imageModels, isUsageMonth, usageKinds, usageMonth } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { namer } from "./chatOps";
+import { catalogModels } from "./modelCatalog";
 import { query } from "./functions";
 import { type Member, getMember, liveWorkspace } from "./lib";
 
@@ -80,6 +81,9 @@ export async function usageReport(ctx: QueryCtx, member: Member, month = usageMo
 	const byPerson: Line[] = all
 		? await Promise.all(group(rows, (r) => r.userId ?? null).map(async (l) => ({ ...l, name: l.id ? (await names.user(l.id as Id<"users">)).name : "Other" })))
 		: [];
+	// A model the catalog no longer lists keeps its id.
+	const modelNames = new Map<string, string>([...(await catalogModels(ctx)).models, ...imageModels].map((m) => [m.id, m.name]));
+	modelNames.set(GATEWAY_SEARCH_USAGE, "Exa web search");
 	return {
 		month,
 		scope: all ? ("workspace" as const) : ("mine" as const),
@@ -87,7 +91,7 @@ export async function usageReport(ctx: QueryCtx, member: Member, month = usageMo
 		byAgent,
 		byPerson,
 		byKind: group(rows, (r) => r.kind).map((l) => ({ kind: l.id as UsageKind, costUsd: l.costUsd })),
-		byModel: group(rows, (r) => r.model ?? null).flatMap((l) => (l.id ? [{ model: l.id, costUsd: l.costUsd }] : [])),
+		byModel: group(rows, (r) => r.model ?? null).flatMap((l) => (l.id ? [{ model: l.id, name: modelNames.get(l.id) ?? l.id, costUsd: l.costUsd }] : [])),
 	};
 }
 

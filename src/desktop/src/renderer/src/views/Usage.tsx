@@ -28,7 +28,7 @@ export function UsageTab() {
 					<Breakdown title="By agent" lines={report.byAgent.map((l) => [l.name, l.costUsd])} />
 					{!mine && <Breakdown title="By person" lines={report.byPerson.map((l) => [l.name, l.costUsd])} />}
 					<Breakdown title="By kind" lines={report.byKind.map((l) => [usageKindLabels[l.kind as UsageKind] ?? l.kind, l.costUsd])} />
-					<Breakdown title="By model" lines={report.byModel.map((l) => [l.model, l.costUsd])} />
+					<Breakdown title="By model" lines={report.byModel.map((l) => [l.name, l.costUsd])} />
 				</>
 			)}
 		</>
