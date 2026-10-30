@@ -120,17 +120,17 @@ describe("requests naming a workspace", () => {
 			["messages.remove", () => B.mutation(api.messages.remove, { messageId })],
 			["messages.react", () => B.mutation(api.messages.react, { messageId, emoji: "👍" })],
 			["records.update", () => B.mutation(api.records.update, { recordId, values: { name: "x" } })],
-			["records.archive", () => B.mutation(api.records.archive, { recordId })],
+			["trash.move record", () => B.mutation(api.trash.move, { kind: "record", id: recordId })],
 			["records.undo", () => B.mutation(api.records.undo, { historyId: historyId! })],
 			["records.create", () => B.mutation(api.records.create, { typeId: task._id, values: { name: "x" } })],
 			["fields.create", () => B.mutation(api.fields.create, { typeId: task._id, label: "x", kind: "text" })],
 			["fields.update", () => B.mutation(api.fields.update, { fieldId, label: "x" })],
-			["fields.archive", () => B.mutation(api.fields.archive, { fieldId })],
+			["trash.move field", () => B.mutation(api.trash.move, { kind: "field", id: fieldId })],
 			["memory.create", () => B.mutation(api.memory.create, { agentId, scope: "workspace", content: "x" })],
 			["memory.update", () => B.mutation(api.memory.update, { id: memoryId, content: "x", expectedVersion: 1 })],
 			["memory.remove", () => B.mutation(api.memory.remove, { id: memoryId })],
 			["agents.update", () => B.mutation(api.agents.update, { agentId, expectedVersion: agent.version, config: { name: agent.name, description: agent.description, instructions: agent.instructions, model: agent.model, tools: agent.tools } })],
-			["agents.setArchived", () => B.mutation(api.agents.setArchived, { agentId, archived: true })],
+			["trash.move agent", () => B.mutation(api.trash.move, { kind: "agent", id: agentId })],
 			["workspace.resendInvite", () => B.mutation(api.workspace.resendInvite, { id: invite.id })],
 			["workspace.setRole", () => B.mutation(api.workspace.setRole, { id: deputy.id, role: "member" })],
 		];
@@ -206,8 +206,8 @@ it("refuses ids from the other workspace in reads, restores and nested ids", asy
 	expect(await B.query(api.records.discussion, { recordId: record })).toEqual([]);
 	expect(await B.query(api.records.refs, { ids: [record] })).toEqual({});
 
-	await expect(B.mutation(api.records.restore, { recordId: record })).rejects.toThrow("Record not found");
-	await expect(B.mutation(api.fields.restore, { fieldId: field })).rejects.toThrow("Field not found");
+	await expect(B.mutation(api.trash.restore, { kind: "record", id: record })).rejects.toThrow("Record not found");
+	await expect(B.mutation(api.trash.restore, { kind: "field", id: field })).rejects.toThrow("Field not found");
 	await expect(B.mutation(api.agents.restore, { agentId: agent._id, version: 1, expectedVersion: agent.version })).rejects.toThrow(
 		"Agent not found",
 	);

@@ -125,10 +125,6 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		keep: "Invites are for an email, not an account: they outlive the person who sent them.",
 	},
 	inviteEmails: { workspace: { index: "by_workspace", eq: ["workspaceId"] } },
-	legacyWorkspaces: {
-		user: { index: "by_user", eq: ["userId"] },
-		keep: "Retired: nothing writes it, and migrations.clearLegacyWorkspaces empties it.",
-	},
 	// Uploads not yet attached to anything (images.ts); unclaimed ones also go after a day (images.sweepUploads).
 	uploads: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },

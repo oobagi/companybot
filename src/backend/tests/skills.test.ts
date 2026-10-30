@@ -12,14 +12,10 @@ beforeEach(() => void vi.useFakeTimers());
 afterEach(() => void vi.useRealTimers());
 
 describe("customize", () => {
-	it("keeps existing installed skills visible and refuses new library installs", async () => {
+	it("keeps existing installed skills visible", async () => {
 		const { t, owner, member } = await ownerAndMember();
-		await expect(member.mutation(api.skills.setInstalled, { skillId: "meeting-notes", installed: true })).rejects.toThrow(
-			"permission",
-		);
 		await seedSkill(t, owner, "meeting-notes");
 		expect((await member.query(api.skills.list)).find((s) => s.id === "meeting-notes")?.installed).toBe(true);
-		await expect(owner.mutation(api.skills.setInstalled, { skillId: "email-reply", installed: true })).rejects.toThrow("retired");
 	});
 
 	describe("skills people make", () => {
@@ -60,7 +56,6 @@ describe("customize", () => {
 			expect(row).toMatchObject({ canEdit: true, createdByName: "member@co.com", custom: { version: 3, updatedByName: "owner@co.com" } });
 			await owner.mutation(api.skills.remove, { skillId });
 			expect((await member.query(api.skills.list)).find((s) => s.id === skillId)?.trash).toMatchObject({ kind: "skill", user: "owner@co.com", canRestore: true });
-			await expect(member.mutation(api.skills.setInstalled, { skillId: "meeting-notes", installed: true })).rejects.toThrow("permission");
 		});
 
 		it("removes custom skills for their maker or an owner, and library skills for owners", async () => {
@@ -134,7 +129,6 @@ describe("customize", () => {
 		it("deletes like an uninstall", async () => {
 			const { owner, member, skillId, find } = await made();
 			await expect(member.mutation(api.skills.remove, { skillId })).rejects.toThrow("Only the person who made");
-			await expect(owner.mutation(api.skills.setInstalled, { skillId, installed: true })).rejects.toThrow("always on");
 			await owner.mutation(api.skills.remove, { skillId });
 			expect((await find())!.trash).toMatchObject({ kind: "skill" });
 			await expect(owner.mutation(api.skills.remove, { skillId })).rejects.toThrow("Skill not found.");

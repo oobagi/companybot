@@ -329,61 +329,6 @@ describe("trash", () => {
 		expect(Object.keys(internal.recordTools).concat(Object.keys(internal.pageTools)).some((k) => /purge|forever/i.test(k))).toBe(false);
 	});
 
-	it("keeps alpha.6 archive calls working, mapped to Trash", async () => {
-		const { t, owner, member, client, acme } = await seeded();
-		await member.mutation(api.records.archive, { recordId: acme });
-		const field = await member.mutation(api.fields.create, { typeId: client._id, label: "Roof", kind: "text" });
-		await member.mutation(api.fields.archive, { fieldId: field._id });
-		const pageId = await member.mutation(api.pages.create, { title: "SOP" });
-		await member.mutation(api.pages.setArchived, { pageId, archived: true });
-		expect((await member.query(api.pages.list, { archived: true })).map((p) => p._id)).toEqual([pageId]);
-		const jobs = await owner.mutation(api.recordTypes.create, { plural: "Jobs" });
-		await owner.mutation(api.recordTypes.update, { typeId: jobs, version: 0, archived: true });
-		expect((await trashOf(owner)).map((e) => e.kind)).toEqual(["database", "page", "field", "record"]);
-		expect((await member.query(api.records.list, { typeId: client._id, archived: true, paginationOpts: page })).page.map((r) => r._id)).toEqual([acme]);
-		await member.mutation(api.records.restore, { recordId: acme });
-		await member.mutation(api.fields.restore, { fieldId: field._id });
-		await member.mutation(api.pages.setArchived, { pageId, archived: false });
-		expect((await trashOf(owner)).map((e) => e.kind)).toEqual(["database"]);
-		// Old apps deleting a live page move it to Trash, including for members.
-		await member.mutation(api.pages.remove, { pageId });
-		expect(await member.query(api.pages.get, { pageId })).toMatchObject({ archived: true });
-		await member.mutation(api.pages.setArchived, { pageId, archived: false });
-		// Old database restore calls work too.
-		await owner.mutation(api.recordTypes.update, { typeId: jobs, version: 1, archived: false });
-		expect(await trashOf(owner)).toEqual([]);
-		// Deleting an archived page for good is an owner's "Delete forever" now.
-		await member.mutation(api.pages.setArchived, { pageId, archived: true });
-		await expect(member.mutation(api.pages.remove, { pageId })).rejects.toThrow("permission");
-		await owner.mutation(api.pages.remove, { pageId });
-		expect(await owner.query(api.pages.get, { pageId })).toBeNull();
-		expect(await identityOf(t, owner.userId).query(api.pageSync.latestVersion, { id: pageId })).toBeNull();
-	});
 });
 
-describe("trash migration", () => {
-	it("moves archived agents to Trash, deleted at deploy time, in batches large rows fit, without duplicates on retry", async () => {
-		const t = newTest();
-		migrationsTest.register(t);
-		const owner = await signIn(t, "owner@co.com");
-		const workspaceId = await workspaceOf(owner);
-		// A default 100-row batch of these would exceed 16 MiB. Seed in separate transactions too.
-		for (let batch = 0; batch < 7; batch++) await t.run(async (ctx) => {
-			for (let n = 0; n < 4; n++) await ctx.db.insert("agents", { ...scribe, instructions: "x".repeat(700_000), workspaceId, archived: true, version: 1, updatedAt: Date.now(), updatedBy: owner.userId });
-		});
-		vi.useFakeTimers();
-		vi.setSystemTime(new Date("2026-11-01T00:00:00Z"));
-		for (let n = 0; n < 2; n++) {
-			await t.mutation(internal.migrations.runAll);
-			await settle(t);
-		}
-		const entries = await trashOf(owner);
-		expect(entries).toHaveLength(28);
-		expect(new Set(entries.map((e) => e.itemId)).size).toBe(28);
-		expect(entries.every((e) => e.kind === "agent" && e.name === "Scribe")).toBe(true);
-		// Deploy time, give or take the migration's own run: the full 30 days from now.
-		for (const e of await t.run((ctx) => ctx.db.query("trash").collect())) expect(e.deletedAt - new Date("2026-11-01T00:00:00Z").getTime()).toBeLessThan(1_000);
-		await owner.mutation(api.trash.restore, { kind: "agent", id: entries[0]!.itemId });
-	});
-});
 

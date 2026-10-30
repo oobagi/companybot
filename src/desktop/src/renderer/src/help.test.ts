@@ -9,9 +9,7 @@ let sections: string[];
 beforeAll(async () => {
 	vi.stubGlobal("window", { location: { hash: "" }, addEventListener() {}, removeEventListener() {} });
 	settingsTabs = (await import("./views/Settings")).settingsTabs;
-	const { recordTabs } = await import("./views/Records");
-	// The database tabs (#/clients …) are shortcuts to #/records/<key>.
-	sections = (await import("./App")).views.filter((v) => !recordTabs.some((t) => t.id === v));
+	sections = [...(await import("./App")).views];
 });
 
 const docs = helpPages.map((p) => p.text).join("\n");

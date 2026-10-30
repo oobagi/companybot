@@ -78,8 +78,6 @@ export const list = query({
 					scheduled,
 					runsFor: audience ? runsForLabel(audience, channel, scheduled, creatorName) : null,
 					prompt: automation.prompt,
-					// COMPAT(0.1.0-alpha.8): old desktops read dependency badges; no retained definition needs a connector.
-					needs: [],
 					/** Set for automations someone made: what can be edited, and who last did. */
 					custom: install.custom
 						? {
@@ -262,18 +260,6 @@ export async function setAutomationTrashed(ctx: MutationCtx, who: Who, installId
 	await toggleTrash(ctx, who, archived, { kind: "automation", id: installId, name: automationName(install) });
 	await ctx.db.patch(installId, { archived });
 }
-
-// COMPAT(0.1.0-alpha.8): retain the old desktop install endpoint; new installs are retired.
-export const setInstalled = mutation({
-	args: { automationId: v.string(), installed: v.literal(true), timeZone: v.optional(v.string()) },
-	handler: async (ctx, { automationId }) => {
-		const member = await requireMember(ctx);
-		const existing = await installOf(ctx, member.workspaceId, automationId);
-		checkPermission(member, "automations.manage");
-		if (existing) return;
-		throw new ConvexError("The automation library has retired. Create your own automation in Customize → Automations.");
-	},
-});
 
 /** Deletes an install now, so its webhook and schedule stop; its opt-ins, grants and delivery ids follow (lifecycle.ts). */
 export async function removeInstall(ctx: MutationCtx, install: Doc<"automationInstalls">) {
