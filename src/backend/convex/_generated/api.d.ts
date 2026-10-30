@@ -35,7 +35,6 @@ import type * as http from "../http.js";
 import type * as imageGen from "../imageGen.js";
 import type * as images from "../images.js";
 import type * as invites from "../invites.js";
-import type * as legacyCatalogs from "../legacyCatalogs.js";
 import type * as lib from "../lib.js";
 import type * as lifecycle from "../lifecycle.js";
 import type * as linkPreviews from "../linkPreviews.js";
@@ -107,7 +106,6 @@ declare const fullApi: ApiFromModules<{
   imageGen: typeof imageGen;
   images: typeof images;
   invites: typeof invites;
-  legacyCatalogs: typeof legacyCatalogs;
   lib: typeof lib;
   lifecycle: typeof lifecycle;
   linkPreviews: typeof linkPreviews;

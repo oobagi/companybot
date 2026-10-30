@@ -189,18 +189,17 @@ describe("records", () => {
 		const { owner, client, deal } = await setup();
 		const acme = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Acme", status: "active" } });
 		const dealId = await owner.mutation(api.records.create, { typeId: deal._id, values: { name: "Reroof", client: acme } });
-		await owner.mutation(api.records.archive, { recordId: dealId });
+		await owner.mutation(api.trash.move, { kind: "record", id: dealId });
 		expect(await titles(owner, { typeId: deal._id })).toEqual([]);
-		expect(await titles(owner, { typeId: deal._id, archived: true })).toEqual(["Reroof"]);
 		expect((await owner.query(api.records.linked, { recordId: acme, paginationOpts: page })).page).toEqual([]);
 		await expect(owner.mutation(api.records.update, { recordId: dealId, values: { name: "X" } })).rejects.toThrow("Restore it");
 
-		await owner.mutation(api.records.restore, { recordId: dealId });
+		await owner.mutation(api.trash.restore, { kind: "record", id: dealId });
 		expect(await titles(owner, { typeId: deal._id })).toEqual(["Reroof"]);
 		expect((await owner.query(api.records.linked, { recordId: acme, paginationOpts: page })).page.map((r) => r.title)).toEqual(["Reroof"]);
 		const actions = (await owner.query(api.records.history, { recordId: dealId, paginationOpts: page })).page.map((e) => e.action);
 		expect(actions).toEqual(["restored", "archived", "created"]);
-		await owner.mutation(api.records.archive, { recordId: acme });
+		await owner.mutation(api.trash.move, { kind: "record", id: acme });
 		await expect(owner.mutation(api.records.create, { typeId: deal._id, values: { name: "New", client: acme } })).rejects.toThrow(
 			"doesn't exist",
 		);
@@ -323,7 +322,7 @@ describe("fields", () => {
 		const status = client.fields.find((f) => f.key === "status")!;
 		const live = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Acme", status: "Active" } });
 		const archived = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Bolt", status: "lead" } });
-		await owner.mutation(api.records.archive, { recordId: archived });
+		await owner.mutation(api.trash.move, { kind: "record", id: archived });
 		await owner.mutation(api.fields.update, { fieldId: status._id, options: [{ id: "active", label: "Current" }] });
 		expect((await owner.query(api.records.get, { recordId: live }))!.values.status).toBe("active");
 		const options = (await owner.query(api.recordTypes.list)).find((t) => t.key === "client")!.fields.find((f) => f.key === "status")!.options;
@@ -336,7 +335,7 @@ describe("fields", () => {
 		// Retired options can't be set, but records keep them and can still be found by them,
 		// including ones that were archived when the option was removed.
 		await expect(owner.mutation(api.records.update, { recordId: live, values: { status: "lead" } })).rejects.toThrow("one of: Current");
-		await owner.mutation(api.records.restore, { recordId: archived });
+		await owner.mutation(api.trash.restore, { kind: "record", id: archived });
 		expect((await owner.query(api.records.get, { recordId: archived }))!.values.status).toBe("lead");
 		expect(await titles(owner, { typeId: client._id, filters: [{ field: "status", eq: "Lead" }] })).toEqual(["Bolt"]);
 
@@ -350,13 +349,13 @@ describe("fields", () => {
 		const { owner, client } = await setup();
 		const website = client.fields.find((f) => f.key === "website")!;
 		const id = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Acme", website: "acme.com" } });
-		await owner.mutation(api.fields.archive, { fieldId: website._id });
+		await owner.mutation(api.trash.move, { kind: "field", id: website._id });
 		await expect(owner.mutation(api.records.update, { recordId: id, values: { website: "b.com" } })).rejects.toThrow("no field");
 		expect((await owner.query(api.records.get, { recordId: id }))!.fields.map((f) => f.key)).not.toContain("website");
-		await owner.mutation(api.fields.restore, { fieldId: website._id });
+		await owner.mutation(api.trash.restore, { kind: "field", id: website._id });
 		expect(await titles(owner, { typeId: client._id, filters: [{ field: "website", eq: "https://acme.com/" }] })).toEqual(["Acme"]);
 		const name = client.fields.find((f) => f.key === "name")!;
-		await expect(owner.mutation(api.fields.archive, { fieldId: name._id })).rejects.toThrow("needs a name");
+		await expect(owner.mutation(api.trash.move, { kind: "field", id: name._id })).rejects.toThrow("needs a name");
 		const actions = (await owner.query(api.records.activity, { paginationOpts: page })).page.map((e) => [e.action, e.field]);
 		expect(actions.slice(0, 2)).toEqual([
 			["field.restored", "Website"],
@@ -399,13 +398,13 @@ describe("records: limits and edge cases", () => {
 
 		await owner.mutation(api.records.update, { recordId: id, values: { phone: "5557654321" } });
 		const phoneChange = await latest(owner, id);
-		await owner.mutation(api.fields.archive, { fieldId: client.fields.find((f) => f.key === "phone")!._id });
+		await owner.mutation(api.trash.move, { kind: "field", id: client.fields.find((f) => f.key === "phone")!._id });
 		await expect(member.mutation(api.records.undo, { historyId: phoneChange._id })).rejects.toThrow("no field");
 
 		const d = await owner.mutation(api.records.create, { typeId: deal._id, values: { name: "D", client: id } });
 		await owner.mutation(api.records.update, { recordId: d, values: { client: null } });
 		const unlink = await latest(owner, d);
-		await owner.mutation(api.records.archive, { recordId: id });
+		await owner.mutation(api.trash.move, { kind: "record", id: id });
 		await expect(owner.mutation(api.records.undo, { historyId: unlink._id })).rejects.toThrow("doesn't exist");
 		expect((await owner.query(api.records.get, { recordId: d }))!.values.client).toBeUndefined();
 	});
@@ -414,14 +413,14 @@ describe("records: limits and edge cases", () => {
 		const { owner, client, deal } = await setup();
 		const c = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "C" } });
 		const d = await owner.mutation(api.records.create, { typeId: deal._id, values: { name: "D", client: c } });
-		await owner.mutation(api.records.archive, { recordId: c });
+		await owner.mutation(api.trash.move, { kind: "record", id: c });
 		const got = (await owner.query(api.records.get, { recordId: d }))!;
 		expect(got.values.client).toBe(c);
 		expect(got.refs[c]).toEqual({ name: "C", archived: true });
 		expect(await titles(owner, { typeId: deal._id, filters: [{ field: "client", eq: c }] })).toEqual([]);
 		expect((await owner.query(api.records.linked, { recordId: c, paginationOpts: page })).page).toEqual([]);
 
-		await owner.mutation(api.records.restore, { recordId: c });
+		await owner.mutation(api.trash.restore, { kind: "record", id: c });
 		expect(await titles(owner, { typeId: deal._id, filters: [{ field: "client", eq: c }] })).toEqual(["D"]);
 		expect((await owner.query(api.records.get, { recordId: d }))!.refs[c]).toEqual({ name: "C" });
 	});
@@ -658,7 +657,6 @@ describe("records: list edge cases", () => {
 		await expect(next({ filters: [{ field: "status", eq: "to_do" }] })).rejects.toThrow("out of date");
 		await expect(next({ sort: { field: "createdAt", order: "asc" } })).rejects.toThrow("out of date");
 		await expect(next({ typeId: deal._id, filters: [] })).rejects.toThrow("out of date");
-		await expect(next({ archived: true })).rejects.toThrow("out of date");
 		// Another workspace: the same cursor names this one.
 		const outsider = await signIn(t, "out@other.com");
 		await outsider.mutation(api.recordTypes.create, { plural: "Tasks" });
@@ -719,7 +717,7 @@ describe("records: list edge cases", () => {
 		await owner.mutation(api.fields.create, { typeId: deal._id, label: "Partners", kind: "link", linkTypeId: client._id, multiple: true });
 		await owner.mutation(api.records.create, { typeId: deal._id, values: { name: "To gone", client: gone, partners: [gone] } });
 		await owner.mutation(api.records.create, { typeId: deal._id, values: { name: "Mixed", client: kept, partners: [gone, kept] } });
-		await owner.mutation(api.records.archive, { recordId: gone });
+		await owner.mutation(api.trash.move, { kind: "record", id: gone });
 		const list = (field: string, empty: boolean) => titles(owner, { typeId: deal._id, filters: [{ field, empty }] });
 		expect(await list("client", true)).toEqual(["To gone"]);
 		expect(await list("client", false)).toEqual(["Mixed"]);

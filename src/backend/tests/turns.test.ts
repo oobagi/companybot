@@ -122,7 +122,7 @@ describe("agent turns", () => {
 		await t.mutation(internal.turns.finishReply, { turnId: turn!._id });
 		expect((await turnsOf(t)).map((x) => x.agentId)).toEqual([companybot._id]);
 
-		await owner.mutation(api.agents.setArchived, { agentId: scribe._id, archived: true });
+		await owner.mutation(api.trash.move, { kind: "agent", id: scribe._id });
 		await owner.mutation(api.messages.send, { chatId, text: "@Scribe", mentions: { userIds: [], agentIds: [scribe._id] } });
 		expect(await turnsOf(t)).toHaveLength(1);
 	});

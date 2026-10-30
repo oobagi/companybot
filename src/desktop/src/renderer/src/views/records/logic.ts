@@ -10,13 +10,8 @@ export type TypeField = Field & { _id: string; archived?: boolean; canEdit?: boo
 export type Refs = Record<string, { name: string; archived?: true }>;
 
 /** Built-in types have their own tab; types owners add live under /records/<key>. */
-export const builtinTabs: Record<string, string> = { client: "clients", deal: "deals", task: "tasks", call: "calls" };
-
 /** The route of a type's list, or of one record. */
-export const recordPath = (typeKey: string, recordId?: string) => [
-	...(builtinTabs[typeKey] ? [builtinTabs[typeKey]!] : ["records", typeKey]),
-	...(recordId ? [recordId] : []),
-];
+export const recordPath = (typeKey: string, recordId?: string) => ["records", typeKey, ...(recordId ? [recordId] : [])];
 
 export const kindLabels: Record<FieldKind, string> = {
 	text: "Text",

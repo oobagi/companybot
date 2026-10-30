@@ -168,8 +168,8 @@ describe("page history", () => {
 		vi.advanceTimersByTime(24 * 60 * 60_000 + 1);
 		await type(t, owner, pageId, "compacted");
 		await settle(t);
-		await owner.mutation(api.pages.setArchived, { pageId, archived: true });
-		await owner.mutation(api.pages.remove, { pageId });
+		await owner.mutation(api.trash.move, { kind: "page", id: pageId });
+		await owner.mutation(api.trash.purge, { id: pageId });
 		await settle(t);
 		expect(await snapshotAt(t, pageId)).toEqual({ content: null });
 		expect(await t.run((ctx) => ctx.runQuery(components.prosemirrorSync.lib.latestVersion, { id: pageId }))).toBeNull();
@@ -258,7 +258,7 @@ describe("pages", () => {
 		await expect(owner.mutation(api.pages.rename, { pageId, title: "x" })).rejects.toThrow("Rename the record");
 		// Bodies aren't standalone pages.
 		expect(await owner.query(api.pages.list, {})).toEqual([]);
-		await owner.mutation(api.records.archive, { recordId });
+		await owner.mutation(api.trash.move, { kind: "record", id: recordId });
 		await expect(type(t, owner, pageId, "x")).rejects.toThrow("record is in Trash");
 	});
 });

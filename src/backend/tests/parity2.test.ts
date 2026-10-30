@@ -50,7 +50,7 @@ it("enforces maker/owner field gates, Trash ownership and database discovery/res
 	expect((await t.query(internal.recordTools.typesFor, { turnId })).types.find((t) => t.type === "client")!.fields.find((f) => f.key === made.key)).toHaveProperty("inTrash", true);
 	expect(await field({ type: "client", field: made.key, trash: false }, true)).not.toHaveProperty("error");
 	const other = await owner.mutation(api.fields.create, { typeId: (await member.query(api.recordTypes.list))[0]!._id, label: "Owner field", kind: "text" });
-	await owner.mutation(api.fields.archive, { fieldId: other._id });
+	await owner.mutation(api.trash.move, { kind: "field", id: other._id });
 	expect(await field({ type: "client", field: other.key, trash: false }, true)).toHaveProperty("error");
 	const database = await owner.mutation(api.recordTypes.create, { plural: "Projects" });
 	await t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input: { type: database, trash: true } });

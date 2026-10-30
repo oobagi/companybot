@@ -1,5 +1,5 @@
 /** Ordinary link marks keep page references readable by installed editors. */
-// COMPAT(0.1.0-alpha.8): after alpha.7 support ends, use an inline page mention with a live title.
+// Saved pages hold these links, so the format stays. An inline page mention with a live title could replace them for new links.
 export const pageHref = (id: string) => `companybot://page/${id}`;
 export const linkedPageId = (href: string) => /^companybot:\/\/page\/([a-z0-9]+)$/.exec(href)?.[1];
 

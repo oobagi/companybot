@@ -98,7 +98,7 @@ describe("agent memory", () => {
 		await owner.mutation(api.memory.create, { agentId: companybot, scope: "workspace", content: "Team note" });
 		const scribe = (await owner.query(api.agents.list)).find((a) => a.name === "Scribe")!._id;
 		await member.mutation(api.memory.create, { agentId: scribe, scope: "personal", content: "Archived agent note" });
-		await owner.mutation(api.agents.setArchived, { agentId: scribe, archived: true });
+		await owner.mutation(api.trash.move, { kind: "agent", id: scribe });
 		const old = await member.mutation(api.memory.create, { agentId: companybot, scope: "personal", content: "Current note" });
 		await t.run(ctx => ctx.db.patch(old.id as Id<"memories">, { createdTs: ctx.db.vars.commitTs }));
 		await insertMemories(t, companybot, Array.from({ length: 205 }, (_, i) => ({ scope: "personal", ownerId: member.userId, content: `Old note ${i}` })));

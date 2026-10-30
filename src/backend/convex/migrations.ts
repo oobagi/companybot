@@ -1,10 +1,7 @@
 import { type MigrationFunctionReference, Migrations } from "@convex-dev/migrations";
-import { legacySkills, legacyAutomation } from "./legacyCatalogs";
-import { startCascade } from "./cascade";
 import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
-import { trashEntry } from "./trashOps";
 import { defaultModel, usageMonth } from "@companybot/core";
 import { recordUsage } from "./usage";
 
@@ -19,49 +16,6 @@ export const migrations = new Migrations<DataModel>(components.migrations);
 
 // Migrations that shipped in a release ran on prod then, and are deleted after: the component
 // keys finished runs by name, so a retired one never runs again.
-
-// Archiving agents became Delete (Trash): archived ones go to Trash as deleted now, by whoever last
-// changed them, so they get the full 30 days. Small batches: even 1 MiB legacy documents fit.
-export const trashAgents = migrations.define({
-	table: "agents",
-	batchSize: 8,
-	migrateOne: async (ctx, agent) => {
-		if (!agent.archived || (await trashEntry(ctx, agent._id))) return;
-		await ctx.db.insert("trash", { workspaceId: agent.workspaceId, itemId: agent._id, deletedAt: Date.now(), kind: "agent", name: agent.name, deletedBy: agent.updatedBy });
-	},
-});
-
-/** Snapshot live and trashed installs alike, without changing their Trash state or retention. */
-export const storedSkills = migrations.define({
-	table: "skillInstalls", batchSize: 8,
-	migrateOne: async (ctx, install) => {
-		const definition = legacySkills.find((s) => s.id === install.skillId);
-		if (!install.custom && !install.definition && definition) await ctx.db.patch(install._id, { definition });
-	},
-});
-export const storedAutomations = migrations.define({
-	table: "automationInstalls", batchSize: 8,
-	migrateOne: async (ctx, install) => {
-		const definition = legacyAutomation(install.automationId);
-		if (!install.custom && !install.definition && definition) await ctx.db.patch(install._id, { definition });
-	},
-});
-
-// Apps that sent no workspace are gone (alpha.7), so their pins are too. Then the table can go.
-export const clearLegacyWorkspaces = migrations.define({
-	table: "legacyWorkspaces",
-	migrateOne: async (ctx, pin) => ctx.db.delete(pin._id),
-});
-
-/** Retire the internal test connector. Access ends before its bounded credential/settings cleanup. */
-export const retireNightOwl = migrations.define({
-	table: "connectorInstalls", batchSize: 20,
-	migrateOne: async (ctx, install) => {
-		if (install.connectorId !== "night-owl") return;
-		await ctx.db.delete(install._id);
-		await startCascade(ctx, "connectorInstall", { workspaceId: install.workspaceId, connectorId: install.connectorId, connectorInstallId: install._id });
-	},
-});
 
 // The default model moved from Claude Sonnet 5.5 to GPT-6 Luna (about 20x cheaper). Agents still
 // on the old default move with it; any other model was picked on purpose and stays.
@@ -135,18 +89,24 @@ export const usageThisMonth = migrations.define({
 	},
 });
 
+// Welcomes became fixed text (onboarding.ts), but old turns still carry their retired `welcome`. Clearing it
+// lets the schema drop the field.
+export const clearTurnWelcome = migrations.define({
+	table: "agentTurns",
+	batchSize: 20,
+	migrateOne: async (ctx, turn) => {
+		if (turn.welcome) await ctx.db.patch(turn._id, { welcome: undefined });
+	},
+});
+
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
 const all: MigrationFunctionReference[] = [
-	internal.migrations.trashAgents,
-	internal.migrations.storedSkills,
-	internal.migrations.storedAutomations,
-	internal.migrations.retireNightOwl,
-	internal.migrations.clearLegacyWorkspaces,
 	internal.migrations.lunaModel,
 	internal.migrations.companybotHelpTool,
 	internal.migrations.companybotWebTools,
 	internal.migrations.usageThisMonth,
 	internal.migrations.companybotImageTool,
+	internal.migrations.clearTurnWelcome,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

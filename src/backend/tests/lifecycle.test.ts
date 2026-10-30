@@ -244,7 +244,7 @@ describe("deleting a workspace", () => {
 		// Every live table has rows, so a cascade that missed one would show.
 		const before = await dump(t);
 		const seeded = new Set([...before.values()].map((r) => r.table));
-		expect(tables.filter((table) => !seeded.has(table) && table !== "cascades" && table !== "legacyWorkspaces")).toEqual([]);
+		expect(tables.filter((table) => !seeded.has(table) && table !== "cascades")).toEqual([]);
 
 		await expect(a.mutation(api.workspace.deleteWorkspace, { name: "Nope" })).rejects.toThrow("Type the workspace's name");
 		await expect(m.in(A).mutation(api.workspace.deleteWorkspace, { name: "My company" })).rejects.toThrow("permission");

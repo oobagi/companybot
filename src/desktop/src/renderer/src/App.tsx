@@ -10,7 +10,7 @@ import { useAlerts } from "./notifications";
 import { navigate, useRoute } from "./router";
 import { ArrowLeftIcon, DatabaseIcon, EditIcon, PlusIcon, SettingsIcon, SignOutIcon, TrashIcon } from "./icons";
 import { MenuDivider, Notice, ResizeHandle, Scroll, TopBar, TruncatedTips, useRun, useStoredWidth } from "./ui";
-import { RecordsView, recordTabs } from "./views/Records";
+import { RecordsView } from "./views/Records";
 import { SettingsNav, SettingsView, settingsScope, settingsTabAliases, settingsTabs } from "./views/Settings";
 import { Landing } from "./views/Landing";
 import { Onboarding } from "./views/Onboarding";
@@ -26,9 +26,11 @@ import { useSortable, useStoredIds } from "./sortable";
 import { PagesNav, PagesView } from "./views/Pages";
 import { DatabaseDialog } from "./views/records/DatabaseDialog";
 import { type RecordType, useTypes } from "./views/records/data";
-import { builtinTabs, recordPath } from "./views/records/logic";
+import { recordPath } from "./views/records/logic";
 
-export const views = ["chat", ...recordTabs.map((t) => t.id), "records", "pages", "settings"] as const;
+export const views = ["chat", "records", "pages", "settings"] as const;
+// The first databases used to have their own screens (#/clients …). Links to them in old messages still open.
+const oldRecordTabs: Record<string, string> = { clients: "client", deals: "deal", tasks: "task", calls: "call" };
 type View = (typeof views)[number];
 
 export function App() {
@@ -122,22 +124,22 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	useEffect(() => {
 		if (prefs && prefs.deviceTimeZone !== timeZone) updatePrefs({ deviceTimeZone: timeZone }).catch(() => {});
 	}, [prefs, timeZone, updatePrefs]);
-	// Screens are paths: /chat[/<chat>[/thread|message/<id>]], /clients[/<record>] (and other record tabs), /records/<type>[/<record>]
-	// for types owners add, /pages[/<page>], /settings/<tab>[/<item>] (Trash, Agents, Connectors, Skills and Automations included).
+	// Screens are paths: /chat[/<chat>[/thread|message/<id>]], /records/<type>[/<record>], /pages[/<page>], /settings/<tab>[/<item>] (Trash, Agents, Connectors, Skills and Automations included).
 	const route = useRoute();
 	// Trash and Customize used to be their own screens.
 	useEffect(() => {
 		if (route[0] === "customize") navigate("settings", ...(route.length > 1 ? route.slice(1) : ["agents"]));
 		if (route[0] === "trash") navigate("settings", "trash");
+		const oldType = oldRecordTabs[route[0] ?? ""];
+		if (oldType) navigate("records", oldType, ...route.slice(1));
 	}, [route]);
 	const view: View = views.find((v) => v === route[0]) ?? "chat";
 	const settingsTab = settingsTabs.find((t) => t.id === (settingsTabAliases[route[1] ?? ""] ?? route[1]))?.id ?? "general";
 	const types = useTypes();
 	const [newDatabase, setNewDatabase] = useState(false);
 	// The database on screen, by key, and the record open in it.
-	const builtinKey = Object.keys(builtinTabs).find((k) => builtinTabs[k] === view);
-	const typeKey = view === "records" ? route[1] : builtinKey;
-	const recordId = view === "records" ? route[2] : route[1];
+	const typeKey = view === "records" ? route[1] : undefined;
+	const recordId = view === "records" ? route[2] : undefined;
 	// Workspace settings reopen on the tab you left them on.
 	const lastWorkspaceSettings = useRef<string[]>(["settings", "general"]);
 	if (view === "settings" && settingsScope(settingsTab) === "workspace") lastWorkspaceSettings.current = route;
@@ -256,7 +258,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 							) : (
 								<TopBar title="" />
 							))}
-						{(typeKey || view === "records") && <RecordsView key={typeKey} typeKey={typeKey} recordId={recordId} role={role} />}
+						{view === "records" && <RecordsView key={typeKey} typeKey={typeKey} recordId={recordId} role={role} />}
 						{view === "pages" && <PagesView pageId={route[1]} canEdit={can(role, "pages.edit")} />}
 						{view === "settings" && <SettingsView role={role} tab={settingsTab} itemId={route[2]} />}
 					</main>

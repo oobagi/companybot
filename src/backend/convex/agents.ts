@@ -166,15 +166,6 @@ export const restore = mutation({
 	},
 });
 
-/** COMPAT(0.1.0-alpha.8): alpha.7 apps' Archive/Restore agent go through Trash. */
-export const setArchived = mutation({
-	args: { agentId: v.id("agents"), archived: v.boolean() },
-	handler: async (ctx, { agentId, archived }) => {
-		const owner = await requirePermission(ctx, "agents.manage");
-		await setAgentTrashed(ctx, { member: owner }, agentId, archived);
-	},
-});
-
 export async function createAgent(ctx: MutationCtx, member: Member, withoutTools = false) {
 	checkPermission(member, "agents.manage");
 	return insertAgent(ctx, member.workspaceId, member.userId, { ...blankAgent, ...(withoutTools && { tools: [] }) });

@@ -277,13 +277,6 @@ export default defineSchema({
 		savedAt: v.number(),
 	}).index("by_memory", ["memoryId", "version"]),
 
-	// Retired: where apps that sent no workspace acted. Emptied by migrations.clearLegacyWorkspaces.
-	// COMPAT(0.1.0-alpha.8): once that has run on prod, drop this table with its lifecycle entry, the migration and their tests.
-	legacyWorkspaces: defineTable({
-		userId: v.id("users"),
-		workspaceId: v.id("workspaces"),
-	}).index("by_user", ["userId"]),
-
 	// Personal preferences: only the person sees them; they follow them across devices.
 	preferences: defineTable({
 		userId: v.id("users"),
@@ -539,8 +532,8 @@ export default defineSchema({
 		agentId: v.id("agents"),
 		/** The message that mentioned the agent (or any message, in an agent DM). Unset on old welcome turns, and the approvals that follow one. */
 		triggerId: v.optional(v.id("chatMessages")),
-		// Retired: welcomes were agent turns; now they're fixed text (onboarding.ts). Old rows keep it.
-		// COMPAT(0.1.0-alpha.8): drop once no turn has it (they're never read).
+		// Retired: welcomes were agent turns; now they're fixed text (onboarding.ts). migrations.clearTurnWelcome clears it.
+		// COMPAT(0.1.0-alpha.9): once that has run on prod, drop this field, the migration and its test.
 		welcome: v.optional(v.union(v.literal("new_workspace"), v.literal("joined"))),
 		/** The agent acts as this person: their role, connector connections, and access. */
 		actorId: v.id("users"),
