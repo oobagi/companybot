@@ -74,13 +74,16 @@ describe("names and sizes", () => {
 
 describe("toBase64", () => {
 	it("encodes pictures of any size without Node's Buffer, which Convex's runtime lacks", () => {
-		const big = new Uint8Array(3 * 1024 * 1024).map((_, i) => i * 7);
+		// Several of its 32 KB chunks, and a part one.
+		const big = new Uint8Array(200_003).map((_, i) => i * 7);
+		let binary = "";
+		for (const byte of big) binary += String.fromCharCode(byte);
 		const g = globalThis as { Buffer?: unknown };
 		const real = g.Buffer;
 		delete g.Buffer;
 		try {
 			expect(toBase64(new Uint8Array([1, 2, 3]))).toBe("AQID");
-			expect(Uint8Array.from(atob(toBase64(big)), (c) => c.charCodeAt(0))).toEqual(big);
+			expect(toBase64(big)).toBe(btoa(binary));
 		} finally {
 			g.Buffer = real;
 		}
