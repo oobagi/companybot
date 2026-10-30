@@ -11,6 +11,7 @@ import {
 	isImageType,
 	modelTakesImage,
 	sniffImage,
+	toBase64,
 	usageMonth,
 } from "@companybot/core";
 import { generateImage, generateText } from "ai";
@@ -103,7 +104,7 @@ export async function makePictures(model: Model, prompt: string, aspectRatio: As
 	if (model.multimodal) {
 		const result = await generateText({
 			model: model.id,
-			messages: [{ role: "user", content: [...edits.map((p) => ({ type: "file" as const, mediaType: p.type, data: p.data })), { type: "text", text: prompt }] }],
+			messages: [{ role: "user", content: [...edits.map((p) => ({ type: "file" as const, mediaType: p.type, data: toBase64(p.data) })), { type: "text", text: prompt }] }],
 			...(aspectRatio && { providerOptions: { google: { imageConfig: { aspectRatio } } } }),
 		});
 		made = result.files.filter((f) => f.mediaType.startsWith("image/")).map((f) => f.uint8Array);

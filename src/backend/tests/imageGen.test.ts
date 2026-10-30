@@ -1,4 +1,4 @@
-import { defaultImageModel, usageMonth } from "@companybot/core";
+import { defaultImageModel, toBase64, usageMonth } from "@companybot/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pngOf } from "../../core/test/files";
 import { api, internal } from "../convex/_generated/api";
@@ -90,7 +90,7 @@ describe("images.generate", () => {
 		const edit = await postPicture(owner, (await generalOf(owner))._id);
 		const { turnId } = await turnOf(t, owner);
 		await t.action(internal.imageGen.generateFor, { turnId, prompt: "Add a hat", editFiles: [edit] });
-		expect(generateText.mock.calls[0]![0].messages[0].content).toEqual([{ type: "file", mediaType: "image/png", data: picture }, { type: "text", text: "Add a hat" }]);
+		expect(generateText.mock.calls[0]![0].messages[0].content).toEqual([{ type: "file", mediaType: "image/png", data: toBase64(picture) }, { type: "text", text: "Add a hat" }]);
 	});
 
 	it("refuses once this month's image spend reaches the budget, and when the budget is 0, without calling a model", async () => {

@@ -127,6 +127,16 @@ export function imageSize(bytes: Uint8Array, type: string): { width: number; hei
 	}
 }
 
+/**
+ * Base64, for a file sent to a model. Bytes must not reach AI Gateway as a Uint8Array: its
+ * encoder uses Node's Buffer, which Convex's runtime doesn't have.
+ */
+export function toBase64(bytes: Uint8Array) {
+	let text = "";
+	for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+	return btoa(text);
+}
+
 /** A file name to keep: no folders, no control characters, one line, at most NAME_MAX characters. */
 export function cleanFileName(raw: string) {
 	const name = (raw.split(/[/\\]/).pop() ?? "").replace(/\s+/g, " ").replace(/[\p{Cc}\p{Cf}]+/gu, "").trim();

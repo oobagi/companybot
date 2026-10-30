@@ -2,7 +2,7 @@ import type { ToolDef } from "./tools";
 import type { AgentConfig } from "./agent-config";
 import type { ApprovalOutcome } from "./approvals";
 import type { Participant } from "./chat";
-import { formatFileSize, isImageType } from "./files";
+import { formatFileSize, isImageType, toBase64 } from "./files";
 import { platformGuide } from "./guide";
 import { type Skill, skillsIndex } from "./skills";
 import { shortStamp } from "./time";
@@ -200,7 +200,7 @@ export interface SessionTurn {
 
 export type TurnMessage = {
 	role: "user" | "assistant";
-	content: string | ({ type: "text"; text: string } | { type: "file"; mediaType: string; data: Uint8Array })[];
+	content: string | ({ type: "text"; text: string } | { type: "file"; mediaType: string; data: string })[];
 };
 
 /** A picture sent with this turn's prompt (never replayed: later turns have the agent's reply about it). */
@@ -243,7 +243,7 @@ export function buildTurnInput(input: {
 	const last = messages.at(-1)!;
 	const pictures = input.images.flatMap((i) => [
 		{ type: "text" as const, text: `Picture ${i.id}:` },
-		{ type: "file" as const, mediaType: i.type, data: i.data },
+		{ type: "file" as const, mediaType: i.type, data: toBase64(i.data) },
 	]);
 	return { instructions, messages: [...messages.slice(0, -1), { role: "user", content: [{ type: "text", text: last.content }, ...pictures] }] };
 }
