@@ -31,12 +31,12 @@ export function DatabaseDialog({ type, onClose }: { type?: RecordType; onClose: 
 				<Notice>{error}</Notice>
 				{dialog}
 				<ConflictNotice draft={draft} />
-				<Field label="Name" hint="For example Projects.">
-					<input autoFocus required maxLength={120} className={inputClass} value={draft.value.plural} onChange={(e) => draft.set({ ...draft.value, plural: e.target.value })} />
+				<Field label="Name">
+					<input autoFocus required maxLength={120} placeholder="e.g. Projects" className={inputClass} value={draft.value.plural} onChange={(e) => draft.set({ ...draft.value, plural: e.target.value })} />
 				</Field>
 				{type && (
-					<Field label="One entry" hint="For example Project.">
-						<input required maxLength={120} className={inputClass} value={draft.value.name} onChange={(e) => draft.set({ ...draft.value, name: e.target.value })} />
+					<Field label="One entry">
+						<input required maxLength={120} placeholder="e.g. Project" className={inputClass} value={draft.value.name} onChange={(e) => draft.set({ ...draft.value, name: e.target.value })} />
 					</Field>
 				)}
 				<div className="flex items-center gap-2">

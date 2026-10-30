@@ -47,3 +47,18 @@ export function previewLinks(text: string): string[] {
 	}
 	return urls;
 }
+
+/** Text split around its http(s) links, for drawing them as links: "see https://a.com." → ["see ", { url: "https://a.com" }, "."]. */
+export function splitLinks(text: string): (string | { url: string })[] {
+	const parts: (string | { url: string })[] = [];
+	let at = 0;
+	for (const match of text.matchAll(link)) {
+		const url = trimmed(match[0]);
+		if (!previewUrl(url)) continue;
+		if (match.index > at) parts.push(text.slice(at, match.index));
+		parts.push({ url });
+		at = match.index + url.length;
+	}
+	if (at < text.length) parts.push(text.slice(at));
+	return parts;
+}

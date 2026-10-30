@@ -39,9 +39,9 @@ const components: Components = {
 		const route = props.href && appRoute(props.href);
 		if (route?.length) {
 			const open = (e: MouseEvent) => { if (e.button > 1) return; e.preventDefault(); navigate(...route); };
-			return <a className="wrap-anywhere font-medium text-primary underline" href={props.href} onClick={open} onAuxClick={open}>{props.children}</a>;
+			return <a className="wrap-anywhere font-medium text-link hover:underline" href={props.href} onClick={open} onAuxClick={open}>{props.children}</a>;
 		}
-		if (!id) return <defaultComponents.a {...props} />;
+		if (!id) return <defaultComponents.a {...props} className="text-link no-underline hover:underline" />;
 		const open = (e: MouseEvent) => { if (e.button > 1) return; e.preventDefault(); navigate("pages", id); };
 		return <a className="page-link" href={props.href} onClick={open} onAuxClick={open}>{props.children}</a>;
 	},

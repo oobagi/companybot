@@ -1,4 +1,5 @@
 import { actionLabel, toolLine } from "@companybot/core/action-words";
+import { splitLinks } from "@companybot/core/link-preview";
 import { Fragment, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
@@ -172,7 +173,20 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const alternation = (names: string[]) => [...names].sort((a, b) => b.length - a.length).map(escape).join("|");
 
 /** `@Ada`, `#sales` (opens the channel) and `/Proposal` as chips, like in the composer. */
+/** A person's message: its links open in the browser; @names, #channels and /skills stand out. */
 function TokenText({ text, tokens }: { text: string; tokens: TokenNames }) {
+	return splitLinks(text).map((part, i) =>
+		typeof part === "string" ? (
+			<Tokens key={i} text={part} tokens={tokens} />
+		) : (
+			<a key={i} href={part.url} target="_blank" rel="noreferrer noopener" className="wrap-anywhere text-link hover:underline">
+				{part.url}
+			</a>
+		),
+	);
+}
+
+function Tokens({ text, tokens }: { text: string; tokens: TokenNames }) {
 	const parts = [
 		tokens.names.length > 0 && `@(?:${alternation(tokens.names)})(?!\\w)`,
 		tokens.channels.length > 0 && `#(?:${alternation(tokens.channels.map((c) => c.name))})(?![\\w-])`,
