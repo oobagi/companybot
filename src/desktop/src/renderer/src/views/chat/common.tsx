@@ -124,8 +124,8 @@ export function EmojiPicker({ onPick, onClose, className = "" }: { onPick: (emoj
 export function Modal({ title, wide, onClose, children }: { title: string; wide?: boolean; onClose: () => void; children: React.ReactNode }) {
 	const ref = useDismiss<HTMLDivElement>(onClose);
 	return createPortal(
-		<div className="no-drag fixed inset-0 z-50 flex items-start justify-center bg-neutral-900/20 px-6 pt-[12vh] text-[15px] text-neutral-900">
-			<div ref={ref} className={`flex max-h-[76vh] w-full ${wide ? "max-w-4xl" : "max-w-md"} flex-col gap-4 overflow-y-auto rounded-2xl bg-white p-6 shadow-xl`}>
+		<div className="no-drag fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/20 p-6 text-[15px] text-neutral-900">
+			<div ref={ref} className={`flex max-h-[85vh] w-full ${wide ? "max-w-4xl" : "max-w-md"} flex-col gap-4 overflow-y-auto rounded-2xl bg-white p-6 shadow-xl`}>
 				<header className="flex items-center justify-between">
 					<h2 className="text-lg font-medium">{title}</h2>
 					<IconButton label="Close" onClick={onClose}>

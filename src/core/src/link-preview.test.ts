@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PREVIEWS_PER_MESSAGE, previewLinks, previewUrl } from "./link-preview";
+import { PREVIEWS_PER_MESSAGE, previewLinks, previewUrl, splitLinks } from "./link-preview";
 
 describe("previewLinks", () => {
 	it("finds http(s) links in the order written, without duplicates, up to three", () => {
@@ -33,5 +33,13 @@ describe("previewLinks", () => {
 		expect(previewUrl("https://a.com/x#top")).toBe("https://a.com/x");
 		expect(previewLinks("https://a.com/x#one https://a.com/x#two")).toEqual(["https://a.com/x"]);
 		expect(previewUrl(`https://a.com/${"x".repeat(3000)}`)).toBeUndefined();
+	});
+});
+
+describe("splitLinks", () => {
+	it("splits text around its links, leaving out the sentence's punctuation", () => {
+		expect(splitLinks("Live: https://github.com/vercel/ai. (See https://a.com/b)")).toEqual(["Live: ", { url: "https://github.com/vercel/ai" }, ". (See ", { url: "https://a.com/b" }, ")"]);
+		expect(splitLinks("https://a.com")).toEqual([{ url: "https://a.com" }]);
+		expect(splitLinks("no links, http://localhost or ftp://a.com")).toEqual(["no links, http://localhost or ftp://a.com"]);
 	});
 });

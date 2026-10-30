@@ -14,12 +14,18 @@ describe("Markdown links", () => {
 
 	it("opens screen links in the app", () => {
 		const html = render("Go to [Members](#/settings/members).");
-		expect(html).toContain('<a class="wrap-anywhere font-medium text-primary underline" href="#/settings/members">Members</a>');
+		expect(html).toContain('<a class="wrap-anywhere font-medium text-link hover:underline" href="#/settings/members">Members</a>');
 		expect(html).not.toContain("<button");
 		expect(appRoute("#/settings/members")).toEqual(["settings", "members"]);
 		expect(appRoute("#/chat")).toEqual(["chat"]);
 		expect(appRoute("#/settings/%E0")).toBeUndefined();
 		expect(appRoute("https://x.com/#/a")).toBeUndefined();
+	});
+
+	it("colors web links as links", () => {
+		const html = render("See [the docs](https://ai-sdk.dev).");
+		expect(html).toMatch(/class="[^"]*text-link[^"]*"/);
+		expect(html).not.toMatch(/class="[^"]*text-primary[^"]*"/);
 	});
 
 	it("still strips unsafe links", () => {
