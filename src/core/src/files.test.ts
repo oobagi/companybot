@@ -2,7 +2,7 @@ import { strToU8, zipSync } from "fflate";
 import { describe, expect, it } from "vitest";
 import { docx, pdf, pngOf, xlsx } from "../test/files";
 import { PAGE_CHARS, fileText, textPage } from "./file-text";
-import { DOCX, FILE_MAX_BYTES, XLSX, cleanFileName, fileError, formatFileSize, imageSize, sniffFile } from "./files";
+import { DOCX, FILE_MAX_BYTES, XLSX, cleanFileName, fileError, formatFileSize, imageSize, sniffFile, toBase64 } from "./files";
 
 const text = (s: string) => new TextEncoder().encode(s);
 
@@ -69,6 +69,24 @@ describe("names and sizes", () => {
 		expect(formatFileSize(1)).toBe("1 byte");
 		expect(formatFileSize(2048)).toBe("2 KB");
 		expect(formatFileSize(1.25 * 1024 * 1024)).toBe("1.3 MB");
+	});
+});
+
+describe("toBase64", () => {
+	it("encodes pictures of any size without Node's Buffer, which Convex's runtime lacks", () => {
+		// Several of its 32 KB chunks, and a part one.
+		const big = new Uint8Array(200_003).map((_, i) => i * 7);
+		let binary = "";
+		for (const byte of big) binary += String.fromCharCode(byte);
+		const g = globalThis as { Buffer?: unknown };
+		const real = g.Buffer;
+		delete g.Buffer;
+		try {
+			expect(toBase64(new Uint8Array([1, 2, 3]))).toBe("AQID");
+			expect(toBase64(big)).toBe(btoa(binary));
+		} finally {
+			g.Buffer = real;
+		}
 	});
 });
 
