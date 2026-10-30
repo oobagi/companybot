@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { reasonings } from "./agent-config";
 import { CUSTOM_NAME_MAX, CUSTOM_PROMPT_MAX } from "./automations";
 import { SKILL_DESCRIPTION_MAX, SKILL_INSTRUCTIONS_MAX, SKILL_NAME_MAX } from "./skills";
 import { defineTool, type ToolDef } from "./tools";
@@ -100,7 +101,7 @@ export const manageInputs = {
 			z.strictObject({ action: z.literal("create") }),
 			z.strictObject({ action: z.literal("delete"), id }),
 			z.strictObject({ action: z.literal("remove_image"), id }),
-			z.strictObject({ action: z.literal("update"), id, expectedVersion: version, name: z.string().optional(), description: z.string().optional(), instructions: z.string().optional(), model: z.string().optional() }),
+			z.strictObject({ action: z.literal("update"), id, expectedVersion: version, name: z.string().optional(), description: z.string().optional(), instructions: z.string().optional(), model: z.string().optional(), reasoning: z.enum(reasonings).optional().describe("How hard it thinks before answering; more is slower and costs more") }),
 		]),
 	}),
 	"workspace.settings": z.object({
@@ -138,7 +139,7 @@ const about: Record<ManageTool, { title: string; description: string }> = {
 	"skills.remove": { title: "Delete a skill", description: "Move a skill to Trash for 30 days, including retained library installs. Agents stop seeing it; the maker or an owner can restore custom skills, and owners restore retained library installs. The exact call waits for approval." },
 	"members.invite": { title: "Manage member invitations", description: "Invite an email as a member, or resend or cancel the invitation for an email (owners). Invite and resend send email outside the workspace and wait for approval. Cannot invite owners or change roles." },
 	"members.remove": { title: "Remove a member", description: "Remove another member by their email (owners). Deletes their personal workspace data and access. The exact call waits for approval; cannot remove yourself." },
-	"agents.manage": { title: "Manage agents", description: "Browse agents and their paged configuration history, create an agent with no tools, edit metadata, reset its picture to initials, or delete an agent (to Trash for 30 days; the last agent stays). Writes require an owner. Deleting and changing another agent's instructions or model wait for approval; do them only when asked; you cannot change your own instructions/model, grant tools, restore grants or restore an agent from Trash. Use the current expectedVersion. models lists the AI Gateway models an agent can run on (id, context, $ per M input/output tokens); use one of those ids." },
+	"agents.manage": { title: "Manage agents", description: "Browse agents and their paged configuration history, create an agent with no tools, edit metadata, reset its picture to initials, or delete an agent (to Trash for 30 days; the last agent stays). Writes require an owner. Deleting and changing another agent's instructions, model or reasoning wait for approval; do them only when asked; you cannot change your own instructions/model/reasoning, grant tools, restore grants or restore an agent from Trash. Use the current expectedVersion. models lists the AI Gateway models an agent can run on (id, context, $ per M input/output tokens); use one of those ids." },
 	"workspace.settings": { title: "Manage workspace settings", description: "Read/update the acting person's display name, reset their photo or (owners) the workspace logo to initials, send shortcut, notification preference and explicit time zone (null = automatic). Device time zone is measured by the device. Read workspace name, default currency, memory switch, picture model, monthly image budget (USD; 0 = pictures off; owners also see this month's image spend; imageModels lists the ids to pick from), threadHours (how long a thread stays in the sidebar after its last reply) and version; update these as an owner using the current expectedVersion. Existing amounts keep their currency; the default only affects new amounts. Memory off keeps stored memories. Change only when asked. usage: what AI cost in a month, in USD: the whole workspace's by agent, person, kind and model for owners, otherwise only the person's own." },
 };
 /** What a call does to whom, for its card and tool line: "Remove ben@acme.com from the workspace", "Post in #sales". */
@@ -172,11 +173,11 @@ export const manageTools: ToolDef[] = (Object.keys(manageInputs) as ManageTool[]
 		input: manageInputs[id],
 		...((id === "members.invite" || id === "members.remove") && { permission: "members.manage" as const }),
 		...(id.endsWith(".remove") ? { risk: "locked" as const } : id === "members.invite" || id === "skills.edit" ? { risk: "outside" as const } : {}),
-		// Deleting, or rewriting another agent's instructions/model, always asks.
+		// Deleting, or rewriting another agent's instructions/model/reasoning, always asks.
 		...((id === "channels.manage" || id === "chat.manage" || id === "agents.manage") && {
 			riskFor: (input: unknown) => {
-				const r = manageInputs[id].safeParse(input).data?.request as { action: string; instructions?: string; model?: string } | undefined;
-				const locked = r && (r.action === "delete" || (r.action === "update" && (r.instructions !== undefined || r.model !== undefined)));
+				const r = manageInputs[id].safeParse(input).data?.request as { action: string; instructions?: string; model?: string; reasoning?: string } | undefined;
+				const locked = r && (r.action === "delete" || (r.action === "update" && (r.instructions !== undefined || r.model !== undefined || r.reasoning !== undefined)));
 				return locked ? "locked" as const : "inside" as const;
 			},
 		}),

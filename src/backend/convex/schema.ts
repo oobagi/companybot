@@ -1,7 +1,7 @@
 import { viewConfig } from "./recordValidators";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
-import { fieldKinds, fileTypes, risks, roles, trashKinds, usageKinds } from "@companybot/core";
+import { fieldKinds, fileTypes, reasonings, risks, roles, trashKinds, usageKinds } from "@companybot/core";
 import { v } from "convex/values";
 
 /** One of `values`, each a literal. */
@@ -16,6 +16,8 @@ export const agentConfig = v.object({
 	description: v.string(),
 	instructions: v.string(),
 	model: v.string(),
+	/** Unset on agents and versions saved before it existed: `defaultReasoning`. */
+	reasoning: v.optional(oneOf(reasonings)),
 	tools: v.array(v.string()),
 });
 

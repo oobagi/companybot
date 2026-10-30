@@ -30,6 +30,26 @@ describe("agents", () => {
 		]);
 	});
 
+	it("saves reasoning, and keeps it when a save or a restore leaves it out", async () => {
+		const { t, owner } = await ownerAndMember();
+		const { companybot, scribe } = await agentsOf(owner);
+		expect(companybot.reasoning).toBe("medium");
+		const config = { name: scribe.name, description: scribe.description, instructions: scribe.instructions, model: scribe.model, tools: scribe.tools };
+		// Version 1 as saved before reasoning existed.
+		await t.run(async (ctx) => {
+			const version = await ctx.db.query("agentVersions").withIndex("by_agent", (q) => q.eq("agentId", scribe._id).eq("version", 1)).first();
+			await ctx.db.patch(version!._id, { config });
+		});
+		await owner.mutation(api.agents.update, { agentId: scribe._id, expectedVersion: 1, config: { ...config, reasoning: "high" } });
+		await owner.mutation(api.agents.update, { agentId: scribe._id, expectedVersion: 2, config: { ...config, name: "Older app" } });
+		expect((await agentsOf(owner)).list.find((a) => a._id === scribe._id)!.reasoning).toBe("high");
+		await owner.mutation(api.agents.restore, { agentId: scribe._id, version: 1, expectedVersion: 3 });
+		expect((await agentsOf(owner)).list.find((a) => a._id === scribe._id)!.reasoning).toBe("high");
+		await expect(
+			owner.mutation(api.agents.update, { agentId: scribe._id, expectedVersion: 4, config: { ...config, reasoning: "max" as "high" } }),
+		).rejects.toThrow();
+	});
+
 	it("saves old desktop configs and restores history containing retired connector grants", async () => {
 		const { t, owner } = await ownerAndMember();
 		const { scribe } = await agentsOf(owner);

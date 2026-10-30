@@ -1,5 +1,5 @@
 import type { PlaceMessage, Skill } from "@companybot/core";
-import { PROMPT_MESSAGE_CAP, approxTokens, fallbackModels } from "@companybot/core";
+import { PROMPT_MESSAGE_CAP, approxTokens, defaultReasoning, fallbackModels } from "@companybot/core";
 import { type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -222,7 +222,7 @@ export const turnContext = internalQuery({
 		return {
 			replyId: turn.replyId,
 			member,
-			agent: { id: agent._id, name: agent.name, instructions: agent.instructions, model: agent.model, tools: agent.tools },
+			agent: { id: agent._id, name: agent.name, instructions: agent.instructions, model: agent.model, reasoning: agent.reasoning ?? defaultReasoning, tools: agent.tools },
 			skills,
 			session: { id: session._id, summary: foreign ? null : (session.summary ?? null), turns },
 			/** Off when an owner turned it off; personal only in a DM with exactly one person. memory.ts checks again on every call. */

@@ -1,6 +1,6 @@
 import { type ToolSet, asSchema, isStepCount, tool } from "ai";
 import { callEnd } from "./activity";
-import type { AgentConfig } from "./agent-config";
+import { type AgentConfig, reasonings } from "./agent-config";
 import { type PermissionDecision, deniedReason, heldReason, permissionFor, toolRisk } from "./action-rules";
 import { builtinTools } from "./builtin-tools";
 import { type ModelInfo, fallbackModels } from "./models";
@@ -33,6 +33,7 @@ export function validateAgentConfig(config: AgentConfig, models: readonly Pick<M
 	if (config.description.length > 200) return "Keep the description under 200 characters.";
 	if (config.instructions.length > 20_000) return "Instructions are too long (20,000 characters max).";
 	if (!models.some((m) => m.id === config.model)) return "Pick a model from the list.";
+	if (config.reasoning !== undefined && !reasonings.includes(config.reasoning)) return "Pick a reasoning level from the list.";
 	const unknown = config.tools.find((id) => !isKnownGrant(id));
 	if (unknown) return `Unknown tool: ${unknown}`;
 	return null;
