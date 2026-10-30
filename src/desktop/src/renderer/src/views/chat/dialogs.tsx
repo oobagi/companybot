@@ -21,8 +21,8 @@ export function CreateChannel({ onClose, onOpen }: { onClose: () => void; onOpen
 				<Field label="Name">
 					<input value={name} autoFocus onChange={(e) => setName(e.target.value)} placeholder="e.g. sales" className={inputClass} />
 				</Field>
-				<Field label="Topic" hint="Optional. What's this channel about?">
-					<input value={topic} onChange={(e) => setTopic(e.target.value)} className={inputClass} />
+				<Field label="Topic">
+					<input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Optional. What's this channel about?" className={inputClass} />
 				</Field>
 				<label className="flex items-start gap-2 text-sm">
 					<Checkbox checked={isPrivate} onChange={setPrivate} className="mt-0.5" />

@@ -57,7 +57,7 @@ export function AddField({
 					<Select className={inputClass} value={kind} options={fieldKinds.map((k) => ({ value: k, label: kindLabels[k] }))} onChange={setKind} />
 				</Field>
 				{kind === "choice" && (
-					<Field label="Options" hint="One per line.">
+					<Field label="Options">
 						<textarea value={options} onChange={(e) => setOptions(e.target.value)} rows={4} placeholder={"Shingle\nMetal\nTile"} className={inputClass} />
 					</Field>
 				)}
