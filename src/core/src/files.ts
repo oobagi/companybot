@@ -43,9 +43,14 @@ export interface Attachment {
 export function sniffFile(bytes: Uint8Array, name: string): FileType | undefined {
 	const image = sniffImage(bytes);
 	if (image) return image;
+	if (startsWith(bytes, "%PDF-") || startsWith(bytes, "PK\x03\x04")) return sniffDocument(bytes);
+	return sniffText(bytes, name);
+}
+
+/** A PDF, Word or Excel file, by its bytes. */
+export function sniffDocument(bytes: Uint8Array): FileType | undefined {
 	if (startsWith(bytes, "%PDF-")) return "application/pdf";
 	if (startsWith(bytes, "PK\x03\x04")) return sniffZip(bytes);
-	return sniffText(bytes, name);
 }
 
 /** Why this file can't be attached, or undefined if it can. */

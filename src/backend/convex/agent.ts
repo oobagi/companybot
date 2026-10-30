@@ -35,6 +35,7 @@ import {
 	grantedConnectorIds,
 	isWidgetResult,
 	isWidgetToolName,
+	agentPrepareStep,
 	agentStopWhen,
 	openConnector,
 	resolveTools,
@@ -329,6 +330,7 @@ async function streamReply(
 		messages: input.messages,
 		tools,
 		stopWhen: agentStopWhen,
+		prepareStep: agentPrepareStep(tools, toolCtx.web),
 		headers: { "x-session-affinity": turn.session.id },
 		providerOptions: { gateway: { caching: "auto" } },
 		// Calls that need approval stop the run there, unexecuted; we hold them below.
