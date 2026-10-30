@@ -1,5 +1,7 @@
+import { simulateReadableStream, streamText } from "ai";
+import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
-import { buildToolSet } from "./agents";
+import { AGENT_STEPS, agentPrepareStep, agentStopWhen, buildToolSet } from "./agents";
 import { platformGuide } from "./guide";
 import { FETCHES_PER_TURN, PAGE_CHARS, SEARCHES_PER_TURN, type WebClient, clipPage, createWebTurn, linksIn, urlKey, webTools } from "./web";
 import { ctx, owner } from "../test/helpers";
@@ -79,6 +81,14 @@ describe("createWebTurn", () => {
 		expect(search).toHaveBeenCalledTimes(SEARCHES_PER_TURN);
 		for (let i = 0; i < FETCHES_PER_TURN; i++) expect(await web.fetch("https://acme.com/pricing")).not.toHaveProperty("error");
 		expect(await web.fetch("https://acme.com/pricing")).toMatchObject({ error: expect.stringMatching(/10 pages/) });
+		expect(web.left()).toEqual({ searches: 0, fetches: 0 });
+	});
+
+	it("counts only what ran against the allowance, not refused links", async () => {
+		const web = createWebTurn(client(), []);
+		await web.fetch("https://made-up.example/");
+		await web.search("acme", 5);
+		expect(web.left()).toEqual({ searches: SEARCHES_PER_TURN - 1, fetches: FETCHES_PER_TURN });
 	});
 
 	it("turns failures into errors the model can read", async () => {
@@ -111,5 +121,52 @@ describe("web tools", () => {
 		expect(platformGuide({ tools: ["web.*"] })).toMatch(/## The web\n- For current facts[^#]*web_fetch[^#]*Markdown links/);
 		expect(platformGuide({ tools: ["web.search"] })).not.toContain("web_fetch");
 		expect(platformGuide({ tools: ["web.fetch"] })).not.toContain("web_search");
+	});
+});
+
+describe("a reply's steps", () => {
+	const usage = { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } };
+	const finish = (unified: "tool-calls" | "stop") => ({ type: "finish" as const, finishReason: { unified, raw: undefined }, usage });
+	const call = (id: number, toolName: string, input: unknown) => ({ type: "tool-call" as const, toolCallId: `c${id}`, toolName, input: JSON.stringify(input) });
+	const offered = (options: { tools?: { name: string }[] }) => (options.tools ?? []).map((t) => t.name);
+
+	it("take a spent web tool away, and answer once nothing is left, instead of ending on a refused call", async () => {
+		const web = createWebTurn(client(), []);
+		const tools = buildToolSet({ tools: ["web.*"] }, { ...ctx(owner), web });
+		// A model that never stops looking: it searches, then reads, while it can.
+		let n = 0;
+		const model = new MockLanguageModelV4({
+			doStream: async (options) => {
+				const names = offered(options);
+				expect(JSON.stringify(options.prompt)).not.toContain("last step");
+				if (options.toolChoice?.type === "none")
+					return { stream: simulateReadableStream({ chunks: [{ type: "text-start", id: "t" }, { type: "text-delta", id: "t", delta: "Here's what I found." }, { type: "text-end", id: "t" }, finish("stop")] }) };
+				const next = names.includes("web_search") ? call(n++, "web_search", { query: "acme" }) : call(n++, "web_fetch", { url: "https://acme.com/pricing" });
+				return { stream: simulateReadableStream({ chunks: [next, finish("tool-calls")] }) };
+			},
+		});
+		const result = streamText({ model, prompt: "research acme", tools, stopWhen: agentStopWhen, prepareStep: agentPrepareStep(tools, web) });
+		const errors: unknown[] = [];
+		for await (const part of result.stream) if (part.type === "tool-result" && "error" in (part.output as object)) errors.push(part.output);
+		expect(errors).toEqual([]);
+		const calls = model.doStreamCalls;
+		expect(calls.map(offered).slice(0, SEARCHES_PER_TURN + 1)).toEqual([...Array(SEARCHES_PER_TURN).fill(["web_search", "web_fetch"]), ["web_fetch"]]);
+		expect(calls).toHaveLength(SEARCHES_PER_TURN + FETCHES_PER_TURN + 1);
+		expect(calls.at(-1)!.toolChoice).toEqual({ type: "none" });
+		expect(await result.text).toBe("Here's what I found.");
+	});
+
+	it("end with an answer: the last step offers only widgets, or no tools, and says to answer now", () => {
+		const web = { left: () => ({ searches: 2, fetches: 2 }) };
+		const messages = [{ role: "user" as const, content: "biggest US cities?" }];
+		const tools = buildToolSet({ tools: ["web.*", "widgets.*"] }, { ...ctx(owner), web: createWebTurn(client(), []) });
+		const prepare = agentPrepareStep(tools, web);
+		expect(prepare({ stepNumber: AGENT_STEPS - 2, messages })).toEqual({});
+		const last = prepare({ stepNumber: AGENT_STEPS - 1, messages });
+		expect(last.activeTools?.length).toBeGreaterThan(0);
+		expect(last.activeTools!.every((name) => name.startsWith("widgets_"))).toBe(true);
+		expect(last.messages).toEqual([...messages, { role: "user", content: expect.stringMatching(/last step of your reply.*Answer now.*in text or a widget/) }]);
+		const plain = buildToolSet({ tools: ["web.*"] }, { ...ctx(owner), web: createWebTurn(client(), []) });
+		expect(agentPrepareStep(plain, web)({ stepNumber: AGENT_STEPS - 1, messages })).toMatchObject({ toolChoice: "none", messages: [messages[0], { content: expect.not.stringContaining("widget") }] });
 	});
 });
