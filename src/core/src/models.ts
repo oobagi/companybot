@@ -73,20 +73,28 @@ export interface ImageModelInfo {
 	name: string;
 	provider: string;
 	multimodal?: boolean;
-	/** USD for one picture at the default size, when the gateway lists it. */
+	/** USD for one picture at the default settings. */
 	perImage?: number;
+	/** What it's best at, for the picker. */
+	use?: string;
 }
 
-/** What workspaces make pictures with until an owner picks another: the newest Nano Banana. */
-export const defaultImageModel = "google/gemini-nano-banana-2.1";
+/** What workspaces make pictures with until an owner picks another. */
+export const defaultImageModel = "openai/gpt-image-2.5-flare";
 
-/** Offered while the gateway's catalog hasn't been fetched (or couldn't be). */
-export const fallbackImageModels: ImageModelInfo[] = [
-	{ id: "google/gemini-nano-banana-2.1", name: "Gemini Nano Banana 2.1", provider: "google", multimodal: true, perImage: 0.0336 },
-	{ id: "google/gemini-3-pro-image", name: "Nano Banana Pro (Gemini 3 Pro Image)", provider: "google", multimodal: true, perImage: 0.1344 },
-	// Token-priced on the gateway ($30/M output): about a high-quality 1536px picture's ~6,240 output tokens.
-	{ id: "openai/gpt-image-2", name: "GPT Image 2", provider: "openai", perImage: 0.19 },
-	{ id: "bfl/flux-3-image", name: "FLUX 3 Image", provider: "bfl", perImage: 0.048 },
+/**
+ * The picture models we offer: a short list we've tried, not the gateway's whole catalog, where
+ * models come and go. One the gateway stops listing drops out (`catalogImageModels`); adding one
+ * is a line here after a test picture. `perImage` is what one default picture cost through AI
+ * Gateway on 2026-10-29 (Recraft's is its listed price): shown in the picker and held against the
+ * budget while a call runs. The cost recorded is the gateway's.
+ */
+export const imageModels: ImageModelInfo[] = [
+	{ id: "openai/gpt-image-2.5-flare", name: "GPT Image 2.5 Flare", provider: "openai", perImage: 0.007, use: "Fast, everyday pictures" },
+	{ id: "openai/gpt-image-2.5-sunburst", name: "GPT Image 2.5 Sunburst", provider: "openai", perImage: 0.007, use: "Precise edits" },
+	{ id: "google/gemini-nano-banana-2.1", name: "Nano Banana 2.1", provider: "google", multimodal: true, perImage: 0.039, use: "Google's newest" },
+	{ id: "bfl/flux-3-image", name: "FLUX 3", provider: "bfl", perImage: 0.048, use: "Photo-real" },
+	{ id: "recraft/recraft-v4.1", name: "Recraft V4.1", provider: "recraft", perImage: 0.035, use: "Logos and design" },
 ];
 
 /** A USD string as a number, if it is one. */
@@ -126,8 +134,8 @@ export function parseGatewayImageModels(body: unknown): ImageModelInfo[] {
 		.sort((a, b) => a.id.localeCompare(b.id));
 }
 
-/** "$0.034 per picture", or "" when the gateway didn't say. */
-export const imageModelNote = (m: ImageModelInfo) => (m.perImage !== undefined ? `${usd(m.perImage)} per picture` : "");
+/** "Fast, everyday pictures · $0.007 per picture". */
+export const imageModelNote = (m: ImageModelInfo) => [m.use, m.perImage !== undefined && `${usd(m.perImage)} per picture`].filter(Boolean).join(" · ");
 
 const tokens = (n: number) => (n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : `${Math.round(n / 1e3)}K`);
 const usd = (n: number) => `$${+n.toFixed(n < 1 ? 3 : 2)}`;

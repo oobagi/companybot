@@ -5,7 +5,6 @@ import {
 	IMAGE_BUDGET_DEFAULT_USD,
 	IMAGE_PRICE_UNKNOWN_USD,
 	aspectRatios,
-	defaultImageModel,
 	gatewayCost,
 	imageBudgetError,
 	imageSize,
@@ -20,7 +19,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { type QueryCtx, internalAction, internalMutation } from "./_generated/server";
 import { visibleFile } from "./files";
-import { findImageModel } from "./modelCatalog";
+import { workspaceImageModel } from "./modelCatalog";
 import { addTurnCost, runningTurn } from "./turns";
 import { imageSpent, recordUsage } from "./usage";
 
@@ -69,10 +68,8 @@ export const prepareFor = internalMutation({
 			if (!modelTakesImage(file)) return { error: `${file.name} is too big to edit (pictures up to 5 MB and 8000px).` };
 			files.push({ storageId: file.storageId, type: file.type });
 		}
-		const id = workspace.imageModel ?? defaultImageModel;
-		// One the gateway stopped listing is still tried as an image model; the gateway says if it's gone.
-		const found = await findImageModel(ctx, id);
-		const model: Model = { id, multimodal: !!found?.multimodal, ...(found?.perImage !== undefined && { perImage: found.perImage }) };
+		const found = await workspaceImageModel(ctx, workspace.imageModel);
+		const model: Model = { id: found.id, multimodal: !!found.multimodal, ...(found.perImage !== undefined && { perImage: found.perImage }) };
 		const holdId = await ctx.db.insert("imageHolds", { workspaceId: member.workspaceId, costUsd: pictureCost(model) });
 		await ctx.scheduler.runAfter(HOLD_MS, internal.imageGen.release, { holdId });
 		return { model, files, holdId };

@@ -12,7 +12,7 @@ import { sendInviteEmail } from "./invites";
 import { type Member, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, liveWorkspace, memberOf, nameOf, normalizeEmail, personOf, preferencesOf, requireMember, requirePermission, requireUserId, timeZoneOf } from "./lib";
 import { cascading, startCascade } from "./cascade";
 import { imageUrl } from "./images";
-import { catalogImageModels, findImageModel } from "./modelCatalog";
+import { catalogImageModels, findImageModel, workspaceImageModel } from "./modelCatalog";
 import { imageSpent } from "./usage";
 import { removeWorkspace } from "./lifecycle";
 import { updatePreferences } from "./preferences";
@@ -486,7 +486,7 @@ async function hasAmounts(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
  */
 export async function imageSettings(ctx: QueryCtx, member: Member, workspace: Doc<"workspaces">) {
 	return {
-		imageModel: workspace.imageModel ?? defaultImageModel,
+		imageModel: (await workspaceImageModel(ctx, workspace.imageModel)).id,
 		imageBudgetUsd: workspace.imageBudgetUsd ?? IMAGE_BUDGET_DEFAULT_USD,
 		imageModels: await catalogImageModels(ctx),
 		imageSpentUsd: can(member.role, "usage.view") ? await imageSpent(ctx, workspace._id) : null,
@@ -547,7 +547,7 @@ export async function updateWorkspaceSettings(ctx: MutationCtx, member: Member, 
 	if (currency !== undefined && !isCurrencyCode(currency)) throw new ConvexError("Pick a currency code like USD.");
 	// The current pick stays allowed, so a model that left the gateway doesn't block other edits.
 	if (imageModel !== undefined && imageModel !== (workspace.imageModel ?? defaultImageModel) && !(await findImageModel(ctx, imageModel))) {
-		throw new ConvexError("Pick a picture model AI Gateway lists.");
+		throw new ConvexError("Pick one of the picture models offered.");
 	}
 	if (imageBudgetUsd !== undefined && !(imageBudgetUsd >= 0 && imageBudgetUsd <= IMAGE_BUDGET_MAX_USD)) {
 		throw new ConvexError(`Set an image budget from $0 (off) to $${IMAGE_BUDGET_MAX_USD.toLocaleString("en-US")} a month.`);

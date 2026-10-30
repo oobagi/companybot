@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { validateAgentConfig } from "./agents";
 import { scribe } from "../test/fixtures";
-import { defaultImageModel, fallbackImageModels, fallbackModels, imageModelNote, modelNote, parseGatewayImageModels, parseGatewayModels, searchModels } from "./models";
+import { defaultImageModel, fallbackModels, imageModels, imageModelNote, modelNote, parseGatewayImageModels, parseGatewayModels, searchModels } from "./models";
 
 const sonnet = { id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", type: "language", tags: ["reasoning", "tool-use"], context_window: 1_000_000, pricing: { input: "0.000003", output: "0.000015" } };
 
@@ -40,10 +40,10 @@ describe("models", () => {
 		]);
 		expect(parseGatewayModels(body).map((m) => m.id)).toEqual(["anthropic/claude-sonnet-5.5"]);
 		expect(parseGatewayImageModels(null)).toEqual([]);
-		expect(fallbackImageModels.find((m) => m.id === defaultImageModel)?.multimodal).toBe(true);
-		// Every fallback lists a price, so a picture the gateway reports no cost for still counts against the budget.
-		expect(fallbackImageModels.filter((m) => !(m.perImage! > 0))).toEqual([]);
-		expect(imageModelNote(fallbackImageModels[0]!)).toBe("$0.034 per picture");
+		// The default is one we offer; every one we offer has a price, so a picture the gateway reports no cost for still counts against the budget.
+		expect(imageModels.find((m) => m.id === defaultImageModel)).toBeDefined();
+		expect(imageModels.filter((m) => !(m.perImage! > 0))).toEqual([]);
+		expect(imageModelNote(imageModels[0]!)).toBe("Fast, everyday pictures · $0.007 per picture");
 	});
 
 	it("writes a short note from context and price", () => {
