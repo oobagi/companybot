@@ -13,7 +13,7 @@
 	--color-sidebar: var(--color-neutral-50);
 	--color-primary: var(--color-neutral-900);
 	--color-primary-foreground: var(--color-white);
-	/* Links in messages, replies and preview cards: the one blue in the app, so they read as clickable. */
+	/* Links in messages and replies: the one blue in the app, so they read as clickable. */
 	--color-link: var(--color-blue-600);
 }
 

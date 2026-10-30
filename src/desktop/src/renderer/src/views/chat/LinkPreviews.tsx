@@ -17,11 +17,11 @@ export function LinkPreviews({ message, onError }: { message: Message; onError: 
 						href={card.url}
 						target="_blank"
 						rel="noreferrer noopener"
-						className="group/link flex gap-3 rounded-lg border border-neutral-200 bg-white p-2.5 hover:border-neutral-300"
+						className="flex gap-3 rounded-lg border border-neutral-200 bg-white p-2.5 hover:border-neutral-300"
 					>
 						<span className="flex min-w-0 flex-1 flex-col gap-0.5">
 							{card.siteName && <span className="truncate text-xs text-neutral-500">{card.siteName}</span>}
-							{card.title && <span className="line-clamp-2 font-semibold text-link group-hover/link:underline">{card.title}</span>}
+							{card.title && <span className="line-clamp-2 font-semibold text-primary">{card.title}</span>}
 							{card.description && <span className="line-clamp-2 text-sm text-neutral-600">{card.description}</span>}
 						</span>
 						{card.imageUrl && <img src={card.imageUrl} alt="" loading="lazy" className="size-16 shrink-0 rounded-md bg-neutral-100 object-cover" />}
