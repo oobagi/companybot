@@ -10,7 +10,7 @@ pnpm release alpha   # or beta, 1.2.3-alpha.1
 ```
 Add `--notes file.md` to publish notes (committed as `release-notes/v<version>.md`, shown above GitHub's PR list); `--next` prints the version a bump would make.
 
-From a clean `main` that matches origin. It runs checks, snapshots prod, deploys the prod backend, runs pending migrations, bumps `src/desktop/package.json`, tags `vX.Y.Z`, and pushes. `.github/workflows/release.yml` then builds, signs, notarizes, and publishes to GitHub Releases.
+From a clean `main` that matches origin. It runs checks, snapshots prod, deploys the prod backend, runs pending migrations, bumps `src/desktop/package.json` in a `release/vX.Y.Z` PR, waits for CI to pass and the PR to merge, then tags `vX.Y.Z` and pushes the tag. `main` is protected: nothing lands on it, admins included, without a PR whose `check` job passed. `.github/workflows/release.yml` then builds, signs, notarizes, and publishes to GitHub Releases.
 
 Alpha/beta versions publish as GitHub prereleases. Installs on a prerelease update to newer prereleases and stable versions; stable installs ignore prereleases. `patch` from a prerelease ships that version as stable (0.2.0-alpha.3 → 0.2.0).
 
