@@ -60,7 +60,7 @@ export function MessageRow({
 			>
 				<div className="flex w-9 shrink-0 items-start justify-center">
 					{grouped ? (
-						<span className="invisible pt-1 text-[10px] text-neutral-400 tabular-nums group-hover:visible">
+						<span className="invisible pt-1 text-[10px] whitespace-nowrap text-neutral-400 tabular-nums group-hover:visible">
 							{clock(message._creationTime)}
 						</span>
 					) : (
