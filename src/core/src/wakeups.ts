@@ -6,7 +6,7 @@ import { type ToolDef, defineTool, resultText } from "./tools";
  * One system: when (a time, once or repeating, or a job finishing, #114) plus what (a note: a
  * follow-up the agent set, "chase Acme's invoice in 3 days if it's unpaid"; no note: look around,
  * #162's heartbeat). The agent checks when it wakes whether there's anything to do, so there's
- * no condition to set up. A wake turn is quiet: nothing it writes shows unless it calls `chat.notify`.
+ * no condition to set up. A wake turn is quiet: its reply shows only if its decision says to post (turn-input.ts `postDecision`).
  */
 
 /** How one wake went, for its line in Activity: queued a turn, skipped (and why), finished quietly, spoke up, or failed. */
@@ -17,13 +17,7 @@ export interface WakeupStore {
 	create(input: FollowupInput): Promise<{ created: string; when: string; record?: string } | { error: string }>;
 	list(input: { recordId?: string }): Promise<{ followups: FollowupSummary[] } | { error: string }>;
 	cancel(input: { id: string }): Promise<{ cancelled: string } | { error: string }>;
-	/** Posts in a quiet turn's place, as the agent: a wake turn, or a dispatcher pick (router.ts). */
-	notify(input: { text: string }): Promise<{ posted: true } | { error: string }>;
 }
-
-/** Messages one wake turn can post with chat.notify. */
-export const NOTIFY_MAX = 3;
-export const NOTIFY_TEXT_MAX = 4000;
 
 export interface FollowupSummary {
 	id: string;
@@ -219,16 +213,5 @@ export const wakeupTools: ToolDef[] = [
 		description: "Cancel a pending follow-up by id (from followups_list), so nothing runs. Its person, its maker or an owner can.",
 		input: z.object({ id: z.string() }),
 		execute: (input, { wakeups }) => wakeups.cancel(input),
-	}),
-	defineTool({
-		id: "chat.notify",
-		title: "Post a message",
-		description:
-			"Only when nobody asked you (you woke up on your own, or the dispatcher picked you without an @mention): post a message in this chat. Nothing else you write then is shown, so use it only when there's something worth telling them.",
-		input: z.object({ text: z.string().max(NOTIFY_TEXT_MAX).describe("The message, in Markdown") }),
-		// Like a reply: it says something where the agent was already talking.
-		risk: "none",
-		label: () => "Posted a message",
-		execute: (input, { wakeups }) => wakeups.notify(input),
 	}),
 ];

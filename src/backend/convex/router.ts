@@ -42,8 +42,8 @@ import { recordUsage } from "./usage";
 // agents reply). A person's un-mentioned message schedules a decision; it waits ROUTER_DEBOUNCE_MS
 // and gives up if a newer person's message came in the place meanwhile (that one decides), so a
 // burst makes one call. The answer queues replies (enqueueTurn) and adds reactions. It's a wide net:
-// a reply it queues is a quiet turn, where the agent reads the conversation and posts (chat.notify)
-// only if it should, told how sure the dispatcher was in words (core confidenceBand).
+// a reply it queues is a quiet turn, where the agent reads the conversation and decides whether to post
+// (core postDecision), told how sure the dispatcher was in words (core confidenceBand).
 
 /** From messages.send, for a person's message that @mentions no agent. */
 export async function routeLater(ctx: MutationCtx, chat: Doc<"chats">, message: Doc<"chatMessages">) {
@@ -207,8 +207,7 @@ export const apply = internalMutation({
 				triggerId: messageId,
 				actorId: message.authorUserId,
 				routed: true,
-				// Quiet: it posts only with chat.notify, so one that can't keeps answering as before.
-				dispatch: { ...dispatch, ...(isGranted(agent.tools, "chat.notify") && { quiet: true as const }), ...(after && { after: after._id }) },
+				dispatch: { ...dispatch, ...(after && { after: after._id }) },
 			});
 			if (after) await ctx.db.patch(after._id, { dispatch: { ...after.dispatch!, then: turnId } });
 			after = (await ctx.db.get(turnId))!;

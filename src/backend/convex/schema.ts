@@ -109,6 +109,8 @@ export const dispatchInfo = v.object({
 	probabilities: v.optional(v.record(v.string(), v.number())),
 	/** The whole decision call's, which covers every agent in the channel. Recorded once, as kind "router". */
 	costUsd: v.number(),
+	/** Set when another agent named it in its decision (`to`), in place of a dispatcher: that agent's name. */
+	by: v.optional(v.string()),
 });
 
 export const replyStats = v.object({
@@ -507,8 +509,10 @@ export default defineSchema({
 		costUsd: v.optional(v.number()),
 		/** Server-written provenance. `foreign` snapshots whose words the run follows; absent on older messages, which ask. */
 		automation: v.optional(v.object({ id: v.string(), name: v.string(), foreign: v.optional(v.boolean()) })),
-		/** A quiet turn's own reply (a wake, or a dispatcher pick): kept for the agent's session, never shown. The agent speaks with chat.notify. */
+		/** A quiet turn's own reply (a wake, a dispatcher pick, a hop): hidden unless its decision posts it (turns.finishReply). */
 		quiet: v.optional(v.boolean()),
+		/** When a quiet reply was shown, if it was: later than it was made. */
+		publishedAt: v.optional(v.number()),
 		/**
 		 * A chain of agents paused here (chains.ts): the line "Agents paused after 10 turns · Continue · Stop",
 		 * written as the agent whose handoff it held. `by`: who pressed Continue or Stop.
@@ -601,25 +605,24 @@ export default defineSchema({
 		sessionId: v.optional(v.id("agentSessions")),
 		/** The exact user message sent to the model this turn. Replayed as-is in later turns. */
 		prompt: v.optional(v.string()),
-		/** Nobody @mentioned the agent: the router queued it (router.ts). */
+		/** Nobody @mentioned the agent: the router queued it (router.ts), or a hop (chains.ts). Its reply is quiet. */
 		routed: v.optional(v.literal(true)),
 		/**
-		 * The dispatcher's pick, for its prompt and its reply's stats. `quiet`: its reply is quiet and it posts
-		 * only with chat.notify (a pick for a person's message, or a hop). One message's picks run one after
+		 * The dispatcher's pick, for its prompt and its reply's stats. One message's picks run one after
 		 * another, best fit first, so each sees what the ones before posted: `after` is the pick it waits for,
 		 * `then` the one waiting for it (router.apply). Unset on routed turns from before it.
 		 */
 		dispatch: v.optional(
 			v.object({
 				...dispatchInfo.fields,
+				// Retired with chat.notify: routed turns are all quiet now. Old turns have them.
 				quiet: v.optional(v.literal(true)),
 				after: v.optional(v.id("agentTurns")),
 				then: v.optional(v.id("agentTurns")),
 			}),
 		),
-		/** The last message a quiet turn posted with chat.notify: its reply's stats go there too. */
+		// Retired with chat.notify (no longer written). Old turns have them.
 		notifiedId: v.optional(v.id("chatMessages")),
-		/** A quiet turn was told another agent posted here while it worked (wakeups.notifyFor): its next post goes through. */
 		claimSeen: v.optional(v.literal(true)),
 		/** Another agent handed it this (chains.ts): its chain, how deep in asks, and the agents from the chain's start to this one. */
 		chain: v.optional(chainRef),

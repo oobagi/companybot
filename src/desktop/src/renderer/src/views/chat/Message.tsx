@@ -359,19 +359,21 @@ function ReplyDetails({ stats }: { stats: Stats }) {
 		["This reply", usd(cost)],
 		["Here so far", usd(stats.conversationCostUsd)],
 		// Nobody @mentioned it. The decision is its own call, once for every agent in the channel, so it's
-		// apart from "This reply" (Usage counts it under Reply decisions).
-		...(dispatch
-			? ([
-					["Picked by", `Dispatcher (${dispatcherName(dispatch.model)})`],
-					["Confidence", confidence(dispatch)],
-					["Decision", `${tinyUsd(dispatch.costUsd)}, apart from this reply`],
-				] as [string, string][])
-			: []),
+		// apart from "This reply" (Usage counts it under Reply decisions). Named by another agent: no call.
+		...(dispatch?.by
+			? ([["Picked by", dispatch.by]] as [string, string][])
+			: dispatch
+				? ([
+						["Picked by", `Dispatcher (${dispatcherName(dispatch.model)})`],
+						["Confidence", confidence(dispatch)],
+						["Decision", `${tinyUsd(dispatch.costUsd)}, apart from this reply`],
+					] as [string, string][])
+				: []),
 	];
 	return (
 		<div className="flex">
 			<Popover
-				trigger={`${shortModel(stats.model)} · ${seconds(stats.durationMs)} · ${tokens(stats.contextTokens)} context · ${usd(cost)} · ${usd(stats.conversationCostUsd)} total${dispatch ? ` · via dispatcher${dispatch.probability !== undefined ? ` ${percent(dispatch.probability)}` : ""}` : ""}`}
+				trigger={`${shortModel(stats.model)} · ${seconds(stats.durationMs)} · ${tokens(stats.contextTokens)} context · ${usd(cost)} · ${usd(stats.conversationCostUsd)} total${dispatch?.by ? ` · via ${dispatch.by}` : dispatch ? ` · via dispatcher${dispatch.probability !== undefined ? ` ${percent(dispatch.probability)}` : ""}` : ""}`}
 				className="text-left text-xs text-neutral-400 tabular-nums hover:text-neutral-600"
 				panelClassName="w-80 p-3"
 			>

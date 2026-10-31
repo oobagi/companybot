@@ -6,7 +6,6 @@ import {
 	askRefusal,
 	freshBudget,
 	handoffLimit,
-	isGranted,
 	mentionedAgents,
 	pauseText,
 	replyModeOf,
@@ -86,10 +85,11 @@ async function agentPostsIn(ctx: QueryCtx, chatId: Id<"chats">, threadId: Id<"ch
 
 /**
  * After a turn's reply is done (turns.finishReply): its @mentions of other agents hand them the
- * work, in a chain. One that mentions nobody, in a chain in a "When relevant" channel, asks the
- * dispatcher who goes next (router.next).
+ * work, in a chain. A quiet turn's decision may name an agent here (`to`): it answers next, as a hop.
+ * One that mentions or names nobody, in a chain in a "When relevant" channel, asks the dispatcher who
+ * goes next (router.next), unless it was talking to a person.
  */
-export async function handOff(ctx: MutationCtx, turn: Doc<"agentTurns">) {
+export async function handOff(ctx: MutationCtx, turn: Doc<"agentTurns">, to?: string) {
 	const reply = await shownReply(ctx, turn);
 	if (!reply || reply.status !== "done" || reply.deleted || turn.ask || !(await personAsked(ctx, turn))) return;
 	const chat = await ctx.db.get(turn.chatId);
@@ -101,17 +101,27 @@ export async function handOff(ctx: MutationCtx, turn: Doc<"agentTurns">) {
 		for (const to of mentioned) await passTo(ctx, { turn, chain: (await ctx.db.get(chain._id))!, chat, reply, to: to.id });
 		return;
 	}
-	if (turn.chain && replyModeOf(chat) === "relevant") await ctx.scheduler.runAfter(0, internal.router.next, { turnId: turn._id });
+	const members = await chatMembersOf(ctx, chat._id);
+	const named = to && (await Promise.all(members.map((r) => r.agentId && r.agentId !== turn.agentId && ctx.db.get(r.agentId)))).find((a) => a && !a.archived && a.name === to);
+	if (named) {
+		// A pick already waiting on the same message runs next anyway, and sees this.
+		const waiting = await ctx.db
+			.query("agentTurns")
+			.withIndex("by_place", (q) => q.eq("agentId", named._id).eq("chatId", chat._id).eq("threadId", reply.threadId).eq("status", "queued"))
+			.filter((q) => q.eq(q.field("triggerId"), turn.triggerId))
+			.first();
+		if (waiting) return;
+		const by = (await ctx.db.get(turn.agentId))?.name ?? "An agent";
+		return passTo(ctx, { turn, chain: await chainOf(ctx, turn), chat, reply, to: named._id, dispatched: true, dispatch: { model: "", band: "clearly", costUsd: 0, by } });
+	}
+	const toPerson = !!to && to !== "room";
+	if (turn.chain && replyModeOf(chat) === "relevant" && !toPerson) await ctx.scheduler.runAfter(0, internal.router.next, { turnId: turn._id });
 }
 
-/**
- * What a turn said where people see it: its reply, or for a quiet turn (its reply is never shown) the
- * last message it posted with chat.notify, if any. Handoffs and "who goes next" read this.
- */
+/** What a turn said where people see it: its reply, unless it's quiet (hidden). Handoffs and "who goes next" read this. */
 export async function shownReply(ctx: QueryCtx, turn: Doc<"agentTurns">) {
 	const reply = turn.replyId && (await ctx.db.get(turn.replyId));
-	if (!reply?.quiet) return reply || null;
-	return (turn.notifiedId && (await ctx.db.get(turn.notifiedId))) || null;
+	return reply && !reply.quiet ? reply : null;
 }
 
 /** The dispatcher picked `agentId` to go next after `turn` (router.applyNext): the same as an @mention, counted as a hop. */
@@ -157,9 +167,9 @@ async function startHanded(ctx: MutationCtx, chain: Doc<"agentChains">, h: Held,
 		triggerId: h.triggerId,
 		actorId: chain.actorId,
 		chain: { id: chain._id, depth: h.depth, path, epoch: chain.epoch },
+		// Not asked directly, so quiet like a pick for a person's message: shown only if its decision posts it.
 		...(h.dispatched && { routed: true as const }),
-		// Not asked directly, so quiet like a pick for a person's message: it posts with chat.notify only if it adds something.
-		...(h.dispatch && { dispatch: { ...h.dispatch, ...(isGranted(agent.tools, "chat.notify") && { quiet: true as const }) } }),
+		...(h.dispatch && { dispatch: h.dispatch }),
 	});
 }
 

@@ -1,5 +1,5 @@
 import type { PlaceMessage, Skill } from "@companybot/core";
-import { PROMPT_MESSAGE_CAP, approxTokens, defaultReasoning, fallbackModels, isGranted } from "@companybot/core";
+import { PROMPT_MESSAGE_CAP, approxTokens, defaultReasoning, fallbackModels, publishes } from "@companybot/core";
 import { type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -8,6 +8,7 @@ import {
 	type Namer,
 	canSee,
 	chatMembersOf,
+	countMessage,
 	insertMessage,
 	namer,
 	replyForModel,
@@ -149,10 +150,10 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 		mentions: { userIds: [], agentIds: [] },
 		status: "streaming" as const,
 	};
-	// A wake turn's reply is quiet: kept for its session, never shown, so it doesn't touch the chat's unread or the thread's replies.
+	// Nobody asked a wake, a dispatcher pick (router.ts) or a hop (chains.ts): its reply is quiet, hidden (it
+	// doesn't touch the chat's unread or the thread's replies) unless its decision posts it (finishReply).
 	// An ask's answer (chains.ts) is the exception: that wake finishes a reply someone is waiting for.
-	// A dispatcher pick for a person's message (router.ts) is quiet too: the agent posts only if it should.
-	const quiet = next.dispatch?.quiet || (next.wakeupId && !(await ctx.db.get(next.wakeupId))?.answer);
+	const quiet = next.routed || (next.wakeupId && !(await ctx.db.get(next.wakeupId))?.answer);
 	const replyId = quiet
 		? await ctx.db.insert("chatMessages", { chatId: chat._id, workspaceId: chat.workspaceId, ...reply, quiet: true })
 		: await insertMessage(ctx, chat, reply);
@@ -271,9 +272,11 @@ export const turnContext = internalQuery({
 		const vision = [models, fallbackModels].some((list) => list.find((m) => m.id === agent.model)?.vision);
 		const user = await ctx.db.get(member.userId);
 		const about = wakeup?.recordId ? await ctx.db.get(wakeup.recordId) : undefined;
-		const answering = turn.dispatch?.quiet ? await answeringHere(ctx, turn, names) : [];
+		const answering = turn.routed ? await answeringHere(ctx, turn, names) : [];
 		return {
 			replyId: turn.replyId,
+			/** Nobody asked (a pick, a hop, a wake): it ends with a decision whether to post (core postDecision). */
+			quiet: !!reply.quiet,
 			member,
 			agent: { id: agent._id, name: agent.name, instructions: agent.instructions, model: agent.model, reasoning: agent.reasoning ?? defaultReasoning, tools: agent.tools },
 			skills,
@@ -295,16 +298,16 @@ export const turnContext = internalQuery({
 				thread: parent
 					? { parent: await toPlaceMessage(parent, names, agent._id), first }
 					: null,
-				members: await Promise.all(rows.map(names.of)),
+				members: await Promise.all(rows.map(async (r) => ({ ...(await names.of(r)), ...(r.agentId && { role: (await ctx.db.get(r.agentId))?.description }) }))),
 			},
 			messages,
 			asked,
 			triggerId: turn.triggerId ?? null,
-			/** Nobody @mentioned it: how sure the dispatcher was, whether it posts only with chat.notify, and who else is at it. */
+			/** Nobody @mentioned it: how sure the dispatcher was (or which agent named it), and who else is at it. Its reply is quiet. */
 			routed: turn.routed
 				? {
 						band: turn.dispatch?.band ?? ("probably" as const),
-						quiet: !!turn.dispatch?.quiet,
+						...(turn.dispatch?.by && { by: turn.dispatch.by }),
 						...(turn.dispatch?.after && { before: await picksBefore(ctx, turn, names) }),
 						...(answering.length > 0 && { answering }),
 					}
@@ -321,7 +324,6 @@ export const turnContext = internalQuery({
 						...(wakeup.every && { repeats: { left: wakeup.times === undefined ? null : Math.max(wakeup.times - (wakeup.wakes ?? 0), 0) } }),
 						...(about !== undefined && { record: about && (await recordOut(ctx, member, about._id)) }),
 						...(wakeup.result !== undefined && { result: wakeup.result }),
-						canNotify: isGranted(agent.tools, "chat.notify"),
 						...(wakeup.answer && { answer: { from: (await names.agent(wakeup.answer.agentId)).name } }),
 					}
 				: undefined,
@@ -350,7 +352,7 @@ async function answeringHere(ctx: QueryCtx, turn: Doc<"agentTurns">, names: Name
 		.query("agentTurns")
 		.withIndex("by_chat", (q) => q.eq("chatId", turn.chatId).eq("threadId", turn.threadId).eq("status", "running"))
 		.take(10);
-	const others = running.filter((t) => t.agentId !== turn.agentId && (t.dispatch?.quiet || t.wakeupId) && Date.now() - (t.startedAt ?? t._creationTime) < STALE_TURN_MS);
+	const others = running.filter((t) => t.agentId !== turn.agentId && (t.routed || t.wakeupId) && Date.now() - (t.startedAt ?? t._creationTime) < STALE_TURN_MS);
 	return Promise.all([...new Set(others.map((t) => t.agentId))].map(async (id) => (await names.agent(id)).name));
 }
 
@@ -499,33 +501,25 @@ async function statsOf(ctx: QueryCtx, turn: Doc<"agentTurns">, usage: SavedUsage
 
 const withoutQuiet = ({ quiet: _, after: __, then: ___, ...dispatch }: NonNullable<Doc<"agentTurns">["dispatch"]>) => dispatch;
 
-/** A quiet turn's reply is never shown: its stats also go on the last message it posted with chat.notify. */
-async function setStats(ctx: MutationCtx, turn: Doc<"agentTurns">, stats: Infer<typeof replyStats>) {
-	const notified = turn.notifiedId && (await ctx.db.get(turn.notifiedId));
-	if (notified && !notified.deleted) await ctx.db.patch(notified._id, { stats });
-}
+/** How a quiet turn ended (core `postDecision`): what it would add, whether to post, to whom, and the message. */
+const postDecision = v.object({ new_point: v.string(), post: v.boolean(), to: v.string(), message: v.string() });
 
 /**
- * A quiet turn's reply is never shown, but widgets it placed are meant to be seen: they go on the
- * last message it posted with chat.notify, or, if it posted none, in a message of their own.
+ * Whether a quiet reply is shown, as it is (its widgets, cards and stats with it): its decision posts it
+ * (core `publishes`) and no other agent took the place while it worked; or it held a call the person must
+ * decide on. The claim: another agent's post here it couldn't see, made or shown after this reply began.
+ * Ones before it were in its prompt, and its decision weighed them.
  */
-async function showWidgets(ctx: MutationCtx, turn: Doc<"agentTurns">, reply: Doc<"chatMessages">, stats?: Infer<typeof replyStats>) {
-	const widgets = reply.parts.filter((p) => p.type === "widget");
-	if (widgets.length === 0) return;
-	const notified = turn.notifiedId && (await ctx.db.get(turn.notifiedId));
-	if (notified && !notified.deleted) return void (await ctx.db.patch(notified._id, { parts: [...notified.parts, ...widgets] }));
-	const chat = await ctx.db.get(turn.chatId);
-	if (!chat) return;
-	const shownId = await insertMessage(ctx, chat, {
-		threadId: turn.threadId,
-		authorAgentId: turn.agentId,
-		text: "",
-		parts: widgets,
-		mentions: { userIds: [], agentIds: [] },
-		status: "done",
-		...(stats && { stats }),
-	});
-	await ctx.db.patch(turn._id, { notifiedId: shownId });
+async function shown(ctx: QueryCtx, turn: Doc<"agentTurns">, reply: Doc<"chatMessages">, decision?: Infer<typeof postDecision>) {
+	const parts = (await streamOf(ctx, reply._id))?.parts ?? reply.parts;
+	if (parts.some((p) => p.type === "approval")) return true;
+	if (!publishes(decision)) return false;
+	const recent = await ctx.db
+		.query("chatMessages")
+		.withIndex("by_chat_thread", (q) => q.eq("chatId", turn.chatId).eq("threadId", turn.threadId).gt("_creationTime", reply._creationTime - STALE_TURN_MS))
+		.filter((q) => q.and(q.neq(q.field("authorAgentId"), undefined), q.neq(q.field("authorAgentId"), turn.agentId), q.neq(q.field("quiet"), true), q.neq(q.field("deleted"), true)))
+		.take(50);
+	return !recent.some((m) => (m.publishedAt ?? m._creationTime) > reply._creationTime);
 }
 
 /** After each finished model call (agent.ts), so its cost is recorded even if the action dies before finishReply. */
@@ -544,29 +538,31 @@ export const finishReply = internalMutation({
 		error: v.optional(v.string()),
 		/** Left out when no model call finished. */
 		usage: v.optional(replyUsage),
+		/** A quiet turn's decision; left out when it made none (it failed, or stopped for an approval). */
+		decision: v.optional(postDecision),
 	},
-	handler: async (ctx, { turnId, error, usage }) => {
+	handler: async (ctx, { turnId, error, usage, decision }) => {
 		const turn = await ctx.db.get(turnId);
 		if (!turn) return;
 		const saved = usage ? await saveTurnUsage(ctx, turn, usage) : turn.usage;
 		const stats = saved && (await statsOf(ctx, turn, saved));
 		const reply = turn.replyId && (await ctx.db.get(turn.replyId));
-		if (stats) await setStats(ctx, turn, stats);
 		// A turn already failed as stale only gets its stats; the queue moved on without it.
 		if (turn.status !== "running") {
 			if (reply && stats) await ctx.db.patch(reply._id, { stats });
 			return;
 		}
+		const show = !!reply && !!reply.quiet && !error && (await shown(ctx, turn, reply, decision));
 		if (reply) {
-			await endStream(ctx, reply, error ? { status: "error", error, stats } : { status: "done", stats });
+			await endStream(ctx, reply, { ...(error ? { status: "error" as const, error } : { status: "done" as const }), stats, ...(show && { quiet: undefined, publishedAt: Date.now() }) });
+			if (show) await countMessage(ctx, (await ctx.db.get(turn.chatId))!, reply);
 			if (!error) await previewMessage(ctx, (await ctx.db.get(reply._id))!);
-			if (reply.quiet) await showWidgets(ctx, turn, (await ctx.db.get(reply._id))!, stats);
 		}
 		await ctx.db.patch(turnId, { status: error ? "error" : "done", step: undefined });
-		await setWakeOutcome(ctx, turn, error ? "failed" : "ran");
+		await setWakeOutcome(ctx, turn, error ? "failed" : show ? "notified" : "ran");
 		await settleApproval(ctx, turn);
-		// Agents it @mentioned take the work on (chains.ts); an asked agent's answer goes back to the asker.
-		if (!error) await handOff(ctx, (await ctx.db.get(turnId))!);
+		// Agents it @mentioned or named take the work on (chains.ts); an asked agent's answer goes back to the asker.
+		if (!error) await handOff(ctx, (await ctx.db.get(turnId))!, decision?.to);
 		await answerAsk(ctx, turn, error);
 		await startNext(ctx, turn);
 		await startThen(ctx, turn);
