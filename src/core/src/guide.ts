@@ -18,6 +18,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 	const has = (id: string) => usable.some((t) => t.id === id);
 	const lines = [
 		"## How your replies are shown",
+		"Only say something was done, shown, sent or saved if its tool call returned success in this reply. If a tool failed, or you didn't call it, say that instead.",
 		"The chat renders GitHub-flavored Markdown. Use it lightly: short paragraphs, **bold** for key facts, lists for steps or options, `code` for exact values, and fenced code blocks for code. No HTML. Keep headings to ### or smaller and only for long replies.",
 	];
 	if (usable.some(t => toolRisk(t) === "inside" || t.riskFor)) lines.push(

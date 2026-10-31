@@ -505,6 +505,29 @@ async function setStats(ctx: MutationCtx, turn: Doc<"agentTurns">, stats: Infer<
 	if (notified && !notified.deleted) await ctx.db.patch(notified._id, { stats });
 }
 
+/**
+ * A quiet turn's reply is never shown, but widgets it placed are meant to be seen: they go on the
+ * last message it posted with chat.notify, or, if it posted none, in a message of their own.
+ */
+async function showWidgets(ctx: MutationCtx, turn: Doc<"agentTurns">, reply: Doc<"chatMessages">, stats?: Infer<typeof replyStats>) {
+	const widgets = reply.parts.filter((p) => p.type === "widget");
+	if (widgets.length === 0) return;
+	const notified = turn.notifiedId && (await ctx.db.get(turn.notifiedId));
+	if (notified && !notified.deleted) return void (await ctx.db.patch(notified._id, { parts: [...notified.parts, ...widgets] }));
+	const chat = await ctx.db.get(turn.chatId);
+	if (!chat) return;
+	const shownId = await insertMessage(ctx, chat, {
+		threadId: turn.threadId,
+		authorAgentId: turn.agentId,
+		text: "",
+		parts: widgets,
+		mentions: { userIds: [], agentIds: [] },
+		status: "done",
+		...(stats && { stats }),
+	});
+	await ctx.db.patch(turn._id, { notifiedId: shownId });
+}
+
 /** After each finished model call (agent.ts), so its cost is recorded even if the action dies before finishReply. */
 export const saveUsage = internalMutation({
 	args: { turnId: v.id("agentTurns"), usage: replyUsage },
@@ -537,6 +560,7 @@ export const finishReply = internalMutation({
 		if (reply) {
 			await endStream(ctx, reply, error ? { status: "error", error, stats } : { status: "done", stats });
 			if (!error) await previewMessage(ctx, (await ctx.db.get(reply._id))!);
+			if (reply.quiet) await showWidgets(ctx, turn, (await ctx.db.get(reply._id))!, stats);
 		}
 		await ctx.db.patch(turnId, { status: error ? "error" : "done", step: undefined });
 		await setWakeOutcome(ctx, turn, error ? "failed" : "ran");

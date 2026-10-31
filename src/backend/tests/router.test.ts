@@ -236,6 +236,33 @@ describe("reply router", () => {
 		expect(usage.map((u) => [u.kind, u.costUsd])).toEqual(expect.arrayContaining([["router", 0.0002], ["chat", 0.0003]]));
 	});
 
+	it("shows a quiet pick's widgets: with its chat.notify post, or on their own", async () => {
+		const { t, member, chatId, send, decide } = await setUp();
+		const widget = { type: "widget" as const, id: "w1", widget: { type: "stats", props: { title: "Widget test", items: [{ label: "Rendering check", value: "Live" }] } } };
+		const placeWidget = async (turnId: Id<"agentTurns">) => {
+			const replyId = (await t.run((ctx) => ctx.db.get(turnId)))!.replyId as Id<"chatMessages">;
+			await t.mutation(internal.turns.updateReply, { replyId, text: "", parts: [widget] });
+		};
+		// With a post: the widget goes under its text.
+		withProbabilities({ a1: ["reply", 0.9] });
+		await decide(await send(member, "can someone show me a stats widget?"));
+		const [first] = await turnsOf(t);
+		await placeWidget(first!._id);
+		await t.mutation(internal.wakeups.notifyFor, { turnId: first!._id, text: "Here it is." });
+		await t.mutation(internal.turns.finishReply, { turnId: first!._id, usage: usageOf(0.0003) });
+		const posted = (await member.query(api.messages.list, { chatId })).find((m) => m.text === "Here it is.");
+		expect(posted!.parts).toEqual([{ type: "text", text: "Here it is." }, widget]);
+
+		// Without one: the widget is still shown, in a message of its own.
+		withProbabilities({ a1: ["reply", 0.9] });
+		await decide(await send(member, "and again?"));
+		const second = (await turnsOf(t)).find((turn) => turn._id !== first!._id)!;
+		await placeWidget(second._id);
+		await t.mutation(internal.turns.finishReply, { turnId: second._id, usage: usageOf(0.0003) });
+		const shown = await member.query(api.messages.list, { chatId });
+		expect(shown.at(-1)).toMatchObject({ text: "", parts: [widget] });
+	});
+
 	it("posts as before for an agent that can't use chat.notify", async () => {
 		const { t, member, scribe, send, decide } = await setUp();
 		await t.run((ctx) => ctx.db.patch(scribe._id, { tools: ["memory.search"] }));

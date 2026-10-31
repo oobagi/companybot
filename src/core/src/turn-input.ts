@@ -200,7 +200,7 @@ const routedNote = (
 		"- Post nothing if it's already been answered (by you or anyone) and you'd add nothing different; if the person wants someone other than you (\"anyone else?\" or \"can anyone check that?\" right after you answered: don't check your own answer); if it's people talking to each other; or if you'd only be acknowledging, offering to help, making small talk or saying you have nothing to add. Just end without chat_notify; you can react with chat_react instead.",
 		hop
 			? `- If it gives back a result you asked for, ${clean(hop.person)} already sees it, so never restate, sum up or confirm it. If you asked for it to do more yourself (your message above says what for), do that now and post it with chat_notify; if not, you're done: end without posting.\n- If it hands you work or asks you something, do it and post the result with chat_notify.`
-			: `- Otherwise, if it's ${band === "might" ? "clearly for you (the dispatcher wasn't sure)" : "for you"}, answer it with chat_notify, briefly, even if you couldn't find what they asked for (then say so). A question to the room ("anyone know…?") that nobody has answered is for you if you can answer it; one to everyone (a vote, "everyone…?") asks you too: give your own answer once, in a line or a reaction. When they ask for someone else, an agent that hasn't answered and whose line of work it is should. Nothing else you write is shown.`,
+			: `- Otherwise, if it's ${band === "might" ? "clearly for you (the dispatcher wasn't sure)" : "for you"}, answer it with chat_notify, briefly, even if you couldn't find what they asked for (then say so). A question to the room ("anyone know…?") that nobody has answered is for you if you can answer it; one to everyone (a vote, "everyone…?") asks you too: give your own answer once, in a line or a reaction. When they ask for someone else, an agent that hasn't answered and whose line of work it is should. Nothing else you write is shown; widgets you place go out with your chat_notify post.`,
 	]
 		.filter(Boolean)
 		.join("\n");
@@ -266,7 +266,7 @@ function wakeSection(wake: TurnWake, { name, timeZone }: { name: string; timeZon
 
 const quietNote = (wake: TurnWake) =>
 	wake.canNotify
-		? "Nobody asked just now, so nothing you write is shown. If there's something worth telling them, say it with chat_notify; otherwise end without it."
+		? "Nobody asked just now, so nothing you write is shown. If there's something worth telling them, say it with chat_notify (widgets you place go out with it); otherwise end without it."
 		: "Nobody asked just now, so nothing you write is shown, and you can't post here.";
 
 /** What the agent hears after someone decides on a call it held for approval. */
