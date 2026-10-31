@@ -71,7 +71,7 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 - Anything that wakes an agent later is a `wakeups` row; never add another table or trigger path. Make one with `createWakeup` (when: `at` [+ `every`, `times`] or `jobId`; what: `note` or none), move or re-arm it with `armAt`, stop it with `cancelWakeup`. Pass `foreign` from the run that made it (`automationScope`).
 - `wake(ctx, id, { result? })` is the only path to a turn: it re-checks access and queues a quiet turn with `wakeupId`. Jobs (#114) call it on finish/fail/timeout with their result; cancelling a job cancels its wakeup.
 - Gates for note-less wakeups (the heartbeat, #162) go in `lookAroundGate`: return a reason to skip, logged on the wake's Activity line. A different repeat schedule (working hours) replaces `nextRepeat` in `fire` for those rows.
-- A wake turn speaks only with `chat.notify`. Anything that lists messages people or agents read must skip `quiet` ones.
+- A quiet turn (a wake, a pick, a hop) speaks only through its decision (core `postDecision` / `publishes`); never match its text. Anything that lists messages people or agents read must skip `quiet` ones.
 
 ## Memory — `core/src/memory.ts`, `backend/convex/memoryOps.ts`
 - Each memory belongs to one agent; scope `workspace` or `personal`. Rules live in `canReadMemory` / `canEditMemory` / `canCreateMemory`.

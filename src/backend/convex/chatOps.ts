@@ -242,6 +242,12 @@ export async function insertMessage(
 	message: Omit<Doc<"chatMessages">, "_id" | "_creationTime" | "chatId" | "workspaceId">,
 ) {
 	const id = await ctx.db.insert("chatMessages", { chatId: chat._id, workspaceId: chat.workspaceId, ...message });
+	await countMessage(ctx, chat, message);
+	return id;
+}
+
+/** A message people now see: on its thread's reply count and authors, or the chat's last message time. A quiet reply that's shown, too. */
+export async function countMessage(ctx: MutationCtx, chat: Doc<"chats">, message: Pick<Doc<"chatMessages">, "threadId" | "authorUserId" | "authorAgentId">) {
 	const now = Date.now();
 	if (message.threadId) {
 		const parent = await ctx.db.get(message.threadId);
@@ -251,7 +257,6 @@ export async function insertMessage(
 			await ctx.db.patch(parent._id, { replyCount: (parent.replyCount ?? 0) + 1, lastReplyAt: now, replyAuthors: [author, ...others].slice(0, 3) });
 		}
 	} else await ctx.db.patch(chat._id, { lastMessageAt: now });
-	return id;
 }
 
 type ReplyAuthor = NonNullable<Doc<"chatMessages">["replyAuthors"]>[number];

@@ -62,8 +62,8 @@ export const list = query({
 		const agents = await Promise.all(
 			running
 				.filter((t) => now - (t.startedAt ?? t._creationTime) < STALE_TURN_MS)
-				// A dispatcher pick (router.ts) may well post nothing: it shows what it's doing, never "typing".
-				.map(async (t) => ({ ...(await names.agent(t.agentId)), step: t.step?.label ?? (t.dispatch?.quiet ? "Thinking…" : null) })),
+				// A dispatcher pick or hop may well post nothing: it shows what it's doing, never "typing".
+				.map(async (t) => ({ ...(await names.agent(t.agentId)), step: t.step?.label ?? (t.routed ? "Thinking…" : null) })),
 		);
 		return { people: people.slice(0, SHOWN_MAX), agents };
 	},
