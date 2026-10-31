@@ -381,7 +381,8 @@ export function Item({
 					onKeyDown={rename && ((e) => e.key === "F2" && (e.preventDefault(), setRenaming(true)))}
 					className="flex min-w-0 flex-1 items-center gap-2 text-left after:absolute after:inset-0 after:rounded-lg"
 				>
-					{children}
+					{/* A plain label ellipsizes like the others; richer children truncate their own text. */}
+					{typeof children === "string" ? <span className="truncate">{children}</span> : children}
 					{draft && !active && <span className="ml-auto shrink-0 text-[10px] font-normal text-neutral-400">Draft</span>}
 					{mentioned && !active && (
 						<span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-neutral-900 px-1 text-[10px] font-medium text-white">
