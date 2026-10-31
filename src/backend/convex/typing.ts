@@ -9,7 +9,8 @@ import { requireMember, sweepExpired } from "./lib";
 import { STALE_TURN_MS } from "./turns";
 
 // Typing indicators: who's typing in a place (chat + thread). Timing rules: core typing.ts.
-// Agents type while their turn runs, with no writes of their own. See wiki/chat.md.
+// Agents show while their turn runs, with its current step (agentTurns.step, set by agent.ts),
+// so a run that posts nothing still shows what it's doing. See wiki/chat.md.
 
 /** Most typists one place shows. */
 const SHOWN_MAX = 10;
@@ -34,12 +35,13 @@ export const ping = mutation({
 });
 
 /**
- * Who's typing here, you left out: people who pinged in the last TYPING_MS, and agents replying
- * now. A query doesn't re-run as time passes, so the app also expires people itself.
+ * Who's typing here, you left out: people who pinged in the last TYPING_MS, and agents working
+ * now with their step ("Searching records for Acme…"; null while they write). A query doesn't
+ * re-run as time passes, so the app also expires people itself.
  */
 export const list = query({
 	args: place,
-	handler: async (ctx, { chatId, threadId }): Promise<{ people: (Participant & { at: number })[]; agents: Participant[] }> => {
+	handler: async (ctx, { chatId, threadId }): Promise<{ people: (Participant & { at: number })[]; agents: (Participant & { step: string | null })[] }> => {
 		const visible = await visibleChat(ctx, chatId);
 		if (!visible) return { people: [], agents: [] };
 		const names = namer(ctx);
@@ -57,7 +59,9 @@ export const list = query({
 			.withIndex("by_chat", (q) => q.eq("chatId", chatId).eq("threadId", threadId).eq("status", "running"))
 			.take(SHOWN_MAX);
 		const agents = await Promise.all(
-			running.filter((t) => now - (t.startedAt ?? t._creationTime) < STALE_TURN_MS).map((t) => names.agent(t.agentId)),
+			running
+				.filter((t) => now - (t.startedAt ?? t._creationTime) < STALE_TURN_MS)
+				.map(async (t) => ({ ...(await names.agent(t.agentId)), step: t.step?.label ?? null })),
 		);
 		return { people: people.slice(0, SHOWN_MAX), agents };
 	},

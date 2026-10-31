@@ -80,7 +80,7 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 	const running = await turnsAt(ctx, place, "running").first();
 	if (running) {
 		if (Date.now() - (running.startedAt ?? running._creationTime) < STALE_TURN_MS) return;
-		await ctx.db.patch(running._id, { status: "error" });
+		await ctx.db.patch(running._id, { status: "error", step: undefined });
 		await settleApproval(ctx, running);
 		const reply = running.replyId && (await ctx.db.get(running.replyId));
 		// Its finished model calls were saved as they finished (saveUsage), so it keeps their stats.
@@ -291,6 +291,18 @@ export const savePrompt = internalMutation({
 	handler: async (ctx, { turnId, prompt }) => ctx.db.patch(turnId, { prompt }),
 });
 
+/**
+ * What a running turn is doing now (agent.ts), shown under the composer (typing.ts); no label while
+ * it writes. On the turn, not its reply, so a run that posts nothing still shows. Ignored once it ended.
+ */
+export const setStep = internalMutation({
+	args: { turnId: v.id("agentTurns"), label: v.optional(v.string()) },
+	handler: async (ctx, { turnId, label }) => {
+		if ((await ctx.db.get(turnId))?.status !== "running") return;
+		await ctx.db.patch(turnId, { step: label ? { label, at: Date.now() } : undefined });
+	},
+});
+
 /** A streaming reply's content so far, kept apart from the message (schema `replyStreams`). */
 export const streamOf = (ctx: QueryCtx, messageId: Id<"chatMessages">) =>
 	ctx.db
@@ -409,7 +421,7 @@ export const finishReply = internalMutation({
 			await endStream(ctx, reply, error ? { status: "error", error, stats } : { status: "done", stats });
 			if (!error) await previewMessage(ctx, (await ctx.db.get(reply._id))!);
 		}
-		await ctx.db.patch(turnId, { status: error ? "error" : "done" });
+		await ctx.db.patch(turnId, { status: error ? "error" : "done", step: undefined });
 		await settleApproval(ctx, turn);
 		await startNext(ctx, turn);
 	},
