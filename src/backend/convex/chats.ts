@@ -341,7 +341,7 @@ export const leave = mutation({
 export async function leaveChannel(ctx: MutationCtx, member: Member, { chatId }: Infer<typeof leaveChannelArgs>) {
 	const chat = await requireChat(ctx, member, chatId);
 	if (chat.kind !== "channel") throw new ConvexError("You can't leave a DM.");
-	if (chat.isDefault) throw new ConvexError(`Everyone stays in #${chat.name}.`);
+	if (chat.isDefault) throw new ConvexError(`You can't leave #${chat.name}: it's the channel everyone is in.`);
 	const row = await membership(ctx, chatId, member.userId);
 	if (row) await ctx.db.delete(row._id);
 }
@@ -467,7 +467,7 @@ export async function removeChannelMember(ctx: MutationCtx, member: Member, { ch
 	const chat = await requireManagedChannel(ctx, member, chatId);
 	if (chat.archived) throw new ConvexError("This chat is archived.");
 	if (!!userId === !!agentId) throw new ConvexError("Choose one person or agent.");
-	if (chat.isDefault && userId) throw new ConvexError(`Everyone stays in #${chat.name}.`);
+	if (chat.isDefault && userId) throw new ConvexError(`People can't be removed from #${chat.name}: it's the channel everyone is in.`);
 	const row = userId ? await membership(ctx, chatId, userId) : await ctx.db.query("chatMembers")
 		.withIndex("by_agent", q => q.eq("agentId", agentId).eq("chatId", chatId)).first();
 	if (row) await ctx.db.delete(row._id);

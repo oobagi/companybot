@@ -248,7 +248,7 @@ describe("trash", () => {
 		const { t, owner, member } = await ownerAndMember();
 		const chatId = await member.mutation(api.chats.createChannel, { name: "sales", private: false });
 		await member.mutation(api.messages.send, { chatId, text: "hello", mentions: noMentions });
-		await expect(owner.mutation(api.trash.move, { kind: "channel", id: (await generalOf(owner))._id })).rejects.toThrow("stays");
+		await expect(owner.mutation(api.trash.move, { kind: "channel", id: (await generalOf(owner))._id })).rejects.toThrow("can't be archived");
 		await member.mutation(api.trash.move, { kind: "channel", id: chatId });
 		expect((await member.query(api.chats.list))!.channels.map((c) => c.name)).toEqual(["general"]);
 		expect(await member.query(api.chats.get, { chatId })).toMatchObject({ trash: { name: "#sales", canRestore: true } });

@@ -167,7 +167,7 @@ export async function setChannelTrashed(ctx: MutationCtx, who: Who, chatId: Id<"
 	const side = seen.kind === "dm" && seen.parentId;
 	const chat = archived && !side ? await requireManagedChannel(ctx, who.member, chatId) : seen;
 	if (chat.kind !== "channel" && !side) throw new ConvexError("That's not a channel.");
-	if (chat.isDefault) throw new ConvexError(`Everyone uses #${chat.name}, so it stays.`);
+	if (chat.isDefault) throw new ConvexError(`#${chat.name} can't be archived: it's the channel everyone is in.`);
 	if (chat.archived === archived) return;
 	if (archived) await putInTrash(ctx, who, { kind: "channel", id: chatId, name: side ? sideChatTitle(chat) : `#${chat.name}` });
 	else {

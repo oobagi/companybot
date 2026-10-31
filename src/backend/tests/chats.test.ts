@@ -13,7 +13,7 @@ describe("chats", () => {
 		// Companybot joined to welcome the owner.
 		expect(general.members.map((m) => m.type)).toEqual(["user", "agent", "user"]);
 		expect((await generalOf(member))._id).toBe(general._id);
-		await expect(member.mutation(api.chats.leave, { chatId: general._id })).rejects.toThrow("Everyone stays");
+		await expect(member.mutation(api.chats.leave, { chatId: general._id })).rejects.toThrow("You can't leave");
 	});
 
 	it("shows public channels to everyone and private ones to members only", async () => {
@@ -67,7 +67,7 @@ describe("chats", () => {
 		await owner.mutation(api.chats.removeMember, { chatId: ops, userId: memberId });
 		expect(await people(ops)).not.toContain(memberId);
 		const general = await generalOf(owner);
-		await expect(owner.mutation(api.chats.removeMember, { chatId: general._id, userId: memberId })).rejects.toThrow("Everyone stays");
+		await expect(owner.mutation(api.chats.removeMember, { chatId: general._id, userId: memberId })).rejects.toThrow("can't be removed");
 	});
 
 	it("finds an existing DM instead of making another", async () => {

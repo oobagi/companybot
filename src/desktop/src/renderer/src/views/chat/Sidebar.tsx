@@ -92,7 +92,7 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 							<MenuItem onClick={() => (close(), setDetails(c._id))}><MembersIcon /> Members and details</MenuItem>
 							<MenuItem onClick={() => (close(), run(markRead({ chatId: c._id })))}><CheckIcon /> Mark as read</MenuItem>
 							{!c.isDefault && <MenuItem onClick={() => (close(), run(leave({ chatId: c._id }), () => left(c._id)))}><SignOutIcon /> Leave channel</MenuItem>}
-							{c.canManage && (
+							{c.canManage && !c.isDefault && (
 								<MenuItem onClick={() => (close(), confirm(archiveQuestion(`#${c.name}`, () => remove({ kind: "channel", id: c._id }).then(() => left(c._id)), "The channel will close to new messages. Its messages and files are kept.")))}>
 									<ArchiveIcon /> Archive channel
 								</MenuItem>
