@@ -44,7 +44,8 @@ export const list = query({
 	handler: async (ctx, { chatId, threadId }): Promise<{ people: (Participant & { at: number })[]; agents: (Participant & { step: string | null })[] }> => {
 		const visible = await visibleChat(ctx, chatId);
 		if (!visible) return { people: [], agents: [] };
-		const names = namer(ctx);
+		// Pictures for the agents' avatars on the line.
+		const names = namer(ctx, { images: true });
 		const now = Date.now();
 		const rows = await ctx.db
 			.query("typing")

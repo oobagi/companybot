@@ -12,7 +12,7 @@ const initials = (name: string) =>
 		.map((w) => w[0]!.toUpperCase())
 		.join("") || "?";
 
-const sizes = { xs: "size-5 text-[10px]", row: "size-[22px] text-[10px]", sm: "size-6 text-[11px]", md: "size-9 text-sm", lg: "size-14 text-lg" };
+const sizes = { line: "size-4 text-[8px]", xs: "size-5 text-[10px]", row: "size-[22px] text-[10px]", sm: "size-6 text-[11px]", md: "size-9 text-sm", lg: "size-14 text-lg" };
 
 /**
  * A person's photo, an agent's picture or a workspace's logo, cropped to fit; initials until
