@@ -234,19 +234,31 @@ export function PopoverPanel({
 	// Measure, then place: below if it fits, else above if it fits there, else on the roomier
 	// side, shortened to fit (it scrolls). Never over its button; nudged in from the window's edges.
 	useLayoutEffect(() => {
-		if (!panel.current) return;
-		const { width, height } = panel.current.getBoundingClientRect();
-		const gap = 6;
-		const roomBelow = window.innerHeight - 8 - anchor.bottom - gap;
-		const roomAbove = anchor.top - gap - 8;
-		const below = height <= roomBelow || (height > roomAbove && roomBelow >= roomAbove);
-		const room = below ? roomBelow : roomAbove;
-		setAt({
-			left: Math.max(8, Math.min(anchor.left, window.innerWidth - width - 8)),
-			top: below ? anchor.bottom + gap : anchor.top - gap - Math.min(height, room),
-			maxHeight: Math.min(room, window.innerHeight * 0.7),
-			minWidth: matchWidth ? anchor.width : undefined,
-		});
+		const el = panel.current;
+		if (!el) return;
+		const place = () => {
+			const { width } = el.getBoundingClientRect();
+			// Use the full content height: the current height may already be capped on the wrong side.
+			const height = Math.min(el.scrollHeight + el.offsetHeight - el.clientHeight, window.innerHeight * 0.7);
+			const gap = 6;
+			const roomBelow = window.innerHeight - 8 - anchor.bottom - gap;
+			const roomAbove = anchor.top - gap - 8;
+			const below = height <= roomBelow || (height > roomAbove && roomBelow >= roomAbove);
+			const room = Math.max(0, below ? roomBelow : roomAbove);
+			setAt({
+				left: Math.max(8, Math.min(anchor.left, window.innerWidth - width - 8)),
+				top: below ? anchor.bottom + gap : anchor.top - gap - Math.min(height, room),
+				maxHeight: Math.min(room, window.innerHeight * 0.7),
+				minWidth: matchWidth ? anchor.width : undefined,
+			});
+		};
+		place();
+		// Tool details load after opening. Reposition when that content replaces the loading line.
+		const observer = new ResizeObserver(place);
+		observer.observe(el);
+		for (const child of el.children) observer.observe(child);
+		window.addEventListener("resize", place);
+		return () => { observer.disconnect(); window.removeEventListener("resize", place); };
 	}, [anchor, matchWidth, panel]);
 	// At the end of the page: Electron lets a later window-drag area (a top bar) take the mouse
 	// from anything drawn over it, so the panel has to come after them all.

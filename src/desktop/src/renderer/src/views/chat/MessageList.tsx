@@ -66,6 +66,7 @@ export function MessageList({
 
 	return (
 		<Scroll
+			overlayScrollbar
 			ref={scroller}
 			header={header}
 			footer={footer}

@@ -1,5 +1,6 @@
 import { Component, Fragment, createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { errorMessage } from "./api";
 import { PlusIcon } from "./icons";
 import { navigate } from "./router";
@@ -155,11 +156,13 @@ export function TopBar({ crumbs = [], title, description, children }: { crumbs?:
  * A scrolling area whose header and footer stay put, taking their own room, so content
  * starts below the header and ends above the footer. Content scrolled under either fades
  * out on its scrim (styles.css), which shows only while something is under it.
+ * `overlayScrollbar` keeps chat panes flush even when the OS uses classic scrollbars.
  */
 export function Scroll({
 	ref,
 	header,
 	footer,
+	overlayScrollbar = false,
 	className = "",
 	onScroll,
 	children,
@@ -167,6 +170,7 @@ export function Scroll({
 	ref?: React.RefObject<HTMLDivElement | null>;
 	header?: React.ReactNode;
 	footer?: React.ReactNode;
+	overlayScrollbar?: boolean;
 	className?: string;
 	onScroll?: React.UIEventHandler<HTMLDivElement>;
 	children: React.ReactNode;
@@ -191,22 +195,32 @@ export function Scroll({
 		if (el.firstElementChild) observer.observe(el.firstElementChild);
 		return () => observer.disconnect();
 	}, [scroller, measure]);
-	return (
-		<div ref={scroller} onScroll={(e) => (measure(), onScroll?.(e))} className={`min-h-0 flex-1 overflow-y-auto ${className}`}>
-			<div className="flex min-h-full flex-col">
-				{header && (
-					<div className="scrim-top sticky top-0 z-30" data-under={underTop || undefined}>
-						{header}
-					</div>
-				)}
-				<div className="flex flex-1 flex-col">{children}</div>
-				{footer && (
-					<div className="scrim-bottom sticky bottom-0 z-30" data-under={underBottom || undefined}>
-						{footer}
-					</div>
-				)}
-			</div>
+	const content = (
+		<div className="flex min-h-full flex-1 flex-col">
+			{header && (
+				<div className="scrim-top sticky top-0 z-30" data-under={underTop || undefined}>
+					{header}
+				</div>
+			)}
+			<div className="flex flex-1 flex-col">{children}</div>
+			{footer && (
+				<div className="scrim-bottom sticky bottom-0 z-30" data-under={underBottom || undefined}>
+					{footer}
+				</div>
+			)}
 		</div>
+	);
+	const scroll = (e: React.UIEvent<HTMLDivElement>) => (measure(), onScroll?.(e));
+	if (!overlayScrollbar) return <div ref={scroller} onScroll={scroll} className={`min-h-0 flex-1 overflow-y-auto ${className}`}>{content}</div>;
+	return (
+		<ScrollArea.Root type="hover" className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
+			<ScrollArea.Viewport ref={scroller} onScroll={scroll} tabIndex={0} disableImplicitContentElement className={`h-full w-full outline-none ${className}`}>
+				<ScrollArea.Content asChild style={{ display: "flex" }}>{content}</ScrollArea.Content>
+			</ScrollArea.Viewport>
+			<ScrollArea.Scrollbar orientation="vertical" className="no-drag z-40 flex w-2 touch-none p-0.5 select-none">
+				<ScrollArea.Thumb className="relative flex-1 rounded-full bg-neutral-400/70 hover:bg-neutral-500" />
+			</ScrollArea.Scrollbar>
+		</ScrollArea.Root>
 	);
 }
 
