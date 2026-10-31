@@ -124,6 +124,7 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		const turn = { workspaceId, chatId: channel, agentId, triggerId: said, actorId: memberId };
 		const turnId = await ctx.db.insert("agentTurns", { ...turn, replyId: said, status: "done" });
 		const sessionId = await ctx.db.insert("agentSessions", { workspaceId, agentId, chatId: channel });
+		await ctx.db.insert("agentChains", { workspaceId, actorId: memberId, chatId: channel, turns: 2, hops: 0, pairs: [], epoch: 0, status: "running" });
 		await ctx.db.patch(turnId, { sessionId });
 		const call = { workspaceId, agentId, actorId: memberId, chatId: channel, turnId, replyId: said, callId: "c1", tool: "crm.sms", input: "{}" };
 		// What the agent got back for them: only they see it.

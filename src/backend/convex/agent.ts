@@ -20,6 +20,7 @@ import {
 	callEnd,
 	calledConnectorTool,
 	callLabel,
+	callOpens,
 	clipJson,
 	describeCall,
 	buildToolSet,
@@ -319,10 +320,14 @@ async function streamReply(
 		if (call) callInputs.set(id, call.input);
 		const existing = parts.find((p) => p.type === "tool" && p.id === id);
 		const label = callLabel(existing?.type === "tool" ? existing.name : name, available, services, { input: callInputs.get(id), output: call?.output });
+		// A call that made a thread (chat.ask_agent's) opens it from its line.
+		const opens = status === "done" ? callOpens(name, available, call?.output) : undefined;
+		const link = opens && { opens: { chatId: opens.chatId as Id<"chats">, messageId: opens.messageId as Id<"chatMessages"> } };
 		if (existing?.type === "tool") {
 			existing.status = status;
 			existing.label = label;
-		} else parts.push({ type: "tool", id, name, label, status });
+			if (link) existing.opens = link.opens;
+		} else parts.push({ type: "tool", id, name, label, status, ...link });
 		if (status === "running") stepCalls.set(id, toolLine(label, "running"));
 		else stepCalls.delete(id);
 		showStep();
@@ -540,6 +545,7 @@ function chatStore(ctx: ActionCtx, turnId: Id<"agentTurns">): ChatStore {
 			const text = await ctx.runAction(internal.fileText.page, { storageId: file.storageId, type: file.type, page });
 			return text ? { name: file.name, type: file.type, ...text } : { error: `${file.name} was deleted.` };
 		},
+		ask: (input) => ctx.runMutation(internal.chains.askFor, { turnId, ...input }),
 	};
 }
 

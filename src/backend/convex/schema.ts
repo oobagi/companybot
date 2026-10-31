@@ -38,12 +38,30 @@ export const toolStatus = v.union(v.literal("running"), v.literal("done"), v.lit
 export const messagePart = v.union(
 	v.object({ type: v.literal("text"), text: v.string() }),
 	/** `label`: what it did, for people ("Send SMS with Fake CRM"; core `callLabel`). Older parts lack it. */
-	v.object({ type: v.literal("tool"), id: v.string(), name: v.string(), label: v.optional(v.string()), status: toolStatus }),
+	/** `opens`: a thread the call made, that its line opens (chat.ask_agent's "Scout asked Quill →"). */
+	v.object({
+		type: v.literal("tool"),
+		id: v.string(),
+		name: v.string(),
+		label: v.optional(v.string()),
+		status: toolStatus,
+		opens: v.optional(v.object({ chatId: v.id("chats"), messageId: v.id("chatMessages") })),
+	}),
 	/** Props were validated against the widget's schema when the agent placed it. */
 	v.object({ type: v.literal("widget"), id: v.string(), widget: v.object({ type: v.string(), props: v.any() }) }),
 	/** A tool call held for approval (`id` is the tool call's id). The app reads its state from `approvals`. */
 	v.object({ type: v.literal("approval"), id: v.string(), approvalId: v.id("approvals"), tool: v.string() }),
 );
+
+/** A turn's place in a chain of agents (chains.ts). */
+export const chainRef = v.object({
+	id: v.id("agentChains"),
+	/** Asks inside asks: 0 for an @mention handoff from a person's turn. */
+	depth: v.number(),
+	/** The agents from the chain's start to this turn's, its own last; as of `epoch`. */
+	path: v.array(v.id("agents")),
+	epoch: v.number(),
+});
 
 export const approvalStatus = v.union(
 	v.literal("pending"),
@@ -470,6 +488,17 @@ export default defineSchema({
 		automation: v.optional(v.object({ id: v.string(), name: v.string(), foreign: v.optional(v.boolean()) })),
 		/** A wake turn's own reply (wakeups.ts): kept for the agent's session, never shown. The agent speaks with chat.notify. */
 		quiet: v.optional(v.boolean()),
+		/**
+		 * A chain of agents paused here (chains.ts): the line "Agents paused after 10 turns · Continue · Stop",
+		 * written as the agent whose handoff it held. `by`: who pressed Continue or Stop.
+		 */
+		pause: v.optional(
+			v.object({
+				chainId: v.id("agentChains"),
+				status: v.union(v.literal("paused"), v.literal("continued"), v.literal("stopped")),
+				by: v.optional(v.id("users")),
+			}),
+		),
 	})
 		.index("by_chat_thread", ["chatId", "threadId"])
 		/** Thread parents, newest reply first: the sidebar's active threads. Messages without replies have no `lastReplyAt` and sort first. */
@@ -553,6 +582,10 @@ export default defineSchema({
 		prompt: v.optional(v.string()),
 		/** Nobody @mentioned the agent: the router queued it (router.ts). */
 		routed: v.optional(v.literal(true)),
+		/** Another agent handed it this (chains.ts): its chain, how deep in asks, and the agents from the chain's start to this one. */
+		chain: v.optional(chainRef),
+		/** Answering another agent's private ask (chat.ask_agent): when it ends, this wakeup gives the asker the answer. */
+		ask: v.optional(v.object({ wakeupId: v.id("wakeups") })),
 		status: v.union(v.literal("queued"), v.literal("running"), v.literal("done"), v.literal("error")),
 		startedAt: v.optional(v.number()),
 		/** Set when the turn follows a decision on this approval: it runs the call if approved, then tells the agent. */
@@ -580,6 +613,38 @@ export default defineSchema({
 		.index("by_workspace", ["workspaceId"])
 		// Also: who's replying in a place right now (typing.ts).
 		.index("by_chat", ["chatId", "threadId", "status"]),
+
+	// Agents handing work to each other for one person (chains.ts, core handoffs.ts): the budget its
+	// handoffs spend, reset when that person writes in it or presses Continue. Made at the first handoff.
+	agentChains: defineTable({
+		workspaceId: v.id("workspaces"),
+		/** Who the agents act for: the person whose message started it. */
+		actorId: v.id("users"),
+		/** Where it started. */
+		chatId: v.id("chats"),
+		turns: v.number(),
+		hops: v.number(),
+		pairs: v.array(v.object({ a: v.id("agents"), b: v.id("agents"), n: v.number() })),
+		/** Bumped by each reset: handoffs from turns of an older epoch start a fresh path. */
+		epoch: v.number(),
+		status: v.union(v.literal("running"), v.literal("paused"), v.literal("stopped")),
+		/** While paused: its line, and the handoffs it held, queued on Continue. */
+		pauseId: v.optional(v.id("chatMessages")),
+		held: v.optional(
+			v.array(
+				v.object({
+					agentId: v.id("agents"),
+					chatId: v.id("chats"),
+					threadId: v.optional(v.id("chatMessages")),
+					triggerId: v.id("chatMessages"),
+					depth: v.number(),
+					dispatched: v.optional(v.boolean()),
+				}),
+			),
+		),
+	})
+		.index("by_workspace", ["workspaceId"])
+		.index("by_chat", ["chatId"]),
 
 	// One agent's ongoing context in one place (chat + thread). Append-only: past turns
 	// replay exactly as sent, so prompt caching hits. Older turns fold into `summary`.
@@ -665,6 +730,8 @@ export default defineSchema({
 		jobId: v.optional(v.string()),
 		/** A job's result (#114), JSON, for the wake turn. */
 		result: v.optional(v.string()),
+		/** An ask's answer (chat.ask_agent): the agent asked, and its wake turn's reply is shown, finishing the original one. */
+		answer: v.optional(v.object({ agentId: v.id("agents") })),
 		/** Due while its agent, record or chat is in Trash: wakes when it's restored (trashOps). */
 		held: v.optional(v.boolean()),
 		/** The scheduled `fire`, so moving or cancelling it can cancel that too (best effort: `fire` re-checks). */

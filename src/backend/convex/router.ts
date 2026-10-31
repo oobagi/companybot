@@ -4,11 +4,18 @@ import {
 	ROUTER_EMOJI,
 	ROUTER_MAX_AGENTS,
 	ROUTER_MODEL,
+	NEXT_MIN_PROBABILITY,
+	type NextInput,
 	type RouterInput,
 	type RouterMessage,
 	gatewayCost,
 	isGranted,
 	isDecisionModel,
+	nextAnswer,
+	nextDecision,
+	nextQuestions,
+	nextRequest,
+	nextSchema,
 	routerAnswers,
 	routerDecisions,
 	routerQuestions,
@@ -20,7 +27,8 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalAction, internalMutation, internalQuery } from "./_generated/server";
-import { canSee, chatMembersOf, namer, textForModel } from "./chatOps";
+import { type Namer, canSee, chatMembersOf, namer, textForModel } from "./chatOps";
+import { dispatchTo } from "./chains";
 import { liveWorkspace, memberOf } from "./lib";
 import { enqueueTurn } from "./turns";
 import { recordUsage } from "./usage";
@@ -76,23 +84,8 @@ export const context = internalQuery({
 
 		const keys = new Map(agents.map((a, i) => [a._id, `a${i + 1}`]));
 		const names = namer(ctx);
-		const toRouter = async (m: Doc<"chatMessages">): Promise<RouterMessage> => {
-			const files = m.attachments?.length ? `(${m.attachments.length === 1 ? "a file" : `${m.attachments.length} files`}: ${m.attachments.map((f) => f.name).join(", ")})` : "";
-			return {
-				author: (await names.of(m)).name,
-				...(m.authorAgentId && { agent: keys.get(m.authorAgentId) ?? "agent" }),
-				text: [textForModel(m, (await names.of(m)).name), files].filter(Boolean).join("\n"),
-			};
-		};
-		const before = (
-			await ctx.db
-				.query("chatMessages")
-				.withIndex("by_chat_thread", (q) => q.eq("chatId", chat._id).eq("threadId", message.threadId).lt("_creationTime", message._creationTime))
-				.order("desc")
-				.filter((q) => q.and(q.neq(q.field("deleted"), true), q.eq(q.field("status"), "done")))
-				.take(ROUTER_CONTEXT_MESSAGES)
-		).reverse();
-		const parent = message.threadId && (await ctx.db.get(message.threadId));
+		const toRouter = routerMessage(names, keys);
+		const { before, parent } = await around(ctx, message);
 		const people = (await chatMembersOf(ctx, chat._id)).filter((r) => r.userId && r.userId !== message.authorUserId);
 		const input: RouterInput = {
 			place: { name: chat.name ?? "", topic: chat.topic ?? null },
@@ -106,6 +99,31 @@ export const context = internalQuery({
 		return { input, agentIds: agents.map((a) => a._id), workspaceId: chat.workspaceId, model };
 	},
 });
+
+/** A message as the router reads it: its author (an agent by key), text, and files by name. */
+const routerMessage = (names: Namer, keys: Map<Id<"agents">, string>) => async (m: Doc<"chatMessages">): Promise<RouterMessage> => {
+	const files = m.attachments?.length ? `(${m.attachments.length === 1 ? "a file" : `${m.attachments.length} files`}: ${m.attachments.map((f) => f.name).join(", ")})` : "";
+	const author = (await names.of(m)).name;
+	return {
+		author,
+		...(m.authorAgentId && { agent: keys.get(m.authorAgentId) ?? "agent" }),
+		text: [textForModel(m, author), files].filter(Boolean).join("\n"),
+	};
+};
+
+/** The few finished messages before one in its place, and its thread's parent. */
+async function around(ctx: QueryCtx, message: Doc<"chatMessages">) {
+	const before = (
+		await ctx.db
+			.query("chatMessages")
+			.withIndex("by_chat_thread", (q) => q.eq("chatId", message.chatId).eq("threadId", message.threadId).lt("_creationTime", message._creationTime))
+			.order("desc")
+			.filter((q) => q.and(q.neq(q.field("deleted"), true), q.eq(q.field("status"), "done"), q.neq(q.field("quiet"), true)))
+			.take(ROUTER_CONTEXT_MESSAGES)
+	).reverse();
+	const parent = message.threadId && (await ctx.db.get(message.threadId));
+	return { before, parent };
+}
 
 /** Asks the model, then acts on its answer. Scheduled by routeLater. */
 export const decide = internalAction({
@@ -167,5 +185,75 @@ export const apply = internalMutation({
 				if (!existing) await ctx.db.insert("reactions", { messageId, chatId: chat._id, emoji: d.emoji, agentId: agent._id });
 			}
 		}
+	},
+});
+
+// ---- Who goes next, after an agent's message in a chain (chains.ts handOff) ----
+
+/** What "who goes next" sees: the agent's message, a few before it, and the other agents here. Null once it's moot. */
+export const nextContext = internalQuery({
+	args: { turnId: v.id("agentTurns") },
+	handler: async (ctx, { turnId }) => {
+		const turn = await ctx.db.get(turnId);
+		const chain = turn?.chain && (await ctx.db.get(turn.chain.id));
+		const reply = turn?.replyId && (await ctx.db.get(turn.replyId));
+		if (!turn || !chain || chain.status !== "running" || !reply || reply.deleted || reply.status !== "done") return null;
+		const chat = await ctx.db.get(reply.chatId);
+		if (!chat || chat.archived || chat.replyMode !== "relevant" || !(await liveWorkspace(ctx, chat.workspaceId))) return null;
+		const agents = (await agentsIn(ctx, chat)).filter((a) => a._id !== turn.agentId);
+		if (agents.length === 0) return null;
+		const keys = new Map(agents.map((a, i) => [a._id, `a${i + 1}`]));
+		const names = namer(ctx);
+		const toRouter = routerMessage(names, keys);
+		const { before, parent } = await around(ctx, reply);
+		const input: NextInput = {
+			place: { name: chat.name ?? "", topic: chat.topic ?? null },
+			from: (await names.agent(turn.agentId)).name,
+			agents: agents.map((a) => ({ key: keys.get(a._id)!, name: a.name, description: a.description })),
+			person: (await names.user(chain.actorId)).name,
+			parent: parent && !parent.deleted ? await toRouter(parent) : null,
+			before: await Promise.all(before.map(toRouter)),
+			message: await toRouter(reply),
+		};
+		const model = (await ctx.db.get(chat.workspaceId))?.routerModel ?? ROUTER_MODEL;
+		return { input, agentIds: agents.map((a) => a._id), model };
+	},
+});
+
+/** Asks who goes next (same model and split as `decide`), then hands off if it's sure. */
+export const next = internalAction({
+	args: { turnId: v.id("agentTurns") },
+	handler: async (ctx, { turnId }) => {
+		const found = await ctx.runQuery(internal.router.nextContext, { turnId });
+		if (!found) return;
+		const { input, agentIds, model } = found;
+		const { instructions, prompt } = nextRequest(input);
+		const { key, providerMetadata } = isDecisionModel(model)
+			? await decideWith({ model, state: `${instructions}\n\n${prompt}`, questions: nextQuestions(input), maxRetries: 1 }).then((r) => ({
+					key: nextAnswer(r.answers as Record<string, { choice?: string; probability?: number; probabilities?: Record<string, number> }>, input, NEXT_MIN_PROBABILITY),
+					providerMetadata: r.providerMetadata,
+				}))
+			: await generateText({
+					model,
+					instructions,
+					prompt,
+					output: Output.object({ schema: nextSchema(input), name: "next" }),
+					providerOptions: { gateway: { caching: "auto" } },
+					maxRetries: 1,
+				}).then((r) => ({ key: nextDecision(r.output, input, NEXT_MIN_PROBABILITY), providerMetadata: r.providerMetadata }));
+		const agentId = key ? agentIds[input.agents.findIndex((a) => a.key === key)] : undefined;
+		await ctx.runMutation(internal.router.applyNext, { turnId, model, costUsd: gatewayCost(providerMetadata), ...(agentId && { agentId }) });
+	},
+});
+
+/** Records the call's cost for the chain's person, then hands to the agent it picked, if any. */
+export const applyNext = internalMutation({
+	args: { turnId: v.id("agentTurns"), agentId: v.optional(v.id("agents")), model: v.string(), costUsd: v.number() },
+	handler: async (ctx, { turnId, agentId, model, costUsd }) => {
+		const turn = await ctx.db.get(turnId);
+		const chain = turn?.chain && (await ctx.db.get(turn.chain.id));
+		if (!turn || !chain) return;
+		await recordUsage(ctx, { workspaceId: chain.workspaceId, userId: chain.actorId, kind: "router", model, costUsd });
+		if (agentId) await dispatchTo(ctx, turn, agentId);
 	},
 });

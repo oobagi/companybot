@@ -236,6 +236,11 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		channel: { index: "by_chat", eq: ["chatId"] },
 		keep: "A queued turn acting for someone who left fails when it runs (runningTurn reads membership fresh).",
 	},
+	agentChains: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		channel: { index: "by_chat", eq: ["chatId"] },
+		keep: "Only counts and the agents handed to, no content. A chain acting for someone who left queues turns that fail when they run (runningTurn).",
+	},
 	agentSessions: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		channel: { index: "by_chat", eq: ["chatId"] },

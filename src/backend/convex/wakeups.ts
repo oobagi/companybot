@@ -42,7 +42,7 @@ type Gate = (ctx: MutationCtx, row: Doc<"wakeups">) => Promise<string | null>;
  */
 const lookAroundGate: Gate | undefined = undefined;
 
-type NewWakeup = Pick<Doc<"wakeups">, "workspaceId" | "agentId" | "chatId" | "threadId" | "actorId" | "createdBy" | "note" | "recordId" | "typeId" | "foreign" | "at" | "every" | "times" | "jobId">;
+type NewWakeup = Pick<Doc<"wakeups">, "workspaceId" | "agentId" | "chatId" | "threadId" | "actorId" | "createdBy" | "note" | "recordId" | "typeId" | "foreign" | "at" | "every" | "times" | "jobId" | "answer">;
 
 /** Stores a wakeup and, if it has a time, schedules it. #114 makes `{ jobId }` ones; #162 note-less `{ at, every }` ones. */
 export async function createWakeup(ctx: MutationCtx, wakeup: NewWakeup) {

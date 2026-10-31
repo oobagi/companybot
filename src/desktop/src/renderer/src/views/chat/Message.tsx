@@ -50,6 +50,7 @@ export function MessageRow({
 	// A reply shows whole once it's written; meanwhile the line under the composer says what the agent is
 	// doing. A card asking permission shows at once, since the reply waits on it.
 	if (message.status === "streaming" && held.length === 0) return null;
+	if (message.pause && !message.deleted) return <PausedLine message={message} pause={message.pause} onError={onError} />;
 	if (held.length > 0 && held.length === message.parts.length && !message.text) return <ApprovalMessages message={message} parts={held} />;
 
 	return (
@@ -266,7 +267,7 @@ function AgentBody({ message }: { message: Message }) {
 						// A run of tool lines stays together, as tight as the stats line under the reply.
 						<div key={run[0]!.id} className="flex flex-col gap-1">
 							{run.map((part) => (
-								<ToolPart key={part.id} replyId={message._id} part={part} />
+								<ToolPart key={part.id} replyId={message._id} part={part} author={message.author.name} />
 							))}
 						</div>
 					) : run.part.type === "text" ? (
@@ -300,10 +301,25 @@ function runs(parts: Part[]) {
 }
 
 /** "Sent SMS with Fake CRM"; click to see what went in and came out (from the activity log). */
-function ToolPart({ replyId, part }: { replyId: Message["_id"]; part: ToolPart }) {
+function ToolPart({ replyId, part, author }: { replyId: Message["_id"]; part: ToolPart; author: string }) {
 	// Replies from before tool lines had labels: make one from the name.
 	const label = toolLine(part.label ?? (part.name === "connectors_search" ? "Look up connected actions" : actionLabel(part.name)), part.status);
 	if (part.status === "running") return <p className="text-xs text-neutral-400">{label}</p>;
+	// A call that made a thread (an ask to another agent) is a chip that opens it: "Scout asked Quill →".
+	if (part.opens) {
+		const { chatId, messageId } = part.opens;
+		return (
+			<div className="flex">
+				<button
+					type="button"
+					onClick={() => navigate("chat", chatId, "thread", messageId)}
+					className="rounded-full border border-neutral-200 px-2 py-0.5 text-xs text-neutral-600 hover:border-neutral-300 hover:text-neutral-900"
+				>
+					{author} {label.charAt(0).toLowerCase() + label.slice(1)} →
+				</button>
+			</div>
+		);
+	}
 	return (
 		<div className="flex">
 			<Popover trigger={label} className="text-left text-xs text-neutral-400 hover:text-neutral-600" panelClassName="w-[32rem] p-3">
@@ -372,6 +388,48 @@ function AutomationPrompt({ prompt }: { prompt: string }) {
 				Ran automatically · {open ? "Hide" : "Show"} what it asked
 			</button>
 			{open && <p className="text-sm leading-relaxed whitespace-pre-wrap text-neutral-600">{prompt}</p>}
+		</div>
+	);
+}
+
+/**
+ * Agents stopped at a limit (backend chains.ts): a quiet line, not a message. The person they work
+ * for picks Continue (a fresh budget) or Stop; everyone else sees who it waits for.
+ */
+function PausedLine({ message, pause, onError }: { message: Message; pause: NonNullable<Message["pause"]>; onError: (e: unknown) => void }) {
+	const decide = useMutation(api.chains.decide);
+	const [busy, setBusy] = useState(false);
+	const act = (action: "continue" | "stop") => {
+		setBusy(true);
+		decide({ messageId: message._id, action }).catch(onError).finally(() => setBusy(false));
+	};
+	const button = "font-medium text-neutral-700 hover:text-neutral-950 hover:underline disabled:opacity-50";
+	return (
+		<div id={`message-${message._id}`} className="flex items-center gap-3 px-5 py-1.5 text-xs text-neutral-500">
+			<span className="h-px flex-1 bg-neutral-200" />
+			<span className="flex flex-wrap items-center justify-center gap-x-1.5 text-center">
+				<span>{message.text}</span>
+				{pause.canDecide ? (
+					<>
+						<span>·</span>
+						<button type="button" disabled={busy} onClick={() => act("continue")} className={button}>
+							Continue
+						</button>
+						<span>·</span>
+						<button type="button" disabled={busy} onClick={() => act("stop")} className={button}>
+							Stop
+						</button>
+					</>
+				) : (
+					<span>
+						·{" "}
+						{pause.status === "paused"
+							? `Waiting for ${pause.for}`
+							: `${pause.status === "continued" ? "Continued" : "Stopped"}${pause.by ? ` by ${pause.by}` : ""}`}
+					</span>
+				)}
+			</span>
+			<span className="h-px flex-1 bg-neutral-200" />
 		</div>
 	);
 }

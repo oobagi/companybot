@@ -112,19 +112,26 @@ describe("agent turns", () => {
 		expect((await owner.query(api.chats.place, { chatId }))?.costUsd).toBeCloseTo(0.03);
 	});
 
-	it("never lets agents trigger agents, and drops mentions of archived agents", async () => {
-		const { t, owner } = await ownerAndMember();
+	it("an agent's @mention of another hands it the work in a thread, for the same person; not itself, not archived agents", async () => {
+		const { t, owner, member } = await ownerAndMember();
 		const { companybot, scribe } = await agentsOf(owner);
 		const chatId = (await generalOf(owner))._id;
-		await owner.mutation(api.messages.send, { chatId, text: "@Companybot", mentions: { userIds: [], agentIds: [companybot._id] } });
+		await member.mutation(api.messages.send, { chatId, text: "@Companybot", mentions: { userIds: [], agentIds: [companybot._id] } });
 		const [turn] = await turnsOf(t);
-		await t.mutation(internal.turns.updateReply, { replyId: turn!.replyId!, text: "@Scribe help", parts: [{ type: "text", text: "@Scribe help" }] });
+		const text = "@Companybot noted. @Scribe help";
+		await t.mutation(internal.turns.updateReply, { replyId: turn!.replyId!, text, parts: [{ type: "text", text }] });
 		await t.mutation(internal.turns.finishReply, { turnId: turn!._id });
-		expect((await turnsOf(t)).map((x) => x.agentId)).toEqual([companybot._id]);
+		const [, handed] = await turnsOf(t);
+		// A new thread under the reply, so the top level stays the people's; as the person who asked.
+		expect(handed).toMatchObject({ agentId: scribe._id, chatId, threadId: turn!.replyId, triggerId: turn!.replyId, actorId: member.userId });
+		expect(handed!.chain).toMatchObject({ depth: 0, path: [companybot._id, scribe._id] });
+		expect(await t.run((ctx) => ctx.db.get(turn!.replyId!))).toMatchObject({ mentions: { agentIds: [scribe._id] } });
+		const context = await t.query(internal.turns.turnContext, { turnId: handed!._id });
+		expect(context.handoff).toEqual({ from: "Companybot", ask: false });
 
 		await owner.mutation(api.trash.move, { kind: "agent", id: scribe._id });
 		await owner.mutation(api.messages.send, { chatId, text: "@Scribe", mentions: { userIds: [], agentIds: [scribe._id] } });
-		expect(await turnsOf(t)).toHaveLength(1);
+		expect(await turnsOf(t)).toHaveLength(2);
 	});
 
 	it("fails a turn stuck over 5 minutes and moves the queue on", async () => {

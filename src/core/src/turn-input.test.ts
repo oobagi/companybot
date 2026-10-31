@@ -143,4 +143,26 @@ describe("turn input", () => {
 			{ role: "user", content: "P3" },
 		]);
 	});
+
+	it("tells a handed-off turn who handed it over and how to answer", () => {
+		const mention = buildTurnPrompt({ ...base, handoff: { from: "Scribe", ask: false } });
+		expect(mention.endsWith("Scribe is an agent working for Ada and handed this to you. Do it as if Ada asked, within what they'd want. @mention Scribe only when the result is ready, with the result; don't reply just to acknowledge.")).toBe(true);
+		const ask = buildTurnPrompt({ ...base, handoff: { from: "Scribe", ask: true } });
+		expect(ask).toContain("It asked you this privately, in a group DM with Ada; your reply goes back to it.");
+	});
+
+	it("an ask's answer wake finishes the reply, shown, with the answer as data", () => {
+		const prompt = buildTurnPrompt({ ...base, triggerId: null, wake: { id: "w1", note: "You asked Scribe: refunds?", setAt: at(5), result: JSON.stringify("30 days"), canNotify: true, answer: { from: "Scribe" } } });
+		expect(prompt).toContain('Scribe answered what you asked it (10-22 08:05). "You asked Scribe: refunds?"');
+		expect(prompt).toContain('```json\n"30 days"\n```');
+		expect(prompt).toContain("Now finish what Ada asked for: this reply is posted here.");
+		expect(prompt).not.toContain("nothing you write is shown");
+	});
+
+	it("gives agents the handoff rules", () => {
+		const guide = platformGuide({ tools: ["chat.*"] });
+		expect(guide).toContain("To hand work to another agent, @mention it by name in your reply");
+		expect(guide).toContain("Don't post bare acknowledgements or thanks to them.");
+		expect(guide).toContain("use chat_ask_agent");
+	});
 });

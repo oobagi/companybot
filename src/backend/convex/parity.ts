@@ -5,6 +5,7 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"agents.update": { agent: ["agents.manage:update"], humanOnly: "Direct owner reviews tool grants and the acting agent's own instructions/model; metadata and other agents' config are covered." },
 	"agents.rename": { agent: ["agents.manage:update"] },
 	"agents.restore": { humanOnly: "Restores prior grants and execution policy; direct owner review." },
+	"chains.decide": { humanOnly: "Continue or Stop on agents paused at a limit: only the person they act for decides whether they go on." },
 	"approvals.decide": { humanOnly: "Only the acting person can allow once, Always allow, or deny; agents cannot consent to their own calls." },
 	"automationRuns.runNow": { agent: ["automations.manage:run"] },
 	"automations.create": { agent: ["automations.create"] },

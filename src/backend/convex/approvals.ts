@@ -190,6 +190,9 @@ export const decide = mutation({
 			approvalId,
 			// A wake's follow-up turn stays quiet, and as trusted as the wake.
 			...(asked?.wakeupId && { wakeupId: asked.wakeupId }),
+			// Still in its chain of agents, or still answering another agent's ask (chains.ts).
+			...(asked?.chain && { chain: asked.chain }),
+			...(asked?.ask && { ask: asked.ask }),
 		});
 	},
 });

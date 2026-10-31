@@ -9,6 +9,7 @@ export * from "./builtin-tools";
 export * from "./chat";
 export * from "./default-agents";
 export * from "./guide";
+export * from "./handoffs";
 export * from "./files";
 export * from "./images";
 export * from "./image-tools";

@@ -18,6 +18,7 @@ import type * as automationRuns from "../automationRuns.js";
 import type * as automationTools from "../automationTools.js";
 import type * as automations from "../automations.js";
 import type * as cascade from "../cascade.js";
+import type * as chains from "../chains.js";
 import type * as chatOps from "../chatOps.js";
 import type * as chatTools from "../chatTools.js";
 import type * as chats from "../chats.js";
@@ -91,6 +92,7 @@ declare const fullApi: ApiFromModules<{
   automationTools: typeof automationTools;
   automations: typeof automations;
   cascade: typeof cascade;
+  chains: typeof chains;
   chatOps: typeof chatOps;
   chatTools: typeof chatTools;
   chats: typeof chats;

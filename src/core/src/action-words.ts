@@ -115,7 +115,7 @@ const VERBS: Record<string, [string, string]> = {
 	undo: ["Undid", "Undoing"],
 	...Object.fromEntries(
 		(
-			"add archive assign book call cancel charge check create delete draft edit email export fetch forward import invite list load look " +
+			"add archive ask assign book call cancel charge check create delete draft edit email export fetch forward import invite list load look " +
 			"mark move open post react refund remember remove reply restore save schedule search share start sync text turn update upload"
 		)
 			.split(" ")

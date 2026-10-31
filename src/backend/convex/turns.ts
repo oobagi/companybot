@@ -22,6 +22,7 @@ import { catalogModels } from "./modelCatalog";
 import { recordUsage } from "./usage";
 import { recordOut } from "./recordTools";
 import { setWakeOutcome } from "./wakeups";
+import { answerAsk, handOff } from "./chains";
 
 // The agent turn queue and everything the runner (agent.ts) reads and writes.
 // One `running` turn per agent per place (chat + thread); the rest wait in order.
@@ -37,7 +38,7 @@ type Place = { agentId: Id<"agents">; chatId: Id<"chats">; threadId?: Id<"chatMe
 export async function enqueueTurn(
 	ctx: MutationCtx,
 	chat: Doc<"chats">,
-	turn: Place & { actorId: Id<"users">; routed?: true } & (
+	turn: Place & { actorId: Id<"users">; routed?: true; chain?: Doc<"agentTurns">["chain"]; ask?: Doc<"agentTurns">["ask"] } & (
 			// After an approval, the original turn's trigger: none if it followed an old welcome turn.
 			| { triggerId: Id<"chatMessages">; approvalId?: Id<"approvals"> }
 			| { triggerId: Id<"chatMessages"> | undefined; approvalId: Id<"approvals">; wakeupId?: Id<"wakeups"> }
@@ -87,6 +88,7 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 		await ctx.db.patch(running._id, { status: "error", step: undefined });
 		await setWakeOutcome(ctx, running, "failed");
 		await settleApproval(ctx, running);
+		await answerAsk(ctx, running, "it timed out");
 		const reply = running.replyId && (await ctx.db.get(running.replyId));
 		// Its finished model calls were saved as they finished (saveUsage), so it keeps their stats.
 		if (reply?.status === "streaming")
@@ -99,6 +101,7 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 	if (!chat || chat.archived || !(await liveWorkspace(ctx, chat.workspaceId))) {
 		await ctx.db.patch(next._id, { status: "error" });
 		await setWakeOutcome(ctx, next, "failed");
+		await answerAsk(ctx, next, "its chat was deleted");
 		return await settleApproval(ctx, next);
 	}
 
@@ -114,7 +117,8 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 		status: "streaming" as const,
 	};
 	// A wake turn's reply is quiet: kept for its session, never shown, so it doesn't touch the chat's unread or the thread's replies.
-	const replyId = next.wakeupId
+	// An ask's answer (chains.ts) is the exception: that wake finishes a reply someone is waiting for.
+	const replyId = next.wakeupId && !(await ctx.db.get(next.wakeupId))?.answer
 		? await ctx.db.insert("chatMessages", { chatId: chat._id, workspaceId: chat.workspaceId, ...reply, quiet: true })
 		: await insertMessage(ctx, chat, reply);
 	await ctx.db.patch(next._id, { status: "running", replyId, sessionId: session._id, startedAt: Date.now() });
@@ -261,6 +265,8 @@ export const turnContext = internalQuery({
 			asked,
 			triggerId: turn.triggerId ?? null,
 			routed: turn.routed ?? false,
+			/** Set when another agent handed it the trigger message (chains.ts). */
+			handoff: await handoffOf(ctx, turn),
 			/** Set on a wake turn: what woke it, in place of a message (wakeups.ts). */
 			wake: wakeup
 				? {
@@ -272,6 +278,7 @@ export const turnContext = internalQuery({
 						...(about !== undefined && { record: about && (await recordOut(ctx, member, about._id)) }),
 						...(wakeup.result !== undefined && { result: wakeup.result }),
 						canNotify: isGranted(agent.tools, "chat.notify"),
+						...(wakeup.answer && { answer: { from: (await names.agent(wakeup.answer.agentId)).name } }),
 					}
 				: undefined,
 			vision,
@@ -292,6 +299,13 @@ export const turnContext = internalQuery({
 		};
 	},
 });
+
+/** Who handed a chain turn its message: the agent that wrote it, privately or by @mention. */
+async function handoffOf(ctx: QueryCtx, turn: Doc<"agentTurns">) {
+	const trigger = turn.chain && turn.triggerId && !turn.approvalId && (await ctx.db.get(turn.triggerId));
+	const from = trigger && trigger.authorAgentId && (await ctx.db.get(trigger.authorAgentId));
+	return from ? { from: from.name, ask: !!turn.ask } : undefined;
+}
 
 async function toPlaceMessage(m: Doc<"chatMessages">, names: Namer, self: Id<"agents">, skills: Skill[] = []): Promise<PlaceMessage> {
 	const author = await names.of(m);
@@ -451,6 +465,9 @@ export const finishReply = internalMutation({
 		await ctx.db.patch(turnId, { status: error ? "error" : "done", step: undefined });
 		await setWakeOutcome(ctx, turn, error ? "failed" : "ran");
 		await settleApproval(ctx, turn);
+		// Agents it @mentioned take the work on (chains.ts); an asked agent's answer goes back to the asker.
+		if (!error) await handOff(ctx, (await ctx.db.get(turnId))!);
+		await answerAsk(ctx, turn, error);
 		await startNext(ctx, turn);
 	},
 });

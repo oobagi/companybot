@@ -66,7 +66,14 @@ export interface ChatStore {
 	search(input: { query: string; chat?: string }): Promise<ChatResult>;
 	/** A file attached to a message in a chat they can see. */
 	readFile(input: { id: string; page?: number }): Promise<FileResult>;
+	/** Asks another agent privately, for the same person: a thread in their group DM. Its answer comes back as a new turn. */
+	ask(input: { agent: string; message: string }): Promise<AskResult>;
 }
+
+export type AskResult = { asked: string; thread: { chatId: string; messageId: string }; note: string } | { error: string };
+
+/** Longest question one ask carries. */
+export const ASK_TEXT_MAX = 4000;
 
 export const chatTools: ToolDef[] = [
 	defineTool({
@@ -115,5 +122,23 @@ export const chatTools: ToolDef[] = [
 			return name && `Read ${JSON.stringify(name)}`;
 		},
 		execute: (input, { chat }) => chat.readFile(input),
+	}),
+	defineTool({
+		id: "chat.ask_agent",
+		title: "Ask an agent",
+		description:
+			"Ask another agent a question privately, for the person you act for, when you need what it knows or does to finish their request. It answers in a thread of a group DM with that person, you and it; its answer comes back to you later in a new message here, and then you finish the reply. Ask once, with everything it needs. To hand work over in the open instead, @mention the agent in your reply.",
+		input: z.object({
+			agent: z.string().describe("The agent's name"),
+			message: z.string().min(1).max(ASK_TEXT_MAX).describe("What you need, in one message"),
+		}),
+		// Another agent works for the same person, in a DM only they see; it asks for anything it would ask for itself.
+		risk: "none",
+		label: ({ agent }) => (typeof agent === "string" && agent.trim() ? `Ask ${agent.trim().replace(/^@/, "")}` : undefined),
+		opens: (output) => {
+			const thread = output && typeof output === "object" && "thread" in output ? (output as { thread: unknown }).thread : undefined;
+			return thread && typeof thread === "object" && "chatId" in thread && "messageId" in thread ? (thread as { chatId: string; messageId: string }) : undefined;
+		},
+		execute: (input, { chat }) => chat.ask(input),
 	}),
 ];

@@ -27,6 +27,7 @@ import type { messagePart, replyStats } from "./schema";
 import { internal } from "./_generated/api";
 import { enqueueTurn, streamOf } from "./turns";
 import { routeLater } from "./router";
+import { resetChains } from "./chains";
 import { stopTyping } from "./typing";
 import { claimFiles, deleteAttachments } from "./files";
 import { type LinkPreview, previewMessage, previewRow, previewsOf } from "./linkPreviews";
@@ -61,6 +62,11 @@ export type Message = {
 	attachments: (Infer<typeof fileInfo> & { url: string | null })[];
 	/** Cards for its first links (linkPreviews.ts), without ones its sender hid. */
 	linkPreviews: LinkPreview[];
+	/**
+	 * Set on a paused line (chains.ts): agents stopped at a limit. `for`: the person they work for,
+	 * the only one who can Continue or Stop (`canDecide`). `by`: who did.
+	 */
+	pause: { status: "paused" | "continued" | "stopped"; for: string; by: string | null; canDecide: boolean } | null;
 };
 
 const LIST_LIMIT = 200;
@@ -129,6 +135,19 @@ async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, 
 		automation: m.automation ?? null,
 		attachments: await Promise.all((m.attachments ?? []).map(async ({ storageId, ...file }) => ({ ...file, url: await ctx.storage.getUrl(storageId) }))),
 		linkPreviews: await previewsOf(ctx, m),
+		pause: await pauseOf(ctx, m, member, names),
+	};
+}
+
+async function pauseOf(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, names: Namer): Promise<Message["pause"]> {
+	if (!m.pause) return null;
+	const chain = await ctx.db.get(m.pause.chainId);
+	const actorId = chain?.actorId;
+	return {
+		status: m.pause.status,
+		for: actorId ? (await names.user(actorId)).name : "",
+		by: m.pause.by ? (await names.user(m.pause.by)).name : null,
+		canDecide: m.pause.status === "paused" && actorId === member.userId,
 	};
 }
 
@@ -209,6 +228,8 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	await previewMessage(ctx, sent);
 	await noteMentions(ctx, { _id: messageId, chatId }, recordIds);
 	if (!who.agentId) await stopTyping(ctx, chatId, threadId, member.userId);
+	// A person writing where agents are handing work around gives those chains a fresh budget.
+	if (!who.agentId) await resetChains(ctx, chatId, threadId);
 	if (!who.agentId && !threadId) await markChatRead(ctx, chatId, member.userId);
 
 	if (who.agentId) return messageId;
