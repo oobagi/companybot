@@ -21,8 +21,8 @@ export function CreateChannel({ onClose, onOpen }: { onClose: () => void; onOpen
 				<Field label="Name">
 					<input value={name} autoFocus onChange={(e) => setName(e.target.value)} placeholder="e.g. sales" className={inputClass} />
 				</Field>
-				<Field label="Topic" hint="Optional. What's this channel about?">
-					<input value={topic} onChange={(e) => setTopic(e.target.value)} className={inputClass} />
+				<Field label="Topic">
+					<input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Optional. What's this channel about?" className={inputClass} />
 				</Field>
 				<label className="flex items-start gap-2 text-sm">
 					<Checkbox checked={isPrivate} onChange={setPrivate} className="mt-0.5" />
@@ -114,7 +114,7 @@ export function NewMessage({ onClose, onOpen }: { onClose: () => void; onOpen: (
 	const of = (list: Participant[]) => list.filter((p) => picked.includes(p.id)).map((p) => p.id);
 	// The DM whose other members are exactly who's picked.
 	const sameAs = (ids: string[]) => ids.length === picked.length && ids.every((id) => picked.includes(id));
-	const existing = chats?.dms.find((d) => sameAs(d.members.filter((m) => m.id !== chats.me).map((m) => m.id)));
+	const existing = chats?.dms.find((d) => !d.parentId && sameAs(d.members.filter((m) => m.id !== chats.me).map((m) => m.id)));
 	const open = () =>
 		existing
 			? (onOpen(existing._id), onClose())
@@ -137,6 +137,12 @@ export function NewMessage({ onClose, onOpen }: { onClose: () => void; onOpen: (
 			</button>
 		</Modal>
 	);
+}
+
+/** `ChannelDetails` for a chat the sidebar knows only by id. */
+export function ChannelDetailsFor({ chatId, onClose, onLeft }: { chatId: Id<"chats">; onClose: () => void; onLeft: () => void }) {
+	const chat = useQuery(api.chats.get, { chatId });
+	return chat ? <ChannelDetails chat={chat} onClose={onClose} onLeft={onLeft} /> : null;
 }
 
 export function ChannelDetails({ chat, onClose, onLeft }: { chat: ChatDetails; onClose: () => void; onLeft: () => void }) {
@@ -208,9 +214,9 @@ function EditChannel({ chat }: { chat: ChatDetails }) {
 	const { error, run } = useRun();
 	const dirty = name !== (chat.name ?? "") || topic !== (chat.topic ?? "");
 	return (
-		<Form className="flex flex-col gap-3" onSubmit={() => run(update({ chatId: chat._id, name: chat.isDefault ? undefined : name, topic }))}>
-			<Field label="Name" hint={chat.isDefault ? "The default channel can't be renamed." : undefined}>
-				<input value={name} disabled={!!chat.isDefault} onChange={(e) => setName(e.target.value)} className={inputClass} />
+		<Form className="flex flex-col gap-3" onSubmit={() => run(update({ chatId: chat._id, name, topic }))}>
+			<Field label="Name">
+				<input value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
 			</Field>
 			<Field label="Topic">
 				<input value={topic} onChange={(e) => setTopic(e.target.value)} className={inputClass} />

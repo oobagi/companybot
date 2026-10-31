@@ -1,4 +1,4 @@
-import { canEditMade, DEFAULT_CURRENCY, isGranted, manageInputs, modelNote, pickAgentConfig, searchModels } from "@companybot/core";
+import { canEditMade, DEFAULT_CURRENCY, THREAD_HOURS_DEFAULT, isGranted, manageInputs, modelNote, pickAgentConfig, searchModels } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Id, TableNames } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
@@ -263,7 +263,7 @@ export const runFor = internalMutation({
 					if (r.action === "delete") await setAgentTrashed(ctx, who, id, true);
 					if (r.action === "remove_image") await setImage(ctx, member, id, null);
 					if (r.action === "update") {
-						if (id === turn.agentId && (r.instructions !== undefined || r.model !== undefined)) throw new ConvexError("Only a person can change your instructions or model.");
+						if (id === turn.agentId && (r.instructions !== undefined || r.model !== undefined || r.reasoning !== undefined)) throw new ConvexError("Only a person can change your instructions, model or reasoning.");
 						const { action, id: _, expectedVersion, ...changes } = r;
 						await updateAgent(ctx, member, id, expectedVersion, { ...pickAgentConfig(agent), ...changes });
 					}
@@ -288,7 +288,7 @@ export const runFor = internalMutation({
 					const w = (await ctx.db.get(member.workspaceId))!;
 					if (r.action === "get") {
 						const images = await imageSettings(ctx, member, w);
-						return { name: w.name, currency: w.currency ?? DEFAULT_CURRENCY, memory: w.memory ?? true, ...images, imageModels: images.imageModels.map((m) => m.id), version: w.version ?? 0 };
+						return { name: w.name, currency: w.currency ?? DEFAULT_CURRENCY, memory: w.memory ?? true, ...images, imageModels: images.imageModels.map((m) => m.id), threadHours: w.threadHours ?? THREAD_HOURS_DEFAULT, version: w.version ?? 0 };
 					}
 					await updateWorkspaceSettings(ctx, member, { ...r, name: r.name ?? w.name });
 					return { updated: true };

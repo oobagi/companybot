@@ -43,9 +43,14 @@ export interface Attachment {
 export function sniffFile(bytes: Uint8Array, name: string): FileType | undefined {
 	const image = sniffImage(bytes);
 	if (image) return image;
+	if (startsWith(bytes, "%PDF-") || startsWith(bytes, "PK\x03\x04")) return sniffDocument(bytes);
+	return sniffText(bytes, name);
+}
+
+/** A PDF, Word or Excel file, by its bytes. */
+export function sniffDocument(bytes: Uint8Array): FileType | undefined {
 	if (startsWith(bytes, "%PDF-")) return "application/pdf";
 	if (startsWith(bytes, "PK\x03\x04")) return sniffZip(bytes);
-	return sniffText(bytes, name);
 }
 
 /** Why this file can't be attached, or undefined if it can. */
@@ -125,6 +130,16 @@ export function imageSize(bytes: Uint8Array, type: string): { width: number; hei
 			at += marker === 0x01 || (marker >= 0xd0 && marker <= 0xd9) ? 2 : 2 + u16be(at + 2);
 		}
 	}
+}
+
+/**
+ * Base64, for a file sent to a model. Bytes must not reach AI Gateway as a Uint8Array: its
+ * encoder uses Node's Buffer, which Convex's runtime doesn't have.
+ */
+export function toBase64(bytes: Uint8Array) {
+	let text = "";
+	for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+	return btoa(text);
 }
 
 /** A file name to keep: no folders, no control characters, one line, at most NAME_MAX characters. */

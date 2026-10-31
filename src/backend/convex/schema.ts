@@ -1,7 +1,7 @@
 import { viewConfig } from "./recordValidators";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
-import { fieldKinds, fileTypes, risks, roles, trashKinds, usageKinds } from "@companybot/core";
+import { fieldKinds, fileTypes, reasonings, risks, roles, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
 import { v } from "convex/values";
 
 /** One of `values`, each a literal. */
@@ -11,11 +11,15 @@ export const notify = v.union(v.literal("all"), v.literal("mentions"), v.literal
 
 export const role = oneOf(roles);
 
+export const wakeOutcome = oneOf(wakeOutcomes);
+
 export const agentConfig = v.object({
 	name: v.string(),
 	description: v.string(),
 	instructions: v.string(),
 	model: v.string(),
+	/** Unset on agents and versions saved before it existed: `defaultReasoning`. */
+	reasoning: v.optional(oneOf(reasonings)),
 	tools: v.array(v.string()),
 });
 
@@ -82,6 +86,10 @@ export const replyStats = v.object({
 	...replyUsage.fields,
 	/** The conversation's running total once this reply finished, summaries included. */
 	conversationCostUsd: v.number(),
+	/** What the pictures it made cost (imageGen.ts), apart from `costUsd`: they're in `usage` as kind "image", not "chat". */
+	imageCostUsd: v.optional(v.number()),
+	/** What its web searches cost (turns.addSearchCost), apart from `costUsd`: they're in `usage` as kind "search". */
+	searchCostUsd: v.optional(v.number()),
 	/** Added to the `usage` table (usage.ts). Replies from before it are counted once by migrations.usageThisMonth. */
 	counted: v.optional(v.boolean()),
 });
@@ -170,6 +178,8 @@ export default defineSchema({
 		imageModel: v.optional(v.string()),
 		/** USD agents may spend on pictures a month; 0 turns them off. Unset means IMAGE_BUDGET_DEFAULT_USD. */
 		imageBudgetUsd: v.optional(v.number()),
+		/** Hours a thread stays under its channel in the sidebar after its last reply (core `threadWindows`; 0 forever). Unset means THREAD_HOURS_DEFAULT. */
+		threadHours: v.optional(v.number()),
 		/** Set when an owner deletes it: every access refuses at once, then a cascade deletes its rows (lifecycle.ts). */
 		deleting: v.optional(v.boolean()),
 		/** Its logo (images.ts). Unset shows its initials. */
@@ -268,13 +278,6 @@ export default defineSchema({
 		savedByAgent: v.optional(v.boolean()),
 		savedAt: v.number(),
 	}).index("by_memory", ["memoryId", "version"]),
-
-	// Retired: where apps that sent no workspace acted. Emptied by migrations.clearLegacyWorkspaces.
-	// COMPAT(0.1.0-alpha.8): once that has run on prod, drop this table with its lifecycle entry, the migration and their tests.
-	legacyWorkspaces: defineTable({
-		userId: v.id("users"),
-		workspaceId: v.id("workspaces"),
-	}).index("by_user", ["userId"]),
 
 	// Personal preferences: only the person sees them; they follow them across devices.
 	preferences: defineTable({
@@ -389,8 +392,12 @@ export default defineSchema({
 		topic: v.optional(v.string()),
 		/** Private channels are visible to their members only. DMs are always private. */
 		private: v.boolean(),
-		/** DMs only: sorted participant keys ("u:<id>", "a:<id>") joined by ",", to find an existing DM. */
+		/** DMs only: sorted participant keys ("u:<id>", "a:<id>") joined by ",", to find an existing DM. A side chat copies its parent's. */
 		dmKey: v.optional(v.string()),
+		/** Side chats only: a separate conversation with an agent, under the person's agent DM (`parentId`). */
+		parentId: v.optional(v.id("chats")),
+		/** Side chats only: what it's about, from its first message until renamed. */
+		title: v.optional(v.string()),
 		/** The channel everyone joins (#general). Can't be left or made private. */
 		isDefault: v.optional(v.boolean()),
 		/** In Trash (the `trash` table says who deleted it, and when). */
@@ -457,8 +464,12 @@ export default defineSchema({
 		costUsd: v.optional(v.number()),
 		/** Server-written provenance. `foreign` snapshots whose words the run follows; absent on older messages, which ask. */
 		automation: v.optional(v.object({ id: v.string(), name: v.string(), foreign: v.optional(v.boolean()) })),
+		/** A wake turn's own reply (wakeups.ts): kept for the agent's session, never shown. The agent speaks with chat.notify. */
+		quiet: v.optional(v.boolean()),
 	})
 		.index("by_chat_thread", ["chatId", "threadId"])
+		/** Thread parents, newest reply first: the sidebar's active threads. Messages without replies have no `lastReplyAt` and sort first. */
+		.index("by_chat_lastReply", ["chatId", "lastReplyAt"])
 		.index("by_workspace", ["workspaceId"])
 		.searchIndex("search_text", { searchField: "text", filterFields: ["workspaceId", "chatId"] }),
 
@@ -525,8 +536,8 @@ export default defineSchema({
 		agentId: v.id("agents"),
 		/** The message that mentioned the agent (or any message, in an agent DM). Unset on old welcome turns, and the approvals that follow one. */
 		triggerId: v.optional(v.id("chatMessages")),
-		// Retired: welcomes were agent turns; now they're fixed text (onboarding.ts). Old rows keep it.
-		// COMPAT(0.1.0-alpha.8): drop once no turn has it (they're never read).
+		// Retired: welcomes were agent turns; now they're fixed text (onboarding.ts). migrations.clearTurnWelcome clears it.
+		// COMPAT(0.1.0-alpha.9): once that has run on prod, drop this field, the migration and its test.
 		welcome: v.optional(v.union(v.literal("new_workspace"), v.literal("joined"))),
 		/** The agent acts as this person: their role, connector connections, and access. */
 		actorId: v.id("users"),
@@ -540,6 +551,23 @@ export default defineSchema({
 		startedAt: v.optional(v.number()),
 		/** Set when the turn follows a decision on this approval: it runs the call if approved, then tells the agent. */
 		approvalId: v.optional(v.id("approvals")),
+		/** A wake turn (wakeups.ts): its input is the wakeup, its reply is quiet, and `wakeLogId` is its line in Activity. */
+		wakeupId: v.optional(v.id("wakeups")),
+		wakeLogId: v.optional(v.id("agentActivity")),
+		/** What its pictures cost so far (imageGen.ts), for its reply's stats. */
+		imageCostUsd: v.optional(v.number()),
+		/** What its web searches cost so far (turns.addSearchCost), for its reply's stats. */
+		searchCostUsd: v.optional(v.number()),
+		/**
+		 * What its finished model calls used so far, saved after each one (turns.saveUsage) with its cost
+		 * already recorded, so a turn whose action dies keeps what it paid and its stats.
+		 */
+		usage: v.optional(v.object({ ...replyUsage.fields, counted: v.optional(v.boolean()) })),
+		/**
+		 * What it's doing now, while running ("Searching records for Acme…", "Thinking…"), for the line
+		 * under the composer (typing.ts). Unset while it writes, and once it ends. Never model reasoning.
+		 */
+		step: v.optional(v.object({ label: v.string(), at: v.number() })),
 	})
 		.index("by_place", ["agentId", "chatId", "threadId", "status"])
 		.index("by_session", ["sessionId"])
@@ -571,11 +599,13 @@ export default defineSchema({
 		workspaceId: v.id("workspaces"),
 		agentId: v.id("agents"),
 		actorId: v.id("users"),
-		turnId: v.id("agentTurns"),
+		/** Unset on a wake's line until (unless) it queues a turn. */
+		turnId: v.optional(v.id("agentTurns")),
 		chatId: v.id("chats"),
 		threadId: v.optional(v.id("chatMessages")),
-		replyId: v.id("chatMessages"),
-		/** Same id as the reply's tool part, so the app can open one from the other. */
+		/** Unset on a wake's line: a wake turn's reply is quiet. */
+		replyId: v.optional(v.id("chatMessages")),
+		/** Same id as the reply's tool part, so the app can open one from the other. A wake's line: the wakeup's id. */
 		callId: v.string(),
 		tool: v.string(),
 		/** False only for read-only tools. */
@@ -588,10 +618,64 @@ export default defineSchema({
 		status: v.union(v.literal("done"), v.literal("error")),
 		/** Calls that would have asked: who allowed it and how. */
 		allowed: v.optional(allowedHow),
+		/** One line per wake (wakeups.ts): what woke and how it went. `tool` is "wakeups.wake". */
+		wake: v.optional(v.object({ wakeupId: v.id("wakeups"), outcome: wakeOutcome, reason: v.optional(v.string()) })),
 	})
 		.index("by_workspace", ["workspaceId"])
 		.index("by_reply", ["replyId"])
 		.index("by_actor", ["actorId"]),
+
+	// An agent waking later, in a place, as a person: when (a time, maybe repeating, or a job finishing,
+	// #114) and what (a note: a follow-up's task; none: look around, #162's heartbeat). One table and one
+	// path to a turn (wakeups.ts `wake`) for all of them.
+	wakeups: defineTable({
+		workspaceId: v.id("workspaces"),
+		agentId: v.id("agents"),
+		chatId: v.id("chats"),
+		threadId: v.optional(v.id("chatMessages")),
+		/** Who it runs for, with their access, read fresh at each wake. */
+		actorId: v.id("users"),
+		/** Who set it up: may cancel it, like the actor and owners. */
+		createdBy: v.id("users"),
+		/** What to do when it wakes. None: look around for anything worth doing (#162). */
+		note: v.optional(v.string()),
+		recordId: v.optional(v.id("records")),
+		/** The record's database, so deleting one forever cancels its records' wakeups. */
+		typeId: v.optional(v.id("recordTypes")),
+		/** Made in a run that followed others' words: its turns ask before `inside` actions (permissions.md). */
+		foreign: v.boolean(),
+		/** `pending` until its last wake (or its job's) or it's cancelled; one that repeats stays pending between wakes. */
+		status: v.union(v.literal("pending"), v.literal("fired"), v.literal("cancelled")),
+		reason: v.optional(v.string()),
+		/**
+		 * When: a time (`at`; with `every` ms it's re-armed after each wake, `times` wakes in all or
+		 * forever), or a job finishing (`jobId`, #114).
+		 */
+		at: v.optional(v.number()),
+		every: v.optional(v.number()),
+		times: v.optional(v.number()),
+		/** Wakes so far. */
+		wakes: v.optional(v.number()),
+		jobId: v.optional(v.string()),
+		/** A job's result (#114), JSON, for the wake turn. */
+		result: v.optional(v.string()),
+		/** Due while its agent, record or chat is in Archive: wakes when it's restored (trashOps). */
+		held: v.optional(v.boolean()),
+		/** The scheduled `fire`, so moving or cancelling it can cancel that too (best effort: `fire` re-checks). */
+		scheduledId: v.optional(v.id("_scheduled_functions")),
+		lastWokeAt: v.optional(v.number()),
+		/** When it fired for good or was cancelled; forgotten 30 days later. */
+		settledAt: v.optional(v.number()),
+	})
+		.index("by_workspace", ["workspaceId", "status", "at"])
+		.index("by_actor", ["workspaceId", "actorId", "status"])
+		.index("by_agent", ["agentId", "status"])
+		.index("by_record", ["recordId", "status"])
+		.index("by_type", ["typeId"])
+		.index("by_chat", ["chatId"])
+		.index("by_held", ["workspaceId", "held"])
+		.index("by_job", ["jobId"])
+		.index("by_settled", ["settledAt"]),
 
 	// A tool call an agent held for approval, shown as a card in its reply (see core approvals.ts).
 	// Locked to `hash` (SHA-256 of the exact tool + input): the approver confirms that hash,
@@ -959,6 +1043,10 @@ export default defineSchema({
 	})
 		.index("by_bucket", ["workspaceId", "month", "userId", "agentId", "kind", "model"])
 		.index("by_user", ["workspaceId", "userId", "month"]),
+
+	// A picture call's estimated cost, held against the monthly image budget while the gateway works
+	// (imageGen.ts), so parallel calls can't all pass it. Settled into `usage`, or released on failure or after HOLD_MS.
+	imageHolds: defineTable({ workspaceId: v.id("workspaces"), costUsd: v.number() }).index("by_workspace", ["workspaceId"]),
 
 	// A cascade deleting what belonged to something that went (cascade.ts): one page of one
 	// edge of lifecycle.ts per run, resumed from `edge` and `cursor`. `key` names what's going,

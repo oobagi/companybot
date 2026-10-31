@@ -6,7 +6,9 @@ import {
 	defaultAgents,
 	describeToolAccess,
 	defaultModel,
+	defaultReasoning,
 	findConnector,
+	pickAgentConfig,
 	toolGroup,
 	validateAgentConfig,
 } from "@companybot/core";
@@ -27,7 +29,14 @@ import { toggleTrash, trashInfo } from "./trashOps";
 
 async function clean(ctx: MutationCtx, agent: Doc<"agents">, config: AgentConfig): Promise<AgentConfig> {
 	// Night Owl's connector is retired: drop its grants so agents (and versions from before) still save and restore. Not COMPAT: old versions keep them forever.
-	const tidy = { ...config, name: config.name.trim(), description: config.description.trim(), tools: config.tools.filter((id) => toolGroup(id) !== "night-owl") };
+	// A config without reasoning (an older app's save, or a version from before it) keeps the agent's.
+	const tidy = {
+		...config,
+		name: config.name.trim(),
+		description: config.description.trim(),
+		reasoning: config.reasoning ?? agent.reasoning ?? defaultReasoning,
+		tools: config.tools.filter((id) => toolGroup(id) !== "night-owl"),
+	};
 	const problem = validateAgentConfig(tidy, await allowedModels(ctx, agent.model));
 	if (problem) throw new ConvexError(problem);
 	// Sorted and deduped so versions compare cleanly.
@@ -142,6 +151,16 @@ export const update = mutation({
 	handler: async (ctx, { agentId, expectedVersion, config }) => updateAgent(ctx, await requirePermission(ctx, "agents.manage"), agentId, expectedVersion, config),
 });
 
+/** Renames it in place (from the sidebar): a new version with only the name changed. */
+export const rename = mutation({
+	args: { agentId: v.id("agents"), name: v.string() },
+	handler: async (ctx, { agentId, name }) => {
+		const member = await requirePermission(ctx, "agents.manage");
+		const agent = await requireLiveAgent(ctx, member, agentId);
+		await saveVersion(ctx, agent, await clean(ctx, agent, { ...pickAgentConfig(agent), name }), member.userId);
+	},
+});
+
 /** Brings back an old version by saving it as the newest one. History is never rewritten. */
 export const restore = mutation({
 	args: { agentId: v.id("agents"), version: v.number(), expectedVersion: v.number() },
@@ -155,15 +174,6 @@ export const restore = mutation({
 			.first();
 		if (!old) throw new ConvexError("That version doesn't exist.");
 		await saveVersion(ctx, agent, await clean(ctx, agent, old.config), owner.userId);
-	},
-});
-
-/** COMPAT(0.1.0-alpha.8): alpha.7 apps' Archive/Restore agent go through Trash. */
-export const setArchived = mutation({
-	args: { agentId: v.id("agents"), archived: v.boolean() },
-	handler: async (ctx, { agentId, archived }) => {
-		const owner = await requirePermission(ctx, "agents.manage");
-		await setAgentTrashed(ctx, { member: owner }, agentId, archived);
 	},
 });
 

@@ -168,8 +168,8 @@ describe("page history", () => {
 		vi.advanceTimersByTime(24 * 60 * 60_000 + 1);
 		await type(t, owner, pageId, "compacted");
 		await settle(t);
-		await owner.mutation(api.pages.setArchived, { pageId, archived: true });
-		await owner.mutation(api.pages.remove, { pageId });
+		await owner.mutation(api.trash.move, { kind: "page", id: pageId });
+		await owner.mutation(api.trash.purge, { id: pageId });
 		await settle(t);
 		expect(await snapshotAt(t, pageId)).toEqual({ content: null });
 		expect(await t.run((ctx) => ctx.runQuery(components.prosemirrorSync.lib.latestVersion, { id: pageId }))).toBeNull();
@@ -229,6 +229,23 @@ describe("pages", () => {
 		await expect(other.mutation(api.pages.rename, { pageId, title: "Mine" })).rejects.toThrow();
 	});
 
+	it("are found by title for Move to…, with their path, never record bodies or Trash", async () => {
+		const { owner } = await ownerAndMember();
+		const wiki = await owner.mutation(api.pages.create, { title: "Wiki" });
+		const sales = await owner.mutation(api.pages.create, { title: "Sales playbook", parentId: wiki });
+		const old = await owner.mutation(api.pages.create, { title: "Old playbook" });
+		await owner.mutation(api.trash.move, { kind: "page", id: old });
+		const types = await owner.query(api.recordTypes.list);
+		const recordId = await owner.mutation(api.records.create, { typeId: types.find((x) => x.key === "client")!._id, values: { name: "Playbook Co" } });
+		await owner.mutation(api.pages.create, { recordId });
+		await owner.mutation(api.pages.rename, { pageId: wiki, title: "Playbooks" });
+		expect(await owner.query(api.pages.search, { query: "playbook" })).toEqual([
+			expect.objectContaining({ _id: wiki, path: [] }),
+			expect.objectContaining({ _id: sales, path: ["Playbooks"] }),
+		]);
+		expect(await owner.query(api.pages.search, { query: "  " })).toEqual([]);
+	});
+
 	it("give every record a body, created when someone first writes in it", async () => {
 		const { t, owner } = await ownerAndMember();
 		const types = await owner.query(api.recordTypes.list);
@@ -241,7 +258,7 @@ describe("pages", () => {
 		await expect(owner.mutation(api.pages.rename, { pageId, title: "x" })).rejects.toThrow("Rename the record");
 		// Bodies aren't standalone pages.
 		expect(await owner.query(api.pages.list, {})).toEqual([]);
-		await owner.mutation(api.records.archive, { recordId });
+		await owner.mutation(api.trash.move, { kind: "record", id: recordId });
 		await expect(type(t, owner, pageId, "x")).rejects.toThrow("record is in Archive");
 	});
 });

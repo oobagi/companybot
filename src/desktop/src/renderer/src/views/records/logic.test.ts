@@ -12,8 +12,8 @@ const stage = field("choice", {
 
 describe("record screens", () => {
 	it("routes built-in types to their tabs and added types under /records", () => {
-		expect(recordPath("client")).toEqual(["clients"]);
-		expect(recordPath("deal", "abc")).toEqual(["deals", "abc"]);
+		expect(recordPath("client")).toEqual(["records", "client"]);
+		expect(recordPath("deal", "abc")).toEqual(["records", "deal", "abc"]);
 		expect(recordPath("job", "abc")).toEqual(["records", "job", "abc"]);
 	});
 

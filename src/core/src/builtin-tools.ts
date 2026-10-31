@@ -1,6 +1,7 @@
 import { manageTools } from "./manage-tools";
 import { z } from "zod";
 import { automationTools } from "./automation-tools";
+import { wakeupTools } from "./wakeups";
 import { chatTools } from "./chat";
 import { SKILL_DESCRIPTION_MAX, SKILL_NAME_MAX } from "./skills";
 import { pageTools } from "./page-tools";
@@ -137,6 +138,7 @@ export const builtinTools: ToolDef[] = [
 	...widgetTools,
 	...chatTools,
 	...automationTools,
+	...wakeupTools,
 	...recordTools,
 	...pageTools,
 	...webTools,

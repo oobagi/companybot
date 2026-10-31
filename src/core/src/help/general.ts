@@ -5,7 +5,7 @@ export default {
 	title: "Workspace settings: General, and managing workspaces",
 	summary: "Logo, name, currency, memory on/off, the picture model and monthly image budget, deleting the workspace, and starting more.",
 	text: `# General
-[General](#/settings/general): open the workspace name above the sidebar → Workspace settings. Everyone can look; **only owners** change it. Edits are saved with the Save bar.
+[General](#/settings/general): open the workspace name above the sidebar → Workspace settings. Everyone can look; **only owners** change it. Edits are saved with **Save** at the top right (**Discard** drops them); both stay off until something changes.
 
 - **Logo**: its icon in the rail. PNG, JPEG, WebP or GIF, up to 2 MB.
 - **Name**: the workspace's name.
@@ -14,8 +14,8 @@ export default {
 
 ## Pictures
 Agents with the picture tool (Companybot has it) make a picture when you ask ("make a logo for our roofing ad"), or edit one attached in the chat ("make the roof red"). The picture is attached to their reply. They can only edit pictures from chats you can see.
-- **Picture model**: what they make pictures with, from AI Gateway's list. Nano Banana is the default.
-- **Monthly budget**: what agents may spend on pictures each month, in US dollars ($20 to start). Owners also see what's been used this month. Once it's used up, agents say so until next month or until an owner raises it. **$0 turns pictures off.** Picture costs show under Images on [Usage](#/settings/usage).
+- **Picture model**: what they make pictures with, from a short list we've tried, each with what it's best at and its price per picture: GPT Image 2.5 Flare (the default), GPT Image 2.5 Sunburst, Nano Banana 2.1, FLUX 3 and Recraft V4.1. If a model is retired, workspaces on it switch to the default.
+- **Monthly budget**: what agents may spend on pictures each month, in US dollars ($20 to start). Owners also see what's been used this month. Pictures still being made count too, so several at once can't go past it by more than one picture. Once it's used up, agents say so until next month or until an owner raises it. **$0 turns pictures off.** Picture costs show under Images on [Usage](#/settings/usage).
 
 - **Delete workspace** (owners, under Danger zone): deletes it and everything in it for everyone. Type its name to confirm.
 

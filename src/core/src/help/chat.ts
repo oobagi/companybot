@@ -16,7 +16,11 @@ Open [Chat](#/chat) from the sidebar.
 
 ## The message box
 - **@** picks a person or agent, **#** a channel, **/** a skill. Each becomes a chip. Enter sends (or ⌘Enter, your choice in [Your preferences](#/settings/preferences)); Shift+Enter makes a new line.
-- A line under the box shows who is typing.
+- **Emoji**: the smiley button opens the picker (search, categories, skin tone, recents). Or type a colon and two letters, like \`:smi\`, to pick from a list, and a finished \`:smile:\` turns into 😄.
+- **Files**: the paperclip, pasting or dropping files on the chat attaches up to 10 per message, 20 MB each: pictures, PDF, Word, Excel and text files. Send waits until they've uploaded. Agents see attached pictures when their model can.
+- **Dictation**: click the mic, talk, click again; the words land where your cursor is. It stops by itself after 2 minutes. Nothing is kept, and it counts in Usage (**help: usage**).
+- **Drafts**: what you've typed and not sent stays in each chat and thread when you leave and comes back when you return. Drafts are kept on this computer, separately for each account: someone else signing in here doesn't see yours, and they're back when you sign in again. The sidebar shows "Draft" on a chat that has one, or files waiting to send.
+- A line under the box shows who is typing, and what each agent working there is doing right now ("Companybot: Searching records for Acme…"), until it's done. With several working it says "2 agents working": hover it for each one's step, and a link to [Activity](#/settings/activity) for what they did. It shows only what the agent is doing, never its reasoning, and nothing about it posts in the chat.
 - **Link previews**: the first three links in a message get a small card with the page's title, text and picture (not for links in code). Click one to open the page in your browser. On your own message, hover a card and click × to hide it; the link stays.
 
 ## When agents reply

@@ -14,10 +14,8 @@ import {
 	requireEditable,
 	requirePage,
 	restoreVersion,
-	setPageTrashed,
 } from "./pageOps";
 import { movePage, pageRow, pageState, pageStates } from "./pageTree";
-import { purgeItem } from "./trash";
 import { trashInfo } from "./trashOps";
 
 // Pages metadata and history; content syncs through pageSync.ts. See wiki/pages.md.
@@ -34,19 +32,18 @@ const canEdit = async (ctx: QueryCtx, member: Member, page: Doc<"pages">) =>
 
 /** Standalone pages, by title. */
 export const list = query({
-	// COMPAT(0.1.0-alpha.8): alpha.6 apps list archived pages; Trash lists them now.
-	args: { archived: v.optional(v.boolean()) },
-	handler: async (ctx, { archived = false }) => {
+	args: {},
+	handler: async (ctx) => {
 		const member = await getMember(ctx);
 		if (!member) return [];
 		const pages = await ctx.db
 			.query("pages")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("recordId", undefined).eq("archived", archived))
+			.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("recordId", undefined).eq("archived", false))
 			.take(LIST_MAX);
-		// COMPAT(0.1.0-alpha.8): alpha.7 keeps its flat list; inherited Trash state still hides descendants.
+		// A page under a trashed one is in Trash too.
 		const state = pageStates(ctx);
 		const visible = [];
-		for (const p of pages) if ((await state(p)).archived === archived) visible.push(pageRow(p));
+		for (const p of pages) if (!(await state(p)).archived) visible.push(pageRow(p));
 		return visible;
 	},
 });
@@ -105,6 +102,25 @@ export const children = query({
 			.paginate(capped(paginationOpts, 50));
 		const hasChildren = async (p: Doc<"pages">) => !!(await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", p._id).eq("recordId", undefined).eq("archived", false)).first());
 		return { ...result, page: await Promise.all(result.page.map(async (p) => ({ ...pageRow(p), hasChildren: await hasChildren(p) }))) };
+	},
+});
+
+/** Standalone pages whose titles match, with their ancestors' titles: the Move dialog's search. At most 20. */
+export const search = query({
+	args: { query: v.string() },
+	handler: async (ctx, { query: text }) => {
+		const member = await getMember(ctx);
+		if (!member || !text.trim()) return [];
+		// Record bodies can't be filtered out by the index, so walk hits until enough standalone, live pages are found.
+		const state = pageStates(ctx);
+		const rows = [];
+		for await (const p of ctx.db.query("pages").withSearchIndex("search_title", (q) => q.search("title", text).eq("workspaceId", member.workspaceId).eq("archived", false))) {
+			if (p.recordId) continue;
+			const { archived, ancestors } = await state(p);
+			if (!archived) rows.push({ ...pageRow(p), path: ancestors.map((a) => a.title).reverse() });
+			if (rows.length === 20) break;
+		}
+		return rows;
 	},
 });
 
@@ -167,26 +183,6 @@ export const rename = mutation({
 	handler: async (ctx, { pageId, title }) => {
 		const member = await requireMember(ctx);
 		await renamePage(ctx, { member }, await requirePage(ctx, member, pageId), title);
-	},
-});
-
-// COMPAT(0.1.0-alpha.8): alpha.6 apps archive, restore and delete pages here; newer ones use trash.ts.
-export const setArchived = mutation({
-	args: { pageId: v.id("pages"), archived: v.boolean() },
-	handler: async (ctx, { pageId, archived }) => {
-		const member = await requireMember(ctx);
-		await setPageTrashed(ctx, { member }, await requirePage(ctx, member, pageId), archived);
-	},
-});
-
-// COMPAT(0.1.0-alpha.8): old apps delete live pages to Archive; only owners delete trashed pages forever.
-export const remove = mutation({
-	args: { pageId: v.id("pages") },
-	handler: async (ctx, { pageId }) => {
-		const member = await requireMember(ctx);
-		const page = await requirePage(ctx, member, pageId);
-		if (page.archived) await purgeItem(ctx, member, pageId);
-		else await setPageTrashed(ctx, { member }, page, true);
 	},
 });
 

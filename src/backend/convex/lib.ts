@@ -10,7 +10,6 @@ import {
 import { getAuthUserId } from "@convex-dev/auth/server";
 import type { FunctionReference, PaginationResult } from "convex/server";
 import { ConvexError } from "convex/values";
-import { legacySkills } from "./legacyCatalogs";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { Requested } from "./functions";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -202,7 +201,7 @@ export async function asToolResult<Result>(fn: () => Promise<Result>): Promise<R
 /** A custom or retained skill's instructions, including while its row is in Archive. */
 export const skillOf = (install: Doc<"skillInstalls">): Skill | undefined => install.custom
 	? customSkill(install.skillId, install.custom, install.custom.version)
-	: install.definition ?? legacySkills.find((s) => s.id === install.skillId);
+	: install.definition;
 
 /** Live retained skills, then custom skills, oldest first within each group. */
 export async function installedSkills(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<Skill[]> {

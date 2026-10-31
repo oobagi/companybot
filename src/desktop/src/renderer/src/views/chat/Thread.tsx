@@ -1,12 +1,12 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { api } from "../../api";
 import { useMutation, useQuery, useWorkspace } from "../../convex";
-import { Loading, Notice, useRun } from "../../ui";
+import { Loading, Notice, ResizeHandle, useRun, useStoredWidth } from "../../ui";
 import { CloseIcon } from "../../icons";
 import { FileDrop, useAttachments } from "./Attachments";
 import { IconButton } from "./common";
 import { Composer, type SendWith } from "./Composer";
-import { type ChatDetails, type TokenNames, chatTitle } from "./data";
+import { type ChatDetails, type TokenNames, chatTitle, showSending } from "./data";
 import { draftKey } from "./drafts";
 import type { Sources } from "./editor";
 import { MessageList } from "./MessageList";
@@ -27,11 +27,12 @@ export function ThreadPanel({
 	tokens: TokenNames;
 	onClose: () => void;
 }) {
+	const size = useStoredWidth("thread.width", 416, 280, 800);
 	const messages = useQuery(api.messages.list, { chatId: chat._id, threadId });
-	const send = useMutation(api.messages.send);
+	const send = useMutation(api.messages.send, showSending);
 	const typing = useTypingPing(chat._id, threadId);
-	const files = useAttachments();
 	const workspace = useWorkspace();
+	const files = useAttachments(draftKey(workspace?.id, chat._id, threadId));
 	const { error, fail } = useRun();
 
 	const header = (
@@ -60,14 +61,18 @@ export function ThreadPanel({
 				onSend={(text, mentions, attachments) => {
 					fail();
 					typing.sent();
-					send({ chatId: chat._id, threadId, text, mentions, attachments }).catch(fail);
+					const sending = send({ chatId: chat._id, threadId, text, mentions, attachments });
+					sending.catch(fail);
+					return sending;
 				}}
 			/>
 		</div>
 	);
 
 	return (
-		<FileDrop attachments={files} className="flex w-[26rem] shrink-0 flex-col border-l border-neutral-200">
+		<aside style={{ width: size.width }} className="relative flex shrink-0 flex-col border-l border-neutral-200">
+			<ResizeHandle side="left" label="Resize thread" size={size} />
+			<FileDrop attachments={files} className="flex min-h-0 flex-1 flex-col">
 			{!messages || messages.length === 0 ? (
 				<>
 					{header}
@@ -86,6 +91,7 @@ export function ThreadPanel({
 					footer={footer}
 				/>
 			)}
-		</FileDrop>
+			</FileDrop>
+		</aside>
 	);
 }

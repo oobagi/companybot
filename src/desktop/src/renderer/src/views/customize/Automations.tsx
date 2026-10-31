@@ -12,6 +12,7 @@ import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
 import { Field, Loading, Notice, Page, Section, compactControlClass, descriptionClass, inputClass, secondaryButton, timeAgo, useRun } from "../../ui";
 import { useTurnOn } from "../Permissions";
+import { PendingWakeups } from "../Wakeups";
 import { deviceTimeZone, useConfirm } from "../chat/common";
 import { Card, Detail, Facts, ItemList, MadeItemDetail, Missing, NewItem, customizeCrumbs } from "./shared";
 
@@ -38,12 +39,15 @@ export function AutomationsTab() {
 	};
 
 	return (
-		<ItemList
-			items={automations}
-			icon={<AutomationIcon />} title="No automations yet" empty="Let an agent handle routine work on a schedule or event."
-			error={error}
-			card={card}
-		/>
+		<div className="flex flex-col gap-6">
+			<ItemList
+				items={automations}
+				icon={<AutomationIcon />} title="No automations yet" empty="Let an agent handle routine work on a schedule or event."
+				error={error}
+				card={card}
+			/>
+			<PendingWakeups title="Follow-ups" hint="Times an agent will check back on its own, in the chat where it was asked." />
+		</div>
 	);
 }
 
@@ -367,7 +371,7 @@ function AutomationSettings({ automation: a }: { automation: AutomationItem }) {
 	const label = "w-20 shrink-0 text-neutral-500";
 
 	return (
-		<Section title="Settings">
+		<Section title="Settings" flush>
 			{dialog}
 			<div className="flex flex-col gap-3 text-sm">
 				<Notice>{error}</Notice>

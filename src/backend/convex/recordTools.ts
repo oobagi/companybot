@@ -217,7 +217,8 @@ async function rowsOf(ctx: QueryCtx, member: Member, items: { record: Doc<"recor
 	}));
 }
 
-async function recordOut(ctx: QueryCtx, member: Member, recordId: Id<"records">) {
+/** A record as agents read it: values by field key, as people read them. Also a wake turn's record (turns.ts). */
+export async function recordOut(ctx: QueryCtx, member: Member, recordId: Id<"records">) {
 	const record = (await ctx.db.get(recordId))!;
 	const type = (await ctx.db.get(record.typeId))!;
 	const [row] = await rowsOf(ctx, member, [{ record, fields: await fieldsOf(ctx, record.typeId) }]);

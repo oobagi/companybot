@@ -8,8 +8,10 @@
 //   pnpm dev --reset    wipe this checkout's local data first
 //
 // First run: installs packages, creates the local deployment (state in .convex/),
-// and gives it secrets. The AI Gateway key is copied from the cloud dev deployment;
-// sign-in and encryption keys are generated fresh, never copied. Sign in with any
+// and gives it secrets. The AI Gateway key is copied from the cloud dev deployment
+// (or taken from AI_GATEWAY_API_KEY in your shell); sign-in and encryption keys are
+// generated fresh, never copied. Without access to the team's Convex project, the
+// backend is an anonymous local one (no Convex account needed). Sign in with any
 // email: local backends send no email, and the app signs straight in (backend auth.ts).
 // The /dev skill (.claude/skills/dev) explains the workflow.
 
@@ -18,7 +20,7 @@ import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 
 const PROJECT = "jaden-watson:companybot";
-/** Copied from the cloud dev deployment. Everything else is generated per checkout. */
+/** Copied from the cloud dev deployment, else from your shell. Everything else is generated per checkout. */
 const SHARED_SECRETS = ["AI_GATEWAY_API_KEY"];
 const STATE = ".convex/local/default/config.json";
 
@@ -58,10 +60,18 @@ if (!existsSync(`${electron}path.txt`)) {
 
 // 1. A local deployment for this checkout. The CLI moves it to free ports if another
 // checkout's backend holds the usual ones.
-if (!existsSync(STATE) || !readEnv().CONVEX_DEPLOYMENT?.startsWith("local:")) {
+// Outside the team (no access to PROJECT), it's an anonymous one instead, which needs no login.
+const deployment = readEnv().CONVEX_DEPLOYMENT ?? "";
+if (!existsSync(STATE) || !/^(local|anonymous):/.test(deployment)) {
 	log("Creating a local backend for this checkout");
-	convex(["deployment", "create", `${PROJECT}:local`, "--select"]);
+	try {
+		convex(["deployment", "create", `${PROJECT}:local`, "--select"], "");
+	} catch {
+		log("No access to the team's Convex project, so using an anonymous local backend (no account needed)");
+		process.env.CONVEX_AGENT_MODE = "anonymous";
+	}
 }
+const anonymous = process.env.CONVEX_AGENT_MODE === "anonymous" || readEnv().CONVEX_DEPLOYMENT?.startsWith("anonymous:");
 // 2. Secrets, once. Setting them needs the backend running, so start it briefly.
 // Its own process group, so stopping it also stops the backend binary it starts.
 const backend = spawn("npx", ["convex", "dev", "--tail-logs", "disable"], { stdio: ["ignore", "pipe", "pipe"], detached: true });
@@ -76,8 +86,20 @@ const have = new Set(
 );
 const missing = (name) => !have.has(name);
 for (const name of SHARED_SECRETS.filter(missing)) {
-	log(`Copying ${name} from cloud dev`);
-	convex(["env", "set", name], convex(["env", "get", name, "--deployment", "dev"]));
+	let value = process.env[name];
+	let from = "your shell";
+	if (!anonymous) {
+		try {
+			const copied = convex(["env", "get", name, "--deployment", "dev"], "");
+			if (copied) [value, from] = [copied, "cloud dev"];
+		} catch {}
+	}
+	if (value) {
+		log(`Setting ${name} from ${from}`);
+		convex(["env", "set", name], value);
+	} else {
+		log(`No ${name}, so agents won't reply. Export it and run \`pnpm dev\` again.`);
+	}
 }
 if (missing("JWT_PRIVATE_KEY") || missing("JWKS")) {
 	log("Generating sign-in keys");

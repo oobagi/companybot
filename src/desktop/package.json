@@ -1,7 +1,7 @@
 {
   "name": "@companybot/desktop",
   "productName": "Companybot",
-  "version": "0.1.0-alpha.8",
+  "version": "0.1.0-alpha.9",
   "description": "AI-first team chat. Agents are teammates.",
   "author": "Jaden Watson",
   "license": "AGPL-3.0-only",
@@ -28,6 +28,7 @@
     "@mantine/core": "^8.3.18",
     "@mantine/hooks": "^8.3.18",
     "@phosphor-icons/react": "^2.1.10",
+    "@radix-ui/react-scroll-area": "^1.4.0",
     "@tailwindcss/vite": "^4.3.3",
     "@tiptap/core": "^3.32.0",
     "@tiptap/extension-document": "3.32.0",

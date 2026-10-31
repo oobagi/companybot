@@ -108,7 +108,7 @@ describe("memory", () => {
 		const { scribe } = await agentsOf(owner);
 		const team = await owner.mutation(api.memory.create, { agentId: scribe._id, scope: "workspace", content: "Old fact" });
 		await owner.mutation(api.memory.remove, { id: team.id });
-		await owner.mutation(api.agents.setArchived, { agentId: scribe._id, archived: true });
+		await owner.mutation(api.trash.move, { kind: "agent", id: scribe._id });
 		await owner.mutation(api.trash.purge, { id: scribe._id });
 		await settle(t);
 		expect(await t.run((ctx) => ctx.db.query("trash").collect())).toEqual([]);

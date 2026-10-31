@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { mutation } from "./functions";
 import { requireMember } from "./lib";
-import { createField, setFieldTrashed, toField, updateField } from "./recordOps";
+import { createField, toField, updateField } from "./recordOps";
 import { fieldKind } from "./schema";
 
 // Fields on databases. Anyone can add one (`fields.create`) and change the ones they
@@ -29,15 +29,4 @@ export const create = mutation({
 export const update = mutation({
 	args: { fieldId: v.id("recordFields"), label: v.optional(v.string()), options: v.optional(options), position: v.optional(v.number()) },
 	handler: async (ctx, { fieldId, ...update }) => updateField(ctx, { member: await requireMember(ctx) }, fieldId, update),
-});
-
-// COMPAT(0.1.0-alpha.8): alpha.6 apps archive and restore here; newer ones use trash.move / trash.restore.
-export const archive = mutation({
-	args: { fieldId: v.id("recordFields") },
-	handler: async (ctx, { fieldId }) => setFieldTrashed(ctx, { member: await requireMember(ctx) }, fieldId, true),
-});
-
-export const restore = mutation({
-	args: { fieldId: v.id("recordFields") },
-	handler: async (ctx, { fieldId }) => setFieldTrashed(ctx, { member: await requireMember(ctx) }, fieldId, false),
 });

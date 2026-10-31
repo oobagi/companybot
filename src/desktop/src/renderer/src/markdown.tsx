@@ -1,14 +1,40 @@
 import { linkedPageId } from "@companybot/core/page-links";
 import { code } from "@streamdown/code";
-import type { ComponentProps, MouseEvent } from "react";
-import { type Components, defaultComponents, defaultRehypePlugins, Streamdown } from "streamdown";
+import { type ComponentProps, type MouseEvent, useState } from "react";
+import { type Components, type LinkSafetyModalProps, defaultComponents, defaultRehypePlugins, Streamdown } from "streamdown";
 import { navigate } from "./router";
+import { Notice, descriptionClass, primaryButton, secondaryButton, useRun } from "./ui";
+import { Modal } from "./views/chat/common";
 
 // How agent replies render. Streamdown handles Markdown, streaming, and code;
-// these are our only overrides, through its `components` and `rehypePlugins` props.
+// our overrides keep its content and link confirmation in the app's shared UI.
 
 /** Syntax highlighting for code blocks (Shiki, loaded per language on demand). */
 const plugins = { code };
+
+/** Keep Streamdown's link checks and opening behavior, using the app's own modal. */
+const linkSafety = {
+	enabled: true,
+	renderModal: (props: LinkSafetyModalProps) => props.isOpen ? <ExternalLinkModal key={props.url} {...props} /> : null,
+};
+
+function ExternalLinkModal({ url, onClose, onConfirm }: LinkSafetyModalProps) {
+	const [copied, setCopied] = useState(false);
+	const { busy, error, run } = useRun();
+	return (
+		<Modal title="Open external link?" onClose={onClose}>
+			<p className={descriptionClass}>This link opens in your browser.</p>
+			<p className="max-h-40 overflow-y-auto rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm wrap-anywhere select-text">{url}</p>
+			<Notice>{error}</Notice>
+			<div className="flex justify-end gap-2">
+				<button type="button" disabled={busy} onClick={() => void run(navigator.clipboard.writeText(url), () => setCopied(true))} className={secondaryButton}>
+					{copied ? "Copied" : "Copy link"}
+				</button>
+				<button type="button" onClick={onConfirm} className={primaryButton}>Open link</button>
+			</div>
+		</Modal>
+	);
+}
 
 /** Streamdown's defaults, with the sanitizer also keeping `companybot:` page links (it strips unknown protocols, which then show as "[blocked]"). */
 const [sanitize, schema] = defaultRehypePlugins.sanitize as [unknown, { protocols: { href: string[] } }];
@@ -39,9 +65,9 @@ const components: Components = {
 		const route = props.href && appRoute(props.href);
 		if (route?.length) {
 			const open = (e: MouseEvent) => { if (e.button > 1) return; e.preventDefault(); navigate(...route); };
-			return <a className="wrap-anywhere font-medium text-primary underline" href={props.href} onClick={open} onAuxClick={open}>{props.children}</a>;
+			return <a className="wrap-anywhere font-medium text-link hover:underline" href={props.href} onClick={open} onAuxClick={open}>{props.children}</a>;
 		}
-		if (!id) return <defaultComponents.a {...props} />;
+		if (!id) return <defaultComponents.a {...props} className="text-link no-underline hover:underline" />;
 		const open = (e: MouseEvent) => { if (e.button > 1) return; e.preventDefault(); navigate("pages", id); };
 		return <a className="page-link" href={props.href} onClick={open} onAuxClick={open}>{props.children}</a>;
 	},
@@ -52,5 +78,5 @@ const components: Components = {
  * and code are 12px apart.
  */
 export function Markdown({ className = "", ...props }: Omit<ComponentProps<typeof Streamdown>, "plugins" | "components" | "rehypePlugins" | "allowedTags">) {
-	return <Streamdown plugins={plugins} components={components} rehypePlugins={rehypePlugins} className={`space-y-3 ${className}`} {...props} />;
+	return <Streamdown plugins={plugins} components={components} rehypePlugins={rehypePlugins} linkSafety={linkSafety} className={`space-y-3 ${className}`} {...props} />;
 }

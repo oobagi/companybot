@@ -1,6 +1,6 @@
-import { type ToolSet, asSchema, isStepCount, tool } from "ai";
+import { type ModelMessage, type ToolSet, asSchema, isStepCount, tool } from "ai";
 import { callEnd } from "./activity";
-import type { AgentConfig } from "./agent-config";
+import { type AgentConfig, reasonings } from "./agent-config";
 import { type PermissionDecision, deniedReason, heldReason, permissionFor, toolRisk } from "./action-rules";
 import { builtinTools } from "./builtin-tools";
 import { type ModelInfo, fallbackModels } from "./models";
@@ -9,6 +9,7 @@ import { CONNECTOR_CALL, type ConnectorService, calledConnectorTool, connectorMe
 import { findConnector } from "./connectors";
 import { type ToolContext, type ToolDef, isGranted, modelToolName, toolGroup } from "./tools";
 import type { Actor, Role } from "./types";
+import type { WebTurn } from "./web";
 
 export const defineAgent = (agent: AgentConfig) => agent;
 
@@ -33,6 +34,7 @@ export function validateAgentConfig(config: AgentConfig, models: readonly Pick<M
 	if (config.description.length > 200) return "Keep the description under 200 characters.";
 	if (config.instructions.length > 20_000) return "Instructions are too long (20,000 characters max).";
 	if (!models.some((m) => m.id === config.model)) return "Pick a model from the list.";
+	if (config.reasoning !== undefined && !reasonings.includes(config.reasoning)) return "Pick a reasoning level from the list.";
 	const unknown = config.tools.find((id) => !isKnownGrant(id));
 	if (unknown) return `Unknown tool: ${unknown}`;
 	return null;
@@ -93,11 +95,40 @@ export function resolveTools(
 	return available.filter((t) => isGranted(agent.tools, t.id) && canUseTool(actor, t));
 }
 
+/** Model calls in one reply: room to search and read the web's allowance, look things up, show a widget and answer. */
+export const AGENT_STEPS = 20;
+
 /**
- * When a run stops: only at its step limit, room for connectors_search + connectors_call + a
- * widget + the answer. Never at a widget: work can go on after a table ("then mark them all won").
+ * When a run stops: only at its step limit. Never at a widget: work can go on after a table
+ * ("then mark them all won"). agentPrepareStep makes sure the last step answers.
  */
-export const agentStopWhen = isStepCount(10);
+export const agentStopWhen = isStepCount(AGENT_STEPS);
+
+/**
+ * Narrows the tools for each step (AI SDK `prepareStep`), so a reply always ends with an answer.
+ * Once the turn's web searches or pages are spent, that tool is gone rather than failing when
+ * called. The last step keeps only widgets and is told to answer now: some models (Sonnet) still
+ * call a tool they weren't offered, or end silently when offered none, unless told. With nothing
+ * left (`toolChoice: "none"`) the list stays, which providers need while the history has tool
+ * calls. A narrowed list misses the prompt cache once, at most three times a reply; the note goes
+ * at the end, so it doesn't.
+ */
+export function agentPrepareStep(tools: ToolSet, web: Pick<WebTurn, "left">) {
+	const names = Object.keys(tools);
+	const widgets = names.filter((name) => name.startsWith(modelToolName("widgets.")));
+	const lastStep: ModelMessage = {
+		role: "user",
+		content: `[Note from Companybot, not the person: this is the last step of your reply. Don't look anything else up. Answer now from what you have${widgets.length > 0 ? ", in text or a widget" : ""}, and say what you couldn't confirm.]`,
+	};
+	return ({ stepNumber, messages }: { stepNumber: number; messages: ModelMessage[] }): { activeTools?: string[]; toolChoice?: "none"; messages?: ModelMessage[] } => {
+		const left = web.left();
+		const spent = new Set([left.searches <= 0 && modelToolName("web.search"), left.fetches <= 0 && modelToolName("web.fetch")]);
+		const last = stepNumber >= AGENT_STEPS - 1;
+		const active = last ? widgets : names.filter((name) => !spent.has(name));
+		const narrowed = active.length === names.length ? {} : active.length > 0 ? { activeTools: active } : { toolChoice: "none" as const };
+		return last ? { ...narrowed, messages: [...messages, lastStep] } : narrowed;
+	};
+}
 
 /** Builds the AI SDK tool set for one run. */
 export function buildToolSet(

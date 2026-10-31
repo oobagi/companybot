@@ -122,7 +122,7 @@ describe("agent turns", () => {
 		await t.mutation(internal.turns.finishReply, { turnId: turn!._id });
 		expect((await turnsOf(t)).map((x) => x.agentId)).toEqual([companybot._id]);
 
-		await owner.mutation(api.agents.setArchived, { agentId: scribe._id, archived: true });
+		await owner.mutation(api.trash.move, { kind: "agent", id: scribe._id });
 		await owner.mutation(api.messages.send, { chatId, text: "@Scribe", mentions: { userIds: [], agentIds: [scribe._id] } });
 		expect(await turnsOf(t)).toHaveLength(1);
 	});
@@ -161,6 +161,38 @@ describe("agent turns", () => {
 		const context = await t.query(internal.turns.turnContext, { turnId: turn!._id });
 		expect(context.place.thread).toMatchObject({ first: true, parent: { text: "Plan" } });
 		expect(context.memory).toBe("team");
+	});
+
+	it("lets web.fetch open links the person wrote in the thread's parent, never someone else's", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		const { companybot } = await agentsOf(owner);
+		const chatId = (await generalOf(owner))._id;
+		const mine = await owner.mutation(api.messages.send, { chatId, text: "https://acme.com/report", mentions: noMentions });
+		const theirs = await member.mutation(api.messages.send, { chatId, text: "https://member.example/notes", mentions: noMentions });
+		const ask = { text: "@Companybot summarize this", mentions: { userIds: [], agentIds: [companybot._id] } };
+		await owner.mutation(api.messages.send, { chatId, threadId: mine, ...ask });
+		await owner.mutation(api.messages.send, { chatId, threadId: theirs, ...ask });
+		const asked = async (threadId: typeof mine) => (await t.query(internal.turns.turnContext, { turnId: (await turnsOf(t)).find((x) => x.threadId === threadId)!._id })).asked;
+		expect(await asked(mine)).toEqual(["@Companybot summarize this", "https://acme.com/report"]);
+		expect(await asked(theirs)).toEqual(["@Companybot summarize this"]);
+	});
+
+	it("after an approval, still lets web.fetch open the links in the message that started it", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		const { companybot } = await agentsOf(owner);
+		const chatId = (await generalOf(owner))._id;
+		await owner.mutation(api.messages.send, { chatId, text: "@Companybot read https://acme.com/report then post it", mentions: { userIds: [], agentIds: [companybot._id] } });
+		const turn = (await turnsOf(t)).at(-1)!;
+		await t.mutation(internal.turns.savePrompt, { turnId: turn._id, prompt: "PROMPT" });
+		const { approvalId } = await t.mutation(internal.approvals.request, { turnId: turn._id, callId: "c1", tool: "chat.read", input: JSON.stringify({}), risk: "inside" });
+		await t.mutation(internal.turns.finishReply, { turnId: turn._id });
+		await member.mutation(api.messages.send, { chatId, text: "https://member.example/notes", mentions: noMentions });
+		const row = (await t.run((ctx) => ctx.db.get(approvalId)))!;
+		await owner.mutation(api.approvals.decide, { approvalId, hash: row.hash, approve: true, always: false });
+		const resumed = (await turnsOf(t)).find((x) => x.approvalId === approvalId)!;
+		const context = await t.query(internal.turns.turnContext, { turnId: resumed._id });
+		expect(context.messages.map((m) => m.text)).toEqual(["https://member.example/notes"]);
+		expect(context.asked).toEqual(["@Companybot read https://acme.com/report then post it"]);
 	});
 
 	it("feeds new messages since the last reply and replays past turns as sent", async () => {

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+	<!-- macOS app icon: .github/assets/logo.svg on Apple's 824px grid, with its shadow.
+	     Edit this, then regenerate icon.png (see wiki/releases.md). -->
+	<defs>
+		<filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+			<feDropShadow dx="0" dy="10" stdDeviation="14" flood-opacity="0.3" />
+		</filter>
+	</defs>
+	<g transform="translate(100 100) scale(0.8046875)">
+		<rect width="1024" height="1024" rx="230" fill="#f6f4ef" filter="url(#shadow)" />
+		<circle cx="322" cy="322" r="170" fill="#2f6bea" />
+		<path d="M532 492V322a170 170 0 0 1 340 0v170z" fill="#f27a62" />
+		<rect x="152" y="532" width="340" height="340" rx="70" fill="#f9c64e" />
+		<path d="M532 872V532a340 340 0 0 1 340 340z" fill="#7fd3b0" />
+	</g>
+</svg>

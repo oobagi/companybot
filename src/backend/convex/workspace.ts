@@ -1,5 +1,5 @@
 import { fireEvent } from "./automationRuns";
-import { DEFAULT_CURRENCY, IMAGE_BUDGET_DEFAULT_USD, IMAGE_BUDGET_MAX_USD, can, defaultImageModel, isCurrencyCode } from "@companybot/core";
+import { DEFAULT_CURRENCY, IMAGE_BUDGET_DEFAULT_USD, IMAGE_BUDGET_MAX_USD, THREAD_HOURS_DEFAULT, can, defaultImageModel, isCurrencyCode, isThreadWindow, threadWindows } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -12,7 +12,7 @@ import { sendInviteEmail } from "./invites";
 import { type Member, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, liveWorkspace, memberOf, nameOf, normalizeEmail, personOf, preferencesOf, requireMember, requirePermission, requireUserId, timeZoneOf } from "./lib";
 import { cascading, startCascade } from "./cascade";
 import { imageUrl } from "./images";
-import { catalogImageModels, findImageModel } from "./modelCatalog";
+import { catalogImageModels, findImageModel, workspaceImageModel } from "./modelCatalog";
 import { imageSpent } from "./usage";
 import { removeWorkspace } from "./lifecycle";
 import { updatePreferences } from "./preferences";
@@ -486,7 +486,7 @@ async function hasAmounts(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
  */
 export async function imageSettings(ctx: QueryCtx, member: Member, workspace: Doc<"workspaces">) {
 	return {
-		imageModel: workspace.imageModel ?? defaultImageModel,
+		imageModel: (await workspaceImageModel(ctx, workspace.imageModel)).id,
 		imageBudgetUsd: workspace.imageBudgetUsd ?? IMAGE_BUDGET_DEFAULT_USD,
 		imageModels: await catalogImageModels(ctx),
 		imageSpentUsd: can(member.role, "usage.view") ? await imageSpent(ctx, workspace._id) : null,
@@ -510,6 +510,8 @@ export const settings = query({
 			/** Whether any live record has an amount, so the app can say they keep their currency. */
 			hasAmounts: await hasAmounts(ctx, workspace._id),
 			...(await imageSettings(ctx, member, workspace)),
+			/** Hours a thread stays under its channel in the sidebar after its last reply. */
+			threadHours: workspace.threadHours ?? THREAD_HOURS_DEFAULT,
 			version: workspace.version ?? 0,
 		};
 	},
@@ -527,6 +529,7 @@ const updateWorkspaceSettingsArgs = v.object({
 	memory: v.optional(v.boolean()),
 	imageModel: v.optional(v.string()),
 	imageBudgetUsd: v.optional(v.number()),
+	threadHours: v.optional(v.number()),
 	expectedVersion: v.number(),
 });
 
@@ -535,7 +538,7 @@ export const updateSettings = mutation({
 	handler: async (ctx, args) => updateWorkspaceSettings(ctx, await requireMember(ctx), args),
 });
 
-export async function updateWorkspaceSettings(ctx: MutationCtx, member: Member, { name, currency, memory, imageModel, imageBudgetUsd, expectedVersion }: Infer<typeof updateWorkspaceSettingsArgs>) {
+export async function updateWorkspaceSettings(ctx: MutationCtx, member: Member, { name, currency, memory, imageModel, imageBudgetUsd, threadHours, expectedVersion }: Infer<typeof updateWorkspaceSettingsArgs>) {
 	const { workspaceId } = checkPermission(member, "workspace.manage");
 	const workspace = (await ctx.db.get(workspaceId))!;
 	checkVersion(workspace.version ?? 0, expectedVersion);
@@ -544,17 +547,19 @@ export async function updateWorkspaceSettings(ctx: MutationCtx, member: Member, 
 	if (currency !== undefined && !isCurrencyCode(currency)) throw new ConvexError("Pick a currency code like USD.");
 	// The current pick stays allowed, so a model that left the gateway doesn't block other edits.
 	if (imageModel !== undefined && imageModel !== (workspace.imageModel ?? defaultImageModel) && !(await findImageModel(ctx, imageModel))) {
-		throw new ConvexError("Pick a picture model AI Gateway lists.");
+		throw new ConvexError("Pick one of the picture models offered.");
 	}
 	if (imageBudgetUsd !== undefined && !(imageBudgetUsd >= 0 && imageBudgetUsd <= IMAGE_BUDGET_MAX_USD)) {
 		throw new ConvexError(`Set an image budget from $0 (off) to $${IMAGE_BUDGET_MAX_USD.toLocaleString("en-US")} a month.`);
 	}
+	if (threadHours !== undefined && !isThreadWindow(threadHours)) throw new ConvexError(`Threads stay in the sidebar for ${threadWindows.map((w) => w.hours).join(", ")} hours (0 is forever).`);
 	await ctx.db.patch(workspaceId, {
 		name: name.trim(),
 		...(currency && { currency }),
 		...(memory !== undefined && { memory }),
 		...(imageModel !== undefined && { imageModel }),
 		...(imageBudgetUsd !== undefined && { imageBudgetUsd: Math.round(imageBudgetUsd * 100) / 100 }),
+		...(threadHours !== undefined && { threadHours }),
 		version: (workspace.version ?? 0) + 1,
 	});
 }

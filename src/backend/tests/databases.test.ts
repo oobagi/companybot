@@ -12,13 +12,13 @@ it("owners create, rename and archive databases with stable keys and Activity hi
 	const id = await owner.mutation(api.recordTypes.create, { plural: " Jobs " });
 	let database = (await member.query(api.recordTypes.list)).find((t) => t._id === id)!;
 	expect(database).toMatchObject({ key: "job", name: "Job", plural: "Jobs", version: 0 });
-	for (const input of [{ name: "Work", plural: "Works" }, { archived: true }])
-		await expect(member.mutation(api.recordTypes.update, { typeId: id, version: 0, ...input })).rejects.toThrow("permission");
+	await expect(member.mutation(api.recordTypes.update, { typeId: id, version: 0, name: "Work", plural: "Works" })).rejects.toThrow("permission");
+	await expect(member.mutation(api.trash.move, { kind: "database", id })).rejects.toThrow("permission");
 	await owner.mutation(api.recordTypes.update, { typeId: id, version: 0, name: "Project", plural: "Projects" });
 	await expect(owner.mutation(api.recordTypes.update, { typeId: id, version: 0, plural: "Stale" })).rejects.toThrow("conflict");
 	database = (await owner.query(api.recordTypes.list)).find((t) => t._id === id)!;
 	expect(database).toMatchObject({ key: "job", name: "Project", plural: "Projects", version: 1 });
-	await owner.mutation(api.recordTypes.update, { typeId: id, version: 1, archived: true });
+	await owner.mutation(api.trash.move, { kind: "database", id });
 	expect((await member.query(api.recordTypes.list)).some((t) => t._id === id)).toBe(false);
 	const history = await member.query(api.records.activity, { paginationOpts: page });
 	expect(history.page.map((e) => [e.action, e.user, e.agent])).toEqual([
@@ -33,7 +33,7 @@ it("renames and archives legacy databases and validates database names", async (
 	await expect(owner.mutation(api.recordTypes.create, { plural: "CLIENTS NEW" })).rejects.toThrow("already");
 	for (const name of [" ", "a".repeat(121)]) await expect(owner.mutation(api.recordTypes.create, { plural: name })).rejects.toThrow("120");
 	const client = types.find((type) => type.key === "client")!;
-	await owner.mutation(api.recordTypes.update, { typeId: client._id, archived: true, version: 1 });
+	await owner.mutation(api.trash.move, { kind: "database", id: client._id });
 	await owner.mutation(api.workspace.ensure);
 	expect((await owner.query(api.recordTypes.list)).map((type) => type.key)).toEqual(types.map((type) => type.key).filter((key) => key !== "client"));
 });
@@ -78,9 +78,8 @@ it("checks filter semantics, columns, names and per-database limits before writi
 it("isolates every database and view operation across workspaces, including forged ids", async () => {
 	const { t, owner } = await ownerAndMember();
 	const other = await signIn(t, "outsider@co.com");
-	// COMPAT(0.1.0-alpha.8): alpha.6 apps send both names.
-	const typeId = await owner.mutation(api.recordTypes.create, { name: "Mouse", plural: "Mice" });
-	expect((await owner.query(api.recordTypes.list)).find((t) => t._id === typeId)).toMatchObject({ name: "Mouse", plural: "Mice" });
+	const typeId = await owner.mutation(api.recordTypes.create, { plural: "Mice" });
+	expect((await owner.query(api.recordTypes.list)).find((t) => t._id === typeId)).toMatchObject({ plural: "Mice" });
 	const viewId = await owner.mutation(api.databaseViews.save, { ...config, typeId });
 	await expect(other.mutation(api.recordTypes.update, { typeId, version: 0, name: "Stolen" })).rejects.toThrow("not found");
 	expect(await other.query(api.databaseViews.list, { typeId })).toEqual([]);
@@ -95,7 +94,7 @@ it("empties a live view subscription when its database is in Archive, keeping it
 	const { t, owner } = await ownerAndMember();
 	const typeId = await owner.mutation(api.recordTypes.create, { plural: "Jobs" });
 	const viewId = await owner.mutation(api.databaseViews.save, { ...config, typeId });
-	await owner.mutation(api.recordTypes.update, { typeId, archived: true, version: 0 });
+	await owner.mutation(api.trash.move, { kind: "database", id: typeId });
 	expect(await owner.query(api.databaseViews.list, { typeId })).toEqual([]);
 	expect(await t.run((ctx) => ctx.db.get(viewId))).not.toBeNull();
 	await expect(owner.mutation(api.databaseViews.save, { ...config, typeId, viewId, version: 1 })).rejects.toThrow("in Archive");
@@ -149,7 +148,7 @@ it("agent renames drop archived view fields, preserve timestamp sorts, and still
 	const type = (await owner.query(api.recordTypes.list)).find((t) => t.key === "deal")!;
 	const field = type.fields.find((f) => f.key === "value")!;
 	const id = await owner.mutation(api.databaseViews.save, { typeId: type._id, name: "Value", filters: [{ field: "value", gte: 1 }], sort: { field: "value", order: "asc" }, columns: ["name", "value"] });
-	await owner.mutation(api.fields.archive, { fieldId: field._id });
+	await owner.mutation(api.trash.move, { kind: "field", id: field._id });
 	const { companybot } = await agentsOf(owner);
 	const turnId = await agentTurn(t, owner, (await generalOf(owner))._id, companybot._id);
 	const rename = (version: number, sort?: { field: string; order: "asc" }) => t.mutation(internal.recordTools.saveViewFor, { turnId, input: { type: "deal", id, version, name: `Renamed ${version}`, sort } });
@@ -167,7 +166,7 @@ it("shows links into a database in Archive as deleted, still readable and cleara
 	const deal = types.find((t) => t.key === "deal")!;
 	const target = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Acme" } });
 	const id = await owner.mutation(api.records.create, { typeId: deal._id, values: { name: "Roof", client: target } });
-	await owner.mutation(api.recordTypes.update, { typeId: client._id, version: 0, archived: true });
+	await owner.mutation(api.trash.move, { kind: "database", id: client._id });
 	expect(await owner.query(api.records.get, { recordId: id })).toMatchObject({ values: { client: target }, refs: { [target]: { name: "Acme", archived: true } } });
 	await owner.mutation(api.records.update, { recordId: id, values: { name: "New roof" } });
 	const { companybot } = await agentsOf(owner);
@@ -191,8 +190,7 @@ it("saves board views grouped by a single choice field, for people, agents and a
 		await expect(member.mutation(api.databaseViews.save, { ...input, viewId: id, version: 1, layout: "board", groupBy })).rejects.toThrow("choice field");
 	await member.mutation(api.databaseViews.save, { ...input, viewId: id, version: 1, layout: "board", groupBy: "status" });
 	expect(await view()).toMatchObject({ layout: "board", groupBy: "status", version: 2 });
-	// COMPAT(0.1.0-alpha.8): alpha.7 apps save without `layout`; the board stays a board.
-	await member.mutation(api.databaseViews.save, { ...input, viewId: id, version: 2, name: "Jobs board" });
+	await member.mutation(api.databaseViews.save, { ...input, viewId: id, version: 2, name: "Jobs board", layout: "board", groupBy: "status" });
 	expect(await view()).toMatchObject({ name: "Jobs board", layout: "board", groupBy: "status", version: 3 });
 	await member.mutation(api.databaseViews.save, { ...input, viewId: id, version: 3, layout: "table", groupBy: "status" });
 	expect(await view()).not.toHaveProperty("layout");
@@ -207,19 +205,6 @@ it("saves board views grouped by a single choice field, for people, agents and a
 	expect(await view()).not.toHaveProperty("groupBy");
 	const history = await member.query(api.records.activity, { paginationOpts: page });
 	expect(history.page[0]).toMatchObject({ action: "view.updated", agent: "Companybot" });
-});
-
-it("lets alpha.7 save a board after its grouping field is deleted", async () => {
-	const { owner } = await ownerAndMember();
-	const typeId = await owner.mutation(api.recordTypes.create, { plural: "Jobs" });
-	const field = await owner.mutation(api.fields.create, { typeId, label: "Status", kind: "choice", options: [{ label: "To do" }] });
-	const config = { typeId, name: "Pipeline", columns: ["name"], filters: [] };
-	const viewId = await owner.mutation(api.databaseViews.save, { ...config, layout: "board", groupBy: field.key });
-	await owner.mutation(api.fields.archive, { fieldId: field._id });
-	await owner.mutation(api.databaseViews.save, { ...config, viewId, version: 1, name: "Renamed" });
-	const [saved] = await owner.query(api.databaseViews.list, { typeId });
-	expect(saved).toMatchObject({ name: "Renamed", layout: "board", version: 2 });
-	expect(saved).not.toHaveProperty("groupBy");
 });
 
 it("lists a board column on top of ten filters, checking the grouping field and option", async () => {

@@ -7,13 +7,14 @@ import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { ArchiveIcon, DatabaseIcon, HistoryIcon } from "../../icons";
-import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, barButton, cardClass, descriptionClass, listClass, metadataClass, timeAgo, useRun } from "../../ui";
+import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, barButton, cardClass, descriptionClass, insetClass, listClass, metadataClass, timeAgo, useRun } from "../../ui";
 import { Modal, archiveQuestion, useConfirm } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { PageEditor } from "../pages/PageEditor";
 import { PageHistory } from "../pages/PageHistory";
 import { PageTitle } from "../pages/PageTitle";
 import { TrashNotice } from "../Trash";
+import { PendingWakeups } from "../Wakeups";
 import { AddField, EditField } from "./fieldDialogs";
 import { ValueEditor, ValueView } from "./fields";
 import { type Refs, type TypeField, actionLabels, recordPath, valueText, whoLabel } from "./logic";
@@ -58,6 +59,7 @@ export function RecordPage({ type, recordId, role }: { type: RecordType; recordI
 			{dialog}
 			{record.trash && <TrashNotice trash={record.trash} />}
 			<Fields type={type} record={record} role={role} editable={canEdit && !record.archived} />
+			<PendingWakeups recordId={recordId} title="Follow-ups" />
 			<Body recordId={recordId} pageId={pageId} editable={can(role, "pages.edit") && !record.archived} />
 			<Linked recordId={recordId} />
 			<Discussion recordId={recordId} />
@@ -170,7 +172,7 @@ function Linked({ recordId }: { recordId: Id<"records"> }) {
 				if (!type) return null;
 				return (
 					<div key={key} className="flex flex-col gap-1">
-						<p className={descriptionClass}>
+						<p className={`${descriptionClass} ${insetClass}`}>
 							{type.plural}
 							{field && <span className="text-neutral-400"> · {field.label}</span>}
 						</p>

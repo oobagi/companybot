@@ -30,6 +30,39 @@ describe("agents", () => {
 		]);
 	});
 
+	it("renames in place as a new version, for owners only", async () => {
+		const { owner, member } = await ownerAndMember();
+		const { scribe } = await agentsOf(owner);
+		await owner.mutation(api.agents.rename, { agentId: scribe._id, name: "  Penny " });
+		const history = await owner.query(api.agents.history, { agentId: scribe._id });
+		expect(history.map((h) => [h.version, h.config.name, h.config.instructions === scribe.instructions])).toEqual([
+			[2, "Penny", true],
+			[1, scribe.name, true],
+		]);
+		await expect(owner.mutation(api.agents.rename, { agentId: scribe._id, name: " " })).rejects.toThrow();
+		await expect(member.mutation(api.agents.rename, { agentId: scribe._id, name: "Mine" })).rejects.toThrow();
+	});
+
+	it("saves reasoning, and keeps it when a save or a restore leaves it out", async () => {
+		const { t, owner } = await ownerAndMember();
+		const { companybot, scribe } = await agentsOf(owner);
+		expect(companybot.reasoning).toBe("medium");
+		const config = { name: scribe.name, description: scribe.description, instructions: scribe.instructions, model: scribe.model, tools: scribe.tools };
+		// Version 1 as saved before reasoning existed.
+		await t.run(async (ctx) => {
+			const version = await ctx.db.query("agentVersions").withIndex("by_agent", (q) => q.eq("agentId", scribe._id).eq("version", 1)).first();
+			await ctx.db.patch(version!._id, { config });
+		});
+		await owner.mutation(api.agents.update, { agentId: scribe._id, expectedVersion: 1, config: { ...config, reasoning: "high" } });
+		await owner.mutation(api.agents.update, { agentId: scribe._id, expectedVersion: 2, config: { ...config, name: "Older app" } });
+		expect((await agentsOf(owner)).list.find((a) => a._id === scribe._id)!.reasoning).toBe("high");
+		await owner.mutation(api.agents.restore, { agentId: scribe._id, version: 1, expectedVersion: 3 });
+		expect((await agentsOf(owner)).list.find((a) => a._id === scribe._id)!.reasoning).toBe("high");
+		await expect(
+			owner.mutation(api.agents.update, { agentId: scribe._id, expectedVersion: 4, config: { ...config, reasoning: "max" as "high" } }),
+		).rejects.toThrow();
+	});
+
 	it("saves old desktop configs and restores history containing retired connector grants", async () => {
 		const { t, owner } = await ownerAndMember();
 		const { scribe } = await agentsOf(owner);
@@ -66,15 +99,15 @@ describe("agents", () => {
 		).rejects.toThrow("Unknown tool");
 	});
 
-	it("keeps alpha.7 Archive agent working through Trash, and at least one agent", async () => {
+	it("moves an agent to Trash, and keeps at least one agent", async () => {
 		const { owner } = await ownerAndMember();
 		const { companybot, scribe } = await agentsOf(owner);
-		await owner.mutation(api.agents.setArchived, { agentId: scribe._id, archived: true });
+		await owner.mutation(api.trash.move, { kind: "agent", id: scribe._id });
 		expect((await agentsOf(owner)).scribe.trash).toMatchObject({ kind: "agent", name: "Scribe" });
 		await expect(owner.mutation(api.chats.openDm, { userIds: [], agentIds: [scribe._id] })).rejects.toThrow(
 			"isn't available",
 		);
-		await expect(owner.mutation(api.agents.setArchived, { agentId: companybot._id, archived: true })).rejects.toThrow(
+		await expect(owner.mutation(api.trash.move, { kind: "agent", id: companybot._id })).rejects.toThrow(
 			"at least one",
 		);
 	});

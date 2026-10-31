@@ -69,7 +69,7 @@ const layers: object[] = [];
  * modal: Escape in a Confirm over a dialog closes just the Confirm. A popover's panel lives at
  * the end of the page, outside whatever opened it, so a click in one counts as inside.
  */
-export function useDismiss<T extends HTMLElement>(onClose: () => void, active = true) {
+export function useDismiss<T extends HTMLElement>(onClose: () => void, active = true, ignore?: React.RefObject<HTMLElement | null>) {
 	const ref = useRef<T>(null);
 	const close = useRef(onClose);
 	close.current = onClose;
@@ -80,7 +80,7 @@ export function useDismiss<T extends HTMLElement>(onClose: () => void, active = 
 		const newest = () => layers.at(-1) === layer;
 		const down = (e: MouseEvent) => {
 			const target = e.target as Element;
-			if (newest() && ref.current && !ref.current.contains(target) && !target.closest?.("[data-popover]")) close.current();
+			if (newest() && ref.current && !ref.current.contains(target) && !ignore?.current?.contains(target) && !target.closest?.("[data-popover]")) close.current();
 		};
 		const key = (e: KeyboardEvent) => e.key === "Escape" && newest() && close.current();
 		document.addEventListener("mousedown", down);
@@ -90,7 +90,7 @@ export function useDismiss<T extends HTMLElement>(onClose: () => void, active = 
 			document.removeEventListener("mousedown", down);
 			document.removeEventListener("keydown", key);
 		};
-	}, [active]);
+	}, [active, ignore]);
 	return ref;
 }
 
@@ -131,13 +131,13 @@ export function Modal({ title, wide, onClose, children }: { title: string; wide?
 		return () => { if (previous?.isConnected) previous.focus({ preventScroll: true }); };
 	}, []);
 	return createPortal(
-		<div className="no-drag fixed inset-0 z-50 flex items-start justify-center bg-neutral-900/20 px-6 pt-[12vh] text-[15px] text-neutral-900">
+		<div className="no-drag fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/20 p-6 text-[15px] text-neutral-900">
 			<div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={(event) => {
 				if (event.key !== "Tab") return;
 				const targets = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex="0"]')];
 				const next = event.shiftKey ? targets.at(-1) : targets[0];
 				if (document.activeElement === (event.shiftKey ? targets[0] : targets.at(-1))) { event.preventDefault(); next?.focus(); }
-			}} className={`flex max-h-[76vh] w-full ${wide ? "max-w-4xl" : "max-w-md"} flex-col gap-4 overflow-y-auto rounded-2xl bg-white p-6 shadow-xl`}>
+			}} className={`flex max-h-[85vh] w-full ${wide ? "max-w-4xl" : "max-w-md"} flex-col gap-4 overflow-y-auto rounded-2xl bg-white p-6 shadow-xl`}>
 				<header className="flex items-center justify-between">
 					<h2 id={titleId} className="text-lg font-medium">{title}</h2>
 					<IconButton label="Close" onClick={onClose}>
@@ -180,7 +180,7 @@ export function Popover({
 	disabled,
 	matchWidth,
 	className = "",
-	panelClassName = "w-72",
+	panelClassName,
 	children,
 }: {
 	/** What you click. */
@@ -198,29 +198,11 @@ export function Popover({
 }) {
 	const [anchor, setAnchor] = useState<DOMRect>();
 	const close = () => setAnchor(undefined);
-	const ref = useDismiss<HTMLSpanElement>(close, !!anchor);
-	const panel = useRef<HTMLDivElement>(null);
-	const [at, setAt] = useState<React.CSSProperties>(measuring);
-	// Measure, then place: below if it fits, else above if it fits there, else on the roomier
-	// side, shortened to fit (it scrolls). Never over its button; nudged in from the window's edges.
-	useLayoutEffect(() => {
-		if (!anchor || !panel.current) return setAt(measuring);
-		const { width, height } = panel.current.getBoundingClientRect();
-		const gap = 6;
-		const roomBelow = window.innerHeight - 8 - anchor.bottom - gap;
-		const roomAbove = anchor.top - gap - 8;
-		const below = height <= roomBelow || (height > roomAbove && roomBelow >= roomAbove);
-		const room = below ? roomBelow : roomAbove;
-		setAt({
-			left: Math.max(8, Math.min(anchor.left, window.innerWidth - width - 8)),
-			top: below ? anchor.bottom + gap : anchor.top - gap - Math.min(height, room),
-			maxHeight: Math.min(room, window.innerHeight * 0.7),
-			minWidth: matchWidth ? anchor.width : undefined,
-		});
-	}, [anchor, matchWidth]);
+	const button = useRef<HTMLButtonElement>(null);
 	return (
-		<span ref={ref} className="contents">
+		<>
 			<button
+				ref={button}
 				type="button"
 				title={label}
 				aria-label={label}
@@ -231,21 +213,77 @@ export function Popover({
 			>
 				{trigger}
 			</button>
-			{/* At the end of the page: Electron lets a later window-drag area (a top bar) take the mouse
-			    from anything drawn over it, so the panel has to come after them all. */}
-			{anchor &&
-				createPortal(
-					<div
-						ref={panel}
-						data-popover
-						style={at}
-						className={`no-drag fixed z-50 max-h-[70vh] overflow-y-auto rounded-xl border border-neutral-200 bg-white text-left text-sm font-normal text-neutral-900 shadow-lg ${panelClassName}`}
-					>
-						{typeof children === "function" ? children(close) : children}
-					</div>,
-					document.body,
-				)}
-		</span>
+			{anchor && (
+				<PopoverPanel anchor={anchor} ignore={button} matchWidth={matchWidth} className={panelClassName} onClose={close}>
+					{typeof children === "function" ? children(close) : children}
+				</PopoverPanel>
+			)}
+		</>
+	);
+}
+
+/**
+ * A Popover's panel on its own, placed by `anchor`: a button's box, or a point (a right-click).
+ * A click outside or Escape closes it; a click on `ignore` (the button that toggles it) is left to that button.
+ */
+export function PopoverPanel({
+	anchor,
+	ignore,
+	matchWidth,
+	className = "w-72",
+	onClose,
+	children,
+}: {
+	anchor: DOMRect;
+	ignore?: React.RefObject<HTMLElement | null>;
+	matchWidth?: boolean;
+	className?: string;
+	onClose: () => void;
+	children: React.ReactNode;
+}) {
+	const panel = useDismiss<HTMLDivElement>(onClose, true, ignore);
+	const [at, setAt] = useState<React.CSSProperties>(measuring);
+	// Measure, then place: below if it fits, else above if it fits there, else on the roomier
+	// side, shortened to fit (it scrolls). Never over its button; nudged in from the window's edges.
+	useLayoutEffect(() => {
+		const el = panel.current;
+		if (!el) return;
+		const place = () => {
+			const { width } = el.getBoundingClientRect();
+			// Use the full content height: the current height may already be capped on the wrong side.
+			const height = Math.min(el.scrollHeight + el.offsetHeight - el.clientHeight, window.innerHeight * 0.7);
+			const gap = 6;
+			const roomBelow = window.innerHeight - 8 - anchor.bottom - gap;
+			const roomAbove = anchor.top - gap - 8;
+			const below = height <= roomBelow || (height > roomAbove && roomBelow >= roomAbove);
+			const room = Math.max(0, below ? roomBelow : roomAbove);
+			setAt({
+				left: Math.max(8, Math.min(anchor.left, window.innerWidth - width - 8)),
+				top: below ? anchor.bottom + gap : anchor.top - gap - Math.min(height, room),
+				maxHeight: Math.min(room, window.innerHeight * 0.7),
+				minWidth: matchWidth ? anchor.width : undefined,
+			});
+		};
+		place();
+		// Tool details load after opening. Reposition when that content replaces the loading line.
+		const observer = new ResizeObserver(place);
+		observer.observe(el);
+		for (const child of el.children) observer.observe(child);
+		window.addEventListener("resize", place);
+		return () => { observer.disconnect(); window.removeEventListener("resize", place); };
+	}, [anchor, matchWidth, panel]);
+	// At the end of the page: Electron lets a later window-drag area (a top bar) take the mouse
+	// from anything drawn over it, so the panel has to come after them all.
+	return createPortal(
+		<div
+			ref={panel}
+			data-popover
+			style={at}
+			className={`no-drag fixed z-50 max-h-[70vh] overflow-y-auto rounded-xl border border-neutral-200 bg-white text-left text-sm font-normal text-neutral-900 shadow-lg ${className}`}
+		>
+			{children}
+		</div>,
+		document.body,
 	);
 }
 

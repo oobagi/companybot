@@ -8,9 +8,9 @@ import { WorkspaceContext, useMutation, useQuery, useWorkspace } from "./convex"
 import { desktop, useUpdates } from "./desktop";
 import { useAlerts } from "./notifications";
 import { navigate, useRoute } from "./router";
-import { ArrowLeftIcon, DatabaseIcon, PlusIcon, SettingsIcon, SignOutIcon } from "./icons";
-import { MenuDivider, Notice, Scroll, TopBar, TruncatedTips, useRun } from "./ui";
-import { RecordsView, recordTabs } from "./views/Records";
+import { ArchiveIcon, ArrowLeftIcon, DatabaseIcon, EditIcon, PlusIcon, SettingsIcon, SignOutIcon } from "./icons";
+import { MenuDivider, Notice, ResizeHandle, Scroll, TopBar, TruncatedTips, useRun, useStoredWidth } from "./ui";
+import { RecordsView } from "./views/Records";
 import { SettingsNav, SettingsView, settingsScope, settingsTabAliases, settingsTabs } from "./views/Settings";
 import { Landing } from "./views/Landing";
 import { Onboarding } from "./views/Onboarding";
@@ -19,15 +19,18 @@ import { TitleBar } from "./views/TitleBar";
 import { WorkspaceMenu } from "./views/WorkspaceMenu";
 import { WorkspaceRail } from "./views/WorkspaceRail";
 import { ChatView } from "./views/chat/ChatView";
-import { Avatar, MenuItem, Popover, deviceTimeZone } from "./views/chat/common";
+import { GettingStarted } from "./views/chat/Tutorial";
+import { Avatar, MenuItem, Popover, archiveQuestion, deviceTimeZone, useConfirm } from "./views/chat/common";
 import { AddButton, ChannelsNav, DmsNav, Group, Item, type SectionProps } from "./views/chat/Sidebar";
 import { useSortable, useStoredIds } from "./sortable";
 import { PagesNav, PagesView } from "./views/Pages";
 import { DatabaseDialog } from "./views/records/DatabaseDialog";
-import { useTypes } from "./views/records/data";
-import { builtinTabs, recordPath } from "./views/records/logic";
+import { type RecordType, useTypes } from "./views/records/data";
+import { recordPath } from "./views/records/logic";
 
-export const views = ["chat", ...recordTabs.map((t) => t.id), "records", "pages", "settings"] as const;
+export const views = ["chat", "records", "pages", "settings"] as const;
+// The first databases used to have their own screens (#/clients …). Links to them in old messages still open.
+const oldRecordTabs: Record<string, string> = { clients: "client", deals: "deal", tasks: "task", calls: "call" };
 type View = (typeof views)[number];
 
 export function App() {
@@ -121,22 +124,22 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	useEffect(() => {
 		if (prefs && prefs.deviceTimeZone !== timeZone) updatePrefs({ deviceTimeZone: timeZone }).catch(() => {});
 	}, [prefs, timeZone, updatePrefs]);
-	// Screens are paths: /chat[/<chat>[/thread|message/<id>]], /clients[/<record>] (and other record tabs), /records/<type>[/<record>]
-	// for types owners add, /pages[/<page>], /settings/<tab>[/<item>] (Trash, Agents, Connectors, Skills and Automations included).
+	// Screens are paths: /chat[/<chat>[/thread|message/<id>]], /records/<type>[/<record>], /pages[/<page>], /settings/<tab>[/<item>] (Archive, Agents, Connectors, Skills and Automations included).
 	const route = useRoute();
-	// Trash and Customize used to be their own screens.
+	// Trash (now Archive) and Customize used to be their own screens.
 	useEffect(() => {
 		if (route[0] === "customize") navigate("settings", ...(route.length > 1 ? route.slice(1) : ["agents"]));
 		if (route[0] === "trash" || route[0] === "archive" || (route[0] === "settings" && route[1] === "trash")) navigate("settings", "archive");
+		const oldType = oldRecordTabs[route[0] ?? ""];
+		if (oldType) navigate("records", oldType, ...route.slice(1));
 	}, [route]);
 	const view: View = views.find((v) => v === route[0]) ?? "chat";
 	const settingsTab = settingsTabs.find((t) => t.id === (settingsTabAliases[route[1] ?? ""] ?? route[1]))?.id ?? "general";
 	const types = useTypes();
 	const [newDatabase, setNewDatabase] = useState(false);
 	// The database on screen, by key, and the record open in it.
-	const builtinKey = Object.keys(builtinTabs).find((k) => builtinTabs[k] === view);
-	const typeKey = view === "records" ? route[1] : builtinKey;
-	const recordId = view === "records" ? route[2] : route[1];
+	const typeKey = view === "records" ? route[1] : undefined;
+	const recordId = view === "records" ? route[2] : undefined;
 	// Workspace settings reopen on the tab you left them on.
 	const lastWorkspaceSettings = useRef<string[]>(["settings", "general"]);
 	if (view === "settings" && settingsScope(settingsTab) === "workspace") lastWorkspaceSettings.current = route;
@@ -159,6 +162,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	const fold = (id: string) => setFolded(folded.includes(id) ? folded.filter((f) => f !== id) : [...folded, id]);
 	// Hidden or shown, the sidebar stays that way on this computer.
 	const [sidebar, setSidebar] = useState(() => localStorage.getItem("sidebar.hidden") !== "true");
+	const sidebarWidth = useStoredWidth("sidebar.width", 240, 160, 600);
 	const toggleSidebar = useCallback(() => setSidebar((shown) => (localStorage.setItem("sidebar.hidden", String(shown)), !shown)), []);
 
 	return (
@@ -184,11 +188,12 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 				<div className="flex min-w-0 flex-1 overflow-hidden rounded-tl-xl border-t border-l border-neutral-200 bg-white">
 					{/* The sidebar's lists scroll under the workspace name and you. */}
 					{sidebar && (
-						<aside className="drag flex w-60 shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 [--scrim:var(--color-neutral-50)]">
+						<aside style={{ width: sidebarWidth.width }} className="drag relative flex shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 [--scrim:var(--color-neutral-50)]">
 							<Scroll
 								className="no-drag"
 								header={
-									<div className="drag px-3 pt-3 pb-4">
+									// pt-2.5: its name sits on the same line as the top bar's title.
+									<div className="drag px-3 pt-2.5 pb-4">
 										{view === "settings" ? (
 											<div className="no-drag flex flex-col">
 												<Item icon={<ArrowLeftIcon />} onClick={() => navigate(...lastApp.current)}>
@@ -201,13 +206,16 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 									</div>
 								}
 								footer={
-									update?.state === "ready" && (
-										<div className="flex flex-col px-3 pt-4 pb-3">
-											<button type="button" onClick={() => void desktop?.updates.install()} className="rounded-lg bg-neutral-900 px-3 py-2 text-left text-xs text-white">
-												Update ready · Restart
-											</button>
-										</div>
-									)
+									<>
+										<GettingStarted agent={chats?.agents[0]?.name ?? "an agent"} />
+										{update?.state === "ready" && (
+											<div className="flex flex-col px-3 pt-4 pb-3">
+												<button type="button" onClick={() => void desktop?.updates.install()} className="rounded-lg bg-neutral-900 px-3 py-2 text-left text-xs text-white">
+													Update ready · Restart
+												</button>
+											</div>
+										)}
+									</>
 								}
 							>
 								<div className="flex flex-col gap-4 px-3 pb-2">
@@ -223,8 +231,8 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 															<DatabasesNav key={id} types={types ?? []} openKey={typeKey} canCreate={can(role, "fields.manage")} onCreate={() => setNewDatabase(true)} section={section} />
 														)
 													);
-												if (id === "pages") return <PagesNav key={id} openId={view === "pages" ? route[1] : undefined} section={section} />;
-												const props = { chats, openId: view === "chat" ? openId : undefined, onOpen: open, onError: fail, section };
+												if (id === "pages") return <PagesNav key={id} openId={view === "pages" ? route[1] : undefined} canEdit={can(role, "pages.edit")} section={section} />;
+												const props = { chats, openId: view === "chat" ? openId : undefined, openThread: view === "chat" && route[2] === "thread" ? route[3] : undefined, onOpen: open, onError: fail, canManageAgents: can(role, "agents.manage"), section };
 												if (!chats) return null;
 												return id === "channels" ? <ChannelsNav key={id} {...props} chats={chats} /> : <DmsNav key={id} {...props} chats={chats} />;
 											})}
@@ -232,6 +240,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 									)}
 								</div>
 							</Scroll>
+							<ResizeHandle side="right" label="Resize sidebar" size={sidebarWidth} />
 						</aside>
 					)}
 
@@ -250,7 +259,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 							) : (
 								<TopBar title="" />
 							))}
-						{(typeKey || view === "records") && <RecordsView key={typeKey} typeKey={typeKey} recordId={recordId} role={role} />}
+						{view === "records" && <RecordsView key={typeKey} typeKey={typeKey} recordId={recordId} role={role} />}
 						{view === "pages" && <PagesView pageId={route[1]} canEdit={can(role, "pages.edit")} />}
 						{view === "settings" && <SettingsView role={role} tab={settingsTab} itemId={route[2]} />}
 					</main>
@@ -264,7 +273,7 @@ const sectionIds = ["databases", "pages", "channels", "dms"];
 const sectionKey = (id: string) => id;
 const typeKeyOf = (t: { key: string }) => t.key;
 
-/** Your databases, in your order. Folded, only the open one stays. */
+/** Your databases, in your order. Folded, only the open one stays. `canCreate` (fields.manage) also edits and deletes. */
 function DatabasesNav({
 	types,
 	openKey,
@@ -272,7 +281,7 @@ function DatabasesNav({
 	onCreate,
 	section,
 }: {
-	types: { _id: string; key: string; plural: string }[];
+	types: RecordType[];
 	openKey: string | undefined;
 	canCreate: boolean;
 	onCreate: () => void;
@@ -281,13 +290,41 @@ function DatabasesNav({
 	const workspace = useWorkspace();
 	const { sorted, drag } = useSortable(`sidebar.databases:${workspace?.id}`, types, typeKeyOf);
 	const shown = section.collapsed ? sorted.filter((t) => t.key === openKey) : sorted;
+	const [editing, setEditing] = useState<RecordType>();
+	const remove = useMutation(api.trash.move);
+	const update = useMutation(api.recordTypes.update);
+	const { error, run } = useRun();
+	const { confirm, dialog } = useConfirm();
 	return (
 		<Group title="Databases" section={section} add={canCreate && <AddButton label="New database" onClick={onCreate} />}>
 			{shown.map((type) => (
-				<Item key={type._id} drag={drag(type.key)} icon={<DatabaseIcon />} active={openKey === type.key} onClick={() => navigate(...recordPath(type.key))}>
+				<Item
+					key={type._id}
+					drag={drag(type.key)}
+					icon={<DatabaseIcon />}
+					label={type.plural}
+					active={openKey === type.key}
+					onClick={() => navigate(...recordPath(type.key))}
+					rename={canCreate ? { value: type.plural, onSave: (plural) => run(update({ typeId: type._id, plural, version: type.version })) } : undefined}
+					menu={
+						canCreate
+							? (close) => (
+									<>
+										<MenuItem onClick={() => (close(), setEditing(type))}><EditIcon /> Edit database</MenuItem>
+										<MenuItem onClick={() => (close(), confirm(archiveQuestion(type.plural, () => remove({ kind: "database", id: type._id }).then(() => openKey === type.key && navigate("chat")), "Its records will be archived with it.")))}>
+											<ArchiveIcon /> Archive database
+										</MenuItem>
+									</>
+								)
+							: undefined
+					}
+				>
 					{type.plural}
 				</Item>
 			))}
+			<Notice>{error}</Notice>
+			{editing && <DatabaseDialog type={editing} onClose={() => setEditing(undefined)} />}
+			{dialog}
 			{!types.length && canCreate && !section.collapsed && (
 				<Item icon={<PlusIcon />} muted onClick={onCreate}>
 					New database

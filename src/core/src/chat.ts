@@ -1,6 +1,21 @@
 import { z } from "zod";
 import { type ToolDef, defineTool } from "./tools";
 
+/**
+ * How long a thread stays under its channel in the sidebar after its last reply, in hours: an
+ * owner's pick per workspace (`workspaces.threadHours`), like Discord's auto-archive duration.
+ * 0 is forever: every thread with a reply stays.
+ */
+export const threadWindows = [
+	{ hours: 1, label: "1 hour" },
+	{ hours: 24, label: "1 day" },
+	{ hours: 72, label: "3 days" },
+	{ hours: 168, label: "1 week" },
+	{ hours: 0, label: "Forever" },
+] as const;
+export const THREAD_HOURS_DEFAULT = 72;
+export const isThreadWindow = (hours: number) => threadWindows.some((w) => w.hours === hours);
+
 /** A person or agent in a chat, with a display name. */
 export interface Participant {
 	type: "user" | "agent";

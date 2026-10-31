@@ -5,6 +5,7 @@ import { usageMonth } from "@companybot/core";
 import { api, internal } from "../convex/_generated/api";
 import type { Doc, Id } from "../convex/_generated/dataModel";
 import schema from "../convex/schema";
+import { STALE_TURN_MS } from "../convex/turns";
 import { agentTurn, agentsOf, modules, ownerAndMember, signIn, workspaceOf } from "./helpers";
 
 afterEach(() => void vi.useRealTimers());
@@ -24,7 +25,7 @@ const usage = (costUsd: number, model = "openai/gpt-6-luna") => ({
 async function turnFor(t: Awaited<ReturnType<typeof ownerAndMember>>["t"], as: Awaited<ReturnType<typeof signIn>>) {
 	const { companybot } = await agentsOf(as);
 	const dm = await as.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
-	return { turnId: await agentTurn(t, as, dm, companybot._id), companybot };
+	return { turnId: await agentTurn(t, as, dm, companybot._id), companybot, dm };
 }
 
 describe("recording usage", () => {
@@ -70,7 +71,67 @@ describe("recording usage", () => {
 		await t.mutation(internal.turns.finishReply, { turnId, usage: usage(0.01) });
 		expect(await t.run((ctx) => ctx.db.query("usage").collect())).toEqual([]);
 	});
+
+	it("records web search as its own kind, out of the reply's chat row, and still in the reply's and chat's cost", async () => {
+		const { t, owner } = await ownerAndMember();
+		const { turnId } = await turnFor(t, owner);
+		await t.mutation(internal.turns.addSearchCost, { turnId, model: "exa", costUsd: 0.005 });
+		await t.mutation(internal.turns.addSearchCost, { turnId, model: "exa", costUsd: 0.005 });
+		await t.mutation(internal.turns.finishReply, { turnId, usage: usage(0.02) });
+		const rows = await t.run((ctx) => ctx.db.query("usage").collect());
+		expect(rows.map((r) => [r.kind, r.model, r.costUsd]).sort()).toEqual([["chat", "openai/gpt-6-luna", 0.02], ["search", "exa", 0.01]]);
+		const turn = (await t.run((ctx) => ctx.db.get(turnId))) as Doc<"agentTurns">;
+		expect((await replyOf(t, turn)).stats).toMatchObject({ costUsd: 0.02, searchCostUsd: 0.01, conversationCostUsd: 0.03 });
+		expect(((await t.run((ctx) => ctx.db.get(turn.chatId))) as Doc<"chats">).costUsd).toBeCloseTo(0.03);
+		expect((await owner.query(api.usage.report, {}))!.byKind).toEqual([{ kind: "chat", costUsd: 0.02 }, { kind: "search", costUsd: 0.01 }]);
+	});
+
+	it("records each finished model call as it finishes, and the rest at the end, never twice", async () => {
+		const { t, owner } = await ownerAndMember();
+		const { turnId } = await turnFor(t, owner);
+		await t.mutation(internal.turns.saveUsage, { turnId, usage: usage(0.01) });
+		expect(await chatSpent(t)).toBe(0.01);
+		await t.mutation(internal.turns.saveUsage, { turnId, usage: { ...usage(0.03), steps: 2 } });
+		// The same total again, or an older one arriving late, adds nothing.
+		await t.mutation(internal.turns.saveUsage, { turnId, usage: { ...usage(0.03), steps: 2 } });
+		await t.mutation(internal.turns.saveUsage, { turnId, usage: usage(0.01) });
+		expect(await chatSpent(t)).toBe(0.03);
+		await t.mutation(internal.turns.finishReply, { turnId, usage: { ...usage(0.04), steps: 3 } });
+		expect(await chatSpent(t)).toBe(0.04);
+		const turn = (await t.run((ctx) => ctx.db.get(turnId))) as Doc<"agentTurns">;
+		expect((await replyOf(t, turn)).stats).toMatchObject({ costUsd: 0.04, steps: 3, conversationCostUsd: 0.04, counted: true });
+		expect(((await t.run((ctx) => ctx.db.get(turn.chatId))) as Doc<"chats">).costUsd).toBeCloseTo(0.04);
+		expect(((await t.run((ctx) => ctx.db.get(turn.sessionId!))) as Doc<"agentSessions">).costUsd).toBeCloseTo(0.04);
+	});
+
+	it("keeps what a turn's finished calls cost when its action dies, and gives its reply their stats", async () => {
+		const { t, owner } = await ownerAndMember();
+		const { turnId, dm } = await turnFor(t, owner);
+		await t.mutation(internal.turns.saveUsage, { turnId, usage: { ...usage(0.02), steps: 2 } });
+		await t.mutation(internal.turns.addSearchCost, { turnId, model: "exa", costUsd: 0.005 });
+		// The action is killed: no finishReply. The next message fails the turn as stale.
+		vi.setSystemTime(Date.now() + STALE_TURN_MS + 1);
+		await owner.mutation(api.messages.send, { chatId: dm, text: "still there?", mentions: { userIds: [], agentIds: [] } });
+		const turn = (await t.run((ctx) => ctx.db.get(turnId))) as Doc<"agentTurns">;
+		expect(turn.status).toBe("error");
+		expect(await replyOf(t, turn)).toMatchObject({ status: "error", error: "Reply timed out.", stats: { costUsd: 0.02, steps: 2, searchCostUsd: 0.005, conversationCostUsd: 0.025 } });
+		expect(await chatSpent(t)).toBe(0.02);
+		// If the action did finish after all, only what's new is added.
+		await t.mutation(internal.turns.finishReply, { turnId, error: "late", usage: { ...usage(0.03), steps: 3 } });
+		expect(await chatSpent(t)).toBe(0.03);
+		expect((await replyOf(t, turn)).stats).toMatchObject({ costUsd: 0.03, conversationCostUsd: 0.035 });
+	});
 });
+
+async function replyOf(t: Awaited<ReturnType<typeof ownerAndMember>>["t"], turn: Doc<"agentTurns">) {
+	return (await t.run((ctx) => ctx.db.get(turn.replyId!))) as Doc<"chatMessages">;
+}
+
+/** This month's chat rows, summed. */
+async function chatSpent(t: Awaited<ReturnType<typeof ownerAndMember>>["t"]) {
+	const rows = await t.run((ctx) => ctx.db.query("usage").collect());
+	return Math.round(rows.filter((r) => r.kind === "chat").reduce((sum, r) => sum + r.costUsd, 0) * 1e6) / 1e6;
+}
 
 describe("reading usage", () => {
 	async function spent() {
@@ -98,7 +159,10 @@ describe("reading usage", () => {
 		]);
 		expect(report!.byPerson.map((l) => [l.id, l.costUsd])).toEqual([[owner.userId, 0.5], [member.userId, 0.4375]]);
 		expect(report!.byKind).toEqual([{ kind: "chat", costUsd: 0.875 }, { kind: "image", costUsd: 0.0625 }]);
-		expect(report!.byModel).toEqual([{ model: "openai/gpt-6-luna", costUsd: 0.75 }, { model: "anthropic/claude-haiku-5.5", costUsd: 0.125 }]);
+		expect(report!.byModel).toEqual([
+			{ model: "openai/gpt-6-luna", name: "GPT-6 Luna", costUsd: 0.75 },
+			{ model: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5", costUsd: 0.125 },
+		]);
 		expect(await owner.query(api.usage.report, { month: "2020-01" })).toMatchObject({ total: 9 });
 		expect(await owner.query(api.usage.report, { month: "2020-02" })).toMatchObject({ total: 0, byAgent: [] });
 		await expect(owner.query(api.usage.report, { month: "last" })).rejects.toThrow("Month must look like");

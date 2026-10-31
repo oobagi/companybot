@@ -1,11 +1,11 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { type AgentConfig, agentConfigKeys, pickAgentConfig } from "@companybot/core/agent-config";
+import { type AgentConfig, type Reasoning, agentConfigKeys, defaultReasoning, pickAgentConfig } from "@companybot/core/agent-config";
 import { type Role, can } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
-import { Checkbox } from "../controls";
+import { Checkbox, Segmented } from "../controls";
 import { navigate } from "../router";
 import { ItemList, Missing, customizeCrumbs } from "./customize/shared";
 import { ImagePicker } from "./ImagePicker";
@@ -17,6 +17,13 @@ import { AgentIcon, ArchiveIcon } from "../icons";
 import { ConflictNotice, type Crumb, Field, Loading, Notice, Page, SaveBar, Section, barButton, cardClass, descriptionClass, inputClass, metadataClass, timeAgo, useDraft, useRun } from "../ui";
 
 type Agent = FunctionReturnType<typeof api.agents.list>[number];
+
+const reasoningOptions: { value: Reasoning; label: string }[] = [
+	{ value: "none", label: "Off" },
+	{ value: "low", label: "Low" },
+	{ value: "medium", label: "Medium" },
+	{ value: "high", label: "High" },
+];
 
 export function AgentsTab() {
 	const agents = useQuery(api.agents.list);
@@ -118,6 +125,14 @@ function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean;
 					/>
 				</Field>
 				<ModelPicker label="Model" note={modelNote} models={options.models} defaultModel={options.defaultModel} value={config.model} onChange={(model) => edit({ model })} />
+				{/* Not a Field: a <label> around buttons would press the first one when its text is clicked. */}
+				<div role="group" aria-label="Reasoning" className="flex flex-col gap-1.5">
+					<span className="text-sm font-medium">Reasoning</span>
+					<div>
+						<Segmented value={config.reasoning ?? defaultReasoning} options={reasoningOptions} onChange={(reasoning) => edit({ reasoning })} />
+					</div>
+					<span className="text-xs text-neutral-500">How hard it thinks before answering. Higher is slower and costs more, but handles harder work.</span>
+				</div>
 				<div className="flex flex-col gap-1.5">
 					<span className="text-sm font-medium">Tools</span>
 					{options.groups.map((g) => (
@@ -134,8 +149,9 @@ function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean;
 				</Field>
 			</fieldset>
 
-			{isOwner && !agent.archived && draft.dirty && (
+			{isOwner && !agent.archived && (
 				<SaveBar
+					dirty={draft.dirty}
 					onDiscard={draft.discard}
 					onSave={() => run(update({ agentId: agent._id, expectedVersion: draft.base, config }), draft.discard)}
 				/>
@@ -224,9 +240,12 @@ function History({ agent, isOwner }: { agent: Agent; isOwner: boolean }) {
 		<Section title="History" hint="Every save is kept. Restoring saves an old version as the newest one.">
 			<Notice>{error}</Notice>
 			{versions.map((v, i) => {
-				const previous = versions[i + 1]?.config;
+				// Picked, so versions from before reasoning existed read as the default it ran with.
+				const config = pickAgentConfig(v.config);
+				const before = versions[i + 1];
+				const previous = before && pickAgentConfig(before.config);
 				const changed = previous
-					? agentConfigKeys.filter((k) => JSON.stringify(v.config[k]) !== JSON.stringify(previous[k]))
+					? agentConfigKeys.filter((k) => JSON.stringify(config[k]) !== JSON.stringify(previous[k]))
 					: [];
 				return (
 					<div key={v.version} className="rounded-xl border border-neutral-200 px-4 py-2.5 text-sm">
@@ -264,7 +283,7 @@ function History({ agent, isOwner }: { agent: Agent; isOwner: boolean }) {
 						{openVersion === v.version && (
 							<div className="mt-2 flex flex-col gap-1 border-t border-neutral-100 pt-2 text-neutral-600">
 								<p>
-									<b>{v.config.name}</b> · {v.config.model.replace("anthropic/", "")} · {v.config.tools.join(", ") || "no tools"}
+									<b>{config.name}</b> · {config.model.replace("anthropic/", "")} · {reasoningOptions.find((o) => o.value === config.reasoning)?.label} reasoning · {config.tools.join(", ") || "no tools"}
 								</p>
 								<pre className="whitespace-pre-wrap font-mono text-xs">{v.config.instructions || "(no instructions)"}</pre>
 							</div>

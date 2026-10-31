@@ -1,6 +1,6 @@
 import type { PlaceMessage, Skill } from "@companybot/core";
-import { PROMPT_MESSAGE_CAP, approxTokens, fallbackModels } from "@companybot/core";
-import { v } from "convex/values";
+import { PROMPT_MESSAGE_CAP, approxTokens, defaultReasoning, fallbackModels, isGranted } from "@companybot/core";
+import { type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
@@ -16,10 +16,12 @@ import {
 import { previewMessage } from "./linkPreviews";
 import { type Who, installedSkills, liveWorkspace, memberOf, timeZoneOf } from "./lib";
 import { automationScope } from "./automationOps";
-import { messagePart, replyUsage } from "./schema";
+import { messagePart, replyStats, replyUsage } from "./schema";
 import { filesForModel, turnImages } from "./files";
 import { catalogModels } from "./modelCatalog";
 import { recordUsage } from "./usage";
+import { recordOut } from "./recordTools";
+import { setWakeOutcome } from "./wakeups";
 
 // The agent turn queue and everything the runner (agent.ts) reads and writes.
 // One `running` turn per agent per place (chat + thread); the rest wait in order.
@@ -31,14 +33,16 @@ const KEEP_TOKENS = 15_000;
 
 type Place = { agentId: Id<"agents">; chatId: Id<"chats">; threadId?: Id<"chatMessages"> };
 
-/** Queues a reply from `agentId` to `triggerId`, and starts it if nothing is running there. */
+/** Queues a reply from `agentId` to `triggerId` (or to a wakeup), and starts it if nothing is running there. */
 export async function enqueueTurn(
 	ctx: MutationCtx,
 	chat: Doc<"chats">,
 	turn: Place & { actorId: Id<"users"> } & (
 			// After an approval, the original turn's trigger: none if it followed an old welcome turn.
 			| { triggerId: Id<"chatMessages">; approvalId?: Id<"approvals"> }
-			| { triggerId: Id<"chatMessages"> | undefined; approvalId: Id<"approvals"> }
+			| { triggerId: Id<"chatMessages"> | undefined; approvalId: Id<"approvals">; wakeupId?: Id<"wakeups"> }
+			// A wake (wakeups.ts): no message asked, and its reply is quiet.
+			| { wakeupId: Id<"wakeups">; wakeLogId: Id<"agentActivity"> }
 		),
 ) {
 	await ctx.db.insert("agentTurns", { ...turn, workspaceId: chat.workspaceId, status: "queued" });
@@ -80,10 +84,13 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 	const running = await turnsAt(ctx, place, "running").first();
 	if (running) {
 		if (Date.now() - (running.startedAt ?? running._creationTime) < STALE_TURN_MS) return;
-		await ctx.db.patch(running._id, { status: "error" });
+		await ctx.db.patch(running._id, { status: "error", step: undefined });
+		await setWakeOutcome(ctx, running, "failed");
 		await settleApproval(ctx, running);
 		const reply = running.replyId && (await ctx.db.get(running.replyId));
-		if (reply?.status === "streaming") await endStream(ctx, reply, { status: "error", error: "Reply timed out." });
+		// Its finished model calls were saved as they finished (saveUsage), so it keeps their stats.
+		if (reply?.status === "streaming")
+			await endStream(ctx, reply, { status: "error", error: "Reply timed out.", ...(running.usage && { stats: await statsOf(ctx, running, running.usage) }) });
 	}
 	const next = await turnsAt(ctx, place, "queued").first();
 	if (!next) return;
@@ -91,20 +98,25 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 	// A workspace being deleted starts nothing: its cascade may already be past the rows this would add.
 	if (!chat || chat.archived || !(await liveWorkspace(ctx, chat.workspaceId))) {
 		await ctx.db.patch(next._id, { status: "error" });
+		await setWakeOutcome(ctx, next, "failed");
 		return await settleApproval(ctx, next);
 	}
 
 	const session =
 		(await sessionAt(ctx, place)) ??
 		(await ctx.db.get(await ctx.db.insert("agentSessions", { workspaceId: chat.workspaceId, ...place })))!;
-	const replyId = await insertMessage(ctx, chat, {
+	const reply = {
 		threadId: place.threadId,
 		authorAgentId: place.agentId,
 		text: "",
 		parts: [],
 		mentions: { userIds: [], agentIds: [] },
-		status: "streaming",
-	});
+		status: "streaming" as const,
+	};
+	// A wake turn's reply is quiet: kept for its session, never shown, so it doesn't touch the chat's unread or the thread's replies.
+	const replyId = next.wakeupId
+		? await ctx.db.insert("chatMessages", { chatId: chat._id, workspaceId: chat.workspaceId, ...reply, quiet: true })
+		: await insertMessage(ctx, chat, reply);
 	await ctx.db.patch(next._id, { status: "running", replyId, sessionId: session._id, startedAt: Date.now() });
 	await ctx.scheduler.runAfter(0, internal.agent.respond, { turnId: next._id });
 }
@@ -160,7 +172,7 @@ export const turnContext = internalQuery({
 		const session = (await ctx.db.get(turn.sessionId))!;
 		const reply = (await ctx.db.get(turn.replyId))!;
 		const names = namer(ctx);
-		const { trigger, foreign } = await automationScope(ctx, turn);
+		const { trigger, foreign, wakeup } = await automationScope(ctx, turn);
 
 		// Finished turns only, so never this (running) one.
 		const turns = (foreign ? [] : await sessionTurns(ctx, session)).map(({ prompt, reply }) => ({ prompt, reply }));
@@ -177,14 +189,16 @@ export const turnContext = internalQuery({
 		const since = foreign ? (trigger?._creationTime ?? 0) : (lastReply?._creationTime ?? last?.startedAt ?? 0);
 		// Foreign runs get only their trigger, or replies in a thread rooted at that trigger.
 		// Never replay the person's DM/channel history, including compacted session summaries.
-		const recent = foreign && turn.threadId !== trigger?._id ? (trigger ? [trigger] : []) : (
+		// A foreign wake has no trigger: it gets only its wakeup.
+		const recent = foreign && (!trigger || turn.threadId !== trigger._id) ? (trigger ? [trigger] : []) : (
 			await ctx.db
 				.query("chatMessages")
 				.withIndex("by_chat_thread", (q) =>
 					q.eq("chatId", chat._id).eq("threadId", turn.threadId).gt("_creationTime", since).lt("_creationTime", reply._creationTime),
 				)
 				.order("desc")
-				.filter((q) => q.neq(q.field("deleted"), true))
+				// Quiet replies are wake turns' own, never shown.
+				.filter((q) => q.and(q.neq(q.field("deleted"), true), q.neq(q.field("quiet"), true)))
 				// The prompt shows PROMPT_MESSAGE_CAP; one more says there are earlier ones, one more for the trigger.
 				.take(PROMPT_MESSAGE_CAP + 2)
 		).reverse();
@@ -206,16 +220,22 @@ export const turnContext = internalQuery({
 		);
 
 		const parent = turn.threadId && (!foreign || turn.threadId === trigger?._id) && (await ctx.db.get(turn.threadId));
+		// What the person wrote, the only links web.fetch opens before searching: this turn's messages,
+		// the thread's parent, and after an approval the message that started it (it's before the window).
+		const own = (m: Doc<"chatMessages"> | null | undefined | false): m is Doc<"chatMessages"> => !!m && !m.deleted && m.authorUserId === member.userId;
+		const origin = approval && turn.triggerId && (await ctx.db.get(turn.triggerId));
+		const asked = [...recent, parent, origin].filter(own).map((m) => m.text);
 		/** A thread's first turn starts with its parent. */
 		const first = turns.length === 0 && (foreign || !session.summary);
 		const rows = await chatMembersOf(ctx, chat._id);
 		const { models } = await catalogModels(ctx);
 		const vision = [models, fallbackModels].some((list) => list.find((m) => m.id === agent.model)?.vision);
 		const user = await ctx.db.get(member.userId);
+		const about = wakeup?.recordId ? await ctx.db.get(wakeup.recordId) : undefined;
 		return {
 			replyId: turn.replyId,
 			member,
-			agent: { id: agent._id, name: agent.name, instructions: agent.instructions, model: agent.model, tools: agent.tools },
+			agent: { id: agent._id, name: agent.name, instructions: agent.instructions, model: agent.model, reasoning: agent.reasoning ?? defaultReasoning, tools: agent.tools },
 			skills,
 			session: { id: session._id, summary: foreign ? null : (session.summary ?? null), turns },
 			/** Off when an owner turned it off; personal only in a DM with exactly one person. memory.ts checks again on every call. */
@@ -238,7 +258,21 @@ export const turnContext = internalQuery({
 				members: await Promise.all(rows.map(names.of)),
 			},
 			messages,
+			asked,
 			triggerId: turn.triggerId ?? null,
+			/** Set on a wake turn: what woke it, in place of a message (wakeups.ts). */
+			wake: wakeup
+				? {
+						id: wakeup._id,
+						...(wakeup.note !== undefined && { note: wakeup.note }),
+						setAt: wakeup._creationTime,
+						// Counted before the turn runs: `wakes` already includes this one.
+						...(wakeup.every && { repeats: { left: wakeup.times === undefined ? null : Math.max(wakeup.times - (wakeup.wakes ?? 0), 0) } }),
+						...(about !== undefined && { record: about && (await recordOut(ctx, member, about._id)) }),
+						...(wakeup.result !== undefined && { result: wakeup.result }),
+						canNotify: isGranted(agent.tools, "chat.notify"),
+					}
+				: undefined,
 			vision,
 			/** Pictures for the model, newest kept: the runner loads and sends them when it sees pictures. */
 			images: vision ? turnImages([...(parent && first ? [parent] : []), ...recent.filter((m) => !m.deleted)]) : [],
@@ -283,6 +317,18 @@ export const savePrompt = internalMutation({
 	handler: async (ctx, { turnId, prompt }) => ctx.db.patch(turnId, { prompt }),
 });
 
+/**
+ * What a running turn is doing now (agent.ts), shown under the composer (typing.ts); no label while
+ * it writes. On the turn, not its reply, so a run that posts nothing still shows. Ignored once it ended.
+ */
+export const setStep = internalMutation({
+	args: { turnId: v.id("agentTurns"), label: v.optional(v.string()) },
+	handler: async (ctx, { turnId, label }) => {
+		if ((await ctx.db.get(turnId))?.status !== "running") return;
+		await ctx.db.patch(turnId, { step: label ? { label, at: Date.now() } : undefined });
+	},
+});
+
 /** A streaming reply's content so far, kept apart from the message (schema `replyStreams`). */
 export const streamOf = (ctx: QueryCtx, messageId: Id<"chatMessages">) =>
 	ctx.db
@@ -315,7 +361,70 @@ async function addPlaceCost(ctx: MutationCtx, chatId: Id<"chats">, threadId: Id<
 	return costUsd;
 }
 
-/** Ends a turn, records what it cost, and starts the next queued turn in the place. */
+/**
+ * A paid call a turn made besides its model calls (pictures in imageGen.ts, searches in
+ * addSearchCost): on its place's running cost now, and on its reply's stats when it finishes.
+ */
+export async function addTurnCost(ctx: MutationCtx, turn: Doc<"agentTurns">, field: "imageCostUsd" | "searchCostUsd", cost: number) {
+	await addPlaceCost(ctx, turn.chatId, turn.threadId, cost);
+	await ctx.db.patch(turn._id, { [field]: (turn[field] ?? 0) + cost });
+}
+
+/** One web search finished (agent.ts webClient): its cost, for the turn's person and agent, as kind "search". */
+export const addSearchCost = internalMutation({
+	args: { turnId: v.id("agentTurns"), model: v.string(), costUsd: v.number() },
+	handler: async (ctx, { turnId, model, costUsd }) => {
+		const turn = await ctx.db.get(turnId);
+		if (!turn) return;
+		const counted = await recordUsage(ctx, { workspaceId: turn.workspaceId, userId: turn.actorId, agentId: turn.agentId, kind: "search", model, costUsd });
+		if (counted) await addTurnCost(ctx, turn, "searchCostUsd", costUsd);
+	},
+});
+
+type SavedUsage = NonNullable<Doc<"agentTurns">["usage"]>;
+
+/**
+ * Saves what a turn's model calls used so far and records only what's new since the last save, on
+ * the place's, session's and month's (`usage`, kind "chat") cost. Totals only grow, so saving the
+ * same calls again, or an older total late, records nothing twice.
+ */
+async function saveTurnUsage(ctx: MutationCtx, turn: Doc<"agentTurns">, usage: Infer<typeof replyUsage>): Promise<SavedUsage> {
+	const before = turn.usage;
+	if (before && usage.steps < before.steps) return before;
+	const cost = usage.costUsd - (before?.costUsd ?? 0);
+	if (cost > 0) {
+		await addPlaceCost(ctx, turn.chatId, turn.threadId, cost);
+		const session = turn.sessionId && (await ctx.db.get(turn.sessionId));
+		if (session) await ctx.db.patch(session._id, { costUsd: (session.costUsd ?? 0) + cost });
+	}
+	// The reply ran for the person whose turn it was: who wrote the message, or an automation's person.
+	const counted = (await recordUsage(ctx, { workspaceId: turn.workspaceId, userId: turn.actorId, agentId: turn.agentId, kind: "chat", model: usage.model, costUsd: cost })) || !!before?.counted;
+	const saved = { ...usage, ...(counted && { counted }) };
+	await ctx.db.patch(turn._id, { usage: saved });
+	return saved;
+}
+
+/** A reply's stats: its model calls, its pictures and searches apart (already in `usage` as their own kinds), and its place's total. */
+async function statsOf(ctx: QueryCtx, turn: Doc<"agentTurns">, usage: SavedUsage): Promise<Infer<typeof replyStats>> {
+	const place = turn.threadId ? await ctx.db.get(turn.threadId) : await ctx.db.get(turn.chatId);
+	return {
+		...usage,
+		conversationCostUsd: place?.costUsd ?? 0,
+		...(turn.imageCostUsd && { imageCostUsd: turn.imageCostUsd }),
+		...(turn.searchCostUsd && { searchCostUsd: turn.searchCostUsd }),
+	};
+}
+
+/** After each finished model call (agent.ts), so its cost is recorded even if the action dies before finishReply. */
+export const saveUsage = internalMutation({
+	args: { turnId: v.id("agentTurns"), usage: replyUsage },
+	handler: async (ctx, { turnId, usage }) => {
+		const turn = await ctx.db.get(turnId);
+		if (turn) await saveTurnUsage(ctx, turn, usage);
+	},
+});
+
+/** Ends a turn, records what it cost that wasn't saved yet, and starts the next queued turn in the place. */
 export const finishReply = internalMutation({
 	args: {
 		turnId: v.id("agentTurns"),
@@ -326,13 +435,8 @@ export const finishReply = internalMutation({
 	handler: async (ctx, { turnId, error, usage }) => {
 		const turn = await ctx.db.get(turnId);
 		if (!turn) return;
-		const cost = usage?.costUsd ?? 0;
-		const placeCost = await addPlaceCost(ctx, turn.chatId, turn.threadId, cost);
-		const session = turn.sessionId && (await ctx.db.get(turn.sessionId));
-		if (session) await ctx.db.patch(session._id, { costUsd: (session.costUsd ?? 0) + cost });
-		// The reply ran for the person whose turn it was: who wrote the message, or an automation's person.
-		const counted = !!usage && (await recordUsage(ctx, { workspaceId: turn.workspaceId, userId: turn.actorId, agentId: turn.agentId, kind: "chat", model: usage.model, costUsd: cost }));
-		const stats = usage && { ...usage, conversationCostUsd: placeCost, ...(counted && { counted }) };
+		const saved = usage ? await saveTurnUsage(ctx, turn, usage) : turn.usage;
+		const stats = saved && (await statsOf(ctx, turn, saved));
 		const reply = turn.replyId && (await ctx.db.get(turn.replyId));
 		// A turn already failed as stale only gets its stats; the queue moved on without it.
 		if (turn.status !== "running") {
@@ -343,7 +447,8 @@ export const finishReply = internalMutation({
 			await endStream(ctx, reply, error ? { status: "error", error, stats } : { status: "done", stats });
 			if (!error) await previewMessage(ctx, (await ctx.db.get(reply._id))!);
 		}
-		await ctx.db.patch(turnId, { status: error ? "error" : "done" });
+		await ctx.db.patch(turnId, { status: error ? "error" : "done", step: undefined });
+		await setWakeOutcome(ctx, turn, error ? "failed" : "ran");
 		await settleApproval(ctx, turn);
 		await startNext(ctx, turn);
 	},

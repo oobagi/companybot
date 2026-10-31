@@ -35,6 +35,7 @@ export * from "./widgets";
 export * from "./web";
 export * from "./web-search";
 export * from "./automation-tools";
+export * from "./wakeups";
 export * from "./manage-tools";
 export * from "./typing";
 export * from "./onboarding";

@@ -158,19 +158,33 @@ export async function requireManagedChannel(ctx: QueryCtx, member: Member, chatI
 	return chat;
 }
 
-/** Moves a channel to Archive (its messages and members stay until it's deleted for good) or back. */
+/**
+ * Moves a channel, or one of your side chats with an agent, to Archive (its messages and members
+ * stay until it's deleted for good) or back. Both are `chats`, so Archive calls the kind "channel".
+ */
 export async function setChannelTrashed(ctx: MutationCtx, who: Who, chatId: Id<"chats">, archived: boolean) {
-	const chat = archived ? await requireManagedChannel(ctx, who.member, chatId) : await requireChat(ctx, who.member, chatId);
-	if (chat.kind !== "channel") throw new ConvexError("That's not a channel.");
+	const seen = await requireChat(ctx, who.member, chatId);
+	const side = seen.kind === "dm" && seen.parentId;
+	const chat = archived && !side ? await requireManagedChannel(ctx, who.member, chatId) : seen;
+	if (chat.kind !== "channel" && !side) throw new ConvexError("That's not a channel.");
 	if (chat.isDefault) throw new ConvexError(`Everyone uses #${chat.name}, so it stays.`);
 	if (chat.archived === archived) return;
-	if (archived) await putInTrash(ctx, who, { kind: "channel", id: chatId, name: `#${chat.name}` });
+	if (archived) await putInTrash(ctx, who, { kind: "channel", id: chatId, name: side ? sideChatTitle(chat) : `#${chat.name}` });
 	else {
-		await availableName(ctx, who.member, chat.name ?? "", chatId);
+		if (!side) await availableName(ctx, who.member, chat.name ?? "", chatId);
 		await takeFromTrash(ctx, who, chatId);
 	}
 	await ctx.db.patch(chatId, { archived });
 }
+
+/** A side chat's label: its title, or a stand-in until its first message names it. */
+export const sideChatTitle = (chat: Pick<Doc<"chats">, "title">) => chat.title?.trim() || "New chat";
+
+/** A side chat's title from its first message: the first line, cut short. */
+export const titleFrom = (text: string) => {
+	const line = text.split("\n").find((l) => l.trim())?.trim() ?? "";
+	return line.length > 60 ? `${line.slice(0, 59).trimEnd()}…` : line;
+};
 
 /** Refuses people outside the workspace. */
 export async function requireWorkspaceUsers(ctx: QueryCtx, workspaceId: Id<"workspaces">, userIds: Id<"users">[]) {
@@ -196,9 +210,11 @@ export async function findOrCreateDm(
 	agentIds: Id<"agents">[],
 ): Promise<Id<"chats">> {
 	const dmKey = dmKeyOf(userIds, agentIds);
+	// Side chats share the key; the DM itself is the one without a parent.
 	const existing = await ctx.db
 		.query("chats")
 		.withIndex("by_dm_key", (q) => q.eq("workspaceId", workspaceId).eq("dmKey", dmKey))
+		.filter((q) => q.eq(q.field("parentId"), undefined))
 		.first();
 	if (existing) return existing._id;
 	const chatId = await ctx.db.insert("chats", {

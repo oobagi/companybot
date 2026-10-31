@@ -21,7 +21,8 @@ export function ActivityTab() {
 	const [changesOnly, setChangesOnly] = useState(true);
 	const entries = useQuery(api.activity.list, { agentId });
 	if (!entries || !agents) return <Loading />;
-	const shown = changesOnly ? entries.filter((e) => e.changes) : entries;
+	// A wake's line (an agent checking back on its own) shows with changes: it says what's running.
+	const shown = changesOnly ? entries.filter((e) => e.changes || e.wake) : entries;
 
 	return (
 		<>
@@ -116,12 +117,12 @@ function AllowedLine({ allowed, mine }: { allowed: NonNullable<ActivityEntry["al
 	);
 }
 
-/** A call's input, and its result or error. */
+/** A call's input, and its result or error. The containing popover or page owns scrolling. */
 export function CallDetails({ entry }: { entry: ActivityEntry }) {
 	return (
 		<div className="flex flex-col gap-2 text-xs">
 			<Block label="Input" text={entry.input} />
-			{entry.error !== undefined ? (
+			{entry.wake ? null : entry.error !== undefined ? (
 				<Block label="Error" text={entry.error} />
 			) : entry.output !== undefined ? (
 				<Block label="Result" text={entry.output} />
@@ -136,7 +137,7 @@ function Block({ label, text }: { label: string; text: string }) {
 	return (
 		<div className="flex flex-col gap-1">
 			<span className="text-neutral-500">{label}</span>
-			<pre className="max-h-64 overflow-auto rounded-lg bg-neutral-50 px-3 py-2 whitespace-pre-wrap break-words text-neutral-700">
+			<pre className="rounded-lg bg-neutral-50 px-3 py-2 whitespace-pre-wrap wrap-anywhere text-neutral-700">
 				{text}
 			</pre>
 		</div>

@@ -70,7 +70,8 @@ export const readFor = internalQuery({
 				.withIndex("by_chat_thread", (q) => q.eq("chatId", chat._id).eq("threadId", threadId).lt("_creationTime", before))
 				.order("desc")
 				// Replies still being written (this one included) aren't history yet.
-				.filter((q) => q.and(q.neq(q.field("deleted"), true), q.neq(q.field("status"), "streaming")))
+				// Wake turns' quiet replies were never said in the chat.
+				.filter((q) => q.and(q.neq(q.field("deleted"), true), q.neq(q.field("status"), "streaming"), q.neq(q.field("quiet"), true)))
 				.take(limit)
 		).reverse();
 		const parent = threadId && (await ctx.db.get(threadId));
@@ -103,7 +104,7 @@ export const searchFor = internalQuery({
 		const labels = new Map<Id<"chats">, string | null>();
 		const lines: ChatLine[] = [];
 		for (const m of found) {
-			if (m.deleted || lines.length >= 20) continue;
+			if (m.deleted || m.quiet || lines.length >= 20) continue;
 			if (!labels.has(m.chatId)) {
 				const chat = await ctx.db.get(m.chatId);
 				const ok = chat && !chat.archived && (await canSee(ctx, chat, member));

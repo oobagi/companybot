@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Cuts a release: checks, snapshots prod, deploys the production backend, runs pending
-// migrations, bumps the app version, tags, and pushes. CI (.github/workflows/release.yml) builds and publishes the app.
+// migrations, bumps the app version through a PR, then tags it. CI (.github/workflows/release.yml) builds and publishes the app.
 //
 //   pnpm release patch | minor | major | alpha | beta | 1.2.3 | 1.2.3-alpha.1
 //
@@ -113,10 +113,26 @@ if (notesFile) {
 	copyFileSync(notesFile, `release-notes/v${next}.md`);
 	committed.push(`release-notes/v${next}.md`);
 }
+// main only takes changes through a PR that passed CI, so the bump goes through one too.
+const branch = `release/v${next}`;
+sh(`git switch -q -c ${branch}`);
 sh(`git add ${committed.join(" ")}`);
 sh(`git commit -q -m "Release v${next}"`);
-// Annotated, so `--follow-tags` pushes it (it skips lightweight tags).
+sh(`git push -q -u origin ${branch}`);
+sh(`gh pr create --base main --head ${branch} --title "Release v${next}" --body "Version bump for v${next}, opened by pnpm release."`, { quiet: true });
+sh(`gh pr merge ${branch} --auto --merge --delete-branch`, { quiet: true });
+console.log("\nWaiting for CI to pass and the release PR to merge…");
+for (let i = 0; ; i++) {
+	const state = out(`gh pr view ${branch} --json state --jq .state`);
+	if (state === "MERGED") break;
+	if (state === "CLOSED" || i >= 120) fail(`The release PR didn't merge${state === "CLOSED" ? " (closed)" : " in 20 minutes"}. Nothing was tagged; check it on GitHub, then tag v${next} on its commit and push the tag.`);
+	execSync("sleep 10");
+}
+// The tag goes on the release commit, which is now in main.
 sh(`git tag -a v${next} -m "Release v${next}"`);
-sh("git push -q origin main --follow-tags");
+sh(`git push -q origin v${next}`);
+sh("git switch -q main");
+sh("git pull -q --ff-only origin main");
+sh(`git branch -q -D ${branch}`);
 
 console.log(`\n✓ Tagged v${next}. CI is building it: https://github.com/oobagi/companybot/actions/workflows/release.yml`);

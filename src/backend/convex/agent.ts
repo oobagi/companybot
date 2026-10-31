@@ -35,6 +35,7 @@ import {
 	grantedConnectorIds,
 	isWidgetResult,
 	isWidgetToolName,
+	agentPrepareStep,
 	agentStopWhen,
 	openConnector,
 	resolveTools,
@@ -42,7 +43,9 @@ import {
 	deniedReason,
 	isImageType,
 	toolApprovalPolicy,
+	toolLine,
 	toolRisk,
+	THINKING_STEP,
 } from "@companybot/core";
 import { generateText, streamText } from "ai";
 import type { FunctionReturnType } from "convex/server";
@@ -71,17 +74,17 @@ export const respond = internalAction({
 		const usage: TurnUsage = emptyUsage("");
 		let error: string | undefined;
 		let sessionId: Id<"agentSessions"> | undefined;
+		const snapshot = () => ({ ...usage, durationMs: Date.now() - started });
+		// Saved after every finished model call, so an action killed mid-turn (time limit, crash) keeps
+		// what its calls cost. finishReply records only what's new since; a failed save is caught up there.
+		const saveStep = () => ctx.runMutation(internal.turns.saveUsage, { turnId, usage: snapshot() }).catch(() => {});
 		try {
-			sessionId = await runTurn(ctx, turnId, usage);
+			sessionId = await runTurn(ctx, turnId, usage, saveStep);
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 		} finally {
 			// Failed replies still cost what their finished calls cost.
-			await ctx.runMutation(internal.turns.finishReply, {
-				turnId,
-				error,
-				usage: usage.steps > 0 ? { ...usage, durationMs: Date.now() - started } : undefined,
-			});
+			await ctx.runMutation(internal.turns.finishReply, { turnId, error, usage: usage.steps > 0 ? snapshot() : undefined });
 		}
 		if (!error && sessionId && usage.contextTokens > COMPACT_TOKENS) await compact(ctx, sessionId, turnId);
 	},
@@ -90,12 +93,12 @@ export const respond = internalAction({
 /** Filled in as the reply streams, so a failed reply still reports what it used. */
 type TurnUsage = ReplyUsage & { firstTokenMs?: number };
 
-async function runTurn(ctx: ActionCtx, turnId: Id<"agentTurns">, usage: TurnUsage) {
+async function runTurn(ctx: ActionCtx, turnId: Id<"agentTurns">, usage: TurnUsage, saveStep: () => Promise<unknown>) {
 	const turn = await ctx.runQuery(internal.turns.turnContext, { turnId });
 	const connectors = await loadConnectors(ctx, turn.member, turn.agent);
 	await saveTools(ctx, turn.member.workspaceId, connectors);
 	try {
-		await streamReply(ctx, turnId, turn, connectors, usage);
+		await streamReply(ctx, turnId, turn, connectors, usage, saveStep);
 	} finally {
 		await Promise.allSettled(connectors.sessions.map((s) => s.close()));
 		await saveRefreshedTokens(ctx, connectors);
@@ -228,6 +231,7 @@ async function streamReply(
 	turn: Turn,
 	connectors: LoadedConnectors,
 	usage: TurnUsage,
+	saveStep: () => Promise<unknown>,
 ) {
 	const { agent, member, replyId } = turn;
 	usage.model = agent.model;
@@ -251,14 +255,17 @@ async function streamReply(
 			create: (input) => ctx.runMutation(internal.automationTools.createFor, { turnId, input }),
 			setMine: (input) => ctx.runMutation(internal.automationTools.setMineFor, { turnId, ...input }),
 		},
+		wakeups: {
+			create: (input) => ctx.runMutation(internal.wakeups.createFor, { turnId, input }),
+			list: (input) => ctx.runQuery(internal.wakeups.listFor, { turnId, ...input }),
+			cancel: (input) => ctx.runMutation(internal.wakeups.cancelFor, { turnId, ...input }),
+			notify: (input) => ctx.runMutation(internal.wakeups.notifyFor, { turnId, ...input }),
+		},
 		records: recordStore(ctx, turnId),
 		pages: pageStore(ctx, turnId),
 		results: createResultStore(),
-		// Links the person wrote this turn are the only ones web.fetch opens before searching.
-		web: createWebTurn(
-			webClient(ctx, usage),
-			turn.messages.filter((m) => m.author.type === "user" && m.author.id === member.userId).map((m) => m.text),
-		),
+		// Links the person wrote (turns.ts `asked`) are the only ones web.fetch opens before searching.
+		web: createWebTurn(webClient(ctx, turnId), turn.asked),
 		// imageGen.ts checks the budget and edit files as this person, then attaches and records each picture.
 		images: { generate: (request) => ctx.runAction(internal.imageGen.generateFor, { turnId, ...request }) },
 	};
@@ -290,17 +297,35 @@ async function streamReply(
 	let lastFlush = 0;
 	const text = () => parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("\n\n");
 	const flush = () => ctx.runMutation(internal.turns.updateReply, { replyId, text: text(), parts });
+	// The turn's step, for the line under the composer (turns.setStep): the newest call still running,
+	// else "Thinking…" until the model writes. The same words as its tool lines; never its reasoning.
+	// Written in order, and only when it changes.
+	const stepCalls = new Map<string, string>();
+	let writing = false;
+	let shownStep: string | undefined;
+	let stepWrites: Promise<unknown> = Promise.resolve();
+	const showStep = () => {
+		const label = [...stepCalls.values()].at(-1) ?? (writing ? undefined : THINKING_STEP);
+		if (label === shownStep) return;
+		shownStep = label;
+		stepWrites = stepWrites.then(() => ctx.runMutation(internal.turns.setStep, { turnId, label })).catch(() => {});
+	};
+	showStep();
+
 	// Labels say what each call did ("Created deal Reroof main warehouse"): from its input while
 	// it runs, and its result once done. Stored with the reply; replays never include them.
 	const callInputs = new Map<string, unknown>();
 	const setTool = (id: string, name: string, status: "running" | "done" | "error", call?: { input: unknown; output?: unknown }) => {
 		if (call) callInputs.set(id, call.input);
 		const existing = parts.find((p) => p.type === "tool" && p.id === id);
-		const label = (toolName: string) => callLabel(toolName, available, services, { input: callInputs.get(id), output: call?.output });
+		const label = callLabel(existing?.type === "tool" ? existing.name : name, available, services, { input: callInputs.get(id), output: call?.output });
 		if (existing?.type === "tool") {
 			existing.status = status;
-			existing.label = label(existing.name);
-		} else parts.push({ type: "tool", id, name, label: label(name), status });
+			existing.label = label;
+		} else parts.push({ type: "tool", id, name, label, status });
+		if (status === "running") stepCalls.set(id, toolLine(label, "running"));
+		else stepCalls.delete(id);
+		showStep();
 	};
 
 	// A turn after an approval runs the approved call first, so its outcome goes in the prompt.
@@ -326,10 +351,12 @@ async function streamReply(
 	const started = Date.now();
 	const result = streamText({
 		model: agent.model,
+		reasoning: agent.reasoning,
 		instructions: input.instructions,
 		messages: input.messages,
 		tools,
 		stopWhen: agentStopWhen,
+		prepareStep: agentPrepareStep(tools, toolCtx.web),
 		headers: { "x-session-affinity": turn.session.id },
 		providerOptions: { gateway: { caching: "auto" } },
 		// Calls that need approval stop the run there, unexecuted; we hold them below.
@@ -339,6 +366,8 @@ async function streamReply(
 	// Held, not run: save the exact call and show a card in its place. Logged only if it runs later.
 	const hold = async (toolCallId: string, toolName: string, input: unknown) => {
 		calls.delete(toolCallId);
+		stepCalls.delete(toolCallId);
+		showStep();
 		const held = await actionOf(toolName, input, usable);
 		const at = parts.findIndex((p) => p.type === "tool" && p.id === toolCallId);
 		if (!held) return setTool(toolCallId, toolName, "error");
@@ -377,8 +406,15 @@ async function streamReply(
 
 	try {
 		for await (const part of result.stream) {
-			if (part.type === "text-delta") {
+			if (part.type === "start-step") {
+				writing = false;
+				showStep();
+			} else if (part.type === "text-delta") {
 				usage.firstTokenMs ??= Date.now() - started;
+				if (!writing) {
+					writing = true;
+					showStep();
+				}
 				const last = parts.at(-1);
 				if (last?.type === "text") last.text += part.text;
 				else parts.push({ type: "text", text: part.text });
@@ -410,9 +446,12 @@ async function streamReply(
 				if (!part.isAutomatic) await hold(part.toolCall.toolCallId, part.toolCall.toolName, part.toolCall.input);
 			} else if (part.type === "finish-step") {
 				addStep(usage, part.usage, part.providerMetadata);
+				await saveStep();
 				continue;
 			} else if (part.type === "error") throw part.error instanceof Error ? part.error : new Error(String(part.error));
 			else continue;
+			// The step is written before the next part, so it never lags behind the reply.
+			await stepWrites;
 			if (Date.now() - lastFlush > FLUSH_MS) {
 				lastFlush = Date.now();
 				await flush();
@@ -420,6 +459,7 @@ async function streamReply(
 		}
 	} finally {
 		for (const callId of [...calls.keys()]) await logCall(callId, { error: "The reply stopped before this finished." });
+		await stepWrites;
 	}
 	await flush();
 }
@@ -540,11 +580,11 @@ function pageStore(ctx: ActionCtx, turnId: Id<"agentTurns">): PageStore {
 }
 
 /**
- * Search through SEARCH_PROVIDER (core web-search.ts), its gateway cost added to this reply's;
- * pages through webFetch.ts, in Node for its DNS checks.
+ * Search through SEARCH_PROVIDER (core web-search.ts), each one's gateway cost recorded as it
+ * finishes, as kind "search" (turns.addSearchCost); pages through webFetch.ts, in Node for its DNS checks.
  */
-function webClient(ctx: ActionCtx, usage: ReplyUsage): WebClient {
-	const provider = searchProvider(process.env, { onCost: (usd) => (usage.costUsd += usd) });
+function webClient(ctx: ActionCtx, turnId: Id<"agentTurns">): WebClient {
+	const provider = searchProvider(process.env, { onCost: (costUsd, model) => ctx.runMutation(internal.turns.addSearchCost, { turnId, model, costUsd }) });
 	return {
 		search: (query, options) => provider.search(query, options),
 		fetch: (url) => ctx.runAction(internal.webFetch.fetchPage, { url }),

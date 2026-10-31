@@ -43,7 +43,7 @@ describe("search providers", () => {
 			{ title: "Acme", url: "https://acme.com", snippet: "Roofing … since 1990", published: "2026-01-02" },
 			{ title: "Other", url: "https://other.com", snippet: "Full text" },
 		]);
-		expect(onCost).toHaveBeenCalledWith(0.0071);
+		expect(onCost).toHaveBeenCalledWith(0.0071, "exa");
 		const call = generateText.mock.calls[0]![0];
 		expect(Object.keys(call.tools)).toEqual(["exa_search"]);
 		expect(call.toolChoice).toBe("required");

@@ -1,4 +1,5 @@
 import { actionLabel, toolLine } from "@companybot/core/action-words";
+import { splitLinks } from "@companybot/core/link-preview";
 import { Fragment, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
@@ -41,10 +42,14 @@ export function MessageRow({
 	const toolbar = useDismiss<HTMLDivElement>(() => setPicker(false), picker);
 	const { confirm, dialog } = useConfirm();
 	const isAgent = message.author.type === "agent";
+	const sending = message.sending;
 	const toggle = (emoji: string) => react({ messageId: message._id, emoji }).catch(onError);
 
 	const held = isAgent && !message.deleted ? message.parts.filter((p) => p.type === "approval") : [];
 
+	// A reply shows whole once it's written; meanwhile the line under the composer says what the agent is
+	// doing. A card asking permission shows at once, since the reply waits on it.
+	if (message.status === "streaming" && held.length === 0) return null;
 	if (held.length > 0 && held.length === message.parts.length && !message.text) return <ApprovalMessages message={message} parts={held} />;
 
 	return (
@@ -64,7 +69,7 @@ export function MessageRow({
 						</ProfileLink>
 					)}
 				</div>
-				<div className="flex min-w-0 flex-1 flex-col gap-1">
+				<div className={`flex min-w-0 flex-1 flex-col gap-1 ${sending ? "opacity-50" : ""}`}>
 					{!grouped && (
 						<div className="flex items-baseline gap-2">
 							<ProfileLink who={message.author} className="font-semibold hover:underline">
@@ -96,6 +101,11 @@ export function MessageRow({
 						)
 					)}
 					{!message.deleted && message.attachments.length > 0 && <MessageFiles files={message.attachments} />}
+					{sending && sending.files > 0 && (
+						<p className="text-sm text-neutral-500">
+							Sending {sending.files} {sending.files === 1 ? "file" : "files"}…
+						</p>
+					)}
 					{!message.deleted && message.linkPreviews.length > 0 && <LinkPreviews message={message} onError={onError} />}
 					{message.reactions.length > 0 && (
 						<div className="flex flex-wrap gap-1 pt-0.5">
@@ -129,7 +139,7 @@ export function MessageRow({
 						</button>
 					) : null}
 				</div>
-				{!message.deleted && !editing && (
+				{!message.deleted && !editing && !sending && (
 					<div
 						ref={toolbar}
 						className={`absolute -top-3 right-5 z-10 items-center rounded-lg border border-neutral-200 bg-white p-0.5 shadow-sm ${
@@ -172,7 +182,20 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const alternation = (names: string[]) => [...names].sort((a, b) => b.length - a.length).map(escape).join("|");
 
 /** `@Ada`, `#sales` (opens the channel) and `/Proposal` as chips, like in the composer. */
+/** A person's message: its links open in the browser; @names, #channels and /skills stand out. */
 function TokenText({ text, tokens }: { text: string; tokens: TokenNames }) {
+	return splitLinks(text).map((part, i) =>
+		typeof part === "string" ? (
+			<Tokens key={i} text={part} tokens={tokens} />
+		) : (
+			<a key={i} href={part.url} target="_blank" rel="noreferrer noopener" className="wrap-anywhere text-link hover:underline">
+				{part.url}
+			</a>
+		),
+	);
+}
+
+function Tokens({ text, tokens }: { text: string; tokens: TokenNames }) {
 	const parts = [
 		tokens.names.length > 0 && `@(?:${alternation(tokens.names)})(?!\\w)`,
 		tokens.channels.length > 0 && `#(?:${alternation(tokens.channels.map((c) => c.name))})(?![\\w-])`,
@@ -254,7 +277,6 @@ function AgentBody({ message }: { message: Message }) {
 						<WidgetView key={run.part.id} widget={run.part.widget} />
 					) : null,
 				)}
-				{streaming && message.parts.length === 0 && <p className="text-sm text-neutral-400">Thinking…</p>}
 				{message.status === "error" && <Notice>{message.error ?? "Something went wrong."}</Notice>}
 			</div>
 			{message.stats && <ReplyDetails stats={message.stats} />}
@@ -284,7 +306,7 @@ function ToolPart({ replyId, part }: { replyId: Message["_id"]; part: ToolPart }
 	if (part.status === "running") return <p className="text-xs text-neutral-400">{label}</p>;
 	return (
 		<div className="flex">
-			<Popover trigger={label} className="text-xs text-neutral-400 hover:text-neutral-600" panelClassName="w-[32rem] p-3">
+			<Popover trigger={label} className="text-left text-xs text-neutral-400 hover:text-neutral-600" panelClassName="w-[32rem] p-3">
 				<CallPanel replyId={replyId} callId={part.id} />
 			</Popover>
 		</div>
@@ -303,6 +325,7 @@ type Stats = NonNullable<Message["stats"]>;
 
 /** The line under a reply (model, time, cost); click for the full breakdown. */
 function ReplyDetails({ stats }: { stats: Stats }) {
+	const cost = stats.costUsd + (stats.imageCostUsd ?? 0) + (stats.searchCostUsd ?? 0);
 	const rows: [string, string][] = [
 		["Model", stats.model],
 		["Time", `${seconds(stats.durationMs)}${stats.firstTokenMs !== undefined ? `, first words after ${seconds(stats.firstTokenMs)}` : ""}`],
@@ -310,14 +333,16 @@ function ReplyDetails({ stats }: { stats: Stats }) {
 		["Input", `${tokens(stats.inputTokens)} tokens${stats.cachedInputTokens ? `, ${tokens(stats.cachedInputTokens)} cached` : ""}`],
 		["Output", `${tokens(stats.outputTokens)} tokens`],
 		["Model calls", String(stats.steps)],
-		["This reply", usd(stats.costUsd)],
+		...(stats.imageCostUsd ? ([["Pictures", usd(stats.imageCostUsd)]] as [string, string][]) : []),
+		...(stats.searchCostUsd ? ([["Web search", usd(stats.searchCostUsd)]] as [string, string][]) : []),
+		["This reply", usd(cost)],
 		["Here so far", usd(stats.conversationCostUsd)],
 	];
 	return (
 		<div className="flex">
 			<Popover
-				trigger={`${shortModel(stats.model)} · ${seconds(stats.durationMs)} · ${tokens(stats.contextTokens)} context · ${usd(stats.costUsd)} · ${usd(stats.conversationCostUsd)} total`}
-				className="text-xs text-neutral-400 tabular-nums hover:text-neutral-600"
+				trigger={`${shortModel(stats.model)} · ${seconds(stats.durationMs)} · ${tokens(stats.contextTokens)} context · ${usd(cost)} · ${usd(stats.conversationCostUsd)} total`}
+				className="text-left text-xs text-neutral-400 tabular-nums hover:text-neutral-600"
 				panelClassName="w-80 p-3"
 			>
 				<dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs tabular-nums">

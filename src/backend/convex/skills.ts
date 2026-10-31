@@ -143,18 +143,6 @@ export async function setSkillTrashed(ctx: MutationCtx, who: Who, installId: Id<
 	await ctx.db.patch(installId, { archived });
 }
 
-// COMPAT(0.1.0-alpha.8): old desktops may request installation; keep the endpoint until they update.
-export const setInstalled = mutation({
-	args: { skillId: v.string(), installed: v.literal(true) },
-	handler: async (ctx, { skillId }) => {
-		const member = await requireMember(ctx);
-		if (skillId.startsWith("custom-")) throw new ConvexError("Skills people make are always on.");
-		const { workspaceId } = checkPermission(member, "skills.manage");
-		if (await installOf(ctx, workspaceId, skillId)) return;
-		throw new ConvexError("The skill library has retired. Create your own skill in Customize → Skills.");
-	},
-});
-
 /** `skills.create` from chat: makes a skill as the person the agent is helping. */
 export const createFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), config: customConfig },

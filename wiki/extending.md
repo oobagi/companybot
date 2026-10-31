@@ -39,7 +39,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 - Add one: `defineWidget` (type, description, zod `input`, `summary`, optional `prepare`) in `widgetCatalog`, then a component in the desktop `registry`. That's all; the tool `widgets.<type>` appears automatically.
 - `description` and `.describe()` on input are how the model learns to use it. Write them for the model.
 - **Refs:** tools with `returnsData` (connector tools, `memory.search`) reach the model as `{ ref: "r1", data }`, and their data is kept for the turn (`ResultStore`). A widget's `prepare` can look a ref up, so the model points at data instead of copying it (see `table`'s `from`). The model still sees the data; it just doesn't re-type it.
-- **After a widget** the run goes on (`agentStopWhen` stops only at the step limit), so work can continue after a table. The receipt tells the model not to describe the widget or repeat it, and to end the reply unless the task needs more steps.
+- **After a widget** the run goes on (`agentStopWhen` stops only at the step limit, `AGENT_STEPS`), so work can continue after a table. The last step offers only widgets and adds a note to answer now (`agentPrepareStep`; Sonnet ignores a narrowed tool list without it), so a reply always ends with an answer, never a lookup with no step left to use it. The receipt tells the model not to describe the widget or repeat it, and to end the reply unless the task needs more steps.
 - `prepare` returns concrete props, which are stored and rendered by the app, so keep them plain data. Older apps show a placeholder for unknown types.
 - Widgets are generic UI, not tied to a skill or connector. Skills and connectors produce data; any widget can show it.
 - Connector-provided UI later: MCP Apps (`@ai-sdk/mcp` supports them) in a sandboxed frame, not this registry.
@@ -65,6 +65,12 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 - Member-made automations: `CustomAutomationConfig`, checked by `customAutomationError` on create and save, turned into an `Automation` by `customAutomation`. Saves send `expectedVersion`.
 - Webhook data is untrusted: it only ever reaches the model inside `triggerPrompt`'s fenced block, never as instructions or as who to act as. `person.email` must match a workspace member.
 - Runs go to the audience: each opted-in person's agent DM (`findOrCreateDm` + `insertMessage`), or the picked channel. Never message people who didn't opt in. Each run queues a turn with `enqueueTurn`, acting as a real member, the same path as a message they send. Don't give automations their own permission path.
+
+## Wakeups — `core/src/wakeups.ts`, `backend/convex/wakeups.ts`
+- Anything that wakes an agent later is a `wakeups` row; never add another table or trigger path. Make one with `createWakeup` (when: `at` [+ `every`, `times`] or `jobId`; what: `note` or none), move or re-arm it with `armAt`, stop it with `cancelWakeup`. Pass `foreign` from the run that made it (`automationScope`).
+- `wake(ctx, id, { result? })` is the only path to a turn: it re-checks access and queues a quiet turn with `wakeupId`. Jobs (#114) call it on finish/fail/timeout with their result; cancelling a job cancels its wakeup.
+- Gates for note-less wakeups (the heartbeat, #162) go in `lookAroundGate`: return a reason to skip, logged on the wake's Activity line. A different repeat schedule (working hours) replaces `nextRepeat` in `fire` for those rows.
+- A wake turn speaks only with `chat.notify`. Anything that lists messages people or agents read must skip `quiet` ones.
 
 ## Memory — `core/src/memory.ts`, `backend/convex/memoryOps.ts`
 - Each memory belongs to one agent; scope `workspace` or `personal`. Rules live in `canReadMemory` / `canEditMemory` / `canCreateMemory`.
@@ -112,7 +118,7 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 ## Paid calls — `backend/convex/usage.ts`
 - Anything that costs money (a model call, web search, an image) records its cost with `recordUsage(ctx, { workspaceId, userId?, agentId?, kind, model?, costUsd })`, in the mutation that saves its result, so the Usage screen and later plans' allowance see it. Add a `kind` to `usageKinds` (core `usage.ts`) with its label; the table's validator is built from it.
 - `userId` is the person it ran for (the acting member, an automation's person); leave it out only when nobody did. Pass the cost as AI Gateway or the provider billed it, in USD.
-- Pictures (`images.generate`, `backend/convex/imageGen.ts`) record kind `image` and are capped by the workspace's monthly image budget, read from the same rows (`imageSpent`). Anything else that spends per call without a turn's reply to show it should get a budget the same way: a workspace setting, checked before the call.
+- Pictures (`images.generate`, `backend/convex/imageGen.ts`) record kind `image` and are capped by the workspace's monthly image budget, read from the same rows (`imageSpent`). A call holds its estimated cost (`imageHolds`) while it runs, so parallel calls can't all pass the budget. Anything else that spends per call without a turn's reply to show it should get a budget the same way: a workspace setting, checked before the call, with a hold.
 - Don't read costs from messages for totals: read `usage` rows (`usageReport`). The whole workspace's numbers need `usage.view`; everyone can read their own share.
 
 ## Shared settings

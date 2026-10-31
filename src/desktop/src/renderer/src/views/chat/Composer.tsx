@@ -1,12 +1,15 @@
 import type { Doc, Id } from "@companybot/backend/convex/_generated/dataModel";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { type ReactNode, useMemo, useRef, useState } from "react";
+import { api } from "../../api";
+import { useQuery } from "../../convex";
 import { ArrowUpIcon, ChannelIcon, PrivateIcon, SkillIcon } from "../../icons";
 import { AttachButton, type Attachments, PendingFiles } from "./Attachments";
 import { Avatar } from "./common";
 import { ComposerTools } from "./ComposerTools";
 import type { Mentions } from "./data";
-import { useDraft } from "./drafts";
+import { pastedFiles } from "./composerFiles";
+import { keepDraft, textKey, useDraft } from "./drafts";
 import { type Candidate, type Menu, type Sources, SuggestionMenu, composerExtensions, plainText, tokensIn } from "./editor";
 import { Form, metadataClass } from "../../ui";
 
@@ -17,19 +20,18 @@ export function Composer({
 	sendWith,
 	placeholder,
 	status,
-	tray,
 	onType,
 	sources,
 	attachments,
 	draftKey,
 }: {
-	onSend: (text: string, mentions: Mentions, files: Id<"_storage">[]) => void;
+	/** Rejects if the message didn't go: the composer gets its text and files back. */
+	onSend: (text: string, mentions: Mentions, files: Id<"_storage">[]) => Promise<unknown>;
 	sendWith: SendWith;
 	placeholder: string;
 	/** The line under the box (who's typing). Its space is kept when empty, so the box doesn't jump. */
 	status?: ReactNode;
-	/** Sits on top of the box, joined to it (the tutorial). */
-	tray?: ReactNode;
+	/** Each keystroke (typing pings). */
 	onType?: () => void;
 	/** What @, # and / offer. */
 	sources: Sources;
@@ -38,11 +40,14 @@ export function Composer({
 	/** Where an unsent message is kept for this chat or thread (drafts.ts). */
 	draftKey?: string;
 }) {
+	const me = useQuery(api.chats.list)?.me;
+	// Each person's own, and none until we know who's here.
+	const saveAt = me && draftKey ? textKey(me, draftKey) : undefined;
 	const [menu, setMenu] = useState<Menu | null>(null);
 	const [empty, setEmpty] = useState(true);
 	// The editor is made once; it reads the latest props (and this render's submit) through this ref.
-	const latest = useRef({ sources, placeholder, sendWith, onSend, onType, attachments, submit: () => {} });
-	latest.current = { ...latest.current, sources, placeholder, sendWith, onSend, onType, attachments };
+	const latest = useRef({ sources, placeholder, sendWith, onSend, onType, attachments, saveAt, submit: () => {} });
+	latest.current = { ...latest.current, sources, placeholder, sendWith, onSend, onType, attachments, saveAt };
 	const suggestions = useMemo(() => new SuggestionMenu(() => latest.current.sources, setMenu), []);
 
 	const editor = useEditor({
@@ -55,11 +60,16 @@ export function Composer({
 		autofocus: "end",
 		editorProps: {
 			attributes: { class: "max-h-48 overflow-y-auto py-1.5 outline-none break-words", role: "textbox", "aria-multiline": "true" },
-			handlePaste: (_view, event) => {
-				const files = [...(event.clipboardData?.files ?? [])];
-				if (files.length === 0 || !latest.current.attachments) return false;
-				latest.current.attachments.add(files);
-				return true;
+			handlePaste: (view, event) => {
+				const clipboard = event.clipboardData;
+				if (!clipboard?.files.length || !latest.current.attachments) return false;
+				const files = pastedFiles(clipboard);
+				if (files.length) {
+					latest.current.attachments.add(files);
+					return true;
+				}
+				// Cells or a document with a picture of itself: paste the text, as plain text, not the picture.
+				return view.pasteText(clipboard.getData("text/plain"));
 			},
 		},
 		onUpdate: ({ editor }) => {
@@ -69,7 +79,7 @@ export function Composer({
 		onBlur: () => suggestions.hide(),
 	});
 
-	useDraft(editor, draftKey, setEmpty);
+	useDraft(editor, saveAt, setEmpty);
 
 	const submit = () => {
 		if (!editor) return;
@@ -77,10 +87,23 @@ export function Composer({
 		const files = latest.current.attachments;
 		if (files?.uploading || (!text && !files?.ids.length)) return;
 		const tokens = tokensIn(editor);
-		latest.current.onSend(text, { userIds: tokens.user as Id<"users">[], agentIds: tokens.agent as Id<"agents">[], skillIds: tokens.skill }, files?.ids ?? []);
-		files?.clear();
+		const doc = editor.getJSON();
+		const key = latest.current.saveAt;
+		// Emptied at once, so it feels sent; a send that fails puts it all back.
+		const taken = files?.take();
+		const sending = latest.current.onSend(text, { userIds: tokens.user as Id<"users">[], agentIds: tokens.agent as Id<"agents">[], skillIds: tokens.skill }, taken?.ids ?? []);
 		editor.commands.clearContent(true);
 		setEmpty(true);
+		sending.then(
+			() => taken?.sent(),
+			() => {
+				taken?.restore();
+				// Still open on the same place: back in the box (an edit, so the draft saves it), unless they've typed since.
+				if (!editor.isDestroyed && latest.current.saveAt === key) {
+					if (editor.isEmpty) editor.commands.setContent(doc);
+				} else if (key) keepDraft(key, doc);
+			},
+		);
 	};
 	latest.current.submit = submit;
 
@@ -88,7 +111,6 @@ export function Composer({
 		<div className="relative flex w-full flex-col">
 			{menu && <Picker menu={menu} onHighlight={(i) => suggestions.highlight(i)} onPick={(i) => suggestions.pick(i)} />}
 			<div className="flex flex-col">
-				{tray}
 				<Form className={`flex w-full flex-wrap items-end gap-2 rounded-2xl border border-neutral-200 bg-white p-2 shadow-sm focus-within:border-neutral-300 ${attachments ? "" : "pl-4"}`} onSubmit={submit}>
 					{attachments && <PendingFiles attachments={attachments} />}
 					{attachments && <AttachButton attachments={attachments} />}

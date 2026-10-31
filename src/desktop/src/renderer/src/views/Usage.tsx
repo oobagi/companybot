@@ -16,7 +16,7 @@ export function UsageTab() {
 	return (
 		<>
 			<Settings>
-				<Setting label={mine ? "Your usage" : "This workspace"} hint={mine ? "What the replies you asked for cost." : "Replies, summaries and everything else AI was used for."}>
+				<Setting label={mine ? "Your usage" : "This workspace"} hint={mine ? "Your replies, chat summaries, pictures and dictation." : "Replies, summaries and everything else AI was used for."}>
 					<span className="text-base font-medium tabular-nums">{formatUsd(report.total)}</span>
 					<Select value={month} options={months.map((m) => ({ value: m, label: monthLabel(m) }))} onChange={setMonth} />
 				</Setting>
@@ -28,7 +28,7 @@ export function UsageTab() {
 					<Breakdown title="By agent" lines={report.byAgent.map((l) => [l.name, l.costUsd])} />
 					{!mine && <Breakdown title="By person" lines={report.byPerson.map((l) => [l.name, l.costUsd])} />}
 					<Breakdown title="By kind" lines={report.byKind.map((l) => [usageKindLabels[l.kind as UsageKind] ?? l.kind, l.costUsd])} />
-					<Breakdown title="By model" lines={report.byModel.map((l) => [l.model, l.costUsd])} />
+					<Breakdown title="By model" lines={report.byModel.map((l) => [l.name, l.costUsd])} />
 				</>
 			)}
 		</>

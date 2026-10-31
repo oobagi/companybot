@@ -1,4 +1,6 @@
-import { Component, Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Component, Fragment, createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { errorMessage } from "./api";
 import { PlusIcon } from "./icons";
 import { navigate } from "./router";
@@ -127,8 +129,9 @@ export type Crumb = { label: string; to: string[] };
  * where you drag the window.
  */
 export function TopBar({ crumbs = [], title, description, children }: { crumbs?: Crumb[]; title: React.ReactNode; description?: React.ReactNode; children?: React.ReactNode }) {
+	// Its text starts 20px in (16 here, 4 on the title or crumb), like the sidebar's workspace name.
 	return (
-		<header className="drag flex h-12 shrink-0 items-center gap-3 px-5">
+		<header className="drag flex h-12 shrink-0 items-center gap-3 px-4">
 			<nav className="flex min-w-0 items-center overflow-x-auto text-sm">
 				{crumbs.map((c) => (
 					<Fragment key={c.to.join("/")}>
@@ -138,7 +141,7 @@ export function TopBar({ crumbs = [], title, description, children }: { crumbs?:
 						<span className="shrink-0 px-1 text-neutral-300">/</span>
 					</Fragment>
 				))}
-				<div className="flex min-w-0 items-baseline gap-2 px-1 font-semibold">
+				<div className="flex min-w-0 items-center gap-2 px-1 font-semibold">
 					{title}
 					{/* Gives way before the title does: it only gets the room left over. */}
 					{description && <p className="min-w-0 flex-1 truncate font-normal text-neutral-500">{description}</p>}
@@ -153,11 +156,13 @@ export function TopBar({ crumbs = [], title, description, children }: { crumbs?:
  * A scrolling area whose header and footer stay put, taking their own room, so content
  * starts below the header and ends above the footer. Content scrolled under either fades
  * out on its scrim (styles.css), which shows only while something is under it.
+ * `overlayScrollbar` keeps chat panes flush even when the OS uses classic scrollbars.
  */
 export function Scroll({
 	ref,
 	header,
 	footer,
+	overlayScrollbar = false,
 	className = "",
 	onScroll,
 	children,
@@ -165,6 +170,7 @@ export function Scroll({
 	ref?: React.RefObject<HTMLDivElement | null>;
 	header?: React.ReactNode;
 	footer?: React.ReactNode;
+	overlayScrollbar?: boolean;
 	className?: string;
 	onScroll?: React.UIEventHandler<HTMLDivElement>;
 	children: React.ReactNode;
@@ -189,24 +195,37 @@ export function Scroll({
 		if (el.firstElementChild) observer.observe(el.firstElementChild);
 		return () => observer.disconnect();
 	}, [scroller, measure]);
-	return (
-		<div ref={scroller} onScroll={(e) => (measure(), onScroll?.(e))} className={`min-h-0 flex-1 overflow-y-auto ${className}`}>
-			<div className="flex min-h-full flex-col">
-				{header && (
-					<div className="scrim-top sticky top-0 z-30" data-under={underTop || undefined}>
-						{header}
-					</div>
-				)}
-				<div className="flex flex-1 flex-col">{children}</div>
-				{footer && (
-					<div className="scrim-bottom sticky bottom-0 z-30" data-under={underBottom || undefined}>
-						{footer}
-					</div>
-				)}
-			</div>
+	const content = (
+		<div className="flex min-h-full flex-1 flex-col">
+			{header && (
+				<div className="scrim-top sticky top-0 z-30" data-under={underTop || undefined}>
+					{header}
+				</div>
+			)}
+			<div className="flex flex-1 flex-col">{children}</div>
+			{footer && (
+				<div className="scrim-bottom sticky bottom-0 z-30" data-under={underBottom || undefined}>
+					{footer}
+				</div>
+			)}
 		</div>
 	);
+	const scroll = (e: React.UIEvent<HTMLDivElement>) => (measure(), onScroll?.(e));
+	if (!overlayScrollbar) return <div ref={scroller} onScroll={scroll} className={`min-h-0 flex-1 overflow-y-auto ${className}`}>{content}</div>;
+	return (
+		<ScrollArea.Root type="hover" className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
+			<ScrollArea.Viewport ref={scroller} onScroll={scroll} tabIndex={0} disableImplicitContentElement className={`h-full w-full outline-none ${className}`}>
+				<ScrollArea.Content asChild style={{ display: "flex" }}>{content}</ScrollArea.Content>
+			</ScrollArea.Viewport>
+			<ScrollArea.Scrollbar orientation="vertical" className="no-drag z-40 flex w-2 touch-none p-0.5 select-none">
+				<ScrollArea.Thumb className="relative flex-1 rounded-full bg-neutral-400/70 hover:bg-neutral-500" />
+			</ScrollArea.Scrollbar>
+		</ScrollArea.Root>
+	);
 }
+
+/** The page's top-bar spot for `PageActions`. */
+const actionSlot = createContext<HTMLElement | null>(null);
 
 /**
  * A screen: the top bar, then its content. The title lives in the top bar; `heading` is
@@ -230,24 +249,29 @@ export function Page({
 	wide?: boolean;
 	children: React.ReactNode;
 }) {
+	// Where `PageActions` from the content land, after `actions`.
+	const [slot, setSlot] = useState<HTMLElement | null>(null);
 	return (
 		<Scroll
 			className="@container"
 			header={
 				<TopBar crumbs={crumbs} title={<span className="truncate">{title}</span>} description={description}>
 					{actions}
+					<span ref={setSlot} className="contents" />
 				</TopBar>
 			}
 		>
-			{/* `--bleed`: from the column's content out to the screen's edge, for `.bleed`. */}
-			<div
-				className={`mx-auto flex w-full flex-1 flex-col gap-6 px-6 pt-8 pb-10 ${
-					wide ? "max-w-5xl [--bleed:max(1.5rem,calc((100cqw-64rem)/2+1.5rem))]" : "max-w-2xl [--bleed:max(1.5rem,calc((100cqw-42rem)/2+1.5rem))]"
-				}`}
-			>
-				{heading && <h1 className="text-2xl font-semibold tracking-tight">{heading}</h1>}
-				{children}
-			</div>
+			<actionSlot.Provider value={slot}>
+				{/* `--bleed`: from the column's content out to the screen's edge, for `.bleed`. */}
+				<div
+					className={`mx-auto flex w-full flex-1 flex-col gap-6 px-6 pt-8 pb-10 ${
+						wide ? "max-w-5xl [--bleed:max(1.5rem,calc((100cqw-64rem)/2+1.5rem))]" : "max-w-2xl [--bleed:max(1.5rem,calc((100cqw-42rem)/2+1.5rem))]"
+					}`}
+				>
+					{heading && <h1 className="text-2xl font-semibold tracking-tight">{heading}</h1>}
+					{children}
+				</div>
+			</actionSlot.Provider>
 		</Scroll>
 	);
 }
@@ -295,15 +319,27 @@ export function Tabs<T extends string>({
 	);
 }
 
-export function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+/**
+ * A titled part of a screen, usually a stack of cards. Its heading is inset to line up with the
+ * text inside them; `flush` keeps it at the edge, for plain content (a form) that sits there too.
+ */
+export function Section({ title, hint, flush, children }: { title: string; hint?: string; flush?: boolean; children: React.ReactNode }) {
 	return (
 		<section className="flex flex-col gap-2">
-			<div>
-				<h2 className="font-medium">{title}</h2>
-				{hint && <p className={descriptionClass}>{hint}</p>}
-			</div>
+			<Heading title={title} hint={hint} flush={flush} />
 			{children}
 		</section>
+	);
+}
+
+/** Section and Settings headings: a title and a hint. */
+function Heading({ title, hint, flush }: { title?: string; hint?: string; flush?: boolean }) {
+	if (!title && !hint) return null;
+	return (
+		<div className={flush ? "" : insetClass}>
+			{title && <h2 className="font-medium">{title}</h2>}
+			{hint && <p className={descriptionClass}>{hint}</p>}
+		</div>
 	);
 }
 
@@ -314,12 +350,7 @@ export function Section({ title, hint, children }: { title: string; hint?: strin
 export function Settings({ title, hint, children }: { title?: string; hint?: string; children: React.ReactNode }) {
 	return (
 		<section className="flex flex-col gap-2">
-			{(title || hint) && (
-				<div>
-					{title && <h2 className="font-medium">{title}</h2>}
-					{hint && <p className={descriptionClass}>{hint}</p>}
-				</div>
-			)}
+			<Heading title={title} hint={hint} />
 			<div className={listClass}>{children}</div>
 		</section>
 	);
@@ -377,6 +408,8 @@ export const metadataClass = "text-xs text-neutral-400";
 export const hintClass = "text-sm text-neutral-400";
 /** One item as a bordered box: an entry, a rule, a member. */
 export const cardClass = "rounded-xl border border-neutral-200 px-4 py-3";
+/** Lines text outside a card (a heading, an empty note) up with the text inside it: its padding plus its 1px border. */
+export const insetClass = "px-[17px]";
 /** Rows in one bordered box, split by lines. */
 export const listClass = "flex flex-col divide-y divide-neutral-100 rounded-xl border border-neutral-200";
 /**
@@ -446,6 +479,47 @@ export function Notice({ children }: { children: React.ReactNode }) {
 	return <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{children}</p>;
 }
 
+/**
+ * A name edited in place, where it's shown (a sidebar row, a tab), as in Finder or Figma: it opens
+ * with the text selected; Enter or clicking away saves, Escape puts it back. A blank or unchanged
+ * name saves nothing. While a save runs it shows the new name as plain text, and `onDone` closes it
+ * once the save settles: Convex resolves a mutation after the screen's queries include it, so the
+ * new name never flashes back to the old one. `className` sizes and pads it so its text sits where
+ * the name did.
+ */
+export function RenameInput({ value, onSave, onDone, className = "" }: { value: string; onSave: (name: string) => Promise<unknown>; onDone: () => void; className?: string }) {
+	const [draft, setDraft] = useState(value);
+	const [saving, setSaving] = useState(false);
+	// Enter closes it, and closing blurs it: only the first finish counts.
+	const finished = useRef(false);
+	const finish = (save: boolean) => {
+		if (finished.current) return;
+		finished.current = true;
+		const name = draft.trim();
+		if (!save || !name || name === value) return onDone();
+		setDraft(name);
+		setSaving(true);
+		void onSave(name).finally(onDone);
+	};
+	return (
+		<input
+			autoFocus
+			readOnly={saving}
+			value={draft}
+			maxLength={120}
+			aria-label="Name"
+			onChange={(e) => setDraft(e.target.value)}
+			onFocus={(e) => e.currentTarget.select()}
+			onBlur={() => finish(true)}
+			onKeyDown={(e) => {
+				if (e.key === "Enter") finish(true);
+				else if (e.key === "Escape") (e.stopPropagation(), finish(false));
+			}}
+			className={`min-w-0 rounded-md outline-1 -outline-offset-1 ${saving ? "outline-transparent" : "bg-white outline-neutral-300 focus:outline-neutral-400"} ${className}`}
+		/>
+	);
+}
+
 /** Shows a query's error in place of what failed, plainly. Remount (new `key`) to try again. */
 export class ErrorBoundary extends Component<{ children: React.ReactNode }, { error?: unknown }> {
 	state: { error?: unknown } = {};
@@ -480,6 +554,79 @@ export function useSynced<T>(value: T) {
 	const [synced, setSynced] = useState(value);
 	if (!Object.is(synced, value)) (setSynced(value), setState(value));
 	return [state, setState] as const;
+}
+
+/** A panel's width, kept per computer under `key` (localStorage) within `min`…`max`, with `fallback` until you set one. */
+export function useStoredWidth(key: string, fallback: number, min: number, max: number) {
+	const clamp = useCallback((w: number) => Math.round(Math.min(max, Math.max(min, w))), [min, max]);
+	const [width, setWidth] = useState(() => clamp(Number(localStorage.getItem(key)) || fallback));
+	const save = useCallback(
+		(w: number) => {
+			const next = clamp(w);
+			setWidth(next);
+			try {
+				localStorage.setItem(key, String(next));
+			} catch {
+				// Storage may be unavailable; it still holds until reload.
+			}
+		},
+		[key, clamp],
+	);
+	return { width, min, max, fallback, preview: useCallback((w: number) => setWidth(clamp(w)), [clamp]), save };
+}
+
+/**
+ * A panel's resizable edge (`side`: which edge of the panel it is). Drag it; double-click for
+ * the default; arrow keys when focused. Only the release is saved. The panel needs `relative`.
+ */
+export function ResizeHandle({ side, label, size }: { side: "left" | "right"; label: string; size: ReturnType<typeof useStoredWidth> }) {
+	const start = useRef<{ x: number; width: number } | null>(null);
+	const sign = side === "right" ? 1 : -1;
+	const at = (e: React.PointerEvent) => start.current!.width + sign * (e.clientX - start.current!.x);
+	return (
+		<div
+			role="separator"
+			aria-orientation="vertical"
+			aria-label={label}
+			aria-valuenow={size.width}
+			aria-valuemin={size.min}
+			aria-valuemax={size.max}
+			tabIndex={0}
+			onPointerDown={(e) => {
+				if (e.button !== 0) return;
+				e.preventDefault();
+				e.currentTarget.setPointerCapture(e.pointerId);
+				start.current = { x: e.clientX, width: size.width };
+			}}
+			onPointerMove={(e) => start.current && size.preview(at(e))}
+			onPointerUp={(e) => {
+				if (!start.current) return;
+				size.save(at(e));
+				start.current = null;
+			}}
+			// The OS or a gesture can cancel a drag without a pointerup; keep what was previewed and stop following the mouse.
+			onPointerCancel={() => start.current && ((start.current = null), size.save(size.width))}
+			onDoubleClick={() => size.save(size.fallback)}
+			onKeyDown={(e) => {
+				if (e.key === "ArrowLeft" || e.key === "ArrowRight") (e.preventDefault(), size.save(size.width + sign * (e.key === "ArrowLeft" ? -16 : 16)));
+			}}
+			className={`no-drag absolute inset-y-0 z-40 w-2 cursor-col-resize after:absolute after:inset-y-0 after:left-[3px] after:w-0.5 after:rounded-full after:bg-neutral-400 after:opacity-0 after:transition-opacity hover:after:opacity-100 focus-visible:outline-none focus-visible:after:opacity-100 active:after:opacity-100 ${side === "right" ? "-right-1" : "-left-1"}`}
+		/>
+	);
+}
+
+/**
+ * The time, rounded down to 5 minutes and updated as it passes: an argument for a query that depends
+ * on the clock (a Convex query re-runs when its arguments change, never on the clock alone).
+ */
+export function useClock(stepMs = 5 * 60_000) {
+	const now = () => Math.floor(Date.now() / stepMs) * stepMs;
+	const [time, setTime] = useState(now);
+	useEffect(() => {
+		const timer = setInterval(() => setTime(now()), 15_000);
+		return () => clearInterval(timer);
+	}, [stepMs]);
+	return time;
 }
 
 /** `value`, once it has stopped changing for `ms`: for searches that query as you type. */
@@ -527,16 +674,23 @@ export function ConflictNotice({ draft, who }: { draft: { stale: boolean; discar
 	);
 }
 
-export function SaveBar({ onSave, onDiscard }: { onSave: () => void; onDiscard: () => void }) {
+/** Buttons for the page's top bar, from anywhere in its content (a tab inside Settings, say). */
+export function PageActions({ children }: { children: React.ReactNode }) {
+	const slot = useContext(actionSlot);
+	return slot ? createPortal(children, slot) : null;
+}
+
+/** Discard and Save in the page's top bar; both off until something changed. */
+export function SaveBar({ dirty, onSave, onDiscard }: { dirty: boolean; onSave: () => void; onDiscard: () => void }) {
 	return (
-		<div className="sticky bottom-4 flex justify-end gap-2 rounded-2xl border border-neutral-200 bg-white/90 p-2 shadow-sm backdrop-blur">
-			<button type="button" onClick={onDiscard} className={secondaryButton}>
+		<PageActions>
+			<button type="button" disabled={!dirty} onClick={onDiscard} className={barButton}>
 				Discard
 			</button>
-			<button type="button" onClick={onSave} className={primaryButton}>
+			<button type="button" disabled={!dirty} onClick={onSave} className={compactPrimaryButton}>
 				Save
 			</button>
-		</div>
+		</PageActions>
 	);
 }
 

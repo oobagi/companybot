@@ -35,7 +35,6 @@ import type * as http from "../http.js";
 import type * as imageGen from "../imageGen.js";
 import type * as images from "../images.js";
 import type * as invites from "../invites.js";
-import type * as legacyCatalogs from "../legacyCatalogs.js";
 import type * as lib from "../lib.js";
 import type * as lifecycle from "../lifecycle.js";
 import type * as linkPreviews from "../linkPreviews.js";
@@ -71,6 +70,7 @@ import type * as trashOps from "../trashOps.js";
 import type * as turns from "../turns.js";
 import type * as typing from "../typing.js";
 import type * as usage from "../usage.js";
+import type * as wakeups from "../wakeups.js";
 import type * as webFetch from "../webFetch.js";
 import type * as workspace from "../workspace.js";
 
@@ -108,7 +108,6 @@ declare const fullApi: ApiFromModules<{
   imageGen: typeof imageGen;
   images: typeof images;
   invites: typeof invites;
-  legacyCatalogs: typeof legacyCatalogs;
   lib: typeof lib;
   lifecycle: typeof lifecycle;
   linkPreviews: typeof linkPreviews;
@@ -144,6 +143,7 @@ declare const fullApi: ApiFromModules<{
   turns: typeof turns;
   typing: typeof typing;
   usage: typeof usage;
+  wakeups: typeof wakeups;
   webFetch: typeof webFetch;
   workspace: typeof workspace;
 }>;

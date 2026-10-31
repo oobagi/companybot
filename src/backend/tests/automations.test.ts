@@ -41,10 +41,8 @@ describe("automations", () => {
 	});
 
 	describe("library", () => {
-		it("refuses library installation from old desktops and keeps existing opt-ins", async () => {
+		it("keeps existing opt-ins on a retained library install", async () => {
 			const { t, owner, member } = await ownerAndMember();
-			await expect(member.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: true, timeZone: tz })).rejects.toThrow("permission");
-			await expect(owner.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: true, timeZone: tz })).rejects.toThrow("retired");
 			await install(t, owner, "morning-brief");
 			expect((await find(owner, "morning-brief"))!.subscribed).toBe(true);
 			expect((await find(member, "morning-brief"))!.subscribed).toBe(false);
@@ -346,7 +344,6 @@ describe("automations", () => {
 			await owner.mutation(api.trash.purge, { id: trashed.trash!.itemId });
 			await settle(t);
 			expect(await t.run((ctx) => ctx.db.query("automationSubscriptions").collect())).toHaveLength(0);
-			await expect(owner.mutation(api.automations.setInstalled, { automationId: "morning-brief", installed: true })).rejects.toThrow("retired");
 		});
 
 		it("takes any webhook body when it has no named event", async () => {

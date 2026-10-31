@@ -1,7 +1,7 @@
 "use node";
 
 import { sniffImage } from "@companybot/core/images";
-import type { FetchedBody } from "@companybot/core/safe-fetch";
+import { type FetchedBody, textOf } from "@companybot/core/safe-fetch";
 import { v } from "convex/values";
 import { parseHTML } from "linkedom";
 import { internal } from "./_generated/api";
@@ -66,9 +66,10 @@ const clip = (text: string | null | undefined, max: number) => {
 };
 
 /** What an HTML page says about itself: Open Graph, then Twitter card, then <title> and <meta name="description">. Undefined without a title or description. */
-export function previewFrom({ url, status, contentType, bytes }: FetchedBody): Unfurl | undefined {
+export function previewFrom(body: FetchedBody): Unfurl | undefined {
+	const { url, status, contentType } = body;
 	if (status >= 400 || (contentType !== "text/html" && contentType !== "application/xhtml+xml")) return undefined;
-	const { document } = parseHTML(new TextDecoder().decode(bytes));
+	const { document } = parseHTML(textOf(body));
 	// The first of each wins, like a browser's.
 	const meta: Record<string, string> = {};
 	for (const tag of document.querySelectorAll("meta")) {

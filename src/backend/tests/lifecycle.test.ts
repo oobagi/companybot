@@ -132,6 +132,7 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 
 		// The workspace's bill: stays when a member goes or an account is erased, goes with the workspace.
 		await ctx.db.insert("usage", { workspaceId, month: "2026-10", userId: memberId, agentId, kind: "chat", model: "openai/gpt-6-luna", costUsd: 0.1 });
+		await ctx.db.insert("imageHolds", { workspaceId, costUsd: 0.04 });
 
 		const install = { workspaceId, agentId, enabled: true, timeZone: "UTC" };
 		const trigger = { type: "webhook" as const };
@@ -156,6 +157,7 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		await ctx.db.insert("recordValues", { recordId, fieldId, str: "roof", at: now });
 		await ctx.db.insert("recordHistory", { workspaceId, typeId, recordId, action: "created", changes: [], userId: memberId });
 		await ctx.db.insert("recordMentions", { recordId, messageId: said, chatId: channel });
+		mine.push(await ctx.db.insert("wakeups", { workspaceId, agentId, chatId: channel, actorId: memberId, createdBy: memberId, note: "Chase it", recordId, typeId, foreign: false, status: "pending", at: now + 60_000 }));
 		const pageId = await ctx.db.insert("pages", { workspaceId, recordId, title: "", archived: false, createdBy: memberId, updatedAt: now, updatedBy: memberId });
 		await ctx.db.insert("pageVersions", { pageId, n: 1, version: 2, userId: memberId, editedAt: now });
 		await ctx.db.insert("pageImages", { workspaceId, pageId, storageId: await ctx.storage.store(new Blob(["x"])), url: `https://x.convex.cloud/api/storage/${pageId}` });
@@ -243,7 +245,7 @@ describe("deleting a workspace", () => {
 		// Every live table has rows, so a cascade that missed one would show.
 		const before = await dump(t);
 		const seeded = new Set([...before.values()].map((r) => r.table));
-		expect(tables.filter((table) => !seeded.has(table) && table !== "cascades" && table !== "legacyWorkspaces")).toEqual([]);
+		expect(tables.filter((table) => !seeded.has(table) && table !== "cascades")).toEqual([]);
 
 		await expect(a.mutation(api.workspace.deleteWorkspace, { name: "Nope" })).rejects.toThrow("Type the workspace's name");
 		await expect(m.in(A).mutation(api.workspace.deleteWorkspace, { name: "My company" })).rejects.toThrow("permission");

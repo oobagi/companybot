@@ -55,6 +55,10 @@ export type Lifecycle<T extends TableNames> = { [S in Scope]?: Edge<T> } & {
 const inChannel = async (get: Get, row: { chatId: Id<"chats"> }) => (await get(row.chatId))?.kind === "channel";
 const inWorkspace = async (get: Get, id: Id<"chats"> | Id<"automationInstalls">, root: Root) => (await get(id))?.workspaceId === root.workspaceId;
 
+const pending = (_get: Get, row: Doc<"wakeups">) => row.status === "pending";
+/** Cancels a pending wakeup in a cascade: `fire` and `wake` do nothing for it after this. */
+const cancelled = (reason: string) => () => ({ status: "cancelled" as const, reason, held: undefined, settledAt: Date.now() });
+
 /** A record's page body goes with it. */
 async function deleteBody(ctx: MutationCtx, row: Doc<"records">) {
 	const page = await pageOfRecord(ctx, row.workspaceId, row._id);
@@ -125,10 +129,6 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		keep: "Invites are for an email, not an account: they outlive the person who sent them.",
 	},
 	inviteEmails: { workspace: { index: "by_workspace", eq: ["workspaceId"] } },
-	legacyWorkspaces: {
-		user: { index: "by_user", eq: ["userId"] },
-		keep: "Retired: nothing writes it, and migrations.clearLegacyWorkspaces empties it.",
-	},
 	// Uploads not yet attached to anything (images.ts); unclaimed ones also go after a day (images.sweepUploads).
 	uploads: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
@@ -253,6 +253,20 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		keep: "Only the person it acted for can decide one; a removed person's expire undecided, as do ones in a deleted channel.",
 	},
 
+	// ---- Wakeups ----
+	// A person's go with them. Pending ones for something deleted forever are cancelled, saying why;
+	// `wake` re-checks the same at each wake. Settled ones go 30 days later (wakeups.forgetSettled).
+	wakeups: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		// Theirs alone, like their personal memories: nothing ever runs as anyone else (`wake` checks too).
+		member: { index: "by_actor", eq: ["workspaceId", ["actorId", "userId"]] },
+		agent: { index: "by_agent", eq: ["agentId"], where: pending, scrub: cancelled("Its agent was deleted.") },
+		channel: { index: "by_chat", eq: ["chatId"], where: pending, scrub: cancelled("Its chat was deleted.") },
+		record: { index: "by_record", eq: ["recordId"], where: pending, scrub: cancelled("Its record was deleted.") },
+		database: { index: "by_type", eq: ["typeId"], where: pending, scrub: cancelled("Its record was deleted.") },
+		keep: "Fired and cancelled ones stay 30 days for the record, then wakeups.forgetSettled deletes them.",
+	},
+
 	// ---- Automations and permissions ----
 	automationInstalls: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
@@ -368,6 +382,11 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	usage: {
 		workspace: { index: "by_bucket", eq: ["workspaceId"] },
 		keep: "The workspace's bill: what a removed or erased person's replies cost stays in its totals, shown as a former member's. Agents deleted forever leave theirs as \"Agent\".",
+	},
+
+	imageHolds: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		keep: "A hold names no person: it's settled or released within HOLD_MS (imageGen.ts).",
 	},
 
 	cascades: { keep: "The cascades themselves: each deletes its own row when it's done." },

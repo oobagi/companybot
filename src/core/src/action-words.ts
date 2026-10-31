@@ -140,3 +140,6 @@ export function toolLine(label: string, status: "running" | "done" | "error") {
 	return status === "running" ? `${verb[1]}${tail}…` : `${verb[0]}${tail}`;
 }
 
+
+/** A running agent's step between its tool calls, while the model works (backend turns.setStep). */
+export const THINKING_STEP = "Thinking…";

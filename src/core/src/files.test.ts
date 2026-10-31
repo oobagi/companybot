@@ -2,7 +2,7 @@ import { strToU8, zipSync } from "fflate";
 import { describe, expect, it } from "vitest";
 import { docx, pdf, pngOf, xlsx } from "../test/files";
 import { PAGE_CHARS, fileText, textPage } from "./file-text";
-import { DOCX, FILE_MAX_BYTES, XLSX, cleanFileName, fileError, formatFileSize, imageSize, sniffFile } from "./files";
+import { DOCX, FILE_MAX_BYTES, XLSX, cleanFileName, fileError, formatFileSize, imageSize, sniffFile, toBase64 } from "./files";
 
 const text = (s: string) => new TextEncoder().encode(s);
 
@@ -72,6 +72,24 @@ describe("names and sizes", () => {
 	});
 });
 
+describe("toBase64", () => {
+	it("encodes pictures of any size without Node's Buffer, which Convex's runtime lacks", () => {
+		// Several of its 32 KB chunks, and a part one.
+		const big = new Uint8Array(200_003).map((_, i) => i * 7);
+		let binary = "";
+		for (const byte of big) binary += String.fromCharCode(byte);
+		const g = globalThis as { Buffer?: unknown };
+		const real = g.Buffer;
+		delete g.Buffer;
+		try {
+			expect(toBase64(new Uint8Array([1, 2, 3]))).toBe("AQID");
+			expect(toBase64(big)).toBe(btoa(binary));
+		} finally {
+			g.Buffer = real;
+		}
+	});
+});
+
 describe("fileText", () => {
 	it("reads a PDF's pages", async () => {
 		expect(await fileText(pdf("Quarterly revenue up"), "application/pdf")).toContain("Quarterly revenue up");
@@ -84,6 +102,28 @@ describe("fileText", () => {
 	it("reads each sheet as CSV under its name", async () => {
 		const book = xlsx("Leads", [["Name", "Deal"], ["Acme, Inc.", 1200], ["Bob \"B\"", 5]]);
 		expect(await fileText(book, XLSX)).toBe('## Leads\nName,Deal\n"Acme, Inc.",1200\n"Bob ""B""",5');
+	});
+
+	it("won't unpack more than 50 MB of a Word or Excel file (zip bombs)", async () => {
+		// Nine 6 MB sheets of zeros pack to a few KB each, and would unpack to 54 MB together.
+		const zeros = new Uint8Array(6 * 1024 * 1024);
+		const sheets = Array.from({ length: 9 }, (_, i) => i + 1);
+		const bomb = zipSync({
+			"xl/workbook.xml": strToU8(`<workbook><sheets>${sheets.map((i) => `<sheet name="S${i}" r:id="rId${i}"/>`).join("")}</sheets></workbook>`),
+			"xl/_rels/workbook.xml.rels": strToU8(`<Relationships>${sheets.map((i) => `<Relationship Id="rId${i}" Target="worksheets/sheet${i}.xml"/>`).join("")}</Relationships>`),
+			...Object.fromEntries(sheets.map((i) => [`xl/worksheets/sheet${i}.xml`, zeros])),
+		});
+		expect(bomb.length).toBeLessThan(1024 * 1024);
+		expect(await fileText(bomb, XLSX)).toBe("(This file is too long to read.)");
+	});
+
+	it("holds no more of a part than its header says, even when the header lies", async () => {
+		const body = "<w:p><w:t>Hi</w:t></w:p>";
+		const file = zipSync({ "word/document.xml": strToU8(body + "<w:p><w:t>more</w:t></w:p>".repeat(100_000)) });
+		// Rewrite the uncompressed size in the central directory entry (offset 24) to the first paragraph's.
+		const view = new DataView(file.buffer);
+		for (let at = 0; at < file.length - 4; at++) if (view.getUint32(at, true) === 0x02014b50) view.setUint32(at + 24, body.length, true);
+		expect(await fileText(file, DOCX)).toBe("Hi");
 	});
 
 	it("pages long text", async () => {

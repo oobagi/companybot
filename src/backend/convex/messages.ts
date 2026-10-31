@@ -10,6 +10,7 @@ import {
 	addToChat,
 	addUserMentions,
 	agentOfDm,
+	titleFrom,
 	insertMessage,
 	markChatRead,
 	namer,
@@ -76,6 +77,8 @@ export const list = query({
 				.query("chatMessages")
 				.withIndex("by_chat_thread", (q) => q.eq("chatId", chatId).eq("threadId", threadId))
 				.order("desc")
+				// Wake turns' own replies are never shown (wakeups.ts).
+				.filter((q) => q.neq(q.field("quiet"), true))
 				.take(LIST_LIMIT)
 		).reverse();
 		const names = namer(ctx, { images: true });
@@ -156,7 +159,7 @@ export const send = mutation({
 export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId, text, mentions, attachments: files = [] }: Infer<typeof sendMessageArgs>): Promise<Id<"chatMessages">> {
 	const { member } = who;
 	const chat = await requireChat(ctx, member, chatId);
-	if (chat.archived) throw new ConvexError("This channel is in Archive.");
+	if (chat.archived) throw new ConvexError("This chat is in Archive.");
 	text = text.trim();
 	if (!text && files.length === 0) throw new ConvexError("Write something first.");
 	if (threadId) {
@@ -185,6 +188,8 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 
 	const dmAgent = agentOfDm(chat);
 	if (dmAgent && (await ctx.db.get(dmAgent))?.archived) throw new ConvexError("This agent is in Archive.");
+	// A side chat takes its name from the person's first message.
+	if (chat.parentId && !chat.title && !threadId && !who.agentId) await ctx.db.patch(chat._id, { title: titleFrom(text) });
 	// Last: a refused message keeps its uploads, to attach again.
 	const attachments = await claimFiles(ctx, member, files);
 
@@ -269,7 +274,7 @@ export async function editMessage(ctx: MutationCtx, who: Who, messageId: Id<"cha
 	text = text.trim();
 	if (!text && !message.attachments?.length) throw new ConvexError("Write something first, or delete the message.");
 	await ctx.db.patch(message._id, { text, parts: text ? [{ type: "text", text }] : [], editedAt: Date.now() });
-	await previewMessage(ctx, { ...message, text });
+	await previewMessage(ctx, { ...message, text }, { byAgent: !!who.agentId });
 }
 
 export async function hideMessagePreview(ctx: MutationCtx, who: Who, messageId: Id<"chatMessages">, url: string) {

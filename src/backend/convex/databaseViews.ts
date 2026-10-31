@@ -78,18 +78,7 @@ export const list = query({
 
 export const save = mutation({
 	args: { typeId: v.id("recordTypes"), viewId: v.optional(v.id("databaseViews")), version: v.optional(v.number()), ...viewConfig },
-	handler: async (ctx, { typeId, viewId, version, ...config }) => {
-		// COMPAT(0.1.0-alpha.8): alpha.7 apps don't send `layout`; keep a saved board's layout and grouping when they save it. Delete once installs send it.
-		const old = config.layout === undefined && viewId ? await ctx.db.get(viewId) : null;
-		const member = await requireMember(ctx);
-		if (old) {
-			requireInWorkspace(member, old, "View");
-			const fields = await fieldsOf(ctx, typeId);
-			const groupBy = fields.some((f) => f.key === old.groupBy && !f.archived && f.kind === "choice" && !f.multiple) ? old.groupBy : undefined;
-			return saveView(ctx, { member }, typeId, { ...config, layout: old.layout, groupBy }, viewId, version);
-		}
-		return saveView(ctx, { member }, typeId, config, viewId, version);
-	},
+	handler: async (ctx, { typeId, viewId, version, ...config }) => saveView(ctx, { member: await requireMember(ctx) }, typeId, config, viewId, version),
 });
 
 export const remove = mutation({

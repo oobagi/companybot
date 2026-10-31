@@ -8,16 +8,8 @@ import { useTypes } from "./records/data";
 import { RecordList } from "./records/RecordList";
 import { RecordPage } from "./records/RecordPage";
 
-// COMPAT(0.1.0-alpha.8): existing bookmarks use these routes; all databases also work at /records/<key>.
-export const recordTabs = [
-	{ id: "clients", label: "Clients" },
-	{ id: "deals", label: "Deals" },
-	{ id: "tasks", label: "Tasks" },
-	{ id: "calls", label: "Calls" },
-] as const;
-
 /**
- * A type's list, or one record's page: /clients, /clients/<id>, /records/<key>[/<id>].
+ * A type's list, or one record's page: /records/<key>[/<id>].
  * Every type shares the same screens.
  */
 export function RecordsView({ typeKey, recordId, role }: { typeKey?: string; recordId?: string; role: Role }) {

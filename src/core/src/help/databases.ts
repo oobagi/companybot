@@ -18,7 +18,7 @@ Each database has its own entry under Databases in the sidebar; its address is #
 ## Using a database
 - **List**: pick columns, click a header to sort, and filter by any field. Search by name and text.
 - **Saved views**: save a filter, sort and columns (or a board) to share with the workspace.
-- **Record page**: edit fields in place. Below: linked records, chat messages that mention it, and the record's page for longer notes (see **help: pages**).
+- **Record page**: edit fields in place. Below: pending follow-ups agents set about it (see **help: automations**), linked records, chat messages that mention it, and the record's page for longer notes (see **help: pages**).
 - **History**: every change with who and when (an agent shows as "Companybot, for Jaden"). Undo reverses one change.
 - **Money**: each amount keeps its own currency. The workspace currency in [General](#/settings/general) only sets the default for new ones.
 
