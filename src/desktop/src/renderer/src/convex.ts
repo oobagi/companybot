@@ -1,8 +1,9 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useQuery as useCachedQuery, usePaginatedQuery as useCachedPaginatedQuery } from "convex-helpers/react/cache";
+import type { OptimisticUpdate } from "convex/browser";
 import { type PaginatedQueryReference, useAction as useConvexAction, useMutation as useConvexMutation } from "convex/react";
 import type { FunctionArgs, FunctionReference, FunctionReturnType } from "convex/server";
-import { createContext, useCallback, useContext } from "react";
+import { createContext, useCallback, useContext, useMemo } from "react";
 
 // The app's Convex hooks. Use these, not convex/react's: each call carries the workspace this
 // window has open, so a request always acts where it was made, whatever another device opened
@@ -39,9 +40,14 @@ export function usePaginatedQuery<Q extends PaginatedQueryReference>(
 
 // Stable between renders (like convex/react's), so effects can depend on them.
 
-export function useMutation<M extends FunctionReference<"mutation">>(mutation: M) {
+/**
+ * `optimistic` (define it outside the component, so it's stable) changes cached query results until
+ * the server's arrive; its args include `workspaceId`, for the queries it reads and sets.
+ */
+export function useMutation<M extends FunctionReference<"mutation">>(mutation: M, optimistic?: OptimisticUpdate<FunctionArgs<M>>) {
 	const workspaceId = useContext(WorkspaceContext)?.id ?? null;
-	const mutate = useConvexMutation(mutation);
+	const plain = useConvexMutation(mutation);
+	const mutate = useMemo(() => (optimistic ? plain.withOptimisticUpdate(optimistic) : plain), [plain, optimistic]);
 	return useCallback(
 		(...[args]: Rest<M>): Promise<FunctionReturnType<M>> => mutate(withWorkspace(args as Args, workspaceId)),
 		[mutate, workspaceId],

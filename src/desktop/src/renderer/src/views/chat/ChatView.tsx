@@ -8,7 +8,7 @@ import { EmptyState, Loading, NotFound, Notice, RenameInput, Scroll, TopBar, use
 import { FileDrop, useAttachments } from "./Attachments";
 import { AgentBadge, AvatarStack, MenuItem, Popover } from "./common";
 import { Composer, type SendWith } from "./Composer";
-import { type ChatDetails, type Mentions, chatTitle, useDirectory } from "./data";
+import { type ChatDetails, type Mentions, chatTitle, showSending, useDirectory } from "./data";
 import { ChannelDetails } from "./dialogs";
 import { draftKey } from "./drafts";
 import { MessageList } from "./MessageList";
@@ -44,7 +44,7 @@ export function ChatView({
 
 function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWith: SendWith; focus?: ChatFocus; onLeft: () => void }) {
 	const messages = useQuery(api.messages.list, { chatId: chat._id });
-	const sendMessage = useMutation(api.messages.send);
+	const sendMessage = useMutation(api.messages.send, showSending);
 	const markRead = useMutation(api.chats.markRead);
 	const directory = useDirectory();
 	const workspace = useWorkspace();
