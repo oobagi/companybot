@@ -5,12 +5,15 @@ import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { Form, Loading, Notice, cardClass, compactControlClass, compactPrimaryButton, descriptionClass, metadataClass, toolbarClass, useRun } from "../ui";
 
+import { useConfirm } from "./chat/common";
+
 export function MembersTab({ role }: { role: Role }) {
 	const team = useQuery(api.workspace.team);
 	const invite = useMutation(api.workspace.invite);
 	const cancelInvite = useMutation(api.workspace.cancelInvite);
 	const resendInvite = useMutation(api.workspace.resendInvite);
 	const removeMember = useMutation(api.workspace.removeMember);
+	const { confirm, dialog } = useConfirm();
 	const setRole = useMutation(api.workspace.setRole);
 	const [email, setEmail] = useState("");
 	const [inviteRole, setInviteRole] = useState<Role>("member");
@@ -23,6 +26,7 @@ export function MembersTab({ role }: { role: Role }) {
 
 	return (
 		<>
+			{dialog}
 			<Notice>{error}</Notice>
 			{note && <p className={descriptionClass}>{note}</p>}
 
@@ -57,7 +61,7 @@ export function MembersTab({ role }: { role: Role }) {
 							<>
 								<RoleSelect value={m.role} onChange={(r) => run(setRole({ id: m.id, role: r }))} />
 								{!m.isYou && (
-									<button type="button" onClick={() => run(removeMember({ id: m.id }))} className="hover:text-red-600">
+									<button type="button" onClick={() => confirm({ title: `Remove ${m.name}?`, action: "Remove member", body: "They will lose access to this workspace, and their personal workspace data will be deleted.", onConfirm: () => removeMember({ id: m.id }) })} className="hover:text-red-600">
 										Remove
 									</button>
 								)}
@@ -76,7 +80,7 @@ export function MembersTab({ role }: { role: Role }) {
 								Resend
 							</button>
 						)}
-						<button type="button" onClick={() => run(cancelInvite({ id: i.id }))} className="hover:text-red-600">
+						<button type="button" onClick={() => confirm({ title: `Cancel the invitation to ${i.email}?`, action: "Cancel invitation", body: "They will no longer be able to join using this invitation.", onConfirm: () => cancelInvite({ id: i.id }) })} className="hover:text-red-600">
 							Cancel
 						</button>
 					</Row>

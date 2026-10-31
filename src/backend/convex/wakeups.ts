@@ -93,7 +93,7 @@ export const fire = internalMutation({
 	},
 });
 
-/** Something it waited on is back from Trash: try again. */
+/** Something it waited on is back from Archive: try again. */
 export const release = internalMutation({
 	args: { id: v.id("wakeups") },
 	handler: async (ctx, { id }) => {
@@ -107,7 +107,7 @@ export const release = internalMutation({
 /** Whether a wakeup has another wake after the one now: it repeats, and `times` (if set) isn't used up. */
 const repeatsAfter = (row: Doc<"wakeups">) => !!row.every && (row.times === undefined || (row.wakes ?? 0) + 1 < row.times);
 
-/** Called when anything comes back from Trash (trashOps): held wakeups in the workspace try again. */
+/** Called when anything comes back from Archive (trashOps): held wakeups in the workspace try again. */
 export async function releaseHeld(ctx: MutationCtx, workspaceId: Id<"workspaces">) {
 	const held = await ctx.db
 		.query("wakeups")
@@ -145,7 +145,7 @@ export async function wake(ctx: MutationCtx, id: Id<"wakeups">, outcome?: { resu
 	const type = record && (await ctx.db.get(record.typeId));
 	if (agent.archived || chat.archived || record?.archived || type?.archived) {
 		await ctx.db.patch(id, { held: true });
-		return logWake(ctx, row, "skipped", "Waiting: its agent, chat or record is in Trash. It wakes if that's restored.");
+		return logWake(ctx, row, "skipped", "Waiting: its agent, chat or record is in Archive. It wakes if that's restored.");
 	}
 	if (!(await canSee(ctx, chat, member))) return stop("Its person can no longer see the chat.");
 	if (row.threadId && !(await ctx.db.get(row.threadId))) return stop("Its thread was deleted.");
@@ -303,7 +303,7 @@ export const createFor = internalMutation({
 			const every = often === undefined ? undefined : repeatEvery(often);
 			if (typeof every === "string") return { error: every };
 			const record = recordId ? await recordById(ctx, member, recordId) : null;
-			if (record?.archived) return { error: `${record.title} is in Trash.` };
+			if (record?.archived) return { error: `${record.title} is in Archive.` };
 			if (record && (await pendingCount(ctx, "by_record", record._id, FOLLOWUPS_PER_RECORD)) >= FOLLOWUPS_PER_RECORD)
 				return { error: `${record.title} already has ${FOLLOWUPS_PER_RECORD} follow-ups. Cancel one first.` };
 			if ((await pendingCount(ctx, "by_agent", turn.agentId, FOLLOWUPS_PER_AGENT)) >= FOLLOWUPS_PER_AGENT)

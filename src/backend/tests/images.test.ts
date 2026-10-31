@@ -30,7 +30,7 @@ const paste = (t: T, as: Awaited<ReturnType<typeof signIn>>, pageId: Id<"pages">
 		const image = { type: "blockContainer", attrs: { id: crypto.randomUUID() }, content: [{ type: "image", attrs: { url } }] };
 		await writeBlocks(ctx, { member: (await memberOf(ctx, as.userId, page.workspaceId))! }, page, JSON.stringify([image]), "append");
 	});
-/** Moves something to Trash and deletes it forever, as an owner, and lets the cleanup finish. */
+/** Moves something to Archive and deletes it forever, as an owner, and lets the cleanup finish. */
 const purge = async (t: T, owner: As, kind: "page" | "record", id: Id<"pages"> | Id<"records">) => {
 	await owner.mutation(api.trash.move, { kind, id });
 	await owner.mutation(api.trash.purge, { id });
@@ -239,7 +239,7 @@ describe("pictures", () => {
 		expect((await owner.query(api.messages.list, { chatId: general._id }))[0]!.author.image).toBe(photo);
 	});
 
-	it("lets owners change agents' pictures, not in Trash; agents can reset them and photos", async () => {
+	it("lets owners change agents' pictures, not in Archive; agents can reset them and photos", async () => {
 		const { t, owner, member } = await ownerAndMember();
 		const { scribe, companybot } = await agentsOf(owner);
 		const file = await upload(owner);
@@ -258,10 +258,10 @@ describe("pictures", () => {
 		expect(await exists(t, photo)).toBe(false);
 
 		await owner.mutation(api.trash.move, { kind: "agent", id: scribe._id });
-		await expect(owner.mutation(api.images.set, { of: scribe._id, file: await upload(owner) })).rejects.toThrow("in Trash");
+		await expect(owner.mutation(api.images.set, { of: scribe._id, file: await upload(owner) })).rejects.toThrow("in Archive");
 	});
 
-	it("keeps an agent's picture in Trash and deletes it with the agent", async () => {
+	it("keeps an agent's picture in Archive and deletes it with the agent", async () => {
 		const { t, owner } = await ownerAndMember();
 		const { scribe } = await agentsOf(owner);
 		const file = await upload(owner);
@@ -280,11 +280,11 @@ describe("pictures", () => {
 		const file = await upload(member);
 		await expect(owner.mutation(api.pages.addImage, { pageId, file })).rejects.toThrow("isn't available");
 		expect(await member.mutation(api.pages.addImage, { pageId, file })).toBe(await t.run((ctx) => ctx.storage.getUrl(file)));
-		// Claimed: the sweep leaves it, and a page in Trash keeps it.
+		// Claimed: the sweep leaves it, and a page in Archive keeps it.
 		vi.setSystemTime(Date.now() + UPLOAD_TTL_MS + 1);
 		await t.mutation(internal.images.sweepUploads);
 		await member.mutation(api.trash.move, { kind: "page", id: pageId });
-		await expect(member.mutation(api.pages.addImage, { pageId, file: await upload(member) })).rejects.toThrow("in Trash");
+		await expect(member.mutation(api.pages.addImage, { pageId, file: await upload(member) })).rejects.toThrow("in Archive");
 		await member.mutation(api.trash.restore, { kind: "page", id: pageId });
 		expect(await exists(t, file)).toBe(true);
 		await member.mutation(api.trash.move, { kind: "page", id: pageId });

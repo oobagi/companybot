@@ -71,7 +71,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 		if (has("records.save") || has("records.save_field")) {
 			lines.push(
 				"- Changes run when permitted, logged as you acting for the person. Say in a sentence what you changed.",
-				"- Deleting moves things to Trash: anyone who could delete it can restore it for 30 days. You cannot delete anything forever.",
+				"- Deleting moves things to Archive: archiving requires confirmation and keeps content until someone explicitly deletes it forever. Anyone who could archive it can restore it at any time. You cannot delete anything forever.",
 				"- Before changing or deleting more than 3 records at once, list them and ask the person to confirm. Add or change fields only when asked.",
 			);
 		}
@@ -151,7 +151,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 			...(has("followups.list") && has("followups.cancel") ? ["- To change or stop one, find it with followups_list and cancel it with followups_cancel (then set a new one if they moved it)."] : []),
 		);
 	}
-	if (has("agents.manage")) lines.push("", "## Agents", "Use agents_manage for agent metadata, paged history, tool-free creation, deleting (to Trash) and another agent's instructions/model/reasoning (deleting and those changes wait for approval). Read the current version first. Tool grants, your own instructions/model/reasoning, restoring prior config and restoring an agent from Trash need a person directly.");
+	if (has("agents.manage")) lines.push("", "## Agents", "Use agents_manage for agent metadata, paged history, tool-free creation, deleting (to Archive) and another agent's instructions/model/reasoning (deleting and those changes wait for approval). Read the current version first. Tool grants, your own instructions/model/reasoning, restoring prior config and restoring an agent from Archive need a person directly.");
 	if (has("workspace.settings")) lines.push("", "## Workspace settings", "- workspace_settings manages workspace settings (owners) and the acting person's preferences; device measurements stay automatic.");
 	lines.push("", "Use only the tools you're given. If something can't be done with them, say so. Role changes, tool grants, sign-ins and approvals are for the person to do directly.");
 	return lines.join("\n");

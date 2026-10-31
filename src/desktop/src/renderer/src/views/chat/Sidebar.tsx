@@ -2,11 +2,11 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Fragment, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery, useWorkspace } from "../../convex";
-import { AgentIcon, CaretRightIcon, ChannelIcon, ChatIcon, CheckIcon, EditIcon, MembersIcon, MoreIcon, PlusIcon, PrivateIcon, SignOutIcon, ThreadIcon, TrashIcon } from "../../icons";
+import { AgentIcon, ArchiveIcon, CaretRightIcon, ChannelIcon, ChatIcon, CheckIcon, EditIcon, MembersIcon, MoreIcon, PlusIcon, PrivateIcon, SignOutIcon, ThreadIcon } from "../../icons";
 import { navigate } from "../../router";
 import { type DragProps, useSortable, useStoredIds } from "../../sortable";
 import { Notice, RenameInput, useClock, useRun } from "../../ui";
-import { AgentBadge, Avatar, MenuItem, Popover, PopoverPanel, useConfirm } from "./common";
+import { AgentBadge, Avatar, MenuItem, Popover, PopoverPanel, archiveQuestion, useConfirm } from "./common";
 import type { ChatList, Participant } from "./data";
 import { BrowseChannels, ChannelDetailsFor, CreateChannel, NewMessage } from "./dialogs";
 import { useDraftChats } from "./drafts";
@@ -93,8 +93,8 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 							<MenuItem onClick={() => (close(), run(markRead({ chatId: c._id })))}><CheckIcon /> Mark as read</MenuItem>
 							{!c.isDefault && <MenuItem onClick={() => (close(), run(leave({ chatId: c._id }), () => left(c._id)))}><SignOutIcon /> Leave channel</MenuItem>}
 							{c.canManage && (
-								<MenuItem danger onClick={() => (close(), confirm({ title: `Delete #${c.name}?`, action: "Delete", body: "It goes to Trash with its messages, and can be restored for 30 days.", onConfirm: () => remove({ kind: "channel", id: c._id }).then(() => left(c._id)) }))}>
-									<TrashIcon /> Delete channel
+								<MenuItem onClick={() => (close(), confirm(archiveQuestion(`#${c.name}`, () => remove({ kind: "channel", id: c._id }).then(() => left(c._id)), "The channel will close to new messages. Its messages and files are kept.")))}>
+									<ArchiveIcon /> Archive channel
 								</MenuItem>
 							)}
 						</>
@@ -207,7 +207,7 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 						menu={(close) => (
 							<>
 								<MenuItem onClick={() => (close(), markRead({ chatId: c._id }).catch(onError))}><CheckIcon /> Mark as read</MenuItem>
-								<MenuItem danger onClick={() => (close(), confirm({ title: `Delete "${c.label}"?`, action: "Delete", body: "It goes to Trash and can be restored for 30 days.", onConfirm: () => remove({ kind: "channel", id: c._id }).then(() => c._id === openId && d.dmId && onOpen(d.dmId)) }))}><TrashIcon /> Delete</MenuItem>
+								<MenuItem onClick={() => (close(), confirm(archiveQuestion(c.label ?? "New chat", () => remove({ kind: "channel", id: c._id }).then(() => c._id === openId && d.dmId && onOpen(d.dmId)))))}><ArchiveIcon /> Archive</MenuItem>
 							</>
 						)}
 					>

@@ -48,7 +48,7 @@ export type PageReadInput = z.infer<typeof readInput>;
 export const findInput = z.object({
 	parent: z.string().nullable().optional().describe("List direct sub-pages of this page id or exact title; null lists top-level pages. Rows include parentId, so page through every level to read the tree."),
 	search: z.string().optional().describe("Words in the title. Leave out to list pages by title."),
-	trashed: z.boolean().optional().describe("Pages in Trash instead"),
+	trashed: z.boolean().optional().describe("Pages in Archive instead"),
 	cursor: z.string().optional().describe("From a previous result with more: true"),
 });
 export type PageFindInput = z.infer<typeof findInput>;
@@ -61,7 +61,7 @@ export const writeInput = z.object({
 	markdown: z.string().max(MARKDOWN_MAX).optional().describe("Content in Markdown: headings, lists, - [ ] to-dos, > quotes, ``` code, --- dividers, tables"),
 	blocks: z.string().max(500_000).optional().describe("JSON array from pages_read format blocks, edited with properties intact. Use instead of markdown; append or replace."),
 	mode: z.enum(["replace", "append"]).optional().describe("replace: the page becomes `markdown`; append (default): `markdown` goes at the end"),
-	trash: z.boolean().optional().describe("true deletes a page (to Trash, restorable for 30 days); false restores it. On its own."),
+	trash: z.boolean().optional().describe("true archives a page (to Archive, kept until restored or explicitly deleted forever); false restores it. On its own."),
 	restore: z.string().optional().describe("A version id from pages_read: its content comes back as a new version. On its own."),
 });
 export type PageWriteInput = z.infer<typeof writeInput>;
@@ -72,7 +72,7 @@ function writeLabel(input: PageWriteInput, output: unknown) {
 	if (text(output, "error") || !title) return;
 	if (input.action === "move") return `Move page ${title}`;
 	if (input.restore) return `Restore a version of ${title}`;
-	if (input.trash !== undefined) return `${input.trash ? "Delete" : "Restore"} page ${title}`;
+	if (input.trash !== undefined) return `${input.trash ? "Archive" : "Restore"} page ${title}`;
 	if (!input.page && !input.record) return `Create page ${title}`;
 	return input.markdown === undefined ? `Update page ${title}` : `Write page ${title}`;
 }
@@ -110,9 +110,10 @@ export const pageTools: ToolDef[] = [
 		id: "pages.write",
 		title: "Write a page",
 		description:
-			"Create a page (title, optional parent and markdown), move it (action move, page, parent; null for top level), add to a page or a record's page body (append), rewrite it (replace), rename it, delete it (to Trash) or restore it, or bring back an old version. Runs right away and is saved in the page's history as you acting for the person, so it can be restored. Read a page before replacing it.",
+			"Create a page (title, optional parent and markdown), move it (action move, page, parent; null for top level), add to a page or a record's page body (append), rewrite it (replace), rename it, delete it (to Archive) or restore it, or bring back an old version. Archiving waits for confirmation. Other writes run right away and are saved in the page's history as you acting for the person, so it can be restored. Read a page before replacing it.",
 		input: writeInput,
 		risk: "none",
+		riskFor: (input) => input.trash === true ? "locked" : "none",
 		execute: (input, { pages }) => pages.write(input),
 		label: writeLabel,
 	}),

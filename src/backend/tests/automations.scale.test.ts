@@ -23,7 +23,7 @@ it("deletes an automation with 20,000 webhook deliveries without exceeding trans
 	}
 	vi.useFakeTimers();
 	try {
-		// Delete goes to Trash; deleting it forever is what clears the deliveries.
+		// Delete goes to Archive; deleting it forever is what clears the deliveries.
 		await owner.mutation(api.automations.remove, { automationId });
 		const [entry] = (await owner.query(api.trash.list, { paginationOpts: { numItems: 10, cursor: null } })).page;
 		await owner.mutation(api.trash.purge, { id: entry!.itemId });

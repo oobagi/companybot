@@ -8,7 +8,7 @@ import { WorkspaceContext, useMutation, useQuery, useWorkspace } from "./convex"
 import { desktop, useUpdates } from "./desktop";
 import { useAlerts } from "./notifications";
 import { navigate, useRoute } from "./router";
-import { ArrowLeftIcon, DatabaseIcon, EditIcon, PlusIcon, SettingsIcon, SignOutIcon, TrashIcon } from "./icons";
+import { ArchiveIcon, ArrowLeftIcon, DatabaseIcon, EditIcon, PlusIcon, SettingsIcon, SignOutIcon } from "./icons";
 import { MenuDivider, Notice, ResizeHandle, Scroll, TopBar, TruncatedTips, useRun, useStoredWidth } from "./ui";
 import { RecordsView } from "./views/Records";
 import { SettingsNav, SettingsView, settingsScope, settingsTabAliases, settingsTabs } from "./views/Settings";
@@ -20,7 +20,7 @@ import { WorkspaceMenu } from "./views/WorkspaceMenu";
 import { WorkspaceRail } from "./views/WorkspaceRail";
 import { ChatView } from "./views/chat/ChatView";
 import { GettingStarted } from "./views/chat/Tutorial";
-import { Avatar, MenuItem, Popover, deviceTimeZone, useConfirm } from "./views/chat/common";
+import { Avatar, MenuItem, Popover, archiveQuestion, deviceTimeZone, useConfirm } from "./views/chat/common";
 import { AddButton, ChannelsNav, DmsNav, Group, Item, type SectionProps } from "./views/chat/Sidebar";
 import { useSortable, useStoredIds } from "./sortable";
 import { PagesNav, PagesView } from "./views/Pages";
@@ -124,12 +124,12 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	useEffect(() => {
 		if (prefs && prefs.deviceTimeZone !== timeZone) updatePrefs({ deviceTimeZone: timeZone }).catch(() => {});
 	}, [prefs, timeZone, updatePrefs]);
-	// Screens are paths: /chat[/<chat>[/thread|message/<id>]], /records/<type>[/<record>], /pages[/<page>], /settings/<tab>[/<item>] (Trash, Agents, Connectors, Skills and Automations included).
+	// Screens are paths: /chat[/<chat>[/thread|message/<id>]], /records/<type>[/<record>], /pages[/<page>], /settings/<tab>[/<item>] (Archive, Agents, Connectors, Skills and Automations included).
 	const route = useRoute();
-	// Trash and Customize used to be their own screens.
+	// Trash (now Archive) and Customize used to be their own screens.
 	useEffect(() => {
 		if (route[0] === "customize") navigate("settings", ...(route.length > 1 ? route.slice(1) : ["agents"]));
-		if (route[0] === "trash") navigate("settings", "trash");
+		if (route[0] === "trash" || route[0] === "archive" || (route[0] === "settings" && route[1] === "trash")) navigate("settings", "archive");
 		const oldType = oldRecordTabs[route[0] ?? ""];
 		if (oldType) navigate("records", oldType, ...route.slice(1));
 	}, [route]);
@@ -311,8 +311,8 @@ function DatabasesNav({
 							? (close) => (
 									<>
 										<MenuItem onClick={() => (close(), setEditing(type))}><EditIcon /> Edit database</MenuItem>
-										<MenuItem danger onClick={() => (close(), confirm({ title: `Delete ${type.plural}?`, action: "Delete", body: "It goes to Trash with its records, and can be restored for 30 days.", onConfirm: () => remove({ kind: "database", id: type._id }).then(() => openKey === type.key && navigate("chat")) }))}>
-											<TrashIcon /> Delete database
+										<MenuItem onClick={() => (close(), confirm(archiveQuestion(type.plural, () => remove({ kind: "database", id: type._id }).then(() => openKey === type.key && navigate("chat")), "Its records will be archived with it.")))}>
+											<ArchiveIcon /> Archive database
 										</MenuItem>
 									</>
 								)

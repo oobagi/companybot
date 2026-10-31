@@ -26,7 +26,7 @@ Two roles, per workspace:
 | Create or edit agents, manage connectors | yes | no |
 | Workspace name, logo, currency, memory switch | yes | no |
 | Create, rename, delete databases | yes | no |
-| Action locks, delete forever from Trash | yes | no |
+| Action locks, delete forever from Archive | yes | no |
 | Delete the workspace | yes | no |
 
 ## Changing a role, removing, leaving

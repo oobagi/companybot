@@ -16,6 +16,6 @@ A skill is a saved way of doing something: "how we write proposals". Agents see 
 Agents load skills themselves. To point at one, type **/** in the message box and pick it.
 
 ## Who can do what
-Owners and members can make skills. The maker or an owner can edit or delete one. Deleted skills go to [Trash](#/settings/trash) for 30 days.
+Owners and members can make skills. The maker or an owner can edit or delete one. Deleted skills go to [Archive](#/settings/archive).
 `,
 } satisfies HelpPage;

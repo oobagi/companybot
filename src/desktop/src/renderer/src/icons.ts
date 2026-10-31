@@ -2,6 +2,7 @@
 // They size to the text around them (1em); pass `size` only to differ.
 
 export {
+	ArchiveIcon,
 	ArrowBendUpLeftIcon as ReplyIcon,
 	ArrowDownIcon,
 	ArrowLeftIcon,

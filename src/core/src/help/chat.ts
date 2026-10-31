@@ -36,6 +36,6 @@ Open [Chat](#/chat) from the sidebar.
 You get a desktop notification and a dock count for DMs and @mentions while the app isn't in front. Change it in [Your preferences](#/settings/preferences).
 
 ## Who can do what
-Owners and members can create channels and rename or delete their own. Owners can manage any channel. A deleted channel goes to [Trash](#/settings/trash).
+Owners and members can create channels and rename or delete their own. Owners can manage any channel. A deleted channel goes to [Archive](#/settings/archive).
 `,
 } satisfies HelpPage;

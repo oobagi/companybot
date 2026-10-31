@@ -135,10 +135,10 @@ export async function requireAgent(ctx: QueryCtx, member: Member, agentId: Id<"a
 	return requireInWorkspace(member, await ctx.db.get(agentId), "Agent");
 }
 
-/** An agent that isn't in Trash: one there is read-only until it's restored. */
+/** An agent that isn't in Archive: one there is read-only until it's restored. */
 export async function requireLiveAgent(ctx: QueryCtx, member: Member, agentId: Id<"agents">) {
 	const agent = await requireAgent(ctx, member, agentId);
-	if (agent.archived) throw new ConvexError("This agent is in Trash. Restore it first.");
+	if (agent.archived) throw new ConvexError("This agent is in Archive. Restore it first.");
 	return agent;
 }
 
@@ -198,7 +198,7 @@ export async function asToolResult<Result>(fn: () => Promise<Result>): Promise<R
 	}
 }
 
-/** A custom or retained skill's instructions, including while its row is in Trash. */
+/** A custom or retained skill's instructions, including while its row is in Archive. */
 export const skillOf = (install: Doc<"skillInstalls">): Skill | undefined => install.custom
 	? customSkill(install.skillId, install.custom, install.custom.version)
 	: install.definition;

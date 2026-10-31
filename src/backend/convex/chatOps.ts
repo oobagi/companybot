@@ -137,7 +137,7 @@ export async function ensureGeneral(ctx: MutationCtx, workspaceId: Id<"workspace
 	return (await ctx.db.get(id))!;
 }
 
-/** A channel name that's usable and not taken by a live channel (one in Trash gives its name up). */
+/** A channel name that's usable and not taken by a live channel (one in Archive gives its name up). */
 export async function availableName(ctx: QueryCtx, member: Member, raw: string, except?: Id<"chats">) {
 	const name = normalizeChannelName(raw);
 	if (!name) throw new ConvexError("Give the channel a name.");
@@ -159,8 +159,8 @@ export async function requireManagedChannel(ctx: QueryCtx, member: Member, chatI
 }
 
 /**
- * Moves a channel, or one of your side chats with an agent, to Trash (its messages and members
- * stay until it's deleted for good) or back. Both are `chats`, so Trash calls the kind "channel".
+ * Moves a channel, or one of your side chats with an agent, to Archive (its messages and members
+ * stay until it's deleted for good) or back. Both are `chats`, so Archive calls the kind "channel".
  */
 export async function setChannelTrashed(ctx: MutationCtx, who: Who, chatId: Id<"chats">, archived: boolean) {
 	const seen = await requireChat(ctx, who.member, chatId);

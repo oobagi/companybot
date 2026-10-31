@@ -5,7 +5,7 @@ import { useState } from "react";
 import { api } from "../../api";
 import { useMutation } from "../../convex";
 import { Field, Form, Notice, inputClass, metadataClass, primaryButton, useRun } from "../../ui";
-import { Modal } from "../chat/common";
+import { Modal, archiveQuestion, useConfirm } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { type TypeField, kindLabels } from "./logic";
 
@@ -90,6 +90,7 @@ export function AddField({
 export function EditField({ field, onClose }: { field: TypeField; onClose: () => void }) {
 	const update = useMutation(api.fields.update);
 	const remove = useMutation(api.trash.move);
+	const { confirm, dialog } = useConfirm();
 	const [label, setLabel] = useState(field.label);
 	const [options, setOptions] = useState(field.options?.filter((o) => !o.retired) ?? []);
 	const [added, setAdded] = useState("");
@@ -107,6 +108,7 @@ export function EditField({ field, onClose }: { field: TypeField; onClose: () =>
 		);
 	return (
 		<Modal title={`Edit “${field.label}”`} onClose={onClose}>
+			{dialog}
 			<Form onSubmit={() => save()}>
 				<Notice>{error}</Notice>
 				<Field label="Name" hint={`${kindLabels[field.kind]}${field.multiple ? ", holds several" : ""}`}>
@@ -139,10 +141,10 @@ export function EditField({ field, onClose }: { field: TypeField; onClose: () =>
 					{field.key !== "name" && (
 						<button
 							type="button"
-							onClick={() => run(remove({ kind: "field", id: fieldId }), onClose)}
-							className="text-sm text-neutral-500 hover:text-red-600"
+							onClick={() => confirm(archiveQuestion(field.label, () => remove({ kind: "field", id: fieldId }).then(onClose), "The field will be hidden; its saved values are kept."))}
+							className="text-sm text-neutral-500 hover:text-neutral-900"
 						>
-							Delete field
+							Archive field
 						</button>
 					)}
 				</div>
