@@ -12,6 +12,7 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"automations.update": { agent: ["automations.manage:pause", "automations.manage:resume", "automations.manage:set_agent", "automations.manage:set_audience"] },
 	"automations.remove": { agent: ["automations.remove:delete"] },
 	"automations.subscribe": { agent: ["automations.set_mine"] },
+	"wakeups.cancel": { agent: ["followups.cancel"] },
 	"automations.resetWebhook": { humanOnly: "Rotates an inbound credential and invalidates outside integrations; direct person controls webhook secrets." },
 	"chats.createChannel": { agent: ["channels.manage:create"] },
 	"chats.updateChannel": { agent: ["channels.manage:rename", "channels.manage:set_topic"] },

@@ -10,6 +10,7 @@ Databases and their records: records (clients, deals, tasks, calls…), their fi
 - **History** (`recordHistory`) — every change to a record, field, database or saved view: action, each value's old → new, `userId`, and `agentId` when an agent did it for that person. Feeds a record's history and Settings → Activity (`records.activity`).
 - **Saved view** (`databaseViews`) — a named filter, sort, ordered columns and layout (table, or a board grouped by a choice field) shared with the workspace. Indexed by database (`by_type`); its lifecycle is `childOf: recordTypes`, so deleting a database in a cascade deletes its views. Removing a member keeps shared views.
 - **Page body** — every record has a page under its fields (notes, plans), created on first write. Same editor, history and agent tools as standalone pages: [Pages](pages.md).
+- **Follow-ups** (`wakeups` with `recordId`) — an agent checking back on a record later ([Architecture](architecture.md) → Wakeups). The record screen lists pending ones, cancellable; the agent gets the record's current values when it wakes. Deleting the record (or its database) forever cancels them; one in Trash holds them until it's restored.
 - **Mentions** (`recordMentions`) — a chat message that references a record (`messages.send` → `mentions.recordIds`). `records.discussion` lists the ones you can see.
 
 ## Money

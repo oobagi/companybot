@@ -100,8 +100,8 @@ export const check = internalQuery({
 		if (trigger?.automation && !automation) throw new ConvexError("This automation was removed. Nothing ran.");
 		const decided = await decideFor(ctx, member, { action, risk, automationInstallId: automation?._id, foreign });
 		const { rule } = decided;
-		// An automation's run never stops as a whole: only this call waits for the person.
-		const decision = decided.decision.type === "ask" && automation ? { ...decided.decision, waitFor: await nameOf(ctx, member.userId) } : decided.decision;
+		// An automation's run, or a wake's, never stops as a whole: only this call waits for the person.
+		const decision = decided.decision.type === "ask" && (automation || turn.wakeupId) ? { ...decided.decision, waitFor: await nameOf(ctx, member.userId) } : decided.decision;
 		const allowed =
 			rule && decision.type === "run" && decision.via
 				? {

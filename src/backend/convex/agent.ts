@@ -255,6 +255,12 @@ async function streamReply(
 			create: (input) => ctx.runMutation(internal.automationTools.createFor, { turnId, input }),
 			setMine: (input) => ctx.runMutation(internal.automationTools.setMineFor, { turnId, ...input }),
 		},
+		wakeups: {
+			create: (input) => ctx.runMutation(internal.wakeups.createFor, { turnId, input }),
+			list: (input) => ctx.runQuery(internal.wakeups.listFor, { turnId, ...input }),
+			cancel: (input) => ctx.runMutation(internal.wakeups.cancelFor, { turnId, ...input }),
+			notify: (input) => ctx.runMutation(internal.wakeups.notifyFor, { turnId, ...input }),
+		},
 		records: recordStore(ctx, turnId),
 		pages: pageStore(ctx, turnId),
 		results: createResultStore(),

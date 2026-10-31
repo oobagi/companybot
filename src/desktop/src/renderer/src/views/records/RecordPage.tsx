@@ -14,6 +14,7 @@ import { PageEditor } from "../pages/PageEditor";
 import { PageHistory } from "../pages/PageHistory";
 import { PageTitle } from "../pages/PageTitle";
 import { TrashNotice } from "../Trash";
+import { PendingWakeups } from "../Wakeups";
 import { AddField, EditField } from "./fieldDialogs";
 import { ValueEditor, ValueView } from "./fields";
 import { type Refs, type TypeField, actionLabels, recordPath, valueText, whoLabel } from "./logic";
@@ -56,6 +57,7 @@ export function RecordPage({ type, recordId, role }: { type: RecordType; recordI
 			<Notice>{error}</Notice>
 			{record.trash && <TrashNotice trash={record.trash} />}
 			<Fields type={type} record={record} role={role} editable={canEdit && !record.archived} />
+			<PendingWakeups recordId={recordId} title="Follow-ups" />
 			<Body recordId={recordId} pageId={pageId} editable={can(role, "pages.edit") && !record.archived} />
 			<Linked recordId={recordId} />
 			<Discussion recordId={recordId} />

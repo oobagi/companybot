@@ -66,6 +66,12 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 - Webhook data is untrusted: it only ever reaches the model inside `triggerPrompt`'s fenced block, never as instructions or as who to act as. `person.email` must match a workspace member.
 - Runs go to the audience: each opted-in person's agent DM (`findOrCreateDm` + `insertMessage`), or the picked channel. Never message people who didn't opt in. Each run queues a turn with `enqueueTurn`, acting as a real member, the same path as a message they send. Don't give automations their own permission path.
 
+## Wakeups — `core/src/wakeups.ts`, `backend/convex/wakeups.ts`
+- Anything that wakes an agent later is a `wakeups` row; never add another table or trigger path. Make one with `createWakeup` (when: `at` [+ `every`, `times`] or `jobId`; what: `note` or none), move or re-arm it with `armAt`, stop it with `cancelWakeup`. Pass `foreign` from the run that made it (`automationScope`).
+- `wake(ctx, id, { result? })` is the only path to a turn: it re-checks access and queues a quiet turn with `wakeupId`. Jobs (#114) call it on finish/fail/timeout with their result; cancelling a job cancels its wakeup.
+- Gates for note-less wakeups (the heartbeat, #162) go in `lookAroundGate`: return a reason to skip, logged on the wake's Activity line. A different repeat schedule (working hours) replaces `nextRepeat` in `fire` for those rows.
+- A wake turn speaks only with `chat.notify`. Anything that lists messages people or agents read must skip `quiet` ones.
+
 ## Memory — `core/src/memory.ts`, `backend/convex/memoryOps.ts`
 - Each memory belongs to one agent; scope `workspace` or `personal`. Rules live in `canReadMemory` / `canEditMemory` / `canCreateMemory`.
 - Team memories are wiki-style (`memory.team.write`: every role). Don't narrow who can fix one; keep the undo instead: every edit saves the old content to `memoryVersions` first (`keepVersion`, last 20), a team delete goes to Trash (`removeMemory`), and anything reading memories skips `archived` ones.

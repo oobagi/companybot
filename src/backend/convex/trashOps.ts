@@ -3,6 +3,7 @@ import { ConvexError } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { type Member, type Who, nameOf, toActor } from "./lib";
+import { releaseHeld } from "./wakeups";
 
 // Trash: what people deleted, until it's restored or deleted for good. Each kind's own rules
 // (recordOps, pageOps, chatOps, agents, skills, automations, memoryOps) move its items in and out through here; trash.ts lists and
@@ -68,6 +69,8 @@ export async function takeFromTrash(ctx: MutationCtx, { member }: Who, itemId: s
 	if (entry?.workspaceId !== member.workspaceId) throw new ConvexError("It's no longer in Trash.");
 	if (!(await canRestore(ctx, member, entry))) throw new ConvexError("You can't restore this: it takes the same access as deleting it.");
 	await ctx.db.delete(entry._id);
+	// Wakeups held while their agent, chat or record was here try again.
+	await releaseHeld(ctx, member.workspaceId);
 }
 
 /** Who deleted an item and when, for its own screen. Null unless it's in Trash. */

@@ -1,5 +1,5 @@
 import type { PlaceMessage, Skill } from "@companybot/core";
-import { PROMPT_MESSAGE_CAP, approxTokens, defaultReasoning, fallbackModels } from "@companybot/core";
+import { PROMPT_MESSAGE_CAP, approxTokens, defaultReasoning, fallbackModels, isGranted } from "@companybot/core";
 import { type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -20,6 +20,8 @@ import { messagePart, replyStats, replyUsage } from "./schema";
 import { filesForModel, turnImages } from "./files";
 import { catalogModels } from "./modelCatalog";
 import { recordUsage } from "./usage";
+import { recordOut } from "./recordTools";
+import { setWakeOutcome } from "./wakeups";
 
 // The agent turn queue and everything the runner (agent.ts) reads and writes.
 // One `running` turn per agent per place (chat + thread); the rest wait in order.
@@ -31,14 +33,16 @@ const KEEP_TOKENS = 15_000;
 
 type Place = { agentId: Id<"agents">; chatId: Id<"chats">; threadId?: Id<"chatMessages"> };
 
-/** Queues a reply from `agentId` to `triggerId`, and starts it if nothing is running there. */
+/** Queues a reply from `agentId` to `triggerId` (or to a wakeup), and starts it if nothing is running there. */
 export async function enqueueTurn(
 	ctx: MutationCtx,
 	chat: Doc<"chats">,
 	turn: Place & { actorId: Id<"users"> } & (
 			// After an approval, the original turn's trigger: none if it followed an old welcome turn.
 			| { triggerId: Id<"chatMessages">; approvalId?: Id<"approvals"> }
-			| { triggerId: Id<"chatMessages"> | undefined; approvalId: Id<"approvals"> }
+			| { triggerId: Id<"chatMessages"> | undefined; approvalId: Id<"approvals">; wakeupId?: Id<"wakeups"> }
+			// A wake (wakeups.ts): no message asked, and its reply is quiet.
+			| { wakeupId: Id<"wakeups">; wakeLogId: Id<"agentActivity"> }
 		),
 ) {
 	await ctx.db.insert("agentTurns", { ...turn, workspaceId: chat.workspaceId, status: "queued" });
@@ -81,6 +85,7 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 	if (running) {
 		if (Date.now() - (running.startedAt ?? running._creationTime) < STALE_TURN_MS) return;
 		await ctx.db.patch(running._id, { status: "error", step: undefined });
+		await setWakeOutcome(ctx, running, "failed");
 		await settleApproval(ctx, running);
 		const reply = running.replyId && (await ctx.db.get(running.replyId));
 		// Its finished model calls were saved as they finished (saveUsage), so it keeps their stats.
@@ -93,20 +98,25 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 	// A workspace being deleted starts nothing: its cascade may already be past the rows this would add.
 	if (!chat || chat.archived || !(await liveWorkspace(ctx, chat.workspaceId))) {
 		await ctx.db.patch(next._id, { status: "error" });
+		await setWakeOutcome(ctx, next, "failed");
 		return await settleApproval(ctx, next);
 	}
 
 	const session =
 		(await sessionAt(ctx, place)) ??
 		(await ctx.db.get(await ctx.db.insert("agentSessions", { workspaceId: chat.workspaceId, ...place })))!;
-	const replyId = await insertMessage(ctx, chat, {
+	const reply = {
 		threadId: place.threadId,
 		authorAgentId: place.agentId,
 		text: "",
 		parts: [],
 		mentions: { userIds: [], agentIds: [] },
-		status: "streaming",
-	});
+		status: "streaming" as const,
+	};
+	// A wake turn's reply is quiet: kept for its session, never shown, so it doesn't touch the chat's unread or the thread's replies.
+	const replyId = next.wakeupId
+		? await ctx.db.insert("chatMessages", { chatId: chat._id, workspaceId: chat.workspaceId, ...reply, quiet: true })
+		: await insertMessage(ctx, chat, reply);
 	await ctx.db.patch(next._id, { status: "running", replyId, sessionId: session._id, startedAt: Date.now() });
 	await ctx.scheduler.runAfter(0, internal.agent.respond, { turnId: next._id });
 }
@@ -162,7 +172,7 @@ export const turnContext = internalQuery({
 		const session = (await ctx.db.get(turn.sessionId))!;
 		const reply = (await ctx.db.get(turn.replyId))!;
 		const names = namer(ctx);
-		const { trigger, foreign } = await automationScope(ctx, turn);
+		const { trigger, foreign, wakeup } = await automationScope(ctx, turn);
 
 		// Finished turns only, so never this (running) one.
 		const turns = (foreign ? [] : await sessionTurns(ctx, session)).map(({ prompt, reply }) => ({ prompt, reply }));
@@ -179,14 +189,16 @@ export const turnContext = internalQuery({
 		const since = foreign ? (trigger?._creationTime ?? 0) : (lastReply?._creationTime ?? last?.startedAt ?? 0);
 		// Foreign runs get only their trigger, or replies in a thread rooted at that trigger.
 		// Never replay the person's DM/channel history, including compacted session summaries.
-		const recent = foreign && turn.threadId !== trigger?._id ? (trigger ? [trigger] : []) : (
+		// A foreign wake has no trigger: it gets only its wakeup.
+		const recent = foreign && (!trigger || turn.threadId !== trigger._id) ? (trigger ? [trigger] : []) : (
 			await ctx.db
 				.query("chatMessages")
 				.withIndex("by_chat_thread", (q) =>
 					q.eq("chatId", chat._id).eq("threadId", turn.threadId).gt("_creationTime", since).lt("_creationTime", reply._creationTime),
 				)
 				.order("desc")
-				.filter((q) => q.neq(q.field("deleted"), true))
+				// Quiet replies are wake turns' own, never shown.
+				.filter((q) => q.and(q.neq(q.field("deleted"), true), q.neq(q.field("quiet"), true)))
 				// The prompt shows PROMPT_MESSAGE_CAP; one more says there are earlier ones, one more for the trigger.
 				.take(PROMPT_MESSAGE_CAP + 2)
 		).reverse();
@@ -219,6 +231,7 @@ export const turnContext = internalQuery({
 		const { models } = await catalogModels(ctx);
 		const vision = [models, fallbackModels].some((list) => list.find((m) => m.id === agent.model)?.vision);
 		const user = await ctx.db.get(member.userId);
+		const about = wakeup?.recordId ? await ctx.db.get(wakeup.recordId) : undefined;
 		return {
 			replyId: turn.replyId,
 			member,
@@ -247,6 +260,19 @@ export const turnContext = internalQuery({
 			messages,
 			asked,
 			triggerId: turn.triggerId ?? null,
+			/** Set on a wake turn: what woke it, in place of a message (wakeups.ts). */
+			wake: wakeup
+				? {
+						id: wakeup._id,
+						...(wakeup.note !== undefined && { note: wakeup.note }),
+						setAt: wakeup._creationTime,
+						// Counted before the turn runs: `wakes` already includes this one.
+						...(wakeup.every && { repeats: { left: wakeup.times === undefined ? null : Math.max(wakeup.times - (wakeup.wakes ?? 0), 0) } }),
+						...(about !== undefined && { record: about && (await recordOut(ctx, member, about._id)) }),
+						...(wakeup.result !== undefined && { result: wakeup.result }),
+						canNotify: isGranted(agent.tools, "chat.notify"),
+					}
+				: undefined,
 			vision,
 			/** Pictures for the model, newest kept: the runner loads and sends them when it sees pictures. */
 			images: vision ? turnImages([...(parent && first ? [parent] : []), ...recent.filter((m) => !m.deleted)]) : [],
@@ -422,6 +448,7 @@ export const finishReply = internalMutation({
 			if (!error) await previewMessage(ctx, (await ctx.db.get(reply._id))!);
 		}
 		await ctx.db.patch(turnId, { status: error ? "error" : "done", step: undefined });
+		await setWakeOutcome(ctx, turn, error ? "failed" : "ran");
 		await settleApproval(ctx, turn);
 		await startNext(ctx, turn);
 	},

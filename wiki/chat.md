@@ -15,6 +15,7 @@ Channels, DMs (people and agents), threads, and reactions. One model for all of 
 - **Agent DM** (one person + one agent): every message the person sends, including automation runs posted as them.
 - **Everywhere else:** only when @mentioned. (The main agent's welcome is fixed text, not a reply; see Onboarding.) Mentioning an agent in a channel adds it to the channel's members. In a DM, only agents already in it answer (a DM's participants are fixed).
 - The reply goes **where it was mentioned**: the main timeline, or the thread.
+- **On its own, quietly:** a wakeup (a follow-up it set, [Architecture](architecture.md) → Wakeups) wakes it in the place it was set, acting for the same person, with no message posted. Nothing it writes shows unless it calls `chat.notify`.
 - **Agents never trigger agents.** An agent's @mention of another agent is just text.
 - **One turn per agent per place** (chat + thread). Extra mentions queue in `agentTurns`; a person's message always posts. A turn stuck `running` over 5 minutes is failed and the queue moves on.
 
@@ -46,7 +47,9 @@ Built for prompt caching: the cache matches an exact prefix, so nothing earlier 
 4. **Compaction** — once the session passes ~40k tokens, older turns fold into the session's summary and a ~15k-token tail stays verbatim. One cache miss, then append-only again.
 5. **Chat tools** — `chat.react` (react to the trigger message), `chat.read` (older history or another place; lines list their files), `chat.search` (search chats the actor can see), `chat.read_file` (a file's text by id, 20k characters a page: a PDF's pages, a Word file's paragraphs, each Excel sheet as CSV, text as is; `inside`, like `chat.read`). Granted like other built-ins (`chat.*`), so every agent with chat has it.
 
-Foreign automation runs skip session replay and summaries and see only their trigger or its own thread. Other history must be read through the consent-gated chat tools.
+A **wake turn** has no trigger message: its new user message ends with a wake section in place of "Reply to this message" (what woke it, the note, the record as it is now and a job's result fenced as data, repeats left, and that nothing it writes is shown unless it uses `chat_notify`). Its reply is stored as a `quiet` message for the session and never shown or fed to later prompts.
+
+Foreign automation runs, and wakes set in one (`wakeups.foreign`), skip session replay and summaries and see only their trigger or its own thread (a foreign wake: only its wakeup). Other history must be read through the consent-gated chat tools.
 
 Code: `core/src/turn-input.ts` builds all of it (`systemPrompt`, `buildTurnPrompt`, `buildTurnInput`); change the strategy there. `backend/convex/turns.ts` runs the queue and reads turn context; `chatTools.ts` owns agent chat tools, using the shared channel lookup in `chatOps.ts`; `agent.ts` streams the reply.
 

@@ -1,5 +1,6 @@
 import { skills } from "./fixtures";
 import type { AutomationStore } from "../src/automation-tools";
+import type { WakeupStore } from "../src/wakeups";
 import type { PageStore } from "../src/page-tools";
 import type { RecordStore } from "../src/record-tools";
 import type { ChatStore } from "../src/chat";
@@ -24,6 +25,7 @@ export const ctx = (actor: Actor) => ({
 	skills: { list: skills } as SkillStore,
 	results: createResultStore(),
 	automations: {} as AutomationStore,
+	wakeups: {} as WakeupStore,
 	records: {} as RecordStore,
 	pages: {} as PageStore,
 	web: {} as WebTurn,

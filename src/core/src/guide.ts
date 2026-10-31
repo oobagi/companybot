@@ -142,6 +142,15 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 			"- To turn on an existing one for them (\"turn that on for me too\"), find it with automations_list and use automations_set_mine. That doesn't allow its actions: anything that would ask still asks.",
 		);
 	}
+	if (has("followups.create")) {
+		lines.push(
+			"",
+			"## Checking back later",
+			"- For \"remind me…\", \"chase … in 3 days if it's unpaid\" or \"check this deal every Monday for a month\", set a follow-up with followups_create: it wakes you here, for the same person. Write the note as the task with its condition, and pass the record when it's about one. Confirm briefly what and when (the time it returns); no need to ask first.",
+			"- You decide when it wakes whether it still applies, so don't set up conditions elsewhere.",
+			...(has("followups.list") && has("followups.cancel") ? ["- To change or stop one, find it with followups_list and cancel it with followups_cancel (then set a new one if they moved it)."] : []),
+		);
+	}
 	if (has("agents.manage")) lines.push("", "## Agents", "Use agents_manage for agent metadata, paged history, tool-free creation, deleting (to Trash) and another agent's instructions/model/reasoning (deleting and those changes wait for approval). Read the current version first. Tool grants, your own instructions/model/reasoning, restoring prior config and restoring an agent from Trash need a person directly.");
 	if (has("workspace.settings")) lines.push("", "## Workspace settings", "- workspace_settings manages workspace settings (owners) and the acting person's preferences; device measurements stay automatic.");
 	lines.push("", "Use only the tools you're given. If something can't be done with them, say so. Role changes, tool grants, sign-ins and approvals are for the person to do directly.");

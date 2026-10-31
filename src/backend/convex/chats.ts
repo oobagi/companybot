@@ -201,7 +201,7 @@ export const alerts = query({
 			const since = row.lastReadAt ?? 0;
 			const chat = await ctx.db.get(row.chatId);
 			if (!chat || chat.archived || chat.workspaceId !== member.workspaceId) continue;
-			const fromOthers = (m: Doc<"chatMessages"> | null) => (m && !m.deleted && m.authorUserId !== member.userId ? m : null);
+			const fromOthers = (m: Doc<"chatMessages"> | null) => (m && !m.deleted && !m.quiet && m.authorUserId !== member.userId ? m : null);
 			// Mentions come from their index, so any number of newer messages can't hide one,
 			// and a thread reply (which doesn't move lastMessageAt) is found all the same.
 			const mention = await latestMentionSince(ctx, chat._id, member.userId, since);

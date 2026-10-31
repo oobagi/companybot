@@ -36,10 +36,11 @@ export const request = internalMutation({
 	handler: async (ctx, { turnId, callId, tool, input, risk }) => {
 		const { turn } = await runningTurn(ctx, turnId);
 		const { automation, trigger } = await automationScope(ctx, turn);
-		// Automation cards belong only in the acting person's DM, even for channel/thread runs.
+		// Automation and wake cards belong only in the acting person's DM, even for channel/thread runs.
 		// Keep chatId/threadId as the execution place: implicit targets must not change on approval.
-		const dmId = trigger?.automation && await findOrCreateDm(ctx, turn.workspaceId, turn.actorId, [turn.actorId], [turn.agentId]);
-		const separate = !!dmId && dmId !== turn.chatId;
+		const dmId = (trigger?.automation || turn.wakeupId) && await findOrCreateDm(ctx, turn.workspaceId, turn.actorId, [turn.actorId], [turn.agentId]);
+		// A wake turn's reply is quiet, so its card is its own message even in the DM.
+		const separate = !!dmId && (dmId !== turn.chatId || !!turn.wakeupId);
 		const replyId = separate ? await insertMessage(ctx, (await ctx.db.get(dmId!))!, {
 			authorAgentId: turn.agentId, text: "", parts: [], mentions: { userIds: [], agentIds: [] }, status: "done",
 		}) : turn.replyId;
@@ -75,6 +76,8 @@ async function alwaysFor(ctx: QueryCtx, row: Doc<"approvals">) {
 	// A removed automation cannot leave behind a wider Always grant, whether it went after the
 	// call was held or before (its run keeps going, and `request` then has no install to record).
 	const automation = row.automationInstallId ? await ctx.db.get(row.automationInstallId) : null;
+	// A wake has no automation to scope a grant to, so its cards never offer Always.
+	if ((await ctx.db.get(row.turnId))?.wakeupId) return null;
 	if (row.automationInstallId && (!automation || automation.archived)) return null;
 	const turn = !row.automationInstallId && (await ctx.db.get(row.turnId));
 	if (turn && turn.triggerId && (await ctx.db.get(turn.triggerId))?.automation) return null;
@@ -185,6 +188,8 @@ export const decide = mutation({
 			triggerId: asked ? asked.triggerId : row.replyId,
 			actorId: row.actorId,
 			approvalId,
+			// A wake's follow-up turn stays quiet, and as trusted as the wake.
+			...(asked?.wakeupId && { wakeupId: asked.wakeupId }),
 		});
 	},
 });

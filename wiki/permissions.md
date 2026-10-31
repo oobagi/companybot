@@ -42,6 +42,7 @@ Modeled on Android runtime permissions and OAuth incremental consent: ask for wh
 - **Always invariants.** An Always for an `inside` action exists only scoped to one automation (`setRule` refuses person-wide ones); a person-wide Always never reaches into someone else's automation. Grants key on the action, never the prompt, so a reworded prompt keeps them but can only use what was allowed. A held call remembers its automation (`approvals.automationInstallId`); if it's deleted, the card stops offering Always, never widening to a person-wide rule.
 - A run belongs to an automation when its server-written trigger message was posted by it. The message preserves whether the original run followed others' words; later edits cannot turn it into trusted chat, and removing the automation blocks further permission-checked calls. Grants apply only to those runs; the same person chatting normally is still asked for outside actions, and never for `inside` ones.
 - Turning it off for yourself, or deleting it, removes the grants.
+- **Follow-ups inherit it.** A wakeup made in a run that followed someone else's words (a webhook, an in-app event, someone else's automation, or another such wake) is `foreign` (`automationScope` on the making turn), so its wake turn asks before `inside` actions like that run would. A webhook can't launder its text into a trusted turn months later. Wake turns hold calls like an automation's run (card in the actor's DM, the run goes on) and never offer Always.
 
 ## Where it shows up
 1. **Chat:** the permission message with three buttons.
