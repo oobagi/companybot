@@ -30,6 +30,19 @@ describe("agents", () => {
 		]);
 	});
 
+	it("renames in place as a new version, for owners only", async () => {
+		const { owner, member } = await ownerAndMember();
+		const { scribe } = await agentsOf(owner);
+		await owner.mutation(api.agents.rename, { agentId: scribe._id, name: "  Penny " });
+		const history = await owner.query(api.agents.history, { agentId: scribe._id });
+		expect(history.map((h) => [h.version, h.config.name, h.config.instructions === scribe.instructions])).toEqual([
+			[2, "Penny", true],
+			[1, scribe.name, true],
+		]);
+		await expect(owner.mutation(api.agents.rename, { agentId: scribe._id, name: " " })).rejects.toThrow();
+		await expect(member.mutation(api.agents.rename, { agentId: scribe._id, name: "Mine" })).rejects.toThrow();
+	});
+
 	it("saves reasoning, and keeps it when a save or a restore leaves it out", async () => {
 		const { t, owner } = await ownerAndMember();
 		const { companybot, scribe } = await agentsOf(owner);

@@ -5,10 +5,10 @@ import { useMutation, useQuery, useWorkspace } from "../../convex";
 import { AgentIcon, CaretRightIcon, ChannelIcon, ChatIcon, CheckIcon, EditIcon, MembersIcon, MoreIcon, PlusIcon, PrivateIcon, SignOutIcon, ThreadIcon, TrashIcon } from "../../icons";
 import { navigate } from "../../router";
 import { type DragProps, useSortable, useStoredIds } from "../../sortable";
-import { Notice, useClock, useRun } from "../../ui";
+import { Notice, RenameInput, useClock, useRun } from "../../ui";
 import { AgentBadge, Avatar, MenuItem, Popover, PopoverPanel, useConfirm } from "./common";
 import type { ChatList, Participant } from "./data";
-import { BrowseChannels, ChannelDetailsFor, CreateChannel, NewMessage, RenameChat } from "./dialogs";
+import { BrowseChannels, ChannelDetailsFor, CreateChannel, NewMessage } from "./dialogs";
 import { useDraftChats } from "./drafts";
 
 type Dialog = "create" | "browse" | "message";
@@ -27,6 +27,8 @@ type ChatNavProps = {
 	openThread?: string;
 	onOpen: (chatId: Id<"chats">) => void;
 	onError: (e: unknown) => void;
+	/** `agents.manage`: renames agents from their rows. */
+	canManageAgents: boolean;
 	section: SectionProps;
 };
 
@@ -43,6 +45,7 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 	const [dialog, setDialog] = useState<Dialog>();
 	const [details, setDetails] = useState<Id<"chats">>();
 	const markRead = useMutation(api.chats.markRead);
+	const updateChannel = useMutation(api.chats.updateChannel);
 	const leave = useMutation(api.chats.leave);
 	const remove = useMutation(api.trash.move);
 	const { error, run } = useRun();
@@ -83,6 +86,7 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 					mentioned={c.mentioned}
 					draft={drafts.has(c._id)}
 					onClick={() => onOpen(c._id)}
+					rename={c.canManage ? { value: c.name ?? "", onSave: (name) => run(updateChannel({ chatId: c._id, name })) } : undefined}
 					menu={(close) => (
 						<>
 							<MenuItem onClick={() => (close(), setDetails(c._id))}><MembersIcon /> Members and details</MenuItem>
@@ -120,13 +124,14 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
  * written to it. Most recent first until you drag one; then your order, with new ones after.
  * An agent's side chats nest under it, like a channel's threads.
  */
-export function DmsNav({ chats, openId, onOpen, onError, section }: ChatNavProps) {
+export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, section }: ChatNavProps) {
 	const workspace = useWorkspace();
 	const openDm = useMutation(api.chats.openDm);
 	const createSide = useMutation(api.chats.createSideChat);
 	const remove = useMutation(api.trash.move);
+	const renameChat = useMutation(api.chats.renameChat);
+	const renameAgent = useMutation(api.agents.rename);
 	const [dialog, setDialog] = useState<Dialog>();
-	const [renaming, setRenaming] = useState<{ _id: Id<"chats">; label: string | null }>();
 	const [folded, setFolded] = useStoredIds(`sidebar.dms.folded:${workspace?.id}`);
 	const { error, run } = useRun();
 	const { confirm, dialog: confirming } = useConfirm();
@@ -170,6 +175,8 @@ export function DmsNav({ chats, openId, onOpen, onError, section }: ChatNavProps
 					expanded={open}
 					onToggle={sides.length ? () => setFolded(open ? [...folded, d.key] : folded.filter((id) => id !== d.key)) : undefined}
 					onClick={() => (d.dmId ? onOpen(d.dmId) : d.agentId && openDm({ userIds: [], agentIds: [d.agentId] }).then(onOpen, onError))}
+					// Agents rename here (`agents.manage`); a person's name is their own, set in their preferences.
+					rename={d.agentId && canManageAgents ? { value: d.name, onSave: (name) => run(renameAgent({ agentId: d.agentId!, name })) } : undefined}
 					// An agent you haven't written to yet has no chat to mark read.
 					menu={
 						d.dmId || d.agentId
@@ -196,9 +203,9 @@ export function DmsNav({ chats, openId, onOpen, onError, section }: ChatNavProps
 						unread={c.unread}
 						mentioned={c.mentioned}
 						onClick={() => onOpen(c._id)}
+						rename={{ value: c.label ?? "", onSave: (title) => run(renameChat({ chatId: c._id, title })) }}
 						menu={(close) => (
 							<>
-								<MenuItem onClick={() => (close(), setRenaming(c))}><EditIcon /> Rename</MenuItem>
 								<MenuItem onClick={() => (close(), markRead({ chatId: c._id }).catch(onError))}><CheckIcon /> Mark as read</MenuItem>
 								<MenuItem danger onClick={() => (close(), confirm({ title: `Delete "${c.label}"?`, action: "Delete", body: "It goes to Trash and can be restored for 30 days.", onConfirm: () => remove({ kind: "channel", id: c._id }).then(() => c._id === openId && d.dmId && onOpen(d.dmId)) }))}><TrashIcon /> Delete</MenuItem>
 							</>
@@ -213,7 +220,6 @@ export function DmsNav({ chats, openId, onOpen, onError, section }: ChatNavProps
 			<Notice>{error}</Notice>
 			{confirming}
 			{dialog === "message" && <NewMessage onClose={() => setDialog(undefined)} onOpen={onOpen} />}
-			{renaming && <RenameChat chatId={renaming._id} title={renaming.label ?? ""} onClose={() => setRenaming(undefined)} />}
 		</Group>
 	);
 }
@@ -265,7 +271,8 @@ export const trailingAction =
 
 /**
  * A sidebar row. The row is the only hover surface; its controls show on hover at its right end.
- * `menu` gives it a ⋯ button and a right-click menu, the same items either way.
+ * `menu` gives it a ⋯ button and a right-click menu, the same items either way. `rename` makes
+ * its name editable in place: double-click it, press F2 on it, or pick Rename (first in its menu).
  */
 export function Item({
 	icon,
@@ -281,6 +288,7 @@ export function Item({
 	onToggle,
 	menu,
 	actions,
+	rename,
 	drag,
 	onClick,
 	children,
@@ -309,18 +317,32 @@ export function Item({
 	menu?: (close: () => void) => React.ReactNode;
 	/** Other controls after the menu button. Controls in the icon slot need `relative z-10` to sit above the row's click area. */
 	actions?: React.ReactNode;
+	/** The name as edited (without a channel's #), and what saves a new one. */
+	rename?: { value: string; onSave: (name: string) => Promise<unknown> };
 	/** From `useSortable`: makes the row draggable within its list. */
 	drag?: DragProps;
 	onClick: () => void;
 	children: React.ReactNode;
 }) {
 	const [menuAt, setMenuAt] = useState<DOMRect>();
+	const [renaming, setRenaming] = useState(false);
 	const more = useRef<HTMLButtonElement>(null);
 	const closeMenu = () => setMenuAt(undefined);
+	const items =
+		menu || rename
+			? (close: () => void) => (
+					<>
+						{rename && <MenuItem onClick={() => (close(), setRenaming(true))}><EditIcon /> Rename</MenuItem>}
+						{menu?.(close)}
+					</>
+				)
+			: undefined;
 	return (
 		<div
 			{...drag}
-			onContextMenu={menu && ((e) => (e.preventDefault(), setMenuAt(new DOMRect(e.clientX, e.clientY, 0, 0))))}
+			// While renaming, a drag would take the text selection, and right-click is the input's own.
+			draggable={renaming ? false : drag?.draggable}
+			onContextMenu={items && !renaming ? (e) => (e.preventDefault(), setMenuAt(new DOMRect(e.clientX, e.clientY, 0, 0))) : undefined}
 			className={`group/item relative flex items-stretch text-sm ${drag?.className ?? ""}`}
 		>
 			{/* Tree guides sit in a gutter before the pill, so hover and active backgrounds never paint over them. */}
@@ -348,18 +370,29 @@ export function Item({
 					)}
 				</span>
 			)}
-			<button type="button" title={title} onClick={onClick} className="flex min-w-0 flex-1 items-center gap-2 text-left after:absolute after:inset-0 after:rounded-lg">
-				{children}
-				{draft && !active && <span className="ml-auto shrink-0 text-[10px] font-normal text-neutral-400">Draft</span>}
-				{mentioned && !active && (
-					<span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-neutral-900 px-1 text-[10px] font-medium text-white">
-						@
-					</span>
-				)}
-			</button>
-			{(menu || actions) && (
+			{renaming && rename ? (
+				<RenameInput value={rename.value} onSave={rename.onSave} onDone={() => setRenaming(false)} className="-my-0.5 -ml-1.5 flex-1 px-1.5 py-0.5" />
+			) : (
+				<button
+					type="button"
+					title={title}
+					onClick={onClick}
+					onDoubleClick={rename && (() => setRenaming(true))}
+					onKeyDown={rename && ((e) => e.key === "F2" && (e.preventDefault(), setRenaming(true)))}
+					className="flex min-w-0 flex-1 items-center gap-2 text-left after:absolute after:inset-0 after:rounded-lg"
+				>
+					{children}
+					{draft && !active && <span className="ml-auto shrink-0 text-[10px] font-normal text-neutral-400">Draft</span>}
+					{mentioned && !active && (
+						<span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-neutral-900 px-1 text-[10px] font-medium text-white">
+							@
+						</span>
+					)}
+				</button>
+			)}
+			{(items || actions) && !renaming && (
 				<span className={`relative z-10 items-center gap-0.5 ${menuAt ? "flex" : "hidden group-focus-within/item:flex group-hover/item:flex has-[[aria-expanded=true]]:flex"}`}>
-					{menu && (
+					{items && (
 						<button
 							ref={more}
 							type="button"
@@ -375,9 +408,9 @@ export function Item({
 					{actions}
 				</span>
 			)}
-			{menu && menuAt && (
+			{items && menuAt && (
 				<PopoverPanel anchor={menuAt} ignore={more} className="w-52 p-1" onClose={closeMenu}>
-					{menu(closeMenu)}
+					{items(closeMenu)}
 				</PopoverPanel>
 			)}
 			</div>

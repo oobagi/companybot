@@ -128,8 +128,9 @@ export type Crumb = { label: string; to: string[] };
  * where you drag the window.
  */
 export function TopBar({ crumbs = [], title, description, children }: { crumbs?: Crumb[]; title: React.ReactNode; description?: React.ReactNode; children?: React.ReactNode }) {
+	// Its text starts 20px in (16 here, 4 on the title or crumb), like the sidebar's workspace name.
 	return (
-		<header className="drag flex h-12 shrink-0 items-center gap-3 px-5">
+		<header className="drag flex h-12 shrink-0 items-center gap-3 px-4">
 			<nav className="flex min-w-0 items-center overflow-x-auto text-sm">
 				{crumbs.map((c) => (
 					<Fragment key={c.to.join("/")}>
@@ -304,15 +305,27 @@ export function Tabs<T extends string>({
 	);
 }
 
-export function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+/**
+ * A titled part of a screen, usually a stack of cards. Its heading is inset to line up with the
+ * text inside them; `flush` keeps it at the edge, for plain content (a form) that sits there too.
+ */
+export function Section({ title, hint, flush, children }: { title: string; hint?: string; flush?: boolean; children: React.ReactNode }) {
 	return (
 		<section className="flex flex-col gap-2">
-			<div>
-				<h2 className="font-medium">{title}</h2>
-				{hint && <p className={descriptionClass}>{hint}</p>}
-			</div>
+			<Heading title={title} hint={hint} flush={flush} />
 			{children}
 		</section>
+	);
+}
+
+/** Section and Settings headings: a title and a hint. */
+function Heading({ title, hint, flush }: { title?: string; hint?: string; flush?: boolean }) {
+	if (!title && !hint) return null;
+	return (
+		<div className={flush ? "" : insetClass}>
+			{title && <h2 className="font-medium">{title}</h2>}
+			{hint && <p className={descriptionClass}>{hint}</p>}
+		</div>
 	);
 }
 
@@ -323,12 +336,7 @@ export function Section({ title, hint, children }: { title: string; hint?: strin
 export function Settings({ title, hint, children }: { title?: string; hint?: string; children: React.ReactNode }) {
 	return (
 		<section className="flex flex-col gap-2">
-			{(title || hint) && (
-				<div>
-					{title && <h2 className="font-medium">{title}</h2>}
-					{hint && <p className={descriptionClass}>{hint}</p>}
-				</div>
-			)}
+			<Heading title={title} hint={hint} />
 			<div className={listClass}>{children}</div>
 		</section>
 	);
@@ -386,6 +394,8 @@ export const metadataClass = "text-xs text-neutral-400";
 export const hintClass = "text-sm text-neutral-400";
 /** One item as a bordered box: an entry, a rule, a member. */
 export const cardClass = "rounded-xl border border-neutral-200 px-4 py-3";
+/** Lines text outside a card (a heading, an empty note) up with the text inside it: its padding plus its 1px border. */
+export const insetClass = "px-[17px]";
 /** Rows in one bordered box, split by lines. */
 export const listClass = "flex flex-col divide-y divide-neutral-100 rounded-xl border border-neutral-200";
 /**
@@ -453,6 +463,47 @@ export function Loading() {
 export function Notice({ children }: { children: React.ReactNode }) {
 	if (!children) return null;
 	return <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{children}</p>;
+}
+
+/**
+ * A name edited in place, where it's shown (a sidebar row, a tab), as in Finder or Figma: it opens
+ * with the text selected; Enter or clicking away saves, Escape puts it back. A blank or unchanged
+ * name saves nothing. While a save runs it shows the new name as plain text, and `onDone` closes it
+ * once the save settles: Convex resolves a mutation after the screen's queries include it, so the
+ * new name never flashes back to the old one. `className` sizes and pads it so its text sits where
+ * the name did.
+ */
+export function RenameInput({ value, onSave, onDone, className = "" }: { value: string; onSave: (name: string) => Promise<unknown>; onDone: () => void; className?: string }) {
+	const [draft, setDraft] = useState(value);
+	const [saving, setSaving] = useState(false);
+	// Enter closes it, and closing blurs it: only the first finish counts.
+	const finished = useRef(false);
+	const finish = (save: boolean) => {
+		if (finished.current) return;
+		finished.current = true;
+		const name = draft.trim();
+		if (!save || !name || name === value) return onDone();
+		setDraft(name);
+		setSaving(true);
+		void onSave(name).finally(onDone);
+	};
+	return (
+		<input
+			autoFocus
+			readOnly={saving}
+			value={draft}
+			maxLength={120}
+			aria-label="Name"
+			onChange={(e) => setDraft(e.target.value)}
+			onFocus={(e) => e.currentTarget.select()}
+			onBlur={() => finish(true)}
+			onKeyDown={(e) => {
+				if (e.key === "Enter") finish(true);
+				else if (e.key === "Escape") (e.stopPropagation(), finish(false));
+			}}
+			className={`min-w-0 rounded-md outline-1 -outline-offset-1 ${saving ? "outline-transparent" : "bg-white outline-neutral-300 focus:outline-neutral-400"} ${className}`}
+		/>
+	);
 }
 
 /** Shows a query's error in place of what failed, plainly. Remount (new `key`) to try again. */

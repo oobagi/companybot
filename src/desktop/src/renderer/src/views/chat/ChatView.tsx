@@ -4,12 +4,12 @@ import { api } from "../../api";
 import { useMutation, useQuery, useWorkspace } from "../../convex";
 import { navigate } from "../../router";
 import { ChannelIcon, ChatIcon, CloseIcon, EditIcon, PlusIcon, PrivateIcon } from "../../icons";
-import { EmptyState, Loading, NotFound, Notice, Scroll, TopBar, useRun } from "../../ui";
+import { EmptyState, Loading, NotFound, Notice, RenameInput, Scroll, TopBar, useRun } from "../../ui";
 import { FileDrop, useAttachments } from "./Attachments";
 import { AgentBadge, AvatarStack, MenuItem, Popover } from "./common";
 import { Composer, type SendWith } from "./Composer";
 import { type ChatDetails, type Mentions, chatTitle, useDirectory } from "./data";
-import { ChannelDetails, RenameChat } from "./dialogs";
+import { ChannelDetails } from "./dialogs";
 import { draftKey } from "./drafts";
 import { MessageList } from "./MessageList";
 import { ThreadPanel } from "./Thread";
@@ -110,8 +110,8 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 		<TopBar
 			title={
 				<>
-					{/* Inline, not flex: a flex row would take its baseline from the icon, not the name. Keeps a little room beside an agent's tabs. */}
-					<h1 className="min-w-24 truncate">
+					{/* Inline, not flex: a flex row would take its baseline from the icon, not the name. */}
+					<h1 className="min-w-0 truncate">
 						{chat.private && chat.kind === "channel" && <PrivateIcon className="mr-1 inline align-[-0.125em] text-neutral-400" />}
 						{title}
 					</h1>
@@ -212,14 +212,15 @@ function Intro({ title, channel }: { title: string; channel: boolean }) {
 /**
  * An agent DM's conversations, as plain text beside its name: Main (the DM), each side chat (its
  * own session and memory context, like a fresh chat in a chat app) with an × on hover that closes
- * it to Trash, and + for another. Clicking the open side chat's name opens its menu (Rename). The
- * sidebar nests the same ones under the agent.
+ * it to Trash, and + for another. Double-click a side chat's name to rename it in place, or click
+ * the open one's name for its menu (Rename). The sidebar nests the same ones under the agent.
  */
 function SideChatTabs({ chat }: { chat: ChatDetails }) {
 	const list = useQuery(api.chats.list);
 	const create = useMutation(api.chats.createSideChat);
 	const remove = useMutation(api.trash.move);
-	const [renaming, setRenaming] = useState(false);
+	const rename = useMutation(api.chats.renameChat);
+	const [renaming, setRenaming] = useState<Id<"chats">>();
 	const { error, run } = useRun();
 	const mainId = chat.parentId ?? chat._id;
 	const sides = (list?.dms ?? []).filter((d) => d.parentId === mainId);
@@ -243,16 +244,18 @@ function SideChatTabs({ chat }: { chat: ChatDetails }) {
 			<div ref={strip} className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none]">
 			{tabs.map((t) => (
 				<div key={t.id} className={pill(t.id === chat._id)}>
-					{t.id === chat._id && side ? (
-						<Popover trigger={t.label} className={label} panelClassName="w-52 p-1">
-							{(close) => <MenuItem onClick={() => (close(), setRenaming(true))}><EditIcon /> Rename</MenuItem>}
+					{renaming === t.id ? (
+						<RenameInput value={t.label} onSave={(title) => run(rename({ chatId: t.id, title }))} onDone={() => setRenaming(undefined)} className="w-40 px-2 py-1" />
+					) : t.id === chat._id && side ? (
+						<Popover trigger={<span onDoubleClick={() => setRenaming(t.id)}>{t.label}</span>} className={label} panelClassName="w-52 p-1">
+							{(close) => <MenuItem onClick={() => (close(), setRenaming(t.id))}><EditIcon /> Rename</MenuItem>}
 						</Popover>
 					) : (
-						<button type="button" aria-current={t.id === chat._id ? "page" : undefined} onClick={() => navigate("chat", t.id)} className={label}>
+						<button type="button" aria-current={t.id === chat._id ? "page" : undefined} onClick={() => navigate("chat", t.id)} onDoubleClick={t.side ? () => setRenaming(t.id) : undefined} className={label}>
 							{t.label}
 						</button>
 					)}
-					{t.side && (
+					{t.side && renaming !== t.id && (
 						// Only the glyph takes clicks; the faded patch under it is just paint, so the label's tail still opens the tab.
 						<span className="pointer-events-none absolute inset-y-0 right-0 flex w-9 items-center justify-end rounded-r-md bg-[linear-gradient(to_right,transparent,var(--pill)_14px)] pr-1 opacity-0 focus-within:opacity-100 group-hover/tab:opacity-100">
 							<button type="button" title="Close (goes to Trash)" aria-label={`Close ${t.label}`} onClick={() => close(t.id)} className="pointer-events-auto flex size-5 items-center justify-center rounded text-neutral-500 hover:bg-neutral-300/60 hover:text-neutral-900">
@@ -267,7 +270,6 @@ function SideChatTabs({ chat }: { chat: ChatDetails }) {
 				<PlusIcon />
 			</button>
 			<Notice>{error}</Notice>
-			{renaming && side && <RenameChat chatId={side._id} title={side.label ?? ""} onClose={() => setRenaming(false)} />}
 		</nav>
 	);
 }

@@ -80,7 +80,7 @@ function ConnectorDetail({ connector, isOwner }: { connector: ConnectorItem; isO
 				]}
 			/>
 			{connector.installed && (
-				<Section title="Access">
+				<Section title="Access" flush>
 					<label className="flex items-center gap-2 text-sm">
 						<span className="text-neutral-500">Who can use it</span>
 						<Select

@@ -192,7 +192,8 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 							<Scroll
 								className="no-drag"
 								header={
-									<div className="drag px-3 pt-3 pb-4">
+									// pt-2.5: its name sits on the same line as the top bar's title.
+									<div className="drag px-3 pt-2.5 pb-4">
 										{view === "settings" ? (
 											<div className="no-drag flex flex-col">
 												<Item icon={<ArrowLeftIcon />} onClick={() => navigate(...lastApp.current)}>
@@ -230,8 +231,8 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 															<DatabasesNav key={id} types={types ?? []} openKey={typeKey} canCreate={can(role, "fields.manage")} onCreate={() => setNewDatabase(true)} section={section} />
 														)
 													);
-												if (id === "pages") return <PagesNav key={id} openId={view === "pages" ? route[1] : undefined} section={section} />;
-												const props = { chats, openId: view === "chat" ? openId : undefined, openThread: view === "chat" && route[2] === "thread" ? route[3] : undefined, onOpen: open, onError: fail, section };
+												if (id === "pages") return <PagesNav key={id} openId={view === "pages" ? route[1] : undefined} canEdit={can(role, "pages.edit")} section={section} />;
+												const props = { chats, openId: view === "chat" ? openId : undefined, openThread: view === "chat" && route[2] === "thread" ? route[3] : undefined, onOpen: open, onError: fail, canManageAgents: can(role, "agents.manage"), section };
 												if (!chats) return null;
 												return id === "channels" ? <ChannelsNav key={id} {...props} chats={chats} /> : <DmsNav key={id} {...props} chats={chats} />;
 											})}
@@ -291,6 +292,7 @@ function DatabasesNav({
 	const shown = section.collapsed ? sorted.filter((t) => t.key === openKey) : sorted;
 	const [editing, setEditing] = useState<RecordType>();
 	const remove = useMutation(api.trash.move);
+	const update = useMutation(api.recordTypes.update);
 	const { error, run } = useRun();
 	const { confirm, dialog } = useConfirm();
 	return (
@@ -303,6 +305,7 @@ function DatabasesNav({
 					label={type.plural}
 					active={openKey === type.key}
 					onClick={() => navigate(...recordPath(type.key))}
+					rename={canCreate ? { value: type.plural, onSave: (plural) => run(update({ typeId: type._id, plural, version: type.version })) } : undefined}
 					menu={
 						canCreate
 							? (close) => (

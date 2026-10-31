@@ -3,6 +3,7 @@
 export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = {
 	"agents.create": { agent: ["agents.manage:create"], humanOnly: "Default tool grants require direct owner review; agents create without tools." },
 	"agents.update": { agent: ["agents.manage:update"], humanOnly: "Direct owner reviews tool grants and the acting agent's own instructions/model; metadata and other agents' config are covered." },
+	"agents.rename": { agent: ["agents.manage:update"] },
 	"agents.restore": { humanOnly: "Restores prior grants and execution policy; direct owner review." },
 	"approvals.decide": { humanOnly: "Only the acting person can allow once, Always allow, or deny; agents cannot consent to their own calls." },
 	"automationRuns.runNow": { agent: ["automations.manage:run"] },

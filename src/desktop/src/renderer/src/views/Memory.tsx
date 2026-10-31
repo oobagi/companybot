@@ -8,7 +8,7 @@ import { agentLabel, agentOptions } from "../agent-options";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { MemoryIcon } from "../icons";
-import { ConflictNotice, EmptyState, Form, Loading, NoMatches, Notice, Section, cardClass, compactControlClass, compactPrimaryButton, descriptionClass, hintClass, inputClass, metadataClass, timeAgo, toolbarClass, useDraft, useRun } from "../ui";
+import { ConflictNotice, EmptyState, Form, Loading, NoMatches, Notice, Section, cardClass, compactControlClass, compactPrimaryButton, descriptionClass, hintClass, inputClass, insetClass, metadataClass, timeAgo, toolbarClass, useDraft, useRun } from "../ui";
 
 type MemoryItem = FunctionReturnType<typeof api.memory.list>[number];
 type Agent = { _id: Id<"agents">; name: string; archived: boolean };
@@ -71,7 +71,7 @@ function MemoryList({
 }) {
 	return (
 		<Section title={title}>
-			{items.length === 0 && <p className={hintClass}>{empty}</p>}
+			{items.length === 0 && <p className={`${hintClass} ${insetClass}`}>{empty}</p>}
 			{items.map((m) => (
 				<MemoryRow key={m.id} memory={m} agent={agentName.get(m.agentId) ?? "Unknown agent"} />
 			))}
