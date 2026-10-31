@@ -159,6 +159,7 @@ describe("turn input", () => {
 			triggerId: "t",
 		});
 		expect(prompt).toContain("Where you are: a DM with Ben, in a thread.");
+		expect(prompt).toContain("No other agent is in this DM, so @mentioning one reaches nobody. To involve one, ask it with chat_ask_agent.");
 		expect(prompt).toContain("Memory: personal and team memories.");
 		expect(buildTurnPrompt({ ...base, memory: "off" })).toContain("Memory: off. An owner turned memory off");
 		expect(prompt).toContain("Unavailable this turn, so you can't use them: CRM.");

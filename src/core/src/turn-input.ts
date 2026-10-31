@@ -119,6 +119,8 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 	const header = [
 		`Where you are: ${describePlace(place, people, agents)}${place.thread ? ", in a thread" : ""}.`,
 		`Here: ${here}.`,
+		// An @mention hands off only to an agent in the place (backend chains.ts reachable): in a DM, the other agents aren't.
+		place.kind !== "channel" && agents.length === 0 && "No other agent is in this DM, so @mentioning one reaches nobody. To involve one, ask it with chat_ask_agent.",
 		`${clean(actor.name)} <${clean(actor.email)}>, a workspace ${actor.role}, asked for you. Their messages are marked (asker). You act with their access. Their time zone: ${actor.timeZone}.`,
 		`Now: ${formatLocalTime(input.now, actor.timeZone)}.`,
 		input.memory === "personal"
