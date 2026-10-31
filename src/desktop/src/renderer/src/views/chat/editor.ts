@@ -251,6 +251,22 @@ export function composerExtensions(options: {
 /** The message as typed: chips back to `@Ada`, line breaks kept. */
 export const plainText = (editor: Editor) => editor.getText({ blockSeparator: "\n" }).trim();
 
+/**
+ * People and agents named as plain text, like a pasted "@Scout" that never became a chip: a full
+ * name after @, then no more of a word. Messages show those as chips, so they mention too.
+ */
+export function typedMentions(text: string, sources: Pick<Sources, "people" | "agents">): Participant[] {
+	const found: Participant[] = [];
+	// Longest first, and each match blanked, so "@Sam Lee" is Sam Lee and not also Sam.
+	for (const who of [...sources.people, ...sources.agents].filter((p) => p.name).sort((a, b) => b.name.length - a.name.length)) {
+		const pattern = new RegExp(`(^|[^\\w])@${who.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?!\\w)`, "g");
+		const rest = text.replace(pattern, "$1");
+		if (rest !== text) found.push(who);
+		text = rest;
+	}
+	return found;
+}
+
 /** The chips in the message, by kind. */
 export function tokensIn(editor: Editor): Record<TokenKind, string[]> {
 	const ids: Record<TokenKind, string[]> = { user: [], agent: [], channel: [], skill: [] };
