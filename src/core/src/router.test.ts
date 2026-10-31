@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type RouterInput, routerDecisions, routerRequest, routerSchema } from "./router";
+import { type RouterInput, routerAnswers, routerDecisions, routerQuestions, routerRequest, routerSchema } from "./router";
 
 describe("reply router", () => {
 	const agents = [
@@ -54,5 +54,27 @@ describe("reply router", () => {
 		);
 		expect(Object.fromEntries(decisions)).toEqual({ a1: { action: "react", emoji: "👍" }, a2: { action: "quiet" } });
 		expect(Object.fromEntries(routerDecisions({ decisions: [] }, agents))).toEqual({ a1: { action: "quiet" }, a2: { action: "quiet" } });
+	});
+
+	it("asks Jev a choice per agent, and which reaction only of agents that can react", () => {
+		const questions = routerQuestions(input);
+		expect(Object.keys(questions)).toEqual(["a1", "a1_emoji", "a2"]);
+		expect(Object.keys(questions.a1!.criteria)).toEqual(["reply", "react", "quiet"]);
+		expect(Object.keys(questions.a2!.criteria)).toEqual(["reply", "quiet"]);
+		expect(Object.keys(questions.a1_emoji!.criteria)).toContain("thumbs_up");
+	});
+
+	it("turns Jev's answers into decisions: reactions by name, anything unknown quiet", () => {
+		const answers = (a: Record<string, string>) => Object.fromEntries(Object.entries(a).map(([k, choice]) => [k, { choice }]));
+		expect(Object.fromEntries(routerAnswers(answers({ a1: "react", a1_emoji: "party", a2: "reply" }), agents))).toEqual({
+			a1: { action: "react", emoji: "🎉" },
+			a2: { action: "reply" },
+		});
+		// An unknown reaction falls back to 👍; an agent that can't react, or an odd answer, stays quiet.
+		expect(Object.fromEntries(routerAnswers(answers({ a1: "react", a1_emoji: "rocket", a2: "react" }), agents))).toEqual({
+			a1: { action: "react", emoji: "👍" },
+			a2: { action: "quiet" },
+		});
+		expect(Object.fromEntries(routerAnswers({}, agents))).toEqual({ a1: { action: "quiet" }, a2: { action: "quiet" } });
 	});
 });

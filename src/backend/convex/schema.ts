@@ -176,6 +176,8 @@ export default defineSchema({
 		memory: v.optional(v.boolean()),
 		/** What agents make pictures with (an AI Gateway model id). Unset means core's defaultImageModel. */
 		imageModel: v.optional(v.string()),
+		/** What decides whether agents reply in "When relevant" channels (core router.ts); unset: ROUTER_MODEL. */
+		routerModel: v.optional(v.string()),
 		/** USD agents may spend on pictures a month; 0 turns them off. Unset means IMAGE_BUDGET_DEFAULT_USD. */
 		imageBudgetUsd: v.optional(v.number()),
 		/** Hours a thread stays under its channel in the sidebar after its last reply (core `threadWindows`; 0 forever). Unset means THREAD_HOURS_DEFAULT. */

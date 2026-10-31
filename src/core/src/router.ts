@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defaultModel } from "./models";
+import type { ModelInfo } from "./models";
 
 // Whether agents chime in without an @mention (wiki/chat.md, When agents reply). In a channel set to
 // "relevant", a cheap model call decides for each agent there: reply, react, or stay quiet. The
@@ -15,8 +15,14 @@ export const replyModeLabels: Record<ReplyMode, string> = {
 	relevant: "When relevant",
 };
 
-/** The agents' own model, so there's one to tune. Scores against others: wiki/chat.md. */
-export const ROUTER_MODEL = defaultModel;
+/**
+ * Decision models answer fixed choice questions (routerQuestions) instead of writing JSON. Jev,
+ * TypeSafe's, is ~7x faster than the language models at a near-equal score (wiki/chat.md).
+ */
+export const routerDecisionModels: ModelInfo[] = [{ id: "typesafe-ai/jev-1.14.0", name: "Jev 1.14", provider: "typesafe-ai" }];
+export const isDecisionModel = (id: string) => routerDecisionModels.some((m) => m.id === id);
+/** The default pick (Settings → General → Reply decisions); any AI Gateway language model works too. */
+export const ROUTER_MODEL = routerDecisionModels[0]!.id;
 /** Wait this long after a message: a burst of messages gets one decision, on the newest. */
 export const ROUTER_DEBOUNCE_MS = 2_500;
 /** Messages before the newest one that the router sees. */
@@ -25,6 +31,17 @@ export const ROUTER_CONTEXT_MESSAGES = 8;
 export const ROUTER_MAX_AGENTS = 10;
 /** The reactions it picks from, so a model can't invent one (and a decision model can pick by name). */
 export const ROUTER_EMOJI = ["👍", "❤️", "🎉", "😂", "👀", "🙏", "✅", "🔥"] as const;
+/** Each reaction as a decision model's choice: a plain name, and when it fits. */
+const EMOJI_CHOICES: Record<string, [(typeof ROUTER_EMOJI)[number], string]> = {
+	thumbs_up: ["👍", "Plain thanks, okay, got it, sounds good."],
+	heart: ["❤️", "Warm thanks or appreciation."],
+	party: ["🎉", "Good news, a win, something done or launched."],
+	laugh: ["😂", "A joke or something funny."],
+	eyes: ["👀", "They'll look at it, or something interesting to look at."],
+	pray: ["🙏", "Heartfelt thanks for a favor."],
+	check: ["✅", "Confirms something is done or approved."],
+	fire: ["🔥", "Something impressive or exciting."],
+};
 export const routerActions = ["reply", "react", "quiet"] as const;
 export type RouterAction = (typeof routerActions)[number];
 
@@ -104,6 +121,54 @@ export function routerSchema(agents: RouterAgent[]) {
 			}),
 		),
 	});
+}
+
+/**
+ * The same decision as choice questions, for a decision model (Jev): per agent, `<key>` is reply /
+ * react / quiet, and `<key>_emoji` (only agents that can react) which reaction if it reacts.
+ */
+export function routerQuestions(input: RouterInput) {
+	return Object.fromEntries(
+		input.agents.flatMap((a) => {
+			const name = clean(a.name);
+			const action = [
+				a.key,
+				{
+					type: "choice" as const,
+					instructions: `Nobody @mentioned an agent in the newest message. What should ${name} (agent ${a.key}) do about it?`,
+					criteria: {
+						reply: `The message asks ${name} to do something, or asks a question that ${name}'s job covers and that no person here was asked, or follows up on what ${name} just said. ${name} is the best agent for it.`,
+						...(a.canReact && { react: `The message thanks or acknowledges ${name}, or answers ${name}'s question, with nothing left to do.` }),
+						quiet: "Anything else: people talking to each other, small talk, news, a question to a named person, a message for another agent, or unsure.",
+					},
+				},
+			] as const;
+			const emoji = [
+				`${a.key}_emoji`,
+				{
+					type: "choice" as const,
+					instructions: `If ${name} reacts to the newest message, which reaction fits it best?`,
+					criteria: Object.fromEntries(Object.entries(EMOJI_CHOICES).map(([choice, [, when]]) => [choice, when])),
+				},
+			] as const;
+			return a.canReact ? [action, emoji] : [action];
+		}),
+	);
+}
+
+/** A decision model's answers (routerQuestions) as one decision per agent, by key: see routerDecisions. */
+export function routerAnswers(answers: Readonly<Record<string, { choice?: string } | undefined>>, agents: RouterAgent[]) {
+	const action = (choice: string | undefined): RouterAction => ((routerActions as readonly string[]).includes(choice ?? "") ? (choice as RouterAction) : "quiet");
+	return routerDecisions(
+		{
+			decisions: agents.map((a) => ({
+				agent: a.key,
+				action: action(answers[a.key]?.choice),
+				emoji: EMOJI_CHOICES[answers[`${a.key}_emoji`]?.choice ?? ""]?.[0] ?? null,
+			})),
+		},
+		agents,
+	);
 }
 
 /**

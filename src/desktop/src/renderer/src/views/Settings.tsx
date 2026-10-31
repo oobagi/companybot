@@ -1,5 +1,6 @@
 import { threadWindows } from "@companybot/core/chat";
-import { type ImageModelInfo, defaultImageModel, imageModelNote } from "@companybot/core/models";
+import { type ImageModelInfo, type ModelInfo, defaultImageModel, imageModelNote, modelNote } from "@companybot/core/models";
+import { ROUTER_MODEL, isDecisionModel } from "@companybot/core/router";
 import { type Role, can } from "@companybot/core/permissions";
 import { formatUsd, monthLabel, usageMonth } from "@companybot/core/usage";
 import { useState } from "react";
@@ -236,6 +237,8 @@ function GeneralForm({
 		imageModels: ImageModelInfo[];
 		imageBudgetUsd: number;
 		imageSpentUsd: number | null;
+		routerModel: string;
+		routerModels: ModelInfo[];
 		threadHours: number;
 		version: number;
 	};
@@ -244,7 +247,7 @@ function GeneralForm({
 	const save = useMutation(api.workspace.updateSettings);
 	// The budget is edited as typed; the server checks the number.
 	const draft = useDraft(
-		{ name: settings.name, currency: settings.currency, memory: settings.memory, imageModel: settings.imageModel, imageBudget: String(settings.imageBudgetUsd), threadHours: String(settings.threadHours) },
+		{ name: settings.name, currency: settings.currency, memory: settings.memory, imageModel: settings.imageModel, routerModel: settings.routerModel, imageBudget: String(settings.imageBudgetUsd), threadHours: String(settings.threadHours) },
 		settings.version,
 	);
 	const [confirming, setConfirming] = useState(false);
@@ -286,6 +289,19 @@ function GeneralForm({
 				</Setting>
 				<Setting label="Memory" hint="Agents remember what people tell them. Off keeps existing memories for later.">
 					<Toggle disabled={!isOwner} checked={draft.value.memory} onChange={(memory) => draft.set({ ...draft.value, memory })} />
+				</Setting>
+			</Settings>
+			<Settings title="Agents in channels" hint={ownerOnly ?? "In channels set to \"When relevant\", a quick model call decides whether each agent replies, reacts or stays quiet."}>
+				<Setting label="Reply decisions" hint="What makes that call. Jev is a decision model: fastest and cheapest. Any language model works too.">
+					<ModelPicker
+						models={settings.routerModels}
+						defaultModel={ROUTER_MODEL}
+						value={draft.value.routerModel}
+						note={(m) => (isDecisionModel(m.id) ? "Decision model · about 0.2s a call" : modelNote(m))}
+						disabled={!isOwner}
+						className={wideControlClass}
+						onChange={(routerModel) => draft.set({ ...draft.value, routerModel })}
+					/>
 				</Setting>
 			</Settings>
 			<Settings title="Pictures" hint={ownerOnly ?? "Agents make and edit pictures when asked, through AI Gateway."}>

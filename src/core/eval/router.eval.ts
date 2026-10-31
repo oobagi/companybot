@@ -1,15 +1,16 @@
 import { Output, experimental_decide as decide, generateText } from "ai";
 import { it } from "vitest";
-import { ROUTER_MODEL, type RouterAction, type RouterInput, routerActions, routerDecisions, routerRequest, routerSchema } from "../src/router";
+import { defaultModel } from "../src/models";
+import { ROUTER_MODEL, type RouterAction, type RouterInput, routerAnswers, routerDecisions, routerQuestions, routerRequest, routerSchema } from "../src/router";
 import { gatewayCost } from "../src/usage";
 import { routerCases } from "./router-cases";
 
 // Scores reply-router models on the chat moments in router-cases.ts (wiki/chat.md has the latest
 // scores). Costs real money, a few cents a run, so it's not part of `pnpm test`:
 //   AI_GATEWAY_API_KEY=… pnpm --filter @companybot/core eval:router
-// Language models run the exact production call (routerRequest + routerSchema). Jev, TypeSafe's
-// decision model, answers one choice question per agent instead: through AI Gateway with the same
-// key, and also through OpenRouter's Decisions API when OPENROUTER_API_KEY is set.
+// Jev (ROUTER_MODEL) runs the exact production call (routerQuestions: a choice per agent, plus its
+// reaction): through AI Gateway, and also through OpenRouter's Decisions API when OPENROUTER_API_KEY
+// is set. Language models, for comparison, answer the same rules as JSON (routerSchema).
 // ROUTER_EVAL_MODELS (comma-separated) picks models; ROUTER_EVAL_RUNS repeats the set.
 
 type Answer = Map<string, RouterAction>;
@@ -32,30 +33,13 @@ const language = (id: string): Model => ({
 	},
 });
 
-/** The same rules as the language models' instructions, split into one choice per agent. */
-function jevQuestions(input: RouterInput) {
-	return Object.fromEntries(
-		input.agents.map((a) => [
-			a.key,
-			{
-				type: "choice" as const,
-				instructions: `Nobody @mentioned an agent in the newest message. What should ${a.name} (agent ${a.key}) do about it?`,
-				criteria: {
-					reply: `The message asks ${a.name} to do something, or asks a question that ${a.name}'s job covers and that no person here was asked, or follows up on what ${a.name} just said. ${a.name} is the best agent for it.`,
-					react: `The message thanks or acknowledges ${a.name}, or answers ${a.name}'s question, with nothing left to do.`,
-					quiet: "Anything else: people talking to each other, small talk, news, a question to a named person, a message for another agent, or unsure.",
-				},
-			},
-		]),
-	);
-}
-
 const jev = (id: string): Model => ({
 	id: `${id} (gateway)`,
 	run: async (input) => {
 		const { instructions, prompt } = routerRequest(input);
-		const { answers, providerMetadata } = await decide({ model: id, state: `${instructions}\n\n${prompt}`, questions: jevQuestions(input), maxRetries: 1 });
-		const answer = new Map(input.agents.map((a) => [a.key, pick((answers[a.key] as { choice?: string } | undefined)?.choice)]));
+		// The exact production call (backend router.ts).
+		const { answers, providerMetadata } = await decide({ model: id, state: `${instructions}\n\n${prompt}`, questions: routerQuestions(input), maxRetries: 1 });
+		const answer = new Map([...routerAnswers(answers as Record<string, { choice?: string }>, input.agents)].map(([key, d]) => [key, d.action]));
 		return { answer, costUsd: gatewayCost(providerMetadata) };
 	},
 });
@@ -67,19 +51,18 @@ const jevOpenRouter = (id: string, key: string): Model => ({
 		const response = await fetch("https://openrouter.ai/api/alpha/decisions", {
 			method: "POST",
 			headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
-			body: JSON.stringify({ model: id, state: `${instructions}\n\n${prompt}`, questions: jevQuestions(input) }),
+			body: JSON.stringify({ model: id, state: `${instructions}\n\n${prompt}`, questions: routerQuestions(input) }),
 		});
 		if (!response.ok) throw new Error(`OpenRouter ${response.status}: ${await response.text()}`);
 		const body = (await response.json()) as { answers: Record<string, { choice?: string }>; usage?: { cost?: number } };
-		return { answer: new Map(input.agents.map((a) => [a.key, pick(body.answers[a.key]?.choice)])), costUsd: body.usage?.cost ?? 0 };
+		const answer = new Map([...routerAnswers(body.answers, input.agents)].map(([key, d]) => [key, d.action]));
+		return { answer, costUsd: body.usage?.cost ?? 0 };
 	},
 });
 
-const pick = (choice: string | undefined): RouterAction => ((routerActions as readonly string[]).includes(choice ?? "") ? (choice as RouterAction) : "quiet");
-
 function models(): Model[] {
 	const picked = process.env.ROUTER_EVAL_MODELS?.split(",").map((s) => s.trim()).filter(Boolean);
-	const all = [language(ROUTER_MODEL), language("openai/gpt-5-nano"), language("alibaba/qwen3.7-flash"), jev("typesafe-ai/jev-1.14.0")];
+	const all = [jev(ROUTER_MODEL), language(defaultModel), language("openai/gpt-5-nano"), language("alibaba/qwen3.7-flash")];
 	if (process.env.OPENROUTER_API_KEY) all.push(jevOpenRouter("typesafe/jev-1.14", process.env.OPENROUTER_API_KEY));
 	return picked ? all.filter((m) => picked.some((p) => m.id.startsWith(p))) : all;
 }

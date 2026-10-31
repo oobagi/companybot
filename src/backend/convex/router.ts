@@ -8,11 +8,14 @@ import {
 	type RouterMessage,
 	gatewayCost,
 	isGranted,
+	isDecisionModel,
+	routerAnswers,
 	routerDecisions,
+	routerQuestions,
 	routerRequest,
 	routerSchema,
 } from "@companybot/core";
-import { Output, generateText } from "ai";
+import { Output, experimental_decide as decideWith, generateText } from "ai";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -99,7 +102,8 @@ export const context = internalQuery({
 			before: await Promise.all(before.map(toRouter)),
 			message: await toRouter(message),
 		};
-		return { input, agentIds: agents.map((a) => a._id), workspaceId: chat.workspaceId };
+		const model = (await ctx.db.get(chat.workspaceId))?.routerModel ?? ROUTER_MODEL;
+		return { input, agentIds: agents.map((a) => a._id), workspaceId: chat.workspaceId, model };
 	},
 });
 
@@ -109,22 +113,27 @@ export const decide = internalAction({
 	handler: async (ctx, { messageId }) => {
 		const found = await ctx.runQuery(internal.router.context, { messageId });
 		if (!found) return;
-		const { input, agentIds } = found;
+		const { input, agentIds, model } = found;
 		const { instructions, prompt } = routerRequest(input);
-		const { output, providerMetadata } = await generateText({
-			model: ROUTER_MODEL,
-			instructions,
-			prompt,
-			output: Output.object({ schema: routerSchema(input.agents), name: "decisions" }),
-			providerOptions: { gateway: { caching: "auto" } },
-			maxRetries: 1,
-		});
-		const picked = routerDecisions(output, input.agents);
+		// A decision model (Jev) answers choice questions; a language model, the same rules as JSON.
+		const { picked, providerMetadata } = isDecisionModel(model)
+			? await decideWith({ model, state: `${instructions}\n\n${prompt}`, questions: routerQuestions(input), maxRetries: 1 }).then((r) => ({
+					picked: routerAnswers(r.answers as Record<string, { choice?: string }>, input.agents),
+					providerMetadata: r.providerMetadata,
+				}))
+			: await generateText({
+					model,
+					instructions,
+					prompt,
+					output: Output.object({ schema: routerSchema(input.agents), name: "decisions" }),
+					providerOptions: { gateway: { caching: "auto" } },
+					maxRetries: 1,
+				}).then((r) => ({ picked: routerDecisions(r.output, input.agents), providerMetadata: r.providerMetadata }));
 		const decisions = input.agents.flatMap((a, i) => {
 			const d = picked.get(a.key)!;
 			return d.action === "quiet" ? [] : [{ agentId: agentIds[i]!, action: d.action, ...(d.action === "react" && { emoji: d.emoji }) }];
 		});
-		await ctx.runMutation(internal.router.apply, { messageId, decisions, model: ROUTER_MODEL, costUsd: gatewayCost(providerMetadata) });
+		await ctx.runMutation(internal.router.apply, { messageId, decisions, model, costUsd: gatewayCost(providerMetadata) });
 	},
 });
 

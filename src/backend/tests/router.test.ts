@@ -1,19 +1,29 @@
-import { ROUTER_MODEL } from "@companybot/core";
+import { ROUTER_MODEL, defaultModel } from "@companybot/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { agentsOf, noMentions, ownerAndMember, turnsOf, workspaceOf } from "./helpers";
 
-// No network: the AI SDK's generateText is stubbed, so nothing is billed. Fake timers hold the
+// No network: the AI SDK's decide (Jev) is stubbed, so nothing is billed. Fake timers hold the
 // scheduled decision (and any reply it queues) back; tests run `router.decide` themselves.
+const decideWith = vi.hoisted(() => vi.fn());
 const generateText = vi.hoisted(() => vi.fn());
-vi.mock("ai", async (original) => ({ ...(await original<typeof import("ai")>()), generateText }));
+vi.mock("ai", async (original) => ({ ...(await original<typeof import("ai")>()), experimental_decide: decideWith, generateText }));
 
+/** Jev's answer: per agent its action, and for a reaction which one, by choice name. */
 type Decision = { agent: string; action: "reply" | "react" | "quiet"; emoji: string | null };
-const answer = (...decisions: Decision[]) => generateText.mockResolvedValue({ output: { decisions }, providerMetadata: { gateway: { cost: "0.0002" } } });
+const EMOJI_NAMES: Record<string, string> = { "👍": "thumbs_up", "❤️": "heart", "🎉": "party", "😂": "laugh", "👀": "eyes", "🙏": "pray", "✅": "check", "🔥": "fire" };
+const answer = (...decisions: Decision[]) =>
+	decideWith.mockResolvedValue({
+		answers: Object.fromEntries(
+			decisions.flatMap((d) => [[d.agent, { type: "choice", choice: d.action }], ...(d.emoji ? [[`${d.agent}_emoji`, { type: "choice", choice: EMOJI_NAMES[d.emoji] ?? d.emoji }]] : [])]),
+		),
+		providerMetadata: { gateway: { cost: "0.0002" } },
+	});
 
 beforeEach(() => {
 	vi.useFakeTimers();
+	decideWith.mockReset();
 	generateText.mockReset();
 	answer();
 });
@@ -56,11 +66,12 @@ describe("reply router", () => {
 		answer({ agent: "a1", action: "reply", emoji: null }, { agent: "a2", action: "quiet", emoji: null });
 		await decide(messageId);
 
-		const call = generateText.mock.calls[0]![0];
+		const call = decideWith.mock.calls[0]![0];
 		expect(call.model).toBe(ROUTER_MODEL);
-		expect(call.prompt).toContain('"What\'s on the calendar for Friday?"');
-		expect(call.prompt).toContain("a1: Companybot");
-		expect(call.prompt).toContain("a2: Scribe");
+		expect(call.state).toContain('"What\'s on the calendar for Friday?"');
+		expect(call.state).toContain("a1: Companybot");
+		expect(call.state).toContain("a2: Scribe");
+		expect(Object.keys(call.questions)).toEqual(expect.arrayContaining(["a1", "a2"]));
 		const turns = await turnsOf(t);
 		expect(turns).toHaveLength(1);
 		expect(turns[0]).toMatchObject({ agentId: companybot._id, chatId, triggerId: messageId, actorId: member.userId, routed: true, status: "running" });
@@ -100,10 +111,10 @@ describe("reply router", () => {
 		const last = await send(owner, "Companybot can you summarize yesterday's leads");
 		await decide(first);
 		await decide(second);
-		expect(generateText).not.toHaveBeenCalled();
+		expect(decideWith).not.toHaveBeenCalled();
 		await decide(last);
-		expect(generateText).toHaveBeenCalledTimes(1);
-		const { prompt } = generateText.mock.calls[0]![0];
+		expect(decideWith).toHaveBeenCalledTimes(1);
+		const { state: prompt } = decideWith.mock.calls[0]![0];
 		expect(prompt).toContain('"hey team"');
 		expect(prompt).toContain('"hi!"');
 		expect(prompt.indexOf("Newest message")).toBeLessThan(prompt.indexOf("summarize yesterday"));
@@ -114,7 +125,7 @@ describe("reply router", () => {
 		const messageId = await owner.mutation(api.messages.send, { chatId, text: "status?", mentions: { userIds: [], agentIds: [companybot._id] } });
 		expect(await scheduled()).toEqual([]);
 		await decide(messageId);
-		expect(generateText).not.toHaveBeenCalled();
+		expect(decideWith).not.toHaveBeenCalled();
 		expect((await turnsOf(t)).map((x) => x.agentId)).toEqual([companybot._id]);
 	});
 
@@ -133,7 +144,7 @@ describe("reply router", () => {
 			}),
 		);
 		await decide(messageId);
-		expect(generateText).not.toHaveBeenCalled();
+		expect(decideWith).not.toHaveBeenCalled();
 		expect(await scheduled()).toEqual([]);
 	});
 
@@ -143,24 +154,24 @@ describe("reply router", () => {
 		const reply = await send(member, "can you list the open tasks for it?", parent);
 		answer({ agent: "a1", action: "reply", emoji: null });
 		await decide(reply);
-		expect(generateText.mock.calls[0]![0].prompt).toMatch(/In a thread under this message:\n\[[^\]]+\] "Q3 plan draft is up"/);
+		expect(decideWith.mock.calls[0]![0].state).toMatch(/In a thread under this message:\n\[[^\]]+\] "Q3 plan draft is up"/);
 		expect(await turnsOf(t)).toEqual([expect.objectContaining({ agentId: companybot._id, threadId: parent, triggerId: reply })]);
 	});
 
 	it("drops agents that left (or the setting going back) between the call and its answer", async () => {
 		const { t, owner, member, scribe, chatId, send, decide } = await setUp();
 		const messageId = await send(member, "Scribe, take notes please");
-		generateText.mockImplementation(async () => {
+		decideWith.mockImplementation(async () => {
 			await owner.mutation(api.chats.removeMember, { chatId, agentId: scribe._id });
-			return { output: { decisions: [{ agent: "a2", action: "reply", emoji: null }] }, providerMetadata: {} };
+			return { answers: { a2: { type: "choice", choice: "reply" } }, providerMetadata: {} };
 		});
 		await decide(messageId);
 		expect(await turnsOf(t)).toEqual([]);
 
 		await owner.mutation(api.chats.addMembers, { chatId, userIds: [], agentIds: [scribe._id] });
-		generateText.mockImplementation(async () => {
+		decideWith.mockImplementation(async () => {
 			await owner.mutation(api.chats.updateChannel, { chatId, replyMode: "mentions" });
-			return { output: { decisions: [{ agent: "a1", action: "reply", emoji: null }] }, providerMetadata: {} };
+			return { answers: { a1: { type: "choice", choice: "reply" } }, providerMetadata: {} };
 		});
 		await decide(messageId);
 		expect(await turnsOf(t)).toEqual([]);
@@ -173,6 +184,23 @@ describe("reply router", () => {
 		answer({ agent: "a2", action: "react", emoji: "🙏" });
 		await decide(messageId);
 		expect(await t.run((ctx) => ctx.db.query("reactions").collect())).toEqual([]);
-		expect(generateText.mock.calls[0]![0].prompt).toContain("Can't react.");
+		expect(decideWith.mock.calls[0]![0].state).toContain("Can't react.");
+	});
+
+	it("uses the workspace's pick: a language model answers the same rules as JSON", async () => {
+		const { t, owner, member, companybot, send, decide } = await setUp();
+		const settings = (await owner.query(api.workspace.settings))!;
+		expect(settings.routerModel).toBe(ROUTER_MODEL);
+		expect(settings.routerModels.map((m) => m.id)).toEqual(expect.arrayContaining([ROUTER_MODEL, defaultModel]));
+		await expect(owner.mutation(api.workspace.updateSettings, { name: settings.name, routerModel: "made/up", expectedVersion: settings.version })).rejects.toThrow("reply decision models");
+		await owner.mutation(api.workspace.updateSettings, { name: settings.name, routerModel: defaultModel, expectedVersion: settings.version });
+
+		const messageId = await send(member, "What's on the calendar for Friday?");
+		generateText.mockResolvedValue({ output: { decisions: [{ agent: "a1", action: "reply", emoji: null }] }, providerMetadata: {} });
+		await decide(messageId);
+		expect(decideWith).not.toHaveBeenCalled();
+		expect(generateText.mock.calls[0]![0].model).toBe(defaultModel);
+		expect((await turnsOf(t)).map((turn) => turn.agentId)).toEqual([companybot._id]);
+		expect((await t.run((ctx) => ctx.db.query("usage").collect()))[0]?.model ?? defaultModel).toBe(defaultModel);
 	});
 });
