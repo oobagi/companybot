@@ -219,8 +219,8 @@ describe("reply router", () => {
 		expect(turn!.dispatch).toEqual({ model: ROUTER_MODEL, band: "probably", probability: 0.84, probabilities: { reply: 0.84, react: 0, quiet: 1 - 0.84 }, costUsd: 0.0002, quiet: true });
 		const reply = await t.run((ctx) => ctx.db.get(turn!.replyId as Id<"chatMessages">));
 		expect(reply!.quiet).toBe(true);
-		// Nobody sees it working: it may well say nothing.
-		expect((await member.query(api.typing.list, { chatId })).agents).toEqual([]);
+		// It shows working, but never as typing: it may well say nothing.
+		expect((await member.query(api.typing.list, { chatId })).agents).toMatchObject([{ step: "Thinking…" }]);
 		const prompt = (await t.query(internal.turns.turnContext, { turnId: turn!._id })).routed;
 		expect(prompt).toEqual({ band: "probably", quiet: true });
 

@@ -61,9 +61,9 @@ export const list = query({
 			.take(SHOWN_MAX);
 		const agents = await Promise.all(
 			running
-				// A dispatcher pick (router.ts) may well post nothing: it shows once it does.
-				.filter((t) => now - (t.startedAt ?? t._creationTime) < STALE_TURN_MS && !t.dispatch?.quiet)
-				.map(async (t) => ({ ...(await names.agent(t.agentId)), step: t.step?.label ?? null })),
+				.filter((t) => now - (t.startedAt ?? t._creationTime) < STALE_TURN_MS)
+				// A dispatcher pick (router.ts) may well post nothing: it shows what it's doing, never "typing".
+				.map(async (t) => ({ ...(await names.agent(t.agentId)), step: t.step?.label ?? (t.dispatch?.quiet ? "Thinking…" : null) })),
 		);
 		return { people: people.slice(0, SHOWN_MAX), agents };
 	},
