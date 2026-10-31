@@ -69,7 +69,7 @@ describe("follow-ups", () => {
 
 	it("speaks up only through chat.notify, only in a wake turn", async () => {
 		const { t, member, dmId, turnId } = await setup();
-		expect(await t.mutation(internal.wakeups.notifyFor, { turnId, text: "Hi" })).toEqual({ error: "Only when you woke up on your own. Here, just reply." });
+		expect(await t.mutation(internal.wakeups.notifyFor, { turnId, text: "Hi" })).toEqual({ error: "Only when nobody asked you. Here, just reply." });
 		const { created } = (await create(t, turnId, { note: "Check in", in: "1 hour" })) as { created: string };
 		await fire(t, created);
 		const [turn] = await turnsFor(t, created);

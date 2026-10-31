@@ -376,20 +376,37 @@ export const cancelFor = internalMutation({
 	},
 });
 
-/** chat.notify: a wake turn speaks up in its place, as the agent. Its Activity line says it did. */
+/**
+ * chat.notify: a quiet turn (a wake, or a dispatcher pick) speaks up in its place, as the agent.
+ * A wake's Activity line says it did; the turn's reply stats go on the last one (turns.finishReply).
+ */
 export const notifyFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), text: v.string() },
 	handler: async (ctx, { turnId, text }) => {
 		const { turn, chat } = await runningTurn(ctx, turnId);
-		if (!turn.wakeupId) return { error: "Only when you woke up on your own. Here, just reply." };
+		const reply = await ctx.db.get(turn.replyId);
+		if (!reply?.quiet) return { error: "Only when nobody asked you. Here, just reply." };
 		if (!text.trim()) return { error: "Say something." };
+		// The claim: the first agent to post takes it. One that posted here after this turn began wasn't in its prompt, so it hears now, once.
+		if (!turn.claimSeen) {
+			const claimed = await ctx.db
+				.query("chatMessages")
+				.withIndex("by_chat_thread", (q) => q.eq("chatId", turn.chatId).eq("threadId", turn.threadId).gt("_creationTime", reply._creationTime))
+				.filter((q) => q.and(q.neq(q.field("authorAgentId"), undefined), q.neq(q.field("authorAgentId"), turn.agentId), q.neq(q.field("quiet"), true), q.neq(q.field("deleted"), true)))
+				.first();
+			if (claimed) {
+				await ctx.db.patch(turn._id, { claimSeen: true });
+				const by = (await namer(ctx).agent(claimed.authorAgentId!)).name;
+				return { error: `Not posted: ${by} just posted here: ${JSON.stringify(claimed.text.slice(0, 500))}. Post only if yours adds something new, or the message asks each of you for your own answer (then call chat_notify again); otherwise end without posting.` };
+			}
+		}
 		const sent = await ctx.db
 			.query("agentActivity")
 			.withIndex("by_reply", (q) => q.eq("replyId", turn.replyId))
 			.filter((q) => q.eq(q.field("tool"), "chat.notify"))
 			.take(NOTIFY_MAX);
 		if (sent.length >= NOTIFY_MAX) return { error: `That's ${NOTIFY_MAX} messages already. Put the rest in one.` };
-		await insertMessage(ctx, chat, {
+		const notifiedId = await insertMessage(ctx, chat, {
 			threadId: turn.threadId,
 			authorAgentId: turn.agentId,
 			text,
@@ -397,6 +414,7 @@ export const notifyFor = internalMutation({
 			mentions: { userIds: [], agentIds: [] },
 			status: "done",
 		});
+		await ctx.db.patch(turn._id, { notifiedId });
 		await setWakeOutcome(ctx, turn, "notified");
 		return { posted: true as const };
 	},

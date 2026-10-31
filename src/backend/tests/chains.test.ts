@@ -1,4 +1,4 @@
-import { CHAIN_MAX_HOPS } from "@companybot/core";
+import { CHAIN_MAX_HOPS, ROUTER_MODEL } from "@companybot/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { scribe } from "../../core/test/fixtures";
 import { api, internal } from "../convex/_generated/api";
@@ -170,7 +170,13 @@ describe("the dispatcher after an agent's message", () => {
 		expect(call.state).toContain("Newest message, by Scribe (agent)");
 		expect(call.state).toContain("a1: Companybot");
 		expect(Object.keys(call.questions)).toEqual(["next", "ack"]);
-		expect(await running(t, companybot)).toMatchObject({ threadId: first.replyId, routed: true, actorId: member.userId });
+		// Not asked directly, so quiet: told how sure the dispatcher was, it posts only if it adds something.
+		const hop = await running(t, companybot);
+		expect(hop).toMatchObject({ threadId: first.replyId, routed: true, actorId: member.userId, dispatch: { model: ROUTER_MODEL, band: "clearly", probability: 0.9, costUsd: 0.0001, quiet: true } });
+		expect((await t.run((ctx) => ctx.db.get(hop.replyId as Id<"chatMessages">)))!.quiet).toBe(true);
+		const prompt = await t.query(internal.turns.turnContext, { turnId: hop._id });
+		expect(prompt.routed).toEqual({ band: "clearly", quiet: true });
+		expect(prompt.handoff).toEqual({ from: "Scribe", ask: false });
 		const chain = await t.run(async (ctx) => (await ctx.db.query("agentChains").collect())[0]!);
 		expect(chain.hops).toBe(1);
 		expect((await t.run((ctx) => ctx.db.query("usage").collect())).filter((u) => u.kind === "router")).toEqual([expect.objectContaining({ userId: member.userId, costUsd: 0.0001 })]);
@@ -205,6 +211,23 @@ describe("the dispatcher after an agent's message", () => {
 		await say(t, scribe, "Done.");
 		const scheduled = await t.run(async (ctx) => (await ctx.db.system.query("_scheduled_functions").collect()).filter((f) => f.name.startsWith("router")));
 		expect(scheduled).toEqual([]);
+	});
+
+	it("a quiet hop that posts nothing ends the chain; one that posts hands off by its @mentions", async () => {
+		const { t, scout, companybot, nextOf } = await inChain();
+		next("a1");
+		await nextOf();
+		// Companybot got Scribe's result back and had nothing to add: nobody is asked who goes next.
+		const silent = await running(t, companybot);
+		await t.mutation(internal.turns.finishReply, { turnId: silent._id });
+		expect(decideWith).toHaveBeenCalledTimes(1);
+
+		// The next hop speaks with chat.notify and @mentions Scout: that's what hands off.
+		await nextOf();
+		const hop = await running(t, companybot);
+		expect(await t.mutation(internal.wakeups.notifyFor, { turnId: hop._id, text: "@Scout find three more like this" })).toEqual({ posted: true });
+		await t.mutation(internal.turns.finishReply, { turnId: hop._id });
+		expect(await running(t, scout)).toMatchObject({ triggerId: (await turnsOf(t)).find((x) => x._id === hop._id)!.notifiedId });
 	});
 });
 
@@ -273,4 +296,5 @@ describe("asking privately (chat.ask_agent)", () => {
 		const woke = await running(t, companybot);
 		expect(await t.mutation(internal.chains.askFor, { turnId: woke._id, agent: "Scribe", message: "x" })).toMatchObject({ error: expect.stringContaining("Nobody asked you") });
 	});
+
 });

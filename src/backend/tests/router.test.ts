@@ -1,7 +1,8 @@
-import { ROUTER_MODEL, defaultModel } from "@companybot/core";
+import { ROUTER_MIGHT_PER_HOUR, ROUTER_MODEL, defaultModel } from "@companybot/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
+import { STALE_TURN_MS } from "../convex/turns";
 import { agentsOf, noMentions, ownerAndMember, turnsOf, workspaceOf } from "./helpers";
 
 // No network: the AI SDK's decide (Jev) is stubbed, so nothing is billed. Fake timers hold the
@@ -83,9 +84,9 @@ describe("reply router", () => {
 		const usage = await t.run((ctx) => ctx.db.query("usage").collect());
 		expect(usage).toEqual([expect.objectContaining({ userId: member.userId, kind: "router", model: ROUTER_MODEL, costUsd: 0.0002 })]);
 		expect(usage[0]!.agentId).toBeUndefined();
-		// The reply's prompt says nobody mentioned it.
+		// The reply's prompt says nobody mentioned it; Jev gave no probability, so "probably".
 		const context = await t.query(internal.turns.turnContext, { turnId: turns[0]!._id });
-		expect(context.routed).toBe(true);
+		expect(context.routed).toEqual({ band: "probably", quiet: true });
 	});
 
 	it("reacts for the agent it picks, and a second decision doesn't take the reaction back", async () => {
@@ -208,4 +209,118 @@ describe("reply router", () => {
 		expect((await turnsOf(t)).map((turn) => turn.agentId)).toEqual([companybot._id]);
 		expect((await t.run((ctx) => ctx.db.query("usage").collect()))[0]?.model ?? defaultModel).toBe(defaultModel);
 	});
+
+	it("runs a pick quietly: the agent posts only with chat.notify, and that message shows the dispatcher", async () => {
+		const { t, member, chatId, send, decide } = await setUp();
+		const messageId = await send(member, "anyone know a good CRM tip?");
+		withProbabilities({ a1: ["reply", 0.84] });
+		await decide(messageId);
+		const [turn] = await turnsOf(t);
+		expect(turn!.dispatch).toEqual({ model: ROUTER_MODEL, band: "probably", probability: 0.84, probabilities: { reply: 0.84, react: 0, quiet: 1 - 0.84 }, costUsd: 0.0002, quiet: true });
+		const reply = await t.run((ctx) => ctx.db.get(turn!.replyId as Id<"chatMessages">));
+		expect(reply!.quiet).toBe(true);
+		// Nobody sees it working: it may well say nothing.
+		expect((await member.query(api.typing.list, { chatId })).agents).toEqual([]);
+		const prompt = (await t.query(internal.turns.turnContext, { turnId: turn!._id })).routed;
+		expect(prompt).toEqual({ band: "probably", quiet: true });
+
+		expect(await t.mutation(internal.wakeups.notifyFor, { turnId: turn!._id, text: "Log every call the same day." })).toEqual({ posted: true });
+		await t.mutation(internal.turns.finishReply, { turnId: turn!._id, usage: usageOf(0.0003) });
+		const shown = await member.query(api.messages.list, { chatId });
+		const posted = shown.find((m) => m.text === "Log every call the same day.");
+		expect(posted!.stats).toMatchObject({ costUsd: 0.0003, dispatch: { model: ROUTER_MODEL, band: "probably", probability: 0.84, probabilities: { reply: 0.84 }, costUsd: 0.0002 } });
+		expect(posted!.stats!.dispatch).not.toHaveProperty("quiet");
+		expect(shown.some((m) => m._id === reply!._id)).toBe(false);
+		// Usage: the decision once under Reply decisions, the turn under the agent.
+		const usage = await t.run((ctx) => ctx.db.query("usage").collect());
+		expect(usage.map((u) => [u.kind, u.costUsd])).toEqual(expect.arrayContaining([["router", 0.0002], ["chat", 0.0003]]));
+	});
+
+	it("posts as before for an agent that can't use chat.notify", async () => {
+		const { t, member, scribe, send, decide } = await setUp();
+		await t.run((ctx) => ctx.db.patch(scribe._id, { tools: ["memory.search"] }));
+		const messageId = await send(member, "Scribe, take notes please");
+		withProbabilities({ a2: ["reply", 0.95] });
+		await decide(messageId);
+		const [turn] = await turnsOf(t);
+		expect(turn!.dispatch).toMatchObject({ model: ROUTER_MODEL, band: "clearly", probability: 0.95, costUsd: 0.0002 });
+		expect(turn!.dispatch!.quiet).toBeUndefined();
+		expect((await t.run((ctx) => ctx.db.get(turn!.replyId as Id<"chatMessages">)))!.quiet).toBeUndefined();
+	});
+
+	it("wakes an agent on a near miss (\"might be for you\"), up to the hourly cap per channel", async () => {
+		const { t, member, companybot, send, decide } = await setUp();
+		withProbabilities({ a1: ["quiet", 0.45], a2: ["quiet", 0.2] });
+		for (let i = 0; i < ROUTER_MIGHT_PER_HOUR + 2; i++) await decide(await send(member, `hmm ${i}`));
+		const turns = await turnsOf(t);
+		expect(turns).toHaveLength(ROUTER_MIGHT_PER_HOUR);
+		expect(turns.every((x) => x.agentId === companybot._id && x.dispatch?.band === "might")).toBe(true);
+		// Every call is still counted.
+		const router = (await t.run((ctx) => ctx.db.query("usage").collect())).filter((u) => u.kind === "router");
+		expect(router.reduce((sum, u) => sum + u.costUsd, 0)).toBeCloseTo(0.0002 * (ROUTER_MIGHT_PER_HOUR + 2));
+		// An hour later there's room again.
+		vi.advanceTimersByTime(61 * 60_000);
+		await decide(await send(member, "hmm again"));
+		expect(await turnsOf(t)).toHaveLength(ROUTER_MIGHT_PER_HOUR + 1);
+	});
+
+	it("runs one message's picks one after another, best fit first; a pick's @mention in what it posts hands off", async () => {
+		const { t, member, companybot, scribe, send, decide } = await setUp();
+		const messageId = await send(member, "anyone know a good CRM tip?");
+		withProbabilities({ a1: ["reply", 0.9], a2: ["quiet", 0.45] });
+		await decide(messageId);
+		const turnOf = async (agentId: Id<"agents">) => (await turnsOf(t)).find((x) => x.agentId === agentId && x.triggerId === messageId)!;
+		const first = await turnOf(companybot._id);
+		const second = await turnOf(scribe._id);
+		expect([first.status, second.status]).toEqual(["running", "queued"]);
+		expect(first.dispatch).toMatchObject({ band: "clearly", then: second._id });
+		expect(second.dispatch).toMatchObject({ band: "might", after: first._id });
+
+		// Companybot answers and hands to Scribe by @mention; Scribe's waiting pick starts, told who went first.
+		expect(await t.mutation(internal.wakeups.notifyFor, { turnId: first._id, text: "Log every call. @Scribe can you add it to the tips page?" })).toEqual({ posted: true });
+		await t.mutation(internal.turns.finishReply, { turnId: first._id });
+		expect((await turnOf(scribe._id)).status).toBe("running");
+		expect((await t.query(internal.turns.turnContext, { turnId: second._id })).routed).toMatchObject({ band: "might", before: ["Companybot"] });
+		const handed = (await turnsOf(t)).filter((x) => x.agentId === scribe._id && x.triggerId !== messageId);
+		expect(handed).toEqual([expect.objectContaining({ triggerId: (await turnOf(companybot._id)).notifiedId, chain: expect.anything() })]);
+	});
+
+	it("lets the first un-asked agent to post claim it: another one posting here meanwhile hears so, once", async () => {
+		const { t, member, companybot, scribe, chatId, send, decide } = await setUp();
+		await t.run((ctx) => ctx.db.patch(scribe._id, { tools: ["chat.*"] }));
+		// Two messages, two decisions: each picks a different agent, both running at once.
+		withProbabilities({ a1: ["reply", 0.9] });
+		await decide(await send(member, "anyone know a good CRM tip?"));
+		withProbabilities({ a2: ["reply", 0.7] });
+		await decide(await send(member, "?"));
+		const [mine, theirs] = [companybot._id, scribe._id].map((id) => async () => (await turnsOf(t)).find((x) => x.agentId === id)!);
+		const scribeTurn = await theirs!();
+		expect((await t.query(internal.turns.turnContext, { turnId: scribeTurn._id })).routed).toMatchObject({ answering: ["Companybot"] });
+
+		expect(await t.mutation(internal.wakeups.notifyFor, { turnId: (await mine!())._id, text: "Log every call the same day." })).toEqual({ posted: true });
+		const refused = await t.mutation(internal.wakeups.notifyFor, { turnId: scribeTurn._id, text: "Log every call." });
+		expect(refused).toEqual({ error: expect.stringContaining('Not posted: Companybot just posted here: "Log every call the same day."') });
+		// It read that; a second try means it adds something.
+		expect(await t.mutation(internal.wakeups.notifyFor, { turnId: scribeTurn._id, text: "Also: tag each call by outcome." })).toEqual({ posted: true });
+		expect((await member.query(api.messages.list, { chatId })).filter((m) => m.author.type === "agent").map((m) => m.text)).toEqual(["Log every call the same day.", "Also: tag each call by outcome."]);
+	});
+
+	it("starts a waiting pick anyway once the one before it is stale", async () => {
+		const { t, member, scribe, send, decide } = await setUp();
+		const messageId = await send(member, "anyone know a good CRM tip?");
+		withProbabilities({ a1: ["reply", 0.9], a2: ["quiet", 0.45] });
+		await decide(messageId);
+		vi.advanceTimersByTime(STALE_TURN_MS + 1_000);
+		await t.mutation(internal.turns.startWaiting, { triggerId: messageId });
+		expect((await turnsOf(t)).find((x) => x.agentId === scribe._id)!.status).toBe("running");
+	});
 });
+
+/** Jev's answer with how sure it was: per agent its choice and the chance of "reply". */
+const withProbabilities = (picks: Record<string, ["reply" | "react" | "quiet", number]>) =>
+	decideWith.mockResolvedValue({
+		answers: Object.fromEntries(Object.entries(picks).map(([key, [choice, reply]]) => [key, { type: "choice", choice, probabilities: { reply, react: 0, quiet: 1 - reply } }])),
+		providerMetadata: { gateway: { cost: "0.0002" } },
+	});
+
+const usageOf = (costUsd: number) => ({ model: defaultModel, steps: 1, inputTokens: 100, cachedInputTokens: 0, outputTokens: 10, contextTokens: 100, costUsd, durationMs: 900 });

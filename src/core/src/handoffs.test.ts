@@ -83,7 +83,7 @@ describe("who goes next", () => {
 
 	it("wakes an agent only when sure and not just thanks", () => {
 		const answer = (choice: string, p: number, ack: number) => nextAnswer({ next: { choice, probabilities: { [choice]: p } }, ack: { probability: ack } }, input, 0.6);
-		expect(answer("a1", 0.8, 0.1)).toBe("a1");
+		expect(answer("a1", 0.8, 0.1)).toEqual({ key: "a1", probability: 0.8 });
 		expect(answer("a1", 0.5, 0.1)).toBeNull();
 		expect(answer("a1", 0.9, 0.7)).toBeNull();
 		expect(answer("person", 0.9, 0)).toBeNull();
@@ -93,7 +93,7 @@ describe("who goes next", () => {
 	it("reads a language model's JSON the same way", () => {
 		const schema = nextSchema(input);
 		expect(schema.safeParse({ next: "a2", confidence: 1, acknowledgement: false }).success).toBe(false);
-		expect(nextDecision({ next: "a1", confidence: 0.7, acknowledgement: false }, input, 0.6)).toBe("a1");
+		expect(nextDecision({ next: "a1", confidence: 0.7, acknowledgement: false }, input, 0.6)).toEqual({ key: "a1", probability: 0.7 });
 		expect(nextDecision({ next: "a1", confidence: 0.7, acknowledgement: true }, input, 0.6)).toBeNull();
 		expect(nextDecision({ next: "done", confidence: 0.99, acknowledgement: false }, input, 0.6)).toBeNull();
 	});
