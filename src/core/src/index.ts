@@ -20,6 +20,7 @@ export * from "./models";
 export * from "./oauth";
 export * from "./permissions";
 export * from "./records";
+export * from "./router";
 export * from "./record-tools";
 export * from "./page-tools";
 export * from "./page-links";

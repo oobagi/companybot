@@ -35,7 +35,7 @@ type Place = { agentId: Id<"agents">; chatId: Id<"chats">; threadId?: Id<"chatMe
 export async function enqueueTurn(
 	ctx: MutationCtx,
 	chat: Doc<"chats">,
-	turn: Place & { actorId: Id<"users"> } & (
+	turn: Place & { actorId: Id<"users">; routed?: true } & (
 			// After an approval, the original turn's trigger: none if it followed an old welcome turn.
 			| { triggerId: Id<"chatMessages">; approvalId?: Id<"approvals"> }
 			| { triggerId: Id<"chatMessages"> | undefined; approvalId: Id<"approvals"> }
@@ -247,6 +247,7 @@ export const turnContext = internalQuery({
 			messages,
 			asked,
 			triggerId: turn.triggerId ?? null,
+			routed: turn.routed ?? false,
 			vision,
 			/** Pictures for the model, newest kept: the runner loads and sends them when it sees pictures. */
 			images: vision ? turnImages([...(parent && first ? [parent] : []), ...recent.filter((m) => !m.deleted)]) : [],
