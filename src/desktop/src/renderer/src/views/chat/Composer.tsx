@@ -10,7 +10,7 @@ import { ComposerTools } from "./ComposerTools";
 import type { Mentions } from "./data";
 import { pastedFiles } from "./composerFiles";
 import { keepDraft, textKey, useDraft } from "./drafts";
-import { type Candidate, type Menu, type Sources, SuggestionMenu, composerExtensions, plainText, tokensIn } from "./editor";
+import { type Candidate, type Menu, type Sources, SuggestionMenu, composerExtensions, plainText, tokensIn, typedMentions } from "./editor";
 import { Form, metadataClass } from "../../ui";
 
 export type SendWith = Doc<"preferences">["sendWith"];
@@ -87,6 +87,10 @@ export function Composer({
 		const files = latest.current.attachments;
 		if (files?.uploading || (!text && !files?.ids.length)) return;
 		const tokens = tokensIn(editor);
+		for (const who of typedMentions(text, latest.current.sources)) {
+			const ids = tokens[who.type];
+			if (!ids.includes(who.id)) ids.push(who.id);
+		}
 		const doc = editor.getJSON();
 		const key = latest.current.saveAt;
 		// Emptied at once, so it feels sent; a send that fails puts it all back.
