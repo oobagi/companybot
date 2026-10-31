@@ -1,5 +1,6 @@
 import { actionLabel, toolLine } from "@companybot/core/action-words";
 import { splitLinks } from "@companybot/core/link-preview";
+import { routerDecisionModels } from "@companybot/core/router";
 import { Fragment, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
@@ -339,9 +340,10 @@ function CallPanel({ replyId, callId }: { replyId: Message["_id"]; callId: strin
 
 type Stats = NonNullable<Message["stats"]>;
 
-/** The line under a reply (model, time, cost); click for the full breakdown. */
+/** The line under a reply (model, time, cost, and the dispatcher's pick if nobody @mentioned it); click for the full breakdown. */
 function ReplyDetails({ stats }: { stats: Stats }) {
 	const cost = stats.costUsd + (stats.imageCostUsd ?? 0) + (stats.searchCostUsd ?? 0);
+	const { dispatch } = stats;
 	const rows: [string, string][] = [
 		["Model", stats.model],
 		["Time", `${seconds(stats.durationMs)}${stats.firstTokenMs !== undefined ? `, first words after ${seconds(stats.firstTokenMs)}` : ""}`],
@@ -353,11 +355,20 @@ function ReplyDetails({ stats }: { stats: Stats }) {
 		...(stats.searchCostUsd ? ([["Web search", usd(stats.searchCostUsd)]] as [string, string][]) : []),
 		["This reply", usd(cost)],
 		["Here so far", usd(stats.conversationCostUsd)],
+		// Nobody @mentioned it. The decision is its own call, once for every agent in the channel, so it's
+		// apart from "This reply" (Usage counts it under Reply decisions).
+		...(dispatch
+			? ([
+					["Picked by", `Dispatcher (${dispatcherName(dispatch.model)})`],
+					["Confidence", confidence(dispatch)],
+					["Decision", `${tinyUsd(dispatch.costUsd)}, apart from this reply`],
+				] as [string, string][])
+			: []),
 	];
 	return (
 		<div className="flex">
 			<Popover
-				trigger={`${shortModel(stats.model)} · ${seconds(stats.durationMs)} · ${tokens(stats.contextTokens)} context · ${usd(cost)} · ${usd(stats.conversationCostUsd)} total`}
+				trigger={`${shortModel(stats.model)} · ${seconds(stats.durationMs)} · ${tokens(stats.contextTokens)} context · ${usd(cost)} · ${usd(stats.conversationCostUsd)} total${dispatch ? ` · via dispatcher${dispatch.probability !== undefined ? ` ${percent(dispatch.probability)}` : ""}` : ""}`}
 				className="text-left text-xs text-neutral-400 tabular-nums hover:text-neutral-600"
 				panelClassName="w-80 p-3"
 			>
@@ -378,6 +389,16 @@ const shortModel = (id: string) => id.split("/").at(-1) ?? id;
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 const tokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 const usd = (n: number) => `$${n.toFixed(n < 0.01 ? 4 : n < 1 ? 3 : 2)}`;
+/** A dispatcher call costs a few hundredths of a cent. */
+const tinyUsd = (n: number) => (n < 0.001 ? `$${n.toFixed(5)}` : usd(n));
+const percent = (p: number) => `${Math.round(p * 100)}%`;
+/** Jev's chance of each choice ("84% reply · 1% react · 15% quiet"); a hop's, of going next; none from a language model. */
+function confidence({ probability, probabilities }: NonNullable<Stats["dispatch"]>) {
+	if (probabilities) return ["reply", "react", "quiet"].filter((c) => probabilities[c] !== undefined).map((c) => `${percent(probabilities[c]!)} ${c}`).join(" · ");
+	return probability !== undefined ? `${percent(probability)} go next` : "—";
+}
+/** "Jev" for TypeSafe's decision model, else the model's short id. */
+const dispatcherName = (id: string) => routerDecisionModels.find((m) => m.id === id)?.name.split(" ")[0] ?? shortModel(id);
 
 /** A message an automation posted for its author: collapsed, since they didn't type it. */
 function AutomationPrompt({ prompt }: { prompt: string }) {

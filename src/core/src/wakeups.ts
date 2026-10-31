@@ -17,7 +17,7 @@ export interface WakeupStore {
 	create(input: FollowupInput): Promise<{ created: string; when: string; record?: string } | { error: string }>;
 	list(input: { recordId?: string }): Promise<{ followups: FollowupSummary[] } | { error: string }>;
 	cancel(input: { id: string }): Promise<{ cancelled: string } | { error: string }>;
-	/** Posts in the wake turn's place, as the agent. Only in a wake turn. */
+	/** Posts in a quiet turn's place, as the agent: a wake turn, or a dispatcher pick (router.ts). */
 	notify(input: { text: string }): Promise<{ posted: true } | { error: string }>;
 }
 
@@ -224,7 +224,7 @@ export const wakeupTools: ToolDef[] = [
 		id: "chat.notify",
 		title: "Post a message",
 		description:
-			"Only when you woke up on your own (a follow-up, check-in or finished job): post a message in this chat. Nothing else you write then is shown, so use it only when there's something worth telling them.",
+			"Only when nobody asked you (you woke up on your own, or the dispatcher picked you without an @mention): post a message in this chat. Nothing else you write then is shown, so use it only when there's something worth telling them.",
 		input: z.object({ text: z.string().max(NOTIFY_TEXT_MAX).describe("The message, in Markdown") }),
 		// Like a reply: it says something where the agent was already talking.
 		risk: "none",

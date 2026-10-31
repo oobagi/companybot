@@ -61,7 +61,8 @@ export const list = query({
 			.take(SHOWN_MAX);
 		const agents = await Promise.all(
 			running
-				.filter((t) => now - (t.startedAt ?? t._creationTime) < STALE_TURN_MS)
+				// A dispatcher pick (router.ts) may well post nothing: it shows once it does.
+				.filter((t) => now - (t.startedAt ?? t._creationTime) < STALE_TURN_MS && !t.dispatch?.quiet)
 				.map(async (t) => ({ ...(await names.agent(t.agentId)), step: t.step?.label ?? null })),
 		);
 		return { people: people.slice(0, SHOWN_MAX), agents };

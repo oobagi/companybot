@@ -38,7 +38,7 @@ type Place = { agentId: Id<"agents">; chatId: Id<"chats">; threadId?: Id<"chatMe
 export async function enqueueTurn(
 	ctx: MutationCtx,
 	chat: Doc<"chats">,
-	turn: Place & { actorId: Id<"users">; routed?: true; chain?: Doc<"agentTurns">["chain"]; ask?: Doc<"agentTurns">["ask"] } & (
+	turn: Place & { actorId: Id<"users">; routed?: true; dispatch?: Doc<"agentTurns">["dispatch"]; chain?: Doc<"agentTurns">["chain"]; ask?: Doc<"agentTurns">["ask"] } & (
 			// After an approval, the original turn's trigger: none if it followed an old welcome turn.
 			| { triggerId: Id<"chatMessages">; approvalId?: Id<"approvals"> }
 			| { triggerId: Id<"chatMessages"> | undefined; approvalId: Id<"approvals">; wakeupId?: Id<"wakeups"> }
@@ -46,9 +46,40 @@ export async function enqueueTurn(
 			| { wakeupId: Id<"wakeups">; wakeLogId: Id<"agentActivity"> }
 		),
 ) {
-	await ctx.db.insert("agentTurns", { ...turn, workspaceId: chat.workspaceId, status: "queued" });
+	const turnId = await ctx.db.insert("agentTurns", { ...turn, workspaceId: chat.workspaceId, status: "queued" });
 	await startNext(ctx, turn);
+	return turnId;
 }
+
+/**
+ * Whether a dispatcher pick still waits for the one before it (router.apply): until that one ends,
+ * unless it's stale. Waiting holds its place's queue, a few seconds at most.
+ */
+async function waiting(ctx: QueryCtx, turn: Doc<"agentTurns">) {
+	const before = turn.dispatch?.after && (await ctx.db.get(turn.dispatch.after));
+	if (!before || (before.status !== "queued" && before.status !== "running")) return false;
+	return Date.now() - (before.startedAt ?? before._creationTime) < STALE_TURN_MS;
+}
+
+/** A pick that waited for this turn may start now. */
+async function startThen(ctx: MutationCtx, turn: Doc<"agentTurns">) {
+	const then = turn.dispatch?.then && (await ctx.db.get(turn.dispatch.then));
+	if (then?.status === "queued") await startNext(ctx, then);
+}
+
+/** Scheduled by router.apply: starts one message's picks still waiting, once the ones before them are stale. */
+export const startWaiting = internalMutation({
+	args: { triggerId: v.id("chatMessages") },
+	handler: async (ctx, { triggerId }) => {
+		const message = await ctx.db.get(triggerId);
+		if (!message) return;
+		const queued = await ctx.db
+			.query("agentTurns")
+			.withIndex("by_chat", (q) => q.eq("chatId", message.chatId).eq("threadId", message.threadId).eq("status", "queued"))
+			.collect();
+		for (const turn of queued.filter((t) => t.triggerId === triggerId && t.dispatch?.after)) await startNext(ctx, turn);
+	},
+});
 
 const turnsAt = (ctx: QueryCtx, place: Place, status: Doc<"agentTurns">["status"]) =>
 	ctx.db
@@ -86,6 +117,7 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 	if (running) {
 		if (Date.now() - (running.startedAt ?? running._creationTime) < STALE_TURN_MS) return;
 		await ctx.db.patch(running._id, { status: "error", step: undefined });
+		await startThen(ctx, running);
 		await setWakeOutcome(ctx, running, "failed");
 		await settleApproval(ctx, running);
 		await answerAsk(ctx, running, "it timed out");
@@ -95,11 +127,12 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 			await endStream(ctx, reply, { status: "error", error: "Reply timed out.", ...(running.usage && { stats: await statsOf(ctx, running, running.usage) }) });
 	}
 	const next = await turnsAt(ctx, place, "queued").first();
-	if (!next) return;
+	if (!next || (await waiting(ctx, next))) return;
 	const chat = await ctx.db.get(next.chatId);
 	// A workspace being deleted starts nothing: its cascade may already be past the rows this would add.
 	if (!chat || chat.archived || !(await liveWorkspace(ctx, chat.workspaceId))) {
 		await ctx.db.patch(next._id, { status: "error" });
+		await startThen(ctx, next);
 		await setWakeOutcome(ctx, next, "failed");
 		await answerAsk(ctx, next, "its chat was deleted");
 		return await settleApproval(ctx, next);
@@ -118,7 +151,9 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 	};
 	// A wake turn's reply is quiet: kept for its session, never shown, so it doesn't touch the chat's unread or the thread's replies.
 	// An ask's answer (chains.ts) is the exception: that wake finishes a reply someone is waiting for.
-	const replyId = next.wakeupId && !(await ctx.db.get(next.wakeupId))?.answer
+	// A dispatcher pick for a person's message (router.ts) is quiet too: the agent posts only if it should.
+	const quiet = next.dispatch?.quiet || (next.wakeupId && !(await ctx.db.get(next.wakeupId))?.answer);
+	const replyId = quiet
 		? await ctx.db.insert("chatMessages", { chatId: chat._id, workspaceId: chat.workspaceId, ...reply, quiet: true })
 		: await insertMessage(ctx, chat, reply);
 	await ctx.db.patch(next._id, { status: "running", replyId, sessionId: session._id, startedAt: Date.now() });
@@ -236,6 +271,7 @@ export const turnContext = internalQuery({
 		const vision = [models, fallbackModels].some((list) => list.find((m) => m.id === agent.model)?.vision);
 		const user = await ctx.db.get(member.userId);
 		const about = wakeup?.recordId ? await ctx.db.get(wakeup.recordId) : undefined;
+		const answering = turn.dispatch?.quiet ? await answeringHere(ctx, turn, names) : [];
 		return {
 			replyId: turn.replyId,
 			member,
@@ -264,7 +300,15 @@ export const turnContext = internalQuery({
 			messages,
 			asked,
 			triggerId: turn.triggerId ?? null,
-			routed: turn.routed ?? false,
+			/** Nobody @mentioned it: how sure the dispatcher was, whether it posts only with chat.notify, and who else is at it. */
+			routed: turn.routed
+				? {
+						band: turn.dispatch?.band ?? ("probably" as const),
+						quiet: !!turn.dispatch?.quiet,
+						...(turn.dispatch?.after && { before: await picksBefore(ctx, turn, names) }),
+						...(answering.length > 0 && { answering }),
+					}
+				: undefined,
 			/** Set when another agent handed it the trigger message (chains.ts). */
 			handoff: await handoffOf(ctx, turn),
 			/** Set on a wake turn: what woke it, in place of a message (wakeups.ts). */
@@ -299,6 +343,28 @@ export const turnContext = internalQuery({
 		};
 	},
 });
+
+/** Other agents' un-asked turns (quiet: a pick, a hop, a wake) running in the turn's place now. */
+async function answeringHere(ctx: QueryCtx, turn: Doc<"agentTurns">, names: Namer) {
+	const running = await ctx.db
+		.query("agentTurns")
+		.withIndex("by_chat", (q) => q.eq("chatId", turn.chatId).eq("threadId", turn.threadId).eq("status", "running"))
+		.take(10);
+	const others = running.filter((t) => t.agentId !== turn.agentId && (t.dispatch?.quiet || t.wakeupId) && Date.now() - (t.startedAt ?? t._creationTime) < STALE_TURN_MS);
+	return Promise.all([...new Set(others.map((t) => t.agentId))].map(async (id) => (await names.agent(id)).name));
+}
+
+/** The agents one message went to before this pick, first first (router.apply runs them in turn). */
+async function picksBefore(ctx: QueryCtx, turn: Doc<"agentTurns">, names: Namer) {
+	const before: string[] = [];
+	for (let t = turn; t.dispatch?.after && before.length < 10; ) {
+		const prev = await ctx.db.get(t.dispatch.after);
+		if (!prev) break;
+		before.unshift((await names.agent(prev.agentId)).name);
+		t = prev;
+	}
+	return before;
+}
 
 /** Who handed a chain turn its message: the agent that wrote it, privately or by @mention. */
 async function handoffOf(ctx: QueryCtx, turn: Doc<"agentTurns">) {
@@ -427,7 +493,16 @@ async function statsOf(ctx: QueryCtx, turn: Doc<"agentTurns">, usage: SavedUsage
 		conversationCostUsd: place?.costUsd ?? 0,
 		...(turn.imageCostUsd && { imageCostUsd: turn.imageCostUsd }),
 		...(turn.searchCostUsd && { searchCostUsd: turn.searchCostUsd }),
+		...(turn.dispatch && { dispatch: withoutQuiet(turn.dispatch) }),
 	};
+}
+
+const withoutQuiet = ({ quiet: _, after: __, then: ___, ...dispatch }: NonNullable<Doc<"agentTurns">["dispatch"]>) => dispatch;
+
+/** A quiet turn's reply is never shown: its stats also go on the last message it posted with chat.notify. */
+async function setStats(ctx: MutationCtx, turn: Doc<"agentTurns">, stats: Infer<typeof replyStats>) {
+	const notified = turn.notifiedId && (await ctx.db.get(turn.notifiedId));
+	if (notified && !notified.deleted) await ctx.db.patch(notified._id, { stats });
 }
 
 /** After each finished model call (agent.ts), so its cost is recorded even if the action dies before finishReply. */
@@ -453,6 +528,7 @@ export const finishReply = internalMutation({
 		const saved = usage ? await saveTurnUsage(ctx, turn, usage) : turn.usage;
 		const stats = saved && (await statsOf(ctx, turn, saved));
 		const reply = turn.replyId && (await ctx.db.get(turn.replyId));
+		if (stats) await setStats(ctx, turn, stats);
 		// A turn already failed as stale only gets its stats; the queue moved on without it.
 		if (turn.status !== "running") {
 			if (reply && stats) await ctx.db.patch(reply._id, { stats });
@@ -469,6 +545,7 @@ export const finishReply = internalMutation({
 		if (!error) await handOff(ctx, (await ctx.db.get(turnId))!);
 		await answerAsk(ctx, turn, error);
 		await startNext(ctx, turn);
+		await startThen(ctx, turn);
 	},
 });
 

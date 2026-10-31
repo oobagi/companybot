@@ -31,7 +31,8 @@
   },
   "scripts": {
     "test": "vitest run",
-    "eval:router": "vitest run --config eval/vitest.config.ts",
+    "eval:router": "vitest run --config eval/vitest.config.ts eval/router.eval.ts",
+    "eval:full": "vitest run --config eval/vitest.config.ts eval/full-path.eval.ts",
     "typecheck": "tsc -p ."
   },
   "dependencies": {

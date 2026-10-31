@@ -100,6 +100,17 @@ export const replyUsage = v.object({
 	firstTokenMs: v.optional(v.number()),
 });
 
+/** A dispatcher pick (router.ts): its model, how sure it was (Jev's chance of "reply"; none from a language model), and the call's cost. */
+export const dispatchInfo = v.object({
+	model: v.string(),
+	band: v.union(v.literal("clearly"), v.literal("probably"), v.literal("might")),
+	probability: v.optional(v.number()),
+	/** Jev's chance of each choice for this agent ({ reply, react, quiet }), for the reply's stats. */
+	probabilities: v.optional(v.record(v.string(), v.number())),
+	/** The whole decision call's, which covers every agent in the channel. Recorded once, as kind "router". */
+	costUsd: v.number(),
+});
+
 export const replyStats = v.object({
 	...replyUsage.fields,
 	/** The conversation's running total once this reply finished, summaries included. */
@@ -110,6 +121,8 @@ export const replyStats = v.object({
 	searchCostUsd: v.optional(v.number()),
 	/** Added to the `usage` table (usage.ts). Replies from before it are counted once by migrations.usageThisMonth. */
 	counted: v.optional(v.boolean()),
+	/** Set when the dispatcher picked the agent: shown with the reply, apart from `costUsd` (it's kind "router" in `usage`). */
+	dispatch: v.optional(dispatchInfo),
 });
 
 // Shared settings carry a `version` that goes up on every save. A save sends the
@@ -492,7 +505,7 @@ export default defineSchema({
 		costUsd: v.optional(v.number()),
 		/** Server-written provenance. `foreign` snapshots whose words the run follows; absent on older messages, which ask. */
 		automation: v.optional(v.object({ id: v.string(), name: v.string(), foreign: v.optional(v.boolean()) })),
-		/** A wake turn's own reply (wakeups.ts): kept for the agent's session, never shown. The agent speaks with chat.notify. */
+		/** A quiet turn's own reply (a wake, or a dispatcher pick): kept for the agent's session, never shown. The agent speaks with chat.notify. */
 		quiet: v.optional(v.boolean()),
 		/**
 		 * A chain of agents paused here (chains.ts): the line "Agents paused after 10 turns · Continue · Stop",
@@ -588,6 +601,24 @@ export default defineSchema({
 		prompt: v.optional(v.string()),
 		/** Nobody @mentioned the agent: the router queued it (router.ts). */
 		routed: v.optional(v.literal(true)),
+		/**
+		 * The dispatcher's pick, for its prompt and its reply's stats. `quiet`: its reply is quiet and it posts
+		 * only with chat.notify (a pick for a person's message, or a hop). One message's picks run one after
+		 * another, best fit first, so each sees what the ones before posted: `after` is the pick it waits for,
+		 * `then` the one waiting for it (router.apply). Unset on routed turns from before it.
+		 */
+		dispatch: v.optional(
+			v.object({
+				...dispatchInfo.fields,
+				quiet: v.optional(v.literal(true)),
+				after: v.optional(v.id("agentTurns")),
+				then: v.optional(v.id("agentTurns")),
+			}),
+		),
+		/** The last message a quiet turn posted with chat.notify: its reply's stats go there too. */
+		notifiedId: v.optional(v.id("chatMessages")),
+		/** A quiet turn was told another agent posted here while it worked (wakeups.notifyFor): its next post goes through. */
+		claimSeen: v.optional(v.literal(true)),
 		/** Another agent handed it this (chains.ts): its chain, how deep in asks, and the agents from the chain's start to this one. */
 		chain: v.optional(chainRef),
 		/** Answering another agent's private ask (chat.ask_agent): when it ends, this wakeup gives the asker the answer. */
@@ -618,7 +649,9 @@ export default defineSchema({
 		.index("by_session", ["sessionId"])
 		.index("by_workspace", ["workspaceId"])
 		// Also: who's replying in a place right now (typing.ts).
-		.index("by_chat", ["chatId", "threadId", "status"]),
+		.index("by_chat", ["chatId", "threadId", "status"])
+		// A channel's recent "might be for you" picks, for their hourly cap (router.ts).
+		.index("by_chat_dispatch", ["chatId", "dispatch.band"]),
 
 	// Agents handing work to each other for one person (chains.ts, core handoffs.ts): the budget its
 	// handoffs spend, reset when that person writes in it or presses Continue. Made at the first handoff.
@@ -645,6 +678,7 @@ export default defineSchema({
 					triggerId: v.id("chatMessages"),
 					depth: v.number(),
 					dispatched: v.optional(v.boolean()),
+					dispatch: v.optional(dispatchInfo),
 				}),
 			),
 		),

@@ -1,8 +1,10 @@
 import type { RouterAction, RouterAgent, RouterInput, RouterMessage } from "../src/router";
 
-// Chat moments for scoring the reply router (router.eval.ts): what's been said, the newest message,
-// and what each agent should do. Written like a small roofing company's channels. Keep each one
-// unambiguous to a person reading it: the eval measures the model, not the labels.
+// Chat moments for scoring the reply router (router.eval.ts) and the full path, dispatcher then the
+// agent's quiet turn (full-path.eval.ts): what's been said, the newest message, and what each agent
+// should end up doing. "reply" means it should end up answered by that agent; the dispatcher only has
+// to wake it. Written like a small roofing company's channels. Keep each one unambiguous to a person
+// reading it: the eval measures the models, not the labels.
 
 const companybot: RouterAgent = {
 	key: "a1",
@@ -128,4 +130,167 @@ export const routerCases: RouterCase[] = [
 		message: m("Priya", "agreed, their rep never calls back either"),
 	}, {}),
 	moment("greeting the team", { message: m("Priya", "good morning everyone ☀️") }, {}),
+
+	// "Might be for you": borderline, where the dispatcher may wake an agent and the agent decides.
+	moment("venting about follow-ups", { agents: [companybot, scribe, closer], channel: "sales", message: m("Dana", "ugh so many follow-ups to send this week") }, {}),
+	moment("thinking out loud about notes", { message: m("Luis", "I really should write up notes from that call at some point") }, {}),
+	moment("half a question about data", { message: m("Priya", "hmm what was Ortiz's number again") }, { a1: "reply" }),
+	moment("\"anyone else?\" after the bot answered", {
+		before: [m("Luis", "anyone know a good CRM tip?"), bot(companybot, "Log every call and email on the client's record the same day, so anyone can pick up where you left off.")],
+		message: m("Luis", "anyone else?"),
+	}, {}),
+	moment("\"anyone else?\" when it's another agent's line", {
+		agents: [companybot, scribe, closer],
+		channel: "sales",
+		before: [m("Dana", "any tips for follow-up emails that actually get replies?"), bot(companybot, "Keep it to three sentences and end with one easy question.")],
+		message: m("Dana", "anyone else?"),
+	}, { a3: "reply" }),
+	moment("\"can anyone validate that?\" after the bot answered", {
+		agents: [companybot, scribe, closer],
+		before: [m("Luis", "does anyone know what 5*5 is?"), bot(companybot, "25.")],
+		message: m("Luis", "Can anyone validate that?"),
+	}, {}),
+	moment("\"someone else\" after the bot answered", {
+		before: [m("Luis", "anyone know a good CRM tip?"), bot(companybot, "Log every call and email on the client's record the same day."), m("Luis", "anyone else?")],
+		message: m("Luis", "Someone else. lol"),
+	}, {}),
 ];
+
+// ---- The full path: a conversation that goes on, each step's posts feeding the next ----
+
+/**
+ * What an agent should do after a step: post, stay silent (a reaction is fine), either, "one" (exactly
+ * one of the agents marked so posts), "handoff" (silent, or a post that @mentions another agent), or
+ * "respond" (post or react: its own answer, as to a vote).
+ */
+export type Outcome = "post" | "silent" | "either" | "one" | "handoff" | "respond";
+
+export interface Transcript {
+	name: string;
+	channel: string;
+	agents: RouterAgent[];
+	people: string[];
+	steps: {
+		message: RouterMessage;
+		/** By agent key; agents left out are "silent". `posted`: agents that posted in earlier steps; `responded`: posted or reacted. */
+		expect: (posted: string[], responded: string[]) => Record<string, Outcome>;
+	}[];
+}
+
+// The test app's #general, 2026-10-31 (Companybot is the default agent; the others as the team set them up).
+const mainBot: RouterAgent = { key: "a1", name: "Companybot", description: "Your main teammate. Remembers things and keeps work moving.", canReact: true };
+const scout: RouterAgent = { key: "a2", name: "Scout", description: "Finds and researches new leads.", canReact: true };
+const penny: RouterAgent = { key: "a3", name: "Penny", description: "Handles invoices, payments and the books.", canReact: true };
+const quill: RouterAgent = { key: "a4", name: "Quill", description: "Writes copy: emails, posts and website text.", canReact: true };
+const team = [mainBot, scout, penny, quill];
+
+/** Every agent `outcome`. */
+const all = (outcome: Outcome) => Object.fromEntries(team.map((a) => [a.key, outcome]));
+/** Someone other than whoever answered: the answerers `them` (silent unless set), the rest may. */
+const others = (posted: string[], them?: Outcome) =>
+	Object.fromEntries(team.map((a) => [a.key, posted.includes(a.key) ? (them ?? "silent") : "either"]));
+
+export const transcripts: Transcript[] = [
+	{
+		// Two agents fit (leads and copy): one answer, not two.
+		name: "a question two agents could answer",
+		channel: "general",
+		agents: team,
+		people: ["j", "Dana"],
+		steps: [{ message: m("Dana", "anyone have a good opening line for a cold email to a roofing lead?"), expect: () => all("one") }],
+	},
+	{
+		name: "CRM tip, then \"anyone else?\"",
+		channel: "general",
+		agents: team,
+		people: ["j", "Dana"],
+		steps: [
+			// One answer, from whoever fits best.
+			{ message: m("j", "Anyone know a good CRM tip?"), expect: () => all("one") },
+			// A nudge re-asks the question only if nobody answered it.
+			{ message: m("j", "?"), expect: (posted) => (posted.length > 0 ? {} : all("one")) },
+			{ message: m("j", "Anyone else?"), expect: (posted) => others(posted) },
+			{ message: m("j", "Someone else. lol"), expect: (posted) => others(posted) },
+			{ message: m("j", "Noone?"), expect: (posted) => others(posted) },
+		],
+	},
+	{
+		name: "5*5, then \"can anyone validate that?\"",
+		channel: "general",
+		agents: team,
+		people: ["j", "Dana"],
+		steps: [
+			{ message: m("j", "does anyone know what 5*5 is?"), expect: () => all("one") },
+			{ message: m("j", "Can anyone validate that?"), expect: (posted) => others(posted) },
+			// Handing it to another agent is fine; checking it again itself isn't.
+			{ message: m("j", "Bruh don't validate it yourself"), expect: (posted) => others(posted, "handoff") },
+			{ message: m("j", "....anyone?!"), expect: (posted) => others(posted, "handoff") },
+		],
+	},
+	{
+		// Addressed to everyone, agents included: each gives its own vote once, in a line or a reaction.
+		name: "a vote from everyone",
+		channel: "general",
+		agents: team,
+		people: ["j", "Dana"],
+		steps: [
+			{ message: m("j", "Can I get a vote from everyone, should we shut the company down"), expect: () => all("respond") },
+			{ message: m("j", "Agents too everyone!"), expect: (_, responded) => Object.fromEntries(team.map((a) => [a.key, responded.includes(a.key) ? "silent" : "respond"])) },
+			// Asked again in a new form (thumbs): voting again is fine.
+			{ message: m("j", "Everyone, thumbs up or down??"), expect: (_, responded) => Object.fromEntries(team.map((a) => [a.key, responded.includes(a.key) ? "either" : "respond"])) },
+		],
+	},
+];
+
+/** An agent's result coming back in a handoff's thread: "who goes next" picks, and the agent it wakes decides. */
+export interface HandBack {
+	name: string;
+	/** The person the agents work for. */
+	person: string;
+	/** The thread's parent: the handing agent's message. */
+	parent: RouterMessage;
+	/** The agent's result, the newest message. */
+	message: RouterMessage;
+	expect: Record<string, Outcome>;
+}
+
+export const handBacks: HandBack[] = [
+	{
+		name: "a check comes back that only confirms the answer",
+		person: "j",
+		parent: bot(mainBot, "@Scout, can you validate whether 5 × 5 is 25?"),
+		message: bot(scout, "Yes—5 × 5 = 25."),
+		expect: {},
+	},
+	{
+		name: "a result comes back that the agent needs to finish its job",
+		person: "Dana",
+		parent: bot(mainBot, "@Scout find three roofing leads in Austin, so I can draft an intro email to the best one."),
+		message: bot(scout, "Found three: Lone Star Roofing (4.8★, 120 reviews, no website), Capitol Roof Co (4.5★, slow site), Hill Country Exteriors (4.9★, just expanded)."),
+		expect: { a1: "post" },
+	},
+];
+
+/** Moments the full path runs (it costs a turn per woken agent): misses the dispatcher alone can't settle, and a few plain ones. */
+export const fullPathCases = [
+	"asks the bot by name",
+	"asks the room a question the bot can answer",
+	"follow-up to the agent's answer",
+	"proposal request picks the proposal writer",
+	"question in a thread under the agent's reply",
+	"thanks after an answer",
+	"small talk",
+	"question to a named person",
+	"talking about the bot, not to it",
+	"ok to a person after the agent spoke earlier",
+	"venting about follow-ups",
+	"thinking out loud about notes",
+	"half a question about data",
+	"\"anyone else?\" after the bot answered",
+	"\"anyone else?\" when it's another agent's line",
+	"\"someone else\" after the bot answered",
+].map((name) => {
+	const found = routerCases.find((c) => c.name === name);
+	if (!found) throw new Error(`No moment named ${name}`);
+	return found;
+});

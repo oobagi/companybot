@@ -6,6 +6,7 @@ import {
 	askRefusal,
 	freshBudget,
 	handoffLimit,
+	isGranted,
 	mentionedAgents,
 	pauseText,
 	replyModeOf,
@@ -89,7 +90,7 @@ async function agentPostsIn(ctx: QueryCtx, chatId: Id<"chats">, threadId: Id<"ch
  * dispatcher who goes next (router.next).
  */
 export async function handOff(ctx: MutationCtx, turn: Doc<"agentTurns">) {
-	const reply = turn.replyId && (await ctx.db.get(turn.replyId));
+	const reply = await shownReply(ctx, turn);
 	if (!reply || reply.status !== "done" || reply.deleted || turn.ask || !(await personAsked(ctx, turn))) return;
 	const chat = await ctx.db.get(turn.chatId);
 	if (!chat || chat.archived) return;
@@ -103,16 +104,26 @@ export async function handOff(ctx: MutationCtx, turn: Doc<"agentTurns">) {
 	if (turn.chain && replyModeOf(chat) === "relevant") await ctx.scheduler.runAfter(0, internal.router.next, { turnId: turn._id });
 }
 
-/** The dispatcher picked `agentId` to go next after `turn` (router.applyNext): the same as an @mention, counted as a hop. */
-export async function dispatchTo(ctx: MutationCtx, turn: Doc<"agentTurns">, agentId: Id<"agents">) {
+/**
+ * What a turn said where people see it: its reply, or for a quiet turn (its reply is never shown) the
+ * last message it posted with chat.notify, if any. Handoffs and "who goes next" read this.
+ */
+export async function shownReply(ctx: QueryCtx, turn: Doc<"agentTurns">) {
 	const reply = turn.replyId && (await ctx.db.get(turn.replyId));
+	if (!reply?.quiet) return reply || null;
+	return (turn.notifiedId && (await ctx.db.get(turn.notifiedId))) || null;
+}
+
+/** The dispatcher picked `agentId` to go next after `turn` (router.applyNext): the same as an @mention, counted as a hop. */
+export async function dispatchTo(ctx: MutationCtx, turn: Doc<"agentTurns">, agentId: Id<"agents">, dispatch: Held["dispatch"]) {
+	const reply = await shownReply(ctx, turn);
 	const chat = await ctx.db.get(turn.chatId);
 	const chain = turn.chain && (await ctx.db.get(turn.chain.id));
 	if (!reply || reply.deleted || !chat || chat.archived || replyModeOf(chat) !== "relevant" || !chain || agentId === turn.agentId) return;
 	const here = (await chatMembersOf(ctx, chat._id)).some((r) => r.agentId === agentId);
 	const agent = await ctx.db.get(agentId);
 	if (!here || !agent || agent.archived) return;
-	await passTo(ctx, { turn, chain, chat, reply, to: agentId, dispatched: true });
+	await passTo(ctx, { turn, chain, chat, reply, to: agentId, dispatched: true, dispatch });
 }
 
 type Held = NonNullable<Doc<"agentChains">["held"]>[number];
@@ -120,11 +131,11 @@ type Held = NonNullable<Doc<"agentChains">["held"]>[number];
 /** One handoff: within the budget it queues the agent's turn, else the chain pauses holding it. */
 async function passTo(
 	ctx: MutationCtx,
-	{ turn, chain, chat, reply, to, dispatched }: { turn: Doc<"agentTurns">; chain: Doc<"agentChains">; chat: Doc<"chats">; reply: Doc<"chatMessages">; to: Id<"agents">; dispatched?: true },
+	{ turn, chain, chat, reply, to, dispatched, dispatch }: { turn: Doc<"agentTurns">; chain: Doc<"agentChains">; chat: Doc<"chats">; reply: Doc<"chatMessages">; to: Id<"agents">; dispatched?: true; dispatch?: Held["dispatch"] },
 ) {
 	if (chain.status === "stopped") return;
 	const threadId = reply.threadId ?? reply._id;
-	const held: Held = { agentId: to, chatId: chat._id, threadId, triggerId: reply._id, depth: turn.chain?.depth ?? 0, ...(dispatched && { dispatched }) };
+	const held: Held = { agentId: to, chatId: chat._id, threadId, triggerId: reply._id, depth: turn.chain?.depth ?? 0, ...(dispatched && { dispatched }), ...(dispatch && { dispatch }) };
 	if (chain.status === "paused") return ctx.db.patch(chain._id, { held: [...(chain.held ?? []), held] });
 	const handoff: Handoff<Id<"agents">> = { from: turn.agentId, to, path: pathOf(turn, chain), dispatched, agentPosts: await agentPostsIn(ctx, chat._id, threadId) };
 	const limit = handoffLimit(budgetOf(chain), handoff);
@@ -147,6 +158,8 @@ async function startHanded(ctx: MutationCtx, chain: Doc<"agentChains">, h: Held,
 		actorId: chain.actorId,
 		chain: { id: chain._id, depth: h.depth, path, epoch: chain.epoch },
 		...(h.dispatched && { routed: true as const }),
+		// Not asked directly, so quiet like a pick for a person's message: it posts with chat.notify only if it adds something.
+		...(h.dispatch && { dispatch: { ...h.dispatch, ...(isGranted(agent.tools, "chat.notify") && { quiet: true as const }) } }),
 	});
 }
 

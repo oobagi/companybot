@@ -2,6 +2,7 @@ import type { ToolDef } from "./tools";
 import type { AgentConfig } from "./agent-config";
 import type { ApprovalOutcome } from "./approvals";
 import type { Participant } from "./chat";
+import type { ConfidenceBand } from "./router";
 import { formatFileSize, isImageType, toBase64 } from "./files";
 import { platformGuide } from "./guide";
 import { type Skill, skillsIndex } from "./skills";
@@ -87,8 +88,13 @@ export interface TurnPromptInput {
 	approval?: ApprovalOutcome;
 	/** Set when the agent woke on its own (backend wakeups.ts): it answers that instead of a message, quietly. */
 	wake?: TurnWake;
-	/** Nobody @mentioned the agent: the router (router.ts) picked it to answer. */
-	routed?: boolean;
+	/**
+	 * Nobody @mentioned the agent: the dispatcher (router.ts) picked it, this sure. `quiet`: a pick for
+	 * a person's message, where it posts only with chat.notify (unset: it can't, or a "who goes next" hop).
+	 * `before`: agents the same message went to first (picks run one after another, best fit first).
+	 * `answering`: other agents' un-asked turns running here now (backend turns.ts), the first to post claims it.
+	 */
+	routed?: { band: ConfidenceBand; quiet: boolean; before?: string[]; answering?: string[] };
 	/** Another agent handed this turn's message to it (handoffs.ts): by @mention, or privately (`ask`). */
 	handoff?: { from: string; ask: boolean };
 	/**
@@ -159,10 +165,69 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 		const skills = trigger.skills?.length
 			? `\nIt names ${trigger.skills.length === 1 ? "a skill" : "skills"} with /: load ${trigger.skills.length === 1 ? "it" : "each"} with skills_load first and follow it: ${trigger.skills.map((s) => `${JSON.stringify(clean(s.name))} (${s.id})`).join(", ")}.`
 			: "";
-		const routed = input.routed ? "\nNobody @mentioned you: it looked meant for you, so answer it briefly. If it was for someone else after all, say so in a few words." : "";
-		sections.push(`Reply to this message from ${clean(trigger.author.name)}:\n${line(trigger)}${skills}${routed}${input.handoff ? handoffNote(input.handoff, actor.name) : ""}`);
+		if (input.routed?.quiet) {
+			const room = roomState(messages, trigger, input.agentId, actor.timeZone);
+			sections.push(`This message from ${clean(trigger.author.name)} came in:\n${line(trigger)}${skills}${routedNote(input.routed, input.handoff && { from: input.handoff.from, person: actor.name })}${room ? `\n\n${room}` : ""}`);
+		}
+		else {
+			const routed = input.routed ? `\nNobody @mentioned you: the dispatcher thinks it ${BAND_WORDS[input.routed.band]}, so answer it briefly. If it was for someone else after all, say so in a few words.` : "";
+			sections.push(`Reply to this message from ${clean(trigger.author.name)}:\n${line(trigger)}${skills}${routed}${input.handoff ? handoffNote(input.handoff, actor.name) : ""}`);
+		}
 	}
 	return sections.join("\n\n");
+}
+
+/** The dispatcher's confidence (router.ts confidenceBand), as words: the agent judges, not a number. */
+const BAND_WORDS: Record<ConfidenceBand, string> = { clearly: "is clearly for you", probably: "is probably for you", might: "might be for you" };
+
+/**
+ * A quiet dispatcher pick: the agent has the final say. It reads the conversation and posts with
+ * chat_notify only if it should; anything else it writes isn't shown.
+ */
+const routedNote = (
+	{ band, before = [], answering = [] }: { band: ConfidenceBand; before?: string[]; answering?: string[] },
+	/** A "who goes next" hop: another agent wrote the message, working for this person. */
+	hop?: { from: string; person: string },
+) =>
+	[
+		hop
+			? `\n${clean(hop.from)} is an agent working for ${clean(hop.person)}, and @mentioned nobody. A quick dispatcher thinks you should act on it next (it ${BAND_WORDS[band].replace("for you", "yours")}). You decide, from the conversation above:`
+			: `\nNobody @mentioned you. A quick dispatcher, which sees only the last few messages and a line about each agent, thinks this message ${BAND_WORDS[band]}. It can't tell whether the person wants you in particular; you can, from the conversation above. You decide:`,
+		before.length > 0 &&
+			`- It went to ${listed(before.map(clean))} first, a better fit by the dispatcher's guess; anything ${before.length === 1 ? "it" : "they"} posted is above. One answer is enough: no second take or extra tip, only a fix if theirs is wrong or misses what was asked. Unless the message asks each of you (everyone, a vote): then give your own.`,
+		answering.length > 0 &&
+			`- ${listed(answering.map(clean))} ${answering.length === 1 ? "is" : "are"} working here right now, unasked too. The first to post takes it: if one posts before you, chat_notify shows you what it said.`,
+		"- Post nothing if it's already been answered (by you or anyone) and you'd add nothing different; if the person wants someone other than you (\"anyone else?\" or \"can anyone check that?\" right after you answered: don't check your own answer); if it's people talking to each other; or if you'd only be acknowledging, offering to help, making small talk or saying you have nothing to add. Just end without chat_notify; you can react with chat_react instead.",
+		hop
+			? `- If it gives back a result you asked for, ${clean(hop.person)} already sees it, so never restate, sum up or confirm it. If you asked for it to do more yourself (your message above says what for), do that now and post it with chat_notify; if not, you're done: end without posting.\n- If it hands you work or asks you something, do it and post the result with chat_notify.`
+			: `- Otherwise, if it's ${band === "might" ? "clearly for you (the dispatcher wasn't sure)" : "for you"}, answer it with chat_notify, briefly, even if you couldn't find what they asked for (then say so). A question to the room ("anyone know…?") that nobody has answered is for you if you can answer it; one to everyone (a vote, "everyone…?") asks you too: give your own answer once, in a line or a reaction. When they ask for someone else, an agent that hasn't answered and whose line of work it is should. Nothing else you write is shown.`,
+	]
+		.filter(Boolean)
+		.join("\n");
+
+/** Questions the room state lists, newest last. */
+const ROOM_QUESTIONS = 3;
+
+/**
+ * Where the conversation stands, for a pick nobody asked (#172): the people's latest questions and who
+ * answered each (the first to write after it, other than whoever asked), what the agent itself last
+ * said, and whether a person wrote after the message. Read off the messages already in the prompt; no model call. A missed "already
+ * answered" is what makes an agent butt in, so it's spelled out.
+ */
+function roomState(messages: PlaceMessage[], trigger: PlaceMessage, self: string, timeZone: string) {
+	const who = (m: PlaceMessage) => (m.author.id === self ? "you" : `${clean(m.author.name)}${m.author.type === "agent" ? " (agent)" : ""}`);
+	const quote = (m: PlaceMessage) => `${clean(m.author.name)} ${encode(m.text.length > 80 ? `${m.text.slice(0, 80)}…` : m.text)} (${shortStamp(m.time, timeZone)})`;
+	const sorted = [...messages].sort((a, b) => a.time - b.time);
+	const questions = sorted.filter((m) => m.author.type === "user" && m.text.includes("?")).slice(-ROOM_QUESTIONS);
+	const lines = questions.map((q) => {
+		const answer = sorted.find((m) => m.time > q.time && m.author.id !== q.author.id);
+		return `- ${answer ? "Answered" : "Open"}: ${quote(q)}${answer ? `, first by ${who(answer)}` : ""}${q.id === trigger.id ? " (this message)" : ""}`;
+	});
+	const mine = sorted.filter((m) => m.author.id === self).at(-1);
+	if (mine) lines.push(`- You last posted here ${shortStamp(mine.time, timeZone)}: ${encode(mine.text.length > 80 ? `${mine.text.slice(0, 80)}…` : mine.text)}.`);
+	const after = sorted.filter((m) => m.time > trigger.time && m.author.type === "user");
+	if (after.length > 0) lines.push(`- Since this message, ${listed([...new Set(after.map((m) => clean(m.author.name)))])} wrote ${after.length === 1 ? "a message" : `${after.length} messages`}.`);
+	return lines.length > 0 ? `Where it stands (from the messages above):\n${lines.join("\n")}` : "";
 }
 
 /** A turn another agent started: it speaks for the person, within what they'd want, and answers once. */

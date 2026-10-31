@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type RouterInput, routerAnswers, routerDecisions, routerQuestions, routerRequest, routerSchema } from "./router";
+import { ROUTER_MIN_PROBABILITY, type RouterInput, confidenceBand, forSomeoneElse, justAnsweredKey, routerAnswers, routerDecisions, routerQuestions, routerRequest, routerSchema } from "./router";
 
 describe("reply router", () => {
 	const agents = [
@@ -76,5 +76,44 @@ describe("reply router", () => {
 			a2: { action: "quiet" },
 		});
 		expect(Object.fromEntries(routerAnswers({}, agents))).toEqual({ a1: { action: "quiet" }, a2: { action: "quiet" } });
+	});
+
+	it("wakes an agent on a near miss too, and keeps how sure Jev was", () => {
+		const p = (choice: string, reply: number) => ({ choice, probabilities: { reply, react: 0, quiet: 1 - reply } });
+		expect(Object.fromEntries(routerAnswers({ a1: p("reply", 0.88), a2: p("quiet", ROUTER_MIN_PROBABILITY + 0.05) }, agents))).toEqual({
+			a1: { action: "reply", probability: 0.88, probabilities: p("reply", 0.88).probabilities },
+			a2: { action: "reply", probability: ROUTER_MIN_PROBABILITY + 0.05, probabilities: p("quiet", ROUTER_MIN_PROBABILITY + 0.05).probabilities },
+		});
+		expect(Object.fromEntries(routerAnswers({ a1: p("quiet", 0.2), a2: p("quiet", 0.39) }, agents))).toEqual({ a1: { action: "quiet" }, a2: { action: "quiet" } });
+		// A reaction stays a reaction, whatever the chance of replying.
+		expect(routerAnswers({ a1: { choice: "react", probabilities: { reply: 0.45, react: 0.5, quiet: 0.05 } } }, agents).get("a1")).toEqual({ action: "react", emoji: "👍" });
+	});
+
+	it("puts the dispatcher's confidence in words", () => {
+		expect([0.95, 0.85, 0.84, 0.6, 0.59, 0.4].map(confidenceBand)).toEqual(["clearly", "clearly", "probably", "probably", "might", "might"]);
+		// A language model gives no probability.
+		expect(confidenceBand(undefined)).toBe("probably");
+	});
+
+	it("says who just answered the person, so \"anyone else?\" means someone else", () => {
+		const after = (before: RouterInput["before"]) => routerRequest({ ...input, before, message: { author: "Ada", text: "anyone else?" } }).prompt;
+		expect(after([{ author: "Ada", text: "a tip?" }, { author: "Companybot", agent: "a1", text: "Log calls." }])).toContain("Companybot (agent a1) answered Ada just above.");
+		// Ada wrote again since: still the one she heard from. Someone else wrote, or it wasn't to her: no line.
+		expect(after([{ author: "Ada", text: "a tip?" }, { author: "Companybot", agent: "a1", text: "Log calls." }, { author: "Ada", text: "hmm" }])).toContain("Companybot (agent a1) answered Ada just above.");
+		expect(after([{ author: "Ada", text: "a tip?" }, { author: "Companybot", agent: "a1", text: "Log calls." }, { author: "Ben", text: "nice" }])).not.toContain("just above");
+		expect(after([{ author: "Ben", text: "a tip?" }, { author: "Companybot", agent: "a1", text: "Log calls." }])).not.toContain("just above");
+		expect(after([{ author: "Ben", text: "morning" }])).not.toContain("just above");
+	});
+
+	it("asks Jev whether the person wants someone other than whoever just answered, and shrinks its chance by that", () => {
+		const asked = { ...input, before: [{ author: "Ada", text: "a tip?" }, { author: "Companybot", agent: "a1", text: "Log calls." }], message: { author: "Ada", text: "anyone else?" } };
+		expect(justAnsweredKey(asked)).toBe("a1");
+		expect(Object.keys(routerQuestions(asked))).toEqual(["someone_else", "a1", "a1_emoji", "a2"]);
+		expect(routerQuestions(input)).not.toHaveProperty("someone_else");
+		const answers = { someone_else: { probability: 0.8 }, a1: { choice: "reply", probabilities: { reply: 0.9, react: 0, quiet: 0.1 } }, a2: { choice: "reply", probabilities: { reply: 0.5, react: 0, quiet: 0.5 } } };
+		const decisions = routerAnswers(answers, agents, "a1");
+		expect(decisions.get("a1")).toEqual({ action: "quiet" });
+		expect(decisions.get("a2")).toMatchObject({ action: "reply", probability: 0.5 });
+		expect(forSomeoneElse(answers, "a1").a1!.probabilities!.reply).toBeCloseTo(0.18);
 	});
 });

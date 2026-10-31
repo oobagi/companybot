@@ -12,7 +12,7 @@ export default {
 - A reply counts for the person it ran for: who wrote the message, or who an automation ran for (a channel automation counts for its maker). A chat summary counts for the person whose reply triggered it. Web searches an agent runs while replying count under web search, for the same person, and show apart in the reply's cost.
 - Pictures agents make count under images for the person the agent was working for, and against the workspace's monthly image budget (**help: general**).
 - Dictation (the mic in the message box, **help: chat**) counts for the person who recorded it.
-- Reply decisions (in channels set to "When relevant", whether an agent should reply, react or stay quiet, **help: chat**) count for the person whose message was decided on, under no agent: one call decides for every agent in the channel.
+- Reply decisions (in channels set to "When relevant", which agents should look at a message, or react, **help: chat**) count for the person whose message was decided on, under no agent: one call decides for every agent in the channel. An agent it passes the message to runs a turn even if it ends up posting nothing; that turn counts under the agent, like any reply.
 - People who left stay in the totals as former members, so the workspace's bill never shrinks.
 
 Ask Companybot "what did we spend this month?" and it reads the same numbers with your rights.
