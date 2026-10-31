@@ -251,6 +251,7 @@ describe("approvals", () => {
 			agentId: "a1",
 			place: { kind: "dm", name: null, private: true, topic: null, thread: null, members: [] },
 			actor: { id: "u1", name: "Ada", email: "ada@co.com", role: "member", timeZone: "UTC" },
+			now: Date.UTC(2026, 9, 22),
 			memory: "personal",
 			connectors: { connected: [], unavailable: [] },
 			messages: [],
