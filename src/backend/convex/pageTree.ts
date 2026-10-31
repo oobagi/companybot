@@ -2,7 +2,7 @@ import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Member, Who } from "./lib";
-import { requireEditable, requirePage } from "./pageOps";
+import { appendPageBlock, removePageBlock, requireEditable, requirePage } from "./pageOps";
 
 // A deleted ancestor gates the whole subtree immediately; no fan-out on trash/restore.
 export const PAGE_DEPTH_MAX = 32;
@@ -64,6 +64,8 @@ export async function movePage(ctx: MutationCtx, who: Who, page: Doc<"pages">, p
 		}
 	}
 	await ctx.db.patch(page._id, { parentId, updatedAt: Date.now(), updatedBy: who.member.userId });
+	if (before.ancestors[0]) await removePageBlock(ctx, who, before.ancestors[0], page._id);
+	if (destination) await appendPageBlock(ctx, who, destination.parent, page._id, page.title);
 	const latest = await ctx.db.query("pageMoves").withIndex("by_page", (q) => q.eq("pageId", page._id)).order("desc").first();
 	const n = (latest?.n ?? 0) + 1;
 	await ctx.db.insert("pageMoves", { workspaceId: page.workspaceId, pageId: page._id, n, userId: who.member.userId, ...(who.agentId && { agentId: who.agentId }), from: before.ancestors[0]?.title ?? "Pages", to: destination?.parent.title ?? "Pages" });

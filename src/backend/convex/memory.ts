@@ -39,7 +39,7 @@ export const update = mutation({
 		updateMemory(ctx, { member: await requireMember(ctx) }, id, content, expectedVersion),
 });
 
-/** Team memories go to Trash; personal ones are deleted. */
+/** Team memories go to Archive; personal ones are deleted. */
 export const remove = mutation({
 	args: { id: v.id("memories") },
 	handler: async (ctx, { id }) => removeMemory(ctx, { member: await requireMember(ctx) }, id),

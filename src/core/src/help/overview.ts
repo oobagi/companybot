@@ -18,7 +18,7 @@ A new workspace starts with one channel, #general, and one agent, Companybot. Da
 
 ## Two kinds of settings
 - **Account settings** are yours alone: [Your preferences](#/settings/preferences).
-- **Workspace settings** belong to the open workspace: [General](#/settings/general), [Members](#/settings/members), [Permissions](#/settings/permissions), [Memory](#/settings/memory), [Activity](#/settings/activity), [Usage](#/settings/usage), [Trash](#/settings/trash), and Customize: [Agents](#/settings/agents), [Connectors](#/settings/connectors), [Skills](#/settings/skills), [Automations](#/settings/automations).
+- **Workspace settings** belong to the open workspace: [General](#/settings/general), [Members](#/settings/members), [Permissions](#/settings/permissions), [Memory](#/settings/memory), [Activity](#/settings/activity), [Usage](#/settings/usage), [Archive](#/settings/archive), and Customize: [Agents](#/settings/agents), [Connectors](#/settings/connectors), [Skills](#/settings/skills), [Automations](#/settings/automations).
 
 See the **help: settings** topic for who can change what.
 

@@ -34,10 +34,12 @@ export function ThreadPanel({
 	const workspace = useWorkspace();
 	const files = useAttachments(draftKey(workspace?.id, chat._id, threadId));
 	const { error, fail } = useRun();
+	// An agent's ask of another (chat.ask_agent) shows read-only: the person steps in from the chat.
+	const ask = messages?.[0]?.ask;
 
 	const header = (
 		<header className="drag flex h-12 shrink-0 items-center gap-2 px-5">
-			<h2 className="text-sm font-semibold">Thread</h2>
+			<h2 className="shrink-0 text-sm font-semibold">{ask ? `${ask.from} asked ${ask.to}` : "Thread"}</h2>
 			<span className="truncate text-sm text-neutral-400">{chatTitle(chat)}</span>
 			<span className="ml-auto">
 				<IconButton label="Close thread" onClick={onClose}>
@@ -46,7 +48,13 @@ export function ThreadPanel({
 			</span>
 		</header>
 	);
-	const footer = (
+	const footer = ask ? (
+		<div className="flex flex-col gap-1 px-5 pt-3 pb-7 text-xs text-neutral-400">
+			<Notice>{error}</Notice>
+			<TypingLine chatId={chat._id} threadId={threadId} />
+			<p>To step in, reply in the chat.</p>
+		</div>
+	) : (
 		<div className="flex flex-col gap-2 px-4 pt-4 pb-7">
 			<Notice>{error}</Notice>
 			<Composer
@@ -72,7 +80,7 @@ export function ThreadPanel({
 	return (
 		<aside style={{ width: size.width }} className="relative flex shrink-0 flex-col border-l border-neutral-200">
 			<ResizeHandle side="left" label="Resize thread" size={size} />
-			<FileDrop attachments={files} className="flex min-h-0 flex-1 flex-col">
+			<FileDrop attachments={ask ? undefined : files} className="flex min-h-0 flex-1 flex-col">
 			{!messages || messages.length === 0 ? (
 				<>
 					{header}
@@ -86,6 +94,7 @@ export function ThreadPanel({
 					messages={messages}
 					tokens={tokens}
 					summaryLabel="Agents"
+					readOnly={!!ask}
 					onError={fail}
 					header={header}
 					footer={footer}

@@ -1,9 +1,9 @@
 import { Fragment, useState } from "react";
 import { navigate } from "../../router";
-import { AgentIcon, AutomationIcon, ConnectorIcon, SkillIcon, TrashIcon } from "../../icons";
-import { ConflictNotice, type Crumb, EmptyState, NotFound, Notice, Page, SaveBar, barDangerButton, cardClass, descriptionClass, disabledButtonClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
+import { AgentIcon, AutomationIcon, ConnectorIcon, SkillIcon, ArchiveIcon } from "../../icons";
+import { ConflictNotice, type Crumb, EmptyState, NotFound, Notice, Page, SaveBar, barButton, cardClass, descriptionClass, disabledButtonClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
 import { TrashNotice } from "../Trash";
-import { Confirm } from "../chat/common";
+import { Confirm, archiveQuestion, useConfirm } from "../chat/common";
 
 /** Each tab's description shows in the top bar. */
 export const customizeTabs = [
@@ -132,9 +132,9 @@ export function Detail(props: {
 			title={props.title}
 			description={`${props.description} · ${props.meta}`}
 			crumbs={customizeCrumbs(props.tab)}
-			actions={!props.trash && <InstallButton installed={props.installed} canManage={props.canManage} busy={props.busy} onToggle={() => props.confirmation ? setConfirming(true) : props.onToggle()} />}
+			actions={!props.trash && (props.confirmation && props.installed ? <button type="button" className={barButton} disabled={!props.canManage || props.busy} onClick={() => setConfirming(true)}><ArchiveIcon /> Archive</button> : <InstallButton installed={props.installed} canManage={props.canManage} busy={props.busy} onToggle={props.onToggle} />)}
 		>
-			{confirming && <Confirm title={`Remove "${props.title}"?`} action="Move to Trash" onClose={() => setConfirming(false)} onConfirm={() => { setConfirming(false); props.onToggle(); }}>{props.confirmation}</Confirm>}
+			{confirming && <Confirm title={`Archive “${props.title}”?`} action="Archive" onClose={() => setConfirming(false)} onConfirm={() => { setConfirming(false); props.onToggle(); }}>{props.confirmation}</Confirm>}
 			{props.trash && <TrashNotice trash={props.trash} />}
 			{props.children}
 		</Page>
@@ -204,6 +204,7 @@ export function MadeItemDetail<T>({
 	const draft = useDraft(saved, custom.version);
 	const { error, run } = useRun();
 	const editable = canEdit && !trash;
+	const { confirm, dialog } = useConfirm();
 
 	return (
 		<Page
@@ -214,14 +215,15 @@ export function MadeItemDetail<T>({
 				editable && (
 					<button
 						type="button"
-						className={barDangerButton}
-						onClick={() => run(onDelete(), () => navigate("settings", tab))}
+						className={barButton}
+						onClick={() => confirm(archiveQuestion(name, () => onDelete().then(() => navigate("settings", tab)), tab === "automations" ? "This automation will stop running." : "Agents will stop seeing this skill."))}
 					>
-						<TrashIcon /> Delete
+						<ArchiveIcon /> Archive
 					</button>
 				)
 			}
 		>
+			{dialog}
 			{trash && <TrashNotice trash={trash} />}
 			<ConflictNotice draft={draft} who={custom.updatedByName} />
 			<Notice>{error}</Notice>

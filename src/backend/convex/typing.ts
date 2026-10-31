@@ -44,7 +44,8 @@ export const list = query({
 	handler: async (ctx, { chatId, threadId }): Promise<{ people: (Participant & { at: number })[]; agents: (Participant & { step: string | null })[] }> => {
 		const visible = await visibleChat(ctx, chatId);
 		if (!visible) return { people: [], agents: [] };
-		const names = namer(ctx);
+		// Pictures for the agents' avatars on the line.
+		const names = namer(ctx, { images: true });
 		const now = Date.now();
 		const rows = await ctx.db
 			.query("typing")
@@ -61,7 +62,8 @@ export const list = query({
 		const agents = await Promise.all(
 			running
 				.filter((t) => now - (t.startedAt ?? t._creationTime) < STALE_TURN_MS)
-				.map(async (t) => ({ ...(await names.agent(t.agentId)), step: t.step?.label ?? null })),
+				// A dispatcher pick or hop may well post nothing: it shows what it's doing, never "typing".
+				.map(async (t) => ({ ...(await names.agent(t.agentId)), step: t.step?.label ?? (t.routed ? "Thinking…" : null) })),
 		);
 		return { people: people.slice(0, SHOWN_MAX), agents };
 	},

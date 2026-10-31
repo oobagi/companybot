@@ -5,11 +5,45 @@ import { api, internal } from "../convex/_generated/api";
 import schema from "../convex/schema";
 
 import { agentTurn, agentsOf, generalOf, modules, signIn } from "./helpers";
+import { seedAutomation } from "./legacyFixtures";
 import "./connectorFixtures";
 
 afterEach(() => void vi.useRealTimers());
 
 describe("migrations", () => {
+	it("writes schedules from before cron as cron, starting after their last run", async () => {
+		const t = convexTest({ schema, modules, transactionLimits: true });
+		migrationsTest.register(t);
+		const owner = await signIn(t, "owner@co.com");
+		const { companybot } = await agentsOf(owner);
+		const id = await owner.mutation(api.automations.create, {
+			config: { name: "Daily", prompt: "p", trigger: { type: "schedule", cron: "0 9 * * *" } },
+			agentId: companybot._id,
+			audience: "creator",
+			timeZone: "UTC",
+		});
+		await seedAutomation(t, owner, "morning-brief");
+		await t.run(async (ctx) => {
+			for (const install of await ctx.db.query("automationInstalls").collect()) {
+				const custom = install.custom && { ...install.custom, trigger: { type: "schedule" as const, time: "09:30", weekdays: [1, 3] } };
+				await ctx.db.patch(install._id, { custom, lastScheduledAt: undefined, lastRunDate: "2026-10-21", lastRunAt: 1_000 });
+			}
+		});
+		vi.useFakeTimers();
+		try {
+			await t.mutation(internal.migrations.runAll);
+			await t.finishAllScheduledFunctions(vi.runAllTimers);
+		} finally {
+			vi.useRealTimers();
+		}
+		const installs = await t.run((ctx) => ctx.db.query("automationInstalls").collect());
+		const made = installs.find((i) => i.automationId === id)!;
+		const brief = installs.find((i) => i.automationId === "morning-brief")!;
+		expect(made).toMatchObject({ custom: { trigger: { type: "schedule", cron: "30 9 * * 1,3" }, version: 1 }, lastScheduledAt: 1_000 });
+		expect(brief).toMatchObject({ definition: { trigger: { type: "schedule", cron: "0 8 * * 1-5" } }, lastScheduledAt: 1_000 });
+		expect([made.lastRunDate, brief.lastRunDate]).toEqual([undefined, undefined]);
+	});
+
 	it("clears the retired welcome from old turns", async () => {
 		const t = convexTest({ schema, modules, transactionLimits: true });
 		migrationsTest.register(t);

@@ -1,4 +1,4 @@
-import { THREAD_HOURS_DEFAULT, canManageChannel } from "@companybot/core";
+import { type ReplyMode, THREAD_HOURS_DEFAULT, canManageChannel, replyModeOf, replyModes } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx } from "./_generated/server";
@@ -30,6 +30,8 @@ export type ChatItem = {
 	lastMessageAt: number;
 	/** Channels: you can rename it, delete it and manage its members (`canManageChannel`). */
 	canManage: boolean;
+	/** When agents answer without an @mention: always "mentions" outside channels (core router.ts). */
+	replyMode: ReplyMode;
 	/** Side chats: the agent DM they sit under. Else null. */
 	parentId: Id<"chats"> | null;
 	/** Side chats: what it's about ("New chat" until its first message). Else null. */
@@ -76,6 +78,7 @@ async function toChatItem(
 		mentioned: !!mine && !!(await latestMentionSince(ctx, chat._id, member.userId, mine.lastReadAt ?? 0)),
 		lastMessageAt: chat.lastMessageAt,
 		canManage: chat.kind === "channel" && canManageChannel(toActor(member), chat),
+		replyMode: replyModeOf(chat),
 		parentId: chat.parentId ?? null,
 		label: chat.parentId ? sideChatTitle(chat) : null,
 	};
@@ -100,7 +103,10 @@ export const list = query({
 			const chat = await ctx.db.get(row.chatId);
 			if (!chat || chat.archived || chat.workspaceId !== member.workspaceId) continue;
 			createdAt.set(chat._id, chat._creationTime);
-			items.push(await toChatItem(ctx, chat, member, names, row, chat.kind === "dm" ? await chatMembersOf(ctx, chat._id) : []));
+			const item = await toChatItem(ctx, chat, member, names, row, chat.kind === "dm" ? await chatMembersOf(ctx, chat._id) : []);
+			// Closed (closeDm): back once something new arrives there.
+			if (row.closedAt !== undefined && item.lastMessageAt <= row.closedAt && !item.mentioned) continue;
+			items.push(item);
 		}
 		// DMs most recent first; side chats in the order they were made, so a new tab lands at the end.
 		const dms = items.filter((c) => c.kind === "dm" && !c.parentId).sort((a, b) => b.lastMessageAt - a.lastMessageAt);
@@ -291,19 +297,27 @@ export async function createChannelAs(ctx: MutationCtx, member: Member, args: In
 	return chatId;
 }
 
-const updateChannelArgs = v.object({ chatId: v.id("chats"), name: v.optional(v.string()), topic: v.optional(v.string()) });
+const updateChannelArgs = v.object({
+	chatId: v.id("chats"),
+	name: v.optional(v.string()),
+	topic: v.optional(v.string()),
+	/** When agents answer without an @mention. */
+	replyMode: v.optional(v.union(...replyModes.map((m) => v.literal(m)))),
+});
 
 export const updateChannel = mutation({
 	args: updateChannelArgs.fields,
 	handler: async (ctx, args) => updateChannelAs(ctx, await requireMember(ctx), args),
 });
 
-export async function updateChannelAs(ctx: MutationCtx, member: Member, { chatId, name, topic }: Infer<typeof updateChannelArgs>) {
+export async function updateChannelAs(ctx: MutationCtx, member: Member, { chatId, name, topic, replyMode }: Infer<typeof updateChannelArgs>) {
 	const chat = await requireManagedChannel(ctx, member, chatId);
-	if (chat.archived) throw new ConvexError("This channel is in Trash.");
+	if (chat.archived) throw new ConvexError("This channel is in Archive.");
 	await ctx.db.patch(chat._id, {
 		...(name !== undefined && { name: await availableName(ctx, member, name, chat._id) }),
 		...(topic !== undefined && { topic: topic.trim() || undefined }),
+		// Unset is "mentions", like every channel from before the setting.
+		...(replyMode !== undefined && { replyMode: replyMode === "relevant" ? undefined : replyMode }),
 	});
 }
 
@@ -330,7 +344,7 @@ export const leave = mutation({
 export async function leaveChannel(ctx: MutationCtx, member: Member, { chatId }: Infer<typeof leaveChannelArgs>) {
 	const chat = await requireChat(ctx, member, chatId);
 	if (chat.kind !== "channel") throw new ConvexError("You can't leave a DM.");
-	if (chat.isDefault) throw new ConvexError(`Everyone stays in #${chat.name}.`);
+	if (chat.isDefault) throw new ConvexError(`You can't leave #${chat.name}: it's the channel everyone is in.`);
 	const row = await membership(ctx, chatId, member.userId);
 	if (row) await ctx.db.delete(row._id);
 }
@@ -368,8 +382,28 @@ export async function openDirectMessage(ctx: MutationCtx, member: Member, args: 
 	const agentIds = [...new Set(args.agentIds)];
 	await requireWorkspaceUsers(ctx, member.workspaceId, userIds);
 	await requireActiveAgents(ctx, member.workspaceId, agentIds);
-	return findOrCreateDm(ctx, member.workspaceId, member.userId, userIds, agentIds);
+	const chatId = await findOrCreateDm(ctx, member.workspaceId, member.userId, userIds, agentIds);
+	// Opening a DM you closed puts it back in your sidebar.
+	const row = await membership(ctx, chatId, member.userId);
+	if (row?.closedAt !== undefined) await ctx.db.patch(row._id, { closedAt: undefined });
+	return chatId;
 }
+
+/**
+ * Closes a DM or group DM in your sidebar only, as Slack does: the messages stay, and it's back
+ * when someone writes there or you open it again. Not a DM with an agent: that's how you reach it.
+ */
+export const closeDm = mutation({
+	args: { chatId: v.id("chats") },
+	handler: async (ctx, { chatId }) => {
+		const member = await requireMember(ctx);
+		const chat = await requireChat(ctx, member, chatId);
+		if (chat.kind !== "dm" || chat.parentId) throw new ConvexError("Only DMs close. Leave a channel instead.");
+		if (agentOfDm(chat)) throw new ConvexError("A DM with an agent stays in your sidebar: it's how you reach the agent.");
+		const row = await membership(ctx, chatId, member.userId);
+		if (row) await ctx.db.patch(row._id, { closedAt: Date.now() });
+	},
+});
 
 /**
  * A new, separate conversation with the agent of one of your agent DMs: same two members, its
@@ -382,7 +416,7 @@ export const createSideChat = mutation({
 		const parent = await requireChat(ctx, member, parentId);
 		const agentId = agentOfDm(parent);
 		if (!agentId || parent.parentId) throw new ConvexError("Side chats go under a DM with an agent.");
-		if (parent.archived) throw new ConvexError("This chat is in Trash.");
+		if (parent.archived) throw new ConvexError("This chat is in Archive.");
 		await requireActiveAgents(ctx, member.workspaceId, [agentId]);
 		const chatId = await ctx.db.insert("chats", {
 			workspaceId: member.workspaceId,
@@ -456,7 +490,7 @@ export async function removeChannelMember(ctx: MutationCtx, member: Member, { ch
 	const chat = await requireManagedChannel(ctx, member, chatId);
 	if (chat.archived) throw new ConvexError("This chat is archived.");
 	if (!!userId === !!agentId) throw new ConvexError("Choose one person or agent.");
-	if (chat.isDefault && userId) throw new ConvexError(`Everyone stays in #${chat.name}.`);
+	if (chat.isDefault && userId) throw new ConvexError(`People can't be removed from #${chat.name}: it's the channel everyone is in.`);
 	const row = userId ? await membership(ctx, chatId, userId) : await ctx.db.query("chatMembers")
 		.withIndex("by_agent", q => q.eq("agentId", agentId).eq("chatId", chatId)).first();
 	if (row) await ctx.db.delete(row._id);

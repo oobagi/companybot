@@ -7,12 +7,14 @@
     ".": "./src/index.ts",
     "./agent-config": "./src/agent-config.ts",
     "./automations": "./src/automations.ts",
+    "./schedules": "./src/schedules.ts",
     "./local-auth": "./src/local-auth.ts",
     "./models": "./src/models.ts",
     "./help": "./src/help/index.ts",
     "./page-links": "./src/page-links.ts",
     "./permissions": "./src/permissions.ts",
     "./records": "./src/records.ts",
+    "./router": "./src/router.ts",
     "./skills": "./src/skills.ts",
     "./action-words": "./src/action-words.ts",
     "./typing": "./src/typing.ts",
@@ -29,11 +31,15 @@
   },
   "scripts": {
     "test": "vitest run",
+    "eval:router": "vitest run --config eval/vitest.config.ts eval/router.eval.ts",
+    "eval:full": "vitest run --config eval/vitest.config.ts eval/full-path.eval.ts",
     "typecheck": "tsc -p ."
   },
   "dependencies": {
     "@ai-sdk/mcp": "^2.0.81",
     "ai": "^7.0.148",
+    "croner": "^11.0.0",
+    "cronstrue": "^3.38.0",
     "fflate": "^0.8.3",
     "unpdf": "^1.9.1",
     "zod": "^4.6.7"

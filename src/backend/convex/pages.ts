@@ -80,11 +80,11 @@ export const forRecord = query({
 
 /** A standalone page, or a record's body (its existing one, if any). */
 export const create = mutation({
-	args: { title: v.optional(v.string()), recordId: v.optional(v.id("records")), parentId: v.optional(v.id("pages")) },
-	handler: async (ctx, { title, recordId, parentId }) => {
+	args: { title: v.optional(v.string()), recordId: v.optional(v.id("records")), parentId: v.optional(v.id("pages")), insertInParent: v.optional(v.boolean()) },
+	handler: async (ctx, { title, recordId, parentId, insertInParent }) => {
 		if (recordId && parentId) throw new ConvexError("Record bodies can't be nested.");
 		const who = { member: await requireMember(ctx) };
-		return createPage(ctx, who, recordId ? { recordId } : { title: title ?? "", parentId });
+		return createPage(ctx, who, recordId ? { recordId } : { title: title ?? "", parentId, insertInParent });
 	},
 });
 

@@ -3,7 +3,6 @@ import {
 	FOLLOWUPS_PER_RECORD,
 	type FollowupInput,
 	type FollowupSummary,
-	NOTIFY_MAX,
 	type WakeOutcome,
 	can,
 	followupNoteError,
@@ -17,7 +16,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
 import { mutation, query } from "./functions";
-import { addToChat, canSee, chatLabel, insertMessage, namer } from "./chatOps";
+import { addToChat, canSee, chatLabel, namer } from "./chatOps";
 import { type Member, asToolResult, getMember, liveWorkspace, memberOf, nameOf, requireMember, sweepExpired, timeZoneOf } from "./lib";
 import { automationScope } from "./automationOps";
 import { recordById } from "./recordOps";
@@ -27,7 +26,7 @@ import { enqueueTurn, runningTurn } from "./turns";
 // plus what. When: a time (`at`, through the scheduler; with `every` it's re-armed after each wake,
 // `times` wakes in all or forever) or a job (`jobId`: #114 calls `wake` with its result). What: a
 // note (a follow-up's task) or none (look around: #162's heartbeat). `wake` is the only path from
-// one to a turn. The turn is quiet: its reply is never shown, and the agent speaks with chat.notify.
+// one to a turn. The turn is quiet: its reply is shown only if its decision posts it (turns.finishReply).
 // Each wake writes one line in Activity. See wiki/architecture.md (Automations).
 
 /** Fired and cancelled wakeups are forgotten this long after. */
@@ -42,7 +41,7 @@ type Gate = (ctx: MutationCtx, row: Doc<"wakeups">) => Promise<string | null>;
  */
 const lookAroundGate: Gate | undefined = undefined;
 
-type NewWakeup = Pick<Doc<"wakeups">, "workspaceId" | "agentId" | "chatId" | "threadId" | "actorId" | "createdBy" | "note" | "recordId" | "typeId" | "foreign" | "at" | "every" | "times" | "jobId">;
+type NewWakeup = Pick<Doc<"wakeups">, "workspaceId" | "agentId" | "chatId" | "threadId" | "actorId" | "createdBy" | "note" | "recordId" | "typeId" | "foreign" | "at" | "every" | "times" | "jobId" | "answer">;
 
 /** Stores a wakeup and, if it has a time, schedules it. #114 makes `{ jobId }` ones; #162 note-less `{ at, every }` ones. */
 export async function createWakeup(ctx: MutationCtx, wakeup: NewWakeup) {
@@ -93,7 +92,7 @@ export const fire = internalMutation({
 	},
 });
 
-/** Something it waited on is back from Trash: try again. */
+/** Something it waited on is back from Archive: try again. */
 export const release = internalMutation({
 	args: { id: v.id("wakeups") },
 	handler: async (ctx, { id }) => {
@@ -107,7 +106,7 @@ export const release = internalMutation({
 /** Whether a wakeup has another wake after the one now: it repeats, and `times` (if set) isn't used up. */
 const repeatsAfter = (row: Doc<"wakeups">) => !!row.every && (row.times === undefined || (row.wakes ?? 0) + 1 < row.times);
 
-/** Called when anything comes back from Trash (trashOps): held wakeups in the workspace try again. */
+/** Called when anything comes back from Archive (trashOps): held wakeups in the workspace try again. */
 export async function releaseHeld(ctx: MutationCtx, workspaceId: Id<"workspaces">) {
 	const held = await ctx.db
 		.query("wakeups")
@@ -145,7 +144,7 @@ export async function wake(ctx: MutationCtx, id: Id<"wakeups">, outcome?: { resu
 	const type = record && (await ctx.db.get(record.typeId));
 	if (agent.archived || chat.archived || record?.archived || type?.archived) {
 		await ctx.db.patch(id, { held: true });
-		return logWake(ctx, row, "skipped", "Waiting: its agent, chat or record is in Trash. It wakes if that's restored.");
+		return logWake(ctx, row, "skipped", "Waiting: its agent, chat or record is in Archive. It wakes if that's restored.");
 	}
 	if (!(await canSee(ctx, chat, member))) return stop("Its person can no longer see the chat.");
 	if (row.threadId && !(await ctx.db.get(row.threadId))) return stop("Its thread was deleted.");
@@ -180,7 +179,7 @@ function logWake(ctx: MutationCtx, row: Doc<"wakeups">, outcome: WakeOutcome, re
 	});
 }
 
-/** Moves a wake turn's Activity line on: "ran" (quietly), "notified" or "failed". */
+/** Moves a wake turn's Activity line on: "ran" (quietly), "notified" (its reply was shown) or "failed". */
 export async function setWakeOutcome(ctx: MutationCtx, turn: Doc<"agentTurns">, outcome: WakeOutcome) {
 	const line = turn.wakeLogId && (await ctx.db.get(turn.wakeLogId));
 	if (!line?.wake) return;
@@ -303,7 +302,7 @@ export const createFor = internalMutation({
 			const every = often === undefined ? undefined : repeatEvery(often);
 			if (typeof every === "string") return { error: every };
 			const record = recordId ? await recordById(ctx, member, recordId) : null;
-			if (record?.archived) return { error: `${record.title} is in Trash.` };
+			if (record?.archived) return { error: `${record.title} is in Archive.` };
 			if (record && (await pendingCount(ctx, "by_record", record._id, FOLLOWUPS_PER_RECORD)) >= FOLLOWUPS_PER_RECORD)
 				return { error: `${record.title} already has ${FOLLOWUPS_PER_RECORD} follow-ups. Cancel one first.` };
 			if ((await pendingCount(ctx, "by_agent", turn.agentId, FOLLOWUPS_PER_AGENT)) >= FOLLOWUPS_PER_AGENT)
@@ -373,31 +372,5 @@ export const cancelFor = internalMutation({
 			await cancelWakeup(ctx, row, `Cancelled by ${await nameOf(ctx, member.userId)}.`);
 			return { cancelled: row._id };
 		});
-	},
-});
-
-/** chat.notify: a wake turn speaks up in its place, as the agent. Its Activity line says it did. */
-export const notifyFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), text: v.string() },
-	handler: async (ctx, { turnId, text }) => {
-		const { turn, chat } = await runningTurn(ctx, turnId);
-		if (!turn.wakeupId) return { error: "Only when you woke up on your own. Here, just reply." };
-		if (!text.trim()) return { error: "Say something." };
-		const sent = await ctx.db
-			.query("agentActivity")
-			.withIndex("by_reply", (q) => q.eq("replyId", turn.replyId))
-			.filter((q) => q.eq(q.field("tool"), "chat.notify"))
-			.take(NOTIFY_MAX);
-		if (sent.length >= NOTIFY_MAX) return { error: `That's ${NOTIFY_MAX} messages already. Put the rest in one.` };
-		await insertMessage(ctx, chat, {
-			threadId: turn.threadId,
-			authorAgentId: turn.agentId,
-			text,
-			parts: [{ type: "text", text }],
-			mentions: { userIds: [], agentIds: [] },
-			status: "done",
-		});
-		await setWakeOutcome(ctx, turn, "notified");
-		return { posted: true as const };
 	},
 });

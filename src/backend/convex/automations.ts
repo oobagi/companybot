@@ -6,7 +6,7 @@ import {
 	customAutomationError,
 	describeTrigger,
 	isValidTimeZone,
-	localTime,
+	legacyFields,
 	madeEditDenied,
 	normalizeCustomAutomation,
 } from "@companybot/core";
@@ -83,7 +83,8 @@ export const list = query({
 						? {
 								name: automationName(install),
 								prompt: install.custom.prompt,
-								trigger: install.custom.trigger,
+								// COMPAT(0.1.0-alpha.10): alpha.9 apps edit a schedule as one time and days; send just the cron.
+								trigger: compatTrigger(normalizeCustomAutomation(install.custom).trigger),
 								version: install.custom.version,
 								updatedByName: await nameOf(ctx, install.custom.updatedBy),
 								updatedAt: install.custom.updatedAt,
@@ -108,7 +109,7 @@ export const list = query({
 					timeZone: install.timeZone,
 					lastRunAt: install.lastRunAt ?? null,
 					lastResult: install.lastResult ?? null,
-					/** Set while it's in Trash. */
+					/** Set while it's in Archive. */
 					trash: install.archived ? await trashInfo(ctx, member, install._id) : null,
 				};
 			}),
@@ -146,12 +147,9 @@ async function checkPosting(ctx: QueryCtx, trigger: CustomAutomationConfig["trig
 	if (problem) throw new ConvexError(problem);
 }
 
-/** A schedule set after today's time starts tomorrow rather than firing on the next tick. */
-function firstRunDate(trigger: Automation["trigger"] | CustomAutomationConfig["trigger"], timeZone: string) {
-	if (trigger.type !== "schedule") return undefined;
-	const now = localTime(Date.now(), timeZone);
-	return now.time >= trigger.time ? now.date : undefined;
-}
+/** A schedule with the time and days alpha.9 apps' editor reads. */
+const compatTrigger = (trigger: CustomAutomationConfig["trigger"]): CustomAutomationConfig["trigger"] =>
+	trigger.type === "schedule" && "cron" in trigger && trigger.cron ? { ...trigger, ...legacyFields(trigger.cron) } : trigger;
 
 const customConfig = v.object({ name: v.string(), prompt: v.string(), trigger: customTrigger });
 const audienceArgs = { audience, channelId: v.optional(v.id("chats")) };
@@ -178,8 +176,8 @@ export async function createAutomation(
 	}: { config: CustomAutomationConfig; agentId: Id<"agents">; audience: AutomationAudience; channelId?: Id<"chats">; timeZone: string },
 ) {
 	checkPermission(member, "automations.create");
-	config = normalizeCustomAutomation(config);
 	await checkConfig(ctx, member, config);
+	config = normalizeCustomAutomation(config);
 	if (!timeZone || !isValidTimeZone(timeZone)) throw new ConvexError("Unknown time zone.");
 	await requireLiveAgent(ctx, member, agentId);
 	if (audience === "channel") {
@@ -196,7 +194,8 @@ export async function createAutomation(
 		enabled: true,
 		timeZone,
 		installedBy: member.userId,
-		lastRunDate: firstRunDate(trigger, timeZone),
+		// Runs from its next time on, never one already past.
+		lastScheduledAt: trigger.type === "schedule" ? Date.now() : undefined,
 		webhookToken: trigger.type === "webhook" ? newToken() : undefined,
 		audience,
 		...(audience === "channel" && { channelId, channelSetBy: member.userId }),
@@ -217,17 +216,20 @@ export const save = mutation({
 export async function saveAutomation(ctx: MutationCtx, member: Member, { automationId, config, expectedVersion }: Infer<typeof saveAutomationArgs>) {
 	const { install } = await requireEditable(ctx, automationId, member);
 	if (!install.custom) throw new ConvexError("Library automations can't be edited.");
+	const normal = normalizeCustomAutomation(config);
+	const rescheduled = normal.trigger.type === "schedule" && JSON.stringify(normal.trigger) !== JSON.stringify(normalizeCustomAutomation(install.custom).trigger);
 	await saveMade({
 		current: install.custom,
 		expectedVersion,
-		config: normalizeCustomAutomation(config),
+		config: normal,
 		userId: member.userId,
 		validate: async () => {
 			await checkConfig(ctx, member, config, install.custom!.trigger);
 			if (install.audience === "channel") await checkPosting(ctx, config.trigger, install.channelId);
 		},
 		patch: (custom) => ctx.db.patch(install._id, {
-			...(config.trigger.type === "schedule" && { lastRunDate: firstRunDate(config.trigger, install.timeZone) ?? install.lastRunDate }),
+			// A new schedule starts from its next time, never one already past.
+			...(rescheduled && { lastScheduledAt: Date.now() }),
 			custom,
 			// Becoming a webhook gets a URL; leaving webhooks drops it.
 			webhookToken: config.trigger.type === "webhook" ? (install.webhookToken ?? newToken()) : undefined,
@@ -235,7 +237,7 @@ export async function saveAutomation(ctx: MutationCtx, member: Member, { automat
 	});
 }
 
-/** Moves any automation to Trash, retaining its opt-ins and grants for recovery. */
+/** Moves any automation to Archive, retaining its opt-ins and grants for recovery. */
 export async function removeAutomation(ctx: MutationCtx, who: Who, automationId: string) {
 	const install = await installOf(ctx, who.member.workspaceId, automationId);
 	if (install) await setAutomationTrashed(ctx, who, install._id, true);
@@ -247,7 +249,7 @@ export const remove = mutation({
 });
 
 /**
- * Moves an automation to Trash, or back: whoever can change it. In Trash nothing
+ * Moves an automation to Archive, or back: whoever can change it. In Trash nothing
  * triggers it (installOf skips it); its opt-ins and grants stay until it's deleted forever.
  */
 export async function setAutomationTrashed(ctx: MutationCtx, who: Who, installId: Id<"automationInstalls">, archived: boolean) {
@@ -298,6 +300,8 @@ export async function updateAutomation(ctx: MutationCtx, member: Member, { autom
 	}
 	await ctx.db.patch(install._id, {
 		...(enabled !== undefined && { enabled }),
+		// Resuming doesn't make up the runs it missed while paused.
+		...(enabled && !install.enabled && { lastScheduledAt: Date.now() }),
 		...(agentId && { agentId }),
 		...(audience && {
 			audience,

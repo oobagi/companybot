@@ -126,7 +126,7 @@ describe("memory", () => {
 		expect([versions[0]!.content, versions[19]!.content]).toEqual(["v24", "v5"]);
 	});
 
-	it("moves deleted team memories to Trash, hidden from agents until restored; personal ones go for good", async () => {
+	it("moves deleted team memories to Archive, hidden from agents until restored; personal ones go for good", async () => {
 		const { t, owner, member } = await ownerAndMember();
 		const agentId = (await agentsOf(owner)).companybot._id;
 		const team = await owner.mutation(api.memory.create, { agentId, scope: "workspace", content: "Office is in Austin." });
@@ -149,7 +149,7 @@ describe("memory", () => {
 		expect((await member.query(api.trash.list, { paginationOpts: { numItems: 10, cursor: null } })).page).toEqual([]);
 		expect(await t.run((ctx) => ctx.db.get(mine.id))).toBeNull();
 
-		// History follows the memory's rules: none for someone else's personal memory, or one in Trash.
+		// History follows the memory's rules: none for someone else's personal memory, or one in Archive.
 		await member.mutation(api.memory.create, { agentId, scope: "personal", content: "Draft" });
 		const draft = (await member.query(api.memory.list)).find((m) => m.content === "Draft")!;
 		await member.mutation(api.memory.update, { id: draft.id, content: "Final", expectedVersion: 1 });

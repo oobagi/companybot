@@ -1,3 +1,5 @@
+import { cronDue, describeCron, legacyCron, normalizeCron, scheduleError, scheduleForm } from "./schedules";
+
 /**
  * An automation is a short job: a trigger (a schedule, something in the app, or a webhook) that
  * sends an agent a prompt. The agent replies in its chat with each person the
@@ -23,8 +25,8 @@ export interface Automation {
 }
 
 export type AutomationTrigger =
-	/** Local time in the workspace's time zone. Weekdays: 0 = Sunday. */
-	| { type: "schedule"; time: string; weekdays: number[] }
+	| ScheduleTrigger
+	| LegacySchedule
 	/**
 	 * Fired when another app POSTs to the install's webhook URL (backend
 	 * `automationRuns.receive`). With `webhookEvent`, only bodies naming that event run; without,
@@ -33,6 +35,36 @@ export type AutomationTrigger =
 	| { type: "webhook"; webhookEvent?: WebhookEvent; label: string; sample: WebhookBody }
 	/** Something happened inside Companybot (backend `automationRuns.fireEvent`). */
 	| { type: "event"; event: AppEvent; label: string; channelId?: string };
+
+/** A cron schedule ("0 9 * * 1-5", schedules.ts), in the time zone of whoever set it up. */
+export type ScheduleTrigger = { type: "schedule"; cron: string };
+
+/**
+ * A schedule from before cron: one "HH:MM" time on some weekdays (0 = Sunday). Read as its cron
+ * (`scheduleCron`). alpha.9 apps send it back with the cron they were shown (`legacyFields`).
+ * COMPAT(0.1.0-alpha.10): once migrations.cronSchedules has run on prod and alpha.9 apps have
+ * updated, drop this type, its validators, `legacyFields` and the migration.
+ */
+export type LegacySchedule = { type: "schedule"; time: string; weekdays: number[]; cron?: string };
+
+/** A schedule's cron, whichever shape it's stored or sent in. */
+export function scheduleCron(trigger: ScheduleTrigger | LegacySchedule): string {
+	if (!("time" in trigger)) return normalizeCron(trigger.cron);
+	const sent = legacyCron(trigger.time, trigger.weekdays);
+	// An alpha.9 app saves back the cron it was shown with its time and days: unchanged, keep the cron.
+	if (trigger.cron) {
+		const shown = legacyFields(trigger.cron);
+		if (sent === legacyCron(shown.time, shown.weekdays)) return normalizeCron(trigger.cron);
+	}
+	return sent;
+}
+
+/** The one time and days an alpha.9 app's editor needs: the cron's if it's that simple, else a stand-in it can show. */
+export function legacyFields(cron: string): { time: string; weekdays: number[] } {
+	const form = scheduleForm(cron);
+	if ((form?.repeats === "daily" || form?.repeats === "weekly") && form.times.length === 1) return { time: form.times[0]!, weekdays: form.days };
+	return { time: "09:00", weekdays: [1, 2, 3, 4, 5] };
+}
 
 /**
  * Who an automation runs for:
@@ -124,7 +156,8 @@ export interface CustomAutomationConfig {
 }
 
 export type CustomTrigger =
-	| { type: "schedule"; time: string; weekdays: number[] }
+	| ScheduleTrigger
+	| LegacySchedule
 	/** Any app POSTs to its webhook URL. */
 	| { type: "webhook" }
 	/** A top-level message (not an agent's or an automation's) in this channel. */
@@ -137,27 +170,25 @@ export const CUSTOM_PROMPT_MAX = 4000;
 export const normalizeCustomAutomation = (config: CustomAutomationConfig): CustomAutomationConfig => ({
 	name: config.name.trim(),
 	prompt: config.prompt.trim(),
-	trigger: config.trigger.type === "schedule"
-		? { ...config.trigger, weekdays: [...config.trigger.weekdays].sort((a, b) => a - b) }
-		: config.trigger,
+	trigger: config.trigger.type === "schedule" ? { type: "schedule", cron: scheduleCron(config.trigger) } : config.trigger,
 });
 
 /** The first problem with a custom automation, in a line, or null. */
 export function customAutomationError(config: CustomAutomationConfig): string | null {
-	const { name, prompt } = normalizeCustomAutomation(config);
-	if (!name) return "Give it a name.";
-	if (name.length > CUSTOM_NAME_MAX) return `Keep the name under ${CUSTOM_NAME_MAX} characters.`;
-	if (!prompt) return "Say what the agent should do.";
-	if (prompt.length > CUSTOM_PROMPT_MAX) return `Keep what the agent is asked under ${CUSTOM_PROMPT_MAX} characters.`;
 	const { trigger } = config;
-	if (trigger.type === "schedule") {
+	if (trigger.type === "schedule" && "time" in trigger) {
 		if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(trigger.time)) return "Pick a time.";
 		const days = new Set(trigger.weekdays);
 		if (days.size === 0) return "Pick at least one day.";
 		if (days.size !== trigger.weekdays.length || trigger.weekdays.some((d) => !Number.isInteger(d) || d < 0 || d > 6))
 			return "Those days don't look right.";
 	}
-	return null;
+	const { name, prompt, trigger: normal } = normalizeCustomAutomation(config);
+	if (!name) return "Give it a name.";
+	if (name.length > CUSTOM_NAME_MAX) return `Keep the name under ${CUSTOM_NAME_MAX} characters.`;
+	if (!prompt) return "Say what the agent should do.";
+	if (prompt.length > CUSTOM_PROMPT_MAX) return `Keep what the agent is asked under ${CUSTOM_PROMPT_MAX} characters.`;
+	return normal.type === "schedule" ? scheduleError(scheduleCron(normal)) : null;
 }
 
 /**
@@ -169,7 +200,7 @@ export function customAutomation(id: string, config: CustomAutomationConfig, ver
 	const t = config.trigger;
 	const trigger: AutomationTrigger =
 		t.type === "schedule"
-			? t
+			? { type: "schedule", cron: scheduleCron(t) }
 			: t.type === "webhook"
 				? {
 						type: "webhook",
@@ -192,57 +223,22 @@ export function customAutomation(id: string, config: CustomAutomationConfig, ver
 	};
 }
 
-const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-/** "Weekdays at 8:00 AM", "When a call ends". */
+/** "Weekdays at 8:00 AM", "Every 2 hours from 8:00 AM to 6:00 PM", "When a call ends". */
 export function describeTrigger(trigger: AutomationTrigger): string {
-	if (trigger.type !== "schedule") return trigger.label;
-	const [h, m] = trigger.time.split(":").map(Number) as [number, number];
-	const time = `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
-	const days = [...trigger.weekdays].sort().join();
-	const when =
-		days === "1,2,3,4,5" ? "Weekdays" : days === "0,1,2,3,4,5,6" ? "Every day" : trigger.weekdays.map((d) => dayNames[d]).join(", ");
-	return `${when} at ${time}`;
+	return trigger.type === "schedule" ? describeCron(scheduleCron(trigger)) : trigger.label;
 }
 
-/** The date ("2026-10-22"), weekday, and "HH:MM" time it is now in a time zone. */
-export function localTime(now: number, timeZone: string) {
-	const parts = Object.fromEntries(
-		new Intl.DateTimeFormat("en-US", {
-			timeZone,
-			year: "numeric",
-			month: "2-digit",
-			day: "2-digit",
-			weekday: "short",
-			hour: "2-digit",
-			minute: "2-digit",
-			hourCycle: "h23",
-		})
-			.formatToParts(now)
-			.map((p) => [p.type, p.value]),
-	);
-	return {
-		date: `${parts.year}-${parts.month}-${parts.day}`,
-		weekday: dayNames.indexOf(parts.weekday!),
-		time: `${parts.hour}:${parts.minute}`,
-	};
-}
+/** A trigger with any schedule as its cron, so everything past reading sees one shape. */
+export const normalizeTrigger = (trigger: AutomationTrigger): AutomationTrigger =>
+	trigger.type === "schedule" ? { type: "schedule", cron: scheduleCron(trigger) } : trigger;
 
 /**
- * The local date a schedule is due for right now, or null. Due once per day, any
- * time after its start time, so a late check still runs it; `lastRunDate` stops repeats.
+ * The run a schedule is due for now (ms), or null: its latest run at or before `now`, if that's
+ * after `last` (the run it last did, or when it was set up or resumed). A late check still runs
+ * it; several missed runs run once.
  */
-export function scheduleDue(
-	trigger: AutomationTrigger,
-	now: number,
-	timeZone: string,
-	lastRunDate: string | undefined,
-): string | null {
-	if (trigger.type !== "schedule") return null;
-	const local = localTime(now, timeZone);
-	if (!trigger.weekdays.includes(local.weekday)) return null;
-	if (local.time < trigger.time || local.date === lastRunDate) return null;
-	return local.date;
+export function scheduleDue(trigger: AutomationTrigger, now: number, timeZone: string, last: number): number | null {
+	return trigger.type === "schedule" ? cronDue(scheduleCron(trigger), timeZone, now, last) : null;
 }
 
 export const isValidTimeZone = (timeZone: string) => {

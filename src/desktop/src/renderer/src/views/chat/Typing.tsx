@@ -4,10 +4,10 @@ import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { MenuItem, PopoverPanel } from "./common";
+import { Avatar, AvatarStack, MenuItem, PopoverPanel } from "./common";
 
 /** An agent working here, and its step ("Searching records for Acme…"; null while it writes). */
-type Working = { id: string; name: string; step: string | null };
+type Working = { id: string; name: string; image?: string | null; step: string | null };
 
 /** Tells others you're typing: call `ping` on each keystroke (it throttles itself) and `sent` on send. */
 export function useTypingPing(chatId: Id<"chats">, threadId?: Id<"chatMessages">) {
@@ -50,12 +50,16 @@ export function TypingLine({ chatId, threadId }: { chatId: Id<"chats">; threadId
 
 	const agents = typing?.agents ?? [];
 	const line = statusLine(agents, people.map((p) => p.name));
+	if (!line.working && !line.typing) return null;
 	return (
-		<>
-			{line.working && (agents.length > 1 ? <WorkingList agents={agents} label={line.working} /> : line.working)}
-			{line.working && line.typing && " · "}
-			{line.typing}
-		</>
+		<span className="flex min-w-0 items-center gap-1.5">
+			{agents.length > 0 && <AvatarStack people={agents.map((a) => ({ ...a, type: "agent" }))} size="line" />}
+			<span className="min-w-0 truncate">
+				{line.working && (agents.length > 1 ? <WorkingList agents={agents} label={line.working} /> : line.working)}
+				{line.working && line.typing && " · "}
+				{line.typing}
+			</span>
+		</span>
 	);
 }
 
@@ -111,9 +115,12 @@ function WorkingList({ agents, label }: { agents: Working[]; label: string }) {
 				<PopoverPanel anchor={anchor} ignore={button} className="w-72" onClose={() => setAnchor(undefined)}>
 					<div onMouseEnter={stay} onMouseLeave={leave} className="p-1">
 						{agents.map((a) => (
-							<div key={a.id} className="px-2 py-1.5">
-								<div className="font-medium">{a.name}</div>
-								<div className="truncate text-neutral-500">{a.step ?? "Writing a reply…"}</div>
+							<div key={a.id} className="flex gap-2 px-2 py-1.5">
+								<Avatar name={a.name} image={a.image} agent size="xs" />
+								<div className="min-w-0">
+									<div className="font-medium">{a.name}</div>
+									<div className="truncate text-neutral-500">{a.step ?? "Writing a reply…"}</div>
+								</div>
 							</div>
 						))}
 						<div className="mt-1 border-t border-neutral-100 pt-1">

@@ -35,7 +35,7 @@ describe("approvals", () => {
 		expect(["records.find", "pages.read", "pages.write", "clock.now", "skills.load", "chat.react", "widgets.table"].map(risk)).toEqual(Array(7).fill("none"));
 		// Exhaust the low-risk list: new private reads cannot silently inherit `none`.
 		expect(builtinTools.filter(t => toolRisk(t) === "none" && !t.id.startsWith("widgets.")).map(t => t.id).sort()).toEqual([
-			"automations.list", "chat.notify", "chat.react", "clock.now", "help.read", "pages.find", "pages.read", "pages.write", "records.find", "records.get", "records.history", "records.types", "records.views", "skills.load", "web.fetch", "web.search",
+			"automations.list", "chat.ask_agent", "chat.react", "clock.now", "help.read", "pages.find", "pages.read", "pages.write", "records.find", "records.get", "records.history", "records.types", "records.views", "skills.load", "web.fetch", "web.search",
 		]);
 		// A built-in opts in by declaring risk; payments-style ones lock.
 		expect(toolRisk({ ...builtinTools[0]!, risk: "outside" })).toBe("outside");
@@ -43,7 +43,7 @@ describe("approvals", () => {
 		expect(toolRisk({ ...send, risk: "none" })).toBe("none");
 		// External invitations and anything that changes skills ask; irreversible removals always ask.
 		expect(builtinTools.filter((t) => ["outside", "locked"].includes(toolRisk(t))).map((t) => [t.id, toolRisk(t)])).toEqual([
-			["skills.create", "outside"], ["automations.remove", "locked"], ["skills.edit", "outside"], ["skills.remove", "locked"], ["members.invite", "outside"], ["members.remove", "locked"],
+			["memory.forget", "locked"], ["skills.create", "outside"], ["automations.remove", "locked"], ["skills.edit", "outside"], ["skills.remove", "locked"], ["members.invite", "outside"], ["members.remove", "locked"], ["records.undo", "locked"],
 		]);
 	});
 
@@ -251,6 +251,7 @@ describe("approvals", () => {
 			agentId: "a1",
 			place: { kind: "dm", name: null, private: true, topic: null, thread: null, members: [] },
 			actor: { id: "u1", name: "Ada", email: "ada@co.com", role: "member", timeZone: "UTC" },
+			now: Date.UTC(2026, 9, 22),
 			memory: "personal",
 			connectors: { connected: [], unavailable: [] },
 			messages: [],

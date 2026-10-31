@@ -6,7 +6,7 @@ import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/
 import { mutation } from "./functions";
 import { addToChat, canSee, findOrCreateDm, insertMessage } from "./chatOps";
 import { type Member, liveWorkspace, memberOf, nameOf, normalizeEmail, requireMember, sweepExpired } from "./lib";
-import { definitionOf, followsOthers, postingProblem, requireEditable, subscribersOf } from "./automationOps";
+import { definitionOf, followsOthers, postingProblem, requireEditable, scheduleCursor, subscribersOf } from "./automationOps";
 import { enqueueTurn } from "./turns";
 
 /** Runs it once now, just for you (webhooks and events use a sample), so you can see what it does. */
@@ -30,9 +30,9 @@ export const tick = internalMutation({
 			if (install.archived) continue;
 			const automation = await definitionOf(ctx, install);
 			if (!automation || !(await liveWorkspace(ctx, install.workspaceId))) continue;
-			const due = scheduleDue(automation.trigger, now, install.timeZone, install.lastRunDate);
-			if (!due) continue;
-			await ctx.db.patch(install._id, { lastRunDate: due });
+			const due = scheduleDue(automation.trigger, now, install.timeZone, scheduleCursor(install));
+			if (due === null) continue;
+			await ctx.db.patch(install._id, { lastScheduledAt: due });
 			await runFor(ctx, install, automation, automation.prompt, {});
 		}
 	},
@@ -52,7 +52,7 @@ export const receive = internalMutation({
 					.first()
 			: null;
 		const automation = install && (await definitionOf(ctx, install));
-		// A workspace being deleted has no webhooks, and one in Trash has none: nothing runs, and nothing new is saved behind its cascade.
+		// A workspace being deleted has no webhooks, and one in Archive has none: nothing runs, and nothing new is saved behind its cascade.
 		if (!install || install.archived || automation?.trigger.type !== "webhook" || !(await liveWorkspace(ctx, install.workspaceId)))
 			return { status: 404, ok: false, message: "Unknown webhook URL." };
 		let json: unknown;

@@ -26,6 +26,8 @@ import { installOf } from "./skills";
 import type { messagePart, replyStats } from "./schema";
 import { internal } from "./_generated/api";
 import { enqueueTurn, streamOf } from "./turns";
+import { routeLater } from "./router";
+import { resetChains } from "./chains";
 import { stopTyping } from "./typing";
 import { claimFiles, deleteAttachments } from "./files";
 import { type LinkPreview, previewMessage, previewRow, previewsOf } from "./linkPreviews";
@@ -60,6 +62,13 @@ export type Message = {
 	attachments: (Infer<typeof fileInfo> & { url: string | null })[];
 	/** Cards for its first links (linkPreviews.ts), without ones its sender hid. */
 	linkPreviews: LinkPreview[];
+	/**
+	 * Set on a paused line (chains.ts): agents stopped at a limit. `for`: the person they work for,
+	 * the only one who can Continue or Stop (`canDecide`). `by`: who did.
+	 */
+	pause: { status: "paused" | "continued" | "stopped"; for: string; by: string | null; canDecide: boolean } | null;
+	/** An agent's ask of another (chat.ask_agent): who asked whom. Kept out of the timeline; its thread shows read-only. */
+	ask: { from: string; to: string } | null;
 };
 
 const LIST_LIMIT = 200;
@@ -128,12 +137,28 @@ async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, 
 		automation: m.automation ?? null,
 		attachments: await Promise.all((m.attachments ?? []).map(async ({ storageId, ...file }) => ({ ...file, url: await ctx.storage.getUrl(storageId) }))),
 		linkPreviews: await previewsOf(ctx, m),
+		pause: await pauseOf(ctx, m, member, names),
+		// Only an ask is quiet and still listed: as its thread's parent.
+		ask: m.quiet && m.authorAgentId ? { from: (await names.agent(m.authorAgentId)).name, to: (await names.agent(m.mentions.agentIds[0]!)).name } : null,
+	};
+}
+
+async function pauseOf(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, names: Namer): Promise<Message["pause"]> {
+	if (!m.pause) return null;
+	const chain = await ctx.db.get(m.pause.chainId);
+	const actorId = chain?.actorId;
+	return {
+		status: m.pause.status,
+		for: actorId ? (await names.user(actorId)).name : "",
+		by: m.pause.by ? (await names.user(m.pause.by)).name : null,
+		canDecide: m.pause.status === "paused" && actorId === member.userId,
 	};
 }
 
 /**
  * Posts a message (joining a public channel if needed) and queues agent turns:
- * every message in an agent DM, otherwise each @mentioned agent. A top-level channel
+ * every message in an agent DM, otherwise each @mentioned agent. In a "When relevant"
+ * channel, one that mentions no agent goes to the router (router.ts). A top-level channel
  * message also starts automations watching that channel.
  */
 const sendMessageArgs = v.object({
@@ -159,7 +184,7 @@ export const send = mutation({
 export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId, text, mentions, attachments: files = [] }: Infer<typeof sendMessageArgs>): Promise<Id<"chatMessages">> {
 	const { member } = who;
 	const chat = await requireChat(ctx, member, chatId);
-	if (chat.archived) throw new ConvexError("This chat is in Trash.");
+	if (chat.archived) throw new ConvexError("This chat is in Archive.");
 	text = text.trim();
 	if (!text && files.length === 0) throw new ConvexError("Write something first.");
 	if (threadId) {
@@ -180,14 +205,14 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	}
 
 	const recordIds = await workspaceRecords(ctx, member.workspaceId, mentions.recordIds ?? []);
-	// Only skills installed here (and not in Trash), so a message can't point agents at a made-up one.
+	// Only skills installed here (and not in Archive), so a message can't point agents at a made-up one.
 	const skillIds: string[] = [];
 	for (const id of new Set(mentions.skillIds ?? [])) {
 		if (await installOf(ctx, member.workspaceId, id)) skillIds.push(id);
 	}
 
 	const dmAgent = agentOfDm(chat);
-	if (dmAgent && (await ctx.db.get(dmAgent))?.archived) throw new ConvexError("This agent is in Trash.");
+	if (dmAgent && (await ctx.db.get(dmAgent))?.archived) throw new ConvexError("This agent is in Archive.");
 	// A side chat takes its name from the person's first message.
 	if (chat.parentId && !chat.title && !threadId && !who.agentId) await ctx.db.patch(chat._id, { title: titleFrom(text) });
 	// Last: a refused message keeps its uploads, to attach again.
@@ -207,6 +232,8 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	await previewMessage(ctx, sent);
 	await noteMentions(ctx, { _id: messageId, chatId }, recordIds);
 	if (!who.agentId) await stopTyping(ctx, chatId, threadId, member.userId);
+	// A person writing where agents are handing work around gives those chains a fresh budget.
+	if (!who.agentId) await resetChains(ctx, chatId, threadId);
 	if (!who.agentId && !threadId) await markChatRead(ctx, chatId, member.userId);
 
 	if (who.agentId) return messageId;
@@ -224,6 +251,7 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	for (const agentId of responders) {
 		await enqueueTurn(ctx, chat, { agentId, chatId, threadId, triggerId: messageId, actorId: member.userId });
 	}
+	if (agentIds.length === 0) await routeLater(ctx, chat, sent);
 	// The tutorial: steps count only when they did what the step teaches (an agent answers a mention).
 	await completeSteps(ctx, member, [threadId && "thread", dmAgent ? "dm" : responders.length > 0 && "mention"]);
 	// People's top-level channel messages can start automations. Agents' and automations'

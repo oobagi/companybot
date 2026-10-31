@@ -1,5 +1,6 @@
 import { threadWindows } from "@companybot/core/chat";
-import { type ImageModelInfo, defaultImageModel, imageModelNote } from "@companybot/core/models";
+import { type ImageModelInfo, type ModelInfo, defaultImageModel, imageModelNote, modelNote } from "@companybot/core/models";
+import { ROUTER_MODEL, isDecisionModel } from "@companybot/core/router";
 import { type Role, can } from "@companybot/core/permissions";
 import { formatUsd, monthLabel, usageMonth } from "@companybot/core/usage";
 import { useState } from "react";
@@ -8,7 +9,7 @@ import { useMutation, useQuery } from "../convex";
 import { describeUpdate, desktop, useUpdates } from "../desktop";
 import { navigate } from "../router";
 import { ConflictNotice, Field, Form, Loading, Notice, Page, SaveBar, Setting, Settings, compactPrimaryButton, dangerButton, disabledButtonClass, inputClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../ui";
-import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, SettingsIcon, TrashIcon, UsageIcon, UserIcon } from "../icons";
+import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, SettingsIcon, ArchiveIcon, UsageIcon, UserIcon } from "../icons";
 import { CurrencySelect, Select } from "../controls";
 import { ActivityTab } from "./Activity";
 import { ImagePicker } from "./ImagePicker";
@@ -37,7 +38,7 @@ const sections = [
 			{ id: "memory", label: "Memory", description: "Each agent has its own memory. Team memories are shared, and anyone can fix them. Only you can see your personal memories.", icon: <MemoryIcon /> },
 			{ id: "activity", label: "Activity", description: "Database changes, and what agents did in chats you can see. Agent results show only for what they did for you.", icon: <ActivityIcon /> },
 			{ id: "usage", label: "Usage", description: "What AI has cost this month. Owners see the whole workspace; everyone else sees only their own share.", icon: <UsageIcon /> },
-			{ id: "trash", label: "Trash", icon: <TrashIcon /> },
+			{ id: "archive", label: "Archive", icon: <ArchiveIcon /> },
 		],
 	},
 	{
@@ -56,14 +57,14 @@ export const settingsScope = (tab: SettingsTab) => sections.find((s) => s.tabs.s
  * Other paths that open a tab: the old "profile". Old /customize/<tab> and /trash paths are
  * redirected in App.
  */
-export const settingsTabAliases: Record<string, SettingsTab> = { profile: "preferences" };
+export const settingsTabAliases: Record<string, SettingsTab> = { profile: "preferences", trash: "archive" };
 
 const isCustomize = (tab: SettingsTab): tab is CustomizeTab => customizeTabs.some((t) => t.id === tab);
 
 /** A tab's screen, or with `itemId`, one agent, connector, skill or automation. */
 export function SettingsView({ role, tab, itemId }: { role: Role; tab: SettingsTab; itemId?: string }) {
 	if (isCustomize(tab)) return <CustomizeView role={role} tab={tab} itemId={itemId} />;
-	if (tab === "trash") return <TrashView role={role} />;
+	if (tab === "archive") return <TrashView role={role} />;
 	const current = settingsTabs.find((t) => t.id === tab)!;
 	return (
 		<Page title={current.label} description={(current as { description?: string }).description}>
@@ -236,6 +237,8 @@ function GeneralForm({
 		imageModels: ImageModelInfo[];
 		imageBudgetUsd: number;
 		imageSpentUsd: number | null;
+		routerModel: string;
+		routerModels: ModelInfo[];
 		threadHours: number;
 		version: number;
 	};
@@ -244,7 +247,7 @@ function GeneralForm({
 	const save = useMutation(api.workspace.updateSettings);
 	// The budget is edited as typed; the server checks the number.
 	const draft = useDraft(
-		{ name: settings.name, currency: settings.currency, memory: settings.memory, imageModel: settings.imageModel, imageBudget: String(settings.imageBudgetUsd), threadHours: String(settings.threadHours) },
+		{ name: settings.name, currency: settings.currency, memory: settings.memory, imageModel: settings.imageModel, routerModel: settings.routerModel, imageBudget: String(settings.imageBudgetUsd), threadHours: String(settings.threadHours) },
 		settings.version,
 	);
 	const [confirming, setConfirming] = useState(false);
@@ -286,6 +289,19 @@ function GeneralForm({
 				</Setting>
 				<Setting label="Memory" hint="Agents remember what people tell them. Off keeps existing memories for later.">
 					<Toggle disabled={!isOwner} checked={draft.value.memory} onChange={(memory) => draft.set({ ...draft.value, memory })} />
+				</Setting>
+			</Settings>
+			<Settings title="Agents in channels" hint={ownerOnly ?? "In channels set to \"When relevant\", a quick model call decides whether each agent replies, reacts or stays quiet."}>
+				<Setting label="Reply decisions" hint="What makes that call. Jev is a decision model: fastest and cheapest. Any language model works too.">
+					<ModelPicker
+						models={settings.routerModels}
+						defaultModel={ROUTER_MODEL}
+						value={draft.value.routerModel}
+						note={(m) => (isDecisionModel(m.id) ? "Decision model · about 0.2s a call" : modelNote(m))}
+						disabled={!isOwner}
+						className={wideControlClass}
+						onChange={(routerModel) => draft.set({ ...draft.value, routerModel })}
+					/>
 				</Setting>
 			</Settings>
 			<Settings title="Pictures" hint={ownerOnly ?? "Agents make and edit pictures when asked, through AI Gateway."}>
