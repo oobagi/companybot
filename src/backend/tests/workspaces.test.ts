@@ -130,6 +130,7 @@ describe("requests naming a workspace", () => {
 			["memory.update", () => B.mutation(api.memory.update, { id: memoryId, content: "x", expectedVersion: 1 })],
 			["memory.remove", () => B.mutation(api.memory.remove, { id: memoryId })],
 			["agents.update", () => B.mutation(api.agents.update, { agentId, expectedVersion: agent.version, config: { name: agent.name, description: agent.description, instructions: agent.instructions, model: agent.model, tools: agent.tools } })],
+			["agents.rename", () => B.mutation(api.agents.rename, { agentId, name: "x" })],
 			["trash.move agent", () => B.mutation(api.trash.move, { kind: "agent", id: agentId })],
 			["workspace.resendInvite", () => B.mutation(api.workspace.resendInvite, { id: invite.id })],
 			["workspace.setRole", () => B.mutation(api.workspace.setRole, { id: deputy.id, role: "member" })],

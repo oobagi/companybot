@@ -7,7 +7,7 @@ import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { DatabaseIcon, HistoryIcon, TrashIcon } from "../../icons";
-import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, barButton, barDangerButton, cardClass, descriptionClass, listClass, metadataClass, timeAgo, useRun } from "../../ui";
+import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, barButton, barDangerButton, cardClass, descriptionClass, insetClass, listClass, metadataClass, timeAgo, useRun } from "../../ui";
 import { Modal } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { PageEditor } from "../pages/PageEditor";
@@ -168,7 +168,7 @@ function Linked({ recordId }: { recordId: Id<"records"> }) {
 				if (!type) return null;
 				return (
 					<div key={key} className="flex flex-col gap-1">
-						<p className={descriptionClass}>
+						<p className={`${descriptionClass} ${insetClass}`}>
 							{type.plural}
 							{field && <span className="text-neutral-400"> · {field.label}</span>}
 						</p>

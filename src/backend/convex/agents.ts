@@ -8,6 +8,7 @@ import {
 	defaultModel,
 	defaultReasoning,
 	findConnector,
+	pickAgentConfig,
 	toolGroup,
 	validateAgentConfig,
 } from "@companybot/core";
@@ -148,6 +149,16 @@ export const create = mutation({
 export const update = mutation({
 	args: { agentId: v.id("agents"), expectedVersion: v.number(), config: agentConfig },
 	handler: async (ctx, { agentId, expectedVersion, config }) => updateAgent(ctx, await requirePermission(ctx, "agents.manage"), agentId, expectedVersion, config),
+});
+
+/** Renames it in place (from the sidebar): a new version with only the name changed. */
+export const rename = mutation({
+	args: { agentId: v.id("agents"), name: v.string() },
+	handler: async (ctx, { agentId, name }) => {
+		const member = await requirePermission(ctx, "agents.manage");
+		const agent = await requireLiveAgent(ctx, member, agentId);
+		await saveVersion(ctx, agent, await clean(ctx, agent, { ...pickAgentConfig(agent), name }), member.userId);
+	},
 });
 
 /** Brings back an old version by saving it as the newest one. History is never rewritten. */

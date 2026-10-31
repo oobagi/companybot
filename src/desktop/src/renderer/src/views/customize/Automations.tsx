@@ -367,7 +367,7 @@ function AutomationSettings({ automation: a }: { automation: AutomationItem }) {
 	const label = "w-20 shrink-0 text-neutral-500";
 
 	return (
-		<Section title="Settings">
+		<Section title="Settings" flush>
 			{dialog}
 			<div className="flex flex-col gap-3 text-sm">
 				<Notice>{error}</Notice>

@@ -13,11 +13,11 @@ type PageId = Id<"pages">;
 type Row = { _id: PageId; title: string; hasChildren?: boolean; parentId?: PageId | null };
 
 /** Each expanded level loads independently; no workspace-wide list or fixed tree-size cutoff. */
-export function PagesNav({ openId, section }: { openId: string | undefined; section: SectionProps }) {
+export function PagesNav({ openId, canEdit, section }: { openId: string | undefined; canEdit: boolean; section: SectionProps }) {
 	const workspace = useWorkspace();
-	return <PageNavTree key={workspace?.id} openId={openId} section={section} workspaceId={workspace?.id ?? ""} />;
+	return <PageNavTree key={workspace?.id} openId={openId} canEdit={canEdit} section={section} workspaceId={workspace?.id ?? ""} />;
 }
-function PageNavTree({ openId, section, workspaceId }: { openId?: string; section: SectionProps; workspaceId: string }) {
+function PageNavTree({ openId, canEdit, section, workspaceId }: { openId?: string; canEdit: boolean; section: SectionProps; workspaceId: string }) {
 	const storageKey = `pages-expanded:${workspaceId}`;
 	const [expanded, setExpanded] = useState<Set<string>>(() => {
 		try { const saved = JSON.parse(localStorage.getItem(storageKey) ?? "[]"); return new Set(Array.isArray(saved) ? saved.filter((id): id is string => typeof id === "string") : []); } catch { return new Set(); }
@@ -40,6 +40,7 @@ function PageNavTree({ openId, section, workspaceId }: { openId?: string; sectio
 	const [moving, setMoving] = useState<Row>();
 	const create = useMutation(api.pages.create);
 	const remove = useMutation(api.trash.move);
+	const rename = useMutation(api.pages.rename);
 	const { error, run } = useRun();
 	const toggle = (id: string, open = !expanded.has(id)) => {
 		setExpanded((before) => {
@@ -57,6 +58,7 @@ function PageNavTree({ openId, section, workspaceId }: { openId?: string; sectio
 			return (
 				<Fragment key={p._id}>
 					<Item drag={drag} icon={<PageIcon />} expanded={open} onToggle={p.hasChildren ? () => toggle(p._id) : undefined} label={p.title} guides={guides} active={p._id === openId} onClick={() => navigate("pages", p._id)}
+						rename={canEdit ? { value: p.title, onSave: (title) => run(rename({ pageId: p._id, title })) } : undefined}
 						menu={(close) => <>
 							<MenuItem onClick={() => { close(); add(p._id); }}><PlusIcon /> New page inside</MenuItem>
 							<MenuItem onClick={() => { close(); setMoving({ ...p, parentId }); }}><ArrowRightIcon /> Move to…</MenuItem>

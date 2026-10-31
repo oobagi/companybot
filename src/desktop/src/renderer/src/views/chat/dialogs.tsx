@@ -139,27 +139,6 @@ export function NewMessage({ onClose, onOpen }: { onClose: () => void; onOpen: (
 	);
 }
 
-/** Rename a side chat. */
-export function RenameChat({ chatId, title, onClose }: { chatId: Id<"chats">; title: string; onClose: () => void }) {
-	const rename = useMutation(api.chats.renameChat);
-	const [name, setName] = useState(title);
-	const { error, run } = useRun();
-	return (
-		<Modal title="Rename chat" onClose={onClose}>
-			<Form onSubmit={() => run(rename({ chatId, title: name }), onClose)}>
-				<Field label="Name">
-					<input autoFocus required maxLength={120} value={name} onChange={(e) => setName(e.target.value)} onFocus={(e) => e.target.select()} className={inputClass} />
-				</Field>
-				<Notice>{error}</Notice>
-				<div className="flex justify-end gap-2">
-					<button type="button" onClick={onClose} className={secondaryButton}>Cancel</button>
-					<button type="submit" className={primaryButton}>Rename</button>
-				</div>
-			</Form>
-		</Modal>
-	);
-}
-
 /** `ChannelDetails` for a chat the sidebar knows only by id. */
 export function ChannelDetailsFor({ chatId, onClose, onLeft }: { chatId: Id<"chats">; onClose: () => void; onLeft: () => void }) {
 	const chat = useQuery(api.chats.get, { chatId });
@@ -235,9 +214,9 @@ function EditChannel({ chat }: { chat: ChatDetails }) {
 	const { error, run } = useRun();
 	const dirty = name !== (chat.name ?? "") || topic !== (chat.topic ?? "");
 	return (
-		<Form className="flex flex-col gap-3" onSubmit={() => run(update({ chatId: chat._id, name: chat.isDefault ? undefined : name, topic }))}>
-			<Field label="Name" hint={chat.isDefault ? "The default channel can't be renamed." : undefined}>
-				<input value={name} disabled={!!chat.isDefault} onChange={(e) => setName(e.target.value)} className={inputClass} />
+		<Form className="flex flex-col gap-3" onSubmit={() => run(update({ chatId: chat._id, name, topic }))}>
+			<Field label="Name">
+				<input value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
 			</Field>
 			<Field label="Topic">
 				<input value={topic} onChange={(e) => setTopic(e.target.value)} className={inputClass} />

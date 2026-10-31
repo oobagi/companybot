@@ -3,7 +3,7 @@ import { Select } from "../controls";
 import { useState } from "react";
 import { api } from "../api";
 import { useAction, useMutation, useQuery } from "../convex";
-import { Loading, Notice, Section, Setting, Settings, cardClass, hintClass, metadataClass, secondaryButton, useRun, wideControlClass } from "../ui";
+import { Loading, Notice, Section, Setting, Settings, cardClass, hintClass, insetClass, metadataClass, secondaryButton, useRun, wideControlClass } from "../ui";
 import { Confirm } from "./chat/common";
 
 // What agents may do without asking: your own Always / Never per action (Your preferences,
@@ -27,7 +27,7 @@ export function YourPermissions() {
 			hint="Actions you've set to run without asking, or never, in this workspace."
 		>
 			<Notice>{error}</Notice>
-			{rules.length === 0 && <p className={hintClass}>Nothing yet. Everything asks first.</p>}
+			{rules.length === 0 && <p className={`${hintClass} ${insetClass}`}>Nothing yet. Everything asks first.</p>}
 			{rules.map((r) => (
 				<div key={r._id} className={`flex items-start gap-3 text-sm ${cardClass}`}>
 					<div className="min-w-0 flex-1">
@@ -99,7 +99,7 @@ export function ConnectorActions({ connectorId, connected }: { connectorId: stri
 		<Section title="Actions" hint="What agents can do here when acting for you. Anything that changes something asks first unless you say otherwise.">
 			<Notice>{error}</Notice>
 			{actions.length === 0 && (
-				<p className={hintClass}>
+				<p className={`${hintClass} ${insetClass}`}>
 					{connected ? "Not listed yet." : "Connect it to see what agents can do."}
 				</p>
 			)}
