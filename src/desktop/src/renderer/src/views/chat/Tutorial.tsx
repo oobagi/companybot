@@ -1,5 +1,5 @@
 import type { TutorialStep } from "@companybot/core/onboarding";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useState } from "react";
 import { api } from "../../api";
 import { useQuery } from "../../convex";
 import { CaretRightIcon, CheckIcon } from "../../icons";
@@ -15,15 +15,6 @@ const copy = (agent: string): Record<TutorialStep, { title: string; how: string 
 	invite: { title: "Invite a teammate", how: `Settings → Members. ${agent} will welcome them in a DM.` },
 });
 
-/** Posting in #general without an agent: the card pulses while that's the step. Fired from the chat, heard by the sidebar. */
-let nudges = 0;
-const listeners = new Set<() => void>();
-export function nudgeTutorial() {
-	nudges++;
-	for (const l of listeners) l();
-}
-const subscribe = (l: () => void) => (listeners.add(l), () => void listeners.delete(l));
-
 /**
  * Getting started, at the bottom of the sidebar so it follows you to DMs and Settings (two
  * steps take you there). Every step, ticked off on the server as you do it (backend onboarding.ts);
@@ -31,23 +22,10 @@ const subscribe = (l: () => void) => (listeners.add(l), () => void listeners.del
  */
 export function GettingStarted({ agent }: { agent: string }) {
 	const steps = useQuery(api.onboarding.tutorial);
-	const nudge = useSyncExternalStore(subscribe, () => nudges);
-	const [pulsing, setPulsing] = useState(false);
-	// X folds it to its title line (kept per computer); it unfolds on click, or when nudged.
+	// The header folds it to its title line (kept per computer); it unfolds on click.
 	const [folded, setFolded] = useState(() => localStorage.getItem("tutorial.folded") === "true");
 	const fold = (next: boolean) => (setFolded(next), localStorage.setItem("tutorial.folded", String(next)));
 	const current = steps?.findIndex((s) => !s.done) ?? -1;
-	const onMention = steps?.[current]?.id === "mention";
-	// Only a nudge after mounting pulses; the count is module-wide, so a remount must not replay the last one.
-	const seen = useRef(nudge);
-	useEffect(() => {
-		if (nudge === seen.current) return;
-		seen.current = nudge;
-		setPulsing(true);
-		setFolded(false);
-		const timer = setTimeout(() => setPulsing(false), 1600);
-		return () => clearTimeout(timer);
-	}, [nudge]);
 
 	if (!steps || current < 0) return null;
 	const text = copy(agent);
@@ -55,7 +33,7 @@ export function GettingStarted({ agent }: { agent: string }) {
 	return (
 		<section
 			aria-label="Getting started"
-			className={`mx-3 mb-3 flex flex-col gap-2 rounded-xl border p-3 text-sm transition-colors ${pulsing && onMention ? "animate-pulse border-amber-200 bg-amber-50" : "border-neutral-200 bg-white"}`}
+			className="mx-3 mb-3 flex flex-col gap-2 rounded-xl border border-neutral-200 bg-white p-3 text-sm"
 		>
 			{/* One control, one place: the caret on the right turns; the whole header is the button. */}
 			<button type="button" onClick={() => fold(!folded)} aria-expanded={!folded} className="group/fold -m-1 flex items-center justify-between rounded-lg p-1 text-left">

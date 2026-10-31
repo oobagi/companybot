@@ -14,7 +14,6 @@ import { draftKey } from "./drafts";
 import { MessageList } from "./MessageList";
 import { ThreadPanel } from "./Thread";
 import { TrashNotice } from "../Trash";
-import { nudgeTutorial } from "./Tutorial";
 import { TypingLine, useTypingPing } from "./Typing";
 
 const suggestions = [
@@ -80,8 +79,6 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 	const send = (text: string, mentions: Mentions, attachments: Id<"_storage">[] = []) => {
 		fail();
 		typing.sent();
-		// Posting in #general without asking an agent: remind them of step 1.
-		if (chat.isDefault && mentions.agentIds.length === 0) nudgeTutorial();
 		const sending = sendMessage({ chatId: chat._id, text, mentions, attachments });
 		sending.catch(fail);
 		return sending;
