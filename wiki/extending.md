@@ -67,6 +67,7 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 - Runs go to the audience: each opted-in person's agent DM (`findOrCreateDm` + `insertMessage`), or the picked channel. Never message people who didn't opt in. Each run queues a turn with `enqueueTurn`, acting as a real member, the same path as a message they send. Don't give automations their own permission path.
 
 ## Wakeups — `core/src/wakeups.ts`, `backend/convex/wakeups.ts`
+- An ask's answer (`chat.ask_agent`) is a `{ jobId }` wakeup with `answer`: its wake turn's reply is shown. Don't add another way for one agent's work to reach another; handoffs go through `chains.ts` (`handOff`, `passTo`), so every one is counted against the chain's limits.
 - Anything that wakes an agent later is a `wakeups` row; never add another table or trigger path. Make one with `createWakeup` (when: `at` [+ `every`, `times`] or `jobId`; what: `note` or none), move or re-arm it with `armAt`, stop it with `cancelWakeup`. Pass `foreign` from the run that made it (`automationScope`).
 - `wake(ctx, id, { result? })` is the only path to a turn: it re-checks access and queues a quiet turn with `wakeupId`. Jobs (#114) call it on finish/fail/timeout with their result; cancelling a job cancels its wakeup.
 - Gates for note-less wakeups (the heartbeat, #162) go in `lookAroundGate`: return a reason to skip, logged on the wake's Activity line. A different repeat schedule (working hours) replaces `nextRepeat` in `fire` for those rows.
