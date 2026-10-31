@@ -62,7 +62,7 @@ describe("record screens", () => {
 		expect(valueText(field("currency"), { minor: 100, currency: "JPY" })).toMatch(/100/);
 		expect(valueText(stage, "won")).toBe("Won");
 		expect(valueText(stage, "old")).toBe("Old (removed)");
-		expect(valueText(field("link"), ["a", "b"], { a: { name: "Acme" }, b: { name: "Bolt", archived: true } })).toBe("Acme, Bolt (deleted)");
+		expect(valueText(field("link"), ["a", "b"], { a: { name: "Acme" }, b: { name: "Bolt", archived: true } })).toBe("Acme, Bolt (archived)");
 		expect(valueText(field("date"), "2026-10-25")).toMatch(/2026/);
 		expect(valueText(field("text"), undefined)).toBe("");
 	});

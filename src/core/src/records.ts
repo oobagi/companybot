@@ -385,7 +385,7 @@ export function searchTextOf(fields: Field[], values: Record<string, FieldValue>
 		.slice(0, TEXT_MAX);
 }
 
-/** A record's name for a person or record id in its values: `{ name, archived? }` (`archived`: in Trash or deleted). */
+/** A record's name for a person or record id in its values: `{ name, archived? }` (`archived`: in Archive or deleted). */
 export type RefName = { name: string; archived?: true };
 
 /**

@@ -354,7 +354,7 @@ describe("automations", () => {
 			expect((await find(member, id))!.trash).toMatchObject({ kind: "automation", user: "member@co.com", canRestore: true });
 		});
 
-		it("runs nothing from Trash, and runs again once restored", async () => {
+		it("runs nothing from Archive, and runs again once restored", async () => {
 			const { t, member } = await ownerAndMember();
 			const id = await make(member, { name: "Standup", prompt: "Ask for updates.", trigger: daily }, "creator");
 			const { companybot } = await agentsOf(member);

@@ -30,16 +30,26 @@ export const fetchPage = internalAction({
 		} catch (e) {
 			if (e instanceof UnsafeUrlError) return { error: e.message };
 			if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) return { error: "The page took too long to load." };
-			return { error: `Couldn't load the page: ${e instanceof Error ? e.message : String(e)}` };
+			return { error: `Couldn't load the page: ${reason(e)}` };
 		}
 	},
 });
 
+/** undici's own message ("fetch failed", "terminated") says nothing; the cause says why. */
+function reason(e: unknown): string {
+	if (!(e instanceof Error)) return String(e);
+	return e.cause instanceof Error ? `${e.message} (${e.cause.message})` : e.message;
+}
+
 export type BodyFetcher = typeof fetchBody;
 
-/** One link someone else picked, read safely: the only way to fetch one (web pages, link previews, pictures on them). */
+/**
+ * One link someone else picked, read safely: the only way to fetch one (web pages, link previews, pictures on them).
+ * No Brotli: Convex's Node runtime refuses to decompress it, and undici asks for it by default, so
+ * every page a CDN (Vercel, Cloudflare, Akamai) sends as `br` died with "terminated".
+ */
 export const fetchBody = (url: string, { timeoutMs, maxBytes, accept }: { timeoutMs: number; maxBytes: number; accept: string }) =>
-	safeFetch(url, { resolve, request }, { timeoutMs, maxBytes, headers: { "user-agent": USER_AGENT, accept } });
+	safeFetch(url, { resolve, request }, { timeoutMs, maxBytes, headers: { "user-agent": USER_AGENT, accept, "accept-encoding": "gzip, deflate" } });
 
 async function resolve(hostname: string) {
 	return (await dnsLookup(hostname, { all: true })).map((a) => a.address);

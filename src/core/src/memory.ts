@@ -22,7 +22,7 @@ export interface Memory {
 }
 
 // Team memories: everyone reads; roles with "memory.team.write" (everyone, today) add, change and
-// delete any of them, like a wiki: edits keep old versions and deletes go to Trash, so a wrong
+// delete any of them, like a wiki: edits keep old versions and deletes go to Archive, so a wrong
 // change can be undone. Personal memories: only their owner reads and changes them, regardless of role.
 export function canReadMemory(actor: Actor, memory: Memory): boolean {
 	return memory.scope === "workspace" || memory.ownerId === actor.userId;

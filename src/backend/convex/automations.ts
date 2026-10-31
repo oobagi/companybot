@@ -109,7 +109,7 @@ export const list = query({
 					timeZone: install.timeZone,
 					lastRunAt: install.lastRunAt ?? null,
 					lastResult: install.lastResult ?? null,
-					/** Set while it's in Trash. */
+					/** Set while it's in Archive. */
 					trash: install.archived ? await trashInfo(ctx, member, install._id) : null,
 				};
 			}),
@@ -237,7 +237,7 @@ export async function saveAutomation(ctx: MutationCtx, member: Member, { automat
 	});
 }
 
-/** Moves any automation to Trash, retaining its opt-ins and grants for recovery. */
+/** Moves any automation to Archive, retaining its opt-ins and grants for recovery. */
 export async function removeAutomation(ctx: MutationCtx, who: Who, automationId: string) {
 	const install = await installOf(ctx, who.member.workspaceId, automationId);
 	if (install) await setAutomationTrashed(ctx, who, install._id, true);
@@ -249,7 +249,7 @@ export const remove = mutation({
 });
 
 /**
- * Moves an automation to Trash, or back: whoever can change it. In Trash nothing
+ * Moves an automation to Archive, or back: whoever can change it. In Trash nothing
  * triggers it (installOf skips it); its opt-ins and grants stay until it's deleted forever.
  */
 export async function setAutomationTrashed(ctx: MutationCtx, who: Who, installId: Id<"automationInstalls">, archived: boolean) {

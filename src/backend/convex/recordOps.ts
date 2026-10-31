@@ -35,7 +35,7 @@ type Change = Doc<"recordHistory">["changes"][number];
 /** A database in the person's workspace. Other workspaces' look like they don't exist. */
 export async function requireType(ctx: QueryCtx, member: Member, typeId: Id<"recordTypes">, live = false) {
 	const type = requireInWorkspace(member, await ctx.db.get(typeId), "Database");
-	if (live && type.archived) throw new ConvexError("This database is in Trash. Restore it to make changes.");
+	if (live && type.archived) throw new ConvexError("This database is in Archive. Restore it to make changes.");
 	return type;
 }
 
@@ -50,15 +50,15 @@ export function recordById(ctx: QueryCtx, member: Member, id: string, notFound =
 	return requireRecord(ctx, member, recordId);
 }
 
-/** Whether each database is in Trash, read once per call however many records share it. */
+/** Whether each database is in Archive, read once per call however many records share it. */
 export const typeTrashed = (ctx: QueryCtx) => memo((typeId: Id<"recordTypes">) => ctx.db.get(typeId).then((t) => !t || t.archived));
 
-/** A record is in Trash on its own, or with its database. */
+/** A record is in Archive on its own, or with its database. */
 export const inTrash = async (ctx: QueryCtx, record: Doc<"records">) => record.archived || (await typeTrashed(ctx)(record.typeId));
 
-/** Refuses changes to a record in Trash. */
+/** Refuses changes to a record in Archive. */
 export async function requireLive(ctx: QueryCtx, record: Doc<"records">) {
-	if (await inTrash(ctx, record)) throw new ConvexError("This record is in Trash. Restore it to make changes.");
+	if (await inTrash(ctx, record)) throw new ConvexError("This record is in Archive. Restore it to make changes.");
 }
 
 /** A type's fields in display order, archived ones included. At most FIELDS_PER_TYPE_MAX. */
@@ -166,7 +166,7 @@ const stamp = (who: Who) => ({ updatedAt: Date.now(), updatedBy: who.member.user
 export async function createRecord(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, input: Record<string, unknown>) {
 	checkPermission(who.member, "records.edit");
 	const type = await requireType(ctx, who.member, typeId);
-	if (type.archived) throw new ConvexError(`${type.plural} is in Trash.`);
+	if (type.archived) throw new ConvexError(`${type.plural} is in Archive.`);
 	const fields = await fieldsOf(ctx, typeId);
 	const values: Values = {};
 	for (const [key, value] of Object.entries(await normalizeInput(ctx, who.member, fields, input))) {
@@ -234,10 +234,10 @@ async function applyValues(
 }
 
 /**
- * Moves a record to Trash or back. In Trash it keeps its values and history but leaves lists,
+ * Moves a record to Archive or back. In Trash it keeps its values and history but leaves lists,
  * filters and search. Links pointing at one stay as they are (rewriting them could be thousands
  * of writes); queries treat it as gone and show it as deleted. Restoring rebuilds its index from
- * the fields as they are now; values on retired options or fields in Trash stay, as on any live record.
+ * the fields as they are now; values on retired options or fields in Archive stay, as on any live record.
  */
 export async function setRecordTrashed(ctx: MutationCtx, who: Who, recordId: Id<"records">, archived: boolean, undoes?: Id<"recordHistory">) {
 	checkPermission(who.member, "records.edit");
@@ -246,7 +246,7 @@ export async function setRecordTrashed(ctx: MutationCtx, who: Who, recordId: Id<
 	if (archived) await requireLive(ctx, record);
 	else {
 		const type = await ctx.db.get(record.typeId);
-		if (type?.archived) throw new ConvexError(`${type.plural} is in Trash. Restore it first.`);
+		if (type?.archived) throw new ConvexError(`${type.plural} is in Archive. Restore it first.`);
 	}
 	await toggleTrash(ctx, who, archived, { kind: "record", id: recordId, name: record.title, typeId: record.typeId });
 	await ctx.db.patch(recordId, { archived, ...stamp(who) });
@@ -258,7 +258,7 @@ export async function setRecordTrashed(ctx: MutationCtx, who: Who, recordId: Id<
 /**
  * Reverses one change to a record. Refuses if a value it touched has changed since,
  * so an undo never silently overwrites newer work, and checks the old values like any
- * other write: no fields in Trash, retired options, or link targets in Trash.
+ * other write: no fields in Archive, retired options, or link targets in Archive.
  */
 export async function undoChange(ctx: MutationCtx, who: Who, historyId: Id<"recordHistory">) {
 	checkPermission(who.member, "records.edit");
@@ -349,7 +349,7 @@ export async function updateField(
 	update: { label?: string; options?: { id?: string; label: string }[]; position?: number },
 ) {
 	const field = await requireEditableField(ctx, who.member, fieldId);
-	if (field.archived) throw new ConvexError("This field is in Trash. Restore it to make changes.");
+	if (field.archived) throw new ConvexError("This field is in Archive. Restore it to make changes.");
 	let options = field.options;
 	if (update.options) {
 		const existing = field.options ?? [];
@@ -389,7 +389,7 @@ export async function updateField(
 	await logChange(ctx, who, { typeId: field.typeId, fieldId, action: "field.updated", changes });
 }
 
-/** A field in Trash keeps its values on every record, so restoring it brings them back. */
+/** A field in Archive keeps its values on every record, so restoring it brings them back. */
 export async function setFieldTrashed(ctx: MutationCtx, who: Who, fieldId: Id<"recordFields">, archived: boolean) {
 	const field = archived
 		? await requireEditableField(ctx, who.member, fieldId)
@@ -420,7 +420,7 @@ function databaseNames(plural: string, singular: string | undefined, types: Doc<
 export async function createType(ctx: MutationCtx, who: Who, input: { plural: string; name?: string }) {
 	checkPermission(who.member, "fields.manage");
 	const types = await typesOf(ctx, who.member.workspaceId);
-	if (types.length >= TYPES_MAX) throw new ConvexError(`A workspace holds up to ${TYPES_MAX} databases, including ones in Trash.`);
+	if (types.length >= TYPES_MAX) throw new ConvexError(`A workspace holds up to ${TYPES_MAX} databases, including ones in Archive.`);
 	const names = databaseNames(input.plural, input.name, types);
 	const typeId = await insertType(ctx, who.member, { key: keyOf(names.name, [...types.map((t) => t.key), "campaign"]), ...names });
 	await insertField(ctx, who.member, typeId, { key: NAME_KEY, label: "Name", kind: "text" }, 0);
@@ -440,7 +440,7 @@ export async function updateType(ctx: MutationCtx, who: Who, typeId: Id<"recordT
 	await logChange(ctx, who, { typeId, action: "database.updated", changes });
 }
 
-/** Moves a database to Trash, with its records, fields and views, or brings it back if its names are free. */
+/** Moves a database to Archive, with its records, fields and views, or brings it back if its names are free. */
 export async function setTypeTrashed(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, archived: boolean) {
 	if (archived) checkPermission(who.member, "fields.manage");
 	const type = await requireType(ctx, who.member, typeId);
@@ -479,7 +479,7 @@ const insertField = (
 
 // ---- Display ----
 
-/** A person's or record's name, for a user or link value. `archived`: the record is in Trash, or deleted for good. */
+/** A person's or record's name, for a user or link value. `archived`: the record is in Archive, or deleted for good. */
 export type Ref = { name: string; archived?: true };
 
 /** Most names one response resolves, and most bytes it reads doing so; the rest go through `records.refs`. */
@@ -511,7 +511,7 @@ export async function resolveRefs(ctx: QueryCtx, workspaceId: Id<"workspaces">, 
 		const userId = recordId ? null : ctx.db.normalizeId("users", id);
 		if (recordId) {
 			const record = await ctx.db.get(recordId);
-			// Deleted for good: its links stay stored, like ones to a record in Trash.
+			// Deleted for good: its links stay stored, like ones to a record in Archive.
 			if (!record) refs[id] = { name: "Deleted record", archived: true };
 			if (record?.workspaceId !== workspaceId) continue;
 			bytes += getDocumentSize(record);

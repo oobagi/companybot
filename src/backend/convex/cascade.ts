@@ -162,7 +162,7 @@ const lastOf = ({ scope, root }: Doc<"cascades">): [TableNames, Id<TableNames> |
 		}) as Record<string, [TableNames, Id<TableNames> | undefined]>
 	)[scope];
 
-/** Every edge is done: the root row goes last (a workspace, or something deleted from Trash), then the cascade. */
+/** Every edge is done: the root row goes last (a workspace, or something deleted from Archive), then the cascade. */
 async function finish(ctx: MutationCtx, job: Doc<"cascades">) {
 	const [table, id] = lastOf(job) ?? [];
 	const last = id && (await ctx.db.get(id));

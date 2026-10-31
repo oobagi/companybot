@@ -90,7 +90,7 @@ describe("records tools", () => {
 	it("run right away: internal, undoable, nothing sent outside", () => {
 		const ids = builtinTools.filter((t) => t.id.startsWith("records.")).map((t) => t.id);
 		expect(ids).toEqual(["records.types", "records.find", "records.get", "records.history", "records.save", "records.undo", "records.save_field", "records.save_database", "records.views", "records.save_view"]);
-		for (const id of ids) expect(toolRisk(tool(id))).toBe(tool(id).readOnly ? "none" : "inside");
+		for (const id of ids) expect(toolRisk(tool(id))).toBe(id === "records.undo" ? "locked" : tool(id).readOnly ? "none" : "inside");
 		expect(ids.filter((id) => tool(id).readOnly)).toEqual(["records.types", "records.find", "records.get", "records.history", "records.views"]);
 		expect(ids.filter((id) => tool(id).permission)).toEqual(["records.save_database", "records.save_view"]);
 		expect(toolLine(callLabel("records_undo", builtinTools, []), "done")).toBe("Undid a record change");
@@ -110,7 +110,7 @@ describe("records tools", () => {
 		expect(line("records_save", "done", deal, { error: "No stage “Pitch”." })).toBe("Saved a record");
 		expect(line("records_save", "running", { id: "r1", values: { roof_type: "Metal" } })).toBe("Saving a record…");
 		expect(line("records_save", "done", { id: "r1", values: { roof_type: "Metal" } }, acme)).toBe("Saved Acme Roofing");
-		expect(line("records_save", "done", { id: "r1", trash: true }, acme)).toBe("Deleted Acme Roofing");
+		expect(line("records_save", "done", { id: "r1", trash: true }, acme)).toBe("Archived Acme Roofing");
 		expect(line("records_save", "done", { id: "r1", trash: false }, acme)).toBe("Restored Acme Roofing");
 		expect(line("records_undo", "done", { change: "h1" }, { undone: "h1", ...acme })).toBe("Undid a change to Acme Roofing");
 		expect(line("records_get", "done", { id: "r1" }, { ref: "r1", data: acme })).toBe("Opened Acme Roofing");

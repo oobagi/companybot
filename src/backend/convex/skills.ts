@@ -28,7 +28,7 @@ import { runningTurn } from "./turns";
 // Skills people make live on their install and are shared with the workspace.
 // Retired library installs read stored definitions, with a fallback until migration finishes.
 
-/** A skill's install, unless it's in Trash. */
+/** A skill's install, unless it's in Archive. */
 export const installOf = async (ctx: QueryCtx, workspaceId: Id<"workspaces">, skillId: string) => {
 	const install = await ctx.db
 		.query("skillInstalls")
@@ -118,7 +118,7 @@ export async function saveSkill(ctx: MutationCtx, member: Member, { skillId, con
 	});
 }
 
-/** Moves a skill to Trash. Retained library installs have the same 30-day recovery. */
+/** Moves a skill to Archive. Retained library installs have the same 30-day recovery. */
 export async function removeSkill(ctx: MutationCtx, who: Who, skillId: string) {
 	const { member } = who;
 	const install = await installOf(ctx, member.workspaceId, skillId);
@@ -132,7 +132,7 @@ export const remove = mutation({
 	handler: async (ctx, { skillId }) => removeSkill(ctx, { member: await requireMember(ctx) }, skillId),
 });
 
-/** Moves a skill to Trash, or back: the maker or an owner. In Trash, agents don't see it. */
+/** Moves a skill to Archive, or back: the maker or an owner. In Trash, agents don't see it. */
 export async function setSkillTrashed(ctx: MutationCtx, who: Who, installId: Id<"skillInstalls">, archived: boolean) {
 	const install = await ctx.db.get(installId);
 	if (!install || install.workspaceId !== who.member.workspaceId) throw new ConvexError("Skill not found.");

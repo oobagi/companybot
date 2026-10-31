@@ -130,7 +130,7 @@ export function SkillScreen({ role, id }: { role: Role; id: string }) {
 			installed={open.installed}
 			trash={open.trash}
 			canManage={canManage}
-			confirmation="Agents stop seeing it. You can restore it from Trash for 30 days."
+			confirmation="Agents stop seeing it. Its content is kept in Archive, and you can restore it at any time."
 			busy={busy}
 			onToggle={() => run(removeSkill({ skillId: open.id }))}
 		>

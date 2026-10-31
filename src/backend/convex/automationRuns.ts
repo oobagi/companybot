@@ -52,7 +52,7 @@ export const receive = internalMutation({
 					.first()
 			: null;
 		const automation = install && (await definitionOf(ctx, install));
-		// A workspace being deleted has no webhooks, and one in Trash has none: nothing runs, and nothing new is saved behind its cascade.
+		// A workspace being deleted has no webhooks, and one in Archive has none: nothing runs, and nothing new is saved behind its cascade.
 		if (!install || install.archived || automation?.trigger.type !== "webhook" || !(await liveWorkspace(ctx, install.workspaceId)))
 			return { status: 404, ok: false, message: "Unknown webhook URL." };
 		let json: unknown;

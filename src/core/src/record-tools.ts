@@ -85,7 +85,7 @@ const findInput = z.object({
 		.object({ field: z.string().describe('"createdAt", "updatedAt", or a field key'), order: z.enum(["asc", "desc"]) })
 		.optional()
 		.describe("Sorting by a field lists only records that have a value for it. Default: newest first."),
-	trashed: z.boolean().optional().describe("List the database's records in Trash instead"),
+	trashed: z.boolean().optional().describe("List the database's records in Archive instead"),
 	limit: z.number().int().min(1).max(50).optional().describe("Default 20"),
 	cursor: z.string().optional().describe("From a previous result with more: true, to get the next page of the same list"),
 });
@@ -95,7 +95,7 @@ const saveInput = z.object({
 	id: z.string().optional().describe("The record to change. Omit to create one."),
 	type: z.string().optional().describe('Database key from records_types for a new record'),
 	values: z.record(z.string(), value).optional().describe("Field key or label → value. Only the fields given change. New records need a name."),
-	trash: z.boolean().optional().describe("true deletes the record: it goes to Trash, restorable for 30 days. false restores it from Trash. On its own, without values."),
+	trash: z.boolean().optional().describe("true archives the record: it goes to Archive, kept until restored or explicitly deleted forever. false restores it from Archive. On its own, without values."),
 });
 export type RecordSaveInput = z.infer<typeof saveInput>;
 
@@ -111,7 +111,7 @@ export const fieldInput = z.object({
 	position: z.number().int().min(1).max(100).optional().describe("Move an existing field to this display position, starting at 1 after Name (owners)."),
 	linksTo: z.string().optional().describe("Link fields: the database it points at"),
 	multiple: z.boolean().optional().describe("Choice, user and link fields: holds several"),
-	trash: z.boolean().optional().describe("true deletes `field` (to Trash: records keep its values until it's gone for good); false restores it. On its own."),
+	trash: z.boolean().optional().describe("true archives `field` (to Archive: records keep its values until it's gone for good); false restores it. On its own."),
 });
 export type FieldSaveInput = z.infer<typeof fieldInput>;
 
@@ -119,7 +119,7 @@ export const databaseInput = z.object({
 	type: z.string().optional().describe("Existing database key or id. Omit to create."),
 	name: z.string().max(120).optional().describe('The name people see, e.g. "Projects"; required when creating'),
 	singular: z.string().max(120).optional().describe('One entry, e.g. "Project". Omit to guess it from name.'),
-	trash: z.boolean().optional().describe("true deletes the database with its records (to Trash, restorable for 30 days); false restores it. On its own."),
+	trash: z.boolean().optional().describe("true archives the database with its records (to Archive, kept until restored or explicitly deleted forever); false restores it. On its own."),
 	version: z.number().int().optional().describe("Current version from records_types; required when changing"),
 });
 export type DatabaseSaveInput = z.infer<typeof databaseInput>;
@@ -217,7 +217,7 @@ function savedLabel(input: RecordSaveInput, output: unknown) {
 		return type && given ? `Create ${type.toLowerCase()} ${given}` : undefined;
 	}
 	if (!name) return;
-	return `${input.trash === undefined ? "Save" : input.trash ? "Delete" : "Restore"} ${name}`;
+	return `${input.trash === undefined ? "Save" : input.trash ? "Archive" : "Restore"} ${name}`;
 }
 
 /** "Add field Roof type to Clients", "Update field Stage on Deals". */
@@ -227,7 +227,7 @@ function fieldLabel(input: FieldSaveInput, output: unknown) {
 	const types = text(output, "typePlural");
 	if (!label) return;
 	if (!input.field) return `Add field ${label}${types ? ` to ${types}` : ""}`;
-	return `${input.trash === undefined ? "Update" : input.trash ? "Delete" : "Restore"} field ${label}${types ? ` on ${types}` : ""}`;
+	return `${input.trash === undefined ? "Update" : input.trash ? "Archive" : "Restore"} field ${label}${types ? ` on ${types}` : ""}`;
 }
 
 export const recordTools: ToolDef[] = [
@@ -236,7 +236,7 @@ export const recordTools: ToolDef[] = [
 		title: "Look up databases",
 		description:
 			"The workspace's databases with every field: key, label, kind, choice options, and what links point at. Also the workspace's currency. Call it before your first records tool in a conversation.",
-		input: z.object({ trashed: z.boolean().optional().describe("Databases in Trash instead; fields include trashed fields and stable choice ids") }),
+		input: z.object({ trashed: z.boolean().optional().describe("Databases in Archive instead; fields include trashed fields and stable choice ids") }),
 		readOnly: true,
 		execute: (input, { records }) => records.types(input),
 	}),
@@ -310,8 +310,9 @@ export const recordTools: ToolDef[] = [
 		id: "records.save",
 		title: "Save a record",
 		description:
-			"Create a record, change some of its fields, delete it (to Trash) or restore it from Trash. Runs right away and is logged with your name and the person's; returns a change id records_undo takes. Find first so you don't create a duplicate.",
+			"Create a record, change some of its fields, delete it (to Archive) or restore it from Archive. Archiving waits for confirmation; other writes run right away and are logged with your name and the person's; returns a change id records_undo takes. Find first so you don't create a duplicate.",
 		input: saveInput,
+		riskFor: (input) => input.trash === true ? "locked" : "inside",
 		execute: (input, { records }) => records.save(input),
 		label: savedLabel,
 	}),
@@ -319,8 +320,9 @@ export const recordTools: ToolDef[] = [
 		id: "records.undo",
 		title: "Undo a record change",
 		description:
-			"Reverse one change by its change id (from records_save or records_get): old values back, a deleted record restored, a new record deleted (to Trash). Refused if what it changed has changed again since.",
+			"Reverse one change by its change id (from records_save or records_get): old values back, a deleted record restored, a new record deleted (to Archive). Refused if what it changed has changed again since.",
 		input: z.object({ change: z.string() }),
+		risk: "locked",
 		execute: (input, { records }) => records.undo(input),
 		label: (_input, output) => (failed(output) || !text(output, "name") ? undefined : `Undo a change to ${text(output, "name")}`),
 	}),
@@ -328,16 +330,18 @@ export const recordTools: ToolDef[] = [
 		id: "records.save_field",
 		title: "Save a field",
 		description:
-			'Add a field to a database ("add a Priority field"), rename one, change its choice options, delete it (to Trash) or restore it. Only after the person asked for it or confirmed it.',
+			'Add a field to a database ("add a Priority field"), rename one, change its choice options, delete it (to Archive) or restore it. Only after the person asked for it or confirmed it.',
 		input: fieldInput,
+		riskFor: (input) => input.trash === true ? "locked" : "inside",
 		execute: (input, { records }) => records.saveField(input),
 		label: fieldLabel,
 	}),
 	defineTool({
 		id: "records.save_database",
 		title: "Save a database",
-		description: "Create, rename, delete (to Trash) or restore a database, when asked. Owners only. Changes are logged in Activity; record undo does not undo database changes.",
+		description: "Create, rename, delete (to Archive) or restore a database, when asked. Owners only. Changes are logged in Activity; record undo does not undo database changes.",
 		input: databaseInput,
+		riskFor: (input) => input.trash === true ? "locked" : "inside",
 		permission: "fields.manage",
 		execute: (input, { records }) => records.saveDatabase(input),
 	}),
@@ -356,6 +360,7 @@ export const recordTools: ToolDef[] = [
 		title: "Save a database view",
 		description: "Create, rename, change or delete a named filter, sort, columns and layout (table, or a board grouped by a choice field) for everyone in the workspace, when asked. New views need a name; default columns include Name. Changes run right away and are logged in Activity; record undo does not undo view changes. Filters accept field keys or labels, choice labels, teammates by name or me, and linked records by exact name or id.",
 		input: viewInput,
+		riskFor: (input) => input.remove === true ? "locked" : "inside",
 		permission: "records.edit",
 		execute: (input, { records }) => records.saveView(input),
 	}),

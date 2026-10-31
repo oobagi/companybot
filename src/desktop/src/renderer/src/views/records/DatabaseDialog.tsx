@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { useMutation } from "../../convex";
 import { navigate } from "../../router";
-import { ConflictNotice, Field, Form, Notice, dangerButton, inputClass, primaryButton, useDraft, useRun } from "../../ui";
-import { Modal, useConfirm } from "../chat/common";
+import { ConflictNotice, Field, Form, Notice, secondaryButton, inputClass, primaryButton, useDraft, useRun } from "../../ui";
+import { Modal, archiveQuestion, useConfirm } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { recordPath } from "./logic";
 
@@ -41,7 +41,7 @@ export function DatabaseDialog({ type, onClose }: { type?: RecordType; onClose: 
 				)}
 				<div className="flex items-center gap-2">
 					<button type="submit" disabled={draft.stale} className={primaryButton}>{type ? "Save" : "Create database"}</button>
-					{type && <button type="button" className={dangerButton} onClick={() => confirm({ title: `Delete ${type.plural}?`, action: "Delete database", body: "It goes to Trash with its records, and can be restored for 30 days.", onConfirm: () => remove({ kind: "database", id: type._id }).then(() => { onClose(); navigate("chat"); }) })}>Delete database</button>}
+					{type && <button type="button" className={secondaryButton} onClick={() => confirm(archiveQuestion(type.plural, () => remove({ kind: "database", id: type._id }).then(() => { onClose(); navigate("chat"); }), "Its records and fields will be archived with it."))}>Archive database</button>}
 				</div>
 			</Form>
 		</Modal>

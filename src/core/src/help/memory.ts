@@ -8,7 +8,7 @@ export default {
 Agents remember facts so people don't repeat themselves. Each agent has its own memory. Manage it in [Memory](#/settings/memory).
 
 ## Two kinds
-- **Team memories** are shared with the workspace. Like a wiki, anyone (owner or member) can add, fix or delete one. Each shows who saved it, keeps its last 20 versions you can restore, and goes to [Trash](#/settings/trash) when deleted.
+- **Team memories** are shared with the workspace. Like a wiki, anyone (owner or member) can add, fix or delete one. Each shows who saved it, keeps its last 20 versions you can restore, and goes to [Archive](#/settings/archive) when deleted.
 - **Personal memories** belong to one person. Only they can see, edit or delete them, owners included. Agents read them only in a DM with that one person, never in a chat with others.
 
 ## How memories get made

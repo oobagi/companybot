@@ -6,7 +6,7 @@ import { navigate } from "../../router";
 import { ChannelIcon, ChatIcon, CloseIcon, EditIcon, PlusIcon, PrivateIcon } from "../../icons";
 import { EmptyState, Loading, NotFound, Notice, RenameInput, Scroll, TopBar, useRun } from "../../ui";
 import { FileDrop, useAttachments } from "./Attachments";
-import { AgentBadge, AvatarStack, MenuItem, Popover } from "./common";
+import { AgentBadge, AvatarStack, MenuItem, Popover, archiveQuestion, useConfirm } from "./common";
 import { Composer, type SendWith } from "./Composer";
 import { type ChatDetails, type Mentions, chatTitle, showSending, useDirectory } from "./data";
 import { ChannelDetails } from "./dialogs";
@@ -102,6 +102,15 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 	const footer = (
 		<div className="flex flex-col gap-2 px-5 pt-4 pb-7">
 			<Notice>{error}</Notice>
+			{agent && messages?.length === 0 && !chat.trash && (
+				<div className="flex flex-col items-start gap-2 pb-2" aria-label="Suggested messages">
+					{suggestions.map((suggestion) => (
+						<button type="button" key={suggestion} onClick={() => send(suggestion, { userIds: [], agentIds: [], skillIds: [] })} className="max-w-full rounded-xl border border-neutral-200 px-3 py-2 text-left text-sm text-neutral-600 transition-colors hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400">
+							{suggestion}
+						</button>
+					))}
+				</div>
+			)}
 			{chat.trash ? <TrashNotice trash={chat.trash} /> : composer}
 		</div>
 	);
@@ -142,27 +151,6 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 					<>
 						{bar}
 						<Loading />
-					</>
-				) : agent && messages.length === 0 ? (
-					<>
-						{bar}
-						<div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 pb-24">
-							<h1 className="text-2xl font-medium tracking-tight">What can {agent.name} do for you?</h1>
-							<div className="w-full max-w-2xl">{composer}</div>
-							<div className="flex max-w-xl flex-wrap justify-center gap-2">
-								{suggestions.map((s) => (
-									<button
-										type="button"
-										key={s}
-										onClick={() => send(s, { userIds: [], agentIds: [], skillIds: [] })}
-										className="rounded-full border border-neutral-200 px-3 py-1.5 text-sm text-neutral-600 hover:bg-neutral-50"
-									>
-										{s}
-									</button>
-								))}
-							</div>
-							<Notice>{error}</Notice>
-						</div>
 					</>
 				) : messages.length === 0 ? (
 					<Scroll header={bar} footer={footer}>
@@ -212,7 +200,7 @@ function Intro({ title, channel }: { title: string; channel: boolean }) {
 /**
  * An agent DM's conversations, as plain text beside its name: Main (the DM), each side chat (its
  * own session and memory context, like a fresh chat in a chat app) with an × on hover that closes
- * it to Trash, and + for another. Double-click a side chat's name to rename it in place, or click
+ * it to Archive (after asking), and + for another. Double-click a side chat's name to rename it in place, or click
  * the open one's name for its menu (Rename). The sidebar nests the same ones under the agent.
  */
 function SideChatTabs({ chat }: { chat: ChatDetails }) {
@@ -226,7 +214,8 @@ function SideChatTabs({ chat }: { chat: ChatDetails }) {
 	const sides = (list?.dms ?? []).filter((d) => d.parentId === mainId);
 	const tabs = [{ id: mainId, label: "Main", side: false }, ...sides.map((d) => ({ id: d._id, label: d.label ?? "New chat", side: true }))];
 	const side = chat.parentId ? chat : undefined;
-	const close = (id: Id<"chats">) => run(remove({ kind: "channel", id }), () => id === chat._id && navigate("chat", mainId));
+	const { confirm, dialog } = useConfirm();
+	const close = (id: Id<"chats">, name: string) => confirm(archiveQuestion(name, () => remove({ kind: "channel", id }).then(() => id === chat._id && navigate("chat", mainId))));
 	// The open tab wears the sidebar's selected pill; the others are quiet text until hovered. A side
 	// chat's × shows on hover at the pill's right edge, on a patch of the pill's own colour (`--pill`)
 	// that fades in over the label's tail, so every tab keeps the same width and nothing shifts.
@@ -258,7 +247,7 @@ function SideChatTabs({ chat }: { chat: ChatDetails }) {
 					{t.side && renaming !== t.id && (
 						// Only the glyph takes clicks; the faded patch under it is just paint, so the label's tail still opens the tab.
 						<span className="pointer-events-none absolute inset-y-0 right-0 flex w-9 items-center justify-end rounded-r-md bg-[linear-gradient(to_right,transparent,var(--pill)_14px)] pr-1 opacity-0 focus-within:opacity-100 group-hover/tab:opacity-100">
-							<button type="button" title="Close (goes to Trash)" aria-label={`Close ${t.label}`} onClick={() => close(t.id)} className="pointer-events-auto flex size-5 items-center justify-center rounded text-neutral-500 hover:bg-neutral-300/60 hover:text-neutral-900">
+							<button type="button" title="Close (goes to Archive)" aria-label={`Close ${t.label}`} onClick={() => close(t.id, t.label)} className="pointer-events-auto flex size-5 items-center justify-center rounded text-neutral-500 hover:bg-neutral-300/60 hover:text-neutral-900">
 								<CloseIcon className="size-3.5" weight="bold" />
 							</button>
 						</span>
@@ -270,6 +259,7 @@ function SideChatTabs({ chat }: { chat: ChatDetails }) {
 				<PlusIcon />
 			</button>
 			<Notice>{error}</Notice>
+			{dialog}
 		</nav>
 	);
 }

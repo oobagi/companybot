@@ -35,7 +35,7 @@ beforeEach(() => {
 	vi.stubGlobal("localStorage", { getItem: () => null });
 	vi.clearAllMocks();
 	state.queries = {
-		"workspace:settings": { name: "My company", currency: "USD", memory: true, imageModel: "google/gemini-nano-banana-2.1", imageModels: [], routerModel: "jev", routerModels: [], imageBudgetUsd: 20, imageSpentUsd: 0, version: 1 },
+		"workspace:settings": { name: "My company", currency: "USD", memory: true, imageModel: "google/gemini-nano-banana-2.1", imageModels: [], routerModel: "typesafe-ai/jev-1.14.0", routerModels: [], imageBudgetUsd: 20, imageSpentUsd: 0, version: 1 },
 		"workspace:me": { email: "Owner@Co.com" },
 		"preferences:get": { displayName: "", sendWith: "enter", notify: "all" },
 	};
