@@ -5,6 +5,7 @@ export * from "./agent-config";
 export * from "./agents";
 export * from "./approvals";
 export * from "./automations";
+export * from "./schedules";
 export * from "./builtin-tools";
 export * from "./chat";
 export * from "./default-agents";

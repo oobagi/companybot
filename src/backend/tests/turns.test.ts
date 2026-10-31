@@ -31,7 +31,7 @@ describe("agent turns", () => {
 		await t.mutation(internal.turns.savePrompt, { turnId: first._id, prompt: "PRIVATE_REPLAY" });
 		await t.run(ctx => ctx.db.patch(first.sessionId!, { summary: "PRIVATE_SUMMARY" }));
 		await t.mutation(internal.turns.finishReply, { turnId: first._id });
-		const config = { name: "Foreign", prompt: "AUTOMATION_TRIGGER", trigger: { type: "schedule" as const, time: "09:00", weekdays: [0, 1, 2, 3, 4, 5, 6] } };
+		const config = { name: "Foreign", prompt: "AUTOMATION_TRIGGER", trigger: { type: "schedule" as const, cron: "0 9 * * *" } };
 		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
 		await owner.mutation(api.automations.subscribe, { automationId: id, on: true });
 		await t.mutation(internal.automationRuns.tick, { now: (Math.floor(Date.now() / 86_400_000) + 2) * 86_400_000 + 10 * 3_600_000 });

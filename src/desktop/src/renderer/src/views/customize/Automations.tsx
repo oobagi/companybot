@@ -1,6 +1,7 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Segmented, Select } from "../../controls";
-import { type AutomationAudience as Audience, CUSTOM_NAME_MAX, type CustomAutomationConfig } from "@companybot/core/automations";
+import { type AutomationAudience as Audience, CUSTOM_NAME_MAX, type CustomAutomationConfig, scheduleCron } from "@companybot/core/automations";
+import { DEFAULT_CRON } from "@companybot/core/schedules";
 import { type Role, can } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
@@ -10,10 +11,11 @@ import { useMutation, useQuery } from "../../convex";
 import { AutomationIcon } from "../../icons";
 import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
-import { Field, Loading, Notice, Page, Section, compactControlClass, descriptionClass, inputClass, secondaryButton, timeAgo, useRun } from "../../ui";
+import { Field, Loading, Notice, Page, Section, descriptionClass, inputClass, secondaryButton, timeAgo, useRun } from "../../ui";
 import { useTurnOn } from "../Permissions";
 import { PendingWakeups } from "../Wakeups";
 import { deviceTimeZone, useConfirm } from "../chat/common";
+import { ScheduleEditor } from "./ScheduleEditor";
 import { Card, Detail, Facts, ItemList, MadeItemDetail, Missing, NewItem, customizeCrumbs } from "./shared";
 
 type AutomationItem = FunctionReturnType<typeof api.automations.list>[number];
@@ -94,19 +96,20 @@ export function AutomationScreen({ role, id }: { role: Role; id: string }) {
 	return <AutomationDetail automation={automation} canManage={can(role, "automations.manage")} />;
 }
 
-const weekdays = ["S", "M", "T", "W", "T", "F", "S"];
-const weekdayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const defaultSchedule = { type: "schedule" as const, time: "09:00", weekdays: [1, 2, 3, 4, 5] };
+const defaultSchedule = { type: "schedule" as const, cron: DEFAULT_CRON };
 
 /** Name, when, and what to ask: the parts of an automation someone writes. */
 function AutomationFields({
 	value,
 	onChange,
 	channels,
+	timeZone,
 }: {
 	value: CustomAutomationConfig;
 	onChange: (value: CustomAutomationConfig) => void;
 	channels: Channel[];
+	/** Schedules run in it: the maker's, or this device's for a new one. */
+	timeZone: string;
 }) {
 	const { trigger } = value;
 	const setTrigger = (t: CustomAutomationConfig["trigger"]) => onChange({ ...value, trigger: t });
@@ -142,34 +145,7 @@ function AutomationFields({
 						/>
 					</div>
 					{trigger.type === "schedule" && (
-						<div className="flex flex-wrap items-center gap-3">
-							<div className="flex gap-1">
-								{weekdays.map((d, i) => {
-									const on = trigger.weekdays.includes(i);
-									return (
-										<button
-											key={weekdayNames[i]}
-											type="button"
-											title={weekdayNames[i]}
-											aria-pressed={on}
-											className={`size-8 rounded-full text-sm ${on ? "bg-neutral-900 text-white" : "border border-neutral-200 text-neutral-600"}`}
-											onClick={() =>
-												setTrigger({ ...trigger, weekdays: on ? trigger.weekdays.filter((x) => x !== i) : [...trigger.weekdays, i] })
-											}
-										>
-											{d}
-										</button>
-									);
-								})}
-							</div>
-							<span className={descriptionClass}>at</span>
-							<input
-								type="time"
-								className={compactControlClass}
-								value={trigger.time}
-								onChange={(e) => setTrigger({ ...trigger, time: e.target.value })}
-							/>
-						</div>
+						<ScheduleEditor cron={scheduleCron(trigger)} timeZone={timeZone} onChange={(cron) => setTrigger({ type: "schedule", cron })} />
 					)}
 					{trigger.type === "event" && (
 						<div className="flex flex-wrap items-center gap-2 text-sm">
@@ -281,7 +257,7 @@ function NewAutomation() {
 				run(create({ config, agentId: agent as Id<"agents">, ...audience, timeZone: deviceTimeZone() }).then((id) => navigate("settings", "automations", id)))
 			}
 		>
-			<AutomationFields value={config} onChange={setConfig} channels={channels} />
+			<AutomationFields value={config} onChange={setConfig} channels={channels} timeZone={deviceTimeZone()} />
 			<Field label="Agent">
 				<Select className={inputClass} value={agent} options={agentOptions(agents)} onChange={setAgentId} />
 			</Field>
@@ -310,11 +286,11 @@ function CustomAutomationDetail({ automation: a, custom }: { automation: Automat
 			createdByName={a.createdByName}
 			canEdit={a.canEdit}
 			custom={custom}
-			saved={{ name: custom.name, prompt: custom.prompt, trigger: custom.trigger }}
+			saved={{ name: custom.name, prompt: custom.prompt, trigger: custom.trigger.type === "schedule" ? { type: "schedule", cron: scheduleCron(custom.trigger) } : custom.trigger }}
 			trash={a.trash}
 			onDelete={() => remove({ automationId: a.id })}
 			onSave={(config, expectedVersion) => save({ automationId: a.id, config, expectedVersion })}
-			fields={(value, onChange) => <AutomationFields value={value} onChange={onChange} channels={channels} />}
+			fields={(value, onChange) => <AutomationFields value={value} onChange={onChange} channels={channels} timeZone={a.timeZone} />}
 		>
 			{!a.trash && <AutomationSettings automation={a} />}
 		</MadeItemDetail>

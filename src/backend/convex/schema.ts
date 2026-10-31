@@ -97,9 +97,15 @@ export const replyStats = v.object({
 // Shared settings carry a `version` that goes up on every save. A save sends the
 // version it started from; if someone saved in between, it's refused as a conflict.
 
+/** core's ScheduleTrigger, or (COMPAT, see core's LegacySchedule) its LegacySchedule. */
+const scheduleTrigger = v.union(
+	v.object({ type: v.literal("schedule"), cron: v.string() }),
+	v.object({ type: v.literal("schedule"), time: v.string(), weekdays: v.array(v.number()), cron: v.optional(v.string()) }),
+);
+
 /** core's CustomTrigger. */
 export const customTrigger = v.union(
-	v.object({ type: v.literal("schedule"), time: v.string(), weekdays: v.array(v.number()) }),
+	scheduleTrigger,
 	v.object({ type: v.literal("webhook") }),
 	v.object({ type: v.literal("event"), event: v.literal("message.posted"), channelId: v.string() }),
 	v.object({ type: v.literal("event"), event: v.literal("member.joined") }),
@@ -144,7 +150,7 @@ const automationDefinition = v.object({
 	id: v.string(), name: v.string(), description: v.string(), details: v.string(), version: v.string(), publisher: v.string(),
 	connectors: v.array(v.string()), prompt: v.string(),
 	trigger: v.union(
-		v.object({ type: v.literal("schedule"), time: v.string(), weekdays: v.array(v.number()) }),
+		scheduleTrigger,
 		v.object({ type: v.literal("event"), event: v.union(v.literal("message.posted"), v.literal("member.joined")), label: v.string(), channelId: v.optional(v.string()) }),
 		v.object({ type: v.literal("webhook"), webhookEvent: v.optional(v.literal("call.ended")), label: v.string(), sample: v.object({ id: v.string(), event: v.optional(v.string()), person: v.optional(v.object({ email: v.string() })), data: v.optional(v.record(v.string(), v.any())) }) }),
 	),
@@ -728,7 +734,10 @@ export default defineSchema({
 		/** Schedules run in this time zone: the maker's or installer's, when they set it up. */
 		timeZone: v.string(),
 		installedBy: v.id("users"),
-		/** Local date of the last scheduled run, so a schedule runs once a day. */
+		/** The schedule run it last did, or when its schedule was set or it was resumed: runs after it are due (core `scheduleDue`). */
+		lastScheduledAt: v.optional(v.number()),
+		// Retired: schedules ran once a local day. migrations.cronSchedules clears it.
+		// COMPAT(0.1.0-alpha.10): once that has run on prod, drop this field.
 		lastRunDate: v.optional(v.string()),
 		lastRunAt: v.optional(v.number()),
 		/** What the last run did, in a line, e.g. "Sent to 3 people". */

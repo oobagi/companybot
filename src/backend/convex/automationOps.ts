@@ -1,4 +1,4 @@
-import { type Automation, type AutomationAudience, type CustomAutomationConfig, canEditMade, customAutomation, deniedMessage, madeEditDenied } from "@companybot/core";
+import { type Automation, type AutomationAudience, type CustomAutomationConfig, canEditMade, customAutomation, deniedMessage, madeEditDenied, normalizeTrigger } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type Member, requireMember } from "./lib";
@@ -62,11 +62,17 @@ export const visibleInstalls = async (ctx: QueryCtx, member: Member, trashed = f
 
 /** What an install runs: its custom config or its retained stored definition. */
 export async function definitionOf(ctx: QueryCtx, install: Doc<"automationInstalls">): Promise<Automation | undefined> {
-	if (!install.custom) return install.definition;
+	if (!install.custom) return install.definition && { ...install.definition, trigger: normalizeTrigger(install.definition.trigger) };
 	const { trigger } = install.custom;
 	const channel = trigger.type === "event" && trigger.event === "message.posted" ? await ctx.db.get(trigger.channelId as Id<"chats">) : null;
 	return customAutomation(install.automationId, install.custom, install.custom.version, channel?.name);
 }
+
+/**
+ * Schedule runs after this are due (core `scheduleDue`). COMPAT(0.1.0-alpha.10): installs from
+ * before cron have no `lastScheduledAt` until migrations.cronSchedules, so their last run stands in.
+ */
+export const scheduleCursor = (install: Doc<"automationInstalls">) => install.lastScheduledAt ?? install.lastRunAt ?? install._creationTime;
 
 /** An installed automation the signed-in person may change: theirs, or any if they manage automations. */
 export async function requireEditable(ctx: QueryCtx, automationId: string, acting?: Member) {

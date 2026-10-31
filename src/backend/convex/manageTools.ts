@@ -1,4 +1,4 @@
-import { canEditMade, DEFAULT_CURRENCY, THREAD_HOURS_DEFAULT, isGranted, manageInputs, modelNote, pickAgentConfig, searchModels } from "@companybot/core";
+import { canEditMade, DEFAULT_CURRENCY, THREAD_HOURS_DEFAULT, isGranted, manageInputs, modelNote, normalizeCustomAutomation, pickAgentConfig, searchModels } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Id, TableNames } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
@@ -172,7 +172,7 @@ export const runFor = internalMutation({
 						return {
 							id: r.id,
 							definition: await definitionOf(ctx, install),
-							config: install.custom,
+							config: install.custom && { ...install.custom, trigger: normalizeCustomAutomation(install.custom).trigger },
 							enabled: install.enabled,
 							agentId: install.agentId,
 							audience: install.audience,

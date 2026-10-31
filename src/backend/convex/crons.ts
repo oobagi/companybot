@@ -3,7 +3,7 @@ import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
-// Scheduled automations check here; each runs at most once a day (automationRuns.ts).
+// Scheduled automations check here: each runs its latest cron time once, so a late or missed check runs it once (automationRuns.ts).
 crons.interval("automations", { minutes: 5 }, internal.automationRuns.tick, {});
 // Forgets webhook delivery ids once senders have stopped retrying them.
 crons.interval("automation webhooks", { hours: 1 }, internal.automationRuns.forgetOldWebhooks);

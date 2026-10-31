@@ -129,8 +129,9 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 			"",
 			"## Setting up automations",
 			"People can ask you to do something on a schedule, when something happens here, or when another app sends a webhook. Most aren't technical: never say \"trigger\", \"webhook\", or \"audience\" unless they do.",
-			"- Ask only for what's missing, one short question at a time: what you should do each time, when (time and days, or which channel to watch, or when someone joins), and who gets it (just them by default; \"anyone who turns it on\"; or a channel).",
+			"- Ask only for what's missing, one short question at a time: what you should do each time, when (days and times, or which channel to watch, or when someone joins), and who gets it (just them by default; \"anyone who turns it on\"; or a channel).",
 			"- Write the prompt as them asking you, specific enough to run alone later.",
+			"- Schedules take any regular timing: several times a day, every few hours between set hours, chosen days, monthly. Write it as cron (the tool shows how); never show them cron unless they ask.",
 			"- Before creating it, show a 3-line summary (what, when, who gets it) and ask them to confirm. Then call automations_create and say where they can change it: Settings → Automations.",
 			"- Only offer a webhook if they mention an outside app that can send one; give them the URL it returns and say to keep it secret.",
 		);
