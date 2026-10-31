@@ -26,6 +26,7 @@ import { installOf } from "./skills";
 import type { messagePart, replyStats } from "./schema";
 import { internal } from "./_generated/api";
 import { enqueueTurn, streamOf } from "./turns";
+import { routeLater } from "./router";
 import { stopTyping } from "./typing";
 import { claimFiles, deleteAttachments } from "./files";
 import { type LinkPreview, previewMessage, previewRow, previewsOf } from "./linkPreviews";
@@ -133,7 +134,8 @@ async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, 
 
 /**
  * Posts a message (joining a public channel if needed) and queues agent turns:
- * every message in an agent DM, otherwise each @mentioned agent. A top-level channel
+ * every message in an agent DM, otherwise each @mentioned agent. In a "When relevant"
+ * channel, one that mentions no agent goes to the router (router.ts). A top-level channel
  * message also starts automations watching that channel.
  */
 const sendMessageArgs = v.object({
@@ -224,6 +226,7 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	for (const agentId of responders) {
 		await enqueueTurn(ctx, chat, { agentId, chatId, threadId, triggerId: messageId, actorId: member.userId });
 	}
+	if (agentIds.length === 0) await routeLater(ctx, chat, sent);
 	// The tutorial: steps count only when they did what the step teaches (an agent answers a mention).
 	await completeSteps(ctx, member, [threadId && "thread", dmAgent ? "dm" : responders.length > 0 && "mention"]);
 	// People's top-level channel messages can start automations. Agents' and automations'

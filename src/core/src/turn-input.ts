@@ -83,6 +83,8 @@ export interface TurnPromptInput {
 	approval?: ApprovalOutcome;
 	/** Set when the agent woke on its own (backend wakeups.ts): it answers that instead of a message, quietly. */
 	wake?: TurnWake;
+	/** Nobody @mentioned the agent: the router (router.ts) picked it to answer. */
+	routed?: boolean;
 	/**
 	 * The copy stored for later turns, which may act for someone else: an approved call's
 	 * result and error are left out, since only the person who approved it may see them.
@@ -150,7 +152,8 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 		const skills = trigger.skills?.length
 			? `\nIt names ${trigger.skills.length === 1 ? "a skill" : "skills"} with /: load ${trigger.skills.length === 1 ? "it" : "each"} with skills_load first and follow it: ${trigger.skills.map((s) => `${JSON.stringify(clean(s.name))} (${s.id})`).join(", ")}.`
 			: "";
-		sections.push(`Reply to this message from ${clean(trigger.author.name)}:\n${line(trigger)}${skills}`);
+		const routed = input.routed ? "\nNobody @mentioned you: it looked meant for you, so answer it briefly. If it was for someone else after all, say so in a few words." : "";
+		sections.push(`Reply to this message from ${clean(trigger.author.name)}:\n${line(trigger)}${skills}${routed}`);
 	}
 	return sections.join("\n\n");
 }

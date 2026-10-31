@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { reasonings } from "./agent-config";
 import { CUSTOM_NAME_MAX, CUSTOM_PROMPT_MAX } from "./automations";
+import { replyModes } from "./router";
 import { SKILL_DESCRIPTION_MAX, SKILL_INSTRUCTIONS_MAX, SKILL_NAME_MAX } from "./skills";
 import { defineTool, type ToolDef } from "./tools";
 
@@ -46,6 +47,7 @@ export const manageInputs = {
 			z.strictObject({ action: z.literal("create"), name: z.string().min(1).max(80), topic: z.string().max(2000).optional(), private: z.boolean() }),
 			z.strictObject({ action: z.literal("rename"), chat: id, name: z.string().min(1).max(80) }),
 			z.strictObject({ action: z.literal("set_topic"), chat: id, topic: z.string().max(2000) }),
+			z.strictObject({ action: z.literal("set_replies"), chat: id, replies: z.enum(replyModes).describe('"mentions": agents answer only @mentions. "relevant": they also answer, or react to, messages that look meant for them') }),
 			z.strictObject({ action: z.literal("add_members"), chat: id, userIds, agentIds }),
 			z
 				.strictObject({ action: z.literal("remove_member"), chat: id, userId: id.optional(), agentId: id.optional() })
@@ -131,7 +133,7 @@ export interface ManageStore {
 /** Each tool's title and description. */
 const about: Record<ManageTool, { title: string; description: string }> = {
 	"chat.manage": { title: "Manage messages and DMs", description: "Find people (paged directory, including agent ids), list your chats, open a DM with exact participant ids, deliver a message to a chosen chat/thread, edit your person's own messages, delete them with locked approval, react to an exact message, hide the link preview card on your person's own message, or explicitly mark a chat read when asked. Sent as you for the person; never triggers agents or automations. Only send when asked; do not copy private information to a wider audience without their request." },
-	"channels.manage": { title: "Manage channels", description: "Browse public channels, inspect a visible channel and paged participants, create, rename, set/clear topic, add/remove members, join or leave. Use chat ids or #names. Managers remove members; everyone stays in general. Delete moves a channel to Trash for 30 days and waits for approval; only its creator or an owner can do it. Restore by its exact id as the deleter or an owner. Never deletes forever." },
+	"channels.manage": { title: "Manage channels", description: "Browse public channels, inspect a visible channel and paged participants, create, rename, set/clear topic, set when agents reply (mentions only or when relevant), add/remove members, join or leave. Use chat ids or #names. Managers remove members; everyone stays in general. Delete moves a channel to Trash for 30 days and waits for approval; only its creator or an owner can do it. Restore by its exact id as the deleter or an owner. Never deletes forever." },
 	"automations.manage": { title: "Manage automations", description: "List or inspect visible automations (prompt, version, agent, state), edit custom config using its current expectedVersion, pause/resume globally, change agent/audience, or run a sample once just for the person. Runs cannot start other runs. Confirm changes first. Resuming grants no consent: future outside actions still ask. Webhook secrets are omitted." },
 	"automations.remove": { title: "Delete an automation", description: "Move an automation to Trash for 30 days, including retained library installs. It stops running; opt-ins and grants stay for restoration. The maker or an owner can restore custom automations; owners restore retained library installs. The exact call waits for approval." },
 	"skills.manage": { title: "Manage skills", description: "List workspace skills and read their full instructions and current version. Editing is a separate tool that asks first." },

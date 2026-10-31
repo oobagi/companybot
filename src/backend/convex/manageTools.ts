@@ -131,6 +131,7 @@ export const runFor = internalMutation({
 							id,
 							name: chat.name,
 							topic: chat.topic,
+							replies: chat.kind === "channel" ? (chat.replyMode ?? "mentions") : undefined,
 							private: chat.private,
 							isDefault: chat.isDefault,
 							...result,
@@ -140,6 +141,7 @@ export const runFor = internalMutation({
 					if (r.action === "delete" || r.action === "restore") await setChannelTrashed(ctx, who, id, r.action === "delete");
 					if (r.action === "rename") await updateChannelAs(ctx, member, { chatId: id, name: r.name });
 					if (r.action === "set_topic") await updateChannelAs(ctx, member, { chatId: id, topic: r.topic });
+					if (r.action === "set_replies") await updateChannelAs(ctx, member, { chatId: id, replyMode: r.replies });
 					if (r.action === "join") await joinChannel(ctx, member, { chatId: id });
 					if (r.action === "leave") await leaveChannel(ctx, member, { chatId: id });
 					if (r.action === "add_members")

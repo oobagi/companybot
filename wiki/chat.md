@@ -14,9 +14,28 @@ Channels, DMs (people and agents), threads, and reactions. One model for all of 
 ## When agents reply
 - **Agent DM** (one person + one agent): every message the person sends, including automation runs posted as them.
 - **Everywhere else:** only when @mentioned. (The main agent's welcome is fixed text, not a reply; see Onboarding.) Mentioning an agent in a channel adds it to the channel's members. In a DM, only agents already in it answer (a DM's participants are fixed).
+- **Channels set to "When relevant"** (`chats.replyMode: "relevant"`; unset is "Mentions only", the default, so older channels needed no migration): a person's message that @mentions no agent goes to the **reply router** (`backend/convex/router.ts`, prompt and schema in core `router.ts`). The channel's creator or an owner sets it (`updateChannel`, `channels.manage` `set_replies`). Group DMs stay mentions-only: they have no settings, and their agents are fixed anyway.
+  - `messages.send` only schedules `router.decide` 2.5s out (`ROUTER_DEBOUNCE_MS`), off the send's critical path. When it runs it gives up if a newer person's message landed in the same place (chat + thread): that one decides, seeing this one, so a burst makes one call. A message that @mentions an agent schedules nothing; its agents answer as above and the rest stay quiet.
+  - One call (`generateText` with `Output.object`, the AI SDK 7 form of `generateObject`) decides for each active agent in the channel (up to 10): `reply`, `react` with an emoji from a fixed 8 (`ROUTER_EMOJI`), or `quiet`, keyed `a1`, `a2`… so names are never matched. It sees the channel and topic, each agent's name and description, the people there, the thread's parent, the 8 messages before (`ROUTER_CONTEXT_MESSAGES`, agents' marked as theirs) and the message, every text as a JSON string. Left-out agents stay quiet.
+  - **Reply** → `enqueueTurn` as the message's author, like a mention, with `agentTurns.routed`; the turn prompt adds that nobody @mentioned it, so it keeps it brief and says so if it was for someone else. **React** → the agent's reaction on the message (added, never toggled off), only if its tools grant `chat.react`, the same right as a reaction in a turn. Before acting, `router.apply` checks again: message there, setting still on, the author still in and able to see it, the agent still in the channel.
+  - Cost: kind `router` ("Reply decisions") in `usage`, for the message's author, with no agent (one call covers them all). About $0.0001 a call on Luna.
+  - **Model:** GPT-6 Luna (`ROUTER_MODEL` = `defaultModel`), the agents' own model. Scores below: it was the most accurate. Jev was 7x faster but answers only fixed choices (no emoji) through a separate decisions API; at the 2.5s debounce plus a reply that takes seconds, the 1.5s it saves doesn't decide. Worth a second look if reactions should land faster.
+  - **Eval** (`core/eval/`: 30 moments in `router-cases.ts`, scored by `router.eval.ts`): `AI_GATEWAY_API_KEY=… pnpm --filter @companybot/core eval:router` (a few cents; not in `pnpm test`; `ROUTER_EVAL_RUNS`, `ROUTER_EVAL_MODELS`). Language models get the production call; Jev answers one choice question per agent with the same rules, through AI Gateway (`experimental_decide`, same key), and through OpenRouter's Decisions API too when `OPENROUTER_API_KEY` is set. Re-run it when the prompt or model changes and update this table.
+
+  Scores, 2026-10-31: 30 moments × 3 runs, 63 agent decisions a run (reply, react or quiet per agent). "Butted in": replied when it shouldn't. Every model missed no replies. The set is small and was written alongside the prompt, so treat 100% as "no misses here", not as perfect.
+
+  | Model | Decisions right | Moments all right | Butted in | Reactions right | p50 / p90 | $ per call |
+  |---|---|---|---|---|---|---|
+  | GPT-6 Luna (`openai/gpt-6-luna`) | 100% | 90/90 | 0 | 15/15 | 1.6s / 2.0s | $0.00009 |
+  | GPT-5 nano (`openai/gpt-5-nano`) | 96% | 82/90 | 4 | 11/15 | 7.1s / 11.0s | $0.00056 |
+  | Qwen 3.7 Flash (`alibaba/qwen3.7-flash`) | 98% | 86/90 | 0 | 13/15 | 12.9s / 19.5s | $0.00018 |
+  | Jev 1.14 (`typesafe-ai/jev-1.14.0`, via AI Gateway) | 98% | 87/90 | 0 | 15/15 | 0.23s / 0.34s | $0.00004 |
+
+  Misses: all but Luna reacted to "talking about the bot, not to it" every run; nano and Qwen fumbled "ok answering the agent's question" (nano replied, Qwen stayed quiet), and nano once replied to small talk. Jev through OpenRouter wasn't run (no `OPENROUTER_API_KEY`); it's the same model.
+
 - The reply goes **where it was mentioned**: the main timeline, or the thread.
 - **On its own, quietly:** a wakeup (a follow-up it set, [Architecture](architecture.md) → Wakeups) wakes it in the place it was set, acting for the same person, with no message posted. Nothing it writes shows unless it calls `chat.notify`.
-- **Agents never trigger agents.** An agent's @mention of another agent is just text.
+- **Agents never trigger agents.** An agent's @mention of another agent is just text, and the router only ever decides on people's messages (agents' posts and replies never reach `messages.send`'s routing).
 - **One turn per agent per place** (chat + thread). Extra mentions queue in `agentTurns`; a person's message always posts. A turn stuck `running` over 5 minutes is failed and the queue moves on.
 
 ## Onboarding
@@ -60,7 +79,7 @@ Queries return display-ready data (names resolved) so the app never joins tables
 
 **`chats.ts`**
 - `list()` → `{ me, channels: ChatItem[], dms: ChatItem[], agents: AgentItem[] }`, or null before you're in a workspace. Only chats you're in; `dms` includes agent DMs. `me` is your user id.
-  - `ChatItem`: `{ _id, kind, name, topic, private, isDefault, title, agentId, members: Participant[], unread: boolean, mentioned: boolean, lastMessageAt, canManage: boolean }`. `title` is `name` for channels, other participants' names for DMs. `agentId` is set for agent DMs, else null. `canManage`: a channel you can rename, delete and manage members of (`canManageChannel`); the sidebar's row menu uses it. `list` leaves `members` empty for channels (`get` has them): it reads only your own membership there, so someone marking a channel read doesn't re-run everyone's list.
+  - `ChatItem`: `{ _id, kind, name, topic, private, isDefault, title, agentId, members: Participant[], unread: boolean, mentioned: boolean, lastMessageAt, canManage: boolean, replyMode }`. `title` is `name` for channels, other participants' names for DMs. `agentId` is set for agent DMs, else null. `canManage`: a channel you can rename, delete and manage members of (`canManageChannel`); the sidebar's row menu uses it. `list` leaves `members` empty for channels (`get` has them): it reads only your own membership there, so someone marking a channel read doesn't re-run everyone's list.
   - `AgentItem`: `{ _id, name, description, dmId, unread, mentioned, lastMessageAt }` for each active agent. `dmId` is its agent DM with you, or null; the rest come from that DM.
   - `Participant`: `{ type: "user", id: Id<"users">, name } | { type: "agent", id: Id<"agents">, name }`.
   - Unread: the chat's newest main-timeline message is after your `lastReadAt`. `mentioned`: a message after your `lastReadAt`, in the main timeline or a thread, mentions you (not gated on `unread`: thread replies don't move `lastMessageAt`). Mentions are indexed in `userMentions` (one row per person mentioned in a message, removed when the message is deleted), so an old unread mention is found however many messages follow it. Opening the chat clears both; there's no per-thread read state.
@@ -70,7 +89,7 @@ Queries return display-ready data (names resolved) so the app never joins tables
 - `browse()` → public channels you're not in: `{ _id, name, topic, memberCount }[]`.
 - `get({ chatId })` → `ChatItem` plus `trash`, or null if you can't see it.
 - `createChannel({ name, topic?, private })` → chatId. Name normalized to lowercase-dashed; refused if taken.
-- `updateChannel({ chatId, name?, topic? })`.
+- `updateChannel({ chatId, name?, topic?, replyMode? })`. `replyMode`: `"mentions"` or `"relevant"` (When agents reply); `ChatItem.replyMode` is always `"mentions"` outside channels.
 - `join({ chatId })` — public channels. `leave({ chatId })` — any channel you're in, except `#general`.
 - `addMembers({ chatId, userIds, agentIds })` — channels only; by its members, or anyone who can manage it.
 - `openDm({ userIds, agentIds })` → chatId. Finds or creates. You're always included. The app's New message picks people and agents, so a group DM can include agents (they answer when @mentioned).
@@ -131,9 +150,11 @@ Under every composer, one line says who's typing there and what agents are doing
 
 **Link previews** (`views/chat/LinkPreviews.tsx`): compact cards under the message (and its files): site, title (two lines), description (two lines), a 64 px picture. The whole card is a link; the app's main process opens web links in the browser. The sender sees a × on hover (`message.mine`) that calls `hidePreview`.
 
+**Channel details** (`views/chat/dialogs.tsx`, click the channel name): its creator or an owner edits the name, topic and **Agents reply** (Mentions only / When relevant, with a line saying what each does) and saves them together; others see "Agents here also answer…" when it's on.
+
 Click a name or avatar for a profile card (`views/chat/Profile.tsx`, from `workspace.team` and `chats.list`): name, email, role, local time, Message.
 
 ## Permissions
-`channels.create` (owner, member), `channels.manage` (owner: rename, set topic, delete, remove members, add members to any channel; members can manage channels they created).
+`channels.create` (owner, member), `channels.manage` (owner: rename, set topic, set when agents reply, delete, remove members, add members to any channel; members can manage channels they created).
 
 Agent delivery and management: `chat.manage` finds the directory (people, agents, or owner-visible invites), lists joined chats, opens fixed-participant DMs, hides a link preview card on the person's own message (`hide_preview`) and sends to a chat id/#channel and optional thread. `channels.manage` browses public channels, pages participants, creates/renames/sets topic, adds/removes participants, joins/leaves. Shared operations serve the app and tools; `chats.removeMember` allows managers only and protects people in #general. Delivery stores `authorAgentId` and `actingFor`, displayed as “Companybot, for Dana”; it never queues turns or fires automation events. `chat.read` and `chat.search` also accept chat ids for DMs. Deleting a channel moves it to [Trash](data.md#trash), with its messages and members; #general stays. Agents ask first to delete a channel.
