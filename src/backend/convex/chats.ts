@@ -1,4 +1,4 @@
-import { THREAD_HOURS_DEFAULT, canManageChannel } from "@companybot/core";
+import { type ReplyMode, THREAD_HOURS_DEFAULT, canManageChannel, replyModes } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx } from "./_generated/server";
@@ -30,6 +30,8 @@ export type ChatItem = {
 	lastMessageAt: number;
 	/** Channels: you can rename it, delete it and manage its members (`canManageChannel`). */
 	canManage: boolean;
+	/** When agents answer without an @mention: always "mentions" outside channels (core router.ts). */
+	replyMode: ReplyMode;
 	/** Side chats: the agent DM they sit under. Else null. */
 	parentId: Id<"chats"> | null;
 	/** Side chats: what it's about ("New chat" until its first message). Else null. */
@@ -76,6 +78,7 @@ async function toChatItem(
 		mentioned: !!mine && !!(await latestMentionSince(ctx, chat._id, member.userId, mine.lastReadAt ?? 0)),
 		lastMessageAt: chat.lastMessageAt,
 		canManage: chat.kind === "channel" && canManageChannel(toActor(member), chat),
+		replyMode: (chat.kind === "channel" && chat.replyMode) || "mentions",
 		parentId: chat.parentId ?? null,
 		label: chat.parentId ? sideChatTitle(chat) : null,
 	};
@@ -291,19 +294,27 @@ export async function createChannelAs(ctx: MutationCtx, member: Member, args: In
 	return chatId;
 }
 
-const updateChannelArgs = v.object({ chatId: v.id("chats"), name: v.optional(v.string()), topic: v.optional(v.string()) });
+const updateChannelArgs = v.object({
+	chatId: v.id("chats"),
+	name: v.optional(v.string()),
+	topic: v.optional(v.string()),
+	/** When agents answer without an @mention. */
+	replyMode: v.optional(v.union(...replyModes.map((m) => v.literal(m)))),
+});
 
 export const updateChannel = mutation({
 	args: updateChannelArgs.fields,
 	handler: async (ctx, args) => updateChannelAs(ctx, await requireMember(ctx), args),
 });
 
-export async function updateChannelAs(ctx: MutationCtx, member: Member, { chatId, name, topic }: Infer<typeof updateChannelArgs>) {
+export async function updateChannelAs(ctx: MutationCtx, member: Member, { chatId, name, topic, replyMode }: Infer<typeof updateChannelArgs>) {
 	const chat = await requireManagedChannel(ctx, member, chatId);
 	if (chat.archived) throw new ConvexError("This channel is in Trash.");
 	await ctx.db.patch(chat._id, {
 		...(name !== undefined && { name: await availableName(ctx, member, name, chat._id) }),
 		...(topic !== undefined && { topic: topic.trim() || undefined }),
+		// Unset is "mentions", like every channel from before the setting.
+		...(replyMode !== undefined && { replyMode: replyMode === "mentions" ? undefined : replyMode }),
 	});
 }
 

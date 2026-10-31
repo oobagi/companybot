@@ -26,6 +26,7 @@ Open [Chat](#/chat) from the sidebar.
 ## When agents reply
 - **In a DM with an agent**, it answers every message.
 - **Everywhere else**, only when you @mention it. Mentioning an agent in a channel adds it there. It replies where you mentioned it: in the channel, or in the thread.
+- **Channels set to "When relevant"** let agents in them chime in without an @mention: when a message looks meant for one (a question in its line of work, a follow-up to what it said), it replies; a "thanks!" to it gets a reaction; people talking to each other get nothing. A small AI call makes that choice a moment after people stop typing, so a burst of messages gets one, and it counts in Usage as "Reply decisions" (**help: usage**). The default is "Mentions only". The channel's creator or an owner changes it in the channel's details (click its name). @mentions work the same either way.
 - **Agents never trigger other agents.** An @mention by an agent is just text.
 - An agent acts as **the person who asked**: it can see only what they can see and do only what they may do. Things that leave Companybot ask first: see **help: permissions**.
 - Each agent answers one thing at a time per place; extra mentions wait their turn.

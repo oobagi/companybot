@@ -1,7 +1,7 @@
 import { viewConfig } from "./recordValidators";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
-import { fieldKinds, fileTypes, reasonings, risks, roles, trashKinds, usageKinds } from "@companybot/core";
+import { fieldKinds, fileTypes, reasonings, replyModes, risks, roles, trashKinds, usageKinds } from "@companybot/core";
 import { v } from "convex/values";
 
 /** One of `values`, each a literal. */
@@ -404,6 +404,8 @@ export default defineSchema({
 		lastMessageAt: v.number(),
 		/** USD spent on agent replies and summaries here (main timeline). */
 		costUsd: v.optional(v.number()),
+		/** Channels: when agents answer without an @mention (core router.ts). Unset is "mentions", so no migration. */
+		replyMode: v.optional(oneOf(replyModes)),
 	})
 		.index("by_workspace", ["workspaceId", "kind"])
 		.index("by_dm_key", ["workspaceId", "dmKey"])
@@ -543,6 +545,8 @@ export default defineSchema({
 		sessionId: v.optional(v.id("agentSessions")),
 		/** The exact user message sent to the model this turn. Replayed as-is in later turns. */
 		prompt: v.optional(v.string()),
+		/** Nobody @mentioned the agent: the router queued it (router.ts). */
+		routed: v.optional(v.literal(true)),
 		status: v.union(v.literal("queued"), v.literal("running"), v.literal("done"), v.literal("error")),
 		startedAt: v.optional(v.number()),
 		/** Set when the turn follows a decision on this approval: it runs the call if approved, then tells the agent. */

@@ -50,6 +50,11 @@ describe("turn input", () => {
 		);
 	});
 
+	it("tells an agent the router picked that nobody @mentioned it", () => {
+		expect(buildTurnPrompt({ ...base, routed: true }).endsWith('"@Companybot status?"\nNobody @mentioned you: it looked meant for you, so answer it briefly. If it was for someone else after all, say so in a few words.')).toBe(true);
+		expect(buildTurnPrompt(base)).not.toContain("Nobody @mentioned you");
+	});
+
 	it("tells the agent which skills the message named with /", () => {
 		const prompt = buildTurnPrompt({
 			...base,

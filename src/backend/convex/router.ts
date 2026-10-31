@@ -1,0 +1,162 @@
+import {
+	ROUTER_CONTEXT_MESSAGES,
+	ROUTER_DEBOUNCE_MS,
+	ROUTER_EMOJI,
+	ROUTER_MAX_AGENTS,
+	ROUTER_MODEL,
+	type RouterInput,
+	type RouterMessage,
+	gatewayCost,
+	isGranted,
+	routerDecisions,
+	routerRequest,
+	routerSchema,
+} from "@companybot/core";
+import { Output, generateText } from "ai";
+import { v } from "convex/values";
+import { internal } from "./_generated/api";
+import type { Doc, Id } from "./_generated/dataModel";
+import { type MutationCtx, type QueryCtx, internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { canSee, chatMembersOf, namer, textForModel } from "./chatOps";
+import { liveWorkspace, memberOf } from "./lib";
+import { enqueueTurn } from "./turns";
+import { recordUsage } from "./usage";
+
+// Agents that answer without an @mention, in channels set to "When relevant" (wiki/chat.md, When
+// agents reply). A person's un-mentioned message schedules a decision; it waits ROUTER_DEBOUNCE_MS
+// and gives up if a newer person's message came in the place meanwhile (that one decides), so a
+// burst makes one call. The answer queues replies (enqueueTurn) and adds reactions.
+
+/** From messages.send, for a person's message that @mentions no agent. */
+export async function routeLater(ctx: MutationCtx, chat: Doc<"chats">, message: Doc<"chatMessages">) {
+	if (chat.kind !== "channel" || chat.replyMode !== "relevant" || !message.authorUserId) return;
+	await ctx.scheduler.runAfter(ROUTER_DEBOUNCE_MS, internal.router.decide, { messageId: message._id });
+}
+
+/** The message and its place, if it should still be decided on: null once anything changed. */
+async function routable(ctx: QueryCtx, messageId: Id<"chatMessages">) {
+	const message = await ctx.db.get(messageId);
+	if (!message || message.deleted || !message.authorUserId || message.mentions.agentIds.length > 0) return null;
+	const chat = await ctx.db.get(message.chatId);
+	if (!chat || chat.archived || chat.replyMode !== "relevant" || !(await liveWorkspace(ctx, chat.workspaceId))) return null;
+	const member = await memberOf(ctx, message.authorUserId, chat.workspaceId);
+	if (!member || !(await canSee(ctx, chat, member))) return null;
+	return { message, chat, member };
+}
+
+/** The channel's active agents, oldest members first. */
+async function agentsIn(ctx: QueryCtx, chat: Doc<"chats">) {
+	const agents: Doc<"agents">[] = [];
+	for (const row of await chatMembersOf(ctx, chat._id)) {
+		const agent = row.agentId && (await ctx.db.get(row.agentId));
+		if (agent && !agent.archived && agents.length < ROUTER_MAX_AGENTS) agents.push(agent);
+	}
+	return agents;
+}
+
+/** What the router sees: the message, a few before it, the thread's parent, and each agent here. */
+export const context = internalQuery({
+	args: { messageId: v.id("chatMessages") },
+	handler: async (ctx, { messageId }) => {
+		const found = await routable(ctx, messageId);
+		if (!found) return null;
+		const { message, chat } = found;
+		// Debounce: a newer person's message here makes its own decision, which sees this one.
+		const newer = await ctx.db
+			.query("chatMessages")
+			.withIndex("by_chat_thread", (q) => q.eq("chatId", chat._id).eq("threadId", message.threadId).gt("_creationTime", message._creationTime))
+			.filter((q) => q.and(q.neq(q.field("authorUserId"), undefined), q.neq(q.field("deleted"), true)))
+			.first();
+		if (newer) return null;
+		const agents = await agentsIn(ctx, chat);
+		if (agents.length === 0) return null;
+
+		const keys = new Map(agents.map((a, i) => [a._id, `a${i + 1}`]));
+		const names = namer(ctx);
+		const toRouter = async (m: Doc<"chatMessages">): Promise<RouterMessage> => {
+			const files = m.attachments?.length ? `(${m.attachments.length === 1 ? "a file" : `${m.attachments.length} files`}: ${m.attachments.map((f) => f.name).join(", ")})` : "";
+			return {
+				author: (await names.of(m)).name,
+				...(m.authorAgentId && { agent: keys.get(m.authorAgentId) ?? "agent" }),
+				text: [textForModel(m, (await names.of(m)).name), files].filter(Boolean).join("\n"),
+			};
+		};
+		const before = (
+			await ctx.db
+				.query("chatMessages")
+				.withIndex("by_chat_thread", (q) => q.eq("chatId", chat._id).eq("threadId", message.threadId).lt("_creationTime", message._creationTime))
+				.order("desc")
+				.filter((q) => q.and(q.neq(q.field("deleted"), true), q.eq(q.field("status"), "done")))
+				.take(ROUTER_CONTEXT_MESSAGES)
+		).reverse();
+		const parent = message.threadId && (await ctx.db.get(message.threadId));
+		const people = (await chatMembersOf(ctx, chat._id)).filter((r) => r.userId && r.userId !== message.authorUserId);
+		const input: RouterInput = {
+			place: { name: chat.name ?? "", topic: chat.topic ?? null },
+			agents: agents.map((a) => ({ key: keys.get(a._id)!, name: a.name, description: a.description, canReact: isGranted(a.tools, "chat.react") })),
+			people: await Promise.all(people.slice(0, 30).map(async (r) => (await names.of(r)).name)),
+			parent: parent && !parent.deleted ? await toRouter(parent) : null,
+			before: await Promise.all(before.map(toRouter)),
+			message: await toRouter(message),
+		};
+		return { input, agentIds: agents.map((a) => a._id), workspaceId: chat.workspaceId };
+	},
+});
+
+/** Asks the model, then acts on its answer. Scheduled by routeLater. */
+export const decide = internalAction({
+	args: { messageId: v.id("chatMessages") },
+	handler: async (ctx, { messageId }) => {
+		const found = await ctx.runQuery(internal.router.context, { messageId });
+		if (!found) return;
+		const { input, agentIds } = found;
+		const { instructions, prompt } = routerRequest(input);
+		const { output, providerMetadata } = await generateText({
+			model: ROUTER_MODEL,
+			instructions,
+			prompt,
+			output: Output.object({ schema: routerSchema(input.agents), name: "decisions" }),
+			providerOptions: { gateway: { caching: "auto" } },
+			maxRetries: 1,
+		});
+		const picked = routerDecisions(output, input.agents);
+		const decisions = input.agents.flatMap((a, i) => {
+			const d = picked.get(a.key)!;
+			return d.action === "quiet" ? [] : [{ agentId: agentIds[i]!, action: d.action, ...(d.action === "react" && { emoji: d.emoji }) }];
+		});
+		await ctx.runMutation(internal.router.apply, { messageId, decisions, model: ROUTER_MODEL, costUsd: gatewayCost(providerMetadata) });
+	},
+});
+
+/** Records the call's cost, then queues replies and adds reactions for agents still here. */
+export const apply = internalMutation({
+	args: {
+		messageId: v.id("chatMessages"),
+		decisions: v.array(v.object({ agentId: v.id("agents"), action: v.union(v.literal("reply"), v.literal("react")), emoji: v.optional(v.string()) })),
+		model: v.string(),
+		costUsd: v.number(),
+	},
+	handler: async (ctx, { messageId, decisions, model, costUsd }) => {
+		const message = await ctx.db.get(messageId);
+		if (!message?.authorUserId) return;
+		// The person whose message it decided on, like a reply counts for its asker.
+		await recordUsage(ctx, { workspaceId: message.workspaceId, userId: message.authorUserId, kind: "router", model, costUsd });
+		const found = await routable(ctx, messageId);
+		if (!found) return;
+		const { chat } = found;
+		const here = new Set((await agentsIn(ctx, chat)).map((a) => a._id));
+		for (const d of decisions) {
+			const agent = await ctx.db.get(d.agentId);
+			if (!agent || !here.has(agent._id)) continue;
+			if (d.action === "reply") {
+				await enqueueTurn(ctx, chat, { agentId: agent._id, chatId: chat._id, threadId: message.threadId, triggerId: messageId, actorId: message.authorUserId, routed: true });
+			} else if (d.emoji && (ROUTER_EMOJI as readonly string[]).includes(d.emoji) && isGranted(agent.tools, "chat.react")) {
+				const existing = await ctx.db
+					.query("reactions")
+					.withIndex("by_message", (q) => q.eq("messageId", messageId).eq("emoji", d.emoji!).eq("userId", undefined).eq("agentId", agent._id))
+					.first();
+				if (!existing) await ctx.db.insert("reactions", { messageId, chatId: chat._id, emoji: d.emoji, agentId: agent._id });
+			}
+		}
+	},
+});

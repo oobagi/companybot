@@ -46,7 +46,7 @@ export function gatewayCost(metadata: ProviderMetadata | undefined): number {
 }
 
 /** What a paid call was for. Every one is recorded through the backend's `recordUsage` (usage.ts). */
-export const usageKinds = ["chat", "summary", "search", "image", "dictation"] as const;
+export const usageKinds = ["chat", "summary", "search", "image", "dictation", "router"] as const;
 export type UsageKind = (typeof usageKinds)[number];
 
 export const usageKindLabels: Record<UsageKind, string> = {
@@ -55,6 +55,7 @@ export const usageKindLabels: Record<UsageKind, string> = {
 	search: "Web search",
 	image: "Images",
 	dictation: "Dictation",
+	router: "Reply decisions",
 };
 
 /** The month a time falls in, as billing counts it: "2026-10", in UTC. */
