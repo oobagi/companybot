@@ -174,6 +174,10 @@ export interface Transcript {
 		message: RouterMessage;
 		/** By agent key; agents left out are "silent". `posted`: agents that posted in earlier steps; `responded`: posted or reacted. */
 		expect: (posted: string[], responded: string[]) => Record<string, Outcome>;
+		/** Posts must be short (a line or two): longer ones are misses. */
+		short?: true;
+		/** When two or more agents post, each later one must answer or build on the ones before (a judge model reads them). */
+		together?: true;
 	}[];
 }
 
@@ -228,6 +232,47 @@ export const transcripts: Transcript[] = [
 		],
 	},
 	{
+		// The test app, 2026-10-31: "Guys," woke all four; then the checks and nudges. Asked for someone
+		// else, the answerer stays out; "Any bots? no?" wants exactly one short reply.
+		name: "10x10, then \"can anyone validate?\"",
+		channel: "general",
+		agents: team,
+		people: ["j", "Dana"],
+		steps: [
+			{ message: m("j", "Guys,"), expect: () => ({}) },
+			{ message: m("j", "Could someone help me with some math?"), expect: () => all("one") },
+			{ message: m("j", "What is 10x10?"), expect: () => all("one") },
+			{ message: m("j", "Thanks. Can anyone validate?"), expect: (posted) => others(posted) },
+			{ message: m("j", "Anyone?"), expect: (posted) => others(posted) },
+			{ message: m("j", "Any bots? no?"), expect: () => all("one"), short: true },
+			{ message: m("j", "Quill? Penny? Scout? None of you guys know?"), expect: () => ({ a2: "one", a3: "one", a4: "one" }) },
+		],
+	},
+	{
+		// "4 chatbots pointed at me": a later agent answers or builds on the earlier one, not a fresh pitch.
+		name: "a song together",
+		channel: "general",
+		agents: team,
+		people: ["j", "Dana"],
+		steps: [
+			{ message: m("j", "Let's work together to build a song."), expect: () => ({ a1: "either", a4: "either" }), together: true },
+			{ message: m("j", "upbeat, about summer road trips"), expect: () => ({ a1: "either", a4: "one" }), together: true },
+		],
+	},
+	{
+		// Nothing to add: posting "(No reply.)", "Nothing to add" or a bare "I'm here" is a miss.
+		name: "filler",
+		channel: "general",
+		agents: team,
+		people: ["j", "Dana"],
+		steps: [
+			{ message: m("j", "anyone there?"), expect: () => all("one"), short: true },
+			{ message: m("j", "ok cool"), expect: () => ({}) },
+			{ message: m("Dana", "lol same"), expect: () => ({}) },
+			{ message: m("j", "alright, back to work everyone"), expect: () => ({}) },
+		],
+	},
+	{
 		// Addressed to everyone, agents included: each gives its own vote once, in a line or a reaction.
 		name: "a vote from everyone",
 		channel: "general",
@@ -239,6 +284,39 @@ export const transcripts: Transcript[] = [
 			// Asked again in a new form (thumbs): voting again is fine.
 			{ message: m("j", "Everyone, thumbs up or down??"), expect: (_, responded) => Object.fromEntries(team.map((a) => [a.key, responded.includes(a.key) ? "either" : "respond"])) },
 		],
+	},
+];
+
+/**
+ * One message went to two agents (picks run one after another): the first has posted; the second must
+ * answer or build on it, or stay out, not pitch its own take ("4 chatbots pointed at me").
+ */
+export interface Anchor {
+	name: string;
+	message: RouterMessage;
+	earlier: RouterMessage;
+	next: RouterAgent;
+}
+
+export const anchors: Anchor[] = [
+	{
+		// The test app, 2026-10-31: Quill ignored the question and wrote a verse.
+		name: "a song, after Companybot asked for a theme",
+		message: m("j", "Let's work together to build a song."),
+		earlier: bot(mainBot, "I'm in! Give me a theme or genre and I'll help with lyrics, structure or a hook."),
+		next: quill,
+	},
+	{
+		name: "a launch email, after Companybot asked who it's for",
+		message: m("Dana", "let's write the launch email for the new gutter service together"),
+		earlier: bot(mainBot, "Happy to. Who's it going to: past clients, or new leads?"),
+		next: quill,
+	},
+	{
+		name: "an offsite budget, after Companybot proposed a date",
+		message: m("j", "can we plan the team offsite together?"),
+		earlier: bot(mainBot, "Sure. How about Friday Nov 20, half a day, for the 8 of us? Penny, what can we spend?"),
+		next: penny,
 	},
 ];
 

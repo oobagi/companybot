@@ -6,7 +6,7 @@ import type { Id } from "../convex/_generated/dataModel";
 import { dmKeyOf } from "../convex/chatOps";
 import { enqueueTurn } from "../convex/turns";
 import { wake } from "../convex/wakeups";
-import { agentsOf, generalOf, noMentions, ownerAndMember, turnsOf } from "./helpers";
+import { agentsOf, finishQuiet, generalOf, noMentions, ownerAndMember, turnsOf } from "./helpers";
 
 // Agents handing work to each other (chains.ts). No network: the dispatcher's decide (Jev) is stubbed,
 // and fake timers hold every reply back, so each test writes the agents' replies itself.
@@ -172,10 +172,10 @@ describe("the dispatcher after an agent's message", () => {
 		expect(Object.keys(call.questions)).toEqual(["next", "ack"]);
 		// Not asked directly, so quiet: told how sure the dispatcher was, it posts only if it adds something.
 		const hop = await running(t, companybot);
-		expect(hop).toMatchObject({ threadId: first.replyId, routed: true, actorId: member.userId, dispatch: { model: ROUTER_MODEL, band: "clearly", probability: 0.9, costUsd: 0.0001, quiet: true } });
+		expect(hop).toMatchObject({ threadId: first.replyId, routed: true, actorId: member.userId, dispatch: { model: ROUTER_MODEL, band: "clearly", probability: 0.9, costUsd: 0.0001 } });
 		expect((await t.run((ctx) => ctx.db.get(hop.replyId as Id<"chatMessages">)))!.quiet).toBe(true);
 		const prompt = await t.query(internal.turns.turnContext, { turnId: hop._id });
-		expect(prompt.routed).toEqual({ band: "clearly", quiet: true });
+		expect(prompt.routed).toEqual({ band: "clearly" });
 		expect(prompt.handoff).toEqual({ from: "Scribe", ask: false });
 		const chain = await t.run(async (ctx) => (await ctx.db.query("agentChains").collect())[0]!);
 		expect(chain.hops).toBe(1);
@@ -213,21 +213,20 @@ describe("the dispatcher after an agent's message", () => {
 		expect(scheduled).toEqual([]);
 	});
 
-	it("a quiet hop that posts nothing ends the chain; one that posts hands off by its @mentions", async () => {
+	it("a quiet hop that doesn't post ends the chain; one that posts hands off by its @mentions", async () => {
 		const { t, scout, companybot, nextOf } = await inChain();
 		next("a1");
 		await nextOf();
 		// Companybot got Scribe's result back and had nothing to add: nobody is asked who goes next.
 		const silent = await running(t, companybot);
-		await t.mutation(internal.turns.finishReply, { turnId: silent._id });
+		await finishQuiet(t, silent._id, "");
 		expect(decideWith).toHaveBeenCalledTimes(1);
 
-		// The next hop speaks with chat.notify and @mentions Scout: that's what hands off.
+		// The next hop posts and @mentions Scout: that's what hands off.
 		await nextOf();
 		const hop = await running(t, companybot);
-		expect(await t.mutation(internal.wakeups.notifyFor, { turnId: hop._id, text: "@Scout find three more like this" })).toEqual({ posted: true });
-		await t.mutation(internal.turns.finishReply, { turnId: hop._id });
-		expect(await running(t, scout)).toMatchObject({ triggerId: (await turnsOf(t)).find((x) => x._id === hop._id)!.notifiedId });
+		await finishQuiet(t, hop._id, "@Scout find three more like this");
+		expect(await running(t, scout)).toMatchObject({ triggerId: hop.replyId });
 	});
 });
 

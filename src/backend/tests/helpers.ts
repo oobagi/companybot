@@ -1,8 +1,10 @@
 import { seedLegacyRecords, scribe } from "./legacyFixtures";
 import prosemirrorSync from "@convex-dev/prosemirror-sync/test";
 import { convexTest } from "convex-test";
+import type { FunctionArgs } from "convex/server";
 import { vi } from "vitest";
-import { api } from "../convex/_generated/api";
+import { publishes } from "@companybot/core";
+import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import schema from "../convex/schema";
 import { person } from "./person";
@@ -92,6 +94,22 @@ export async function agentTurn(t: ReturnType<typeof convexTest>, as: As, chatId
 	const before = await turnsOf(t);
 	await as.mutation(api.messages.send, { chatId, text: "hi", mentions: { userIds: [], agentIds: [agentId] } });
 	return (await turnsOf(t)).find((x) => !before.some((b) => b._id === x._id))!._id;
+}
+/**
+ * Ends a quiet turn (a pick, a hop, a wake) as the runner does (agent.ts): `say` is the message its
+ * decision posts; "" decides not to (new_point empty). Its message goes last in the reply, after `parts`.
+ */
+export async function finishQuiet(
+	t: ReturnType<typeof convexTest>,
+	turnId: Id<"agentTurns">,
+	say: string,
+	{ parts = [], usage, ...decision }: { parts?: FunctionArgs<typeof internal.turns.updateReply>["parts"]; usage?: FunctionArgs<typeof internal.turns.finishReply>["usage"]; new_point?: string; post?: boolean; to?: string } = {},
+) {
+	const decided = { new_point: say ? "Something new" : "", post: !!say, to: "room", message: say, ...decision };
+	const replyId = (await t.run((ctx) => ctx.db.get(turnId)))!.replyId!;
+	const text = publishes(decided) ? say : "";
+	await t.mutation(internal.turns.updateReply, { replyId, text, parts: [...parts, ...(text ? [{ type: "text" as const, text }] : [])] });
+	await t.mutation(internal.turns.finishReply, { turnId, usage, decision: decided });
 }
 /** Runs everything scheduled (cascades, cleanups) until nothing is left. */
 export async function settle(t: ReturnType<typeof convexTest>) {
