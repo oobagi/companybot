@@ -22,13 +22,19 @@ export function followsOthers(install: Doc<"automationInstalls">, userId: Id<"us
 	return (!!install.custom && (install.installedBy !== userId || install.custom.updatedBy !== userId)) || trigger?.type !== "schedule";
 }
 
-/** Live automation scope plus immutable provenance from the server-written trigger. */
+/**
+ * Live automation scope plus immutable provenance from the server-written trigger. A wake turn
+ * (wakeups.ts) has no trigger: its wakeup says whether it was made in a run following others' words.
+ */
 export async function automationScope(ctx: QueryCtx, turn: Doc<"agentTurns">) {
 	const trigger = turn.triggerId && (await ctx.db.get(turn.triggerId));
 	const automation = trigger?.automation ? await installOf(ctx, turn.workspaceId, trigger.automation.id) : null;
-	// Legacy triggers without a provenance snapshot and removed installs stay foreign.
-	const foreign = !!trigger?.automation && ((trigger.automation.foreign ?? true) || !automation || followsOthers(automation, turn.actorId));
-	return { trigger, automation, foreign };
+	const wakeup = turn.wakeupId ? await ctx.db.get(turn.wakeupId) : null;
+	// Legacy triggers without a provenance snapshot, removed installs, and wakeups already forgotten stay foreign.
+	const foreign =
+		(!!trigger?.automation && ((trigger.automation.foreign ?? true) || !automation || followsOthers(automation, turn.actorId))) ||
+		(!!turn.wakeupId && (wakeup?.foreign ?? true));
+	return { trigger, automation, foreign, wakeup };
 }
 
 export function automationName(install: Doc<"automationInstalls">) {

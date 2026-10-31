@@ -21,7 +21,8 @@ export function ActivityTab() {
 	const [changesOnly, setChangesOnly] = useState(true);
 	const entries = useQuery(api.activity.list, { agentId });
 	if (!entries || !agents) return <Loading />;
-	const shown = changesOnly ? entries.filter((e) => e.changes) : entries;
+	// A wake's line (an agent checking back on its own) shows with changes: it says what's running.
+	const shown = changesOnly ? entries.filter((e) => e.changes || e.wake) : entries;
 
 	return (
 		<>
@@ -121,7 +122,7 @@ export function CallDetails({ entry }: { entry: ActivityEntry }) {
 	return (
 		<div className="flex flex-col gap-2 text-xs">
 			<Block label="Input" text={entry.input} />
-			{entry.error !== undefined ? (
+			{entry.wake ? null : entry.error !== undefined ? (
 				<Block label="Error" text={entry.error} />
 			) : entry.output !== undefined ? (
 				<Block label="Result" text={entry.output} />

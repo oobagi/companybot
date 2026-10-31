@@ -1,7 +1,7 @@
 import { viewConfig } from "./recordValidators";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
-import { fieldKinds, fileTypes, reasonings, risks, roles, trashKinds, usageKinds } from "@companybot/core";
+import { fieldKinds, fileTypes, reasonings, risks, roles, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
 import { v } from "convex/values";
 
 /** One of `values`, each a literal. */
@@ -10,6 +10,8 @@ const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map(
 export const notify = v.union(v.literal("all"), v.literal("mentions"), v.literal("off"));
 
 export const role = oneOf(roles);
+
+export const wakeOutcome = oneOf(wakeOutcomes);
 
 export const agentConfig = v.object({
 	name: v.string(),
@@ -462,6 +464,8 @@ export default defineSchema({
 		costUsd: v.optional(v.number()),
 		/** Server-written provenance. `foreign` snapshots whose words the run follows; absent on older messages, which ask. */
 		automation: v.optional(v.object({ id: v.string(), name: v.string(), foreign: v.optional(v.boolean()) })),
+		/** A wake turn's own reply (wakeups.ts): kept for the agent's session, never shown. The agent speaks with chat.notify. */
+		quiet: v.optional(v.boolean()),
 	})
 		.index("by_chat_thread", ["chatId", "threadId"])
 		/** Thread parents, newest reply first: the sidebar's active threads. Messages without replies have no `lastReplyAt` and sort first. */
@@ -547,6 +551,9 @@ export default defineSchema({
 		startedAt: v.optional(v.number()),
 		/** Set when the turn follows a decision on this approval: it runs the call if approved, then tells the agent. */
 		approvalId: v.optional(v.id("approvals")),
+		/** A wake turn (wakeups.ts): its input is the wakeup, its reply is quiet, and `wakeLogId` is its line in Activity. */
+		wakeupId: v.optional(v.id("wakeups")),
+		wakeLogId: v.optional(v.id("agentActivity")),
 		/** What its pictures cost so far (imageGen.ts), for its reply's stats. */
 		imageCostUsd: v.optional(v.number()),
 		/** What its web searches cost so far (turns.addSearchCost), for its reply's stats. */
@@ -592,11 +599,13 @@ export default defineSchema({
 		workspaceId: v.id("workspaces"),
 		agentId: v.id("agents"),
 		actorId: v.id("users"),
-		turnId: v.id("agentTurns"),
+		/** Unset on a wake's line until (unless) it queues a turn. */
+		turnId: v.optional(v.id("agentTurns")),
 		chatId: v.id("chats"),
 		threadId: v.optional(v.id("chatMessages")),
-		replyId: v.id("chatMessages"),
-		/** Same id as the reply's tool part, so the app can open one from the other. */
+		/** Unset on a wake's line: a wake turn's reply is quiet. */
+		replyId: v.optional(v.id("chatMessages")),
+		/** Same id as the reply's tool part, so the app can open one from the other. A wake's line: the wakeup's id. */
 		callId: v.string(),
 		tool: v.string(),
 		/** False only for read-only tools. */
@@ -609,10 +618,64 @@ export default defineSchema({
 		status: v.union(v.literal("done"), v.literal("error")),
 		/** Calls that would have asked: who allowed it and how. */
 		allowed: v.optional(allowedHow),
+		/** One line per wake (wakeups.ts): what woke and how it went. `tool` is "wakeups.wake". */
+		wake: v.optional(v.object({ wakeupId: v.id("wakeups"), outcome: wakeOutcome, reason: v.optional(v.string()) })),
 	})
 		.index("by_workspace", ["workspaceId"])
 		.index("by_reply", ["replyId"])
 		.index("by_actor", ["actorId"]),
+
+	// An agent waking later, in a place, as a person: when (a time, maybe repeating, or a job finishing,
+	// #114) and what (a note: a follow-up's task; none: look around, #162's heartbeat). One table and one
+	// path to a turn (wakeups.ts `wake`) for all of them.
+	wakeups: defineTable({
+		workspaceId: v.id("workspaces"),
+		agentId: v.id("agents"),
+		chatId: v.id("chats"),
+		threadId: v.optional(v.id("chatMessages")),
+		/** Who it runs for, with their access, read fresh at each wake. */
+		actorId: v.id("users"),
+		/** Who set it up: may cancel it, like the actor and owners. */
+		createdBy: v.id("users"),
+		/** What to do when it wakes. None: look around for anything worth doing (#162). */
+		note: v.optional(v.string()),
+		recordId: v.optional(v.id("records")),
+		/** The record's database, so deleting one forever cancels its records' wakeups. */
+		typeId: v.optional(v.id("recordTypes")),
+		/** Made in a run that followed others' words: its turns ask before `inside` actions (permissions.md). */
+		foreign: v.boolean(),
+		/** `pending` until its last wake (or its job's) or it's cancelled; one that repeats stays pending between wakes. */
+		status: v.union(v.literal("pending"), v.literal("fired"), v.literal("cancelled")),
+		reason: v.optional(v.string()),
+		/**
+		 * When: a time (`at`; with `every` ms it's re-armed after each wake, `times` wakes in all or
+		 * forever), or a job finishing (`jobId`, #114).
+		 */
+		at: v.optional(v.number()),
+		every: v.optional(v.number()),
+		times: v.optional(v.number()),
+		/** Wakes so far. */
+		wakes: v.optional(v.number()),
+		jobId: v.optional(v.string()),
+		/** A job's result (#114), JSON, for the wake turn. */
+		result: v.optional(v.string()),
+		/** Due while its agent, record or chat is in Trash: wakes when it's restored (trashOps). */
+		held: v.optional(v.boolean()),
+		/** The scheduled `fire`, so moving or cancelling it can cancel that too (best effort: `fire` re-checks). */
+		scheduledId: v.optional(v.id("_scheduled_functions")),
+		lastWokeAt: v.optional(v.number()),
+		/** When it fired for good or was cancelled; forgotten 30 days later. */
+		settledAt: v.optional(v.number()),
+	})
+		.index("by_workspace", ["workspaceId", "status", "at"])
+		.index("by_actor", ["workspaceId", "actorId", "status"])
+		.index("by_agent", ["agentId", "status"])
+		.index("by_record", ["recordId", "status"])
+		.index("by_type", ["typeId"])
+		.index("by_chat", ["chatId"])
+		.index("by_held", ["workspaceId", "held"])
+		.index("by_job", ["jobId"])
+		.index("by_settled", ["settledAt"]),
 
 	// A tool call an agent held for approval, shown as a card in its reply (see core approvals.ts).
 	// Locked to `hash` (SHA-256 of the exact tool + input): the approver confirms that hash,

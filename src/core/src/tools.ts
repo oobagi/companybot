@@ -1,5 +1,6 @@
 import type { ManageStore } from "./manage-tools";
 import type { AutomationStore } from "./automation-tools";
+import type { WakeupStore } from "./wakeups";
 import type { FlexibleSchema, JSONValue, Tool } from "ai";
 import type { ChatStore } from "./chat";
 import type { ImageStore } from "./image-tools";
@@ -26,6 +27,8 @@ export interface ToolContext {
 	skills: SkillStore;
 	/** Automations, as the actor can see and make them. */
 	automations: AutomationStore;
+	/** Wakeups: follow-ups the agent sets, and speaking up from a quiet wake turn. */
+	wakeups: WakeupStore;
 	/** Records (the CRM), as the actor may read and change them. */
 	records: RecordStore;
 	/** Pages and records' page bodies, as the actor may read and change them. */

@@ -3,7 +3,7 @@ import type { HelpPage } from "./index";
 export default {
 	id: "automations",
 	title: "Automations",
-	summary: "Jobs agents do on their own: on a schedule, when something happens, or from a webhook.",
+	summary: "Jobs agents do on their own: on a schedule, when something happens, or from a webhook; and follow-ups, when an agent checks back later.",
 	text: `# Automations
 An automation asks an agent to do something without you typing it. Make one in [Automations](#/settings/automations) → New automation, or ask Companybot ("every Monday morning summarize last week").
 
@@ -18,5 +18,14 @@ An automation asks an agent to do something without you typing it. Make one in [
 - **Run now** tests it with sample data. Each automation shows when it last ran and what happened.
 - Anything that leaves Companybot still asks first. In an automation someone else wrote, acting as you asks the first time: see **help: permissions**.
 - The maker or an owner can edit, pause or delete one. Deleted ones go to [Trash](#/settings/trash).
+
+## Follow-ups
+Ask an agent to check back later and it sets a follow-up: "remind me to chase Acme's invoice in 3 days if it's unpaid", "reach out to them in April", "check this deal every Monday for a month".
+- When it's time, the agent wakes in the same chat, acting for the same person, and checks whether it still applies (is the invoice still unpaid?). It gets the record's current values if the follow-up is about one.
+- It's quiet: it posts only when there's something worth telling you. Each time it wakes shows as one line in [Activity](#/settings/activity).
+- Pending follow-ups are listed under Follow-ups in [Automations](#/settings/automations), and on the record they're about. You see the ones in chats you can see; owners see all of them.
+- Cancel one there, or ask the agent. Its person, whoever set it up, or an owner can cancel it. Times use your time zone; one can be at most 2 years ahead.
+- If you leave the workspace, your follow-ups are deleted: they never run as anyone else. One whose record, agent or chat is in Trash waits, and runs once it's restored.
+- One set while an agent was following words you didn't write (a webhook, another person's automation) asks you before acting as you when it wakes, like that automation would.
 `,
 } satisfies HelpPage;

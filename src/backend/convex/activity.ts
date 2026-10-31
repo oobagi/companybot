@@ -111,11 +111,12 @@ async function toEntry(ctx: QueryCtx, row: Doc<"agentActivity">, member: Member,
 		actor: (await names.user(row.actorId)).name,
 		mine,
 		chatId: row.chatId,
-		replyId: row.replyId,
+		replyId: row.replyId ?? null,
 		callId: row.callId,
 		tool: row.tool,
-		/** What it did, for people: "Send SMS with Fake CRM" (the same words as its tool line). */
-		label: `${actionLabel(row.tool, await titleOf(ctx, row.workspaceId, row.tool))}${connector ? ` with ${connector.name}` : ""}`,
+		/** What it did, for people: "Send SMS with Fake CRM" (the same words as its tool line), or how a wake went. */
+		label: row.wake ? wakeLabel(row.wake) : `${actionLabel(row.tool, await titleOf(ctx, row.workspaceId, row.tool))}${connector ? ` with ${connector.name}` : ""}`,
+		wake: row.wake ? { outcome: row.wake.outcome, reason: row.wake.reason ?? null } : null,
 		changes: row.changes,
 		status: row.status,
 		input: row.input,
@@ -133,6 +134,12 @@ async function toEntry(ctx: QueryCtx, row: Doc<"agentActivity">, member: Member,
 				}
 			: null,
 	};
+}
+
+/** A wake's line (wakeups.ts): "Woke up and posted a message", "Woke up, skipped: …". */
+function wakeLabel({ outcome, reason }: NonNullable<Doc<"agentActivity">["wake"]>) {
+	const how = { fired: "running…", skipped: "skipped", ran: "nothing to say", notified: "posted a message", failed: "failed" }[outcome];
+	return `Woke up: ${how}${reason ? `. ${reason}` : ""}`;
 }
 
 /** One bounded indexed page, applying the same chat visibility and output privacy as the app. */

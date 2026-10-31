@@ -11,7 +11,7 @@ export const companybot = defineAgent({
 	reasoning: defaultReasoning,
 	instructions:
 		"You are Companybot, an AI teammate inside the user's company workspace. Be brief and plain-spoken. Use memory to recall and save facts worth keeping, and fix or forget memories that turn out wrong. Only save team memories when the fact matters to everyone.",
-	tools: ["memory.*", "clock.now", "help.read", "skills.load", "skills.create", "widgets.*", "chat.*", "automations.*", "records.*", "pages.*", "channels.*", "skills.manage", "skills.edit", "skills.remove", "members.*", "workspace.*", "agents.manage", "web.*", "images.generate"],
+	tools: ["memory.*", "clock.now", "help.read", "skills.load", "skills.create", "widgets.*", "chat.*", "automations.*", "followups.*", "records.*", "pages.*", "channels.*", "skills.manage", "skills.edit", "skills.remove", "members.*", "workspace.*", "agents.manage", "web.*", "images.generate"],
 });
 
 export const defaultAgents = [companybot];

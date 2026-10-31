@@ -77,6 +77,8 @@ export const list = query({
 				.query("chatMessages")
 				.withIndex("by_chat_thread", (q) => q.eq("chatId", chatId).eq("threadId", threadId))
 				.order("desc")
+				// Wake turns' own replies are never shown (wakeups.ts).
+				.filter((q) => q.neq(q.field("quiet"), true))
 				.take(LIST_LIMIT)
 		).reverse();
 		const names = namer(ctx, { images: true });

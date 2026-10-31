@@ -7,6 +7,8 @@ const crons = cronJobs();
 crons.interval("automations", { minutes: 5 }, internal.automationRuns.tick, {});
 // Forgets webhook delivery ids once senders have stopped retrying them.
 crons.interval("automation webhooks", { hours: 1 }, internal.automationRuns.forgetOldWebhooks);
+// Wakeups that fired or were cancelled a month ago (wakeups.ts).
+crons.interval("wakeups", { hours: 1 }, internal.wakeups.forgetSettled);
 // Connector sign-ins nobody finished.
 crons.interval("connector sign-ins", { hours: 1 }, internal.connectors.forgetExpiredOAuth);
 // Typing rows from people who typed and never sent (typing.ts).

@@ -55,6 +55,10 @@ export type Lifecycle<T extends TableNames> = { [S in Scope]?: Edge<T> } & {
 const inChannel = async (get: Get, row: { chatId: Id<"chats"> }) => (await get(row.chatId))?.kind === "channel";
 const inWorkspace = async (get: Get, id: Id<"chats"> | Id<"automationInstalls">, root: Root) => (await get(id))?.workspaceId === root.workspaceId;
 
+const pending = (_get: Get, row: Doc<"wakeups">) => row.status === "pending";
+/** Cancels a pending wakeup in a cascade: `fire` and `wake` do nothing for it after this. */
+const cancelled = (reason: string) => () => ({ status: "cancelled" as const, reason, held: undefined, settledAt: Date.now() });
+
 /** A record's page body goes with it. */
 async function deleteBody(ctx: MutationCtx, row: Doc<"records">) {
 	const page = await pageOfRecord(ctx, row.workspaceId, row._id);
@@ -247,6 +251,20 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		user: { index: "by_actor", eq: [["actorId", "userId"]], scrub: () => ({ result: undefined }) },
 		keep: "Only the person it acted for can decide one; a removed person's expire undecided, as do ones in a deleted channel.",
+	},
+
+	// ---- Wakeups ----
+	// A person's go with them. Pending ones for something deleted forever are cancelled, saying why;
+	// `wake` re-checks the same at each wake. Settled ones go 30 days later (wakeups.forgetSettled).
+	wakeups: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		// Theirs alone, like their personal memories: nothing ever runs as anyone else (`wake` checks too).
+		member: { index: "by_actor", eq: ["workspaceId", ["actorId", "userId"]] },
+		agent: { index: "by_agent", eq: ["agentId"], where: pending, scrub: cancelled("Its agent was deleted.") },
+		channel: { index: "by_chat", eq: ["chatId"], where: pending, scrub: cancelled("Its chat was deleted.") },
+		record: { index: "by_record", eq: ["recordId"], where: pending, scrub: cancelled("Its record was deleted.") },
+		database: { index: "by_type", eq: ["typeId"], where: pending, scrub: cancelled("Its record was deleted.") },
+		keep: "Fired and cancelled ones stay 30 days for the record, then wakeups.forgetSettled deletes them.",
 	},
 
 	// ---- Automations and permissions ----
