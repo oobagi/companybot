@@ -45,10 +45,13 @@ async function chainOf(ctx: MutationCtx, turn: Doc<"agentTurns">) {
 	return (await ctx.db.get(id))!;
 }
 
-/** Whether this turn may hand off at all: a person asked for it, now or up its chain. */
-async function canHandOff(ctx: QueryCtx, turn: Doc<"agentTurns">) {
-	// Wakes (follow-ups, check-ins, asks' answers) and answers to asks: nobody is asking right now.
-	if (turn.wakeupId || turn.ask) return false;
+/**
+ * Whether a person asked for this turn, now or up its chain: only then may it hand work on. Answers
+ * to asks may ask further (chat.ask_agent, up to CHAIN_MAX_DEPTH) but their @mentions hand nothing.
+ */
+async function personAsked(ctx: QueryCtx, turn: Doc<"agentTurns">) {
+	// Wakes (follow-ups, check-ins, asks' answers): nobody is asking right now.
+	if (turn.wakeupId) return false;
 	const { trigger } = await automationScope(ctx, turn);
 	// Automation runs post as their person, but nobody wrote those words just now.
 	if (trigger?.automation) return false;
@@ -86,7 +89,7 @@ async function agentPostsIn(ctx: QueryCtx, chatId: Id<"chats">, threadId: Id<"ch
  */
 export async function handOff(ctx: MutationCtx, turn: Doc<"agentTurns">) {
 	const reply = turn.replyId && (await ctx.db.get(turn.replyId));
-	if (!reply || reply.status !== "done" || reply.deleted || !(await canHandOff(ctx, turn))) return;
+	if (!reply || reply.status !== "done" || reply.deleted || turn.ask || !(await personAsked(ctx, turn))) return;
 	const chat = await ctx.db.get(turn.chatId);
 	if (!chat || chat.archived) return;
 	const mentioned = mentionedAgents(reply.text, (await reachable(ctx, chat, turn.agentId)).map((a) => ({ id: a._id, name: a.name })));
@@ -224,8 +227,8 @@ export const askFor = internalMutation({
 	handler: async (ctx, { turnId, agent: name, message }) => {
 		const { turn } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
-			if (!(await canHandOff(ctx, turn)))
-				return { error: turn.ask ? "Answer it yourself: you were asked, and your answer goes back to the agent that asked." : "Nobody asked you just now (a follow-up, check-in or automation), so don't ask other agents. Do what you can yourself." };
+			if (!(await personAsked(ctx, turn)))
+				return { error: "Nobody asked you just now (a follow-up, check-in or automation), so don't ask other agents. Do what you can yourself." };
 			const text = message.trim();
 			if (!text) return { error: "Say what you need." };
 			const agents = await ctx.db

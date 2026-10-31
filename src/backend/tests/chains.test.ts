@@ -238,6 +238,25 @@ describe("asking privately (chat.ask_agent)", () => {
 		expect((await turnsOf(t)).filter((x) => x.status !== "done")).toEqual([]);
 	});
 
+	it("an asked agent can ask another, up to 3 deep", async () => {
+		const { t, companybot, scribe, scout, ask } = await setUp();
+		await ask("@Companybot plan the week", companybot);
+		const first = await running(t, companybot);
+		await t.mutation(internal.chains.askFor, { turnId: first._id, agent: "Scribe", message: "What's due?" });
+		const second = await running(t, scribe);
+		const asked = await t.mutation(internal.chains.askFor, { turnId: second._id, agent: "Scout", message: "Any new leads?" });
+		expect(asked).toMatchObject({ asked: "Scout" });
+		expect(await running(t, scout)).toMatchObject({ chain: { depth: 2 } });
+		await t.run(async (ctx) => {
+			const turn = (await ctx.db.query("agentTurns").collect()).find((x) => x.agentId === scout)!;
+			await ctx.db.patch(turn._id, { chain: { ...turn.chain!, depth: 3 } });
+		});
+		const deepest = await running(t, scout);
+		expect(await t.mutation(internal.chains.askFor, { turnId: deepest._id, agent: "Companybot", message: "?" })).toEqual({
+			error: "Not asked: asks can only go 3 deep. Answer with what you have, or ask the person.",
+		});
+	});
+
 	it("refuses in a wake turn, for itself, and an unknown agent", async () => {
 		const { t, member, chatId, companybot, ask } = await setUp();
 		await ask("@Companybot hi", companybot);
