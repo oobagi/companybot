@@ -55,6 +55,8 @@ body {
 .page-editor .bn-editor h1 { font-size: 1.5rem; }
 .page-editor .bn-editor h2 { font-size: 1.25rem; }
 .page-editor .bn-editor h3 { font-size: 1.125rem; }
+.page-editor .bn-block-content[data-content-type="page"] { width: 100%; }
+.page-editor .bn-editor a.page-block-link::before { display: none; }
 
 /* A header or footer over scrolling content (ui.tsx's Scroll): once something is scrolled
    under it, its background fades in, solid behind the bar and dissolving toward the content,

@@ -8,10 +8,6 @@ import { type Member, type Who, nameOf, toActor } from "./lib";
 // (recordOps, pageOps, chatOps, agents, skills, automations, memoryOps) move its items in and out through here; trash.ts lists and
 // deletes for good. See wiki/data.md#trash.
 
-/** Days an item stays in Trash before `trash.sweep` deletes it for good. */
-export const TRASH_DAYS = 30;
-export const TRASH_MS = TRASH_DAYS * 24 * 60 * 60_000;
-
 export type { TrashKind };
 
 /** An item's Trash row. Ids are unique across tables, so the id alone finds it. */
@@ -21,7 +17,7 @@ export const trashEntry = (ctx: QueryCtx, itemId: string) =>
 		.withIndex("by_item", (q) => q.eq("itemId", itemId))
 		.first();
 
-/** Adds an item to Trash, deleted by `who` now. The caller marks the item itself `archived`. */
+/** Adds an item to Archive, deleted by `who` now. The caller marks the item itself `archived`. */
 export async function putInTrash(ctx: MutationCtx, who: Who, item: { kind: TrashKind; id: string; name: string; includesSubpages?: boolean; typeId?: Doc<"trash">["typeId"] }) {
 	await ctx.db.insert("trash", {
 		workspaceId: who.member.workspaceId,
@@ -38,7 +34,7 @@ export async function putInTrash(ctx: MutationCtx, who: Who, item: { kind: Trash
 
 type TrashItem = Parameters<typeof putInTrash>[2];
 
-/** Puts an item in Trash (`archived`) or takes it out, as `who`. The caller patches the item. */
+/** Puts an item in Archive (`archived`) or takes it out, as `who`. The caller patches the item. */
 export const toggleTrash = (ctx: MutationCtx, who: Who, archived: boolean, item: TrashItem) =>
 	archived ? putInTrash(ctx, who, item) : takeFromTrash(ctx, who, item.id);
 
@@ -65,12 +61,12 @@ async function madeBy(ctx: QueryCtx, entry: Doc<"trash">) {
 /** Takes an item out of Trash. Refused unless they can restore it, or once it's being deleted for good. */
 export async function takeFromTrash(ctx: MutationCtx, { member }: Who, itemId: string) {
 	const entry = await trashEntry(ctx, itemId);
-	if (entry?.workspaceId !== member.workspaceId) throw new ConvexError("It's no longer in Trash.");
+	if (entry?.workspaceId !== member.workspaceId) throw new ConvexError("It's no longer in Archive.");
 	if (!(await canRestore(ctx, member, entry))) throw new ConvexError("You can't restore this: it takes the same access as deleting it.");
 	await ctx.db.delete(entry._id);
 }
 
-/** Who deleted an item and when, for its own screen. Null unless it's in Trash. */
+/** Who deleted an item and when, for its own screen. Null unless it's in Archive. */
 export async function trashInfo(ctx: QueryCtx, member: Member, itemId: string) {
 	const entry = await trashEntry(ctx, itemId);
 	if (entry?.workspaceId !== member.workspaceId) return null;

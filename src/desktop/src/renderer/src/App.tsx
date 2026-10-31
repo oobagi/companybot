@@ -127,7 +127,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	// Trash and Customize used to be their own screens.
 	useEffect(() => {
 		if (route[0] === "customize") navigate("settings", ...(route.length > 1 ? route.slice(1) : ["agents"]));
-		if (route[0] === "trash") navigate("settings", "trash");
+		if (route[0] === "trash" || route[0] === "archive" || (route[0] === "settings" && route[1] === "trash")) navigate("settings", "archive");
 	}, [route]);
 	const view: View = views.find((v) => v === route[0]) ?? "chat";
 	const settingsTab = settingsTabs.find((t) => t.id === (settingsTabAliases[route[1] ?? ""] ?? route[1]))?.id ?? "general";

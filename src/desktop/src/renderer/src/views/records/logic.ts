@@ -134,7 +134,7 @@ export function valueText(field: Field | undefined, value: FieldValue | null | u
 		case "link": {
 			const ref = refs[String(value)];
 			if (!ref) return field.kind === "user" ? "Someone" : "…";
-			return ref.archived ? `${ref.name} (deleted)` : ref.name;
+			return ref.archived ? `${ref.name} (archived)` : ref.name;
 		}
 		default:
 			return typeof value === "object" ? JSON.stringify(value) : String(value);
@@ -152,4 +152,4 @@ export function moneyInput(money: Money | undefined, digits: number) {
 export const whoLabel = (entry: { user: string; agent: string | null }) => (entry.agent ? `${entry.agent}, for ${entry.user}` : entry.user);
 
 /** History actions in words. `archived` is the stored name for moving to Trash. */
-export const actionLabels: Record<string, string> = { created: "Created", updated: "Changed", archived: "Deleted", restored: "Restored", deleted: "Deleted" };
+export const actionLabels: Record<string, string> = { created: "Created", updated: "Changed", archived: "Archived", restored: "Restored", deleted: "Deleted" };

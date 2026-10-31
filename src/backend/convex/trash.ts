@@ -1,7 +1,6 @@
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id, TableNames } from "./_generated/dataModel";
-import { internal } from "./_generated/api";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { setAgentTrashed } from "./agents";
 import { canView } from "./automationOps";
@@ -9,22 +8,18 @@ import { removeInstall, setAutomationTrashed } from "./automations";
 import { startCascade } from "./cascade";
 import { canSee, setChannelTrashed } from "./chatOps";
 import { mutation, query } from "./functions";
-import { type Member, type Who, capped, checkPermission, emptyPage, getMember, requireMember, sweepExpired } from "./lib";
+import { type Member, type Who, capped, checkPermission, emptyPage, getMember, requireMember } from "./lib";
 import { deletePage, requirePage, setPageTrashed } from "./pageOps";
 import { setFieldTrashed, setRecordTrashed, setTypeTrashed } from "./recordOps";
 import { trashKind } from "./schema";
 import { deleteMemory, setMemoryTrashed } from "./memoryOps";
 import { setSkillTrashed } from "./skills";
-import { TRASH_MS, type TrashKind, describeTrash, trashEntry } from "./trashOps";
+import { type TrashKind, describeTrash, trashEntry } from "./trashOps";
 
-// Trash: one place for every deleted record, database, field, page, channel, agent, team memory,
-// and skill or automation installs. Deleting moves an item here; anyone who could delete it can
-// restore it, where it was, links included. Owners can delete forever; everything else goes for
-// good after TRASH_DAYS. See wiki/data.md#trash.
+// Archive uses the existing trash storage/API for installed-client compatibility.
+// Items never expire. Owners may explicitly delete them forever.
 
 const PAGE_MAX = 50;
-/** Entries deleted for good per run. Each starts its own cascade, so this only bounds the sweep itself; a full run schedules the next. */
-const SWEEP_MAX = 100;
 
 const tables = {
 	record: "records",
@@ -44,7 +39,7 @@ function idOf<K extends TrashKind>(ctx: MutationCtx, kind: K, id: string) {
 	return itemId as Id<(typeof tables)[K]>;
 }
 
-/** Moves an item to Trash, or back: each kind's own rules decide who may. Agents use the same. */
+/** Moves an item to Archive, or back: each kind's own rules decide who may. Agents use the same. */
 async function setTrashed(ctx: MutationCtx, who: Who, kind: TrashKind, id: string, trashed: boolean) {
 	if (kind === "record") return void (await setRecordTrashed(ctx, who, idOf(ctx, kind, id), trashed));
 	if (kind === "database") return setTypeTrashed(ctx, who, idOf(ctx, kind, id), trashed);
@@ -112,11 +107,11 @@ async function screenIdOf(ctx: QueryCtx, entry: Doc<"trash">) {
 export async function purgeItem(ctx: MutationCtx, member: Member, itemId: string) {
 	checkPermission(member, "trash.manage");
 	const entry = await trashEntry(ctx, itemId);
-	if (entry?.workspaceId !== member.workspaceId || !(await visibleEntry(ctx, member, entry))) throw new ConvexError("It's no longer in Trash.");
+	if (entry?.workspaceId !== member.workspaceId || !(await visibleEntry(ctx, member, entry))) throw new ConvexError("It's no longer in Archive.");
 	await deleteEntry(ctx, entry);
 }
 
-/** What's in Trash, newest first, optionally one kind, or matching words in names (best first, up to 50). */
+/** What's in Archive, newest first, optionally one kind, or matching words in names (best first, up to 50). */
 export const list = query({
 	args: { kind: v.optional(trashKind), search: v.optional(v.string()), paginationOpts: paginationOptsValidator },
 	handler: async (ctx, { kind, search, paginationOpts }) => {
@@ -152,7 +147,7 @@ export const list = query({
 
 const item = { kind: trashKind, id: v.string() };
 
-/** "Delete": moves it to Trash. */
+/** "Delete": moves it to Archive. */
 export const move = mutation({
 	args: item,
 	handler: async (ctx, { kind, id }) => setTrashed(ctx, { member: await requireMember(ctx) }, kind, id, true),
@@ -170,11 +165,8 @@ export const purge = mutation({
 	handler: async (ctx, { id }) => purgeItem(ctx, await requireMember(ctx), id),
 });
 
-/** Runs hourly (crons.ts): deletes for good what's been in Trash for TRASH_DAYS. */
+/** COMPAT: an already-scheduled Trash sweep must never expire archived content. */
 export const sweep = internalMutation({
 	args: {},
-	handler: async (ctx) => {
-		const due = ctx.db.query("trash").withIndex("by_deleted", (q) => q.lt("deletedAt", Date.now() - TRASH_MS));
-		await sweepExpired(ctx, due, (entry) => deleteEntry(ctx, entry), internal.trash.sweep, SWEEP_MAX);
-	},
+	handler: async () => {},
 });

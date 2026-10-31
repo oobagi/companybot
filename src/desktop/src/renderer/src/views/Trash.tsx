@@ -5,13 +5,13 @@ import { useState } from "react";
 import { api } from "../api";
 import { useMutation, usePaginatedQuery } from "../convex";
 import { navigate } from "../router";
-import { TrashIcon } from "../icons";
+import { ArchiveIcon } from "../icons";
 import { useConfirm } from "./chat/common";
 import { EmptyState, LoadMore, NoMatches, Notice, Page, listClass, metadataClass, timeAgo, toolbarClass, useDebounced, useRun, wideControlClass } from "../ui";
 import { recordPath, whoLabel } from "./records/logic";
 
-// Trash: everything people deleted, like Notion's. Anyone who could delete something
-// can restore it; owners can delete forever, and the rest goes 30 days on. See wiki/data.md#trash.
+// Archive keeps content indefinitely. Owners can explicitly delete forever.
+// The existing trash API/storage remains compatible with installed clients.
 
 type TrashRow = FunctionReturnType<typeof api.trash.list>["page"][number];
 type Kind = TrashRow["kind"];
@@ -49,9 +49,9 @@ export function TrashView({ role }: { role: Role }) {
 	const { confirm, dialog } = useConfirm();
 	const canPurge = can(role, "trash.manage");
 	return (
-		<Page title="Trash" description="Everything deleted lands here. It's deleted forever 30 days later.">
+		<Page title="Archive" description="Archived items are kept here until you restore them or explicitly delete them forever.">
 			<div className={toolbarClass}>
-				<input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search Trash" className={wideControlClass} />
+				<input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search Archive" className={wideControlClass} />
 				<Select
 					label="Kind"
 					value={kind}
@@ -99,7 +99,7 @@ export function TrashView({ role }: { role: Role }) {
 					})}
 				</div>
 			)}
-			{status === "Exhausted" && results.length === 0 && (args.search || args.kind ? <NoMatches /> : <EmptyState icon={<TrashIcon />} title="Trash is empty">Nothing has been deleted.</EmptyState>)}
+			{status === "Exhausted" && results.length === 0 && (args.search || args.kind ? <NoMatches /> : <EmptyState icon={<ArchiveIcon />} title="Archive is empty">Items you archive will appear here. Nothing is automatically deleted.</EmptyState>)}
 			<LoadMore status={status} onMore={() => loadMore(25)} />
 		</Page>
 	);
@@ -114,7 +114,7 @@ export function TrashNotice({ trash }: { trash: NonNullable<NonNullable<Function
 			<Notice>{error}</Notice>
 			<div className="flex items-center gap-3 rounded-xl bg-neutral-50 px-4 py-3 text-sm text-neutral-600">
 				<p className="flex-1">
-					In Trash: deleted by {whoLabel(trash)} {timeAgo(trash.at)}. It's deleted forever 30 days after that.
+					Archived by {whoLabel(trash)} {timeAgo(trash.at)}. Its content is kept until you restore it or delete it forever.
 				</p>
 				{trash.canRestore && (
 					<button type="button" onClick={() => run(restore({ kind: trash.kind, id: trash.itemId }))} className="shrink-0 font-medium hover:underline">

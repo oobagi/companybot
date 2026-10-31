@@ -91,15 +91,15 @@ it("isolates every database and view operation across workspaces, including forg
 	await expect(other.mutation(api.databaseViews.save, { ...config, typeId: ownType!._id, viewId, version: 1 })).rejects.toThrow("not found");
 });
 
-it("empties a live view subscription when its database is in Trash, keeping its data and refusing edits", async () => {
+it("empties a live view subscription when its database is in Archive, keeping its data and refusing edits", async () => {
 	const { t, owner } = await ownerAndMember();
 	const typeId = await owner.mutation(api.recordTypes.create, { plural: "Jobs" });
 	const viewId = await owner.mutation(api.databaseViews.save, { ...config, typeId });
 	await owner.mutation(api.recordTypes.update, { typeId, archived: true, version: 0 });
 	expect(await owner.query(api.databaseViews.list, { typeId })).toEqual([]);
 	expect(await t.run((ctx) => ctx.db.get(viewId))).not.toBeNull();
-	await expect(owner.mutation(api.databaseViews.save, { ...config, typeId, viewId, version: 1 })).rejects.toThrow("in Trash");
-	await expect(owner.mutation(api.databaseViews.remove, { viewId, version: 1 })).rejects.toThrow("in Trash");
+	await expect(owner.mutation(api.databaseViews.save, { ...config, typeId, viewId, version: 1 })).rejects.toThrow("in Archive");
+	await expect(owner.mutation(api.databaseViews.remove, { viewId, version: 1 })).rejects.toThrow("in Archive");
 });
 
 it("keeps shared views when their maker leaves, and cascades them with their database", async () => {
@@ -160,7 +160,7 @@ it("agent renames drop archived view fields, preserve timestamp sorts, and still
 	expect(await rename(3)).toMatchObject({ sort: { field: "createdAt", order: "asc" }, version: 4 });
 });
 
-it("shows links into a database in Trash as deleted, still readable and clearable", async () => {
+it("shows links into a database in Archive as deleted, still readable and clearable", async () => {
 	const { t, owner } = await ownerAndMember();
 	const types = await owner.query(api.recordTypes.list);
 	const client = types.find((t) => t.key === "client")!;

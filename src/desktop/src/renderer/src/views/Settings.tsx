@@ -7,7 +7,7 @@ import { useMutation, useQuery } from "../convex";
 import { describeUpdate, desktop, useUpdates } from "../desktop";
 import { navigate } from "../router";
 import { ConflictNotice, Field, Form, Loading, Notice, Page, SaveBar, Setting, Settings, compactPrimaryButton, dangerButton, disabledButtonClass, inputClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../ui";
-import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, SettingsIcon, TrashIcon, UsageIcon, UserIcon } from "../icons";
+import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, SettingsIcon, ArchiveIcon, UsageIcon, UserIcon } from "../icons";
 import { CurrencySelect, Select } from "../controls";
 import { ActivityTab } from "./Activity";
 import { ImagePicker } from "./ImagePicker";
@@ -36,7 +36,7 @@ const sections = [
 			{ id: "memory", label: "Memory", description: "Each agent has its own memory. Team memories are shared, and anyone can fix them. Only you can see your personal memories.", icon: <MemoryIcon /> },
 			{ id: "activity", label: "Activity", description: "Database changes, and what agents did in chats you can see. Agent results show only for what they did for you.", icon: <ActivityIcon /> },
 			{ id: "usage", label: "Usage", description: "What AI has cost this month. Owners see the whole workspace; everyone else sees only their own share.", icon: <UsageIcon /> },
-			{ id: "trash", label: "Trash", icon: <TrashIcon /> },
+			{ id: "archive", label: "Archive", icon: <ArchiveIcon /> },
 		],
 	},
 	{
@@ -55,14 +55,14 @@ export const settingsScope = (tab: SettingsTab) => sections.find((s) => s.tabs.s
  * Other paths that open a tab: the old "profile". Old /customize/<tab> and /trash paths are
  * redirected in App.
  */
-export const settingsTabAliases: Record<string, SettingsTab> = { profile: "preferences" };
+export const settingsTabAliases: Record<string, SettingsTab> = { profile: "preferences", trash: "archive" };
 
 const isCustomize = (tab: SettingsTab): tab is CustomizeTab => customizeTabs.some((t) => t.id === tab);
 
 /** A tab's screen, or with `itemId`, one agent, connector, skill or automation. */
 export function SettingsView({ role, tab, itemId }: { role: Role; tab: SettingsTab; itemId?: string }) {
 	if (isCustomize(tab)) return <CustomizeView role={role} tab={tab} itemId={itemId} />;
-	if (tab === "trash") return <TrashView role={role} />;
+	if (tab === "archive") return <TrashView role={role} />;
 	const current = settingsTabs.find((t) => t.id === tab)!;
 	return (
 		<Page title={current.label} description={(current as { description?: string }).description}>

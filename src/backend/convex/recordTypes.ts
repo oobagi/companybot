@@ -7,7 +7,7 @@ import { createType, fieldsOf, setTypeTrashed, toField, typesOf, updateType } fr
 // Databases: the workspace's data model. Owners add types (`fields.manage`); fields
 // are in fields.ts. See wiki/data.md.
 
-/** Every live type, oldest first, with its fields in order, ones in Trash last and marked `archived`. */
+/** Every live type, oldest first, with its fields in order, ones in Archive last and marked `archived`. */
 export const list = query({
 	args: {},
 	handler: async (ctx) => {

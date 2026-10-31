@@ -191,7 +191,7 @@ describe("page history", () => {
 });
 
 describe("pages", () => {
-	it("are created, renamed, deleted to Trash and deleted forever, content and history too", async () => {
+	it("are created, renamed, deleted to Archive and deleted forever, content and history too", async () => {
 		const { t, owner, member } = await ownerAndMember();
 		const pageId = await member.mutation(api.pages.create, { title: "  Meeting   notes " });
 		await member.mutation(api.pages.rename, { pageId, title: "Weekly notes" });
@@ -200,7 +200,7 @@ describe("pages", () => {
 		await member.mutation(api.trash.move, { kind: "page", id: pageId });
 		expect(await owner.query(api.pages.list, {})).toEqual([]);
 		expect(await member.query(api.pages.get, { pageId })).toMatchObject({ archived: true, canEdit: false, trash: { user: "member@co.com", canRestore: true } });
-		await expect(type(t, member, pageId, "more")).rejects.toThrow("in Trash");
+		await expect(type(t, member, pageId, "more")).rejects.toThrow("in Archive");
 		await expect(member.mutation(api.trash.purge, { id: pageId })).rejects.toThrow("permission");
 		await owner.mutation(api.trash.purge, { id: pageId });
 		await settle(t);
@@ -242,7 +242,7 @@ describe("pages", () => {
 		// Bodies aren't standalone pages.
 		expect(await owner.query(api.pages.list, {})).toEqual([]);
 		await owner.mutation(api.records.archive, { recordId });
-		await expect(type(t, owner, pageId, "x")).rejects.toThrow("record is in Trash");
+		await expect(type(t, owner, pageId, "x")).rejects.toThrow("record is in Archive");
 	});
 });
 
@@ -265,7 +265,7 @@ describe("pages tools", () => {
 		expect(read.doc).toContain("Call for a quote");
 
 		await tools.write({ page: pageId, trash: true });
-		expect(await tools.write({ page: pageId, markdown: "x" }, [paragraph("no")])).toMatchObject({ error: expect.stringContaining("in Trash") });
+		expect(await tools.write({ page: pageId, markdown: "x" }, [paragraph("no")])).toMatchObject({ error: expect.stringContaining("in Archive") });
 		expect(await tools.write({ title: "A", trash: true })).toMatchObject({ error: expect.stringContaining("on its own") });
 	});
 

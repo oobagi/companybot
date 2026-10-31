@@ -4,7 +4,7 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"agents.create": { agent: ["agents.manage:create"], humanOnly: "Default tool grants require direct owner review; agents create without tools." },
 	"agents.update": { agent: ["agents.manage:update"], humanOnly: "Direct owner reviews tool grants and the acting agent's own instructions/model; metadata and other agents' config are covered." },
 	"agents.restore": { humanOnly: "Restores prior grants and execution policy; direct owner review." },
-	"agents.setArchived": { agent: ["agents.manage:delete"], humanOnly: "COMPAT: restoring an agent from Trash restores execution authority and needs a direct owner." },
+	"agents.setArchived": { agent: ["agents.manage:delete"], humanOnly: "COMPAT: restoring an agent from Archive restores execution authority and needs a direct owner." },
 	"approvals.decide": { humanOnly: "Only the acting person can allow once, Always allow, or deny; agents cannot consent to their own calls." },
 	"automationRuns.runNow": { agent: ["automations.manage:run"] },
 	"automations.create": { agent: ["automations.create"] },
@@ -59,7 +59,7 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"trash.move": { agent: ["records.save", "records.save_field", "records.save_database", "pages.write", "channels.manage:delete", "agents.manage:delete", "skills.remove:delete", "automations.remove:delete", "memory.forget"] },
 	"trash.restore": {
 		agent: ["records.save", "records.save_field", "records.save_database", "pages.write", "channels.manage:restore"],
-		humanOnly: "Restoring an agent restores execution authority, and a skill or automation what every agent follows or runs: a direct person restores them from Trash. A forgotten team memory is put back by a person reviewing Trash; agents save it again with memory.remember_for_team.",
+		humanOnly: "Restoring an agent restores execution authority, and a skill or automation what every agent follows or runs: a direct person restores them from Archive. A forgotten team memory is put back by a person reviewing Trash; agents save it again with memory.remember_for_team.",
 	},
 	"trash.purge": { humanOnly: "Only a direct owner may delete forever; agents never purge." },
 	"pageSync.submitSteps": { agent: ["pages.write"] },

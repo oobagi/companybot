@@ -62,7 +62,7 @@ function pickOne<T>(matches: T[], what: string, describe: (m: T) => string) {
 	return matches[0];
 }
 
-/** A type by id or key, else by name or plural ("deal", "Deals"). Ambiguous names are refused. `trashed`: one in Trash. */
+/** A type by id or key, else by name or plural ("deal", "Deals"). Ambiguous names are refused. `trashed`: one in Archive. */
 async function typeNamed(ctx: QueryCtx, member: Member, name: string, trashed = false) {
 	const types = trashed ? (await typesOf(ctx, member.workspaceId)).filter((t) => t.archived) : await liveTypes(ctx, member);
 	const raw = name.trim();
@@ -79,7 +79,7 @@ async function typeNamed(ctx: QueryCtx, member: Member, name: string, trashed = 
 	return type;
 }
 
-/** A live field (or, `trashed`, one in Trash) by exact key, else by label. A label two fields could match is refused. */
+/** A live field (or, `trashed`, one in Archive) by exact key, else by label. A label two fields could match is refused. */
 function fieldNamed(fields: Doc<"recordFields">[], name: string, type: Doc<"recordTypes">, trashed = false) {
 	const live = fields.filter((f) => f.archived === trashed);
 	const raw = name.trim();

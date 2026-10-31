@@ -6,9 +6,9 @@ import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { DatabaseIcon, HistoryIcon, TrashIcon } from "../../icons";
-import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, barButton, barDangerButton, cardClass, descriptionClass, listClass, metadataClass, timeAgo, useRun } from "../../ui";
-import { Modal } from "../chat/common";
+import { ArchiveIcon, DatabaseIcon, HistoryIcon } from "../../icons";
+import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, barButton, cardClass, descriptionClass, listClass, metadataClass, timeAgo, useRun } from "../../ui";
+import { Modal, archiveQuestion, useConfirm } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { PageEditor } from "../pages/PageEditor";
 import { PageHistory } from "../pages/PageHistory";
@@ -27,6 +27,7 @@ export function RecordPage({ type, recordId, role }: { type: RecordType; recordI
 	const pageId = useQuery(api.pages.forRecord, { recordId });
 	const [history, setHistory] = useState(false);
 	const remove = useMutation(api.trash.move);
+	const { confirm, dialog } = useConfirm();
 	const update = useMutation(api.records.update);
 	const { error, run } = useRun();
 	const crumbs = [{ label: type.plural, to: recordPath(type.key) }];
@@ -46,14 +47,15 @@ export function RecordPage({ type, recordId, role }: { type: RecordType; recordI
 						<HistoryIcon /> History
 					</button>
 					{canEdit && !record.archived && (
-						<button type="button" onClick={() => run(remove({ kind: "record", id: recordId }))} className={barDangerButton}>
-							<TrashIcon /> Delete
+						<button type="button" onClick={() => confirm(archiveQuestion(record.title, () => remove({ kind: "record", id: recordId })))} className={barButton}>
+							<ArchiveIcon /> Archive
 						</button>
 					)}
 				</>
 			}
 		>
 			<Notice>{error}</Notice>
+			{dialog}
 			{record.trash && <TrashNotice trash={record.trash} />}
 			<Fields type={type} record={record} role={role} editable={canEdit && !record.archived} />
 			<Body recordId={recordId} pageId={pageId} editable={can(role, "pages.edit") && !record.archived} />
@@ -232,11 +234,13 @@ function Discussion({ recordId }: { recordId: Id<"records"> }) {
 function History({ type, recordId, canUndo }: { type: RecordType; recordId: Id<"records">; canUndo: boolean }) {
 	const { results, status, loadMore } = usePaginatedQuery(api.records.history, { recordId }, { initialNumItems: 20 });
 	const undo = useMutation(api.records.undo);
+	const { confirm, dialog } = useConfirm();
 	const { error, run } = useRun();
 	const fields = type.fields as TypeField[];
 	if (status === "LoadingFirstPage") return null;
 	return (
 		<Section title="Property changes">
+			{dialog}
 			<Notice>{error}</Notice>
 			<div className="flex flex-col gap-2">
 				{results.map((e) => (
@@ -249,7 +253,7 @@ function History({ type, recordId, canUndo }: { type: RecordType; recordId: Id<"
 								<span className={metadataClass}>Undone</span>
 							) : (
 								canUndo && (
-									<button type="button" onClick={() => run(undo({ historyId: e._id }))} className="text-xs text-neutral-500 hover:text-neutral-900">
+									<button type="button" onClick={() => e.action === "created" || e.action === "restored" ? confirm(archiveQuestion("this record", () => undo({ historyId: e._id }), "Undoing this change archives the record.")) : run(undo({ historyId: e._id }))} className="text-xs text-neutral-500 hover:text-neutral-900">
 										Undo
 									</button>
 								)

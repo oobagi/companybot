@@ -104,6 +104,15 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 	const footer = (
 		<div className="flex flex-col gap-2 px-5 pt-4 pb-7">
 			<Notice>{error}</Notice>
+			{agent && messages?.length === 0 && !chat.trash && (
+				<div className="flex flex-col items-start gap-2 pb-2" aria-label="Suggested messages">
+					{suggestions.map((suggestion) => (
+						<button type="button" key={suggestion} onClick={() => send(suggestion, { userIds: [], agentIds: [], skillIds: [] })} className="max-w-full rounded-xl border border-neutral-200 px-3 py-2 text-left text-sm text-neutral-600 transition-colors hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400">
+							{suggestion}
+						</button>
+					))}
+				</div>
+			)}
 			{chat.trash ? <TrashNotice trash={chat.trash} /> : composer}
 		</div>
 	);
@@ -143,27 +152,6 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 					<>
 						{bar}
 						<Loading />
-					</>
-				) : agent && messages.length === 0 ? (
-					<>
-						{bar}
-						<div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 pb-24">
-							<h1 className="text-2xl font-medium tracking-tight">What can {agent.name} do for you?</h1>
-							<div className="w-full max-w-2xl">{composer}</div>
-							<div className="flex max-w-xl flex-wrap justify-center gap-2">
-								{suggestions.map((s) => (
-									<button
-										type="button"
-										key={s}
-										onClick={() => send(s, { userIds: [], agentIds: [], skillIds: [] })}
-										className="rounded-full border border-neutral-200 px-3 py-1.5 text-sm text-neutral-600 hover:bg-neutral-50"
-									>
-										{s}
-									</button>
-								))}
-							</div>
-							<Notice>{error}</Notice>
-						</div>
 					</>
 				) : messages.length === 0 ? (
 					<Scroll header={bar} footer={footer}>

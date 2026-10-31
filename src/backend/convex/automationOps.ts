@@ -37,7 +37,7 @@ export function automationName(install: Doc<"automationInstalls">) {
 	return (install.definition ?? legacyAutomation(install.automationId))?.name ?? install.automationId;
 }
 
-/** An automation's install, unless it's in Trash: one there is gone to everything but Trash. */
+/** An automation's install, unless it's in Archive: one there is gone to everything but Trash. */
 export const installOf = async (ctx: QueryCtx, workspaceId: Id<"workspaces">, automationId: string) => {
 	const install = await ctx.db
 		.query("automationInstalls")
@@ -46,7 +46,7 @@ export const installOf = async (ctx: QueryCtx, workspaceId: Id<"workspaces">, au
 	return install?.archived ? null : install;
 };
 
-/** The workspace's installs this person can see; ones in Trash only if `trashed`. */
+/** The workspace's installs this person can see; ones in Archive only if `trashed`. */
 export const visibleInstalls = async (ctx: QueryCtx, member: Member, trashed = false) =>
 	(
 		await ctx.db

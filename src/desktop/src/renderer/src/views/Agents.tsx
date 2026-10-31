@@ -11,9 +11,10 @@ import { ItemList, Missing, customizeCrumbs } from "./customize/shared";
 import { ImagePicker } from "./ImagePicker";
 import { modelNote } from "@companybot/core/models";
 import { ModelPicker } from "./ModelPicker";
+import { archiveQuestion, useConfirm } from "./chat/common";
 import { TrashNotice } from "./Trash";
-import { AgentIcon, TrashIcon } from "../icons";
-import { ConflictNotice, type Crumb, Field, Loading, Notice, Page, SaveBar, Section, barDangerButton, cardClass, descriptionClass, inputClass, metadataClass, timeAgo, useDraft, useRun } from "../ui";
+import { AgentIcon, ArchiveIcon } from "../icons";
+import { ConflictNotice, type Crumb, Field, Loading, Notice, Page, SaveBar, Section, barButton, cardClass, descriptionClass, inputClass, metadataClass, timeAgo, useDraft, useRun } from "../ui";
 
 type Agent = FunctionReturnType<typeof api.agents.list>[number];
 
@@ -62,6 +63,7 @@ function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean;
 	const options = useQuery(api.agents.options);
 	const update = useMutation(api.agents.update);
 	const remove = useMutation(api.trash.move);
+	const { confirm, dialog } = useConfirm();
 	const draft = useDraft(pickAgentConfig(agent), agent.version);
 	const { error, run } = useRun();
 	const config = draft.value;
@@ -85,14 +87,15 @@ function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean;
 				isOwner && !agent.archived && (
 					<button
 						type="button"
-						onClick={() => run(remove({ kind: "agent", id: agent._id }), () => navigate("settings", "agents"))}
-						className={barDangerButton}
+						onClick={() => confirm(archiveQuestion(agent.name, () => remove({ kind: "agent", id: agent._id }).then(() => navigate("settings", "agents")), "The agent will stop responding."))}
+						className={barButton}
 					>
-						<TrashIcon /> Delete
+						<ArchiveIcon /> Archive
 					</button>
 				)
 			}
 		>
+			{dialog}
 			{agent.trash && <TrashNotice trash={agent.trash} />}
 			<ConflictNotice draft={draft} who={agent.updatedByName} />
 			<Notice>{error}</Notice>

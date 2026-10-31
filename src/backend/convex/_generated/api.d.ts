@@ -48,6 +48,7 @@ import type * as migrations from "../migrations.js";
 import type * as modelCatalog from "../modelCatalog.js";
 import type * as oauth from "../oauth.js";
 import type * as onboarding from "../onboarding.js";
+import type * as pageBlocks from "../pageBlocks.js";
 import type * as pageMarkdown from "../pageMarkdown.js";
 import type * as pageOps from "../pageOps.js";
 import type * as pageSync from "../pageSync.js";
@@ -120,6 +121,7 @@ declare const fullApi: ApiFromModules<{
   modelCatalog: typeof modelCatalog;
   oauth: typeof oauth;
   onboarding: typeof onboarding;
+  pageBlocks: typeof pageBlocks;
   pageMarkdown: typeof pageMarkdown;
   pageOps: typeof pageOps;
   pageSync: typeof pageSync;

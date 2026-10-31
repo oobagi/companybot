@@ -83,11 +83,11 @@ export const forRecord = query({
 
 /** A standalone page, or a record's body (its existing one, if any). */
 export const create = mutation({
-	args: { title: v.optional(v.string()), recordId: v.optional(v.id("records")), parentId: v.optional(v.id("pages")) },
-	handler: async (ctx, { title, recordId, parentId }) => {
+	args: { title: v.optional(v.string()), recordId: v.optional(v.id("records")), parentId: v.optional(v.id("pages")), insertInParent: v.optional(v.boolean()) },
+	handler: async (ctx, { title, recordId, parentId, insertInParent }) => {
 		if (recordId && parentId) throw new ConvexError("Record bodies can't be nested.");
 		const who = { member: await requireMember(ctx) };
-		return createPage(ctx, who, recordId ? { recordId } : { title: title ?? "", parentId });
+		return createPage(ctx, who, recordId ? { recordId } : { title: title ?? "", parentId, insertInParent });
 	},
 });
 
@@ -179,7 +179,7 @@ export const setArchived = mutation({
 	},
 });
 
-// COMPAT(0.1.0-alpha.8): old apps delete live pages to Trash; only owners delete trashed pages forever.
+// COMPAT(0.1.0-alpha.8): old apps delete live pages to Archive; only owners delete trashed pages forever.
 export const remove = mutation({
 	args: { pageId: v.id("pages") },
 	handler: async (ctx, { pageId }) => {

@@ -20,8 +20,8 @@ export const migrations = new Migrations<DataModel>(components.migrations);
 // Migrations that shipped in a release ran on prod then, and are deleted after: the component
 // keys finished runs by name, so a retired one never runs again.
 
-// Archiving agents became Delete (Trash): archived ones go to Trash as deleted now, by whoever last
-// changed them, so they get the full 30 days. Small batches: even 1 MiB legacy documents fit.
+// Archiving agents became Delete (Trash): archived ones go to Archive as deleted now, by whoever last
+// changed them. Archived content now stays indefinitely. Small batches: even 1 MiB legacy documents fit.
 export const trashAgents = migrations.define({
 	table: "agents",
 	batchSize: 8,

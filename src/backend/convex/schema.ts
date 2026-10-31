@@ -242,7 +242,7 @@ export default defineSchema({
 		updatedByAgent: v.optional(v.boolean()),
 		/** Who first saved it. Missing on memories from before it was kept: read as `updatedBy`. */
 		createdBy: v.optional(v.id("users")),
-		/** True while a team memory is in Trash (the `trash` table says who deleted it, and when); unset otherwise, which reads filter on by index. */
+		/** True while a team memory is in Archive (the `trash` table says who deleted it, and when); unset otherwise, which reads filter on by index. */
 		archived: v.optional(v.literal(true)),
 		version: v.number(),
 		/** Retained for stored rows: no migration cleared this retired cleanup timestamp. */
@@ -251,7 +251,7 @@ export default defineSchema({
 		.index("by_workspace", ["workspaceId", "archived"])
 		// One person's personal memories in a workspace (team memories have no owner).
 		.index("by_owner", ["ownerId", "workspaceId"])
-		// Newest first within a scope, across owners (lists), or one owner's personal memories (never in Trash).
+		// Newest first within a scope, across owners (lists), or one owner's personal memories (never in Archive).
 		.index("by_agent_scope", ["agentId", "scope", "archived"])
 		.index("by_agent_owner", ["agentId", "scope", "ownerId"])
 		// Agent search over every memory, however many (memoryOps.searchMemories).
@@ -374,7 +374,7 @@ export default defineSchema({
 				updatedAt: v.number(),
 			}),
 		),
-		/** Skills: in Trash (the `trash` table says who deleted it, and when). Agents don't see it. */
+		/** Skills: in Archive (the `trash` table says who deleted it, and when). Agents don't see it. */
 		archived: v.optional(v.boolean()),
 	}).index("by_workspace", ["workspaceId", "skillId"]),
 
@@ -662,7 +662,7 @@ export default defineSchema({
 				updatedAt: v.number(),
 			}),
 		),
-		/** Automations: in Trash (the `trash` table says who deleted it, and when). Nothing triggers it. */
+		/** Automations: in Archive (the `trash` table says who deleted it, and when). Nothing triggers it. */
 		archived: v.optional(v.boolean()),
 	})
 		.index("by_workspace", ["workspaceId", "automationId"])
@@ -919,7 +919,7 @@ export default defineSchema({
 		.index("by_message", ["messageId"])
 		.index("by_chat", ["chatId"]),
 
-	// What's in Trash: one row per deleted record, database, field, page, channel, agent, or skill or automation people made (trash.ts).
+	// What's in Archive: one row per deleted record, database, field, page, channel, agent, or skill or automation people made (trash.ts).
 	// The item itself stays, `archived`, until it's restored or deleted for good: by an owner,
 	// or after TRASH_DAYS by `trash.sweep`. See wiki/data.md#trash.
 	trash: defineTable({

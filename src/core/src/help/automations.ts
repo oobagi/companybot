@@ -17,6 +17,6 @@ An automation asks an agent to do something without you typing it. Make one in [
 - Runs act with the rights of the person they run for, and post in their DM with the agent (or once in the channel).
 - **Run now** tests it with sample data. Each automation shows when it last ran and what happened.
 - Anything that leaves Companybot still asks first. In an automation someone else wrote, acting as you asks the first time: see **help: permissions**.
-- The maker or an owner can edit, pause or delete one. Deleted ones go to [Trash](#/settings/trash).
+- The maker or an owner can edit, pause or delete one. Deleted ones go to [Archive](#/settings/archive).
 `,
 } satisfies HelpPage;

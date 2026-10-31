@@ -77,7 +77,7 @@ export const list = query({
 				image: await imageUrl(ctx, a.image),
 				updatedByName: names.get(a.updatedBy) ?? "",
 				access: describeToolAccess(a, toActor(member), connectors),
-				/** Set while it's in Trash: who deleted it, when, and whether you can restore it. */
+				/** Set while it's in Archive: who deleted it, when, and whether you can restore it. */
 				trash: a.archived ? await trashInfo(ctx, member, a._id) : null,
 			})),
 		);
@@ -180,7 +180,7 @@ export async function updateAgent(ctx: MutationCtx, member: Member, agentId: Id<
 }
 
 /**
- * Moves an agent to Trash, or back (owners). In Trash it leaves chat and runs nothing; its chats
+ * Moves an agent to Archive, or back (owners). In Trash it leaves chat and runs nothing; its chats
  * and memories stay until it's deleted forever. The last agent stays: automations and chat need one.
  */
 export async function setAgentTrashed(ctx: MutationCtx, who: Who, agentId: Id<"agents">, archived: boolean) {

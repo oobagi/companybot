@@ -4,7 +4,7 @@ import { useState } from "react";
 import { api } from "../api";
 import { useAction, useMutation, useQuery } from "../convex";
 import { Loading, Notice, Section, Setting, Settings, cardClass, hintClass, metadataClass, secondaryButton, useRun, wideControlClass } from "../ui";
-import { Confirm } from "./chat/common";
+import { Confirm, useConfirm } from "./chat/common";
 
 // What agents may do without asking: your own Always / Never per action (Your preferences,
 // and each connector's page), owners' workspace locks, and runtime automation approvals. The rules themselves live in the backend (permissions.ts) and apply from
@@ -19,6 +19,7 @@ export function YourPermissions() {
 	const rules = useQuery(api.permissions.mine);
 	const set = useMutation(api.permissions.set);
 	const remove = useMutation(api.permissions.remove);
+	const { confirm, dialog } = useConfirm();
 	const { error, run } = useRun();
 	if (!rules) return <Loading />;
 	return (
@@ -26,6 +27,7 @@ export function YourPermissions() {
 			title="Yours"
 			hint="Actions you've set to run without asking, or never, in this workspace."
 		>
+			{dialog}
 			<Notice>{error}</Notice>
 			{rules.length === 0 && <p className={hintClass}>Nothing yet. Everything asks first.</p>}
 			{rules.map((r) => (
@@ -38,7 +40,7 @@ export function YourPermissions() {
 						<p className="text-neutral-500">{r.text}</p>
 					</div>
 					{r.automation ? (
-						<button type="button" onClick={() => run(remove({ ruleId: r._id }))} className="text-neutral-500 hover:text-red-600">
+						<button type="button" onClick={() => confirm({ title: "Remove this permission?", action: "Remove permission", danger: false, body: "The automation will ask again before this action runs.", onConfirm: () => remove({ ruleId: r._id }) })} className="text-neutral-500 hover:text-red-600">
 							Remove
 						</button>
 					) : (

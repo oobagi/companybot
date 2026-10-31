@@ -44,7 +44,7 @@ beforeEach(async () => {
 	};
 	await act(async () => {
 		root = create(createElement(WorkspaceRail), {
-			createNodeMock: () => ({ getBoundingClientRect: () => bounds }),
+			createNodeMock: () => ({ getBoundingClientRect: () => bounds, contains: () => false, querySelector: () => null, focus() {} }),
 		});
 	});
 });

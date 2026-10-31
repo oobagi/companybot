@@ -55,7 +55,7 @@ export const list = query({
 	},
 });
 
-/** One record with its type and fields, or null if it isn't in your workspace. `archived`: in Trash, on its own or with its database. */
+/** One record with its type and fields, or null if it isn't in your workspace. `archived`: in Archive, on its own or with its database. */
 export const get = query({
 	args: { recordId: v.id("records") },
 	handler: async (ctx, { recordId }) => {
@@ -75,7 +75,7 @@ export const get = query({
 	},
 });
 
-/** Live records that link to this one ("deals for this client"), optionally through one field. None if it's in Trash. */
+/** Live records that link to this one ("deals for this client"), optionally through one field. None if it's in Archive. */
 export const linked = query({
 	args: { recordId: v.id("records"), fieldId: v.optional(v.id("recordFields")), paginationOpts: paginationOptsValidator },
 	handler: async (ctx, { recordId, fieldId, paginationOpts }) => {

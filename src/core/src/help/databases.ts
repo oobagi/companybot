@@ -26,6 +26,6 @@ Each database has its own entry under Databases in the sidebar; its address is #
 Ask Companybot to find, add, change or delete records, or add fields ("start tracking roof type on clients"). It acts as you, and its changes appear in history and [Activity](#/settings/activity).
 
 ## Deleting
-Deleted records, databases and fields go to [Trash](#/settings/trash) for 30 days.
+Deleted records, databases and fields go to [Archive](#/settings/archive).
 `,
 } satisfies HelpPage;

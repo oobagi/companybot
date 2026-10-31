@@ -2,11 +2,12 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery, useWorkspace } from "../../convex";
-import { CaretRightIcon, MoreIcon, PageIcon, PlusIcon, TrashIcon } from "../../icons";
+import { ArchiveIcon, CaretRightIcon, MoreIcon, PageIcon, PlusIcon } from "../../icons";
 import { navigate } from "../../router";
 import { LoadMore, Notice, primaryButton, secondaryButton, useRun } from "../../ui";
 import { AddButton, Group, Item, type SectionProps, trailingAction } from "../chat/Sidebar";
-import { MenuItem, Modal, Popover } from "../chat/common";
+import { MenuItem, Modal, Popover, archiveQuestion, useConfirm } from "../chat/common";
+import { RenamePage } from "./PageTitle";
 
 type PageId = Id<"pages">;
 type Row = { _id: PageId; title: string; hasChildren?: boolean };
@@ -36,8 +37,10 @@ function PageNavTree({ openId, section, storageKey }: { openId?: string; section
 		});
 	}, []);
 	const [moving, setMoving] = useState<Row>();
+	const [renaming, setRenaming] = useState<Row>();
 	const create = useMutation(api.pages.create);
 	const remove = useMutation(api.trash.move);
+	const { confirm, dialog } = useConfirm();
 	const { error, run } = useRun();
 	const toggle = (id: string, open = !expanded.has(id)) => {
 		setExpanded((before) => {
@@ -55,7 +58,7 @@ function PageNavTree({ openId, section, storageKey }: { openId?: string; section
 				<Fragment key={p._id}>
 					<Item icon={p.hasChildren ? <><PageIcon className="group-hover/item:hidden" />{chevron}</> : <PageIcon />} indent={depth} active={p._id === openId} onClick={() => navigate("pages", p._id)} actions={<>
 						<Popover trigger={<MoreIcon />} label={`Page actions for ${p.title}`} className={trailingAction} panelClassName="w-44 p-1">
-							{(close) => <><MenuItem onClick={() => { close(); setMoving(p); }}>Move to…</MenuItem><MenuItem danger onClick={() => { close(); run(remove({ kind: "page", id: p._id })); }}><TrashIcon /> Delete</MenuItem></>}
+							{(close) => <><MenuItem onClick={() => { close(); setRenaming(p); }}>Rename</MenuItem><MenuItem onClick={() => { close(); setMoving(p); }}>Move to…</MenuItem><MenuItem onClick={() => { close(); confirm(archiveQuestion(p.title, () => remove({ kind: "page", id: p._id }), "Its sub-pages will be archived with it.")); }}><ArchiveIcon /> Archive</MenuItem></>}
 						</Popover>
 						<button type="button" title="Add a page inside" aria-label={`Add a page inside ${p.title}`} onClick={() => add(p._id)} className={trailingAction}><PlusIcon /></button>
 					</>}>
@@ -70,8 +73,10 @@ function PageNavTree({ openId, section, storageKey }: { openId?: string; section
 		<Group title="Pages" section={section} add={<AddButton label="New page" onClick={() => add()} />}>
 			{batches.map((ids, i) => <PruneExpanded key={i} ids={ids} onPrune={prune} />)}
 			{!section.collapsed && level()}
+			{dialog}
 			<Notice>{error}</Notice>
 			{moving && <MovePage page={moving} onClose={() => setMoving(undefined)} />}
+			{renaming && <RenamePage page={renaming} onClose={() => setRenaming(undefined)} />}
 		</Group>
 	);
 }

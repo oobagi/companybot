@@ -330,7 +330,7 @@ function AutomationDetail({ automation: a, canManage }: { automation: Automation
 			installed={a.installed}
 			trash={a.trash}
 			canManage={canManage}
-			confirmation="It stops running. You can restore it from Trash for 30 days."
+			confirmation="It stops running. Its content is kept in Archive, and you can restore it at any time."
 			busy={busy}
 			onToggle={() => run(remove({ automationId: a.id }))}
 		>
