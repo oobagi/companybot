@@ -52,6 +52,7 @@ export const showSending: OptimisticUpdate<FunctionArgs<typeof api.messages.send
 		attachments: [],
 		linkPreviews: [],
 		pause: null,
+		ask: null,
 		sending: { files: attachments.length },
 	};
 	store.setQuery(api.messages.list, args, [...list, message]);

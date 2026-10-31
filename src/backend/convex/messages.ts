@@ -67,6 +67,8 @@ export type Message = {
 	 * the only one who can Continue or Stop (`canDecide`). `by`: who did.
 	 */
 	pause: { status: "paused" | "continued" | "stopped"; for: string; by: string | null; canDecide: boolean } | null;
+	/** An agent's ask of another (chat.ask_agent): who asked whom. Kept out of the timeline; its thread shows read-only. */
+	ask: { from: string; to: string } | null;
 };
 
 const LIST_LIMIT = 200;
@@ -136,6 +138,8 @@ async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, 
 		attachments: await Promise.all((m.attachments ?? []).map(async ({ storageId, ...file }) => ({ ...file, url: await ctx.storage.getUrl(storageId) }))),
 		linkPreviews: await previewsOf(ctx, m),
 		pause: await pauseOf(ctx, m, member, names),
+		// Only an ask is quiet and still listed: as its thread's parent.
+		ask: m.quiet && m.authorAgentId ? { from: (await names.agent(m.authorAgentId)).name, to: (await names.agent(m.mentions.agentIds[0]!)).name } : null,
 	};
 }
 

@@ -460,6 +460,8 @@ export default defineSchema({
 		agentId: v.optional(v.id("agents")),
 		/** People only: newest message time they've seen in the main timeline. */
 		lastReadAt: v.optional(v.number()),
+		/** People only: when they closed this DM (chats.closeDm). Out of their sidebar until a newer message, or they open it again. */
+		closedAt: v.optional(v.number()),
 	})
 		.index("by_chat", ["chatId"])
 		.index("by_workspace", ["workspaceId", "userId"])

@@ -234,7 +234,8 @@ export async function findOrCreateDm(
 
 /**
  * Stores a message and updates its place: the chat's `lastMessageAt` for the main
- * timeline, the parent's reply count for a thread.
+ * timeline, the parent's reply count for a thread. A quiet parent (an ask, chains.ts) is never
+ * shown, so its thread stays out of the sidebar's active threads.
  */
 export async function insertMessage(
 	ctx: MutationCtx,
@@ -245,7 +246,7 @@ export async function insertMessage(
 	const now = Date.now();
 	if (message.threadId) {
 		const parent = await ctx.db.get(message.threadId);
-		if (parent) {
+		if (parent && !parent.quiet) {
 			const author = authorOf(message);
 			const others = (await replyAuthorsOf(ctx, parent)).filter((a) => a.userId !== author.userId || a.agentId !== author.agentId);
 			await ctx.db.patch(parent._id, { replyCount: (parent.replyCount ?? 0) + 1, lastReplyAt: now, replyAuthors: [author, ...others].slice(0, 3) });

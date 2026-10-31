@@ -22,6 +22,7 @@ export function MessageRow({
 	grouped,
 	tokens,
 	onOpenThread,
+	readOnly,
 	onError,
 }: {
 	message: Message;
@@ -31,6 +32,8 @@ export function MessageRow({
 	tokens: TokenNames;
 	/** Absent inside a thread: threads are one level deep. */
 	onOpenThread?: () => void;
+	/** No hover actions, and reactions only show. */
+	readOnly?: boolean;
 	onError: (e: unknown) => void;
 }) {
 	// A reply streams into its own small query (backend replyStreams): only this row re-renders per token.
@@ -116,7 +119,7 @@ export function MessageRow({
 									type="button"
 									key={r.emoji}
 									title={r.names.join(", ")}
-									onClick={() => toggle(r.emoji)}
+									onClick={readOnly ? undefined : () => toggle(r.emoji)}
 									className={`flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-sm tabular-nums ${
 										r.mine ? "border-neutral-400 bg-neutral-100 text-neutral-900" : "border-neutral-200 text-neutral-600 hover:border-neutral-300"
 									}`}
@@ -141,7 +144,7 @@ export function MessageRow({
 						</button>
 					) : null}
 				</div>
-				{!message.deleted && !editing && !sending && (
+				{!message.deleted && !editing && !sending && !readOnly && (
 					<div
 						ref={toolbar}
 						className={`absolute -top-3 right-5 z-10 items-center rounded-lg border border-neutral-200 bg-white p-0.5 shadow-sm ${
@@ -306,7 +309,7 @@ function ToolPart({ replyId, part, author }: { replyId: Message["_id"]; part: To
 	// Replies from before tool lines had labels: make one from the name.
 	const label = toolLine(part.label ?? (part.name === "connectors_search" ? "Look up connected actions" : actionLabel(part.name)), part.status);
 	if (part.status === "running") return <p className="text-xs text-neutral-400">{label}</p>;
-	// A call that made a thread (an ask to another agent) is a chip that opens it: "Scout asked Quill →".
+	// A call that made a thread (an ask to another agent) is a chip that opens it, read-only: "Scout asked Quill →".
 	if (part.opens) {
 		const { chatId, messageId } = part.opens;
 		return (

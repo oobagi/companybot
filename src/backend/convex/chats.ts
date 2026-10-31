@@ -103,7 +103,10 @@ export const list = query({
 			const chat = await ctx.db.get(row.chatId);
 			if (!chat || chat.archived || chat.workspaceId !== member.workspaceId) continue;
 			createdAt.set(chat._id, chat._creationTime);
-			items.push(await toChatItem(ctx, chat, member, names, row, chat.kind === "dm" ? await chatMembersOf(ctx, chat._id) : []));
+			const item = await toChatItem(ctx, chat, member, names, row, chat.kind === "dm" ? await chatMembersOf(ctx, chat._id) : []);
+			// Closed (closeDm): back once something new arrives there.
+			if (row.closedAt !== undefined && item.lastMessageAt <= row.closedAt && !item.mentioned) continue;
+			items.push(item);
 		}
 		// DMs most recent first; side chats in the order they were made, so a new tab lands at the end.
 		const dms = items.filter((c) => c.kind === "dm" && !c.parentId).sort((a, b) => b.lastMessageAt - a.lastMessageAt);
@@ -379,8 +382,28 @@ export async function openDirectMessage(ctx: MutationCtx, member: Member, args: 
 	const agentIds = [...new Set(args.agentIds)];
 	await requireWorkspaceUsers(ctx, member.workspaceId, userIds);
 	await requireActiveAgents(ctx, member.workspaceId, agentIds);
-	return findOrCreateDm(ctx, member.workspaceId, member.userId, userIds, agentIds);
+	const chatId = await findOrCreateDm(ctx, member.workspaceId, member.userId, userIds, agentIds);
+	// Opening a DM you closed puts it back in your sidebar.
+	const row = await membership(ctx, chatId, member.userId);
+	if (row?.closedAt !== undefined) await ctx.db.patch(row._id, { closedAt: undefined });
+	return chatId;
 }
+
+/**
+ * Closes a DM or group DM in your sidebar only, as Slack does: the messages stay, and it's back
+ * when someone writes there or you open it again. Not a DM with an agent: that's how you reach it.
+ */
+export const closeDm = mutation({
+	args: { chatId: v.id("chats") },
+	handler: async (ctx, { chatId }) => {
+		const member = await requireMember(ctx);
+		const chat = await requireChat(ctx, member, chatId);
+		if (chat.kind !== "dm" || chat.parentId) throw new ConvexError("Only DMs close. Leave a channel instead.");
+		if (agentOfDm(chat)) throw new ConvexError("A DM with an agent stays in your sidebar: it's how you reach the agent.");
+		const row = await membership(ctx, chatId, member.userId);
+		if (row) await ctx.db.patch(row._id, { closedAt: Date.now() });
+	},
+});
 
 /**
  * A new, separate conversation with the agent of one of your agent DMs: same two members, its

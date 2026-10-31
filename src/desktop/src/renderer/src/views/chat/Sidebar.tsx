@@ -2,7 +2,7 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Fragment, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery, useWorkspace } from "../../convex";
-import { AgentIcon, ArchiveIcon, CaretRightIcon, ChannelIcon, ChatIcon, CheckIcon, EditIcon, MembersIcon, MoreIcon, PlusIcon, PrivateIcon, SignOutIcon, ThreadIcon } from "../../icons";
+import { AgentIcon, ArchiveIcon, CaretRightIcon, ChannelIcon, ChatIcon, CheckIcon, CloseIcon, EditIcon, MembersIcon, MoreIcon, PlusIcon, PrivateIcon, SignOutIcon, ThreadIcon } from "../../icons";
 import { navigate } from "../../router";
 import { type DragProps, useSortable, useStoredIds } from "../../sortable";
 import { Notice, RenameInput, useClock, useRun } from "../../ui";
@@ -151,6 +151,7 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 	const needed = (c: { _id: Id<"chats">; unread: boolean; mentioned: boolean }) => c._id === openId || c.unread || c.mentioned;
 	const shown = section.collapsed ? sorted.filter((d) => (d.dmId && d.dmId === openId) || d.unread || d.mentioned || sidesOf(d.dmId).some(needed)) : sorted;
 	const markRead = useMutation(api.chats.markRead);
+	const closeDm = useMutation(api.chats.closeDm);
 	return (
 		<Group title="Direct messages" section={section} add={<AddButton label="New message" onClick={() => setDialog("message")} />}>
 			{shown.map((d) => {
@@ -185,6 +186,8 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 										{d.agent && <MenuItem onClick={() => (close(), run(newSide()))}><PlusIcon /> New chat</MenuItem>}
 										{d.dmId && <MenuItem onClick={() => (close(), markRead({ chatId: d.dmId! }).catch(onError))}><CheckIcon /> Mark as read</MenuItem>}
 										{d.agentId && <MenuItem onClick={() => (close(), navigate("settings", "agents", d.agentId!))}><AgentIcon /> Agent settings</MenuItem>}
+										{/* Hidden for you only, till someone writes there (Slack's Close). Agents' rows stay: they're how you reach them. */}
+										{!d.agent && d.dmId && <MenuItem onClick={() => (close(), run(closeDm({ chatId: d.dmId! }), () => d.dmId === openId && navigate("chat")))}><CloseIcon /> Close conversation</MenuItem>}
 									</>
 								)
 							: undefined

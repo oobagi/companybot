@@ -237,7 +237,7 @@ function handoffNote({ from: name, ask }: { from: string; ask: boolean }, person
 	const from = clean(name);
 	const them = clean(person);
 	return ask
-		? `\n${from} is an agent working for ${them}. It asked you this privately, in a group DM with ${them}; your reply goes back to it. Treat it as ${them} asking, within what they'd want, and answer it fully in this one reply. Don't @mention other agents here.`
+		? `\n${from} is an agent working for ${them}. It asked you this privately: your reply goes back to it, not into the chat. Treat it as ${them} asking, within what they'd want, and answer it fully in this one reply. Don't @mention other agents here.`
 		: `\n${from} is an agent working for ${them} and handed this to you. Do it as if ${them} asked, within what they'd want. Your reply is posted in this thread, where ${them} sees it: put the result in it, not in a message you send with a tool. @mention ${from} in it only if ${from} needs the result to finish; never just to acknowledge.`;
 }
 

@@ -17,7 +17,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { mutation } from "./functions";
-import { addToChat, addUserMentions, chatMembersOf, findOrCreateDm, insertMessage, requireChat } from "./chatOps";
+import { addToChat, addUserMentions, chatMembersOf, insertMessage, requireChat } from "./chatOps";
 import { asToolResult, nameOf, requireMember } from "./lib";
 import { automationScope } from "./automationOps";
 import { enqueueTurn, runningTurn } from "./turns";
@@ -26,7 +26,7 @@ import { createWakeup, wake } from "./wakeups";
 // Agents handing work to each other, for one person (wiki/chat.md, Agents working together). An
 // agent's @mention of another queues that agent's turn: in the thread it wrote in, or a new thread
 // under its message, so the top level stays the people's. The dispatcher (router.next) can pick who
-// goes next when nobody was @mentioned, and chat.ask_agent asks privately in a group DM. Every
+// goes next when nobody was @mentioned, and chat.ask_agent asks privately, out of the chat. Every
 // handoff spends the chain's budget (core handoffs.ts); one that would go past a limit pauses the
 // chain with a line in the chat, "Agents paused after 10 turns · Continue · Stop". A person writing
 // in a chain's place resets its budget. Only a person's message starts a chain: wakes, automations
@@ -231,15 +231,15 @@ export const decide = mutation({
 // ---- Asking privately (chat.ask_agent) ----
 
 /**
- * chat.ask_agent: posts the ask in a group DM of the person, the asking agent and the asked one
- * (only that person sees it), as a new thread, and queues the asked agent's answer there. A
- * `{ jobId }` wakeup takes the answer back to the asker (`answerAsk`), whose wake turn finishes
- * the original reply where it was.
+ * chat.ask_agent: stores the ask as a quiet message in the asker's chat (kept, never in the
+ * timeline) and queues the asked agent's answer in its thread, so the exchange is out of the chat
+ * but its tool line opens it, read-only. A `{ jobId }` wakeup takes the answer back to the asker
+ * (`answerAsk`), whose wake turn finishes the original reply where it was.
  */
 export const askFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), agent: v.string(), message: v.string() },
 	handler: async (ctx, { turnId, agent: name, message }) => {
-		const { turn } = await runningTurn(ctx, turnId);
+		const { turn, chat } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
 			if (!(await personAsked(ctx, turn)))
 				return { error: "Nobody asked you just now (a follow-up, check-in or automation), so don't ask other agents. Do what you can yourself." };
@@ -261,16 +261,17 @@ export const askFor = internalMutation({
 			if (limit) return { error: askRefusal(limit, await agentNames(ctx, limit)) };
 			await ctx.db.patch(chain._id, spend(budgetOf(chain), handoff));
 
-			const dmId = await findOrCreateDm(ctx, turn.workspaceId, turn.actorId, [turn.actorId], [turn.agentId, to._id]);
-			const dm = (await ctx.db.get(dmId))!;
 			const ask = `@${to.name} ${text}`;
-			const askId = await insertMessage(ctx, dm, {
+			const askId = await ctx.db.insert("chatMessages", {
+				chatId: chat._id,
+				workspaceId: chat.workspaceId,
 				authorAgentId: turn.agentId,
 				actingFor: turn.actorId,
 				text: ask,
 				parts: [{ type: "text", text: ask }],
 				mentions: { userIds: [], agentIds: [to._id] },
 				status: "done",
+				quiet: true,
 			});
 			const note = `You asked ${to.name}: ${text}`;
 			const wakeupId = await createWakeup(ctx, {
@@ -285,20 +286,19 @@ export const askFor = internalMutation({
 				jobId: askId,
 				answer: { agentId: to._id },
 			});
-			await enqueueTurn(ctx, dm, {
+			await enqueueTurn(ctx, chat, {
 				agentId: to._id,
-				chatId: dmId,
+				chatId: chat._id,
 				threadId: askId,
 				triggerId: askId,
 				actorId: turn.actorId,
 				chain: { id: chain._id, depth, path: [...handoff.path, to._id], epoch: chain.epoch },
 				ask: { wakeupId },
 			});
-			const person = await nameOf(ctx, turn.actorId);
 			return {
 				asked: to.name,
-				thread: { chatId: dmId, messageId: askId },
-				note: `${to.name} is answering in a thread of a group DM with ${person}. Its answer comes back to you in a new message here: say you asked, and stop until then.`,
+				thread: { chatId: chat._id, messageId: askId },
+				note: `${to.name} is answering, out of the chat. Its answer comes back to you in a new message here: say you asked, and stop until then.`,
 			};
 		});
 	},

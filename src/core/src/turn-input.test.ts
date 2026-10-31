@@ -190,7 +190,7 @@ describe("turn input", () => {
 		const mention = buildTurnPrompt({ ...base, handoff: { from: "Scribe", ask: false } });
 		expect(mention.endsWith("Scribe is an agent working for Ada and handed this to you. Do it as if Ada asked, within what they'd want. Your reply is posted in this thread, where Ada sees it: put the result in it, not in a message you send with a tool. @mention Scribe in it only if Scribe needs the result to finish; never just to acknowledge.")).toBe(true);
 		const ask = buildTurnPrompt({ ...base, handoff: { from: "Scribe", ask: true } });
-		expect(ask).toContain("It asked you this privately, in a group DM with Ada; your reply goes back to it.");
+		expect(ask).toContain("It asked you this privately: your reply goes back to it, not into the chat.");
 	});
 
 	it("an ask's answer wake finishes the reply, shown, with the answer as data", () => {

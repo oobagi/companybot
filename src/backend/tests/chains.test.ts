@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { scribe } from "../../core/test/fixtures";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { dmKeyOf } from "../convex/chatOps";
 import { enqueueTurn } from "../convex/turns";
 import { wake } from "../convex/wakeups";
 import { agentsOf, generalOf, noMentions, ownerAndMember, turnsOf } from "./helpers";
@@ -232,24 +231,31 @@ describe("the dispatcher after an agent's message", () => {
 });
 
 describe("asking privately (chat.ask_agent)", () => {
-	it("asks in a thread of the person's group DM, only they see it, and the answer finishes the asker's reply", async () => {
+	it("asks out of the chat, in a thread its chip opens read-only, and the answer finishes the asker's reply", async () => {
 		const { t, owner, member, chatId, companybot, scribe, ask } = await setUp();
 		await ask("@Companybot what's our refund policy?", companybot);
 		const asking = await running(t, companybot);
+		const chats = await t.run((ctx) => ctx.db.query("chats").collect());
 		const result = await t.mutation(internal.chains.askFor, { turnId: asking._id, agent: "Scribe", message: "What's our refund policy?" });
 		if ("error" in result) throw new Error(result.error);
-		const dm = (await t.run((ctx) => ctx.db.get(result.thread.chatId as Id<"chats">)))!;
-		expect(dm.dmKey).toBe(dmKeyOf([member.userId], [companybot, scribe]));
-		// Nobody but the member sees it.
-		expect((await member.query(api.messages.list, { chatId: dm._id })).map((m) => m.text)).toEqual(["@Scribe What's our refund policy?"]);
-		expect(await owner.query(api.messages.list, { chatId: dm._id })).toEqual([]);
-		expect((await owner.query(api.chats.list))!.dms.some((d) => d._id === dm._id)).toBe(false);
+		// No group DM: the ask is in the asker's chat, kept out of its timeline.
+		expect(await t.run((ctx) => ctx.db.query("chats").collect())).toHaveLength(chats.length);
+		expect(result.thread.chatId).toBe(chatId);
+		const askId = result.thread.messageId as Id<"chatMessages">;
+		expect((await member.query(api.messages.list, { chatId })).map((m) => m.text)).not.toContain("@Scribe What's our refund policy?");
+		expect((await member.query(api.messages.list, { chatId, threadId: askId }))[0]).toMatchObject({ text: "@Scribe What's our refund policy?", ask: { from: "Companybot", to: "Scribe" } });
 
 		const answering = await running(t, scribe);
-		expect(answering).toMatchObject({ chatId: dm._id, threadId: result.thread.messageId, actorId: member.userId, chain: { depth: 1 } });
+		expect(answering).toMatchObject({ chatId, threadId: askId, triggerId: askId, actorId: member.userId, chain: { depth: 1 } });
 		expect((await t.query(internal.turns.turnContext, { turnId: answering._id })).handoff).toEqual({ from: "Companybot", ask: true });
 		// Its answer, even with an @mention, wakes nobody else; it goes back to the asker.
 		await say(t, scribe, "30 days, @Companybot.");
+		// The answer is in the ask's thread, read-only for whoever sees the chat, and not among the sidebar's threads.
+		expect((await owner.query(api.messages.list, { chatId, threadId: askId })).map((m) => [m.author.name, m.text])).toEqual([
+			["Companybot, for member@co.com", "@Scribe What's our refund policy?"],
+			["Scribe", "30 days, @Companybot."],
+		]);
+		expect(await member.query(api.chats.activeThreads, { now: Date.now() })).toEqual([]);
 		await say(t, companybot, "I asked Scribe; back in a moment.");
 		const answer = await running(t, companybot);
 		expect(answer).toMatchObject({ chatId, wakeupId: expect.any(String) });

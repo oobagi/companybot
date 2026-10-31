@@ -66,7 +66,7 @@ export interface ChatStore {
 	search(input: { query: string; chat?: string }): Promise<ChatResult>;
 	/** A file attached to a message in a chat they can see. */
 	readFile(input: { id: string; page?: number }): Promise<FileResult>;
-	/** Asks another agent privately, for the same person: a thread in their group DM. Its answer comes back as a new turn. */
+	/** Asks another agent privately, for the same person: a thread kept out of the chat. Its answer comes back as a new turn. */
 	ask(input: { agent: string; message: string }): Promise<AskResult>;
 }
 
@@ -127,12 +127,12 @@ export const chatTools: ToolDef[] = [
 		id: "chat.ask_agent",
 		title: "Ask an agent",
 		description:
-			"Ask another agent a question privately, for the person you act for, when you need what it knows or does to finish their request. It answers in a thread of a group DM with that person, you and it; its answer comes back to you later in a new message here, and then you finish the reply. Ask once, with everything it needs. To hand work over in the open instead, @mention the agent in your reply.",
+			"Ask another agent a question privately, for the person you act for, when you need what it knows or does to finish their request. It answers out of the chat (the person can open the exchange from your reply, read-only); its answer comes back to you later in a new message here, and then you finish the reply. Ask once, with everything it needs. To hand work over in the open instead, @mention the agent in your reply.",
 		input: z.object({
 			agent: z.string().describe("The agent's name"),
 			message: z.string().min(1).max(ASK_TEXT_MAX).describe("What you need, in one message"),
 		}),
-		// Another agent works for the same person, in a DM only they see; it asks for anything it would ask for itself.
+		// Another agent works for the same person, here; it asks for anything it would ask for itself.
 		risk: "none",
 		label: ({ agent }) => (typeof agent === "string" && agent.trim() ? `Ask ${agent.trim().replace(/^@/, "")}` : undefined),
 		opens: (output) => {

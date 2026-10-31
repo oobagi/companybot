@@ -88,6 +88,33 @@ describe("chats", () => {
 		expect(await member.query(api.chats.get, { chatId: agentDm })).toBeNull();
 	});
 
+	it("closes a DM or group DM for you only, until a new message or you open it again", async () => {
+		const { owner, member } = await ownerAndMember();
+		const { companybot } = await agentsOf(owner);
+		const dm = await owner.mutation(api.chats.openDm, { userIds: [member.userId], agentIds: [] });
+		const group = await owner.mutation(api.chats.openDm, { userIds: [member.userId], agentIds: [companybot._id] });
+		await owner.mutation(api.messages.send, { chatId: dm, text: "hi", mentions: noMentions });
+		const dms = async (as: typeof owner) => (await as.query(api.chats.list))!.dms.map((d) => d._id);
+		await tick();
+		await owner.mutation(api.chats.closeDm, { chatId: dm });
+		await owner.mutation(api.chats.closeDm, { chatId: group });
+		expect(await dms(owner)).not.toContain(dm);
+		expect(await dms(owner)).not.toContain(group);
+		// Only for you, and the history stays.
+		expect(await dms(member)).toEqual(expect.arrayContaining([dm, group]));
+		expect((await owner.query(api.messages.list, { chatId: dm })).map((m) => m.text)).toEqual(["hi"]);
+		// A new message brings it back; so does opening it again.
+		await tick();
+		await member.mutation(api.messages.send, { chatId: dm, text: "you there?", mentions: noMentions });
+		expect(await dms(owner)).toContain(dm);
+		expect(await owner.mutation(api.chats.openDm, { userIds: [member.userId], agentIds: [companybot._id] })).toBe(group);
+		expect(await dms(owner)).toContain(group);
+		// An agent DM stays: it's how you reach the agent. Channels are left, not closed.
+		const agentDm = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
+		await expect(owner.mutation(api.chats.closeDm, { chatId: agentDm })).rejects.toThrow("stays in your sidebar");
+		await expect(owner.mutation(api.chats.closeDm, { chatId: (await generalOf(owner))._id })).rejects.toThrow("Only DMs close");
+	});
+
 	it("keeps side chats with an agent under its DM: titled by the first message, renamable, trashable", async () => {
 		const { t, owner, member } = await ownerAndMember();
 		const { companybot } = await agentsOf(owner);
