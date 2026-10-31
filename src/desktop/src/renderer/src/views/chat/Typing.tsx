@@ -50,17 +50,16 @@ export function TypingLine({ chatId, threadId }: { chatId: Id<"chats">; threadId
 
 	const agents = typing?.agents ?? [];
 	const line = statusLine(agents, people.map((p) => p.name));
+	if (!line.working && !line.typing) return null;
 	return (
-		<>
-			{agents.length > 0 && (
-				<span aria-hidden className="mr-1.5 inline-flex align-[-4px]">
-					<AvatarStack people={agents.map((a) => ({ ...a, type: "agent" }))} size="line" />
-				</span>
-			)}
-			{line.working && (agents.length > 1 ? <WorkingList agents={agents} label={line.working} /> : line.working)}
-			{line.working && line.typing && " · "}
-			{line.typing}
-		</>
+		<span className="flex min-w-0 items-center gap-1.5">
+			{agents.length > 0 && <AvatarStack people={agents.map((a) => ({ ...a, type: "agent" }))} size="line" />}
+			<span className="min-w-0 truncate">
+				{line.working && (agents.length > 1 ? <WorkingList agents={agents} label={line.working} /> : line.working)}
+				{line.working && line.typing && " · "}
+				{line.typing}
+			</span>
+		</span>
 	);
 }
 

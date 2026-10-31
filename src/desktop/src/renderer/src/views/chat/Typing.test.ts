@@ -13,7 +13,7 @@ const render = (list: { people: (typeof ada)[]; agents: ReturnType<typeof agent>
 	return renderToStaticMarkup(createElement(TypingLine, { chatId: "c1" as never }));
 };
 /** The line's words, without the working agents' avatars in front. */
-const words = (html: string) => html.replace(/^<span aria-hidden="true".*?<\/span><\/span><\/span>/, "");
+const words = (html: string) => html.match(/<span class="min-w-0 truncate">(.*)<\/span><\/span>$/)?.[1] ?? html;
 
 describe("the line under the composer", () => {
 	it("shows one agent's step as it changes, and types like a person while it writes", () => {
@@ -24,8 +24,9 @@ describe("the line under the composer", () => {
 	});
 
 	it("puts the working agents' avatars in front", () => {
-		expect(render({ people: [], agents: [agent("Companybot", "Thinking…")] })).toMatch(/^<span aria-hidden="true".*title="Companybot"/);
-		expect(render({ people: [ada], agents: [] })).toBe("Ada is typing…");
+		expect(render({ people: [], agents: [agent("Companybot", "Thinking…")] })).toMatch(/title="Companybot".*Companybot: Thinking…/);
+		expect(render({ people: [ada], agents: [] })).not.toContain("title=");
+		expect(words(render({ people: [ada], agents: [] }))).toBe("Ada is typing…");
 	});
 
 	it("keeps people typing in the same line", () => {
