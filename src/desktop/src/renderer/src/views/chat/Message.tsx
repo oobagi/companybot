@@ -47,6 +47,9 @@ export function MessageRow({
 
 	const held = isAgent && !message.deleted ? message.parts.filter((p) => p.type === "approval") : [];
 
+	// A reply shows whole once it's written; meanwhile the line under the composer says what the agent is
+	// doing. A card asking permission shows at once, since the reply waits on it.
+	if (message.status === "streaming" && held.length === 0) return null;
 	if (held.length > 0 && held.length === message.parts.length && !message.text) return <ApprovalMessages message={message} parts={held} />;
 
 	return (
@@ -274,7 +277,6 @@ function AgentBody({ message }: { message: Message }) {
 						<WidgetView key={run.part.id} widget={run.part.widget} />
 					) : null,
 				)}
-				{streaming && message.parts.length === 0 && <p className="text-sm text-neutral-400">Thinking…</p>}
 				{message.status === "error" && <Notice>{message.error ?? "Something went wrong."}</Notice>}
 			</div>
 			{message.stats && <ReplyDetails stats={message.stats} />}
