@@ -49,6 +49,8 @@ export const routerCases: RouterCase[] = [
 		before: [m("Dana", "@Companybot how many jobs did we close in September?"), bot(companybot, "You closed 14 jobs in September, $186k total.")],
 		message: m("Dana", "and how about August?"),
 	}, { a1: "reply" }),
+	moment("asks the room a question the bot can answer", { message: m("Luis", "anyone know a good CRM tip?") }, { a1: "reply" }),
+	moment("asks the room for something only a person knows", { message: m("Priya", "anyone seen my charger?") }, {}),
 	moment("notes request goes to the note taker", { message: m("Luis", "Scribe can you write up the notes from this morning's standup?") }, { a2: "reply" }),
 	moment("recap request without a name", {
 		before: [m("Dana", "ok so we agreed: Luis takes the Oak St job, Priya handles the permit, kickoff Monday"), m("Priya", "👍")],

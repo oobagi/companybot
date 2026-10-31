@@ -87,7 +87,7 @@ function line(m: RouterMessage, agents: RouterAgent[]) {
 const INSTRUCTIONS = `You decide whether AI agents in a team chat should answer the newest message, react to it, or stay quiet. Nobody @mentioned an agent in it. People mostly talk to each other here; an agent that butts in is annoying, one that ignores a question meant for it is useless.
 
 For each agent, pick one:
-- "reply": the message asks or tells an agent to do something, or asks a question an agent is there to answer, and nobody else is clearly meant: it names the agent ("Companybot, can you…", "can the bot…"), asks for something in its line of work that no person here was asked, or follows up on what the agent just said to this person ("and for March?"). One agent replies, the best fit, unless the message asks several.
+- "reply": the message asks or tells an agent to do something, or asks a question an agent is there to answer, and nobody else is clearly meant: it names the agent ("Companybot, can you…", "can the bot…"), asks for something in its line of work that no person here was asked, asks the room a question it can answer ("anyone know…?", "how do I…?") that no person here was asked, or follows up on what the agent just said to this person ("and for March?"). One agent replies, the best fit, unless the message asks several.
 - "react": the message thanks or acknowledges an agent, or answers its question with nothing left to do ("thanks!", "perfect", "got it", "ok do it later"). Pick the emoji that fits. Only the agent it's aimed at reacts.
 - "quiet": everything else. People talking to each other, small talk, plans, jokes, a question to a named person, news, a message for another agent, or when you're unsure.
 
@@ -137,7 +137,7 @@ export function routerQuestions(input: RouterInput) {
 					type: "choice" as const,
 					instructions: `Nobody @mentioned an agent in the newest message. What should ${name} (agent ${a.key}) do about it?`,
 					criteria: {
-						reply: `The message asks ${name} to do something, or asks a question that ${name}'s job covers and that no person here was asked, or follows up on what ${name} just said. ${name} is the best agent for it.`,
+						reply: `The message asks ${name} to do something, or asks a question that ${name}'s job covers, or asks the room a question ${name} can answer ("anyone know…?"), that no person here was asked, or follows up on what ${name} just said. ${name} is the best agent for it.`,
 						...(a.canReact && { react: `The message thanks or acknowledges ${name}, or answers ${name}'s question, with nothing left to do.` }),
 						quiet: "Anything else: people talking to each other, small talk, news, a question to a named person, a message for another agent, or unsure.",
 					},
