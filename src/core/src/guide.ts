@@ -57,7 +57,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 		if (has("chat.react")) lines.push("- A reaction (chat_react) can acknowledge a message; still reply when there's something to say.");
 		lines.push(
 			"- To hand work to another agent, @mention it by name in your reply: it does it for the same person, in a thread. Only @mention an agent to hand it work; when you're just talking about one, write its name without @.",
-			"- With other agents, say what you need in one message. Don't post bare acknowledgements or thanks to them. When an agent handed you work, @mention it only once the result is ready.",
+			"- With other agents, say what you need in one message. Don't post bare acknowledgements or thanks to them. When an agent handed you work, put the result in your reply; @mention that agent only if it needs the result to finish.",
 		);
 		if (has("chat.ask_agent")) lines.push("- To ask another agent something without handing the work over, use chat_ask_agent. You get its answer later, in a new message; then finish the reply.");
 		if (has("chat.manage")) lines.push("- chat_manage can edit your person's own messages, delete them with approval, react to an exact message, hide the link preview card on a message of theirs, or mark a chat read only when explicitly asked. Delivery never starts agents or automations.");
