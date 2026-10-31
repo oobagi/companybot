@@ -6,7 +6,7 @@ import { CloseIcon } from "../../icons";
 import { FileDrop, useAttachments } from "./Attachments";
 import { IconButton } from "./common";
 import { Composer, type SendWith } from "./Composer";
-import { type ChatDetails, type TokenNames, chatTitle } from "./data";
+import { type ChatDetails, type TokenNames, chatTitle, showSending } from "./data";
 import { draftKey } from "./drafts";
 import type { Sources } from "./editor";
 import { MessageList } from "./MessageList";
@@ -29,7 +29,7 @@ export function ThreadPanel({
 }) {
 	const size = useStoredWidth("thread.width", 416, 280, 800);
 	const messages = useQuery(api.messages.list, { chatId: chat._id, threadId });
-	const send = useMutation(api.messages.send);
+	const send = useMutation(api.messages.send, showSending);
 	const typing = useTypingPing(chat._id, threadId);
 	const workspace = useWorkspace();
 	const files = useAttachments(draftKey(workspace?.id, chat._id, threadId));

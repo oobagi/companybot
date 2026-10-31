@@ -42,6 +42,7 @@ export function MessageRow({
 	const toolbar = useDismiss<HTMLDivElement>(() => setPicker(false), picker);
 	const { confirm, dialog } = useConfirm();
 	const isAgent = message.author.type === "agent";
+	const sending = message.sending;
 	const toggle = (emoji: string) => react({ messageId: message._id, emoji }).catch(onError);
 
 	const held = isAgent && !message.deleted ? message.parts.filter((p) => p.type === "approval") : [];
@@ -65,7 +66,7 @@ export function MessageRow({
 						</ProfileLink>
 					)}
 				</div>
-				<div className="flex min-w-0 flex-1 flex-col gap-1">
+				<div className={`flex min-w-0 flex-1 flex-col gap-1 ${sending ? "opacity-50" : ""}`}>
 					{!grouped && (
 						<div className="flex items-baseline gap-2">
 							<ProfileLink who={message.author} className="font-semibold hover:underline">
@@ -97,6 +98,11 @@ export function MessageRow({
 						)
 					)}
 					{!message.deleted && message.attachments.length > 0 && <MessageFiles files={message.attachments} />}
+					{sending && sending.files > 0 && (
+						<p className="text-sm text-neutral-500">
+							Sending {sending.files} {sending.files === 1 ? "file" : "files"}…
+						</p>
+					)}
 					{!message.deleted && message.linkPreviews.length > 0 && <LinkPreviews message={message} onError={onError} />}
 					{message.reactions.length > 0 && (
 						<div className="flex flex-wrap gap-1 pt-0.5">
@@ -130,7 +136,7 @@ export function MessageRow({
 						</button>
 					) : null}
 				</div>
-				{!message.deleted && !editing && (
+				{!message.deleted && !editing && !sending && (
 					<div
 						ref={toolbar}
 						className={`absolute -top-3 right-5 z-10 items-center rounded-lg border border-neutral-200 bg-white p-0.5 shadow-sm ${
