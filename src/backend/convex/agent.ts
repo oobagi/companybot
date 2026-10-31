@@ -43,7 +43,9 @@ import {
 	deniedReason,
 	isImageType,
 	toolApprovalPolicy,
+	toolLine,
 	toolRisk,
+	THINKING_STEP,
 } from "@companybot/core";
 import { generateText, streamText } from "ai";
 import type { FunctionReturnType } from "convex/server";
@@ -289,17 +291,35 @@ async function streamReply(
 	let lastFlush = 0;
 	const text = () => parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("\n\n");
 	const flush = () => ctx.runMutation(internal.turns.updateReply, { replyId, text: text(), parts });
+	// The turn's step, for the line under the composer (turns.setStep): the newest call still running,
+	// else "Thinking…" until the model writes. The same words as its tool lines; never its reasoning.
+	// Written in order, and only when it changes.
+	const stepCalls = new Map<string, string>();
+	let writing = false;
+	let shownStep: string | undefined;
+	let stepWrites: Promise<unknown> = Promise.resolve();
+	const showStep = () => {
+		const label = [...stepCalls.values()].at(-1) ?? (writing ? undefined : THINKING_STEP);
+		if (label === shownStep) return;
+		shownStep = label;
+		stepWrites = stepWrites.then(() => ctx.runMutation(internal.turns.setStep, { turnId, label })).catch(() => {});
+	};
+	showStep();
+
 	// Labels say what each call did ("Created deal Reroof main warehouse"): from its input while
 	// it runs, and its result once done. Stored with the reply; replays never include them.
 	const callInputs = new Map<string, unknown>();
 	const setTool = (id: string, name: string, status: "running" | "done" | "error", call?: { input: unknown; output?: unknown }) => {
 		if (call) callInputs.set(id, call.input);
 		const existing = parts.find((p) => p.type === "tool" && p.id === id);
-		const label = (toolName: string) => callLabel(toolName, available, services, { input: callInputs.get(id), output: call?.output });
+		const label = callLabel(existing?.type === "tool" ? existing.name : name, available, services, { input: callInputs.get(id), output: call?.output });
 		if (existing?.type === "tool") {
 			existing.status = status;
-			existing.label = label(existing.name);
-		} else parts.push({ type: "tool", id, name, label: label(name), status });
+			existing.label = label;
+		} else parts.push({ type: "tool", id, name, label, status });
+		if (status === "running") stepCalls.set(id, toolLine(label, "running"));
+		else stepCalls.delete(id);
+		showStep();
 	};
 
 	// A turn after an approval runs the approved call first, so its outcome goes in the prompt.
@@ -340,6 +360,8 @@ async function streamReply(
 	// Held, not run: save the exact call and show a card in its place. Logged only if it runs later.
 	const hold = async (toolCallId: string, toolName: string, input: unknown) => {
 		calls.delete(toolCallId);
+		stepCalls.delete(toolCallId);
+		showStep();
 		const held = await actionOf(toolName, input, usable);
 		const at = parts.findIndex((p) => p.type === "tool" && p.id === toolCallId);
 		if (!held) return setTool(toolCallId, toolName, "error");
@@ -378,8 +400,15 @@ async function streamReply(
 
 	try {
 		for await (const part of result.stream) {
-			if (part.type === "text-delta") {
+			if (part.type === "start-step") {
+				writing = false;
+				showStep();
+			} else if (part.type === "text-delta") {
 				usage.firstTokenMs ??= Date.now() - started;
+				if (!writing) {
+					writing = true;
+					showStep();
+				}
 				const last = parts.at(-1);
 				if (last?.type === "text") last.text += part.text;
 				else parts.push({ type: "text", text: part.text });
@@ -415,6 +444,8 @@ async function streamReply(
 				continue;
 			} else if (part.type === "error") throw part.error instanceof Error ? part.error : new Error(String(part.error));
 			else continue;
+			// The step is written before the next part, so it never lags behind the reply.
+			await stepWrites;
 			if (Date.now() - lastFlush > FLUSH_MS) {
 				lastFlush = Date.now();
 				await flush();
@@ -422,6 +453,7 @@ async function streamReply(
 		}
 	} finally {
 		for (const callId of [...calls.keys()]) await logCall(callId, { error: "The reply stopped before this finished." });
+		await stepWrites;
 	}
 	await flush();
 }

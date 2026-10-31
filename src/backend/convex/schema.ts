@@ -556,6 +556,11 @@ export default defineSchema({
 		 * already recorded, so a turn whose action dies keeps what it paid and its stats.
 		 */
 		usage: v.optional(v.object({ ...replyUsage.fields, counted: v.optional(v.boolean()) })),
+		/**
+		 * What it's doing now, while running ("Searching records for Acme…", "Thinking…"), for the line
+		 * under the composer (typing.ts). Unset while it writes, and once it ends. Never model reasoning.
+		 */
+		step: v.optional(v.object({ label: v.string(), at: v.number() })),
 	})
 		.index("by_place", ["agentId", "chatId", "threadId", "status"])
 		.index("by_session", ["sessionId"])
