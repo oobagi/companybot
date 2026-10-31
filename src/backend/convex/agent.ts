@@ -6,6 +6,7 @@ import {
 	type ChatStore,
 	type LoggedCall,
 	type MemoryStore,
+	type PostDecision,
 	type PageStore,
 	type RecordStore,
 	type ConnectorCredentials,
@@ -20,6 +21,7 @@ import {
 	callEnd,
 	calledConnectorTool,
 	callLabel,
+	callOpens,
 	clipJson,
 	describeCall,
 	buildToolSet,
@@ -38,6 +40,8 @@ import {
 	agentPrepareStep,
 	agentStopWhen,
 	openConnector,
+	postDecision,
+	publishes,
 	resolveTools,
 	searchProvider,
 	deniedReason,
@@ -47,7 +51,7 @@ import {
 	toolRisk,
 	THINKING_STEP,
 } from "@companybot/core";
-import { generateText, streamText } from "ai";
+import { Output, generateText, streamText } from "ai";
 import type { FunctionReturnType } from "convex/server";
 import { ConvexError, type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
@@ -73,20 +77,20 @@ export const respond = internalAction({
 		const started = Date.now();
 		const usage: TurnUsage = emptyUsage("");
 		let error: string | undefined;
-		let sessionId: Id<"agentSessions"> | undefined;
+		let ran: Awaited<ReturnType<typeof runTurn>> | undefined;
 		const snapshot = () => ({ ...usage, durationMs: Date.now() - started });
 		// Saved after every finished model call, so an action killed mid-turn (time limit, crash) keeps
 		// what its calls cost. finishReply records only what's new since; a failed save is caught up there.
 		const saveStep = () => ctx.runMutation(internal.turns.saveUsage, { turnId, usage: snapshot() }).catch(() => {});
 		try {
-			sessionId = await runTurn(ctx, turnId, usage, saveStep);
+			ran = await runTurn(ctx, turnId, usage, saveStep);
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 		} finally {
 			// Failed replies still cost what their finished calls cost.
-			await ctx.runMutation(internal.turns.finishReply, { turnId, error, usage: usage.steps > 0 ? snapshot() : undefined });
+			await ctx.runMutation(internal.turns.finishReply, { turnId, error, usage: usage.steps > 0 ? snapshot() : undefined, ...(ran?.decision && { decision: ran.decision }) });
 		}
-		if (!error && sessionId && usage.contextTokens > COMPACT_TOKENS) await compact(ctx, sessionId, turnId);
+		if (!error && ran && usage.contextTokens > COMPACT_TOKENS) await compact(ctx, ran.sessionId, turnId);
 	},
 });
 
@@ -98,12 +102,12 @@ async function runTurn(ctx: ActionCtx, turnId: Id<"agentTurns">, usage: TurnUsag
 	const connectors = await loadConnectors(ctx, turn.member, turn.agent);
 	await saveTools(ctx, turn.member.workspaceId, connectors);
 	try {
-		await streamReply(ctx, turnId, turn, connectors, usage, saveStep);
+		const decision = await streamReply(ctx, turnId, turn, connectors, usage, saveStep);
+		return { sessionId: turn.session.id, decision };
 	} finally {
 		await Promise.allSettled(connectors.sessions.map((s) => s.close()));
 		await saveRefreshedTokens(ctx, connectors);
 	}
-	return turn.session.id;
 }
 
 type Turn = FunctionReturnType<typeof internal.turns.turnContext>;
@@ -259,7 +263,6 @@ async function streamReply(
 			create: (input) => ctx.runMutation(internal.wakeups.createFor, { turnId, input }),
 			list: (input) => ctx.runQuery(internal.wakeups.listFor, { turnId, ...input }),
 			cancel: (input) => ctx.runMutation(internal.wakeups.cancelFor, { turnId, ...input }),
-			notify: (input) => ctx.runMutation(internal.wakeups.notifyFor, { turnId, ...input }),
 		},
 		records: recordStore(ctx, turnId),
 		pages: pageStore(ctx, turnId),
@@ -319,10 +322,14 @@ async function streamReply(
 		if (call) callInputs.set(id, call.input);
 		const existing = parts.find((p) => p.type === "tool" && p.id === id);
 		const label = callLabel(existing?.type === "tool" ? existing.name : name, available, services, { input: callInputs.get(id), output: call?.output });
+		// A call that made a thread (chat.ask_agent's) opens it from its line.
+		const opens = status === "done" ? callOpens(name, available, call?.output) : undefined;
+		const link = opens && { opens: { chatId: opens.chatId as Id<"chats">, messageId: opens.messageId as Id<"chatMessages"> } };
 		if (existing?.type === "tool") {
 			existing.status = status;
 			existing.label = label;
-		} else parts.push({ type: "tool", id, name, label, status });
+			if (link) existing.opens = link.opens;
+		} else parts.push({ type: "tool", id, name, label, status, ...link });
 		if (status === "running") stepCalls.set(id, toolLine(label, "running"));
 		else stepCalls.delete(id);
 		showStep();
@@ -339,6 +346,7 @@ async function streamReply(
 	const promptInput = {
 		...turn,
 		agentId: agent.id,
+		now: Date.now(),
 		connectors: { connected, unavailable: connectors.unavailable },
 		approval: approval ?? undefined,
 	};
@@ -347,6 +355,9 @@ async function streamReply(
 	// result stays out of it (only its approver may see it); this turn alone gets it.
 	await ctx.runMutation(internal.turns.savePrompt, { turnId, prompt: approval ? buildTurnPrompt({ ...promptInput, forReplay: true }) : prompt });
 	const input = buildTurnInput({ agent, skills: turn.skills, session: turn.session, prompt, available: usable, images: await loadImages(ctx, turn.images) });
+	// Nobody asked a quiet turn: it ends with a decision, then its message (core postDecision), as the
+	// final step's structured output, so tools still run first. Its text is that JSON, never shown.
+	const decide = turn.quiet ? postDecision : null;
 
 	const started = Date.now();
 	const result = streamText({
@@ -361,6 +372,7 @@ async function streamReply(
 		providerOptions: { gateway: { caching: "auto" } },
 		// Calls that need approval stop the run there, unexecuted; we hold them below.
 		toolApproval: toolApprovalPolicy(usable, check),
+		...(decide && { output: Output.object({ schema: decide, name: "decision" }) }),
 	});
 
 	// Held, not run: save the exact call and show a card in its place. Logged only if it runs later.
@@ -415,6 +427,7 @@ async function streamReply(
 					writing = true;
 					showStep();
 				}
+				if (decide) continue;
 				const last = parts.at(-1);
 				if (last?.type === "text") last.text += part.text;
 				else parts.push({ type: "text", text: part.text });
@@ -461,7 +474,11 @@ async function streamReply(
 		for (const callId of [...calls.keys()]) await logCall(callId, { error: "The reply stopped before this finished." });
 		await stepWrites;
 	}
+	// None if it stopped before deciding (a call held for approval) or wrote no valid decision: then it's not shown.
+	const decision = decide ? await Promise.resolve(result.output).then((d) => d as PostDecision, () => null) : null;
+	if (publishes(decision)) parts.push({ type: "text", text: decision!.message });
 	await flush();
+	return decision;
 }
 
 /**
@@ -540,6 +557,7 @@ function chatStore(ctx: ActionCtx, turnId: Id<"agentTurns">): ChatStore {
 			const text = await ctx.runAction(internal.fileText.page, { storageId: file.storageId, type: file.type, page });
 			return text ? { name: file.name, type: file.type, ...text } : { error: `${file.name} was deleted.` };
 		},
+		ask: (input) => ctx.runMutation(internal.chains.askFor, { turnId, ...input }),
 	};
 }
 

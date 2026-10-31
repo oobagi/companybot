@@ -454,7 +454,7 @@ export function NoMatches() {
 }
 
 /** A screen for one item: loading while `loaded` is false, then an empty state saying it's gone. */
-export function NotFound({ crumbs, loaded, icon, title, children = "It may have been deleted. Check Trash." }: { crumbs?: Crumb[]; loaded: boolean; icon: React.ReactNode; title: string; children?: string }) {
+export function NotFound({ crumbs, loaded, icon, title, children = "It may have been archived. Check Archive." }: { crumbs?: Crumb[]; loaded: boolean; icon: React.ReactNode; title: string; children?: string }) {
 	return (
 		<Page title={loaded ? "Not found" : ""} crumbs={crumbs}>
 			{loaded ? <EmptyState icon={icon} title={title}>{children}</EmptyState> : <Loading />}

@@ -137,7 +137,7 @@ export async function ensureGeneral(ctx: MutationCtx, workspaceId: Id<"workspace
 	return (await ctx.db.get(id))!;
 }
 
-/** A channel name that's usable and not taken by a live channel (one in Trash gives its name up). */
+/** A channel name that's usable and not taken by a live channel (one in Archive gives its name up). */
 export async function availableName(ctx: QueryCtx, member: Member, raw: string, except?: Id<"chats">) {
 	const name = normalizeChannelName(raw);
 	if (!name) throw new ConvexError("Give the channel a name.");
@@ -159,15 +159,15 @@ export async function requireManagedChannel(ctx: QueryCtx, member: Member, chatI
 }
 
 /**
- * Moves a channel, or one of your side chats with an agent, to Trash (its messages and members
- * stay until it's deleted for good) or back. Both are `chats`, so Trash calls the kind "channel".
+ * Moves a channel, or one of your side chats with an agent, to Archive (its messages and members
+ * stay until it's deleted for good) or back. Both are `chats`, so Archive calls the kind "channel".
  */
 export async function setChannelTrashed(ctx: MutationCtx, who: Who, chatId: Id<"chats">, archived: boolean) {
 	const seen = await requireChat(ctx, who.member, chatId);
 	const side = seen.kind === "dm" && seen.parentId;
 	const chat = archived && !side ? await requireManagedChannel(ctx, who.member, chatId) : seen;
 	if (chat.kind !== "channel" && !side) throw new ConvexError("That's not a channel.");
-	if (chat.isDefault) throw new ConvexError(`Everyone uses #${chat.name}, so it stays.`);
+	if (chat.isDefault) throw new ConvexError(`#${chat.name} can't be archived: it's the channel everyone is in.`);
 	if (chat.archived === archived) return;
 	if (archived) await putInTrash(ctx, who, { kind: "channel", id: chatId, name: side ? sideChatTitle(chat) : `#${chat.name}` });
 	else {
@@ -234,7 +234,8 @@ export async function findOrCreateDm(
 
 /**
  * Stores a message and updates its place: the chat's `lastMessageAt` for the main
- * timeline, the parent's reply count for a thread.
+ * timeline, the parent's reply count for a thread. A quiet parent (an ask, chains.ts) is never
+ * shown, so its thread stays out of the sidebar's active threads.
  */
 export async function insertMessage(
 	ctx: MutationCtx,
@@ -242,16 +243,21 @@ export async function insertMessage(
 	message: Omit<Doc<"chatMessages">, "_id" | "_creationTime" | "chatId" | "workspaceId">,
 ) {
 	const id = await ctx.db.insert("chatMessages", { chatId: chat._id, workspaceId: chat.workspaceId, ...message });
+	await countMessage(ctx, chat, message);
+	return id;
+}
+
+/** A message people now see: on its thread's reply count and authors, or the chat's last message time. A quiet reply that's shown, too. */
+export async function countMessage(ctx: MutationCtx, chat: Doc<"chats">, message: Pick<Doc<"chatMessages">, "threadId" | "authorUserId" | "authorAgentId">) {
 	const now = Date.now();
 	if (message.threadId) {
 		const parent = await ctx.db.get(message.threadId);
-		if (parent) {
+		if (parent && !parent.quiet) {
 			const author = authorOf(message);
 			const others = (await replyAuthorsOf(ctx, parent)).filter((a) => a.userId !== author.userId || a.agentId !== author.agentId);
 			await ctx.db.patch(parent._id, { replyCount: (parent.replyCount ?? 0) + 1, lastReplyAt: now, replyAuthors: [author, ...others].slice(0, 3) });
 		}
 	} else await ctx.db.patch(chat._id, { lastMessageAt: now });
-	return id;
 }
 
 type ReplyAuthor = NonNullable<Doc<"chatMessages">["replyAuthors"]>[number];

@@ -1,5 +1,6 @@
 import { actionLabel, toolLine } from "@companybot/core/action-words";
 import { splitLinks } from "@companybot/core/link-preview";
+import { routerDecisionModels } from "@companybot/core/router";
 import { Fragment, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
@@ -21,6 +22,7 @@ export function MessageRow({
 	grouped,
 	tokens,
 	onOpenThread,
+	readOnly,
 	onError,
 }: {
 	message: Message;
@@ -30,6 +32,8 @@ export function MessageRow({
 	tokens: TokenNames;
 	/** Absent inside a thread: threads are one level deep. */
 	onOpenThread?: () => void;
+	/** No hover actions, and reactions only show. */
+	readOnly?: boolean;
 	onError: (e: unknown) => void;
 }) {
 	// A reply streams into its own small query (backend replyStreams): only this row re-renders per token.
@@ -50,6 +54,7 @@ export function MessageRow({
 	// A reply shows whole once it's written; meanwhile the line under the composer says what the agent is
 	// doing. A card asking permission shows at once, since the reply waits on it.
 	if (message.status === "streaming" && held.length === 0) return null;
+	if (message.pause && !message.deleted) return <PausedLine message={message} pause={message.pause} onError={onError} />;
 	if (held.length > 0 && held.length === message.parts.length && !message.text) return <ApprovalMessages message={message} parts={held} />;
 
 	return (
@@ -114,7 +119,7 @@ export function MessageRow({
 									type="button"
 									key={r.emoji}
 									title={r.names.join(", ")}
-									onClick={() => toggle(r.emoji)}
+									onClick={readOnly ? undefined : () => toggle(r.emoji)}
 									className={`flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-sm tabular-nums ${
 										r.mine ? "border-neutral-400 bg-neutral-100 text-neutral-900" : "border-neutral-200 text-neutral-600 hover:border-neutral-300"
 									}`}
@@ -139,7 +144,7 @@ export function MessageRow({
 						</button>
 					) : null}
 				</div>
-				{!message.deleted && !editing && !sending && (
+				{!message.deleted && !editing && !sending && !readOnly && (
 					<div
 						ref={toolbar}
 						className={`absolute -top-3 right-5 z-10 items-center rounded-lg border border-neutral-200 bg-white p-0.5 shadow-sm ${
@@ -266,7 +271,7 @@ function AgentBody({ message }: { message: Message }) {
 						// A run of tool lines stays together, as tight as the stats line under the reply.
 						<div key={run[0]!.id} className="flex flex-col gap-1">
 							{run.map((part) => (
-								<ToolPart key={part.id} replyId={message._id} part={part} />
+								<ToolPart key={part.id} replyId={message._id} part={part} author={message.author.name} />
 							))}
 						</div>
 					) : run.part.type === "text" ? (
@@ -300,10 +305,25 @@ function runs(parts: Part[]) {
 }
 
 /** "Sent SMS with Fake CRM"; click to see what went in and came out (from the activity log). */
-function ToolPart({ replyId, part }: { replyId: Message["_id"]; part: ToolPart }) {
+function ToolPart({ replyId, part, author }: { replyId: Message["_id"]; part: ToolPart; author: string }) {
 	// Replies from before tool lines had labels: make one from the name.
 	const label = toolLine(part.label ?? (part.name === "connectors_search" ? "Look up connected actions" : actionLabel(part.name)), part.status);
 	if (part.status === "running") return <p className="text-xs text-neutral-400">{label}</p>;
+	// A call that made a thread (an ask to another agent) is a chip that opens it, read-only: "Scout asked Quill →".
+	if (part.opens) {
+		const { chatId, messageId } = part.opens;
+		return (
+			<div className="flex">
+				<button
+					type="button"
+					onClick={() => navigate("chat", chatId, "thread", messageId)}
+					className="rounded-full border border-neutral-200 px-2 py-0.5 text-xs text-neutral-600 hover:border-neutral-300 hover:text-neutral-900"
+				>
+					{author} {label.charAt(0).toLowerCase() + label.slice(1)} →
+				</button>
+			</div>
+		);
+	}
 	return (
 		<div className="flex">
 			<Popover trigger={label} className="text-left text-xs text-neutral-400 hover:text-neutral-600" panelClassName="w-[32rem] p-3">
@@ -323,9 +343,10 @@ function CallPanel({ replyId, callId }: { replyId: Message["_id"]; callId: strin
 
 type Stats = NonNullable<Message["stats"]>;
 
-/** The line under a reply (model, time, cost); click for the full breakdown. */
+/** The line under a reply (model, time, cost, and the dispatcher's pick if nobody @mentioned it); click for the full breakdown. */
 function ReplyDetails({ stats }: { stats: Stats }) {
 	const cost = stats.costUsd + (stats.imageCostUsd ?? 0) + (stats.searchCostUsd ?? 0);
+	const { dispatch } = stats;
 	const rows: [string, string][] = [
 		["Model", stats.model],
 		["Time", `${seconds(stats.durationMs)}${stats.firstTokenMs !== undefined ? `, first words after ${seconds(stats.firstTokenMs)}` : ""}`],
@@ -337,11 +358,22 @@ function ReplyDetails({ stats }: { stats: Stats }) {
 		...(stats.searchCostUsd ? ([["Web search", usd(stats.searchCostUsd)]] as [string, string][]) : []),
 		["This reply", usd(cost)],
 		["Here so far", usd(stats.conversationCostUsd)],
+		// Nobody @mentioned it. The decision is its own call, once for every agent in the channel, so it's
+		// apart from "This reply" (Usage counts it under Reply decisions). Named by another agent: no call.
+		...(dispatch?.by
+			? ([["Picked by", dispatch.by]] as [string, string][])
+			: dispatch
+				? ([
+						["Picked by", `Dispatcher (${dispatcherName(dispatch.model)})`],
+						["Confidence", confidence(dispatch)],
+						["Decision", `${tinyUsd(dispatch.costUsd)}, apart from this reply`],
+					] as [string, string][])
+				: []),
 	];
 	return (
 		<div className="flex">
 			<Popover
-				trigger={`${shortModel(stats.model)} · ${seconds(stats.durationMs)} · ${tokens(stats.contextTokens)} context · ${usd(cost)} · ${usd(stats.conversationCostUsd)} total`}
+				trigger={`${shortModel(stats.model)} · ${seconds(stats.durationMs)} · ${tokens(stats.contextTokens)} context · ${usd(cost)} · ${usd(stats.conversationCostUsd)} total${dispatch?.by ? ` · via ${dispatch.by}` : dispatch ? ` · via dispatcher${dispatch.probability !== undefined ? ` ${percent(dispatch.probability)}` : ""}` : ""}`}
 				className="text-left text-xs text-neutral-400 tabular-nums hover:text-neutral-600"
 				panelClassName="w-80 p-3"
 			>
@@ -362,6 +394,16 @@ const shortModel = (id: string) => id.split("/").at(-1) ?? id;
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 const tokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 const usd = (n: number) => `$${n.toFixed(n < 0.01 ? 4 : n < 1 ? 3 : 2)}`;
+/** A dispatcher call costs a few hundredths of a cent. */
+const tinyUsd = (n: number) => (n < 0.001 ? `$${n.toFixed(5)}` : usd(n));
+const percent = (p: number) => `${Math.round(p * 100)}%`;
+/** Jev's chance of each choice ("84% reply · 1% react · 15% quiet"); a hop's, of going next; none from a language model. */
+function confidence({ probability, probabilities }: NonNullable<Stats["dispatch"]>) {
+	if (probabilities) return ["reply", "react", "quiet"].filter((c) => probabilities[c] !== undefined).map((c) => `${percent(probabilities[c]!)} ${c}`).join(" · ");
+	return probability !== undefined ? `${percent(probability)} go next` : "—";
+}
+/** "Jev" for TypeSafe's decision model, else the model's short id. */
+const dispatcherName = (id: string) => routerDecisionModels.find((m) => m.id === id)?.name.split(" ")[0] ?? shortModel(id);
 
 /** A message an automation posted for its author: collapsed, since they didn't type it. */
 function AutomationPrompt({ prompt }: { prompt: string }) {
@@ -372,6 +414,48 @@ function AutomationPrompt({ prompt }: { prompt: string }) {
 				Ran automatically · {open ? "Hide" : "Show"} what it asked
 			</button>
 			{open && <p className="text-sm leading-relaxed whitespace-pre-wrap text-neutral-600">{prompt}</p>}
+		</div>
+	);
+}
+
+/**
+ * Agents stopped at a limit (backend chains.ts): a quiet line, not a message. The person they work
+ * for picks Continue (a fresh budget) or Stop; everyone else sees who it waits for.
+ */
+function PausedLine({ message, pause, onError }: { message: Message; pause: NonNullable<Message["pause"]>; onError: (e: unknown) => void }) {
+	const decide = useMutation(api.chains.decide);
+	const [busy, setBusy] = useState(false);
+	const act = (action: "continue" | "stop") => {
+		setBusy(true);
+		decide({ messageId: message._id, action }).catch(onError).finally(() => setBusy(false));
+	};
+	const button = "font-medium text-neutral-700 hover:text-neutral-950 hover:underline disabled:opacity-50";
+	return (
+		<div id={`message-${message._id}`} className="flex items-center gap-3 px-5 py-1.5 text-xs text-neutral-500">
+			<span className="h-px flex-1 bg-neutral-200" />
+			<span className="flex flex-wrap items-center justify-center gap-x-1.5 text-center">
+				<span>{message.text}</span>
+				{pause.canDecide ? (
+					<>
+						<span>·</span>
+						<button type="button" disabled={busy} onClick={() => act("continue")} className={button}>
+							Continue
+						</button>
+						<span>·</span>
+						<button type="button" disabled={busy} onClick={() => act("stop")} className={button}>
+							Stop
+						</button>
+					</>
+				) : (
+					<span>
+						·{" "}
+						{pause.status === "paused"
+							? `Waiting for ${pause.for}`
+							: `${pause.status === "continued" ? "Continued" : "Stopped"}${pause.by ? ` by ${pause.by}` : ""}`}
+					</span>
+				)}
+			</span>
+			<span className="h-px flex-1 bg-neutral-200" />
 		</div>
 	);
 }

@@ -2,11 +2,11 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Fragment, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery, useWorkspace } from "../../convex";
-import { AgentIcon, CaretRightIcon, ChannelIcon, ChatIcon, CheckIcon, EditIcon, MembersIcon, MoreIcon, PlusIcon, PrivateIcon, SignOutIcon, ThreadIcon, TrashIcon } from "../../icons";
+import { AgentIcon, ArchiveIcon, CaretRightIcon, ChannelIcon, ChatIcon, CheckIcon, CloseIcon, EditIcon, MembersIcon, MoreIcon, PlusIcon, PrivateIcon, SignOutIcon, ThreadIcon } from "../../icons";
 import { navigate } from "../../router";
 import { type DragProps, useSortable, useStoredIds } from "../../sortable";
 import { Notice, RenameInput, useClock, useRun } from "../../ui";
-import { AgentBadge, Avatar, MenuItem, Popover, PopoverPanel, useConfirm } from "./common";
+import { AgentBadge, Avatar, MenuItem, Popover, PopoverPanel, archiveQuestion, useConfirm } from "./common";
 import type { ChatList, Participant } from "./data";
 import { BrowseChannels, ChannelDetailsFor, CreateChannel, NewMessage } from "./dialogs";
 import { useDraftChats } from "./drafts";
@@ -92,9 +92,9 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 							<MenuItem onClick={() => (close(), setDetails(c._id))}><MembersIcon /> Members and details</MenuItem>
 							<MenuItem onClick={() => (close(), run(markRead({ chatId: c._id })))}><CheckIcon /> Mark as read</MenuItem>
 							{!c.isDefault && <MenuItem onClick={() => (close(), run(leave({ chatId: c._id }), () => left(c._id)))}><SignOutIcon /> Leave channel</MenuItem>}
-							{c.canManage && (
-								<MenuItem danger onClick={() => (close(), confirm({ title: `Delete #${c.name}?`, action: "Delete", body: "It goes to Trash with its messages, and can be restored for 30 days.", onConfirm: () => remove({ kind: "channel", id: c._id }).then(() => left(c._id)) }))}>
-									<TrashIcon /> Delete channel
+							{c.canManage && !c.isDefault && (
+								<MenuItem onClick={() => (close(), confirm(archiveQuestion(`#${c.name}`, () => remove({ kind: "channel", id: c._id }).then(() => left(c._id)), "The channel will close to new messages. Its messages and files are kept.")))}>
+									<ArchiveIcon /> Archive channel
 								</MenuItem>
 							)}
 						</>
@@ -151,6 +151,7 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 	const needed = (c: { _id: Id<"chats">; unread: boolean; mentioned: boolean }) => c._id === openId || c.unread || c.mentioned;
 	const shown = section.collapsed ? sorted.filter((d) => (d.dmId && d.dmId === openId) || d.unread || d.mentioned || sidesOf(d.dmId).some(needed)) : sorted;
 	const markRead = useMutation(api.chats.markRead);
+	const closeDm = useMutation(api.chats.closeDm);
 	return (
 		<Group title="Direct messages" section={section} add={<AddButton label="New message" onClick={() => setDialog("message")} />}>
 			{shown.map((d) => {
@@ -185,6 +186,8 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 										{d.agent && <MenuItem onClick={() => (close(), run(newSide()))}><PlusIcon /> New chat</MenuItem>}
 										{d.dmId && <MenuItem onClick={() => (close(), markRead({ chatId: d.dmId! }).catch(onError))}><CheckIcon /> Mark as read</MenuItem>}
 										{d.agentId && <MenuItem onClick={() => (close(), navigate("settings", "agents", d.agentId!))}><AgentIcon /> Agent settings</MenuItem>}
+										{/* Hidden for you only, till someone writes there (Slack's Close). Agents' rows stay: they're how you reach them. */}
+										{!d.agent && d.dmId && <MenuItem onClick={() => (close(), run(closeDm({ chatId: d.dmId! }), () => d.dmId === openId && navigate("chat")))}><CloseIcon /> Close conversation</MenuItem>}
 									</>
 								)
 							: undefined
@@ -207,7 +210,7 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 						menu={(close) => (
 							<>
 								<MenuItem onClick={() => (close(), markRead({ chatId: c._id }).catch(onError))}><CheckIcon /> Mark as read</MenuItem>
-								<MenuItem danger onClick={() => (close(), confirm({ title: `Delete "${c.label}"?`, action: "Delete", body: "It goes to Trash and can be restored for 30 days.", onConfirm: () => remove({ kind: "channel", id: c._id }).then(() => c._id === openId && d.dmId && onOpen(d.dmId)) }))}><TrashIcon /> Delete</MenuItem>
+								<MenuItem onClick={() => (close(), confirm(archiveQuestion(c.label ?? "New chat", () => remove({ kind: "channel", id: c._id }).then(() => c._id === openId && d.dmId && onOpen(d.dmId)))))}><ArchiveIcon /> Archive</MenuItem>
 							</>
 						)}
 					>
@@ -381,7 +384,8 @@ export function Item({
 					onKeyDown={rename && ((e) => e.key === "F2" && (e.preventDefault(), setRenaming(true)))}
 					className="flex min-w-0 flex-1 items-center gap-2 text-left after:absolute after:inset-0 after:rounded-lg"
 				>
-					{children}
+					{/* A plain label ellipsizes like the others; richer children truncate their own text. */}
+					{typeof children === "string" ? <span className="truncate">{children}</span> : children}
 					{draft && !active && <span className="ml-auto shrink-0 text-[10px] font-normal text-neutral-400">Draft</span>}
 					{mentioned && !active && (
 						<span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-neutral-900 px-1 text-[10px] font-medium text-white">

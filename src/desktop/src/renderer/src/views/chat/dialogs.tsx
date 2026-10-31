@@ -1,10 +1,11 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useState } from "react";
 import { api } from "../../api";
-import { Checkbox } from "../../controls";
+import { type ReplyMode, replyModeLabels, replyModes } from "@companybot/core/router";
+import { Checkbox, Select } from "../../controls";
 import { useMutation, useQuery } from "../../convex";
 import { Field, Form, Loading, Notice, descriptionClass, inputClass, primaryButton, secondaryButton, useRun } from "../../ui";
-import { AgentBadge, Avatar, Modal, useConfirm } from "./common";
+import { AgentBadge, Avatar, Modal, archiveQuestion, useConfirm } from "./common";
 import { navigate } from "../../router";
 import { ProfileLink } from "./Profile";
 import { type ChatDetails, type Participant, chatTitle, useDirectory } from "./data";
@@ -163,6 +164,7 @@ export function ChannelDetails({ chat, onClose, onLeft }: { chat: ChatDetails; o
 				<>
 					{isChannel && chat.canManage && <EditChannel chat={chat} />}
 					{isChannel && !chat.canManage && chat.topic && <p className="text-sm text-neutral-600">{chat.topic}</p>}
+					{isChannel && !chat.canManage && chat.replyMode === "relevant" && <p className={descriptionClass}>{replyHints.relevant}</p>}
 					<section className="flex flex-col gap-2">
 						<div className="flex items-center justify-between">
 							<h3 className="text-sm font-medium">{chat.members.length} {chat.members.length === 1 ? "member" : "members"}</h3>
@@ -207,19 +209,28 @@ export function ChannelDetails({ chat, onClose, onLeft }: { chat: ChatDetails; o
 	);
 }
 
+const replyHints: Record<ReplyMode, string> = {
+	mentions: "Agents here answer only when @mentioned.",
+	relevant: "Agents here also answer, or react, when a message looks meant for them.",
+};
+
 function EditChannel({ chat }: { chat: ChatDetails }) {
 	const update = useMutation(api.chats.updateChannel);
 	const [name, setName] = useState(chat.name ?? "");
 	const [topic, setTopic] = useState(chat.topic ?? "");
+	const [replyMode, setReplyMode] = useState<ReplyMode>(chat.replyMode);
 	const { error, run } = useRun();
-	const dirty = name !== (chat.name ?? "") || topic !== (chat.topic ?? "");
+	const dirty = name !== (chat.name ?? "") || topic !== (chat.topic ?? "") || replyMode !== chat.replyMode;
 	return (
-		<Form className="flex flex-col gap-3" onSubmit={() => run(update({ chatId: chat._id, name, topic }))}>
+		<Form className="flex flex-col gap-3" onSubmit={() => run(update({ chatId: chat._id, name, topic, replyMode }))}>
 			<Field label="Name">
 				<input value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
 			</Field>
 			<Field label="Topic">
 				<input value={topic} onChange={(e) => setTopic(e.target.value)} className={inputClass} />
+			</Field>
+			<Field label="Agents reply" hint={replyHints[replyMode]}>
+				<Select className={inputClass} value={replyMode} options={replyModes.map((m) => ({ value: m, label: replyModeLabels[m] }))} onChange={setReplyMode} />
 			</Field>
 			<Notice>{error}</Notice>
 			{dirty && (
@@ -286,10 +297,10 @@ function LeaveButton({ chat, onLeft }: { chat: ChatDetails; onLeft: () => void }
 				{chat.canManage && !chat.trash && (
 					<button
 						type="button"
-						onClick={() => confirm({ title: `Delete #${chat.name}?`, action: "Delete channel", body: "It goes to Trash with its messages, and can be restored for 30 days.", onConfirm: () => remove({ kind: "channel", id: chat._id }).then(onLeft) })}
-						className="text-red-600 hover:text-red-800"
+						onClick={() => confirm(archiveQuestion(`#${chat.name}`, () => remove({ kind: "channel", id: chat._id }).then(onLeft), "The channel will close to new messages. Its messages and files are kept."))}
+						className="text-neutral-600 hover:text-neutral-900"
 					>
-						Delete channel
+						Archive channel
 					</button>
 				)}
 			</div>

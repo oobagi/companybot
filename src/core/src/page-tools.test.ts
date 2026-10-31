@@ -28,14 +28,23 @@ describe("pages tools", () => {
 		expect(rest.more).toBeUndefined();
 	});
 
-	it("runs restorable page writes, moves and Trash without extra consent", async () => {
+	it("runs page writes, moves and restores without extra consent", async () => {
 		const tools = [tool("pages.write")];
-		for (const input of [{ title: "Guide", parent: "p1" }, { action: "move", page: "p1", parent: "p2" }, { page: "p1", trash: true }, { page: "p1", trash: false }]) {
+		for (const input of [{ title: "Guide", parent: "p1" }, { action: "move", page: "p1", parent: "p2" }, { page: "p1", trash: false }]) {
 			const call = await actionOf("pages_write", input, tools);
 			expect(toolRisk(call!.tool)).toBe("none");
 			expect(permissionFor({ risk: toolRisk(call!.tool), foreign: true })).toEqual({ type: "run" });
 			expect(await toolApprovalPolicy(tools)({ toolCall: { toolCallId: "page", toolName: "pages_write", input } })).toBeUndefined();
 		}
+	});
+
+	it("requires confirmation to archive even with an Always rule", async () => {
+		const tools = [tool("pages.write")];
+		const input = { page: "p1", trash: true };
+		const call = await actionOf("pages_write", input, tools);
+		expect(toolRisk(call!.tool)).toBe("locked");
+		expect(permissionFor({ risk: toolRisk(call!.tool), rule: "always" })).toEqual({ type: "ask", canAlways: false });
+		expect(await toolApprovalPolicy(tools)({ toolCall: { toolCallId: "page", toolName: "pages_write", input } })).toBe("user-approval");
 	});
 
 	it("say what each write did", () => {
@@ -44,7 +53,7 @@ describe("pages tools", () => {
 		expect(label({ title: "SOP" }, { title: "SOP" })).toBe("Create page SOP");
 		expect(label({ page: "p1", markdown: "hi" }, { title: "SOP" })).toBe("Write page SOP");
 		expect(label({ record: "r1", markdown: "hi" }, { title: "Acme" })).toBe("Write page Acme");
-		expect(label({ page: "p1", trash: true }, { title: "SOP" })).toBe("Delete page SOP");
+		expect(label({ page: "p1", trash: true }, { title: "SOP" })).toBe("Archive page SOP");
 		expect(label({ restore: "v1" }, { title: "SOP" })).toBe("Restore a version of SOP");
 		expect(label({ page: "p1", markdown: "hi" }, { error: "nope" })).toBeUndefined();
 	});

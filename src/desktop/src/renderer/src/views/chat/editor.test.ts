@@ -1,6 +1,6 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { describe, expect, it } from "vitest";
-import { emojiCandidates, type Sources, candidatesFor, findTrigger, matches } from "./editor";
+import { emojiCandidates, type Sources, candidatesFor, findTrigger, matches, typedMentions } from "./editor";
 import { buildIndex } from "./emoji";
 
 describe("composer triggers", () => {
@@ -56,5 +56,23 @@ describe("composer triggers", () => {
 		const index = buildIndex([{ hexcode: "1F604", label: "grinning face with smiling eyes", unicode: "😄", group: 0, order: 1 }], { "1F604": "smile" });
 		expect(emojiCandidates(index, "s")).toEqual([]);
 		expect(emojiCandidates(index, "sm")).toEqual([{ kind: "emoji", id: "smile", label: "😄" }]);
+	});
+});
+
+describe("typed mentions", () => {
+	const sam = { type: "user" as const, id: "u1" as Id<"users">, name: "Sam" };
+	const samLee = { type: "user" as const, id: "u2" as Id<"users">, name: "Sam Lee" };
+	const scout = { type: "agent" as const, id: "a1" as Id<"agents">, name: "Scout" };
+	const sources = { people: [sam, samLee], agents: [scout] };
+	const names = (text: string) => typedMentions(text, sources).map((p) => p.name);
+
+	it("finds a pasted @name that never became a chip", () => {
+		expect(names("@Scout find 3 plumbers")).toEqual(["Scout"]);
+		expect(names("hey @Scout, and @Sam.")).toEqual(["Scout", "Sam"]);
+	});
+
+	it("takes the longest name, and only whole names", () => {
+		expect(names("@Sam Lee can you")).toEqual(["Sam Lee"]);
+		expect(names("@Scouts @scout me@Scout Scout")).toEqual([]);
 	});
 });

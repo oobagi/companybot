@@ -18,6 +18,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 	const has = (id: string) => usable.some((t) => t.id === id);
 	const lines = [
 		"## How your replies are shown",
+		"Only say something was done, shown, sent or saved if its tool call returned success in this reply. If a tool failed, or you didn't call it, say that instead.",
 		"The chat renders GitHub-flavored Markdown. Use it lightly: short paragraphs, **bold** for key facts, lists for steps or options, `code` for exact values, and fenced code blocks for code. No HTML. Keep headings to ### or smaller and only for long replies.",
 	];
 	if (usable.some(t => toolRisk(t) === "inside" || t.riskFor)) lines.push(
@@ -55,6 +56,11 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 		}
 		if (has("chat.read_file")) lines.push("- Messages list their attached files. Read a file's text with chat_read_file before answering about it.");
 		if (has("chat.react")) lines.push("- A reaction (chat_react) can acknowledge a message; still reply when there's something to say.");
+		lines.push(
+			"- To hand work to another agent, @mention it by name in your reply: it does it for the same person, in a thread. Only @mention an agent to hand it work; when you're just talking about one, write its name without @.",
+			"- With other agents, say what you need in one message. Don't post bare acknowledgements or thanks to them. When an agent handed you work, put the result in your reply; @mention that agent only if it needs the result to finish.",
+		);
+		if (has("chat.ask_agent")) lines.push("- To ask another agent something without handing the work over, use chat_ask_agent. You get its answer later, in a new message; then finish the reply.");
 		if (has("chat.manage")) lines.push("- chat_manage can edit your person's own messages, delete them with approval, react to an exact message, hide the link preview card on a message of theirs, or mark a chat read only when explicitly asked. Delivery never starts agents or automations.");
 	}
 	if (recordTools.some((t) => has(t.id))) {
@@ -71,7 +77,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 		if (has("records.save") || has("records.save_field")) {
 			lines.push(
 				"- Changes run when permitted, logged as you acting for the person. Say in a sentence what you changed.",
-				"- Deleting moves things to Trash: anyone who could delete it can restore it for 30 days. You cannot delete anything forever.",
+				"- Deleting moves things to Archive: archiving requires confirmation and keeps content until someone explicitly deletes it forever. Anyone who could archive it can restore it at any time. You cannot delete anything forever.",
 				"- Before changing or deleting more than 3 records at once, list them and ask the person to confirm. Add or change fields only when asked.",
 			);
 		}
@@ -129,8 +135,9 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 			"",
 			"## Setting up automations",
 			"People can ask you to do something on a schedule, when something happens here, or when another app sends a webhook. Most aren't technical: never say \"trigger\", \"webhook\", or \"audience\" unless they do.",
-			"- Ask only for what's missing, one short question at a time: what you should do each time, when (time and days, or which channel to watch, or when someone joins), and who gets it (just them by default; \"anyone who turns it on\"; or a channel).",
+			"- Ask only for what's missing, one short question at a time: what you should do each time, when (days and times, or which channel to watch, or when someone joins), and who gets it (just them by default; \"anyone who turns it on\"; or a channel).",
 			"- Write the prompt as them asking you, specific enough to run alone later.",
+			"- Schedules take any regular timing: several times a day, every few hours between set hours, chosen days, monthly. Write it as cron (the tool shows how); never show them cron unless they ask.",
 			"- Before creating it, show a 3-line summary (what, when, who gets it) and ask them to confirm. Then call automations_create and say where they can change it: Settings → Automations.",
 			"- Only offer a webhook if they mention an outside app that can send one; give them the URL it returns and say to keep it secret.",
 		);
@@ -151,7 +158,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 			...(has("followups.list") && has("followups.cancel") ? ["- To change or stop one, find it with followups_list and cancel it with followups_cancel (then set a new one if they moved it)."] : []),
 		);
 	}
-	if (has("agents.manage")) lines.push("", "## Agents", "Use agents_manage for agent metadata, paged history, tool-free creation, deleting (to Trash) and another agent's instructions/model/reasoning (deleting and those changes wait for approval). Read the current version first. Tool grants, your own instructions/model/reasoning, restoring prior config and restoring an agent from Trash need a person directly.");
+	if (has("agents.manage")) lines.push("", "## Agents", "Use agents_manage for agent metadata, paged history, tool-free creation, deleting (to Archive) and another agent's instructions/model/reasoning (deleting and those changes wait for approval). Read the current version first. Tool grants, your own instructions/model/reasoning, restoring prior config and restoring an agent from Archive need a person directly.");
 	if (has("workspace.settings")) lines.push("", "## Workspace settings", "- workspace_settings manages workspace settings (owners) and the acting person's preferences; device measurements stay automatic.");
 	lines.push("", "Use only the tools you're given. If something can't be done with them, say so. Role changes, tool grants, sign-ins and approvals are for the person to do directly.");
 	return lines.join("\n");

@@ -228,7 +228,7 @@ describe("records tools", () => {
 		expect((await tools.find({ search: "Acme" })).rows[0]).toMatchObject({ _id: acme.id, _type: "client", id: "C-42", type: "Commercial" });
 	});
 
-	it("delete to Trash, restore and undo", async () => {
+	it("delete to Archive, restore and undo", async () => {
 		const { t, member } = await ownerAndMember();
 		const tools = await turnFor(t, member);
 		const client = await tools.save({ type: "client", values: { name: "Acme", status: "Lead" } });

@@ -2,12 +2,12 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery, useWorkspace } from "../../convex";
-import { ArrowRightIcon, ArrowUpIcon, PageIcon, PlusIcon, TrashIcon } from "../../icons";
+import { ArchiveIcon, ArrowRightIcon, ArrowUpIcon, PageIcon, PlusIcon } from "../../icons";
 import { navigate } from "../../router";
 import { type DragProps, useSortable } from "../../sortable";
 import { LoadMore, Notice, inputClass, useDebounced, useRun } from "../../ui";
 import { AddButton, Group, Item, type SectionProps, trailingAction } from "../chat/Sidebar";
-import { MenuItem, Modal } from "../chat/common";
+import { MenuItem, Modal, archiveQuestion, useConfirm } from "../chat/common";
 
 type PageId = Id<"pages">;
 type Row = { _id: PageId; title: string; hasChildren?: boolean; parentId?: PageId | null };
@@ -41,6 +41,7 @@ function PageNavTree({ openId, canEdit, section, workspaceId }: { openId?: strin
 	const create = useMutation(api.pages.create);
 	const remove = useMutation(api.trash.move);
 	const rename = useMutation(api.pages.rename);
+	const { confirm, dialog } = useConfirm();
 	const { error, run } = useRun();
 	const toggle = (id: string, open = !expanded.has(id)) => {
 		setExpanded((before) => {
@@ -62,7 +63,7 @@ function PageNavTree({ openId, canEdit, section, workspaceId }: { openId?: strin
 						menu={(close) => <>
 							<MenuItem onClick={() => { close(); add(p._id); }}><PlusIcon /> New page inside</MenuItem>
 							<MenuItem onClick={() => { close(); setMoving({ ...p, parentId }); }}><ArrowRightIcon /> Move to…</MenuItem>
-							<MenuItem danger onClick={() => { close(); run(remove({ kind: "page", id: p._id })); }}><TrashIcon /> Delete</MenuItem>
+							<MenuItem onClick={() => { close(); confirm(archiveQuestion(p.title, () => remove({ kind: "page", id: p._id }), "Its sub-pages will be archived with it.")); }}><ArchiveIcon /> Archive</MenuItem>
 						</>}
 						actions={<button type="button" title="Add a page inside" aria-label={`Add a page inside ${p.title}`} onClick={() => add(p._id)} className={trailingAction}><PlusIcon /></button>}>
 						<span className="truncate">{p.title}</span>
@@ -76,6 +77,7 @@ function PageNavTree({ openId, canEdit, section, workspaceId }: { openId?: strin
 		<Group title="Pages" section={section} add={<AddButton label="New page" onClick={() => add()} />}>
 			{batches.map((ids, i) => <PruneExpanded key={i} ids={ids} onPrune={prune} />)}
 			{!section.collapsed && level()}
+			{dialog}
 			<Notice>{error}</Notice>
 			{moving && <MovePage page={moving} onClose={() => setMoving(undefined)} />}
 		</Group>

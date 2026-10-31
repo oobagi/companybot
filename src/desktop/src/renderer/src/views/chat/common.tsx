@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { CloseIcon, PlusIcon } from "../../icons";
 import { Notice, dangerButton, primaryButton, secondaryButton, useRun } from "../../ui";
@@ -12,7 +12,7 @@ const initials = (name: string) =>
 		.map((w) => w[0]!.toUpperCase())
 		.join("") || "?";
 
-const sizes = { xs: "size-5 text-[10px]", row: "size-[22px] text-[10px]", sm: "size-6 text-[11px]", md: "size-9 text-sm", lg: "size-14 text-lg" };
+const sizes = { line: "size-4 text-[8px]", xs: "size-5 text-[10px]", row: "size-[22px] text-[10px]", sm: "size-6 text-[11px]", md: "size-9 text-sm", lg: "size-14 text-lg" };
 
 /**
  * A person's photo, an agent's picture or a workspace's logo, cropped to fit; initials until
@@ -123,11 +123,23 @@ export function EmojiPicker({ onPick, onClose, className = "" }: { onPick: (emoj
  */
 export function Modal({ title, wide, onClose, children }: { title: string; wide?: boolean; onClose: () => void; children: React.ReactNode }) {
 	const ref = useDismiss<HTMLDivElement>(onClose);
+	const titleId = useId();
+	useLayoutEffect(() => {
+		const previous = document.activeElement as HTMLElement | null;
+		const panel = ref.current;
+		if (panel && !panel.contains(document.activeElement)) (panel.querySelector<HTMLElement>("input, textarea, button") ?? panel).focus();
+		return () => { if (previous?.isConnected) previous.focus({ preventScroll: true }); };
+	}, []);
 	return createPortal(
 		<div className="no-drag fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/20 p-6 text-[15px] text-neutral-900">
-			<div ref={ref} className={`flex max-h-[85vh] w-full ${wide ? "max-w-4xl" : "max-w-md"} flex-col gap-4 overflow-y-auto rounded-2xl bg-white p-6 shadow-xl`}>
+			<div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={(event) => {
+				if (event.key !== "Tab") return;
+				const targets = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex="0"]')];
+				const next = event.shiftKey ? targets.at(-1) : targets[0];
+				if (document.activeElement === (event.shiftKey ? targets[0] : targets.at(-1))) { event.preventDefault(); next?.focus(); }
+			}} className={`flex max-h-[85vh] w-full ${wide ? "max-w-4xl" : "max-w-md"} flex-col gap-4 overflow-y-auto rounded-2xl bg-white p-6 shadow-xl`}>
 				<header className="flex items-center justify-between">
-					<h2 className="text-lg font-medium">{title}</h2>
+					<h2 id={titleId} className="text-lg font-medium">{title}</h2>
 					<IconButton label="Close" onClick={onClose}>
 						<CloseIcon />
 					</IconButton>
@@ -296,7 +308,7 @@ export function Confirm(props: { title: string; action: string; danger?: boolean
 				{props.children && <p className="text-neutral-600">{props.children}</p>}
 				<Notice>{props.error}</Notice>
 				<div className="flex justify-end gap-2">
-					<button type="button" onClick={props.onClose} className={secondaryButton}>Cancel</button>
+					<button autoFocus type="button" disabled={props.busy} onClick={props.onClose} className={secondaryButton}>Cancel</button>
 					<button type="button" disabled={props.busy} onClick={props.onConfirm} className={props.danger ? dangerButton : primaryButton}>{props.action}</button>
 				</div>
 			</div>
@@ -304,7 +316,12 @@ export function Confirm(props: { title: string; action: string; danger?: boolean
 	);
 }
 
-type Question = { title: string; action: string; body?: React.ReactNode; onConfirm: () => Promise<unknown> | void };
+type Question = { title: string; action: string; danger?: boolean; body?: React.ReactNode; onConfirm: () => Promise<unknown> | void };
+
+/** Archive keeps content until someone explicitly deletes it forever. */
+export function archiveQuestion(name: string, onConfirm: Question["onConfirm"], effect?: string): Question {
+	return { title: `Archive “${name}”?`, action: "Archive", danger: false, body: `${effect ? `${effect} ` : ""}This keeps its content in Archive. You can restore it at any time. Nothing is permanently deleted.`, onConfirm };
+}
 
 /**
  * The app's own confirm(), for destructive actions: `confirm({ title, action, onConfirm })` opens a
@@ -313,17 +330,22 @@ type Question = { title: string; action: string; body?: React.ReactNode; onConfi
  */
 export function useConfirm() {
 	const [open, setOpen] = useState<Question>();
+	const pending = useRef(false);
 	const { error, busy, run, fail } = useRun();
 	const close = () => (fail(), setOpen(undefined));
 	const dialog = open && (
 		<Confirm
 			title={open.title}
 			action={open.action}
-			danger
+			danger={open.danger ?? true}
 			busy={busy}
 			error={error}
-			onConfirm={() => void run(Promise.resolve().then(open.onConfirm), () => setOpen(undefined))}
-			onClose={close}
+			onConfirm={() => {
+				if (pending.current) return;
+				pending.current = true;
+				void run(Promise.resolve().then(open.onConfirm), () => setOpen(undefined)).finally(() => { pending.current = false; });
+			}}
+			onClose={() => { if (!pending.current) close(); }}
 		>
 			{open.body}
 		</Confirm>

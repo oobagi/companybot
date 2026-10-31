@@ -28,11 +28,11 @@ export const permissions = {
 	"automations.manage": { roles: ["owner"], label: "manage automations" },
 	/** Make your own automations. You can always change and delete the ones you made. */
 	"automations.create": { roles: ["owner", "member"], label: "make automations" },
-	/** Add, change and delete (to Trash) any team memory, and restore old versions. Wiki-style: anyone can fix a wrong fact; history undoes it. */
+	/** Add, change and delete (to Archive) any team memory, and restore old versions. Wiki-style: anyone can fix a wrong fact; history undoes it. */
 	"memory.team.write": { roles: ["owner", "member"], label: "change team memories" },
-	/** Add, change, delete (to Trash) and restore records (clients, deals, tasks…), and undo changes. */
+	/** Add, change, delete (to Archive) and restore records (clients, deals, tasks…), and undo changes. */
 	"records.edit": { roles: ["owner", "member"], label: "change records" },
-	/** Write, rename, delete (to Trash) and restore pages, and restore old versions (wiki/pages.md). */
+	/** Write, rename, delete (to Archive) and restore pages, and restore old versions (wiki/pages.md). */
 	"pages.edit": { roles: ["owner", "member"], label: "change pages" },
 	/** Add fields to a database. You can always change and delete the ones you added. */
 	"fields.create": { roles: ["owner", "member"], label: "add fields" },
@@ -41,8 +41,8 @@ export const permissions = {
 	"channels.create": { roles: ["owner", "member"], label: "create channels" },
 	/** Rename, delete, and add members to any channel. Creators can always manage their own (`canManageChannel`). */
 	"channels.manage": { roles: ["owner"], label: "manage channels" },
-	/** Delete forever from Trash (wiki/data.md#trash). Agents never delete forever. */
-	"trash.manage": { roles: ["owner"], label: "manage Trash" },
+	/** Delete forever from Archive (wiki/data.md#trash). Agents never delete forever. */
+	"trash.manage": { roles: ["owner"], label: "manage Archive" },
 	/** See the whole workspace's AI usage and cost. Everyone sees their own share (usage.ts). */
 	"usage.view": { roles: ["owner"], label: "see the workspace's AI usage" },
 } as const satisfies Record<string, { roles: readonly Role[]; label: string }>;
@@ -74,7 +74,7 @@ export const trashKinds = ["record", "database", "field", "page", "channel", "ag
 export type TrashKind = (typeof trashKinds)[number];
 
 /**
- * Who can move an item to Trash, and so back out of it, whoever deleted it (Google Drive's shared
+ * Who can move an item to Archive, and so back out of it, whoever deleted it (Google Drive's shared
  * drives work this way). `madeBy`: who made it, for kinds whose makers manage their own (a library
  * skill or automation has none). The one place these rules meet; trashOps.canRestore uses it.
  */

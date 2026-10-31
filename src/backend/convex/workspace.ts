@@ -1,5 +1,5 @@
 import { fireEvent } from "./automationRuns";
-import { DEFAULT_CURRENCY, IMAGE_BUDGET_DEFAULT_USD, IMAGE_BUDGET_MAX_USD, THREAD_HOURS_DEFAULT, can, defaultImageModel, isCurrencyCode, isThreadWindow, threadWindows } from "@companybot/core";
+import { DEFAULT_CURRENCY, IMAGE_BUDGET_DEFAULT_USD, IMAGE_BUDGET_MAX_USD, type ModelInfo, ROUTER_MODEL, THREAD_HOURS_DEFAULT, can, defaultImageModel, isCurrencyCode, isThreadWindow, routerDecisionModels, threadWindows } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -12,7 +12,7 @@ import { sendInviteEmail } from "./invites";
 import { type Member, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, liveWorkspace, memberOf, nameOf, normalizeEmail, personOf, preferencesOf, requireMember, requirePermission, requireUserId, timeZoneOf } from "./lib";
 import { cascading, startCascade } from "./cascade";
 import { imageUrl } from "./images";
-import { catalogImageModels, findImageModel, workspaceImageModel } from "./modelCatalog";
+import { catalogImageModels, catalogModels, findImageModel, workspaceImageModel } from "./modelCatalog";
 import { imageSpent } from "./usage";
 import { removeWorkspace } from "./lifecycle";
 import { updatePreferences } from "./preferences";
@@ -493,6 +493,11 @@ export async function imageSettings(ctx: QueryCtx, member: Member, workspace: Do
 	};
 }
 
+/** What can decide replies: decision models (Jev) first, then every AI Gateway language model. */
+async function routerModels(ctx: QueryCtx): Promise<ModelInfo[]> {
+	return [...routerDecisionModels, ...(await catalogModels(ctx)).models];
+}
+
 /** Shared workspace settings. */
 export const settings = query({
 	args: {},
@@ -510,6 +515,9 @@ export const settings = query({
 			/** Whether any live record has an amount, so the app can say they keep their currency. */
 			hasAmounts: await hasAmounts(ctx, workspace._id),
 			...(await imageSettings(ctx, member, workspace)),
+		/** What decides whether agents reply in "When relevant" channels, and what it can be. */
+		routerModel: workspace.routerModel ?? ROUTER_MODEL,
+		routerModels: await routerModels(ctx),
 			/** Hours a thread stays under its channel in the sidebar after its last reply. */
 			threadHours: workspace.threadHours ?? THREAD_HOURS_DEFAULT,
 			version: workspace.version ?? 0,
@@ -529,6 +537,7 @@ const updateWorkspaceSettingsArgs = v.object({
 	memory: v.optional(v.boolean()),
 	imageModel: v.optional(v.string()),
 	imageBudgetUsd: v.optional(v.number()),
+	routerModel: v.optional(v.string()),
 	threadHours: v.optional(v.number()),
 	expectedVersion: v.number(),
 });
@@ -538,7 +547,7 @@ export const updateSettings = mutation({
 	handler: async (ctx, args) => updateWorkspaceSettings(ctx, await requireMember(ctx), args),
 });
 
-export async function updateWorkspaceSettings(ctx: MutationCtx, member: Member, { name, currency, memory, imageModel, imageBudgetUsd, threadHours, expectedVersion }: Infer<typeof updateWorkspaceSettingsArgs>) {
+export async function updateWorkspaceSettings(ctx: MutationCtx, member: Member, { name, currency, memory, imageModel, imageBudgetUsd, routerModel, threadHours, expectedVersion }: Infer<typeof updateWorkspaceSettingsArgs>) {
 	const { workspaceId } = checkPermission(member, "workspace.manage");
 	const workspace = (await ctx.db.get(workspaceId))!;
 	checkVersion(workspace.version ?? 0, expectedVersion);
@@ -549,6 +558,9 @@ export async function updateWorkspaceSettings(ctx: MutationCtx, member: Member, 
 	if (imageModel !== undefined && imageModel !== (workspace.imageModel ?? defaultImageModel) && !(await findImageModel(ctx, imageModel))) {
 		throw new ConvexError("Pick one of the picture models offered.");
 	}
+	if (routerModel !== undefined && routerModel !== (workspace.routerModel ?? ROUTER_MODEL) && !(await routerModels(ctx)).some((m) => m.id === routerModel)) {
+		throw new ConvexError("Pick one of the reply decision models offered.");
+	}
 	if (imageBudgetUsd !== undefined && !(imageBudgetUsd >= 0 && imageBudgetUsd <= IMAGE_BUDGET_MAX_USD)) {
 		throw new ConvexError(`Set an image budget from $0 (off) to $${IMAGE_BUDGET_MAX_USD.toLocaleString("en-US")} a month.`);
 	}
@@ -558,6 +570,7 @@ export async function updateWorkspaceSettings(ctx: MutationCtx, member: Member, 
 		...(currency && { currency }),
 		...(memory !== undefined && { memory }),
 		...(imageModel !== undefined && { imageModel }),
+		...(routerModel !== undefined && { routerModel }),
 		...(imageBudgetUsd !== undefined && { imageBudgetUsd: Math.round(imageBudgetUsd * 100) / 100 }),
 		...(threadHours !== undefined && { threadHours }),
 		version: (workspace.version ?? 0) + 1,

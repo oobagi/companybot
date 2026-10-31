@@ -3,7 +3,7 @@ import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
-// Scheduled automations check here; each runs at most once a day (automationRuns.ts).
+// Scheduled automations check here: each runs its latest cron time once, so a late or missed check runs it once (automationRuns.ts).
 crons.interval("automations", { minutes: 5 }, internal.automationRuns.tick, {});
 // Forgets webhook delivery ids once senders have stopped retrying them.
 crons.interval("automation webhooks", { hours: 1 }, internal.automationRuns.forgetOldWebhooks);
@@ -13,8 +13,6 @@ crons.interval("wakeups", { hours: 1 }, internal.wakeups.forgetSettled);
 crons.interval("connector sign-ins", { hours: 1 }, internal.connectors.forgetExpiredOAuth);
 // Typing rows from people who typed and never sent (typing.ts).
 crons.interval("typing", { hours: 1 }, internal.typing.forgetStale);
-// What's been in Trash for 30 days goes for good (trash.ts).
-crons.interval("trash", { hours: 1 }, internal.trash.sweep);
 // Uploads nobody attached within a day, and their files (images.ts).
 crons.interval("uploads", { hours: 1 }, internal.images.sweepUploads);
 // Deletions (cascade.ts) whose last run failed start again.

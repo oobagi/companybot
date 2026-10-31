@@ -1,7 +1,7 @@
 import { viewConfig } from "./recordValidators";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
-import { fieldKinds, fileTypes, reasonings, risks, roles, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
+import { fieldKinds, fileTypes, reasonings, replyModes, risks, roles, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
 import { v } from "convex/values";
 
 /** One of `values`, each a literal. */
@@ -38,12 +38,30 @@ export const toolStatus = v.union(v.literal("running"), v.literal("done"), v.lit
 export const messagePart = v.union(
 	v.object({ type: v.literal("text"), text: v.string() }),
 	/** `label`: what it did, for people ("Send SMS with Fake CRM"; core `callLabel`). Older parts lack it. */
-	v.object({ type: v.literal("tool"), id: v.string(), name: v.string(), label: v.optional(v.string()), status: toolStatus }),
+	/** `opens`: a thread the call made, that its line opens (chat.ask_agent's "Scout asked Quill →"). */
+	v.object({
+		type: v.literal("tool"),
+		id: v.string(),
+		name: v.string(),
+		label: v.optional(v.string()),
+		status: toolStatus,
+		opens: v.optional(v.object({ chatId: v.id("chats"), messageId: v.id("chatMessages") })),
+	}),
 	/** Props were validated against the widget's schema when the agent placed it. */
 	v.object({ type: v.literal("widget"), id: v.string(), widget: v.object({ type: v.string(), props: v.any() }) }),
 	/** A tool call held for approval (`id` is the tool call's id). The app reads its state from `approvals`. */
 	v.object({ type: v.literal("approval"), id: v.string(), approvalId: v.id("approvals"), tool: v.string() }),
 );
+
+/** A turn's place in a chain of agents (chains.ts). */
+export const chainRef = v.object({
+	id: v.id("agentChains"),
+	/** Asks inside asks: 0 for an @mention handoff from a person's turn. */
+	depth: v.number(),
+	/** The agents from the chain's start to this turn's, its own last; as of `epoch`. */
+	path: v.array(v.id("agents")),
+	epoch: v.number(),
+});
 
 export const approvalStatus = v.union(
 	v.literal("pending"),
@@ -82,6 +100,19 @@ export const replyUsage = v.object({
 	firstTokenMs: v.optional(v.number()),
 });
 
+/** A dispatcher pick (router.ts): its model, how sure it was (Jev's chance of "reply"; none from a language model), and the call's cost. */
+export const dispatchInfo = v.object({
+	model: v.string(),
+	band: v.union(v.literal("clearly"), v.literal("probably"), v.literal("might")),
+	probability: v.optional(v.number()),
+	/** Jev's chance of each choice for this agent ({ reply, react, quiet }), for the reply's stats. */
+	probabilities: v.optional(v.record(v.string(), v.number())),
+	/** The whole decision call's, which covers every agent in the channel. Recorded once, as kind "router". */
+	costUsd: v.number(),
+	/** Set when another agent named it in its decision (`to`), in place of a dispatcher: that agent's name. */
+	by: v.optional(v.string()),
+});
+
 export const replyStats = v.object({
 	...replyUsage.fields,
 	/** The conversation's running total once this reply finished, summaries included. */
@@ -92,14 +123,22 @@ export const replyStats = v.object({
 	searchCostUsd: v.optional(v.number()),
 	/** Added to the `usage` table (usage.ts). Replies from before it are counted once by migrations.usageThisMonth. */
 	counted: v.optional(v.boolean()),
+	/** Set when the dispatcher picked the agent: shown with the reply, apart from `costUsd` (it's kind "router" in `usage`). */
+	dispatch: v.optional(dispatchInfo),
 });
 
 // Shared settings carry a `version` that goes up on every save. A save sends the
 // version it started from; if someone saved in between, it's refused as a conflict.
 
+/** core's ScheduleTrigger, or (COMPAT, see core's LegacySchedule) its LegacySchedule. */
+const scheduleTrigger = v.union(
+	v.object({ type: v.literal("schedule"), cron: v.string() }),
+	v.object({ type: v.literal("schedule"), time: v.string(), weekdays: v.array(v.number()), cron: v.optional(v.string()) }),
+);
+
 /** core's CustomTrigger. */
 export const customTrigger = v.union(
-	v.object({ type: v.literal("schedule"), time: v.string(), weekdays: v.array(v.number()) }),
+	scheduleTrigger,
 	v.object({ type: v.literal("webhook") }),
 	v.object({ type: v.literal("event"), event: v.literal("message.posted"), channelId: v.string() }),
 	v.object({ type: v.literal("event"), event: v.literal("member.joined") }),
@@ -144,7 +183,7 @@ const automationDefinition = v.object({
 	id: v.string(), name: v.string(), description: v.string(), details: v.string(), version: v.string(), publisher: v.string(),
 	connectors: v.array(v.string()), prompt: v.string(),
 	trigger: v.union(
-		v.object({ type: v.literal("schedule"), time: v.string(), weekdays: v.array(v.number()) }),
+		scheduleTrigger,
 		v.object({ type: v.literal("event"), event: v.union(v.literal("message.posted"), v.literal("member.joined")), label: v.string(), channelId: v.optional(v.string()) }),
 		v.object({ type: v.literal("webhook"), webhookEvent: v.optional(v.literal("call.ended")), label: v.string(), sample: v.object({ id: v.string(), event: v.optional(v.string()), person: v.optional(v.object({ email: v.string() })), data: v.optional(v.record(v.string(), v.any())) }) }),
 	),
@@ -176,6 +215,8 @@ export default defineSchema({
 		memory: v.optional(v.boolean()),
 		/** What agents make pictures with (an AI Gateway model id). Unset means core's defaultImageModel. */
 		imageModel: v.optional(v.string()),
+		/** What decides whether agents reply in "When relevant" channels (core router.ts); unset: ROUTER_MODEL. */
+		routerModel: v.optional(v.string()),
 		/** USD agents may spend on pictures a month; 0 turns them off. Unset means IMAGE_BUDGET_DEFAULT_USD. */
 		imageBudgetUsd: v.optional(v.number()),
 		/** Hours a thread stays under its channel in the sidebar after its last reply (core `threadWindows`; 0 forever). Unset means THREAD_HOURS_DEFAULT. */
@@ -252,7 +293,7 @@ export default defineSchema({
 		updatedByAgent: v.optional(v.boolean()),
 		/** Who first saved it. Missing on memories from before it was kept: read as `updatedBy`. */
 		createdBy: v.optional(v.id("users")),
-		/** True while a team memory is in Trash (the `trash` table says who deleted it, and when); unset otherwise, which reads filter on by index. */
+		/** True while a team memory is in Archive (the `trash` table says who deleted it, and when); unset otherwise, which reads filter on by index. */
 		archived: v.optional(v.literal(true)),
 		version: v.number(),
 		/** Retained for stored rows: no migration cleared this retired cleanup timestamp. */
@@ -261,7 +302,7 @@ export default defineSchema({
 		.index("by_workspace", ["workspaceId", "archived"])
 		// One person's personal memories in a workspace (team memories have no owner).
 		.index("by_owner", ["ownerId", "workspaceId"])
-		// Newest first within a scope, across owners (lists), or one owner's personal memories (never in Trash).
+		// Newest first within a scope, across owners (lists), or one owner's personal memories (never in Archive).
 		.index("by_agent_scope", ["agentId", "scope", "archived"])
 		.index("by_agent_owner", ["agentId", "scope", "ownerId"])
 		// Agent search over every memory, however many (memoryOps.searchMemories).
@@ -377,7 +418,7 @@ export default defineSchema({
 				updatedAt: v.number(),
 			}),
 		),
-		/** Skills: in Trash (the `trash` table says who deleted it, and when). Agents don't see it. */
+		/** Skills: in Archive (the `trash` table says who deleted it, and when). Agents don't see it. */
 		archived: v.optional(v.boolean()),
 	}).index("by_workspace", ["workspaceId", "skillId"]),
 
@@ -406,6 +447,8 @@ export default defineSchema({
 		lastMessageAt: v.number(),
 		/** USD spent on agent replies and summaries here (main timeline). */
 		costUsd: v.optional(v.number()),
+		/** Channels: when agents answer without an @mention (core router.ts). Unset is "mentions", so no migration. */
+		replyMode: v.optional(oneOf(replyModes)),
 	})
 		.index("by_workspace", ["workspaceId", "kind"])
 		.index("by_dm_key", ["workspaceId", "dmKey"])
@@ -419,6 +462,8 @@ export default defineSchema({
 		agentId: v.optional(v.id("agents")),
 		/** People only: newest message time they've seen in the main timeline. */
 		lastReadAt: v.optional(v.number()),
+		/** People only: when they closed this DM (chats.closeDm). Out of their sidebar until a newer message, or they open it again. */
+		closedAt: v.optional(v.number()),
 	})
 		.index("by_chat", ["chatId"])
 		.index("by_workspace", ["workspaceId", "userId"])
@@ -464,8 +509,21 @@ export default defineSchema({
 		costUsd: v.optional(v.number()),
 		/** Server-written provenance. `foreign` snapshots whose words the run follows; absent on older messages, which ask. */
 		automation: v.optional(v.object({ id: v.string(), name: v.string(), foreign: v.optional(v.boolean()) })),
-		/** A wake turn's own reply (wakeups.ts): kept for the agent's session, never shown. The agent speaks with chat.notify. */
+		/** A quiet turn's own reply (a wake, a dispatcher pick, a hop): hidden unless its decision posts it (turns.finishReply). */
 		quiet: v.optional(v.boolean()),
+		/** When a quiet reply was shown, if it was: later than it was made. */
+		publishedAt: v.optional(v.number()),
+		/**
+		 * A chain of agents paused here (chains.ts): the line "Agents paused after 10 turns · Continue · Stop",
+		 * written as the agent whose handoff it held. `by`: who pressed Continue or Stop.
+		 */
+		pause: v.optional(
+			v.object({
+				chainId: v.id("agentChains"),
+				status: v.union(v.literal("paused"), v.literal("continued"), v.literal("stopped")),
+				by: v.optional(v.id("users")),
+			}),
+		),
 	})
 		.index("by_chat_thread", ["chatId", "threadId"])
 		/** Thread parents, newest reply first: the sidebar's active threads. Messages without replies have no `lastReplyAt` and sort first. */
@@ -547,6 +605,29 @@ export default defineSchema({
 		sessionId: v.optional(v.id("agentSessions")),
 		/** The exact user message sent to the model this turn. Replayed as-is in later turns. */
 		prompt: v.optional(v.string()),
+		/** Nobody @mentioned the agent: the router queued it (router.ts), or a hop (chains.ts). Its reply is quiet. */
+		routed: v.optional(v.literal(true)),
+		/**
+		 * The dispatcher's pick, for its prompt and its reply's stats. One message's picks run one after
+		 * another, best fit first, so each sees what the ones before posted: `after` is the pick it waits for,
+		 * `then` the one waiting for it (router.apply). Unset on routed turns from before it.
+		 */
+		dispatch: v.optional(
+			v.object({
+				...dispatchInfo.fields,
+				// Retired with chat.notify: routed turns are all quiet now. Old turns have them.
+				quiet: v.optional(v.literal(true)),
+				after: v.optional(v.id("agentTurns")),
+				then: v.optional(v.id("agentTurns")),
+			}),
+		),
+		// Retired with chat.notify (no longer written). Old turns have them.
+		notifiedId: v.optional(v.id("chatMessages")),
+		claimSeen: v.optional(v.literal(true)),
+		/** Another agent handed it this (chains.ts): its chain, how deep in asks, and the agents from the chain's start to this one. */
+		chain: v.optional(chainRef),
+		/** Answering another agent's private ask (chat.ask_agent): when it ends, this wakeup gives the asker the answer. */
+		ask: v.optional(v.object({ wakeupId: v.id("wakeups") })),
 		status: v.union(v.literal("queued"), v.literal("running"), v.literal("done"), v.literal("error")),
 		startedAt: v.optional(v.number()),
 		/** Set when the turn follows a decision on this approval: it runs the call if approved, then tells the agent. */
@@ -573,7 +654,42 @@ export default defineSchema({
 		.index("by_session", ["sessionId"])
 		.index("by_workspace", ["workspaceId"])
 		// Also: who's replying in a place right now (typing.ts).
-		.index("by_chat", ["chatId", "threadId", "status"]),
+		.index("by_chat", ["chatId", "threadId", "status"])
+		// A channel's recent "might be for you" picks, for their hourly cap (router.ts).
+		.index("by_chat_dispatch", ["chatId", "dispatch.band"]),
+
+	// Agents handing work to each other for one person (chains.ts, core handoffs.ts): the budget its
+	// handoffs spend, reset when that person writes in it or presses Continue. Made at the first handoff.
+	agentChains: defineTable({
+		workspaceId: v.id("workspaces"),
+		/** Who the agents act for: the person whose message started it. */
+		actorId: v.id("users"),
+		/** Where it started. */
+		chatId: v.id("chats"),
+		turns: v.number(),
+		hops: v.number(),
+		pairs: v.array(v.object({ a: v.id("agents"), b: v.id("agents"), n: v.number() })),
+		/** Bumped by each reset: handoffs from turns of an older epoch start a fresh path. */
+		epoch: v.number(),
+		status: v.union(v.literal("running"), v.literal("paused"), v.literal("stopped")),
+		/** While paused: its line, and the handoffs it held, queued on Continue. */
+		pauseId: v.optional(v.id("chatMessages")),
+		held: v.optional(
+			v.array(
+				v.object({
+					agentId: v.id("agents"),
+					chatId: v.id("chats"),
+					threadId: v.optional(v.id("chatMessages")),
+					triggerId: v.id("chatMessages"),
+					depth: v.number(),
+					dispatched: v.optional(v.boolean()),
+					dispatch: v.optional(dispatchInfo),
+				}),
+			),
+		),
+	})
+		.index("by_workspace", ["workspaceId"])
+		.index("by_chat", ["chatId"]),
 
 	// One agent's ongoing context in one place (chat + thread). Append-only: past turns
 	// replay exactly as sent, so prompt caching hits. Older turns fold into `summary`.
@@ -659,7 +775,9 @@ export default defineSchema({
 		jobId: v.optional(v.string()),
 		/** A job's result (#114), JSON, for the wake turn. */
 		result: v.optional(v.string()),
-		/** Due while its agent, record or chat is in Trash: wakes when it's restored (trashOps). */
+		/** An ask's answer (chat.ask_agent): the agent asked, and its wake turn's reply is shown, finishing the original one. */
+		answer: v.optional(v.object({ agentId: v.id("agents") })),
+		/** Due while its agent, record or chat is in Archive: wakes when it's restored (trashOps). */
 		held: v.optional(v.boolean()),
 		/** The scheduled `fire`, so moving or cancelling it can cancel that too (best effort: `fire` re-checks). */
 		scheduledId: v.optional(v.id("_scheduled_functions")),
@@ -722,7 +840,10 @@ export default defineSchema({
 		/** Schedules run in this time zone: the maker's or installer's, when they set it up. */
 		timeZone: v.string(),
 		installedBy: v.id("users"),
-		/** Local date of the last scheduled run, so a schedule runs once a day. */
+		/** The schedule run it last did, or when its schedule was set or it was resumed: runs after it are due (core `scheduleDue`). */
+		lastScheduledAt: v.optional(v.number()),
+		// Retired: schedules ran once a local day. migrations.cronSchedules clears it.
+		// COMPAT(0.1.0-alpha.10): once that has run on prod, drop this field.
 		lastRunDate: v.optional(v.string()),
 		lastRunAt: v.optional(v.number()),
 		/** What the last run did, in a line, e.g. "Sent to 3 people". */
@@ -746,7 +867,7 @@ export default defineSchema({
 				updatedAt: v.number(),
 			}),
 		),
-		/** Automations: in Trash (the `trash` table says who deleted it, and when). Nothing triggers it. */
+		/** Automations: in Archive (the `trash` table says who deleted it, and when). Nothing triggers it. */
 		archived: v.optional(v.boolean()),
 	})
 		.index("by_workspace", ["workspaceId", "automationId"])
@@ -1003,7 +1124,7 @@ export default defineSchema({
 		.index("by_message", ["messageId"])
 		.index("by_chat", ["chatId"]),
 
-	// What's in Trash: one row per deleted record, database, field, page, channel, agent, or skill or automation people made (trash.ts).
+	// What's in Archive: one row per deleted record, database, field, page, channel, agent, or skill or automation people made (trash.ts).
 	// The item itself stays, `archived`, until it's restored or deleted for good: by an owner,
 	// or after TRASH_DAYS by `trash.sweep`. See wiki/data.md#trash.
 	trash: defineTable({

@@ -12,6 +12,7 @@ import { cascading, startCascade } from "./cascade";
 import { inTrash, requireRecord } from "./recordOps";
 import { pageState, parentFor } from "./pageTree";
 import { toggleTrash } from "./trashOps";
+import { pageBlockSchema } from "./pageBlocks";
 
 // Shared rules for standalone pages and record bodies. See wiki/pages.md.
 
@@ -38,7 +39,7 @@ const STEPS_KEEP_MS = 24 * 60 * 60_000;
 
 let schema: Schema | undefined;
 /** BlockNote's ProseMirror schema, as the app's editor has it. An unmounted editor needs no DOM. */
-export const pageSchema = () => (schema ??= BlockNoteEditor.create().pmSchema);
+export const pageSchema = () => (schema ??= BlockNoteEditor.create({ schema: pageBlockSchema }).pmSchema);
 
 /** An empty block, as BlockNote keeps at the end of every page. */
 const emptyBlock = () => ({ type: "blockContainer", attrs: { id: crypto.randomUUID() }, content: [{ type: "paragraph" }] });
@@ -54,11 +55,11 @@ export const pageOfRecord = (ctx: QueryCtx, workspaceId: Id<"workspaces">, recor
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId).eq("recordId", recordId))
 		.first();
 
-/** Every member reads every page; `pages.edit` changes them, unless the page or its record is in Trash. */
+/** Every member reads every page; `pages.edit` changes them, unless the page or its record is in Archive. */
 export async function requireEditable(ctx: QueryCtx, member: Member, page: Doc<"pages">) {
 	checkPermission(member, "pages.edit");
-	if ((await pageState(ctx, page)).archived) throw new ConvexError("This page is in Trash. Restore it to make changes.");
-	if (page.recordId && (await inTrash(ctx, await requireRecord(ctx, member, page.recordId)))) throw new ConvexError("This record is in Trash. Restore it to make changes.");
+	if ((await pageState(ctx, page)).archived) throw new ConvexError("This page is in Archive. Restore it to make changes.");
+	if (page.recordId && (await inTrash(ctx, await requireRecord(ctx, member, page.recordId)))) throw new ConvexError("This record is in Archive. Restore it to make changes.");
 }
 
 function cleanTitle(title: string) {
@@ -69,7 +70,8 @@ function cleanTitle(title: string) {
 }
 
 /** A standalone page, or a record's body (returned if it already has one). Starts empty. */
-export async function createPage(ctx: MutationCtx, { member }: Who, to: { title: string; parentId?: Id<"pages"> } | { recordId: Id<"records"> }) {
+export async function createPage(ctx: MutationCtx, who: Who, to: { title: string; parentId?: Id<"pages">; insertInParent?: boolean } | { recordId: Id<"records"> }) {
+	const { member } = who;
 	checkPermission(member, "pages.edit");
 	const parentId = "parentId" in to ? to.parentId : undefined;
 	if (parentId) await parentFor(ctx, member, parentId);
@@ -78,7 +80,7 @@ export async function createPage(ctx: MutationCtx, { member }: Who, to: { title:
 		const record = await requireRecord(ctx, member, to.recordId);
 		const existing = await pageOfRecord(ctx, member.workspaceId, record._id);
 		if (existing) return existing._id;
-		if (await inTrash(ctx, record)) throw new ConvexError("This record is in Trash. Restore it to make changes.");
+		if (await inTrash(ctx, record)) throw new ConvexError("This record is in Archive. Restore it to make changes.");
 		recordId = record._id;
 	}
 	const pageId = await ctx.db.insert("pages", {
@@ -92,7 +94,38 @@ export async function createPage(ctx: MutationCtx, { member }: Who, to: { title:
 		updatedBy: member.userId,
 	});
 	await sync.create(ctx, pageId, { type: "doc", content: [{ type: "blockGroup", content: [emptyBlock()] }] });
+	if (parentId && "title" in to && to.insertInParent !== false) {
+		await appendPageBlock(ctx, who, await requirePage(ctx, member, parentId), pageId, cleanTitle(to.title));
+	}
 	return pageId;
+}
+
+/** Sidebar/agent-created children occupy real document blocks too. */
+export async function appendPageBlock(ctx: MutationCtx, who: Who, parent: Doc<"pages">, pageId: Id<"pages">, title: string) {
+	return writeDoc(ctx, who, parent, (doc) => {
+		const tr = new Transform(doc);
+		let exists = false;
+		doc.descendants((node) => { if (node.type.name === "page" && node.attrs.pageId === pageId) exists = true; });
+		if (exists) return tr;
+		const last = doc.firstChild!.lastChild!;
+		const empty = last.childCount === 1 && last.firstChild?.type.name === "paragraph" && last.firstChild.content.size === 0;
+		const pos = doc.content.size - 1 - (empty ? last.nodeSize : 0);
+		return tr.insert(pos, pageSchema().nodeFromJSON({ type: "blockContainer", attrs: { id: crypto.randomUUID() }, content: [{ type: "page", attrs: { pageId, title } }] }));
+	});
+}
+
+/** Moving or archiving a child removes its page block, while ordinary inline references stay. */
+export async function removePageBlock(ctx: MutationCtx, who: Who, parent: Doc<"pages">, pageId: Id<"pages">) {
+	if ((await pageState(ctx, parent)).archived) return;
+	return writeDoc(ctx, who, parent, (doc) => {
+		const tr = new Transform(doc);
+		doc.descendants((node, pos) => {
+			if (node.type.name !== "blockContainer" || node.firstChild?.type.name !== "page" || node.firstChild.attrs.pageId !== pageId) return true;
+			tr.delete(tr.mapping.map(pos), tr.mapping.map(pos + node.nodeSize));
+			return false;
+		});
+		return tr;
+	});
 }
 
 export async function renamePage(ctx: MutationCtx, who: Who, page: Doc<"pages">, title: string) {
@@ -109,16 +142,17 @@ export async function renamePage(ctx: MutationCtx, who: Who, page: Doc<"pages">,
 function relabelLinks(doc: Node, href: string, from: string, to: string) {
 	const tr = new Transform(doc);
 	doc.descendants((node, pos) => {
-		if (node.text === from && node.marks.some((m) => m.type.name === "link" && m.attrs.href === href))
+		if (node.type.name === "page" && pageHref(node.attrs.pageId) === href) tr.setNodeMarkup(tr.mapping.map(pos), undefined, { ...node.attrs, title: to });
+		else if (node.text === from && node.marks.some((m) => m.type.name === "link" && m.attrs.href === href))
 			tr.replaceWith(tr.mapping.map(pos), tr.mapping.map(pos + node.nodeSize), doc.type.schema.text(to, node.marks));
 	});
 	return tr;
 }
 
-/** Moves a standalone page to Trash or back. A record's page goes with its record. */
+/** Moves a standalone page to Archive or back. A record's page goes with its record. */
 export async function setPageTrashed(ctx: MutationCtx, who: Who, page: Doc<"pages">, archived: boolean) {
 	checkPermission(who.member, "pages.edit");
-	if (page.recordId) throw new ConvexError("A record's page goes to Trash with its record.");
+	if (page.recordId) throw new ConvexError("A record's page goes to Archive with its record.");
 	if (page.archived === archived) return;
 	if (archived) await requireEditable(ctx, who.member, page);
 	const child = archived && await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", page.workspaceId).eq("parentId", page._id).eq("recordId", undefined).eq("archived", false)).first();
@@ -131,6 +165,13 @@ export async function setPageTrashed(ctx: MutationCtx, who: Who, page: Doc<"page
 		if (!parent || state?.archived) await ctx.db.patch(page._id, { parentId: undefined });
 	}
 	await ctx.db.patch(page._id, { archived, updatedAt: Date.now(), updatedBy: who.member.userId });
+	const restored = await ctx.db.get(page._id);
+	const parentId = archived ? page.parentId : restored?.parentId;
+	const parent = parentId && await ctx.db.get(parentId);
+	if (parent) {
+		if (archived) await removePageBlock(ctx, who, parent, page._id);
+		else await appendPageBlock(ctx, who, parent, page._id, page.title);
+	}
 }
 
 /** Deletes a page for good: its row at once, then its content (a little at a time) and its versions. */
@@ -292,7 +333,7 @@ export function writeBlocks(ctx: MutationCtx, who: Who, page: Doc<"pages">, json
 		// Before the empty block BlockNote keeps at the end, if it's there.
 		const last = doc.firstChild!.lastChild!;
 		const tr = new Transform(doc);
-		insertBlocks(tr, doc.content.size - 1 - (last.textContent === "" && last.childCount === 1 ? last.nodeSize : 0), blocks);
+		insertBlocks(tr, doc.content.size - 1 - (last.firstChild?.type.name === "paragraph" && last.textContent === "" && last.childCount === 1 ? last.nodeSize : 0), blocks);
 		return tr;
 	});
 }

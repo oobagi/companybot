@@ -13,7 +13,7 @@ describe("chats", () => {
 		// Companybot joined to welcome the owner.
 		expect(general.members.map((m) => m.type)).toEqual(["user", "agent", "user"]);
 		expect((await generalOf(member))._id).toBe(general._id);
-		await expect(member.mutation(api.chats.leave, { chatId: general._id })).rejects.toThrow("Everyone stays");
+		await expect(member.mutation(api.chats.leave, { chatId: general._id })).rejects.toThrow("You can't leave");
 	});
 
 	it("shows public channels to everyone and private ones to members only", async () => {
@@ -67,7 +67,7 @@ describe("chats", () => {
 		await owner.mutation(api.chats.removeMember, { chatId: ops, userId: memberId });
 		expect(await people(ops)).not.toContain(memberId);
 		const general = await generalOf(owner);
-		await expect(owner.mutation(api.chats.removeMember, { chatId: general._id, userId: memberId })).rejects.toThrow("Everyone stays");
+		await expect(owner.mutation(api.chats.removeMember, { chatId: general._id, userId: memberId })).rejects.toThrow("can't be removed");
 	});
 
 	it("finds an existing DM instead of making another", async () => {
@@ -86,6 +86,33 @@ describe("chats", () => {
 		expect(list.agents.find((a) => a._id === companybot._id)?.dmId).toBe(agentDm);
 		expect(list.agents.find((a) => a.name === "Scribe")?.dmId).toBeNull();
 		expect(await member.query(api.chats.get, { chatId: agentDm })).toBeNull();
+	});
+
+	it("closes a DM or group DM for you only, until a new message or you open it again", async () => {
+		const { owner, member } = await ownerAndMember();
+		const { companybot } = await agentsOf(owner);
+		const dm = await owner.mutation(api.chats.openDm, { userIds: [member.userId], agentIds: [] });
+		const group = await owner.mutation(api.chats.openDm, { userIds: [member.userId], agentIds: [companybot._id] });
+		await owner.mutation(api.messages.send, { chatId: dm, text: "hi", mentions: noMentions });
+		const dms = async (as: typeof owner) => (await as.query(api.chats.list))!.dms.map((d) => d._id);
+		await tick();
+		await owner.mutation(api.chats.closeDm, { chatId: dm });
+		await owner.mutation(api.chats.closeDm, { chatId: group });
+		expect(await dms(owner)).not.toContain(dm);
+		expect(await dms(owner)).not.toContain(group);
+		// Only for you, and the history stays.
+		expect(await dms(member)).toEqual(expect.arrayContaining([dm, group]));
+		expect((await owner.query(api.messages.list, { chatId: dm })).map((m) => m.text)).toEqual(["hi"]);
+		// A new message brings it back; so does opening it again.
+		await tick();
+		await member.mutation(api.messages.send, { chatId: dm, text: "you there?", mentions: noMentions });
+		expect(await dms(owner)).toContain(dm);
+		expect(await owner.mutation(api.chats.openDm, { userIds: [member.userId], agentIds: [companybot._id] })).toBe(group);
+		expect(await dms(owner)).toContain(group);
+		// An agent DM stays: it's how you reach the agent. Channels are left, not closed.
+		const agentDm = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
+		await expect(owner.mutation(api.chats.closeDm, { chatId: agentDm })).rejects.toThrow("stays in your sidebar");
+		await expect(owner.mutation(api.chats.closeDm, { chatId: (await generalOf(owner))._id })).rejects.toThrow("Only DMs close");
 	});
 
 	it("keeps side chats with an agent under its DM: titled by the first message, renamable, trashable", async () => {
@@ -117,7 +144,7 @@ describe("chats", () => {
 		list = (await owner.query(api.chats.list))!;
 		expect(list.dms.find((d) => d._id === side)).toBeUndefined();
 		expect((await owner.query(api.trash.list, { paginationOpts: { numItems: 10, cursor: null } })).page).toContainEqual(expect.objectContaining({ itemId: side, name: "Q3 plan" }));
-		await expect(owner.mutation(api.messages.send, { chatId: side, text: "hi", mentions: noMentions })).rejects.toThrow("Trash");
+		await expect(owner.mutation(api.messages.send, { chatId: side, text: "hi", mentions: noMentions })).rejects.toThrow("Archive");
 		await owner.mutation(api.trash.restore, { kind: "channel", id: side });
 		expect((await owner.query(api.chats.list))!.dms.find((d) => d._id === side)).toMatchObject({ parentId: dm, label: "Q3 plan" });
 		// A newer side chat lists after the older one, whatever was written where; DMs come first.

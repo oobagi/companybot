@@ -293,7 +293,7 @@ describe("permissions", () => {
 	});
 
 	describe("automations someone else wrote", () => {
-		const daily = { name: "Monday sales summary", prompt: "Summarize sales.", trigger: { type: "schedule" as const, time: "09:00", weekdays: [0, 1, 2, 3, 4, 5, 6] } };
+		const daily = { name: "Monday sales summary", prompt: "Summarize sales.", trigger: { type: "schedule" as const, cron: "0 9 * * *" } };
 
 		/** Ben (the member) writes a daily automation; the owner turns it on too. One run each, as the runner would see them. */
 		async function bens() {
@@ -303,7 +303,7 @@ describe("permissions", () => {
 			const runs = async () => {
 				await t.run(async (ctx) => {
 					const install = (await ctx.db.query("automationInstalls").collect()).find((i) => i.automationId === id)!;
-					await ctx.db.patch(install._id, { lastRunDate: undefined });
+					await ctx.db.patch(install._id, { lastScheduledAt: 0 });
 				});
 				for (const turn of await turnsOf(t)) if (turn.status === "running" || turn.status === "queued") await t.mutation(internal.turns.finishReply, { turnId: turn._id });
 				const before = await turnsOf(t);
@@ -418,7 +418,7 @@ describe("permissions", () => {
 
 	it("tracks the acting editor for agent saves and resaving old content, without trusting an already queued run", async () => {
 		const { t, owner, member, companybot } = await setup();
-		const config = { name: "Daily", prompt: "Summarize sales.", trigger: { type: "schedule" as const, time: "09:00", weekdays: [1] } };
+		const config = { name: "Daily", prompt: "Summarize sales.", trigger: { type: "schedule" as const, cron: "0 9 * * 1" } };
 		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
 		await t.run(ctx => ctx.db.patch(companybot._id, { tools: [...companybot.tools, "automations.manage"] }));
 		const editing = await ask(t, owner);
@@ -445,7 +445,7 @@ describe("permissions", () => {
 		await member.mutation(api.automationRuns.runNow, { automationId: id });
 		await cancelScheduled(t);
 		const run = (await turnsOf(t)).at(-1)!;
-		await member.mutation(api.automations.save, { automationId: id, config: { ...config, trigger: { type: "schedule", time: "09:00", weekdays: [1] } }, expectedVersion: 1 });
+		await member.mutation(api.automations.save, { automationId: id, config: { ...config, trigger: { type: "schedule", cron: "0 9 * * 1" } }, expectedVersion: 1 });
 		expect((await check(t, run._id, "chat.read", "inside")).decision).toMatchObject({ type: "ask" });
 		await t.run(async ctx => {
 			const trigger = (await ctx.db.get(run.triggerId))!;

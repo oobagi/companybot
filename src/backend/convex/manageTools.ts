@@ -1,4 +1,4 @@
-import { canEditMade, DEFAULT_CURRENCY, THREAD_HOURS_DEFAULT, isGranted, manageInputs, modelNote, pickAgentConfig, searchModels } from "@companybot/core";
+import { canEditMade, DEFAULT_CURRENCY, THREAD_HOURS_DEFAULT, isGranted, manageInputs, modelNote, normalizeCustomAutomation, pickAgentConfig, replyModeOf, searchModels } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Id, TableNames } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
@@ -131,6 +131,7 @@ export const runFor = internalMutation({
 							id,
 							name: chat.name,
 							topic: chat.topic,
+							replies: chat.kind === "channel" ? replyModeOf(chat) : undefined,
 							private: chat.private,
 							isDefault: chat.isDefault,
 							...result,
@@ -140,6 +141,7 @@ export const runFor = internalMutation({
 					if (r.action === "delete" || r.action === "restore") await setChannelTrashed(ctx, who, id, r.action === "delete");
 					if (r.action === "rename") await updateChannelAs(ctx, member, { chatId: id, name: r.name });
 					if (r.action === "set_topic") await updateChannelAs(ctx, member, { chatId: id, topic: r.topic });
+					if (r.action === "set_replies") await updateChannelAs(ctx, member, { chatId: id, replyMode: r.replies });
 					if (r.action === "join") await joinChannel(ctx, member, { chatId: id });
 					if (r.action === "leave") await leaveChannel(ctx, member, { chatId: id });
 					if (r.action === "add_members")
@@ -170,7 +172,7 @@ export const runFor = internalMutation({
 						return {
 							id: r.id,
 							definition: await definitionOf(ctx, install),
-							config: install.custom,
+							config: install.custom && { ...install.custom, trigger: normalizeCustomAutomation(install.custom).trigger },
 							enabled: install.enabled,
 							agentId: install.agentId,
 							audience: install.audience,

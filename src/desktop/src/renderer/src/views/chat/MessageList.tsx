@@ -26,6 +26,7 @@ export function MessageList({
 	tokens,
 	summaryLabel,
 	onOpenThread,
+	readOnly,
 	onError,
 	intro,
 	header,
@@ -38,6 +39,8 @@ export function MessageList({
 	/** Who sees the summary, e.g. "Agents" or "Sales Bot". */
 	summaryLabel: string;
 	onOpenThread?: (id: Id<"chatMessages">) => void;
+	/** No reacting or editing (an ask between agents). */
+	readOnly?: boolean;
 	onError: (e: unknown) => void;
 	/** Shown above the first message. */
 	intro?: React.ReactNode;
@@ -89,6 +92,7 @@ export function MessageList({
 								grouped={!newDay && grouped(m, prev) && !(threadId && i === 1)}
 								tokens={tokens}
 								onOpenThread={onOpenThread && !threadId ? () => onOpenThread(m._id) : undefined}
+								readOnly={readOnly}
 								onError={onError}
 							/>
 							{threadId && i === 0 && messages.length > 1 && (

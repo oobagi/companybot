@@ -53,6 +53,11 @@ export function callLabel(
 	return `${(call && t?.label?.(call.input ?? {}, dataOf(call.output))) || actionLabel(t?.id ?? name, t?.title)}${service ? ` with ${service.name}` : ""}`;
 }
 
+/** A thread a finished call made, for its tool line to open (ToolDef `opens`). */
+export function callOpens(name: string, tools: ToolDef[], output: unknown) {
+	return tools.find((x) => x.id === name || modelToolName(x.id) === name)?.opens?.(dataOf(output));
+}
+
 /** A data tool's result is `{ ref, data }` (agents.ts `withRef`); labels read the data. */
 const dataOf = (output: unknown) => (output && typeof output === "object" && "ref" in output && "data" in output ? output.data : output);
 

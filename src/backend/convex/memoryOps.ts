@@ -101,7 +101,7 @@ export async function createMemory(ctx: MutationCtx, { member, agentId: byAgent 
 	return toMemory((await ctx.db.get(id))!);
 }
 
-/** A memory the person can read, not in Trash. Others look like they don't exist. */
+/** A memory the person can read, not in Archive. Others look like they don't exist. */
 export async function requireReadable(ctx: QueryCtx, member: Member, id: Id<"memories">) {
 	const doc = await ctx.db.get(id);
 	if (!doc || doc.workspaceId !== member.workspaceId || doc.archived || !canReadMemory(toActor(member), toMemory(doc))) {
@@ -175,7 +175,7 @@ export async function restoreMemoryVersion(ctx: MutationCtx, who: Who, versionId
 	return updateMemory(ctx, who, version.memoryId, version.content, expectedVersion);
 }
 
-/** Team memories go to Trash, so any member can undo a delete. Personal ones are theirs alone and go for good. */
+/** Team memories go to Archive, so any member can undo a delete. Personal ones are theirs alone and go for good. */
 export async function removeMemory(ctx: MutationCtx, who: Who, id: Id<"memories">) {
 	const doc = await requireEditable(ctx, who.member, id);
 	if (doc.scope === "personal") return deleteMemory(ctx, doc._id);
@@ -187,7 +187,7 @@ export async function removeMemory(ctx: MutationCtx, who: Who, id: Id<"memories"
 export async function setMemoryTrashed(ctx: MutationCtx, who: Who, id: Id<"memories">, trashed: boolean) {
 	if (trashed) return removeMemory(ctx, who, id);
 	const doc = await ctx.db.get(id);
-	if (!doc || doc.workspaceId !== who.member.workspaceId) throw new ConvexError("It's no longer in Trash.");
+	if (!doc || doc.workspaceId !== who.member.workspaceId) throw new ConvexError("It's no longer in Archive.");
 	await takeFromTrash(ctx, who, id);
 	await ctx.db.patch(id, { archived: undefined });
 }
@@ -202,7 +202,7 @@ export async function deleteMemory(ctx: MutationCtx, id: Id<"memories">) {
 	if (await ctx.db.get(id)) await ctx.db.delete(id);
 }
 
-/** A memory deleted by a cascade (its agent's) takes its Trash entry, if it's in Trash. */
+/** A memory deleted by a cascade (its agent's) takes its Trash entry, if it's in Archive. */
 export async function forgetTrashEntry(ctx: MutationCtx, row: Doc<"memories">) {
 	const entry = row.archived && (await trashEntry(ctx, row._id));
 	if (entry) await ctx.db.delete(entry._id);
