@@ -309,7 +309,7 @@ export const updateChannel = mutation({
 
 export async function updateChannelAs(ctx: MutationCtx, member: Member, { chatId, name, topic, replyMode }: Infer<typeof updateChannelArgs>) {
 	const chat = await requireManagedChannel(ctx, member, chatId);
-	if (chat.archived) throw new ConvexError("This channel is in Trash.");
+	if (chat.archived) throw new ConvexError("This channel is in Archive.");
 	await ctx.db.patch(chat._id, {
 		...(name !== undefined && { name: await availableName(ctx, member, name, chat._id) }),
 		...(topic !== undefined && { topic: topic.trim() || undefined }),
@@ -393,7 +393,7 @@ export const createSideChat = mutation({
 		const parent = await requireChat(ctx, member, parentId);
 		const agentId = agentOfDm(parent);
 		if (!agentId || parent.parentId) throw new ConvexError("Side chats go under a DM with an agent.");
-		if (parent.archived) throw new ConvexError("This chat is in Trash.");
+		if (parent.archived) throw new ConvexError("This chat is in Archive.");
 		await requireActiveAgents(ctx, member.workspaceId, [agentId]);
 		const chatId = await ctx.db.insert("chats", {
 			workspaceId: member.workspaceId,

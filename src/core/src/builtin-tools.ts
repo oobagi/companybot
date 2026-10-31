@@ -73,6 +73,7 @@ export const builtinTools: ToolDef[] = [
 	}),
 	defineTool({
 		id: "memory.forget",
+		risk: "locked",
 		title: "Forget a memory",
 		description: "Delete any accessible memory found with memory_search, when it's wrong or the person asks you to forget it.",
 		input: z.object({ id: z.string() }),

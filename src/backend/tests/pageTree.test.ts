@@ -4,7 +4,7 @@ import type { Id } from "../convex/_generated/dataModel";
 import { PAGE_DEPTH_MAX } from "../convex/pageTree";
 import { IDLE_MS, readDoc, writeBlocks } from "../convex/pageOps";
 import { memberOf } from "../convex/lib";
-import { TRASH_MS } from "../convex/trashOps";
+
 import { agentTurn, agentsOf, generalOf, settle, ownerAndMember, signIn, identityOf } from "./helpers";
 
 beforeEach(() => void vi.useFakeTimers());
@@ -12,6 +12,50 @@ afterEach(() => void vi.useRealTimers());
 const opts = { paginationOpts: { numItems: 50, cursor: null } };
 
 describe("nested pages", () => {
+	it("stores child pages as real blocks, exports them, and keeps their titles and archive lifecycle in step", async () => {
+		const { t, owner } = await ownerAndMember();
+		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
+		const child = await owner.mutation(api.pages.create, { title: "Guide", parentId: root });
+		const blocks = () => t.run(async (ctx) => (await readDoc(ctx, root)).firstChild!.content.content.map((b) => b.firstChild!.toJSON()));
+		expect(await blocks()).toEqual([expect.objectContaining({ type: "page", attrs: { pageId: child, title: "Guide" } }), expect.objectContaining({ type: "paragraph" })]);
+		const doc = await t.run(async (ctx) => JSON.stringify((await readDoc(ctx, root)).toJSON()));
+		expect(await t.action(internal.pageMarkdown.toMarkdown, { doc })).toContain(`[Guide](companybot://page/${child})`);
+		await owner.mutation(api.pages.rename, { pageId: child, title: "Handbook" });
+		expect((await blocks())[0]).toMatchObject({ type: "page", attrs: { pageId: child, title: "Handbook" } });
+		await owner.mutation(api.trash.move, { kind: "page", id: child });
+		expect((await blocks()).some((b) => b.type === "page")).toBe(false);
+		expect(await owner.query(api.pages.get, { pageId: child })).toMatchObject({ archived: true });
+		await owner.mutation(api.trash.restore, { kind: "page", id: child });
+		expect((await blocks()).filter((b) => b.type === "page")).toEqual([expect.objectContaining({ attrs: { pageId: child, title: "Handbook" } })]);
+	});
+
+	it("moves page blocks between parents without leaving duplicates or changing child content", async () => {
+		const { t, owner } = await ownerAndMember();
+		const from = await owner.mutation(api.pages.create, { title: "From" });
+		const to = await owner.mutation(api.pages.create, { title: "To" });
+		const child = await owner.mutation(api.pages.create, { title: "Guide", parentId: from });
+		await owner.mutation(api.pages.move, { pageId: child, parentId: to });
+		await owner.mutation(api.pages.move, { pageId: child, parentId: to });
+		const count = (id: Id<"pages">) => t.run(async (ctx) => (await readDoc(ctx, id)).firstChild!.content.content.filter((b) => b.firstChild?.type.name === "page").length);
+		expect(await count(from)).toBe(0);
+		expect(await count(to)).toBe(1);
+		expect((await owner.query(api.pages.history, { pageId: child, ...opts })).page).toEqual([]);
+	});
+
+	it("lets slash creation place the block at the cursor instead of appending a second copy", async () => {
+		const { t, owner } = await ownerAndMember();
+		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
+		const child = await owner.mutation(api.pages.create, { title: "Untitled", parentId: root, insertInParent: false });
+		expect(await t.run(async (ctx) => (await readDoc(ctx, root)).textContent)).toBe("");
+		expect((await owner.query(api.pages.children, { parentId: root, ...opts })).page.map((p) => p._id)).toEqual([child]);
+		await t.run(async (ctx) => {
+			const page = (await ctx.db.get(root))!;
+			await writeBlocks(ctx, { member: (await memberOf(ctx, owner.userId, page.workspaceId))! }, page, JSON.stringify([{ type: "blockContainer", attrs: { id: "slash-block" }, content: [{ type: "page", attrs: { pageId: child, title: "Untitled" } }] }]), "replace");
+		});
+		const history = (await owner.query(api.pages.history, { pageId: root, ...opts })).page[0]!;
+		expect(await owner.query(api.pages.version, { versionId: history._id })).toContain('"type":"page"');
+	});
+
 	it("lists paged levels and breadcrumbs while old clients still get a flat list", async () => {
 		const { owner } = await ownerAndMember();
 		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
@@ -93,10 +137,11 @@ describe("nested pages", () => {
 		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
 		const child = await owner.mutation(api.pages.create, { title: "Guide", parentId: root });
 		const leaf = await owner.mutation(api.pages.create, { title: "Checklist", parentId: child });
+		const history = (await owner.query(api.pages.history, { pageId: child, ...opts })).page;
 		await member.mutation(api.pages.move, { pageId: child });
 		expect(await owner.query(api.pages.get, { pageId: leaf })).toMatchObject({ ancestors: [{ _id: child }] });
 		expect((await owner.query(api.pages.moves, { pageId: child, ...opts })).page).toEqual([expect.objectContaining({ from: "Wiki", to: "Pages", user: "member@co.com", agent: null })]);
-		expect((await owner.query(api.pages.history, { pageId: child, ...opts })).page).toEqual([]);
+		expect((await owner.query(api.pages.history, { pageId: child, ...opts })).page).toEqual(history);
 	});
 
 	it("bounds depth on creation and deeper moves, including descendants", async () => {
@@ -122,11 +167,11 @@ describe("nested pages", () => {
 		expect(await owner.query(api.pages.list, {})).toEqual([]);
 		expect(await owner.query(api.pages.get, { pageId: child })).toMatchObject({ archived: true, canEdit: false, trash: { itemId: root } });
 		expect((await owner.query(api.pages.children, { ...opts, parentId: root })).page).toEqual([]);
-		await expect(owner.mutation(api.pages.rename, { pageId: child, title: "No" })).rejects.toThrow("in Trash");
-		await expect(owner.mutation(api.pages.move, { pageId: child })).rejects.toThrow("in Trash");
-		await expect(owner.mutation(api.pages.create, { title: "No", parentId: child })).rejects.toThrow("in Trash");
+		await expect(owner.mutation(api.pages.rename, { pageId: child, title: "No" })).rejects.toThrow("in Archive");
+		await expect(owner.mutation(api.pages.move, { pageId: child })).rejects.toThrow("in Archive");
+		await expect(owner.mutation(api.pages.create, { title: "No", parentId: child })).rejects.toThrow("in Archive");
 		const raw = identityOf(t, member.userId);
-		await expect(raw.mutation(api.pageSync.submitSteps, { id: child, version: 1, clientId: "old-editor", steps: [] })).rejects.toThrow("in Trash");
+		await expect(raw.mutation(api.pageSync.submitSteps, { id: child, version: 1, clientId: "old-editor", steps: [] })).rejects.toThrow("in Archive");
 		await member.mutation(api.trash.restore, { kind: "page", id: root });
 		expect((await owner.query(api.pages.list, {})).map((p) => p._id)).toEqual([child, root]);
 		expect(await owner.query(api.pages.get, { pageId: leaf })).toMatchObject({ archived: true });
@@ -174,18 +219,20 @@ describe("nested pages", () => {
 		for (const id of [root, child, leaf]) expect(await t.run((ctx) => ctx.runQuery(components.prosemirrorSync.lib.latestVersion, { id }))).toBeNull();
 	});
 
-	it("sweeps a subtree after 30 days", async () => {
+	it("keeps archived subtrees indefinitely and can restore them after a year", async () => {
 		const { t, owner } = await ownerAndMember();
 		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
 		const child = await owner.mutation(api.pages.create, { title: "Guide", parentId: root });
 		await owner.mutation(api.trash.move, { kind: "page", id: root });
 		await t.run(async (ctx) => {
 			const entry = await ctx.db.query("trash").withIndex("by_item", (q) => q.eq("itemId", root)).first();
-			await ctx.db.patch(entry!._id, { deletedAt: Date.now() - TRASH_MS - 1 });
+			await ctx.db.patch(entry!._id, { deletedAt: Date.now() - 365 * 24 * 60 * 60_000 - 1 });
 		});
 		await t.mutation(internal.trash.sweep, {});
 		await settle(t);
-		expect(await owner.query(api.pages.get, { pageId: child })).toBeNull();
+		expect(await owner.query(api.pages.get, { pageId: child })).toMatchObject({ archived: true });
+		await owner.mutation(api.trash.restore, { kind: "page", id: root });
+		expect(await owner.query(api.pages.get, { pageId: child })).toMatchObject({ archived: false, parentId: root });
 	});
 
 	it("gives agents parent creation, tree reads, moves, sub-page lists and attribution through the same rules", async () => {
@@ -202,7 +249,7 @@ describe("nested pages", () => {
 		await write({ action: "move", page: made.id, parent: null });
 		expect((await member.query(api.pages.moves, { pageId: made.id, ...opts })).page[0]).toMatchObject({ agent: "Companybot", user: "member@co.com" });
 		await owner.mutation(api.trash.move, { kind: "page", id: root });
-		expect(await write({ action: "move", page: made.id, parent: root })).toMatchObject({ error: expect.stringContaining("in Trash") });
+		expect(await write({ action: "move", page: made.id, parent: root })).toMatchObject({ error: expect.stringContaining("in Archive") });
 		expect(await write({ title: "No blank page", parent: root })).toMatchObject({ error: expect.any(String) });
 		const trashedChild = await owner.mutation(api.pages.create, { title: "Guide", parentId: made.id });
 		await owner.mutation(api.trash.move, { kind: "page", id: made.id });
@@ -212,12 +259,12 @@ describe("nested pages", () => {
 		expect((await owner.query(api.pages.list, {})).map((p) => p.title)).toEqual(["Guide"]);
 	});
 
-	it("keeps alpha.7-compatible page link blocks through Markdown, sync and history, and removing one keeps the child", async () => {
+	it("preserves legacy inline page links through Markdown, sync and history, and removing one keeps the child", async () => {
 		const { t, owner } = await ownerAndMember();
 		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
 		const child = await owner.mutation(api.pages.create, { title: "Guide", parentId: root });
 		const turnId = await agentTurn(t, owner, (await generalOf(owner))._id, (await agentsOf(owner)).companybot._id);
-		const blocks = await t.action(internal.pageMarkdown.fromMarkdown, { markdown: `[Guide](companybot://page/${child})` });
+		const blocks = JSON.stringify([{ type: "blockContainer", attrs: { id: "legacy-link" }, content: [{ type: "paragraph", content: [{ type: "text", text: "Guide", marks: [{ type: "link", attrs: { href: `companybot://page/${child}` } }] }] }] }]);
 		await t.mutation(internal.pageTools.writeFor, { turnId, input: { page: root, blocks, mode: "replace" } });
 		const history = (await owner.query(api.pages.history, { pageId: root, ...opts })).page[0]!;
 		expect(await owner.query(api.pages.version, { versionId: history._id })).toContain(child);

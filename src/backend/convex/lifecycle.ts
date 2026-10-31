@@ -13,7 +13,7 @@ import { toField } from "./recordOps";
 
 // What happens to every table's rows when what they belong to goes: a workspace is deleted,
 // a member removed, an account erased, a connector or automation uninstalled, a page deleted, or
-// a record, database, field, channel or agent deleted for good from Trash (trash.ts). cascade.ts
+// a record, database, field, channel or agent deleted for good from Archive (trash.ts). cascade.ts
 // runs it. Every table must be listed (tests/lifecycle.test.ts fails otherwise), so a new
 // table can't ship until someone decides what happens to its rows. See wiki/architecture.md#data-lifecycle.
 
@@ -145,12 +145,12 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	},
 
 	// ---- Agents and memory ----
-	// An agent deleted from Trash goes last in its own cascade, after its versions, memories, sessions and channel seats.
+	// An agent deleted from Archive goes last in its own cascade, after its versions, memories, sessions and channel seats.
 	// What it said and did stays (messages, activity, history), shown as "Agent".
 	agents: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		keep: "Agents are the workspace's. Who last saved one stays on it.",
-		// Its picture stays while it's in Trash, and goes when it's deleted for good.
+		// Its picture stays while it's in Archive, and goes when it's deleted for good.
 		files: ["image"],
 	},
 	agentVersions: {
@@ -159,7 +159,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	},
 	memories: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
-		// Team memories in Trash take their entry: it couldn't be restored anymore.
+		// Team memories in Archive take their entry: it couldn't be restored anymore.
 		agent: { index: "by_agent_scope", eq: ["agentId"], onDelete: forgetTrashEntry },
 		// Personal memories are their owner's alone. Team memories they wrote stay with the team.
 		member: { index: "by_owner", eq: [["ownerId", "userId"], "workspaceId"] },
@@ -193,11 +193,11 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 
 	skillInstalls: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
-		keep: "Skills people made are the workspace's: they stay when their maker leaves. Deleting one forever from Trash deletes its row.",
+		keep: "Skills people made are the workspace's: they stay when their maker leaves. Deleting one forever from Archive deletes its row.",
 	},
 
 	// ---- Chat ----
-	// A channel deleted from Trash goes last in its own cascade, after its messages, seats and agent sessions.
+	// A channel deleted from Archive goes last in its own cascade, after its messages, seats and agent sessions.
 	chats: { workspace: { index: "by_workspace", eq: ["workspaceId"] } },
 	chatMembers: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
@@ -282,7 +282,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 			where: (_get, row, root) => privateTo(row) === root.userId,
 			onDelete: (ctx, row) => startCascade(ctx, "automationInstall", { automationInstallId: row._id }),
 		},
-		keep: "Removing one, or deleting one people made forever from Trash, deletes the row before the cascade starts (removeInstall). In Trash, nothing triggers it.",
+		keep: "Removing one, or deleting one people made forever from Archive, deletes the row before the cascade starts (removeInstall). In Trash, nothing triggers it.",
 	},
 	automationSubscriptions: {
 		childOf: { table: "automationInstalls", index: "by_install", field: "installId" },
@@ -306,7 +306,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	},
 
 	// ---- Records ----
-	// A record, database or field deleted from Trash (trash.ts) goes last in its own cascade.
+	// A record, database or field deleted from Archive (trash.ts) goes last in its own cascade.
 	recordTypes: { workspace: { index: "by_workspace", eq: ["workspaceId"] } },
 	databaseViews: {
 		childOf: { table: "recordTypes", index: "by_type", field: "typeId" },
@@ -319,7 +319,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	records: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		database: { index: "by_type", eq: ["typeId"], onDelete: deleteBody },
-		// A deleted field's values leave every record in its database, in Trash or not, so a new field can reuse its key.
+		// A deleted field's values leave every record in its database, in Archive or not, so a new field can reuse its key.
 		field: {
 			index: "by_type",
 			eq: ["typeId"],
@@ -334,7 +334,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 				return { values, searchText: searchTextOf(fields.filter((f) => f._id !== root.fieldId).map(toField), values) };
 			},
 		},
-		keep: "Records are the workspace's: deleting one moves it to Trash. Who made or changed them stays in history.",
+		keep: "Records are the workspace's: deleting one moves it to Archive. Who made or changed them stays in history.",
 	},
 	recordValues: {
 		childOf: { table: "records", index: "by_record", field: "recordId" },

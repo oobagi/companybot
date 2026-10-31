@@ -180,7 +180,7 @@ export const send = mutation({
 export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId, text, mentions, attachments: files = [] }: Infer<typeof sendMessageArgs>): Promise<Id<"chatMessages">> {
 	const { member } = who;
 	const chat = await requireChat(ctx, member, chatId);
-	if (chat.archived) throw new ConvexError("This chat is in Trash.");
+	if (chat.archived) throw new ConvexError("This chat is in Archive.");
 	text = text.trim();
 	if (!text && files.length === 0) throw new ConvexError("Write something first.");
 	if (threadId) {
@@ -201,14 +201,14 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	}
 
 	const recordIds = await workspaceRecords(ctx, member.workspaceId, mentions.recordIds ?? []);
-	// Only skills installed here (and not in Trash), so a message can't point agents at a made-up one.
+	// Only skills installed here (and not in Archive), so a message can't point agents at a made-up one.
 	const skillIds: string[] = [];
 	for (const id of new Set(mentions.skillIds ?? [])) {
 		if (await installOf(ctx, member.workspaceId, id)) skillIds.push(id);
 	}
 
 	const dmAgent = agentOfDm(chat);
-	if (dmAgent && (await ctx.db.get(dmAgent))?.archived) throw new ConvexError("This agent is in Trash.");
+	if (dmAgent && (await ctx.db.get(dmAgent))?.archived) throw new ConvexError("This agent is in Archive.");
 	// A side chat takes its name from the person's first message.
 	if (chat.parentId && !chat.title && !threadId && !who.agentId) await ctx.db.patch(chat._id, { title: titleFrom(text) });
 	// Last: a refused message keeps its uploads, to attach again.

@@ -30,7 +30,7 @@ export async function listRecords(
 	return findRecords(ctx, { workspaceId, ...type, ...opts, currency: await currencyOf(ctx, workspaceId), pageMax: PAGE_MAX });
 }
 
-/** Live records whose title or text matches, best first, leaving out databases in Trash. Optionally one type. */
+/** Live records whose title or text matches, best first, leaving out databases in Archive. Optionally one type. */
 export async function searchRecords(
 	ctx: QueryCtx,
 	workspaceId: Id<"workspaces">,
@@ -53,8 +53,8 @@ export async function searchRecords(
 
 /**
  * Records that link to `recordId` ("deals for this client"), optionally through one field,
- * a page at a time. Only live records have index rows, so ones in Trash never show; nor do
- * records of a database in Trash, or links through a field in Trash.
+ * a page at a time. Only live records have index rows, so ones in Archive never show; nor do
+ * records of a database in Archive, or links through a field in Archive.
  */
 export async function linkingRecords(
 	ctx: QueryCtx,

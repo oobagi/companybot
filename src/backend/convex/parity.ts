@@ -56,7 +56,7 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"trash.move": { agent: ["records.save", "records.save_field", "records.save_database", "pages.write", "channels.manage:delete", "agents.manage:delete", "skills.remove:delete", "automations.remove:delete", "memory.forget"] },
 	"trash.restore": {
 		agent: ["records.save", "records.save_field", "records.save_database", "pages.write", "channels.manage:restore"],
-		humanOnly: "Restoring an agent restores execution authority, and a skill or automation what every agent follows or runs: a direct person restores them from Trash. A forgotten team memory is put back by a person reviewing Trash; agents save it again with memory.remember_for_team.",
+		humanOnly: "Restoring an agent restores execution authority, and a skill or automation what every agent follows or runs: a direct person restores them from Archive. A forgotten team memory is put back by a person reviewing Trash; agents save it again with memory.remember_for_team.",
 	},
 	"trash.purge": { humanOnly: "Only a direct owner may delete forever; agents never purge." },
 	"pageSync.submitSteps": { agent: ["pages.write"] },

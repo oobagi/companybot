@@ -26,7 +26,7 @@ const SEARCH_MAX = 20;
 /** Versions pages_read lists, with ids `restore` takes. */
 const VERSIONS_SHOWN = 5;
 
-/** A page by id, else a page titled exactly `name`: a live one, or one in Trash (to restore it). */
+/** A page by id, else a page titled exactly `name`: a live one, or one in Archive (to restore it). */
 async function pageNamed(ctx: QueryCtx, member: Member, name: string, trashed = false) {
 	const id = ctx.db.normalizeId("pages", name);
 	if (id) return requirePage(ctx, member, id);

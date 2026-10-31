@@ -172,7 +172,7 @@ export const turnContext = internalQuery({
 	handler: async (ctx, { turnId }) => {
 		const { turn, member, chat } = await runningTurn(ctx, turnId);
 		const agent = await ctx.db.get(turn.agentId);
-		if (!agent || agent.archived) throw new Error("This agent is in Trash.");
+		if (!agent || agent.archived) throw new Error("This agent is in Archive.");
 		const session = (await ctx.db.get(turn.sessionId))!;
 		const reply = (await ctx.db.get(turn.replyId))!;
 		const names = namer(ctx);

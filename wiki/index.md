@@ -4,7 +4,7 @@ One line per page: `- [Title](path.md) — what it covers`. Keep this file a tab
 
 - [Product](product.md) — what Companybot is ("Night Owl, as software": CRM + chat + agents, owns the data), CRM, calls, lead gen, sites (agent-built websites and funnels), platform, inference, open source (AGPL) and what we charge for, rollout, biggest risk
 - [Architecture](architecture.md) — packages, agents/tools/connectors/skills/memory, Convex backend (incl. the AI Gateway model catalog), data lifecycle (what's deleted when a workspace, member, account or install goes), how to run, before-launch swaps
-- [Data](data.md) — records (clients, deals, tasks, calls), custom fields, links, history and undo; Trash; agent tools; why one generic records table; the API
+- [Data](data.md) — records (clients, deals, tasks, calls), custom fields, links, history and undo; Archive; agent tools; why one generic records table; the API
 - [Pages](pages.md) — standalone pages and every record's body, one concept; BlockNote + prosemirror-sync, Notion-style history and restore, agent tools, storage bounds
 - [Chat](chat.md) — channels, DMs, threads, reactions; when agents reply, agents working together (handoffs, asks, loop limits), what they're fed, the chat API
 - [Permissions](permissions.md) — what asks, Allow once / Always / Deny, per-person rules, owner locks, automation grants, where it shows up, how others do it

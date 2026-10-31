@@ -45,7 +45,7 @@ export function PendingWakeups({ recordId, title, hint }: { recordId?: Id<"recor
 							<span className={w.note ? "break-words" : descriptionClass}>{what(w)}</span>
 							<span className={metadataClass}>
 								{[
-									w.held ? "Waiting: something it needs is in Trash" : w.at ? `Next: ${when(w.at)}` : "When its job finishes",
+									w.held ? "Waiting: something it needs is in Archive" : w.at ? `Next: ${when(w.at)}` : "When its job finishes",
 									repeats(w),
 									`for ${w.mine ? "you" : w.actor}`,
 									w.agent,

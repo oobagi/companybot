@@ -10,18 +10,22 @@ import { EmptyState, Form, Loading, Notice, Section, inputClass, metadataClass, 
 import { ConnectorActions } from "../Permissions";
 import { Card, Detail, Facts, Missing } from "./shared";
 
+import { useConfirm } from "../chat/common";
+
 type ConnectorItem = FunctionReturnType<typeof api.connectors.list>[number];
 
 export function ConnectorsTab({ role }: { role: Role }) {
 	const connectors = useQuery(api.connectors.list);
 	const setInstalled = useMutation(api.connectors.setInstalled);
+	const { confirm, dialog } = useConfirm();
 	const { error, run } = useRun();
 	if (!connectors) return <Loading />;
 	const isOwner = can(role, "connectors.manage");
-	const toggle = (p: ConnectorItem) => run(setInstalled({ connectorId: p.id, installed: !p.installed }));
+	const toggle = (p: ConnectorItem) => p.installed ? confirm({ title: `Remove ${p.name}?`, action: "Remove connector", body: "This disconnects it for everyone and deletes its saved connections and permissions. Reinstalling will require connecting it again.", onConfirm: () => setInstalled({ connectorId: p.id, installed: false }) }) : run(setInstalled({ connectorId: p.id, installed: true }));
 
 	return (
 		<>
+			{dialog}
 			<Notice>{error}</Notice>
 			{connectors.length === 0 && <EmptyState icon={<ConnectorIcon />} title="No connectors available">Outside services will appear here when they’re available.</EmptyState>}
 			{connectors.map((p) => (
@@ -55,6 +59,7 @@ export function ConnectorScreen({ role, id }: { role: Role; id: string }) {
 
 function ConnectorDetail({ connector, isOwner }: { connector: ConnectorItem; isOwner: boolean }) {
 	const setInstalled = useMutation(api.connectors.setInstalled);
+	const { confirm, dialog } = useConfirm();
 	const setRoles = useMutation(api.connectors.setRoles);
 	const { error, run } = useRun();
 	const signIn = { none: "None needed", api_key: "API key", oauth: "Sign in through your browser" }[connector.auth.type];
@@ -67,8 +72,9 @@ function ConnectorDetail({ connector, isOwner }: { connector: ConnectorItem; isO
 			description={connector.description}
 			installed={connector.installed}
 			canManage={isOwner}
-			onToggle={() => run(setInstalled({ connectorId: connector.id, installed: !connector.installed }))}
+			onToggle={() => connector.installed ? confirm({ title: `Remove ${connector.name}?`, action: "Remove connector", body: "This disconnects it for everyone and deletes its saved connections and permissions. Reinstalling will require connecting it again.", onConfirm: () => setInstalled({ connectorId: connector.id, installed: false }) }) : run(setInstalled({ connectorId: connector.id, installed: true }))}
 		>
+			{dialog}
 			<Notice>{error}</Notice>
 			<Facts
 				rows={[
@@ -106,11 +112,13 @@ function Connection({ connector }: { connector: ConnectorItem }) {
 	const connect = useAction(api.connectors.connect);
 	const startOAuth = useAction(api.connectors.startOAuth);
 	const disconnect = useMutation(api.connectors.disconnect);
+	const { confirm, dialog } = useConfirm();
 	const [key, setKey] = useState("");
 	const { error, run } = useRun();
 
 	return (
 		<div className="flex flex-col gap-2 text-sm">
+			{dialog}
 			<Notice>{error}</Notice>
 			{connector.auth.type === "none" ? (
 				<p className="text-emerald-700">Ready. No account needed.</p>
@@ -122,7 +130,7 @@ function Connection({ connector }: { connector: ConnectorItem }) {
 					{connector.canConnect && (
 						<button
 							type="button"
-							onClick={() => run(disconnect({ connectorId: connector.id }))}
+							onClick={() => confirm({ title: `Disconnect ${connector.name}?`, action: "Disconnect", body: "This deletes the saved connection. You will need to connect again before agents can use it.", onConfirm: () => disconnect({ connectorId: connector.id }) })}
 							className="text-neutral-500 hover:text-red-600"
 						>
 							Disconnect

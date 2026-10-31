@@ -5,7 +5,7 @@ import { type ReplyMode, replyModeLabels, replyModes } from "@companybot/core/ro
 import { Checkbox, Select } from "../../controls";
 import { useMutation, useQuery } from "../../convex";
 import { Field, Form, Loading, Notice, descriptionClass, inputClass, primaryButton, secondaryButton, useRun } from "../../ui";
-import { AgentBadge, Avatar, Modal, useConfirm } from "./common";
+import { AgentBadge, Avatar, Modal, archiveQuestion, useConfirm } from "./common";
 import { navigate } from "../../router";
 import { ProfileLink } from "./Profile";
 import { type ChatDetails, type Participant, chatTitle, useDirectory } from "./data";
@@ -297,10 +297,10 @@ function LeaveButton({ chat, onLeft }: { chat: ChatDetails; onLeft: () => void }
 				{chat.canManage && !chat.trash && (
 					<button
 						type="button"
-						onClick={() => confirm({ title: `Delete #${chat.name}?`, action: "Delete channel", body: "It goes to Trash with its messages, and can be restored for 30 days.", onConfirm: () => remove({ kind: "channel", id: chat._id }).then(onLeft) })}
-						className="text-red-600 hover:text-red-800"
+						onClick={() => confirm(archiveQuestion(`#${chat.name}`, () => remove({ kind: "channel", id: chat._id }).then(onLeft), "The channel will close to new messages. Its messages and files are kept."))}
+						className="text-neutral-600 hover:text-neutral-900"
 					>
-						Delete channel
+						Archive channel
 					</button>
 				)}
 			</div>

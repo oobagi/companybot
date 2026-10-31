@@ -344,6 +344,7 @@ async function streamReply(
 	const promptInput = {
 		...turn,
 		agentId: agent.id,
+		now: Date.now(),
 		connectors: { connected, unavailable: connectors.unavailable },
 		approval: approval ?? undefined,
 	};

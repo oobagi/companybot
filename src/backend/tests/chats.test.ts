@@ -117,7 +117,7 @@ describe("chats", () => {
 		list = (await owner.query(api.chats.list))!;
 		expect(list.dms.find((d) => d._id === side)).toBeUndefined();
 		expect((await owner.query(api.trash.list, { paginationOpts: { numItems: 10, cursor: null } })).page).toContainEqual(expect.objectContaining({ itemId: side, name: "Q3 plan" }));
-		await expect(owner.mutation(api.messages.send, { chatId: side, text: "hi", mentions: noMentions })).rejects.toThrow("Trash");
+		await expect(owner.mutation(api.messages.send, { chatId: side, text: "hi", mentions: noMentions })).rejects.toThrow("Archive");
 		await owner.mutation(api.trash.restore, { kind: "channel", id: side });
 		expect((await owner.query(api.chats.list))!.dms.find((d) => d._id === side)).toMatchObject({ parentId: dm, label: "Q3 plan" });
 		// A newer side chat lists after the older one, whatever was written where; DMs come first.

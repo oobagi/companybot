@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { CloseIcon, PlusIcon } from "../../icons";
 import { Notice, dangerButton, primaryButton, secondaryButton, useRun } from "../../ui";
@@ -123,11 +123,23 @@ export function EmojiPicker({ onPick, onClose, className = "" }: { onPick: (emoj
  */
 export function Modal({ title, wide, onClose, children }: { title: string; wide?: boolean; onClose: () => void; children: React.ReactNode }) {
 	const ref = useDismiss<HTMLDivElement>(onClose);
+	const titleId = useId();
+	useLayoutEffect(() => {
+		const previous = document.activeElement as HTMLElement | null;
+		const panel = ref.current;
+		if (panel && !panel.contains(document.activeElement)) (panel.querySelector<HTMLElement>("input, textarea, button") ?? panel).focus();
+		return () => { if (previous?.isConnected) previous.focus({ preventScroll: true }); };
+	}, []);
 	return createPortal(
 		<div className="no-drag fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/20 p-6 text-[15px] text-neutral-900">
-			<div ref={ref} className={`flex max-h-[85vh] w-full ${wide ? "max-w-4xl" : "max-w-md"} flex-col gap-4 overflow-y-auto rounded-2xl bg-white p-6 shadow-xl`}>
+			<div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={(event) => {
+				if (event.key !== "Tab") return;
+				const targets = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex="0"]')];
+				const next = event.shiftKey ? targets.at(-1) : targets[0];
+				if (document.activeElement === (event.shiftKey ? targets[0] : targets.at(-1))) { event.preventDefault(); next?.focus(); }
+			}} className={`flex max-h-[85vh] w-full ${wide ? "max-w-4xl" : "max-w-md"} flex-col gap-4 overflow-y-auto rounded-2xl bg-white p-6 shadow-xl`}>
 				<header className="flex items-center justify-between">
-					<h2 className="text-lg font-medium">{title}</h2>
+					<h2 id={titleId} className="text-lg font-medium">{title}</h2>
 					<IconButton label="Close" onClick={onClose}>
 						<CloseIcon />
 					</IconButton>
@@ -234,19 +246,31 @@ export function PopoverPanel({
 	// Measure, then place: below if it fits, else above if it fits there, else on the roomier
 	// side, shortened to fit (it scrolls). Never over its button; nudged in from the window's edges.
 	useLayoutEffect(() => {
-		if (!panel.current) return;
-		const { width, height } = panel.current.getBoundingClientRect();
-		const gap = 6;
-		const roomBelow = window.innerHeight - 8 - anchor.bottom - gap;
-		const roomAbove = anchor.top - gap - 8;
-		const below = height <= roomBelow || (height > roomAbove && roomBelow >= roomAbove);
-		const room = below ? roomBelow : roomAbove;
-		setAt({
-			left: Math.max(8, Math.min(anchor.left, window.innerWidth - width - 8)),
-			top: below ? anchor.bottom + gap : anchor.top - gap - Math.min(height, room),
-			maxHeight: Math.min(room, window.innerHeight * 0.7),
-			minWidth: matchWidth ? anchor.width : undefined,
-		});
+		const el = panel.current;
+		if (!el) return;
+		const place = () => {
+			const { width } = el.getBoundingClientRect();
+			// Use the full content height: the current height may already be capped on the wrong side.
+			const height = Math.min(el.scrollHeight + el.offsetHeight - el.clientHeight, window.innerHeight * 0.7);
+			const gap = 6;
+			const roomBelow = window.innerHeight - 8 - anchor.bottom - gap;
+			const roomAbove = anchor.top - gap - 8;
+			const below = height <= roomBelow || (height > roomAbove && roomBelow >= roomAbove);
+			const room = Math.max(0, below ? roomBelow : roomAbove);
+			setAt({
+				left: Math.max(8, Math.min(anchor.left, window.innerWidth - width - 8)),
+				top: below ? anchor.bottom + gap : anchor.top - gap - Math.min(height, room),
+				maxHeight: Math.min(room, window.innerHeight * 0.7),
+				minWidth: matchWidth ? anchor.width : undefined,
+			});
+		};
+		place();
+		// Tool details load after opening. Reposition when that content replaces the loading line.
+		const observer = new ResizeObserver(place);
+		observer.observe(el);
+		for (const child of el.children) observer.observe(child);
+		window.addEventListener("resize", place);
+		return () => { observer.disconnect(); window.removeEventListener("resize", place); };
 	}, [anchor, matchWidth, panel]);
 	// At the end of the page: Electron lets a later window-drag area (a top bar) take the mouse
 	// from anything drawn over it, so the panel has to come after them all.
@@ -284,7 +308,7 @@ export function Confirm(props: { title: string; action: string; danger?: boolean
 				{props.children && <p className="text-neutral-600">{props.children}</p>}
 				<Notice>{props.error}</Notice>
 				<div className="flex justify-end gap-2">
-					<button type="button" onClick={props.onClose} className={secondaryButton}>Cancel</button>
+					<button autoFocus type="button" disabled={props.busy} onClick={props.onClose} className={secondaryButton}>Cancel</button>
 					<button type="button" disabled={props.busy} onClick={props.onConfirm} className={props.danger ? dangerButton : primaryButton}>{props.action}</button>
 				</div>
 			</div>
@@ -292,7 +316,12 @@ export function Confirm(props: { title: string; action: string; danger?: boolean
 	);
 }
 
-type Question = { title: string; action: string; body?: React.ReactNode; onConfirm: () => Promise<unknown> | void };
+type Question = { title: string; action: string; danger?: boolean; body?: React.ReactNode; onConfirm: () => Promise<unknown> | void };
+
+/** Archive keeps content until someone explicitly deletes it forever. */
+export function archiveQuestion(name: string, onConfirm: Question["onConfirm"], effect?: string): Question {
+	return { title: `Archive “${name}”?`, action: "Archive", danger: false, body: `${effect ? `${effect} ` : ""}This keeps its content in Archive. You can restore it at any time. Nothing is permanently deleted.`, onConfirm };
+}
 
 /**
  * The app's own confirm(), for destructive actions: `confirm({ title, action, onConfirm })` opens a
@@ -301,17 +330,22 @@ type Question = { title: string; action: string; body?: React.ReactNode; onConfi
  */
 export function useConfirm() {
 	const [open, setOpen] = useState<Question>();
+	const pending = useRef(false);
 	const { error, busy, run, fail } = useRun();
 	const close = () => (fail(), setOpen(undefined));
 	const dialog = open && (
 		<Confirm
 			title={open.title}
 			action={open.action}
-			danger
+			danger={open.danger ?? true}
 			busy={busy}
 			error={error}
-			onConfirm={() => void run(Promise.resolve().then(open.onConfirm), () => setOpen(undefined))}
-			onClose={close}
+			onConfirm={() => {
+				if (pending.current) return;
+				pending.current = true;
+				void run(Promise.resolve().then(open.onConfirm), () => setOpen(undefined)).finally(() => { pending.current = false; });
+			}}
+			onClose={() => { if (!pending.current) close(); }}
 		>
 			{open.body}
 		</Confirm>

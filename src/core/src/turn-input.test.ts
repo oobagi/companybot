@@ -20,6 +20,7 @@ describe("turn input", () => {
 		agentId: "a1",
 		place: { kind: "channel", name: "sales", private: false, topic: "Deals", thread: null, members: [ada, ben, bot, scribeP] },
 		actor: { id: "u1", name: "Ada", email: "ada@co.com", role: "owner", timeZone: "America/Los_Angeles" },
+		now: at(5),
 		memory: "team",
 		connectors: { connected: [], unavailable: [] },
 		messages: [
@@ -37,6 +38,7 @@ describe("turn input", () => {
 				'Where you are: #sales, a public channel. Topic: "Deals".',
 				"Here: Ada, Ben (people); Scribe (agents).",
 				"Ada <ada@co.com>, a workspace owner, asked for you. Their messages are marked (asker). You act with their access. Their time zone: America/Los_Angeles.",
+				"Now: Thursday, October 22, 2026 at 8:05 AM PDT.",
 				"Memory: team memories, and you can save personal memories about the person who asked. 2+ people can read this chat, so you can't read or change personal memories here.",
 				"",
 				"New here since your last reply (times in America/Los_Angeles):",

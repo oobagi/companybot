@@ -18,7 +18,7 @@ The main agent, in every workspace. It can search and save memory, work with dat
 - **Tools**: what it may do, as groups (memory, chat, records, pages and more). A tool also needs the person's role to allow it. Help is its own group; grant it to let an agent answer "how do I…" questions.
 - **Instructions**: who the agent is and how it works. Changes apply from its next reply.
 - **History**: every save is kept. Restore an old version from there.
-- Deleting an agent moves it to [Trash](#/settings/trash) for 30 days. The last agent can't be deleted.
+- Deleting an agent moves it to [Archive](#/settings/archive). The last agent can't be deleted.
 
 ## Tips
 - Ask Companybot to do things in plain words: "add a deal for Acme", "remind the team every Monday".
