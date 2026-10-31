@@ -604,18 +604,18 @@ describe("writes that land after what they belong to went", () => {
 	it("answers no webhook and runs no schedule in a workspace being deleted", { timeout: 60_000 }, async () => {
 		const { t, owner } = await ownerAndMember();
 		const agentId = (await owner.query(api.agents.list))[0]!._id;
-		const make = (name: string, trigger: { type: "webhook" } | { type: "schedule"; time: string; weekdays: number[] }) =>
+		const make = (name: string, trigger: { type: "webhook" } | { type: "schedule"; cron: string }) =>
 			owner.mutation(api.automations.create, { config: { name, prompt: "p", trigger }, agentId, audience: "creator", timeZone: "UTC" });
 		await make("Hook", { type: "webhook" });
-		await make("Daily", { type: "schedule", time: "09:00", weekdays: [0, 1, 2, 3, 4, 5, 6] });
+		await make("Daily", { type: "schedule", cron: "0 9 * * *" });
 		const installs = () => t.run((ctx) => ctx.db.query("automationInstalls").collect());
 		const token = (await installs()).find((i) => i.webhookToken)!.webhookToken!;
-		const before = (await installs()).map((i) => i.lastRunDate ?? i.lastResult ?? null);
+		const before = (await installs()).map((i) => i.lastScheduledAt ?? i.lastResult ?? null);
 		await owner.mutation(api.workspace.deleteWorkspace, { name: "My company" });
 		const reply = await t.mutation(internal.automationRuns.receive, { token, body: JSON.stringify({ id: "e1", data: {} }) });
 		expect(reply.status).toBe(404);
 		await t.mutation(internal.automationRuns.tick, { now: Date.UTC(2026, 9, 26, 10) });
-		expect((await installs()).map((i) => i.lastRunDate ?? i.lastResult ?? null)).toEqual(before);
+		expect((await installs()).map((i) => i.lastScheduledAt ?? i.lastResult ?? null)).toEqual(before);
 		expect(await t.run((ctx) => ctx.db.query("automationEvents").collect())).toEqual([]);
 	});
 });

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { reasonings } from "./agent-config";
+import { cronHelp } from "./automation-tools";
 import { CUSTOM_NAME_MAX, CUSTOM_PROMPT_MAX } from "./automations";
 import { replyModes } from "./router";
 import { SKILL_DESCRIPTION_MAX, SKILL_INSTRUCTIONS_MAX, SKILL_NAME_MAX } from "./skills";
@@ -13,7 +14,7 @@ const version = z.number().int().describe("version from get; a stale one is refu
 const page = { cursor: z.string().optional() };
 const skillConfig = z.object({ name: z.string().max(SKILL_NAME_MAX), description: z.string().max(SKILL_DESCRIPTION_MAX), instructions: z.string().max(SKILL_INSTRUCTIONS_MAX) });
 const trigger = z.union([
-	z.object({ type: z.literal("schedule"), time: z.string(), weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7) }),
+	z.object({ type: z.literal("schedule"), cron: z.string().describe(cronHelp) }),
 	z.object({ type: z.literal("event"), event: z.literal("member.joined") }),
 	z.object({ type: z.literal("event"), event: z.literal("message.posted"), channelId: id }),
 	z.object({ type: z.literal("webhook") }),

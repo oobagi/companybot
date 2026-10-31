@@ -20,7 +20,7 @@ async function ready() {
 	return { t, owner, member, companybot, scribe, chat, turnId, memberTurn, call };
 }
 
-const config = { name: "Review", prompt: "Review work", trigger: { type: "schedule" as const, time: "08:00", weekdays: [1] } };
+const config = { name: "Review", prompt: "Review work", trigger: { type: "schedule" as const, cron: "0 8 * * 1" } };
 const skill = { name: "Procedure", description: "Use for work", instructions: "Review it." };
 
 describe("messaging and channels as the person", () => {

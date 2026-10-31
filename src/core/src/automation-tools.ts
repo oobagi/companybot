@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CUSTOM_NAME_MAX, CUSTOM_PROMPT_MAX } from "./automations";
+import { MIN_SCHEDULE_MINUTES } from "./schedules";
 import { type ToolDef, defineTool } from "./tools";
 
 /**
@@ -24,8 +25,8 @@ export interface AutomationSummary {
 	madeByYou: boolean;
 }
 
-const day = z.enum(["sun", "mon", "tue", "wed", "thu", "fri", "sat"]);
-export const weekdayIndex = (d: z.infer<typeof day>) => day.options.indexOf(d);
+/** How agents write schedules; also the automations_create and automations_manage schema text. */
+export const cronHelp = `Standard 5-part cron, "minute hour day-of-month month day-of-week", in the person's time zone (days: 0 = Sunday). Examples: "0 9 * * 1-5" weekdays at 9:00 AM; "0 9,16 * * 1-5" weekdays at 9:00 AM and 4:00 PM; "30 8 * * *" every day at 8:30 AM; "0 8-18/2 * * 1-5" every 2 hours from 8 AM to 6 PM on weekdays; "0 9 * * 1" Mondays at 9; "0 9 1 * *" the 1st of each month; "0 9 * * 1#1" the first Monday of the month; "0 17 * * 5L" the last Friday. Several times a day share their minutes ("0 9,13"); times with different minutes need two automations. At most every ${MIN_SCHEDULE_MINUTES} minutes.`;
 
 const toolInput = z.object({
 	name: z.string().max(CUSTOM_NAME_MAX).describe("Short name, e.g. \"Monday team update\""),
@@ -35,11 +36,7 @@ const toolInput = z.object({
 		.describe("What the agent is asked each run, written as the person asking, e.g. \"Summarize recent conversations and highlight follow-ups.\""),
 	trigger: z
 		.discriminatedUnion("type", [
-			z.object({
-				type: z.literal("schedule"),
-				time: z.string().describe('24-hour "HH:MM" in the person\'s time zone'),
-				days: z.array(day).min(1),
-			}),
+			z.object({ type: z.literal("schedule"), cron: z.string().describe(cronHelp) }),
 			z.object({ type: z.literal("message_posted"), channel: z.string().describe('Channel to watch, like "#support"') }),
 			z.object({ type: z.literal("member_joined") }),
 			z.object({ type: z.literal("webhook").describe("Only when the person has an outside app that will send it") }),
@@ -66,7 +63,7 @@ export const automationTools: ToolDef[] = [
 		id: "automations.create",
 		title: "Create an automation",
 		description:
-			"Set up an automation for the person: a trigger, a prompt you run each time, and who it runs for. Only after they've confirmed the summary you showed them.",
+			"Set up an automation for the person: a trigger, a prompt you run each time, and who it runs for. Schedules are cron, so any regular timing works: several times a day, every few hours during work hours, chosen weekdays, a day of the month, the first Monday. The reply's `when` says it in words; tell them that. Only after they've confirmed the summary you showed them.",
 		input: toolInput,
 		execute: (input, { automations }) => automations.create(input),
 	}),

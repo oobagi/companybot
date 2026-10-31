@@ -8,10 +8,15 @@ export default {
 An automation asks an agent to do something without you typing it. Make one in [Automations](#/settings/automations) → New automation, or ask Companybot ("every Monday morning summarize last week").
 
 ## Parts
-- **When**: on a schedule (days and time), when something happens here (someone posts in a channel, someone joins the workspace), or when another app sends a webhook. A webhook gives you a secret URL to paste into the other app; keep it private.
+- **When**: on a schedule, when something happens here (someone posts in a channel, someone joins the workspace), or when another app sends a webhook. A webhook gives you a secret URL to paste into the other app; keep it private.
 - **What to ask the agent**: the prompt, sent each run as if the person it runs for had asked.
 - **Agent**: which agent does it.
 - **Runs for**: just you; anyone who turns it on; or one post in a channel. Nobody gets messages they didn't ask for: others choose to turn it on.
+
+## Schedules
+- Pick how it repeats: every few hours (between two times), daily, weekly, or monthly (a day like the 15th, or one like the first Monday). Daily and weekly take several times, like 9:00 AM and 1:00 PM; times in one schedule share their minutes past the hour (9:00 and 1:00, or 9:30 and 1:30).
+- Under it is the same schedule as cron, which you can type in for anything else (like "0 9 * 1 *" for every day in January). The description and the next 3 runs show what it will do.
+- Schedules run in the time zone of whoever made the automation, and at most every 15 minutes. If a run is missed, it runs once when it can, never several in a row.
 
 ## Good to know
 - Runs act with the rights of the person they run for, and post in their DM with the agent (or once in the channel).

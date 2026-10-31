@@ -2,8 +2,9 @@ import { type MigrationFunctionReference, Migrations } from "@convex-dev/migrati
 import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
-import { defaultModel, usageMonth } from "@companybot/core";
+import { defaultModel, scheduleCron, usageMonth } from "@companybot/core";
 import { recordUsage } from "./usage";
+import { scheduleCursor } from "./automationOps";
 
 // Data migrations. Deploys never change stored rows; these do, once per deployment.
 // `pnpm release` runs every pending one on prod right after deploying, and the
@@ -114,6 +115,24 @@ export const companybotFollowupTools = migrations.define({
 	},
 });
 
+// Schedules became cron (core schedules.ts). This writes each stored "one time on some weekdays"
+// schedule (made ones and retained library definitions) as its cron, unchanged in meaning and not a
+// new version, and starts its runs after its last one, so nothing runs twice or makes up a run.
+export const cronSchedules = migrations.define({
+	table: "automationInstalls",
+	batchSize: 20,
+	migrateOne: async (ctx, install) => {
+		const { custom, definition } = install;
+		const patch: Partial<typeof install> = {};
+		if (custom?.trigger.type === "schedule" && "time" in custom.trigger) patch.custom = { ...custom, trigger: { type: "schedule", cron: scheduleCron(custom.trigger) } };
+		if (definition?.trigger.type === "schedule" && "time" in definition.trigger)
+			patch.definition = { ...definition, trigger: { type: "schedule", cron: scheduleCron(definition.trigger) } };
+		if ((custom ?? definition)?.trigger.type === "schedule" && install.lastScheduledAt === undefined) patch.lastScheduledAt = scheduleCursor(install);
+		if (install.lastRunDate !== undefined) patch.lastRunDate = undefined;
+		if (Object.keys(patch).length > 0) await ctx.db.patch(install._id, patch);
+	},
+});
+
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
@@ -123,6 +142,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.companybotImageTool,
 	internal.migrations.clearTurnWelcome,
 	internal.migrations.companybotFollowupTools,
+	internal.migrations.cronSchedules,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

@@ -1,4 +1,4 @@
-import { type AutomationAudience, type AutomationSummary, type AutomationToolInput, type CustomAutomationConfig, describeTrigger, weekdayIndex } from "@companybot/core";
+import { type AutomationAudience, type AutomationSummary, type AutomationToolInput, type CustomAutomationConfig, describeTrigger } from "@companybot/core";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
@@ -42,7 +42,7 @@ export const createFor = internalMutation({
 		const { name, prompt, trigger: t, runsFor } = input as AutomationToolInput;
 		return asToolResult(async () => {
 			let trigger: CustomAutomationConfig["trigger"];
-			if (t.type === "schedule") trigger = { type: "schedule", time: t.time, weekdays: [...new Set(t.days.map(weekdayIndex))] };
+			if (t.type === "schedule") trigger = { type: "schedule", cron: t.cron };
 			else if (t.type === "webhook") trigger = { type: "webhook" };
 			else if (t.type === "member_joined") trigger = { type: "event", event: "member.joined" };
 			else {
