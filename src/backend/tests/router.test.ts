@@ -49,9 +49,14 @@ describe("reply router", () => {
 		expect(await scheduled()).toEqual([]);
 		expect(await turnsOf(t)).toEqual([]);
 		const chat = await t.run((ctx) => ctx.db.get(chatId));
-		// "mentions" is stored as unset, like every channel from before the setting.
-		expect(chat!.replyMode).toBeUndefined();
+		expect(chat!.replyMode).toBe("mentions");
 		expect((await owner.query(api.chats.get, { chatId }))!.replyMode).toBe("mentions");
+	});
+
+	it("is When relevant by default: a new channel goes to the router", async () => {
+		const { owner } = await ownerAndMember();
+		const chatId = await owner.mutation(api.chats.createChannel, { name: "fresh", private: false });
+		expect((await owner.query(api.chats.get, { chatId }))!.replyMode).toBe("relevant");
 	});
 
 	it("only lets the channel's managers change it", async () => {

@@ -1,4 +1,4 @@
-import { type ReplyMode, THREAD_HOURS_DEFAULT, canManageChannel, replyModes } from "@companybot/core";
+import { type ReplyMode, THREAD_HOURS_DEFAULT, canManageChannel, replyModeOf, replyModes } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx } from "./_generated/server";
@@ -78,7 +78,7 @@ async function toChatItem(
 		mentioned: !!mine && !!(await latestMentionSince(ctx, chat._id, member.userId, mine.lastReadAt ?? 0)),
 		lastMessageAt: chat.lastMessageAt,
 		canManage: chat.kind === "channel" && canManageChannel(toActor(member), chat),
-		replyMode: (chat.kind === "channel" && chat.replyMode) || "mentions",
+		replyMode: replyModeOf(chat),
 		parentId: chat.parentId ?? null,
 		label: chat.parentId ? sideChatTitle(chat) : null,
 	};
@@ -314,7 +314,7 @@ export async function updateChannelAs(ctx: MutationCtx, member: Member, { chatId
 		...(name !== undefined && { name: await availableName(ctx, member, name, chat._id) }),
 		...(topic !== undefined && { topic: topic.trim() || undefined }),
 		// Unset is "mentions", like every channel from before the setting.
-		...(replyMode !== undefined && { replyMode: replyMode === "mentions" ? undefined : replyMode }),
+		...(replyMode !== undefined && { replyMode: replyMode === "relevant" ? undefined : replyMode }),
 	});
 }
 

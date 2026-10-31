@@ -1,4 +1,4 @@
-import { canEditMade, DEFAULT_CURRENCY, THREAD_HOURS_DEFAULT, isGranted, manageInputs, modelNote, normalizeCustomAutomation, pickAgentConfig, searchModels } from "@companybot/core";
+import { canEditMade, DEFAULT_CURRENCY, THREAD_HOURS_DEFAULT, isGranted, manageInputs, modelNote, normalizeCustomAutomation, pickAgentConfig, replyModeOf, searchModels } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Id, TableNames } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
@@ -131,7 +131,7 @@ export const runFor = internalMutation({
 							id,
 							name: chat.name,
 							topic: chat.topic,
-							replies: chat.kind === "channel" ? (chat.replyMode ?? "mentions") : undefined,
+							replies: chat.kind === "channel" ? replyModeOf(chat) : undefined,
 							private: chat.private,
 							isDefault: chat.isDefault,
 							...result,

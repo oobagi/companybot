@@ -8,6 +8,7 @@ import {
 	handoffLimit,
 	mentionedAgents,
 	pauseText,
+	replyModeOf,
 	spend,
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
@@ -99,7 +100,7 @@ export async function handOff(ctx: MutationCtx, turn: Doc<"agentTurns">) {
 		for (const to of mentioned) await passTo(ctx, { turn, chain: (await ctx.db.get(chain._id))!, chat, reply, to: to.id });
 		return;
 	}
-	if (turn.chain && chat.kind === "channel" && chat.replyMode === "relevant") await ctx.scheduler.runAfter(0, internal.router.next, { turnId: turn._id });
+	if (turn.chain && replyModeOf(chat) === "relevant") await ctx.scheduler.runAfter(0, internal.router.next, { turnId: turn._id });
 }
 
 /** The dispatcher picked `agentId` to go next after `turn` (router.applyNext): the same as an @mention, counted as a hop. */
@@ -107,7 +108,7 @@ export async function dispatchTo(ctx: MutationCtx, turn: Doc<"agentTurns">, agen
 	const reply = turn.replyId && (await ctx.db.get(turn.replyId));
 	const chat = await ctx.db.get(turn.chatId);
 	const chain = turn.chain && (await ctx.db.get(turn.chain.id));
-	if (!reply || reply.deleted || !chat || chat.archived || chat.replyMode !== "relevant" || !chain || agentId === turn.agentId) return;
+	if (!reply || reply.deleted || !chat || chat.archived || replyModeOf(chat) !== "relevant" || !chain || agentId === turn.agentId) return;
 	const here = (await chatMembersOf(ctx, chat._id)).some((r) => r.agentId === agentId);
 	const agent = await ctx.db.get(agentId);
 	if (!here || !agent || agent.archived) return;

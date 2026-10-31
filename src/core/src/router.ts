@@ -6,9 +6,12 @@ import type { ModelInfo } from "./models";
 // backend (backend/convex/router.ts) gathers the input and acts on the answer; the eval
 // (core/eval/router.eval.ts) scores models on the same prompt.
 
-/** "mentions": agents answer only @mentions (the default, and every chat without the setting). "relevant": the router decides. */
+/** "relevant": the router decides (the default, and every channel without the setting). "mentions": agents answer only @mentions. */
 export const replyModes = ["mentions", "relevant"] as const;
 export type ReplyMode = (typeof replyModes)[number];
+
+/** When agents reply in a chat: a channel is "relevant" unless set to "mentions"; DMs and side chats are always "mentions". */
+export const replyModeOf = (chat: { kind: string; replyMode?: ReplyMode }): ReplyMode => (chat.kind === "channel" ? (chat.replyMode ?? "relevant") : "mentions");
 
 export const replyModeLabels: Record<ReplyMode, string> = {
 	mentions: "Mentions only",

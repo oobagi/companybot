@@ -10,6 +10,7 @@ import {
 	type RouterMessage,
 	gatewayCost,
 	isGranted,
+	replyModeOf,
 	isDecisionModel,
 	nextAnswer,
 	nextDecision,
@@ -40,7 +41,7 @@ import { recordUsage } from "./usage";
 
 /** From messages.send, for a person's message that @mentions no agent. */
 export async function routeLater(ctx: MutationCtx, chat: Doc<"chats">, message: Doc<"chatMessages">) {
-	if (chat.kind !== "channel" || chat.replyMode !== "relevant" || !message.authorUserId) return;
+	if (replyModeOf(chat) !== "relevant" || !message.authorUserId) return;
 	await ctx.scheduler.runAfter(ROUTER_DEBOUNCE_MS, internal.router.decide, { messageId: message._id });
 }
 
@@ -49,7 +50,7 @@ async function routable(ctx: QueryCtx, messageId: Id<"chatMessages">) {
 	const message = await ctx.db.get(messageId);
 	if (!message || message.deleted || !message.authorUserId || message.mentions.agentIds.length > 0) return null;
 	const chat = await ctx.db.get(message.chatId);
-	if (!chat || chat.archived || chat.replyMode !== "relevant" || !(await liveWorkspace(ctx, chat.workspaceId))) return null;
+	if (!chat || chat.archived || replyModeOf(chat) !== "relevant" || !(await liveWorkspace(ctx, chat.workspaceId))) return null;
 	const member = await memberOf(ctx, message.authorUserId, chat.workspaceId);
 	if (!member || !(await canSee(ctx, chat, member))) return null;
 	return { message, chat, member };
@@ -199,7 +200,7 @@ export const nextContext = internalQuery({
 		const reply = turn?.replyId && (await ctx.db.get(turn.replyId));
 		if (!turn || !chain || chain.status !== "running" || !reply || reply.deleted || reply.status !== "done") return null;
 		const chat = await ctx.db.get(reply.chatId);
-		if (!chat || chat.archived || chat.replyMode !== "relevant" || !(await liveWorkspace(ctx, chat.workspaceId))) return null;
+		if (!chat || chat.archived || replyModeOf(chat) !== "relevant" || !(await liveWorkspace(ctx, chat.workspaceId))) return null;
 		const agents = (await agentsIn(ctx, chat)).filter((a) => a._id !== turn.agentId);
 		if (agents.length === 0) return null;
 		const keys = new Map(agents.map((a, i) => [a._id, `a${i + 1}`]));

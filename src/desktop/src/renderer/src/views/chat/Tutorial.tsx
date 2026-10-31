@@ -8,7 +8,7 @@ import { CaretRightIcon, CheckIcon } from "../../icons";
 const copy = (agent: string): Record<TutorialStep, { title: string; how: string }> => ({
 	mention: {
 		title: `@mention ${agent} to ask it something`,
-		how: `Type @ and pick ${agent}. Outside DMs, agents only answer when you mention them.`,
+		how: `Type @ and pick ${agent}, and it always answers. Agents also chime in on their own when a message is meant for them.`,
 	},
 	dm: { title: "DM an agent for anything private", how: `Open ${agent} under Direct messages. Personal memories are only read there.` },
 	thread: { title: "Reply in a thread", how: "Hover a message and click Reply in thread, to keep side talk out of the channel." },

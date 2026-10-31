@@ -198,7 +198,8 @@ describe("the dispatcher after an agent's message", () => {
 	});
 
 	it("isn't asked in Mentions only channels", async () => {
-		const { t, companybot, scribe, ask } = await setUp();
+		const { t, owner, chatId, companybot, scribe, ask } = await setUp();
+		await owner.mutation(api.chats.updateChannel, { chatId, replyMode: "mentions" });
 		await ask("@Companybot go", companybot);
 		await say(t, companybot, "@Scribe go");
 		await say(t, scribe, "Done.");
