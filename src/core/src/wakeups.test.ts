@@ -58,6 +58,7 @@ describe("wakeups", () => {
 			connectors: { connected: [], unavailable: [] },
 			messages: [],
 			triggerId: null,
+			now,
 			wake: {
 				id: "w1",
 				note: "Chase the invoice if it's still unpaid.",
