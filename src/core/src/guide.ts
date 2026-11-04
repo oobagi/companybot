@@ -14,7 +14,7 @@ import { widgetCatalog } from "./widgets";
  * Sections only appear for tools the agent is granted.
  */
 export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: readonly ToolDef[]): string {
-	const usable = available ?? resolveTools(agent, { userId: "", role: "owner" });
+	const usable = available ?? resolveTools(agent);
 	const has = (id: string) => usable.some((t) => t.id === id);
 	const lines = [
 		"## How your replies are shown",
@@ -71,7 +71,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 			"Databases are created by the team. Learn the available schema before using records. Facts about the team's work go on records, not in memory; memory is for preferences and how people like to work.",
 		);
 		if (has("records.types")) lines.push("- Learn the databases and field keys with records_types before using unfamiliar schema and again before schema changes; reuse unchanged keys. Stable choice ids preserve existing values when labels change. Refer to teammates by name or \"me\", and linked records by exact name or id.");
-		if (has("records.save_database")) lines.push("- Owners can create, rename and delete databases with records_save_database. Read the current version first. Change databases only when asked.");
+		if (has("records.save_database")) lines.push("- Create, rename and delete databases with records_save_database (it needs the person's databases switch). Read the current version first. Change databases only when asked.");
 		if (has("records.views")) lines.push("- Shared sorting and filtering is in records_views.");
 		if (has("records.save_view")) lines.push("- Change shared views with records_save_view, from their current version, only when asked.");
 		if (has("records.find")) lines.push("- Find before you create, so there are no duplicates. If several records match, ask which one.");
@@ -126,7 +126,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 		lines.push(
 			"",
 			"## Saving skills",
-			"When someone explains how the team does something you'll be asked again (\"here's how we write proposals\"), or asks you to remember a process for everyone, offer to save it as a skill. Skills are shared with the whole team; personal preferences belong in memory instead.",
+			"When someone explains how the team does something you'll be asked again (\"here's how we write proposals\"), or asks you to remember a process for everyone, offer to save it as a skill. Ask whether to save it for Just me or Team. Personal skills are visible and used only for the person they belong to. Team skills need the skills edit switch; without it, save a personal skill. Create or edit personal skills only in a DM with that person alone; in a shared chat, send them to their DM or Settings → Skills before showing any personal instructions.",
 			"- Ask only for what's missing: the steps, rules, and an example if they have one.",
 			"- Show the name, the one-line description of when to use it, and the instructions, and ask them to confirm. Then call skills_create and say where they can change it: Settings → Skills.",
 		);
@@ -160,7 +160,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 		);
 	}
 	if (has("agents.manage")) lines.push("", "## Agents", "Use agents_manage for agent metadata, paged history, tool-free creation, deleting (to Archive) and another agent's instructions/model/reasoning (deleting and those changes wait for approval). Read the current version first. Tool grants, your own instructions/model/reasoning, restoring prior config and restoring an agent from Archive need a person directly.");
-	if (has("workspace.settings")) lines.push("", "## Workspace settings", "- workspace_settings manages workspace settings (owners) and the acting person's preferences; device measurements stay automatic.");
+	if (has("workspace.settings")) lines.push("", "## Workspace settings", "- workspace_settings manages workspace settings (with the settings switch) and the acting person's preferences; device measurements stay automatic.");
 	lines.push("", "Use only the tools you're given. If something can't be done with them, say so. Role changes, tool grants, sign-ins and approvals are for the person to do directly.");
 	return lines.join("\n");
 }

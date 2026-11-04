@@ -9,7 +9,6 @@ import { platformGuide } from "./guide";
 import { type Skill, skillsIndex } from "./skills";
 import { formatLocalTime, shortStamp } from "./time";
 import { isGranted } from "./tools";
-import type { Role } from "./types";
 
 // What the model is fed each turn, built for prompt caching (wiki/chat.md):
 // 1. `instructions`: the same for every chat and turn, so it caches everywhere.
@@ -72,10 +71,11 @@ export interface TurnPromptInput {
 	agentId: string;
 	place: TurnPlace;
 	/** The person the agent acts for. `timeZone` is resolved (see resolveTimeZone). */
-	actor: { id: string; name: string; email: string; role: Role; timeZone: string };
+	/** `roles`: the names of their workspace roles. */
+	actor: { id: string; name: string; email: string; roles: string[]; timeZone: string };
 	/** When the turn runs, epoch ms. Chat lines carry no year, so this says what "now" is. */
 	now: number;
-	/** "personal" only in a DM with exactly one person; "off" when an owner turned memory off. */
+	/** "personal" only in a DM with exactly one person; "off" when memory is turned off for the workspace. */
 	memory: "personal" | "team" | "off";
 	/** Services the agent can reach this turn through connectors_search, and ones that failed to connect. */
 	connectors: { connected: { name: string; description: string }[]; unavailable: string[] };
@@ -128,7 +128,7 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 		`Here: ${here}.${team ? " This is a team chat: talk to your coworkers, people and agents, by name." : ""}`,
 		// An @mention hands off only to an agent in the place (backend chains.ts reachable): in a DM, the other agents aren't.
 		place.kind !== "channel" && agents.length === 0 && "No other agent is in this DM, so @mentioning one reaches nobody. To involve one, ask it with chat_ask_agent.",
-		`${clean(actor.name)} <${clean(actor.email)}>, a workspace ${actor.role}, asked for you. Their messages are marked (asker). You act with their access. Their time zone: ${actor.timeZone}.`,
+		`${clean(actor.name)} <${clean(actor.email)}>, ${actor.roles.length ? `with the ${listed(actor.roles.map(clean))} role${actor.roles.length === 1 ? "" : "s"}` : "with no role"}, asked for you. Their messages are marked (asker). You act with their access. Their time zone: ${actor.timeZone}.`,
 		`Now: ${formatLocalTime(input.now, actor.timeZone)}.`,
 		input.memory === "personal"
 			? "Memory: personal and team memories."
@@ -172,9 +172,7 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 	if (input.wake && !input.approval) sections.push(wakeSection(input.wake, actor));
 	else if (input.wake && !input.wake.answer) sections.push("Nobody asked just now.");
 	else if (!input.approval && trigger) {
-		const skills = trigger.skills?.length
-			? `\nIt names ${trigger.skills.length === 1 ? "a skill" : "skills"} with /: load ${trigger.skills.length === 1 ? "it" : "each"} with skills_load first and follow it: ${trigger.skills.map((s) => `${JSON.stringify(clean(s.name))} (${s.id})`).join(", ")}.`
-			: "";
+		const skills = namedSkills(trigger);
 		const from = clean(trigger.author.name);
 		// The one thing that differs from turn to turn: why it's here, as facts. The guidance after it is the same for all.
 		const why = input.routed
@@ -190,6 +188,10 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 	return sections.join("\n\n");
 }
 
+const namedSkills = (trigger: PlaceMessage) => trigger.skills?.length
+	? `\nIt names ${trigger.skills.length === 1 ? "a skill" : "skills"} with /: load ${trigger.skills.length === 1 ? "it" : "each"} with skills_load first and follow it: ${trigger.skills.map((s) => `${JSON.stringify(clean(s.name))} (${s.id})`).join(", ")}.`
+	: "";
+
 /**
  * Messages the person sent while the agent worked on this turn (backend turns.steer), appended to its
  * messages at a step boundary and to its stored prompt, so later turns replay them. Only the turn's own
@@ -200,7 +202,7 @@ export function steerNote(messages: PlaceMessage[], actor: { id: string; name: s
 	const who = clean(actor.name);
 	return [
 		`[Note from Companybot, not the person: ${who} sent ${messages.length === 1 ? "this" : "these"} while you were replying. ${messages.length === 1 ? "It comes" : "They come"} first: if ${who} changed or called off what they asked, follow that and say so in a short line; if not, carry on.]`,
-		...messages.map((m) => chatLine(m, actor)),
+		...messages.map((m) => chatLine(m, actor) + namedSkills(m)),
 	].join("\n");
 }
 

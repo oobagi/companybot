@@ -1,4 +1,4 @@
-// The email someone gets when an owner invites them. Plain enough for any inbox.
+// The email someone gets when they're invited. Plain enough for any inbox.
 
 /** Where friends get the app: the newest release on GitHub. */
 export const DOWNLOAD_URL = "https://github.com/oobagi/companybot/releases/latest";

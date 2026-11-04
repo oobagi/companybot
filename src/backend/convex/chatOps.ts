@@ -1,10 +1,11 @@
-import { type ReactionGroup, canManageChannel, describeWidget, emojiOf } from "@companybot/core";
+import { type ReactionGroup, describeWidget, emojiOf } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { imageUrls } from "./images";
-import { type Member, type Who, getMember, memberOf, memo, nameOf, personOf, toActor } from "./lib";
+import { type Member, type Who, checkPermission, getMember, memberOf, memo, nameOf, personOf } from "./lib";
 import { putInTrash, takeFromTrash } from "./trashOps";
+import { channelName, chatAccess, reach, requireAccess } from "./placeAccess";
 
 // Shared by the app's chat functions (chats.ts, messages.ts) and the agent runner
 // (chatTools.ts), so both follow the same visibility rules. See wiki/chat.md.
@@ -54,29 +55,60 @@ export const membership = (ctx: QueryCtx, chatId: Id<"chats">, userId: Id<"users
 		.withIndex("by_user", (q) => q.eq("userId", userId).eq("chatId", chatId))
 		.first();
 
-/** Public channels are open to the whole workspace; private channels and DMs to their members. */
+/**
+ * Public channels are open to the whole workspace; private channels and DMs to their members. A
+ * channel's Who can access list applies on top: not on it, no access.
+ */
 export async function canSee(ctx: QueryCtx, chat: Doc<"chats">, member: Member) {
-	if (chat.workspaceId !== member.workspaceId) return false;
-	if (chat.kind === "channel" && !chat.private) return true;
-	return !!(await membership(ctx, chat._id, member.userId));
+	return (await reachOf(ctx, chat, member)) === "ok";
 }
 
-/** A channel by name ("#sales" or "sales") that the person can see. */
+/** Whether someone can see a chat: "ok", "members" (a private chat they're not in) or "access" (not on its list). */
+async function reachOf(ctx: QueryCtx, chat: Doc<"chats">, member: Member) {
+	if (chat.workspaceId !== member.workspaceId) return "members";
+	if ((chat.kind !== "channel" || chat.private) && !(await membership(ctx, chat._id, member.userId))) return "members";
+	return reach(member, chatAccess(chat)) ? "ok" : "access";
+}
+
+/** Refuses posting (and reacting) where someone can only view: a read-only channel. Names who can post. */
+export const requirePost = (member: Member, chat: Doc<"chats">) => requireAccess(member, "channel", channelName(chat), chatAccess(chat), "edit");
+
+/** Whether someone can post in a chat they can see. */
+export const canPost = (member: Member, chat: Doc<"chats">) => reach(member, chatAccess(chat)) === "edit";
+
+/**
+ * Whether an agent may reply in a chat for this person: they're still a member who sees it and can post in it.
+ * Turns check it when they start, on every step (turns.runningTurn) and before a quiet reply is shown.
+ */
+export const canReplyAs = async (ctx: QueryCtx, chat: Doc<"chats">, member: Member | null) =>
+	!!member && (await canSee(ctx, chat, member)) && canPost(member, chat);
+
+/**
+ * A channel by name ("#sales" or "sales") that the person can see. Agents name channels, so one
+ * kept from them by its access list refuses with who can see it, rather than looking missing.
+ */
 export async function channelNamed(ctx: QueryCtx, member: Member, name: string) {
 	const clean = name.trim().replace(/^#/, "").toLowerCase();
 	const chat = await ctx.db
 		.query("chats")
 		.withIndex("by_name", (q) => q.eq("workspaceId", member.workspaceId).eq("name", clean).eq("archived", false))
 		.first();
-	return chat && chat.kind === "channel" && !chat.archived && (await canSee(ctx, chat, member)) ? chat : null;
+	return chat && chat.kind === "channel" && !chat.archived ? seenOrRefused(ctx, chat, member, `#${clean}`) : null;
 }
 
-/** A chat by id, or a channel by name, that the person can see. */
+/** A chat by id, or a channel by name, that the person can see (as `channelNamed`). */
 export async function chatByRef(ctx: QueryCtx, member: Member, ref: string) {
 	const id = ctx.db.normalizeId("chats", ref);
 	if (!id) return channelNamed(ctx, member, normalizeChannelName(ref));
 	const chat = await ctx.db.get(id);
-	return chat && (await canSee(ctx, chat, member)) ? chat : null;
+	return chat ? seenOrRefused(ctx, chat, member) : null;
+}
+
+/** `asked`: the name they found it by, which a refusal may say back (requireAccess). */
+async function seenOrRefused(ctx: QueryCtx, chat: Doc<"chats">, member: Member, asked?: string) {
+	const seen = await reachOf(ctx, chat, member);
+	if (seen === "access") requireAccess(member, "channel", channelName(chat), chatAccess(chat), "view", asked);
+	return seen === "ok" ? chat : null;
 }
 
 /** You and the chat, if you can see it. For queries, which show nothing rather than fail. */
@@ -87,10 +119,15 @@ export async function visibleChat(ctx: QueryCtx, chatId: Id<"chats">) {
 	return { member, chat };
 }
 
-/** A chat the person can see. Others look like they don't exist. */
+/**
+ * A chat the person can see. Others look like they don't exist, except a channel they'd see but for
+ * its access list: that names who can ("Only Office and Owners can see #deals."), so an agent can say.
+ */
 export async function requireChat(ctx: QueryCtx, member: Member, chatId: Id<"chats">) {
 	const chat = await ctx.db.get(chatId);
-	if (!chat || !(await canSee(ctx, chat, member))) throw new ConvexError("Chat not found.");
+	const seen = chat ? await reachOf(ctx, chat, member) : "members";
+	if (seen === "access") requireAccess(member, "channel", channelName(chat!), chatAccess(chat!), "view");
+	if (!chat || seen !== "ok") throw new ConvexError("Chat not found.");
 	return chat;
 }
 
@@ -152,11 +189,12 @@ export async function availableName(ctx: QueryCtx, member: Member, raw: string, 
 	return name;
 }
 
-/** A channel you can see and manage (`channels.manage`, or you created it). */
+/** A channel you can see and manage (`channels.edit`, and Post in it). Making it gives no extra rights: roles decide. */
 export async function requireManagedChannel(ctx: QueryCtx, member: Member, chatId: Id<"chats">) {
 	const chat = await requireChat(ctx, member, chatId);
 	if (chat.kind !== "channel") throw new ConvexError("That's not a channel.");
-	if (!canManageChannel(toActor(member), chat)) throw new ConvexError("Only the channel's creator or an owner can change it.");
+	checkPermission(member, "channels.edit");
+	requirePost(member, chat);
 	return chat;
 }
 
@@ -173,6 +211,7 @@ export async function setChannelTrashed(ctx: MutationCtx, who: Who, chatId: Id<"
 	if (chat.archived === archived) return;
 	if (archived) await putInTrash(ctx, who, { kind: "channel", id: chatId, name: side ? sideChatTitle(chat) : `#${chat.name}` });
 	else {
+		if (!side) requirePost(who.member, chat);
 		if (!side) await availableName(ctx, who.member, chat.name ?? "", chatId);
 		await takeFromTrash(ctx, who, chatId);
 	}

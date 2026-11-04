@@ -5,6 +5,7 @@ import { navigate } from "../../router";
 import { Notice, secondaryButton, useRun } from "../../ui";
 import { AgentBadge, Avatar, Popover, clock, zoneLabel } from "./common";
 import type { Participant } from "./data";
+import { roleNames } from "../Members";
 
 
 /**
@@ -27,6 +28,7 @@ function ProfileCards({ who, onClose }: { who: Participant; onClose: () => void 
 /** Name, email, role, and local time for people; description for agents. "Message" opens your DM. */
 function ProfileCard({ who, onClose, onFor }: { who: Participant; onClose: () => void; onFor?: () => void }) {
 	const team = useQuery(api.workspace.team);
+	const roles = useQuery(api.roles.list);
 	const chats = useQuery(api.chats.list);
 	const openDm = useMutation(api.chats.openDm);
 	const { error, run } = useRun();
@@ -50,8 +52,8 @@ function ProfileCard({ who, onClose, onFor }: { who: Participant; onClose: () =>
 			</div>
 			{person && (
 				<dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-					<dt className="text-neutral-500">Role</dt>
-					<dd className="capitalize">{person.role}</dd>
+					<dt className="text-neutral-500">Roles</dt>
+					<dd>{roleNames(roles, person.roles).join(", ") || "No role"}</dd>
 					<dt className="text-neutral-500">Local time</dt>
 					<dd>
 						{clock(Date.now(), person.timeZone)} <span className="text-neutral-500">· {zoneLabel(person.timeZone)}</span>

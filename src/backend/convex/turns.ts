@@ -1,5 +1,5 @@
 import type { PlaceMessage, Skill } from "@companybot/core";
-import { AGENT_DEBOUNCE_MS, PROMPT_MESSAGE_CAP, THINKING_STEP, approxTokens, can, defaultReasoning, fallbackModels, replayOf, responseOf, steerNote } from "@companybot/core";
+import { AGENT_DEBOUNCE_MS, PROMPT_MESSAGE_CAP, THINKING_STEP, approxTokens, can, defaultReasoning, deniedMessage, fallbackModels, replayOf, responseOf, steerNote } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -7,6 +7,8 @@ import { type MutationCtx, type QueryCtx, internalMutation, internalQuery } from
 import { mutation } from "./functions";
 import {
 	type Namer,
+	canPost,
+	canReplyAs,
 	canSee,
 	chatMembersOf,
 	countMessage,
@@ -182,11 +184,18 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 	}
 	const chat = await ctx.db.get(next.chatId);
 	// A workspace being deleted starts nothing: its cascade may already be past the rows this would add.
-	if (!chat || chat.archived || !(await liveWorkspace(ctx, chat.workspaceId))) {
+	// Nor does a reply its person can no longer post: a read-only channel, or one they lost (wakes, automations, asks).
+	const problem =
+		!chat || chat.archived || !(await liveWorkspace(ctx, chat.workspaceId))
+			? "its chat was deleted"
+			: !(await canReplyAs(ctx, chat, await memberOf(ctx, next.actorId, chat.workspaceId)))
+				? "its person can no longer post there"
+				: null;
+	if (!chat || problem) {
 		await ctx.db.patch(next._id, { status: "error" });
 		await startThen(ctx, next);
 		await setWakeOutcome(ctx, next, "failed");
-		await answerAsk(ctx, next, "its chat was deleted");
+		await answerAsk(ctx, next, problem ?? undefined);
 		return await settleApproval(ctx, next);
 	}
 
@@ -231,11 +240,13 @@ export async function runningTurn(ctx: QueryCtx, turnId: Id<"agentTurns">) {
 	if (!member) throw new Error("This person is no longer in the workspace.");
 	const chat = await ctx.db.get(turn.chatId);
 	if (!chat || chat.archived || !(await canSee(ctx, chat, member))) throw new Error("This person can no longer see this chat.");
+	// Its reply posts there as them: a read-only channel ends it (chatOps.canReplyAs).
+	if (!canPost(member, chat)) throw new Error("This person can no longer post in this chat.");
 	const who: Who = { member, agentId: turn.agentId };
 	return { turn: turn as Doc<"agentTurns"> & { replyId: Id<"chatMessages">; sessionId: Id<"agentSessions"> }, member, chat, who };
 }
 
-/** Whether agents use memories here: owners can turn it off for the workspace (Settings → General). */
+/** Whether agents use memories here: people with workspace.manage can turn it off for the workspace (Settings → General). */
 export async function memoryOn(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
 	return (await ctx.db.get(workspaceId))?.memory !== false;
 }
@@ -298,7 +309,7 @@ export const turnContext = internalQuery({
 			const trigger = await ctx.db.get(turn.triggerId);
 			if (trigger) recent.push(trigger);
 		}
-		const skills = await installedSkills(ctx, chat.workspaceId);
+		const skills = await installedSkills(ctx, chat.workspaceId, turn.actorId);
 		// Older messages reacted to since the last reply, its own reactions included: shown with their reactions.
 		const reacted = foreign || !last ? [] : await reactedSince(ctx, chat._id, turn.threadId, since);
 		const messages = await Promise.all(
@@ -323,6 +334,7 @@ export const turnContext = internalQuery({
 		const { models } = await catalogModels(ctx);
 		const vision = [models, fallbackModels].some((list) => list.find((m) => m.id === agent.model)?.vision);
 		const user = await ctx.db.get(member.userId);
+		// Deleted: null. Its database hidden from them since: recordOut refuses, and the turn ends with why.
 		const about = wakeup?.recordId ? await ctx.db.get(wakeup.recordId) : undefined;
 		return {
 			replyId: turn.replyId,
@@ -330,13 +342,13 @@ export const turnContext = internalQuery({
 			agent: { id: agent._id, name: agent.name, instructions: agent.instructions, model: agent.model, reasoning: agent.reasoning ?? defaultReasoning, tools: agent.tools },
 			skills,
 			session: { id: session._id, summary: foreign ? null : (session.summary ?? null), turns },
-			/** Off when an owner turned it off; personal only in a DM with exactly one person. memory.ts checks again on every call. */
+			/** Off when it's turned off for the workspace; personal only in a DM with exactly one person. memory.ts checks again on every call. */
 			memory: !(await memoryOn(ctx, chat.workspaceId)) ? ("off" as const) : (await personalMemoryHere(ctx, chat)) ? ("personal" as const) : ("team" as const),
 			actor: {
 				id: member.userId,
 				name: (await names.user(member.userId)).name,
 				email: user?.email ?? "",
-				role: member.role,
+				roles: member.workspaceRoles.filter((r) => member.roles.includes(r.id as Id<"roles">)).map((r) => r.name),
 				timeZone: await timeZoneOf(ctx, member.userId),
 			},
 			place: {
@@ -370,7 +382,7 @@ export const turnContext = internalQuery({
 						...(wakeup.note !== undefined && { note: wakeup.note }),
 						setAt: wakeup._creationTime,
 						// Counted before the turn runs: `wakes` already includes this one.
-						...(wakeup.every && { repeats: { left: wakeup.times === undefined ? null : Math.max(wakeup.times - (wakeup.wakes ?? 0), 0) } }),
+						...(wakeup.repeat && { repeats: { left: wakeup.times === undefined ? null : Math.max(wakeup.times - (wakeup.wakes ?? 0), 0) } }),
 						...(about !== undefined && { record: about && (await recordOut(ctx, member, about._id)) }),
 						...(wakeup.result !== undefined && { result: wakeup.result }),
 						...(wakeup.answer && { answer: { from: (await names.agent(wakeup.answer.agentId)).name } }),
@@ -488,10 +500,11 @@ export const streamOf = (ctx: QueryCtx, messageId: Id<"chatMessages">) =>
 export const updateReply = internalMutation({
 	args: { turnId: v.id("agentTurns"), text: v.string(), parts: v.array(messagePart) },
 	handler: async (ctx, { turnId, text, parts }) => {
-		const heard = await stopRequested(ctx, turnId);
+		const { lost, ...heard } = await turnState(ctx, turnId);
 		const replyId = (await ctx.db.get(turnId))?.replyId;
 		const reply = replyId && (await ctx.db.get(replyId));
-		if (!reply || reply.status !== "streaming") return heard;
+		// Nothing more goes out as a person who can no longer post there; finishReply ends it.
+		if (lost || !reply || reply.status !== "streaming") return heard;
 		const stream = await streamOf(ctx, reply._id);
 		if (stream) await ctx.db.patch(stream._id, { text, parts });
 		else await ctx.db.insert("replyStreams", { messageId: reply._id, text, parts });
@@ -515,19 +528,33 @@ async function show(ctx: MutationCtx, reply: Doc<"chatMessages">) {
 }
 
 /**
- * What the runner should do now (agent.ts `turnStop`). `stopped`: end now (someone pressed Stop, or it
- * isn't running anymore, failed as stale). `steer`: its person sent a message here meanwhile (steer).
+ * Whether a turn's person lost what its reply needs since it began: to see the chat and post in it
+ * (chatOps.canReplyAs). Its reply posts as them, so it stops where they'd be refused.
  */
-async function stopRequested(ctx: QueryCtx, turnId: Id<"agentTurns">) {
+async function lostReply(ctx: QueryCtx, turn: Doc<"agentTurns">) {
+	const chat = await ctx.db.get(turn.chatId);
+	return !chat || !(await canReplyAs(ctx, chat, await memberOf(ctx, turn.actorId, turn.workspaceId)));
+}
+
+/**
+ * What the runner should do now (agent.ts `turnStop`). `stopped`: end now (someone pressed Stop, it
+ * isn't running anymore, failed as stale, or its person can no longer post there: `lost`). `steer`: its
+ * person sent a message here meanwhile (steer).
+ */
+async function turnState(ctx: QueryCtx, turnId: Id<"agentTurns">) {
 	const turn = await ctx.db.get(turnId);
-	const stopped = !turn || turn.status !== "running" || !!turn.stopping;
-	return { stopped, steer: !stopped && (await steering(ctx, turn)).length > 0 };
+	const lost = !!turn && turn.status === "running" && (await lostReply(ctx, turn));
+	const stopped = !turn || turn.status !== "running" || !!turn.stopping || lost;
+	return { stopped, steer: !stopped && (await steering(ctx, turn)).length > 0, lost };
 }
 
 /** For the runner between flushes and at each step (agent.ts `turnStop`). */
 export const isStopping = internalQuery({
 	args: { turnId: v.id("agentTurns") },
-	handler: (ctx, { turnId }) => stopRequested(ctx, turnId),
+	handler: async (ctx, { turnId }) => {
+		const { stopped, steer } = await turnState(ctx, turnId);
+		return { stopped, steer };
+	},
 });
 
 /**
@@ -539,7 +566,7 @@ export const steerWait = internalQuery({
 	args: { turnId: v.id("agentTurns") },
 	handler: async (ctx, { turnId }) => {
 		const turn = await ctx.db.get(turnId);
-		if (!turn || turn.status !== "running" || turn.stopping) return { stopped: true, waitMs: 0 };
+		if (!turn || turn.status !== "running" || turn.stopping || (await lostReply(ctx, turn))) return { stopped: true, waitMs: 0 };
 		// A person turn is queued with its message, in the same mutation (messages.send).
 		const newest = Math.max(0, ...(await steering(ctx, turn)).map((t) => t._creationTime));
 		return { stopped: false, waitMs: Math.max(0, newest + AGENT_DEBOUNCE_MS - Date.now()) };
@@ -632,7 +659,7 @@ export const steer = internalMutation({
 			.sort((a, b) => a._creationTime - b._creationTime);
 		if (messages.length === 0) return null;
 		const names = namer(ctx);
-		const skills = await installedSkills(ctx, turn.workspaceId);
+		const skills = await installedSkills(ctx, turn.workspaceId, turn.actorId);
 		const actor = { id: turn.actorId, name: (await names.user(turn.actorId)).name, timeZone: await timeZoneOf(ctx, turn.actorId) };
 		const note = steerNote(await Promise.all(messages.map((m) => toPlaceMessage(ctx, m, names, turn.agentId, skills))), actor);
 		await ctx.db.patch(turnId, {
@@ -646,8 +673,8 @@ export const steer = internalMutation({
 	},
 });
 
-/** Who may stop a running turn: the person it runs for, or someone allowed to stop anyone's (an owner). */
-export const canStopTurn = (member: Member, turn: Doc<"agentTurns">) => turn.actorId === member.userId || can(member.role, "turns.stopAny");
+/** Who may stop a running turn: the person it runs for, or someone allowed to stop anyone's (`turns.stopAny`). */
+export const canStopTurn = (member: Member, turn: Doc<"agentTurns">) => turn.actorId === member.userId || can(member, "turns.stopAny");
 
 /**
  * Stop: ends a running turn early. Convex can't kill a running action, so this only marks it; the
@@ -662,7 +689,7 @@ export const stop = mutation({
 		const turn = await ctx.db.get(turnId);
 		if (!turn || turn.workspaceId !== member.workspaceId) throw new ConvexError("Reply not found.");
 		await requireChat(ctx, member, turn.chatId);
-		if (!canStopTurn(member, turn)) throw new ConvexError(`Only ${await nameOf(ctx, turn.actorId)} or an owner can stop this: the agent is working for them.`);
+		if (!canStopTurn(member, turn)) throw new ConvexError(`The agent is working for ${await nameOf(ctx, turn.actorId)}. ${deniedMessage("turns.stopAny", member.workspaceRoles)}`);
 		// Already over (or already stopping): nothing to do.
 		if (turn.status !== "running" || turn.stopping) return;
 		await ctx.db.patch(turnId, { stopping: { by: member.userId, at: Date.now() } });
@@ -775,13 +802,17 @@ export const finishReply = internalMutation({
 		// error: no handoff, no answer, no reaction, and an ask's asker hears it was stopped.
 		// Aborting can surface as an error; the stop is what happened.
 		const stopped = turn.stopping;
-		const decided = stopped ? undefined : decision;
-		const error = stopped ? undefined : failed;
+		// Its person may have lost the chat, or Post in it, while it ran: then it fails, nothing it wrote since
+		// (updateReply) goes out, and it makes no decision: no reaction, no handoff.
+		const lost = await lostReply(ctx, turn);
+		const decided = stopped || lost ? undefined : decision;
+		const error = lost ? "This person can no longer post in this chat." : stopped ? undefined : failed;
 		const { emoji } = responseOf(decided);
 		const parts = reply ? ((await streamOf(ctx, reply._id))?.parts ?? reply.parts) : [];
 		// Shown if it has something to show (its message, a card, a stopped reply's message so far) or failed;
 		// with nothing, it stays hidden (or goes again: a restart dropped its draft and it ended with no message).
-		const shown = !!reply && (!!error || showable(parts));
+		// A lost one stays as it was: shown only if it already was.
+		const shown = !!reply && (lost ? !reply.quiet : !!error || showable(parts));
 		if (reply) {
 			const end = error ? { status: "error" as const, error } : { status: "done" as const, ...(stopped && { stoppedBy: stopped.by }) };
 			await endStream(ctx, reply, { ...end, stats, ...(!shown && { quiet: true as const }) });

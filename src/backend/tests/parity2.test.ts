@@ -3,7 +3,7 @@ import { type ManageTool, manageInputs } from "@companybot/core";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { IDLE_MS, readDoc } from "../convex/pageOps";
-import { agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, sideWorkspace, turnsOf } from "./helpers";
+import { agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, sideWorkspace, turnsOf, setMemberSwitch } from "./helpers";
 
 afterEach(() => vi.useRealTimers());
 
@@ -39,19 +39,22 @@ it("renames options by stable id, reorders options/fields, retires and revives o
 	expect(last).toMatchObject({ agent: "Companybot", changes: [expect.objectContaining({ key: "position", new: 2 })] });
 });
 
-it("enforces maker/owner field gates, Trash ownership and database discovery/restore", async () => {
+it("gates fields on the databases switch, not on who added them, through Trash and database discovery/restore", async () => {
 	const { t, owner, member, field, turnId } = await ready();
-	for (const update of [{ options: [{ id: "lead", label: "Prospect" }] }, { position: 1 }, { trash: true }])
-		expect(await field({ type: "client", field: "status", ...update }, true)).toHaveProperty("error");
 	expect(await field({ type: "client", field: "name", position: 1 })).toHaveProperty("error");
 	const made = await field({ type: "client", label: "Roof", kind: "choice", options: ["Metal", "Tile"] }, true);
-	expect(await field({ type: "client", field: made.key, position: 1 }, true)).toHaveProperty("error");
+	await setMemberSwitch(owner, "fields.edit", false);
+	for (const update of [{ options: [{ id: "lead", label: "Prospect" }] }, { position: 1 }, { trash: true }])
+		expect(await field({ type: "client", field: "status", ...update }, true)).toMatchObject({ error: expect.stringContaining("Only people with the Owner role") });
+	expect(await field({ type: "client", field: made.key, trash: true }, true)).toMatchObject({ error: expect.stringContaining("Only people with the Owner role") });
+	await setMemberSwitch(owner, "fields.edit", true);
+	expect(await field({ type: "client", field: "status", position: 2 }, true)).not.toHaveProperty("error");
 	await field({ type: "client", field: made.key, trash: true }, true);
 	expect((await t.query(internal.recordTools.typesFor, { turnId })).types.find((t) => t.type === "client")!.fields.find((f) => f.key === made.key)).toHaveProperty("inTrash", true);
 	expect(await field({ type: "client", field: made.key, trash: false }, true)).not.toHaveProperty("error");
 	const other = await owner.mutation(api.fields.create, { typeId: (await member.query(api.recordTypes.list))[0]!._id, label: "Owner field", kind: "text" });
 	await owner.mutation(api.trash.move, { kind: "field", id: other._id });
-	expect(await field({ type: "client", field: other.key, trash: false }, true)).toHaveProperty("error");
+	expect(await field({ type: "client", field: other.key, trash: false }, true)).not.toHaveProperty("error");
 	const database = await owner.mutation(api.recordTypes.create, { plural: "Projects" });
 	await t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input: { type: database, trash: true } });
 	expect((await t.query(internal.recordTools.typesFor, { turnId, trashed: true })).types).toEqual(expect.arrayContaining([expect.objectContaining({ type: "project", inTrash: true })]));

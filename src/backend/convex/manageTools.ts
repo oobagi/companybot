@@ -1,15 +1,16 @@
-import { canEditMade, DEFAULT_CURRENCY, THREAD_HOURS_DEFAULT, isGranted, manageInputs, modelNote, normalizeCustomAutomation, pickAgentConfig, replyModeOf, searchModels } from "@companybot/core";
+import { can, DEFAULT_CURRENCY, THREAD_HOURS_DEFAULT, isGranted, manageInputs, modelNote, normalizeCustomAutomation, pickAgentConfig, replyModeOf, searchModels } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Id, TableNames } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { addChannelMembers, markReadAs, createChannelAs, joinChannel, leaveChannel, openDirectMessage, removeChannelMember, updateChannelAs } from "./chats";
-import { chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
-import { automationName, automationScope, canView, definitionOf, installOf } from "./automationOps";
+import { canSee, chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
+import { chatAccess, reach } from "./placeAccess";
+import { automationName, automationScope, canView, definitionOf, installOf, outcomeText, seenChannel, shownTrigger } from "./automationOps";
 import { removeAutomation, saveAutomation, updateAutomation } from "./automations";
-import { installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
+import { requirePersonalSkillChat, installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
 import { editMessage, hideMessagePreview, removeMessage, sendMessage } from "./messages";
 import { cancelMemberInvite, imageSettings, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
-import { asToolResult, checkPermission, type Member, nameOf, normalizeEmail, preferencesOf, requireAgent, skillOf, timeZoneOf } from "./lib";
+import { canSeeSkill, accessOf, asToolResult, checkPermission, type Member, nameOf, rolesOf, normalizeEmail, preferencesOf, requireAgent, skillOf, timeZoneOf } from "./lib";
 import { createAgent, setAgentTrashed, updateAgent } from "./agents";
 import { catalogModels } from "./modelCatalog";
 import { setImage } from "./images";
@@ -40,7 +41,7 @@ const participants = (ctx: MutationCtx, r: { userIds?: string[]; agentIds?: stri
 export const runFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), tool: v.string(), input: v.any() },
 	handler: async (ctx, { turnId, tool, input }): Promise<unknown> => {
-		const { who, turn } = await runningTurn(ctx, turnId);
+		const { who, turn, chat } = await runningTurn(ctx, turnId);
 		const { member } = who;
 		const agent = await ctx.db.get(turn.agentId);
 		if (!agent || agent.archived || !isGranted(agent.tools, tool)) throw new ConvexError("This agent no longer has that tool.");
@@ -50,10 +51,11 @@ export const runFor = internalMutation({
 				case "chat.manage": {
 					const r = manageInputs[tool].parse(input).request;
 					if (r.action === "find_people") {
+						const roles = await rolesOf(ctx, member.workspaceId);
 						if (r.kind === "invites") {
 							checkPermission(member, "members.manage");
 							const result = await workspacePage(ctx, "invites", member, r.cursor);
-							return { ...result, page: result.page.map((i) => ({ id: i._id, email: i.email, role: i.role })) };
+							return { ...result, page: result.page.map((i) => ({ id: i._id, email: i.email, roles: roleNamesOf(member, accessOf(roles, i).roles) })) };
 						}
 						if (r.kind === "agents") {
 							const result = await workspacePage(ctx, "agents", member, r.cursor);
@@ -67,7 +69,7 @@ export const runFor = internalMutation({
 									userId: m.userId,
 									name: await nameOf(ctx, m.userId),
 									email: (await ctx.db.get(m.userId))?.email,
-									role: m.role,
+									roles: roleNamesOf(member, accessOf(roles, m).roles),
 									timeZone: await timeZoneOf(ctx, m.userId),
 								})),
 							),
@@ -78,12 +80,13 @@ export const runFor = internalMutation({
 							.query("chatMembers")
 							.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("userId", member.userId))
 							.paginate(paging(r.cursor));
-						return {
-							...result,
-							page: (await Promise.all(result.page.map((m) => ctx.db.get(m.chatId))))
-								.filter((c) => c && !c.archived)
-								.map((c) => ({ id: c!._id, name: c!.name, kind: c!.kind, private: c!.private })),
-						};
+						// A seat outlives access: only chats they can still see (Who can access).
+						const page = [];
+						for (const m of result.page) {
+							const c = await ctx.db.get(m.chatId);
+							if (c && !c.archived && (await canSee(ctx, c, member))) page.push({ id: c._id, name: c.name, kind: c.kind, private: c.private });
+						}
+						return { ...result, page };
 					}
 					if (r.action === "mark_read") {
 						await markReadAs(ctx, member, await chatId(ctx, member, r.chat));
@@ -116,7 +119,7 @@ export const runFor = internalMutation({
 							.query("chats")
 							.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("kind", "channel"))
 							.paginate(paging(r.cursor));
-						return { ...result, page: result.page.filter((c) => !c.private && !c.archived).map((c) => ({ id: c._id, name: c.name, topic: c.topic })) };
+						return { ...result, page: result.page.filter((c) => !c.private && !c.archived && reach(member, chatAccess(c))).map((c) => ({ id: c._id, name: c.name, topic: c.topic })) };
 					}
 					if (r.action === "create") return { chatId: await createChannelAs(ctx, member, r) };
 					const id = await chatId(ctx, member, r.chat);
@@ -170,15 +173,15 @@ export const runFor = internalMutation({
 					if (r.action === "get")
 						return {
 							id: r.id,
-							definition: await definitionOf(ctx, install),
-							config: install.custom && { ...install.custom, trigger: normalizeCustomAutomation(install.custom).trigger },
+							definition: await definitionOf(ctx, install, member),
+							config: install.custom && { ...install.custom, trigger: await shownTrigger(ctx, member, normalizeCustomAutomation(install.custom).trigger) },
 							enabled: install.enabled,
 							agentId: install.agentId,
 							audience: install.audience,
-							channelId: install.channelId,
+							channelId: (await seenChannel(ctx, member, install.channelId))?._id,
 							timeZone: install.timeZone,
 							lastRunAt: install.lastRunAt,
-							lastResult: install.lastResult,
+							lastResult: install.lastOutcome && (await outcomeText(ctx, install.lastOutcome, member)),
 						};
 					if (r.action === "run") {
 						if ((await automationScope(ctx, turn)).trigger?.automation) throw new ConvexError("An automation run cannot start another run.");
@@ -206,16 +209,18 @@ export const runFor = internalMutation({
 						const result = await workspacePage(ctx, "skillInstalls", member, r.cursor);
 						return {
 							...result,
-							page: result.page.filter((i) => !i.archived).map((i) => ({ id: i.skillId, name: skillOf(i)?.name, version: i.custom?.version ?? i.definition?.version })),
+							page: result.page.filter((i) => !i.archived && canSeeSkill(member.userId, i)).map((i) => ({ id: i.skillId, name: skillOf(i)?.name, version: i.custom?.version ?? i.definition?.version })),
 						};
 					}
 					const install = await skillInstallOf(ctx, member.workspaceId, r.id);
-					const skill = install && skillOf(install);
+					const skill = install && canSeeSkill(member.userId, install) && skillOf(install);
 					if (!skill) throw new ConvexError("Skill not found.");
-					return { ...skill, id: r.id, version: install.custom?.version ?? skill.version, installed: true, canEdit: canEditMade(member, "skills.manage", install.custom?.createdBy) };
+					return { ...skill, id: r.id, version: install.custom?.version ?? skill.version, installed: true, audience: install.audience, canEdit: install.audience === "personal" || can(member, "skills.edit") };
 				}
 				case "skills.edit": {
 					const r = manageInputs[tool].parse(input).request;
+					const install = await skillInstallOf(ctx, member.workspaceId, r.id);
+					if (install?.audience === "personal") await requirePersonalSkillChat(ctx, chat);
 					await saveSkill(ctx, member, { skillId: r.id, config: r.config, expectedVersion: r.expectedVersion });
 					return { done: r.action, id: r.id };
 				}
@@ -226,11 +231,12 @@ export const runFor = internalMutation({
 				}
 				case "members.invite": {
 					const r = manageInputs[tool].parse(input).request;
-					if (r.action === "invite") return inviteMember(ctx, member, { email: r.email, role: "member" });
+					// Agents invite with Member, the default role; picking roles is a person's call.
+					if (r.action === "invite") return inviteMember(ctx, member, { email: r.email });
 					const invite = await inviteIn(ctx, member.workspaceId, normalizeEmail(r.email));
 					if (!invite) throw new ConvexError("No invitation for that email.");
 					if (r.action === "resend") {
-						if (invite.role !== "member") throw new ConvexError("Owner invitations require a person directly.");
+						if (accessOf(await rolesOf(ctx, member.workspaceId), invite).owner) throw new ConvexError("Owner invitations require a person directly.");
 						await resendMemberInvite(ctx, member, { id: invite._id });
 					}
 					if (r.action === "cancel") await cancelMemberInvite(ctx, member, { id: invite._id });
@@ -298,3 +304,6 @@ export const runFor = internalMutation({
 		});
 	},
 });
+
+/** Role ids as their names, for agents: what people call them. */
+const roleNamesOf = (member: Member, ids: Id<"roles">[]) => member.workspaceRoles.filter((r) => (ids as string[]).includes(r.id)).map((r) => r.name);

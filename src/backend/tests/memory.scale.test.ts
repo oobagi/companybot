@@ -1,4 +1,4 @@
-import { signIn, newTest, workspaceOf } from "./helpers";
+import { signIn, newTest, workspaceOf, addMember } from "./helpers";
 import { expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
 
@@ -12,7 +12,7 @@ it.each([
 	const agentId = (await owner.query(api.agents.list))[0]!._id;
 	const memberId = await t.run(async (ctx) => {
 		const userId = await ctx.db.insert("users", { email: "member@co.com" });
-		return ctx.db.insert("members", { userId, workspaceId, role: "member" });
+		return addMember(ctx, { userId, workspaceId, role: "member" });
 	});
 	const userId = (await t.run((ctx) => ctx.db.get(memberId)))!.userId;
 	for (let start = 0; start < count; start += batch) {

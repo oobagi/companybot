@@ -17,7 +17,7 @@ describe("workspaces", () => {
 	it("only lets owners invite", async () => {
 		const { member } = await ownerAndMember();
 		await expect(member.mutation(api.workspace.invite, { email: "x@co.com", role: "member" })).rejects.toThrow(
-			"permission",
+			"Only people with the",
 		);
 	});
 

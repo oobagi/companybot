@@ -29,7 +29,7 @@ it.each(["client", "deal", "task", "call", "custom"])("auto-pages a fresh %s lis
 		disconnect = disconnect;
 	});
 	const type = { _id: key, key, name: key, plural: key, fields: [{ key: "name", label: "Name", kind: "text" }] } as RecordType;
-	const tree = () => createElement(RecordList, { type, role: "owner" });
+	const tree = () => createElement(RecordList, { type, access: { roles: ["owner"], owner: true, permissions: [] } });
 	const rows = (count: number) => Array.from({ length: count }, (_, i) => ({
 		_id: `row-${i}`, values: { name: `Record ${i}` }, updatedAt: Date.now(), refs: {}, unresolved: [],
 	})) as unknown as Row[];

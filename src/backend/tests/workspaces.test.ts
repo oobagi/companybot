@@ -1,5 +1,5 @@
 import { seedLegacyRecords } from "./legacyFixtures";
-import { newTest, identityOf } from "./helpers";
+import { addMember, newTest, identityOf } from "./helpers";
 import { connectorCatalog, defineConnector } from "@companybot/core";
 import { describe, expect, it } from "vitest";
 import { api } from "../convex/_generated/api";
@@ -33,7 +33,7 @@ async function setup() {
 	await t.run((ctx) => seedLegacyRecords(ctx, a, userId));
 	const b = await t.run(async (ctx) => {
 		const id = await ctx.db.insert("workspaces", { name: "B", version: 1 });
-		await ctx.db.insert("members", { userId, workspaceId: id, role: "owner" });
+		await addMember(ctx, { userId, workspaceId: id, role: "owner" });
 		return id;
 	});
 	return { t, userId, a, b, A: as.in(a), B: as.in(b) };
@@ -55,7 +55,7 @@ const removeFromA = ({ t, userId, a }: Setup) =>
 const deputyIn = ({ t }: Setup, workspaceId: Id<"workspaces">) =>
 	t.run(async (ctx) => {
 		const deputy = await ctx.db.insert("users", { email: "deputy@co.com" });
-		await ctx.db.insert("members", { userId: deputy, workspaceId, role: "owner" });
+		await addMember(ctx, { userId: deputy, workspaceId, role: "owner" });
 	});
 
 describe("requests naming a workspace", () => {
@@ -160,7 +160,7 @@ describe("unread mentions", () => {
 		const { t, userId, a, A, B } = await setup();
 		const otherId = await t.run(async (ctx) => {
 			const id = await ctx.db.insert("users", { email: "other@co.com" });
-			await ctx.db.insert("members", { userId: id, workspaceId: a, role: "owner" });
+			await addMember(ctx, { userId: id, workspaceId: a, role: "owner" });
 			return id;
 		});
 		const other = person(identityOf(t, otherId)).in(a);
@@ -256,7 +256,7 @@ describe("the rail's activity", () => {
 		const { t, userId, a, b, A } = await setup();
 		const otherId = await t.run(async (ctx) => {
 			const id = await ctx.db.insert("users", { email: "other@co.com" });
-			await ctx.db.insert("members", { userId: id, workspaceId: a, role: "owner" });
+			await addMember(ctx, { userId: id, workspaceId: a, role: "owner" });
 			return id;
 		});
 		const other = person(t.withIdentity({ subject: `${otherId}|session` })).in(a);
@@ -287,7 +287,7 @@ it(`refuses to make you own more than ${MAX_OWNED_WORKSPACES} workspaces`, async
 	await t.run(async (ctx) => {
 		for (let i = 2; i < MAX_OWNED_WORKSPACES; i++) {
 			const id = await ctx.db.insert("workspaces", { name: `W${i}`, version: 1 });
-			await ctx.db.insert("members", { userId, workspaceId: id, role: "owner" });
+			await addMember(ctx, { userId, workspaceId: id, role: "owner" });
 		}
 	});
 	await expect(A.mutation(api.workspace.create, { name: "One more" })).rejects.toThrow(`up to ${MAX_OWNED_WORKSPACES} workspaces`);

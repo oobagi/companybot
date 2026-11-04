@@ -9,12 +9,13 @@ import type { SkillStore } from "../src/skills";
 
 import { createResultStore } from "../src/tools";
 import type { Actor } from "../src/types";
+import { memberDefaults } from "../src/permissions";
 import type { WebTurn } from "../src/web";
 import type { ImageStore } from "../src/image-tools";
 
-export const owner: Actor = { userId: "owner", role: "owner" };
-export const member: Actor = { userId: "member", role: "member" };
-export const other: Actor = { userId: "other", role: "member" };
+export const owner: Actor = { userId: "owner", roles: ["owner-role"], owner: true, permissions: [] };
+export const member: Actor = { userId: "member", roles: ["member-role"], owner: false, permissions: memberDefaults };
+export const other: Actor = { userId: "other", roles: ["member-role"], owner: false, permissions: memberDefaults };
 
 export const ctx = (actor: Actor) => ({
 	actor,

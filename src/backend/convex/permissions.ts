@@ -6,7 +6,9 @@ import {
 	actionLabel,
 	alwaysAllowText,
 	builtinTools,
+	canUseConnector,
 	canUseTool,
+	deniedMessage,
 	findConnector,
 	permissionFor,
 	toolGroup,
@@ -18,7 +20,7 @@ import { type MutationCtx, type QueryCtx, internalQuery } from "./_generated/ser
 import { mutation, query } from "./functions";
 import { type Member, getMember, memberFor, nameOf, requireInWorkspace, requireMember, requirePermission } from "./lib";
 import { automationName, automationScope } from "./automationOps";
-import { installOf } from "./connectors";
+import { allowedRoles, installOf } from "./connectors";
 import { riskOf, titleOf, toolsOf } from "./connectorTools";
 import { risk } from "./schema";
 import { runningTurn } from "./turns";
@@ -91,18 +93,27 @@ async function decideWith(
 	return { decision, rule, lock, own };
 }
 
-/** Called by the runner before every call that could ask: the decision, from the rules in force now. */
+/** How a call that ran was allowed, for the activity log (core `AllowedHow`). */
+type AllowedVia = { how: "always" | "automation"; by: Id<"users">; at: number; ruleId: Id<"permissionRules">; automation?: string };
+
+/**
+ * Called by the runner before every call that could ask, or that needs a permission: the decision,
+ * from the person's roles and the rules in force now. A tool their roles lack is refused, naming the
+ * roles that have it, so the agent can tell them who to ask.
+ */
 export const check = internalQuery({
 	args: { turnId: v.id("agentTurns"), action: v.string(), risk },
-	handler: async (ctx, { turnId, action, risk }) => {
+	handler: async (ctx, { turnId, action, risk }): Promise<{ decision: PermissionDecision; allowed?: AllowedVia }> => {
 		const { turn, member } = await runningTurn(ctx, turnId);
+		const needs = builtinTools.find((t) => t.id === action)?.permission;
+		if (needs && !canUseTool(member, { permission: needs })) return { decision: { type: "deny", by: "role", message: deniedMessage(needs, member.workspaceRoles) } };
 		const { trigger, automation, foreign } = await automationScope(ctx, turn);
 		if (trigger?.automation && !automation) throw new ConvexError("This automation was removed. Nothing ran.");
 		const decided = await decideFor(ctx, member, { action, risk, automationInstallId: automation?._id, foreign });
 		const { rule } = decided;
 		// An automation's run, or a wake's, never stops as a whole: only this call waits for the person.
 		const decision = decided.decision.type === "ask" && (automation || turn.wakeupId) ? { ...decided.decision, waitFor: await nameOf(ctx, member.userId) } : decided.decision;
-		const allowed =
+		const allowed: AllowedVia | undefined =
 			rule && decision.type === "run" && decision.via
 				? {
 						how: decision.via,
@@ -127,7 +138,7 @@ export async function setRule(
 ) {
 	const install = await connectorInstallOf(ctx, member.workspaceId, action);
 	if (install === null) throw new ConvexError("Install the connector first.");
-	if (install && !install.roles.includes(member.role)) throw new ConvexError("Your role can't use this connector.");
+	if (install && !canUseConnector(member, allowedRoles(member, install))) throw new ConvexError("None of your roles can use this connector. Ask someone who installs connectors to allow one.");
 	if (install === undefined && !builtinTools.some((t) => t.id === action)) throw new ConvexError("Unknown action.");
 	const scope = install?._id;
 	const risk = callRisk ?? (await riskOf(ctx, member.workspaceId, action));

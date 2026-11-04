@@ -19,7 +19,7 @@ describe("turn input", () => {
 	const base: TurnPromptInput = {
 		agentId: "a1",
 		place: { kind: "channel", name: "sales", private: false, topic: "Deals", thread: null, members: [ada, ben, bot, scribeP] },
-		actor: { id: "u1", name: "Ada", email: "ada@co.com", role: "owner", timeZone: "America/Los_Angeles" },
+		actor: { id: "u1", name: "Ada", email: "ada@co.com", roles: ["Owner"], timeZone: "America/Los_Angeles" },
 		now: at(5),
 		memory: "team",
 		connectors: { connected: [], unavailable: [] },
@@ -37,7 +37,7 @@ describe("turn input", () => {
 			[
 				'Where you are: #sales, a public channel. Topic: "Deals".',
 				"Here: Ada, Ben (people); Scribe (agents). This is a team chat: talk to your coworkers, people and agents, by name.",
-				"Ada <ada@co.com>, a workspace owner, asked for you. Their messages are marked (asker). You act with their access. Their time zone: America/Los_Angeles.",
+				"Ada <ada@co.com>, with the Owner role, asked for you. Their messages are marked (asker). You act with their access. Their time zone: America/Los_Angeles.",
 				"Now: Thursday, October 22, 2026 at 8:05 AM PDT.",
 				"Memory: team memories, and you can save personal memories about the person who asked. 2+ people can read this chat, so you can't read or change personal memories here.",
 				"",

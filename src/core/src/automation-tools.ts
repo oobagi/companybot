@@ -6,7 +6,7 @@ import { type ToolDef, defineTool } from "./tools";
 /**
  * Agents set up automations for the person they're helping, in chat: "every Monday,
  * send me a summary of recent conversations". The backend applies the same rules as the app
- * (anyone can make their own; changing others' needs `automations.manage`).
+ * (anyone can make personal ones; team ones need `automations.edit`).
  */
 export interface AutomationStore {
 	list(): Promise<AutomationSummary[]>;

@@ -1,6 +1,9 @@
 import {
 	type Actor,
+	type BuiltInRole,
 	type Permission,
+	type RoleInfo,
+	roleSwitches,
 	type Skill,
 	can,
 	customSkill,
@@ -14,15 +17,68 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { Requested } from "./functions";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 
-export interface Member {
+export interface Member extends Actor {
 	/** The `members` row. */
 	id: Id<"members">;
 	userId: Id<"users">;
 	workspaceId: Id<"workspaces">;
-	role: Actor["role"];
+	roles: Id<"roles">[];
+	/** Every role in the workspace, so a refusal can name the ones that would do (core `deniedMessage`). */
+	workspaceRoles: (RoleInfo & { id: Id<"roles">; builtIn: BuiltInRole | null })[];
 }
 
-export const toActor = (m: Member): Actor => ({ userId: m.userId, role: m.role });
+export const toActor = (m: Member): Actor => ({ userId: m.userId, roles: m.roles, owner: m.owner, permissions: m.permissions });
+
+/** A workspace's roles: Owner, Member, then the ones owners made, oldest first. A handful per workspace. */
+export async function rolesOf(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
+	const rows = await ctx.db
+		.query("roles")
+		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+		.collect();
+	const rank = (r: Doc<"roles">) => (r.builtIn === "owner" ? 0 : r.builtIn === "member" ? 1 : 2);
+	return rows.sort((a, b) => rank(a) - rank(b) || a._creationTime - b._creationTime);
+}
+
+export const roleInfo = (r: Doc<"roles">) => ({ id: r._id, name: r.name, owner: r.builtIn === "owner", builtIn: r.builtIn ?? null, permissions: roleSwitches(r.builtIn, r.switches) });
+
+/** One of the two roles every workspace has. */
+export async function builtInRole(ctx: QueryCtx, workspaceId: Id<"workspaces">, which: BuiltInRole) {
+	const role = (await rolesOf(ctx, workspaceId)).find((r) => r.builtIn === which);
+	if (!role) throw new ConvexError("This workspace's roles are being set up. Try again shortly.");
+	return role;
+}
+
+/** What holding `held` lets someone do: everything with Owner, else every switch any of them has. Ids of deleted roles count for nothing. */
+export function accessFrom(roles: Doc<"roles">[], held: Id<"roles">[]) {
+	const mine = roles.filter((r) => held.includes(r._id));
+	return {
+		roles: mine.map((r) => r._id),
+		owner: mine.some((r) => r.builtIn === "owner"),
+		permissions: [...new Set(mine.flatMap((r) => roleSwitches(r.builtIn, r.switches)))],
+	};
+}
+
+/**
+ * What a membership or invite lets its person do, and the role ids it holds. Every access and
+ * ownership check reads rows through this: membership, last owner, leaving, erasing, invites.
+ */
+export function accessOf(roles: Doc<"roles">[], row: { roles?: Id<"roles">[]; role?: BuiltInRole }) {
+	if (row.roles) return accessFrom(roles, row.roles);
+	// COMPAT(0.1.0-alpha.10): rows from before custom roles keep the old `role` until
+	// migrations.customRolesMembers/Invites backfill `roles`, and a workspace has no roles until
+	// migrations.customRoles seeds them. Read the old value as the built-in role it becomes, so
+	// nobody gains, loses or orphans anything mid-migration. Once those have run on prod, delete
+	// from here down and read `row.roles` (required by then).
+	if (!row.role) return accessFrom(roles, []);
+	const role = roles.find((r) => r.builtIn === row.role);
+	if (role) return accessFrom(roles, [role._id]);
+	if (roles.length) return accessFrom(roles, []);
+	// Not seeded yet: a stand-in id lets connector access ("member" on old installs) match it too.
+	return { roles: row.role === "member" ? [UNSEEDED_MEMBER] : [], owner: row.role === "owner", permissions: roleSwitches(row.role, []) };
+}
+
+/** COMPAT(0.1.0-alpha.10): the Member role of a workspace whose roles aren't seeded yet. Never stored. Delete with `accessOf`'s fallback. */
+export const UNSEEDED_MEMBER = "unseeded:member" as Id<"roles">;
 
 /**
  * Who's acting: a member, or an agent acting for one (its `agentId` set). Every change an
@@ -43,16 +99,23 @@ export async function memberOf(ctx: QueryCtx, userId: Id<"users">, workspaceId: 
 		.withIndex("by_user", (q) => q.eq("userId", userId).eq("workspaceId", workspaceId))
 		.first();
 	// An erased account's memberships go in its cascade; until then it acts nowhere.
-	return row && !(await erased(ctx, userId)) && (await liveWorkspace(ctx, workspaceId)) ? { id: row._id, userId, workspaceId, role: row.role } : null;
+	if (!row || (await erased(ctx, userId)) || !(await liveWorkspace(ctx, workspaceId))) return null;
+	const roles = await rolesOf(ctx, workspaceId);
+	return { id: row._id, userId, workspaceId, ...accessOf(roles, row), workspaceRoles: roles.map(roleInfo) };
 }
 
 /** Whether their account was erased (workspace.eraseAccount). */
 export const erased = async (ctx: QueryCtx, userId: Id<"users">) => !!(await ctx.db.get(userId))?.erasedAt;
 
-/** Whether someone besides `except` owns it. An erased owner doesn't count: their membership is on its way out. */
+/**
+ * Whether someone besides `except` owns it. An erased owner doesn't count: their membership is on its way out.
+ * Roles are a list on each membership, which Convex can't index, so this reads members until it finds an
+ * owner: the first is nearly always the one who made the workspace.
+ */
 export async function hasLiveOwner(ctx: QueryCtx, workspaceId: Id<"workspaces">, except?: Id<"users">) {
-	for await (const row of ctx.db.query("members").withIndex("by_role", (q) => q.eq("workspaceId", workspaceId).eq("role", "owner")))
-		if (row.userId !== except && !(await erased(ctx, row.userId))) return true;
+	const roles = await rolesOf(ctx, workspaceId);
+	for await (const row of ctx.db.query("members").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)))
+		if (accessOf(roles, row).owner && row.userId !== except && !(await erased(ctx, row.userId))) return true;
 	return false;
 }
 
@@ -114,9 +177,9 @@ export function memo<K, V>(load: (key: K) => Promise<V>) {
 	};
 }
 
-/** Role check shared by app mutations and operations acting for a turn. */
+/** Role check shared by app mutations and operations acting for a turn. A refusal names the roles that have it. */
 export function checkPermission(member: Member, permission: Permission): Member {
-	if (!can(member.role, permission)) throw new ConvexError(deniedMessage(permission));
+	if (!can(member, permission)) throw new ConvexError(deniedMessage(permission, member.workspaceRoles));
 	return member;
 }
 
@@ -203,10 +266,12 @@ export const skillOf = (install: Doc<"skillInstalls">): Skill | undefined => ins
 	? customSkill(install.skillId, install.custom, install.custom.version)
 	: install.definition;
 
+export const canSeeSkill = (userId: Id<"users"> | undefined, install: Doc<"skillInstalls">) => install.audience === "team" || (install.audience === "personal" && !!userId && install.ownerId === userId);
+
 /** Live retained skills, then custom skills, oldest first within each group. */
-export async function installedSkills(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<Skill[]> {
+export async function installedSkills(ctx: QueryCtx, workspaceId: Id<"workspaces">, userId: Id<"users">): Promise<Skill[]> {
 	const installs = (await ctx.db.query("skillInstalls").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect())
-		.filter((i) => !i.archived).sort((a, b) => a._creationTime - b._creationTime);
+		.filter((i) => !i.archived && canSeeSkill(userId, i)).sort((a, b) => a._creationTime - b._creationTime);
 	return [...installs.filter((i) => !i.custom), ...installs.filter((i) => i.custom)].flatMap((i) => {
 		const skill = skillOf(i);
 		return skill ? [skill] : [];

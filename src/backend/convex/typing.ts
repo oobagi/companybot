@@ -66,7 +66,7 @@ export const list = query({
 			running
 				.filter((t) => now - (t.startedAt ?? t._creationTime) < STALE_TURN_MS)
 				// "Thinking…" or its step until its message starts (any turn may post nothing), then "typing".
-				// Stop (turns.stop): for the person it works for, or an owner.
+				// Stop (turns.stop): for the person it works for, or anyone with turns.stopAny.
 				.map(async (t) => ({
 					...(await names.agent(t.agentId)),
 					step: t.step?.label ?? null,

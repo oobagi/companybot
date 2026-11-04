@@ -16,6 +16,8 @@ import { navigate } from "../../router";
 import { ProfileLink } from "./Profile";
 import { MessageFiles } from "./Attachments";
 import { LinkPreviews } from "./LinkPreviews";
+import { TokenChip } from "./TokenChip";
+import { splitTokens } from "./tokens";
 
 export function MessageRow({
 	message: row,
@@ -116,7 +118,7 @@ export function MessageRow({
 					) : message.automation ? (
 						<AutomationPrompt prompt={message.text} />
 					) : isAgent ? (
-						<AgentBody message={message} />
+						<AgentBody message={message} tokens={tokens} />
 					) : (
 						(message.text || message.editedAt) && (
 							<p className="leading-relaxed break-words whitespace-pre-wrap">
@@ -272,44 +274,17 @@ function ReactionList({ reactions }: { reactions: Reaction[] }) {
 	);
 }
 
-const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const alternation = (names: string[]) => [...names].sort((a, b) => b.length - a.length).map(escape).join("|");
-
-/** `@Ada`, `#sales` (opens the channel) and `/Proposal` as chips, like in the composer. */
-/** A person's message: its links open in the browser; @names, #channels and /skills stand out. */
+/** A person's message: its links open in the browser; @names, #channels and /skills are chips, like in the composer. */
 function TokenText({ text, tokens }: { text: string; tokens: TokenNames }) {
 	return splitLinks(text).map((part, i) =>
 		typeof part === "string" ? (
-			<Tokens key={i} text={part} tokens={tokens} />
+			splitTokens(part, tokens).map((t, j) => (typeof t === "string" ? <Fragment key={`${i}.${j}`}>{t}</Fragment> : <TokenChip key={`${i}.${j}`} token={t} />))
 		) : (
 			<a key={i} href={part.url} target="_blank" rel="noreferrer noopener" className="wrap-anywhere text-link hover:underline">
 				{part.url}
 			</a>
 		),
 	);
-}
-
-function Tokens({ text, tokens }: { text: string; tokens: TokenNames }) {
-	const parts = [
-		tokens.names.length > 0 && `@(?:${alternation(tokens.names)})(?!\\w)`,
-		tokens.channels.length > 0 && `#(?:${alternation(tokens.channels.map((c) => c.name))})(?![\\w-])`,
-		tokens.skills.length > 0 && `\\/(?:${alternation(tokens.skills)})(?!\\w)`,
-	].filter(Boolean);
-	if (parts.length === 0) return text;
-	const pattern = new RegExp(`(${parts.join("|")})`, "g");
-	return text.split(pattern).map((chunk, i) => {
-		if (i % 2 === 0) return <Fragment key={i}>{chunk}</Fragment>;
-		const channel = chunk.startsWith("#") ? tokens.channels.find((c) => c.name === chunk.slice(1)) : undefined;
-		return channel ? (
-			<button type="button" key={i} onClick={() => navigate("chat", channel.id)} className="token hover:underline">
-				{chunk}
-			</button>
-		) : (
-			<span key={i} className="token">
-				{chunk}
-			</span>
-		);
-	});
 }
 
 function EditForm({ message, onDone, onError }: { message: Message; onDone: () => void; onError: (e: unknown) => void }) {
@@ -348,7 +323,7 @@ function EditForm({ message, onDone, onError }: { message: Message; onDone: () =
 	);
 }
 
-function AgentBody({ message }: { message: Message }) {
+function AgentBody({ message, tokens }: { message: Message; tokens: TokenNames }) {
 	const streaming = message.status === "streaming";
 	const lastText = message.parts.findLastIndex((p) => p.type === "text");
 	return (
@@ -364,7 +339,7 @@ function AgentBody({ message }: { message: Message }) {
 							))}
 						</div>
 					) : run.part.type === "text" ? (
-						<Markdown key={run.i} className="leading-relaxed" isAnimating={streaming && run.i === lastText}>
+						<Markdown key={run.i} tokens={tokens} className="leading-relaxed" isAnimating={streaming && run.i === lastText}>
 							{run.part.text}
 						</Markdown>
 					) : run.part.type === "widget" ? (

@@ -42,14 +42,14 @@ export async function completeSteps(ctx: MutationCtx, member: Member, steps: (Tu
 	if (fresh.length > 0) await ctx.db.patch(member.id, { tutorial: { ...tutorial, done: [...tutorial.done, ...fresh] } });
 }
 
-/** Your tutorial's steps for your role, or null once it's done, hidden, or you never had one. */
+/** Your tutorial's steps for your roles, or null once it's done, hidden, or you never had one. */
 export const tutorial = query({
 	args: {},
 	handler: async (ctx) => {
 		const member = await getMember(ctx);
 		const tutorial = member && (await ctx.db.get(member.id))?.tutorial;
 		if (!member || !tutorial || tutorial.dismissed) return null;
-		const steps = tutorialStepsFor(member.role).map((id) => ({ id, done: tutorial.done.includes(id) }));
+		const steps = tutorialStepsFor(member).map((id) => ({ id, done: tutorial.done.includes(id) }));
 		return steps.every((s) => s.done) ? null : steps;
 	},
 });

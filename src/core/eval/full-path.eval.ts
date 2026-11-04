@@ -115,7 +115,7 @@ async function agentTurn(turn: {
 	const startedMs = Date.now();
 	const { agent } = turn.woken;
 	const config = configOf(agent);
-	const available = resolveTools(config, { userId: "u", role: "member" });
+	const available = resolveTools(config);
 	// A send for its person into this channel posts, as production does (manageTools.runFor): "post X here for me".
 	const sentHere: string[] = [];
 	const here = (chat: unknown) => typeof chat === "string" && chat.replace(/^#/, "").toLowerCase() === turn.channel && !turn.thread;
@@ -147,7 +147,7 @@ async function agentTurn(turn: {
 	const prompt = buildTurnPrompt({
 		agentId: agent.key,
 		place,
-		actor: { id: `u-${person}`, name: person, email: `${person.toLowerCase()}@roofco.com`, role: "member", timeZone: TIME_ZONE },
+		actor: { id: `u-${person}`, name: person, email: `${person.toLowerCase()}@roofco.com`, roles: ["Member"], timeZone: TIME_ZONE },
 		now: timeOf(turn.said.length),
 		memory: "team",
 		connectors: { connected: [], unavailable: [] },
