@@ -29,11 +29,13 @@ import {
 	buildTurnPrompt,
 	builtinTools,
 	canonicalJson,
+	cleanWhy,
 	createResultStore,
 	createWebTurn,
 	emptyUsage,
 	findConnector,
 	gatewayCost,
+	whyPrompt,
 	grantedConnectorIds,
 	isWidgetResult,
 	isWidgetToolName,
@@ -375,6 +377,30 @@ async function streamReply(
 		...(decide && { output: Output.object({ schema: decide, name: "decision" }) }),
 	});
 
+	/**
+	 * The top of a held call's card, in the agent's words: what it will do and why. Same model,
+	 * instructions and conversation as the turn, so it knows why, and the prefix stays cached.
+	 * A failure just leaves the card with its plain ask.
+	 */
+	const explain = async (tool: string, callInput: string) => {
+		try {
+			const r = await generateText({
+				model: agent.model,
+				reasoning: "low",
+				instructions: input.instructions,
+				messages: [...input.messages, { role: "user", content: whyPrompt(tool, callInput) }],
+				headers: { "x-session-affinity": turn.session.id },
+				providerOptions: { gateway: { caching: "auto" } },
+				maxOutputTokens: 400,
+				abortSignal: AbortSignal.timeout(20_000),
+			});
+			usage.costUsd += gatewayCost(r.providerMetadata);
+			return cleanWhy(r.text);
+		} catch {
+			return undefined;
+		}
+	};
+
 	// Held, not run: save the exact call and show a card in its place. Logged only if it runs later.
 	const hold = async (toolCallId: string, toolName: string, input: unknown) => {
 		calls.delete(toolCallId);
@@ -383,18 +409,21 @@ async function streamReply(
 		const held = await actionOf(toolName, input, usable);
 		const at = parts.findIndex((p) => p.type === "tool" && p.id === toolCallId);
 		if (!held) return setTool(toolCallId, toolName, "error");
+		const exact = canonicalJson(held.input);
+		const why = await explain(held.tool.id, exact);
 		const { approvalId, separate } = await ctx.runMutation(internal.approvals.request, {
 			turnId,
 			callId: toolCallId,
 			tool: held.tool.id,
-			input: canonicalJson(held.input),
+			input: exact,
 			risk: toolRisk(held.tool),
+			why,
 		});
 		if (separate) {
 			if (at >= 0) parts.splice(at, 1);
 			return;
 		}
-		const card = { type: "approval" as const, id: toolCallId, approvalId, tool: held.tool.id };
+		const card = { type: "approval" as const, id: toolCallId, approvalId, tool: held.tool.id, ...(why && { why }) };
 		if (at >= 0) parts[at] = card;
 		else parts.push(card);
 	};
