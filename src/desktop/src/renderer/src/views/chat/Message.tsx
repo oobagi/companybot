@@ -372,6 +372,7 @@ function AgentBody({ message }: { message: Message }) {
 					) : null,
 				)}
 				{message.status === "error" && <Notice>{message.error ?? "Something went wrong."}</Notice>}
+				{message.stoppedBy && <p className="text-xs text-neutral-400">Stopped by {message.stoppedBy}</p>}
 			</div>
 			{message.stats && <ReplyDetails stats={message.stats} />}
 		</div>

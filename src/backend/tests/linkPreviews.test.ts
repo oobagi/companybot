@@ -199,7 +199,7 @@ describe("previews on messages", () => {
 		await owner.mutation(api.messages.send, { chatId, text: "hi", mentions: { userIds: [], agentIds: [companybot._id] } });
 		await fetches(t);
 		const turn = (await t.run((ctx) => ctx.db.query("agentTurns").collect())).at(-1)!;
-		await t.mutation(internal.turns.updateReply, { replyId: turn.replyId!, text: `Here: ${link}`, parts: [{ type: "text", text: `Here: ${link}` }] });
+		await t.mutation(internal.turns.updateReply, { turnId: turn._id, text: `Here: ${link}`, parts: [{ type: "text", text: `Here: ${link}` }] });
 		await t.mutation(internal.turns.finishReply, { turnId: turn._id });
 		expect(await fetches(t)).toEqual([]);
 	});

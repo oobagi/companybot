@@ -495,6 +495,8 @@ export default defineSchema({
 		}),
 		status: v.union(v.literal("streaming"), v.literal("done"), v.literal("error")),
 		error: v.optional(v.string()),
+		/** An agent reply someone stopped partway (turns.stop): who. What it wrote and did so far stays. */
+		stoppedBy: v.optional(v.id("users")),
 		/** Agent replies only, once finished. `conversationCostUsd` is the chat's (or thread's) running total. */
 		stats: v.optional(replyStats),
 		editedAt: v.optional(v.number()),
@@ -659,6 +661,11 @@ export default defineSchema({
 		 * under the composer (typing.ts). Unset while it writes, and once it ends. Never model reasoning.
 		 */
 		step: v.optional(v.object({ label: v.string(), at: v.number() })),
+		/**
+		 * Someone pressed Stop while it ran (turns.stop): the runner ends it at the next chance (agent.ts
+		 * `turnStop`), and finishReply marks its reply stopped. Stays `running` until then, so the queue waits.
+		 */
+		stopping: v.optional(v.object({ by: v.id("users"), at: v.number() })),
 	})
 		.index("by_place", ["agentId", "chatId", "threadId", "status"])
 		.index("by_session", ["sessionId"])

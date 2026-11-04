@@ -6,7 +6,7 @@ import { internal } from "./_generated/api";
 import { type Participant, agentOfDm, namer, requireChat, visibleChat } from "./chatOps";
 import { mutation, query } from "./functions";
 import { requireMember, sweepExpired } from "./lib";
-import { STALE_TURN_MS } from "./turns";
+import { STALE_TURN_MS, canStopTurn } from "./turns";
 
 // Typing indicators: who's typing in a place (chat + thread). Timing rules: core typing.ts.
 // Agents show while their turn runs, with its current step (agentTurns.step, set by agent.ts),
@@ -41,7 +41,10 @@ export const ping = mutation({
  */
 export const list = query({
 	args: place,
-	handler: async (ctx, { chatId, threadId }): Promise<{ people: (Participant & { at: number })[]; agents: (Participant & { step: string | null })[] }> => {
+	handler: async (
+		ctx,
+		{ chatId, threadId },
+	): Promise<{ people: (Participant & { at: number })[]; agents: (Participant & { step: string | null; turnId: Id<"agentTurns">; canStop: boolean; stopping: boolean })[] }> => {
 		const visible = await visibleChat(ctx, chatId);
 		if (!visible) return { people: [], agents: [] };
 		// Pictures for the agents' avatars on the line.
@@ -63,7 +66,14 @@ export const list = query({
 			running
 				.filter((t) => now - (t.startedAt ?? t._creationTime) < STALE_TURN_MS)
 				// A dispatcher pick or hop may well post nothing: it shows what it's doing, never "typing".
-				.map(async (t) => ({ ...(await names.agent(t.agentId)), step: t.step?.label ?? (t.routed ? "Thinking…" : null) })),
+				// Stop (turns.stop): for the person it works for, or an owner.
+				.map(async (t) => ({
+					...(await names.agent(t.agentId)),
+					step: t.step?.label ?? (t.routed ? "Thinking…" : null),
+					turnId: t._id,
+					canStop: canStopTurn(visible.member, t),
+					stopping: !!t.stopping,
+				})),
 		);
 		return { people: people.slice(0, SHOWN_MAX), agents };
 	},

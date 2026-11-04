@@ -67,6 +67,8 @@ const SUMMARY_MODEL = "anthropic/claude-haiku-5.5";
 /** Summarize once a session's context passes this many tokens (turns.startCompaction keeps a ~15k-token tail). */
 const COMPACT_TOKENS = 40_000;
 const FLUSH_MS = 200;
+/** How often a turn checks for Stop when it hasn't flushed lately (a long think streams reasoning, not text). */
+const STOP_CHECK_MS = 1_000;
 /** A connector that doesn't connect this fast is skipped for the turn, not waited on. */
 const CONNECTOR_CONNECT_MS = 10_000;
 
@@ -299,7 +301,8 @@ async function streamReply(
 	const parts: Infer<typeof messagePart>[] = [];
 	let lastFlush = 0;
 	const text = () => parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("\n\n");
-	const flush = () => ctx.runMutation(internal.turns.updateReply, { replyId, text: text(), parts });
+	// Stop (turns.stop) is seen on each flush, between flushes, and at each step (`stop`, set just before the model call).
+	const flush = async () => stop.heard(await ctx.runMutation(internal.turns.updateReply, { turnId, text: text(), parts }));
 	// The turn's step, for the line under the composer (turns.setStep): the newest call still running,
 	// else "Thinking…" until the model writes. The same words as its tool lines; never its reasoning.
 	// Written in order, and only when it changes.
@@ -360,13 +363,16 @@ async function streamReply(
 	const decide = turn.quiet ? postDecision : null;
 
 	const started = Date.now();
+	const stop = turnStop(ctx, turnId);
 	const result = streamText({
 		model: agent.model,
 		reasoning: agent.reasoning,
 		instructions: input.instructions,
 		messages: input.messages,
 		tools,
-		stopWhen: agentStopWhen,
+		// Stopped mid-tool: the step's calls finish, and no step comes after them.
+		stopWhen: [agentStopWhen, stop.atStep],
+		abortSignal: stop.signal,
 		prepareStep: agentPrepareStep(tools, toolCtx.web),
 		headers: { "x-session-affinity": turn.session.id },
 		providerOptions: { gateway: { caching: "auto" } },
@@ -418,6 +424,7 @@ async function streamReply(
 
 	try {
 		for await (const part of result.stream) {
+			stop.saw(part);
 			if (part.type === "start-step") {
 				writing = false;
 				showStep();
@@ -475,10 +482,57 @@ async function streamReply(
 		await stepWrites;
 	}
 	// None if it stopped before deciding (a call held for approval) or wrote no valid decision: then it's not shown.
-	const decision = decide ? await Promise.resolve(result.output).then((d) => d as PostDecision, () => null) : null;
+	// Stopped: no decision, so it's not shown (finishReply).
+	const decision = decide && !stop.signal.aborted ? await Promise.resolve(result.output).then((d) => d as PostDecision, () => null) : null;
 	if (publishes(decision)) parts.push({ type: "text", text: decision!.message });
 	await flush();
 	return decision;
+}
+
+/**
+ * Ends a running turn early, cooperatively: Convex can't kill an action, so Stop (turns.stop) only marks
+ * the turn, and this notices (on each flush, on a stream part STOP_CHECK_MS after the last check, and
+ * after each step) and
+ * ends the run. While the model writes, it aborts the stream at once. Once a step has called a tool it
+ * doesn't abort: those calls finish (their results and the step's cost are kept), and `atStep` ends the
+ * run before the next step, so no later tool runs. Nothing already done is undone; finishReply marks the
+ * reply stopped. Small and on its own so other ways to end a run early (steering, #189) can reuse it.
+ */
+export function turnStop(ctx: Pick<ActionCtx, "runQuery">, turnId: Id<"agentTurns">) {
+	const controller = new AbortController();
+	let requested = false;
+	let lastHeard = Date.now();
+	/** The current step called a tool: let it finish and end at the step boundary. */
+	let toolStep = false;
+	const request = () => {
+		requested = true;
+		if (!toolStep) controller.abort();
+	};
+	const check = async () => {
+		if (!requested && (await ctx.runQuery(internal.turns.isStopping, { turnId }))) request();
+		lastHeard = Date.now();
+		return requested;
+	};
+	// Driven by the stream, not a timer: an interval would keep an action (and a test's fake clock) busy.
+	return {
+		signal: controller.signal,
+		/** What a flush (turns.updateReply) said. */
+		heard(answer: { stopped: boolean } | null | undefined) {
+			lastHeard = Date.now();
+			if (answer?.stopped && !requested) request();
+		},
+		/** Each stream part, in order: a step that called a tool isn't aborted. */
+		saw(part: { type: string }) {
+			if (part.type === "start-step") toolStep = false;
+			else if (part.type === "tool-call") toolStep = true;
+			if (!requested && Date.now() - lastHeard >= STOP_CHECK_MS) {
+				lastHeard = Date.now();
+				check().catch(() => {});
+			}
+		},
+		/** A stop condition (AI SDK `stopWhen`), checked after each step that called tools. */
+		atStep: () => check(),
+	};
 }
 
 /**
