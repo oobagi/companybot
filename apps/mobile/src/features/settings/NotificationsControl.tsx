@@ -1,16 +1,15 @@
-import { useState } from 'react';
 import { Linking } from 'react-native';
-import { Button, EditorSheet, ListRow, Text } from '@/components/ui';
+import { Button, EditorSheet, Text } from '@/components/ui';
 import { useNotifications } from '@/lib/notifications/NotificationsProvider';
 
 /** Device opt-in is independent of the shared DM/mention preference. */
-export function NotificationsControl() {
+export function deviceNotificationStatus(notifications: { setup: string | null; enabled: boolean; denied: boolean }) {
+  return notifications.setup ? 'Unavailable' : notifications.enabled ? 'On' : notifications.denied ? 'Blocked in device settings' : 'Off';
+}
+
+export function NotificationsControl({ onClose }: { onClose: () => void }) {
   const notifications = useNotifications();
-  const [open, setOpen] = useState(false);
-  const status = notifications.setup ? 'Unavailable' : notifications.enabled ? 'On' : notifications.denied ? 'Blocked in device settings' : 'Off';
-  return <>
-    <ListRow title="On this device" description={status} onPress={() => setOpen(true)} />
-    {open && <EditorSheet title="Device notifications" onClose={() => setOpen(false)} busy={notifications.busy}>
+  return <EditorSheet title="Device notifications" onClose={onClose} busy={notifications.busy}>
       <Text tone="muted">Get notified while Companybot is in the background. Your conversation preference controls which messages notify you.</Text>
       {notifications.setup ? <Text tone="muted">Notifications are not available in this version of Companybot.</Text> : <>
         <Text>{notifications.enabled ? 'Notifications are on.' : notifications.denied ? 'Allow Companybot notifications in your device settings.' : 'Notifications are off.'}</Text>
@@ -19,6 +18,5 @@ export function NotificationsControl() {
         {notifications.requested && notifications.error && !notifications.denied && <Button label="Retry enabling notifications" variant="ghost" disabled={!notifications.ready} loading={notifications.busy} onPress={() => void notifications.enable()} />}
       </>}
       {notifications.error && <Text tone="danger" accessibilityRole="alert">{notifications.error}</Text>}
-    </EditorSheet>}
-  </>;
+    </EditorSheet>;
 }

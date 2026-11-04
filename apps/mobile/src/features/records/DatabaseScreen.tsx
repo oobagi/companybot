@@ -10,7 +10,7 @@ import { RecordCard } from './RecordCard';
 import { router, Stack as RouterStack } from 'expo-router';
 import type { Id } from '@companybot/backend/convex/_generated/dataModel';
 import { can } from '@companybot/core/permissions';
-import { Button, ChoicePicker, EditorSheet, EmptyState, ErrorState, Field, Loading, Screen, ScreenList, Stack, Text } from '@/components/ui';
+import { Button, ChoicePicker, Divider, EditorSheet, EmptyState, ErrorState, Field, Loading, Screen, ScreenList, Stack, Text } from '@/components/ui';
 import { useTheme } from '@/design';
 import { api } from '@/lib/api';
 import { useMutation, usePaginatedQuery, useQuery, useWorkspace } from '@/lib/convex';
@@ -23,9 +23,9 @@ import { AccessSheet } from '@/features/access/AccessSheet';
 
 export function DatabaseScreen({ typeId }: { typeId: string }) {
   const databases = useQuery(api.recordTypes.list);
-  if (databases === undefined) return <Loading />;
+  if (databases === undefined) return <Screen><Loading label="Opening database…" /></Screen>;
   const database = databases.find(d => d._id === typeId);
-  if (!database) return <EmptyState title="Database unavailable" description="It may have been archived or belong to another workspace." />;
+  if (!database) return <Screen><EmptyState title="Database unavailable" description="It may have been archived or belong to another workspace." /></Screen>;
   return <DatabaseContent key={database._id} database={database} />;
 }
 
@@ -63,18 +63,22 @@ function DatabaseContent({ database }: { database: Database }) {
   const missing = [...new Set(rows.flatMap(row => row.unresolved))].slice(0, 200);
   const resolved = useQuery(api.records.refs, missing.length ? { ids: missing } : 'skip');
   const current = views?.find(view => view._id === selected);
+  // A deleted shared view returns to All records, matching desktop navigation.
+  if (views !== undefined && selected && selectedVersion !== undefined && !current) { setSelected(''); setSelectedVersion(undefined); }
   // Capture a base once after creating/saving a view; later remote versions never silently rebase a local draft.
   if (current && selectedVersion === undefined) setSelectedVersion(current.version);
-  const header = <Stack gap="md">
-    <ChoicePicker label="View" value={selected || 'all'} options={[{ value: 'all', label: 'All records' }, ...arrangements.order('views', views ?? [], database._id).map(v => ({ value: v._id, label: v.name }))]} onChange={value => {
+  const sortField = config.sort && liveFields.find(field => field.key === config.sort?.field);
+  const header = <Stack gap="sm">
+    <ChoicePicker label="View" presentation="compact" disabled={views === undefined} value={selected || 'all'} options={[{ value: 'all', label: 'All records' }, ...arrangements.order('views', views ?? [], database._id).map(v => ({ value: v._id, label: v.name }))]} onChange={value => {
       if (typeof value !== 'string' || !value) return;
       const view = views?.find(v => v._id === value); setSelected(view?._id ?? ''); setSelectedVersion(view?.version); if (view) setSharedConfig({ filters: view.filters, sort: view.sort, columns: view.columns, layout: view.layout ?? 'table', groupBy: view.groupBy });
     }} />
     {search.trim() && <Text variant="caption" tone="muted">Top 20 search matches. View filters and sorting are paused while searching.</Text>}
+    {!search.trim() && sortField && <Text variant="caption" tone="muted">Sorted by {sortField.label}. Records without a value aren’t shown.</Text>}
     {pin.error && <ErrorState message={pin.error} />}
     {device.error && <ErrorState message={device.error} />}
   </Stack>;
-  if (!device.loaded || !arrangements.loaded) return <Loading label="Opening database…" />;
+  if (!device.loaded || !arrangements.loaded) return <Screen><Loading label="Opening database…" /></Screen>;
   return <Screen nativeScroll={!board} padded={false}>
     <RouterStack.Screen options={{ title: database.plural }} />
     <DirectoryHeader workspaceSwitcher={false} search={{ placeholder: `Search ${database.plural.toLowerCase()}`, value: search, onChange: setSearch }} action={editable ? { label: `New ${database.name.toLowerCase()}`, onPress: () => setMode('create') } : undefined} menu={[
@@ -84,11 +88,12 @@ function DatabaseContent({ database }: { database: Database }) {
       { label: 'Who can access', onPress: () => setMode('access') },
       ...(database.canManage ? [{ label: 'Add field', onPress: () => setMode('field') }, { label: 'Edit database', onPress: () => setMode('database') }] : []),
     ]} />
-    {board ? <><View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.md }}>{header}</View>{groupField ? <Board key={JSON.stringify([database._id, groupField.key, config.filters, config.sort])} database={database} config={config} group={groupField} /> : <EmptyState title="Choose a field for this board" description="Boards group records by a single-choice field." action={database.canManage ? <Button label="Add field" onPress={() => setMode('field')} /> : undefined} />}</> : <ScreenList data={rows} keyExtractor={item => item._id} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={{ padding: spacing.lg, gap: spacing.md }} ListHeaderComponent={header}
-      renderItem={({ item }) => <RecordCard row={item} database={database} config={config} refs={{ ...item.refs, ...resolved }} />}
+    <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.sm }}>{header}</View>
+    {board ? groupField ? <Board key={JSON.stringify([database._id, groupField.key, config.filters, config.sort])} database={database} config={config} group={groupField} /> : <EmptyState title="Choose a field for this board" description="Boards group records by a single-choice field." action={database.canManage ? <Button label="Add field" onPress={() => setMode('field')} /> : undefined} /> : <ScreenList data={rows} keyExtractor={item => item._id} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.lg }} ItemSeparatorComponent={Divider}
+      renderItem={({ item }) => <RecordCard row={item} database={database} config={config} refs={{ ...item.refs, ...resolved }} presentation="row" />}
       onEndReached={() => { if (!board && !search.trim() && status === 'CanLoadMore') loadMore(25); }} onEndReachedThreshold={0.5}
-      ListEmptyComponent={search.trim() ? searchResults === undefined ? <Loading /> : <EmptyState title="No matches" /> : status === 'LoadingFirstPage' || status === 'LoadingMore' || status === 'CanLoadMore' ? <Loading /> : <EmptyState title={config.filters.length ? 'No matching records' : 'No records yet'} />}
-      ListFooterComponent={!search.trim() && status === 'CanLoadMore' ? <Button label="Load more" variant="ghost" onPress={() => loadMore(25)} /> : status === 'LoadingMore' ? <Text tone="muted">Loading more…</Text> : undefined} />}
+      ListEmptyComponent={search.trim() ? searchResults === undefined ? <Loading label="Searching records…" /> : <EmptyState title="No matches" description="Try a different name or text." /> : status === 'LoadingFirstPage' || status === 'LoadingMore' || status === 'CanLoadMore' ? <Loading label="Loading records…" /> : <EmptyState title={config.filters.length || config.sort ? 'No matching records' : `No ${database.plural.toLowerCase()} yet`} description={config.filters.length || config.sort ? 'Adjust this view’s filters or sorting to see more records.' : editable ? `Use the plus button to add your first ${database.name.toLowerCase()}.` : 'Records added by your team will appear here.'} />}
+      ListFooterComponent={rows.length && !search.trim() ? status === 'CanLoadMore' ? <Button label="Load more" variant="ghost" onPress={() => loadMore(25)} /> : status === 'LoadingMore' ? <Loading layout="inline" label="Loading more…" /> : undefined : undefined} />}
     {mode === 'view' && <ViewEditor database={database} value={config} view={editable ? current : undefined} baseVersion={selectedVersion} sharedDisplay={!selected ? { editable: canArrange } : undefined} onApply={async (next, id, baseline) => { if (!selected && id === undefined) { const display = changedDisplay(next, baseline ?? config); if (Object.keys(display).length) await setDisplay({ typeId: database._id, display }); const previous = baseline?.columns ?? config.columns; const seed = storedColumns?.length ? undefined : previous; for (const key of next.columns.filter(key => !previous.includes(key))) await changeArrangement({ list: 'columns', entityId: database._id, command: { op: 'add', id: key, seed } }); for (const key of previous.filter(key => !next.columns.includes(key))) await changeArrangement({ list: 'columns', entityId: database._id, command: { op: 'remove', id: key, seed } }); } setConfig(next); if (id !== undefined) { setSelected(id); setSelectedVersion(undefined); if (id) setSharedConfig(next); } }} onClose={() => setMode(undefined)} canSave={editable} />}
     {mode === 'organize' && <ReorderSheet title="Organize views" list="views" entityId={database._id} items={(views ?? []).map(view => ({ _id: view._id, title: view.name }))} currentId={selected} loading={views === undefined} onClose={() => setMode(undefined)} />}
     {mode === 'database' && database.canManage && <DatabaseForm database={database} onClose={() => setMode(undefined)} />}
@@ -107,6 +112,6 @@ function CreateRecord({ database, onClose }: { database: Database; onClose: () =
     {guard.dialog}
     {task.error && <ErrorState message={task.error} />}
     <Field label="Name" value={name} onChangeText={setName} editable={!task.busy} autoFocus />
-    <Button label="Create" disabled={!name.trim()} loading={task.busy} onPress={() => void task.run(async () => { const id = await create({ typeId: database._id as Id<'recordTypes'>, values: { name: name.trim() } }); onClose(); router.push(`/record/${id}`); })} />
+    <Button label="Create" disabled={!name.trim()} loading={task.busy} onPress={() => void task.run(async () => { const id = await create({ typeId: database._id as Id<'recordTypes'>, values: { name: name.trim() } }); guard.complete(); onClose(); router.push(`/record/${id}`); })} />
   </EditorSheet>;
 }

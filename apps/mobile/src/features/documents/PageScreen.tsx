@@ -33,6 +33,7 @@ export function PageScreen({ pageId }: { pageId: string }) {
   const actions: Action[] = [
     { id: 'pin', title: pin.label, disabled: pin.disabled, icon: 'pin' },
     { id: 'history', title: 'History', icon: 'clock.arrow.circlepath' },
+    ...(page.recordId ? [{ id: 'record', title: 'Open record', icon: 'doc.text' as const }] : []),
     { id: 'access', title: 'Who can access', icon: 'lock' },
     ...(!page.recordId ? [{ id: 'children', title: 'Sub-pages', icon: 'folder' as const }] : []),
     ...(page.ancestors.length ? [{ id: 'ancestors', title: 'Parent pages', icon: 'folder' as const, items: page.ancestors.map(ancestor => ({ id: `parent:${ancestor._id}`, title: ancestor.title || 'Untitled' })) }] : []),
@@ -47,6 +48,7 @@ export function PageScreen({ pageId }: { pageId: string }) {
   ];
   const perform = (action: string) => {
     if (action === 'pin') pin.onPress();
+    else if (action === 'record' && page.recordId) router.push(`/record/${page.recordId}`);
     else if (action.startsWith('parent:')) openPage(action.slice(7));
     else if (action === 'restore' && page.trash?.canRestore) void task.run(() => restore({ kind: page.trash!.kind, id: page.trash!.itemId }));
     else if (action === 'archive') void task.run(async () => {
@@ -57,7 +59,7 @@ export function PageScreen({ pageId }: { pageId: string }) {
     else if (action === 'history' || action === 'access' || action === 'children' || action === 'rename' || action === 'move' || action === 'create' || action === 'organize') setPanel(action);
   };
   return <Screen keyboard contentStyle={{ gap: theme.spacing.sm }}>
-    <RouterStack.Screen options={{ title: page.title || 'Untitled' }} />
+    <RouterStack.Screen options={{ title: page.recordId ? 'Notes' : page.title || 'Untitled' }} />
     <HeaderMenu label="Page actions" actions={actions.map(action => ({ ...action, disabled: action.disabled || task.busy }))} onAction={perform} />
     {pin.error && <ErrorState message={pin.error} />}
     {dialog}

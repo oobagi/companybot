@@ -1,17 +1,16 @@
 import { EditToolbarButton } from '@/components/navigation/EditToolbarButton';
 import { useState } from 'react';
-import { Platform } from 'react-native';
 import { useAuthActions } from '@convex-dev/auth/react';
 import type { FunctionReturnType } from 'convex/server';
 import { isValidTimeZone } from '@companybot/core/automations';
 import { useNotifications } from '@/lib/notifications/NotificationsProvider';
-import { NotificationsControl } from './NotificationsControl';
+import { deviceNotificationStatus, NotificationsControl } from './NotificationsControl';
 import { ImageControl } from './customize/ImageControl';
 import { api } from '@/lib/api';
 import { useMutation, useQuery } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
 import { useDraftGuard } from '@/lib/useDraftGuard';
-import { Avatar, Button, Card, ChoicePicker, EditorSheet, ErrorState, Field, ListRow, Loading, Screen, Section, Stack, Text } from '@/components/ui';
+import { Avatar, Button, ChoicePicker, EditorSheet, ErrorState, Field, GroupedList, Loading, Screen, Section, Text } from '@/components/ui';
 
 type ProfilePreferences = FunctionReturnType<typeof api.preferences.get>;
 const conversationOptions = [{ value: 'all', label: 'Direct messages and mentions' }, { value: 'mentions', label: 'Mentions only' }, { value: 'off', label: 'Off' }];
@@ -22,22 +21,32 @@ export default function Preferences() {
   const me = useQuery(api.workspace.me);
   const erase = useMutation(api.workspace.eraseAccount);
   const { signOut } = useAuthActions();
-  const { beforeSignOut } = useNotifications();
+  const notifications = useNotifications();
+  const { beforeSignOut } = notifications;
   const task = useTask();
   const [editing, setEditing] = useState(false);
+  const [deviceNotifications, setDeviceNotifications] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmation, setConfirmation] = useState('');
-  if (!prefs) return <Loading />;
+  if (!prefs) return <Screen><Loading /></Screen>;
   const name = prefs.displayName || me?.email || 'Your account';
+  const edit = () => setEditing(true);
   return <>
-    {Platform.OS !== 'web' && <EditToolbarButton label="Edit profile" onPress={() => setEditing(true)} />}
-    <Screen scroll><Stack gap="xl">
-      <Stack horizontal><Avatar name={name} image={prefs.image} size="lg" /><Stack gap="xs" style={{ flex: 1 }}><Text variant="heading">{name}</Text>{me?.email && prefs.displayName && <Text tone="muted">{me.email}</Text>}</Stack></Stack>
-      {Platform.OS === 'web' && <Button label="Edit profile" variant="secondary" onPress={() => setEditing(true)} />}
-      <Section title="Profile"><Card style={{ padding: 0, gap: 0 }}><ListRow title="Display name" value={prefs.displayName || 'Not set'} /><ListRow title="Time zone" value={prefs.timeZone || `Automatic · ${Intl.DateTimeFormat().resolvedOptions().timeZone}`} /></Card></Section>
-      <Section title="Notifications"><Card style={{ padding: 0, gap: 0 }}><ListRow title="Conversations" value={conversationOptions.find(o => o.value === prefs.notify)?.label} /><NotificationsControl /></Card></Section>
-      <Section title="Account"><Button label="Erase account" variant="ghost" onPress={() => { task.clear(); setConfirmation(''); setDeleting(true); }} /></Section>
-    </Stack>
+    <EditToolbarButton label="Edit profile" onPress={edit} disabled={task.busy} />
+    <Screen nativeScroll padded={false}>
+      <GroupedList sections={[
+        { id: 'profile', title: 'Profile', rows: [
+          { id: 'identity', title: name, subtitle: me?.email && prefs.displayName ? me.email : undefined, leading: <Avatar name={name} image={prefs.image} size="lg" />, onPress: edit, disabled: task.busy, accessibilityHint: 'Edit your profile and preferences' },
+          { id: 'name', title: 'Display name', value: prefs.displayName || 'Not set', onPress: edit, disabled: task.busy },
+          { id: 'zone', title: 'Time zone', value: prefs.timeZone || `Automatic · ${Intl.DateTimeFormat().resolvedOptions().timeZone}`, onPress: edit, disabled: task.busy },
+        ] },
+        { id: 'notifications', title: 'Notifications', rows: [
+          { id: 'conversations', title: 'Conversations', value: conversationOptions.find(o => o.value === prefs.notify)?.label, onPress: edit, disabled: task.busy },
+          { id: 'device', title: 'On this device', value: deviceNotificationStatus(notifications), onPress: () => setDeviceNotifications(true), disabled: task.busy },
+        ] },
+        { id: 'account', title: 'Account', rows: [{ id: 'erase', title: 'Erase account', destructive: true, disabled: task.busy, onPress: () => { task.clear(); setConfirmation(''); setDeleting(true); } }] },
+      ]} />
+      {deviceNotifications && <NotificationsControl onClose={() => setDeviceNotifications(false)} />}
       {editing && <ProfileEditor initial={prefs} onClose={() => setEditing(false)} />}
       {deleting && <EditorSheet title="Erase your account?" onClose={() => setDeleting(false)} busy={task.busy}><Text>Your personal data will be erased. Team history stays under a former member. This cannot be undone. Type {me?.email} to confirm.</Text><Field label="Your email address" value={confirmation} onChangeText={setConfirmation} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" editable={!task.busy} />{task.error && <ErrorState message={task.error} />}<Button label="Erase account permanently" variant="danger" loading={task.busy} disabled={!me?.email || confirmation !== me.email} onPress={() => void task.run(async () => { await beforeSignOut(); await erase(); await signOut(); })} /></EditorSheet>}
     </Screen>
@@ -70,6 +79,7 @@ function ProfileEditor({ initial, onClose }: { initial: ProfilePreferences; onCl
       if (nameError || zoneError || conflict) return;
       // Preferences have no version contract. Send only changed fields to avoid overwriting unrelated updates.
       await update({ ...(draft.name !== baseline.name && { displayName: draft.name.trim() }), ...(draft.zone !== baseline.zone && { timeZone: draft.zone.trim() || null }), ...(draft.notify !== baseline.notify && { notify: draft.notify }), deviceTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+      guard.complete();
       onClose();
     })} />
     <Section title="Profile picture" description="Picture changes save immediately."><ImageControl of="me" name={initial.displayName || 'You'} image={current ? current.image : initial.image} disabled={task.busy} /></Section>

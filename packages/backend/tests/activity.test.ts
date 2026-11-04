@@ -13,6 +13,19 @@ describe("activity log", () => {
 	const mention = (agentId: Id<"agents">) => ({ userIds: [], agentIds: [agentId] });
 	const call = { callId: "c1", tool: "memory.remember_for_team", changes: true, input: '{"content":"x"}', output: '{"id":"m1"}' };
 
+	it.each([false, true])("locates a tool call in its original conversation (thread: %s)", async (thread) => {
+		const { t, owner } = await ownerAndMember();
+		const { companybot } = await agentsOf(owner);
+		const chatId = (await generalOf(owner))._id;
+		const threadId = thread ? await owner.mutation(api.messages.send, { chatId, text: "Topic", mentions: { userIds: [], agentIds: [] } }) : undefined;
+		await owner.mutation(api.messages.send, { chatId, threadId, text: "Remember this", mentions: mention(companybot._id) });
+		const [turn] = await turnsOf(t);
+		await t.mutation(internal.activity.log, { turnId: turn!._id, ...call });
+		const destination = { chatId, threadId: threadId ?? null, replyId: turn!.replyId };
+		expect(await owner.query(api.activity.list, {})).toMatchObject([destination]);
+		expect(await owner.query(api.activity.forReply, { replyId: turn!.replyId! })).toMatchObject([destination]);
+	});
+
 	it("shows calls to whoever can see the chat, and results only to the person", async () => {
 		const { t, owner, member } = await ownerAndMember();
 		const { companybot } = await agentsOf(owner);

@@ -1,6 +1,5 @@
 import { EditToolbarButton } from '@/components/navigation/EditToolbarButton';
 import { useState } from 'react';
-import { Platform } from 'react-native';
 import { router } from 'expo-router';
 import type { FunctionReturnType } from 'convex/server';
 import { can } from '@companybot/core/permissions';
@@ -11,7 +10,7 @@ import { api } from '@/lib/api';
 import { useMutation, useQuery } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
 import { useDraftGuard } from '@/lib/useDraftGuard';
-import { Avatar, Button, Card, ChoicePicker, ConfirmSheet, EditorSheet, ErrorState, Field, ListRow, Loading, Screen, Section, Stack, Text } from '@/components/ui';
+import { Avatar, Button, ChoicePicker, ConfirmSheet, EditorSheet, ErrorState, Field, GroupedList, Loading, Screen, Section, Text } from '@/components/ui';
 
 type Settings = NonNullable<FunctionReturnType<typeof api.workspace.settings>>;
 const editableSettings = (value: Settings) => ({ name: value.name, currency: value.currency, memory: value.memory, imageModel: value.imageModel, routerModel: value.routerModel, threadHours: value.threadHours });
@@ -26,19 +25,34 @@ export default function General() {
   const leave = useMutation(api.workspace.leave);
   const reset = useMutation(api.workspace.resetWorkspace);
   const task = useTask();
-  if (!settings || !me?.access) return <Loading />;
+  if (!settings || !me?.access) return <Screen><Loading /></Screen>;
   const allowed = can(me.access, 'workspace.manage');
+  const edit = allowed && !task.busy ? () => setEditing(true) : undefined;
   return <>
-    {allowed && Platform.OS !== 'web' && <EditToolbarButton label="Edit workspace" onPress={() => setEditing(true)} />}
-    <Screen scroll><Stack gap="xl">
-      <Stack horizontal><Avatar name={settings.name} image={settings.image} size="lg" /><Stack gap="xs" style={{ flex: 1 }}><Text variant="heading">{settings.name}</Text><Text tone="muted">Workspace</Text></Stack></Stack>
-      {allowed && Platform.OS === 'web' && <Button label="Edit workspace" variant="secondary" onPress={() => setEditing(true)} />}
-      <Section title="Workspace"><Card style={{ padding: 0, gap: 0 }}><ListRow title="Currency" value={settings.currency} /><ListRow title="Active threads" value={threadWindows.find(w => w.hours === settings.threadHours)?.label ?? `${settings.threadHours} hours`} /></Card></Section>
-      <Section title="Agents"><Card style={{ padding: 0, gap: 0 }}><ListRow title="Memory" value={settings.memory ? 'Enabled' : 'Off'} /><ListRow title="Reply decisions" value={settings.routerModels.find(m => m.id === settings.routerModel)?.name ?? settings.routerModel} /></Card></Section>
-      <Section title="Images"><Card style={{ padding: 0, gap: 0 }}><ListRow title="Image model" value={settings.imageModels.find(m => m.id === settings.imageModel)?.name ?? settings.imageModel} /><ListRow title="Monthly budget" value={settings.imageBudgetUsd === 0 ? 'Image generation is off' : `$${settings.imageBudgetUsd.toLocaleString()} USD`} /></Card></Section>
-      <Section title="Membership"><Button label="Leave workspace" variant="ghost" disabled={task.busy} onPress={() => { task.clear(); setConfirm('leave'); }} />{can(me.access, 'workspace.delete') && <Button label="Delete workspace" variant="ghost" disabled={task.busy} onPress={() => { task.clear(); setName(''); setConfirm('delete'); }} />}</Section>
-      {can(me.access, 'workspace.reset') && <Section title="Start again"><Button label="Reset workspace" variant="ghost" disabled={task.busy} onPress={() => { task.clear(); setName(''); setConfirm('reset'); }} /><Text variant="caption" tone="muted">Erase chats, pages, records and agent configuration. Members, roles, workspace settings and billing stay.</Text>{settings.lastReset && <Text variant="caption" tone="muted">Last reset by {settings.lastReset.by} on {new Date(settings.lastReset.at).toLocaleDateString()}.</Text>}</Section>}
-    </Stack>
+    {allowed && <EditToolbarButton label="Edit workspace" onPress={() => setEditing(true)} disabled={task.busy} />}
+    <Screen nativeScroll padded={false}>
+      <GroupedList sections={[
+        { id: 'workspace', title: 'Workspace', rows: [
+          { id: 'identity', title: settings.name, subtitle: 'Workspace', leading: <Avatar name={settings.name} image={settings.image} size="lg" />, onPress: edit, accessibilityHint: allowed ? 'Edit workspace settings' : undefined },
+          { id: 'currency', title: 'Currency', value: settings.currency, onPress: edit },
+          { id: 'threads', title: 'Active threads', value: threadWindows.find(w => w.hours === settings.threadHours)?.label ?? `${settings.threadHours} hours`, onPress: edit },
+        ] },
+        { id: 'agents', title: 'Agents', rows: [
+          { id: 'memory', title: 'Memory', value: settings.memory ? 'Enabled' : 'Off', onPress: edit },
+          { id: 'router', title: 'Reply decisions', value: settings.routerModels.find(m => m.id === settings.routerModel)?.name ?? settings.routerModel, onPress: edit },
+        ] },
+        { id: 'images', title: 'Images', rows: [
+          { id: 'model', title: 'Image model', value: settings.imageModels.find(m => m.id === settings.imageModel)?.name ?? settings.imageModel, onPress: edit },
+          { id: 'budget', title: 'Monthly budget', value: settings.imageBudgetUsd === 0 ? 'Image generation is off' : `$${settings.imageBudgetUsd.toLocaleString()} USD`, onPress: edit },
+        ] },
+        { id: 'membership', title: 'Membership', rows: [
+          { id: 'leave', title: 'Leave workspace', destructive: true, disabled: task.busy, onPress: () => { task.clear(); setConfirm('leave'); } },
+          ...(can(me.access, 'workspace.delete') ? [{ id: 'delete', title: 'Delete workspace', destructive: true, disabled: task.busy, onPress: () => { task.clear(); setName(''); setConfirm('delete'); } }] : []),
+        ] },
+        ...(can(me.access, 'workspace.reset') ? [{ id: 'reset', title: 'Start again', footer: `Erase chats, pages, records and agent configuration. Members, roles, workspace settings and billing stay.${settings.lastReset ? ` Last reset by ${settings.lastReset.by} on ${new Date(settings.lastReset.at).toLocaleDateString()}.` : ''}`, rows: [
+          { id: 'reset', title: 'Reset workspace', destructive: true, disabled: task.busy, onPress: () => { task.clear(); setName(''); setConfirm('reset'); } },
+        ] }] : []),
+      ]} />
       {editing && <WorkspaceEditor initial={settings} onClose={() => setEditing(false)} />}
       {confirm === 'leave' && <ConfirmSheet title="Leave this workspace?" message="You will lose access to its chats, pages and records. An owner can invite you back." confirmLabel="Leave workspace" destructive busy={task.busy} error={task.error} onClose={() => setConfirm(undefined)} onConfirm={() => void task.run(async () => { await leave(); router.replace('/'); })} />}
       {confirm === 'reset' && <EditorSheet title="Reset this workspace?" busy={task.busy} onClose={() => setConfirm(undefined)}><Text>All chats, pages, records and agent configuration will be permanently erased. Members, roles, settings and billing stay. Type {settings.name} to confirm.</Text><Field label="Workspace name" value={name} onChangeText={setName} editable={!task.busy} />{task.error && <ErrorState message={task.error} />}<Button label="Reset permanently" variant="danger" loading={task.busy} disabled={name !== settings.name} onPress={() => void task.run(async () => { await reset({ name }); setConfirm(undefined); })} /></EditorSheet>}
@@ -79,7 +93,7 @@ function WorkspaceEditor({ initial, onClose }: { initial: Settings; onClose: () 
       <Field label="Monthly budget (USD)" value={budget} onChangeText={setBudget} keyboardType="decimal-pad" editable={!task.busy} error={budgetError} hint="$0 turns off image generation." />
     </Section>
     {task.error && <ErrorState message={task.error} />}
-    <Button label="Save changes" loading={task.busy} disabled={!dirty || conflict || !!nameError || !!currencyError || !!budgetError} onPress={() => void task.run(async () => { if (nameError || currencyError || budgetError || conflict) return; await update({ ...draft, name: draft.name.trim(), currency, imageBudgetUsd: Number(budget), expectedVersion: baseline.version }); onClose(); })} />
+    <Button label="Save changes" loading={task.busy} disabled={!dirty || conflict || !!nameError || !!currencyError || !!budgetError} onPress={() => void task.run(async () => { if (nameError || currencyError || budgetError || conflict) return; await update({ ...draft, name: draft.name.trim(), currency, imageBudgetUsd: Number(budget), expectedVersion: baseline.version }); guard.complete(); onClose(); })} />
     <Section title="Workspace picture" description="Picture changes save immediately."><ImageControl of="workspace" name={baseline.name} image={current ? current.image : baseline.image} disabled={task.busy} /></Section>
   </EditorSheet>;
 }
