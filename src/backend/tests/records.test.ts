@@ -297,7 +297,8 @@ describe("records", () => {
 
 describe("fields", () => {
 	it("lets anyone add a field, then set, filter and sort by it", async () => {
-		const { member, client } = await setup();
+		const { owner, member, client } = await setup();
+		await setMemberSwitch(owner, "fields.edit", true);
 		const roof = await member.mutation(api.fields.create, {
 			typeId: client._id,
 			label: "Roof type",
@@ -317,6 +318,7 @@ describe("fields", () => {
 
 	it("lets the databases switch decide who changes a field, not who added it", async () => {
 		const { owner, member, client } = await setup();
+		await setMemberSwitch(owner, "fields.edit", true);
 		const status = client.fields.find((f) => f.key === "status")!;
 		const mine = await member.mutation(api.fields.create, { typeId: client._id, label: "Gate code", kind: "text" });
 		await member.mutation(api.fields.update, { fieldId: status._id, label: "Stage" });

@@ -146,6 +146,7 @@ describe("records tools", () => {
 
 	it("resolve exact keys before labels, and refuse names that could mean two things", async () => {
 		const { t, owner, member } = await ownerAndMember();
+		await setMemberSwitch(owner, "fields.edit", true);
 		const tools = await turnFor(t, member);
 		const first = await tools.saveField({ type: "client", label: "First slot", kind: "text" });
 		await tools.saveField({ type: "client", label: "Second slot", kind: "text" });
@@ -196,7 +197,8 @@ describe("records tools", () => {
 	});
 
 	it("bound name lookups: list limits first, repeats looked up once, a cap on distinct names", async () => {
-		const { t, member } = await ownerAndMember();
+		const { t, owner, member } = await ownerAndMember();
+		await setMemberSwitch(owner, "fields.edit", true);
 		const tools = await turnFor(t, member);
 		await tools.saveField({ type: "deal", label: "Partners", kind: "link", linksTo: "client", multiple: true });
 		await tools.save({ type: "client", values: { name: "Acme" } });
@@ -216,7 +218,8 @@ describe("records tools", () => {
 	});
 
 	it("keep a custom field called id or type apart from the row's own id and type", async () => {
-		const { t, member } = await ownerAndMember();
+		const { t, owner, member } = await ownerAndMember();
+		await setMemberSwitch(owner, "fields.edit", true);
 		const tools = await turnFor(t, member);
 		await tools.saveField({ type: "client", label: "ID", kind: "text" });
 		await tools.saveField({ type: "client", label: "Type", kind: "text" });
@@ -258,6 +261,7 @@ describe("records tools", () => {
 
 	it("add and change fields with the databases switch, whoever added them, read fresh each call", async () => {
 		const { t, owner, member } = await ownerAndMember();
+		await setMemberSwitch(owner, "fields.edit", true);
 		const tools = await turnFor(t, member);
 		const roof = await tools.saveField({ type: "client", label: "Roof type", kind: "choice", options: ["Shingle", "Metal"] });
 		expect(roof).toMatchObject({ type: "client", typePlural: "Clients", key: "roof_type", label: "Roof type", kind: "choice", options: ["Shingle", "Metal"] });

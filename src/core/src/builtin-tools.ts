@@ -114,8 +114,7 @@ export const builtinTools: ToolDef[] = [
 		input: z.object({ id: z.string() }),
 		readOnly: true,
 		async execute({ id }, { skills }) {
-			const skill = skills.list.find((s) => s.id === id);
-			return skill ? { instructions: skill.instructions } : { error: `No installed skill "${id}".` };
+			return skills.load(id);
 		},
 	}),
 	defineTool({
