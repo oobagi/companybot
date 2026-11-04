@@ -1,4 +1,4 @@
-import { type Automation, type AutomationAudience, type CustomAutomationConfig, canEditAutomation, customAutomation, isRestricted, normalizeTrigger } from "@companybot/core";
+import { type Automation, type AutomationAudience, type CustomAutomationConfig, canEditAutomation, customAutomation, isRestricted, normalizeTrigger, nextRuns, scheduleCron } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type Member, checkPermission, requireMember } from "./lib";
@@ -149,4 +149,13 @@ export async function postingProblem(ctx: QueryCtx, trigger: CustomAutomationCon
 	if (source?.private) return { text: "It watches {watched}, which is private, so it can only post there or to people who turn it on.", watchedId: source._id };
 	// Same for one only some roles can see: posting elsewhere would show its messages to people they're kept from.
 	return source && isRestricted(source.access) ? { text: "It watches {watched}, which only some roles can see, so it can only post there or to people who turn it on.", watchedId: source._id } : null;
+}
+
+/** Derived trigger indexes. All install writes and the backfill use this same calculation. */
+export function triggerIndexes(install: Pick<Doc<"automationInstalls">, "custom" | "definition" | "enabled" | "archived" | "timeZone">, after: number) {
+	const trigger = install.custom?.trigger ?? install.definition?.trigger;
+	return {
+		nextRunAt: install.enabled && !install.archived && trigger?.type === "schedule" ? nextRuns(scheduleCron(trigger), install.timeZone, after, 1)[0] : undefined,
+		eventKey: install.enabled && !install.archived && trigger?.type === "event" ? trigger.event : undefined,
+	};
 }

@@ -1,3 +1,4 @@
+import { automationJobs } from "./automationJobs";
 import { seedAutomation } from "./legacyFixtures";
 import "./connectorFixtures";
 import { convexTest } from "convex-test";
@@ -23,9 +24,10 @@ describe("automations", () => {
 	/** Runs the scheduler on a Thursday 10am in LA, with every schedule due. */
 	async function tickThursday(t: ReturnType<typeof convexTest>) {
 		await t.run(async (ctx) => {
-			for (const install of await ctx.db.query("automationInstalls").collect()) await ctx.db.patch(install._id, { lastScheduledAt: 0 });
+			for (const install of await ctx.db.query("automationInstalls").collect()) await ctx.db.patch(install._id, { lastScheduledAt: 0, nextRunAt: 0 });
 		});
 		await t.mutation(internal.automationRuns.tick, { now: Date.UTC(2026, 9, 22, 17) });
+		await automationJobs(t);
 	}
 	const install = seedAutomation;
 
@@ -38,6 +40,7 @@ describe("automations", () => {
 		expect(await dmWith(owner, companybot._id)).toEqual([["user", "Morning brief"]]);
 		await t.mutation(internal.automationRuns.forgetOldWebhooks, {});
 		await t.mutation(internal.automationRuns.tick, { now: 0 });
+		await automationJobs(t);
 	});
 
 	describe("library", () => {
@@ -154,7 +157,7 @@ describe("automations", () => {
 				"Didn't run: nobody here has the email nobody@co.com.",
 			]);
 			// Naming nobody: everyone who turned it on.
-			expect(await post(call("c4"))).toEqual([200, "Sent to 2 people."]);
+			expect(await post(call("c4"))).toEqual([200, "Queued."]);
 		});
 
 		it("posts in the channel when one is picked", async () => {
@@ -247,10 +250,10 @@ describe("automations", () => {
 			const { _id } = await installOf();
 			// Set up Thursday 2026-10-22 at 8:00 AM in Los Angeles (15:00 UTC).
 			const at = (day: number, hour: number, minute = 0) => Date.UTC(2026, 9, day, hour + 7, minute);
-			await t.run((ctx) => ctx.db.patch(_id, { lastScheduledAt: at(22, 8) }));
+			await t.run((ctx) => ctx.db.patch(_id, { lastScheduledAt: at(22, 8), nextRunAt: at(22, 9) }));
 			const { companybot } = await agentsOf(member);
 			const runs = async () => (await dmWith(member, companybot._id)).filter(([type]) => type === "user").length;
-			const tick = (now: number) => t.mutation(internal.automationRuns.tick, { now });
+			const tick = async (now: number) => { await t.mutation(internal.automationRuns.tick, { now }); await automationJobs(t); };
 
 			await tick(at(22, 8, 55));
 			expect(await runs()).toBe(0);
@@ -270,7 +273,7 @@ describe("automations", () => {
 			await member.mutation(api.automations.update, { automationId: id, enabled: false });
 			await member.mutation(api.automations.update, { automationId: id, enabled: true });
 			expect((await installOf()).lastScheduledAt).toBeGreaterThan(at(23, 13));
-			await t.run((ctx) => ctx.db.patch(_id, { lastScheduledAt: at(26, 14) })); // resumed then, as this test tells time
+			await t.run((ctx) => ctx.db.patch(_id, { lastScheduledAt: at(26, 14), nextRunAt: at(27, 9) })); // resumed then, as this test tells time
 			await tick(at(26, 14, 5));
 			expect(await runs()).toBe(3);
 		});
@@ -287,6 +290,7 @@ describe("automations", () => {
 					lastScheduledAt: undefined,
 					lastRunDate: "2026-10-21",
 					lastRunAt: wednesdayRun,
+					nextRunAt: Date.UTC(2026, 9, 22, 16),
 				});
 			});
 			const listed = (await find(member, id))!;
@@ -295,9 +299,12 @@ describe("automations", () => {
 			expect(listed.custom!.trigger).toEqual({ type: "schedule", cron: "0 9 * * 1-5", time: "09:00", weekdays: [1, 2, 3, 4, 5] });
 			const { companybot } = await agentsOf(member);
 			await t.mutation(internal.automationRuns.tick, { now: wednesdayRun + 60 * 60_000 });
+			await automationJobs(t);
 			expect(await dmWith(member, companybot._id)).toHaveLength(0);
 			await t.mutation(internal.automationRuns.tick, { now: Date.UTC(2026, 9, 22, 16, 5) });
+			await automationJobs(t);
 			await t.mutation(internal.automationRuns.tick, { now: Date.UTC(2026, 9, 22, 16, 10) });
+			await automationJobs(t);
 			expect(await dmWith(member, companybot._id)).toEqual([["user", "Standup"]]);
 		});
 
@@ -327,6 +334,7 @@ describe("automations", () => {
 			const schedule = { type: "schedule" as const, cron: "0 0 * * *" };
 			await member.mutation(api.automations.save, { automationId: id, config: { ...config, trigger: schedule }, expectedVersion: 2 });
 			await t.mutation(internal.automationRuns.tick, {});
+			await automationJobs(t);
 			expect((await find(member, id))!.lastRunAt).toBeNull();
 		});
 
@@ -482,7 +490,7 @@ describe("automations", () => {
 
 	describe("in-app events", () => {
 		it("replies in the thread of a message posted in the channel it watches", async () => {
-			const { owner, member } = await ownerAndMember();
+			const { t, owner, member } = await ownerAndMember();
 			const support = await owner.mutation(api.chats.createChannel, { name: "support", private: false });
 			const other = await owner.mutation(api.chats.createChannel, { name: "random", private: false });
 			const { companybot } = await agentsOf(owner);
@@ -498,6 +506,7 @@ describe("automations", () => {
 				member.mutation(api.messages.send, { chatId, text, mentions: { userIds: [], agentIds: [] } });
 			await send(other, "unrelated");
 			const messageId = await send(support, "My invoice is wrong");
+			await automationJobs(t);
 			const top = await member.query(api.messages.list, { chatId: support });
 			expect(top.map((m) => m.text)).toEqual(["My invoice is wrong"]);
 			const [, ...replies] = await member.query(api.messages.list, { chatId: support, threadId: messageId });
@@ -546,7 +555,7 @@ describe("automations", () => {
 		});
 
 		it("gives people only events from chats they can see", async () => {
-			const { owner, member } = await ownerAndMember();
+			const { t, owner, member } = await ownerAndMember();
 			const board = await owner.mutation(api.chats.createChannel, { name: "board", private: true });
 			const { companybot } = await agentsOf(member);
 			await expect(
@@ -566,6 +575,7 @@ describe("automations", () => {
 			const id = (await owner.query(api.automations.list))[0]!.id;
 			await member.mutation(api.automations.subscribe, { automationId: id, on: true });
 			await owner.mutation(api.messages.send, { chatId: board, text: "Raise prices", mentions: { userIds: [], agentIds: [] } });
+			await automationJobs(t);
 			expect(await dmWith(member, companybot._id)).toHaveLength(0);
 			expect(await dmWith(owner, companybot._id)).toEqual([
 				["user", "Board notes"],
@@ -575,6 +585,7 @@ describe("automations", () => {
 		it("runs when someone joins the workspace", async () => {
 			const { t, owner } = await ownerAndMember();
 			const { companybot } = await agentsOf(owner);
+			await automationJobs(t);
 			await owner.mutation(api.automations.create, {
 				config: { name: "Welcome", prompt: "Welcome them.", trigger: { type: "event", event: "member.joined" } },
 				agentId: companybot._id,
@@ -583,9 +594,33 @@ describe("automations", () => {
 			});
 			await owner.mutation(api.workspace.invite, { email: "new@co.com", role: "member" });
 			await signIn(t, "new@co.com");
+			await automationJobs(t);
 			expect(await dmWith(owner, companybot._id)).toEqual([
 				["user", "Welcome"],
 			]);
 		});
 	});
+});
+
+it("a failing scheduled install does not block another workspace", async () => {
+	vi.useFakeTimers();
+	const { t, owner } = await ownerAndMember();
+	const { companybot } = await agentsOf(owner);
+	const id = await owner.mutation(api.automations.create, { config: { name: "Healthy", prompt: "Hello", trigger: { type: "schedule", cron: "0 9 * * *" } }, agentId: companybot._id, audience: "creator", timeZone: "UTC" });
+	const healthy = (await t.run(ctx => ctx.db.query("automationInstalls").first()))!;
+	const brokenId = await t.run(async ctx => {
+		const workspaceId = await ctx.db.insert("workspaces", { name: "Broken", version: 1 });
+		const { _id, _creationTime, ...fields } = healthy;
+		await ctx.db.patch(_id, { nextRunAt: 0, lastScheduledAt: 0 });
+		return ctx.db.insert("automationInstalls", { ...fields, workspaceId, timeZone: "invalid", nextRunAt: 0, lastScheduledAt: 0 });
+	});
+	const now = Date.UTC(2026, 10, 4, 10);
+	await t.mutation(internal.automationRuns.tick, { now });
+	await expect(t.mutation(internal.automationRuns.runScheduled, { installId: brokenId, now })).rejects.toThrow();
+	await t.run(async ctx => {
+		for (const job of await ctx.db.system.query("_scheduled_functions").collect())
+			if (job.state.kind === "pending" && job.args[0]?.installId === brokenId) await ctx.scheduler.cancel(job._id);
+	});
+	await automationJobs(t);
+	expect((await owner.query(api.automations.list)).find(a => a.id === id)!.lastResult).toBe("Sent to 1 person.");
 });

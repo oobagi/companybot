@@ -1,3 +1,4 @@
+import { automationJobs } from "./automationJobs";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
@@ -303,11 +304,12 @@ describe("permissions", () => {
 			const runs = async () => {
 				await t.run(async (ctx) => {
 					const install = (await ctx.db.query("automationInstalls").collect()).find((i) => i.automationId === id)!;
-					await ctx.db.patch(install._id, { lastScheduledAt: 0 });
+					await ctx.db.patch(install._id, { lastScheduledAt: 0, nextRunAt: 0 });
 				});
 				for (const turn of await turnsOf(t)) if (turn.status === "running" || turn.status === "queued") await t.mutation(internal.turns.finishReply, { turnId: turn._id });
 				const before = await turnsOf(t);
 				await t.mutation(internal.automationRuns.tick, { now: (Math.floor(Date.now() / 86_400_000) + 2) * 86_400_000 + 10 * 3_600_000 });
+				await automationJobs(t);
 				await cancelScheduled(t);
 				const fresh = (await turnsOf(t)).filter((x) => !before.some((b) => b._id === x._id));
 				return { owners: fresh.find((x) => x.actorId === owner.userId)!, bens: fresh.find((x) => x.actorId === member.userId)! };
@@ -390,6 +392,7 @@ describe("permissions", () => {
 		const config = { name: "Channel inbound", prompt: "Handle input.", trigger: { type: "event" as const, event: "message.posted" as const, channelId: chatId } };
 		await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "channel", channelId: chatId, timeZone: "UTC" });
 		await member.mutation(api.messages.send, { chatId, text: "Incoming", mentions: { userIds: [], agentIds: [] } });
+		await automationJobs(t);
 		await cancelScheduled(t);
 		const run = (await turnsOf(t)).at(-1)!;
 		if (!thread) await t.run(ctx => ctx.db.patch(run._id, { threadId: undefined }));

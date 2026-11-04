@@ -28,7 +28,7 @@ import {
 	requireMember,
 	saveMade,
 } from "./lib";
-import { automationName, canView, definitionOf, installOf, outcomeText, postingProblem, privateTo, requireEditable, runsForLabel, seenChannel, shownTrigger, subscribersOf, visibleInstalls, webhookUrl } from "./automationOps";
+import { triggerIndexes, automationName, canView, definitionOf, installOf, outcomeText, postingProblem, privateTo, requireEditable, runsForLabel, seenChannel, shownTrigger, subscribersOf, visibleInstalls, webhookUrl } from "./automationOps";
 import { forgetAutomationGrants } from "./permissions";
 import { startCascade } from "./cascade";
 import { audience, customTrigger } from "./schema";
@@ -194,6 +194,7 @@ export async function createAutomation(
 		automationId,
 		agentId,
 		enabled: true,
+		...triggerIndexes({ custom: madeCustom(config, member.userId), enabled: true, timeZone }, Date.now()),
 		timeZone,
 		installedBy: member.userId,
 		// Runs from its next time on, never one already past.
@@ -230,6 +231,7 @@ export async function saveAutomation(ctx: MutationCtx, member: Member, { automat
 			if (install.audience === "channel") await checkPosting(ctx, member, config.trigger, install.channelId);
 		},
 		patch: (custom) => ctx.db.patch(install._id, {
+			...triggerIndexes({ ...install, custom }, rescheduled ? Date.now() : (install.lastScheduledAt ?? install._creationTime)),
 			// A new schedule starts from its next time, never one already past.
 			...(rescheduled && { lastScheduledAt: Date.now() }),
 			custom,
@@ -261,7 +263,7 @@ export async function setAutomationTrashed(ctx: MutationCtx, who: Who, installId
 	if (!canEditAutomation(member, privateTo(install))) checkPermission(member, "automations.edit");
 	if (!!install.archived === archived) return;
 	await toggleTrash(ctx, who, archived, { kind: "automation", id: installId, name: automationName(install) });
-	await ctx.db.patch(installId, { archived });
+	await ctx.db.patch(installId, { archived, ...triggerIndexes({ ...install, archived }, install.lastScheduledAt ?? install._creationTime) });
 }
 
 /** Deletes an install now, so its webhook and schedule stop; its opt-ins, grants and delivery ids follow (lifecycle.ts). */
@@ -302,6 +304,7 @@ export async function updateAutomation(ctx: MutationCtx, member: Member, { autom
 			throw new ConvexError(`${await nameOf(ctx, install.installedBy)} made it and can't see #${chat.name}, so it can't post there.`);
 	}
 	await ctx.db.patch(install._id, {
+		...triggerIndexes({ ...install, enabled: enabled ?? install.enabled }, enabled && !install.enabled ? Date.now() : (install.lastScheduledAt ?? install._creationTime)),
 		...(enabled !== undefined && { enabled }),
 		// Resuming doesn't make up the runs it missed while paused.
 		...(enabled && !install.enabled && { lastScheduledAt: Date.now() }),

@@ -5,7 +5,7 @@ import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, internalMutation, internalQuery } from "./_generated/server";
 import { TOPIC_MAX, defaultModel, scheduleCron, usageMonth, wakeAnchor } from "@companybot/core";
 import { recordUsage } from "./usage";
-import { type RunOutcome, scheduleCursor } from "./automationOps";
+import { type RunOutcome, triggerIndexes, scheduleCursor } from "./automationOps";
 import { rolesOf, timeZoneOf } from "./lib";
 import { seedRoles } from "./roles";
 import { withoutPageTitles } from "./pageBlocks";
@@ -313,6 +313,15 @@ export const dropChatReactLocks = migrations.define({
 	},
 });
 
+// COMPAT(0.1.0-alpha.10): retire after existing installs have their trigger indexes backfilled.
+export const automationTriggerIndexes = migrations.define({
+	table: "automationInstalls",
+	batchSize: 50,
+	migrateOne: async (ctx, install) => {
+		await ctx.db.patch(install._id, triggerIndexes(install, scheduleCursor(install)));
+	},
+});
+
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
@@ -338,6 +347,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.dropChatReactRules,
 	internal.migrations.dropChatReactLocks,
 	internal.migrations.channelTopics,
+	internal.migrations.automationTriggerIndexes,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */
