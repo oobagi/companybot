@@ -271,7 +271,7 @@ describe("trash", () => {
 		await settle(t);
 		const left = await t.run(async (ctx) => ({
 			chat: await ctx.db.get(chatId),
-			messages: await ctx.db.query("chatMessages").withIndex("by_chat_thread", (q) => q.eq("chatId", chatId)).collect(),
+			messages: await ctx.db.query("chatMessages").withIndex("by_chat_thread_quiet", (q) => q.eq("chatId", chatId)).collect(),
 			seats: await ctx.db.query("chatMembers").withIndex("by_chat", (q) => q.eq("chatId", chatId)).collect(),
 		}));
 		expect(left).toEqual({ chat: null, messages: [], seats: [] });

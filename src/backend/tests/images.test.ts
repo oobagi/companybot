@@ -5,7 +5,7 @@ import type { Id } from "../convex/_generated/dataModel";
 import { UPLOAD_TTL_MS } from "../convex/images";
 import { memberOf } from "../convex/lib";
 import { writeBlocks } from "../convex/pageOps";
-import { type As, agentTurn, agentsOf, generalOf, noMentions, settle, ownerAndMember, sideWorkspace, signIn, workspaceOf, identityOf } from "./helpers";
+import { type As, agentTurn, agentsOf, generalOf, noMentions, settle, ownerAndMember, sideWorkspace, signIn, workspaceOf, identityOf, messagesIn } from "./helpers";
 
 afterEach(() => {
 	vi.restoreAllMocks();
@@ -238,7 +238,7 @@ describe("pictures", () => {
 		const general = await generalOf(member);
 		expect((await member.query(api.chats.get, { chatId: general._id }))!.members.find((m) => m.type === "user" && m.image)!.image).toBe(photo);
 		await member.mutation(api.messages.send, { chatId: general._id, text: "hi", mentions: noMentions });
-		expect((await owner.query(api.messages.list, { chatId: general._id }))[0]!.author.image).toBe(photo);
+		expect((await messagesIn(owner, { chatId: general._id }))[0]!.author.image).toBe(photo);
 	});
 
 	it("lets owners change agents' pictures, not in Archive; agents can reset them and photos", async () => {
@@ -387,6 +387,6 @@ it("resolves each picture URL once across chat and message lists", async () => {
 	await owner.mutation(api.images.set, { of: "me", file: await upload(owner) });
 	for (let i = 0; i < 20; i++) await owner.mutation(api.messages.send, { chatId: general._id, text: "hi", mentions: noMentions });
 	calls.mockClear();
-	await owner.query(api.messages.list, { chatId: general._id });
+	await messagesIn(owner, { chatId: general._id });
 	expect(calls.mock.calls.filter(([op]) => op === "1.0/storageGetUrl")).toHaveLength(1);
 });
