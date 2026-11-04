@@ -1,6 +1,5 @@
 import { Modal as MantineModal, Popover as MantinePopover } from "@mantine/core";
-import { useClickOutside } from "@mantine/hooks";
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { CloseIcon, PlusIcon } from "../../icons";
 import { Notice, dangerButton, primaryButton, secondaryButton, useRun } from "../../ui";
 import { EmojiPanel } from "./EmojiPanel";
@@ -102,9 +101,14 @@ type Open = { close: () => void; node: () => HTMLElement | null; returnTo: () =>
  */
 const layers: Open[] = [];
 const escape = (e: KeyboardEvent) => e.key === "Escape" && !e.isComposing && layers.at(-1)?.close();
+/** Who hears when `layers` changes: each layer, to know whether it's still on top. */
+const listeners = new Set<() => void>();
+const changed = () => listeners.forEach((listener) => listener());
+const subscribe = (listener: () => void) => (listeners.add(listener), () => void listeners.delete(listener));
 
 /**
- * Puts a popover or dialog on `layers` while `opened`, and says whether it's on top. As it closes,
+ * Puts a popover or dialog on `layers` while `opened`. `onTop` is whether it's the newest, for its
+ * focus trap: only the top one holds Tab. `isTop` asks at the moment, for a click. As it closes,
  * focus goes back to `returnTo` (else what had it as it opened), unless you put it somewhere else.
  * Opened from inside another layer (a dialog from a menu item), it falls back to that one's.
  */
@@ -121,15 +125,37 @@ function useLayer(opened: boolean, onClose: () => void, node: () => HTMLElement 
 		if (!opened) return;
 		layers.push(layer);
 		if (layers.length === 1) document.addEventListener("keydown", escape);
+		changed();
 		return () => {
 			const focused = document.activeElement;
 			const lost = !focused || focused === document.body || layers.slice(layers.indexOf(layer)).some((l) => l.node()?.contains(focused));
 			layers.splice(layers.indexOf(layer), 1);
 			if (!layers.length) document.removeEventListener("keydown", escape);
 			if (lost) [layer.returnTo(), layer.fallback?.()].find((el) => el?.isConnected)?.focus({ preventScroll: true });
+			changed();
 		};
 	}, [opened, layer]);
-	return () => layers.at(-1) === layer;
+	const isTop = useCallback(() => layers.at(-1) === layer, [layer]);
+	// Rendered to a string (no page), nothing is open: an empty stack.
+	const onTop = useSyncExternalStore(subscribe, isTop, () => false);
+	// Back on top, Mantine's trap turns on again and focuses the layer's first field (or a marked
+	// one). Keep the focus the layer that closed just gave back: marked, if it's in this one; else put back.
+	const covered = useRef(false);
+	useEffect(() => {
+		if (!opened) return void (covered.current = false);
+		if (!isTop()) return void (covered.current = true);
+		if (!covered.current) return;
+		covered.current = false;
+		const focused = document.activeElement as HTMLElement | null;
+		const box = latest.current.node();
+		if (focused && box?.contains(focused)) {
+			for (const el of box.querySelectorAll("[data-autofocus]")) el.removeAttribute("data-autofocus");
+			return void focused.setAttribute("data-autofocus", "");
+		}
+		const timer = setTimeout(() => focused?.isConnected && focused !== document.body && focused.focus({ preventScroll: true }));
+		return () => clearTimeout(timer);
+	}, [opened, onTop, isTop]);
+	return { onTop, isTop };
 }
 
 /** Mantine's focus trap takes the first field unless one is marked: keep the one `autoFocus` picked. */
@@ -152,17 +178,17 @@ const Unwrapped = ({ children }: { children?: React.ReactNode }) => children;
  */
 export function Layer({ onClose, className, overlayClassName, children }: { onClose: () => void; className: string; overlayClassName: string; children: React.ReactNode }) {
 	const content = useRef<HTMLElement>(null);
-	const onTop = useLayer(true, onClose, () => content.current);
+	const { onTop, isTop } = useLayer(true, onClose, () => content.current);
 	const ref = useCallback((el: HTMLElement | null) => ((content.current = el), keepAutoFocus(el)), []);
 	return (
 		<MantineModal.Root
 			opened
 			onClose={onClose}
 			{...plain}
-			closeOnEscape={false} closeOnClickOutside={false} lockScroll={false} returnFocus={false} scrollAreaComponent={Unwrapped}
+			trapFocus={onTop} closeOnEscape={false} closeOnClickOutside={false} lockScroll={false} returnFocus={false} scrollAreaComponent={Unwrapped}
 			classNames={{ overlay: `no-drag fixed inset-0 z-50 ${overlayClassName}`, inner: "no-drag pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-6", content: `pointer-events-auto ${className}` }}
 		>
-			<MantineModal.Overlay onMouseDown={() => onTop() && onClose()} />
+			<MantineModal.Overlay onMouseDown={() => isTop() && onClose()} />
 			<MantineModal.Content ref={ref}>{children}</MantineModal.Content>
 		</MantineModal.Root>
 	);
@@ -272,10 +298,9 @@ export function PopoverPanel({
 	children: React.ReactNode;
 }) {
 	const anchor = useRef<HTMLElement>(null);
-	const [panel, setPanel] = useState<HTMLElement | null>(null);
-	const ref = useCallback((el: HTMLElement | null) => (setPanel(el), keepAutoFocus(el)), []);
-	const onTop = useLayer(opened, onClose, () => panel, () => (returnFocus ?? anchor).current);
-	useClickOutside(() => onTop() && onClose(), null, [anchor.current, panel]);
+	const panel = useRef<HTMLElement>(null);
+	const ref = useCallback((el: HTMLElement | null) => ((panel.current = el), keepAutoFocus(el)), []);
+	const { onTop, isTop } = useLayer(opened, onClose, () => panel.current, () => (returnFocus ?? anchor).current);
 	// Its target was in sight since it opened; once it scrolls away, the panel goes too.
 	const seen = useRef(false);
 	const close = useRef(onClose);
@@ -289,7 +314,8 @@ export function PopoverPanel({
 		<MantinePopover
 			opened={opened}
 			{...plain}
-			position="bottom-start" offset={6} width="" zIndex={50} floatingStrategy="fixed" trapFocus={trapFocus} closeOnEscape={false} closeOnClickOutside={false}
+			position="bottom-start" offset={6} width="" zIndex={50} floatingStrategy="fixed" trapFocus={trapFocus && onTop} closeOnEscape={false}
+			onDismiss={() => isTop() && onClose()}
 			middlewares={{
 				flip: true,
 				shift: { padding: 8 },

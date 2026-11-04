@@ -93,7 +93,8 @@ it("keeps a popover open while you use one opened from it, and closes them newes
 	expect(shown("Inner panel")).toBe(true);
 	await click(document.querySelector('input[aria-label="Name"]')!);
 	expect(shown("Inner panel")).toBe(false);
-	expect(button("Inner")).toBeTruthy();
+	// Back on top, the outer panel's trap keeps the focus given back to Inner, not its first field.
+	expect(document.activeElement).toBe(button("Inner"));
 	await press("Escape");
 	expect(button("Inner")).toBeUndefined();
 	expect(shown("Details")).toBe(true);
@@ -108,6 +109,8 @@ it("stacks a Confirm asked from a menu over the dialog; Escape closes just the C
 	await press("Escape");
 	expect(shown("Delete it?")).toBe(false);
 	expect(shown("Details")).toBe(true);
+	// The menu item that asked is gone: focus goes to the menu's button, and the dialog's trap keeps it there.
+	expect(document.activeElement).toBe(button("Menu"));
 });
 });
 
@@ -152,6 +155,31 @@ describe("layers side by side", () => {
 		expect([shown("Emoji panel"), shown("Agents panel")]).toEqual([true, false]);
 		await press("Escape");
 		expect(shown("Emoji panel")).toBe(false);
+	});
+});
+
+describe("Tab", () => {
+	it("reply details plus agents working: Tab can leave Stop for the next control", async () => {
+		function Reply() {
+			const [working, setWorking] = useState(false);
+			return h(
+				"div",
+				null,
+				// A reply's details: nothing in it to Tab to, so its trap would cancel every Tab.
+				h(Popover, { trigger: "Cost", children: "GPT · 2.1s · $0.01" }),
+				h(PopoverPanel, { opened: working, onClose: () => setWorking(false), trapFocus: false, target: h("button", { type: "button", onClick: () => setWorking(true) }, "2 agents working"), children: h("button", { type: "button" }, "Stop") }),
+				h("button", { type: "button" }, "Send"),
+			);
+		}
+		await mount(h(Reply));
+		await press_(button("Cost"));
+		await act(async () => button("2 agents working").click());
+		await settle();
+		button("Stop").focus();
+		const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+		await act(async () => void button("Stop").dispatchEvent(tab));
+		expect(shown("GPT · 2.1s")).toBe(true);
+		expect(tab.defaultPrevented).toBe(false);
 	});
 });
 
