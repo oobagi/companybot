@@ -101,7 +101,7 @@ function ConnectorDetail({ connector, canManage }: { connector: ConnectorItem; c
 function ConnectorRoles({ connector, canManage, onChange }: { connector: ConnectorItem; canManage: boolean; onChange: (roles: Id<"roles">[]) => void }) {
 	const roles = useQuery(api.roles.list);
 	if (!roles) return null;
-	const allowed = connector.roles as Id<"roles">[];
+	const allowed = connector.roleIds as Id<"roles">[];
 	return (
 		<div role="group" aria-label="Who can use it" className="flex flex-col gap-1.5 text-sm">
 			<span className="text-neutral-500">Who can use it</span>
