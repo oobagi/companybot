@@ -202,11 +202,13 @@ export const webTools: ToolDef[] = [
 		input: z.object({ url: z.string().describe("The exact link, as written or returned") }),
 		// Same links as web.fetch, and the file only lands on this reply; using it elsewhere asks as that tool does.
 		risk: "none",
-		label: ({ url }, output) => (typeof url === "string" ? `${resultText(output, "id") ? "Saved" : "Save"} ${shortLink(url)}` : undefined),
+		label: ({ url }) => (typeof url === "string" ? `Save ${shortLink(url)}` : undefined),
 		execute: ({ url }, { web }) => web.save(url),
 		toModelOutput: ({ output }) => ({
 			type: "text",
-			value: resultText(output, "error") ?? `Attached to your reply as ${resultText(output, "name")} (${resultText(output, "id")}). Use that file id; don't describe it at length.`,
+			value:
+				resultText(output, "error") ??
+				`Attached to your reply as ${resultText(output, "name")} (${resultText(output, "id")}), so the person already sees it. Use that file id; never link or embed it, and don't describe it at length.`,
 		}),
 	}),
 ];

@@ -382,7 +382,8 @@ export function replyForModel(m: Doc<"chatMessages">) {
 		textForModel(m),
 		tools.length > 0 && `[Tools you used: ${tools.join(", ")}]`,
 		held.length > 0 && `[Held for approval: ${held.join(", ")}]`,
-		m.attachments?.length && `[Files you attached: ${m.attachments.map((f) => JSON.stringify(f.name)).join(", ")}]`,
+		// With ids, so a later turn can use a picture it made or saved (set it as a logo, put it in a page).
+		m.attachments?.length && `[Files you attached: ${m.attachments.map((f, i) => `${JSON.stringify(f.name)} (${m._id}/${i})`).join(", ")}]`,
 	]
 		.filter(Boolean)
 		.join("\n");

@@ -77,6 +77,16 @@ const components: Components = {
  * No `allowedTags`: Streamdown only applies it to its own default plugin list. Paragraphs, lists
  * and code are 12px apart.
  */
-export function Markdown({ className = "", ...props }: Omit<ComponentProps<typeof Streamdown>, "plugins" | "components" | "rehypePlugins" | "allowedTags">) {
-	return <Streamdown plugins={plugins} components={components} rehypePlugins={rehypePlugins} linkSafety={linkSafety} className={`space-y-3 ${className}`} {...props} />;
+export function Markdown({ className = "", children, ...props }: Omit<ComponentProps<typeof Streamdown>, "plugins" | "components" | "rehypePlugins" | "allowedTags">) {
+	return (
+		<Streamdown plugins={plugins} components={components} rehypePlugins={rehypePlugins} linkSafety={linkSafety} className={`space-y-3 ${className}`} {...props}>
+			{typeof children === "string" ? imagesAsLinks(children) : children}
+		</Streamdown>
+	);
 }
+
+/**
+ * Images in text never load (the app fetches nothing from outside; pictures come as files), and
+ * Streamdown would show "[Image blocked: …]". They read as links instead: ![Logo](url) → [Logo](url).
+ */
+export const imagesAsLinks = (markdown: string) => markdown.replace(/!\[([^\]]*)\]\(/g, (_, alt: string) => `[${alt || "Picture"}](`);

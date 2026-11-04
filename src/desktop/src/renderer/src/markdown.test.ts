@@ -6,6 +6,15 @@ import { Markdown, appRoute } from "./markdown";
 const render = (text: string) => renderToStaticMarkup(createElement(Markdown, { mode: "static" }, text));
 
 describe("Markdown links", () => {
+	it("shows images in text as links, never loading them or saying they're blocked", () => {
+		const html = render("Saved it: ![Linear logo](https://linear.app/icon.png) and ![](https://a.io/x.png)");
+		expect(html).not.toContain("<img");
+		expect(html).not.toContain("blocked");
+		// External links are Streamdown's open-with-confirmation buttons.
+		expect(html).toMatch(/data-streamdown="link"[^>]*>Linear logo<\/button>/);
+		expect(html).toMatch(/data-streamdown="link"[^>]*>Picture<\/button>/);
+	});
+
 	it("keeps page links as in-app links", () => {
 		const html = render("See [Plan](companybot://page/abc123).");
 		expect(html).toContain('<a class="page-link" href="companybot://page/abc123">Plan</a>');
