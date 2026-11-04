@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 
-import { signIn, agentsOf, ownerAndMember, generalOf, turnsOf, settle, setMemberSwitch, messagesIn } from "./helpers";
+import { signIn, agentsOf, ownerAndMember, generalOf, turnsOf, settle, setMemberSwitch, messagesIn, miscounted } from "./helpers";
 
 afterEach(() => void vi.useRealTimers());
 
@@ -66,6 +66,8 @@ describe("automations", () => {
 			await tickThursday(t);
 			expect(await dmWith(member, companybot._id)).toHaveLength(1);
 			expect((await find(owner, "morning-brief"))!.lastResult).toBe("Sent to 2 people.");
+			// The DMs it opened count their seats.
+			expect(await miscounted(t)).toEqual([]);
 			await member.mutation(api.automations.subscribe, { automationId: "morning-brief", on: false });
 			expect((await find(member, "morning-brief"))!.subscribed).toBe(false);
 		});
@@ -89,6 +91,8 @@ describe("automations", () => {
 			]);
 			const brief = (await find(owner, "morning-brief"))!;
 			expect([brief.lastResult, brief.runsFor]).toEqual(["Posted in #sales.", "Posts once in #sales"]);
+			// Its agent took a seat in #sales to post: counted.
+			expect(await miscounted(t)).toEqual([]);
 		});
 
 		it("changes audiences explicitly between a channel and subscribers", async () => {

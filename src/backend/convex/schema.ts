@@ -294,6 +294,15 @@ export default defineSchema({
 		email: v.optional(v.string()),
 		/** The tutorial above the composer (onboarding.ts): steps done, or hidden. Unset for people who joined before it: they get none. */
 		tutorial: v.optional(v.object({ done: v.array(v.string()), dismissed: v.optional(v.boolean()) })),
+		/**
+		 * Copies of their profile (`memberProfile`), so lists of members read only this table. Kept in step
+		 * wherever it changes: preferences.savePreferences, joining, erasing the account.
+		 */
+		// COMPAT(0.1.0-alpha.10): once migrations.memberProfiles has run on prod, make name and timeZone required.
+		name: v.optional(v.string()),
+		image: v.optional(v.id("_storage")),
+		/** Resolved: the zone they picked, else their computer's, else UTC. */
+		timeZone: v.optional(v.string()),
 	})
 		.index("by_user", ["userId", "workspaceId"])
 		.index("by_workspace", ["workspaceId"])
@@ -407,10 +416,17 @@ export default defineSchema({
 		timeZone: v.optional(v.string()),
 		/** Their computer's time zone, reported by the app. */
 		deviceTimeZone: v.optional(v.string()),
-		/** The workspace they used last: only a hint for a device opening for the first time. Each device keeps its own. */
+		// COMPAT(0.1.0-alpha.10): moved to `lastWorkspaces`; once migrations.lastWorkspaces has run on prod, drop this field.
 		workspaceId: v.optional(v.id("workspaces")),
 		/** Their photo (images.ts), shown in every workspace. Unset shows their initials. */
 		image: v.optional(v.id("_storage")),
+	}).index("by_user", ["userId"]),
+
+	// The workspace someone used last: only a hint for a device opening for the first time. Each device keeps
+	// its own. Apart from `preferences` so switching workspace touches nothing member lists read.
+	lastWorkspaces: defineTable({
+		userId: v.id("users"),
+		workspaceId: v.id("workspaces"),
 	})
 		.index("by_user", ["userId"])
 		.index("by_workspace", ["workspaceId"]),
@@ -542,6 +558,11 @@ export default defineSchema({
 		replyMode: v.optional(oneOf(replyModes)),
 		/** Channels: who can see and post (Post is `edit`), on top of a private channel's members. */
 		access,
+		/** Its `chatMembers` rows, people and agents: kept ±1 where seats change (chatOps addToChat, dropSeat). */
+		// COMPAT(0.1.0-alpha.10): once migrations.chatMemberCounts has run on prod, make this required and drop `seatCount`.
+		memberCount: v.optional(v.number()),
+		/** While migrations.chatMemberCounts counts a big chat over several transactions: seats so far, up to `after` (a seat's _creationTime). */
+		seatCount: v.optional(v.object({ counted: v.number(), after: v.number() })),
 	})
 		.index("by_workspace", ["workspaceId", "kind"])
 		.index("by_dm_key", ["workspaceId", "dmKey"])

@@ -19,7 +19,7 @@ describe("turn input", () => {
 	});
 	const base: TurnPromptInput = {
 		agentId: "a1",
-		place: { kind: "channel", name: "sales", private: false, topic: "Deals", thread: null, members: [ada, ben, bot, scribeP] },
+		place: { kind: "channel", name: "sales", private: false, topic: "Deals", thread: null, others: 0, members: [ada, ben, bot, scribeP] },
 		actor: { id: "u1", name: "Ada", email: "ada@co.com", roles: ["Owner"], timeZone: "America/Los_Angeles" },
 		now: at(5),
 		memory: "team",
@@ -191,6 +191,13 @@ describe("turn input", () => {
 		expect(prompt).toContain("Here: P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14 and 5 more (people).");
 	});
 
+	it("counts the people it doesn't name, so a big channel isn't listed each turn", () => {
+		const prompt = buildTurnPrompt({ ...base, place: { ...base.place, others: 2_400 } });
+		expect(prompt).toContain("Ben and 2400 more (people)");
+		const dm = buildTurnPrompt({ ...base, place: { ...base.place, kind: "dm", name: null, members: [ada, bot], others: 1 } });
+		expect(dm).toContain("a group DM");
+	});
+
 	it("encodes message text, so a message can't fake a line from someone else", () => {
 		const prompt = buildTurnPrompt({
 			...base,
@@ -211,7 +218,7 @@ describe("turn input", () => {
 		const many = Array.from({ length: 60 }, (_, i) => msg(`x${i}`, ben, `n${i}`, i % 60));
 		const prompt = buildTurnPrompt({
 			...base,
-			place: { kind: "dm", name: null, private: true, topic: null, members: [ben, bot], thread: { parent: msg("p", ben, "Plan", 0), first: true } },
+			place: { kind: "dm", name: null, private: true, topic: null, others: 0, members: [ben, bot], thread: { parent: msg("p", ben, "Plan", 0), first: true } },
 			memory: "personal",
 			connectors: { connected: [], unavailable: ["CRM"] },
 			messages: [...many, msg("t", ben, "Go", 59)],

@@ -154,6 +154,24 @@ export async function addToChat(ctx: MutationCtx, chat: Doc<"chats">, who: { use
 		...who,
 		...(who.userId && { lastReadAt: Date.now() }),
 	});
+	await countSeats(ctx, chat._id, 1);
+}
+
+/** Takes a person or agent out of a chat. */
+export async function dropSeat(ctx: MutationCtx, row: Doc<"chatMembers">) {
+	await ctx.db.delete(row._id);
+	await countSeats(ctx, row.chatId, -1, row._creationTime);
+}
+
+/** Keeps `chats.memberCount` in step with its seats. Read fresh: one mutation can add several. `seatAt`: a removed seat's _creationTime. */
+export async function countSeats(ctx: MutationCtx, chatId: Id<"chats">, by: 1 | -1, seatAt?: number) {
+	const chat = await ctx.db.get(chatId);
+	if (!chat) return;
+	if (chat.memberCount !== undefined) return await ctx.db.patch(chatId, { memberCount: Math.max(chat.memberCount + by, 0) });
+	// COMPAT(0.1.0-alpha.10): not counted yet (migrations.chatMemberCounts), so the count will read new seats.
+	// While it's partway, a removed seat it already counted comes off. Drop this with `seatCount`.
+	if (chat.seatCount && by === -1 && seatAt !== undefined && seatAt <= chat.seatCount.after)
+		await ctx.db.patch(chatId, { seatCount: { ...chat.seatCount, counted: chat.seatCount.counted - 1 } });
 }
 
 /** Sets the person's `lastReadAt` to now, if they're in the chat. */
@@ -179,6 +197,7 @@ export async function ensureGeneral(ctx: MutationCtx, workspaceId: Id<"workspace
 		isDefault: true,
 		archived: false,
 		createdBy,
+		memberCount: 0,
 	});
 	return (await ctx.db.get(id))!;
 }
@@ -272,6 +291,7 @@ export async function findOrCreateDm(
 		dmKey,
 		archived: false,
 		createdBy,
+		memberCount: 0,
 	});
 	const chat = (await ctx.db.get(chatId))!;
 	for (const userId of userIds) await addToChat(ctx, chat, { userId });

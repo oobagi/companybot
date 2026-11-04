@@ -250,7 +250,7 @@ describe("approvals", () => {
 	it("tells the agent the outcome instead of asking it to reply to a message", () => {
 		const input: TurnPromptInput = {
 			agentId: "a1",
-			place: { kind: "dm", name: null, private: true, topic: null, thread: null, members: [] },
+			place: { kind: "dm", name: null, private: true, topic: null, thread: null, others: 0, members: [] },
 			actor: { id: "u1", name: "Ada", email: "ada@co.com", roles: ["Member"], timeZone: "UTC" },
 			now: Date.UTC(2026, 9, 22),
 			memory: "personal",

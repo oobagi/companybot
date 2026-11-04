@@ -2,7 +2,7 @@ import { type ReplyMode, THREAD_HOURS_DEFAULT, TOPIC_MAX, can, replyModeOf, repl
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx } from "./_generated/server";
-import { activityOf, addToChat, insertChat, agentOfDm, availableName, chatMembersOf, findOrCreateDm, label, latestMentionSince, markChatRead, membership, namer, requireActiveAgents, requireChat, requireManagedChannel, requireWorkspaceUsers, shownAt, sideChatTitle, titleFrom, type Namer, type Participant, visibleChat } from "./chatOps";
+import { activityOf, addToChat, insertChat, agentOfDm, availableName, dropSeat, chatMembersOf, findOrCreateDm, label, latestMentionSince, markChatRead, membership, namer, requireActiveAgents, requireChat, requireManagedChannel, requireWorkspaceUsers, shownAt, sideChatTitle, titleFrom, type Namer, type Participant, visibleChat } from "./chatOps";
 import { mutation, query } from "./functions";
 import { type Member, checkPermission, getMember, preferencesOf, requireMember, toActor } from "./lib";
 import { type AccessList, accessInfo, chatAccess, reach, savedAccess } from "./placeAccess";
@@ -269,8 +269,7 @@ export const browse = query({
 		const result = [];
 		for (const c of channels) {
 			if (!reach(member, chatAccess(c)) || (await membership(ctx, c._id, member.userId))) continue;
-			const memberCount = (await chatMembersOf(ctx, c._id)).length;
-			result.push({ _id: c._id, name: c.name ?? "", topic: c.topic ?? null, memberCount });
+			result.push({ _id: c._id, name: c.name ?? "", topic: c.topic ?? null, memberCount: c.memberCount ?? 0 });
 		}
 		return result.sort((a, b) => a.name.localeCompare(b.name));
 	},
@@ -319,6 +318,7 @@ export async function createChannelAs(ctx: MutationCtx, member: Member, args: In
 		private: args.private,
 		archived: false,
 		createdBy: member.userId,
+		memberCount: 0,
 	});
 	await addToChat(ctx, (await ctx.db.get(chatId))!, { userId: member.userId });
 	return chatId;
@@ -394,7 +394,7 @@ export async function leaveChannel(ctx: MutationCtx, member: Member, { chatId }:
 	if (chat.kind !== "channel") throw new ConvexError("You can't leave a DM.");
 	if (chat.isDefault) throw new ConvexError(`You can't leave #${chat.name}: it's the channel everyone is in.`);
 	const row = await membership(ctx, chatId, member.userId);
-	if (row) await ctx.db.delete(row._id);
+	if (row) await dropSeat(ctx, row);
 }
 
 /** Channels only. Members of a channel can add people; managers can add to any channel they see. */
@@ -478,6 +478,7 @@ export const createSideChat = mutation({
 			parentId,
 			archived: false,
 			createdBy: member.userId,
+			memberCount: 0,
 		});
 		const chat = (await ctx.db.get(chatId))!;
 		await addToChat(ctx, chat, { userId: member.userId });
@@ -546,7 +547,7 @@ export async function removeChannelMember(ctx: MutationCtx, member: Member, { ch
 	if (chat.isDefault && userId) throw new ConvexError(`People can't be removed from #${chat.name}: it's the channel everyone is in.`);
 	const row = userId ? await membership(ctx, chatId, userId) : await ctx.db.query("chatMembers")
 		.withIndex("by_agent", q => q.eq("agentId", agentId).eq("chatId", chatId)).first();
-	if (row) await ctx.db.delete(row._id);
+	if (row) await dropSeat(ctx, row);
 }
 
 export async function markReadAs(ctx: MutationCtx, member: Member, chatId: Id<"chats">) {

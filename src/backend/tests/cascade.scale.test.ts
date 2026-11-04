@@ -40,7 +40,7 @@ it("resets a workspace with 17,000 messages and 4,100 members without exceeding 
 		});
 	}
 	await t.run(async (ctx) => {
-		for (let i = 0; i < 4_100; i++) await addMember(ctx, { workspaceId, userId: await ctx.db.insert("users", { email: `p${i}@co.com` }), role: "member" });
+		for (let i = 0; i < 4_100; i++) await addMember(ctx, { workspaceId, userId: await ctx.db.insert("users", { email: `p${i}@co.com` }), role: "member", email: `p${i}@co.com` });
 	});
 	await owner.mutation(api.workspace.resetWorkspace, { name: "My company" });
 	await settle(t);
@@ -113,8 +113,8 @@ it("deletes a workspace with 4,100 members at once, and old apps of those also e
 		for (let i = 0; i < 4_100; i++) {
 			const userId = await ctx.db.insert("users", { email: `p${i}@co.com` });
 			// Joined here first, then elsewhere, before old apps' pins existed: their first workspace is this one.
-			await addMember(ctx, { workspaceId, userId, role: "member" });
-			if (i < 50) await addMember(ctx, { workspaceId: elsewhere, userId, role: "member" });
+			await addMember(ctx, { workspaceId, userId, role: "member", email: `p${i}@co.com` });
+			if (i < 50) await addMember(ctx, { workspaceId: elsewhere, userId, role: "member", email: `p${i}@co.com` });
 			ids.push(userId);
 		}
 		return ids;
