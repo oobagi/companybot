@@ -66,9 +66,26 @@ export function wakeAnchor(time: number, timeZone: string, at?: z.infer<typeof t
 	return { local: at ? Temporal.PlainDateTime.from({ ...at, hour: at.hour ?? 9, minute: at.minute ?? 0 }).toString() : zoned(time, timeZone).toPlainDateTime().toString(), timeZone: at?.timeZone ?? timeZone };
 }
 
+/** What a model sent wrong, field by field, so it can fix the call. */
+const invalid = (error: z.ZodError) => `Fix the time: ${error.issues.map((i) => (i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message).replace(/\.$/, "")).join("; ")}.`;
+
+/** IANA names only ("America/New_York", or UTC): abbreviations like EST are fixed offsets with no daylight saving. */
+export function timeZoneError(zone: string) {
+	try {
+		if (zone === "UTC" || (zone.includes("/") && new Intl.DateTimeFormat("en", { timeZone: zone }))) return null;
+	} catch {}
+	return `Unknown time zone "${zone}"; use an IANA name like America/New_York.`;
+}
+
 /** Structured wall time, or calendar duration from now. */
 export function followupTime(when: { at?: z.infer<typeof timeInput>; in?: WakeDuration }, now: number, timeZone: string): number | string {
 	if ((when.at === undefined) === (when.in === undefined)) return 'Give either "at" or "in".';
+	const checked = when.at !== undefined ? timeInput.safeParse(when.at) : durationInput.safeParse(when.in);
+	if (!checked.success) return invalid(checked.error);
+	if (when.at?.timeZone !== undefined) {
+		const error = timeZoneError(when.at.timeZone);
+		if (error) return error;
+	}
 	try {
 		if (when.at) {
 			const at = timeInput.parse(when.at);
@@ -86,7 +103,7 @@ export function followupTime(when: { at?: z.infer<typeof timeInput>; in?: WakeDu
 
 export function repeatEvery(input: WakeDuration): WakeDuration | string {
 	const parsed = durationInput.safeParse(input);
-	if (!parsed.success) return "Give a positive structured duration within 2 years.";
+	if (!parsed.success) return invalid(parsed.error).replace("Fix the time", "Fix the repeat");
 	const d = parsed.data;
 	const days = Temporal.Duration.from(d).total({unit: "days", relativeTo: "2027-01-01"});
 	if (days > FOLLOWUP_MAX_DAYS) return "Repeat within 2 years.";
@@ -94,7 +111,12 @@ export function repeatEvery(input: WakeDuration): WakeDuration | string {
 	return d;
 }
 
-export const repeatLabel = (d: WakeDuration) => "every " + Object.entries(d).filter(([, n]) => n).map(([unit, n]) => n === 1 ? unit.slice(0, -1) : `${n} ${unit}`).join(", ");
+/** "every week", "every 2 weeks", "every 1 day, 6 hours". */
+export function repeatLabel(d: WakeDuration) {
+	const parts = Object.entries(d).filter(([, n]) => n) as [string, number][];
+	if (parts.length === 1 && parts[0]![1] === 1) return `every ${parts[0]![0].slice(0, -1)}`;
+	return "every " + parts.map(([unit, n]) => `${n} ${n === 1 ? unit.slice(0, -1) : unit}`).join(", ");
+}
 
 /** Calendar arithmetic happens before zone resolution: a gap shifts only that occurrence. */
 export function nextRepeat(anchor: WakeAnchor, every: WakeDuration, now: number) {

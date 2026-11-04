@@ -96,6 +96,9 @@ it("repeats in its original zone after the person changes zones", async () => {
 	await t.run(async ctx => { const prefs = await ctx.db.query("preferences").withIndex("by_user", q => q.eq("userId", before.actorId)).unique(); await ctx.db.patch(prefs!._id, {timeZone: "Asia/Tokyo"}); });
 	await fire(t, created);
 	expect((await rowOf(t, created))!.at).toBe(Date.UTC(2027, 1, 28, 14));
+	// Feb 28 lands on the same instant either way; Mar 31 at 9:00 EDT tells the original zone apart.
+	await fire(t, created);
+	expect((await rowOf(t, created))!.at).toBe(Date.UTC(2027, 2, 31, 13));
 });
 
 describe("follow-ups", () => {
@@ -165,8 +168,8 @@ describe("follow-ups", () => {
 	it("checks what it's given, and caps what's pending", async () => {
 		const { t, turnId, record } = await setup();
 		expect(await create(t, turnId, { note: " ", in: {days: 1} })).toEqual({ error: "Say what to check when it's time." });
-		expect(await create(t, turnId, { note: "x", in: { minutes: 0 } })).toMatchObject({ error: expect.stringMatching(/valid/) });
-		expect(await create(t, turnId, { note: "x", in: {years: 3} })).toMatchObject({ error: expect.stringMatching(/within 2 years/) });
+		expect(await create(t, turnId, { note: "x", in: { minutes: 0 } })).toEqual({ error: "Fix the time: Give a positive duration." });
+		expect(await create(t, turnId, { note: "x", in: {years: 3} })).toMatchObject({ error: expect.stringMatching(/^Fix the time: years: /) });
 		expect(await create(t, turnId, { note: "x", in: {days: 1}, times: 3 })).toEqual({ error: 'Give "every" with "times".' });
 		expect(await create(t, turnId, { note: "x", in: {days: 1}, recordId: "nope" })).toMatchObject({ error: expect.any(String) });
 		for (let i = 0; i < 10; i++) expect(await create(t, turnId, { note: `n${i}`, in: {days: 1}, recordId: record._id })).toHaveProperty("created");
