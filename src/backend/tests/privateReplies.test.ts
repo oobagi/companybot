@@ -59,7 +59,103 @@ async function connectorSetup() {
 	return { ...s, install, readConnector };
 }
 
+async function connectorPlace(kind: "database" | "channel" | "page") {
+	const s = await connectorSetup();
+	for (const permission of ["records.edit", "fields.edit", "channels.edit", "pages.edit"] as const) {
+		await s.owner.mutation(api.roles.setPermission, { id: s.office, permission, on: true });
+	}
+	const room = await s.owner.mutation(api.chats.createChannel, { name: "crm-notes", private: false });
+	const page = await s.owner.mutation(api.pages.create, { title: "CRM notes" });
+	const setAccess = (as: As, access: { role: Id<"roles"> | "everyone"; level: "view" | "edit" }[]) => kind === "database"
+		? as.mutation(api.recordTypes.setAccess, { typeId: s.deals, access })
+		: kind === "channel" ? as.mutation(api.chats.setAccess, { chatId: room, access }) : as.mutation(api.pages.setAccess, { pageId: page, access });
+	const row = () => s.t.run(async (ctx) => kind === "database" ? await ctx.db.get("recordTypes", s.deals) : kind === "channel" ? await ctx.db.get("chats", room) : await ctx.db.get("pages", page));
+	await setAccess(s.owner, [{ role: s.office, level: "edit" }]);
+	await s.readConnector();
+	const written = kind === "database"
+		? await s.t.mutation(internal.recordTools.saveFor, { turnId: s.turnId, input: { id: s.deal, values: { name: "CRM deal" } } })
+		: kind === "channel"
+			? await s.t.mutation(internal.manageTools.runFor, { turnId: s.turnId, tool: "channels.manage", input: { request: { action: "set_topic", chat: room, topic: SECRET } } })
+			: await s.t.mutation(internal.pageTools.writeFor, { turnId: s.turnId, input: { page, title: SECRET } });
+	expect(written).not.toHaveProperty("error");
+	expect((await row())!.usedPlaces).toContain(s.install._id);
+	await s.finish(); await cancelScheduled(s.t);
+	return { ...s, room, page, setAccess, row };
+}
+
 describe("workspace connector sources", () => {
+	it.each((["database", "channel", "page"] as const).flatMap((kind) => [false, true].map((reinstall) => ({ kind, reinstall }))))("lets an Owner re-open a $kind to Office after uninstall (reinstall=$reinstall)", async ({ kind, reinstall }) => {
+		const s = await connectorPlace(kind);
+		await s.owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: false });
+		await settle(s.t);
+		if (reinstall) {
+			await s.owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
+			await s.owner.mutation(api.connectors.setRoles, { connectorId: "crm", roles: [] });
+		}
+		await s.setAccess(s.owner, [{ role: s.office, level: "edit" }]);
+		expect((await s.row())!.usedPlaces ?? []).not.toContain(s.install._id);
+		if (kind === "database") {
+			expect((await s.dana.query(api.recordTypes.list)).some((type) => type._id === s.deals)).toBe(true);
+			await s.dana.mutation(api.records.update, { recordId: s.deal, values: { name: "Office can edit again" } });
+		} else if (kind === "channel") {
+			expect(await s.dana.query(api.chats.get, { chatId: s.room })).not.toBeNull();
+			await s.dana.mutation(api.chats.updateChannel, { chatId: s.room, topic: "Office can edit again" });
+		} else expect(await s.dana.query(api.pages.get, { pageId: s.page })).not.toBeNull();
+		// Re-sharing the place never clears the original reply's provenance.
+		expect((await s.reply(s.dana)).privacy?.hidden).toBe(true);
+	});
+
+	it.each(["database", "channel"] as const)("refuses non-Owner re-sharing of a %s and explains the deleted connector", async (kind) => {
+		const s = await connectorPlace(kind);
+		await s.owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: false });
+		const attempt = s.setAccess(s.dana, [{ role: s.office, level: "edit" }]);
+		await expect(attempt).rejects.toThrow("Can't change access");
+		await expect(attempt).rejects.toThrow("CRM connector (deleted)");
+		await expect(attempt).rejects.toThrow("Only Owners");
+		expect((await s.row())!.usedPlaces).toContain(s.install._id);
+	});
+
+	it.each(["database", "channel", "page"] as const)("keeps live connector sources when an Owner changes a %s's access", async (kind) => {
+		const s = await connectorPlace(kind);
+		await expect(s.setAccess(s.owner, [{ role: "everyone", level: "view" }])).rejects.toThrow("Can't change access");
+		expect((await s.row())!.usedPlaces).toContain(s.install._id);
+	});
+
+	it("keeps other sources and rolls back a deleted-source release when they block access", async () => {
+		const s = await connectorSetup();
+		await s.owner.mutation(api.roles.setPermission, { id: s.office, permission: "pages.edit", on: true });
+		const page = await s.owner.mutation(api.pages.create, { title: "Mixed sources" });
+		await s.owner.mutation(api.pages.setAccess, { pageId: page, access: [{ role: s.office, level: "edit" }] });
+		await s.readConnector(); await s.read();
+		expect(await s.t.mutation(internal.pageTools.writeFor, { turnId: s.turnId, input: { page, title: SECRET } })).not.toHaveProperty("error");
+		await s.owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: false });
+		await expect(s.owner.mutation(api.pages.setAccess, { pageId: page, access: [{ role: "everyone", level: "view" }] })).rejects.toThrow("Only Office and Owners");
+		expect((await s.t.run((ctx) => ctx.db.get("pages", page)))!.usedPlaces).toEqual(expect.arrayContaining([s.install._id, s.deals]));
+		await s.owner.mutation(api.pages.setAccess, { pageId: page, access: [{ role: s.office, level: "view" }] });
+		expect((await s.t.run((ctx) => ctx.db.get("pages", page)))!.usedPlaces).toEqual([s.deals]);
+	});
+
+	it("records a non-Owner automation's deleted-source failure and shows a safe notice to its maker", async () => {
+		const s = await connectorSetup();
+		await s.readConnector();
+		const made = await s.t.mutation(internal.automationTools.createFor, { turnId: s.turnId, input: { name: SECRET, prompt: SECRET, trigger: { type: "schedule", cron: "0 9 * * *" }, runsFor: "me" } });
+		if (!("created" in made)) throw new Error(JSON.stringify(made));
+		await s.finish();
+		await s.owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: false });
+		const before = await turnsOf(s.t);
+		await s.t.mutation(internal.automationRuns.tick, { now: Date.now() + 2 * 86_400_000 });
+		expect(await turnsOf(s.t)).toHaveLength(before.length);
+		const install = (await s.t.run((ctx) => ctx.db.query("automationInstalls").collect())).find((i) => i.automationId === made.created)!;
+		expect(install.lastRunAt).toBeTypeOf("number");
+		expect(install.lastOutcome).toMatchObject({ failed: true, text: expect.stringContaining("CRM connector (deleted)") });
+		expect(install.lastOutcome!.text).toContain("Owners-only");
+		const notice = (await s.t.run((ctx) => ctx.db.query("chatMessages").collect())).find((m) => m.text === install.lastOutcome!.text)!;
+		const shown = (await s.dana.query(api.messages.list, { chatId: notice.chatId })).find((m) => m._id === notice._id)!;
+		expect(shown.text).toBe(install.lastOutcome!.text);
+		expect(JSON.stringify(shown)).not.toContain(SECRET);
+		expect(JSON.stringify(await s.dana.query(api.automations.list))).not.toContain(SECRET);
+	});
+
 	it("keeps Office connector reads private in general and refuses team memory", async () => {
 		const s = await connectorSetup();
 		await s.owner.mutation(api.roles.setPermission, { id: s.office, permission: "memory.team.write", on: true });

@@ -19,7 +19,7 @@ import {
 } from "./pageOps";
 import { accessInfo, savedAccess } from "./placeAccess";
 import { withoutPageTitles } from "./pageBlocks";
-import { writeSources } from "./replySources";
+import { changeAccessSources, writeSources } from "./replySources";
 import { accessArg } from "./schema";
 import { can } from "@companybot/core";
 import { movePage, pageRow, pageState, pageStates } from "./pageTree";
@@ -262,7 +262,7 @@ export const setAccess = mutation({
 		let scanned = 0;
 		for (let i = 0; i < queue.length; i++) {
 			const row = queue[i]!;
-			await writeSources(ctx, member, { access: next ?? inherited }, row);
+			await changeAccessSources(ctx, member, row, { access: next ?? inherited });
 			const children = await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", row._id)).take(AUDIENCE_SCAN_MAX - scanned + 1);
 			scanned += children.length;
 			if (scanned > AUDIENCE_SCAN_MAX) throw new ConvexError("Change access on smaller branches first.");

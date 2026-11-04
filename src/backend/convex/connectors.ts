@@ -116,6 +116,7 @@ export const setInstalled = mutation({
 			});
 		}
 		if (!installed && existing) {
+			if (connector.connection === "workspace") await ctx.db.insert("connectorSourceLabels", { workspaceId: member.workspaceId, installId: existing._id, name: connector.name });
 			await ctx.db.delete(existing._id);
 			// Its accounts, rules, locks and tool list go too (lifecycle.ts): reinstalling starts strict again.
 			await startCascade(ctx, "connectorInstall", { ...old, connectorInstallId: existing._id });

@@ -8,7 +8,7 @@ import { type AccessList, chatAccess, reach } from "./placeAccess";
 import { allowedRoles } from "./connectorAccess";
 import { inheritPlaces, type UsedPlace } from "./replySources";
 
-export type Source = { exclusiveTo?: Id<"users">; membersOnly: boolean; users?: Id<"users">[]; person?: string; where: string; access: AccessList; visible: boolean; name: string; why: string };
+export type Source = { deletedConnector?: boolean; exclusiveTo?: Id<"users">; membersOnly: boolean; users?: Id<"users">[]; person?: string; where: string; access: AccessList; visible: boolean; name: string; why: string };
 type SourceReader = { pages: ReturnType<typeof pageStates>; sources: Map<string, Promise<Source>> };
 const readers = new WeakMap<QueryCtx, SourceReader>();
 
@@ -47,10 +47,13 @@ async function loadSource(ctx: QueryCtx, member: Member, id: UsedPlace, audience
 	const connectorId = ctx.db.normalizeId("connectorInstalls", id);
 	if (connectorId) {
 		const install = await ctx.db.get(connectorId);
+		const removed = !install ? await ctx.db.query("connectorSourceLabels").withIndex("by_install", (q) => q.eq("installId", connectorId)).first() : null;
 		const access: AccessList = install ? allowedRoles(member, install).map((role) => ({ role, level: "view" })) : [];
-		const name = install ? `${findConnector(install.connectorId)?.name ?? install.connectorId} connector` : "a deleted connector";
+		const label = install ? findConnector(install.connectorId)?.name ?? install.connectorId : removed?.workspaceId === member.workspaceId ? removed.name : undefined;
+		const name = label ? `${label} connector${install ? "" : " (deleted)"}` : "a deleted connector";
+		const workspaceId = (install ?? removed)?.workspaceId;
 		// Keep the install id after uninstall, with the empty list's Owners-only policy so saved work stays recoverable.
-		return { membersOnly: false, where: "", access, visible: (!install || install.workspaceId === member.workspaceId) && !!reach(member, access), name, why: install ? `the ${name}` : name };
+		return { deletedConnector: !install, membersOnly: false, where: "", access, visible: (!workspaceId || workspaceId === member.workspaceId) && !!reach(member, access), name, why: `the ${name}` };
 	}
 	const databaseId = ctx.db.normalizeId("recordTypes", id);
 	if (databaseId) {
@@ -75,8 +78,15 @@ async function loadSource(ctx: QueryCtx, member: Member, id: UsedPlace, audience
 
 /** Current access, never a saved audience: gaining a role makes old replies readable too. */
 export async function canReadSources(ctx: QueryCtx, member: Member, sources: UsedPlace[] = []) {
-	for (const id of sources) if (!(await source(ctx, member, id)).visible) return false;
-	return true;
+	return !(await blockedSource(ctx, member, sources));
+}
+
+/** The first unreadable source, for a server-written refusal that does not expose artifact content. */
+export async function blockedSource(ctx: QueryCtx, member: Member, sources: UsedPlace[] = []) {
+	for (const id of sources) {
+		const policy = await source(ctx, member, id);
+		if (!policy.visible) return policy;
+	}
 }
 
 /** A pure viewer check: filtering a row must not change the reply being written. */
