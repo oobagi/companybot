@@ -641,7 +641,7 @@ export function turnStop(ctx: Pick<ActionCtx, "runQuery">, turnId: Id<"agentTurn
 			return steered && !requested;
 		},
 		/**
-		 * After a cut-off: waits until the person's newest message here is AGENT_DEBOUNCE_MS old
+		 * After a cut-off: waits until the person's newest message here is QUIET_WINDOW_MS old
 		 * (turns.steerWait), so a burst is one restart. False if the turn was stopped meanwhile (heard
 		 * within STOP_CHECK_MS). One short timeout at a time, and it ends: never an interval.
 		 */

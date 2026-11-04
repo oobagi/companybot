@@ -1,4 +1,4 @@
-import { AGENT_DEBOUNCE_MS } from "@companybot/core";
+import { QUIET_WINDOW_MS } from "@companybot/core";
 import type { convexTest } from "convex-test";
 import type { ModelMessage } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -68,7 +68,7 @@ const toolResult = (id: string) => ({ type: "tool-result", toolCallId: id, toolN
  * Moves the clock past FLUSH_MS, so the runner's next part flushes (and hears what's new), and past the
  * person's quiet window, so a reply cut off then starts over at once. Timers don't fire: the scheduled runs stay put.
  */
-const later = async () => vi.setSystemTime(Date.now() + AGENT_DEBOUNCE_MS + 100);
+const later = async () => vi.setSystemTime(Date.now() + QUIET_WINDOW_MS + 100);
 /** Real time, for a reply that waits for the person to pause (the fake clock doesn't move by itself). */
 const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
 

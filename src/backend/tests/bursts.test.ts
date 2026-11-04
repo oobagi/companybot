@@ -1,5 +1,5 @@
 import type { convexTest } from "convex-test";
-import { AGENT_DEBOUNCE_MS } from "@companybot/core";
+import { QUIET_WINDOW_MS } from "@companybot/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
@@ -12,13 +12,13 @@ afterEach(() => void vi.useRealTimers());
 
 type T = ReturnType<typeof convexTest>;
 
-/** Fires every pending quiet-window timer (turns.startQueued), oldest first, as the scheduler would after AGENT_DEBOUNCE_MS. */
+/** Fires every pending quiet-window timer (turns.startQueued), oldest first, as the scheduler would after QUIET_WINDOW_MS. */
 async function quietWindowsEnd(t: T) {
 	const jobs = await t.run(async (ctx) =>
 		(await ctx.db.system.query("_scheduled_functions").collect()).filter((j) => j.state.kind === "pending" && j.name.startsWith("turns") && j.name.endsWith("startQueued")),
 	);
 	for (const job of jobs) {
-		expect(job.scheduledTime - job._creationTime).toBeGreaterThanOrEqual(AGENT_DEBOUNCE_MS - 1);
+		expect(job.scheduledTime - job._creationTime).toBeGreaterThanOrEqual(QUIET_WINDOW_MS - 1);
 		await t.run((ctx) => ctx.scheduler.cancel(job._id));
 		await t.mutation(internal.turns.startQueued, job.args[0] as { turnId: Id<"agentTurns"> });
 	}
