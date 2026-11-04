@@ -37,7 +37,7 @@ const toolInput = z.object({
 	trigger: z
 		.discriminatedUnion("type", [
 			z.object({ type: z.literal("schedule"), cron: z.string().describe(cronHelp) }),
-			z.object({ type: z.literal("message_posted"), channel: z.string().describe('Channel to watch, like "#support"') }),
+			z.object({ type: z.literal("message_posted"), channel: z.string().describe('The id of the channel to watch (from channels list), or "here"; not its #name, which can change') }),
 			z.object({ type: z.literal("member_joined") }),
 			z.object({ type: z.literal("webhook").describe("Only when the person has an outside app that will send it") }),
 		])
@@ -45,7 +45,7 @@ const toolInput = z.object({
 	runsFor: z
 		.string()
 		.optional()
-		.describe('"me" (just the person; default), "anyone" (each person who turns it on), or a channel like "#sales" to post there'),
+		.describe('"me" (just the person; default), "anyone" (each person who turns it on), or a channel\'s id (from channels list) or "here", to post there'),
 });
 export type AutomationToolInput = z.infer<typeof toolInput>;
 
