@@ -7,7 +7,7 @@ import { routerCases } from "./router-cases";
 
 // Scores reply-router models on the chat moments in router-cases.ts (wiki/chat.md has the latest
 // scores): the dispatcher alone. It's a wide net, so what counts is recall (no "missed": every reply
-// expected wakes its agent) and how many extra agents it wakes (each costs a quiet turn, where the
+// expected wakes its agent) and how many extra agents it wakes (each costs a turn, where the
 // agent decides). full-path.eval.ts scores what actually gets posted. Costs real money, a few cents a
 // run, so it's not part of `pnpm test`:
 //   AI_GATEWAY_API_KEY=… pnpm --filter @companybot/core eval:router

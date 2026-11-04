@@ -23,22 +23,23 @@ import {
 	routerRequest,
 } from "../src/router";
 import { modelToolName } from "../src/tools";
-import { type PlaceMessage, type PostDecision, type TurnPlace, buildTurnPrompt, postDecision, responseOf, systemPrompt } from "../src/turn-input";
+import { type PlaceMessage, type PostDecision, type SessionTurn, type TurnPlace, buildTurnInput, buildTurnPrompt, postDecision, replayOf, responseOf } from "../src/turn-input";
 import { gatewayCost } from "../src/usage";
 import type { ReactionGroup } from "../src/chat";
 import { type Outcome, type Transcript, anchors, fullPathCases, handBacks, transcripts } from "./router-cases";
 
 // Scores what actually gets posted: the dispatcher (Jev, the production call) wakes agents, and each
-// woken agent runs its quiet turn (the production prompt, system prompt and final decision, on its
-// model) and posts or reacts only if its decision does (core `responseOf`). A post whose decision names another
-// agent (`to`) wakes it next, as production does. Misses: "butted in" (posted when it shouldn't) and
-// "silent" (should have answered, didn't). Hand-backs run "who goes next" (also production) on an
-// agent's result in a handoff's thread, then the quiet hop. Costs a turn per woken agent, a few cents a run:
+// woken agent runs its turn (the production prompt, system prompt and answer, on its model) and posts
+// or reacts as its answer does (core `responseOf`). A post whose answer names another agent (`to`)
+// wakes it next, as production does. Misses: "butted in" (posted when it shouldn't), "silent" (should
+// have answered, didn't) and, where a reaction is expected, no reaction. Hand-backs run "who goes next"
+// (also production) on an agent's result in a handoff's thread, then the hop. In a transcript each
+// agent keeps its session as production does (backend turns.ts): its earlier turns replayed as sent and
+// answered (its reaction included), then only what's new since its last turn began. Costs a turn per
+// woken agent, a few cents a run:
 //   AI_GATEWAY_API_KEY=… pnpm --filter @companybot/core eval:full
-// FULL_EVAL_RUNS repeats it. Not modeled: session replay (each turn sees the place's messages, its own
-// posts included, but not its earlier turns' private text), @mention handoffs a post starts, and real
-// tool results (other tools answer "not available", so an agent that would look something up answers
-// from what it has).
+// FULL_EVAL_RUNS repeats it. Not modeled: @mention handoffs a post starts, and real tool results (other
+// tools answer "not available", so an agent that would look something up answers from what it has).
 
 const print = (text: string) => process.stdout.write(`${text}\n`);
 (globalThis as { AI_SDK_LOG_WARNINGS?: boolean }).AI_SDK_LOG_WARNINGS = false;
@@ -51,9 +52,17 @@ function configOf(agent: RouterAgent): Pick<AgentConfig, "instructions" | "tools
 	return { instructions: `You are ${agent.name}. ${agent.description}`, tools: blankAgent.tools, model: blankAgent.model };
 }
 
-/** `reactions`: agents' reactions on it, which later turns see on its line, as in production. */
-type Said = RouterMessage & { id: string; reactions?: ReactionGroup[] };
+/** `reactions`: agents' reactions on it, which later turns see on its line, as in production; `reactedAt`: when the last one landed (`clock`). */
+type Said = RouterMessage & { id: string; reactions?: ReactionGroup[]; reactedAt?: number };
 type Woken = { agent: RouterAgent; band: ConfidenceBand; probability?: number };
+/**
+ * One agent's session in a transcript's place (agentSessions): its finished turns as sent and answered,
+ * and where its last turn began (`seen`: how much of `said` was there; `at`: the clock), so the next one
+ * gets only what's new since, and the older messages reacted to since (turns.ts turnContext).
+ */
+type Session = { turns: SessionTurn[]; seen: number; at: number; own: Set<string> };
+/** Orders turns and reactions in a transcript, as _creationTime does in production. */
+let clock = 0;
 
 /** The dispatcher's production call: which agents it wakes, and how sure it was. */
 async function dispatch(input: RouterInput) {
@@ -78,10 +87,12 @@ async function next(input: NextInput, agents: RouterAgent[]) {
 }
 
 const participant = (m: RouterMessage) => (m.agent ? { type: "agent" as const, id: m.agent, name: m.author } : { type: "user" as const, id: `u-${m.author}`, name: m.author });
-const placeMessage = (m: Said, i: number, n: number): PlaceMessage => ({ id: m.id, author: participant(m), text: m.text, time: NOW - (n - i) * 60_000, ...(m.reactions && { reactions: m.reactions }) });
+/** A message's time by its place in the conversation, so a replayed prompt and a new one agree. */
+const timeOf = (i: number) => NOW + i * 60_000;
+const placeMessage = (m: Said, i: number): PlaceMessage => ({ id: m.id, author: participant(m), text: m.text, time: timeOf(i), ...(m.reactions && { reactions: m.reactions }) });
 
-/** One woken agent's quiet turn: what it posted, if its decision posts it, and to whom. */
-async function quietTurn(turn: {
+/** One woken agent's turn: what it posted and reacted, as its answer does, and to whom. */
+async function agentTurn(turn: {
 	woken: Woken;
 	agents: RouterAgent[];
 	people: string[];
@@ -96,10 +107,12 @@ async function quietTurn(turn: {
 	thread?: Said;
 	/** A hop: the agent whose message it is. */
 	from?: string;
-	/** A hop another agent's decision named it for. */
+	/** A hop another agent's answer named it for. */
 	by?: string;
+	/** Its session here, in a transcript: replayed, and kept up to date with this turn. */
+	session?: Session;
 }) {
-	const started = Date.now();
+	const startedMs = Date.now();
 	const { agent } = turn.woken;
 	const config = configOf(agent);
 	const available = resolveTools(config, { userId: "u", role: "member" });
@@ -113,29 +126,36 @@ async function quietTurn(turn: {
 		name: turn.channel,
 		private: false,
 		topic: null,
-		thread: turn.thread ? { parent: placeMessage(turn.thread, 0, turn.said.length + 1), first: true } : null,
+		thread: turn.thread ? { parent: placeMessage(turn.thread, -1), first: !turn.session?.turns.length } : null,
 		members: [
 			...[person, ...turn.people.filter((p) => p !== person)].map((name) => ({ type: "user" as const, id: `u-${name}`, name })),
 			...turn.agents.map((a) => ({ type: "agent" as const, id: a.key, name: a.name, role: a.description })),
 		],
 	};
+	// What's new since its last turn began, its own replies aside; older messages reacted to since then.
+	const { session } = turn;
+	const indexed = turn.said.map((m, i) => ({ m, i }));
+	const fresh = indexed.slice(session?.seen ?? 0).filter(({ m }) => !session?.own.has(m.id));
+	const reacted = session?.turns.length ? indexed.slice(0, session.seen).filter(({ m }) => (m.reactedAt ?? -1) > session.at) : [];
 	const prompt = buildTurnPrompt({
 		agentId: agent.key,
 		place,
 		actor: { id: `u-${person}`, name: person, email: `${person.toLowerCase()}@roofco.com`, role: "member", timeZone: TIME_ZONE },
-		now: NOW,
+		now: timeOf(turn.said.length),
 		memory: "team",
 		connectors: { connected: [], unavailable: [] },
-		messages: turn.said.map((m, i) => placeMessage(m, i, turn.said.length)),
+		messages: fresh.map(({ m, i }) => placeMessage(m, i)),
+		reacted: reacted.map(({ m, i }) => placeMessage(m, i)),
 		triggerId: message.id,
-		quiet: true,
 		routed: { band: turn.woken.band, ...(turn.by && { by: turn.by }), ...(turn.before?.length && { before: turn.before }) },
 		...(turn.from && { handoff: { from: turn.from, ask: false } }),
 	});
+	const started = clock++;
+	const input = buildTurnInput({ agent: config, skills: [], session: { summary: null, turns: session?.turns ?? [] }, prompt, available });
 	const result = await generateText({
 		model: config.model,
-		instructions: systemPrompt(config, [], available),
-		prompt,
+		instructions: input.instructions,
+		messages: input.messages,
 		tools,
 		stopWhen: isStepCount(6),
 		output: Output.object({ schema: postDecision, name: "decision" }),
@@ -143,15 +163,22 @@ async function quietTurn(turn: {
 		maxRetries: 1,
 	});
 	const decision = await Promise.resolve(result.output).then((d) => d as PostDecision, () => null);
-	const { message: post, emoji } = responseOf(decision, true);
+	const { message: post, emoji } = responseOf(decision);
 	const posted = post ? [post] : [];
-	const reacted = emoji ?? undefined;
-	// What it did, for a miss: its tool calls and its decision (shown only if it posts).
-	const did = [...result.steps.flatMap((s) => s.toolCalls.map((c) => c.toolName)), decision ? `decided ${JSON.stringify(decision).slice(0, 160)}` : "no decision"].join(", ");
+	const calls = result.steps.flatMap((s) => s.toolCalls.map((c) => c.toolName));
+	// Kept as production replays it (replyForModel): its message, the tools it used (they all failed here), its reaction.
+	if (session) {
+		const reply = [post, calls.length > 0 && `[Tools you used: ${calls.map((c) => `${c} (failed)`).join(", ")}]`].filter(Boolean).join("\n");
+		session.turns.push({ prompt, reply: replayOf(reply, emoji) });
+		session.seen = turn.said.length;
+		session.at = started;
+	}
+	// What it did, for a miss: its tool calls and its answer.
+	const did = [...calls, decision ? `answered ${JSON.stringify(decision).slice(0, 160)}` : "no answer"].join(", ");
 	TOKENS.input += result.totalUsage.inputTokens ?? 0;
 	TOKENS.cached += result.totalUsage.inputTokenDetails?.cacheReadTokens ?? 0;
 	TOKENS.output += result.totalUsage.outputTokens ?? 0;
-	return { posted, to: posted.length ? decision!.to : undefined, reacted, did, ms: Date.now() - started, costUsd: result.steps.reduce((sum, s) => sum + gatewayCost(s.providerMetadata), 0) };
+	return { posted, to: posted.length ? decision!.to : undefined, reacted: emoji ?? undefined, did, ms: Date.now() - startedMs, costUsd: result.steps.reduce((sum, s) => sum + gatewayCost(s.providerMetadata), 0) };
 }
 
 /** Agent turns' tokens: the cache hit rate swings run to run, so $ alone doesn't compare two prompts. */
@@ -179,7 +206,7 @@ type Tally = {
 	reactions: number;
 	misses: string[];
 };
-type Turn = Woken & Awaited<ReturnType<typeof quietTurn>>;
+type Turn = Woken & Awaited<ReturnType<typeof agentTurn>>;
 
 /** Scores who posted against `expect`. "one": exactly one of those agents posts. */
 function score(tally: Tally, label: string, agents: RouterAgent[], turns: Turn[], expect: Record<string, Outcome>) {
@@ -192,6 +219,7 @@ function score(tally: Tally, label: string, agents: RouterAgent[], turns: Turn[]
 	};
 	const butted = (a: RouterAgent) => (tally.butted++, tally.misses.push(`  ${label}: ${a.name} butted in, ${why(a)}: ${JSON.stringify(turnOf(a)!.posted[0]!.slice(0, 100))}`));
 	const silent = (a: RouterAgent, extra = "") => (tally.silent++, tally.misses.push(`  ${label}: ${a.name}${extra} stayed silent, ${why(a)}${turnOf(a) ? `: ${turnOf(a)!.did}` : ""}`));
+	const reacted = (a: RouterAgent) => turns.some((t) => t.agent.key === a.key && t.reacted);
 	const ones = agents.filter((a) => expect[a.key] === "one");
 	const onePosted = ones.filter(posted);
 	for (const a of agents) {
@@ -204,8 +232,16 @@ function score(tally: Tally, label: string, agents: RouterAgent[], turns: Turn[]
 			else tally.right++;
 		} else if (want === "either") tally.right++;
 		else if (want === "respond") {
-			if (posted(a) || turns.some((t) => t.agent.key === a.key && t.reacted)) tally.right++;
+			if (posted(a) || reacted(a)) tally.right++;
 			else silent(a, " (no vote)");
+		} else if (want === "react") {
+			// A reaction, never a post.
+			if (posted(a)) butted(a);
+			else if (reacted(a)) tally.right++;
+			else silent(a, " (no reaction)");
+		} else if (want === "both") {
+			if (posted(a) && reacted(a)) tally.right++;
+			else silent(a, posted(a) ? " (posted, but no reaction)" : reacted(a) ? " (reacted, but no post)" : "");
 		}
 		else if (want === "handoff") {
 			// Fine if it says nothing, or only hands to another agent.
@@ -260,8 +296,29 @@ async function checkPosts(tally: Tally, label: string, person: string, message: 
 	}
 }
 
-/** A person's message through the whole path: the dispatcher, then each woken agent's quiet turn. */
-async function step(tally: Tally, label: string, input: RouterInput, said: Said[], expect: Record<string, Outcome>, checks: Pick<Transcript["steps"][number], "short" | "together"> = {}) {
+/**
+ * A person's message through the whole path: the dispatcher, then each woken agent's turn. `sessions`:
+ * each agent's session in a transcript, by key, as production keeps them.
+ */
+async function step(
+	tally: Tally,
+	label: string,
+	input: RouterInput,
+	said: Said[],
+	expect: Record<string, Outcome>,
+	checks: Pick<Transcript["steps"][number], "short" | "together"> = {},
+	sessions?: Map<string, Session>,
+) {
+	const sessionOf = (a: RouterAgent) => {
+		if (!sessions) return undefined;
+		if (!sessions.has(a.key)) sessions.set(a.key, { turns: [], seen: 0, at: -1, own: new Set() });
+		return sessions.get(a.key)!;
+	};
+	const post = (a: RouterAgent, text: string) => {
+		const id = `${said.at(-1)!.id}-${seen.length}`;
+		seen.push({ author: a.name, agent: a.key, text, id });
+		sessionOf(a)?.own.add(id);
+	};
 	tally.messages++;
 	const { woken, costUsd } = await dispatch(input);
 	tally.costUsd += costUsd;
@@ -271,40 +328,42 @@ async function step(tally: Tally, label: string, input: RouterInput, said: Said[
 	const picks = [...woken].sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0));
 	for (const [i, w] of picks.entries()) {
 		const before = turns.map((t) => t.agent.name);
-		const turn = { ...w, ...(await quietTurn({ woken: w, agents: input.agents, people: input.people, channel: input.place.name, said: seen, triggerId: said.at(-1)!.id, before })) };
+		const turn = { ...w, ...(await agentTurn({ woken: w, agents: input.agents, people: input.people, channel: input.place.name, said: seen, triggerId: said.at(-1)!.id, before, session: sessionOf(w.agent) })) };
 		turns.push(turn);
 		// Its posts come after the message, so the trigger stays the one to answer.
-		for (const text of turn.posted) seen.push({ author: w.agent.name, agent: w.agent.key, text, id: `${said.at(-1)!.id}-${seen.length}` });
+		for (const text of turn.posted) post(w.agent, text);
 		// Named another agent: it answers next, as a hop on the post (chains.ts), unless it's a pick still to run.
 		const named = input.agents.find((a) => a.name === turn.to && a !== w.agent);
 		if (!named || picks.slice(i + 1).some((p) => p.agent === named)) continue;
 		const hop: Woken = { agent: named, band: "clearly" };
-		const post = seen.at(-1)!;
-		const answer = { ...hop, ...(await quietTurn({ woken: hop, agents: input.agents, people: input.people, channel: input.place.name, said: seen, triggerId: post.id, person: input.message.author, from: w.agent.name, by: w.agent.name })) };
+		const answer = { ...hop, ...(await agentTurn({ woken: hop, agents: input.agents, people: input.people, channel: input.place.name, said: seen, triggerId: seen.at(-1)!.id, person: input.message.author, from: w.agent.name, by: w.agent.name, session: sessionOf(named) })) };
 		turns.push(answer);
-		for (const text of answer.posted) seen.push({ author: named.name, agent: named.key, text, id: `${said.at(-1)!.id}-${seen.length}` });
+		for (const text of answer.posted) post(named, text);
 	}
 	count(tally, turns);
 	const trigger = said.at(-1)!;
 	for (const t of turns.filter((x) => x.reacted)) {
+		trigger.reactedAt = clock++;
 		const group = trigger.reactions?.find((g) => g.emoji === t.reacted);
 		if (group) group.by.push(t.agent.name);
 		else (trigger.reactions ??= []).push({ emoji: t.reacted!, by: [t.agent.name] });
 	}
 	score(tally, label, input.agents, turns, expect);
 	const posts = turns.flatMap((t) => t.posted.map((text) => ({ agent: t.agent, text })));
+// The transcript's own copy of the posts, with the ids the sessions know them by.
+const added = seen.slice(said.length);
 	await checkPosts(tally, label, input.message.author, input.message.text, posts, checks);
-	return { posts, turns, costUsd };
+	return { posts, added, turns, costUsd };
 }
 
-it("scores the full path: dispatcher, then the agent's quiet turn", { timeout: 20 * 60_000 }, async () => {
+it("scores the full path: dispatcher, then the agent's turn", { timeout: 20 * 60_000 }, async () => {
 	if (!process.env.AI_GATEWAY_API_KEY) throw new Error("Set AI_GATEWAY_API_KEY: the eval calls real models.");
 	const runs = Number(process.env.FULL_EVAL_RUNS ?? 1);
 	const tally: Tally = { errors: 0, decisions: 0, right: 0, butted: 0, duplicates: 0, silent: 0, filler: 0, long: 0, together: { built: 0, pairs: 0 }, costUsd: 0, messages: 0, turns: 0, ms: [], woken: { clearly: 0, probably: 0, might: 0 }, reactions: 0, misses: [] };
 	for (let run = 0; run < runs; run++) {
 		const moments = fullPathCases.map(async (c) => {
 			const said = [...(c.input.parent ? [c.input.parent] : []), ...c.input.before, c.input.message].map((m, i) => ({ ...m, id: `m${i}` }));
-			const expect = Object.fromEntries(Object.entries(c.expect).map(([k, action]) => [k, action === "reply" && !c.reacts?.includes(k) ? "post" : "silent"])) as Record<string, Outcome>;
+			const expect = Object.fromEntries(Object.entries(c.expect).map(([k, action]) => [k, action !== "reply" ? "silent" : c.reacts?.includes(k) ? "react" : "post"])) as Record<string, Outcome>;
 			const { turns, costUsd } = await step(tally, c.name, c.input, said, expect);
 			// Each moment's turns, with what they cost and took: the dispatcher's call plus each woken agent's turn.
 			const did = turns.map((t) => `${t.agent.name} ${t.posted.length ? `posted ${JSON.stringify(t.posted[0]!.slice(0, 60))}` : t.reacted ? `reacted ${t.reacted}` : "did nothing"} (${(t.ms / 1000).toFixed(1)}s, $${t.costUsd.toFixed(5)})`);
@@ -313,6 +372,7 @@ it("scores the full path: dispatcher, then the agent's quiet turn", { timeout: 2
 		// Each step's posts feed the next, as in the chat.
 		const conversations = transcripts.map(async (transcript) => {
 			const said: Said[] = [];
+			const sessions = new Map<string, Session>();
 			const posted: string[] = [];
 			const responded: string[] = [];
 			const lines: string[] = [];
@@ -326,8 +386,9 @@ it("scores the full path: dispatcher, then the agent's quiet turn", { timeout: 2
 					before: said.slice(-9, -1),
 					message: s.message,
 				};
-				const { posts, turns } = await step(tally, `${transcript.name}, step ${i + 1} ${JSON.stringify(s.message.text)}`, input, said, s.expect(posted, responded), s);
-				for (const p of posts) (said.push({ author: p.agent.name, agent: p.agent.key, text: p.text, id: `t${said.length}` }), posted.push(p.agent.key), responded.push(p.agent.key));
+				const { posts, added, turns } = await step(tally, `${transcript.name}, step ${i + 1} ${JSON.stringify(s.message.text)}`, input, said, s.expect(posted, responded), s, sessions);
+				said.push(...added);
+				for (const p of posts) (posted.push(p.agent.key), responded.push(p.agent.key));
 				const reacted = turns.filter((t) => t.reacted);
 				responded.push(...reacted.map((t) => t.agent.key));
 				const shown = [...posts.map((p) => `${p.agent.name}: ${JSON.stringify(p.text.slice(0, 80))}`), ...reacted.map((t) => `${t.agent.name} reacted ${t.reacted}`)];
@@ -345,7 +406,7 @@ it("scores the full path: dispatcher, then the agent's quiet turn", { timeout: 2
 			tally.costUsd += costUsd;
 			const thread = { ...h.parent, id: "p" };
 			const turns = await Promise.all(
-				woken.map(async (w) => ({ ...w, ...(await quietTurn({ woken: w, agents, people: [], channel: "general", said: [{ ...h.message, id: "r" }], person: h.person, thread, from: from.name })) })),
+				woken.map(async (w) => ({ ...w, ...(await agentTurn({ woken: w, agents, people: [], channel: "general", said: [{ ...h.message, id: "r" }], person: h.person, thread, from: from.name })) })),
 			);
 			count(tally, turns);
 			score(tally, `hand-back: ${h.name}`, choices, turns, h.expect);
@@ -358,7 +419,7 @@ it("scores the full path: dispatcher, then the agent's quiet turn", { timeout: 2
 			tally.messages++;
 			const said = [{ ...a.message, id: "m" }, { ...a.earlier, id: "e" }];
 			const woken: Woken = { agent: a.next, band: "probably" };
-			const turn = { ...woken, ...(await quietTurn({ woken, agents, people: ["j", "Dana"], channel: "general", said, triggerId: "m", before: [a.earlier.author] })) };
+			const turn = { ...woken, ...(await agentTurn({ woken, agents, people: ["j", "Dana"], channel: "general", said, triggerId: "m", before: [a.earlier.author] })) };
 			count(tally, [turn]);
 			await checkPosts(tally, `anchor: ${a.name}`, a.message.author, a.message.text, [{ agent: agents.find((x) => x.key === a.earlier.agent)!, text: a.earlier.text }, ...turn.posted.map((text) => ({ agent: a.next, text }))], { together: true });
 			print(`anchor: ${a.name} → ${a.next.name}: ${turn.posted.length ? JSON.stringify(turn.posted[0]!.slice(0, 100)) : "nothing posted"}`);

@@ -3,7 +3,7 @@ import type { ModelInfo } from "./models";
 
 // Whether agents chime in without an @mention (wiki/chat.md, When agents reply). In a channel set to
 // "relevant", a cheap model call (the dispatcher) decides for each agent there: wake it ("reply") or
-// leave it quiet. It's a wide net, not the last word: a woken agent gets a quiet turn, reads the whole
+// leave it quiet. It's a wide net, not the last word: a woken agent gets a turn, reads the whole
 // conversation, and answers with a post, a reaction or nothing (turn-input.ts postDecision). The backend
 // (backend/convex/router.ts) gathers the input and acts on the answer; the eval (core/eval/router.eval.ts)
 // scores the same prompt.

@@ -249,7 +249,7 @@ export async function insertMessage(
 	return id;
 }
 
-/** A message people now see: on its thread's reply count and authors, or the chat's last message time. A quiet reply that's shown, too. */
+/** A message people now see: on its thread's reply count and authors, or the chat's last message time. An agent's reply once it's shown, too. */
 export async function countMessage(ctx: MutationCtx, chat: Doc<"chats">, message: Pick<Doc<"chatMessages">, "threadId" | "authorUserId" | "authorAgentId">) {
 	const now = Date.now();
 	if (message.threadId) {
@@ -263,8 +263,8 @@ export async function countMessage(ctx: MutationCtx, chat: Doc<"chats">, message
 }
 
 /**
- * Where a message sits in its timeline: when it was shown. A quiet reply is shown when its decision posts
- * it, and a reply that took in messages sent after it began moves below them (`publishedAt`); the rest
+ * Where a message sits in its timeline: when it was shown. An agent's reply is shown when its message
+ * starts, and a reply that took in messages sent after it began moves below them (`publishedAt`); the rest
  * sit where they were made. Never before that (`publishedAt` is whole ms; `_creationTime` isn't). Lists
  * put messages in this order.
  */

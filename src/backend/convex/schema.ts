@@ -113,11 +113,10 @@ export const dispatchInfo = v.object({
 	by: v.optional(v.string()),
 });
 
-/** How a turn ended (core `postDecision`): what it would add, how it responds (post, react, nothing), with what, to whom. */
+/** How a turn ended (core `postDecision`): its reaction, what it would add, to whom, and its message. */
 export const postDecision = v.object({
-	new_point: v.string(),
-	respond: v.union(v.literal("post"), v.literal("react"), v.literal("nothing")),
 	emoji: v.union(v.string(), v.null()),
+	new_point: v.string(),
 	to: v.string(),
 	message: v.string(),
 });
@@ -520,10 +519,10 @@ export default defineSchema({
 		costUsd: v.optional(v.number()),
 		/** Server-written provenance. `foreign` snapshots whose words the run follows; absent on older messages, which ask. */
 		automation: v.optional(v.object({ id: v.string(), name: v.string(), foreign: v.optional(v.boolean()) })),
-		/** A quiet turn's own reply (a wake, a dispatcher pick, a hop): hidden unless its decision posts it (turns.finishReply). */
+		/** Not in the timeline: an agent's reply until it has something to show (turns.ts `show`), and an ask (chains.ts). */
 		quiet: v.optional(v.boolean()),
 		/**
-		 * Where it sits in the timeline, if not where it was made (chatOps `shownAt`): when a quiet reply was
+		 * Where it sits in the timeline, if not where it was made (chatOps `shownAt`): when an agent's reply was
 		 * shown, or when a reply took in messages sent after it began (turns.steer), so it shows below them.
 		 */
 		publishedAt: v.optional(v.number()),
@@ -622,7 +621,7 @@ export default defineSchema({
 		sessionId: v.optional(v.id("agentSessions")),
 		/** The exact user message sent to the model this turn. Replayed as-is in later turns. */
 		prompt: v.optional(v.string()),
-		/** Nobody @mentioned the agent: the router queued it (router.ts), or a hop (chains.ts). Its reply is quiet. */
+		/** Nobody @mentioned the agent: the router queued it (router.ts), or a hop (chains.ts). Its prompt says so. */
 		routed: v.optional(v.literal(true)),
 		/**
 		 * The dispatcher's pick, for its prompt and its reply's stats. One message's picks run one after
@@ -664,7 +663,7 @@ export default defineSchema({
 		startedAt: v.optional(v.number()),
 		/** Set when the turn follows a decision on this approval: it runs the call if approved, then tells the agent. */
 		approvalId: v.optional(v.id("approvals")),
-		/** A wake turn (wakeups.ts): its input is the wakeup, its reply is quiet, and `wakeLogId` is its line in Activity. */
+		/** A wake turn (wakeups.ts): its input is the wakeup, and `wakeLogId` is its line in Activity. */
 		wakeupId: v.optional(v.id("wakeups")),
 		wakeLogId: v.optional(v.id("agentActivity")),
 		/** What its pictures cost so far (imageGen.ts), for its reply's stats. */
@@ -756,7 +755,7 @@ export default defineSchema({
 		turnId: v.optional(v.id("agentTurns")),
 		chatId: v.id("chats"),
 		threadId: v.optional(v.id("chatMessages")),
-		/** Unset on a wake's line: a wake turn's reply is quiet. */
+		/** Unset on a wake's line. */
 		replyId: v.optional(v.id("chatMessages")),
 		/** Same id as the reply's tool part, so the app can open one from the other. A wake's line: the wakeup's id. */
 		callId: v.string(),

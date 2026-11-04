@@ -79,15 +79,15 @@ describe("agent turns", () => {
 		const [turn] = await turnsOf(t);
 		expect(turn).toMatchObject({ status: "running", triggerId: trigger, agentId: companybot._id });
 		expect((await generalOf(owner)).members.some((m) => m.id === companybot._id)).toBe(true);
-		const messages = await owner.query(api.messages.list, { chatId });
-		expect(messages.at(-1)).toMatchObject({ _id: turn!.replyId, author: { type: "agent", name: "Companybot" }, status: "streaming" });
+		// Not shown until it writes: the typing line says it's working.
+		expect((await owner.query(api.messages.list, { chatId })).at(-1)!._id).toBe(trigger);
 
 		// Streaming writes go to the reply's own stream, not the message the timeline reads; ending moves them over.
 		const replyId = turn!.replyId!;
 		const parts = [{ type: "text" as const, text: "Hello" }];
 		await t.mutation(internal.turns.updateReply, { turnId: turn!._id, text: "Hello", parts });
 		expect(await owner.query(api.messages.stream, { messageId: replyId })).toEqual({ text: "Hello", parts });
-		expect((await owner.query(api.messages.list, { chatId })).at(-1)).toMatchObject({ text: "", parts: [] });
+		expect((await owner.query(api.messages.list, { chatId })).at(-1)).toMatchObject({ _id: replyId, author: { type: "agent", name: "Companybot" }, status: "streaming", text: "", parts: [] });
 		await t.mutation(internal.turns.finishReply, { turnId: turn!._id });
 		expect(await owner.query(api.messages.stream, { messageId: replyId })).toBeNull();
 		expect((await owner.query(api.messages.list, { chatId })).at(-1)).toMatchObject({ text: "Hello", parts, status: "done" });
@@ -164,6 +164,7 @@ describe("agent turns", () => {
 		});
 		const [turn] = await turnsOf(t);
 		expect(turn?.threadId).toBe(parent);
+		await t.mutation(internal.turns.updateReply, { turnId: turn!._id, text: "Ship it", parts: [{ type: "text", text: "Ship it" }] });
 		expect((await owner.query(api.messages.list, { chatId, threadId: parent })).map((m) => m.author.type)).toEqual([
 			"user",
 			"user",
@@ -243,7 +244,7 @@ describe("agent turns", () => {
 			const id = await owner.mutation(api.messages.send, { chatId, text, mentions: noMentions });
 			const turn = (await turnsOf(t)).at(-1)!;
 			await t.mutation(internal.turns.savePrompt, { turnId: turn._id, prompt: text });
-			await t.mutation(internal.turns.finishReply, { turnId: turn._id, decision: { new_point: "", respond: "post", emoji, to: "room", message: "" } });
+			await t.mutation(internal.turns.finishReply, { turnId: turn._id, decision: { emoji, new_point: "", to: "room", message: "" } });
 			return id;
 		};
 		const first = await ask("React with your favorite emoji", "✨");
@@ -284,7 +285,7 @@ describe("agent turns", () => {
 		expect(context.session.turns.map((x) => x.prompt.slice(0, 8))).toEqual(["prompt c"]);
 	});
 
-	it("lets chat tools see only what the person can, and read the reaction its decision added", async () => {
+	it("lets chat tools see only what the person can, and read the reaction its answer added", async () => {
 		const { t, owner, member } = await ownerAndMember();
 		const { companybot } = await agentsOf(owner);
 		await owner.mutation(api.chats.createChannel, { name: "board", private: true });
@@ -302,7 +303,7 @@ describe("agent turns", () => {
 		expect("messages" in here && here.messages.map((m) => [m.chat, m.author, m.text])).toEqual([
 			["#general", "member@co.com", "@Companybot what's on #board?"],
 		]);
-		await t.mutation(internal.turns.finishReply, { turnId: turn!._id, decision: { new_point: "On #board", respond: "post", emoji: "👀", to: "room", message: "I can't see #board." } });
+		await t.mutation(internal.turns.finishReply, { turnId: turn!._id, decision: { emoji: "👀", new_point: "On #board", to: "room", message: "I can't see #board." } });
 		const [m] = (await member.query(api.messages.list, { chatId })).filter((x) => x._id === trigger);
 		expect(m!.reactions).toMatchObject([{ emoji: "👀", count: 1, mine: false, people: [{ type: "agent", name: "Companybot" }] }]);
 		await member.mutation(api.messages.send, { chatId, text: "@Companybot and now?", mentions: { userIds: [], agentIds: [companybot._id] } });

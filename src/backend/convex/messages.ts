@@ -102,7 +102,7 @@ export const list = query({
 				.query("chatMessages")
 				.withIndex("by_chat_thread", (q) => q.eq("chatId", chatId).eq("threadId", threadId))
 				.order("desc")
-				// Wake turns' own replies are never shown (wakeups.ts).
+				// Replies not shown yet (turns.ts `show`), and asks.
 				.filter((q) => q.neq(q.field("quiet"), true))
 				.take(LIST_LIMIT)
 		).sort((a, b) => shownAt(a) - shownAt(b));

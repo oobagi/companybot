@@ -90,22 +90,16 @@ export interface TurnPromptInput {
 	triggerId: string | null;
 	/** Whether the agent's model sees pictures: they're sent with the prompt (`buildTurnInput`'s `images`). */
 	vision?: boolean;
-	/**
-	 * Nobody asked it (a dispatcher pick, a hop, a wake): its decision may post, react or do nothing
-	 * (DECISION_NOTE). Otherwise it was asked, and its message always posts (ANSWER_NOTE).
-	 */
-	quiet?: boolean;
 	/** Set when this turn follows an approval decision: it answers that instead of a message. */
 	approval?: ApprovalOutcome;
-	/** Set when the agent woke on its own (backend wakeups.ts): it answers that instead of a message, quietly. */
+	/** Set when the agent woke on its own (backend wakeups.ts): it answers that instead of a message. */
 	wake?: TurnWake;
 	/**
 	 * Nobody @mentioned the agent: the dispatcher (router.ts) picked it, this sure, or (`by`) another agent
-	 * talked to it by name. Its reply is shown only if its decision says to post (`postDecision`).
-	 * `before`: agents the same message went to first (picks run one after another, best fit first).
-	 * `answering`: other agents' un-asked turns running here now (backend turns.ts), the first to post claims it.
+	 * talked to it by name. `before`: agents the same message went to first (picks run one after another,
+	 * best fit first).
 	 */
-	routed?: { band: ConfidenceBand; by?: string; before?: string[]; answering?: string[] };
+	routed?: { band: ConfidenceBand; by?: string; before?: string[] };
 	/** Another agent handed this turn's message to it (handoffs.ts): by @mention, or privately (`ask`). */
 	handoff?: { from: string; ask: boolean };
 	/**
@@ -181,14 +175,18 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 		const skills = trigger.skills?.length
 			? `\nIt names ${trigger.skills.length === 1 ? "a skill" : "skills"} with /: load ${trigger.skills.length === 1 ? "it" : "each"} with skills_load first and follow it: ${trigger.skills.map((s) => `${JSON.stringify(clean(s.name))} (${s.id})`).join(", ")}.`
 			: "";
-		if (input.routed) {
-			const room = roomState(messages, trigger, input.agentId, actor.timeZone);
-			// What agents posted on this message before it (picks run one after another): build on it, don't start over.
-			const said = messages.filter((m) => m.time > trigger.time && m.author.type === "agent" && m.author.id !== input.agentId);
-			sections.push(`This message from ${clean(trigger.author.name)} came in:\n${line(trigger)}${skills}${routedNote(input.routed, said, input.handoff && { from: input.handoff.from, person: actor.name })}${room ? `\n\n${room}` : ""}`);
-		} else sections.push(`Reply to this message from ${clean(trigger.author.name)}:\n${line(trigger)}${skills}${input.handoff ? handoffNote(input.handoff, actor.name) : ""}`);
+		const from = clean(trigger.author.name);
+		// The one thing that differs from turn to turn: why it's here, as facts. The guidance after it is the same for all.
+		const why = input.routed
+			? routedNote(input.routed, messages, trigger, input.agentId, actor, input.handoff)
+			: input.handoff
+				? handoffNote(input.handoff, actor.name)
+				: place.kind === "dm" && people.length === 1 && agents.length === 0
+					? `This is a DM with ${from}.`
+					: `${from} @mentioned you.`;
+		sections.push(`This message from ${from} came in:\n${line(trigger)}${skills}\n${why}`);
 	}
-	sections.push(input.quiet ? DECISION_NOTE : ANSWER_NOTE);
+	sections.push(ANSWER_NOTE);
 	return sections.join("\n\n");
 }
 
@@ -207,92 +205,82 @@ export function steerNote(messages: PlaceMessage[], actor: { id: string; name: s
 }
 
 /**
- * How every turn ends: its decision, the only way it posts or reacts in the chat it's answering.
- * Nobody asked (a pick, a hop, a wake): it commits to what it would add before drafting it (When2Speak,
- * "Inner Thoughts"; an optional post tool biases toward posting), and responds one way only: posts
- * (`publishes`), reacts, or nothing. Asked (an @mention, a DM, a handoff): its message always posts, and
- * it may react too. Field order is the order it's written in. One shape for every turn, so it never
- * splits the prompt cache: `to` is checked against who's here in code.
+ * How every turn ends: its answer, the only way it posts or reacts in the chat it's answering, the same
+ * for every turn. Its reaction comes first, decided on its own (a "thanks" needs no words: with what it'd
+ * add first, an empty new_point slid into nothing). Then what it'd add before drafting it (When2Speak,
+ * "Inner Thoughts"; an optional post tool biases toward posting). Field order is the order it's written
+ * in. One shape for every turn, so it never splits the prompt cache: `to` is checked against who's here in code.
  */
 export const postDecision = z.object({
+	emoji: z.string().nullable().describe("Your reaction to the message, one emoji, or null. Decide it first, on its own, apart from whether you write."),
 	new_point: z.string().describe("15 words at most: what you'd add that nobody here has said yet. Empty if nothing."),
-	respond: z.enum(["post", "react", "nothing"]).describe("Post your message (only with a new_point, and only if it's for you), react to the message instead, or nothing. Asked directly: always post."),
-	emoji: z.string().nullable().describe("Your reaction, one emoji, if respond is react (asked directly: alongside your reply, if one fits); null otherwise."),
 	to: z.string().describe('Who you\'re talking to: a person or agent here, by name, or "room". Naming an agent here wakes it next.'),
-	message: z.string().describe("What's posted if respond is post, in Markdown: 1–3 sentences, one move (asked directly: your whole reply). Empty otherwise."),
+	message: z.string().describe("What's posted, in Markdown. Empty if you post nothing."),
 });
 export type PostDecision = z.infer<typeof postDecision>;
 
-/** The only rule for showing a quiet turn's reply: it decided to post, with something new to say and a message that isn't empty. */
-export const publishes = (d: Pick<PostDecision, "respond" | "new_point" | "message"> | null | undefined) =>
-	d?.respond === "post" && d.new_point.trim().length > 0 && d.message.trim().length > 0;
-
-/**
- * What a turn's decision does in the chat: the message it posts and the reaction it adds (one emoji,
- * `isEmoji`), each null for none. Asked: its message (empty: a reply with no text) and any reaction.
- * Not asked (`quiet`): one at most, as `respond` says, and a post only if it `publishes`.
- */
-export function responseOf(d: PostDecision | null | undefined, quiet: boolean) {
-	const message = quiet ? (publishes(d) ? d!.message : null) : d?.message.trim() ? d.message : null;
-	const emoji = (!quiet || d?.respond === "react") && isEmoji(d?.emoji) ? d.emoji : null;
-	return { message, emoji };
+/** What a turn's answer does in the chat: the message it posts (not blank) and the reaction it adds (one emoji, `isEmoji`), each null for none. */
+export function responseOf(d: PostDecision | null | undefined) {
+	return { message: d?.message.trim() ? d.message : null, emoji: isEmoji(d?.emoji) ? d.emoji : null };
 }
 
-/** How an asked turn ends: its reply always posts. */
-const ANSWER_NOTE = [
-	"You finish with your answer; nothing else you write is shown:",
-	"- new_point: in 15 words or fewer, what your reply says.",
-	"- respond: \"post\": you were asked, so you always reply.",
-	"- emoji: one emoji to react to the message with as well, if a reaction fits (a vote or a reaction it asks for, thanks); null otherwise.",
-	"- to: who you're talking to, a person or agent here by name, or \"room\". Name an agent only to have it answer you next.",
-	"- message: your reply, in Markdown. Widgets and approvals you place go out with it.",
-].join("\n");
+/** A finished turn as its session replays it: its reply, and its reaction, which isn't in the reply. */
+export const replayOf = (reply: string, emoji: string | null) => [reply, emoji && `[You reacted ${emoji}]`].filter(Boolean).join("\n");
 
-const DECISION_NOTE = [
-	"You end this reply with your decision, then your message; nothing else you write is shown:",
+/** How every turn ends, the same text for all: what's for it, when to write, when a reaction says it. */
+const ANSWER_NOTE = [
+	"You end this reply with your answer; nothing else you write is shown:",
+	"- emoji: your reaction to the message, one emoji, any that fits, or null. Decide it first, on its own, apart from whether you write: react if it's for you and needs no words from you (thanks to you, an okay, a vote, a reaction it asks for), each time, even if you reacted to one like it before.",
 	"- new_point: in 15 words or fewer, what you'd add that nobody here has said yet. Empty if nothing.",
-	"- respond: \"post\" if this is for you and there's a new_point; \"react\" if it's for you but needs no words from you (thanks to you, a vote, a reaction it asks for); \"nothing\" if it isn't for you, or it's already been answered: nothing is shown.",
-	"- emoji: if you react, one emoji, any that fits; null otherwise.",
 	"- to: who you're talking to, a person or agent here by name, or \"room\". Name an agent only to have it answer you next.",
-	"- message: what's posted: 1–3 sentences, one move (answer, agree and add, hand off, or ask). Don't do the whole task in one go unless asked. Widgets and approvals you place go out with it.",
+	"- message: what's posted, in Markdown; empty posts nothing. Widgets and approvals you place go out with it.",
+	"When to write:",
+	"- Answer what's for you. An @mention or a DM means it's for you.",
+	"- Don't post if it's already been answered (by you or anyone) and you'd add nothing different; if the person wants someone other than you (\"anyone else?\" or \"can anyone check that?\" right after you answered: don't check your own answer); if it's people talking to each other; or if you'd only be acknowledging, offering to help, making small talk or saying you have nothing to add. A message for you that needs no words gets your reaction instead.",
+	"- Otherwise answer it, even if you couldn't find what they asked for (then say so). A question to the room (\"anyone know…?\") that nobody has answered is for you if you can answer it; one to everyone (a vote, \"everyone…?\") asks you too: give your own answer once, in a line or a reaction. When they ask for someone else, an agent that hasn't answered and whose line of work it is should.",
+	"- Nobody asked you directly: 1–3 sentences, one move (answer, agree and add, hand off, or ask). Don't do the whole task in one go unless asked.",
 ].join("\n");
 
 /** The dispatcher's confidence (router.ts confidenceBand), as words: the agent judges, not a number. */
 const BAND_WORDS: Record<ConfidenceBand, string> = { clearly: "is clearly for you", probably: "is probably for you", might: "might be for you" };
 
 /**
- * A quiet pick: the agent has the final say. It reads the conversation and decides (DECISION_NOTE)
- * whether to post; anchored on what agents already said on this message, so it builds on that.
+ * Why a turn nobody @mentioned is here: the dispatcher's guess, or another agent talking to it. The agent
+ * has the final say, from the conversation; anchored on what agents already said on this message.
  */
-const routedNote = (
-	{ band, by, before = [], answering = [] }: { band: ConfidenceBand; by?: string; before?: string[]; answering?: string[] },
-	/** Agents' posts on this message, before this turn. */
-	said: PlaceMessage[],
+function routedNote(
+	{ band, by, before = [] }: NonNullable<TurnPromptInput["routed"]>,
+	messages: PlaceMessage[],
+	trigger: PlaceMessage,
+	self: string,
+	actor: { name: string; timeZone: string },
 	/** A hop: another agent wrote the message, working for this person. */
-	hop?: { from: string; person: string },
-) =>
-	[
+	hop?: { from: string },
+) {
+	// What agents posted on this message before it (picks run one after another): build on it, don't start over.
+	const said = messages.filter((m) => m.time > trigger.time && m.author.type === "agent" && m.author.id !== self);
+	const person = clean(actor.name);
+	const room = roomState(messages, trigger, self, actor.timeZone);
+	return [
 		hop
-			? `\n${clean(hop.from)} is an agent working for ${clean(hop.person)}, and @mentioned nobody. ${by ? "It's talking to you" : `A quick automatic check thinks you should act on it next (it ${BAND_WORDS[band].replace("for you", "yours")})`}. You decide, from the conversation above:`
-			: `\nNobody @mentioned you. A quick automatic check, which sees only the last few messages and a line about each agent, thinks this message ${BAND_WORDS[band]}. It can't tell whether the person wants you in particular; you can, from the conversation above. You decide:`,
+			? `${clean(hop.from)} is an agent working for ${person}, and @mentioned nobody. ${by ? "It's talking to you" : `A quick automatic check thinks you should act on it next (it ${BAND_WORDS[band].replace("for you", "yours")})`}.`
+			: `Nobody @mentioned you. A quick automatic check, which sees only the last few messages and a line about each agent, thinks this message ${BAND_WORDS[band]}. It can't tell whether the person wants you in particular; you can, from the conversation above.`,
 		...said.map((m) => `- ${clean(m.author.name)} just said: ${encode(clip(m.text, 300))}. If they asked something, answer it or build on it; don't start over.`),
 		before.length > 0 &&
 			`- It went to ${listed(before.map(clean))} first, a better fit by that check's guess. One answer is enough: no second take or extra tip, only a fix if theirs is wrong or misses what was asked. Unless the message asks each of you (everyone, a vote): then give your own.`,
-		answering.length > 0 &&
-			`- ${listed(answering.map(clean))} ${answering.length === 1 ? "is" : "are"} working here right now, unasked too. The first to post takes it: if one posts while you work, yours isn't shown.`,
-		"- Don't post if it's already been answered (by you or anyone) and you'd add nothing different; if the person wants someone other than you (\"anyone else?\" or \"can anyone check that?\" right after you answered: don't check your own answer); if it's people talking to each other; or if you'd only be acknowledging, offering to help, making small talk or saying you have nothing to add. You can react instead.",
-		hop
-			? `- If it gives back a result you asked for, ${clean(hop.person)} already sees it, so never restate, sum up or confirm it. If you asked for it to do more yourself (your message above says what for), do that now and post it; if not, you're done: don't post.\n- If it hands you work or asks you something, do it and post the result.`
-			: `- Otherwise, if it's ${band === "might" ? "clearly for you (the check wasn't sure)" : "for you"}, answer it, briefly, even if you couldn't find what they asked for (then say so). A question to the room ("anyone know…?") that nobody has answered is for you if you can answer it; one to everyone (a vote, "everyone…?") asks you too: give your own answer once, in a line or a reaction. When they ask for someone else, an agent that hasn't answered and whose line of work it is should.`,
+		hop &&
+			`- If it gives back a result you asked for, ${person} already sees it, so never restate, sum up or confirm it. If you asked for it to do more yourself (your message above says what for), do that now and post it; if not, you're done: don't post.\n- If it hands you work or asks you something, do it and post the result.`,
+		room && `\n${room}`,
 	]
 		.filter(Boolean)
 		.join("\n");
+}
 
 /** Questions the room state lists, newest last. */
 const ROOM_QUESTIONS = 3;
 
 /**
- * Where the conversation stands, for a pick nobody asked (#172): the people's latest questions and who
+ * Where the conversation stands, for a turn nobody asked (#172): the people's latest questions and who
  * answered each (the first to write after it, other than whoever asked), what the agent itself last
  * said, and whether a person wrote after the message. Read off the messages already in the prompt; no model call. A missed "already
  * answered" is what makes an agent butt in, so it's spelled out.
@@ -318,8 +306,8 @@ function handoffNote({ from: name, ask }: { from: string; ask: boolean }, person
 	const from = clean(name);
 	const them = clean(person);
 	return ask
-		? `\n${from} is an agent working for ${them}. It asked you this privately: your reply goes back to it, not into the chat. Treat it as ${them} asking, within what they'd want, and answer it fully in this one reply. Don't @mention other agents here.`
-		: `\n${from} is an agent working for ${them} and handed this to you. Do it as if ${them} asked, within what they'd want. Your reply is posted in this thread, where ${them} sees it: put the result in it. @mention ${from} in it only if ${from} needs the result to finish; never just to acknowledge.`;
+		? `${from} is an agent working for ${them}. It asked you this privately: your reply goes back to it, not into the chat. Treat it as ${them} asking, within what they'd want, and answer it fully in this one reply. Don't @mention other agents here.`
+		: `${from} is an agent working for ${them} and handed this to you. Do it as if ${them} asked, within what they'd want. Your reply is posted in this thread, where ${them} sees it: put the result in it. @mention ${from} in it only if ${from} needs the result to finish; never just to acknowledge.`;
 }
 
 /** What the agent hears when it wakes on its own: the note, the record as it is now, a job's result. An ask's answer is the rest of a reply. */

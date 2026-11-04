@@ -1,18 +1,20 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
-import { agentTurn, agentsOf, generalOf, ownerAndMember } from "./helpers";
+import type { Id } from "../convex/_generated/dataModel";
+import { agentTurn, agentsOf, generalOf, ownerAndMember, turnsOf } from "./helpers";
 
-// An asked turn (an @mention) ends with the same decision as an unasked one (core postDecision): its
-// message always posts, streamed as the JSON fills in, and it may react too. No network: the model's
-// stream is scripted.
+// Every turn ends with the same answer (core postDecision), asked (an @mention) or not (a dispatcher's
+// pick): it posts iff its message isn't blank, reacts iff its emoji is one emoji, and its reply shows,
+// streaming, once the message starts. No network: the model's stream is scripted.
 const streamText = vi.hoisted(() => vi.fn());
 vi.mock("ai", async (original) => ({ ...(await original<typeof import("ai")>()), streamText }));
 
 afterEach(() => void vi.useRealTimers());
 
-/** A model that writes `decision` as JSON in `chunks`, calling `after` once each is out. */
-function writes(decision: Record<string, unknown>, chunks: string[], after: () => Promise<unknown> = async () => {}) {
-	expect(chunks.join("")).toBe(JSON.stringify(decision));
+/** A model that writes `answer` as JSON in `chunks`, calling `after` once each is out; `output` is what the SDK parses. */
+function writes(answer: Record<string, unknown>, chunks: string[], after: () => Promise<unknown> = async () => {}, output: Promise<unknown> = Promise.resolve(answer)) {
+	expect(chunks.join("")).toBe(JSON.stringify(answer));
+	output.catch(() => {});
 	streamText.mockReturnValue({
 		stream: (async function* () {
 			yield { type: "start-step" };
@@ -22,65 +24,89 @@ function writes(decision: Record<string, unknown>, chunks: string[], after: () =
 				yield { type: "text-delta", text };
 				await after();
 			}
+			yield { type: "finish-step", usage: { inputTokens: 100, outputTokens: 20 }, providerMetadata: { gateway: { cost: "0.001" } } };
 		})(),
-		output: Promise.resolve(decision),
+		output,
 	});
 }
 
-async function mentioned() {
+/** A running turn in #general on "hi": @mentioned, or picked by the dispatcher (nobody asked it). */
+async function turn(kind: "asked" | "picked") {
 	const { t, owner } = await ownerAndMember();
 	const chatId = (await generalOf(owner))._id;
 	const { companybot } = await agentsOf(owner);
-	const turnId = await agentTurn(t, owner, chatId, companybot._id);
+	let turnId: Id<"agentTurns">;
+	if (kind === "asked") turnId = await agentTurn(t, owner, chatId, companybot._id);
+	else {
+		// Fake timers hold the scheduled run back, as agentTurn does: the test runs it.
+		vi.useFakeTimers();
+		const messageId = await owner.mutation(api.messages.send, { chatId, text: "hi", mentions: { userIds: [], agentIds: [] } });
+		await t.mutation(internal.router.apply, { messageId, replies: [{ agentId: companybot._id, probability: 0.9 }], model: "jev", costUsd: 0 });
+		turnId = (await turnsOf(t)).find((x) => x.triggerId === messageId)!._id;
+	}
 	vi.useRealTimers();
-	return { t, owner, chatId, turnId };
+	const replies = async () => (await owner.query(api.messages.list, { chatId })).filter((m) => m.author.type === "agent");
+	const reactions = async () => (await owner.query(api.messages.list, { chatId })).find((m) => m.text === "hi")!.reactions.map((r) => r.emoji);
+	return { t, owner, chatId, turnId, replies, reactions };
 }
 
-describe("an asked turn's answer", () => {
-	it("posts its message and adds its reaction to the message it answers: both", async () => {
-		const { t, owner, chatId, turnId } = await mentioned();
-		const decision = { new_point: "Saying hi back", respond: "post", emoji: "👋", to: "owner@co.com", message: "Hi! What can I do?" };
-		writes(decision, [JSON.stringify(decision)]);
+describe("every turn's answer", () => {
+	it("nobody asked, and it writes and reacts: both", async () => {
+		const { t, turnId, replies, reactions } = await turn("picked");
+		const answer = { emoji: "🦄", new_point: "Saying hi back", to: "Ada", message: "Hi!" };
+		writes(answer, [JSON.stringify(answer)]);
 		await t.action(internal.agent.respond, { turnId });
-		// The same decision schema as an unasked turn, so the request is the same shape.
+		// The same request as an asked turn: one schema.
 		expect(streamText.mock.calls[0]![0].output).toBeDefined();
-		const messages = await owner.query(api.messages.list, { chatId });
-		expect(messages.filter((m) => m.author.type === "agent").map((m) => m.text)).toEqual(["Hi! What can I do?"]);
-		expect(messages.find((m) => m.text === "hi")!.reactions).toMatchObject([{ emoji: "👋", count: 1, mine: false, people: [{ type: "agent", name: "Companybot" }] }]);
-		expect((await t.run((ctx) => ctx.db.get("agentTurns", turnId)))!.decision).toEqual(decision);
+		expect((await replies()).map((m) => m.text)).toEqual(["Hi!"]);
+		expect(await reactions()).toEqual(["🦄"]);
+		expect((await t.run((ctx) => ctx.db.get("agentTurns", turnId)))!.decision).toEqual(answer);
 	});
 
-	it("streams its message as the decision's JSON fills in, never the JSON itself", async () => {
-		const { t, owner, chatId, turnId } = await mentioned();
-		const decision = { new_point: "Greeting", respond: "post", emoji: null, to: "room", message: "Hello there, friend" };
-		const seen: string[] = [];
-		const json = JSON.stringify(decision);
+	it("asked, and it only reacts: the reaction, and no message", async () => {
+		const { t, turnId, replies, reactions } = await turn("asked");
+		const answer = { emoji: "👍", new_point: "", to: "room", message: "" };
+		writes(answer, [JSON.stringify(answer)]);
+		await t.action(internal.agent.respond, { turnId });
+		expect(await replies()).toEqual([]);
+		expect(await reactions()).toEqual(["👍"]);
+	});
+
+	it("neither, asked or not: no message, and what it cost is still recorded", async () => {
+		for (const kind of ["asked", "picked"] as const) {
+			const { t, turnId, replies, reactions } = await turn(kind);
+			const answer = { emoji: null, new_point: "", to: "room", message: " " };
+			writes(answer, [JSON.stringify(answer)]);
+			await t.action(internal.agent.respond, { turnId });
+			expect(await replies()).toEqual([]);
+			expect(await reactions()).toEqual([]);
+			const reply = await t.run(async (ctx) => ctx.db.get((await ctx.db.get(turnId))!.replyId!));
+			expect(reply).toMatchObject({ status: "done", quiet: true, stats: { costUsd: 0.001 } });
+		}
+	});
+
+	it("an answer that isn't valid fails where people see it, asked or not", async () => {
+		for (const kind of ["asked", "picked"] as const) {
+			const { t, turnId, replies } = await turn(kind);
+			writes({ emoji: "no" }, ['{"emoji":"no"}'], async () => {}, Promise.reject(new Error("No object generated")));
+			await t.action(internal.agent.respond, { turnId });
+			expect((await replies()).map((m) => [m.status, m.error])).toEqual([["error", "It didn't write a reply."]]);
+		}
+	});
+
+	it("nobody asked: hidden while it decides, then its message streams as it fills in, never the JSON", async () => {
+		const { t, owner, turnId, replies } = await turn("picked");
+		const answer = { emoji: null, new_point: "Greeting", to: "room", message: "Hello there, friend" };
+		const json = JSON.stringify(answer);
 		const at = json.indexOf("Hello");
-		writes(decision, [json.slice(0, at + 3), json.slice(at + 3, at + 11), json.slice(at + 11)], async () => {
-			const stream = await t.run((ctx) => ctx.db.query("replyStreams").first());
-			if (stream) seen.push(stream.text);
+		const seen: string[] = [];
+		writes(answer, [json.slice(0, at), json.slice(at, at + 3), json.slice(at + 3, at + 11), json.slice(at + 11)], async () => {
+			const [reply] = await replies();
+			seen.push(reply ? `${reply.status}: ${(await owner.query(api.messages.stream, { messageId: reply._id }))?.text}` : "hidden");
 		});
 		await t.action(internal.agent.respond, { turnId });
-		expect(seen).toEqual(["Hel", "Hello there", "Hello there, friend"]);
-		const reply = (await owner.query(api.messages.list, { chatId })).find((m) => m.author.type === "agent")!;
-		expect(reply.text).toBe("Hello there, friend");
-		expect(reply.parts).toEqual([{ type: "text", text: "Hello there, friend" }]);
-	});
-
-	it("answers with its reaction alone when it wrote no message, and fails when it did nothing", async () => {
-		const reacted = await mentioned();
-		const decision = { new_point: "", respond: "react", emoji: "👍", to: "room", message: "" };
-		writes(decision, [JSON.stringify(decision)]);
-		await reacted.t.action(internal.agent.respond, { turnId: reacted.turnId });
-		const seen = await reacted.owner.query(api.messages.list, { chatId: reacted.chatId });
-		expect(seen.filter((m) => m.author.type === "agent")).toEqual([]);
-		expect(seen.find((m) => m.text === "hi")!.reactions.map((r) => r.emoji)).toEqual(["👍"]);
-
-		const blank = await mentioned();
-		const none = { new_point: "", respond: "post", emoji: null, to: "room", message: "" };
-		writes(none, [JSON.stringify(none)]);
-		await blank.t.action(internal.agent.respond, { turnId: blank.turnId });
-		const replies = (await blank.owner.query(api.messages.list, { chatId: blank.chatId })).filter((m) => m.author.type === "agent");
-		expect(replies.map((m) => [m.text, m.status])).toEqual([["", "error"]]);
+		expect(seen).toEqual(["hidden", "streaming: Hel", "streaming: Hello there", "streaming: Hello there, friend"]);
+		const [reply] = await replies();
+		expect(reply).toMatchObject({ status: "done", text: "Hello there, friend", parts: [{ type: "text", text: "Hello there, friend" }] });
 	});
 });

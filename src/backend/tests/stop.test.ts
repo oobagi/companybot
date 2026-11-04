@@ -25,8 +25,8 @@ function scripted(script: (o: Options) => AsyncGenerator<object>) {
 }
 /** After a step that called tools, the SDK's loop asks every stop condition before the next one. */
 const stopsAfter = async (o: Options, steps: number) => (await Promise.all(o.stopWhen.map((c) => c({ steps: Array(steps).fill({}) })))).some(Boolean);
-/** An asked reply's decision as the model streams it: its JSON, the message in pieces (`words`) between. */
-const opens = { type: "text-delta", text: '{"new_point":"An answer","respond":"post","emoji":null,"to":"Ada","message":"' };
+/** A reply's answer as the model streams it: its JSON, the message in pieces (`words`) between. */
+const opens = { type: "text-delta", text: '{"emoji":null,"new_point":"An answer","to":"Ada","message":"' };
 const words = (text: string) => ({ type: "text-delta", text: JSON.stringify(text).slice(1, -1) });
 const finishStep = { type: "finish-step", usage: { inputTokens: 100, outputTokens: 20 }, providerMetadata: { gateway: { cost: "0.001" } } };
 
@@ -94,8 +94,29 @@ describe("stopping an agent mid-reply", () => {
 		expect(aborted).toBe(false);
 		const reply = (await replyOf(t, turnId))!;
 		expect(reply.parts).toEqual([expect.objectContaining({ type: "tool", id: "c1", status: "done" })]);
-		expect(reply).toMatchObject({ status: "done", stoppedBy: owner.userId, stats: { steps: 1, costUsd: 0.001 } });
+		// No message had started: nothing is shown, but what it cost is kept.
+		expect(reply).toMatchObject({ status: "done", quiet: true, stoppedBy: owner.userId, stats: { steps: 1, costUsd: 0.001 } });
 		expect((await turnOf(t, turnId))!.usage).toMatchObject({ steps: 1, costUsd: 0.001 });
+	});
+
+	it("keeps a pick's message so far too: one rule for every turn", async () => {
+		const { t, owner, general, companybot } = await setUp();
+		// Fake timers hold the scheduled run back: the test runs it.
+		vi.useFakeTimers();
+		const asked = await owner.mutation(api.messages.send, { chatId: general, text: "anyone know a CRM tip?", mentions: noMentions });
+		await t.mutation(internal.router.apply, { messageId: asked, replies: [{ agentId: companybot._id, probability: 0.9 }], model: "jev", costUsd: 0 });
+		const turnId = (await turnsOf(t)).find((x) => x.triggerId === asked)!._id;
+		vi.useRealTimers();
+		scripted(async function* () {
+			yield { type: "start-step" };
+			yield opens;
+			yield words("Log every call");
+			await owner.mutation(api.turns.stop, { turnId });
+			await new Promise((r) => setTimeout(r, 250));
+			yield words(" the same day");
+		});
+		await t.action(internal.agent.respond, { turnId });
+		expect((await owner.query(api.messages.list, { chatId: general })).at(-1)).toMatchObject({ text: "Log every call the same day", stoppedBy: "owner@co.com" });
 	});
 
 	it("starts the next queued turn in the place", async () => {
@@ -111,7 +132,7 @@ describe("stopping an agent mid-reply", () => {
 			yield words("Never shown");
 		});
 		await t.action(internal.agent.respond, { turnId: first });
-		expect(await replyOf(t, first)).toMatchObject({ text: "", stoppedBy: owner.userId });
+		expect(await replyOf(t, first)).toMatchObject({ text: "", quiet: true, stoppedBy: owner.userId });
 		expect(await turnOf(t, first)).toMatchObject({ status: "done" });
 		expect(await turnOf(t, second)).toMatchObject({ status: "running" });
 	});

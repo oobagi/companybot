@@ -311,7 +311,7 @@ async function streamReply(
 	// Stop (turns.stop) is seen on each flush, between flushes, and at each step (`stop`, set just before the model call).
 	const flush = () => stop.hear(ctx.runMutation(internal.turns.updateReply, { turnId, text: text(), parts }));
 	// The turn's step, for the line under the composer (turns.setStep): the newest call still running,
-	// else "Thinking…" until the model writes. The same words as its tool lines; never its reasoning.
+	// else "Thinking…" until its message starts (then it types, like a person). The same words as its tool lines; never its reasoning.
 	// Written in order, and only when it changes.
 	const stepCalls = new Map<string, string>();
 	let writing = false;
@@ -466,15 +466,15 @@ async function streamReply(
 					showStep();
 				} else if (part.type === "text-delta") {
 					usage.firstTokenMs ??= Date.now() - started;
-					if (!writing) {
-						writing = true;
-						showStep();
-					}
 					stepText += part.text;
 					const message = (await output.parsePartialOutput({ text: stepText }))?.partial?.message;
 					if (typeof message !== "string" || message === draft.text) continue;
 					draft.text = message;
 					if (!parts.includes(draft)) parts.push(draft);
+					if (!writing) {
+						writing = true;
+						showStep();
+					}
 				} else if (part.type === "tool-call") {
 					// A connectors_call shows as the tool it ran.
 					const name = part.toolName === CONNECTOR_CALL ? (calledConnectorTool(part.input) ?? part.toolName) : part.toolName;
@@ -539,14 +539,16 @@ async function streamReply(
 		await stepWrites;
 	}
 	// None if it stopped before deciding (a call held for approval) or wrote no valid decision. The draft
-	// gives way to what the decision posts, last, after its tool lines. Stopped: no decision; an asked
-	// reply keeps what it wrote so far, a quiet one isn't shown (finishReply).
+	// gives way to what the decision posts, last, after its tool lines. Stopped: no decision; the reply
+	// keeps its message so far.
 	const stopped = stop.signal.aborted;
 	const decision = stopped ? null : await Promise.resolve(result.output).then((d) => d as PostDecision, () => null);
-	if (!stopped || turn.quiet) dropDraft();
-	const { message } = responseOf(decision, turn.quiet);
+	if (!stopped) dropDraft();
+	const { message } = responseOf(decision);
 	if (message) parts.push({ type: "text", text: message });
 	await flush();
+	// Neither an answer nor a call held for the person to decide on: it failed, where they see it.
+	if (!stopped && !decision && !parts.some((p) => p.type === "approval")) throw new Error("It didn't write a reply.");
 	return decision;
 }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Participant } from "./chat";
 import { platformGuide } from "./guide";
-import { type PlaceMessage, type TurnPromptInput, buildTurnInput, buildTurnPrompt, chatLine, postDecision, publishes, responseOf, steerNote } from "./turn-input";
+import { type PlaceMessage, type TurnPromptInput, buildTurnInput, buildTurnPrompt, chatLine, postDecision, replayOf, responseOf, steerNote } from "./turn-input";
 
 describe("turn input", () => {
 	const ada = { type: "user" as const, id: "u1", name: "Ada" };
@@ -46,15 +46,20 @@ describe("turn input", () => {
 				'[Scribe 10-22 08:02] "Draft is up" (edited)',
 				'[Ben 10-22 08:04] "Also this"',
 				"",
-				"Reply to this message from Ada:",
+				"This message from Ada came in:",
 				'[Ada (asker) 10-22 08:03] "@Companybot status?"',
+				"Ada @mentioned you.",
 				"",
-				"You finish with your answer; nothing else you write is shown:",
-				"- new_point: in 15 words or fewer, what your reply says.",
-				'- respond: "post": you were asked, so you always reply.',
-				"- emoji: one emoji to react to the message with as well, if a reaction fits (a vote or a reaction it asks for, thanks); null otherwise.",
+				"You end this reply with your answer; nothing else you write is shown:",
+				"- emoji: your reaction to the message, one emoji, any that fits, or null. Decide it first, on its own, apart from whether you write: react if it's for you and needs no words from you (thanks to you, an okay, a vote, a reaction it asks for), each time, even if you reacted to one like it before.",
+				"- new_point: in 15 words or fewer, what you'd add that nobody here has said yet. Empty if nothing.",
 				'- to: who you\'re talking to, a person or agent here by name, or "room". Name an agent only to have it answer you next.',
-				"- message: your reply, in Markdown. Widgets and approvals you place go out with it.",
+				"- message: what's posted, in Markdown; empty posts nothing. Widgets and approvals you place go out with it.",
+				"When to write:",
+				"- Answer what's for you. An @mention or a DM means it's for you.",
+				'- Don\'t post if it\'s already been answered (by you or anyone) and you\'d add nothing different; if the person wants someone other than you ("anyone else?" or "can anyone check that?" right after you answered: don\'t check your own answer); if it\'s people talking to each other; or if you\'d only be acknowledging, offering to help, making small talk or saying you have nothing to add. A message for you that needs no words gets your reaction instead.',
+				'- Otherwise answer it, even if you couldn\'t find what they asked for (then say so). A question to the room ("anyone know…?") that nobody has answered is for you if you can answer it; one to everyone (a vote, "everyone…?") asks you too: give your own answer once, in a line or a reaction. When they ask for someone else, an agent that hasn\'t answered and whose line of work it is should.',
+				"- Nobody asked you directly: 1–3 sentences, one move (answer, agree and add, hand off, or ask). Don't do the whole task in one go unless asked.",
 			].join("\n"),
 		);
 	});
@@ -76,13 +81,10 @@ describe("turn input", () => {
 		expect(buildTurnPrompt({ ...base, reacted: [] })).toBe(buildTurnPrompt(base));
 	});
 
-	it("gives a quiet pick the final say: it ends with a decision whether to post", () => {
-		const prompt = buildTurnPrompt({ ...base, quiet: true, routed: { band: "might" } });
-		expect(prompt).not.toContain("Reply to this message");
+	it("tells a pick nobody @mentioned how sure the check was, as facts", () => {
+		const prompt = buildTurnPrompt({ ...base, routed: { band: "might" } });
 		expect(prompt).toContain('This message from Ada came in:\n[Ada (asker) 10-22 08:03] "@Companybot status?"\nNobody @mentioned you. A quick automatic check, which sees only the last few messages and a line about each agent, thinks this message might be for you.');
-		expect(prompt).toContain('"can anyone check that?" right after you answered: don\'t check your own answer');
-		expect(prompt).toContain("You end this reply with your decision, then your message; nothing else you write is shown:\n- new_point:");
-		expect(prompt).toContain('- respond: "post" if this is for you and there\'s a new_point; "react" if it\'s for you but needs no words from you (thanks to you, a vote, a reaction it asks for); "nothing" if it isn\'t for you, or it\'s already been answered: nothing is shown.');
+		expect(prompt).not.toContain("Ada @mentioned you.");
 		expect(buildTurnPrompt({ ...base, routed: { band: "probably" } })).toContain("thinks this message is probably for you");
 		expect(buildTurnPrompt(base)).not.toContain("Nobody @mentioned you");
 		expect(buildTurnPrompt({ ...base, routed: { band: "might", before: ["Scout"] } })).toContain(
@@ -107,53 +109,45 @@ describe("turn input", () => {
 		expect(prompt).toContain("Quill (Writes copy: emails, posts and website text.) (agents). This is a team chat: talk to your coworkers, people and agents, by name.");
 	});
 
-	it("only a decision to post with something new, and a message, shows a quiet reply: never filler", () => {
-		const post = { respond: "post" as const, new_point: "Their theme question: pick summer road trips", message: "Summer road trips!" };
-		expect(publishes(post)).toBe(true);
-		// Whatever the message says ("(No reply.)", "Nothing to add"), these stay hidden.
-		expect(publishes({ ...post, respond: "nothing" })).toBe(false);
-		expect(publishes({ ...post, respond: "react" })).toBe(false);
-		expect(publishes({ ...post, new_point: "  " })).toBe(false);
-		// An empty post is nothing: no text, even with tool lines above it.
-		expect(publishes({ ...post, message: "" })).toBe(false);
-		expect(publishes({ ...post, message: " \n " })).toBe(false);
-		expect(publishes(null)).toBe(false);
-		// Decided before it's written: what it'd add and how it responds come first.
-		expect(Object.keys(postDecision.shape)).toEqual(["new_point", "respond", "emoji", "to", "message"]);
+	it("one answer for every turn, its reaction first: posts iff it has a message, reacts iff one emoji, both or neither", () => {
+		expect(Object.keys(postDecision.shape)).toEqual(["emoji", "new_point", "to", "message"]);
+		const both = { emoji: "🦄", new_point: "Saying hi", to: "Ada", message: "Hi!" };
+		expect(responseOf(both)).toEqual({ message: "Hi!", emoji: "🦄" });
+		// new_point is for thinking before writing: it gates nothing.
+		expect(responseOf({ ...both, new_point: "" })).toEqual({ message: "Hi!", emoji: "🦄" });
+		expect(responseOf({ ...both, message: " \n " })).toEqual({ message: null, emoji: "🦄" });
+		expect(responseOf({ ...both, emoji: null })).toEqual({ message: "Hi!", emoji: null });
+		expect(responseOf({ ...both, emoji: "unicorn" })).toEqual({ message: "Hi!", emoji: null });
+		expect(responseOf({ ...both, emoji: "🦄🦄", message: "" })).toEqual({ message: null, emoji: null });
+		expect(responseOf(null)).toEqual({ message: null, emoji: null });
 	});
 
-	it("unasked, responds one way: any one emoji instead of a message, never both", () => {
-		const react = { new_point: "", respond: "react" as const, emoji: "🦄", to: "room", message: "🦄" };
-		expect(responseOf(react, true)).toEqual({ message: null, emoji: "🦄" });
-		const post = { ...react, respond: "post" as const, new_point: "A unicorn", message: "Unicorns!" };
-		expect(responseOf(post, true)).toEqual({ message: "Unicorns!", emoji: null });
-		expect(responseOf({ ...react, emoji: null }, true)).toEqual({ message: null, emoji: null });
-		expect(responseOf({ ...react, emoji: "unicorn" }, true)).toEqual({ message: null, emoji: null });
-		expect(responseOf(null, true)).toEqual({ message: null, emoji: null });
-	});
-
-	it("asked, always replies, and may react too", () => {
-		const answer = { new_point: "Hendricks is signed", respond: "post" as const, emoji: "🎉", to: "Ada", message: "Signed yesterday." };
-		expect(responseOf(answer, false)).toEqual({ message: "Signed yesterday.", emoji: "🎉" });
-		// `respond` and `new_point` don't hold an asked reply back.
-		expect(responseOf({ ...answer, respond: "react", new_point: "" }, false)).toEqual({ message: "Signed yesterday.", emoji: "🎉" });
-		// Nothing written: no text (the reply posts as it is), and no reaction unless it's one emoji.
-		expect(responseOf({ ...answer, message: " ", emoji: "🎉🎉" }, false)).toEqual({ message: null, emoji: null });
-	});
-
-	it("ends each turn with the note for its kind: asked turns always reply, unasked ones decide", () => {
+	it("ends every turn with the same note: only why it's here differs", () => {
+		const after = (p: string) => p.slice(p.indexOf("You end this reply with your answer"));
+		const before = (p: string) => p.slice(0, p.indexOf("This message from Ada came in:"));
 		const asked = buildTurnPrompt(base);
-		expect(asked).toContain('respond: "post": you were asked, so you always reply.');
-		expect(asked).not.toContain("new_point: in 15 words or fewer, what you'd add");
-		const unasked = buildTurnPrompt({ ...base, quiet: true, routed: { band: "probably" } });
-		expect(unasked).toContain("new_point: in 15 words or fewer, what you'd add");
-		expect(unasked).not.toContain("you were asked");
+		const dm = buildTurnPrompt({ ...base, place: { ...base.place, kind: "dm", name: null, members: [ada, bot] } });
+		const picked = buildTurnPrompt({ ...base, routed: { band: "probably" } });
+		const hop = buildTurnPrompt({ ...base, routed: { band: "clearly", by: "Scout" }, handoff: { from: "Scout", ask: false } });
+		const woke = buildTurnPrompt({ ...base, triggerId: null, wake: { id: "w1", note: "Check in", setAt: at(5) } });
+		for (const p of [dm, picked, hop, woke]) expect(after(p)).toBe(after(asked));
+		expect(before(picked)).toBe(before(asked));
+		expect(asked).toContain('"@Companybot status?"\nAda @mentioned you.\n\nYou end this reply');
+		expect(dm).toContain('"@Companybot status?"\nThis is a DM with Ada.\n\nYou end this reply');
+	});
+
+	it("replays a past turn with its reaction, which isn't in its reply", () => {
+		expect(replayOf("Hi!", "👋")).toBe("Hi!\n[You reacted 👋]");
+		expect(replayOf("", "👍")).toBe("[You reacted 👍]");
+		expect(replayOf("Hi!", null)).toBe("Hi!");
+		const input = buildTurnInput({ agent: { instructions: "", tools: [] }, skills: [], session: { summary: null, turns: [{ prompt: "thanks!", reply: replayOf("", "👍") }] }, prompt: "ty" });
+		expect(input.messages[1]).toEqual({ role: "assistant", content: "[You reacted 👍]" });
 	});
 
 	it("gives a quiet pick where the room stands: questions, who answered, and who wrote since", () => {
 		const prompt = buildTurnPrompt({
 			...base,
-			routed: { band: "probably", answering: ["Scout"] },
+			routed: { band: "probably" },
 			messages: [msg("m1", ada, "does anyone know what 5*5 is?", 1), msg("m2", bot, "25.", 2), msg("m3", ada, "Can anyone validate that?", 3), msg("m4", ben, "lol", 4)],
 			triggerId: "m3",
 		});
@@ -166,7 +160,8 @@ describe("turn input", () => {
 				"- Since this message, Ben wrote a message.",
 			].join("\n"),
 		);
-		expect(prompt).toContain("- Scout is working here right now, unasked too. The first to post takes it");
+		// Asked directly: no room state, it answers.
+		expect(buildTurnPrompt(base)).not.toContain("Where it stands");
 	});
 
 	it("tells a hand-back it's done unless it adds something", () => {
@@ -175,7 +170,7 @@ describe("turn input", () => {
 		expect(prompt).toContain("If it gives back a result you asked for, Ada already sees it, so never restate, sum up or confirm it.");
 		expect(prompt).toContain("if not, you're done: don't post.");
 		// Named in another agent's decision: it's talking to this one.
-		expect(buildTurnPrompt({ ...base, routed: { band: "clearly", by: "Scout" }, handoff: { from: "Scout", ask: false } })).toContain("Scout is an agent working for Ada, and @mentioned nobody. It's talking to you. You decide");
+		expect(buildTurnPrompt({ ...base, routed: { band: "clearly", by: "Scout" }, handoff: { from: "Scout", ask: false } })).toContain("Scout is an agent working for Ada, and @mentioned nobody. It's talking to you.");
 	});
 
 	it("tells the agent which skills the message named with /", () => {
@@ -183,7 +178,7 @@ describe("turn input", () => {
 			...base,
 			messages: [msg("m3", ada, "@Companybot /Proposal for Acme", 3, { skills: [{ id: "custom-1", name: "Proposal" }] })],
 		});
-		expect(prompt).toContain('[Ada (asker) 10-22 08:03] "@Companybot /Proposal for Acme"\nIt names a skill with /: load it with skills_load first and follow it: "Proposal" (custom-1).\n\nYou finish with your answer');
+		expect(prompt).toContain('[Ada (asker) 10-22 08:03] "@Companybot /Proposal for Acme"\nIt names a skill with /: load it with skills_load first and follow it: "Proposal" (custom-1).\nAda @mentioned you.\n\nYou end this reply with your answer');
 	});
 
 	it("lists attached files with their ids, and sends pictures after the prompt for models that see them", () => {
@@ -270,7 +265,7 @@ describe("turn input", () => {
 
 	it("tells a handed-off turn who handed it over and how to answer", () => {
 		const mention = buildTurnPrompt({ ...base, handoff: { from: "Scribe", ask: false } });
-		expect(mention).toContain("Scribe is an agent working for Ada and handed this to you. Do it as if Ada asked, within what they'd want. Your reply is posted in this thread, where Ada sees it: put the result in it. @mention Scribe in it only if Scribe needs the result to finish; never just to acknowledge.\n\nYou finish with your answer");
+		expect(mention).toContain("Scribe is an agent working for Ada and handed this to you. Do it as if Ada asked, within what they'd want. Your reply is posted in this thread, where Ada sees it: put the result in it. @mention Scribe in it only if Scribe needs the result to finish; never just to acknowledge.\n\nYou end this reply with your answer");
 		const ask = buildTurnPrompt({ ...base, handoff: { from: "Scribe", ask: true } });
 		expect(ask).toContain("It asked you this privately: your reply goes back to it, not into the chat.");
 	});
@@ -280,8 +275,7 @@ describe("turn input", () => {
 		expect(prompt).toContain('Scribe answered what you asked it (10-22 08:05). "You asked Scribe: refunds?"');
 		expect(prompt).toContain('```json\n"30 days"\n```');
 		expect(prompt).toContain("Now finish what Ada asked for: this reply is posted here.");
-		expect(prompt).toContain("you were asked, so you always reply");
-		expect(prompt).not.toContain("You end this reply with your decision");
+		expect(prompt).toContain("You end this reply with your answer");
 	});
 
 	it("gives agents the handoff rules", () => {
@@ -298,8 +292,9 @@ describe("turn input", () => {
 		const seen = [
 			note,
 			platformGuide({ tools: ["chat.*", "web.*"] }),
-			buildTurnPrompt({ ...base, quiet: true, routed: { band: "might", before: ["Scout"] } }),
-			buildTurnPrompt({ ...base, quiet: true, routed: { band: "probably" }, handoff: { from: "Scout", ask: false } }),
+			buildTurnPrompt(base),
+			buildTurnPrompt({ ...base, routed: { band: "might", before: ["Scout"] } }),
+			buildTurnPrompt({ ...base, routed: { band: "probably" }, handoff: { from: "Scout", ask: false } }),
 			buildTurnPrompt({ ...base, reacted: [msg("m0", ada, "Vote", 0, { reactions: [{ emoji: "👍", by: ["Ben"] }] })] }),
 			buildTurnPrompt({ ...base, connectors: { connected: [], unavailable: ["CRM"] } }),
 		];

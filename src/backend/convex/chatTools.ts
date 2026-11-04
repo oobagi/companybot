@@ -55,7 +55,7 @@ export const readFor = internalQuery({
 				.withIndex("by_chat_thread", (q) => q.eq("chatId", chat._id).eq("threadId", threadId).lt("_creationTime", before))
 				.order("desc")
 				// Replies still being written (this one included) aren't history yet.
-				// Wake turns' quiet replies were never said in the chat.
+				// Quiet: replies never shown, and asks: never said in the chat.
 				.filter((q) => q.and(q.neq(q.field("deleted"), true), q.neq(q.field("status"), "streaming"), q.neq(q.field("quiet"), true)))
 				.take(limit)
 		).sort((a, b) => shownAt(a) - shownAt(b));

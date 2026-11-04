@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { wake } from "../convex/wakeups";
-import { type As, agentTurn, agentsOf, finishQuiet, generalOf, ownerAndMember } from "./helpers";
+import { type As, agentTurn, agentsOf, finishTurn, generalOf, ownerAndMember } from "./helpers";
 
-// Wakeups (wakeups.ts): follow-ups an agent sets, and the one path from a wakeup to a quiet turn.
+// Wakeups (wakeups.ts): follow-ups an agent sets, and the one path from a wakeup to a turn.
 // See wiki/architecture.md (Automations).
 
 type T = Awaited<ReturnType<typeof ownerAndMember>>["t"];
@@ -39,7 +39,7 @@ async function fire(t: T, id: string) {
 const shown = async (as: As, chatId: Id<"chats">) => (await as.query(api.messages.list, { chatId })).map((m) => [m.author.type, m.text]);
 
 describe("follow-ups", () => {
-	it("shows on the record, wakes the agent quietly in the same chat with the record, and logs one line", async () => {
+	it("shows on the record, wakes the agent in the same chat with the record, and logs one line", async () => {
 		const { t, member, owner, dmId, turnId, record } = await setup();
 		const made = await create(t, turnId, { note: "Chase the invoice if it's still unpaid.", in: "3 days", recordId: record._id });
 		expect(made).toMatchObject({ created: expect.any(String), when: expect.stringMatching(/2026|2027/), record: record.title });
@@ -54,27 +54,25 @@ describe("follow-ups", () => {
 		await fire(t, id);
 		const [turn] = await turnsFor(t, id);
 		expect(turn).toMatchObject({ chatId: dmId, actorId: member.userId, status: "running" });
-		// No trigger message, and its reply is quiet.
+		// No trigger message, and nothing shows while it works.
 		expect(await shown(member, dmId)).toEqual(before);
 		const context = await t.query(internal.turns.turnContext, { turnId: turn!._id });
 		expect(context.wake).toMatchObject({ note: "Chase the invoice if it's still unpaid.", record: { id: record._id, name: record.title } });
-		expect(context.quiet).toBe(true);
 		expect(context.triggerId).toBeNull();
 		expect((await rowOf(t, id))!.status).toBe("fired");
 		expect(await lines(t)).toEqual([expect.objectContaining({ outcome: "fired" })]);
 
-		await t.mutation(internal.turns.finishReply, { turnId: turn!._id });
+		await finishTurn(t, turn!._id, "");
 		expect(await lines(t)).toEqual([expect.objectContaining({ outcome: "ran" })]);
 		expect(await shown(member, dmId)).toEqual(before);
 	});
 
-	it("speaks up only when its decision posts: its reply is then shown, and its line says so", async () => {
+	it("speaks up only when it writes a message: its reply is then shown, and its line says so", async () => {
 		const { t, member, dmId, turnId } = await setup();
-		expect((await t.query(internal.turns.turnContext, { turnId })).quiet).toBe(false);
 		const { created } = (await create(t, turnId, { note: "Check in", in: "1 hour" })) as { created: string };
 		await fire(t, created);
 		const [turn] = await turnsFor(t, created);
-		await finishQuiet(t, turn!._id, "Acme paid, nothing to chase.");
+		await finishTurn(t, turn!._id, "Acme paid, nothing to chase.");
 		expect((await shown(member, dmId)).at(-1)).toEqual(["agent", "Acme paid, nothing to chase."]);
 		expect(await lines(t)).toEqual([expect.objectContaining({ outcome: "notified" })]);
 	});

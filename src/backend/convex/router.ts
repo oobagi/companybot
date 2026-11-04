@@ -39,9 +39,9 @@ import { recordUsage } from "./usage";
 // Agents that answer without an @mention, in channels set to "When relevant" (wiki/chat.md, When
 // agents reply). A person's un-mentioned message schedules a decision; it waits ROUTER_DEBOUNCE_MS
 // and gives up if a newer person's message came in the place meanwhile (that one decides), so a
-// burst makes one call. The answer wakes agents (enqueueTurn). It's a wide net: each is a quiet turn,
-// where the agent reads the conversation and decides whether to post, react or do nothing (core
-// postDecision), told how sure the dispatcher was in words (core confidenceBand).
+// burst makes one call. The answer wakes agents (enqueueTurn). It's a wide net: each is a turn like any
+// other, where the agent reads the conversation and answers with a post, a reaction, both or nothing
+// (core postDecision), told how sure the dispatcher was in words (core confidenceBand).
 
 /** From messages.send, for a person's message that @mentions no agent. */
 export async function routeLater(ctx: MutationCtx, chat: Doc<"chats">, message: Doc<"chatMessages">) {
