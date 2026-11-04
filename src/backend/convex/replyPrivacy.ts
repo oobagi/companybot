@@ -49,8 +49,8 @@ async function loadSource(ctx: QueryCtx, member: Member, id: UsedPlace, audience
 		const install = await ctx.db.get(connectorId);
 		const access: AccessList = install ? allowedRoles(member, install).map((role) => ({ role, level: "view" })) : [];
 		const name = install ? `${findConnector(install.connectorId)?.name ?? install.connectorId} connector` : "a deleted connector";
-		// Keep the install id after uninstall: like a deleted place, it no longer authorizes any viewer or write.
-		return { membersOnly: false, where: "", access, visible: !!install && install.workspaceId === member.workspaceId && !!reach(member, access), name, why: install ? `the ${name}` : name };
+		// Keep the install id after uninstall, with the empty list's Owners-only policy so saved work stays recoverable.
+		return { membersOnly: false, where: "", access, visible: (!install || install.workspaceId === member.workspaceId) && !!reach(member, access), name, why: install ? `the ${name}` : name };
 	}
 	const databaseId = ctx.db.normalizeId("recordTypes", id);
 	if (databaseId) {
@@ -143,7 +143,7 @@ export async function replyPrivacy(ctx: QueryCtx, member: Member, message: Doc<"
 		hidden,
 		label: hidden ? `Replied to ${asker ? await nameOf(ctx, asker) : "someone"}. ${label}.` : label,
 		why: hidden ? null : `Uses ${sources.map((s) => s.why).join(", ")}`,
-		share: hidden || !chat || !canPost(member, chat) ? null : `Not everyone in ${chat?.kind === "channel" ? `#${chat.name}` : "this chat"} can see ${sources.map((s) => s.name).join(", ")}. Share just the answer? Tool inputs, outputs and approval reasons stay private.`,
+		share: hidden || !chat || !canPost(member, chat) ? null : `Only ${audience} can see ${sources.map((s) => s.name).join(", ")}. Share just the answer? Tool inputs, outputs and approval reasons stay private.`,
 		sharedBy: null,
 	};
 }

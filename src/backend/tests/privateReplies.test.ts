@@ -13,7 +13,7 @@ import { canReadReply } from "../convex/replyPrivacy";
 import { KEEP_TOKENS, runningTurn } from "../convex/turns";
 import { createWakeup, wake } from "../convex/wakeups";
 import "./connectorFixtures";
-import { agentsOf, agentTurn, generalOf, identityOf, noMentions, ownerAndMember, signIn, turnsOf, type As, setMemberSwitch } from "./helpers";
+import { agentsOf, agentTurn, generalOf, identityOf, noMentions, ownerAndMember, signIn, turnsOf, type As, setMemberSwitch, settle } from "./helpers";
 
 async function decideReaction(t: Awaited<ReturnType<typeof ownerAndMember>>["t"], turnId: Id<"agentTurns">, triggerId: Id<"chatMessages">, emoji: string) {
 	await t.run((ctx) => ctx.db.patch(turnId, { triggerId }));
@@ -88,6 +88,9 @@ describe("workspace connector sources", () => {
 			const reply = (await viewer.query(api.messages.list, { chatId: chat._id })).find((m) => m._id === replyId)!;
 			expect((await viewer.query(api.messages.stream, { messageId: replyId }))!.text).toBe(SECRET);
 			expect(reply.privacy?.hidden).not.toBe(true);
+			expect(reply.privacy!.share).toContain("Member");
+			expect(reply.privacy!.share).toContain("Owners");
+			expect(reply.privacy!.share).toContain("CRM connector");
 		}
 		const memberRole = (await owner.query(api.roles.list))!.find((r) => r.builtIn === "member")!.id;
 		const page = await owner.mutation(api.pages.create, { title: "CRM notes" });
@@ -131,17 +134,96 @@ describe("workspace connector sources", () => {
 		expect(await save()).not.toHaveProperty("error");
 	});
 
-	it("fails closed for a deleted install, including for Owners", async () => {
+	it("keeps a deleted install's replies Owners-only and lets an Owner explicitly share the answer", async () => {
 		const s = await connectorSetup();
 		await s.owner.mutation(api.roles.setPermission, { id: s.office, permission: "memory.team.write", on: true });
 		await s.readConnector(); await s.write();
 		await s.owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: false });
-		for (const viewer of [s.owner, s.dana, s.crew]) {
+		for (const viewer of [s.dana, s.crew]) {
 			expect((await s.reply(viewer)).privacy?.hidden).toBe(true);
 			expect(JSON.stringify(await viewer.query(api.messages.stream, { messageId: s.replyId }))).not.toContain(SECRET);
 		}
+		expect((await s.reply(s.owner)).privacy?.hidden).toBe(false);
+		expect((await s.owner.query(api.messages.stream, { messageId: s.replyId }))!.text).toBe(SECRET);
 		expect((await s.t.run((ctx) => ctx.db.get(s.replyId)))!.usedPlaces).toContain(s.install._id);
 		await expect(s.t.mutation(internal.memory.createFor, { turnId: s.turnId, scope: "workspace", content: SECRET })).rejects.toThrow("wider audience");
+		await s.finish();
+		await s.owner.mutation(api.messages.share, { messageId: s.replyId });
+		expect((await s.reply(s.crew)).text).toBe(SECRET);
+	});
+
+	it("lets Owners list and edit connector-derived Deals after uninstall and reinstall", async () => {
+		const s = await connectorSetup();
+		await s.owner.mutation(api.roles.setPermission, { id: s.office, permission: "records.edit", on: true });
+		await s.owner.mutation(api.recordTypes.setAccess, { typeId: s.deals, access: [{ role: s.office, level: "edit" }] });
+		await s.readConnector();
+		expect(await s.t.mutation(internal.recordTools.saveFor, { turnId: s.turnId, input: { id: s.deal, values: { name: "CRM deal" } } })).not.toHaveProperty("error");
+		expect((await s.t.run((ctx) => ctx.db.get("recordTypes", s.deals)))!.usedPlaces).toContain(s.install._id);
+		await s.finish(); await cancelScheduled(s.t);
+		await s.owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: false });
+		await settle(s.t);
+		const check = async () => {
+			expect((await s.owner.query(api.recordTypes.list)).some((type) => type._id === s.deals)).toBe(true);
+			for (const viewer of [s.dana, s.crew]) expect((await viewer.query(api.recordTypes.list)).some((type) => type._id === s.deals)).toBe(false);
+			await s.owner.mutation(api.records.update, { recordId: s.deal, values: { name: `Owner edit ${Date.now()}` } });
+			const turnId = await s.start(s.owner);
+			expect(await s.t.mutation(internal.recordTools.saveFor, { turnId, input: { id: s.deal, values: { name: `Agent edit ${Date.now()}` } } })).not.toHaveProperty("error");
+			await s.t.mutation(internal.turns.finishReply, { turnId });
+			await cancelScheduled(s.t);
+		};
+		await check();
+		// Drain the uninstall before reinstalling; no model jobs are left to run.
+		await settle(s.t);
+		await s.owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
+		const roles = (await s.owner.query(api.roles.list))!.filter((r) => r.builtIn !== "owner").map((r) => r.id);
+		await s.owner.mutation(api.connectors.setRoles, { connectorId: "crm", roles });
+		await check();
+		expect((await s.t.run((ctx) => ctx.db.get("recordTypes", s.deals)))!.usedPlaces).toContain(s.install._id);
+	});
+
+	it("keeps connector-derived channels usable by Owners after uninstall while excluding other roles", async () => {
+		const s = await connectorSetup();
+		await s.finish();
+		await s.owner.mutation(api.roles.setPermission, { id: s.office, permission: "channels.edit", on: true });
+		const room = await s.owner.mutation(api.chats.createChannel, { name: "crm-work", private: false });
+		await s.owner.mutation(api.chats.setAccess, { chatId: room, access: [{ role: s.office, level: "edit" }] });
+		const turnId = await s.start(s.dana, room);
+		expect(await s.t.mutation(internal.connectors.forCall, { turnId, connectorId: "crm" })).not.toBeNull();
+		expect(await s.t.mutation(internal.manageTools.runFor, { turnId, tool: "channels.manage", input: { request: { action: "set_topic", chat: room, topic: SECRET } } })).not.toHaveProperty("error");
+		expect((await s.t.run((ctx) => ctx.db.get("chats", room)))!.usedPlaces).toContain(s.install._id);
+		await s.t.mutation(internal.turns.finishReply, { turnId });
+		await s.owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: false });
+		expect(await s.owner.query(api.chats.get, { chatId: room })).not.toBeNull();
+		for (const viewer of [s.dana, s.crew]) expect(await viewer.query(api.chats.get, { chatId: room })).toBeNull();
+		await s.owner.mutation(api.chats.updateChannel, { chatId: room, topic: "Owner can still edit" });
+		const next = await s.start(s.owner, room);
+		expect(await s.t.mutation(internal.turns.turnContext, { turnId: next })).not.toBeNull();
+		await s.t.mutation(internal.turns.updateReply, { turnId: next, text: "Still working", parts: [{ type: "text", text: "Still working" }] });
+		await s.t.mutation(internal.turns.finishReply, { turnId: next });
+		expect((await s.t.run((ctx) => ctx.db.get("agentTurns", next)))!.status).toBe("done");
+		expect(JSON.stringify(await s.owner.query(api.messages.list, { chatId: room }))).toContain("Still working");
+	});
+
+	it("continues scheduled automations made by a workspace Owner after uninstall", async () => {
+		const s = await connectorSetup();
+		await s.finish();
+		const turnId = await s.start(s.owner);
+		expect(await s.t.mutation(internal.connectors.forCall, { turnId, connectorId: "crm" })).not.toBeNull();
+		const made = await s.t.mutation(internal.automationTools.createFor, { turnId, input: { name: "CRM digest", prompt: SECRET, trigger: { type: "schedule", cron: "0 9 * * *" }, runsFor: "me" } });
+		if (!("created" in made)) throw new Error(JSON.stringify(made));
+		const install = (await s.t.run((ctx) => ctx.db.query("automationInstalls").collect())).find((i) => i.automationId === made.created)!;
+		expect(install.usedPlaces).toContain(s.install._id);
+		await s.t.mutation(internal.turns.finishReply, { turnId });
+		await s.owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: false });
+		expect((await s.owner.query(api.automations.list)).some((a) => a.id === made.created)).toBe(true);
+		await s.t.mutation(internal.automationRuns.tick, { now: Date.now() + 2 * 86_400_000 });
+		const run = (await s.t.run((ctx) => ctx.db.query("agentTurns").collect())).find((t) => t.chatId !== s.chat._id)!;
+		expect(run.actorId).toBe(s.owner.userId);
+		expect(JSON.stringify(await s.t.mutation(internal.turns.turnContext, { turnId: run._id }))).toContain(SECRET);
+		expect(await s.t.mutation(internal.connectors.forCall, { turnId: run._id, connectorId: "crm" })).toBeNull();
+		await s.t.mutation(internal.turns.updateReply, { turnId: run._id, text: SECRET, parts: [{ type: "text", text: SECRET }] });
+		await s.t.mutation(internal.turns.finishReply, { turnId: run._id });
+		expect((await s.t.run((ctx) => ctx.db.get("agentTurns", run._id)))!.status).toBe("done");
 	});
 
 	it("keeps connector sources on posts and permits only authorized people to share the answer", async () => {
@@ -212,7 +294,7 @@ describe("private agent replies", () => {
 		});
 		const visible = await s.reply(s.dana);
 		expect(visible.text).toBe(SECRET);
-		expect(visible.privacy).toMatchObject({ hidden: false, label: "Only Office and Owners can see this", why: "Uses the Deals database", share: "Not everyone in #general can see Deals. Share just the answer? Tool inputs, outputs and approval reasons stay private." });
+		expect(visible.privacy).toMatchObject({ hidden: false, label: "Only Office and Owners can see this", why: "Uses the Deals database", share: "Only Office and Owners can see Deals. Share just the answer? Tool inputs, outputs and approval reasons stay private." });
 		const hidden = await s.reply(s.crew);
 		expect(hidden.text).toBe("🔒 Replied to Dana. Only Office and Owners can see this.");
 		expect(hidden).toMatchObject({ parts: [], attachments: [], linkPreviews: [], reactions: [], stats: null, error: null, pause: null });

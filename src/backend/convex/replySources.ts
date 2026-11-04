@@ -77,6 +77,9 @@ export async function writeSources(ctx: MutationCtx, member: Member, audience?: 
 	const usedPlaces = retained.map(({ id }) => id);
 	if (audience && typeof audience === "object" && "filtered" in audience) return usedPlaces;
 	const policies = typeof audience === "string" ? [await readSource(audience)] : audience && "places" in audience ? await Promise.all(audience.places.map(readSource)) : [audience];
+	// Content edits keep the destination's saved sources, which can narrow its audience beyond its access list.
+	// Proposed access changes still have to fit every source on their own.
+	if (typeof audience === "string") policies.push(...await Promise.all((place?.usedPlaces ?? []).map(readSource)));
 	const memberships = policies.flatMap((p) => p?.users ? [p.users] : []);
 	const users = memberships[0]?.filter((id) => memberships.every((list) => list.includes(id)));
 	// Load memberships and roles once per write, not once per source and destination member.
