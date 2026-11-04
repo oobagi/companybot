@@ -20,6 +20,7 @@ An automation asks an agent to do something without you typing it. Make one in [
 
 ## Good to know
 - Runs act with the rights of the person they run for, and post in their DM with the agent (or once in the channel).
+- Private automations keep every restricted source the writing turn read, including its private or role-limited chat. Reading or running a personal automation counts as just its person and passes its saved sources to the next turn. Changing its audience is refused if the new audience cannot open them all. Only your own turn in your 1:1 DM with agents may publish your own one-person data; foreign automations and foreign wakeups never qualify. Personal sources still count for display privacy and other people’s turns. A private-channel event copied into a DM keeps its source too: losing that channel hides the event and reply.
 - **Run now** tests it with sample data. Each automation shows when it last ran and what happened.
 - Anything that leaves Companybot still asks first. In an automation someone else wrote, acting as you asks the first time: see **help: permissions**.
 - Team automations: anyone whose role can make and change team automations can edit, pause or delete one. A personal one (just for you) only you can change. Deleted ones go to [Archive](#/settings/archive).

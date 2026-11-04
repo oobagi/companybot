@@ -54,16 +54,16 @@ import {
 	toolRisk,
 	THINKING_STEP,
 } from "@companybot/core";
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { type ModelMessage, Output, generateText, streamText } from "ai";
 import type { FunctionReturnType } from "convex/server";
 import { ConvexError, type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { type ActionCtx, internalAction } from "./_generated/server";
 import { action } from "./functions";
-import { decrypt, encrypt } from "./crypto";
 import { oauthRedirectUrl } from "./connectors";
+import { decrypt, encrypt } from "./crypto";
 import type { messagePart } from "./schema";
 
 const SUMMARY_MODEL = "anthropic/claude-haiku-5.5";
@@ -110,8 +110,8 @@ export const respond = internalAction({
 type TurnUsage = ReplyUsage & { firstTokenMs?: number };
 
 async function runTurn(ctx: ActionCtx, turnId: Id<"agentTurns">, usage: TurnUsage, saveStep: () => Promise<unknown>) {
-	const turn = await ctx.runQuery(internal.turns.turnContext, { turnId });
-	const connectors = await loadConnectors(ctx, turn.member, turn.agent);
+	const turn = await ctx.runMutation(internal.turns.turnContext, { turnId });
+	const connectors = await loadConnectors(ctx, turn.member, turn.agent, turnId);
 	await saveTools(ctx, turn.member.workspaceId, connectors);
 	try {
 		const decision = await streamReply(ctx, turnId, turn, connectors, usage, saveStep);
@@ -183,6 +183,7 @@ async function loadConnectors(
 	ctx: ActionCtx,
 	{ userId, workspaceId }: { userId: Id<"users">; workspaceId: Id<"workspaces"> },
 	agent: Pick<AgentConfig, "tools">,
+	turnId?: Id<"agentTurns">,
 ): Promise<LoadedConnectors> {
 	const connectorIds = grantedConnectorIds(agent);
 	const oauth: LoadedConnectors["oauth"] = [];
@@ -202,7 +203,11 @@ async function loadConnectors(
 				if (connectionId) await ctx.runMutation(internal.connectors.setConnectionError, { connectionId });
 				// Access is read fresh before every call, so a role change or disconnect applies mid-reply.
 				const stillAllowed = async () =>
-					(await ctx.runQuery(internal.connectors.forTurn, { userId, workspaceId, connectorIds: [connectorId] }))[0]?.connectionId === connectionId;
+					(turnId
+						? await ctx.runMutation(internal.connectors.forCall, { turnId, connectorId })
+						: (await ctx.runQuery(internal.connectors.forTurn, { userId, workspaceId, connectorIds: [connectorId] }))[0])?.connectionId === connectionId;
+				// Personal servers can include account data in their instructions and tool descriptions too.
+				if (turnId && connector.connection === "personal" && !(await stillAllowed())) return { unavailable: connector.name };
 				const session: ConnectorSession = {
 					...opened,
 					tools: opened.tools.map((tool) => ({
@@ -267,13 +272,13 @@ async function streamReply(
 			create: ({ audience, ...config }) => ctx.runMutation(internal.skills.createFor, { turnId, config, audience }),
 		},
 		automations: {
-			list: () => ctx.runQuery(internal.automationTools.listFor, { turnId }),
+			list: () => ctx.runMutation(internal.automationTools.listFor, { turnId }),
 			create: (input) => ctx.runMutation(internal.automationTools.createFor, { turnId, input }),
 			setMine: (input) => ctx.runMutation(internal.automationTools.setMineFor, { turnId, ...input }),
 		},
 		wakeups: {
 			create: (input) => ctx.runMutation(internal.wakeups.createFor, { turnId, input }),
-			list: (input) => ctx.runQuery(internal.wakeups.listFor, { turnId, ...input }),
+			list: (input) => ctx.runMutation(internal.wakeups.listFor, { turnId, ...input }),
 			cancel: (input) => ctx.runMutation(internal.wakeups.cancelFor, { turnId, ...input }),
 		},
 		records: recordStore(ctx, turnId),
@@ -299,7 +304,7 @@ async function streamReply(
 	/** Calls held in an automation's run: the model was told they're waiting, and the run goes on. */
 	const heldCalls = new Set<string>();
 	const check = async (t: ToolDef, callId: string) => {
-		const { decision, allowed } = await ctx.runQuery(internal.permissions.check, { turnId, action: t.id, risk: toolRisk(t) });
+		const { decision, allowed } = await ctx.runMutation(internal.permissions.check, { turnId, action: t.id, risk: toolRisk(t) });
 		if (allowed) allowedCalls.set(callId, allowed);
 		if (decision.type === "deny") deniedCalls.set(callId, deniedReason(decision, t.id));
 		if (decision.type === "ask" && decision.waitFor) heldCalls.add(callId);
@@ -720,7 +725,7 @@ async function runApproval(
  */
 function memoryStore(ctx: ActionCtx, turnId: Id<"agentTurns">): MemoryStore {
 	return {
-		search: (query, agentId) => ctx.runQuery(internal.memory.searchFor, { turnId, query, ...(agentId && { agentId: agentId as Id<"agents"> }) }),
+		search: (query, agentId) => ctx.runMutation(internal.memory.searchFor, { turnId, query, ...(agentId && { agentId: agentId as Id<"agents"> }) }),
 		create: ({ scope, content, agentId }) => ctx.runMutation(internal.memory.createFor, { turnId, scope, content, ...(agentId && { agentId: agentId as Id<"agents"> }) }),
 		update: (id, content) => ctx.runMutation(internal.memory.updateFor, { turnId, id: id as Id<"memories">, content }),
 		remove: async (id) => {
@@ -754,10 +759,10 @@ async function runManage(ctx: ActionCtx, turnId: Id<"agentTurns">, tool: string,
 /** Chats as the turn's person sees them; chatTools.ts and files.ts re-check access on every call. */
 function chatStore(ctx: ActionCtx, turnId: Id<"agentTurns">): ChatStore {
 	return {
-		read: (input) => ctx.runQuery(internal.chatTools.readFor, { turnId, ...input }),
-		search: (input) => ctx.runQuery(internal.chatTools.searchFor, { turnId, ...input }),
+		read: (input) => ctx.runMutation(internal.chatTools.readFor, { turnId, ...input }),
+		search: (input) => ctx.runMutation(internal.chatTools.searchFor, { turnId, ...input }),
 		async readFile({ id, page }) {
-			const file = await ctx.runQuery(internal.files.readFor, { turnId, id });
+			const file = await ctx.runMutation(internal.files.readFor, { turnId, id });
 			if (!file) return { error: `No file "${id}" in a chat you can see.` };
 			if (isImageType(file.type)) return { error: `${file.name} is a picture, with no text to read. Pictures reach you with the message they're attached to, if your model sees pictures.` };
 			const text = await ctx.runAction(internal.fileText.page, { storageId: file.storageId, type: file.type, page });
@@ -770,15 +775,15 @@ function chatStore(ctx: ActionCtx, turnId: Id<"agentTurns">): ChatStore {
 /** Records as the turn's person may read and change them; recordTools.ts re-checks access on every call. */
 function recordStore(ctx: ActionCtx, turnId: Id<"agentTurns">): RecordStore {
 	return {
-		types: (input) => ctx.runQuery(internal.recordTools.typesFor, { turnId, ...input }),
-		history: (input) => ctx.runQuery(internal.recordTools.historyFor, { turnId, ...input }),
-		find: (input) => ctx.runQuery(internal.recordTools.findFor, { turnId, input }),
-		get: ({ id }) => ctx.runQuery(internal.recordTools.getFor, { turnId, id }),
+		types: (input) => ctx.runMutation(internal.recordTools.typesFor, { turnId, ...input }),
+		history: (input) => ctx.runMutation(internal.recordTools.historyFor, { turnId, ...input }),
+		find: (input) => ctx.runMutation(internal.recordTools.findFor, { turnId, input }),
+		get: ({ id }) => ctx.runMutation(internal.recordTools.getFor, { turnId, id }),
 		save: (input) => ctx.runMutation(internal.recordTools.saveFor, { turnId, input }),
 		undo: ({ change }) => ctx.runMutation(internal.recordTools.undoFor, { turnId, change }),
 		saveField: (input) => ctx.runMutation(internal.recordTools.saveFieldFor, { turnId, input }),
 		saveDatabase: (input) => ctx.runMutation(internal.recordTools.saveDatabaseFor, { turnId, input }),
-		views: ({ type }) => ctx.runQuery(internal.recordTools.viewsFor, { turnId, type }),
+		views: ({ type }) => ctx.runMutation(internal.recordTools.viewsFor, { turnId, type }),
 		saveView: (input) => ctx.runMutation(internal.recordTools.saveViewFor, { turnId, input }),
 	};
 }
@@ -786,9 +791,9 @@ function recordStore(ctx: ActionCtx, turnId: Id<"agentTurns">): RecordStore {
 /** Convert Markdown in Node; pageTools rechecks the acting person's access. */
 function pageStore(ctx: ActionCtx, turnId: Id<"agentTurns">): PageStore {
 	return {
-		find: (input) => ctx.runQuery(internal.pageTools.findFor, { turnId, input }),
+		find: (input) => ctx.runMutation(internal.pageTools.findFor, { turnId, input }),
 		async read(input) {
-			const page = await ctx.runQuery(internal.pageTools.readFor, { turnId, ...input });
+			const page = await ctx.runMutation(internal.pageTools.readFor, { turnId, ...input });
 			if ("error" in page) return page;
 			const { doc, ...rest } = page;
 			if (input.format === "blocks" && doc) return { ...rest, markdown: "", blocks: JSON.stringify(JSON.parse(doc).content[0].content) };

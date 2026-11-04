@@ -12,7 +12,7 @@ it("lists team and own memories with 1,600 members' personal histories", { timeo
 		for (let i = start; i < start + 100; i++) {
 			const userId = await ctx.db.insert("users", { email: `${i}@co.com` });
 			await addMember(ctx, { workspaceId, userId, role: "member" });
-			for (let n = 0; n < 11; n++) await ctx.db.insert("memories", { workspaceId, agentId, scope: "personal", ownerId: userId, content: "private", updatedBy: userId, updatedAt: 0, version: 1 });
+			for (let n = 0; n < 11; n++) await ctx.db.insert("memories", { workspaceId, agentId, scope: "personal", ownerId: userId, content: "private".repeat(200), updatedBy: userId, updatedAt: 0, version: 1 });
 		}
 	});
 	await owner.mutation(api.memory.create, { agentId, scope: "workspace", content: "team" });
@@ -57,7 +57,7 @@ it("search and activity survive 5k other people's private DM rows", { timeout: 6
 			await ctx.db.insert("agentActivity", { workspaceId, chatId: theirs, actorId: member.userId, agentId, callId: `${i}`, tool: "chat.search", input: "{}", changes: false, status: "done" });
 		}
 	});
-	const result = await t.query(internal.chatTools.searchFor, { turnId, query: "needle" });
+	const result = await t.mutation(internal.chatTools.searchFor, { turnId, query: "needle" });
 	expect.soft(result).toMatchObject({ messages: [{ text: "needle mine" }] });
 	expect(await owner.query(api.activity.list, {})).toMatchObject([{ callId: "mine", mine: true }]);
 });

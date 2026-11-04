@@ -80,7 +80,7 @@ describe("memory", () => {
 		await owner.mutation(api.memory.create, { agentId: companybot._id, scope: "workspace", content: "Companybot fact" });
 		await owner.mutation(api.memory.create, { agentId: scribe._id, scope: "workspace", content: "Scribe fact" });
 		const turnId = await agentTurn(t, owner, (await generalOf(owner))._id, scribe._id);
-		const seen = await t.query(internal.memory.searchFor, { turnId, query: "" });
+		const seen = await t.mutation(internal.memory.searchFor, { turnId, query: "" });
 		expect(seen.map((m) => m.content)).toEqual(["Scribe fact"]);
 	});
 
@@ -134,7 +134,7 @@ describe("memory", () => {
 		const turnId = await agentTurn(t, member, (await generalOf(member))._id, agentId);
 		await t.mutation(internal.memory.removeFor, { turnId, id: team.id });
 		expect((await owner.query(api.memory.list)).map((m) => m.content)).toEqual([]);
-		expect(await t.query(internal.memory.searchFor, { turnId, query: "Austin" })).toEqual([]);
+		expect(await t.mutation(internal.memory.searchFor, { turnId, query: "Austin" })).toEqual([]);
 		const [entry] = (await owner.query(api.trash.list, { paginationOpts: { numItems: 10, cursor: null } })).page;
 		expect(entry).toMatchObject({ kind: "memory", name: "Office is in Austin.", user: "member@co.com", agent: "Companybot", canRestore: true });
 
@@ -186,7 +186,7 @@ describe("memory", () => {
 		const team = (await owner.query(api.workspace.team))!;
 		const row = team.members.find((m) => !m.isYou)!;
 		await owner.mutation(api.workspace.removeMember, { id: row.id });
-		await expect(t.query(internal.memory.searchFor, { turnId, query: "" })).rejects.toThrow("no longer");
+		await expect(t.mutation(internal.memory.searchFor, { turnId, query: "" })).rejects.toThrow("no longer");
 	});
 });
 
@@ -198,14 +198,14 @@ describe("memory in shared chats", () => {
 		const mine = await owner.mutation(api.memory.create, { agentId, scope: "personal", content: "I'm vegan." });
 		await owner.mutation(api.memory.create, { agentId, scope: "workspace", content: "We close at 5." });
 		const shared = { turnId: await agentTurn(t, owner, (await generalOf(owner))._id, agentId) };
-		expect((await t.query(internal.memory.searchFor, { ...shared, query: "" })).map((m) => m.content)).toEqual(["We close at 5."]);
+		expect((await t.mutation(internal.memory.searchFor, { ...shared, query: "" })).map((m) => m.content)).toEqual(["We close at 5."]);
 		const saved = await t.mutation(internal.memory.createFor, { ...shared, scope: "personal", content: "I prefer short replies." });
 		expect(saved).toMatchObject({ scope: "personal", ownerId: await t.run(async (ctx) => (await ctx.db.query("users").first())!._id) });
 		// Saved, but still not read back here.
-		expect((await t.query(internal.memory.searchFor, { ...shared, query: "" })).map((m) => m.content)).toEqual(["We close at 5."]);
+		expect((await t.mutation(internal.memory.searchFor, { ...shared, query: "" })).map((m) => m.content)).toEqual(["We close at 5."]);
 		await expect(t.mutation(internal.memory.removeFor, { ...shared, id: mine.id })).rejects.toThrow("can't be read or changed here");
 		await expect(t.mutation(internal.memory.updateFor, { ...shared, id: saved.id, content: "x" })).rejects.toThrow("can't be read or changed here");
 		const dm = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [agentId] });
-		expect(await t.query(internal.memory.searchFor, { turnId: await agentTurn(t, owner, dm, agentId), query: "" })).toHaveLength(3);
+		expect(await t.mutation(internal.memory.searchFor, { turnId: await agentTurn(t, owner, dm, agentId), query: "" })).toHaveLength(3);
 	});
 });

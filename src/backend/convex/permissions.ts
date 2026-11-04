@@ -16,12 +16,12 @@ import {
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type MutationCtx, type QueryCtx, internalQuery } from "./_generated/server";
+import { type MutationCtx, type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
 import { mutation, query } from "./functions";
-import { type Member, getMember, memberFor, nameOf, requireInWorkspace, requireMember, requirePermission } from "./lib";
 import { automationName, automationScope } from "./automationOps";
-import { allowedRoles, installOf } from "./connectors";
 import { riskOf, titleOf, toolsOf } from "./connectorTools";
+import { allowedRoles, installOf } from "./connectors";
+import { type Member, getMember, memberFor, nameOf, requireInWorkspace, requireMember, requirePermission } from "./lib";
 import { risk } from "./schema";
 import { runningTurn } from "./turns";
 
@@ -101,7 +101,7 @@ type AllowedVia = { how: "always" | "automation"; by: Id<"users">; at: number; r
  * from the person's roles and the rules in force now. A tool their roles lack is refused, naming the
  * roles that have it, so the agent can tell them who to ask.
  */
-export const check = internalQuery({
+export const check = internalMutation({
 	args: { turnId: v.id("agentTurns"), action: v.string(), risk },
 	handler: async (ctx, { turnId, action, risk }): Promise<{ decision: PermissionDecision; allowed?: AllowedVia }> => {
 		const { turn, member } = await runningTurn(ctx, turnId);
