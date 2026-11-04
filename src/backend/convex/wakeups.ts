@@ -23,7 +23,7 @@ import { recordById } from "./recordOps";
 import { enqueueTurn, runningTurn } from "./turns";
 
 // Wakeups: an agent wakes later in a place (chat + thread), acting for a person. A wakeup is when
-// plus what. When: a time (`at`, through the scheduler; with `every` it's re-armed after each wake,
+// plus what. When: a time (`at`, through the scheduler; with `repeat` it's re-armed after each wake,
 // `times` wakes in all or forever) or a job (`jobId`: #114 calls `wake` with its result). What: a
 // note (a follow-up's task) or none (look around: #162's heartbeat). `wake` is the only path from
 // one to a turn. The turn is quiet: its reply is shown only if its decision posts it (turns.finishReply).
@@ -41,9 +41,9 @@ type Gate = (ctx: MutationCtx, row: Doc<"wakeups">) => Promise<string | null>;
  */
 const lookAroundGate: Gate | undefined = undefined;
 
-type NewWakeup = Pick<Doc<"wakeups">, "workspaceId" | "agentId" | "chatId" | "threadId" | "actorId" | "createdBy" | "note" | "recordId" | "typeId" | "foreign" | "at" | "every" | "times" | "jobId" | "answer">;
+type NewWakeup = Pick<Doc<"wakeups">, "workspaceId" | "agentId" | "chatId" | "threadId" | "actorId" | "createdBy" | "note" | "recordId" | "typeId" | "foreign" | "at" | "repeat" | "repeatAt" | "times" | "jobId" | "answer">;
 
-/** Stores a wakeup and, if it has a time, schedules it. #114 makes `{ jobId }` ones; #162 note-less `{ at, every }` ones. */
+/** Stores a wakeup and, if it has a time, schedules it. #114 makes `{ jobId }` ones; #162 note-less `{ at, repeat }` ones. */
 export async function createWakeup(ctx: MutationCtx, wakeup: NewWakeup) {
 	const id = await ctx.db.insert("wakeups", { ...wakeup, status: "pending" });
 	if (wakeup.at !== undefined) await armAt(ctx, id, wakeup.at);
@@ -87,7 +87,7 @@ export const fire = internalMutation({
 		// A held one tries again too (armAt clears `held`): `wake` holds it again if it's still waiting.
 		if (!row || row.status !== "pending" || row.at !== at) return;
 		// The next one is scheduled first, so a wake that fails or is skipped doesn't end the repeat.
-		if (repeatsAfter(row)) await armAt(ctx, id, nextRepeat(at, row.every!, Date.now(), await timeZoneOf(ctx, row.actorId)));
+		if (repeatsAfter(row)) await armAt(ctx, id, nextRepeat(row.repeatAt ?? at, row.repeat!, Math.max(at, Date.now()), await timeZoneOf(ctx, row.actorId)));
 		await wake(ctx, id);
 	},
 });
@@ -104,7 +104,7 @@ export const release = internalMutation({
 });
 
 /** Whether a wakeup has another wake after the one now: it repeats, and `times` (if set) isn't used up. */
-const repeatsAfter = (row: Doc<"wakeups">) => !!row.every && (row.times === undefined || (row.wakes ?? 0) + 1 < row.times);
+const repeatsAfter = (row: Doc<"wakeups">) => !!row.repeat && (row.times === undefined || (row.wakes ?? 0) + 1 < row.times);
 
 /** Called when anything comes back from Archive (trashOps): held wakeups in the workspace try again. */
 export async function releaseHeld(ctx: MutationCtx, workspaceId: Id<"workspaces">) {
@@ -250,9 +250,9 @@ export const list = query({
 					/** Null for ones in a chat you can't see (owners still see that they exist), and for check-ins that look around. */
 					note: visible ? (row.note ?? null) : null,
 					at: row.at ?? null,
-					every: row.every ?? null,
+					every: row.repeat ?? null,
 					/** Wakes left, this one included; null: until cancelled. */
-					left: row.every ? (row.times === undefined ? null : row.times - (row.wakes ?? 0)) : null,
+					left: row.repeat ? (row.times === undefined ? null : row.times - (row.wakes ?? 0)) : null,
 					job: !!row.jobId,
 					held: row.held ?? false,
 					actor: (await names.user(row.actorId)).name,
@@ -321,9 +321,9 @@ export const createFor = internalMutation({
 				...(record && { recordId: record._id, typeId: record.typeId }),
 				foreign,
 				at: time,
-				...(every !== undefined && { every, ...(times !== undefined && { times }) }),
+				...(every !== undefined && { repeat: every, repeatAt: time, ...(times !== undefined && { times }) }),
 			});
-			const repeat = every === undefined ? "" : `, then every ${often!.trim()}${times === undefined ? " until cancelled" : `, ${times} times in all`}`;
+			const repeat = every === undefined ? "" : `, then every ${Object.entries(every).map(([unit, n]) => `${n} ${unit}`).join(", ")}${times === undefined ? " until cancelled" : `, ${times} times in all`}`;
 			return { created: id, when: followupWhen(time, timeZone) + repeat, ...(record && { record: record.title }) };
 		});
 	},
@@ -351,7 +351,7 @@ export const listFor = internalQuery({
 				const about = row.recordId && (await ctx.db.get(row.recordId));
 				followups.push({
 					id: row._id,
-					when: row.at ? followupWhen(row.at, timeZone) + (row.every ? ", then repeating" : "") : "When its job finishes",
+					when: row.at ? followupWhen(row.at, timeZone) + (row.repeat ? ", then repeating" : "") : "When its job finishes",
 					...(row.note !== undefined && { note: row.note }),
 					agent: (await names.agent(row.agentId)).name,
 					for: (await names.user(row.actorId)).name,

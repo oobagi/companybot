@@ -827,11 +827,14 @@ export default defineSchema({
 		status: v.union(v.literal("pending"), v.literal("fired"), v.literal("cancelled")),
 		reason: v.optional(v.string()),
 		/**
-		 * When: a time (`at`; with `every` ms it's re-armed after each wake, `times` wakes in all or
+		 * When: a time (`at`; with structured `repeat` it's re-armed after each wake, `times` wakes in all or
 		 * forever), or a job finishing (`jobId`, #114).
 		 */
 		at: v.optional(v.number()),
+		// COMPAT(0.1.0-alpha.10): drop every after wakeupDurations migrates numeric intervals. Nothing reads it outside the migration.
 		every: v.optional(v.number()),
+		repeat: v.optional(v.object({ years: v.optional(v.number()), months: v.optional(v.number()), weeks: v.optional(v.number()), days: v.optional(v.number()), hours: v.optional(v.number()), minutes: v.optional(v.number()) })),
+		repeatAt: v.optional(v.number()),
 		times: v.optional(v.number()),
 		/** Wakes so far. */
 		wakes: v.optional(v.number()),

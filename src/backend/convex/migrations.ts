@@ -179,6 +179,16 @@ export const skillAudience = migrations.define({
 	migrateOne: async (ctx, row) => { if (!row.audience) await ctx.db.patch(row._id, { audience: "team" }); },
 });
 
+// COMPAT(0.1.0-alpha.10): retire after numeric wakeup intervals have been converted.
+export const wakeupDurations = migrations.define({
+	table: "wakeups",
+	migrateOne: async (_ctx, row) => {
+		if (row.every === undefined) return;
+		const day = 86_400_000;
+		return { repeat: row.every % day === 0 ? { days: row.every / day } : { minutes: row.every / 60_000 }, repeatAt: row.at, every: undefined };
+	},
+});
+
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
@@ -194,6 +204,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.customRolesInvites,
 	internal.migrations.customRolesConnectors,
 	internal.migrations.skillAudience,
+	internal.migrations.wakeupDurations,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */
