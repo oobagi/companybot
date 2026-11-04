@@ -6,7 +6,7 @@ import { api, internal } from "../convex/_generated/api";
 import type { Doc, Id } from "../convex/_generated/dataModel";
 import schema from "../convex/schema";
 import { STALE_TURN_MS } from "../convex/turns";
-import { agentTurn, agentsOf, modules, ownerAndMember, signIn, workspaceOf } from "./helpers";
+import { agentTurn, agentsOf, modules, ownerAndMember, signIn, workspaceOf, chatActivityOf } from "./helpers";
 
 afterEach(() => void vi.useRealTimers());
 
@@ -82,7 +82,7 @@ describe("recording usage", () => {
 		expect(rows.map((r) => [r.kind, r.model, r.costUsd]).sort()).toEqual([["chat", "openai/gpt-6-luna", 0.02], ["search", "exa", 0.01]]);
 		const turn = (await t.run((ctx) => ctx.db.get(turnId))) as Doc<"agentTurns">;
 		expect((await replyOf(t, turn)).stats).toMatchObject({ costUsd: 0.02, searchCostUsd: 0.01, conversationCostUsd: 0.03 });
-		expect(((await t.run((ctx) => ctx.db.get(turn.chatId))) as Doc<"chats">).costUsd).toBeCloseTo(0.03);
+		expect((await chatActivityOf(t, turn.chatId)).costUsd).toBeCloseTo(0.03);
 		expect((await owner.query(api.usage.report, {}))!.byKind).toEqual([{ kind: "chat", costUsd: 0.02 }, { kind: "search", costUsd: 0.01 }]);
 	});
 
@@ -100,7 +100,7 @@ describe("recording usage", () => {
 		expect(await chatSpent(t)).toBe(0.04);
 		const turn = (await t.run((ctx) => ctx.db.get(turnId))) as Doc<"agentTurns">;
 		expect((await replyOf(t, turn)).stats).toMatchObject({ costUsd: 0.04, steps: 3, conversationCostUsd: 0.04, counted: true });
-		expect(((await t.run((ctx) => ctx.db.get(turn.chatId))) as Doc<"chats">).costUsd).toBeCloseTo(0.04);
+		expect((await chatActivityOf(t, turn.chatId)).costUsd).toBeCloseTo(0.04);
 		expect(((await t.run((ctx) => ctx.db.get(turn.sessionId!))) as Doc<"agentSessions">).costUsd).toBeCloseTo(0.04);
 	});
 

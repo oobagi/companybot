@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { agentTurn, agentsOf, generalOf, ownerAndMember, turnsOf } from "./helpers";
+import { agentTurn, agentsOf, generalOf, ownerAndMember, turnsOf, messagesIn } from "./helpers";
 
 // Every turn ends with the same answer (core postDecision), asked (an @mention) or not (a dispatcher's
 // pick): it posts iff its message isn't blank, reacts iff its emoji is one emoji, and its reply shows,
@@ -45,8 +45,8 @@ async function turn(kind: "asked" | "picked") {
 		turnId = (await turnsOf(t)).find((x) => x.triggerId === messageId)!._id;
 	}
 	vi.useRealTimers();
-	const replies = async () => (await owner.query(api.messages.list, { chatId })).filter((m) => m.author.type === "agent");
-	const reactions = async () => (await owner.query(api.messages.list, { chatId })).find((m) => m.text === "hi")!.reactions.map((r) => r.emoji);
+	const replies = async () => (await messagesIn(owner, { chatId })).filter((m) => m.author.type === "agent");
+	const reactions = async () => (await messagesIn(owner, { chatId })).find((m) => m.text === "hi")!.reactions.map((r) => r.emoji);
 	return { t, owner, chatId, turnId, replies, reactions };
 }
 

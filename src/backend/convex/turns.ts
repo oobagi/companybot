@@ -10,6 +10,7 @@ import { automationScope } from "./automationOps";
 import { answerAsk, handOff } from "./chains";
 import {
 	type Namer,
+	activityOf,
 	canPost,
 	canReplyAs,
 	canSee,
@@ -22,6 +23,7 @@ import {
 	reactOnce,
 	requireReactionAudience,
 	reactionGroups,
+	setActivity,
 	textForModel,
 } from "./chatOps";
 import { filesForModel, turnImages } from "./files";
@@ -343,12 +345,12 @@ export const turnContext = internalMutation({
 		const window = foreign && (!trigger || turn.threadId !== trigger._id) ? (trigger ? [trigger] : []) : (
 			await ctx.db
 				.query("chatMessages")
-				.withIndex("by_chat_thread", (q) =>
-					q.eq("chatId", chat._id).eq("threadId", turn.threadId).gt("_creationTime", since).lt("_creationTime", reply._creationTime),
+				// Not quiet: replies not shown (yet), and asks.
+				.withIndex("by_chat_thread_quiet", (q) =>
+					q.eq("chatId", chat._id).eq("threadId", turn.threadId).eq("quiet", undefined).gt("_creationTime", since).lt("_creationTime", reply._creationTime),
 				)
 				.order("desc")
-				// Quiet: replies not shown (yet), and asks.
-				.filter((q) => q.and(q.neq(q.field("deleted"), true), q.neq(q.field("quiet"), true)))
+				.filter((q) => q.neq(q.field("deleted"), true))
 				// The prompt shows PROMPT_MESSAGE_CAP; one more says there are earlier ones, one more for the trigger.
 				.take(PROMPT_MESSAGE_CAP + 2)
 		).reverse();
@@ -774,9 +776,16 @@ async function endStream(ctx: MutationCtx, reply: Doc<"chatMessages">, end: Part
 	if (stream) await ctx.db.delete(stream._id);
 }
 
-/** The running cost on a place: the thread parent, or the chat. */
+/** The running cost on a place: the thread parent, or the chat's activity. */
 async function addPlaceCost(ctx: MutationCtx, chatId: Id<"chats">, threadId: Id<"chatMessages"> | undefined, cost: number) {
-	const place = threadId ? await ctx.db.get(threadId) : await ctx.db.get(chatId);
+	if (!threadId) {
+		const chat = await ctx.db.get(chatId);
+		if (!chat) return cost;
+		const costUsd = (await activityOf(ctx, chat)).costUsd + cost;
+		await setActivity(ctx, chat, { costUsd });
+		return costUsd;
+	}
+	const place = await ctx.db.get(threadId);
 	const costUsd = (place?.costUsd ?? 0) + cost;
 	if (place) await ctx.db.patch(place._id, { costUsd });
 	return costUsd;
@@ -827,10 +836,11 @@ async function saveTurnUsage(ctx: MutationCtx, turn: Doc<"agentTurns">, usage: I
 
 /** A reply's stats: its model calls, its pictures and searches apart (already in `usage` as their own kinds), and its place's total. */
 async function statsOf(ctx: QueryCtx, turn: Doc<"agentTurns">, usage: SavedUsage): Promise<Infer<typeof replyStats>> {
-	const place = turn.threadId ? await ctx.db.get(turn.threadId) : await ctx.db.get(turn.chatId);
+	const chat = turn.threadId ? null : await ctx.db.get(turn.chatId);
+	const place = turn.threadId ? (await ctx.db.get(turn.threadId))?.costUsd : chat ? (await activityOf(ctx, chat)).costUsd : 0;
 	return {
 		...usage,
-		conversationCostUsd: place?.costUsd ?? 0,
+		conversationCostUsd: place ?? 0,
 		...(turn.imageCostUsd && { imageCostUsd: turn.imageCostUsd }),
 		...(turn.searchCostUsd && { searchCostUsd: turn.searchCostUsd }),
 		...(turn.dispatch && { dispatch: pickOf(turn.dispatch) }),

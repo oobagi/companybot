@@ -5,7 +5,7 @@ import type { Id, TableNames } from "../convex/_generated/dataModel";
 import { type Edge, type Lifecycle, edgesOf, lifecycle } from "../convex/lifecycle";
 import { memberOf } from "../convex/lib";
 import schema from "../convex/schema";
-import { agentTurn, generalOf, newTest, noMentions, settle, ownerAndMember, sideWorkspace, signIn, turnsOf, workspaceOf, identityOf, addMember, builtInRoleIn } from "./helpers";
+import { agentTurn, generalOf, newTest, noMentions, settle, ownerAndMember, sideWorkspace, signIn, turnsOf, workspaceOf, identityOf, addMember, builtInRoleIn, messagesIn } from "./helpers";
 import "./connectorFixtures";
 import { person } from "./person";
 import { defaultAgents } from "@companybot/core";
@@ -245,7 +245,7 @@ describe("deleting a workspace", () => {
 			expect(await a.in(A).query(api.workspace.settings)).toBeNull();
 			expect(await a.in(A).query(api.chats.list)).toBeNull();
 			expect(await a.in(A).query(api.chats.get, { chatId: general })).toBeNull();
-			expect(await a.in(A).query(api.messages.list, { chatId: general })).toEqual([]);
+			expect(await messagesIn(a.in(A), { chatId: general })).toEqual([]);
 			expect(await a.in(A).query(api.chats.alerts)).toBeNull();
 		};
 		// Every live table has rows, so a cascade that missed one would show.
@@ -346,7 +346,7 @@ describe("resetting a workspace", () => {
 		expect(chats.dms).toEqual([]);
 		const general = await generalOf(a);
 		expect(general.members.filter((x) => x.type === "user").map((x) => x.id).sort()).toEqual([owner, m.userId].sort());
-		expect(await a.query(api.messages.list, { chatId: general._id })).toHaveLength(1);
+		expect(await messagesIn(a, { chatId: general._id })).toHaveLength(1);
 		for (const who of [a, m.in(A)]) expect(await who.query(api.onboarding.tutorial)).not.toBeNull();
 		expect((await a.query(api.workspace.team))!.invites.map((i) => i.email)).toEqual(["next@co.com"]);
 		expect(await a.query(api.workspace.settings)).toMatchObject({ lastReset: { by: expect.any(String), at: expect.any(Number) } });
@@ -526,7 +526,7 @@ describe("erasing an account", () => {
 		await m.mutation(api.messages.send, { chatId: general, text: "Bye", mentions: { userIds: [], agentIds: [] } });
 		await m.mutation(api.workspace.eraseAccount);
 		await settle(t);
-		const [message] = await owner.query(api.messages.list, { chatId: general });
+		const [message] = await messagesIn(owner, { chatId: general });
 		expect(message).toMatchObject({ text: "Bye", author: { type: "user", name: "Former member" } });
 		// A later sign-in with the same email is someone new, in none of the old workspaces.
 		const again = person(identityOf(t, await t.run((ctx) => ctx.db.insert("users", { email: "m@co.com" }))));
@@ -543,7 +543,7 @@ describe("a sign-in from before an account was erased", () => {
 		await member.mutation(api.messages.send, { chatId: general, text: "Bye", mentions: noMentions });
 		const workspaceId = await workspaceOf(owner);
 		await member.mutation(api.workspace.eraseAccount);
-		const authorOfBye = async () => (await owner.query(api.messages.list, { chatId: general })).find((m) => m.text === "Bye")!.author;
+		const authorOfBye = async () => (await messagesIn(owner, { chatId: general })).find((m) => m.text === "Bye")!.author;
 		const refused = async () => {
 			await expect(member.mutation(api.preferences.update, { displayName: "Back" })).rejects.toThrow("Not signed in");
 			expect(await member.query(api.preferences.get)).toMatchObject({ displayName: "" });

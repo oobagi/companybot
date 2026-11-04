@@ -313,6 +313,33 @@ export const dropChatReactLocks = migrations.define({
 	},
 });
 
+// A chat's last message time and running cost moved to its own `chatActivity` row, so a message no longer
+// re-runs every query that reads the chat. This moves each chat's onto that row (one the app made since
+// already started from the chat's, so it's newer and stays) and clears them from the chat.
+// COMPAT(0.1.0-alpha.10): once this has run on prod, delete it, its entry in `all` and its test, the two
+// legacy fields (schema.ts) and the fallback in chatOps `activityOf`.
+export const chatActivity = migrations.define({
+	table: "chats",
+	batchSize: 50,
+	migrateOne: async (ctx, chat) => {
+		if (chat.lastMessageAt === undefined && chat.costUsd === undefined) return;
+		const row = await ctx.db.query("chatActivity").withIndex("by_chat", (q) => q.eq("chatId", chat._id)).unique();
+		if (!row) await ctx.db.insert("chatActivity", { chatId: chat._id, lastMessageAt: chat.lastMessageAt ?? chat._creationTime, ...(chat.costUsd ? { costUsd: chat.costUsd } : {}) });
+		await ctx.db.patch(chat._id, { lastMessageAt: undefined, costUsd: undefined });
+	},
+});
+
+// Lists page by when each message was shown (`publishedAt`, index by_chat_shown), so a reply shown late is on the
+// newest page. New messages get it when sent or shown; this gives older ones theirs: where they sit now (shownAt).
+// COMPAT(0.1.0-alpha.10): once this has run on prod, delete it, its entry in `all` and its test.
+export const messageShownAt = migrations.define({
+	table: "chatMessages",
+	batchSize: 100,
+	migrateOne: async (ctx, m) => {
+		if (m.publishedAt === undefined && !m.quiet) await ctx.db.patch(m._id, { publishedAt: m._creationTime });
+	},
+});
+
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
@@ -338,6 +365,8 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.dropChatReactRules,
 	internal.migrations.dropChatReactLocks,
 	internal.migrations.channelTopics,
+	internal.migrations.chatActivity,
+	internal.migrations.messageShownAt,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */
