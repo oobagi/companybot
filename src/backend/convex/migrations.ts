@@ -1,11 +1,12 @@
+import { fromLegacy } from "./wakeups";
 import { type MigrationFunctionReference, Migrations } from "@convex-dev/migrations";
 import { components, internal } from "./_generated/api";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, internalMutation, internalQuery } from "./_generated/server";
-import { defaultModel, scheduleCron, usageMonth } from "@companybot/core";
+import { defaultModel, scheduleCron, usageMonth, wakeAnchor } from "@companybot/core";
 import { recordUsage } from "./usage";
 import { type RunOutcome, scheduleCursor } from "./automationOps";
-import { rolesOf } from "./lib";
+import { rolesOf, timeZoneOf } from "./lib";
 import { seedRoles } from "./roles";
 import { withoutPageTitles } from "./pageBlocks";
 
@@ -261,6 +262,15 @@ export const skillAudience = migrations.define({
 	migrateOne: async (ctx, row) => { if (!row.audience) await ctx.db.patch(row._id, { audience: "team" }); },
 });
 
+// COMPAT(0.1.0-alpha.10): retire after numeric wakeup intervals have been converted.
+export const wakeupDurations = migrations.define({
+	table: "wakeups",
+	migrateOne: async (ctx, row) => {
+		if (row.every === undefined) return;
+		return { repeat: row.repeat ?? fromLegacy(row.every), anchor: row.anchor ?? (row.at === undefined ? undefined : wakeAnchor(row.at, await timeZoneOf(ctx, row.actorId))), every: undefined };
+	},
+});
+
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
@@ -280,6 +290,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.pageBlockTitles,
 	internal.migrations.automationOutcomes,
 	internal.migrations.skillAudience,
+	internal.migrations.wakeupDurations,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

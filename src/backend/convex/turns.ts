@@ -385,7 +385,7 @@ export const turnContext = internalQuery({
 						...(wakeup.note !== undefined && { note: wakeup.note }),
 						setAt: wakeup._creationTime,
 						// Counted before the turn runs: `wakes` already includes this one.
-						...(wakeup.every && { repeats: { left: wakeup.times === undefined ? null : Math.max(wakeup.times - (wakeup.wakes ?? 0), 0) } }),
+						...(wakeup.repeat && { repeats: { left: wakeup.times === undefined ? null : Math.max(wakeup.times - (wakeup.wakes ?? 0), 0) } }),
 						...(about !== undefined && { record: about && (await recordOut(ctx, member, about._id)) }),
 						...(wakeup.result !== undefined && { result: wakeup.result }),
 						...(wakeup.answer && { answer: { from: (await names.agent(wakeup.answer.agentId)).name } }),

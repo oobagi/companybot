@@ -26,6 +26,7 @@ An automation asks an agent to do something without you typing it. Make one in [
 
 ## Follow-ups
 Ask an agent to check back later and it sets a follow-up: "remind me to chase Acme's invoice in 3 days if it's unpaid", "reach out to them in April", "check this deal every Monday for a month".
+- Calendar repeats keep the local clock time and time zone they were set in, even if you change your time zone. Missing spring times move forward only that day; month ends clamp without changing the original day. Hours and minutes count elapsed time.
 - When it's time, the agent wakes in the same chat, acting for the same person, and checks whether it still applies (is the invoice still unpaid?). It gets the record's current values if the follow-up is about one.
 - It's quiet: it posts only when there's something worth telling you. Each time it wakes shows as one line in [Activity](#/settings/activity).
 - Pending follow-ups are listed under Follow-ups in [Automations](#/settings/automations), and on the record they're about. You see the ones in chats you can see; people whose role can change agents see all of them.
