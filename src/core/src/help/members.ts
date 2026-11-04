@@ -44,6 +44,6 @@ Everyone can read what's shared with them, chat, and keep personal memories, per
 Click the roles beside a name to change them, or press Remove; it takes effect at once. To leave, open the workspace logo's menu (top of the rail) → Leave. The last owner can't leave. Removed or leaving people lose their personal memories and automations only they could see; what they said in chats stays.
 
 ## Switching and joining
-A person can be in many workspaces. Use the workspace logo at the top of the rail: pick one in its menu to switch (or press ⌘1–9), answer invites there, or pick New workspace to start your own.
+A person can be in many workspaces. Use the workspace logo at the top of the rail: pick one in its menu to switch (or press ⌃⌘1–9; Ctrl+Shift+1–9 on Windows and Linux), answer invites there, or pick New workspace to start your own.
 `,
 } satisfies HelpPage;

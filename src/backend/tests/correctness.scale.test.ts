@@ -180,9 +180,21 @@ it("debounces 3 messages in a 500-seat private channel into one bounded update, 
 		const updated = await activity(privateId);
 		expect(updated).toHaveLength(500);
 		expect(updated.every((row) => row.activityAt === start + 6000)).toBe(true);
-		expect(await t.run((ctx) => ctx.db.query("chatActivity").withIndex("by_chat", (q) => q.eq("chatId", privateId)).first())).toMatchObject({ activityAt: start + 6000, pendingAt: undefined });
+		const state = await t.run((ctx) => ctx.db.query("chatActivity").withIndex("by_chat", (q) => q.eq("chatId", privateId)).first());
+		expect(state!.lastMessageAt).toBe(start + 6000);
+		expect(state!.pendingAt).toBeUndefined();
 		const jobs = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
 		expect(jobs.filter((job) => job.name === "chatDiscovery:refreshSeats")).toHaveLength(5);
+		// A new send while pages are running must also reach rows already visited.
+		vi.setSystemTime(start + 70000);
+		await post(privateId);
+		const next = await t.run((ctx) => ctx.db.query("chatActivity").withIndex("by_chat", (q) => q.eq("chatId", privateId)).first());
+		await t.mutation(internal.chatDiscovery.refreshSeats, { chatId: privateId, cursor: null, pendingAt: next!.pendingAt! });
+		vi.setSystemTime(start + 71000);
+		expect((await post(privateId)).queries).toEqual(["chatActivity"]);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect((await activity(privateId)).every((row) => row.activityAt === start + 71000)).toBe(true);
+
 	} finally { vi.useRealTimers(); }
 });
 
@@ -196,7 +208,7 @@ it("finds a target DM after a message at T+20s among 51 DMs", async () => {
 		const chats = await t.run(async (ctx) => {
 			const ids = [];
 			for (let i = 0; i < 51; i++) {
-				const chatId = await ctx.db.insert("chats", { workspaceId, kind: "dm", private: true, searchPublic: false, archived: false, createdBy: owner.userId, lastMessageAt: start + (i ? 10000 + i : 0) });
+				const chatId = await ctx.db.insert("chats", { workspaceId, kind: "dm", private: true, dmKey: `a:${agentId},u:${owner.userId}`, ...(i > 0 && { parentId: ids[0] }), searchPublic: false, archived: false, createdBy: owner.userId, lastMessageAt: start + (i ? 10000 + i : 0) });
 				const chat = (await ctx.db.get("chats", chatId))!;
 				await addToChat(ctx, chat, { userId: owner.userId });
 				await addToChat(ctx, chat, { agentId });

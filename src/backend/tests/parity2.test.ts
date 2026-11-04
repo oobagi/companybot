@@ -3,7 +3,7 @@ import { type ManageTool, manageInputs } from "@companybot/core";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { IDLE_MS, readDoc } from "../convex/pageOps";
-import { agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, sideWorkspace, turnsOf, setMemberSwitch } from "./helpers";
+import { agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, sideWorkspace, turnsOf, setMemberSwitch, messagesIn } from "./helpers";
 
 afterEach(() => vi.useRealTimers());
 
@@ -197,23 +197,23 @@ it("edits/deletes only own visible messages, marks read explicitly, sends for th
 	// A card on your person's own message can be taken down; on someone else's it can't.
 	const linked = await owner.mutation(api.messages.send, { chatId, text: "https://news.example.com/story", mentions: noMentions });
 	await t.mutation(internal.linkPreviews.save, { messageId: linked, results: [{ url: "https://news.example.com/story", title: "Story" }] });
-	expect((await owner.query(api.messages.list, { chatId })).find((m) => m._id === linked)!.linkPreviews).toHaveLength(1);
+	expect((await messagesIn(owner, { chatId })).find((m) => m._id === linked)!.linkPreviews).toHaveLength(1);
 	expect(await call("chat.manage", { action: "hide_preview", messageId: linked, url: "https://news.example.com/story" })).toHaveProperty("done", "hide_preview");
-	expect((await owner.query(api.messages.list, { chatId })).find((m) => m._id === linked)!.linkPreviews).toEqual([]);
+	expect((await messagesIn(owner, { chatId })).find((m) => m._id === linked)!.linkPreviews).toEqual([]);
 	expect(await call("chat.manage", { action: "hide_preview", messageId: theirs, url: "https://news.example.com/story" })).toHaveProperty("error");
-	expect((await owner.query(api.messages.list, { chatId })).find((m) => m._id === theirs)!.reactions).toEqual([]);
+	expect((await messagesIn(owner, { chatId })).find((m) => m._id === theirs)!.reactions).toEqual([]);
 	expect(await call("chat.manage", { action: "mark_read", chat: chatId })).toHaveProperty("done", "mark_read");
 	// A send into the chat it's answering (the DM) posts too, and says so, so its reply doesn't repeat it.
 	expect(await call("chat.manage", { action: "send", chat: dm, text: "Here" })).toMatchObject({ messageId: expect.any(String), note: expect.stringContaining("Don't repeat") });
 	const { messageId } = await call("chat.manage", { action: "send", chat: chatId, text: "Agent delivery" });
 	expect(await call("chat.manage", { action: "edit", messageId, text: "Corrected" })).toHaveProperty("done", "edit");
 	await call("chat.manage", { action: "delete", messageId: mine });
-	expect((await owner.query(api.messages.list, { chatId })).find((m) => m._id === mine)).toHaveProperty("deleted", true);
+	expect((await messagesIn(owner, { chatId })).find((m) => m._id === mine)).toHaveProperty("deleted", true);
 	const privateId = await owner.mutation(api.chats.createChannel, { name: "secret", private: true });
 	const secret = await owner.mutation(api.messages.send, { chatId: privateId, text: "Secret", mentions: noMentions });
 	for (const request of [{ action: "send", chat: privateId, text: "Hi" }, { action: "mark_read", chat: privateId }])
 		expect(await call("chat.manage", request, true)).toHaveProperty("error");
-	expect((await owner.query(api.messages.list, { chatId: privateId })).map((m) => m._id)).toEqual([secret]);
+	expect((await messagesIn(owner, { chatId: privateId })).map((m) => m._id)).toEqual([secret]);
 });
 
 it("sample-runs automations with the same edit and dispatch rules", async () => {

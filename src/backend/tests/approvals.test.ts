@@ -4,7 +4,7 @@ import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { APPROVAL_TTL_MS, approvalHash, canonicalJson } from "@companybot/core";
 
-import { type As, workspaceOf, inWorkspace, sideWorkspace, agentsOf, ownerAndMember, generalOf, turnsOf } from "./helpers";
+import { type As, workspaceOf, inWorkspace, sideWorkspace, agentsOf, ownerAndMember, generalOf, turnsOf, messagesIn } from "./helpers";
 import "./connectorFixtures";
 
 // The tests drive turns themselves; keep scheduled model replies back.
@@ -59,7 +59,7 @@ describe("approvals", () => {
 		const [theirs] = await owner.query(api.approvals.forReply, { replyId: turn.replyId! });
 		expect(theirs).toMatchObject({ canDecide: false, input: card.input });
 
-		const reply = (await owner.query(api.messages.list, { chatId })).find((m) => m._id === turn.replyId)!;
+		const reply = (await messagesIn(owner, { chatId })).find((m) => m._id === turn.replyId)!;
 		expect(reply.parts).toMatchObject([{ type: "approval", tool: call.tool }]);
 
 		// Owners can't approve for someone else: the call would run as them.

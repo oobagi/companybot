@@ -81,7 +81,7 @@ export const context = internalQuery({
 		// Debounce: a newer person's message here makes its own decision, which sees this one.
 		const newer = await ctx.db
 			.query("chatMessages")
-			.withIndex("by_chat_thread", (q) => q.eq("chatId", chat._id).eq("threadId", message.threadId).gt("_creationTime", message._creationTime))
+			.withIndex("by_chat_thread_quiet", (q) => q.eq("chatId", chat._id).eq("threadId", message.threadId).eq("quiet", undefined).gt("_creationTime", message._creationTime))
 			.filter((q) => q.and(q.neq(q.field("authorUserId"), undefined), q.neq(q.field("deleted"), true)))
 			.first();
 		if (newer) return null;
@@ -124,9 +124,9 @@ async function around(ctx: QueryCtx, message: Doc<"chatMessages">, member: Membe
 	const before = (
 		await ctx.db
 			.query("chatMessages")
-			.withIndex("by_chat_thread", (q) => q.eq("chatId", message.chatId).eq("threadId", message.threadId).lt("_creationTime", message._creationTime))
+			.withIndex("by_chat_thread_quiet", (q) => q.eq("chatId", message.chatId).eq("threadId", message.threadId).eq("quiet", undefined).lt("_creationTime", message._creationTime))
 			.order("desc")
-			.filter((q) => q.and(q.neq(q.field("deleted"), true), q.eq(q.field("status"), "done"), q.neq(q.field("quiet"), true)))
+			.filter((q) => q.and(q.neq(q.field("deleted"), true), q.eq(q.field("status"), "done")))
 			.take(ROUTER_CONTEXT_MESSAGES)
 	).reverse();
 	const parent = message.threadId && (await ctx.db.get(message.threadId));

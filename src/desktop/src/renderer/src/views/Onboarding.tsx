@@ -6,7 +6,8 @@ import { useRef, useState } from "react";
 import { api } from "../api";
 import { CurrencySelect } from "../controls";
 import { useMutation, useQuery } from "../convex";
-import { CaretDownIcon, ChannelIcon, CloseIcon, PlusIcon } from "../icons";
+import { ChannelIcon, CloseIcon } from "../icons";
+import { appTabs } from "./AppRail";
 import { Field, Form, Notice, descriptionClass, inputClass, primaryButton, useRun } from "../ui";
 import { AgentBadge, Avatar, AvatarStack } from "./chat/common";
 import { Group, Item } from "./chat/Sidebar";
@@ -201,8 +202,8 @@ function InviteBox({
 const noop = () => {};
 
 /**
- * The app's shell with what they've typed in it: the rail's tile, the sidebar, #general with
- * everyone who'll be in it, and Companybot's welcome (its real text, `welcomeText`). Rendered at
+ * The app's shell with what they've typed in it: the app rail under their workspace's logo,
+ * Chat's sidebar, #general with everyone who'll be in it, and Companybot's welcome (its real text, `welcomeText`). Rendered at
  * full size and scaled down, so it's exactly what opens next. Not interactive.
  */
 function Preview({ name, company, invites }: { name: string; company: string; invites: string[] }) {
@@ -214,26 +215,23 @@ function Preview({ name, company, invites }: { name: string; company: string; in
 		// Laid out at 100/78 % of the frame and scaled by 0.78, so it fills the frame exactly at app size.
 		<div aria-hidden className="pointer-events-none absolute top-0 left-0 h-[128.2%] w-[128.2%] origin-top-left scale-[0.78] select-none">
 			<div className="flex h-full flex-col bg-neutral-100 text-[15px] text-neutral-900">
-				<div className="h-10 shrink-0" />
+				<div className="h-8 shrink-0" />
 				<div className="flex min-h-0 flex-1">
-					{/* The rail: this workspace, open. */}
-					<nav className="flex w-[60px] shrink-0 flex-col items-center gap-2 pt-3">
-						<span className="size-9 overflow-hidden rounded-xl">
-							<Avatar name={workspace} agent />
-						</span>
-						<span className="flex size-9 items-center justify-center rounded-[18px] border border-neutral-300 bg-white text-neutral-700">
-							<PlusIcon size={18} />
-						</span>
-						<span className="mt-auto pb-3">
-							<Avatar name={you} />
-						</span>
+					{/* The app rail: this workspace's logo, the app's parts with Chat open, and you. */}
+					<nav className="flex w-[60px] shrink-0 flex-col items-center pt-2 pb-3">
+						<Avatar name={workspace} agent />
+						<div className="my-auto flex flex-col items-center gap-1">
+							{appTabs.map((t) => (
+								<span key={t.id} className={`flex size-9 items-center justify-center rounded-lg ${t.id === "chat" ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500"}`}>
+									<t.icon size={20} weight={t.id === "chat" ? "fill" : "regular"} />
+								</span>
+							))}
+						</div>
+						<Avatar name={you} />
 					</nav>
 					<div className="flex min-w-0 flex-1 overflow-hidden rounded-tl-xl border-t border-l border-neutral-200 bg-white">
-						<aside className="flex w-60 shrink-0 flex-col gap-4 border-r border-neutral-200 bg-neutral-50 px-3 pt-3">
-							<div className="flex items-center gap-2 px-2 py-1 pb-3 text-sm font-semibold">
-								<span className={`truncate ${company.trim() ? "" : "text-neutral-400"}`}>{workspace}</span>
-								<CaretDownIcon className="shrink-0 text-neutral-400" />
-							</div>
+						<aside className="flex w-60 shrink-0 flex-col gap-4 border-r border-neutral-200 bg-neutral-50 px-3 pt-2.5">
+							<h1 className="truncate px-2 py-1 pb-3 text-sm font-semibold">Chat</h1>
 							<Group title="Channels">
 								<Item icon={<ChannelIcon />} active onClick={noop}>
 									general

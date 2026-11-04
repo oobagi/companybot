@@ -6,7 +6,7 @@ import type { Id } from "../convex/_generated/dataModel";
 import { label } from "../convex/chatOps";
 import { enqueueTurn } from "../convex/turns";
 import { wake } from "../convex/wakeups";
-import { agentsOf, finishTurn, generalOf, noMentions, ownerAndMember, turnsOf } from "./helpers";
+import { agentsOf, finishTurn, generalOf, noMentions, ownerAndMember, turnsOf, messagesIn } from "./helpers";
 
 // Agents handing work to each other (chains.ts). No network: the dispatcher's decide (Jev) is stubbed,
 // and fake timers hold every reply back, so each test writes the agents' replies itself.
@@ -66,9 +66,9 @@ describe("handoffs by @mention", () => {
 		expect((await turnsOf(t)).filter((x) => x.status !== "done")).toEqual([]);
 		const [line] = await pauses(t);
 		expect(line).toMatchObject({ chatId, threadId: thread, authorAgentId: companybot, text: "Agents paused: Companybot and Scribe went back and forth 2 times.", mentions: { userIds: [member.userId] } });
-		const shown = (await member.query(api.messages.list, { chatId, threadId: thread })).find((m) => m._id === line!._id)!;
+		const shown = (await messagesIn(member, { chatId, threadId: thread })).find((m) => m._id === line!._id)!;
 		expect(shown.pause).toEqual({ status: "paused", for: "member@co.com", by: null, canDecide: true });
-		expect((await owner.query(api.messages.list, { chatId, threadId: thread })).find((m) => m._id === line!._id)!.pause!.canDecide).toBe(false);
+		expect((await messagesIn(owner, { chatId, threadId: thread })).find((m) => m._id === line!._id)!.pause!.canDecide).toBe(false);
 
 		await expect(owner.mutation(api.chains.decide, { messageId: line!._id, action: "continue" })).rejects.toThrow("Only");
 		await member.mutation(api.chains.decide, { messageId: line!._id, action: "continue" });
@@ -243,8 +243,8 @@ describe("asking privately (chat.ask_agent)", () => {
 		expect(await t.run((ctx) => ctx.db.query("chats").collect())).toHaveLength(chats.length);
 		expect(result.thread.chatId).toBe(chatId);
 		const askId = result.thread.messageId as Id<"chatMessages">;
-		expect((await member.query(api.messages.list, { chatId })).map((m) => m.text)).not.toContain("@Scribe What's our refund policy?");
-		expect((await member.query(api.messages.list, { chatId, threadId: askId }))[0]).toMatchObject({ text: "@Scribe What's our refund policy?", ask: { from: "Companybot", to: "Scribe" } });
+		expect((await messagesIn(member, { chatId })).map((m) => m.text)).not.toContain("@Scribe What's our refund policy?");
+		expect((await messagesIn(member, { chatId, threadId: askId }))[0]).toMatchObject({ text: "@Scribe What's our refund policy?", ask: { from: "Companybot", to: "Scribe" } });
 
 		const answering = await running(t, scribe);
 		expect(answering).toMatchObject({ chatId, threadId: askId, triggerId: askId, actorId: member.userId, chain: { depth: 1 } });
@@ -252,7 +252,7 @@ describe("asking privately (chat.ask_agent)", () => {
 		// Its answer, even with an @mention, wakes nobody else; it goes back to the asker.
 		await say(t, scribe, "30 days, @Companybot.");
 		// The answer is in the ask's thread, read-only for whoever sees the chat, and not among the sidebar's threads.
-		expect((await owner.query(api.messages.list, { chatId, threadId: askId })).map((m) => [label(m.author), m.text])).toEqual([
+		expect((await messagesIn(owner, { chatId, threadId: askId })).map((m) => [label(m.author), m.text])).toEqual([
 			["Companybot, for member@co.com", "@Scribe What's our refund policy?"],
 			["Scribe", "30 days, @Companybot."],
 		]);

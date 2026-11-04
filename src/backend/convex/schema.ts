@@ -529,10 +529,10 @@ export default defineSchema({
 		/** In Trash (the `trash` table says who deleted it, and when). */
 		archived: v.boolean(),
 		createdBy: v.id("users"),
-		lastMessageAt: v.number(),
+		// COMPAT(0.1.0-alpha.10): moved to `chatActivity`. Once migrations.chatActivity has run on prod, drop these two and the fallback in chatOps `activityOf`.
+		lastMessageAt: v.optional(v.number()),
 		/** Search discovery; maintained with chat visibility. */
 		searchPublic: v.optional(v.boolean()),
-		/** USD spent on agent replies and summaries here (main timeline). */
 		costUsd: v.optional(v.number()),
 		/** Channels: when agents answer without an @mention (core router.ts). Unset is "mentions", so no migration. */
 		replyMode: v.optional(oneOf(replyModes)),
@@ -540,7 +540,6 @@ export default defineSchema({
 		access,
 	})
 		.index("by_workspace", ["workspaceId", "kind"])
-		.index("by_search_activity", ["workspaceId", "kind", "searchPublic", "lastMessageAt"])
 		.index("by_dm_key", ["workspaceId", "dmKey"])
 		.index("by_name", ["workspaceId", "name", "archived"]),
 
@@ -553,10 +552,18 @@ export default defineSchema({
 		.index("by_activity", ["workspaceId", "userId", "activityAt"])
 		.index("by_private_activity", ["workspaceId", "userId", "restricted", "activityAt"]),
 
-	// One pending, debounced discovery sweep per large restricted chat.
+	// What changes with every message in a chat, apart from it, so the many queries that read a chat's
+	// name, members or access don't re-run on each one (chatOps `activityOf`). Made with the chat.
 	chatActivity: defineTable({
-		workspaceId: v.id("workspaces"), chatId: v.id("chats"), activityAt: v.number(), pendingAt: v.optional(v.number()),
-	}).index("by_chat", ["chatId"]).index("by_workspace", ["workspaceId"]),
+		chatId: v.id("chats"),
+		pendingAt: v.optional(v.number()),
+		/** COMPAT(0.1.0-alpha.10): discoveryChatActivity backfills these index keys. */
+		workspaceId: v.optional(v.id("workspaces")), kind: v.optional(v.union(v.literal("channel"), v.literal("dm"))), searchPublic: v.optional(v.boolean()),
+		/** The main timeline's newest shown message. */
+		lastMessageAt: v.number(),
+		/** USD spent on agent replies and summaries here (main timeline). */
+		costUsd: v.optional(v.number()),
+	}).index("by_chat", ["chatId"]).index("by_search_activity", ["workspaceId", "kind", "searchPublic", "lastMessageAt"]),
 
 	// Who's in a chat: one person or one agent per row.
 	chatMembers: defineTable({
@@ -628,8 +635,9 @@ export default defineSchema({
 		/** Not in the timeline: an agent's reply until it has something to show (turns.ts `show`), and an ask (chains.ts). */
 		quiet: v.optional(v.boolean()),
 		/**
-		 * Where it sits in the timeline, if not where it was made (chatOps `shownAt`): when an agent's reply was
-		 * shown, or when a reply took in messages sent after it began (turns.steer), so it shows below them.
+		 * When it was shown in the timeline (chatOps `shownAt`), what lists page and sort by: when it was sent, when an
+		 * agent's reply was shown, or when a reply took in messages sent after it began (turns.steer), so it shows below
+		 * them. Unset while quiet. COMPAT(0.1.0-alpha.10): older rows have none until migrations.messageShownAt.
 		 */
 		publishedAt: v.optional(v.number()),
 		/**
@@ -644,7 +652,10 @@ export default defineSchema({
 			}),
 		),
 	})
-		.index("by_chat_thread", ["chatId", "threadId"])
+		/** A timeline or thread without its quiet rows (`quiet` unset), or only them: lists never step over hidden replies. */
+		.index("by_chat_thread_quiet", ["chatId", "threadId", "quiet"])
+		/** The same, in the order shown: what the app pages by, so a reply shown late is on the newest page. */
+		.index("by_chat_shown", ["chatId", "threadId", "quiet", "publishedAt"])
 		/** Thread parents, newest reply first: the sidebar's active threads. Messages without replies have no `lastReplyAt` and sort first. */
 		.index("by_chat_lastReply", ["chatId", "lastReplyAt"])
 		.index("by_workspace", ["workspaceId"])

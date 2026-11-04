@@ -8,7 +8,7 @@ import { LoadedArrangements, useArrangementState, useStoredIds } from "./arrange
 import { WorkspaceContext, useMutation, useQuery } from "./convex";
 import { desktop, useUpdates } from "./desktop";
 import { useAlerts } from "./notifications";
-import { navigate, useRoute } from "./router";
+import { navigate, useRoute, views } from "./router";
 import { ArchiveIcon, ArrowLeftIcon, DatabaseIcon, EditIcon, PlusIcon, SettingsIcon, SignOutIcon } from "./icons";
 import { MenuDivider, Notice, ResizeHandle, Scroll, TopBar, TruncatedTips, useRun, useStoredWidth } from "./ui";
 import { RecordsView } from "./views/Records";
@@ -26,7 +26,7 @@ import { customizeTabs } from "./views/customize";
 import { ChatView } from "./views/chat/ChatView";
 import { GettingStarted } from "./views/chat/Tutorial";
 import { Avatar, MenuItem, Popover, archiveQuestion, deviceTimeZone, useConfirm } from "./views/chat/common";
-import { AddButton, ChannelsNav, DmsNav, Group, Item, type SectionProps } from "./views/chat/Sidebar";
+import { AddButton, ChannelsNav, DmsNav, Group, Item, type SectionProps, SidebarList } from "./views/chat/Sidebar";
 import { useSortable } from "./sortable";
 import { PagesNav, PagesView } from "./views/Pages";
 import { DatabaseDialog } from "./views/records/DatabaseDialog";
@@ -34,7 +34,6 @@ import { AccessLock } from "./views/access";
 import { type RecordType, useTypes } from "./views/records/data";
 import { recordPath } from "./views/records/logic";
 
-export const views = ["chat", "records", "pages", "settings"] as const;
 // The first databases used to have their own screens (#/clients …). Links to them in old messages still open.
 const oldRecordTabs: Record<string, string> = { clients: "client", deals: "deal", tasks: "task", calls: "call" };
 type View = (typeof views)[number];
@@ -258,7 +257,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 									</>
 								}
 							>
-								<div className="flex flex-col gap-4 px-3 pb-2">
+								<SidebarList>
 									{!tab && <SettingsNav tab={settingsTab} />}
 									{tab === "chat" &&
 										chats &&
@@ -270,7 +269,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 									{tab === "drive" && <PagesNav openId={route[1]} canEdit={can(access, "pages.edit")} />}
 									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} canCreate={can(access, "fields.edit")} onCreate={() => setNewDatabase(true)} />}
 									{tab === "customize" && <CustomizeNav open={settingsTab} />}
-								</div>
+								</SidebarList>
 							</Scroll>
 							<ResizeHandle side="right" label="Resize sidebar" size={sidebarWidth} />
 						</aside>
@@ -360,7 +359,7 @@ function DatabasesNav({
 			{editing && <DatabaseDialog type={editing} onClose={() => setEditing(undefined)} />}
 			{dialog}
 			{!types.length && canCreate && !section?.collapsed && (
-				<Item icon={<PlusIcon />} muted onClick={onCreate}>
+				<Item icon={<PlusIcon />} muted create onClick={onCreate}>
 					New database
 				</Item>
 			)}

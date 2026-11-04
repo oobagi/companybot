@@ -1,7 +1,7 @@
 import migrationsTest from "@convex-dev/migrations/test";
 import { expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
-import { insertMessage, markChatRead } from "../convex/chatOps";
+import { activityOf, insertMessage, markChatRead } from "../convex/chatOps";
 import { newTest, noMentions, signIn, workspaceOf } from "./helpers";
 
 it("backfills legacy search audiences and activity seats, and reindexes access changes", async () => {
@@ -36,7 +36,7 @@ it("backfills legacy search audiences and activity seats, and reindexes access c
 	expect(await activity()).toMatchObject({ restricted: true });
 	const sent = await owner.mutation(api.messages.send, { chatId, text: "new restricted message", mentions: noMentions });
 	expect((await t.run((ctx) => ctx.db.get("chatMessages", sent)))!.searchPublic).toBe(false);
-	expect((await activity())!.activityAt).toBe((await t.run((ctx) => ctx.db.get("chats", chatId)))!.lastMessageAt);
+	expect((await activity())!.activityAt).toBe((await t.run(async (ctx) => activityOf(ctx, (await ctx.db.get("chats", chatId))!))).lastMessageAt);
 });
 
 it("sets search audiences when creating general, an agent DM and its side chat", async () => {

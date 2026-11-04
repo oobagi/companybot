@@ -6,7 +6,7 @@ import { api } from "../api";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useMutation, useQuery } from "../convex";
 import { CaretUpDownIcon } from "../icons";
-import { Form, Loading, Notice, RenameInput, Setting, Settings, Tabs, cardClass, compactControlClass, compactPrimaryButton, descriptionClass, metadataClass, toolbarClass, useRun } from "../ui";
+import { Form, Loading, Notice, RenameInput, Setting, Settings, Tabs, insetClass, cardClass, compactControlClass, compactPrimaryButton, descriptionClass, metadataClass, toolbarClass, useRun } from "../ui";
 
 import { Popover, useConfirm } from "./chat/common";
 
@@ -169,34 +169,37 @@ function RolesSection({ roles, canEdit }: { roles: readonly Role[]; canEdit: boo
 			</div>
 			<Notice>{error}</Notice>
 			<Tabs tabs={roles.map((r) => ({ id: r.id, label: r.name }))} value={open.id} onChange={(id) => (setOpenId(id), setRenaming(false))} />
-			{canEdit && !fixed && (
-				<div className={toolbarClass}>
-					{renaming ? (
-						<RenameInput value={open.name} onSave={(next) => rename({ id: open.id, name: next })} onDone={() => setRenaming(false)} className={`${compactControlClass} w-48`} />
-					) : (
-						<button type="button" onClick={() => setRenaming(true)} className="text-neutral-500 hover:text-neutral-900">
-							Rename
-						</button>
-					)}
-					{!open.builtIn && (
-						<button
-							type="button"
-							onClick={() =>
-								confirm({
-									title: `Delete ${open.name}?`,
-									action: "Delete role",
-									body: `${open.people === 1 ? "1 person loses it" : `${open.people} people lose it`}. Anyone left without a role keeps only shared reads, chat and personal items.`,
-									onConfirm: () => remove({ id: open.id }).then(() => setOpenId(undefined)),
-								})
-							}
-							className="text-neutral-500 hover:text-red-600"
-						>
-							Delete
-						</button>
-					)}
-				</div>
-			)}
-			<Settings hint={fixed ? "Owners can do everything. This role can't be changed." : `${open.people === 1 ? "1 person has" : `${open.people} people have`} this role.`}>
+			{/* The open role's header, lined up with the card's text: its name, Rename and Delete, then who has it. */}
+			<div className={`flex min-h-8 items-center gap-3 text-sm ${insetClass}`}>
+				{renaming && canEdit && !fixed ? (
+					<RenameInput value={open.name} onSave={(next) => rename({ id: open.id, name: next })} onDone={() => setRenaming(false)} className={`${compactControlClass} w-48`} />
+				) : (
+					<h3 className="truncate font-medium">{open.name}</h3>
+				)}
+				{canEdit && !fixed && !renaming && (
+					<button type="button" onClick={() => setRenaming(true)} className="text-neutral-500 hover:text-neutral-900">
+						Rename
+					</button>
+				)}
+				{canEdit && !fixed && !open.builtIn && (
+					<button
+						type="button"
+						onClick={() =>
+							confirm({
+								title: `Delete ${open.name}?`,
+								action: "Delete role",
+								body: `${open.people === 1 ? "1 person loses it" : `${open.people} people lose it`}. Anyone left without a role keeps only shared reads, chat and personal items.`,
+								onConfirm: () => remove({ id: open.id }).then(() => setOpenId(undefined)),
+							})
+						}
+						className="text-neutral-500 hover:text-red-600"
+					>
+						Delete
+					</button>
+				)}
+				<span className="ml-auto shrink-0 text-neutral-500">{fixed ? "Can do everything; can't be changed." : open.people === 1 ? "1 person" : `${open.people} people`}</span>
+			</div>
+			<Settings>
 				{switches.map((p) => (
 					<Setting key={p} label={switchLabel(p)}>
 						<Checkbox

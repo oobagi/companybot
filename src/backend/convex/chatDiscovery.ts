@@ -1,3 +1,4 @@
+import { activityOf, setActivity } from "./chatOps";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
@@ -11,25 +12,19 @@ export const publicSearchChat = (chat: Pick<Doc<"chats">, "kind" | "private" | "
 /** Idempotent for the backfill and existing seats; joining creates read state and activity separately. */
 export async function ensureSeatActivity(ctx: MutationCtx, chat: Doc<"chats">, seat: Pick<Doc<"chatMembers">, "_id" | "userId">) {
 	const existing = await ctx.db.query("seatActivity").withIndex("by_seat", (q) => q.eq("seatId", seat._id)).first();
-	if (!existing) await ctx.db.insert("seatActivity", { workspaceId: chat.workspaceId, chatId: chat._id, seatId: seat._id, userId: seat.userId, activityAt: chat.lastMessageAt, restricted: !publicSearchChat(chat) });
+	if (!existing) await ctx.db.insert("seatActivity", { workspaceId: chat.workspaceId, chatId: chat._id, seatId: seat._id, userId: seat.userId, activityAt: (await activityOf(ctx, chat)).lastMessageAt, restricted: !publicSearchChat(chat) });
 }
 
 /** Small restricted chats are immediately current. Pending large-chat sends read only one state row. */
-export async function touchSeats(ctx: MutationCtx, chat: Doc<"chats">) {
-	if (publicSearchChat(chat)) return;
-	const state = await ctx.db.query("chatActivity").withIndex("by_chat", (q) => q.eq("chatId", chat._id)).first();
-	if (state?.pendingAt !== undefined) {
-		await ctx.db.patch(state._id, { activityAt: chat.lastMessageAt });
-		return;
-	}
+export async function touchSeats(ctx: MutationCtx, chat: Doc<"chats">, state: Pick<Doc<"chatActivity">, "_id" | "lastMessageAt" | "pendingAt">) {
+	if (publicSearchChat(chat) || state.pendingAt !== undefined) return;
 	const rows = await ctx.db.query("seatActivity").withIndex("by_chat", (q) => q.eq("chatId", chat._id)).take(101);
 	if (rows.length <= 100) {
-		for (const row of rows) await ctx.db.patch(row._id, { activityAt: chat.lastMessageAt });
+		for (const row of rows) await ctx.db.patch(row._id, { activityAt: state.lastMessageAt });
 		return;
 	}
 	const pendingAt = Date.now();
-	if (state) await ctx.db.patch(state._id, { activityAt: chat.lastMessageAt, pendingAt });
-	else await ctx.db.insert("chatActivity", { workspaceId: chat.workspaceId, chatId: chat._id, activityAt: chat.lastMessageAt, pendingAt });
+	await ctx.db.patch(state._id, { pendingAt });
 	await ctx.scheduler.runAfter(60_000, internal.chatDiscovery.refreshSeats, { chatId: chat._id, cursor: null, pendingAt });
 }
 
@@ -42,11 +37,11 @@ export const refreshSeats = internalMutation({
 		const chat = await ctx.db.get(chatId);
 		if (!chat || !(await liveWorkspace(ctx, chat.workspaceId))) return;
 		if (publicSearchChat(chat)) { await ctx.db.patch(state._id, { pendingAt: undefined }); return; }
-		const at = stamp ?? state.activityAt;
+		const at = stamp ?? state.lastMessageAt;
 		const page = await ctx.db.query("seatActivity").withIndex("by_chat", (q) => q.eq("chatId", chatId)).paginate({ cursor, numItems: 100 });
 		for (const row of page.page) await ctx.db.patch(row._id, { activityAt: at });
 		if (!page.isDone) await ctx.scheduler.runAfter(0, internal.chatDiscovery.refreshSeats, { chatId, cursor: page.continueCursor, pendingAt, stamp: at });
-		else if (state.activityAt !== at) await ctx.scheduler.runAfter(0, internal.chatDiscovery.refreshSeats, { chatId, cursor: null, pendingAt });
+		else if (state.lastMessageAt !== at) await ctx.scheduler.runAfter(0, internal.chatDiscovery.refreshSeats, { chatId, cursor: null, pendingAt });
 		else await ctx.db.patch(state._id, { pendingAt: undefined });
 	},
 });
@@ -59,13 +54,13 @@ async function updateAudience(ctx: MutationCtx, chat: Doc<"chats">, rows: Doc<"s
 export async function refreshAudience(ctx: MutationCtx, chat: Doc<"chats">) {
 	const searchPublic = publicSearchChat(chat);
 	await ctx.db.patch(chat._id, { searchPublic });
-	const messages = await ctx.db.query("chatMessages").withIndex("by_chat_thread", (q) => q.eq("chatId", chat._id)).take(101);
+	const messages = await ctx.db.query("chatMessages").withIndex("by_chat_thread_quiet", (q) => q.eq("chatId", chat._id)).take(101);
 	for (const message of messages.slice(0, 100)) if (message.searchPublic !== searchPublic) await ctx.db.patch(message._id, { searchPublic });
 	if (messages.length > 100) await ctx.scheduler.runAfter(0, internal.chatDiscovery.refreshMessages, { chatId: chat._id, cursor: null });
 	const rows = await ctx.db.query("seatActivity").withIndex("by_chat", (q) => q.eq("chatId", chat._id)).take(101);
 	await updateAudience(ctx, chat, rows.slice(0, 100));
 	if (rows.length > 100) await ctx.scheduler.runAfter(0, internal.chatDiscovery.refreshSeatAudience, { chatId: chat._id, cursor: null });
-	if (!searchPublic) await touchSeats(ctx, chat);
+	await setActivity(ctx, chat, searchPublic ? {} : { lastMessageAt: (await activityOf(ctx, chat)).lastMessageAt });
 }
 
 export const refreshSeatAudience = internalMutation({
@@ -87,7 +82,7 @@ export const refreshMessages = internalMutation({
 		if (!chat) return;
 		const searchPublic = publicSearchChat(chat);
 		await ctx.db.patch(chatId, { searchPublic });
-		const page = await ctx.db.query("chatMessages").withIndex("by_chat_thread", (q) => q.eq("chatId", chatId)).paginate({ cursor, numItems: 100 });
+		const page = await ctx.db.query("chatMessages").withIndex("by_chat_thread_quiet", (q) => q.eq("chatId", chatId)).paginate({ cursor, numItems: 100 });
 		for (const message of page.page) if (message.searchPublic !== searchPublic) await ctx.db.patch(message._id, { searchPublic });
 		if (!page.isDone) await ctx.scheduler.runAfter(0, internal.chatDiscovery.refreshMessages, { chatId, cursor: page.continueCursor });
 	},
