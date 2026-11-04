@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
+import { migrations } from "../convex/migrations";
 import migrationsTest from "@convex-dev/migrations/test";
 import { addToChat, dropSeat } from "../convex/chatOps";
 import { savePreferences } from "../convex/preferences";
@@ -125,7 +126,8 @@ it("counts 5 channels of 7,000 seats from before counts, over several transactio
 		const newcomer = await ctx.db.insert("users", { email: "late@co.com" });
 		await addToChat(ctx, (await ctx.db.get(channels[0]!))!, { userId: newcomer });
 	});
-	await t.mutation(internal.migrations.runAll);
+	// Run this migration through its component runner on the 35,000-seat fixture.
+	await t.run(async (ctx) => migrations.runSerially(ctx, [internal.migrations.chatMemberCounts]));
 	await settle(t);
 	const counts = await t.run(async (ctx) => Promise.all(channels.map(async (id) => (await ctx.db.get(id))!)));
 	expect(counts.map((c) => c.memberCount)).toEqual([7_001, 7_001, 7_001, 7_001, 7_001]);
