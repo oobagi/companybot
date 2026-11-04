@@ -48,7 +48,6 @@ it("search and activity survive 5k other people's private DM rows", { timeout: 6
 	const theirs = await member.mutation(api.chats.openDm, { userIds: [], agentIds: [agentId] });
 	const turnId = await agentTurn(t, owner, mine, agentId);
 	await t.run(async (ctx) => {
-		await ctx.db.insert("chatMessages", { workspaceId, chatId: mine, authorUserId: owner.userId, text: "needle mine", parts: [], mentions: { userIds: [], agentIds: [] }, status: "done" });
 		await ctx.db.insert("agentActivity", { workspaceId, chatId: mine, actorId: owner.userId, agentId, callId: "mine", tool: "chat.search", input: "{}", changes: false, status: "done" });
 	});
 	for (let start = 0; start < 5000; start += 500) await t.run(async (ctx) => {
@@ -57,6 +56,7 @@ it("search and activity survive 5k other people's private DM rows", { timeout: 6
 			await ctx.db.insert("agentActivity", { workspaceId, chatId: theirs, actorId: member.userId, agentId, callId: `${i}`, tool: "chat.search", input: "{}", changes: false, status: "done" });
 		}
 	});
+	await t.run((ctx) => ctx.db.insert("chatMessages", { workspaceId, chatId: mine, authorUserId: owner.userId, text: "needle mine", parts: [], mentions: { userIds: [], agentIds: [] }, status: "done" }));
 	const result = await t.mutation(internal.chatTools.searchFor, { turnId, query: "needle" });
 	expect.soft(result).toMatchObject({ messages: [{ text: "needle mine" }] });
 	expect(await owner.query(api.activity.list, {})).toMatchObject([{ callId: "mine", mine: true }]);
