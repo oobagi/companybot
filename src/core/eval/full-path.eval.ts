@@ -116,9 +116,16 @@ async function agentTurn(turn: {
 	const { agent } = turn.woken;
 	const config = configOf(agent);
 	const available = resolveTools(config, { userId: "u", role: "member" });
-	const tools = Object.fromEntries(
-		available.map((t) => [modelToolName(t.id), tool({ description: t.description, inputSchema: t.input, execute: async () => ({ error: "Not available right now." }) })]),
-	);
+	// A send for its person into this channel posts, as production does (manageTools.runFor): "post X here for me".
+	const sentHere: string[] = [];
+	const here = (chat: unknown) => typeof chat === "string" && chat.replace(/^#/, "").toLowerCase() === turn.channel && !turn.thread;
+	const execute = (id: string) => async (input: unknown) => {
+		const request = (input as { request?: { action?: string; chat?: unknown; threadId?: unknown; text?: string } }).request;
+		if (id !== "chat.manage" || request?.action !== "send" || !here(request.chat) || request.threadId || !request.text) return { error: "Not available right now." };
+		sentHere.push(request.text);
+		return { messageId: `sent-${sentHere.length}`, note: "Posted here, above your reply. Don't repeat it." };
+	};
+	const tools = Object.fromEntries(available.map((t) => [modelToolName(t.id), tool({ description: t.description, inputSchema: t.input, execute: execute(t.id) })]));
 	const message = turn.said.find((m) => m.id === turn.triggerId) ?? turn.said.at(-1)!;
 	const person = turn.person ?? message.author;
 	const place: TurnPlace = {
@@ -165,10 +172,10 @@ async function agentTurn(turn: {
 	const decision = await Promise.resolve(result.output).then((d) => d as PostDecision, () => null);
 	const { message: post, emoji } = responseOf(decision);
 	const posted = post ? [post] : [];
-	const calls = result.steps.flatMap((s) => s.toolCalls.map((c) => c.toolName));
-	// Kept as production replays it (replyForModel): its message, the tools it used (they all failed here), its reaction.
+	const calls = result.steps.flatMap((s) => s.toolResults.map((r) => `${r.toolName}${(r.output as { error?: string } | undefined)?.error ? " (failed)" : ""}`));
+	// Kept as production replays it (replyForModel): its message, the tools it used (all but a send here failed), its reaction.
 	if (session) {
-		const reply = [post, calls.length > 0 && `[Tools you used: ${calls.map((c) => `${c} (failed)`).join(", ")}]`].filter(Boolean).join("\n");
+		const reply = [post, calls.length > 0 && `[Tools you used: ${calls.join(", ")}]`].filter(Boolean).join("\n");
 		session.turns.push({ prompt, reply: replayOf(reply, emoji) });
 		session.seen = turn.said.length;
 		session.at = started;
@@ -178,7 +185,7 @@ async function agentTurn(turn: {
 	TOKENS.input += result.totalUsage.inputTokens ?? 0;
 	TOKENS.cached += result.totalUsage.inputTokenDetails?.cacheReadTokens ?? 0;
 	TOKENS.output += result.totalUsage.outputTokens ?? 0;
-	return { posted, to: posted.length ? decision!.to : undefined, reacted: emoji ?? undefined, did, ms: Date.now() - startedMs, costUsd: result.steps.reduce((sum, s) => sum + gatewayCost(s.providerMetadata), 0) };
+	return { posted, sentHere, to: posted.length ? decision!.to : undefined, reacted: emoji ?? undefined, did, ms: Date.now() - startedMs, costUsd: result.steps.reduce((sum, s) => sum + gatewayCost(s.providerMetadata), 0) };
 }
 
 /** Agent turns' tokens: the cache hit rate swings run to run, so $ alone doesn't compare two prompts. */
@@ -243,7 +250,19 @@ function score(tally: Tally, label: string, agents: RouterAgent[], turns: Turn[]
 			if (posted(a) && reacted(a)) tally.right++;
 			else silent(a, posted(a) ? " (posted, but no reaction)" : reacted(a) ? " (reacted, but no post)" : "");
 		}
-		else if (want === "handoff") {
+		else if (want === "proxy") {
+			// Its person's message sent here once, for them, and its own reply: short, and not the message again.
+			const t = turnOf(a);
+			const sent = turns.filter((x) => x.agent.key === a.key).flatMap((x) => x.sentHere);
+			const reply = t?.posted[0];
+			const miss = sent.length === 0 ? "didn't send it for them" : sent.length > 1 ? `sent it ${sent.length} times` : !reply ? "sent it, but no reply" : reply.includes(sent[0]!.trim()) ? "repeated it in its reply" : reply.length > SHORT_MAX ? "replied at length" : "";
+			if (!miss) tally.right++;
+			else {
+				if (miss.startsWith("repeated") || miss.startsWith("sent it ")) tally.duplicates++;
+				tally.silent++;
+				tally.misses.push(`  ${label}: ${a.name} ${miss}, ${why(a)}${t ? `: ${t.did}` : ""}`);
+			}
+		} else if (want === "handoff") {
 			// Fine if it says nothing, or only hands to another agent.
 			if (!posted(a) || turnOf(a)!.posted.every((text) => agents.some((o) => o !== a && text.includes(`@${o.name}`)))) tally.right++;
 			else butted(a);

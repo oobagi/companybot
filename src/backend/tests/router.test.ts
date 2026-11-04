@@ -289,25 +289,28 @@ describe("reply router", () => {
 		expect((await t.run((ctx) => ctx.db.get(turn!.replyId as Id<"chatMessages">)))!.quiet).toBe(true);
 	});
 
-	it("answers here only through its decision: chat_manage can't post into this chat, only elsewhere", async () => {
+	it("reacts and replies only through its answer; a chat_manage send here is a post for its person", async () => {
 		const { t, owner, member, companybot, chatId, send, decide } = await setUp();
-		const ask = await send(member, "Give me a reaction");
+		const ask = await send(member, "Post 'Demo at 3pm' here for me and give me a reaction");
 		withProbabilities({ a1: ["reply", 0.9] });
 		await decide(ask);
 		const [turn] = await turnsOf(t);
 		vi.useRealTimers();
 		const general = (await generalOf(owner))._id;
-		const tried = await runWith(t, turn!._id, { emoji: "👀", new_point: "", to: "room", message: "" }, [
-			{ action: "send", chat: chatId, text: "👀" },
+		const tried = await runWith(t, turn!._id, { emoji: "👀", new_point: "", to: "room", message: "Posted it." }, [
+			{ action: "send", chat: chatId, text: "Demo at 3pm" },
 			{ action: "send", chat: "#general", text: "Heads up: #ops wants reactions." },
 		]);
-		expect(tried).toMatchObject([{ error: expect.stringContaining("another chat") }, { messageId: expect.any(String) }]);
-		// One response here, from its answer: the reaction, and no message.
+		expect(tried).toMatchObject([{ messageId: expect.any(String), note: expect.stringContaining("Don't repeat") }, { messageId: expect.any(String) }]);
+		expect(tried[1]).not.toHaveProperty("note");
+		// The reaction comes from its answer, on the message it answered.
 		expect(await t.run((ctx) => ctx.db.query("reactions").collect())).toEqual([expect.objectContaining({ messageId: ask, emoji: "👀", agentId: companybot._id })]);
-		expect((await member.query(api.messages.list, { chatId })).filter((m) => m.author.type === "agent")).toEqual([]);
+		// Here: the post for its person, then its own reply.
+		const here = (await member.query(api.messages.list, { chatId })).filter((m) => m.author.type === "agent");
+		expect(here.map((m) => [m.text, "for" in m.author])).toEqual([["Demo at 3pm", true], ["Posted it.", false]]);
 		expect((await member.query(api.messages.list, { chatId: general })).map((m) => m.text)).toContain("Heads up: #ops wants reactions.");
 		// The answer is kept on the turn, to debug what it chose.
-		expect((await turnsOf(t))[0]!.decision).toEqual({ emoji: "👀", new_point: "", to: "room", message: "" });
+		expect((await turnsOf(t))[0]!.decision).toEqual({ emoji: "👀", new_point: "", to: "room", message: "Posted it." });
 	});
 
 	it("shows one emoji as one reaction, however it was written", async () => {

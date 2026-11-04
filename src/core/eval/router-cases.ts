@@ -172,9 +172,10 @@ export const routerCases: RouterCase[] = [
  * What an agent should do after a step: post, stay silent (a reaction is fine), either, "one" (exactly
  * one of the agents marked so posts), "handoff" (silent, or a post that @mentions another agent),
  * "respond" (post or react: its own answer, as to a vote), "react" (a reaction, never a post), or
- * "both" (a post and a reaction).
+ * "both" (a post and a reaction), or "proxy" (sends its person's message here for them with chat_manage,
+ * once, and replies in a line without repeating it).
  */
-export type Outcome = "post" | "silent" | "either" | "one" | "handoff" | "respond" | "react" | "both";
+export type Outcome = "post" | "silent" | "either" | "one" | "handoff" | "respond" | "react" | "both" | "proxy";
 
 export interface Transcript {
 	name: string;
@@ -319,6 +320,15 @@ export const transcripts: Transcript[] = [
 		{ message: m("Jaden", "react with a 🦄 and say hi"), expect: () => ({ a1: "both" }) },
 		{ message: m("Jaden", "now do both again, with a 🎉 this time"), expect: () => ({ a1: "both" }) },
 	],
+},
+{
+	// #205: "post X here for me" is the person's message, so it goes out for them ("Companybot, for
+	// Jaden") with chat_manage, here; the reply only says it's done.
+	name: "post something here for the person",
+	channel: "general",
+	agents: [mainBot],
+	people: ["Jaden", "Dana"],
+	steps: [{ message: m("Jaden", "post 'Demo at 3pm today' here for me"), expect: () => ({ a1: "proxy" }) }],
 },
 ];
 

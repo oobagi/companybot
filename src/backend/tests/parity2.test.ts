@@ -175,7 +175,7 @@ it("updates only the acting person's preferences, validates zones and refuses de
 	expect(await member.query(api.preferences.get)).toMatchObject({ timeZone: null });
 });
 
-it("edits/deletes only own visible messages, marks read explicitly, sends only elsewhere, and never reacts", async () => {
+it("edits/deletes only own visible messages, marks read explicitly, sends for the person (here too), and never reacts", async () => {
 	const { t, call, owner, member, dm } = await ready();
 	const chatId = (await generalOf(owner))._id;
 	const mine = await owner.mutation(api.messages.send, { chatId, text: "Original", mentions: noMentions });
@@ -194,8 +194,8 @@ it("edits/deletes only own visible messages, marks read explicitly, sends only e
 	expect(await call("chat.manage", { action: "hide_preview", messageId: theirs, url: "https://news.example.com/story" })).toHaveProperty("error");
 	expect((await owner.query(api.messages.list, { chatId })).find((m) => m._id === theirs)!.reactions).toEqual([]);
 	expect(await call("chat.manage", { action: "mark_read", chat: chatId })).toHaveProperty("done", "mark_read");
-	// Its decision is what posts in the chat it's answering (the DM): send goes elsewhere.
-	expect(await call("chat.manage", { action: "send", chat: dm, text: "Twice" })).toMatchObject({ error: expect.stringContaining("another chat") });
+	// A send into the chat it's answering (the DM) posts too, and says so, so its reply doesn't repeat it.
+	expect(await call("chat.manage", { action: "send", chat: dm, text: "Here" })).toMatchObject({ messageId: expect.any(String), note: expect.stringContaining("Don't repeat") });
 	const { messageId } = await call("chat.manage", { action: "send", chat: chatId, text: "Agent delivery" });
 	expect(await call("chat.manage", { action: "edit", messageId, text: "Corrected" })).toHaveProperty("done", "edit");
 	await call("chat.manage", { action: "delete", messageId: mine });
