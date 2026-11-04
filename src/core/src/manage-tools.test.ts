@@ -130,22 +130,16 @@ describe("grouped tools", () => {
 		expect(manageInputs["chat.manage"].safeParse({ request: { action: "send", chat: "chat", text: "hi", userIds: Array(51).fill("id") } }).success).toBe(false);
 	});
 
-	it("hides owner member tools by role while allowing maker-managed operations", () => {
-		const tools = resolveTools({ tools: ["members.*", "channels.*", "skills.manage", "automations.manage"] }, { userId: "member", role: "member" });
-		expect(tools.map((t) => t.id).sort()).toEqual(["automations.manage", "channels.manage", "skills.manage"]);
-	});
-
-	it("never advertises an unprovided tool, even with a single-tool grant or a role gate", async () => {
-		for (const role of ["owner", "member"] as const)
-			for (const tool of builtinTools) {
-				const agent = { tools: [tool.id] };
-				const usable = resolveTools(agent, { userId: "person", role });
-				const guide = platformGuide(agent, usable);
-				for (const other of builtinTools) {
-					if (usable.some((t) => t.id === other.id)) continue;
-					expect(guide, `${role}: ${tool.id} advertises ${other.id}`).not.toMatch(new RegExp(`\\b${modelToolName(other.id)}\\b`));
-				}
+	it("never advertises an unprovided tool, even with a single-tool grant", async () => {
+		for (const tool of builtinTools) {
+			const agent = { tools: [tool.id] };
+			const usable = resolveTools(agent);
+			const guide = platformGuide(agent, usable);
+			for (const other of builtinTools) {
+				if (usable.some((t) => t.id === other.id)) continue;
+				expect(guide, `${tool.id} advertises ${other.id}`).not.toMatch(new RegExp(`\\b${modelToolName(other.id)}\\b`));
 			}
+		}
 		for (const tool of manageTools) expect((await asSchema(tool.input).jsonSchema).type).toBe("object");
 	});
 

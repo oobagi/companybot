@@ -155,7 +155,7 @@ describe("approvals", () => {
 			model,
 			prompt: "text Bob and find leads",
 			tools,
-			toolApproval: toolApprovalPolicy(resolveTools(agent, owner, available)),
+			toolApproval: toolApprovalPolicy(resolveTools(agent, available)),
 		});
 		const parts: { type: string; toolCallId?: string; toolCall?: { toolCallId: string } }[] = [];
 		for await (const part of result.stream) parts.push(part as never);
@@ -171,7 +171,7 @@ describe("approvals", () => {
 		const available = [...builtinTools, track(send), track(find)];
 		const agent = { tools: ["crm.*"] };
 		const tools = buildToolSet(agent, ctx(owner), available, [{ id: "crm", name: "CRM" }]);
-		const usable = resolveTools(agent, owner, available);
+		const usable = resolveTools(agent, available);
 		const usage = { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } };
 		const call = (id: string, tool: string, input: unknown) => ({
 			type: "tool-call" as const,
@@ -234,7 +234,7 @@ describe("approvals", () => {
 			},
 		});
 		const check = async (t: ToolDef) => (t.id === "crm.send_sms" ? ({ type: "ask", canAlways: true, waitFor: "Ada" } as const) : permissionFor({ risk: toolRisk(t) }));
-		const result = streamText({ model, prompt: "go", tools, stopWhen: () => false, toolApproval: toolApprovalPolicy(resolveTools(agent, owner, available), check) });
+		const result = streamText({ model, prompt: "go", tools, stopWhen: () => false, toolApproval: toolApprovalPolicy(resolveTools(agent, available), check) });
 		const parts: { type: string; toolCallId?: string; isAutomatic?: boolean }[] = [];
 		for await (const part of result.stream) parts.push(part as never);
 		expect(parts.filter((p) => p.type === "tool-output-denied").map((p) => p.toolCallId)).toEqual(["c1"]);
@@ -250,7 +250,7 @@ describe("approvals", () => {
 		const input: TurnPromptInput = {
 			agentId: "a1",
 			place: { kind: "dm", name: null, private: true, topic: null, thread: null, members: [] },
-			actor: { id: "u1", name: "Ada", email: "ada@co.com", role: "member", timeZone: "UTC" },
+			actor: { id: "u1", name: "Ada", email: "ada@co.com", roles: ["Member"], timeZone: "UTC" },
 			now: Date.UTC(2026, 9, 22),
 			memory: "personal",
 			connectors: { connected: [], unavailable: [] },

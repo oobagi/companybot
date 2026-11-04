@@ -7,11 +7,9 @@ import {
 	NAME_KEY,
 	RECORD_MAX_BYTES,
 	type ValueMode,
-	canEditMade,
 	fieldConfigError,
 	indexEntries,
 	keyOf,
-	madeEditDenied,
 	normalizeFieldConfig,
 	normalizeValue,
 	singularOf,
@@ -22,7 +20,7 @@ import {
 import { ConvexError, getDocumentSize } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { type Member, type Who, checkPermission, checkVersion, memberOf, memo, nameOf, requireInWorkspace, toActor } from "./lib";
+import { type Member, type Who, checkPermission, checkVersion, memberOf, memo, nameOf, requireInWorkspace } from "./lib";
 import { toggleTrash } from "./trashOps";
 
 // Records, fields and their history. Shared by the app's functions (records.ts,
@@ -315,7 +313,7 @@ function requireFieldConfig(config: FieldConfig) {
 
 /** Adds a field to a type. Existing records just don't have a value yet: nothing to backfill. */
 export async function createField(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, input: FieldInput) {
-	checkPermission(who.member, "fields.create");
+	checkPermission(who.member, "fields.edit");
 	await requireType(ctx, who.member, typeId, true);
 	const fields = await fieldsOf(ctx, typeId);
 	if (fields.length >= FIELDS_PER_TYPE_MAX) throw new ConvexError(`A database holds up to ${FIELDS_PER_TYPE_MAX} fields.`);
@@ -333,7 +331,7 @@ export async function createField(ctx: MutationCtx, who: Who, typeId: Id<"record
 async function requireEditableField(ctx: QueryCtx, member: Member, fieldId: Id<"recordFields">) {
 	const field = requireInWorkspace(member, await ctx.db.get(fieldId), "Field");
 	await requireType(ctx, member, field.typeId, true);
-	if (!canEditMade(toActor(member), "fields.manage", field.createdBy)) throw new ConvexError(madeEditDenied);
+	checkPermission(member, "fields.edit");
 	return field;
 }
 
@@ -368,7 +366,7 @@ export async function updateField(
 	const changes: Change[] = [];
 	let reordered: Doc<"recordFields">[] | undefined;
 	if (update.position !== undefined) {
-		checkPermission(who.member, "fields.manage");
+		checkPermission(who.member, "fields.edit");
 		const fields = (await fieldsOf(ctx, field.typeId)).filter((f) => !f.archived);
 		if (field.key === NAME_KEY || !Number.isInteger(update.position) || update.position < 1 || update.position >= fields.length)
 			throw new ConvexError("Choose a field position after Name within the live fields.");
@@ -418,7 +416,7 @@ function databaseNames(plural: string, singular: string | undefined, types: Doc<
 
 /** A new database with just a name field. */
 export async function createType(ctx: MutationCtx, who: Who, input: { plural: string; name?: string }) {
-	checkPermission(who.member, "fields.manage");
+	checkPermission(who.member, "fields.edit");
 	const types = await typesOf(ctx, who.member.workspaceId);
 	if (types.length >= TYPES_MAX) throw new ConvexError(`A workspace holds up to ${TYPES_MAX} databases, including ones in Archive.`);
 	const names = databaseNames(input.plural, input.name, types);
@@ -430,7 +428,7 @@ export async function createType(ctx: MutationCtx, who: Who, input: { plural: st
 
 /** Rename. A new plural alone re-guesses the singular. */
 export async function updateType(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, input: { name?: string; plural?: string; version: number }) {
-	checkPermission(who.member, "fields.manage");
+	checkPermission(who.member, "fields.edit");
 	const type = await requireType(ctx, who.member, typeId, true);
 	checkVersion(type.version ?? 0, input.version);
 	const names = databaseNames(input.plural ?? type.plural, input.name ?? (input.plural === undefined ? type.name : undefined), await typesOf(ctx, who.member.workspaceId), typeId);
@@ -442,7 +440,7 @@ export async function updateType(ctx: MutationCtx, who: Who, typeId: Id<"recordT
 
 /** Moves a database to Archive, with its records, fields and views, or brings it back if its names are free. */
 export async function setTypeTrashed(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, archived: boolean) {
-	if (archived) checkPermission(who.member, "fields.manage");
+	if (archived) checkPermission(who.member, "fields.edit");
 	const type = await requireType(ctx, who.member, typeId);
 	if (type.archived === archived) return;
 	if (!archived) databaseNames(type.plural, type.name, await typesOf(ctx, who.member.workspaceId), typeId);

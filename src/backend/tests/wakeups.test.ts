@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { wake } from "../convex/wakeups";
-import { type As, agentTurn, agentsOf, finishQuiet, generalOf, ownerAndMember } from "./helpers";
+import { type As, agentTurn, agentsOf, finishQuiet, generalOf, ownerAndMember, addMember } from "./helpers";
 
 // Wakeups (wakeups.ts): follow-ups an agent sets, and the one path from a wakeup to a quiet turn.
 // See wiki/architecture.md (Automations).
@@ -79,7 +79,7 @@ describe("follow-ups", () => {
 		expect(await lines(t)).toEqual([expect.objectContaining({ outcome: "notified" })]);
 	});
 
-	it("runs nothing once cancelled, in the app or by the agent; only its person, maker or an owner can", async () => {
+	it("runs nothing once cancelled, in the app or by the agent; only its person, whoever set it up, or someone who can change agents can", async () => {
 		const { t, owner, member, turnId } = await setup();
 		const one = ((await create(t, turnId, { note: "A", in: "1 day" })) as { created: string }).created;
 		const two = ((await create(t, turnId, { note: "B", in: "2 days" })) as { created: string }).created;
@@ -156,7 +156,7 @@ describe("follow-ups", () => {
 		await fire(t, created);
 		expect(await turnsFor(t, created)).toEqual([]);
 		expect(await rowOf(t, created)).toMatchObject({ status: "cancelled", reason: "Its person left the workspace." });
-		await t.run((ctx) => ctx.db.insert("members", { workspaceId: row.workspaceId, userId: member.userId, role: "member" }));
+		await t.run((ctx) => addMember(ctx, { workspaceId: row.workspaceId, userId: member.userId, role: "member" }));
 		await owner.mutation(api.workspace.removeMember, { id: (await t.run(async (ctx) => (await ctx.db.query("members").collect()).find((m) => m.userId === member.userId)!))._id });
 		await t.finishAllScheduledFunctions(() => vi.advanceTimersByTime(1));
 		expect(await rowOf(t, created)).toBeNull();

@@ -111,10 +111,10 @@ describe("stopping an agent mid-reply", () => {
 		expect(await turnOf(t, second)).toMatchObject({ status: "running" });
 	});
 
-	it("only the person it works for, or an owner, can stop it", async () => {
+	it("only the person it works for, or a role with turns.stopAny, can stop it", async () => {
 		const { t, owner, member, general, companybot } = await setUp();
 		const owners = await agentTurn(t, owner, general, companybot._id);
-		await expect(member.mutation(api.turns.stop, { turnId: owners })).rejects.toThrow("Only owner@co.com or an owner can stop this");
+		await expect(member.mutation(api.turns.stop, { turnId: owners })).rejects.toThrow("The agent is working for owner@co.com. Only people with the Owner role can stop agents working for someone else.");
 		expect((await turnOf(t, owners))!.stopping).toBeUndefined();
 		expect((await owner.query(api.typing.list, { chatId: general })).agents[0]).toMatchObject({ turnId: owners, canStop: true, stopping: false });
 		expect((await member.query(api.typing.list, { chatId: general })).agents[0]).toMatchObject({ canStop: false });

@@ -92,7 +92,7 @@ describe("permissions", () => {
 	it("lets owners lock actions for everyone, and lock wins over a person's rule", async () => {
 		const { t, owner, member } = await setup();
 		await member.mutation(api.permissions.set, { action: sms.tool, setting: "always" });
-		await expect(member.mutation(api.permissions.setLock, { action: sms.tool, lock: "block" })).rejects.toThrow("permission");
+		await expect(member.mutation(api.permissions.setLock, { action: sms.tool, lock: "block" })).rejects.toThrow("Only people with the");
 		await owner.mutation(api.permissions.setLock, { action: sms.tool, lock: "ask" });
 		const turn = await ask(t, member);
 		expect((await check(t, turn._id)).decision).toEqual({ type: "ask", canAlways: false });

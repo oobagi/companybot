@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { STALE_TURN_MS } from "../convex/turns";
-import { agentsOf, finishQuiet, noMentions, ownerAndMember, turnsOf, workspaceOf } from "./helpers";
+import { agentsOf, finishQuiet, noMentions, ownerAndMember, turnsOf, workspaceOf, setMemberSwitch } from "./helpers";
 
 // No network: the AI SDK's decide (Jev) is stubbed, so nothing is billed. Fake timers hold the
 // scheduled decision (and any reply it queues) back; tests run `router.decide` themselves.
@@ -60,9 +60,10 @@ describe("reply router", () => {
 		expect((await owner.query(api.chats.get, { chatId }))!.replyMode).toBe("relevant");
 	});
 
-	it("only lets the channel's managers change it", async () => {
-		const { member, chatId } = await setUp();
-		await expect(member.mutation(api.chats.updateChannel, { chatId, replyMode: "mentions" })).rejects.toThrow("Only the channel's creator or an owner");
+	it("only lets people with the channel switch change it", async () => {
+		const { owner, member, chatId } = await setUp();
+		await setMemberSwitch(owner, "channels.edit", false);
+		await expect(member.mutation(api.chats.updateChannel, { chatId, replyMode: "mentions" })).rejects.toThrow("Only people with the Owner role");
 	});
 
 	it("queues a reply for the agent it picks, as the person who wrote, and records its cost", async () => {

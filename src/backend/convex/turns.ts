@@ -1,5 +1,5 @@
 import type { PlaceMessage, Skill } from "@companybot/core";
-import { AGENT_DEBOUNCE_MS, PROMPT_MESSAGE_CAP, approxTokens, can, defaultReasoning, fallbackModels, publishes, steerNote } from "@companybot/core";
+import { AGENT_DEBOUNCE_MS, PROMPT_MESSAGE_CAP, approxTokens, can, defaultReasoning, deniedMessage, fallbackModels, publishes, steerNote } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -237,7 +237,7 @@ export async function runningTurn(ctx: QueryCtx, turnId: Id<"agentTurns">) {
 	return { turn: turn as Doc<"agentTurns"> & { replyId: Id<"chatMessages">; sessionId: Id<"agentSessions"> }, member, chat, who };
 }
 
-/** Whether agents use memories here: owners can turn it off for the workspace (Settings → General). */
+/** Whether agents use memories here: people with workspace.manage can turn it off for the workspace (Settings → General). */
 export async function memoryOn(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
 	return (await ctx.db.get(workspaceId))?.memory !== false;
 }
@@ -333,13 +333,13 @@ export const turnContext = internalQuery({
 			agent: { id: agent._id, name: agent.name, instructions: agent.instructions, model: agent.model, reasoning: agent.reasoning ?? defaultReasoning, tools: agent.tools },
 			skills,
 			session: { id: session._id, summary: foreign ? null : (session.summary ?? null), turns },
-			/** Off when an owner turned it off; personal only in a DM with exactly one person. memory.ts checks again on every call. */
+			/** Off when it's turned off for the workspace; personal only in a DM with exactly one person. memory.ts checks again on every call. */
 			memory: !(await memoryOn(ctx, chat.workspaceId)) ? ("off" as const) : (await personalMemoryHere(ctx, chat)) ? ("personal" as const) : ("team" as const),
 			actor: {
 				id: member.userId,
 				name: (await names.user(member.userId)).name,
 				email: user?.email ?? "",
-				role: member.role,
+				roles: member.workspaceRoles.filter((r) => member.roles.includes(r.id as Id<"roles">)).map((r) => r.name),
 				timeZone: await timeZoneOf(ctx, member.userId),
 			},
 			place: {
@@ -618,8 +618,8 @@ export const steer = internalMutation({
 	},
 });
 
-/** Who may stop a running turn: the person it runs for, or someone allowed to stop anyone's (an owner). */
-export const canStopTurn = (member: Member, turn: Doc<"agentTurns">) => turn.actorId === member.userId || can(member.role, "turns.stopAny");
+/** Who may stop a running turn: the person it runs for, or someone allowed to stop anyone's (`turns.stopAny`). */
+export const canStopTurn = (member: Member, turn: Doc<"agentTurns">) => turn.actorId === member.userId || can(member, "turns.stopAny");
 
 /**
  * Stop: ends a running turn early. Convex can't kill a running action, so this only marks it; the
@@ -634,7 +634,7 @@ export const stop = mutation({
 		const turn = await ctx.db.get(turnId);
 		if (!turn || turn.workspaceId !== member.workspaceId) throw new ConvexError("Reply not found.");
 		await requireChat(ctx, member, turn.chatId);
-		if (!canStopTurn(member, turn)) throw new ConvexError(`Only ${await nameOf(ctx, turn.actorId)} or an owner can stop this: the agent is working for them.`);
+		if (!canStopTurn(member, turn)) throw new ConvexError(`The agent is working for ${await nameOf(ctx, turn.actorId)}. ${deniedMessage("turns.stopAny", member.workspaceRoles)}`);
 		// Already over (or already stopping): nothing to do.
 		if (turn.status !== "running" || turn.stopping) return;
 		await ctx.db.patch(turnId, { stopping: { by: member.userId, at: Date.now() } });

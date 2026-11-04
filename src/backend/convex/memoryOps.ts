@@ -83,7 +83,7 @@ export async function searchMemories(ctx: QueryCtx, member: Member, agentId: Id<
 }
 
 export async function createMemory(ctx: MutationCtx, { member, agentId: byAgent }: Who, agentId: Id<"agents">, scope: MemoryScope, content: string) {
-	if (!canCreateMemory(toActor(member), scope)) throw new ConvexError(deniedMessage("memory.team.write"));
+	if (!canCreateMemory(toActor(member), scope)) throw new ConvexError(deniedMessage("memory.team.write", member.workspaceRoles));
 	await requireAgent(ctx, member, agentId);
 	if (!content.trim()) throw new ConvexError("Memory can't be empty.");
 	const id = await ctx.db.insert("memories", {

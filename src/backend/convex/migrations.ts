@@ -1,10 +1,12 @@
 import { type MigrationFunctionReference, Migrations } from "@convex-dev/migrations";
 import { components, internal } from "./_generated/api";
-import type { DataModel } from "./_generated/dataModel";
-import { internalMutation, internalQuery } from "./_generated/server";
+import type { DataModel, Doc, Id } from "./_generated/dataModel";
+import { type MutationCtx, internalMutation, internalQuery } from "./_generated/server";
 import { defaultModel, scheduleCron, usageMonth } from "@companybot/core";
 import { recordUsage } from "./usage";
 import { scheduleCursor } from "./automationOps";
+import { rolesOf } from "./lib";
+import { seedRoles } from "./roles";
 
 // Data migrations. Deploys never change stored rows; these do, once per deployment.
 // `pnpm release` runs every pending one on prod right after deploying, and the
@@ -133,6 +135,44 @@ export const cronSchedules = migrations.define({
 	},
 });
 
+// Roles became workspace data (roles.ts): each workspace gets Owner and Member, and every person,
+// invite and connector moves from "owner"/"member" to those roles' ids. Run in this order (`all`), so
+// each workspace has its roles before its people move. Rows the app made since already have them.
+// COMPAT(0.1.0-alpha.10): once these have run on prod, delete them and their test, and the legacy fields (schema.ts).
+export const customRoles = migrations.define({
+	table: "workspaces",
+	batchSize: 20,
+	migrateOne: async (ctx, workspace) => {
+		if ((await rolesOf(ctx, workspace._id)).length === 0) await seedRoles(ctx, workspace._id);
+	},
+});
+
+/** The workspace's role for a retired "owner" or "member", or none if the workspace is gone. */
+async function legacyRoleId(ctx: MutationCtx, workspaceId: Id<"workspaces">, role: "owner" | "member") {
+	return (await rolesOf(ctx, workspaceId)).find((r) => r.builtIn === role)?._id;
+}
+
+const moveRole = async (ctx: MutationCtx, row: Doc<"members"> | Doc<"invites">) => {
+	if (row.role === undefined) return;
+	const id = row.roles ? undefined : await legacyRoleId(ctx, row.workspaceId, row.role);
+	await ctx.db.patch(row._id, { role: undefined, ...(!row.roles && { roles: id ? [id] : [] }) });
+};
+
+export const customRolesMembers = migrations.define({ table: "members", batchSize: 50, migrateOne: moveRole });
+export const customRolesInvites = migrations.define({ table: "invites", batchSize: 50, migrateOne: moveRole });
+
+export const customRolesConnectors = migrations.define({
+	table: "connectorInstalls",
+	batchSize: 50,
+	migrateOne: async (ctx, install) => {
+		if (!install.roles.some((r) => r === "owner" || r === "member")) return;
+		// Owners can use every connector now, so "owner" needs no role.
+		const member = install.roles.includes("member") ? await legacyRoleId(ctx, install.workspaceId, "member") : undefined;
+		const kept = install.roles.filter((r) => r !== "owner" && r !== "member");
+		await ctx.db.patch(install._id, { roles: [...new Set([...kept, ...(member ? [member] : [])])] });
+	},
+});
+
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
@@ -143,6 +183,10 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.clearTurnWelcome,
 	internal.migrations.companybotFollowupTools,
 	internal.migrations.cronSchedules,
+	internal.migrations.customRoles,
+	internal.migrations.customRolesMembers,
+	internal.migrations.customRolesInvites,
+	internal.migrations.customRolesConnectors,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

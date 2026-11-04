@@ -67,7 +67,7 @@ export const request = internalMutation({
 });
 
 /**
- * Whether the card may offer "Always allow", read live (an owner may have locked it
+ * Whether the card may offer "Always allow", read live (someone with actions.lock may have locked it
  * since), and the automation a grant would be scoped to. Old rows without a risk: no.
  */
 async function alwaysFor(ctx: QueryCtx, row: Doc<"approvals">) {

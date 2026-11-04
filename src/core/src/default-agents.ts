@@ -2,7 +2,7 @@ import { defaultReasoning } from "./agent-config";
 import { defineAgent } from "./agents";
 import { defaultModel } from "./models";
 
-// Every new workspace starts with copies of these. Owners can edit them in the app.
+// Every new workspace starts with copies of these. People with agents.manage can edit them in the app.
 
 export const companybot = defineAgent({
 	name: "Companybot",
@@ -16,7 +16,7 @@ export const companybot = defineAgent({
 
 export const defaultAgents = [companybot];
 
-/** Starting point for an agent an owner creates from scratch. */
+/** Starting point for an agent someone creates from scratch. */
 export const blankAgent = defineAgent({
 	name: "New agent",
 	description: "",

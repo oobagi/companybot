@@ -2,6 +2,7 @@ import { act, createElement } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { RecordType, Row } from "./data";
+import { memberDefaults } from "@companybot/core/permissions";
 import { RecordList } from "./RecordList";
 
 const state = vi.hoisted(() => ({
@@ -48,7 +49,7 @@ afterEach(async () => {
 	await act(async () => root?.unmount());
 	vi.unstubAllGlobals();
 });
-const tree = () => createElement(RecordList, { type, role: "owner" as const });
+const tree = () => createElement(RecordList, { type, access: { roles: ["owner"], owner: true, permissions: [] } });
 
 it("continues an empty first page before deciding a retired column has no cards", async () => {
 	await act(async () => { root = create(tree(), { createNodeMock: () => ({}) }); });
@@ -105,7 +106,7 @@ it.each(["table", "board"])("shows the whole-screen empty state only after %s pa
 	expect(JSON.stringify(root.toJSON())).toContain("No jobs yet");
 	expect(root.root.findAllByType("section")).toHaveLength(0);
 	expect(root.root.findAllByType("table")).toHaveLength(0);
-	await act(async () => root.update(createElement(RecordList, { type, role: "member" })));
+	await act(async () => root.update(createElement(RecordList, { type, access: { roles: ["member"], owner: false, permissions: memberDefaults } })));
 	// The empty state has no button; New stays in the top bar, for members too (records.edit).
 	expect(root.root.findAllByType("button").filter((b) => b.children.includes("New job"))).toHaveLength(1);
 });

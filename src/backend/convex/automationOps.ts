@@ -1,7 +1,7 @@
-import { type Automation, type AutomationAudience, type CustomAutomationConfig, canEditMade, customAutomation, deniedMessage, madeEditDenied, normalizeTrigger } from "@companybot/core";
+import { type Automation, type AutomationAudience, type CustomAutomationConfig, canEditAutomation, customAutomation, normalizeTrigger } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type Member, requireMember } from "./lib";
+import { type Member, checkPermission, requireMember } from "./lib";
 import type { QueryCtx } from "./_generated/server";
 
 /** Automations that run just for their creator are theirs alone (their id here); the rest are visible to the workspace (null). */
@@ -74,13 +74,12 @@ export async function definitionOf(ctx: QueryCtx, install: Doc<"automationInstal
  */
 export const scheduleCursor = (install: Doc<"automationInstalls">) => install.lastScheduledAt ?? install.lastRunAt ?? install._creationTime;
 
-/** An installed automation the signed-in person may change: theirs, or any if they manage automations. */
+/** An installed automation the signed-in person may change: their personal one, or a team one with `automations.edit`. */
 export async function requireEditable(ctx: QueryCtx, automationId: string, acting?: Member) {
 	const member = acting ?? await requireMember(ctx);
 	const install = await installOf(ctx, member.workspaceId, automationId);
 	if (!install || !canView(member, install)) throw new ConvexError("Automation not found.");
-	if (!canEditMade(member, "automations.manage", install.custom ? install.installedBy : undefined))
-		throw new ConvexError(install.custom ? madeEditDenied : deniedMessage("automations.manage"));
+	if (!canEditAutomation(member, privateTo(install))) checkPermission(member, "automations.edit");
 	return { member, install };
 }
 

@@ -201,7 +201,7 @@ describe("pages", () => {
 		expect(await owner.query(api.pages.list, {})).toEqual([]);
 		expect(await member.query(api.pages.get, { pageId })).toMatchObject({ archived: true, canEdit: false, trash: { user: "member@co.com", canRestore: true } });
 		await expect(type(t, member, pageId, "more")).rejects.toThrow("in Archive");
-		await expect(member.mutation(api.trash.purge, { id: pageId })).rejects.toThrow("permission");
+		await expect(member.mutation(api.trash.purge, { id: pageId })).rejects.toThrow("Only people with the");
 		await owner.mutation(api.trash.purge, { id: pageId });
 		await settle(t);
 		expect(await t.run((ctx) => ctx.db.query("pageVersions").collect())).toEqual([]);

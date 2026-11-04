@@ -9,8 +9,8 @@ import { Modal, archiveQuestion, useConfirm } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { type TypeField, kindLabels } from "./logic";
 
-// Adding a field to a type (anyone with `fields.create`), and renaming, re-optioning or
-// deleting one (its maker or an owner: `canEdit` from the server).
+// Adding a field to a type (anyone with `fields.edit`), and renaming, re-optioning or
+// deleting one (`canEdit` from the server: the fields.edit switch).
 
 const severalKinds: FieldKind[] = ["choice", "user", "link"];
 

@@ -103,7 +103,7 @@ async function screenIdOf(ctx: QueryCtx, entry: Doc<"trash">) {
 	return null;
 }
 
-/** "Delete forever": owners only, and never agents. */
+/** "Delete forever": `trash.manage`, and never agents. */
 export async function purgeItem(ctx: MutationCtx, member: Member, itemId: string) {
 	checkPermission(member, "trash.manage");
 	const entry = await trashEntry(ctx, itemId);
