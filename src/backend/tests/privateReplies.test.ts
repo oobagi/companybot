@@ -1,5 +1,5 @@
 import { automationJobs } from "./automationJobs";
-import { approxTokens, canonicalJson } from "@companybot/core";
+import { approxTokens, canonicalJson, systemPrompt } from "@companybot/core";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
@@ -14,7 +14,7 @@ import { canReadReply } from "../convex/replyPrivacy";
 import { KEEP_TOKENS, runningTurn } from "../convex/turns";
 import { createWakeup, wake } from "../convex/wakeups";
 import "./connectorFixtures";
-import { agentsOf, agentTurn, generalOf, identityOf, noMentions, ownerAndMember, signIn, turnsOf, type As } from "./helpers";
+import { agentsOf, agentTurn, generalOf, identityOf, noMentions, ownerAndMember, signIn, turnsOf, type As, setMemberSwitch } from "./helpers";
 
 async function decideReaction(t: Awaited<ReturnType<typeof ownerAndMember>>["t"], turnId: Id<"agentTurns">, triggerId: Id<"chatMessages">, emoji: string) {
 	await t.run((ctx) => ctx.db.patch(turnId, { triggerId }));
@@ -708,15 +708,69 @@ describe("private agent replies", () => {
 		expect(messages.every((m) => m.text === SECRET && m.privacy?.hidden === false)).toBe(true);
 	});
 
-	it("personal skill reads mark a just-that-person source before shared writes", async () => {
-		const s = await setup();
-		await s.owner.mutation(api.skills.create, { audience: "personal", config: { name: "Personal procedure", description: "Private preferences", instructions: SECRET } });
-		const chat = await s.owner.mutation(api.chats.createChannel, { name: "skill-reader", private: false });
-		const turnId = await s.start(s.owner, chat);
-		expect(JSON.stringify(await s.t.mutation(internal.turns.turnContext, { turnId }))).toContain(SECRET);
-		const replyId = (await s.t.run((ctx) => ctx.db.get("agentTurns", turnId)))!.replyId!;
-		expect((await s.t.run((ctx) => ctx.db.get(replyId)))!.usedPlaces).toContain(s.owner.userId);
-		await expect(s.t.mutation(internal.memory.createFor, { turnId, scope: "workspace", content: SECRET })).rejects.toThrow("wider audience");
+	// #230: listing a personal skill used to count as reading it, so one personal skill made every channel reply private.
+	// Now only loading its body (skills_load) is a read; outside the asker's own DM it isn't listed at all.
+	describe("personal skills", () => {
+		const config = { name: "Personal procedure", description: "Private preferences", instructions: SECRET };
+		const usedPlaces = async (s: Awaited<ReturnType<typeof setup>>, turnId = s.turnId) =>
+			(await s.t.run(async (ctx) => ctx.db.get((await ctx.db.get("agentTurns", turnId))!.replyId!)))!.usedPlaces ?? [];
+
+		it("stay out of a channel turn's index, and its reply stays public when none is loaded", async () => {
+			const s = await setup();
+			await s.owner.mutation(api.roles.setPermission, { id: s.office, permission: "memory.team.write", on: true });
+			const skillId = await s.dana.mutation(api.skills.create, { audience: "personal", config });
+			const context = await s.t.mutation(internal.turns.turnContext, { turnId: s.turnId });
+			expect(systemPrompt(context.agent, context.skills)).not.toContain(skillId);
+			expect(JSON.stringify(context)).not.toContain(SECRET);
+			expect(JSON.stringify(context)).not.toContain(config.description);
+			expect(await usedPlaces(s)).not.toContain(s.dana.userId);
+			await expect(s.t.mutation(internal.memory.createFor, { turnId: s.turnId, scope: "workspace", content: "Public fact" })).resolves.toHaveProperty("id");
+			await s.finish("Public answer.");
+			expect((await s.reply(s.crew)).text).toBe("Public answer.");
+		});
+
+		it("named with / in a channel, reach the agent by id and name only, so it can load them", async () => {
+			const s = await setup();
+			const skillId = await s.dana.mutation(api.skills.create, { audience: "personal", config });
+			await s.finish("Earlier answer.");
+			const before = await turnsOf(s.t);
+			await s.dana.mutation(api.messages.send, { chatId: s.chat._id, text: "/Personal procedure", mentions: { ...noMentions, agentIds: [s.companybot._id], skillIds: [skillId] } });
+			const turnId = (await turnsOf(s.t)).find((x) => !before.some((b) => b._id === x._id))!._id;
+			const context = await s.t.mutation(internal.turns.turnContext, { turnId });
+			expect(context.messages.at(-1)!.skills).toEqual([{ id: skillId, name: config.name }]);
+			expect(JSON.stringify(context)).not.toContain(config.description);
+			expect(await usedPlaces(s, turnId)).not.toContain(s.dana.userId);
+		});
+
+		it("loaded in a channel, make the reply private to their person and refuse wider writes", async () => {
+			const s = await setup();
+			const skillId = await s.dana.mutation(api.skills.create, { audience: "personal", config });
+			await s.t.mutation(internal.turns.turnContext, { turnId: s.turnId });
+			expect(await s.t.mutation(internal.skills.loadFor, { turnId: s.turnId, id: skillId })).toEqual({ instructions: SECRET });
+			expect(await usedPlaces(s)).toContain(s.dana.userId);
+			await s.owner.mutation(api.roles.setPermission, { id: s.office, permission: "memory.team.write", on: true });
+			await expect(s.t.mutation(internal.memory.createFor, { turnId: s.turnId, scope: "workspace", content: SECRET })).rejects.toThrow("Only Dana");
+			await s.finish();
+			expect((await s.reply(s.dana)).text).toBe(SECRET);
+			expect((await s.reply(s.crew)).text).toBe("🔒 Replied to Dana. Only Dana can see this.");
+			// Nobody else can load it, even by id.
+			const crewTurn = await s.start(s.crew);
+			expect(await s.t.mutation(internal.skills.loadFor, { turnId: crewTurn, id: skillId })).toHaveProperty("error");
+		});
+
+		it("work as before in their person's own agent DM", async () => {
+			const s = await setup();
+			await s.owner.mutation(api.roles.setPermission, { id: s.office, permission: "memory.team.write", on: true });
+			const skillId = await s.dana.mutation(api.skills.create, { audience: "personal", config });
+			const dm = await s.dana.mutation(api.chats.openDm, { userIds: [], agentIds: [s.companybot._id] });
+			const turnId = await s.start(s.dana, dm);
+			const context = await s.t.mutation(internal.turns.turnContext, { turnId });
+			expect(systemPrompt(context.agent, context.skills)).toContain(`- ${skillId}: ${config.description}`);
+			expect(await s.t.mutation(internal.skills.loadFor, { turnId, id: skillId })).toEqual({ instructions: SECRET });
+			expect(await usedPlaces(s, turnId)).toContain(s.dana.userId);
+			// Their own data, from their own DM, may be published.
+			await expect(s.t.mutation(internal.memory.createFor, { turnId, scope: "workspace", content: SECRET })).resolves.toHaveProperty("id");
+		});
 	});
 
 	it("personal skills retain sources across edits and refuse widening to team", async () => {
@@ -829,6 +883,7 @@ describe("private agent replies", () => {
 		await s.owner.mutation(api.roles.setPermission, { id: s.office, permission: "memory.team.write", on: true });
 		const personal = await s.dana.mutation(api.skills.create, { audience: "personal", config: { name: "My preferences", description: "Personal", instructions: SECRET } });
 		await s.t.mutation(internal.turns.turnContext, { turnId: s.turnId });
+		await s.t.mutation(internal.skills.loadFor, { turnId: s.turnId, id: personal });
 		await expect(s.t.mutation(internal.memory.createFor, { turnId: s.turnId, scope: "workspace", content: SECRET })).rejects.toThrow("Only Dana");
 		await s.finish();
 		expect((await s.reply(s.dana)).privacy?.label).toBe("Only Dana can see this");
@@ -1083,6 +1138,7 @@ describe("own-data authority and chat-file provenance", () => {
 	afterEach(() => { expect(network).not.toHaveBeenCalled(); vi.restoreAllMocks(); });
 	it("a foreign subscriber automation with Always cannot publish the runner's personal connector data", async () => {
 		const { t, owner, member: ben } = await ownerAndMember();
+		await setMemberSwitch(owner, "automations.edit", true);
 		const { companybot } = await agentsOf(owner);
 		await owner.mutation(api.connectors.setInstalled, { connectorId: "notes", installed: true });
 		await owner.action(api.connectors.connect, { connectorId: "notes", credentials: { type: "api_key", key: "local-fixture" } });

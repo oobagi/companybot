@@ -24,8 +24,9 @@ export const permissions = {
 	"workspace.reset": { label: "reset the workspace", ownerOnly: true },
 	/** Make, rename and delete roles and choose their switches. Owner-only, so nobody can give themselves more than an owner chose. */
 	"roles.manage": { label: "change roles", ownerOnly: true },
-	/** Invite and remove people and give them roles. Only owners give or take the Owner role, or remove an owner. */
+	/** Reorder shared sidebar lists: channels, page siblings, databases, view tabs, a database's All tab layout. */
 	"sidebar.arrange": { label: "rearrange shared sidebar lists", member: true },
+	/** Invite and remove people and give them roles. Only owners give or take the Owner role, or remove an owner. */
 	"members.manage": { label: "invite and remove people and change their roles", member: false },
 	"agents.manage": { label: "change agents", member: false },
 	"connectors.manage": { label: "install connectors and choose who can use them", member: false },
@@ -33,10 +34,10 @@ export const permissions = {
 	"connectors.connect": { label: "connect their own accounts to connectors", member: true },
 	/** Lock agent actions for everyone: always ask, block, or lift a default lock (action-rules.ts). */
 	"actions.lock": { label: "lock agent actions for everyone", member: false },
-	/** Make, install, change and delete team skills. */
-	"skills.edit": { label: "make and change skills", member: true },
+	/** Make, install, change and delete team skills. Personal ones are their maker's alone (`canTrash`, skills.ts). */
+	"skills.edit": { label: "make and change team skills", member: false },
 	/** Make, install, change and delete team automations. Personal ones are their maker's alone (`canEditAutomation`). */
-	"automations.edit": { label: "make and change team automations", member: true },
+	"automations.edit": { label: "make and change team automations", member: false },
 	/** Add, change and delete (to Archive) any team memory, and restore old versions. Wiki-style: anyone can fix a wrong fact; history undoes it. */
 	"memory.team.write": { label: "change team memories", member: true },
 	/** Add, change, delete (to Archive) and restore records (clients, deals, tasks…), and undo changes. */
@@ -44,14 +45,14 @@ export const permissions = {
 	/** Write, rename, delete (to Archive) and restore pages, and restore old versions (wiki/pages.md). */
 	"pages.edit": { label: "write and change pages", member: true },
 	/** Add, change and delete (to Archive) databases and their fields. */
-	"fields.edit": { label: "add and change databases and fields", member: true },
+	"fields.edit": { label: "add and change databases and fields", member: false },
 	/** Make channels, and rename, delete and add people to any channel. */
 	"channels.edit": { label: "make and change channels", member: true },
 	/** Delete forever from Archive (wiki/data.md#trash). Agents never delete forever. */
 	"trash.manage": { label: "delete things forever from Archive", member: false },
-	/** See the whole workspace's AI usage and cost. Everyone sees their own share (usage.ts). */
 	/** Stop an agent's reply that's running for someone else. Anyone can always stop one running for them (turns.stop). */
 	"turns.stopAny": { label: "stop agents working for someone else", member: false },
+	/** See the whole workspace's AI usage and cost. Everyone sees their own share (usage.ts). */
 	"usage.view": { label: "see the whole workspace's AI usage", member: false },
 } as const satisfies Record<string, { label: string; member: boolean } | { label: string; ownerOnly: true }>;
 

@@ -33,6 +33,24 @@ describe("roles", () => {
 		expect((await member.query(api.roles.list))!.map((r) => r.name)).toEqual(["Owner", "Member", "Office"]);
 	});
 
+	it("lets a fresh Member make personal skills and automations, but not team ones, databases or fields", async () => {
+		const { member } = await setup();
+		const skill = { name: "Quote follow-up", description: "Chase a quote nobody answered.", instructions: "Write one short reminder." };
+		const { companybot } = await agentsOf(member);
+		const automation = { config: { name: "Standup", prompt: "Ask for updates.", trigger: { type: "webhook" as const } }, agentId: companybot._id, timeZone: "UTC" };
+		const client = (await member.query(api.recordTypes.list)).find((x) => x.key === "client")!;
+		await expect(member.mutation(api.skills.create, { config: skill, audience: "team" })).rejects.toThrow("can make and change team skills");
+		await expect(member.mutation(api.automations.create, { ...automation, audience: "subscribers" })).rejects.toThrow("can make and change team automations");
+		await expect(member.mutation(api.recordTypes.create, { plural: "Jobs" })).rejects.toThrow("can add and change databases and fields");
+		await expect(member.mutation(api.fields.create, { typeId: client._id, label: "Roof", kind: "text" })).rejects.toThrow("can add and change databases and fields");
+		await member.mutation(api.skills.create, { config: skill, audience: "personal" });
+		await member.mutation(api.automations.create, { ...automation, audience: "creator" });
+		expect((await member.query(api.skills.list)).filter((x) => x.custom)).toHaveLength(1);
+		expect((await member.query(api.automations.list)).filter((x) => x.custom)).toHaveLength(1);
+		// Records stay open: working the data is everyone's job.
+		await member.mutation(api.records.create, { typeId: client._id, values: { name: "Acme" } });
+	});
+
 	it("gives someone every switch any of their roles has", async () => {
 		const { owner, member, id, membership } = await setup();
 		const office = await owner.mutation(api.roles.create, { name: "Office" });
@@ -41,7 +59,7 @@ describe("roles", () => {
 		expect((await member.query(api.workspace.me))!.access!.permissions).not.toContain("usage.view");
 		await owner.mutation(api.workspace.setRoles, { id: (await membership(member)).id, roles: [await id("Member"), office] });
 		const { access } = (await member.query(api.workspace.me))!;
-		expect(access!.permissions).toEqual(expect.arrayContaining(["usage.view", "records.edit", "skills.edit"]));
+		expect(access!.permissions).toEqual(expect.arrayContaining(["usage.view", "records.edit", "channels.edit"]));
 		expect((await member.query(api.usage.report, {}))!.scope).toBe("workspace");
 		// Member alone is the default for new people: it has no say over the workspace.
 		await owner.mutation(api.roles.setPermission, { id: office, permission: "usage.view", on: false });

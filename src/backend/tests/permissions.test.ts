@@ -5,7 +5,7 @@ import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { approvalHash, canonicalJson, findConnector, openConnector, toolApprovalPolicy, toolRisk } from "@companybot/core";
 
-import { type As, agentsOf, ownerAndMember, generalOf, turnsOf, settle } from "./helpers";
+import { type As, agentsOf, ownerAndMember, generalOf, turnsOf, settle, setMemberSwitch } from "./helpers";
 import "./connectorFixtures";
 import { fakeMcpServer } from "../../core/test/test-mcp-server";
 
@@ -188,7 +188,8 @@ describe("permissions", () => {
 	});
 
 	it("asks at first use; Always covers only that automation, and turning off takes it back", async () => {
-		const { t, member, companybot } = await setup();
+		const { t, owner, member, companybot } = await setup();
+		await setMemberSwitch(owner, "automations.edit", true);
 		const config = { name: "Follow up", prompt: "Text new leads.", trigger: { type: "webhook" as const } };
 		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
 
@@ -279,6 +280,7 @@ describe("permissions", () => {
 
 	it("forgets a removed member's rules, so rejoining starts strict", async () => {
 		const { t, owner, member, companybot } = await setup();
+		await setMemberSwitch(owner, "automations.edit", true);
 		const config = { name: "Follow up", prompt: "Text new leads.", trigger: { type: "webhook" as const } };
 		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
 		await member.mutation(api.automationRuns.runNow, { automationId: id });
@@ -299,6 +301,7 @@ describe("permissions", () => {
 		/** Ben (the member) writes a daily automation; the owner turns it on too. One run each, as the runner would see them. */
 		async function bens() {
 			const { t, owner, member, companybot } = await setup();
+			await setMemberSwitch(owner, "automations.edit", true);
 			const id = await member.mutation(api.automations.create, { config: daily, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
 			for (const as of [owner, member]) await as.mutation(api.automations.subscribe, { automationId: id, on: true });
 			const runs = async () => {
@@ -388,6 +391,7 @@ describe("permissions", () => {
 
 	it.each([false, true])("keeps channel automation cards private in the actor's DM (thread: %s), with original execution context", async thread => {
 		const { t, owner, member, companybot } = await setup();
+		await setMemberSwitch(owner, "automations.edit", true);
 		const chatId = (await generalOf(member))._id;
 		const config = { name: "Channel inbound", prompt: "Handle input.", trigger: { type: "event" as const, event: "message.posted" as const, channelId: chatId } };
 		await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "channel", channelId: chatId, timeZone: "UTC" });
@@ -421,6 +425,7 @@ describe("permissions", () => {
 
 	it("tracks the acting editor for agent saves and resaving old content, without trusting an already queued run", async () => {
 		const { t, owner, member, companybot } = await setup();
+		await setMemberSwitch(owner, "automations.edit", true);
 		const config = { name: "Daily", prompt: "Summarize sales.", trigger: { type: "schedule" as const, cron: "0 9 * * 1" } };
 		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
 		await t.run(ctx => ctx.db.patch(companybot._id, { tools: [...companybot.tools, "automations.manage"] }));
@@ -461,6 +466,7 @@ describe("permissions", () => {
 
 	it.each(["webhook", "event"] as const)("own %s automations ask once per action, then Always covers later runs only for that person and automation", async type => {
 		const { t, owner, member, companybot } = await setup();
+		await setMemberSwitch(owner, "automations.edit", true);
 		const trigger = type === "webhook" ? { type } : { type, event: "member.joined" as const };
 		const config = { name: "Inbound", prompt: "Handle input.", trigger };
 		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
@@ -488,6 +494,7 @@ describe("permissions", () => {
 
 	it("personal connector reads use runtime consent scoped to the automation, while normal chat and workspace reads stay unchanged", async () => {
 		const { t, owner, member, companybot } = await setup();
+		await setMemberSwitch(owner, "automations.edit", true);
 		await owner.mutation(api.connectors.setInstalled, { connectorId: "notes", installed: true });
 		const session = await openConnector(findConnector("notes")!, { transport: fakeMcpServer([{ name: "find", readOnly: true }]) });
 		try {

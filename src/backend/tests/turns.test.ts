@@ -2,7 +2,7 @@ import { automationJobs } from "./automationJobs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 
-import { agentsOf, ownerAndMember, noMentions, generalOf, turnsOf } from "./helpers";
+import { agentsOf, ownerAndMember, noMentions, generalOf, turnsOf, setMemberSwitch } from "./helpers";
 
 const usage = (costUsd: number) => ({
 	model: "anthropic/claude-haiku-5.5",
@@ -22,6 +22,7 @@ describe("agent turns", () => {
 	beforeEach(() => void vi.useFakeTimers());
 	it.each(["dm", "channel", "thread", "own-thread"] as const)("foreign automation %s runs receive their trigger without earlier private history, replay or summary", async place => {
 		const { t, owner, member } = await ownerAndMember();
+		await setMemberSwitch(owner, "automations.edit", true);
 		const { companybot } = await agentsOf(owner);
 		const chatId = place === "dm"
 			? await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] })

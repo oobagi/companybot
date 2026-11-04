@@ -7,7 +7,7 @@ import { api, components, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { pageSchema } from "../convex/pageOps";
 import { wake } from "../convex/wakeups";
-import { type As, agentsOf, finishTurn, identityOf, ownerAndMember, sideWorkspace, signIn, settle } from "./helpers";
+import { type As, agentsOf, finishTurn, identityOf, ownerAndMember, sideWorkspace, signIn, settle, setMemberSwitch } from "./helpers";
 
 // Who can access each channel, database and page (placeAccess.ts): every read path and agent tool
 // follows the list, and refusals name the roles that have access.
@@ -101,7 +101,8 @@ describe("who can access a database", () => {
 	});
 
 	it("lets View read but not change, and Edit change", async () => {
-		const { crew, office, officeRole, deals, deal, restrict } = await setup();
+		const { owner, crew, office, officeRole, deals, deal, restrict } = await setup();
+		await setMemberSwitch(owner, "fields.edit", true);
 		await restrict([{ role: "everyone", level: "view" }, { role: officeRole, level: "edit" }]);
 		const seen = (await crew.query(api.records.get, { recordId: deal }))!;
 		expect(seen).toMatchObject({ title: "Big roof deal", canEdit: false });
