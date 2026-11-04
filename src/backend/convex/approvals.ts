@@ -12,8 +12,7 @@ import {
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
-import { internalMutation } from "./_generated/server";
-import type { QueryCtx } from "./_generated/server";
+import { internalMutation, type QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { automationName, automationScope } from "./automationOps";
 import { canSee, findOrCreateDm, insertMessage, namer } from "./chatOps";

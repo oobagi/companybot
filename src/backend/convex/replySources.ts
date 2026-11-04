@@ -3,7 +3,7 @@ import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Member } from "./lib";
-import type { AccessList } from "./placeAccess";
+import { chatAccess, type AccessList } from "./placeAccess";
 
 export type UsedPlace = Id<"recordTypes"> | Id<"pages"> | Id<"chats">;
 const writes = new WeakMap<Member, Promise<void>>();
@@ -30,11 +30,18 @@ export async function inheritPlaces(ctx: QueryCtx, member: Member, sources: Used
 	await next;
 }
 
-export async function turnSources(ctx: QueryCtx, member: Member): Promise<NonNullable<Doc<"chatMessages">["usedPlaces"]>> {
-	return member.replyId ? ((await ctx.db.get(member.replyId))?.usedPlaces ?? []) : [];
+export async function turnSources(ctx: QueryCtx, member: Member, destChatId?: Id<"chats">): Promise<NonNullable<Doc<"chatMessages">["usedPlaces"]>> {
+	const reply = member.replyId && await ctx.db.get(member.replyId);
+	if (!reply) return [];
+	const sources = reply.usedPlaces ?? [];
+	if (!destChatId || destChatId === reply.chatId) return sources;
+	const origin = await ctx.db.get(reply.chatId);
+	const access = origin && chatAccess(origin);
+	const restricted = origin && (origin.private || access && !access.some((e) => e.role === EVERYONE));
+	return [...new Set([...sources, ...(restricted ? [reply.chatId] : [])])].filter((id) => id !== destChatId);
 }
 
-/** Shared instructions would carry private facts outside the reply's audience. */
-export async function requireUnrestrictedTurn(ctx: QueryCtx, member: Member) {
-	if ((await turnSources(ctx, member)).length) throw new ConvexError("This reply uses restricted places. It can't save shared instructions.");
+/** Shared text cannot carry private facts into another place. Writes within the source keep its audience. */
+export async function requireUnrestrictedTurn(ctx: QueryCtx, member: Member, within?: UsedPlace) {
+	if ((await turnSources(ctx, member)).some((id) => id !== within)) throw new ConvexError("This reply uses restricted places. It can't save shared instructions.");
 }

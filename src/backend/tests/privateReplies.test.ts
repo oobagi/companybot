@@ -3,7 +3,11 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { memberOf } from "../convex/lib";
+import type { MutationCtx } from "../convex/_generated/server";
+import { createField, createRecord, createType, updateField, updateRecord, updateType } from "../convex/recordOps";
+import { createPage, renamePage, writeBlocks } from "../convex/pageOps";
+import { saveView } from "../convex/databaseViews";
+import { type Who, memberOf } from "../convex/lib";
 import { canReadReply } from "../convex/replyPrivacy";
 import { KEEP_TOKENS } from "../convex/turns";
 import { agentsOf, agentTurn, generalOf, noMentions, ownerAndMember, signIn, type As } from "./helpers";
@@ -31,7 +35,7 @@ async function setup() {
 	const replyId = turn.replyId!;
 	const read = () => t.mutation(internal.recordTools.getFor, { turnId, id: deal });
 	const write = (text = SECRET) => t.mutation(internal.turns.updateReply, { turnId, text, parts: [{ type: "text", text }] });
-	const finish = async () => { await write(); await t.mutation(internal.turns.finishReply, { turnId }); };
+	const finish = async (text = SECRET) => { await write(text); await t.mutation(internal.turns.finishReply, { turnId }); };
 	const reply = async (as: As) => (await as.query(api.messages.list, { chatId: chat._id })).find((m) => m._id === replyId)!;
 	return { t, owner, crew, dana, office, deals, deal, chat, companybot, start, turnId, replyId, read, write, finish, reply, turn };
 }
@@ -252,7 +256,7 @@ describe("private agent replies", () => {
 
 	it("keeps server masking out of the compatibility removal list", async () => {
 		const code = readFileSync(new URL("../convex/replyPrivacy.ts", import.meta.url), "utf8");
-		expect(code).not.toContain("COMPAT(");
+		expect(code).not.toContain("COMPAT" + "(");
 	});
 
 	it("bounds replay to the newest readable turns when a summary is hidden", async () => {
@@ -338,7 +342,7 @@ describe("private agent replies", () => {
 		const s = await setup(); await s.read();
 		const sent = await s.t.mutation(internal.manageTools.runFor, { turnId: s.turnId, tool: "chat.manage", input: { request: { action: "send", chat: "#general", text: "First answer" } } }) as { messageId: Id<"chatMessages"> };
 		await s.owner.mutation(api.messages.share, { messageId: sent.messageId });
-		await s.finish();
+		await s.finish("Ready");
 		const editor = await s.start(s.dana);
 		const edit = await s.t.mutation(internal.manageTools.runFor, { turnId: editor, tool: "chat.manage", input: { request: { action: "edit", messageId: sent.messageId, text: SECRET } } });
 		expect(edit).not.toHaveProperty("error");
@@ -422,6 +426,108 @@ describe("private agent replies", () => {
 		expect(found.messages).toHaveLength(20);
 		expect(found.messages.map((m) => m.id)).not.toContain(last);
 		expect((await s.t.run((ctx) => ctx.db.get("chatMessages", s.replyId)))!.usedPlaces ?? []).toEqual([]);
+	});
+
+
+	it.each(["private", "restricted"] as const)("masks sends and edits from a %s source channel in another chat", async (kind) => {
+		const s = await setup();
+		const ops = await s.owner.mutation(api.chats.createChannel, { name: "ops", private: kind === "private" });
+		await s.owner.mutation(api.chats.addMembers, { chatId: ops, userIds: [s.dana.userId], agentIds: [] });
+		if (kind === "restricted") await s.owner.mutation(api.chats.setAccess, { chatId: ops, access: [{ role: s.office, level: "edit" }] });
+		const turnId = await s.start(s.dana, ops);
+		const sent = await s.t.mutation(internal.manageTools.runFor, { turnId, tool: "chat.manage", input: { request: { action: "send", chat: "#general", text: SECRET } } }) as { messageId: Id<"chatMessages"> };
+		expect(sent).toHaveProperty("messageId");
+		expect((await s.t.run((ctx) => ctx.db.get("chatMessages", sent.messageId)))!.usedPlaces).toEqual([ops]);
+		expect(JSON.stringify(await s.crew.query(api.messages.list, { chatId: s.chat._id }))).not.toContain(SECRET);
+		// Editing an older, originally public message must stamp the origin too.
+		await s.finish("Ready");
+		const editor = await s.start(s.dana);
+		const old = await s.t.mutation(internal.manageTools.runFor, { turnId: editor, tool: "chat.manage", input: { request: { action: "send", chat: "#general", text: "Public note" } } }) as { messageId: Id<"chatMessages"> };
+		const edited = await s.t.mutation(internal.manageTools.runFor, { turnId, tool: "chat.manage", input: { request: { action: "edit", messageId: old.messageId, text: SECRET } } });
+		expect(edited).not.toHaveProperty("error");
+		expect((await s.t.run((ctx) => ctx.db.get("chatMessages", old.messageId)))!.usedPlaces).toEqual([ops]);
+		expect(JSON.stringify(await s.crew.query(api.messages.list, { chatId: s.chat._id }))).not.toContain(SECRET);
+		const replyId = (await s.t.run((ctx) => ctx.db.get("agentTurns", turnId)))!.replyId!;
+		expect((await s.t.run((ctx) => ctx.db.get("chatMessages", replyId)))!.usedPlaces ?? []).not.toContain(ops);
+	});
+
+	it("does not taint empty public database lookups or unrelated returned search rows", async () => {
+		const s = await setup();
+		const clients = (await s.owner.query(api.recordTypes.list)).find((t) => t.key === "client")!._id;
+		const empty = await s.t.mutation(internal.recordTools.findFor, { turnId: s.turnId, input: { type: "Clients", numItems: 20 } });
+		expect(empty).toHaveProperty("rows", []);
+		expect((await s.t.run((ctx) => ctx.db.get("chatMessages", s.replyId)))!.usedPlaces ?? []).toEqual([]);
+		const found = await s.t.mutation(internal.recordTools.findFor, { turnId: s.turnId, input: { search: "NoSuchMatch", numItems: 20 } });
+		expect(found).toHaveProperty("rows", []);
+		expect((await s.t.run((ctx) => ctx.db.get("chatMessages", s.replyId)))!.usedPlaces ?? []).toEqual([]);
+		await s.owner.mutation(api.records.create, { typeId: clients, values: { name: "OnlyPublicMatch" } });
+		const rows = await s.t.mutation(internal.recordTools.findFor, { turnId: s.turnId, input: { search: "OnlyPublicMatch", numItems: 20 } });
+		expect(rows).toHaveProperty("rows", [expect.objectContaining({ name: "OnlyPublicMatch" })]);
+		expect((await s.t.run((ctx) => ctx.db.get("chatMessages", s.replyId)))!.usedPlaces ?? []).toEqual([]);
+		await s.t.mutation(internal.turns.updateReply, { turnId: s.turnId, text: "No records yet", parts: [{ type: "text", text: "No records yet" }] });
+		await s.t.mutation(internal.turns.finishReply, { turnId: s.turnId });
+		expect((await s.reply(s.crew)).privacy).toBeNull();
+	});
+
+	it.each(["name", "description", "instructions"] as const)("refuses a restricted fact in another agent's %s", async (property) => {
+		const s = await setup(); await s.finish();
+		const target = (await s.owner.query(api.agents.list)).find((a) => a._id !== s.companybot._id)!;
+		await s.t.run(async (ctx) => { const agent = (await ctx.db.get("agents", s.companybot._id))!; await ctx.db.patch(agent._id, { tools: [...new Set([...agent.tools, "agents.manage"])] }); });
+		const turnId = await s.start(s.owner);
+		await s.t.mutation(internal.recordTools.getFor, { turnId, id: s.deal });
+		const result = await s.t.mutation(internal.manageTools.runFor, { turnId, tool: "agents.manage", input: { request: { action: "update", id: target._id, expectedVersion: target.version, [property]: SECRET } } });
+		expect(result).toHaveProperty("error", expect.stringContaining("restricted places"));
+		expect(JSON.stringify(await s.crew.query(api.agents.list))).not.toContain(SECRET);
+	});
+
+	it("refuses restricted facts in channel create, rename, topic and public profile text", async () => {
+		const s = await setup(); await s.finish();
+		const turnId = await s.start(s.owner);
+		await s.t.mutation(internal.recordTools.getFor, { turnId, id: s.deal });
+		const manage = (tool: string, request: object) => s.t.mutation(internal.manageTools.runFor, { turnId, tool, input: { request } });
+		for (const request of [
+			{ action: "create", name: "new-room", private: false, topic: SECRET },
+			{ action: "rename", chat: "#general", name: SECRET },
+			{ action: "set_topic", chat: "#general", topic: SECRET },
+		]) expect(await manage("channels.manage", request)).toHaveProperty("error", expect.stringContaining("restricted places"));
+		expect(await manage("workspace.settings", { action: "update_preferences", displayName: SECRET })).toHaveProperty("error", expect.stringContaining("restricted places"));
+		expect(JSON.stringify(await s.crew.query(api.chats.list))).not.toContain(SECRET);
+		expect(JSON.stringify(await s.crew.query(api.workspace.team))).not.toContain(SECRET);
+	});
+
+	it("guards shared database, field, record, view, page and workspace text in their common writers", async () => {
+		const s = await setup(); await s.finish();
+		const type = (await s.owner.query(api.recordTypes.list)).find((t) => t.key === "client")!;
+		const record = await s.owner.mutation(api.records.create, { typeId: type._id, values: { name: "Public client" } });
+		const pageId = await s.owner.mutation(api.pages.create, { title: "Public page" });
+		const field = type.fields.find((f) => f.key === "name")!;
+		const turnId = await s.start(s.owner);
+		await s.t.mutation(internal.recordTools.getFor, { turnId, id: s.deal });
+		const run = (write: (ctx: MutationCtx, who: Who) => Promise<unknown>) => s.t.run(async (ctx) => {
+			const member = (await memberOf(ctx, s.owner.userId, s.turn.workspaceId))!;
+			member.replyId = (await ctx.db.get("agentTurns", turnId))!.replyId!;
+			return write(ctx, { member, agentId: s.companybot._id });
+		});
+		const attempts: (() => Promise<unknown>)[] = [
+			() => run((ctx, who) => createType(ctx, who, { plural: SECRET })),
+			() => run((ctx, who) => updateType(ctx, who, type._id, { plural: SECRET, version: type.version ?? 0 })),
+			() => run((ctx, who) => createField(ctx, who, type._id, { label: SECRET, kind: "text" })),
+			() => run((ctx, who) => updateField(ctx, who, field._id, { label: SECRET })),
+			() => run((ctx, who) => createRecord(ctx, who, type._id, { name: SECRET })),
+			() => run((ctx, who) => updateRecord(ctx, who, record, { name: SECRET })),
+			() => run((ctx, who) => saveView(ctx, who, type._id, { name: SECRET, filters: [], sort: { field: "name", order: "asc" }, columns: ["name"] })),
+			() => run((ctx, who) => createPage(ctx, who, { title: SECRET })),
+			() => run(async (ctx, who) => renamePage(ctx, who, (await ctx.db.get("pages", pageId))!, SECRET)),
+			() => run(async (ctx, who) => writeBlocks(ctx, who, (await ctx.db.get("pages", pageId))!, JSON.stringify([{ type: "blockContainer", attrs: { id: "leak" }, content: [{ type: "paragraph", content: [{ type: "text", text: SECRET }] }] }]), "replace")),
+		];
+		for (const write of attempts) await expect(write()).rejects.toThrow("restricted places");
+		const changed = await s.t.mutation(internal.manageTools.runFor, { turnId, tool: "workspace.settings", input: { request: { action: "update", name: SECRET, expectedVersion: (await s.owner.query(api.workspace.settings))!.version } } });
+		expect(changed).toHaveProperty("error", expect.stringContaining("restricted places"));
+		expect(JSON.stringify(await s.crew.query(api.pages.list))).not.toContain(SECRET);
+		expect(JSON.stringify(await s.crew.query(api.recordTypes.list))).not.toContain(SECRET);
+		// Updating within the original database keeps its audience and remains available.
+		await s.owner.mutation(api.recordTypes.setAccess, { typeId: s.deals, access: [{ role: s.office, level: "edit" }] });
+		expect(await s.t.mutation(internal.recordTools.saveFor, { turnId, input: { id: s.deal, values: { name: "Still private" } } })).not.toHaveProperty("error");
 	});
 
 });

@@ -10,6 +10,7 @@ import { canReadReply, canReadSources } from "./replyPrivacy";
 import { accessArg } from "./schema";
 import { trashInfo } from "./trashOps";
 import { STALE_TURN_MS, sessionAt } from "./turns";
+import { requireUnrestrictedTurn } from "./replySources";
 
 // Channels and DMs. Queries return display-ready data so the app never joins tables.
 // See wiki/chat.md.
@@ -299,6 +300,7 @@ export const createChannel = mutation({
 
 export async function createChannelAs(ctx: MutationCtx, member: Member, args: Infer<typeof createChannelArgs>): Promise<Id<"chats">> {
 	checkPermission(member, "channels.edit");
+	await requireUnrestrictedTurn(ctx, member);
 	const name = await availableName(ctx, member, args.name);
 	const chatId = await ctx.db.insert("chats", {
 		workspaceId: member.workspaceId,
@@ -330,6 +332,7 @@ export const updateChannel = mutation({
 export async function updateChannelAs(ctx: MutationCtx, member: Member, { chatId, name, topic, replyMode }: Infer<typeof updateChannelArgs>) {
 	const chat = await requireManagedChannel(ctx, member, chatId);
 	if (chat.archived) throw new ConvexError("This channel is in Archive.");
+	if (name !== undefined || topic !== undefined) await requireUnrestrictedTurn(ctx, member, chatId);
 	await ctx.db.patch(chat._id, {
 		...(name !== undefined && { name: await availableName(ctx, member, name, chat._id) }),
 		...(topic !== undefined && { topic: topic.trim() || undefined }),

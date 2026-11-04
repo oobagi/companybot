@@ -250,7 +250,7 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	// Last: a refused message keeps its uploads, to attach again.
 	const attachments = await claimFiles(ctx, member, files);
 
-	const usedPlaces = await turnSources(ctx, member);
+	const usedPlaces = await turnSources(ctx, member, chatId);
 	const messageId = await insertMessage(ctx, chat, {
 		...(usedPlaces.length && { usedPlaces, repliedTo: member.userId }),
 		threadId,
@@ -349,7 +349,7 @@ export async function editMessage(ctx: MutationCtx, who: Who, messageId: Id<"cha
 	requirePost(who.member, (await ctx.db.get(message.chatId))!);
 	text = text.trim();
 	if (!text && !message.attachments?.length) throw new ConvexError("Write something first, or delete the message.");
-	const sources = await turnSources(ctx, who.member);
+	const sources = await turnSources(ctx, who.member, message.chatId);
 	await ctx.db.patch(message._id, { text, parts: text ? [{ type: "text", text }] : [], editedAt: Date.now(), sharedBy: undefined, ...(sources.length && { usedPlaces: [...new Set([...(message.usedPlaces ?? []), ...sources])], repliedTo: who.member.userId }) });
 	await previewMessage(ctx, { ...message, text }, { byAgent: !!who.agentId });
 }

@@ -59,7 +59,7 @@ const CHANGES_MAX = 5;
 
 /** Live databases the person can see, oldest first. */
 async function liveTypes(ctx: QueryCtx, member: Member) {
-	const visible = typeVisible(ctx, member);
+	const visible = typeVisible(ctx, { ...member, replyId: undefined });
 	const types = [];
 	for (const t of await typesOf(ctx, member.workspaceId)) if (!t.archived && (await visible(t._id))) types.push(t);
 	return types.sort((a, b) => a._creationTime - b._creationTime);
@@ -78,7 +78,7 @@ function pickOne<T>(matches: T[], what: string, describe: (m: T) => string) {
  */
 async function typeNamed(ctx: QueryCtx, member: Member, name: string, trashed = false) {
 	const all = (await typesOf(ctx, member.workspaceId)).filter((t) => t.archived === trashed).sort((a, b) => a._creationTime - b._creationTime);
-	const visible = typeVisible(ctx, member);
+	const visible = typeVisible(ctx, { ...member, replyId: undefined });
 	const types: Doc<"recordTypes">[] = [];
 	const hidden: Doc<"recordTypes">[] = [];
 	for (const t of all) ((await visible(t._id)) ? types : hidden).push(t);
@@ -88,12 +88,17 @@ async function typeNamed(ctx: QueryCtx, member: Member, name: string, trashed = 
 	const named = (among: Doc<"recordTypes">[]) => among.filter((t) => [t.name, t.plural].some((x) => x.toLowerCase() === n));
 	// Ones they can see first, so suggestions and "could be" lists never name the rest. One they can't see,
 	// named unambiguously, is refused naming who can (requireType), so they know whom to ask.
+	if (!exact(types) && named(types).length > 1) for (const t of named(types)) await notePlace(ctx, member, t._id, t.access);
 	const type =
 		exact(types) ??
 		pickOne(named(types), raw, (t) => `${t.plural} (${t.key})`) ??
 		exact(hidden) ??
 		(named(hidden).length === 1 ? named(hidden)[0] : undefined);
-	if (!type) throw new ConvexError(`There's no database “${name}”. Types: ${types.map((t) => t.key).join(", ")}.`);
+	if (!type) {
+		// Suggestions are returned text too, unlike candidates examined during a successful lookup.
+		for (const t of types) await notePlace(ctx, member, t._id, t.access);
+		throw new ConvexError(`There's no database “${name}”. Types: ${types.map((t) => t.key).join(", ")}.`);
+	}
 	// Refused by id, the refusal can't name it; by its key or name, it says back only what they typed.
 	return requireType(ctx, member, type._id, "view", type._id === raw ? undefined : raw);
 }

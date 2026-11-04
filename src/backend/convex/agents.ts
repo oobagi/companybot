@@ -22,6 +22,7 @@ import { imageUrl } from "./images";
 import { allowedModels, catalogModels } from "./modelCatalog";
 import { agentConfig } from "./schema";
 import { toggleTrash, trashInfo } from "./trashOps";
+import { requireUnrestrictedTurn } from "./replySources";
 
 // Agents live in the database, one set per workspace. People with agents.manage edit them; every save
 // is kept in agentVersions so changes can be reviewed and restored. Replies read the
@@ -186,6 +187,7 @@ export async function createAgent(ctx: MutationCtx, member: Member, withoutTools
 export async function updateAgent(ctx: MutationCtx, member: Member, agentId: Id<"agents">, expectedVersion: number, config: AgentConfig) {
 	checkPermission(member, "agents.manage");
 	const agent = await requireLiveAgent(ctx, member, agentId);
+	await requireUnrestrictedTurn(ctx, member);
 	checkVersion(agent.version, expectedVersion);
 	await saveVersion(ctx, agent, await clean(ctx, agent, config), member.userId);
 }

@@ -23,7 +23,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { type Member, type Who, checkPermission, checkVersion, memberOf, memo, nameOf, requireInWorkspace } from "./lib";
 import { reach, requireAccess } from "./placeAccess";
-import { notePlace } from "./replySources";
+import { notePlace, requireUnrestrictedTurn } from "./replySources";
 import { toggleTrash } from "./trashOps";
 
 // Records, fields and their history. Shared by the app's functions (records.ts,
@@ -227,6 +227,7 @@ export async function createRecord(ctx: MutationCtx, who: Who, typeId: Id<"recor
 	const title = values[NAME_KEY];
 	if (typeof title !== "string") throw new ConvexError(`Give the ${type.name.toLowerCase()} a name.`);
 	requireSize(values);
+	await requireUnrestrictedTurn(ctx, who.member, typeId);
 	const id = await ctx.db.insert("records", {
 		workspaceId: who.member.workspaceId,
 		typeId,
@@ -280,6 +281,7 @@ async function applyValues(
 	const title = values[NAME_KEY];
 	if (typeof title !== "string") throw new ConvexError("Every record needs a name.");
 	requireSize(values);
+	await requireUnrestrictedTurn(ctx, who.member, record.typeId);
 	await ctx.db.patch(record._id, { title, values, searchText: searchTextOf(fields.map(toField), values), ...stamp(who) });
 	await writeIndex(ctx, { ...record, values }, fields, new Set(changes.map((c) => c.key)));
 	return logChange(ctx, who, { typeId: record.typeId, recordId: record._id, action: "updated", changes, ...(undoes && { undoes }) });
@@ -382,6 +384,7 @@ export async function createField(ctx: MutationCtx, who: Who, typeId: Id<"record
 	// Linking to a database shows its records' names here, so it takes seeing it.
 	if (linkTypeId && (await requireType(ctx, who.member, linkTypeId)).archived) throw new ConvexError("This database is in Archive. Restore it to make changes.");
 	const key = keyOf(config.label, fields.map((f) => f.key));
+	await requireUnrestrictedTurn(ctx, who.member, typeId);
 	const id = await insertField(ctx, who.member, typeId, { ...config, key }, Math.max(0, ...fields.map((f) => f.position)) + 1, linkTypeId);
 	await logChange(ctx, who, { typeId, fieldId: id, action: "field.created", changes: [{ key: "label", new: config.label }] });
 	return (await ctx.db.get(id))!;
@@ -407,6 +410,7 @@ export async function updateField(
 ) {
 	const field = await requireEditableField(ctx, who.member, fieldId);
 	if (field.archived) throw new ConvexError("This field is in Archive. Restore it to make changes.");
+	if (update.label !== undefined || update.options !== undefined) await requireUnrestrictedTurn(ctx, who.member, field.typeId);
 	let options = field.options;
 	if (update.options) {
 		const existing = field.options ?? [];
@@ -476,6 +480,7 @@ function databaseNames(plural: string, singular: string | undefined, types: Doc<
 /** A new database with just a name field. */
 export async function createType(ctx: MutationCtx, who: Who, input: { plural: string; name?: string }) {
 	checkPermission(who.member, "fields.edit");
+	await requireUnrestrictedTurn(ctx, who.member);
 	const types = await typesOf(ctx, who.member.workspaceId);
 	if (types.length >= TYPES_MAX) throw new ConvexError(`A workspace holds up to ${TYPES_MAX} databases, including ones in Archive.`);
 	const names = databaseNames(input.plural, input.name, types);
@@ -490,6 +495,7 @@ export async function updateType(ctx: MutationCtx, who: Who, typeId: Id<"recordT
 	checkPermission(who.member, "fields.edit");
 	const type = await requireType(ctx, who.member, typeId, "edit");
 	checkVersion(type.version ?? 0, input.version);
+	await requireUnrestrictedTurn(ctx, who.member, typeId);
 	const names = databaseNames(input.plural ?? type.plural, input.name ?? (input.plural === undefined ? type.name : undefined), await typesOf(ctx, who.member.workspaceId), typeId);
 	const changes = (["name", "plural"] as const).filter((key) => type[key] !== names[key]).map((key) => ({ key, old: type[key], new: names[key] }));
 	if (!changes.length) return;

@@ -14,7 +14,7 @@ import { pageBlockSchema, withoutPageTitles } from "./pageBlocks";
 import { type PageState, keptAccess, pageState, pageStates, parentFor } from "./pageTree";
 import { reach, requireAccess } from "./placeAccess";
 import { inTrash, requireRecord } from "./recordOps";
-import { notePlace } from "./replySources";
+import { notePlace, requireUnrestrictedTurn } from "./replySources";
 import { toggleTrash } from "./trashOps";
 
 // Shared rules for standalone pages and record bodies. See wiki/pages.md.
@@ -148,6 +148,7 @@ export async function createPage(ctx: MutationCtx, who: Who, to: { title: string
 		if (await inTrash(ctx, record)) throw new ConvexError("This record is in Archive. Restore it to make changes.");
 		recordId = record._id;
 	}
+	if ("title" in to) await requireUnrestrictedTurn(ctx, member, parentId);
 	const pageId = await ctx.db.insert("pages", {
 		workspaceId: member.workspaceId,
 		...(recordId && { recordId }),
@@ -196,6 +197,7 @@ export async function removePageBlock(ctx: MutationCtx, who: Who, parent: Doc<"p
 export async function renamePage(ctx: MutationCtx, who: Who, page: Doc<"pages">, title: string) {
 	await requireEditable(ctx, who.member, page);
 	if (page.recordId) throw new ConvexError("A record's page takes the record's name. Rename the record instead.");
+	await requireUnrestrictedTurn(ctx, who.member, page._id);
 	const clean = cleanTitle(title);
 	await ctx.db.patch(page._id, { title: clean, updatedAt: Date.now(), updatedBy: who.member.userId });
 	// Page links are plain link marks whose text is the title when inserted (alpha.7 can't render live titles),
@@ -314,6 +316,8 @@ const tooMuch = () => new ConvexError("That's too much to add at once. Split it 
  */
 export async function saveTransform(ctx: MutationCtx, who: Who, page: Doc<"pages">, version: number, tr: Transform, clientId: string | number = "transform", restored?: number) {
 	if (!tr.docChanged) return false;
+	const state = await pageState(ctx, page);
+	await requireUnrestrictedTurn(ctx, who.member, state.type?._id ?? page._id);
 	const content = JSON.stringify(tr.doc.toJSON());
 	// The schema has no page titles, but an old app's step can still try to set one (pageBlocks.ts).
 	const steps = tr.steps.map((s) => withoutPageTitles(JSON.stringify(s.toJSON())));

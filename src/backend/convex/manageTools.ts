@@ -14,7 +14,7 @@ import { editMessage, hideMessagePreview, removeMessage, reactMessage, sendMessa
 import { catalogModels } from "./modelCatalog";
 import { chatAccess } from "./placeAccess";
 import { updatePreferences } from "./preferences";
-import { notePlace } from "./replySources";
+import { notePlace, requireUnrestrictedTurn } from "./replySources";
 import { installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
 import { runningTurn } from "./turns";
 import { usageReport } from "./usage";
@@ -297,6 +297,7 @@ export const runFor = internalMutation({
 					}
 					if (r.action === "update_preferences") {
 						const { action, ...changes } = r;
+						if (changes.displayName !== undefined) await requireUnrestrictedTurn(ctx, member);
 						await updatePreferences(ctx, member.userId, changes);
 						return { updated: true };
 					}
