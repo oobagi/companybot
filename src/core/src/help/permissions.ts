@@ -5,7 +5,7 @@ export default {
 	title: "Permissions and approvals",
 	summary: "Who can access each channel, database and page; when agents ask first, Allow once / Always allow / Deny, and action locks.",
 	text: `# Permissions and approvals
-Agents act as the person who asked. Anything that leaves Companybot (a send, a call, a payment, a change in another app) **asks first**. Companybot's own work (records, pages, memory) runs right away and is logged in [Activity](#/settings/activity).
+Agents act as the person who asked. Anything that leaves Companybot (a send, a call, a payment, a change in another app) **asks first**. Companybot's own work (records, pages, memory) runs right away and is logged in [Activity](#/settings/activity); archiving anything always asks.
 
 ## The approval card
 An agent's held action appears in the chat as a card from the agent, saying exactly what it wants to do, with three buttons:
@@ -14,6 +14,11 @@ An agent's held action appears in the chat as a card from the agent, saying exac
 - **Deny**: don't run it. The agent is told and carries on.
 
 Only the person the agent is acting for can decide, within 24 hours. No role can decide for someone else.
+
+What you approve is exactly what runs. The card names the exact page, record or chat, and if it's edited before the action runs (say, someone changes the page it would overwrite), the action doesn't run; ask again. An approved action runs once, even if something retries it. If an action in another app gets cut off, its card says it **may or may not have happened**: check there before trying again.
+
+## Web searches after private reads
+Agents search the web and open links without asking. But once a reply reads something not everyone in the chat can see (a restricted database, page or channel), each web search or link it opens asks first, showing the exact query or link, so nothing private leaves unseen. There's no Always for these. In a chat where everyone can already see what it read (like your own chat with an agent), it doesn't ask.
 
 ## Automations
 In an automation someone else wrote, or one fed by outside text, acting as you also asks the first time. Choosing Always there covers that automation only. One held action never stops the rest of a run.

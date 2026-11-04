@@ -42,6 +42,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 ## Action rules and approvals
 - Declare `ToolDef.risk` when adding a tool with outside impact. A built-in that changes nothing but reads what only the person sees (their chats, personal memory) declares `inside`; one that changes something harmless (display, a reaction) declares `none`. Follow [Permissions](permissions.md) for risk levels, rule order, the held-call card and replay rules.
 - Use `action-words.ts` for action labels, asks, Always text and tool lines.
+- A built-in that changes something takes the **id** of what it changes and of where it goes, never a name or title (names resolve only in read and find tools). If its effect depends on current contents (an overwrite, an archive, a delete), declare `binds(input)` and add the kind to `approvals.ts` `revisionOf`. Declare `sendsOut` if its input leaves the workspace (a query, a URL). Its backend mutation takes `op` and wraps its write in `withReceipt`, so an approved call commits once with its receipt. See [Permissions](permissions.md#rules).
 - Test rules in `backend/tests/permissions.test.ts`, cards in `backend/tests/approvals.test.ts`, and pure helpers in core's matching `*.test.ts` files.
 
 ## Widgets — `core/src/widgets.ts`, `desktop/src/renderer/src/widgets.tsx`
