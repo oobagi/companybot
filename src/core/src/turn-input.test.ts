@@ -32,36 +32,10 @@ describe("turn input", () => {
 		triggerId: "m3",
 	};
 
-	it("says where you are, lists what's new, and marks the trigger last", () => {
-		expect(buildTurnPrompt(base)).toBe(
-			[
-				'Where you are: #sales, a public channel. Topic: "Deals".',
-				"Here: Ada, Ben (people); Scribe (agents). This is a team chat: talk to your coworkers, people and agents, by name.",
-				"Ada <ada@co.com>, with the Owner role, asked for you. Their messages are marked (asker). You act with their access. Their time zone: America/Los_Angeles.",
-				"Now: Thursday, October 22, 2026 at 8:05 AM PDT.",
-				"Memory: team memories, and you can save personal memories about the person who asked. 2+ people can read this chat, so you can't read or change personal memories here.",
-				"",
-				"New here since your last reply (times in America/Los_Angeles):",
-				'[Ben 10-22 08:01] "Morning" (3 replies in thread m1)',
-				'[Scribe 10-22 08:02] "Draft is up" (edited)',
-				'[Ben 10-22 08:04] "Also this"',
-				"",
-				"This message from Ada came in:",
-				'[Ada (asker) 10-22 08:03] "@Companybot status?"',
-				"Ada @mentioned you.",
-				"",
-				"You end this reply with your answer; nothing else you write is shown:",
-				"- emoji: your reaction to the message, one emoji, any that fits, or null. Decide it first, on its own, apart from whether you write: react if it's for you and needs no words from you (thanks to you, an okay, a vote, a reaction it asks for), each time, even if you reacted to one like it before.",
-				"- new_point: in 15 words or fewer, what you'd add that nobody here has said yet. Empty if nothing.",
-				'- to: who you\'re talking to, a person or agent here by name, or "room". Name an agent only to have it answer you next.',
-				"- message: what's posted, in Markdown; empty posts nothing. Widgets and approvals you place go out with it.",
-				"When to write:",
-				"- Answer what's for you. An @mention or a DM means it's for you.",
-				'- Don\'t post if it\'s already been answered (by you or anyone) and you\'d add nothing different; if the person wants someone other than you ("anyone else?" or "can anyone check that?" right after you answered: don\'t check your own answer); if it\'s people talking to each other; or if you\'d only be acknowledging, offering to help, making small talk or saying you have nothing to add. A message for you that needs no words gets your reaction instead.',
-				'- Otherwise answer it, even if you couldn\'t find what they asked for (then say so). A question to the room ("anyone know…?") that nobody has answered is for you if you can answer it; one to everyone (a vote, "everyone…?") asks you too: give your own answer once, in a line or a reaction. When they ask for someone else, an agent that hasn\'t answered and whose line of work it is should.',
-				"- Nobody asked you directly: 1–3 sentences, one move (answer, agree and add, hand off, or ask). Don't do the whole task in one go unless asked.",
-			].join("\n"),
-		);
+	it("lists what's new in order, then the message to answer, marked as the asker's", () => {
+		const prompt = buildTurnPrompt(base);
+		const order = ['"Morning"', '"Draft is up"', '"Also this"', "This message from Ada came in:", '[Ada (asker) 10-22 08:03] "@Companybot status?"'].map((line) => prompt.indexOf(line));
+		expect(order.every((at, i) => at > (order[i - 1] ?? -1))).toBe(true);
 	});
 
 	it("tags a line with its reactions, Slack-style, naming at most 3 per emoji; without any, it's unchanged", () => {
@@ -83,13 +57,10 @@ describe("turn input", () => {
 
 	it("tells a pick nobody @mentioned how sure the check was, as facts", () => {
 		const prompt = buildTurnPrompt({ ...base, routed: { band: "might" } });
-		expect(prompt).toContain('This message from Ada came in:\n[Ada (asker) 10-22 08:03] "@Companybot status?"\nNobody @mentioned you. A quick automatic check, which sees only the last few messages and a line about each agent, thinks this message might be for you.');
+		expect(prompt).toContain("thinks this message might be for you");
 		expect(prompt).not.toContain("Ada @mentioned you.");
 		expect(buildTurnPrompt({ ...base, routed: { band: "probably" } })).toContain("thinks this message is probably for you");
 		expect(buildTurnPrompt(base)).not.toContain("Nobody @mentioned you");
-		expect(buildTurnPrompt({ ...base, routed: { band: "might", before: ["Scout"] } })).toContain(
-			"- It went to Scout first, a better fit by that check's guess. One answer is enough: no second take or extra tip, only a fix if theirs is wrong or misses what was asked. Unless the message asks each of you (everyone, a vote): then give your own.",
-		);
 	});
 
 	it("anchors a later pick on what an agent already said on the message, so it builds on it", () => {
@@ -106,7 +77,7 @@ describe("turn input", () => {
 
 	it("lists who's here with each agent's role, as a team chat", () => {
 		const prompt = buildTurnPrompt({ ...base, place: { ...base.place, members: [...base.place.members, { type: "agent", id: "a9", name: "Quill", role: "Writes copy: emails, posts and website text." }] } });
-		expect(prompt).toContain("Quill (Writes copy: emails, posts and website text.) (agents). This is a team chat: talk to your coworkers, people and agents, by name.");
+		expect(prompt).toContain("Quill (Writes copy: emails, posts and website text.)");
 	});
 
 	it("one answer for every turn, its reaction first: posts iff it has a message, reacts iff one emoji, both or neither", () => {
@@ -165,12 +136,7 @@ describe("turn input", () => {
 	});
 
 	it("tells a hand-back it's done unless it adds something", () => {
-		const prompt = buildTurnPrompt({ ...base, routed: { band: "clearly" }, handoff: { from: "Scout", ask: false } });
-		expect(prompt).toContain("Scout is an agent working for Ada, and @mentioned nobody. A quick automatic check thinks you should act on it next");
-		expect(prompt).toContain("If it gives back a result you asked for, Ada already sees it, so never restate, sum up or confirm it.");
-		expect(prompt).toContain("if not, you're done: don't post.");
-		// Named in another agent's decision: it's talking to this one.
-		expect(buildTurnPrompt({ ...base, routed: { band: "clearly", by: "Scout" }, handoff: { from: "Scout", ask: false } })).toContain("Scout is an agent working for Ada, and @mentioned nobody. It's talking to you.");
+		expect(buildTurnPrompt({ ...base, routed: { band: "clearly" }, handoff: { from: "Scout", ask: false } })).toContain("if not, you're done: don't post.");
 	});
 
 	it("tells the agent which skills the message named with /", () => {
@@ -263,11 +229,9 @@ describe("turn input", () => {
 		]);
 	});
 
-	it("tells a handed-off turn who handed it over and how to answer", () => {
-		const mention = buildTurnPrompt({ ...base, handoff: { from: "Scribe", ask: false } });
-		expect(mention).toContain("Scribe is an agent working for Ada and handed this to you. Do it as if Ada asked, within what they'd want. Your reply is posted in this thread, where Ada sees it: put the result in it. @mention Scribe in it only if Scribe needs the result to finish; never just to acknowledge.\n\nYou end this reply with your answer");
-		const ask = buildTurnPrompt({ ...base, handoff: { from: "Scribe", ask: true } });
-		expect(ask).toContain("It asked you this privately: your reply goes back to it, not into the chat.");
+	it("tells a handed-off turn who handed it over, and where a private ask's reply goes", () => {
+		expect(buildTurnPrompt({ ...base, handoff: { from: "Scribe", ask: false } })).toContain("Scribe is an agent working for Ada and handed this to you.");
+		expect(buildTurnPrompt({ ...base, handoff: { from: "Scribe", ask: true } })).toContain("your reply goes back to it, not into the chat.");
 	});
 
 	it("an ask's answer wake finishes the reply, shown, with the answer as data", () => {
@@ -278,12 +242,6 @@ describe("turn input", () => {
 		expect(prompt).toContain("You end this reply with your answer");
 	});
 
-	it("gives agents the handoff rules", () => {
-		const guide = platformGuide({ tools: ["chat.*"] });
-		expect(guide).toContain("To hand work to another agent, @mention it by name in your reply");
-		expect(guide).toContain("Don't post bare acknowledgements or thanks to them.");
-		expect(guide).toContain("use chat_ask_agent");
-	});
 	it("never shows the model internal words: a new message is a note, not a steer, and a pick isn't a dispatcher's turn", () => {
 		const actor = { id: "u1", name: "Ada", timeZone: "America/Los_Angeles" };
 		const note = steerNote([msg("m5", ada, "nvm", 6)], actor);

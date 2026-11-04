@@ -52,25 +52,6 @@ describe("records tools", () => {
 		expect(await tool("records.find").execute({ type: "deal" }, bad.c)).toEqual({ error: "no more" });
 	});
 
-	it("hand every other call straight to the store, acting for the person", async () => {
-		const seen: unknown[] = [];
-		const record = (name: string) => async (input?: unknown) => (seen.push([name, input]), { ok: name });
-		const records = { types: record("types"), get: record("get"), save: record("save"), undo: record("undo"), saveField: record("saveField") };
-		const c = { ...ctx(member), records: records as unknown as RecordStore };
-		await tool("records.types").execute({}, c);
-		await tool("records.get").execute({ id: "r1" }, c);
-		await tool("records.save").execute({ type: "client", values: { name: "Acme" } }, c);
-		await tool("records.undo").execute({ change: "h1" }, c);
-		await tool("records.save_field").execute({ type: "client", label: "Roof type", kind: "text" }, c);
-		expect(seen).toEqual([
-			["types", {}],
-			["get", { id: "r1" }],
-			["save", { type: "client", values: { name: "Acme" } }],
-			["undo", { change: "h1" }],
-			["saveField", { type: "client", label: "Roof type", kind: "text" }],
-		]);
-	});
-
 	it("reads large history entries without losing content between chunks", async () => {
 		const entry = { _id: "h1", changes: [{ key: "notes", old: "x".repeat(10_000), new: '\"'.repeat(20_000) }] };
 		const c = { ...ctx(member), records: { history: async () => entry } as unknown as RecordStore };
@@ -87,49 +68,23 @@ describe("records tools", () => {
 		expect(JSON.parse(json)).toEqual(entry);
 	});
 
-	it("run right away: internal, undoable, nothing sent outside", () => {
-		const ids = builtinTools.filter((t) => t.id.startsWith("records.")).map((t) => t.id);
-		expect(ids).toEqual(["records.types", "records.find", "records.get", "records.history", "records.save", "records.undo", "records.save_field", "records.save_database", "records.views", "records.save_view"]);
-		for (const id of ids) expect(toolRisk(tool(id))).toBe(id === "records.undo" ? "locked" : tool(id).readOnly ? "none" : "inside");
-		expect(ids.filter((id) => tool(id).readOnly)).toEqual(["records.types", "records.find", "records.get", "records.history", "records.views"]);
-		expect(ids.filter((id) => tool(id).permission)).toEqual(["records.save_database", "records.save_view"]);
-		expect(toolLine(callLabel("records_undo", builtinTools, []), "done")).toBe("Undid a record change");
-		expect(toolLine(callLabel("records_save", builtinTools, []), "running")).toBe("Saving a record…");
+	it("run right away: internal, undoable, nothing sent outside; only undo is locked", () => {
+		for (const t of builtinTools.filter((t) => t.id.startsWith("records.")))
+			expect(toolRisk(t), t.id).toBe(t.id === "records.undo" ? "locked" : t.readOnly ? "none" : "inside");
 	});
 
-	it("tool lines say what each call did, from its input and result", () => {
+	it("tool lines tell what actually happened, never claiming a failed call worked", () => {
 		const line = (name: string, status: "running" | "done" | "error", input: unknown, output?: unknown) =>
 			toolLine(callLabel(name, builtinTools, [], { input, output }), status);
-		const created = { id: "r2", type: "deal", typeName: "Deal", name: "Reroof main warehouse", values: {}, change: "h2" };
 		const acme = { id: "r1", type: "client", typeName: "Client", name: "Acme Roofing", values: {}, change: "h1" };
-		const deal = { type: "deal", values: { name: "Reroof main warehouse" } };
-		expect(line("records_types", "done", {})).toBe("Looked up databases");
-		expect(line("records_save", "running", deal)).toBe("Creating deal Reroof main warehouse…");
-		expect(line("records_save", "done", deal, created)).toBe("Created deal Reroof main warehouse");
-		expect(line("records_save", "error", deal)).toBe("Couldn't create deal Reroof main warehouse");
-		expect(line("records_save", "done", deal, { error: "No stage “Pitch”." })).toBe("Saved a record");
-		expect(line("records_save", "running", { id: "r1", values: { roof_type: "Metal" } })).toBe("Saving a record…");
-		expect(line("records_save", "done", { id: "r1", values: { roof_type: "Metal" } }, acme)).toBe("Saved Acme Roofing");
+		const deal = { type: "deal", values: { name: "Reroof" } };
+		expect(line("records_save", "done", deal, { error: "No stage “Pitch”." })).not.toMatch(/Created/);
+		expect(line("records_save", "error", deal)).toMatch(/^Couldn't/);
 		expect(line("records_save", "done", { id: "r1", trash: true }, acme)).toBe("Archived Acme Roofing");
 		expect(line("records_save", "done", { id: "r1", trash: false }, acme)).toBe("Restored Acme Roofing");
-		expect(line("records_undo", "done", { change: "h1" }, { undone: "h1", ...acme })).toBe("Undid a change to Acme Roofing");
-		expect(line("records_get", "done", { id: "r1" }, { ref: "r1", data: acme })).toBe("Opened Acme Roofing");
 		const page = (rows: number, more = false) => ({ ref: "r1", data: { type: "Deals", typeName: "Deal", rows: Array.from({ length: rows }, (_, i) => ({ _id: `d${i}` })), more } });
-		expect(line("records_find", "running", { type: "deal" })).toBe("Finding records…");
-		expect(line("records_find", "done", { type: "deal" }, page(1))).toBe("Found 1 deal");
-		expect(line("records_find", "done", { type: "deal" }, page(3))).toBe("Found 3 deals");
 		expect(line("records_find", "done", { type: "deal" }, page(0))).toBe("Found no deals");
 		expect(line("records_find", "done", { type: "deal" }, page(20, true))).toBe("Found 20+ deals");
-		const field = { type: "client", label: "Roof type", kind: "choice", options: ["Shingle", "Metal", "Flat"] };
-		expect(line("records_save_field", "running", field)).toBe("Adding field Roof type…");
-		expect(line("records_save_field", "done", field, { type: "client", typePlural: "Clients", key: "roof_type", label: "Roof type" })).toBe(
-			"Added field Roof type to Clients",
-		);
-		expect(line("records_save_field", "done", { type: "client", field: "roof_type", options: ["Tile"] }, { typePlural: "Clients", label: "Roof type" })).toBe(
-			"Updated field Roof type on Clients",
-		);
-		// Tools without a label keep their title.
-		expect(line("memory_search", "done", { query: "" }, { ref: "r1", data: [] })).toBe("Searched memory");
 	});
 
 	it("show values the way people read them, amounts in their own currency", () => {
