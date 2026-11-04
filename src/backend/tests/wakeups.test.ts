@@ -119,7 +119,7 @@ describe("follow-ups", () => {
 		expect(turn).toMatchObject({ chatId: dmId, actorId: member.userId, status: "running" });
 		// No trigger message, and nothing shows while it works.
 		expect(await shown(member, dmId)).toEqual(before);
-		const context = await t.query(internal.turns.turnContext, { turnId: turn!._id });
+		const context = await t.mutation(internal.turns.turnContext, { turnId: turn!._id });
 		expect(context.wake).toMatchObject({ note: "Chase the invoice if it's still unpaid.", record: { id: record._id, name: record.title } });
 		expect(context.triggerId).toBeNull();
 		expect((await rowOf(t, id))!.status).toBe("fired");
@@ -189,7 +189,7 @@ describe("follow-ups", () => {
 			// Its turn finishes so the next can start in the same place.
 			const turns = (await turnsFor(t, id)).filter((x) => x.status === "running");
 			for (const turn of turns) {
-				expect((await t.query(internal.turns.turnContext, {turnId: turn._id})).wake?.repeats).toEqual({left: 3 - i});
+				expect((await t.mutation(internal.turns.turnContext, {turnId: turn._id})).wake?.repeats).toEqual({left: 3 - i});
 				await t.mutation(internal.turns.finishReply, { turnId: turn._id });
 			}
 		}
@@ -252,7 +252,7 @@ describe("trust", () => {
 		const check = async (id: string) => {
 			await fire(t, id);
 			const [turn] = await turnsFor(t, id);
-			const { decision } = await t.query(internal.permissions.check, { turnId: turn!._id, action: "records.save", risk: "inside" });
+			const { decision } = await t.mutation(internal.permissions.check, { turnId: turn!._id, action: "records.save", risk: "inside" });
 			await t.mutation(internal.turns.finishReply, { turnId: turn!._id });
 			return decision;
 		};
@@ -278,7 +278,7 @@ describe("jobs (#114)", () => {
 			return id;
 		});
 		const [turn] = await turnsFor(t, id);
-		expect((await t.query(internal.turns.turnContext, { turnId: turn!._id })).wake).toMatchObject({ result: '{"rows":42}' });
+		expect((await t.mutation(internal.turns.turnContext, { turnId: turn!._id })).wake).toMatchObject({ result: '{"rows":42}' });
 		expect((await rowOf(t, id))!.status).toBe("fired");
 	});
 });

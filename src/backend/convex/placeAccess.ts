@@ -7,10 +7,6 @@ import { type Member, rolesOf } from "./lib";
 // Who can access each channel, database and page (core place-access.ts). Every read and write of a
 // place goes through `reach` or `requireAccess`, so app and agent tools (acting as their person)
 // follow the same list. See wiki/permissions.md#who-can-access.
-//
-// #201 (private agent replies) needs "which places did this reply use": `requireAccess` is the one
-// gate every agent read passes, so noting the place there is where that signal would start.
-
 /** A place's stored list: unset is Everyone at Edit (a page's: its parent's). */
 export type AccessList = { role: Id<"roles"> | typeof EVERYONE; level: AccessLevel }[] | undefined;
 

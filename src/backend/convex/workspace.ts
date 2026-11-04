@@ -18,6 +18,7 @@ import { removeWorkspace, startReset } from "./lifecycle";
 import { updatePreferences } from "./preferences";
 import { completeSteps, freshTutorial, welcome } from "./onboarding";
 import { builtInId, checkRoles, seedRoles, setMemberRoles } from "./roles";
+import { writeSources } from "./replySources";
 
 export const me = query({
 	args: {},
@@ -349,6 +350,7 @@ export const invite = mutation({
 });
 
 export async function inviteMember(ctx: MutationCtx, member: Member, args: Infer<typeof inviteMemberArgs>) {
+	await writeSources(ctx, member);
 	const { workspaceId, userId } = checkPermission(member, "members.manage");
 	const email = normalizeEmail(args.email);
 	if (!/^\S+@\S+\.\S+$/.test(email)) throw new ConvexError("That doesn't look like an email.");
@@ -648,6 +650,7 @@ export async function updateWorkspaceSettings(ctx: MutationCtx, member: Member, 
 	const { workspaceId } = checkPermission(member, "workspace.manage");
 	const workspace = (await ctx.db.get(workspaceId))!;
 	checkVersion(workspace.version ?? 0, expectedVersion);
+	if (name.trim() !== workspace.name) await writeSources(ctx, member);
 	if (!name.trim()) throw new ConvexError("Name can't be empty.");
 	currency = currency?.trim().toUpperCase();
 	if (currency !== undefined && !isCurrencyCode(currency)) throw new ConvexError("Pick a currency code like USD.");

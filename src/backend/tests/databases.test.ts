@@ -126,7 +126,7 @@ it("gives agents database and view parity, names both actors, and rechecks roles
 	await t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input: { type: "job", name: "Projects", version: 0 } });
 	const saved = await t.mutation(internal.recordTools.saveViewFor, { turnId, input: { type: "job", name: "Newest", columns: ["name"] } });
 	expect(saved).toHaveProperty("_id");
-	const views = await t.query(internal.recordTools.viewsFor, { turnId, type: "job" });
+	const views = await t.mutation(internal.recordTools.viewsFor, { turnId, type: "job" });
 	if (!("rows" in views)) throw new Error(views.error);
 	const view = views.rows[0]!;
 	await t.mutation(internal.recordTools.saveViewFor, { turnId, input: { type: "job", id: view._id, version: 1, name: "Latest", sort: { field: "updatedAt", order: "desc" } } });
@@ -173,7 +173,7 @@ it("shows links into a database in Archive as deleted, still readable and cleara
 	await owner.mutation(api.records.update, { recordId: id, values: { name: "New roof" } });
 	const { companybot } = await agentsOf(owner);
 	const turnId = await agentTurn(t, owner, (await generalOf(owner))._id, companybot._id);
-	expect(await t.query(internal.recordTools.getFor, { turnId, id })).toMatchObject({ values: { client: "Acme (deleted)" }, links: { client: [{ id: target, name: "Acme" }] } });
+	expect(await t.mutation(internal.recordTools.getFor, { turnId, id })).toMatchObject({ values: { client: "Acme (deleted)" }, links: { client: [{ id: target, name: "Acme" }] } });
 	await owner.mutation(api.records.update, { recordId: id, values: { client: null } });
 	expect((await owner.query(api.records.get, { recordId: id }))?.values).not.toHaveProperty("client");
 });
