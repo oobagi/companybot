@@ -4,6 +4,7 @@ import { experimental_transcribe as transcribe, gateway } from "ai";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import { action } from "./functions";
+import { requireDictationAccess } from "./dictationAccess";
 
 // Voice dictation for the chat composer. Chrome's Web Speech API doesn't work in Electron, so
 // the app records a short clip (MediaRecorder) and sends it here; AI Gateway transcribes it and
@@ -29,6 +30,7 @@ export const transcribeAudio = action({
 		if (!userId || !workspaceId) throw new ConvexError("Sign in to a workspace first.");
 		if (audio.byteLength === 0) return "";
 		if (audio.byteLength > MAX_AUDIO_BYTES) throw new ConvexError("That recording is too long. Try a shorter one.");
+		await requireDictationAccess(workspaceId);
 		const { text, costUsd } = await transcribeClip(new Uint8Array(audio));
 		await ctx.runMutation(internal.usage.record, { workspaceId, userId, kind: "dictation", model: DICTATION_MODEL, costUsd });
 		return text;

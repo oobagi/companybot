@@ -16,6 +16,7 @@
     "@convex-dev/migrations": "^0.3.7",
     "@convex-dev/prosemirror-sync": "^0.2.7",
     "@mozilla/readability": "^0.6.0",
+    "@tinkerlandai/longplay-sdk": "0.10.15",
     "@tiptap/core": "^3.32.0",
     "@tiptap/pm": "^3.32.0",
     "ai": "^7.0.148",
