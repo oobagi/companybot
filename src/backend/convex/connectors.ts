@@ -15,9 +15,10 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
 import { action, mutation, query } from "./functions";
 import { encrypt } from "./crypto";
-import { type Member, UNSEEDED_MEMBER, checkPermission, getMember, memberFor, memberOf, requireMember, requirePermission, rolesOf, sweepExpired } from "./lib";
+import { type Member, checkPermission, getMember, memberFor, memberOf, requireMember, requirePermission, rolesOf, sweepExpired } from "./lib";
+import { allowedRoles } from "./connectorAccess";
 import { cascading, startCascade } from "./cascade";
-import { readArtifact } from "./replySources";
+import { inheritPlaces, readArtifact } from "./replySources";
 import { runningTurn } from "./turns";
 import { builtInId } from "./roles";
 
@@ -45,14 +46,6 @@ async function connectionFor(ctx: QueryCtx, connector: Connector, member: Member
 			q.eq("workspaceId", member.workspaceId).eq("connectorId", connector.id).eq("userId", userId),
 		)
 		.first();
-}
-
-/** The role ids an install allows. Owners always can, so they're never listed. */
-export function allowedRoles(member: Member, install: Doc<"connectorInstalls">): Id<"roles">[] {
-	// COMPAT(0.1.0-alpha.10): installs list "owner"/"member" until migrations.customRolesConnectors
-	// runs; read "member" as the Member role so nobody loses a connector mid-migration. Delete with it.
-	const memberRole = member.workspaceRoles.find((r) => r.builtIn === "member")?.id;
-	return install.roles.flatMap((r) => (r === "owner" ? [] : r === "member" ? (memberRole ? [memberRole] : member.workspaceRoles.length ? [] : [UNSEEDED_MEMBER]) : member.workspaceRoles.some((role) => role.id === r) ? [r] : []));
 }
 
 /** Where each installed connector stands for this person. Feeds `describeToolAccess`. */
@@ -123,6 +116,7 @@ export const setInstalled = mutation({
 			});
 		}
 		if (!installed && existing) {
+			if (connector.connection === "workspace") await ctx.db.insert("connectorSourceLabels", { workspaceId: member.workspaceId, installId: existing._id, name: connector.name });
 			await ctx.db.delete(existing._id);
 			// Its accounts, rules, locks and tool list go too (lifecycle.ts): reinstalling starts strict again.
 			await startCascade(ctx, "connectorInstall", { ...old, connectorInstallId: existing._id });
@@ -340,7 +334,7 @@ async function usableConnectors(ctx: QueryCtx, member: Member, connectorIds: str
 	return usable;
 }
 
-/** Before any personal connector result can reach the model, record its one-person audience. */
+/** Record the install's live role audience, or the personal account's one-person audience, before use. */
 export const forCall = internalMutation({
 	args: { turnId: v.id("agentTurns"), connectorId: v.string() },
 	handler: async (ctx, { turnId, connectorId }) => {
@@ -348,6 +342,7 @@ export const forCall = internalMutation({
 		const connection = (await usableConnectors(ctx, member, [connectorId]))[0];
 		if (!connection) return null;
 		if (findConnector(connectorId)?.connection === "personal") await readArtifact(ctx, member, {}, member.userId);
+		else await inheritPlaces(ctx, member, [connection.installId]);
 		return { connectionId: connection.connectionId };
 	},
 });

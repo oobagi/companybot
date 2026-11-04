@@ -20,7 +20,8 @@ import { type MutationCtx, type QueryCtx, internalMutation, internalQuery } from
 import { mutation, query } from "./functions";
 import { automationName, automationScope } from "./automationOps";
 import { riskOf, titleOf, toolsOf } from "./connectorTools";
-import { allowedRoles, installOf } from "./connectors";
+import { installOf } from "./connectors";
+import { allowedRoles } from "./connectorAccess";
 import { type Member, getMember, memberFor, nameOf, requireInWorkspace, requireMember, requirePermission } from "./lib";
 import { risk } from "./schema";
 import { turnIsRestricted } from "./replySources";

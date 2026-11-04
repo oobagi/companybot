@@ -8,7 +8,7 @@ import { viewConfig } from "./recordValidators";
 /** One of `values`, each a literal. */
 const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map((value) => v.literal(value)));
 
-const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats"), v.id("users"))));
+const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats"), v.id("users"), v.id("connectorInstalls"))));
 export const arrangementList = oneOf(Object.keys(arrangementLists) as ArrangementList[]);
 export const databaseDisplay = v.object({ layout: v.union(v.literal("table"), v.literal("board")), groupBy: v.optional(v.string()) });
 
@@ -433,6 +433,13 @@ export default defineSchema({
 		roles: v.array(v.union(v.id("roles"), legacyRole)),
 		installedBy: v.id("users"),
 	}).index("by_workspace", ["workspaceId", "connectorId"]),
+
+	// Display labels for deleted source ids; no credentials or connector data. Kept until workspace deletion/reset.
+	connectorSourceLabels: defineTable({
+		workspaceId: v.id("workspaces"),
+		installId: v.id("connectorInstalls"),
+		name: v.string(),
+	}).index("by_install", ["installId"]).index("by_workspace", ["workspaceId"]),
 
 	// An account connected to a connector: the workspace's (userId null) or one person's.
 	// Credentials are AES-GCM encrypted with CONNECTIONS_KEY and never leave the server.
@@ -1008,7 +1015,7 @@ export default defineSchema({
 		 * What the last run did (automationOps.RunOutcome): a line, e.g. "Posted in {channel}.", and the channels
 		 * it names, which each reader sees by name only if they can see them (automationOps.outcomeText).
 		 */
-		lastOutcome: v.optional(v.object({ text: v.string(), channelId: v.optional(v.id("chats")), watchedId: v.optional(v.id("chats")) })),
+		lastOutcome: v.optional(v.object({ text: v.string(), failed: v.optional(v.boolean()), channelId: v.optional(v.id("chats")), watchedId: v.optional(v.id("chats")) })),
 		// COMPAT(0.1.0-alpha.10): the line as it was stored, channel names and all. Once migrations.automationOutcomes
 		// has run on prod, drop this. Nothing reads it.
 		lastResult: v.optional(v.string()),
