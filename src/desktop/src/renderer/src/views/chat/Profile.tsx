@@ -53,7 +53,7 @@ function ProfileCard({ who, onClose, onFor }: { who: Participant; onClose: () =>
 			{person && (
 				<dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
 					<dt className="text-neutral-500">Roles</dt>
-					<dd>{roleNames(roles, person.roles).join(", ")}</dd>
+					<dd>{roleNames(roles, person.roles).join(", ") || "No role"}</dd>
 					<dt className="text-neutral-500">Local time</dt>
 					<dd>
 						{clock(Date.now(), person.timeZone)} <span className="text-neutral-500">· {zoneLabel(person.timeZone)}</span>

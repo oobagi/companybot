@@ -14,7 +14,7 @@ afterEach(() => void vi.useRealTimers());
 const tables = Object.keys(schema.tables) as TableNames[];
 const indexesOf = (table: TableNames) =>
 	new Map((schema.tables[table] as unknown as { " indexes"(): { indexDescriptor: string; fields: string[] }[] })[" indexes"]().map((i) => [i.indexDescriptor, i.fields]));
-const scopes = ["workspace", "member", "user", "connectorInstall", "automationInstall", "page", "record", "database", "field", "channel", "agent"] as const;
+const scopes = ["role", "workspace", "member", "user", "connectorInstall", "automationInstall", "page", "record", "database", "field", "channel", "agent"] as const;
 
 describe("the lifecycle registry", () => {
 	it("lists every table, so a new one fails until someone decides what happens to its rows", () => {
@@ -562,7 +562,8 @@ describe("writes that land after what they belong to went", () => {
 		await t.mutation(internal.turns.finishReply, { turnId });
 		expect(await count()).toEqual(before);
 		expect(await t.run((ctx) => ctx.db.query("agentActivity").collect())).toEqual([]);
-		expect((await turnsOf(t)).map((x) => x.status)).toEqual(["done", "error"]);
+		// Its person is gone with the workspace, so the running reply ends as an error too (turns.finishReply).
+		expect((await turnsOf(t)).map((x) => x.status)).toEqual(["error", "error"]);
 	});
 
 	it("keeps a call that finishes after its person's account is erased, without what it got back for them", { timeout: 60_000 }, async () => {

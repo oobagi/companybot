@@ -9,6 +9,7 @@ import { AgentBadge, Avatar, Modal, archiveQuestion, useConfirm } from "./common
 import { navigate } from "../../router";
 import { ProfileLink } from "./Profile";
 import { type ChatDetails, type Participant, chatTitle, useDirectory } from "./data";
+import { WhoCanAccess } from "../access";
 
 export function CreateChannel({ onClose, onOpen }: { onClose: () => void; onOpen: (chatId: Id<"chats">) => void }) {
 	const create = useMutation(api.chats.createChannel);
@@ -165,6 +166,7 @@ export function ChannelDetails({ chat, onClose, onLeft }: { chat: ChatDetails; o
 					{isChannel && chat.canManage && <EditChannel chat={chat} />}
 					{isChannel && !chat.canManage && chat.topic && <p className="text-sm text-neutral-600">{chat.topic}</p>}
 					{isChannel && !chat.canManage && chat.replyMode === "relevant" && <p className={descriptionClass}>{replyHints.relevant}</p>}
+					{isChannel && chat.access && <ChannelAccess chat={chat} access={chat.access} />}
 					<section className="flex flex-col gap-2">
 						<div className="flex items-center justify-between">
 							<h3 className="text-sm font-medium">{chat.members.length} {chat.members.length === 1 ? "member" : "members"}</h3>
@@ -206,6 +208,17 @@ export function ChannelDetails({ chat, onClose, onLeft }: { chat: ChatDetails; o
 				</>
 			)}
 		</Modal>
+	);
+}
+
+/** Who can see and post in a channel. People who manage it change it; everyone sees who's on it. */
+function ChannelAccess({ chat, access }: { chat: ChatDetails; access: NonNullable<ChatDetails["access"]> }) {
+	const setAccess = useMutation(api.chats.setAccess);
+	return (
+		<section className="flex flex-col gap-2">
+			<h3 className="text-sm font-medium">Who can access</h3>
+			<WhoCanAccess access={access} editLabel="Post" onSave={chat.canManage ? (next) => setAccess({ chatId: chat._id, access: next }) : undefined} />
+		</section>
 	);
 }
 

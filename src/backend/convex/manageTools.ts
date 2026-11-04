@@ -3,8 +3,9 @@ import { ConvexError, v } from "convex/values";
 import type { Id, TableNames } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { addChannelMembers, markReadAs, createChannelAs, joinChannel, leaveChannel, openDirectMessage, removeChannelMember, updateChannelAs } from "./chats";
-import { chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
-import { automationName, automationScope, canView, definitionOf, installOf } from "./automationOps";
+import { canSee, chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
+import { chatAccess, reach } from "./placeAccess";
+import { automationName, automationScope, canView, definitionOf, installOf, outcomeText, seenChannel, shownTrigger } from "./automationOps";
 import { removeAutomation, saveAutomation, updateAutomation } from "./automations";
 import { requirePersonalSkillChat, installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
 import { editMessage, hideMessagePreview, removeMessage, reactMessage, sendMessage } from "./messages";
@@ -79,12 +80,13 @@ export const runFor = internalMutation({
 							.query("chatMembers")
 							.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("userId", member.userId))
 							.paginate(paging(r.cursor));
-						return {
-							...result,
-							page: (await Promise.all(result.page.map((m) => ctx.db.get(m.chatId))))
-								.filter((c) => c && !c.archived)
-								.map((c) => ({ id: c!._id, name: c!.name, kind: c!.kind, private: c!.private })),
-						};
+						// A seat outlives access: only chats they can still see (Who can access).
+						const page = [];
+						for (const m of result.page) {
+							const c = await ctx.db.get(m.chatId);
+							if (c && !c.archived && (await canSee(ctx, c, member))) page.push({ id: c._id, name: c.name, kind: c.kind, private: c.private });
+						}
+						return { ...result, page };
 					}
 					if (r.action === "mark_read") {
 						await markReadAs(ctx, member, await chatId(ctx, member, r.chat));
@@ -118,7 +120,7 @@ export const runFor = internalMutation({
 							.query("chats")
 							.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("kind", "channel"))
 							.paginate(paging(r.cursor));
-						return { ...result, page: result.page.filter((c) => !c.private && !c.archived).map((c) => ({ id: c._id, name: c.name, topic: c.topic })) };
+						return { ...result, page: result.page.filter((c) => !c.private && !c.archived && reach(member, chatAccess(c))).map((c) => ({ id: c._id, name: c.name, topic: c.topic })) };
 					}
 					if (r.action === "create") return { chatId: await createChannelAs(ctx, member, r) };
 					const id = await chatId(ctx, member, r.chat);
@@ -172,15 +174,15 @@ export const runFor = internalMutation({
 					if (r.action === "get")
 						return {
 							id: r.id,
-							definition: await definitionOf(ctx, install),
-							config: install.custom && { ...install.custom, trigger: normalizeCustomAutomation(install.custom).trigger },
+							definition: await definitionOf(ctx, install, member),
+							config: install.custom && { ...install.custom, trigger: await shownTrigger(ctx, member, normalizeCustomAutomation(install.custom).trigger) },
 							enabled: install.enabled,
 							agentId: install.agentId,
 							audience: install.audience,
-							channelId: install.channelId,
+							channelId: (await seenChannel(ctx, member, install.channelId))?._id,
 							timeZone: install.timeZone,
 							lastRunAt: install.lastRunAt,
-							lastResult: install.lastResult,
+							lastResult: install.lastOutcome && (await outcomeText(ctx, install.lastOutcome, member)),
 						};
 					if (r.action === "run") {
 						if ((await automationScope(ctx, turn)).trigger?.automation) throw new ConvexError("An automation run cannot start another run.");

@@ -57,6 +57,7 @@ import type * as pageTree from "../pageTree.js";
 import type * as pages from "../pages.js";
 import type * as parity from "../parity.js";
 import type * as permissions from "../permissions.js";
+import type * as placeAccess from "../placeAccess.js";
 import type * as preferences from "../preferences.js";
 import type * as recordOps from "../recordOps.js";
 import type * as recordQuery from "../recordQuery.js";
@@ -133,6 +134,7 @@ declare const fullApi: ApiFromModules<{
   pages: typeof pages;
   parity: typeof parity;
   permissions: typeof permissions;
+  placeAccess: typeof placeAccess;
   preferences: typeof preferences;
   recordOps: typeof recordOps;
   recordQuery: typeof recordQuery;

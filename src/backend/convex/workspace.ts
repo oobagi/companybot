@@ -7,7 +7,7 @@ import { type MutationCtx, type QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { seedAgents } from "./agents";
 import { fieldsOf, typesOf } from "./recordOps";
-import { addToChat, ensureGeneral, latestMentionSince } from "./chatOps";
+import { addToChat, canSee, ensureGeneral, latestMentionSince } from "./chatOps";
 import { sendInviteEmail } from "./invites";
 import { type Member, accessOf, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, liveWorkspace, memberOf, nameOf, normalizeEmail, personOf, preferencesOf, requireMember, requirePermission, requireUserId, rolesOf, timeZoneOf } from "./lib";
 import { cascading, startCascade } from "./cascade";
@@ -115,8 +115,14 @@ export const activity = query({
 		const userId = await authUserId(ctx);
 		if (!userId) return [];
 		const byWorkspace = new Map<Id<"workspaces">, { id: Id<"workspaces">; unread: boolean; mentions: number }>();
-		for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId)))
-			if (await liveWorkspace(ctx, row.workspaceId)) byWorkspace.set(row.workspaceId, { id: row.workspaceId, unread: false, mentions: 0 });
+		// Who they are in each, so a chat counts only if they can see it there (as chats.alerts).
+		const members = new Map<Id<"workspaces">, Member>();
+		for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId))) {
+			const member = (await liveWorkspace(ctx, row.workspaceId)) && (await memberOf(ctx, userId, row.workspaceId));
+			if (!member) continue;
+			members.set(row.workspaceId, member);
+			byWorkspace.set(row.workspaceId, { id: row.workspaceId, unread: false, mentions: 0 });
+		}
 		// Chat seats outlive leaving a workspace, so only the workspaces above count.
 		for (const seat of await ctx.db
 			.query("chatMembers")
@@ -125,7 +131,7 @@ export const activity = query({
 			const since = seat.lastReadAt ?? 0;
 			const chat = await ctx.db.get(seat.chatId);
 			const entry = chat && byWorkspace.get(chat.workspaceId);
-			if (!chat || !entry || chat.archived || chat.lastMessageAt <= since) continue;
+			if (!chat || !entry || chat.archived || chat.lastMessageAt <= since || !(await canSee(ctx, chat, members.get(chat.workspaceId)!))) continue;
 			entry.unread = true;
 			if (chat.kind === "dm" || (await latestMentionSince(ctx, chat._id, userId, since))) entry.mentions++;
 		}

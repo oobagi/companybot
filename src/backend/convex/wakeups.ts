@@ -18,10 +18,11 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
 import { mutation, query } from "./functions";
-import { addToChat, canSee, chatLabel, namer } from "./chatOps";
+import { addToChat, canPost, canSee, chatLabel, namer } from "./chatOps";
 import { type Member, asToolResult, getMember, liveWorkspace, memberOf, nameOf, requireMember, sweepExpired, timeZoneOf } from "./lib";
 import { automationScope } from "./automationOps";
 import { recordById } from "./recordOps";
+import { reach } from "./placeAccess";
 import { enqueueTurn, runningTurn } from "./turns";
 
 // Wakeups: an agent wakes later in a place (chat + thread), acting for a person. A wakeup is when
@@ -166,6 +167,10 @@ export async function wake(ctx: MutationCtx, id: Id<"wakeups">, outcome?: { resu
 		return logWake(ctx, row, "skipped", "Waiting: its agent, chat or record is in Archive. It wakes if that's restored.");
 	}
 	if (!(await canSee(ctx, chat, member))) return stop("Its person can no longer see the chat.");
+	// Its turn replies there as them (turns.ts checks again when it starts and before it's shown).
+	if (!canPost(member, chat)) return stop("Its person can no longer post in the chat.");
+	// Not the database's name: everyone in the chat reads this line in Activity, and some may not see it.
+	if (type && !reach(member, type.access)) return stop("Its person can no longer see this record.");
 	if (row.threadId && !(await ctx.db.get(row.threadId))) return stop("Its thread was deleted.");
 
 	// Its last wake settles it; a repeating one stays pending (`fire` already armed the next).
@@ -209,9 +214,13 @@ export async function setWakeOutcome(ctx: MutationCtx, turn: Doc<"agentTurns">, 
 
 // ---- Who sees and cancels them ----
 
-/** Whether `member` can see a wakeup: it's as private as its chat. */
+/** Whether `member` can see a wakeup: it's as private as its chat, and its record's database. */
 async function visibleTo(ctx: QueryCtx, member: Member, row: Doc<"wakeups">) {
 	const chat = await ctx.db.get(row.chatId);
+	// Its record's database, read from the record when the row doesn't hold it.
+	const typeId = row.typeId ?? (row.recordId && (await ctx.db.get(row.recordId))?.typeId);
+	const type = typeId && (await ctx.db.get(typeId));
+	if (type && !reach(member, type.access)) return false;
 	return !!chat && !chat.archived && (await canSee(ctx, chat, member));
 }
 

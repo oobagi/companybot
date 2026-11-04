@@ -29,6 +29,7 @@ import { AddButton, ChannelsNav, DmsNav, Group, Item, type SectionProps } from "
 import { useSortable, useStoredIds } from "./sortable";
 import { PagesNav, PagesView } from "./views/Pages";
 import { DatabaseDialog } from "./views/records/DatabaseDialog";
+import { AccessLock } from "./views/access";
 import { type RecordType, useTypes } from "./views/records/data";
 import { recordPath } from "./views/records/logic";
 
@@ -280,7 +281,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 								<TopBar title="" />
 							))}
 						{view === "records" && <RecordsView key={typeKey} typeKey={typeKey} recordId={recordId} access={access} />}
-						{view === "pages" && <PagesView pageId={route[1]} canEdit={can(access, "pages.edit")} />}
+						{view === "pages" && <PagesView pageId={route[1]} />}
 						{view === "settings" && <SettingsView access={access} tab={settingsTab} itemId={route[2]} />}
 					</main>
 				</div>
@@ -327,9 +328,9 @@ function DatabasesNav({
 					label={type.plural}
 					active={openKey === type.key}
 					onClick={() => navigate(...recordPath(type.key))}
-					rename={canCreate ? { value: type.plural, onSave: (plural) => run(update({ typeId: type._id, plural, version: type.version })) } : undefined}
+					rename={type.canManage ? { value: type.plural, onSave: (plural) => run(update({ typeId: type._id, plural, version: type.version })) } : undefined}
 					menu={
-						canCreate
+						type.canManage
 							? (close) => (
 									<>
 										<MenuItem onClick={() => (close(), setEditing(type))}><EditIcon /> Edit database</MenuItem>
@@ -341,7 +342,8 @@ function DatabasesNav({
 							: undefined
 					}
 				>
-					{type.plural}
+					<span className="truncate">{type.plural}</span>
+					<AccessLock lock={type.lock} />
 				</Item>
 			))}
 			<Notice>{error}</Notice>

@@ -1,7 +1,7 @@
 import { viewConfig } from "./recordValidators";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
-import { builtInRoles, fieldKinds, fileTypes, permissions, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
+import { accessLevels, builtInRoles, fieldKinds, fileTypes, permissions, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
 import { v } from "convex/values";
 
 /** One of `values`, each a literal. */
@@ -16,6 +16,15 @@ const legacyRole = v.union(v.literal("owner"), v.literal("member"));
 export const permission = oneOf(Object.keys(permissions) as (keyof typeof permissions)[]);
 
 export const wakeOutcome = oneOf(wakeOutcomes);
+
+/**
+ * Who can access a place (core place-access.ts): Everyone or a role, each at View or Edit. Unset is
+ * Everyone at Edit; on a page, its parent's (a record's page follows its database).
+ */
+export const accessEntry = v.object({ role: v.union(v.literal("everyone"), v.id("roles")), level: oneOf(accessLevels) });
+const access = v.optional(v.array(accessEntry));
+/** A Who can access list as the app sends it: role ids are checked against the workspace's (placeAccess `savedAccess`). */
+export const accessArg = v.array(v.object({ role: v.string(), level: oneOf(accessLevels) }));
 
 export const agentConfig = v.object({
 	name: v.string(),
@@ -252,7 +261,7 @@ export default defineSchema({
 	members: defineTable({
 		workspaceId: v.id("workspaces"),
 		userId: v.id("users"),
-		/** Their roles; they get every switch any of them has. Every row has at least one once migrations.customRoles ran; optional only until then. */
+		/** Their roles; they get every switch any of them has. Empty when the only one was deleted (they get the baseline). Optional only until migrations.customRoles ran. */
 		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, make this required.
 		roles: v.optional(v.array(v.id("roles"))),
 		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, drop this field. Nothing reads it.
@@ -484,6 +493,8 @@ export default defineSchema({
 		costUsd: v.optional(v.number()),
 		/** Channels: when agents answer without an @mention (core router.ts). Unset is "mentions", so no migration. */
 		replyMode: v.optional(oneOf(replyModes)),
+		/** Channels: who can see and post (Post is `edit`), on top of a private channel's members. */
+		access,
 	})
 		.index("by_workspace", ["workspaceId", "kind"])
 		.index("by_dm_key", ["workspaceId", "dmKey"])
@@ -912,7 +923,13 @@ export default defineSchema({
 		// COMPAT(0.1.0-alpha.10): once that has run on prod, drop this field.
 		lastRunDate: v.optional(v.string()),
 		lastRunAt: v.optional(v.number()),
-		/** What the last run did, in a line, e.g. "Sent to 3 people". */
+		/**
+		 * What the last run did (automationOps.RunOutcome): a line, e.g. "Posted in {channel}.", and the channels
+		 * it names, which each reader sees by name only if they can see them (automationOps.outcomeText).
+		 */
+		lastOutcome: v.optional(v.object({ text: v.string(), channelId: v.optional(v.id("chats")), watchedId: v.optional(v.id("chats")) })),
+		// COMPAT(0.1.0-alpha.10): the line as it was stored, channel names and all. Once migrations.automationOutcomes
+		// has run on prod, drop this. Nothing reads it.
 		lastResult: v.optional(v.string()),
 		/** Who it runs for; automationAudiences backfilled existing installs in alpha.6. */
 		audience,
@@ -1011,6 +1028,8 @@ export default defineSchema({
 		archived: v.boolean(),
 		createdBy: v.id("users"),
 		updatedAt: v.number(),
+		/** Who can see and change it, its records and their pages. */
+		access,
 	}).index("by_workspace", ["workspaceId", "key"]),
 
 	// Named sorting, filtering and columns, shared with the workspace.
@@ -1078,6 +1097,8 @@ export default defineSchema({
 		createdBy: v.id("users"),
 		updatedAt: v.number(),
 		updatedBy: v.id("users"),
+		/** Standalone pages: who can see and edit it. Unset follows its parent; a top-level page's is Everyone at Edit. */
+		access,
 	})
 		.index("by_workspace", ["workspaceId", "recordId", "archived", "title"])
 		.index("by_parent", ["workspaceId", "parentId", "recordId", "archived", "title"])
@@ -1089,8 +1110,12 @@ export default defineSchema({
 		n: v.number(),
 		userId: v.id("users"),
 		agentId: v.optional(v.id("agents")),
-		from: v.string(),
-		to: v.string(),
+		/** Where it moved from and to: a page, or null for the top level. Unset only on an old row no page matched. */
+		fromId: v.optional(v.union(v.id("pages"), v.null())),
+		toId: v.optional(v.union(v.id("pages"), v.null())),
+		// COMPAT(0.1.0-alpha.10): titles, as rows held them before ids. Once migrations.pageMoveIds has run on prod, drop these. Nothing reads them.
+		from: v.optional(v.string()),
+		to: v.optional(v.string()),
 	}).index("by_page", ["pageId", "n"]).index("by_workspace", ["workspaceId"]),
 
 	// A page's history: one row per run of edits, like Notion's: whoever started it, and
@@ -1239,8 +1264,9 @@ export default defineSchema({
 	// edge of lifecycle.ts per run, resumed from `edge` and `cursor`. `key` names what's going,
 	// so rejoining or reinstalling waits until its old rows are gone.
 	cascades: defineTable({
-		scope: v.union(v.literal("workspace"), v.literal("member"), v.literal("user"), v.literal("connectorInstall"), v.literal("automationInstall"), trashKind),
+		scope: v.union(v.literal("role"), v.literal("workspace"), v.literal("member"), v.literal("user"), v.literal("connectorInstall"), v.literal("automationInstall"), trashKind),
 		root: v.object({
+			roleId: v.optional(v.id("roles")),
 			workspaceId: v.optional(v.id("workspaces")),
 			userId: v.optional(v.id("users")),
 			connectorId: v.optional(v.string()),

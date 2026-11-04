@@ -164,7 +164,9 @@ describe("automations", () => {
 			const { owner, member, post } = await installed();
 			const calls = await owner.mutation(api.chats.createChannel, { name: "calls", private: false });
 			await owner.mutation(api.automations.update, { automationId: "after-call-summary", audience: "channel", channelId: calls });
-			expect(await post(call("c1"))).toEqual([200, "Posted in #calls."]);
+			// The sender is outside the workspace, so the reply names no channel; the automation's page does.
+			expect(await post(call("c1"))).toEqual([200, "Posted in a channel."]);
+			expect((await owner.query(api.automations.list)).find((a) => a.id === "after-call-summary")!.lastResult).toBe("Posted in #calls.");
 			expect(await member.query(api.messages.list, { chatId: calls })).toHaveLength(2);
 		});
 
@@ -542,7 +544,9 @@ describe("automations", () => {
 			const token = (await find(member, id))!.webhookUrl!.split("/").at(-1)!;
 			await member.mutation(api.chats.leave, { chatId: ops });
 			await t.mutation(internal.automationRuns.receive, { token, body: JSON.stringify({ id: "e1", data: {} }) });
-			expect((await find(member, id))!.lastResult).toBe("Didn't run: member@co.com, who made it, isn't in #ops. Pick another channel.");
+			// It names the private channel only to someone still in it.
+			expect((await find(member, id))!.lastResult).toBe("Didn't run: member@co.com, who made it, isn't in a channel. Pick another channel.");
+			expect((await find(owner, id))!.lastResult).toBe("Didn't run: member@co.com, who made it, isn't in #ops. Pick another channel.");
 			expect((await owner.query(api.messages.list, { chatId: ops })).some((m) => m.automation)).toBe(false);
 		});
 

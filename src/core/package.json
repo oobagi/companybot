@@ -14,6 +14,7 @@
     "./help": "./src/help/index.ts",
     "./page-links": "./src/page-links.ts",
     "./permissions": "./src/permissions.ts",
+    "./place-access": "./src/place-access.ts",
     "./records": "./src/records.ts",
     "./router": "./src/router.ts",
     "./skills": "./src/skills.ts",

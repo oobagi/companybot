@@ -38,7 +38,8 @@ export function RecordPage({ type, recordId, access }: { type: RecordType; recor
 	if (!record || record.typeId !== type._id) {
 		return <NotFound crumbs={crumbs} loaded={record !== undefined} icon={<DatabaseIcon />} title={`${type.name} not found`} />;
 	}
-	const canEdit = can(access, "records.edit");
+	// The switch, and Edit in its database's Who can access list.
+	const canEdit = type.canEdit;
 
 	return (
 		<Page
@@ -66,12 +67,12 @@ export function RecordPage({ type, recordId, access }: { type: RecordType; recor
 			<Notice>{error}</Notice>
 			{dialog}
 			{record.trash && <TrashNotice trash={record.trash} />}
-			<Fields type={type} record={record} access={access} editable={canEdit && !record.archived} />
+			<Fields type={type} record={record} editable={canEdit && !record.archived} />
 			<PendingWakeups recordId={recordId} title="Follow-ups" />
-			<Body recordId={recordId} pageId={pageId} editable={can(access, "pages.edit") && !record.archived} />
+			<Body recordId={recordId} pageId={pageId} editable={can(access, "pages.edit") && record.canEdit && !record.archived} />
 			<Linked recordId={recordId} />
 			<Discussion recordId={recordId} />
-			<RecordHistory open={history} onClose={() => setHistory(false)} type={type} recordId={recordId} pageId={pageId} canUndo={canEdit} canRestore={can(access, "pages.edit") && !record.archived} />
+			<RecordHistory open={history} onClose={() => setHistory(false)} type={type} recordId={recordId} pageId={pageId} canUndo={canEdit} canRestore={can(access, "pages.edit") && type.canEdit && !record.archived} />
 		</Page>
 	);
 }
@@ -99,7 +100,7 @@ function Body({ recordId, pageId, editable }: { recordId: Id<"records">; pageId:
 	);
 }
 
-function Fields({ type, record, access, editable }: { type: RecordType; record: RecordDoc; access: Access; editable: boolean }) {
+function Fields({ type, record, editable }: { type: RecordType; record: RecordDoc; editable: boolean }) {
 	const [adding, setAdding] = useState(false);
 	const [editing, setEditing] = useState<TypeField>();
 	// The name is the page's title, edited there like Notion's.
@@ -118,7 +119,7 @@ function Fields({ type, record, access, editable }: { type: RecordType; record: 
 				))}
 			</dl>
 			<div className="flex gap-4 pt-2 text-sm">
-				{can(access, "fields.edit") && !record.archived && (
+				{type.canManage && !record.archived && (
 					<button type="button" onClick={() => setAdding(true)} className="text-neutral-500 hover:text-neutral-900">
 						+ Add field
 					</button>

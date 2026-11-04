@@ -2,7 +2,7 @@
 
 import { BlockNoteEditor, blockToNode, docToBlocks } from "@blocknote/core";
 import { pageBlockSchema, promotePageLinks } from "./pageBlocks";
-import { validPageHref } from "@companybot/core/page-links";
+import { pageHref, validPageHref } from "@companybot/core/page-links";
 import { Window } from "happy-dom";
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
@@ -21,12 +21,27 @@ function blockNote() {
 	return editor;
 }
 
+type Json = { type?: string; attrs?: Record<string, unknown>; content?: Json[]; text?: string; marks?: Json[] };
+
+/**
+ * Page blocks as links, titled as pageTools.readFor gave them (`withPageTitles`, per reader): a block holds no
+ * title, so Markdown would otherwise show "Page" for each.
+ */
+function pageBlocksAsLinks(node: Json): Json {
+	const page = node.type === "blockContainer" ? node.content?.find((c) => c.type === "page") : undefined;
+	if (page) {
+		const link: Json = { type: "text", text: String(page.attrs?.title || "Page"), marks: [{ type: "link", attrs: { href: pageHref(String(page.attrs?.pageId ?? "")) } }] };
+		return { ...node, content: node.content!.map((c) => (c === page ? { type: "paragraph", content: [link] } : pageBlocksAsLinks(c))) };
+	}
+	return node.content ? { ...node, content: node.content.map(pageBlocksAsLinks) } : node;
+}
+
 /** A page's content (ProseMirror JSON) as Markdown. Colors and alignment are dropped. */
 export const toMarkdown = internalAction({
 	args: { doc: v.string() },
 	handler: async (_ctx, { doc }) => {
 		const bn = blockNote();
-		return bn.blocksToMarkdownLossy(docToBlocks(bn.pmSchema.nodeFromJSON(JSON.parse(doc))) as typeof bn.document);
+		return bn.blocksToMarkdownLossy(docToBlocks(bn.pmSchema.nodeFromJSON(pageBlocksAsLinks(JSON.parse(doc)))) as typeof bn.document);
 	},
 });
 

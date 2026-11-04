@@ -4,9 +4,9 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { mutation } from "./functions";
-import { addToChat, canSee, findOrCreateDm, insertMessage } from "./chatOps";
+import { addToChat, canPost, canSee, findOrCreateDm, insertMessage } from "./chatOps";
 import { type Member, accessOf, liveWorkspace, memberOf, nameOf, normalizeEmail, requireMember, rolesOf, sweepExpired } from "./lib";
-import { definitionOf, followsOthers, postingProblem, requireEditable, scheduleCursor, subscribersOf } from "./automationOps";
+import { type RunOutcome, definitionOf, followsOthers, outcomeText, postingProblem, requireEditable, scheduleCursor, subscribersOf } from "./automationOps";
 import { enqueueTurn } from "./turns";
 
 /** Runs it once now, just for you (webhooks and events use a sample), so you can see what it does. */
@@ -28,7 +28,7 @@ export const tick = internalMutation({
 			.collect();
 		for (const install of installs) {
 			if (install.archived) continue;
-			const automation = await definitionOf(ctx, install);
+			const automation = await definitionOf(ctx, install, null);
 			if (!automation || !(await liveWorkspace(ctx, install.workspaceId))) continue;
 			const due = scheduleDue(automation.trigger, now, install.timeZone, scheduleCursor(install));
 			if (due === null) continue;
@@ -51,7 +51,7 @@ export const receive = internalMutation({
 					.withIndex("by_webhook", (q) => q.eq("webhookToken", token))
 					.first()
 			: null;
-		const automation = install && (await definitionOf(ctx, install));
+		const automation = install && (await definitionOf(ctx, install, null));
 		// A workspace being deleted has no webhooks, and one in Archive has none: nothing runs, and nothing new is saved behind its cascade.
 		if (!install || install.archived || automation?.trigger.type !== "webhook" || !(await liveWorkspace(ctx, install.workspaceId)))
 			return { status: 404, ok: false, message: "Unknown webhook URL." };
@@ -78,11 +78,12 @@ export const receive = internalMutation({
 		if (delivery.person) {
 			const found = await workspaceUserByEmail(ctx, install.workspaceId, delivery.person.email);
 			if (!found && install.audience === "subscribers")
-				return { status: 200, ok: true, message: await finish(ctx, install, `Didn't run: nobody here has the email ${delivery.person.email}.`) };
+				return { status: 200, ok: true, message: (await finish(ctx, install, { text: `Didn't run: nobody here has the email ${delivery.person.email}.` })).text };
 			person = found ?? undefined;
 		}
 		const result = await runFor(ctx, install, automation, triggerPrompt(automation, delivery.data), { person });
-		return { status: 200, ok: true, message: result.summary };
+		// Its sender is outside the workspace: no channel names.
+		return { status: 200, ok: true, message: await outcomeText(ctx, result.outcome, null) };
 	},
 });
 
@@ -103,7 +104,7 @@ export async function fireEvent(
 		.collect();
 	for (const install of installs) {
 		if (!install.enabled || install.archived) continue;
-		const automation = await definitionOf(ctx, install);
+		const automation = await definitionOf(ctx, install, null);
 		const trigger = automation?.trigger;
 		if (!automation || trigger?.type !== "event" || trigger.event !== event) continue;
 		if (trigger.event === "message.posted" && trigger.channelId !== details.channelId) continue;
@@ -139,13 +140,16 @@ export const forgetOldWebhooks = internalMutation({
 
 // ---- Running ----
 
-/** Records what a run did, for its page, and returns the line. */
-async function finish(ctx: MutationCtx, install: Doc<"automationInstalls">, summary: string) {
-	await ctx.db.patch(install._id, { lastRunAt: Date.now(), lastResult: summary });
-	return summary;
+/**
+ * Records what a run did, for its page, and returns it. COMPAT(0.1.0-alpha.10): clears the old line too, so
+ * migrations.automationOutcomes never puts it back over a newer run; stop once `lastResult` is dropped.
+ */
+async function finish(ctx: MutationCtx, install: Doc<"automationInstalls">, outcome: RunOutcome) {
+	await ctx.db.patch(install._id, { lastRunAt: Date.now(), lastOutcome: outcome, lastResult: undefined });
+	return outcome;
 }
 
-type Run = { ran: boolean; summary: string };
+type Run = { ran: boolean; outcome: RunOutcome };
 
 /**
  * One run, for the automation's audience. `person` narrows "subscribers" to one person
@@ -181,7 +185,7 @@ async function runFor(
 				: target.person
 					? "the person it's for hasn't turned it on"
 					: "nobody has turned it on";
-		return { ran: false, summary: await finish(ctx, install, `Didn't run: ${why}.`) };
+		return { ran: false, outcome: await finish(ctx, install, { text: `Didn't run: ${why}.` }) };
 	}
 	return runInDms(ctx, install, automation, people, prompt);
 }
@@ -191,7 +195,7 @@ async function activeAgent(ctx: QueryCtx, install: Doc<"automationInstalls">) {
 	return agent && !agent.archived ? agent : null;
 }
 
-const noAgent = "Didn't run: its agent was deleted. Pick another agent.";
+const noAgent = { text: "Didn't run: its agent was deleted. Pick another agent." };
 
 /**
  * Posts the prompt in each person's DM with the agent, as them, and queues the agent's
@@ -205,7 +209,7 @@ async function runInDms(
 	prompt: string,
 ): Promise<Run> {
 	const agent = await activeAgent(ctx, install);
-	if (!agent) return { ran: false, summary: await finish(ctx, install, noAgent) };
+	if (!agent) return { ran: false, outcome: await finish(ctx, install, noAgent) };
 	for (const userId of userIds) {
 		const chatId = await findOrCreateDm(ctx, install.workspaceId, userId, [userId], [agent._id]);
 		const chat = (await ctx.db.get(chatId))!;
@@ -220,7 +224,7 @@ async function runInDms(
 		await enqueueTurn(ctx, chat, { agentId: agent._id, chatId, triggerId, actorId: userId });
 	}
 	const sent = userIds.length;
-	return { ran: true, summary: await finish(ctx, install, `Sent to ${sent} ${sent === 1 ? "person" : "people"}.`) };
+	return { ran: true, outcome: await finish(ctx, install, { text: `Sent to ${sent} ${sent === 1 ? "person" : "people"}.` }) };
 }
 
 /**
@@ -238,12 +242,12 @@ async function runInChannel(
 	thread?: { chatId: Id<"chats">; messageId: Id<"chatMessages"> },
 ): Promise<Run> {
 	const agent = await activeAgent(ctx, install);
-	if (!agent) return { ran: false, summary: await finish(ctx, install, noAgent) };
+	if (!agent) return { ran: false, outcome: await finish(ctx, install, noAgent) };
 	const chat = install.channelId && (await ctx.db.get(install.channelId));
 	if (!chat || chat.archived)
-		return { ran: false, summary: await finish(ctx, install, "Didn't run: its channel was deleted. Pick another.") };
+		return { ran: false, outcome: await finish(ctx, install, { text: "Didn't run: its channel was deleted. Pick another." }) };
 	const problem = await postingProblem(ctx, install.custom?.trigger, chat._id);
-	if (problem) return { ran: false, summary: await finish(ctx, install, `Didn't run: ${problem}`) };
+	if (problem) return { ran: false, outcome: await finish(ctx, install, { ...problem, text: `Didn't run: ${problem.text}` }) };
 	const preferred = install.custom ? install.installedBy : (install.channelSetBy ?? install.installedBy);
 	const roles = await rolesOf(ctx, install.workspaceId);
 	const owners = install.custom
@@ -258,14 +262,15 @@ async function runInChannel(
 	let actorId: Id<"users"> | null = null;
 	for (const userId of [preferred, ...owners.map((m) => m.userId)]) {
 		const member = await memberOf(ctx, userId, install.workspaceId);
-		if (member && (await canSee(ctx, chat, member))) {
+		// It posts there as them, so they need Post in it, not just View.
+		if (member && (await canSee(ctx, chat, member)) && canPost(member, chat)) {
 			actorId = userId;
 			break;
 		}
 	}
 	if (!actorId) {
 		const who = install.custom ? `${await nameOf(ctx, install.installedBy)}, who made it, isn't` : "nobody who can run it is";
-		return { ran: false, summary: await finish(ctx, install, `Didn't run: ${who} in #${chat.name}. Pick another channel.`) };
+		return { ran: false, outcome: await finish(ctx, install, { text: `Didn't run: ${who} in {channel}. Pick another channel.`, channelId: chat._id }) };
 	}
 	const threadId = thread?.chatId === chat._id ? thread.messageId : undefined;
 	await addToChat(ctx, chat, { agentId: agent._id });
@@ -279,13 +284,13 @@ async function runInChannel(
 		automation: { id: automation.id, name: automation.name, foreign: followsOthers(install, actorId) },
 	});
 	await enqueueTurn(ctx, chat, { agentId: agent._id, chatId: chat._id, threadId, triggerId, actorId });
-	return { ran: true, summary: await finish(ctx, install, `Posted in #${chat.name}.`) };
+	return { ran: true, outcome: await finish(ctx, install, { text: "Posted in {channel}.", channelId: chat._id }) };
 }
 
 export async function runNowAs(ctx: MutationCtx, acting: Member, automationId: string) {
 	const { member, install } = await requireEditable(ctx, automationId, acting);
-	const automation = await definitionOf(ctx, install);
+	const automation = await definitionOf(ctx, install, member);
 	if (!automation) throw new ConvexError("Install it first.");
 	const result = await runInDms(ctx, install, automation, [member.userId], triggerPrompt(automation, sampleData(automation.trigger)));
-	if (!result.ran) throw new ConvexError(result.summary);
+	if (!result.ran) throw new ConvexError(await outcomeText(ctx, result.outcome, member));
 }

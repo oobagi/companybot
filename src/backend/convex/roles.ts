@@ -5,6 +5,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { type Member, accessOf, builtInRole, getMember, hasLiveOwner, requireInWorkspace, requirePermission, rolesOf } from "./lib";
 import { permission } from "./schema";
+import { startCascade } from "./cascade";
 
 // Roles (core permissions.ts): workspace data, so each company names its own ("Office", "Crew").
 // Owner and Member are built in. Owner has every permission and can't change; Member is what new
@@ -92,28 +93,15 @@ export const setPermission = mutation({
 	},
 });
 
-/**
- * Deletes a role (not Owner or Member). People holding it lose it, and anyone left with no role gets
- * Member; invites likewise. Connectors stop allowing it.
- */
+/** Deletes the role immediately; the existing cascade scrubs references without granting roles. */
 export const remove = mutation({
 	args: { id: v.id("roles") },
 	handler: async (ctx, { id }) => {
 		const member = await requirePermission(ctx, "roles.manage");
 		const role = await requireEditable(ctx, member, id);
 		if (role.builtIn === "member") throw new ConvexError("Member is the role new people get, so it can't be deleted. Change its switches instead.");
-		const fallback = (await builtInRole(ctx, member.workspaceId, "member"))._id;
-		const without = (roles: Id<"roles">[]) => {
-			const left = roles.filter((r) => r !== id);
-			return left.length > 0 ? left : [fallback];
-		};
-		for await (const row of ctx.db.query("members").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId)))
-			if (row.roles?.includes(id)) await ctx.db.patch(row._id, { roles: without(row.roles) });
-		for await (const row of ctx.db.query("invites").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId)))
-			if (row.roles?.includes(id)) await ctx.db.patch(row._id, { roles: without(row.roles) });
-		for await (const row of ctx.db.query("connectorInstalls").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId)))
-			if (row.roles.includes(id)) await ctx.db.patch(row._id, { roles: row.roles.filter((r) => r !== id) });
 		await ctx.db.delete(id);
+		await startCascade(ctx, "role", { workspaceId: member.workspaceId, roleId: id });
 	},
 });
 

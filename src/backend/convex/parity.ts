@@ -95,6 +95,9 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"roles.rename": { humanOnly: "Owners shape who can do what in the workspace; a direct owner decision." },
 	"roles.setPermission": { humanOnly: "Turning a switch on or off changes what everyone with the role can do; a direct owner decision." },
 	"roles.remove": { humanOnly: "Deleting a role takes access from everyone who holds it; a direct owner decision." },
+	"chats.setAccess": { humanOnly: "Who can see or post in a channel decides what everyone else may see; a direct person decides, like roles." },
+	"recordTypes.setAccess": { humanOnly: "Who can see or change a database decides what everyone else may see; a direct person decides, like roles." },
+	"pages.setAccess": { humanOnly: "Who can see or edit a page decides what everyone else may see; a direct person decides, like roles." },
 	"workspace.updateSettings": { agent: ["workspace.settings:update"] },
 };
 
