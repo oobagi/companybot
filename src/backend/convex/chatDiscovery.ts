@@ -11,6 +11,7 @@ export const publicSearchChat = (chat: Pick<Doc<"chats">, "kind" | "private" | "
 
 /** Idempotent for the backfill and existing seats; joining creates read state and activity separately. */
 export async function ensureSeatActivity(ctx: MutationCtx, chat: Doc<"chats">, seat: Pick<Doc<"chatMembers">, "_id" | "userId">) {
+	if (!seat.userId) return;
 	const existing = await ctx.db.query("seatActivity").withIndex("by_seat", (q) => q.eq("seatId", seat._id)).first();
 	if (!existing) await ctx.db.insert("seatActivity", { workspaceId: chat.workspaceId, chatId: chat._id, seatId: seat._id, userId: seat.userId, activityAt: (await activityOf(ctx, chat)).lastMessageAt, restricted: !publicSearchChat(chat) });
 }
@@ -28,20 +29,21 @@ export async function touchSeats(ctx: MutationCtx, chat: Doc<"chats">, state: Pi
 	await ctx.scheduler.runAfter(60_000, internal.chatDiscovery.refreshSeats, { chatId: chat._id, cursor: null, pendingAt });
 }
 
-/** Sweep a snapshot, then immediately sweep again if a send arrived while pages were running. */
+/** Sweep a snapshot at most once a minute, retaining a pending catch-up under steady traffic. */
 export const refreshSeats = internalMutation({
-	args: { chatId: v.id("chats"), cursor: v.union(v.string(), v.null()), pendingAt: v.number(), stamp: v.optional(v.number()) },
-	handler: async (ctx, { chatId, cursor, pendingAt, stamp }) => {
+	args: { chatId: v.id("chats"), cursor: v.union(v.string(), v.null()), pendingAt: v.number(), stamp: v.optional(v.number()), passStart: v.optional(v.number()) },
+	handler: async (ctx, { chatId, cursor, pendingAt, stamp, passStart }) => {
 		const state = await ctx.db.query("chatActivity").withIndex("by_chat", (q) => q.eq("chatId", chatId)).first();
 		if (!state || state.pendingAt !== pendingAt) return;
 		const chat = await ctx.db.get(chatId);
 		if (!chat || !(await liveWorkspace(ctx, chat.workspaceId))) return;
 		if (publicSearchChat(chat)) { await ctx.db.patch(state._id, { pendingAt: undefined }); return; }
 		const at = stamp ?? state.lastMessageAt;
+		const started = passStart ?? Date.now();
 		const page = await ctx.db.query("seatActivity").withIndex("by_chat", (q) => q.eq("chatId", chatId)).paginate({ cursor, numItems: 100 });
 		for (const row of page.page) await ctx.db.patch(row._id, { activityAt: at });
-		if (!page.isDone) await ctx.scheduler.runAfter(0, internal.chatDiscovery.refreshSeats, { chatId, cursor: page.continueCursor, pendingAt, stamp: at });
-		else if (state.lastMessageAt !== at) await ctx.scheduler.runAfter(0, internal.chatDiscovery.refreshSeats, { chatId, cursor: null, pendingAt });
+		if (!page.isDone) await ctx.scheduler.runAfter(0, internal.chatDiscovery.refreshSeats, { chatId, cursor: page.continueCursor, pendingAt, stamp: at, passStart: started });
+		else if (state.lastMessageAt !== at) await ctx.scheduler.runAfter(Math.max(0, started + 60_000 - Date.now()), internal.chatDiscovery.refreshSeats, { chatId, cursor: null, pendingAt });
 		else await ctx.db.patch(state._id, { pendingAt: undefined });
 	},
 });

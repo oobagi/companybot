@@ -186,16 +186,6 @@ it("debounces 3 messages in a 500-seat private channel into one bounded update, 
 		expect(state!.pendingAt).toBeUndefined();
 		const jobs = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
 		expect(jobs.filter((job) => job.name === "chatDiscovery:refreshSeats")).toHaveLength(5);
-		// A new send while pages are running must also reach rows already visited.
-		vi.setSystemTime(start + 70000);
-		await post(privateId);
-		const next = await t.run((ctx) => ctx.db.query("chatActivity").withIndex("by_chat", (q) => q.eq("chatId", privateId)).first());
-		await t.mutation(internal.chatDiscovery.refreshSeats, { chatId: privateId, cursor: null, pendingAt: next!.pendingAt! });
-		vi.setSystemTime(start + 71000);
-		expect((await post(privateId)).queries).toEqual(["chatActivity"]);
-		await t.finishAllScheduledFunctions(vi.runAllTimers);
-		expect((await activity(privateId)).every((row) => row.activityAt === start + 71000)).toBe(true);
-
 	} finally { vi.useRealTimers(); }
 });
 
@@ -222,5 +212,63 @@ it("finds a target DM after a message at T+20s among 51 DMs", async () => {
 		vi.setSystemTime(start + 20000);
 		await t.run(async (ctx) => insertMessage(ctx, (await ctx.db.get("chats", chats[0]!))!, { authorAgentId: agentId, text: "needle target", parts: [], mentions: { userIds: [], agentIds: [] }, status: "done" }));
 		expect(await t.mutation(internal.chatTools.searchFor, { turnId, query: "needle" })).toMatchObject({ messages: [{ text: "needle target" }] });
+	} finally { vi.useRealTimers(); }
+});
+
+
+it("limits steady 50ms traffic to one 500-seat refresh pass per minute and catches the newest message", { timeout: 600_000 }, async () => {
+	const { t, owner } = await ownerAndMember();
+	const workspaceId = await workspaceOf(owner);
+	const agentId = (await agentsOf(owner)).companybot._id;
+	const chatId = await owner.mutation(api.chats.createChannel, { name: "steady", private: true });
+	const dm = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [agentId] });
+	const turnId = await agentTurn(t, owner, dm, agentId);
+	const start = Date.now();
+	const post = (text: string) => t.run(async (ctx) => insertMessage(ctx, (await ctx.db.get("chats", chatId))!, { authorUserId: owner.userId, text, parts: [], mentions: { userIds: [], agentIds: [] }, status: "done" }));
+	try {
+		await t.run(async (ctx) => {
+			const chat = (await ctx.db.get("chats", chatId))!;
+			for (let i = 0; i < 499; i++) {
+				const userId = await ctx.db.insert("users", { email: `steady${i}@co.com` });
+				await addMember(ctx, { workspaceId, userId, role: "member" });
+				await addToChat(ctx, chat, { userId });
+			}
+		});
+		await post("start");
+		const nextJob = () => t.run(async (ctx) => (await ctx.db.system.query("_scheduled_functions").collect())
+			.filter((job) => job.name === "chatDiscovery:refreshSeats" && job.state.kind === "pending")
+			.sort((a, b) => a.scheduledTime - b.scheduledTime)[0]);
+		const starts: number[] = [];
+		const runPage = async () => {
+			const job = (await nextJob())!;
+			expect(job.scheduledTime).toBeLessThanOrEqual(Date.now());
+			await t.run(async (ctx) => ctx.scheduler.cancel(job._id));
+			if (job.args[0].cursor === null) starts.push(Date.now());
+			await t.mutation(internal.chatDiscovery.refreshSeats, job.args[0]);
+		};
+		// Model a 50ms send and one worker page per tick: the old immediate restart
+		// made eight full passes in this two-second window.
+		const firstPass = Math.ceil((await nextJob())!.scheduledTime);
+		for (let tick = 0; tick <= 40; tick++) {
+			vi.setSystemTime(firstPass + tick * 50);
+			await post(tick === 40 ? "steady newest" : "steady traffic");
+			const job = await nextJob();
+			if (job && job.scheduledTime <= Date.now()) await runPage();
+		}
+		expect(starts).toEqual([firstPass]);
+		const secondPass = Math.ceil((await nextJob())!.scheduledTime);
+		expect(secondPass - firstPass).toBeGreaterThanOrEqual(60_000);
+		expect(secondPass - firstPass).toBeLessThanOrEqual(60_001);
+		for (let page = 0; page < 5; page++) {
+			vi.setSystemTime(secondPass + page * 50);
+			await runPage();
+		}
+		expect(starts).toEqual([firstPass, secondPass]);
+		expect(await nextJob()).toBeUndefined();
+		const activity = await t.run((ctx) => ctx.db.query("seatActivity").withIndex("by_chat", (q) => q.eq("chatId", chatId)).collect());
+		expect(activity).toHaveLength(500);
+		expect(activity.every((row) => row.activityAt === firstPass + 2000)).toBe(true);
+		expect(Date.now() - (firstPass + 2000)).toBeLessThanOrEqual(60_250);
+		expect(await t.mutation(internal.chatTools.searchFor, { turnId, query: "steady newest" })).toMatchObject({ messages: [{ text: "steady newest" }] });
 	} finally { vi.useRealTimers(); }
 });
