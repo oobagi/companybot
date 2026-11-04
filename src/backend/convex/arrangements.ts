@@ -168,7 +168,8 @@ export const migrate = mutation({
 			if (!entity || entity.archived) return;
 		}
 		const place = await placeOf(ctx, member, target);
-		if (!place) throw new ConvexError("Arrangement not found.");
+		// Never valid here (another workspace's page, a record's page): skip so the importer clears the key.
+		if (!place) return;
 		// Database order was stored as database keys on this computer.
 		if (target.list === "databases") ids = (await Promise.all(ids.map((key) => ctx.db.query("recordTypes").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("key", key)).unique()))).flatMap((type) => type ? [type._id] : []);
 		validate(ids);

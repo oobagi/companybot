@@ -44,7 +44,8 @@ it("validates an imported page against the destination workspace, even when anot
 	const ws = await workspaceOf(owner);
 	const other = await sideWorkspace(t, "owner@co.com");
 	const page = await owner.mutation(api.pages.create, { title: "In the open workspace" });
-	await expect(owner.mutation(api.arrangements.migrate, { targetWorkspaceId: other.workspaceId, list: "pages", entityId: page, ids: [] })).rejects.toThrow("not found");
+	// Never valid, so it's skipped (not thrown) and the importer can clear the key.
+	await owner.mutation(api.arrangements.migrate, { targetWorkspaceId: other.workspaceId, list: "pages", entityId: page, ids: [] });
 	expect(await idsOf(owner.in(other.workspaceId), "pages", page)).toBeUndefined();
 	const parent = await owner.in(other.workspaceId).mutation(api.pages.create, { title: "Destination parent" });
 	const child = await owner.in(other.workspaceId).mutation(api.pages.create, { title: "Destination child", parentId: parent });
@@ -70,6 +71,27 @@ it("imports only absent lists, resolves database keys once, and stores layout on
 	await owner.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { layout: "table" } });
 	expect((await owner.query(api.recordTypes.list)).find((t) => t._id === type._id)?.display).toEqual({ layout: "table" });
 	await expect(owner.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { layout: "board", groupBy: "missing" } })).rejects.toThrow("live choice field");
+});
+
+it("merges display changes so layout and grouping don't overwrite each other; imports that can't succeed are skipped", async () => {
+	const { owner, member } = await ownerAndMember();
+	const type = (await owner.query(api.recordTypes.list))[0]!;
+	const choice = type.fields.find((f) => f.kind === "choice" && !f.multiple)!;
+	const displayOf = async () => (await owner.query(api.recordTypes.list)).find((t) => t._id === type._id)?.display;
+	await owner.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { groupBy: choice.key } });
+	await member.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { layout: "board" } });
+	expect(await displayOf()).toEqual({ layout: "board", groupBy: choice.key });
+	const roles = permissions["sidebar.arrange"].roles as unknown as string[];
+	const before = [...roles];
+	roles.splice(0, roles.length, "owner");
+	try {
+		const fresh = (await owner.query(api.recordTypes.list))[1]!;
+		await member.mutation(api.recordTypes.migrateDisplay, { databaseKey: fresh.key, display: { layout: "board" } });
+		await owner.mutation(api.recordTypes.migrateDisplay, { databaseKey: fresh.key, display: { layout: "board", groupBy: "gone" } });
+		expect((await owner.query(api.recordTypes.list)).find((t) => t._id === fresh._id)?.display).toEqual({ layout: "board" });
+	} finally {
+		roles.splice(0, roles.length, ...before);
+	}
 });
 
 it("prunes removed and foreign channels, pages, views, databases, columns and folds on save", async () => {

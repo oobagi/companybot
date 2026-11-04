@@ -45,7 +45,7 @@ type Settings = { filters: (Filter & { id: string })[]; sort?: Sort; columns: st
 const optimisticDisplay: OptimisticUpdate<FunctionArgs<typeof api.recordTypes.setDisplay>> = (store, args) => {
 	const queryArgs = { workspaceId: args.workspaceId };
 	const types = store.getQuery(api.recordTypes.list, queryArgs);
-	if (types) store.setQuery(api.recordTypes.list, queryArgs, types.map((type) => type._id === args.typeId ? { ...type, display: args.display } : type));
+	if (types) store.setQuery(api.recordTypes.list, queryArgs, types.map((type) => type._id === args.typeId ? { ...type, display: { layout: args.display.layout ?? type.display?.layout ?? "table", groupBy: args.display.groupBy ?? type.display?.groupBy } } : type));
 };
 const noViews: never[] = [];
 const viewKey = (v: { _id: string }) => v._id;
@@ -85,7 +85,8 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 		const value = { ...draft.value, columns, layout, groupBy: selected ? draft.value.groupBy : display.groupBy, ...next };
 		draft.set(value);
 		if (!selected && writable && next.columns) storeColumns(next.columns);
-		if (!selected && writable && (next.layout || next.groupBy)) run(setDisplay({ typeId: type._id, display: { layout: value.layout, groupBy: value.groupBy } }));
+		// Send only what changed, so someone else's layout or grouping change isn't overwritten.
+		if (!selected && writable && (next.layout || next.groupBy)) run(setDisplay({ typeId: type._id, display: { layout: next.layout, groupBy: next.groupBy } }));
 	};
 	const setFilters = (filters: Settings["filters"]) => change({ filters });
 	const setSort = (sort: Sort | undefined) => change({ sort });
