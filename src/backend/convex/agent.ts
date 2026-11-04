@@ -67,7 +67,7 @@ const SUMMARY_MODEL = "anthropic/claude-haiku-5.5";
 /** Summarize once a session's context passes this many tokens (turns.startCompaction keeps a ~15k-token tail). */
 const COMPACT_TOKENS = 40_000;
 const FLUSH_MS = 200;
-/** How often a turn checks for Stop when it hasn't flushed lately (a long think, a slow first token). */
+/** How often a turn checks for Stop when it hasn't flushed lately (a long think streams reasoning, not text). */
 const STOP_CHECK_MS = 1_000;
 /**
  * Times a reply starts its answer over to take in the person's new message (turnStop): past this, one
@@ -518,7 +518,6 @@ async function streamReply(
 			result = run();
 		}
 	} finally {
-		stop.close();
 		for (const callId of [...calls.keys()]) await logCall(callId, { error: "The reply stopped before this finished." });
 		await stepWrites;
 	}
@@ -532,7 +531,8 @@ async function streamReply(
 
 /**
  * Ends a running turn early, cooperatively: Convex can't kill an action, so Stop (turns.stop) only marks
- * the turn, and this notices (on each flush, every STOP_CHECK_MS between them, and after each step) and
+ * the turn, and this notices (on each flush, on a stream part STOP_CHECK_MS after the last check, and
+ * after each step) and
  * ends the run. While the model writes, it aborts the stream at once. Once a step has called a tool it
  * doesn't abort: those calls finish (their results and the step's cost are kept), and `atStep` ends the
  * run before the next step, so no later tool runs. Nothing already done is undone; finishReply marks the
@@ -575,9 +575,7 @@ export function turnStop(ctx: Pick<ActionCtx, "runQuery">, turnId: Id<"agentTurn
 		lastHeard = Date.now();
 		return requested;
 	};
-	const timer = setInterval(() => {
-		if (!requested && Date.now() - lastHeard >= STOP_CHECK_MS) check().catch(() => {});
-	}, STOP_CHECK_MS);
+	// Driven by the stream, not a timer: an interval would keep an action (and a test's fake clock) busy.
 	return {
 		/** The current run's: a restart gets a new one. */
 		get signal() {
@@ -599,10 +597,13 @@ export function turnStop(ctx: Pick<ActionCtx, "runQuery">, turnId: Id<"agentTurn
 		saw(part: { type: string }) {
 			if (part.type === "start-step") toolStep = false;
 			else if (part.type === "tool-call") toolStep = true;
+			if (!requested && Date.now() - lastHeard >= STOP_CHECK_MS) {
+				lastHeard = Date.now();
+				check().catch(() => {});
+			}
 		},
 		/** A stop condition (AI SDK `stopWhen`), checked after each step that called tools. */
 		atStep: () => check(),
-		close: () => clearInterval(timer),
 	};
 }
 
