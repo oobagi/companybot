@@ -5,7 +5,7 @@ export default {
 	title: "Permissions and approvals",
 	summary: "Who can access each channel, database and page; when agents ask first, Allow once / Always allow / Deny, and action locks.",
 	text: `# Permissions and approvals
-Agents act as the person who asked. Anything that leaves Companybot (a send, a call, a payment, a change in another app) **asks first**. Companybot's own work (records, pages, memory) runs right away and is logged in [Activity](#/settings/activity).
+Agents act as the person who asked. Anything that leaves Companybot (a send, a call, a payment, a change in another app) **asks first**. Companybot's own work (records, pages, memory) runs right away and is logged in [Activity](#/settings/activity); archiving anything always asks.
 
 ## The approval card
 An agent's held action appears in the chat as a card from the agent, saying exactly what it wants to do, with three buttons:
@@ -14,6 +14,11 @@ An agent's held action appears in the chat as a card from the agent, saying exac
 - **Deny**: don't run it. The agent is told and carries on.
 
 Only the person the agent is acting for can decide, within 24 hours. No role can decide for someone else.
+
+What you approve is exactly what runs. The card names the exact page, record, field or chat, and if it's edited before the action runs (say, someone changes the page it would overwrite, or adds a record to a database it would archive), the action doesn't run; ask again. An approved action runs once, even if something retries it. If an action in another app gets cut off, its card says it **may or may not have happened**: check there before trying again.
+
+## Web searches after private reads
+Agents search the web and open links without asking. But once a reply has used anything not everyone in the workspace can see (a restricted database, page or channel, a connector only some roles can use, or a private channel or group DM it's working in), each web search, link it opens or call to another app asks first, showing exactly what goes out. There's no Always for these, and no lock or rule turns them off. Your own things in your own chat with an agent (your DM, personal memory) don't count, and an agent can keep reading from the same app it read from. Anything it sends or changes through that app still asks.
 
 ## Automations
 In an automation someone else wrote, or one fed by outside text, acting as you also asks the first time. Choosing Always there covers that automation only. One held action never stops the rest of a run.

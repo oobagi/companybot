@@ -477,8 +477,8 @@ describe("automations", () => {
 			expect(made).toMatchObject({ name: "Quiet deals", when: "Mondays at 9:00 AM (UTC)", runsFor: "Just member@co.com, in their chat with the agent" });
 			const listed = await t.mutation(internal.automationTools.listFor, { turnId });
 			expect(listed).toEqual([expect.objectContaining({ name: "Quiet deals", madeByYou: true, onForYou: null })]);
-			expect(await create({ ...weekly, runsFor: "#board" })).toEqual({ error: "There's no channel #board they can see." });
-			expect(await create({ ...weekly, runsFor: "everyone" })).toEqual({ error: 'runsFor must be "me", "anyone", or a channel like "#sales".' });
+			// Channels by id or "here", never by #name: a rename could hand the name to another channel.
+			for (const runsFor of ["#board", "everyone"]) expect(await create({ ...weekly, runsFor })).toEqual({ error: 'runsFor must be "me", "anyone", or a channel\'s id (from channels list) or "here".' });
 			expect(await create({ ...weekly, name: "" })).toEqual({ error: "Give it a name." });
 			const twice = await create({ ...weekly, name: "Check-ins", trigger: { type: "schedule", cron: "0 9,16 * * 1-5" } });
 			expect(twice).toMatchObject({ when: "Weekdays at 9:00 AM and 4:00 PM (UTC)" });

@@ -97,7 +97,8 @@ describe("who can access a database", () => {
 		expect((await tools.get(deal)).error).toBe("Only Office and Owners can see this database.");
 		expect(((await tools.find({ search: "Big roof" })).rows as { _id: string }[]).map((r) => r._id)).not.toContain(deal);
 		expect((await tools.get(call)).values).toMatchObject({ deal: "Locked record" });
-		expect((await tools.save({ type: "Deals", values: { name: "Sneaky" } })).error).toBe("Only Office and Owners can see Deals.");
+		// Writes take its key, never its name, and still refuse naming who can.
+		expect((await tools.save({ type: "deal", values: { name: "Sneaky" } })).error).toBe("Only Office and Owners can see deal.");
 	});
 
 	it("lets View read but not change, and Edit change", async () => {
@@ -603,7 +604,7 @@ describe("restored, woken, queued and background paths", () => {
 		await owner.mutation(api.trash.move, { kind: "database", id: deals });
 		const tools = await turnFor(t, crew);
 		const restored = await tools.saveDatabase({ type: "Nope", trash: false });
-		expect(restored.error).toMatch(/^There's no database “Nope”/);
+		expect(restored.error).toMatch(/^Name the database by its key or id/);
 		expect(restored.error).not.toMatch(/deal/i);
 		expect((await tools.find({ type: "Nope" })).error).not.toMatch(/deal/i);
 	});

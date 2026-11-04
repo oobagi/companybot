@@ -76,7 +76,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 			"## Databases",
 			"Databases are created by the team. Learn the available schema before using records. Facts about the team's work go on records, not in memory; memory is for preferences and how people like to work.",
 		);
-		if (has("records.types")) lines.push("- Learn the databases and field keys with records_types before using unfamiliar schema and again before schema changes; reuse unchanged keys. Stable choice ids preserve existing values when labels change. Refer to teammates by name or \"me\", and linked records by exact name or id.");
+		if (has("records.types")) lines.push("- Learn the databases and field keys with records_types before using unfamiliar schema and again before schema changes; reuse unchanged keys. Stable choice ids preserve existing values when labels change. Changes name databases and fields by key, teammates by id, email or \"me\", and linked records by id: names can change, so find them first.");
 		if (has("records.save_database")) lines.push("- Create, rename and delete databases with records_save_database (it needs the person's databases switch). Read the current version first. Change databases only when asked.");
 		if (has("records.views")) lines.push("- Shared sorting and filtering is in records_views.");
 		if (has("records.save_view")) lines.push("- Change shared views with records_save_view, from their current version, only when asked.");
@@ -106,7 +106,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 		if (has("pages.find")) lines.push("- Find a page with pages_find before creating one. Rows include parentId; parent lists one level (null for top level). Follow cursors and child ids to read the tree.");
 		if (has("pages.write"))
 			lines.push(
-				`- ${has("pages.read") ? "Read a page with pages_read before you replace it; to" : "To"} add to it, append with pages_write. Create under parent; move with action move, page and parent (null for top level). Record bodies cannot be nested. Writes run when permitted and are saved in the page's history as you acting for the person, so they can be restored. Say in a sentence what you wrote, and where.`,
+				`- ${has("pages.read") ? "Read a page with pages_read before you replace it; to" : "To"} add to it, append with pages_write. Writes name pages and parents by id, never title: find them first. Create under parent; move with action move, page and parent (null for top level). Record bodies cannot be nested. Writes run when permitted and are saved in the page's history as you acting for the person, so they can be restored. Say in a sentence what you wrote, and where.`,
 			);
 	}
 	if (has("help.read")) lines.push("", "## Help", "For how-to and where-is questions about Companybot, read help_read first, then link the person to the exact screen, like [Members](#/settings/members).");

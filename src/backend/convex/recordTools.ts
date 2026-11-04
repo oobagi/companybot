@@ -45,6 +45,8 @@ import {
 import { ANY_OF_MAX, CONDITIONS_MAX, type Condition } from "./recordQuery";
 import { PAGE_MAX, activityAs, historyAs, linkingRecords, listRecords, searchRecords, toEntries } from "./recordReads";
 import { notePlace } from "./replySources";
+import { withReceipt } from "./approvals";
+import { opArg } from "./schema";
 import { runningTurn } from "./turns";
 
 // Records tools (core's RecordStore), acting as the turn's person: their role, read fresh
@@ -72,11 +74,17 @@ function pickOne<T>(matches: T[], what: string, describe: (m: T) => string) {
 }
 
 /**
+ * Writes name what they change by id or key, never by a name that can change, so a held call runs on what
+ * was approved even if it's renamed and another takes the name meanwhile (`byName` false; core record-tools).
+ */
+const typeByKey = (ctx: QueryCtx, member: Member, key: string, trashed = false) => typeNamed(ctx, member, key, trashed, false);
+
+/**
  * A type by id or key, else by name or plural ("deal", "Deals"). Ambiguous names are refused. `trashed`: one in Archive.
  * One the person can't see is found all the same, then refused naming who can ("Only Office and Owners can see
  * Deals."), so the agent can tell them whom to ask.
  */
-async function typeNamed(ctx: QueryCtx, member: Member, name: string, trashed = false) {
+async function typeNamed(ctx: QueryCtx, member: Member, name: string, trashed = false, byName = true) {
 	const all = (await typesOf(ctx, member.workspaceId)).filter((t) => t.archived === trashed).sort((a, b) => a._creationTime - b._creationTime);
 	const visible = typeVisible(ctx, { ...member, replyId: undefined });
 	const types: Doc<"recordTypes">[] = [];
@@ -88,34 +96,34 @@ async function typeNamed(ctx: QueryCtx, member: Member, name: string, trashed = 
 	const named = (among: Doc<"recordTypes">[]) => among.filter((t) => [t.name, t.plural].some((x) => x.toLowerCase() === n));
 	// Ones they can see first, so suggestions and "could be" lists never name the rest. One they can't see,
 	// named unambiguously, is refused naming who can (requireType), so they know whom to ask.
-	if (!exact(types) && named(types).length > 1) for (const t of named(types)) await notePlace(ctx, member, t._id, t.access);
-	const type =
-		exact(types) ??
-		pickOne(named(types), raw, (t) => `${t.plural} (${t.key})`) ??
-		exact(hidden) ??
-		(named(hidden).length === 1 ? named(hidden)[0] : undefined);
+	if (!exact(types) && byName && named(types).length > 1) for (const t of named(types)) await notePlace(ctx, member, t._id, t.access);
+	const type = byName
+		? exact(types) ?? pickOne(named(types), raw, (t) => `${t.plural} (${t.key})`) ?? exact(hidden) ?? (named(hidden).length === 1 ? named(hidden)[0] : undefined)
+		: exact(types) ?? exact(hidden);
 	if (!type) {
 		// Suggestions are returned text too, unlike candidates examined during a successful lookup.
 		for (const t of types) await notePlace(ctx, member, t._id, t.access);
+		if (!byName) throw new ConvexError(`Name the database by its key or id (names can change). Keys: ${types.map((t) => t.key).join(", ")}.`);
 		throw new ConvexError(`There's no database “${name}”. Types: ${types.map((t) => t.key).join(", ")}.`);
 	}
 	// Refused by id, the refusal can't name it; by its key or name, it says back only what they typed.
 	return requireType(ctx, member, type._id, "view", type._id === raw ? undefined : raw);
 }
 
-/** A live field (or, `trashed`, one in Archive) by exact key, else by label. A label two fields could match is refused. */
-function fieldNamed(fields: Doc<"recordFields">[], name: string, type: Doc<"recordTypes">, trashed = false) {
+/** A live field (or, `trashed`, one in Archive) by exact key, else (`byLabel`) by label. A label two fields could match is refused. */
+function fieldNamed(fields: Doc<"recordFields">[], name: string, type: Doc<"recordTypes">, trashed = false, byLabel = true) {
 	const live = fields.filter((f) => f.archived === trashed);
 	const raw = name.trim();
 	const n = raw.toLowerCase();
 	const field =
 		live.find((f) => f.key === raw) ??
 		live.find((f) => f.key === n) ??
-		pickOne(
+		(!byLabel ? undefined : pickOne(
 			live.filter((f) => f.label.toLowerCase() === n),
 			raw,
 			(f) => `${f.label} (${f.key})`,
-		);
+		));
+	if (!field && !byLabel) throw new ConvexError(`Name ${type.plural.toLowerCase()}' fields by key (labels can change). records_types lists them.`);
 	if (!field) throw new ConvexError(`${type.plural} have no field “${name}”. records_types lists them.`);
 	return field;
 }
@@ -132,9 +140,11 @@ const LOOKUPS_MAX = 100;
 class Names {
 	private cache = new Map<string, Promise<string>>();
 	private team?: Promise<{ id: Id<"users">; name: string; email: string }[]>;
+	/** `exact`, for writes: linked records by id only, and teammates by id, email or "me", never by a name that can change. */
 	constructor(
 		private ctx: QueryCtx,
 		private member: Member,
+		private exact = false,
 	) {}
 
 	/** One value, or each item of a list (checked against the field's limits first). */
@@ -150,6 +160,7 @@ class Names {
 		if (typeof raw !== "string" || !raw.trim() || (field.kind !== "user" && field.kind !== "link")) return raw;
 		const text = raw.trim();
 		if (this.ctx.db.normalizeId(field.kind === "user" ? "users" : "records", text)) return text;
+		if (this.exact && field.kind === "link") throw new ConvexError(`Link “${field.label}” by record id (records_find gives them), not “${text}”: names can change.`);
 		const key = `${field.kind === "user" ? "user" : field.linkTypeId}:${text.toLowerCase()}`;
 		let found = this.cache.get(key);
 		if (!found) {
@@ -173,7 +184,8 @@ class Names {
 				),
 			);
 		const team = await this.team;
-		const matches = team.filter((p) => p.name.toLowerCase() === lower || p.email.toLowerCase() === lower);
+		const matches = team.filter((p) => (!this.exact && p.name.toLowerCase() === lower) || p.email.toLowerCase() === lower);
+		if (this.exact && !matches.length) throw new ConvexError(`Name teammates by id, email or "me", not “${text}”: names can change.`);
 		if (matches.length === 1) return matches[0]!.id;
 		throw new ConvexError(
 			matches.length
@@ -204,23 +216,24 @@ class Names {
 	}
 }
 
-/** Values by field key or label → by key, with teammates and links named as ids. */
+/** Values by field key, with teammates and links as ids (Names `exact`). */
 async function valuesFor(names: Names, type: Doc<"recordTypes">, fields: Doc<"recordFields">[], values: Record<string, unknown>) {
 	const out: Record<string, unknown> = {};
 	for (const [name, raw] of Object.entries(values)) {
-		const field = fieldNamed(fields, name, type);
+		const field = fieldNamed(fields, name, type, false, false);
 		if (Array.isArray(raw) && !field.multiple) throw new ConvexError(`“${field.label}” holds one value.`);
 		out[field.key] = await names.ids(field, raw);
 	}
 	return out;
 }
 
-async function conditionsFor(ctx: QueryCtx, member: Member, type: Doc<"recordTypes">, fields: Doc<"recordFields">[], filters: NonNullable<RecordFindInput["filters"]>) {
+/** `exact`: a saved view's, which keeps them, so by key and id only (Names `exact`); a search's may use names. */
+async function conditionsFor(ctx: QueryCtx, member: Member, type: Doc<"recordTypes">, fields: Doc<"recordFields">[], filters: NonNullable<RecordFindInput["filters"]>, exact = false) {
 	if (filters.length > CONDITIONS_MAX) throw new ConvexError(`Use up to ${CONDITIONS_MAX} filters.`);
-	const names = new Names(ctx, member);
+	const names = new Names(ctx, member, exact);
 	const conditions: Condition[] = [];
 	for (const { field: name, ...test } of filters) {
-		const field = fieldNamed(fields, name, type);
+		const field = fieldNamed(fields, name, type, false, !exact);
 		const c: Condition = { ...test, field: field.key };
 		if (c.eq !== undefined) c.eq = await names.id(field, c.eq);
 		if (c.in) c.in = (await names.ids(field, c.in, ANY_OF_MAX)) as unknown[];
@@ -380,8 +393,8 @@ export const getFor = internalMutation({
 });
 
 export const saveFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), input: v.any() },
-	handler: async (ctx, { turnId, input }) => {
+	args: { turnId: v.id("agentTurns"), op: v.optional(opArg), input: v.any() },
+	handler: (ctx, { turnId, op, input }) => withReceipt(ctx, op, turnId, async () => {
 		const { member, who } = await runningTurn(ctx, turnId);
 		const { id, type: typeName, values = {}, trash } = input as RecordSaveInput;
 		return asToolResult(async () => {
@@ -396,23 +409,23 @@ export const saveFor = internalMutation({
 				else if (hasValues) {
 					const type = (await ctx.db.get(record.typeId))!;
 					const fields = await fieldsOf(ctx, type._id);
-					change = await updateRecord(ctx, who, recordId, await valuesFor(new Names(ctx, member), type, fields, values));
+					change = await updateRecord(ctx, who, recordId, await valuesFor(new Names(ctx, member, true), type, fields, values));
 				} else throw new ConvexError("Nothing to change: give values, or trash.");
 			} else {
 				if (trash !== undefined) throw new ConvexError("Create the record first.");
 				if (!typeName) throw new ConvexError("Say which database to create.");
-				const type = await typeNamed(ctx, member, typeName);
+				const type = await typeByKey(ctx, member, typeName);
 				const fields = await fieldsOf(ctx, type._id);
-				({ id: recordId, change } = await createRecord(ctx, who, type._id, await valuesFor(new Names(ctx, member), type, fields, values)));
+				({ id: recordId, change } = await createRecord(ctx, who, type._id, await valuesFor(new Names(ctx, member, true), type, fields, values)));
 			}
 			return { ...(await recordOut(ctx, member, recordId)), ...(change ? { change } : { unchanged: true }) };
 		});
-	},
+	}),
 });
 
 export const undoFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), change: v.string() },
-	handler: async (ctx, { turnId, change }) => {
+	args: { turnId: v.id("agentTurns"), op: v.optional(opArg), change: v.string() },
+	handler: (ctx, { turnId, op, change }) => withReceipt(ctx, op, turnId, async () => {
 		const { member, who } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
 			const historyId = ctx.db.normalizeId("recordHistory", change);
@@ -421,24 +434,24 @@ export const undoFor = internalMutation({
 			const entry = (await ctx.db.get(historyId))!;
 			return { undone: change, ...(await recordOut(ctx, member, entry.recordId!)), change: undoneBy };
 		});
-	},
+	}),
 });
 
 export const saveFieldFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), input: v.any() },
-	handler: async (ctx, { turnId, input }) => {
+	args: { turnId: v.id("agentTurns"), op: v.optional(opArg), input: v.any() },
+	handler: (ctx, { turnId, op, input }) => withReceipt(ctx, op, turnId, async () => {
 		const { member, who } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
 			const { type: typeName, field: name, label, kind, options: rawOptions, linksTo, multiple, trash, position } = fieldInput.parse(input);
 			const options = rawOptions?.map((o) => typeof o === "string" ? { label: o } : o);
-			const type = await typeNamed(ctx, member, typeName);
+			const type = await typeByKey(ctx, member, typeName);
 			let fieldId: Id<"recordFields">;
 			if (trash !== undefined) {
 				if (!name || label || kind || options || linksTo || multiple !== undefined || position !== undefined) throw new ConvexError("Say which field to delete or restore, on its own.");
-				fieldId = fieldNamed(await fieldsOf(ctx, type._id), name, type, !trash)._id;
+				fieldId = fieldNamed(await fieldsOf(ctx, type._id), name, type, !trash, false)._id;
 				await setFieldTrashed(ctx, who, fieldId, trash);
 			} else if (name) {
-				const field = fieldNamed(await fieldsOf(ctx, type._id), name, type);
+				const field = fieldNamed(await fieldsOf(ctx, type._id), name, type, false, false);
 				if ((kind && kind !== field.kind) || linksTo || multiple !== undefined)
 					throw new ConvexError("Only a field's name and options can change. Add a new field instead.");
 				await updateField(ctx, who, field._id, { label, options, position });
@@ -446,18 +459,18 @@ export const saveFieldFor = internalMutation({
 			} else {
 				if (position !== undefined) throw new ConvexError("Create the field before moving it.");
 				if (!label || !kind) throw new ConvexError("Give the new field a label and a kind.");
-				const linkTypeId = linksTo ? (await typeNamed(ctx, member, linksTo))._id : undefined;
+				const linkTypeId = linksTo ? (await typeByKey(ctx, member, linksTo))._id : undefined;
 				fieldId = (await createField(ctx, who, type._id, { label, kind, options, linkTypeId, multiple }))._id;
 			}
 			const f = (await ctx.db.get(fieldId))!;
 			return { type: type.key, typePlural: type.plural, ...fieldOut(f, f.linkTypeId && (await ctx.db.get(f.linkTypeId))?.key) };
 		});
-	},
+	}),
 });
 
 export const saveDatabaseFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), input: v.any() },
-	handler: async (ctx, { turnId, input }) => {
+	args: { turnId: v.id("agentTurns"), op: v.optional(opArg), input: v.any() },
+	handler: (ctx, { turnId, op, input }) => withReceipt(ctx, op, turnId, async () => {
 		const { member, who } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
 			const parsed = databaseInput.safeParse(input);
@@ -466,10 +479,10 @@ export const saveDatabaseFor = internalMutation({
 			let id: Id<"recordTypes">;
 			if (key && trash !== undefined) {
 				if (plural || name) throw new ConvexError("Delete or restore a database on its own.");
-				id = (await typeNamed(ctx, member, key, !trash))._id;
+				id = (await typeByKey(ctx, member, key, !trash))._id;
 				await setTypeTrashed(ctx, who, id, trash);
 			} else if (key) {
-				id = (await typeNamed(ctx, member, key))._id;
+				id = (await typeByKey(ctx, member, key))._id;
 				await updateType(ctx, who, id, { name, plural, version: version ?? -1 });
 			} else {
 				if (!plural || trash !== undefined) throw new ConvexError("Give the new database a name.");
@@ -478,7 +491,7 @@ export const saveDatabaseFor = internalMutation({
 			const type = (await ctx.db.get(id))!;
 			return { type: type.key, name: type.name, plural: type.plural, version: type.version ?? 0, ...(type.archived && { inTrash: true }) };
 		});
-	},
+	}),
 });
 
 export const viewsFor = internalMutation({
@@ -490,14 +503,14 @@ export const viewsFor = internalMutation({
 });
 
 export const saveViewFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), input: v.any() },
-	handler: async (ctx, { turnId, input }) => {
+	args: { turnId: v.id("agentTurns"), op: v.optional(opArg), input: v.any() },
+	handler: (ctx, { turnId, op, input }) => withReceipt(ctx, op, turnId, async () => {
 		const { member, who } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
 			const checked = viewInput.safeParse(input);
 			if (!checked.success) throw new ConvexError(checked.error.issues[0]!.message);
 			const parsed = checked.data;
-			const type = await typeNamed(ctx, member, parsed.type);
+			const type = await typeByKey(ctx, member, parsed.type);
 			const viewId = parsed.id ? ctx.db.normalizeId("databaseViews", parsed.id) : undefined;
 			if (parsed.id && !viewId) throw new ConvexError("View not found.");
 			const old = viewId ? (await viewsOf(ctx, member, type._id)).find((v) => v._id === viewId) : undefined;
@@ -510,18 +523,18 @@ export const saveViewFor = internalMutation({
 			const fields = await fieldsOf(ctx, type._id);
 			// Kept settings drop fields archived since, so renaming an old view still works.
 			const live = (key: string) => fields.some((f) => f.key === key && !f.archived);
-			const sort = parsed.sort && { ...parsed.sort, field: ["createdAt", "updatedAt"].includes(parsed.sort.field) ? parsed.sort.field : fieldNamed(fields, parsed.sort.field, type).key };
+			const sort = parsed.sort && { ...parsed.sort, field: ["createdAt", "updatedAt"].includes(parsed.sort.field) ? parsed.sort.field : fieldNamed(fields, parsed.sort.field, type, false, false).key };
 			const id = await saveView(ctx, who, type._id, {
 				name: parsed.name ?? old?.name ?? "",
-				filters: parsed.filters ? await conditionsFor(ctx, member, type, fields, parsed.filters) : old?.filters.filter((c) => live(c.field)) ?? [],
+				filters: parsed.filters ? await conditionsFor(ctx, member, type, fields, parsed.filters, true) : old?.filters.filter((c) => live(c.field)) ?? [],
 				sort: parsed.sort === null ? undefined : sort ?? (old?.sort && (["createdAt", "updatedAt"].includes(old.sort.field) || live(old.sort.field)) ? old.sort : undefined),
 				columns: parsed.columns ?? old?.columns.filter(live) ?? ["name"],
 				layout: parsed.layout ?? old?.layout,
-				groupBy: parsed.groupBy === null ? undefined : parsed.groupBy ? fieldNamed(fields, parsed.groupBy, type).key : old?.groupBy && live(old.groupBy) ? old.groupBy : undefined,
+				groupBy: parsed.groupBy === null ? undefined : parsed.groupBy ? fieldNamed(fields, parsed.groupBy, type, false, false).key : old?.groupBy && live(old.groupBy) ? old.groupBy : undefined,
 			}, viewId || undefined, parsed.version);
 			return ctx.db.get(id);
 		});
-	},
+	}),
 });
 
 export const historyFor = internalMutation({

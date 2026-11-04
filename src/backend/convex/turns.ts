@@ -143,11 +143,15 @@ async function settleApproval(ctx: MutationCtx, turn: Doc<"agentTurns">) {
 	const approval = turn.approvalId && (await ctx.db.get(turn.approvalId));
 	if (approval?.status === "approved")
 		await ctx.db.patch(approval._id, { status: "failed", error: "The reply stopped before running it. Ask again if you still want it." });
+	// A built-in's effect commits with its receipt (approvals.withReceipt): still running means it never happened.
+	// An outside service's call may have landed before the reply stopped: that's unknown until someone checks.
 	if (approval?.status === "running")
-		await ctx.db.patch(approval._id, {
-			status: "failed",
-			error: "The reply stopped while it was running, so it may or may not have happened. Check before trying again.",
-		});
+		await ctx.db.patch(
+			approval._id,
+			approval.outside
+				? { status: "failed", outcome: "unknown", error: "The reply stopped while it was running, so it may or may not have happened. Check before trying again." }
+				: { status: "failed", error: "The reply stopped before it finished, so nothing changed. Ask again if you still want it." },
+		);
 }
 
 /**

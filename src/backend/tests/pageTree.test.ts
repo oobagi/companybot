@@ -241,7 +241,9 @@ describe("nested pages", () => {
 		const turnId = await agentTurn(t, member, (await generalOf(member))._id, (await agentsOf(member)).companybot._id);
 		const write = (input: object) => t.mutation(internal.pageTools.writeFor, { turnId, input });
 		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
-		const made = await write({ title: "Guide", parent: "Wiki" }) as { id: Id<"pages"> };
+		// Writes name parents by id: a title could belong to another page by the time a held call runs.
+		expect(await write({ title: "Guide", parent: "Wiki" })).toMatchObject({ error: expect.stringContaining("by its id") });
+		const made = await write({ title: "Guide", parent: root }) as { id: Id<"pages"> };
 		const tree = await t.mutation(internal.pageTools.findFor, { turnId, input: { parent: root } });
 		expect(tree.rows).toEqual([expect.objectContaining({ id: made.id, parentId: root })]);
 		const read = await t.mutation(internal.pageTools.readFor, { turnId, page: root });
