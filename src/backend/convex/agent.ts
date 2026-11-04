@@ -332,7 +332,7 @@ async function streamReply(
 		const label = callLabel(existing?.type === "tool" ? existing.name : name, available, services, { input: callInputs.get(id), output: call?.output });
 		// A call that made a thread (chat.ask_agent's) opens it from its line.
 		const opens = status === "done" ? callOpens(name, available, call?.output) : undefined;
-		const link = opens && { opens: { chatId: opens.chatId as Id<"chats">, messageId: opens.messageId as Id<"chatMessages"> } };
+		const link = opens && { opens: { chatId: opens.chatId as Id<"chats">, messageId: opens.messageId as Id<"chatMessages">, ...(opens.kind && { kind: opens.kind }) } };
 		if (existing?.type === "tool") {
 			existing.status = status;
 			existing.label = label;

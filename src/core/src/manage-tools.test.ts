@@ -148,4 +148,12 @@ describe("grouped tools", () => {
 			}
 		for (const tool of manageTools) expect((await asSchema(tool.input).jsonSchema).type).toBe("object");
 	});
+
+	it("links a sent message from its tool line: the message, or the thread it went in", () => {
+		const opens = manageTools.find((t) => t.id === "chat.manage")!.opens!;
+		expect(opens({ messageId: "m", chatId: "c" })).toEqual({ chatId: "c", messageId: "m", kind: "message" });
+		expect(opens({ messageId: "m", chatId: "c", threadId: "t" })).toEqual({ chatId: "c", messageId: "t" });
+		expect(opens({ chatId: "c" })).toBeUndefined();
+		expect(opens({ done: "edit", messageId: "m" })).toBeUndefined();
+	});
 });

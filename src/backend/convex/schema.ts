@@ -38,14 +38,14 @@ export const toolStatus = v.union(v.literal("running"), v.literal("done"), v.lit
 export const messagePart = v.union(
 	v.object({ type: v.literal("text"), text: v.string() }),
 	/** `label`: what it did, for people ("Send SMS with Fake CRM"; core `callLabel`). Older parts lack it. */
-	/** `opens`: a thread the call made, that its line opens (chat.ask_agent's "Scout asked Quill →"). */
+	/** `opens`: what its line opens: a thread the call made (chat.ask_agent's "Scout asked Quill →"), or with `kind: "message"` a message it sent (chat.manage's "Companybot posted in #sales →"). */
 	v.object({
 		type: v.literal("tool"),
 		id: v.string(),
 		name: v.string(),
 		label: v.optional(v.string()),
 		status: toolStatus,
-		opens: v.optional(v.object({ chatId: v.id("chats"), messageId: v.id("chatMessages") })),
+		opens: v.optional(v.object({ chatId: v.id("chats"), messageId: v.id("chatMessages"), kind: v.optional(v.literal("message")) })),
 	}),
 	/** Props were validated against the widget's schema when the agent placed it. */
 	v.object({ type: v.literal("widget"), id: v.string(), widget: v.object({ type: v.string(), props: v.any() }) }),
