@@ -24,7 +24,7 @@ Open settings from your avatar (account) or the workspace logo at the top of the
 | [Archive](#/settings/archive) | Deleted things; restore | Anyone restores what they could delete; roles that can delete forever do |
 | [Agents](#/settings/agents) | Agents, models, tools, instructions | Roles that can change agents |
 | [Connectors](#/settings/connectors) | Outside services | Roles that can install connectors; everyone allowed connects their own |
-| [Skills](#/settings/skills) | Shared instructions | Roles that can make and change skills |
+| [Skills](#/settings/skills) | Personal or team instructions | Everyone for Just me; team skills need the skills edit switch |
 | [Automations](#/settings/automations) | Jobs on a schedule or event | Anyone makes personal ones; roles that can make and change team automations do the rest |
 
 Shared settings (agents, workspace name and the like) are edited then saved. If someone saved first, you are asked whether to use theirs or keep yours.

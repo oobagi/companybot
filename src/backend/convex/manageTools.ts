@@ -6,10 +6,10 @@ import { addChannelMembers, markReadAs, createChannelAs, joinChannel, leaveChann
 import { chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
 import { automationName, automationScope, canView, definitionOf, installOf } from "./automationOps";
 import { removeAutomation, saveAutomation, updateAutomation } from "./automations";
-import { installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
+import { requirePersonalSkillChat, installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
 import { editMessage, hideMessagePreview, removeMessage, reactMessage, sendMessage } from "./messages";
 import { cancelMemberInvite, imageSettings, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
-import { accessOf, asToolResult, checkPermission, type Member, nameOf, rolesOf, normalizeEmail, preferencesOf, requireAgent, skillOf, timeZoneOf } from "./lib";
+import { canSeeSkill, accessOf, asToolResult, checkPermission, type Member, nameOf, rolesOf, normalizeEmail, preferencesOf, requireAgent, skillOf, timeZoneOf } from "./lib";
 import { createAgent, setAgentTrashed, updateAgent } from "./agents";
 import { catalogModels } from "./modelCatalog";
 import { setImage } from "./images";
@@ -40,7 +40,7 @@ const participants = (ctx: MutationCtx, r: { userIds?: string[]; agentIds?: stri
 export const runFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), tool: v.string(), input: v.any() },
 	handler: async (ctx, { turnId, tool, input }): Promise<unknown> => {
-		const { who, turn } = await runningTurn(ctx, turnId);
+		const { who, turn, chat } = await runningTurn(ctx, turnId);
 		const { member } = who;
 		const agent = await ctx.db.get(turn.agentId);
 		if (!agent || agent.archived || !isGranted(agent.tools, tool)) throw new ConvexError("This agent no longer has that tool.");
@@ -208,16 +208,18 @@ export const runFor = internalMutation({
 						const result = await workspacePage(ctx, "skillInstalls", member, r.cursor);
 						return {
 							...result,
-							page: result.page.filter((i) => !i.archived).map((i) => ({ id: i.skillId, name: skillOf(i)?.name, version: i.custom?.version ?? i.definition?.version })),
+							page: result.page.filter((i) => !i.archived && canSeeSkill(member.userId, i)).map((i) => ({ id: i.skillId, name: skillOf(i)?.name, version: i.custom?.version ?? i.definition?.version })),
 						};
 					}
 					const install = await skillInstallOf(ctx, member.workspaceId, r.id);
-					const skill = install && skillOf(install);
+					const skill = install && canSeeSkill(member.userId, install) && skillOf(install);
 					if (!skill) throw new ConvexError("Skill not found.");
-					return { ...skill, id: r.id, version: install.custom?.version ?? skill.version, installed: true, canEdit: can(member, "skills.edit") };
+					return { ...skill, id: r.id, version: install.custom?.version ?? skill.version, installed: true, audience: install.audience, canEdit: install.audience === "personal" || can(member, "skills.edit") };
 				}
 				case "skills.edit": {
 					const r = manageInputs[tool].parse(input).request;
+					const install = await skillInstallOf(ctx, member.workspaceId, r.id);
+					if (install?.audience === "personal") await requirePersonalSkillChat(ctx, chat);
 					await saveSkill(ctx, member, { skillId: r.id, config: r.config, expectedVersion: r.expectedVersion });
 					return { done: r.action, id: r.id };
 				}

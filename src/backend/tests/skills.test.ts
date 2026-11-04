@@ -45,7 +45,7 @@ describe("customize", () => {
 				createdByName: "member@co.com",
 			});
 			await setMemberSwitch(owner, "skills.edit", false);
-			await expect(member.mutation(api.skills.create, { config: quote })).rejects.toThrow("Only people with the Owner role can make and change skills.");
+			await expect(member.mutation(api.skills.create, { config: quote, audience: "team" })).rejects.toThrow("Only people with the Owner role can make and change skills.");
 			expect((await member.query(api.skills.list)).find((s) => s.id === mine)).toMatchObject({ canEdit: false });
 		});
 
@@ -73,14 +73,14 @@ describe("customize", () => {
 			await expect(owner.mutation(api.skills.remove, { skillId })).rejects.toThrow("Skill not found.");
 			// In Trash agents don't see it and nobody can change it; restored, it's back as it was.
 			const workspaceId = (await t.run((ctx) => ctx.db.query("skillInstalls").first()))!.workspaceId;
-			expect(await t.run((ctx) => installedSkills(ctx, workspaceId))).toEqual([]);
+			expect(await t.run((ctx) => installedSkills(ctx, workspaceId, owner.userId))).toEqual([]);
 			await expect(owner.mutation(api.skills.save, { skillId, config: quote, expectedVersion: 1 })).rejects.toThrow("Skill not found.");
 			const trash = (await owner.query(api.trash.list, { kind: "skill", paginationOpts: { numItems: 10, cursor: null } })).page;
 			expect(trash.map((e) => [e.name, e.screenId])).toEqual([["Quote follow-up", skillId], ["Quote follow-up", mine]]);
 			await expect(member.mutation(api.trash.restore, { kind: "skill", id: trash[0]!.itemId })).rejects.toThrow("Only people with the");
 			await owner.mutation(api.trash.restore, { kind: "skill", id: trash[0]!.itemId });
 			expect(await find()).toMatchObject({ trash: null, name: "Quote follow-up" });
-			expect((await t.run((ctx) => installedSkills(ctx, workspaceId))).map((s) => s.id)).toEqual([skillId]);
+			expect((await t.run((ctx) => installedSkills(ctx, workspaceId, owner.userId))).map((s) => s.id)).toEqual([skillId]);
 			await owner.mutation(api.skills.remove, { skillId });
 			for (const e of trash) await owner.mutation(api.trash.purge, { id: e.itemId });
 			expect(await find()).toBeUndefined();
@@ -90,9 +90,9 @@ describe("customize", () => {
 			await owner.mutation(api.skills.remove, { skillId: "meeting-notes" });
 			const retained = (await owner.query(api.skills.list)).find((s) => s.id === "meeting-notes")!;
 			expect(retained.trash).toMatchObject({ kind: "skill", canRestore: true });
-			expect(await t.run((ctx) => installedSkills(ctx, workspaceId))).toEqual([]);
+			expect(await t.run((ctx) => installedSkills(ctx, workspaceId, owner.userId))).toEqual([]);
 			await owner.mutation(api.trash.restore, { kind: "skill", id: retained.trash!.itemId });
-			expect((await t.run((ctx) => installedSkills(ctx, workspaceId))).map((s) => s.id)).toEqual(["meeting-notes"]);
+			expect((await t.run((ctx) => installedSkills(ctx, workspaceId, owner.userId))).map((s) => s.id)).toEqual(["meeting-notes"]);
 			await owner.mutation(api.skills.remove, { skillId: "meeting-notes" });
 			await owner.mutation(api.trash.purge, { id: retained.trash!.itemId });
 			expect(await t.run((ctx) => ctx.db.query("skillInstalls").collect())).toHaveLength(0);
@@ -149,8 +149,8 @@ describe("customize", () => {
 				mentions: { userIds: [], agentIds: [companybot._id] },
 			});
 			const turnId = (await turnsOf(t))[0]!._id;
-			expect(await t.mutation(internal.skills.createFor, { turnId, config: { ...quote, name: "" } })).toEqual({ error: "Give it a name." });
-			const made = (await t.mutation(internal.skills.createFor, { turnId, config: { ...quote, name: "  Quote follow-up  " } })) as { created: string; name: string };
+			expect(await t.mutation(internal.skills.createFor, { turnId, audience: "team", config: { ...quote, name: "" } })).toEqual({ error: "Give it a name." });
+			const made = (await t.mutation(internal.skills.createFor, { turnId, audience: "team", config: { ...quote, name: "  Quote follow-up  " } })) as { created: string; name: string };
 			expect(made.name).toBe("Quote follow-up");
 			expect((await member.query(api.skills.list)).find((s) => s.id === made.created)).toMatchObject({
 				canEdit: true,

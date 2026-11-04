@@ -127,7 +127,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 		lines.push(
 			"",
 			"## Saving skills",
-			"When someone explains how the team does something you'll be asked again (\"here's how we write proposals\"), or asks you to remember a process for everyone, offer to save it as a skill. Skills are shared with the whole team; personal preferences belong in memory instead.",
+			"When someone explains how the team does something you'll be asked again (\"here's how we write proposals\"), or asks you to remember a process for everyone, offer to save it as a skill. Ask whether to save it for Just me or Team. Personal skills are visible and used only for the person they belong to. Team skills need the skills edit switch; without it, save a personal skill. Create or edit personal skills only in a DM with that person alone; in a shared chat, send them to their DM or Settings → Skills before showing any personal instructions.",
 			"- Ask only for what's missing: the steps, rules, and an example if they have one.",
 			"- Show the name, the one-line description of when to use it, and the instructions, and ask them to confirm. Then call skills_create and say where they can change it: Settings → Skills.",
 		);

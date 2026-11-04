@@ -22,7 +22,7 @@ import {
 	toggleReaction,
 	visibleChat,
 } from "./chatOps";
-import { type Who, type Member, memberOf, nameOf, requireMember } from "./lib";
+import { type Who, type Member, canSeeSkill, memberOf, nameOf, requireMember } from "./lib";
 import { noteMentions, workspaceRecords } from "./recordOps";
 import { installOf } from "./skills";
 import type { messagePart, replyStats } from "./schema";
@@ -226,7 +226,8 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	// Only skills installed here (and not in Archive), so a message can't point agents at a made-up one.
 	const skillIds: string[] = [];
 	for (const id of new Set(mentions.skillIds ?? [])) {
-		if (await installOf(ctx, member.workspaceId, id)) skillIds.push(id);
+		const install = await installOf(ctx, member.workspaceId, id);
+		if (install && canSeeSkill(member.userId, install)) skillIds.push(id);
 	}
 
 	// An agent writes as its person (`actingFor`), except to that person alone: there it's just the agent talking.
