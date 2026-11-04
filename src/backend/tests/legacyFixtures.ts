@@ -121,5 +121,5 @@ export async function seedAutomation(t: ReturnType<typeof newTest>, as: As, auto
 
 export async function seedSkill(t: ReturnType<typeof newTest>, as: As, skillId: "meeting-notes") {
 	const workspaceId = await workspaceOf(as);
-	await t.run((ctx) => ctx.db.insert("skillInstalls", { workspaceId, skillId, definition: retainedSkill }));
+	await t.run((ctx) => ctx.db.insert("skillInstalls", { audience: "team", workspaceId, skillId, definition: retainedSkill }));
 }

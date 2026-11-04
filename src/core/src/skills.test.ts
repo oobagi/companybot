@@ -1,3 +1,4 @@
+import { asSchema } from "ai";
 import { skills } from "../test/fixtures";
 import { describe, expect, it } from "vitest";
 import { builtinTools } from "./builtin-tools";
@@ -15,15 +16,17 @@ describe("skills", () => {
 	});
 
 	it("creates through the same skills store", async () => {
-		const config = { name: "Quotes", description: "Chase quotes.", instructions: "Be brief." };
+		const config = { audience: "personal" as const, name: "Quotes", description: "Chase quotes.", instructions: "Be brief." };
 		let received: unknown;
 		const context = ctx(member);
 		context.skills.create = async (input) => {
 			received = input;
-			return { created: "custom-1", name: input.name };
+			return { created: "custom-1", name: input.name, audience: input.audience };
 		};
-		expect(await builtinTools.find((t) => t.id === "skills.create")!.execute(config, context)).toEqual({ created: "custom-1", name: "Quotes" });
+		expect(await builtinTools.find((t) => t.id === "skills.create")!.execute(config, context)).toEqual({ created: "custom-1", name: "Quotes", audience: "personal" });
 		expect(received).toEqual(config);
+		const tool = builtinTools.find(t => t.id === "skills.create")!;
+		expect((await asSchema(tool.input).jsonSchema).required).toContain("audience");
 	});
 
 	it("lists skills for the agent, or nothing when none are installed", () => {

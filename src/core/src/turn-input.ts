@@ -165,9 +165,7 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 	if (input.wake && !input.approval) sections.push(wakeSection(input.wake, actor));
 	else if (input.wake && !input.wake.answer) sections.push(`Nobody asked just now.\n${DECISION_NOTE}`);
 	else if (!input.approval && trigger) {
-		const skills = trigger.skills?.length
-			? `\nIt names ${trigger.skills.length === 1 ? "a skill" : "skills"} with /: load ${trigger.skills.length === 1 ? "it" : "each"} with skills_load first and follow it: ${trigger.skills.map((s) => `${JSON.stringify(clean(s.name))} (${s.id})`).join(", ")}.`
-			: "";
+		const skills = namedSkills(trigger);
 		if (input.routed) {
 			const room = roomState(messages, trigger, input.agentId, actor.timeZone);
 			// What agents posted on this message before it (picks run one after another): build on it, don't start over.
@@ -177,6 +175,10 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 	}
 	return sections.join("\n\n");
 }
+
+const namedSkills = (trigger: PlaceMessage) => trigger.skills?.length
+	? `\nIt names ${trigger.skills.length === 1 ? "a skill" : "skills"} with /: load ${trigger.skills.length === 1 ? "it" : "each"} with skills_load first and follow it: ${trigger.skills.map((s) => `${JSON.stringify(clean(s.name))} (${s.id})`).join(", ")}.`
+	: "";
 
 /**
  * Messages the person sent while the agent worked on this turn (backend turns.steer), appended to its
@@ -188,7 +190,7 @@ export function steerNote(messages: PlaceMessage[], actor: { id: string; name: s
 	const who = clean(actor.name);
 	return [
 		`[Note from Companybot, not the person: ${who} sent ${messages.length === 1 ? "this" : "these"} while you were replying. ${messages.length === 1 ? "It comes" : "They come"} first: if ${who} changed or called off what they asked, follow that and say so in a short line; if not, carry on.]`,
-		...messages.map((m) => chatLine(m, actor)),
+		...messages.map((m) => chatLine(m, actor) + namedSkills(m)),
 	].join("\n");
 }
 

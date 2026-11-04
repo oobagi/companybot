@@ -311,7 +311,7 @@ export const turnContext = internalQuery({
 			const trigger = await ctx.db.get(turn.triggerId);
 			if (trigger) recent.push(trigger);
 		}
-		const skills = await installedSkills(ctx, chat.workspaceId);
+		const skills = await installedSkills(ctx, chat.workspaceId, turn.actorId);
 		const messages = await Promise.all(
 			recent
 				.filter((m) => !m.deleted)
@@ -631,7 +631,7 @@ export const steer = internalMutation({
 			.sort((a, b) => a._creationTime - b._creationTime);
 		if (messages.length === 0) return null;
 		const names = namer(ctx);
-		const skills = await installedSkills(ctx, turn.workspaceId);
+		const skills = await installedSkills(ctx, turn.workspaceId, turn.actorId);
 		const actor = { id: turn.actorId, name: (await names.user(turn.actorId)).name, timeZone: await timeZoneOf(ctx, turn.actorId) };
 		const note = steerNote(await Promise.all(messages.map((m) => toPlaceMessage(m, names, turn.agentId, skills))), actor);
 		await ctx.db.patch(turnId, {

@@ -442,6 +442,10 @@ export default defineSchema({
 		.index("by_install", ["connectorInstallId"]),
 
 	skillInstalls: defineTable({
+		/** Personal owner; team rows have audience team and no owner. */
+		// COMPAT(0.1.0-alpha.10): after skillAudience runs on prod, make audience required.
+		audience: v.optional(v.union(v.literal("team"), v.literal("personal"))),
+		ownerId: v.optional(v.id("users")),
 		definition: v.optional(skillDefinition),
 		workspaceId: v.id("workspaces"),
 		skillId: v.string(),
@@ -460,7 +464,7 @@ export default defineSchema({
 		),
 		/** Skills: in Archive (the `trash` table says who deleted it, and when). Agents don't see it. */
 		archived: v.optional(v.boolean()),
-	}).index("by_workspace", ["workspaceId", "skillId"]),
+	}).index("by_workspace", ["workspaceId", "skillId"]).index("by_owner", ["ownerId", "workspaceId"]),
 
 	// ---- Chat: channels, DMs (people and agents), threads, reactions. See wiki/chat.md. ----
 
