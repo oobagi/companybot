@@ -132,15 +132,18 @@ const defaultRoles = (connector: Connector, memberRole: Id<"roles"> | undefined)
 
 /** Which of the workspace's roles may use an installed connector. Owners always can. Applies at once, including mid-reply. */
 export const setRoles = mutation({
-	// COMPAT(0.1.0-alpha.10): alpha.9 apps send "owner" or "member"; narrow this to role ids and delete the mapping below.
+	// COMPAT(0.1.0-alpha.10): alpha.9 apps send "owner" or "member"; narrow this to role ids and delete `legacy` below.
 	args: { connectorId: v.string(), roles: v.array(v.union(v.id("roles"), v.literal("owner"), v.literal("member"))) },
 	handler: async (ctx, { connectorId, roles }) => {
 		const member = await requirePermission(ctx, "connectors.manage");
 		const install = await installOf(ctx, member.workspaceId, connectorId);
 		if (!install) throw new ConvexError("Install the connector first.");
 		const memberRole = await builtInId(ctx, member.workspaceId, "member");
-		const ids = roles.flatMap((r) => (r === "owner" ? [] : r === "member" ? [memberRole] : [r]));
 		const here = new Set((await rolesOf(ctx, member.workspaceId)).map((r) => r._id));
+		// alpha.9 apps only know Owner and Member: their save adds or removes Member and keeps every other role's grant.
+		const legacy = roles.some((r) => r === "owner" || r === "member");
+		const kept = (install.roles as string[]).filter((r): r is Id<"roles"> => r !== "owner" && r !== "member" && r !== memberRole && here.has(r as Id<"roles">));
+		const ids = legacy ? [...kept, ...(roles.includes("member") ? [memberRole] : [])] : (roles as Id<"roles">[]);
 		if (ids.some((id) => !here.has(id))) throw new ConvexError("Role not found.");
 		await ctx.db.patch(install._id, { roles: [...new Set(ids)] });
 	},
