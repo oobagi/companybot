@@ -106,9 +106,8 @@ export async function finishQuiet(
 	{ parts = [], usage, ...decision }: { parts?: FunctionArgs<typeof internal.turns.updateReply>["parts"]; usage?: FunctionArgs<typeof internal.turns.finishReply>["usage"]; new_point?: string; post?: boolean; to?: string } = {},
 ) {
 	const decided = { new_point: say ? "Something new" : "", post: !!say, to: "room", message: say, ...decision };
-	const replyId = (await t.run((ctx) => ctx.db.get(turnId)))!.replyId!;
 	const text = publishes(decided) ? say : "";
-	await t.mutation(internal.turns.updateReply, { replyId, text, parts: [...parts, ...(text ? [{ type: "text" as const, text }] : [])] });
+	await t.mutation(internal.turns.updateReply, { turnId, text, parts: [...parts, ...(text ? [{ type: "text" as const, text }] : [])] });
 	await t.mutation(internal.turns.finishReply, { turnId, usage, decision: decided });
 }
 /** Runs everything scheduled (cascades, cleanups) until nothing is left. */

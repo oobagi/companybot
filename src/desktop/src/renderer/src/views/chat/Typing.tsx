@@ -6,8 +6,11 @@ import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { Avatar, AvatarStack, MenuItem, PopoverPanel } from "./common";
 
-/** An agent working here, and its step ("Searching records for Acme…"; null while it writes). */
-type Working = { id: string; name: string; image?: string | null; step: string | null };
+/**
+ * An agent working here, and its step ("Searching records for Acme…"; null while it writes). `canStop`:
+ * you may stop it (the person it works for, or an owner); `stopping`: someone did, and it's ending.
+ */
+type Working = { id: string; name: string; image?: string | null; step: string | null; turnId: Id<"agentTurns">; canStop: boolean; stopping: boolean };
 
 /** Tells others you're typing: call `ping` on each keystroke (it throttles itself) and `sent` on send. */
 export function useTypingPing(chatId: Id<"chats">, threadId?: Id<"chatMessages">) {
@@ -59,7 +62,28 @@ export function TypingLine({ chatId, threadId }: { chatId: Id<"chats">; threadId
 				{line.working && line.typing && " · "}
 				{line.typing}
 			</span>
+			{agents.length === 1 && <StopButton agent={agents[0]!} />}
 		</span>
+	);
+}
+
+/**
+ * Ends an agent's reply early (turns.stop). A control, never a word in the chat: a message saying
+ * "stop" is just a message. The agent finishes a tool call it's running, then stops; what it wrote stays.
+ */
+function StopButton({ agent }: { agent: Working }) {
+	const stop = useMutation(api.turns.stop);
+	if (!agent.canStop) return null;
+	return (
+		<button
+			type="button"
+			disabled={agent.stopping}
+			onClick={() => stop({ turnId: agent.turnId }).catch(() => {})}
+			title={`Stop ${agent.name}`}
+			className="shrink-0 rounded px-1.5 font-medium text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800 disabled:opacity-60 disabled:hover:bg-transparent"
+		>
+			{agent.stopping ? "Stopping…" : "Stop"}
+		</button>
 	);
 }
 
@@ -67,7 +91,7 @@ export function TypingLine({ chatId, threadId }: { chatId: Id<"chats">; threadId
  * The line's two halves. One agent shows its step ("Companybot: Searching records for Acme…"),
  * or types like a person while it writes; several are "2 agents working", each listed on hover.
  */
-export function statusLine(agents: Working[], people: string[]): { working?: string; typing?: string } {
+export function statusLine(agents: Pick<Working, "name" | "step">[], people: string[]): { working?: string; typing?: string } {
 	const [only] = agents;
 	if (agents.length > 1) return { working: `${agents.length} agents working`, typing: typingLine(people) };
 	if (only?.step) return { working: `${only.name}: ${only.step}`, typing: typingLine(people) };
@@ -117,10 +141,11 @@ function WorkingList({ agents, label }: { agents: Working[]; label: string }) {
 						{agents.map((a) => (
 							<div key={a.id} className="flex gap-2 px-2 py-1.5">
 								<Avatar name={a.name} image={a.image} agent size="xs" />
-								<div className="min-w-0">
+								<div className="min-w-0 flex-1">
 									<div className="font-medium">{a.name}</div>
 									<div className="truncate text-neutral-500">{a.step ?? "Writing a reply…"}</div>
 								</div>
+								<StopButton agent={a} />
 							</div>
 						))}
 						<div className="mt-1 border-t border-neutral-100 pt-1">

@@ -48,6 +48,8 @@ export type Message = {
 	parts: Infer<typeof messagePart>[];
 	status: "streaming" | "done" | "error";
 	error: string | null;
+	/** An agent reply someone stopped partway (turns.stop): who. */
+	stoppedBy: string | null;
 	stats: Infer<typeof replyStats> | null;
 	editedAt: number | null;
 	deleted: boolean;
@@ -137,6 +139,7 @@ async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, 
 		parts: m.parts,
 		status: m.status,
 		error: m.error ?? null,
+		stoppedBy: m.stoppedBy ? await nameOf(ctx, m.stoppedBy) : null,
 		stats: m.stats ?? null,
 		editedAt: m.editedAt ?? null,
 		deleted: m.deleted ?? false,

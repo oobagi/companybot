@@ -35,7 +35,7 @@ describe("approvals", () => {
 			risk: "outside",
 		});
 		const parts = [{ type: "approval" as const, id: "c1", approvalId, tool: call.tool }];
-		await t.mutation(internal.turns.updateReply, { replyId: turn.replyId!, text: "", parts });
+		await t.mutation(internal.turns.updateReply, { turnId: turn._id, text: "", parts });
 		if (finish) await t.mutation(internal.turns.finishReply, { turnId: turn._id });
 		const [card] = await as.query(api.approvals.forReply, { replyId: turn.replyId! });
 		return { turn, approvalId, card: card! };

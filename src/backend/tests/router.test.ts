@@ -269,7 +269,7 @@ describe("reply router", () => {
 			const turn = (await turnsOf(t)).find((x) => x.status === "running")!;
 			// What it wrote doesn't matter: the decision does. Stored as written, for its session.
 			const replyId = turn.replyId as Id<"chatMessages">;
-			await t.mutation(internal.turns.updateReply, { replyId, text: say, parts: [{ type: "text", text: say }] });
+			await t.mutation(internal.turns.updateReply, { turnId: turn._id, text: say, parts: [{ type: "text", text: say }] });
 			await t.mutation(internal.turns.finishReply, { turnId: turn._id, decision: { new_point: "x", post: true, to: "room", message: say, ...decision } });
 			expect((await t.run((ctx) => ctx.db.get(replyId)))!.quiet).toBe(true);
 		}
@@ -287,7 +287,7 @@ describe("reply router", () => {
 		const [turn] = await turnsOf(t);
 		const { approvalId } = await t.mutation(internal.approvals.request, { turnId: turn!._id, callId: "c1", tool: "records.save", input: "{}", risk: "inside" });
 		const card = { type: "approval" as const, id: "c1", approvalId, tool: "records.save" };
-		await t.mutation(internal.turns.updateReply, { replyId: turn!.replyId as Id<"chatMessages">, text: "", parts: [card] });
+		await t.mutation(internal.turns.updateReply, { turnId: turn!._id, text: "", parts: [card] });
 		// The run stopped at the call, so it made no decision.
 		await t.mutation(internal.turns.finishReply, { turnId: turn!._id });
 		expect((await member.query(api.messages.list, { chatId })).find((m) => m._id === turn!.replyId)!.parts).toEqual([card]);

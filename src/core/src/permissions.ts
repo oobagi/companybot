@@ -44,6 +44,8 @@ export const permissions = {
 	/** Delete forever from Archive (wiki/data.md#trash). Agents never delete forever. */
 	"trash.manage": { roles: ["owner"], label: "manage Archive" },
 	/** See the whole workspace's AI usage and cost. Everyone sees their own share (usage.ts). */
+	/** Stop an agent's reply that's running for someone else. Anyone can always stop one running for them (turns.stop). */
+	"turns.stopAny": { roles: ["owner"], label: "stop agents working for someone else" },
 	"usage.view": { roles: ["owner"], label: "see the workspace's AI usage" },
 } as const satisfies Record<string, { roles: readonly Role[]; label: string }>;
 
