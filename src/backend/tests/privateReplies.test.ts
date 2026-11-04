@@ -49,6 +49,156 @@ async function setup() {
 	return { t, owner, crew, dana, office, deals, deal, chat, companybot, start, turnId, replyId, read, write, finish, reply, turn };
 }
 
+async function connectorSetup() {
+	const s = await setup();
+	await s.owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
+	await s.owner.action(api.connectors.connect, { connectorId: "crm", credentials: { type: "api_key", key: "fixture-key" } });
+	await s.owner.mutation(api.connectors.setRoles, { connectorId: "crm", roles: [s.office] });
+	const install = (await s.t.run((ctx) => ctx.db.query("connectorInstalls").first()))!;
+	const readConnector = () => s.t.mutation(internal.connectors.forCall, { turnId: s.turnId, connectorId: "crm" });
+	return { ...s, install, readConnector };
+}
+
+describe("workspace connector sources", () => {
+	it("keeps Office connector reads private in general and refuses team memory", async () => {
+		const s = await connectorSetup();
+		await s.owner.mutation(api.roles.setPermission, { id: s.office, permission: "memory.team.write", on: true });
+		expect(await s.readConnector()).not.toBeNull();
+		expect((await s.t.run((ctx) => ctx.db.get(s.replyId)))!.usedPlaces).toContain(s.install._id);
+		await s.write();
+		expect((await s.reply(s.dana)).privacy).toMatchObject({ hidden: false, label: "Only Office and Owners can see this" });
+		expect((await s.reply(s.dana)).privacy!.why).toContain("CRM connector");
+		expect(JSON.stringify(await s.reply(s.crew))).not.toContain(SECRET);
+		expect(JSON.stringify(await s.crew.query(api.messages.stream, { messageId: s.replyId }))).not.toContain(SECRET);
+		await expect(s.t.mutation(internal.memory.createFor, { turnId: s.turnId, scope: "workspace", content: SECRET })).rejects.toThrow("Only Office and Owners");
+		expect(JSON.stringify(await s.crew.query(api.memory.list))).not.toContain(SECRET);
+	});
+
+	it("lets everyone with connector access read the answer and saves to a matching audience", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		const chat = await generalOf(owner);
+		const { companybot } = await agentsOf(owner);
+		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
+		await owner.action(api.connectors.connect, { connectorId: "crm", credentials: { type: "api_key", key: "fixture-key" } });
+		const turnId = await agentTurn(t, member, chat._id, companybot._id);
+		expect(await t.mutation(internal.connectors.forCall, { turnId, connectorId: "crm" })).not.toBeNull();
+		await t.mutation(internal.turns.updateReply, { turnId, text: SECRET, parts: [{ type: "text", text: SECRET }] });
+		const replyId = (await t.run((ctx) => ctx.db.get("agentTurns", turnId)))!.replyId!;
+		for (const viewer of [owner, member]) {
+			const reply = (await viewer.query(api.messages.list, { chatId: chat._id })).find((m) => m._id === replyId)!;
+			expect((await viewer.query(api.messages.stream, { messageId: replyId }))!.text).toBe(SECRET);
+			expect(reply.privacy?.hidden).not.toBe(true);
+		}
+		const memberRole = (await owner.query(api.roles.list))!.find((r) => r.builtIn === "member")!.id;
+		const page = await owner.mutation(api.pages.create, { title: "CRM notes" });
+		await owner.mutation(api.pages.setAccess, { pageId: page, access: [{ role: memberRole, level: "edit" }] });
+		const result = await t.mutation(internal.pageTools.writeFor, { turnId, input: { page, title: SECRET } });
+		expect(result).not.toHaveProperty("error");
+		expect((await member.query(api.pages.get, { pageId: page }))!.title).toBe(SECRET);
+	});
+
+	it("does not treat default Member access as access for custom-role-only channel readers", async () => {
+		const s = await connectorSetup();
+		await s.finish("Done.");
+		const memberRole = (await s.owner.query(api.roles.list))!.find((r) => r.builtIn === "member")!.id;
+		await s.owner.mutation(api.connectors.setRoles, { connectorId: "crm", roles: [memberRole] });
+		const turnId = await s.start(s.crew);
+		expect(await s.t.mutation(internal.connectors.forCall, { turnId, connectorId: "crm" })).not.toBeNull();
+		await s.t.mutation(internal.turns.updateReply, { turnId, text: SECRET, parts: [{ type: "text", text: SECRET }] });
+		const replyId = (await s.t.run((ctx) => ctx.db.get("agentTurns", turnId)))!.replyId!;
+		const reply = async (viewer: As) => (await viewer.query(api.messages.list, { chatId: s.chat._id })).find((m) => m._id === replyId)!;
+		expect((await s.crew.query(api.messages.stream, { messageId: replyId }))!.text).toBe(SECRET);
+		expect((await reply(s.dana)).privacy?.hidden).toBe(true);
+		expect(JSON.stringify(await reply(s.dana))).not.toContain(SECRET);
+		await expect(s.t.mutation(internal.memory.createFor, { turnId, scope: "workspace", content: SECRET })).rejects.toThrow("wider audience");
+	});
+
+	it("uses changed install roles for old replies and subsequent writes", async () => {
+		const s = await connectorSetup();
+		await s.owner.mutation(api.roles.setPermission, { id: s.office, permission: "pages.edit", on: true });
+		const page = await s.owner.mutation(api.pages.create, { title: "Office notes" });
+		await s.owner.mutation(api.pages.setAccess, { pageId: page, access: [{ role: s.office, level: "edit" }] });
+		await s.readConnector(); await s.write();
+		const save = () => s.t.mutation(internal.pageTools.writeFor, { turnId: s.turnId, input: { page, title: SECRET } });
+		const memberRole = (await s.owner.query(api.roles.list))!.find((r) => r.builtIn === "member")!.id;
+		await s.owner.mutation(api.connectors.setRoles, { connectorId: "crm", roles: [memberRole] });
+		expect((await s.reply(s.dana)).privacy?.hidden).toBe(true);
+		expect((await s.crew.query(api.messages.stream, { messageId: s.replyId }))!.text).toBe(SECRET);
+		expect(await save()).toHaveProperty("error", expect.stringContaining("wider audience"));
+		expect(await s.readConnector()).toBeNull();
+		await s.owner.mutation(api.connectors.setRoles, { connectorId: "crm", roles: [memberRole, s.office] });
+		expect((await s.dana.query(api.messages.stream, { messageId: s.replyId }))!.text).toBe(SECRET);
+		expect(await save()).not.toHaveProperty("error");
+	});
+
+	it("fails closed for a deleted install, including for Owners", async () => {
+		const s = await connectorSetup();
+		await s.owner.mutation(api.roles.setPermission, { id: s.office, permission: "memory.team.write", on: true });
+		await s.readConnector(); await s.write();
+		await s.owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: false });
+		for (const viewer of [s.owner, s.dana, s.crew]) {
+			expect((await s.reply(viewer)).privacy?.hidden).toBe(true);
+			expect(JSON.stringify(await viewer.query(api.messages.stream, { messageId: s.replyId }))).not.toContain(SECRET);
+		}
+		expect((await s.t.run((ctx) => ctx.db.get(s.replyId)))!.usedPlaces).toContain(s.install._id);
+		await expect(s.t.mutation(internal.memory.createFor, { turnId: s.turnId, scope: "workspace", content: SECRET })).rejects.toThrow("wider audience");
+	});
+
+	it("keeps connector sources on posts and permits only authorized people to share the answer", async () => {
+		const s = await connectorSetup();
+		await s.readConnector();
+		const post = await s.t.mutation(internal.manageTools.runFor, { turnId: s.turnId, tool: "chat.manage", input: { request: { action: "send", chat: "#general", text: SECRET } } }) as { messageId: Id<"chatMessages"> };
+		expect(post).toHaveProperty("messageId");
+		expect((await s.t.run((ctx) => ctx.db.get("chatMessages", post.messageId)))!.usedPlaces).toContain(s.install._id);
+		expect(JSON.stringify(await s.crew.query(api.messages.list, { chatId: s.chat._id }))).not.toContain(SECRET);
+		await s.t.mutation(internal.activity.log, { turnId: s.turnId, callId: "crm-read", tool: "crm.search", changes: false, input: SECRET, output: SECRET });
+		await s.finish();
+		await expect(s.crew.mutation(api.messages.share, { messageId: s.replyId })).rejects.toThrow("can't see");
+		await s.dana.mutation(api.messages.share, { messageId: s.replyId });
+		expect((await s.reply(s.crew)).text).toBe(SECRET);
+		expect(await s.crew.query(api.activity.forReply, { replyId: s.replyId })).toEqual([]);
+	});
+
+	it.each(["record", "page", "picture"] as const)("refuses a public %s write after a connector read", async (kind) => {
+		const s = await connectorSetup();
+		await s.owner.mutation(api.roles.setPermission, { id: s.office, permission: "records.edit", on: true });
+		await s.owner.mutation(api.roles.setPermission, { id: s.office, permission: "pages.edit", on: true });
+		const page = await s.owner.mutation(api.pages.create, { title: "Public notes" });
+		const clients = (await s.owner.query(api.recordTypes.list)).find((t) => t.key === "client")!;
+		await s.readConnector();
+		if (kind === "record") {
+			const result = await s.t.mutation(internal.recordTools.saveFor, { turnId: s.turnId, input: { type: clients.key, values: { name: SECRET } } });
+			expect(result).toHaveProperty("error", expect.stringContaining("wider audience"));
+		} else if (kind === "page") {
+			const result = await s.t.mutation(internal.pageTools.writeFor, { turnId: s.turnId, input: { page, title: SECRET } });
+			expect(result).toHaveProperty("error", expect.stringContaining("wider audience"));
+		} else {
+			const storageId = await s.t.run((ctx) => ctx.storage.store(new Blob(["picture"], { type: "image/png" })));
+			await s.t.run((ctx) => ctx.db.patch(s.replyId, { attachments: [{ storageId, name: "crm.png", type: "image/png", size: 7 }] }));
+			await s.finish();
+			const next = await s.start(s.dana);
+			const file = `${s.replyId}/0`;
+			const copied = await s.t.action(internal.files.copyFor, { turnId: next, ids: [file], picture: true });
+			if (!("copies" in copied)) throw new Error(copied.error);
+			const copy = copied.copies[file]!;
+			const url = (await s.t.run((ctx) => ctx.storage.getUrl(copy)))!;
+			const replyId = (await s.t.run((ctx) => ctx.db.get("agentTurns", next)))!.replyId!;
+			expect((await s.t.run((ctx) => ctx.db.get("chatMessages", replyId)))!.usedPlaces).toContain(s.install._id);
+			const result = await s.t.mutation(internal.pageTools.writeFor, { turnId: next, input: { page }, pictures: [{ storageId: copy, url }] });
+			expect(result).toHaveProperty("error", expect.stringContaining("wider audience"));
+			expect(await s.t.run((ctx) => ctx.db.query("pageImages").collect())).toEqual([]);
+		}
+	});
+
+	it("refuses a public decision reaction after a connector read", async () => {
+		const s = await connectorSetup();
+		await s.readConnector();
+		const turn = await decideReaction(s.t, s.turnId, s.turn.triggerId!, "👍");
+		expect(turn.status).toBe("error");
+		expect(await s.t.run((ctx) => ctx.db.query("reactions").collect())).toEqual([]);
+	});
+});
+
 describe("private agent replies", () => {
 	it("records reads before returning results, masks every content field, and shows the reply after a role grant", async () => {
 		const s = await setup();

@@ -8,7 +8,7 @@ import { viewConfig } from "./recordValidators";
 /** One of `values`, each a literal. */
 const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map((value) => v.literal(value)));
 
-const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats"), v.id("users"))));
+const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats"), v.id("users"), v.id("connectorInstalls"))));
 export const arrangementList = oneOf(Object.keys(arrangementLists) as ArrangementList[]);
 export const databaseDisplay = v.object({ layout: v.union(v.literal("table"), v.literal("board")), groupBy: v.optional(v.string()) });
 

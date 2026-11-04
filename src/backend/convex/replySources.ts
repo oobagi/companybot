@@ -7,7 +7,7 @@ import { chatAccess, reach, type AccessList } from "./placeAccess";
 import { canReadSources, opensSource, writeSourceReader } from "./replyPrivacy";
 
 type Place = Id<"recordTypes"> | Id<"pages"> | Id<"chats">;
-export type UsedPlace = Place | Id<"users">;
+export type UsedPlace = Place | Id<"users"> | Id<"connectorInstalls">;
 const writes = new WeakMap<Member, Promise<void>>();
 
 /** Reads in a turn are mutations: the source commits before its result can reach the model or stream. */

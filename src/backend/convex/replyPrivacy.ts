@@ -1,10 +1,11 @@
-import { EVERYONE, whoCan } from "@companybot/core";
+import { EVERYONE, findConnector, whoCan } from "@companybot/core";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { canPost, reachOf } from "./chatOps";
 import { type Member, nameOf } from "./lib";
 import { pageStates } from "./pageTree";
 import { type AccessList, chatAccess, reach } from "./placeAccess";
+import { allowedRoles } from "./connectorAccess";
 import { inheritPlaces, type UsedPlace } from "./replySources";
 
 export type Source = { exclusiveTo?: Id<"users">; membersOnly: boolean; users?: Id<"users">[]; person?: string; where: string; access: AccessList; visible: boolean; name: string; why: string };
@@ -42,6 +43,14 @@ async function loadSource(ctx: QueryCtx, member: Member, id: UsedPlace, audience
 	if (userId) {
 		const person = await nameOf(ctx, userId);
 		return { person, exclusiveTo: userId, membersOnly: true, users: [userId], where: "", access: [], visible: userId === member.userId, name: `personal information for ${person}`, why: `personal information for ${person}` };
+	}
+	const connectorId = ctx.db.normalizeId("connectorInstalls", id);
+	if (connectorId) {
+		const install = await ctx.db.get(connectorId);
+		const access: AccessList = install ? allowedRoles(member, install).map((role) => ({ role, level: "view" })) : [];
+		const name = install ? `${findConnector(install.connectorId)?.name ?? install.connectorId} connector` : "a deleted connector";
+		// Keep the install id after uninstall: like a deleted place, it no longer authorizes any viewer or write.
+		return { membersOnly: false, where: "", access, visible: !!install && install.workspaceId === member.workspaceId && !!reach(member, access), name, why: install ? `the ${name}` : name };
 	}
 	const databaseId = ctx.db.normalizeId("recordTypes", id);
 	if (databaseId) {
