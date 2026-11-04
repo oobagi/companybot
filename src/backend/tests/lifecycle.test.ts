@@ -133,7 +133,7 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		const call = { workspaceId, agentId, actorId: memberId, chatId: channel, turnId, replyId: said, callId: "c1", tool: "crm.sms", input: "{}" };
 		// What the agent got back for them: only they see it.
 		await ctx.db.insert("agentActivity", { ...call, changes: true, status: "done", output: "their inbox" });
-		await ctx.db.insert("toolReceipts", { turnId, callId: "c1" });
+		await ctx.db.insert("toolReceipts", { turnId, callId: "c1", actorId: memberId, state: "done", output: "their result" });
 		await ctx.db.insert("turnSteps", { workspaceId, turnId, actorId: memberId, messages: JSON.stringify([{ role: "tool", content: [{ type: "tool-result", toolCallId: "c1", toolName: "crm_sms", output: { type: "text", value: "their inbox" } }] }]) });
 		await ctx.db.insert("approvals", { ...call, hash: "h", status: "done", result: "their inbox", expiresAt: now + 60_000 });
 

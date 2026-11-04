@@ -328,7 +328,7 @@ describe("approvals", () => {
 			finish: async (id: string, output: unknown) => void receipts.set(id, output),
 		};
 		const tools = buildToolSet({ tools: ["crm.*"] }, { ...ctx(owner), calls }, [write, find, keyed]);
-		const call = (tool: string, input: object, toolCallId: string) => tools.connectors_call!.execute!({ tool, input }, { toolCallId, messages: [] });
+		const call = (tool: string, input: object, toolCallId: string) => tools.connectors_call!.execute!({ tool, input }, { toolCallId, messages: [] } as never);
 		expect(await call("crm.send_sms", { to: "+1", body: "hi" }, "c1")).toEqual({ ok: true });
 		expect(await call("crm.send_sms", { to: "+1", body: "hi" }, "c1")).toEqual({ note: "already ran", result: { ok: true } });
 		expect(sent).toHaveLength(1);
