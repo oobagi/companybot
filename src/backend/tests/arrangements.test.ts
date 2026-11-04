@@ -266,3 +266,30 @@ it("cleans personal rows on leaving/erasure and every workspace row on workspace
 	await settle(t);
 	expect(await rows()).toEqual([]);
 });
+
+it("BUG hidden shared ids cannot be removed", async () => {
+	const { owner, member } = await ownerAndMember();
+	const general = await generalOf(owner);
+	const privateId = await owner.mutation(api.chats.createChannel, { name: "private", private: true });
+	for (const id of [general._id, privateId]) await change(owner, "channels", add(id));
+	await expect(change(member, "channels", { op: "remove", id: privateId })).rejects.toThrow("Not found.");
+	await expect(change(member, "channels", { op: "remove", id: "missing" })).rejects.toThrow("Not found.");
+	expect(await idsOf(owner, "channels")).toEqual([general._id, privateId]);
+	// Personal lists still drop stale ids.
+	await change(member, "channelFolds", { op: "remove", id: "gone" });
+	await change(member, "pins", add("page:gone"));
+	await change(member, "pins", { op: "remove", id: "page:gone" });
+	expect(await idsOf(member, "pins")).toEqual([]);
+});
+
+it("BUG view fill rejects ids from a restricted database", async () => {
+	const { owner, member, officeOnly } = await withOffice();
+	const [shown, hidden, other] = await owner.query(api.recordTypes.list);
+	await owner.mutation(api.recordTypes.setAccess, { typeId: hidden!._id, access: officeOnly });
+	const save = (typeId: string, name: string) => owner.mutation(api.databaseViews.save, { typeId: typeId as never, name, columns: ["name"], filters: [] });
+	const mine = await save(shown!._id, "Mine");
+	const secret = await save(hidden!._id, "Secret");
+	const elsewhere = await save(other!._id, "Elsewhere");
+	await change(member, "views", to(mine, null, [secret, elsewhere, "not-an-id"]), shown!._id);
+	expect(await idsOf(owner, "views", shown!._id)).toEqual([mine]);
+});

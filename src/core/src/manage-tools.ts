@@ -1,3 +1,4 @@
+import { TOPIC_MAX } from "./chat";
 import { z } from "zod";
 import { reasonings } from "./agent-config";
 import { cronHelp } from "./automation-tools";
@@ -45,9 +46,9 @@ export const manageInputs = {
 		request: z.discriminatedUnion("action", [
 			z.strictObject({ action: z.literal("list"), ...page }),
 			z.strictObject({ action: z.literal("get"), chat: id, ...page }),
-			z.strictObject({ action: z.literal("create"), name: z.string().min(1).max(80), topic: z.string().max(2000).optional(), private: z.boolean() }),
+			z.strictObject({ action: z.literal("create"), name: z.string().min(1).max(80), topic: z.string().max(TOPIC_MAX).optional().describe(`At most ${TOPIC_MAX} characters`), private: z.boolean() }),
 			z.strictObject({ action: z.literal("rename"), chat: id, name: z.string().min(1).max(80) }),
-			z.strictObject({ action: z.literal("set_topic"), chat: id, topic: z.string().max(2000) }),
+			z.strictObject({ action: z.literal("set_topic"), chat: id, topic: z.string().max(TOPIC_MAX).describe(`At most ${TOPIC_MAX} characters; empty clears it`) }),
 			z.strictObject({ action: z.literal("set_replies"), chat: id, replies: z.enum(replyModes).describe('"mentions": agents answer only @mentions. "relevant": they also answer, or react to, messages that look meant for them') }),
 			z.strictObject({ action: z.literal("add_members"), chat: id, userIds, agentIds }),
 			z

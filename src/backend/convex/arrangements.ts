@@ -17,52 +17,83 @@ const targetArgs = { list: arrangementList, entityId: v.optional(v.string()) };
 
 /** A page level's ids read one by one (siblings under one parent): at most this many, the rest dropped from what's returned. */
 export const PAGE_LEVEL_MAX = 500;
-/** Page docs one `get` reads across every level, so a workspace with many arranged levels stays under the read limits. */
-const PAGE_READS_MAX = 2_000;
+/** Page docs one call reads in all, levels, parents and their ancestors alike, so it stays under 4,096 index ranges. */
+export const PAGE_READS_MAX = 2_000;
+/** Channel docs `get` reads to know which ones someone sees; past either cap the rest of the order is left out. */
+export const CHANNEL_READS_MAX = 1_000;
+const CHANNEL_BYTES_MAX = 8 * 1024 * 1024;
+
+/** Thrown when a call has read `PAGE_READS_MAX` pages: `get` leaves that level out. */
+class OutOfPageReads extends Error {}
 
 /**
  * What of each list someone may see, so nobody receives or moves an id they can't see. Channels and
- * databases take two and one indexed reads in all; a page level reads its pages (`PAGE_LEVEL_MAX`).
- * Personal lists are the person's own and pass through.
+ * databases take two and one indexed reads in all (channels capped); pages go through one cached,
+ * budgeted reader shared by levels, parents and ancestors. Personal lists pass through.
  */
 function viewer(ctx: QueryCtx, member: Member) {
 	const channels = once(async () => {
-		const [all, seats] = await Promise.all([
-			ctx.db.query("chats").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("kind", "channel")).collect(),
-			ctx.db.query("chatMembers").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("userId", member.userId)).collect(),
-		]);
+		const seats = await ctx.db.query("chatMembers").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("userId", member.userId)).collect();
 		const mine = new Set<string>(seats.map((s) => s.chatId));
-		return new Set<string>(all.filter((c) => !c.archived && (!c.private || mine.has(c._id)) && reach(member, chatAccess(c))).map((c) => c._id));
+		const seen = new Set<string>();
+		let count = 0;
+		let bytes = 0;
+		for await (const c of ctx.db.query("chats").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("kind", "channel"))) {
+			if (!c.archived && (!c.private || mine.has(c._id)) && reach(member, chatAccess(c))) seen.add(c._id);
+			bytes += getDocumentSize(c);
+			if (++count >= CHANNEL_READS_MAX || bytes >= CHANNEL_BYTES_MAX) break;
+		}
+		return seen;
 	});
 	const types = once(async () => new Set<string>((await typesOf(ctx, member.workspaceId)).filter((t) => !t.archived && reach(member, t.access)).map((t) => t._id)));
-	const pageSeen = pageVisible(ctx, member);
+	const pages = new Map<string, Promise<Doc<"pages"> | null>>();
 	let pageReads = PAGE_READS_MAX;
+	const readPage = (id: Id<"pages">) => {
+		let doc = pages.get(id);
+		if (!doc) {
+			if (pageReads-- <= 0) throw new OutOfPageReads();
+			pages.set(id, (doc = ctx.db.get(id)));
+		}
+		return doc;
+	};
+	const pageSeen = pageVisible(ctx, member, readPage);
 	const page = async (id: string) => {
 		const pageId = ctx.db.normalizeId("pages", id);
-		const doc = pageId && await ctx.db.get(pageId);
-		return doc && !doc.archived && doc.workspaceId === member.workspaceId && await pageSeen(doc) ? doc : null;
+		const doc = pageId && await readPage(pageId);
+		return doc && !doc.archived && !doc.recordId && doc.workspaceId === member.workspaceId && await pageSeen(doc) ? doc : null;
+	};
+	const viewsOf = async (typeId: string) => {
+		const id = ctx.db.normalizeId("recordTypes", typeId);
+		if (!id || !(await types()).has(id)) return new Set<string>();
+		const views = await ctx.db.query("databaseViews").withIndex("by_type", (q) => q.eq("typeId", id)).collect();
+		return new Set<string>(views.filter((view) => view.workspaceId === member.workspaceId).map((view) => view._id));
 	};
 	return {
 		page,
-		channel: async (id: string) => (await channels()).has(id),
+		/** Whether a page level's parent is visible; a call out of page reads can't tell, so it leaves the level out. */
+		pageLevel: async (parentId: string) => { try { return !!(await page(parentId)); } catch (e) { if (e instanceof OutOfPageReads) return false; throw e; } },
 		database: async (id: string) => (await types()).has(id),
-		/** The ids of a list this person may see, in order. Null: the whole list is hidden from them. */
+		/** The ids of a list this person may see, in order. Null: the whole list is hidden from them (or out of reads). */
 		filter: async (list: ArrangementList, entityId: string | undefined, ids: string[]): Promise<string[] | null> => {
 			switch (list) {
 				case "channels": case "channelFolds": { const seen = await channels(); return ids.filter((id) => seen.has(id)); }
 				case "databases": { const seen = await types(); return ids.filter((id) => seen.has(id)); }
 				case "views": case "columns": return (await types()).has(entityId!) ? ids : null;
 				case "pages": {
-					if (pageReads <= 0) return null;
-					const level = ids.slice(0, Math.min(PAGE_LEVEL_MAX, pageReads));
-					pageReads -= level.length;
 					const kept: string[] = [];
-					for (const id of level) if (await page(id)) kept.push(id);
+					try {
+						for (const id of ids.slice(0, PAGE_LEVEL_MAX)) if (await page(id)) kept.push(id);
+					} catch (e) {
+						if (e instanceof OutOfPageReads) return null;
+						throw e;
+					}
 					return kept;
 				}
 				default: return ids;
 			}
 		},
+		/** `fill` ids for a database's views: only ones that exist, here, in that database. */
+		views: viewsOf,
 	};
 }
 type Viewer = ReturnType<typeof viewer>;
@@ -165,7 +196,7 @@ export const get = query({
 		const seen = viewer(ctx, member);
 		const shown: Arrangement[] = [];
 		for (const { list, entityId, ids } of rows) {
-			if (entityId && list === "pages" && !(await seen.page(entityId))) continue;
+			if (entityId && list === "pages" && !(await seen.pageLevel(entityId))) continue;
 			const visible = await seen.filter(list, entityId, ids);
 			if (visible) shown.push({ list, entityId, ids: visible });
 		}
@@ -203,12 +234,15 @@ export const change = mutation({
 		if (!place) throw new ConvexError("Arrangement not found.");
 		validate([command.id, ...extraIds(command)]);
 		const columns = target.list === "columns" ? await columnsOf(ctx, target) : undefined;
-		const named = command.op === "move" && command.beforeId !== null ? [command.id, command.beforeId] : command.op === "remove" ? [] : [command.id];
+		const shared = arrangementLists[target.list].scope === "shared";
+		// Personal lists drop stale ids with a plain remove; on shared ones a hidden id can't be touched at all.
+		const named = command.op === "move" && command.beforeId !== null ? [command.id, command.beforeId] : command.op === "remove" && !shared ? [] : [command.id];
 		for (const id of named) if (!(await live(ctx, member, target, id, seen, columns))) throw new ConvexError("Not found.");
 		const keep = async (ids?: string[]) => {
 			if (!ids) return undefined;
 			if (columns) return ids.filter((id) => columns.has(id));
-			return arrangementLists[target.list].scope === "shared" ? (await seen.filter(target.list, target.entityId, ids)) ?? [] : ids.filter((id) => shaped(ctx, target.list, id));
+			if (target.list === "views") { const views = await seen.views(target.entityId!); return ids.filter((id) => views.has(id)); }
+			return shared ? (await seen.filter(target.list, target.entityId, ids)) ?? [] : ids.filter((id) => shaped(ctx, target.list, id));
 		};
 		const checked = command.op === "move" ? { ...command, fill: await keep(command.fill) } : { ...command, seed: await keep(command.seed) };
 		const old = await rowOf(ctx, place);

@@ -3,7 +3,7 @@ import { type MigrationFunctionReference, Migrations } from "@convex-dev/migrati
 import { components, internal } from "./_generated/api";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, internalMutation, internalQuery } from "./_generated/server";
-import { defaultModel, scheduleCron, usageMonth, wakeAnchor } from "@companybot/core";
+import { TOPIC_MAX, defaultModel, scheduleCron, usageMonth, wakeAnchor } from "@companybot/core";
 import { recordUsage } from "./usage";
 import { type RunOutcome, scheduleCursor } from "./automationOps";
 import { rolesOf, timeZoneOf } from "./lib";
@@ -271,6 +271,15 @@ export const wakeupDurations = migrations.define({
 	},
 });
 
+// COMPAT(0.1.0-alpha.10): cuts topics from before the 250-character cap (core TOPIC_MAX) so the
+// sidebar's channel read stays small. Once this has run on prod, delete it, its entry in `all` and its test.
+export const channelTopics = migrations.define({
+	table: "chats",
+	migrateOne: async (ctx, row) => {
+		if (row.topic && row.topic.length > TOPIC_MAX) await ctx.db.patch(row._id, { topic: row.topic.slice(0, TOPIC_MAX) });
+	},
+});
+
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
@@ -291,6 +300,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.automationOutcomes,
 	internal.migrations.skillAudience,
 	internal.migrations.wakeupDurations,
+	internal.migrations.channelTopics,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */
