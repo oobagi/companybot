@@ -34,6 +34,8 @@ describe("approvals", () => {
 			input: canonicalJson(call.input),
 			risk: "outside",
 		});
+		// The step as the runner keeps it: the call, with no result (it's held).
+		await t.mutation(internal.turns.keepStep, { turnId: turn._id, messages: JSON.stringify([{ role: "assistant", content: [{ type: "tool-call", toolCallId: "c1", toolName: "crm_send_sms", input: call.input }] }]) });
 		const parts = [{ type: "approval" as const, id: "c1", approvalId, tool: call.tool }];
 		await t.mutation(internal.turns.updateReply, { turnId: turn._id, text: "", parts });
 		if (finish) await t.mutation(internal.turns.finishReply, { turnId: turn._id });
@@ -134,7 +136,7 @@ describe("approvals", () => {
 		const context = await t.mutation(internal.turns.turnContext, { turnId: next._id });
 		expect(context.approval).toMatchObject({ id: approvalId, tool: call.tool, status: "approved", by: "member@co.com" });
 		// The held call replays the same way whatever happens to it (prompt caching), and no message is re-asked.
-		expect(context.session.turns.at(-1)?.reply).toBe("[Held for approval: crm.send_sms]");
+		expect(context.session.turns.at(-1)).toEqual({ prompt: "Reply to this message: text Bob", steps: JSON.stringify([{ role: "assistant", content: [{ type: "tool-call", toolCallId: "c1", toolName: "crm_send_sms", input: call.input }] }]), answer: "" });
 		expect(context.messages.some((m) => m.id === turn.triggerId)).toBe(false);
 
 		expect(await t.mutation(internal.approvals.claim, { approvalId, turnId: next._id })).toEqual(call);

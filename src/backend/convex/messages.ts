@@ -107,9 +107,7 @@ export const page = query({
 		if (!visible) return none;
 		const parent = threadId && (await ctx.db.get(threadId));
 		if (threadId && (!parent || parent.chatId !== chatId)) return none;
-		const result = await ctx.db
-			.query("chatMessages")
-			.withIndex("by_chat_shown", (q) => q.eq("chatId", chatId).eq("threadId", threadId).eq("quiet", undefined))
+		const result = await (await timeline(ctx, chatId, threadId))
 			.order("desc")
 			.paginate({ ...paginationOpts, numItems: Math.min(paginationOpts.numItems, PAGE_MAX) });
 		const docs = result.page.sort((a, b) => shownAt(a) - shownAt(b));
@@ -118,6 +116,23 @@ export const page = query({
 		return { ...result, page: await Promise.all(page.map((m) => toMessage(ctx, m, visible.member, names))) };
 	},
 });
+
+/**
+ * A timeline's shown messages (quiet ones left out), in the order shown (`by_chat_shown`).
+ * COMPAT(0.1.0-alpha.10): until migrations.messageShownAt has reached this place, some of its messages have no
+ * `publishedAt` and that index would sort them out of the newest page, so it's read by when each was made instead.
+ * One indexed read finds out. Once the migration has run on prod, delete the fallback: read `by_chat_shown`.
+ */
+async function timeline(ctx: QueryCtx, chatId: Id<"chats">, threadId: Id<"chatMessages"> | undefined) {
+	const messages = ctx.db.query("chatMessages");
+	const unplaced = await ctx.db
+		.query("chatMessages")
+		.withIndex("by_chat_shown", (q) => q.eq("chatId", chatId).eq("threadId", threadId).eq("quiet", undefined).eq("publishedAt", undefined))
+		.first();
+	return unplaced
+		? messages.withIndex("by_chat_thread_quiet", (q) => q.eq("chatId", chatId).eq("threadId", threadId).eq("quiet", undefined))
+		: messages.withIndex("by_chat_shown", (q) => q.eq("chatId", chatId).eq("threadId", threadId).eq("quiet", undefined));
+}
 
 /** The most a page may ask for: what a page reads (reactions, previews, sources) stays within Convex's limits. */
 const PAGE_MAX = 200;
@@ -134,9 +149,7 @@ export const list = query({
 		const parent = threadId && (await ctx.db.get(threadId));
 		if (threadId && (!parent || parent.chatId !== chatId)) return [];
 		const docs = (
-			await ctx.db
-				.query("chatMessages")
-				.withIndex("by_chat_shown", (q) => q.eq("chatId", chatId).eq("threadId", threadId).eq("quiet", undefined))
+			await (await timeline(ctx, chatId, threadId))
 				.order("desc")
 				.take(PAGE_MAX)
 		).sort((a, b) => shownAt(a) - shownAt(b));

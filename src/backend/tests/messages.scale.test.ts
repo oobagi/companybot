@@ -19,8 +19,8 @@ it("pages a 50,000-message channel, 40,000 quiet and 5,000 private to others, in
 	for (let start = 0; start < 50_000; start += 2_000) await t.run(async (ctx) => {
 		for (let i = start; i < start + 2_000; i++) {
 			if (i >= 10_000) await ctx.db.insert("chatMessages", { ...base, authorAgentId: companybot._id, text: `hidden ${i}`, quiet: true });
-			else if (i % 2) shown.push(await ctx.db.insert("chatMessages", { ...base, authorAgentId: companybot._id, repliedTo: owner.userId, usedPlaces: [secret], text: `private ${i}` }));
-			else shown.push(await ctx.db.insert("chatMessages", { ...base, authorUserId: owner.userId, text: `message ${i}` }));
+			else if (i % 2) shown.push(await ctx.db.insert("chatMessages", { ...base, publishedAt: i, authorAgentId: companybot._id, repliedTo: owner.userId, usedPlaces: [secret], text: `private ${i}` }));
+			else shown.push(await ctx.db.insert("chatMessages", { ...base, publishedAt: i, authorUserId: owner.userId, text: `message ${i}` }));
 		}
 	});
 	const page = (cursor: string | null) => member.query(api.messages.page, { chatId, paginationOpts: { numItems: PAGE_SIZE, cursor } });

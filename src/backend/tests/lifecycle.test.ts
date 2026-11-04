@@ -96,6 +96,7 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		mine.push(personal, await ctx.db.insert("memoryVersions", { memoryId: personal, version: 1, content: "Before", savedBy: memberId, savedAt: now }));
 
 		const connectorInstallId = await ctx.db.insert("connectorInstalls", { workspaceId, connectorId: "notes", roles: [await builtInRoleIn(ctx, workspaceId, "member")], installedBy: ownerId });
+		await ctx.db.insert("connectorSourceLabels", { workspaceId, installId: connectorInstallId, name: "Notes" });
 		const connection = { workspaceId, connectorId: "notes", credentials: "sealed" };
 		mine.push(await ctx.db.insert("connectorConnections", { ...connection, userId: memberId, connectedBy: memberId }));
 		await ctx.db.insert("connectorConnections", { ...connection, userId: ownerId, connectedBy: ownerId });
@@ -132,6 +133,7 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		const call = { workspaceId, agentId, actorId: memberId, chatId: channel, turnId, replyId: said, callId: "c1", tool: "crm.sms", input: "{}" };
 		// What the agent got back for them: only they see it.
 		await ctx.db.insert("agentActivity", { ...call, changes: true, status: "done", output: "their inbox" });
+		await ctx.db.insert("turnSteps", { workspaceId, turnId, actorId: memberId, messages: JSON.stringify([{ role: "tool", content: [{ type: "tool-result", toolCallId: "c1", toolName: "crm_sms", output: { type: "text", value: "their inbox" } }] }]) });
 		await ctx.db.insert("approvals", { ...call, hash: "h", status: "done", result: "their inbox", expiresAt: now + 60_000 });
 
 		// The workspace's bill: stays when a member goes or an account is erased, goes with the workspace.
@@ -441,7 +443,9 @@ describe("erasing an account", () => {
 			const email = (table === "authRateLimits" && row.identifier === "m@co.com") || (table === "localSignInCodes" && row.email === "m@co.com");
 			if (email) theirs.add(id);
 			const child = (table === "authVerificationCodes" && !after.has(row.accountId as string)) || (table === "authRefreshTokens" && sessions.has(row.sessionId as string));
-			if (own || child) theirs.add(id);
+			// The steps their turns took hold what agents got back for them: they go with the account.
+			const steps = table === "turnSteps" && row.actorId === m.userId;
+			if (own || child || steps) theirs.add(id);
 		}
 		for (const id of rowsOf(before, solo)) if (!keptWhenWorkspaceGoes(before.get(id)!.table)) theirs.add(id);
 		expect([...deleted].sort()).toEqual([...theirs].sort());

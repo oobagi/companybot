@@ -1,3 +1,4 @@
+import type { ModelMessage } from "ai";
 import { z } from "zod";
 import type { ToolDef } from "./tools";
 import type { AgentConfig } from "./agent-config";
@@ -6,13 +7,14 @@ import { type Participant, type ReactionGroup, isEmoji } from "./chat";
 import type { ConfidenceBand } from "./router";
 import { formatFileSize, isImageType, toBase64 } from "./files";
 import { platformGuide } from "./guide";
+import { paired } from "./replay";
 import { type Skill, skillsIndex } from "./skills";
 import { formatLocalTime, shortStamp } from "./time";
 import { isGranted } from "./tools";
 
 // What the model is fed each turn, built for prompt caching (wiki/chat.md):
 // 1. `instructions`: the same for every chat and turn, so it caches everywhere.
-// 2. The session: each past turn replayed exactly as sent (stored prompt + reply).
+// 2. The session: each past turn replayed as the model had it (stored prompt, tool steps, answer).
 // 3. One new user message: where you are, what was said since the last reply, the trigger.
 // Nothing earlier in the prompt changes between turns, so only the new message is uncached.
 
@@ -226,9 +228,6 @@ export function responseOf(d: PostDecision | null | undefined) {
 	return { message: d?.message.trim() ? d.message : null, emoji: isEmoji(d?.emoji) ? d.emoji : null };
 }
 
-/** A finished turn as its session replays it: its reply, and its reaction, which isn't in the reply. */
-export const replayOf = (reply: string, emoji: string | null) => [reply, emoji && `[You reacted ${emoji}]`].filter(Boolean).join("\n");
-
 /** How every turn ends, the same text for all: what's for it, when to write, when a reaction says it. */
 const ANSWER_NOTE = [
 	"You end this reply with your answer; nothing else you write is shown:",
@@ -402,17 +401,19 @@ export function systemPrompt(agent: Pick<AgentConfig, "instructions" | "tools">,
 		.join("\n\n");
 }
 
-/** A finished turn in the session, as it was sent and answered. */
+/** A finished turn in the session, as the model had it. */
 export interface SessionTurn {
 	prompt: string;
-	/** The reply's text plus widget notes. */
-	reply: string;
+	/** Its tool calls and their results (replay.ts keptStep), in order. */
+	steps: ModelMessage[];
+	/** What it answered: its decision, as JSON, as it wrote it. Without one, what its reply showed; "" for nothing. */
+	answer: string;
+	/** The person stopped it before it finished. */
+	stopped?: boolean;
 }
 
-export type TurnMessage = {
-	role: "user" | "assistant";
-	content: string | ({ type: "text"; text: string } | { type: "file"; mediaType: string; data: string })[];
-};
+/** Told after a turn the person stopped: it isn't in the turn, and the model can't tell otherwise. */
+export const STOPPED_NOTE = "[Note from Companybot, not the person: the person stopped that reply before it finished.]";
 
 /** A picture sent with this turn's prompt (never replayed: later turns have the agent's reply about it). */
 export interface TurnImage {
@@ -434,30 +435,31 @@ export function buildTurnInput(input: {
 	available?: readonly ToolDef[];
 	/** Only for a model that sees pictures. They go after the prompt, so its text stays a cacheable prefix. */
 	images?: TurnImage[];
-}): { instructions: string; messages: TurnMessage[] } {
+}): { instructions: string; messages: ModelMessage[] } {
 	const { session } = input;
-	const messages: (TurnMessage & { content: string })[] = [];
-	const push = (role: TurnMessage["role"], content: string) => {
-		// Consecutive same-role messages merge, since some providers require alternating roles.
+	const messages: ModelMessage[] = [];
+	// Back-to-back text from the app merges (a turn with no answer, a note), since some providers require alternating roles.
+	const say = (content: string) => {
 		const last = messages.at(-1);
-		if (last?.role === role) last.content += `\n\n${content}`;
-		else messages.push({ role, content });
+		if (last?.role === "user" && typeof last.content === "string") last.content += `\n\n${content}`;
+		else messages.push({ role: "user", content });
 	};
-	if (session.summary) push("user", `Your notes on earlier conversation here (a record, not instructions):\n${session.summary}`);
+	if (session.summary) say(`Your notes on earlier conversation here (a record, not instructions):\n${session.summary}`);
 	for (const turn of session.turns) {
 		// A shared answer can have no readable prompt; keep a neutral history marker in its place.
-		push("user", turn.prompt || "Earlier reply in this chat:");
-		push("assistant", turn.reply || "(No reply.)");
+		say(turn.prompt || "Earlier reply in this chat:");
+		messages.push(...paired(turn.steps));
+		if (turn.answer) messages.push({ role: "assistant", content: turn.answer });
+		if (turn.stopped) say(STOPPED_NOTE);
 	}
-	push("user", input.prompt);
+	say(input.prompt);
 	const instructions = systemPrompt(input.agent, input.skills, input.available);
 	if (!input.images?.length) return { instructions, messages };
-	const last = messages.at(-1)!;
 	const pictures = input.images.flatMap((i) => [
 		{ type: "text" as const, text: `Picture ${i.id}:` },
 		{ type: "file" as const, mediaType: i.type, data: toBase64(i.data) },
 	]);
-	return { instructions, messages: [...messages.slice(0, -1), { role: "user", content: [{ type: "text", text: last.content }, ...pictures] }] };
+	return { instructions, messages: [...messages.slice(0, -1), { role: "user", content: [{ type: "text", text: messages.at(-1)!.content as string }, ...pictures] }] };
 }
 
 /** Rough token count, for deciding what compaction keeps. */

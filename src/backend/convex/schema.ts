@@ -8,7 +8,7 @@ import { viewConfig } from "./recordValidators";
 /** One of `values`, each a literal. */
 const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map((value) => v.literal(value)));
 
-const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats"), v.id("users"))));
+const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats"), v.id("users"), v.id("connectorInstalls"))));
 export const arrangementList = oneOf(Object.keys(arrangementLists) as ArrangementList[]);
 export const databaseDisplay = v.object({ layout: v.union(v.literal("table"), v.literal("board")), groupBy: v.optional(v.string()) });
 
@@ -434,6 +434,13 @@ export default defineSchema({
 		installedBy: v.id("users"),
 	}).index("by_workspace", ["workspaceId", "connectorId"]),
 
+	// Display labels for deleted source ids; no credentials or connector data. Kept until workspace deletion/reset.
+	connectorSourceLabels: defineTable({
+		workspaceId: v.id("workspaces"),
+		installId: v.id("connectorInstalls"),
+		name: v.string(),
+	}).index("by_install", ["installId"]).index("by_workspace", ["workspaceId"]),
+
 	// An account connected to a connector: the workspace's (userId null) or one person's.
 	// Credentials are AES-GCM encrypted with CONNECTIONS_KEY and never leave the server.
 	connectorConnections: defineTable({
@@ -786,6 +793,18 @@ export default defineSchema({
 		// A channel's recent "might be for you" picks, for their hourly cap (router.ts).
 		.index("by_chat_dispatch", ["chatId", "dispatch.band"]),
 
+	// A turn's tool steps as its model had them (core replay.ts keptStep): its calls and their results,
+	// as JSON ModelMessage[] (a call's input can have any keys). Later turns in its session replay them
+	// (turns.ts sessionTurns); results only to the person it acted for, as in the activity log.
+	turnSteps: defineTable({
+		workspaceId: v.id("workspaces"),
+		turnId: v.id("agentTurns"),
+		actorId: v.id("users"),
+		messages: v.string(),
+	})
+		.index("by_turn", ["turnId"])
+		.index("by_actor", ["actorId"]),
+
 	// Agents handing work to each other for one person (chains.ts, core handoffs.ts): the budget its
 	// handoffs spend, reset when that person writes in it or presses Continue. Made at the first handoff.
 	agentChains: defineTable({
@@ -990,7 +1009,7 @@ export default defineSchema({
 		 * What the last run did (automationOps.RunOutcome): a line, e.g. "Posted in {channel}.", and the channels
 		 * it names, which each reader sees by name only if they can see them (automationOps.outcomeText).
 		 */
-		lastOutcome: v.optional(v.object({ text: v.string(), channelId: v.optional(v.id("chats")), watchedId: v.optional(v.id("chats")) })),
+		lastOutcome: v.optional(v.object({ text: v.string(), failed: v.optional(v.boolean()), channelId: v.optional(v.id("chats")), watchedId: v.optional(v.id("chats")) })),
 		// COMPAT(0.1.0-alpha.10): the line as it was stored, channel names and all. Once migrations.automationOutcomes
 		// has run on prod, drop this. Nothing reads it.
 		lastResult: v.optional(v.string()),

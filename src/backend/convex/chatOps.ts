@@ -1,4 +1,4 @@
-import { type ReactionGroup, describeWidget, emojiOf, withoutFileImages } from "@companybot/core";
+import { type ReactionGroup, describeWidget, emojiOf } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { WithoutSystemFields } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -483,27 +483,6 @@ export async function chatLabel(ctx: QueryCtx, chat: Doc<"chats">, names: Namer,
 	const members = await Promise.all((await chatMembersOf(ctx, chat._id)).map(names.of));
 	const others = members.filter((m) => m.id !== except).map((m) => m.name);
 	return `DM with ${others.join(", ") || "yourself"}`;
-}
-
-/**
- * An agent's own past reply as it replays in its session: the text, widget notes, and
- * the tools it used. Without the tools, the agent can't tell later that it really did act.
- */
-export function replyForModel(m: Doc<"chatMessages">, details = true) {
-	const tools = (details ? m.parts : []).flatMap((p) => (p.type === "tool" ? [`${p.name} (${p.status === "error" ? "failed" : "done"})`] : []));
-	// Held calls are noted without their outcome, so this text never changes once the reply is done (prompt caching).
-	const held = (details ? m.parts : []).flatMap((p) => (p.type === "approval" ? [p.why ? `${p.tool} (the card said: ${JSON.stringify(p.why)})` : p.tool] : []));
-	return [
-		withoutFileImages(textForModel(m)),
-		!details && m.parts.some((p) => p.type === "tool" || p.type === "approval") && `[Used ${new Set(m.parts.flatMap((p) => p.type === "tool" || p.type === "approval" ? [p.id] : [])).size} tools]`,
-		tools.length > 0 && `[Tools you used: ${tools.join(", ")}]`,
-		held.length > 0 && `[Held for approval: ${held.join(", ")}]`,
-		m.stoppedBy && "[Stopped by the person before you finished]",
-		// With ids, so a later turn can use a picture it made or saved (set it as a logo, put it in a page).
-		m.attachments?.length && `[Files you attached: ${m.attachments.map((f, i) => `${JSON.stringify(f.name)} (${m._id}/${i})`).join(", ")}]`,
-	]
-		.filter(Boolean)
-		.join("\n");
 }
 
 /** A message's text plus a note for each widget it showed, for agents. */

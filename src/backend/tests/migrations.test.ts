@@ -373,3 +373,35 @@ it("gives messages from before it the time they're shown at, so they page in ord
 	expect(b!.publishedAt).toBe(9e15);
 	expect(c!.publishedAt).toBeUndefined();
 });
+
+// COMPAT(0.1.0-alpha.10): delete with migrations.messageShownAt and the fallback in messages.ts `timeline`.
+it("shows a chat's newest messages before the backfill gives them a shown time, then pages by it", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	migrationsTest.register(t);
+	prosemirrorSync.register(t);
+	const owner = await signIn(t, "owner@co.com");
+	const chatId = (await generalOf(owner))._id;
+	const { workspaceId, createdBy: authorUserId } = (await t.run((ctx) => ctx.db.get(chatId)))!;
+	const base = { chatId, workspaceId, authorUserId, parts: [], mentions: { userIds: [], agentIds: [] }, status: "done" as const };
+	// 220 that already have one (one of them shown much later than made), then 70 newer from before it was kept.
+	const { late, newer } = await t.run(async (ctx) => {
+		const placed = [];
+		for (let i = 0; i < 220; i++) placed.push(await ctx.db.insert("chatMessages", { ...base, text: `placed ${i}`, publishedAt: i }));
+		await ctx.db.patch(placed[0]!, { publishedAt: 9e15 });
+		const newer = [];
+		for (let i = 0; i < 70; i++) newer.push(await ctx.db.insert("chatMessages", { ...base, text: `newer ${i}` }));
+		return { late: placed[0]!, newer };
+	});
+	const newest = async () => (await owner.query(api.messages.page, { chatId, paginationOpts: { numItems: 50, cursor: null } })).page.map((m) => m._id);
+	expect(await newest()).toEqual(newer.slice(-50));
+	expect((await owner.query(api.messages.list, { chatId })).slice(-70).map((m) => m._id)).toEqual(newer);
+	vi.useFakeTimers();
+	try {
+		await t.mutation(internal.migrations.runAll);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+	} finally {
+		vi.useRealTimers();
+	}
+	// By when each was shown now: the late one last, after the 70.
+	expect(await newest()).toEqual([...newer.slice(-49), late]);
+});

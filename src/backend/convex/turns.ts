@@ -1,5 +1,6 @@
 import type { PlaceMessage, Skill } from "@companybot/core";
-import { QUIET_WINDOW_MS, PROMPT_MESSAGE_CAP, THINKING_STEP, approxTokens, can, defaultReasoning, deniedMessage, fallbackModels, replayOf, responseOf, steerNote } from "@companybot/core";
+import type { ModelMessage } from "ai";
+import { QUIET_WINDOW_MS, PROMPT_MESSAGE_CAP, THINKING_STEP, approxTokens, can, defaultReasoning, deniedMessage, calledTools, fallbackModels, responseOf, steerNote, stepsFor, withoutFileImages } from "@companybot/core";
 import { ConvexError, getDocumentSize, type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -22,7 +23,6 @@ import {
 	reactOnce,
 	requireReactionAudience,
 	reactionGroups,
-	replyForModel,
 	setActivity,
 	textForModel,
 } from "./chatOps";
@@ -224,7 +224,20 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 	await ctx.scheduler.runAfter(0, internal.agent.respond, { turnId: next._id });
 }
 
-/** A session's finished, unsummarized turns as they replay to the model, oldest first. */
+/**
+ * What a past turn answered, as it replays: its decision as it wrote it. Without one (it failed, was
+ * stopped, or made none), what its reply showed. Pictures by file id don't show in a message;
+ * replaying them teaches the model to write more.
+ */
+function answerOf(turn: Doc<"agentTurns">, reply: Doc<"chatMessages"> | null) {
+	if (turn.decision) return JSON.stringify({ ...turn.decision, message: withoutFileImages(turn.decision.message) });
+	return withoutFileImages(reply?.text ?? "");
+}
+
+/**
+ * A session's finished, unsummarized turns as they replay to the model, oldest first. `steps` is JSON
+ * (core replay.ts): a call's input or result can have keys Convex values can't.
+ */
 async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">, member?: Member) {
 	const hiddenSummary = !!session.summary && (session.summaryPrivacy !== 1 || !!member && !(await canReadSources(ctx, member, session.summaryPlaces)));
 	const query = ctx.db.query("agentTurns").withIndex("by_session", (q) => q.eq("sessionId", session._id).gt("_creationTime", hiddenSummary ? 0 : session.summarizedUpTo ?? 0));
@@ -242,16 +255,20 @@ async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">, member
 		if (hiddenSummary && bytes > 4 * 1024 * 1024) break;
 		if (member && reply && !(await canReadReply(ctx, member, reply))) continue;
 		const details = !member || await canReadReplyDetails(ctx, member, reply);
-		const text = replayOf(reply ? replyForModel(reply, details) : "", turn.triggerId ? responseOf(turn.decision).emoji : null);
+		const kept = await ctx.db.query("turnSteps").withIndex("by_turn", (q) => q.eq("turnId", turn._id)).collect();
+		bytes += kept.reduce((sum, s) => sum + getDocumentSize(s), 0);
+		const steps = kept.flatMap((s) => JSON.parse(s.messages) as ModelMessage[]);
+		const shown = JSON.stringify(member ? stepsFor(steps, { details, results: turn.actorId === member.userId }) : steps);
+		const answer = answerOf(turn, reply);
 		const prompt = turn.promptPlaces !== undefined && (!member || await canReadSources(ctx, member, turn.promptPlaces)) ? turn.prompt : "";
-		const size = approxTokens(prompt + text);
+		const size = approxTokens(prompt + shown + answer);
 		if (hiddenSummary && tokens + size > KEEP_TOKENS) break;
 		if (member && reply) {
 			if (details) await readReplyDetails(ctx, member, reply);
 			else await readReply(ctx, member, reply);
 		}
 		if (member && prompt) await inheritPlaces(ctx, member, turn.promptPlaces);
-		replay.push({ prompt, reply: text, time: turn._creationTime, usedPlaces: [...new Set([...(prompt ? turn.promptPlaces ?? [] : []), ...(details ? reply?.usedPlaces ?? [] : [])])] });
+		replay.push({ prompt, steps: shown, answer, ...(reply?.stoppedBy && { stopped: true as const }), calls: calledTools(steps), time: turn._creationTime, usedPlaces: [...new Set([...(prompt ? turn.promptPlaces ?? [] : []), ...(details ? reply?.usedPlaces ?? [] : [])])] });
 		tokens += size;
 	}
 	return hiddenSummary ? replay.reverse() : replay;
@@ -308,7 +325,7 @@ export const turnContext = internalMutation({
 		}
 
 		// Finished turns only, so never this (running) one.
-		const turns = (foreign ? [] : await sessionTurns(ctx, session, member)).map(({ prompt, reply }) => ({ prompt, reply }));
+		const turns = (foreign ? [] : await sessionTurns(ctx, session, member)).map(({ prompt, steps, answer, stopped }) => ({ prompt, steps, answer, ...(stopped && { stopped }) }));
 
 		// What's new: everything in the place after the last turn's reply started.
 		const last = (
@@ -510,6 +527,17 @@ export const savePrompt = internalMutation({
 	handler: async (ctx, { turnId, prompt }) => {
 		const { member } = await runningTurn(ctx, turnId);
 		await ctx.db.patch(turnId, { prompt, promptPlaces: await turnSources(ctx, member) });
+	},
+});
+
+/** One finished step of a running turn (agent.ts), kept for later turns to replay (core replay.ts keptStep). */
+export const keepStep = internalMutation({
+	args: { turnId: v.id("agentTurns"), messages: v.string() },
+	handler: async (ctx, { turnId, messages }) => {
+		const turn = await ctx.db.get(turnId);
+		// Not into a workspace being deleted: its cascade may be past this table.
+		if (!turn || turn.status !== "running" || !(await liveWorkspace(ctx, turn.workspaceId))) return;
+		await ctx.db.insert("turnSteps", { workspaceId: turn.workspaceId, turnId, actorId: turn.actorId, messages });
 	},
 });
 
@@ -913,14 +941,14 @@ export const startCompaction = internalMutation({
 		let keep = 0;
 		let tokens = 0;
 		for (const t of turns.toReversed()) {
-			tokens += approxTokens(t.prompt + t.reply);
+			tokens += approxTokens(t.prompt + t.steps + t.answer);
 			if (keep > 0 && tokens > keepTokens) break;
 			keep++;
 		}
 		const old = turns.slice(0, turns.length - keep);
 		if (old.length === 0) return null;
 		await ctx.db.patch(sessionId, { compacting: true, compactingPrivacy: 1, compactingPlaces: [...new Set([...(session.summaryPlaces ?? []), ...old.flatMap((t) => t.usedPlaces)])] });
-		return { summary: session.summaryPrivacy === 1 ? session.summary ?? null : null, turns: old.map(({ prompt, reply }) => ({ prompt, reply })), upTo: old.at(-1)!.time };
+		return { summary: session.summaryPrivacy === 1 ? session.summary ?? null : null, turns: old.map(({ prompt, calls, answer }) => ({ prompt, calls, answer })), upTo: old.at(-1)!.time };
 	},
 });
 
