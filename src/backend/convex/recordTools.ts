@@ -45,7 +45,8 @@ import {
 import { ANY_OF_MAX, CONDITIONS_MAX, type Condition } from "./recordQuery";
 import { PAGE_MAX, activityAs, historyAs, linkingRecords, listRecords, searchRecords, toEntries } from "./recordReads";
 import { notePlace } from "./replySources";
-import { opArg, withReceipt } from "./approvals";
+import { withReceipt } from "./approvals";
+import { opArg } from "./schema";
 import { runningTurn } from "./turns";
 
 // Records tools (core's RecordStore), acting as the turn's person: their role, read fresh

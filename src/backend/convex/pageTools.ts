@@ -23,7 +23,8 @@ import { claimUpload } from "./images";
 import { pageHistory, requireVersion, versionContent } from "./pages";
 import { inTrash, recordById } from "./recordOps";
 import { writeSources } from "./replySources";
-import { opArg, withReceipt } from "./approvals";
+import { withReceipt } from "./approvals";
+import { opArg } from "./schema";
 import { runningTurn } from "./turns";
 
 // PageStore as the turn's person; conversion runs separately in pageMarkdown.ts.

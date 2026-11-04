@@ -24,7 +24,8 @@ import {
 } from "./lib";
 import { readArtifact, writeSources } from "./replySources";
 import { toggleTrash, trashInfo } from "./trashOps";
-import { opArg, withReceipt } from "./approvals";
+import { withReceipt } from "./approvals";
+import { opArg } from "./schema";
 import { personalMemoryHere, runningTurn } from "./turns";
 
 // Skills live on their install. Personal installs are visible only to their owner.

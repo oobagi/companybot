@@ -25,7 +25,8 @@ import { reach } from "./placeAccess";
 import { recordById } from "./recordOps";
 import { canReadSources } from "./replyPrivacy";
 import { inheritPlaces, notePlace, writeSources } from "./replySources";
-import { opArg, withReceipt } from "./approvals";
+import { withReceipt } from "./approvals";
+import { opArg } from "./schema";
 import { enqueueTurn, runningTurn } from "./turns";
 
 // Wakeups: an agent wakes later in a place (chat + thread), acting for a person. A wakeup is when

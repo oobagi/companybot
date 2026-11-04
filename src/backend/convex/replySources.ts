@@ -49,7 +49,7 @@ export function chatSources(chat: Doc<"chats">): UsedPlace[] {
 }
 
 export type Sourced = { usedPlaces?: UsedPlace[] };
-export type Audience = Place | { place?: Place; access?: AccessList; users?: Id<"users">[]; settings?: true } | { places: UsedPlace[] } | { filtered: true; preserveOwn?: true };
+export type Audience = Place | { place?: Place; access?: AccessList; users?: Id<"users">[]; settings?: true; skip?: UsedPlace } | { places: UsedPlace[] } | { filtered: true; preserveOwn?: true };
 
 /** The same provenance applies when an artifact is read by a turn or copied into a scheduled trigger. */
 export const artifactSources = (artifact: Sourced, personalTo?: Id<"users"> | null): UsedPlace[] => [...new Set([...(artifact.usedPlaces ?? []), ...(personalTo ? [personalTo] : [])])];
@@ -93,13 +93,22 @@ export async function writeSources(ctx: MutationCtx, member: Member, audience?: 
 /**
  * Whether anything this turn has read is restricted: then what it sends outside the workspace (a web search's
  * query, a link it opens, a connector call) asks first (permissions.check). Outside has a wider audience than
- * any chat, so the chat it runs in counts too (a private channel, a group DM). The one exception is #210's
+ * any chat, so the chat it runs in counts too (a private channel, a group DM), and so does a role-limited
+ * connector it read (#234), except when calling that same connector again. The one exception is #210's
  * own-data rule: in the asker's own 1:1 agent DM, their one-person data (that DM, personal memory, skills and
  * connector data) doesn't count; anyone else's restricted place still does.
  */
-export async function turnIsRestricted(ctx: QueryCtx, member: Member) {
+export async function turnIsRestricted(ctx: QueryCtx, member: Member, target?: Id<"connectorInstalls">) {
 	if (!member.replyId) return false;
-	return (await fitSources(ctx, member, { filtered: true })).usedPlaces.length > 0;
+	// The same check as a write to a place open to the whole workspace: a source that wouldn't fit it is restricted.
+	// A workspace connector's own data going back to it (`target`) stays within its audience.
+	try {
+		await fitSources(ctx, member, { access: [{ role: EVERYONE, level: "view" }], skip: target });
+		return false;
+	} catch (e) {
+		if (e instanceof ConvexError) return true;
+		throw e;
+	}
 }
 
 /** `writeSources` without saving anything: the sources a write keeps, or a refusal if they don't fit `audience`. */
@@ -134,6 +143,7 @@ async function fitSources(ctx: QueryCtx, member: Member, audience?: Audience, ar
 	for (const { id, policy: from } of retained) {
 		// The place being changed will use the proposed policy itself. Other sources must still fit.
 		if (id === placeId) continue;
+		if (audience && typeof audience === "object" && "skip" in audience && audience.skip === id) continue;
 		if (audience && typeof audience === "object" && "places" in audience && audience.places.includes(id)) continue;
 		let allowed: boolean;
 		if (users) allowed = viewers.every((viewer) => opensSource(viewer, from));

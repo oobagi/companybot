@@ -5,7 +5,8 @@ import { type QueryCtx, internalMutation } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { type Member, getMember, namesOf, requireAgent, requireMember, toActor } from "./lib";
 import { createMemory, listMemories, memoryVersions, removeMemory, restoreMemoryVersion, searchMemories, updateMemory } from "./memoryOps";
-import { opArg, withReceipt } from "./approvals";
+import { withReceipt } from "./approvals";
+import { opArg } from "./schema";
 import { memoryOn, personalMemoryHere, runningTurn } from "./turns";
 
 const scope = v.union(v.literal("workspace"), v.literal("personal"));

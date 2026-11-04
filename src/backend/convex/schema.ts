@@ -2,7 +2,7 @@ import { accessLevels, builtInRoles, fieldKinds, fileTypes, permissions, reasoni
 import { arrangementLists, type ArrangementList } from "@companybot/core/arrangements";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
-import { v } from "convex/values";
+import { type Infer, v } from "convex/values";
 import { viewConfig } from "./recordValidators";
 
 /** One of `values`, each a literal. */
@@ -93,6 +93,13 @@ export const approvalStatus = v.union(
 	v.literal("failed"),
 	v.literal("denied"),
 );
+
+/**
+ * A tool call's operation key (approvals.withReceipt): the approval it runs from, or the model's call id. Every
+ * write a built-in makes for a call carries it, so the same call never writes twice.
+ */
+export const opArg = v.union(v.object({ approval: v.id("approvals") }), v.object({ call: v.string() }));
+export type Op = Infer<typeof opArg>;
 
 export const trashKind = oneOf(trashKinds);
 

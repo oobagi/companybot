@@ -325,7 +325,7 @@ describe("workspace connector sources", () => {
 	it("keeps connector sources on posts and permits only authorized people to share the answer", async () => {
 		const s = await connectorSetup();
 		await s.readConnector();
-		const post = await s.t.mutation(internal.manageTools.runFor, { turnId: s.turnId, tool: "chat.manage", input: { request: { action: "send", chat: "#general", text: SECRET } } }) as { messageId: Id<"chatMessages"> };
+		const post = await s.t.mutation(internal.manageTools.runFor, { turnId: s.turnId, tool: "chat.manage", input: { request: { action: "send", chat: s.chat._id, text: SECRET } } }) as { messageId: Id<"chatMessages"> };
 		expect(post).toHaveProperty("messageId");
 		expect((await s.t.run((ctx) => ctx.db.get("chatMessages", post.messageId)))!.usedPlaces).toContain(s.install._id);
 		expect(JSON.stringify(await s.crew.query(api.messages.list, { chatId: s.chat._id }))).not.toContain(SECRET);

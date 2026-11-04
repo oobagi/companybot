@@ -6,7 +6,8 @@ import { definitionOf, installOf, runsForLabel, seenChannel, subscribersOf, visi
 import { createAutomation, setSubscription } from "./automations";
 import { chatByRef } from "./chatOps";
 import { type Member, asToolResult, nameOf, timeZoneOf } from "./lib";
-import { opArg, withReceipt } from "./approvals";
+import { withReceipt } from "./approvals";
+import { opArg } from "./schema";
 import { runningTurn } from "./turns";
 
 // ---- Agent tools (core's AutomationStore), acting as the turn's person ----

@@ -15,10 +15,10 @@ An agent's held action appears in the chat as a card from the agent, saying exac
 
 Only the person the agent is acting for can decide, within 24 hours. No role can decide for someone else.
 
-What you approve is exactly what runs. The card names the exact page, record or chat, and if it's edited before the action runs (say, someone changes the page it would overwrite), the action doesn't run; ask again. An approved action runs once, even if something retries it. If an action in another app gets cut off, its card says it **may or may not have happened**: check there before trying again.
+What you approve is exactly what runs. The card names the exact page, record, field or chat, and if it's edited before the action runs (say, someone changes the page it would overwrite, or adds a record to a database it would archive), the action doesn't run; ask again. An approved action runs once, even if something retries it. If an action in another app gets cut off, its card says it **may or may not have happened**: check there before trying again.
 
 ## Web searches after private reads
-Agents search the web and open links without asking. But once a reply reads something not everyone in the chat can see (a restricted database, page or channel), each web search or link it opens asks first, showing the exact query or link, so nothing private leaves unseen. There's no Always for these. In a chat where everyone can already see what it read (like your own chat with an agent), it doesn't ask.
+Agents search the web and open links without asking. But once a reply has used anything not everyone in the workspace can see (a restricted database, page or channel, a connector only some roles can use, or a private channel or group DM it's working in), each web search, link it opens or call to another app asks first, showing exactly what goes out. There's no Always for these, and no lock or rule turns them off. Your own things in your own chat with an agent (your DM, personal memory) don't count, and an app's own data can go back to that same app.
 
 ## Automations
 In an automation someone else wrote, or one fed by outside text, acting as you also asks the first time. Choosing Always there covers that automation only. One held action never stops the rest of a run.

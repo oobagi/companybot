@@ -198,11 +198,11 @@ describe("approvals", () => {
 		const second = await holdCall(t, member, chatId);
 		await member.mutation(api.approvals.decide, { approvalId: second.approvalId, hash: second.card.hash, approve: true, always: false });
 		const next = (await turnsOf(t)).at(-1)!;
-		// An outside service's call (a connector's) may have landed: its outcome is unknown, never "failed".
+		// An outside service's call (a connector's) may have landed: failed, with an unknown outcome (older apps show the error).
 		await t.mutation(internal.approvals.claim, { approvalId: second.approvalId, turnId: next._id, outside: true });
 		await t.mutation(internal.turns.finishReply, { turnId: next._id, error: "Timed out" });
-		expect(await t.run((ctx) => ctx.db.get(second.approvalId))).toMatchObject({ status: "unknown", error: expect.stringContaining("may or may not have happened") });
-		expect((await member.query(api.approvals.forReply, { replyId: second.turn.replyId! }))[0]).toMatchObject({ status: "unknown" });
+		expect(await t.run((ctx) => ctx.db.get(second.approvalId))).toMatchObject({ status: "failed", outcome: "unknown", error: expect.stringContaining("may or may not have happened") });
+		expect((await member.query(api.approvals.forReply, { replyId: second.turn.replyId! }))[0]).toMatchObject({ status: "failed", outcome: "unknown" });
 
 		// A built-in's effect commits with its receipt, so one still running when its turn ends never happened.
 		const third = await holdCall(t, member, chatId);

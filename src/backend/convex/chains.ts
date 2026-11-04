@@ -20,7 +20,8 @@ import { automationScope } from "./automationOps";
 import { addToChat, addUserMentions, chatMembersOf, insertMessage, requireChat } from "./chatOps";
 import { asToolResult, nameOf, requireMember } from "./lib";
 import { writeSources } from "./replySources";
-import { opArg, withReceipt } from "./approvals";
+import { withReceipt } from "./approvals";
+import { opArg } from "./schema";
 import { enqueueTurn, runningTurn } from "./turns";
 import { createWakeup, wake } from "./wakeups";
 

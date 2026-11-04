@@ -19,7 +19,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { type QueryCtx, internalAction, internalMutation } from "./_generated/server";
-import { opArg } from "./approvals";
+import { opArg } from "./schema";
 import { visibleFile } from "./files";
 import { workspaceImageModel } from "./modelCatalog";
 import { addTurnCost, runningTurn } from "./turns";

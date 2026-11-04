@@ -14,7 +14,7 @@ import {
 	findConnector,
 	toolGroup,
 } from "@companybot/core";
-import { ConvexError, type Infer, v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { components } from "./_generated/api";
 import { internalMutation, type MutationCtx, type QueryCtx } from "./_generated/server";
@@ -28,7 +28,8 @@ import { decideFor, setRule } from "./permissions";
 import { canReadReplyDetails, readReplyDetails } from "./replyPrivacy";
 import { fieldsOf, typesOf } from "./recordOps";
 import { writeSources } from "./replySources";
-import { risk } from "./schema";
+import { type Op, opArg, risk } from "./schema";
+export type { Op };
 import { enqueueTurn, runningTurn } from "./turns";
 
 // Approvals: a tool call an agent held until the person it acts for says yes (core
@@ -401,8 +402,6 @@ async function settle(ctx: MutationCtx, row: Doc<"approvals">, turnId: Id<"agent
  * A tool call's operation key: the approval it runs from, or the model's call id. Every write a built-in makes
  * for a call carries it, so the same call never writes twice (a retried step, a duplicate delivery).
  */
-export const opArg = v.union(v.object({ approval: v.id("approvals") }), v.object({ call: v.string() }));
-export type Op = Infer<typeof opArg>;
 const opKey = (op: Op) => ("call" in op ? op.call : `approval-${op.approval}`);
 const ALREADY_RAN = "This call already ran, or was stopped, so it didn't run again.";
 const EDITED = "What this changes was edited after it was approved, so it didn't run. Ask again if you still want it.";
