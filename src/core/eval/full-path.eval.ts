@@ -23,7 +23,8 @@ import {
 	routerRequest,
 } from "../src/router";
 import { modelToolName } from "../src/tools";
-import { type PlaceMessage, type PostDecision, type SessionTurn, type TurnPlace, buildTurnInput, buildTurnPrompt, postDecision, replayOf, responseOf } from "../src/turn-input";
+import { type PlaceMessage, type PostDecision, type SessionTurn, type TurnPlace, buildTurnInput, buildTurnPrompt, postDecision, responseOf } from "../src/turn-input";
+import { keptStep } from "../src/replay";
 import { gatewayCost } from "../src/usage";
 import type { ReactionGroup } from "../src/chat";
 import { type Outcome, type Transcript, anchors, fullPathCases, handBacks, transcripts } from "./router-cases";
@@ -173,10 +174,9 @@ async function agentTurn(turn: {
 	const { message: post, emoji } = responseOf(decision);
 	const posted = post ? [post] : [];
 	const calls = result.steps.flatMap((s) => s.toolResults.map((r) => `${r.toolName}${(r.output as { error?: string } | undefined)?.error ? " (failed)" : ""}`));
-	// Kept as production replays it (replyForModel): its message, the tools it used (all but a send here failed), its reaction.
+	// Kept as production replays it (backend sessionTurns): its tool steps as it had them, then its decision.
 	if (session) {
-		const reply = [post, calls.length > 0 && `[Tools you used: ${calls.join(", ")}]`].filter(Boolean).join("\n");
-		session.turns.push({ prompt, reply: replayOf(reply, emoji) });
+		session.turns.push({ prompt, steps: result.steps.flatMap((s) => keptStep(s.response.messages)), answer: decision ? JSON.stringify(decision) : "" });
 		session.seen = turn.said.length;
 		session.at = started;
 	}
