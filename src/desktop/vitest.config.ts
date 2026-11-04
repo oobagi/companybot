@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
 
-// Unit tests for the renderer's pure logic (no DOM).
-export default defineConfig({ test: { include: ["src/**/*.test.ts"] } });
+// Tests for the renderer, on a stand-in page (happy-dom) for the parts that need one, like
+// popovers and dialogs. Mantine is bundled so a test's mock of react-dom reaches its portals.
+export default defineConfig({ test: { include: ["src/**/*.test.ts"], environment: "happy-dom", server: { deps: { inline: [/@mantine\//] } } } });
