@@ -11,50 +11,9 @@ const visible = (access: ReturnType<typeof describeToolAccess>) => access.filter
 
 describe("tool visibility", () => {
 	it("gives owners every tool the agent grants", () => {
-		expect(visible(describeToolAccess(companybot, owner)).sort()).toEqual([
-			"memory.search",
-			"memory.remember",
-			"memory.remember_for_team",
-			"memory.update",
-			"memory.forget",
-			"clock.now",
-			"help.read",
-			"skills.load",
-			"skills.create",
-			"skills.edit",
-			"widgets.table",
-			"widgets.stats",
-			"widgets.card",
-			"chat.read",
-			"chat.search",
-			"chat.read_file",
-			"chat.ask_agent",
-			"automations.list",
-			"automations.create",
-			"automations.set_mine",
-			"followups.create",
-			"followups.list",
-			"followups.cancel",
-			"records.types",
-			"records.find",
-			"records.get",
-			"records.history",
-			"records.save",
-			"records.undo",
-			"records.save_field",
-			"records.save_database",
-			"records.views",
-			"records.save_view",
-			"pages.find",
-			"pages.read",
-			"pages.write",
-			"web.search",
-			"web.fetch",
-			"web.save",
-			"images.generate",
-			"chat.manage", "channels.manage", "automations.manage", "automations.remove", "skills.manage", "skills.remove", "members.invite", "members.remove", "workspace.settings", "agents.manage",
-		].sort());
-		expect(resolveTools(companybot).map((t) => t.id)).toContain("memory.forget");
+		const access = describeToolAccess(companybot, owner);
+		expect(access.filter((a) => !a.visible)).toEqual([]);
+		expect(access.map((a) => a.id)).toContain("memory.forget");
 	});
 
 	it("offers every granted built-in whatever the person's roles; a call their roles lack is checked, then refused", async () => {
@@ -88,51 +47,9 @@ describe("tool visibility", () => {
 	});
 
 	it("sends the same granted tools to the model whatever the person's roles", () => {
-		expect(Object.keys(buildToolSet(companybot, ctx(member))).sort()).toEqual([
-			"memory_search",
-			"memory_remember",
-			"memory_remember_for_team",
-			"memory_update",
-			"members_invite",
-			"members_remove",
-			"memory_forget",
-			"clock_now",
-			"help_read",
-			"skills_load",
-			"skills_create",
-			"skills_edit",
-			"widgets_table",
-			"widgets_stats",
-			"widgets_card",
-			"chat_read",
-			"chat_search",
-			"chat_read_file",
-			"chat_ask_agent",
-			"automations_list",
-			"automations_create",
-			"automations_set_mine",
-			"followups_create",
-			"followups_list",
-			"followups_cancel",
-			"records_types",
-			"records_find",
-			"records_get",
-			"records_history",
-			"records_save",
-			"records_undo",
-			"records_save_database",
-			"records_save_field",
-			"records_views",
-			"records_save_view",
-			"pages_find",
-			"pages_read",
-			"pages_write",
-			"web_search",
-			"web_fetch",
-			"web_save",
-			"images_generate",
-			"chat_manage", "channels_manage", "automations_manage", "automations_remove", "skills_manage", "skills_remove", "workspace_settings", "agents_manage",
-		].sort());
+		const names = (who: typeof owner) => Object.keys(buildToolSet(companybot, ctx(who))).sort();
+		expect(names(member)).toEqual(names(owner));
+		expect(names(member)).toContain("records_save_database");
 	});
 
 	it("gives model-safe tool names", () => {

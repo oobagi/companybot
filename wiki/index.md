@@ -9,6 +9,7 @@ One line per page: `- [Title](path.md) — what it covers`. Keep this file a tab
 - [Chat](chat.md) — channels, DMs, threads, reactions; when agents reply, agents working together (handoffs, asks, loop limits), what they're fed, the chat API
 - [Permissions](permissions.md) — who can access each channel, database and page; what asks, Allow once / Always / Deny, per-person rules, roles, workspace locks, automation grants, where it shows up, how others do it
 - [Extending](extending.md) — how to add tools, connectors, skills, permissions, roles, memory rules; keeping the in-app help docs current; invariants to keep
+- [Testing](testing.md) — what to test and what not to (behavior, not wording or markup), how to write one, where tests live, how to run them
 - [Releases](releases.md) — cutting a release, CI, signing secrets, in-app updates
 - [Lessons](lessons.md) — what failed in Cottonwood/Night Owl and the rules that follow
 - [Competitors](competitors.md) — GoHighLevel, Dust, Lindy, Viktor, Polsia, Cofounder, Whop, Buzz, Sumus, Sameday, Airtable, Anytwo, Baserow, Teable, ChatGPT Sites; gaps, what to copy, threat
