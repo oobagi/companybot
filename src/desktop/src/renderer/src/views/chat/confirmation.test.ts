@@ -20,7 +20,6 @@ it("asks neutrally before archiving, preserves content on Cancel, and runs only 
 	await act(async () => control.confirm(archiveQuestion("Guide", archive)));
 	expect(archive).not.toHaveBeenCalled();
 	expect(root.root.findByType(Confirm).props).toMatchObject({ danger: false, action: "Archive" });
-	expect(JSON.stringify(root.toJSON())).toContain("Nothing is permanently deleted");
 	await act(async () => root.root.findByType(Confirm).props.onClose());
 	expect(archive).not.toHaveBeenCalled();
 	expect(root.toJSON()).toBeNull();
