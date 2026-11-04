@@ -105,8 +105,12 @@ export const runFor = internalMutation({
 						return { chatId: await openDirectMessage(ctx, member, alone ? { userIds: [], agentIds: [turn.agentId] } : others) };
 					}
 					const to = { chatId: await chatId(ctx, member, r.chat), threadId: r.threadId ? rowId(ctx, "chatMessages", r.threadId) : undefined };
-					// The reply is how an agent speaks where it is; sending there too posts it twice.
-					if (to.chatId === turn.chatId && to.threadId === turn.threadId) throw new ConvexError("Your reply already posts here: put this in your reply instead.");
+					// The reply is how an agent speaks where it is; sending there too posts it twice. The agent
+					// says so instead of posting their words as its own reply.
+					if (to.chatId === turn.chatId && to.threadId === turn.threadId)
+						throw new ConvexError(
+							"Not sent: you're replying in this chat, so you can't also post here as your person. Your reply posts here as you. Tell them that in one short line (they can send it themselves, or you can post it somewhere else); don't post their message as your reply.",
+						);
 					const messageId = await sendMessage(ctx, who, { ...to, text: r.text, mentions: participants(ctx, r) });
 					return { messageId, ...to };
 				}
