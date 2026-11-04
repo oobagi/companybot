@@ -90,7 +90,7 @@ export function MembersTab({ access }: { access: Access }) {
 					);
 				})}
 				{team.invites.map((i) => (
-					<Row key={i.id} label={i.email} detail={`Invited as ${roleNames(roles, i.roles).join(", ")} · hasn't joined yet`}>
+					<Row key={i.id} label={i.email} detail={`Invited as ${roleNames(roles, i.roles).join(", ") || "No role"} · hasn't joined yet`}>
 						{resent === i.id ? (
 							<span className="text-neutral-400">Sent</span>
 						) : (

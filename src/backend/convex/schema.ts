@@ -261,7 +261,7 @@ export default defineSchema({
 	members: defineTable({
 		workspaceId: v.id("workspaces"),
 		userId: v.id("users"),
-		/** Their roles; they get every switch any of them has. Every row has at least one once migrations.customRoles ran; optional only until then. */
+		/** Their roles; they get every switch any of them has. Empty when the only one was deleted (they get the baseline). Optional only until migrations.customRoles ran. */
 		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, make this required.
 		roles: v.optional(v.array(v.id("roles"))),
 		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, drop this field. Nothing reads it.
