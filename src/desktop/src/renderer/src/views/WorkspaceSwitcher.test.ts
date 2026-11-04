@@ -3,6 +3,7 @@ import { getFunctionName } from "convex/server";
 import { act, createElement } from "react";
 import { create, type ReactTestInstance, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { inApp } from "../testing";
 import { navigate } from "../router";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 
@@ -32,23 +33,16 @@ vi.mock("../router", () => ({ navigate: vi.fn() }));
 vi.mock("react-dom", async (actual) => ({ ...(await actual<typeof import("react-dom")>()), createPortal: (node: React.ReactNode) => node }));
 
 let root: ReactTestRenderer;
-const bounds = { left: 12, top: 0, right: 160, bottom: 24, width: 148, height: 24 };
-const switcher = () => createElement(WorkspaceSwitcher, { name: "Current", onSettings: vi.fn() });
+const switcher = () => inApp(createElement(WorkspaceSwitcher, { name: "Current", onSettings: vi.fn() }));
 beforeEach(async () => {
 	(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-	vi.stubGlobal("document", { addEventListener: vi.fn(), removeEventListener: vi.fn() });
-	vi.stubGlobal("window", { innerHeight: 800, innerWidth: 1200, addEventListener: vi.fn(), removeEventListener: vi.fn() });
-	// The menu's panel measures itself to stay on screen.
-	vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
 	vi.resetAllMocks();
 	state.mine = {
 		workspaces: [{ id: "current", name: "Current", image: null, role: "owner" }],
 		invitations: [{ id: "invite", workspace: "Invited Co", invitedBy: "Owner", role: "member" }],
 	};
 	await act(async () => {
-		root = create(switcher(), {
-			createNodeMock: () => ({ getBoundingClientRect: () => bounds, contains: () => false, querySelector: () => null, focus() {}, children: [], scrollHeight: bounds.height, clientHeight: bounds.height, offsetHeight: bounds.height }),
-		});
+		root = create(switcher());
 	});
 });
 afterEach(async () => {
@@ -62,7 +56,7 @@ const textOf = (n: ReactTestInstance | string): string => (typeof n === "string"
 /** Opens or closes the switcher's menu: the one button that says whether its panel is open. */
 async function toggleMenu() {
 	const button = root.root.find((n) => n.type === "button" && "aria-expanded" in n.props);
-	await act(async () => button.props.onClick({ currentTarget: { getBoundingClientRect: () => bounds } }));
+	await act(async () => button.props.onClick());
 }
 
 /** Clicks the button that reads `text`, or failing that, one that contains it (after an avatar's initials). */
