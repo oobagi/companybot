@@ -1,3 +1,4 @@
+import type { Id } from "./_generated/dataModel";
 import { condition, recordGroup, recordSort } from "./recordValidators";
 import { type PaginationResult, paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
@@ -78,6 +79,27 @@ export const get = query({
 			type: { _id: type._id, key: type.key, name: type.name, plural: type.plural },
 			fields: await Promise.all(fields.filter((f) => !f.archived).map(async (f) => ({ _id: f._id, ...(await shown(f)) }))),
 		};
+	},
+});
+
+/**
+ * The names of a few records you keep at hand (the rail's pins and recents), with where each
+ * opens. Ones you can't see, archived or gone are left out, so the rail drops them.
+ */
+export const titles = query({
+	args: { recordIds: v.array(v.string()) },
+	handler: async (ctx, { recordIds }) => {
+		const member = await getMember(ctx);
+		if (!member) return [];
+		const out: { _id: Id<"records">; title: string; typeKey: string }[] = [];
+		for (const raw of recordIds.slice(0, 50)) {
+			const id = ctx.db.normalizeId("records", raw);
+			const record = id && (await ctx.db.get(id));
+			if (!record || record.workspaceId !== member.workspaceId || (await inTrash(ctx, record))) continue;
+			const type = await ctx.db.get(record.typeId);
+			if (type) out.push({ _id: record._id, title: record.title, typeKey: type.key });
+		}
+		return out;
 	},
 });
 

@@ -6,7 +6,8 @@ import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { ArchiveIcon, DatabaseIcon, HistoryIcon } from "../../icons";
+import { ArchiveIcon, DatabaseIcon, HistoryIcon, PinIcon, UnpinIcon } from "../../icons";
+import { usePins } from "../../pins";
 import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, barButton, cardClass, descriptionClass, insetClass, listClass, metadataClass, timeAgo, useRun } from "../../ui";
 import { Modal, archiveQuestion, useConfirm } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
@@ -31,6 +32,8 @@ export function RecordPage({ type, recordId, access }: { type: RecordType; recor
 	const { confirm, dialog } = useConfirm();
 	const update = useMutation(api.records.update);
 	const { error, run } = useRun();
+	const { pins, toggle } = usePins();
+	const pinned = pins.includes(`rec:${recordId}`);
 	const crumbs = [{ label: type.plural, to: recordPath(type.key) }];
 	if (!record || record.typeId !== type._id) {
 		return <NotFound crumbs={crumbs} loaded={record !== undefined} icon={<DatabaseIcon />} title={`${type.name} not found`} />;
@@ -45,6 +48,11 @@ export function RecordPage({ type, recordId, access }: { type: RecordType; recor
 			heading={<PageTitle title={record.title} editable={canEdit && !record.archived} onSave={(name) => update({ recordId, values: { name } })} />}
 			actions={
 				<>
+					{!record.archived && (
+						<button type="button" onClick={() => toggle(`rec:${recordId}`)} className={barButton}>
+							{pinned ? <UnpinIcon /> : <PinIcon />} {pinned ? "Unpin" : "Pin"}
+						</button>
+					)}
 					<button type="button" onClick={() => setHistory(true)} className={barButton}>
 						<HistoryIcon /> History
 					</button>
