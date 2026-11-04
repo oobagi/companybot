@@ -38,7 +38,7 @@ import {
 	isWidgetResult,
 	isWidgetToolName,
 	agentPrepareStep,
-	agentStopWhen,
+	agentStopAfter,
 	openConnector,
 	postDecision,
 	publishes,
@@ -51,7 +51,7 @@ import {
 	toolRisk,
 	THINKING_STEP,
 } from "@companybot/core";
-import { Output, generateText, streamText } from "ai";
+import { type ModelMessage, Output, generateText, streamText } from "ai";
 import type { FunctionReturnType } from "convex/server";
 import { ConvexError, type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
@@ -69,6 +69,11 @@ const COMPACT_TOKENS = 40_000;
 const FLUSH_MS = 200;
 /** How often a turn checks for Stop when it hasn't flushed lately (a long think, a slow first token). */
 const STOP_CHECK_MS = 1_000;
+/**
+ * Times a reply starts its answer over to take in the person's new message (turnStop): past this, one
+ * that arrives while it writes waits for the follow-up, so a chatty person can't keep it from finishing.
+ */
+export const STEER_RESTARTS = 2;
 /** A connector that doesn't connect this fast is skipped for the turn, not waited on. */
 const CONNECTOR_CONNECT_MS = 10_000;
 
@@ -302,7 +307,7 @@ async function streamReply(
 	let lastFlush = 0;
 	const text = () => parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("\n\n");
 	// Stop (turns.stop) is seen on each flush, between flushes, and at each step (`stop`, set just before the model call).
-	const flush = async () => stop.heard(await ctx.runMutation(internal.turns.updateReply, { turnId, text: text(), parts }));
+	const flush = () => stop.hear(ctx.runMutation(internal.turns.updateReply, { turnId, text: text(), parts }));
 	// The turn's step, for the line under the composer (turns.setStep): the newest call still running,
 	// else "Thinking…" until the model writes. The same words as its tool lines; never its reasoning.
 	// Written in order, and only when it changes.
@@ -364,22 +369,36 @@ async function streamReply(
 
 	const started = Date.now();
 	const stop = turnStop(ctx, turnId);
-	const result = streamText({
-		model: agent.model,
-		reasoning: agent.reasoning,
-		instructions: input.instructions,
-		messages: input.messages,
-		tools,
-		// Stopped mid-tool: the step's calls finish, and no step comes after them.
-		stopWhen: [agentStopWhen, stop.atStep],
-		abortSignal: stop.signal,
-		prepareStep: agentPrepareStep(tools, toolCtx.web),
-		headers: { "x-session-affinity": turn.session.id },
-		providerOptions: { gateway: { caching: "auto" } },
-		// Calls that need approval stop the run there, unexecuted; we hold them below.
-		toolApproval: toolApprovalPolicy(usable, check),
-		...(decide && { output: Output.object({ schema: decide, name: "decision" }) }),
-	});
+	/** The person's new messages here (turns.steer), taken into this turn; their links may be opened too. */
+	const steer = async () => {
+		const taken = await ctx.runMutation(internal.turns.steer, { turnId });
+		if (!taken) return null;
+		toolCtx.web.asked(taken.asked);
+		return taken.note;
+	};
+	// What the newest step was sent: a run cut off to take in a message starts again from there.
+	let sent: ModelMessage[] = input.messages;
+	/** Steps this reply finished, over all its runs: the step limit is per reply. */
+	let done = 0;
+	const run = () =>
+		streamText({
+			model: agent.model,
+			reasoning: agent.reasoning,
+			instructions: input.instructions,
+			messages: sent,
+			tools,
+			// Stopped mid-tool: the step's calls finish, and no step comes after them.
+			stopWhen: [agentStopAfter(done), stop.atStep],
+			abortSignal: stop.signal,
+			// Each step after the first takes in what the person sent meanwhile (quiet turns are never steered).
+			prepareStep: agentPrepareStep(tools, toolCtx.web, { ...(!decide && { steer }), done, sent: (m) => (sent = m) }),
+			headers: { "x-session-affinity": turn.session.id },
+			providerOptions: { gateway: { caching: "auto" } },
+			// Calls that need approval stop the run there, unexecuted; we hold them below.
+			toolApproval: toolApprovalPolicy(usable, check),
+			...(decide && { output: Output.object({ schema: decide, name: "decision" }) }),
+		});
+	let result = run();
 
 	// Held, not run: save the exact call and show a card in its place. Logged only if it runs later.
 	const hold = async (toolCallId: string, toolName: string, input: unknown) => {
@@ -422,60 +441,81 @@ async function streamReply(
 		});
 	};
 
+	/** Where the current step's parts begin: a step cut off to take in a message loses what it wrote. */
+	let stepStart = 0;
 	try {
-		for await (const part of result.stream) {
-			stop.saw(part);
-			if (part.type === "start-step") {
-				writing = false;
-				showStep();
-			} else if (part.type === "text-delta") {
-				usage.firstTokenMs ??= Date.now() - started;
-				if (!writing) {
-					writing = true;
+		for (;;) {
+			for await (const part of result.stream) {
+				stop.saw(part);
+				if (part.type === "start-step") {
+					stepStart = parts.length;
+					writing = false;
 					showStep();
+				} else if (part.type === "text-delta") {
+					usage.firstTokenMs ??= Date.now() - started;
+					if (!writing) {
+						writing = true;
+						showStep();
+					}
+					if (decide) continue;
+					const last = parts.at(-1);
+					if (last?.type === "text") last.text += part.text;
+					else parts.push({ type: "text", text: part.text });
+				} else if (part.type === "tool-call") {
+					// A connectors_call shows as the tool it ran.
+					const name = part.toolName === CONNECTOR_CALL ? (calledConnectorTool(part.input) ?? part.toolName) : part.toolName;
+					if (!isWidgetToolName(part.toolName)) setTool(part.toolCallId, name, "running", { input: part.input });
+					const call = describeCall(part.toolName, part.input, available);
+					if (call) calls.set(part.toolCallId, call);
+				} else if (part.type === "tool-result") {
+					const end = callEnd(part.output);
+					if (isWidgetToolName(part.toolName)) {
+						if (isWidgetResult(part.output)) parts.push({ type: "widget", id: part.toolCallId, widget: part.output.widget });
+					} else setTool(part.toolCallId, part.toolName, "error" in end ? "error" : "done", { input: callInputs.get(part.toolCallId), ...("output" in end && { output: end.output }) });
+					await logCall(part.toolCallId, end);
+				} else if (part.type === "tool-error") {
+					if (!isWidgetToolName(part.toolName)) setTool(part.toolCallId, part.toolName, "error");
+					await logCall(part.toolCallId, { error: part.error instanceof Error ? part.error.message : String(part.error) });
+				} else if (part.type === "tool-output-denied") {
+					// Held in an automation's run: a card, while the run goes on. Otherwise blocked by a
+					// Never or an owner's lock: it didn't run, and the model was told why.
+					if (heldCalls.has(part.toolCallId)) await hold(part.toolCallId, part.toolName, callInputs.get(part.toolCallId));
+					else {
+						setTool(part.toolCallId, part.toolName, "error");
+						await logCall(part.toolCallId, { error: deniedCalls.get(part.toolCallId) ?? "Blocked." });
+					}
+				} else if (part.type === "tool-approval-request") {
+					// Blocked and held-while-going-on calls come through here too, already answered; they're handled above.
+					if (!part.isAutomatic) await hold(part.toolCall.toolCallId, part.toolCall.toolName, part.toolCall.input);
+				} else if (part.type === "finish-step") {
+					done++;
+					addStep(usage, part.usage, part.providerMetadata);
+					await saveStep();
+					continue;
+				} else if (part.type === "error") {
+					// Cut off on purpose (Stop, or a message to take in): not a failure.
+					if (stop.signal.aborted) break;
+					throw part.error instanceof Error ? part.error : new Error(String(part.error));
+				} else continue;
+				// The step is written before the next part, so it never lags behind the reply.
+				await stepWrites;
+				if (Date.now() - lastFlush > FLUSH_MS) {
+					lastFlush = Date.now();
+					await flush();
 				}
-				if (decide) continue;
-				const last = parts.at(-1);
-				if (last?.type === "text") last.text += part.text;
-				else parts.push({ type: "text", text: part.text });
-			} else if (part.type === "tool-call") {
-				// A connectors_call shows as the tool it ran.
-				const name = part.toolName === CONNECTOR_CALL ? (calledConnectorTool(part.input) ?? part.toolName) : part.toolName;
-				if (!isWidgetToolName(part.toolName)) setTool(part.toolCallId, name, "running", { input: part.input });
-				const call = describeCall(part.toolName, part.input, available);
-				if (call) calls.set(part.toolCallId, call);
-			} else if (part.type === "tool-result") {
-				const end = callEnd(part.output);
-				if (isWidgetToolName(part.toolName)) {
-					if (isWidgetResult(part.output)) parts.push({ type: "widget", id: part.toolCallId, widget: part.output.widget });
-				} else setTool(part.toolCallId, part.toolName, "error" in end ? "error" : "done", { input: callInputs.get(part.toolCallId), ...("output" in end && { output: end.output }) });
-				await logCall(part.toolCallId, end);
-			} else if (part.type === "tool-error") {
-				if (!isWidgetToolName(part.toolName)) setTool(part.toolCallId, part.toolName, "error");
-				await logCall(part.toolCallId, { error: part.error instanceof Error ? part.error.message : String(part.error) });
-			} else if (part.type === "tool-output-denied") {
-				// Held in an automation's run: a card, while the run goes on. Otherwise blocked by a
-				// Never or an owner's lock: it didn't run, and the model was told why.
-				if (heldCalls.has(part.toolCallId)) await hold(part.toolCallId, part.toolName, callInputs.get(part.toolCallId));
-				else {
-					setTool(part.toolCallId, part.toolName, "error");
-					await logCall(part.toolCallId, { error: deniedCalls.get(part.toolCallId) ?? "Blocked." });
-				}
-			} else if (part.type === "tool-approval-request") {
-				// Blocked and held-while-going-on calls come through here too, already answered; they're handled above.
-				if (!part.isAutomatic) await hold(part.toolCall.toolCallId, part.toolCall.toolName, part.toolCall.input);
-			} else if (part.type === "finish-step") {
-				addStep(usage, part.usage, part.providerMetadata);
-				await saveStep();
-				continue;
-			} else if (part.type === "error") throw part.error instanceof Error ? part.error : new Error(String(part.error));
-			else continue;
-			// The step is written before the next part, so it never lags behind the reply.
-			await stepWrites;
-			if (Date.now() - lastFlush > FLUSH_MS) {
-				lastFlush = Date.now();
-				await flush();
 			}
+			// The person wrote while the model was writing its answer, with no step boundary left to add it at
+			// (turnStop cut it off): what it wrote this step goes, and it starts again from what that step was
+			// sent, plus their message. Steps before it (tool calls, their results) stand and aren't redone.
+			if (!stop.steered) break;
+			parts.splice(stepStart);
+			writing = false;
+			showStep();
+			const note = await steer();
+			if (note) sent = [...sent, { role: "user", content: note }];
+			stop.restart();
+			await flush();
+			result = run();
 		}
 	} finally {
 		stop.close();
@@ -496,11 +536,18 @@ async function streamReply(
  * ends the run. While the model writes, it aborts the stream at once. Once a step has called a tool it
  * doesn't abort: those calls finish (their results and the step's cost are kept), and `atStep` ends the
  * run before the next step, so no later tool runs. Nothing already done is undone; finishReply marks the
- * reply stopped. Small and on its own so other ways to end a run early (steering, #189) can reuse it.
+ * reply stopped.
+ *
+ * Steering (#189) hears the person's new message the same way (turns.steering). A step that called a tool
+ * is left alone: the next step takes the message in (core agentPrepareStep). A step only writing (the
+ * answer: no boundary left) is cut off with the same abort, `steered`, and the runner starts it again with
+ * the message (`restart`), at most STEER_RESTARTS times a reply; past that the message waits for its follow-up.
  */
 export function turnStop(ctx: Pick<ActionCtx, "runQuery">, turnId: Id<"agentTurns">) {
-	const controller = new AbortController();
+	let controller = new AbortController();
 	let requested = false;
+	let steered = false;
+	let restarts = 0;
 	let lastHeard = Date.now();
 	/** The current step called a tool: let it finish and end at the step boundary. */
 	let toolStep = false;
@@ -508,8 +555,23 @@ export function turnStop(ctx: Pick<ActionCtx, "runQuery">, turnId: Id<"agentTurn
 		requested = true;
 		if (!toolStep) controller.abort();
 	};
+	/**
+	 * What a flush (turns.updateReply) or check (turns.isStopping) said. An answer asked before a restart
+	 * is stale: the message it saw was taken in since, so it can't cut off the new run.
+	 */
+	const hear = async (asking: Promise<{ stopped: boolean; steer: boolean }>) => {
+		const run = restarts;
+		const answer = await asking;
+		lastHeard = Date.now();
+		if (requested) return;
+		if (answer.stopped) request();
+		else if (answer.steer && run === restarts && !toolStep && !steered && restarts < STEER_RESTARTS) {
+			steered = true;
+			controller.abort();
+		}
+	};
 	const check = async () => {
-		if (!requested && (await ctx.runQuery(internal.turns.isStopping, { turnId }))) request();
+		if (!requested) await hear(ctx.runQuery(internal.turns.isStopping, { turnId }));
 		lastHeard = Date.now();
 		return requested;
 	};
@@ -517,12 +579,22 @@ export function turnStop(ctx: Pick<ActionCtx, "runQuery">, turnId: Id<"agentTurn
 		if (!requested && Date.now() - lastHeard >= STOP_CHECK_MS) check().catch(() => {});
 	}, STOP_CHECK_MS);
 	return {
-		signal: controller.signal,
-		/** What a flush (turns.updateReply) said. */
-		heard(answer: { stopped: boolean } | null | undefined) {
-			lastHeard = Date.now();
-			if (answer?.stopped && !requested) request();
+		/** The current run's: a restart gets a new one. */
+		get signal() {
+			return controller.signal;
 		},
+		/** The run was cut off to take in a message (and not stopped): start it again. */
+		get steered() {
+			return steered && !requested;
+		},
+		/** A new run after a steer. */
+		restart() {
+			restarts++;
+			steered = false;
+			toolStep = false;
+			controller = new AbortController();
+		},
+		hear,
 		/** Each stream part, in order: a step that called a tool isn't aborted. */
 		saw(part: { type: string }) {
 			if (part.type === "start-step") toolStep = false;

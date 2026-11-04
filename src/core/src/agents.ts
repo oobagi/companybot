@@ -100,33 +100,52 @@ export const AGENT_STEPS = 20;
 
 /**
  * When a run stops: only at its step limit. Never at a widget: work can go on after a table
- * ("then mark them all won"). agentPrepareStep makes sure the last step answers.
+ * ("then mark them all won"). agentPrepareStep makes sure the last step answers. `done`: steps a
+ * reply already took before this run (a run restarted to take in a new message), so the limit is per reply.
  */
-export const agentStopWhen = isStepCount(AGENT_STEPS);
+export const agentStopAfter = (done = 0) => isStepCount(Math.max(1, AGENT_STEPS - done));
+export const agentStopWhen = agentStopAfter(0);
+
+export interface AgentStepOptions {
+	/**
+	 * New messages from the turn's person since it last looked (backend turns.steer), as one note, or
+	 * null. Asked before every step but the first, and appended to the messages: the AI SDK carries a
+	 * step's messages into the next, so it's sent once, after everything before it (the cache holds).
+	 */
+	steer?: () => Promise<string | null>;
+	/** Steps the reply took before this run (agentStopAfter). */
+	done?: number;
+	/** The messages each step is sent, so a run cut off mid-step can restart from them. */
+	sent?: (messages: ModelMessage[]) => void;
+}
 
 /**
- * Narrows the tools for each step (AI SDK `prepareStep`), so a reply always ends with an answer.
- * Once the turn's web searches or pages are spent, that tool is gone rather than failing when
- * called. The last step keeps only widgets and is told to answer now: some models (Sonnet) still
- * call a tool they weren't offered, or end silently when offered none, unless told. With nothing
- * left (`toolChoice: "none"`) the list stays, which providers need while the history has tool
- * calls. A narrowed list misses the prompt cache once, at most three times a reply; the note goes
- * at the end, so it doesn't.
+ * Narrows the tools for each step (AI SDK `prepareStep`), so a reply always ends with an answer, and
+ * adds what the person sent meanwhile (`steer`). Once the turn's web searches or pages are spent, that
+ * tool is gone rather than failing when called. The last step keeps only widgets and is told to answer
+ * now: some models (Sonnet) still call a tool they weren't offered, or end silently when offered none,
+ * unless told. With nothing left (`toolChoice: "none"`) the list stays, which providers need while the
+ * history has tool calls. A narrowed list misses the prompt cache once, at most three times a reply; the
+ * notes go at the end, so they don't.
  */
-export function agentPrepareStep(tools: ToolSet, web: Pick<WebTurn, "left">) {
+export function agentPrepareStep(tools: ToolSet, web: Pick<WebTurn, "left">, { steer, done = 0, sent }: AgentStepOptions = {}) {
 	const names = Object.keys(tools);
 	const widgets = names.filter((name) => name.startsWith(modelToolName("widgets.")));
 	const lastStep: ModelMessage = {
 		role: "user",
 		content: `[Note from Companybot, not the person: this is the last step of your reply. Don't look anything else up. Answer now from what you have${widgets.length > 0 ? ", in text or a widget" : ""}, and say what you couldn't confirm.]`,
 	};
-	return ({ stepNumber, messages }: { stepNumber: number; messages: ModelMessage[] }): { activeTools?: string[]; toolChoice?: "none"; messages?: ModelMessage[] } => {
+	return async ({ stepNumber, messages }: { stepNumber: number; messages: ModelMessage[] }): Promise<{ activeTools?: string[]; toolChoice?: "none"; messages?: ModelMessage[] }> => {
+		const news = steer && stepNumber > 0 ? await steer() : null;
+		const steered: ModelMessage[] = news ? [...messages, { role: "user", content: news }] : messages;
+		sent?.(steered);
 		const left = web.left();
 		const spent = new Set([left.searches <= 0 && modelToolName("web.search"), left.fetches <= 0 && modelToolName("web.fetch")]);
-		const last = stepNumber >= AGENT_STEPS - 1;
+		const last = done + stepNumber >= AGENT_STEPS - 1;
 		const active = last ? widgets : names.filter((name) => !spent.has(name));
 		const narrowed = active.length === names.length ? {} : active.length > 0 ? { activeTools: active } : { toolChoice: "none" as const };
-		return last ? { ...narrowed, messages: [...messages, lastStep] } : narrowed;
+		if (last) return { ...narrowed, messages: [...steered, lastStep] };
+		return news ? { ...narrowed, messages: steered } : narrowed;
 	};
 }
 

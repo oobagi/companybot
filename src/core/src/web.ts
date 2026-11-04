@@ -77,6 +77,8 @@ export interface WebTurn {
 	fetch(url: string): Promise<WebPage | { error: string }>;
 	/** What's left of this turn's allowance, so a spent tool can be taken away (agentPrepareStep). */
 	left(): { searches: number; fetches: number };
+	/** More the person wrote this turn (a message that steered it, backend turns.steer): its links may be opened too. */
+	asked(texts: readonly string[]): void;
 }
 
 /**
@@ -125,6 +127,7 @@ export function createWebTurn(client: WebClient, asked: readonly string[]): WebT
 			}
 		},
 		left: () => ({ searches: SEARCHES_PER_TURN - searches, fetches: FETCHES_PER_TURN - fetches }),
+		asked: (texts) => see(linksIn(texts.join("\n"), { bare: true })),
 	};
 }
 

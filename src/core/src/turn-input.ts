@@ -179,6 +179,20 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 }
 
 /**
+ * Messages the person sent while the agent worked on this turn (backend turns.steer), appended to its
+ * messages at a step boundary and to its stored prompt, so later turns replay them. Only the turn's own
+ * person's (its asker): nobody else can redirect a turn that acts with their access. No keywords: the
+ * model reads them and decides (the guide: they come first; acknowledge briefly, then go on or stop).
+ */
+export function steerNote(messages: PlaceMessage[], actor: { id: string; name: string; timeZone: string }) {
+	const who = clean(actor.name);
+	return [
+		`[Note from Companybot, not the person: ${who} sent ${messages.length === 1 ? "this" : "these"} while you were working on this reply. ${messages.length === 1 ? "It takes" : "They take"} priority over what you were doing: if ${who} changed or stopped the task, follow that, and say so briefly in your reply.]`,
+		...messages.map((m) => chatLine(m, actor)),
+	].join("\n");
+}
+
+/**
  * How a quiet turn (a pick, a hop, a wake) ends: a decision made before the message, so it commits to
  * what it would add before drafting it (When2Speak, "Inner Thoughts"; an optional post tool biases
  * toward posting). The reply is shown only if `publishes`. Field order is the order it's written in.
