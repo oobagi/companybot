@@ -2,31 +2,58 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { type MutationCtx, internalMutation } from "./_generated/server";
+import { liveWorkspace } from "./lib";
 
 /** Everyone can view: post restrictions do not make a channel private. */
 export const publicSearchChat = (chat: Pick<Doc<"chats">, "kind" | "private" | "access" | "archived">) =>
 	chat.kind === "channel" && !chat.private && !chat.archived && (!chat.access || chat.access.some((e) => e.role === "everyone"));
 
-const SEAT_ACTIVITY_INTERVAL = 60_000;
-
-/** Visibility changes update the audience immediately; activity writes are at most once a minute per seat. */
-async function updateSeat(ctx: MutationCtx, chat: Doc<"chats">, seat: Doc<"chatMembers">) {
-	const restricted = !publicSearchChat(chat);
-	const patch: Partial<Pick<Doc<"chatMembers">, "activityAt" | "restricted">> = {};
-	if (seat.restricted !== restricted) patch.restricted = restricted;
-	if (restricted && (seat.activityAt === undefined || chat.lastMessageAt - seat.activityAt >= SEAT_ACTIVITY_INTERVAL)) patch.activityAt = chat.lastMessageAt;
-	if (!Object.keys(patch).length) return false;
-	await ctx.db.patch(seat._id, patch);
-	return true;
+/** Idempotent for the backfill and existing seats; joining creates read state and activity separately. */
+export async function ensureSeatActivity(ctx: MutationCtx, chat: Doc<"chats">, seat: Pick<Doc<"chatMembers">, "_id" | "userId">) {
+	const existing = await ctx.db.query("seatActivity").withIndex("by_seat", (q) => q.eq("seatId", seat._id)).first();
+	if (!existing) await ctx.db.insert("seatActivity", { workspaceId: chat.workspaceId, chatId: chat._id, seatId: seat._id, userId: seat.userId, activityAt: chat.lastMessageAt, restricted: !publicSearchChat(chat) });
 }
 
-/** Public messages never read/write seats. Restricted activity is throttled; only changed batches fan out. */
-export async function touchSeats(ctx: MutationCtx, chat: Doc<"chats">, audience = false) {
-	if (publicSearchChat(chat) && !audience) return;
-	const seats = await ctx.db.query("chatMembers").withIndex("by_chat", (q) => q.eq("chatId", chat._id)).take(101);
-	let changed = false;
-	for (const seat of seats.slice(0, 100)) changed = (await updateSeat(ctx, chat, seat)) || changed;
-	if (seats.length > 100 && (changed || audience)) await ctx.scheduler.runAfter(0, internal.chatDiscovery.refreshSeats, { chatId: chat._id, cursor: null, audience });
+/** Small restricted chats are immediately current. Pending large-chat sends read only one state row. */
+export async function touchSeats(ctx: MutationCtx, chat: Doc<"chats">) {
+	if (publicSearchChat(chat)) return;
+	const state = await ctx.db.query("chatActivity").withIndex("by_chat", (q) => q.eq("chatId", chat._id)).first();
+	if (state?.pendingAt !== undefined) {
+		await ctx.db.patch(state._id, { activityAt: chat.lastMessageAt });
+		return;
+	}
+	const rows = await ctx.db.query("seatActivity").withIndex("by_chat", (q) => q.eq("chatId", chat._id)).take(101);
+	if (rows.length <= 100) {
+		for (const row of rows) await ctx.db.patch(row._id, { activityAt: chat.lastMessageAt });
+		return;
+	}
+	const pendingAt = Date.now();
+	if (state) await ctx.db.patch(state._id, { activityAt: chat.lastMessageAt, pendingAt });
+	else await ctx.db.insert("chatActivity", { workspaceId: chat.workspaceId, chatId: chat._id, activityAt: chat.lastMessageAt, pendingAt });
+	await ctx.scheduler.runAfter(60_000, internal.chatDiscovery.refreshSeats, { chatId: chat._id, cursor: null, pendingAt });
+}
+
+/** Sweep a snapshot, then immediately sweep again if a send arrived while pages were running. */
+export const refreshSeats = internalMutation({
+	args: { chatId: v.id("chats"), cursor: v.union(v.string(), v.null()), pendingAt: v.number(), stamp: v.optional(v.number()) },
+	handler: async (ctx, { chatId, cursor, pendingAt, stamp }) => {
+		const state = await ctx.db.query("chatActivity").withIndex("by_chat", (q) => q.eq("chatId", chatId)).first();
+		if (!state || state.pendingAt !== pendingAt) return;
+		const chat = await ctx.db.get(chatId);
+		if (!chat || !(await liveWorkspace(ctx, chat.workspaceId))) return;
+		if (publicSearchChat(chat)) { await ctx.db.patch(state._id, { pendingAt: undefined }); return; }
+		const at = stamp ?? state.activityAt;
+		const page = await ctx.db.query("seatActivity").withIndex("by_chat", (q) => q.eq("chatId", chatId)).paginate({ cursor, numItems: 100 });
+		for (const row of page.page) await ctx.db.patch(row._id, { activityAt: at });
+		if (!page.isDone) await ctx.scheduler.runAfter(0, internal.chatDiscovery.refreshSeats, { chatId, cursor: page.continueCursor, pendingAt, stamp: at });
+		else if (state.activityAt !== at) await ctx.scheduler.runAfter(0, internal.chatDiscovery.refreshSeats, { chatId, cursor: null, pendingAt });
+		else await ctx.db.patch(state._id, { pendingAt: undefined });
+	},
+});
+
+async function updateAudience(ctx: MutationCtx, chat: Doc<"chats">, rows: Doc<"seatActivity">[]) {
+	const restricted = !publicSearchChat(chat);
+	for (const row of rows) if (row.restricted !== restricted) await ctx.db.patch(row._id, { restricted });
 }
 
 export async function refreshAudience(ctx: MutationCtx, chat: Doc<"chats">) {
@@ -35,18 +62,20 @@ export async function refreshAudience(ctx: MutationCtx, chat: Doc<"chats">) {
 	const messages = await ctx.db.query("chatMessages").withIndex("by_chat_thread", (q) => q.eq("chatId", chat._id)).take(101);
 	for (const message of messages.slice(0, 100)) if (message.searchPublic !== searchPublic) await ctx.db.patch(message._id, { searchPublic });
 	if (messages.length > 100) await ctx.scheduler.runAfter(0, internal.chatDiscovery.refreshMessages, { chatId: chat._id, cursor: null });
-	await touchSeats(ctx, chat, true);
+	const rows = await ctx.db.query("seatActivity").withIndex("by_chat", (q) => q.eq("chatId", chat._id)).take(101);
+	await updateAudience(ctx, chat, rows.slice(0, 100));
+	if (rows.length > 100) await ctx.scheduler.runAfter(0, internal.chatDiscovery.refreshSeatAudience, { chatId: chat._id, cursor: null });
+	if (!searchPublic) await touchSeats(ctx, chat);
 }
 
-/** Bounded fan-out, reading current state on every page so stale scheduled jobs cannot undo newer changes. */
-export const refreshSeats = internalMutation({
-	args: { chatId: v.id("chats"), cursor: v.union(v.string(), v.null()), audience: v.optional(v.boolean()) },
-	handler: async (ctx, { chatId, cursor, audience }) => {
+export const refreshSeatAudience = internalMutation({
+	args: { chatId: v.id("chats"), cursor: v.union(v.string(), v.null()) },
+	handler: async (ctx, { chatId, cursor }) => {
 		const chat = await ctx.db.get(chatId);
-		if (!chat || (publicSearchChat(chat) && !audience)) return;
-		const page = await ctx.db.query("chatMembers").withIndex("by_chat", (q) => q.eq("chatId", chatId)).paginate({ cursor, numItems: 100 });
-		for (const seat of page.page) await updateSeat(ctx, chat, seat);
-		if (!page.isDone) await ctx.scheduler.runAfter(0, internal.chatDiscovery.refreshSeats, { chatId, cursor: page.continueCursor, audience });
+		if (!chat || !(await liveWorkspace(ctx, chat.workspaceId))) return;
+		const page = await ctx.db.query("seatActivity").withIndex("by_chat", (q) => q.eq("chatId", chatId)).paginate({ cursor, numItems: 100 });
+		await updateAudience(ctx, chat, page.page);
+		if (!page.isDone) await ctx.scheduler.runAfter(0, internal.chatDiscovery.refreshSeatAudience, { chatId, cursor: page.continueCursor });
 	},
 });
 

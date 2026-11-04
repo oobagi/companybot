@@ -3,7 +3,7 @@ import { type ReplyMode, THREAD_HOURS_DEFAULT, TOPIC_MAX, can, replyModeOf, repl
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx } from "./_generated/server";
-import { addToChat, agentOfDm, availableName, chatMembersOf, findOrCreateDm, label, latestMentionSince, markChatRead, membership, namer, requireActiveAgents, requireChat, requireManagedChannel, requireWorkspaceUsers, shownAt, sideChatTitle, titleFrom, type Namer, type Participant, visibleChat } from "./chatOps";
+import { addToChat, agentOfDm, availableName, chatMembersOf, findOrCreateDm, label, latestMentionSince, markChatRead, removeChatSeat, membership, namer, requireActiveAgents, requireChat, requireManagedChannel, requireWorkspaceUsers, shownAt, sideChatTitle, titleFrom, type Namer, type Participant, visibleChat } from "./chatOps";
 import { mutation, query } from "./functions";
 import { type Member, checkPermission, getMember, preferencesOf, requireMember, toActor } from "./lib";
 import { type AccessList, accessInfo, chatAccess, reach, savedAccess } from "./placeAccess";
@@ -397,7 +397,7 @@ export async function leaveChannel(ctx: MutationCtx, member: Member, { chatId }:
 	if (chat.kind !== "channel") throw new ConvexError("You can't leave a DM.");
 	if (chat.isDefault) throw new ConvexError(`You can't leave #${chat.name}: it's the channel everyone is in.`);
 	const row = await membership(ctx, chatId, member.userId);
-	if (row) await ctx.db.delete(row._id);
+	if (row) await removeChatSeat(ctx, row._id);
 }
 
 /** Channels only. Members of a channel can add people; managers can add to any channel they see. */
@@ -551,7 +551,7 @@ export async function removeChannelMember(ctx: MutationCtx, member: Member, { ch
 	if (chat.isDefault && userId) throw new ConvexError(`People can't be removed from #${chat.name}: it's the channel everyone is in.`);
 	const row = userId ? await membership(ctx, chatId, userId) : await ctx.db.query("chatMembers")
 		.withIndex("by_agent", q => q.eq("agentId", agentId).eq("chatId", chatId)).first();
-	if (row) await ctx.db.delete(row._id);
+	if (row) await removeChatSeat(ctx, row._id);
 }
 
 export async function markReadAs(ctx: MutationCtx, member: Member, chatId: Id<"chats">) {

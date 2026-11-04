@@ -1,4 +1,4 @@
-import { publicSearchChat } from "./chatDiscovery";
+import { publicSearchChat, ensureSeatActivity } from "./chatDiscovery";
 import { fromLegacy } from "./wakeups";
 import { type MigrationFunctionReference, Migrations } from "@convex-dev/migrations";
 import { components, internal } from "./_generated/api";
@@ -336,6 +336,16 @@ export const searchSeats = migrations.define({
 	},
 });
 
+// COMPAT(0.1.0-alpha.10): move hot activity away from seats, retaining only read state there.
+export const moveSeatActivity = migrations.define({
+	table: "chatMembers", batchSize: 50,
+	migrateOne: async (ctx, seat) => {
+		const chat = await ctx.db.get(seat.chatId);
+		if (chat) await ensureSeatActivity(ctx, chat, seat);
+		return { activityAt: undefined, restricted: undefined };
+	},
+});
+
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
@@ -364,6 +374,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.searchAudience,
 	internal.migrations.searchChats,
 	internal.migrations.searchSeats,
+	internal.migrations.moveSeatActivity,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

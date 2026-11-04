@@ -544,6 +544,20 @@ export default defineSchema({
 		.index("by_dm_key", ["workspaceId", "dmKey"])
 		.index("by_name", ["workspaceId", "name", "archived"]),
 
+	// Discovery activity changes independently of a seat's read state.
+	seatActivity: defineTable({
+		workspaceId: v.id("workspaces"), chatId: v.id("chats"), seatId: v.id("chatMembers"),
+		userId: v.optional(v.id("users")), activityAt: v.number(), restricted: v.boolean(),
+	}).index("by_seat", ["seatId"]).index("by_chat", ["chatId"]).index("by_workspace", ["workspaceId"])
+		.index("by_user", ["userId", "workspaceId"])
+		.index("by_activity", ["workspaceId", "userId", "activityAt"])
+		.index("by_private_activity", ["workspaceId", "userId", "restricted", "activityAt"]),
+
+	// One pending, debounced discovery sweep per large restricted chat.
+	chatActivity: defineTable({
+		workspaceId: v.id("workspaces"), chatId: v.id("chats"), activityAt: v.number(), pendingAt: v.optional(v.number()),
+	}).index("by_chat", ["chatId"]).index("by_workspace", ["workspaceId"]),
+
 	// Who's in a chat: one person or one agent per row.
 	chatMembers: defineTable({
 		chatId: v.id("chats"),
@@ -552,7 +566,7 @@ export default defineSchema({
 		agentId: v.optional(v.id("agents")),
 		/** People only: newest message time they've seen in the main timeline. */
 		lastReadAt: v.optional(v.number()),
-		/** Denormalized activity for bounded discovery (backfilled for alpha.10). */
+		/** COMPAT(0.1.0-alpha.10): moved to seatActivity by moveSeatActivity. */
 		activityAt: v.optional(v.number()),
 		restricted: v.optional(v.boolean()),
 		/** People only: when they closed this DM (chats.closeDm). Out of their sidebar until a newer message, or they open it again. */
@@ -561,8 +575,6 @@ export default defineSchema({
 		.index("by_chat", ["chatId"])
 		.index("by_workspace", ["workspaceId", "userId"])
 		.index("by_user", ["userId", "chatId"])
-		.index("by_activity", ["workspaceId", "userId", "activityAt"])
-		.index("by_private_activity", ["workspaceId", "userId", "restricted", "activityAt"])
 		.index("by_agent", ["agentId", "chatId"]),
 
 	// A message in a chat's main timeline, or in a thread (threadId = the parent message).

@@ -2,7 +2,7 @@ import { type ReactionGroup, describeWidget, emojiOf } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { publicSearchChat, touchSeats, refreshAudience } from "./chatDiscovery";
+import { publicSearchChat, touchSeats, refreshAudience, ensureSeatActivity } from "./chatDiscovery";
 import { imageUrls } from "./images";
 import { type Member, type Who, checkPermission, getMember, memberOf, memo, nameOf, personOf } from "./lib";
 import { channelName, chatAccess, reach, requireAccess } from "./placeAccess";
@@ -147,15 +147,21 @@ export async function addToChat(ctx: MutationCtx, chat: Doc<"chats">, who: { use
 				.query("chatMembers")
 				.withIndex("by_agent", (q) => q.eq("agentId", who.agentId).eq("chatId", chat._id))
 				.first();
-	if (existing) return;
-	await ctx.db.insert("chatMembers", {
+	if (existing) { await ensureSeatActivity(ctx, chat, existing); return; }
+	const seatId = await ctx.db.insert("chatMembers", {
 		chatId: chat._id,
 		workspaceId: chat.workspaceId,
 		...who,
-		activityAt: chat.lastMessageAt,
-		restricted: !publicSearchChat(chat),
 		...(who.userId && { lastReadAt: Date.now() }),
 	});
+	await ensureSeatActivity(ctx, chat, { _id: seatId, userId: who.userId });
+}
+
+/** Removing a seat outside a cascade also removes its discovery metadata. */
+export async function removeChatSeat(ctx: MutationCtx, id: Id<"chatMembers">) {
+	const activity = await ctx.db.query("seatActivity").withIndex("by_seat", (q) => q.eq("seatId", id)).first();
+	if (activity) await ctx.db.delete(activity._id);
+	await ctx.db.delete(id);
 }
 
 /** Sets the person's `lastReadAt` to now, if they're in the chat. */
@@ -486,8 +492,8 @@ export function textForModel(m: Doc<"chatMessages">, who = "You") {
 /** Bounded activity-ordered discovery; checking permissions never scans every seat. */
 export async function recentVisibleChats(ctx: QueryCtx, member: Member, limit = 50, restrictedOnly = false) {
 	const seats = await (restrictedOnly
-		? ctx.db.query("chatMembers").withIndex("by_private_activity", (q) => q.eq("workspaceId", member.workspaceId).eq("userId", member.userId).eq("restricted", true))
-		: ctx.db.query("chatMembers").withIndex("by_activity", (q) => q.eq("workspaceId", member.workspaceId).eq("userId", member.userId))
+		? ctx.db.query("seatActivity").withIndex("by_private_activity", (q) => q.eq("workspaceId", member.workspaceId).eq("userId", member.userId).eq("restricted", true))
+		: ctx.db.query("seatActivity").withIndex("by_activity", (q) => q.eq("workspaceId", member.workspaceId).eq("userId", member.userId))
 	).order("desc").take(limit + 1);
 	// Role-limited channels may be readable without joining them. Public channels need no discovery for search.
 	const channels = await ctx.db.query("chats").withIndex("by_search_activity", (q) => q.eq("workspaceId", member.workspaceId).eq("kind", "channel").eq("searchPublic", false)).order("desc").take(limit + 1);

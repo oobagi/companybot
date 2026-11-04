@@ -1,6 +1,7 @@
 import migrationsTest from "@convex-dev/migrations/test";
 import { expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
+import { insertMessage, markChatRead } from "../convex/chatOps";
 import { newTest, noMentions, signIn, workspaceOf } from "./helpers";
 
 it("backfills legacy search audiences and activity seats, and reindexes access changes", async () => {
@@ -12,7 +13,9 @@ it("backfills legacy search audiences and activity seats, and reindexes access c
 	const messageId = await t.run(async (ctx) => {
 		await ctx.db.patch(chatId, { searchPublic: undefined });
 		const seat = await ctx.db.query("chatMembers").withIndex("by_user", (q) => q.eq("userId", owner.userId).eq("chatId", chatId)).first();
-		await ctx.db.patch(seat!._id, { activityAt: undefined, restricted: undefined });
+		await ctx.db.patch(seat!._id, { activityAt: 1, restricted: false });
+		const activity = await ctx.db.query("seatActivity").withIndex("by_seat", (q) => q.eq("seatId", seat!._id)).first();
+		await ctx.db.delete(activity!._id);
 		return ctx.db.insert("chatMessages", { workspaceId, chatId, authorUserId: owner.userId, text: "legacy history", parts: [], status: "done", mentions: noMentions });
 	});
 	vi.useFakeTimers();
@@ -22,17 +25,18 @@ it("backfills legacy search audiences and activity seats, and reindexes access c
 	} finally { vi.useRealTimers(); }
 	expect((await t.run((ctx) => ctx.db.get("chatMessages", messageId)))!.searchPublic).toBe(true);
 	const seat = await t.run((ctx) => ctx.db.query("chatMembers").withIndex("by_user", (q) => q.eq("userId", owner.userId).eq("chatId", chatId)).first());
-	expect(seat).toMatchObject({ restricted: false, activityAt: expect.any(Number) });
+	expect(seat!.activityAt).toBeUndefined();
+	expect(seat!.restricted).toBeUndefined();
+	const activity = () => t.run((ctx) => ctx.db.query("seatActivity").withIndex("by_seat", (q) => q.eq("seatId", seat!._id)).first());
+	expect(await activity()).toMatchObject({ restricted: false, activityAt: expect.any(Number) });
 	const ownerRole = (await owner.query(api.roles.list))!.find((r) => r.name === "Owner")!.id;
 	await owner.mutation(api.chats.setAccess, { chatId, access: [{ role: ownerRole, level: "edit" }] });
 	await t.mutation(internal.chatDiscovery.refreshMessages, { chatId, cursor: null });
-	await t.mutation(internal.chatDiscovery.refreshSeats, { chatId, cursor: null });
 	expect((await t.run((ctx) => ctx.db.get("chatMessages", messageId)))!.searchPublic).toBe(false);
-	expect((await t.run((ctx) => ctx.db.get("chatMembers", seat!._id)))!.restricted).toBe(true);
+	expect(await activity()).toMatchObject({ restricted: true });
 	const sent = await owner.mutation(api.messages.send, { chatId, text: "new restricted message", mentions: noMentions });
 	expect((await t.run((ctx) => ctx.db.get("chatMessages", sent)))!.searchPublic).toBe(false);
-	await t.mutation(internal.chatDiscovery.refreshSeats, { chatId, cursor: null });
-	expect((await t.run((ctx) => ctx.db.get("chatMembers", seat!._id)))!.activityAt).toBe(seat!.activityAt);
+	expect((await activity())!.activityAt).toBe((await t.run((ctx) => ctx.db.get("chats", chatId)))!.lastMessageAt);
 });
 
 it("sets search audiences when creating general, an agent DM and its side chat", async () => {
@@ -47,4 +51,32 @@ it("sets search audiences when creating general, an agent DM and its side chat",
 		return [general!.searchPublic, (await ctx.db.get("chats", dm))!.searchPublic, (await ctx.db.get("chats", side))!.searchPublic];
 	});
 	expect(audiences).toEqual([true, false, false]);
+});
+
+
+it("sends update activity documents while markRead touches only the seat document", async () => {
+	const t = newTest();
+	const owner = await signIn(t, "owner@co.com");
+	const agentId = (await owner.query(api.agents.list))[0]!._id;
+	const chatId = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [agentId] });
+	const send = await t.run(async (ctx) => {
+		const chat = (await ctx.db.get("chats", chatId))!;
+		const reads = vi.spyOn(ctx.db, "query");
+		const writes = vi.spyOn(ctx.db, "patch");
+		try {
+			await insertMessage(ctx, chat, { authorAgentId: agentId, text: "reply", parts: [], mentions: noMentions, status: "done" });
+			return { reads: reads.mock.calls.map(([table]) => table), writes: writes.mock.calls.map(([id]) => id) };
+		} finally { reads.mockRestore(); writes.mockRestore(); }
+	});
+	const read = await t.run(async (ctx) => {
+		const writes = vi.spyOn(ctx.db, "patch");
+		try {
+			await markChatRead(ctx, chatId, owner.userId);
+			return writes.mock.calls.map(([id]) => id);
+		} finally { writes.mockRestore(); }
+	});
+	expect(send.reads).not.toContain("chatMembers");
+	expect(send.writes.filter((id) => read.includes(id))).toEqual([]);
+	expect(read).toHaveLength(1);
+	expect(await t.run(async (ctx) => send.writes.filter((id) => ctx.db.normalizeId("seatActivity", id)).length)).toBe(2);
 });

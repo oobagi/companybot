@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
 import { usageMonth } from "@companybot/core";
 import { api, internal } from "../convex/_generated/api";
-import { insertMessage } from "../convex/chatOps";
+import { addToChat, insertMessage } from "../convex/chatOps";
 import { activityPage } from "../convex/activity";
 import { memberOf } from "../convex/lib";
 import { imageSpent } from "../convex/usage";
@@ -73,7 +73,8 @@ it("bounds search and activity discovery with 5k joined chats and reports the pr
 	for (let start = 0; start < 5000; start += 500) await t.run(async (ctx) => {
 		for (let i = start; i < start + 500; i++) {
 			const chatId = await ctx.db.insert("chats", { workspaceId, kind: "dm", private: true, archived: false, createdBy: owner.userId, lastMessageAt: i });
-			await ctx.db.insert("chatMembers", { workspaceId, chatId, userId: owner.userId, activityAt: i, restricted: true });
+			const seatId = await ctx.db.insert("chatMembers", { workspaceId, chatId, userId: owner.userId });
+			await ctx.db.insert("seatActivity", { workspaceId, chatId, seatId, userId: owner.userId, activityAt: i, restricted: true });
 		}
 	});
 	const result = await t.mutation(internal.chatTools.searchFor, { turnId, query: "needle" });
@@ -130,7 +131,7 @@ it("caps only the top people breakdown while preserving 30k bucket totals", { ti
 	expect(report!.byKind).toEqual([{ kind: "chat", costUsd: 30250 }]);
 });
 
-it("avoids seat writes for 3 messages in a 500-member public channel and throttles restricted activity", { timeout: 600_000 }, async () => {
+it("debounces 3 messages in a 500-seat private channel into one bounded update, with no public activity writes", { timeout: 600_000 }, async () => {
 	const { t, owner } = await ownerAndMember();
 	const workspaceId = await workspaceOf(owner);
 	const agentId = (await agentsOf(owner)).companybot._id;
@@ -138,50 +139,75 @@ it("avoids seat writes for 3 messages in a 500-member public channel and throttl
 	const privateId = await owner.mutation(api.chats.createChannel, { name: "private-scale", private: true });
 	const start = Date.now();
 	await t.run(async (ctx) => {
+		const chats = [(await ctx.db.get("chats", publicId))!, (await ctx.db.get("chats", privateId))!];
 		for (let i = 0; i < 499; i++) {
 			const userId = await ctx.db.insert("users", { email: `seat${i}@co.com` });
 			await addMember(ctx, { workspaceId, userId, role: "member" });
-			for (const chatId of [publicId, privateId]) await ctx.db.insert("chatMembers", { workspaceId, chatId, userId, activityAt: start - 120_000, restricted: chatId === privateId, lastReadAt: 123 });
-		}
-		for (const chatId of [publicId, privateId]) {
-			const seat = await ctx.db.query("chatMembers").withIndex("by_user", (q) => q.eq("userId", owner.userId).eq("chatId", chatId)).first();
-			await ctx.db.patch(seat!._id, { activityAt: start - 120_000 });
+			for (const chat of chats) await addToChat(ctx, chat, { userId });
 		}
 	});
-	const seats = (chatId: typeof publicId) => t.run((ctx) => ctx.db.query("chatMembers").withIndex("by_chat", (q) => q.eq("chatId", chatId)).collect());
+	const activity = (chatId: typeof publicId) => t.run((ctx) => ctx.db.query("seatActivity").withIndex("by_chat", (q) => q.eq("chatId", chatId)).collect());
 	const post = (chatId: typeof publicId) => t.run(async (ctx) => {
 		const chat = (await ctx.db.get("chats", chatId))!;
 		const writes = vi.spyOn(ctx.db, "patch");
+		const reads = vi.spyOn(ctx.db, "query");
+		const jobs = vi.spyOn(ctx.scheduler, "runAfter");
 		try {
 			await insertMessage(ctx, chat, { authorAgentId: agentId, text: "Team update", parts: [], mentions: { userIds: [], agentIds: [] }, status: "done" });
-			return writes.mock.calls.filter(([id]) => ctx.db.normalizeId("chatMembers", id)).length;
-		} finally { writes.mockRestore(); }
+			return { activityWrites: writes.mock.calls.filter(([id]) => ctx.db.normalizeId("seatActivity", id)).length,
+				seatWrites: writes.mock.calls.filter(([id]) => ctx.db.normalizeId("chatMembers", id)).length,
+				queries: reads.mock.calls.map(([table]) => table), jobs: jobs.mock.calls.length };
+		} finally { writes.mockRestore(); reads.mockRestore(); jobs.mockRestore(); }
 	});
 	vi.useFakeTimers();
 	try {
-		const before = await seats(publicId);
+		const before = await activity(publicId);
 		expect(before).toHaveLength(500);
 		for (const elapsed of [1000, 2000, 3000]) {
 			vi.setSystemTime(start + elapsed);
-			expect(await post(publicId)).toBe(0);
+			expect(await post(publicId)).toMatchObject({ activityWrites: 0, seatWrites: 0, jobs: 0 });
 		}
-		await t.finishAllScheduledFunctions(vi.runAllTimers);
-		expect(await seats(publicId)).toEqual(before);
-		vi.setSystemTime(start + 4000);
-		expect(await post(privateId)).toBe(100);
-		await t.finishAllScheduledFunctions(vi.runAllTimers);
-		const updated = await seats(privateId);
-		expect(updated).toHaveLength(500);
-		expect(updated.every((seat) => seat.activityAt === start + 4000)).toBe(true);
-		for (const elapsed of [5000, 6000]) {
+		expect(await activity(publicId)).toEqual(before);
+		const initial = await activity(privateId);
+		for (const elapsed of [4000, 5000, 6000]) {
 			vi.setSystemTime(start + elapsed);
-			expect(await post(privateId)).toBe(0);
+			const result = await post(privateId);
+			expect(result).toMatchObject({ activityWrites: 0, seatWrites: 0, jobs: elapsed === 4000 ? 1 : 0 });
+			if (elapsed > 4000) expect(result.queries).toEqual(["chatActivity"]);
 		}
+		expect(await activity(privateId)).toEqual(initial);
 		await t.finishAllScheduledFunctions(vi.runAllTimers);
-		expect(await seats(privateId)).toEqual(updated);
-		vi.setSystemTime(start + 64_000);
-		expect(await post(privateId)).toBe(100);
-		await t.finishAllScheduledFunctions(vi.runAllTimers);
-		expect((await seats(privateId)).every((seat) => seat.activityAt === start + 64_000)).toBe(true);
+		const updated = await activity(privateId);
+		expect(updated).toHaveLength(500);
+		expect(updated.every((row) => row.activityAt === start + 6000)).toBe(true);
+		expect(await t.run((ctx) => ctx.db.query("chatActivity").withIndex("by_chat", (q) => q.eq("chatId", privateId)).first())).toMatchObject({ activityAt: start + 6000, pendingAt: undefined });
+		const jobs = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+		expect(jobs.filter((job) => job.name === "chatDiscovery:refreshSeats")).toHaveLength(5);
+	} finally { vi.useRealTimers(); }
+});
+
+it("finds a target DM after a message at T+20s among 51 DMs", async () => {
+	const { t, owner } = await ownerAndMember();
+	const workspaceId = await workspaceOf(owner);
+	const agentId = (await agentsOf(owner)).companybot._id;
+	const start = Date.now();
+	vi.useFakeTimers();
+	try {
+		const chats = await t.run(async (ctx) => {
+			const ids = [];
+			for (let i = 0; i < 51; i++) {
+				const chatId = await ctx.db.insert("chats", { workspaceId, kind: "dm", private: true, searchPublic: false, archived: false, createdBy: owner.userId, lastMessageAt: start + (i ? 10000 + i : 0) });
+				const chat = (await ctx.db.get("chats", chatId))!;
+				await addToChat(ctx, chat, { userId: owner.userId });
+				await addToChat(ctx, chat, { agentId });
+				ids.push(chatId);
+			}
+			return ids;
+		});
+		vi.setSystemTime(start + 19000);
+		const turnId = await agentTurn(t, owner, chats[50]!, agentId);
+		vi.setSystemTime(start + 20000);
+		await t.run(async (ctx) => insertMessage(ctx, (await ctx.db.get("chats", chats[0]!))!, { authorAgentId: agentId, text: "needle target", parts: [], mentions: { userIds: [], agentIds: [] }, status: "done" }));
+		expect(await t.mutation(internal.chatTools.searchFor, { turnId, query: "needle" })).toMatchObject({ messages: [{ text: "needle target" }] });
 	} finally { vi.useRealTimers(); }
 });
