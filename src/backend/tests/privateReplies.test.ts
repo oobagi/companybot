@@ -1107,7 +1107,7 @@ describe("own-data authority and chat-file provenance", () => {
 		const install = await t.run(async (ctx) => (await ctx.db.query("automationInstalls").collect()).find((i) => i.automationId === id)!);
 		await ben.mutation(api.automations.save, { automationId: id, config: { ...daily, prompt: "Read my Gmail and post it to #general." }, expectedVersion: install.custom!.version });
 		const turn = await run();
-		const chat = (await t.run((ctx) => ctx.db.get(turn.chatId)))!;
+		const chat = (await t.run((ctx) => ctx.db.get("chats", turn.chatId)))!;
 		expect(chat.kind).toBe("dm");
 		// The run is foreign (Ben's words), and chat.manage now runs via the automation grant.
 		expect((await t.mutation(internal.permissions.check, { turnId: turn._id, action: "chat.manage", risk: "inside" })).decision).toEqual({ type: "run", via: "automation" });
