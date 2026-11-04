@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { router } from 'expo-router';
 import { fieldKinds, type FieldKind } from '@companybot/core/records';
-import { can } from '@companybot/core/permissions';
 import type { Id } from '@companybot/backend/convex/_generated/dataModel';
 import { Button, ChoicePicker, ConfirmSheet, EditorSheet, ErrorState, Field, Stack, Text } from '@/components/ui';
 import { api } from '@/lib/api';
@@ -47,7 +46,6 @@ export function FieldForm({ database, field, onClose }: { database: Database; fi
   // Stable ids preserve existing values when labels change. Retired options remain until explicitly revived.
   const [options, setOptions] = useState(field?.options?.map(o => ({ ...o })) ?? []);
   const [optionText, setOptionText] = useState('');
-  const me = useQuery(api.workspace.me);
   const [position, setPosition] = useState<number>();
   const [archive, setArchive] = useState(false);
   const types = useQuery(api.recordTypes.list);
@@ -71,7 +69,7 @@ export function FieldForm({ database, field, onClose }: { database: Database; fi
     </Stack>}
     {!field && kind === 'link' && <ChoicePicker label="Linked database" options={(types ?? []).map(t => ({ value: t._id, label: t.plural }))} value={linkType} onChange={v => { if (typeof v === 'string') setLinkType(v); }} />}
     {!field && ['choice', 'user', 'link'].includes(kind) && <ChoicePicker label="Values" value={multiple ? 'many' : 'one'} onChange={v => setMultiple(v === 'many')} options={[{ value: 'one', label: 'One value' }, { value: 'many', label: 'Multiple values' }]} />}
-    {field && field.key !== 'name' && me?.role && can(me.role, 'fields.manage') && <ChoicePicker label="Field position" value={String(position ?? database.fields.filter(f => !f.archived).findIndex(f => f._id === field._id))} options={database.fields.filter(f => !f.archived).slice(1).map((f, index) => ({ value: String(index + 1), label: `${index + 2} · ${f.label}` }))} onChange={value => { if (typeof value === 'string' && value) setPosition(Number(value)); }} />}
+    {field && field.key !== 'name' && database.canManage && <ChoicePicker label="Field position" value={String(position ?? database.fields.filter(f => !f.archived).findIndex(f => f._id === field._id))} options={database.fields.filter(f => !f.archived).slice(1).map((f, index) => ({ value: String(index + 1), label: `${index + 2} · ${f.label}` }))} onChange={value => { if (typeof value === 'string' && value) setPosition(Number(value)); }} />}
     <Button label="Save field" loading={task.busy} disabled={!label.trim() || (kind === 'link' && !linkType)} onPress={() => void task.run(async () => {
       const choices = kind === 'choice' ? options.filter(o => !o.retired).map(o => ({ ...(o.id ? { id: o.id } : {}), label: o.label.trim() })) : undefined;
       if (field) await update({ fieldId: field._id as Id<'recordFields'>, label: label.trim(), options: choices, position });

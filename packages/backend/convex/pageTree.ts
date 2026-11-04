@@ -1,34 +1,81 @@
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import type { Member, Who } from "./lib";
+import { type AccessLevel, EVERYONE, can, widens } from "@companybot/core";
+import { type Member, type Who, memo } from "./lib";
+import { type AccessList, accessInfo } from "./placeAccess";
 import { appendPageBlock, removePageBlock, requireEditable, requirePage } from "./pageOps";
 
 // A deleted ancestor gates the whole subtree immediately; no fan-out on trash/restore.
 export const PAGE_DEPTH_MAX = 32;
 const MOVE_SCAN_MAX = 1_000;
-export const pageRow = (p: Doc<"pages">) => ({ _id: p._id, title: p.title, parentId: p.parentId ?? null, updatedAt: p.updatedAt });
+/**
+ * A page as lists show it, given how far the person reaches in it (`pageReach`). `lock`: who its own list lets
+ * in, for the sidebar's lock ("Office and Owners"); sub-pages following it show none. `canEdit`: Rename, Move,
+ * New page inside and Archive (`pages.edit` and Edit in it); lists show live pages only.
+ */
+export const pageRow = (p: Doc<"pages">, member: Member, level: AccessLevel, parentSeen = true) => ({
+	_id: p._id,
+	title: p.title,
+	/** Null at the top level, and under a parent they can't see. */
+	parentId: parentSeen ? (p.parentId ?? null) : null,
+	updatedAt: p.updatedAt,
+	lock: accessInfo(member, p.access).lock,
+	canEdit: level === "edit" && can(member, "pages.edit"),
+});
 
-/** Share this reader across a list to avoid rereading common ancestors. Missing parents fail closed during purge. */
-export function pageStates(ctx: QueryCtx) {
+/**
+ * What a page leaving its parent's list keeps (a move, or a restore to the top level): never more people.
+ * One following its parent's list keeps that list if `after` would let anyone further in; one with its own keeps it.
+ */
+export const keptAccess = (member: Member, page: Doc<"pages">, before: AccessList, after: AccessList) => {
+	const live = member.workspaceRoles.map((r) => r.id as string);
+	// A deleted role's id is copied nowhere: it matches nobody, and the role cleanup may have passed this page already.
+	return !page.access && widens(before, after, live) ? { access: (before ?? []).filter((e) => e.role === EVERYONE || live.includes(e.role)) } : {};
+};
+
+/**
+ * Share this reader across a list to avoid rereading common ancestors. Missing parents fail closed during purge.
+ * `access`: the Who can access list that rules the page: its own, else the nearest ancestor's; a record's
+ * page, its database's. `type`: that database, for a record's page.
+ */
+export function pageStates(ctx: QueryCtx, get: (id: Id<"pages">) => Promise<Doc<"pages"> | null> = (id) => ctx.db.get(id)) {
 	const seen = new Map<Id<"pages">, Promise<Doc<"pages"> | null>>();
-	return async (page: Doc<"pages">) => {
+	const typeOf = memo(async (recordId: Id<"records">) => {
+		const record = await ctx.db.get(recordId);
+		return record && (await ctx.db.get(record.typeId));
+	});
+	return async (page: Doc<"pages">): Promise<PageState> => {
+		if (page.recordId) {
+			const type = await typeOf(page.recordId);
+			// A record's page has no parent; it's in Archive with its record (pageOps.requireEditable checks that).
+			return { ancestors: [], archived: page.archived, trashPage: page.archived ? page : undefined, access: type ? type.access : [], type: type ?? undefined };
+		}
 		const ancestors: Doc<"pages">[] = [];
 		let current = page;
 		let trashPage = page.archived ? page : undefined;
 		while (current.parentId) {
 			if (ancestors.length >= PAGE_DEPTH_MAX || current.parentId === page._id) throw new ConvexError("This page's nesting is too deep.");
 			let pending = seen.get(current.parentId);
-			if (!pending) { pending = ctx.db.get(current.parentId); seen.set(current.parentId, pending); }
+			if (!pending) { pending = get(current.parentId); seen.set(current.parentId, pending); }
 			const parent = await pending;
-			if (!parent || parent.workspaceId !== page.workspaceId) return { ancestors, archived: true, trashPage, missingId: current.parentId };
+			if (!parent || parent.workspaceId !== page.workspaceId) return { ancestors, archived: true, trashPage, missingId: current.parentId, access: [] };
 			ancestors.push(parent);
 			if (parent.archived) trashPage = parent;
 			current = parent;
 		}
-		return { ancestors, archived: !!trashPage, trashPage };
+		return { ancestors, archived: !!trashPage, trashPage, access: [page, ...ancestors].find((p) => p.access)?.access };
 	};
 }
+
+export type PageState = {
+	ancestors: Doc<"pages">[];
+	archived: boolean;
+	trashPage?: Doc<"pages">;
+	missingId?: Id<"pages">;
+	access: AccessList;
+	type?: Doc<"recordTypes">;
+};
 export const pageState = (ctx: QueryCtx, page: Doc<"pages">) => pageStates(ctx)(page);
 
 /** Record bodies are neither parents nor children. */
@@ -63,11 +110,14 @@ export async function movePage(ctx: MutationCtx, who: Who, page: Doc<"pages">, p
 			queue.push(...children.map((p) => ({ id: p._id, depth: next.depth + 1 })));
 		}
 	}
-	await ctx.db.patch(page._id, { parentId, updatedAt: Date.now(), updatedBy: who.member.userId });
+	// Moving never opens a page to more people. Moving somewhere stricter makes it stricter.
+	const kept = keptAccess(who.member, page, before.access, destination ? destination.access : undefined);
+	await ctx.db.patch(page._id, { parentId, updatedAt: Date.now(), updatedBy: who.member.userId, ...kept });
 	if (before.ancestors[0]) await removePageBlock(ctx, who, before.ancestors[0], page._id);
-	if (destination) await appendPageBlock(ctx, who, destination.parent, page._id, page.title);
+	if (destination) await appendPageBlock(ctx, who, destination.parent, page._id);
 	const latest = await ctx.db.query("pageMoves").withIndex("by_page", (q) => q.eq("pageId", page._id)).order("desc").first();
 	const n = (latest?.n ?? 0) + 1;
-	await ctx.db.insert("pageMoves", { workspaceId: page.workspaceId, pageId: page._id, n, userId: who.member.userId, ...(who.agentId && { agentId: who.agentId }), from: before.ancestors[0]?.title ?? "Pages", to: destination?.parent.title ?? "Pages" });
+	// Ids, not titles: history names each place only to people who can see it (pages.moves).
+	await ctx.db.insert("pageMoves", { workspaceId: page.workspaceId, pageId: page._id, n, userId: who.member.userId, ...(who.agentId && { agentId: who.agentId }), fromId: before.ancestors[0]?._id ?? null, toId: destination?.parent._id ?? null });
 	for (const old of await ctx.db.query("pageMoves").withIndex("by_page", (q) => q.eq("pageId", page._id).lte("n", n - 100)).take(2)) await ctx.db.delete(old._id);
 }

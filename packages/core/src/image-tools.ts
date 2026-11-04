@@ -2,9 +2,9 @@ import { z } from "zod";
 import { monthLabel, formatUsd } from "./usage";
 import { type ToolDef, defineTool, resultText } from "./tools";
 
-/** What a workspace may spend on pictures a month, in USD, until an owner sets it. 0 turns pictures off. */
+/** What a workspace may spend on pictures a month, in USD, until someone with workspace.manage sets it. 0 turns pictures off. */
 export const IMAGE_BUDGET_DEFAULT_USD = 20;
-/** The most an owner can set: a typo shouldn't open the tap. */
+/** The most anyone can set: a typo shouldn't open the tap. */
 export const IMAGE_BUDGET_MAX_USD = 10_000;
 /**
  * What one picture is counted as when the gateway reports no cost and the model lists no price (token-priced
@@ -31,7 +31,7 @@ export interface ImageStore {
 
 /** Why a workspace can't make a picture now, or null. `month` is "2026-10". */
 export function imageBudgetError(budgetUsd: number, spentUsd: number, month: string) {
-	const where = "an owner can change it in Settings → General ([General](#/settings/general))";
+	const where = "someone who can change workspace settings can change it in Settings → General ([General](#/settings/general))";
 	if (budgetUsd <= 0) return `Pictures are turned off in this workspace (its monthly image budget is $0); ${where}.`;
 	if (spentUsd >= budgetUsd) return `This workspace's image budget for ${monthLabel(month)} (${formatUsd(budgetUsd)}) is used up; ${where}.`;
 	return null;
@@ -51,10 +51,8 @@ export const imageTools: ToolDef[] = [
 		// Nothing leaves the workspace, but it spends money and can read pictures from the person's
 		// private chats: a run following someone else's words asks first, like other `inside` tools.
 		risk: "inside",
-		label: (input, output) => {
-			const done = output && typeof output === "object" && "attached" in output;
-			return input.editFiles?.length ? (done ? "Edited a picture" : "Edit a picture") : done ? "Made a picture" : "Make a picture";
-		},
+		// Present tense: toolLine says "Making…" and "Made…".
+		label: (input) => (input.editFiles?.length ? "Edit a picture" : "Make a picture"),
 		execute: (input, { images }) => images.generate(input),
 		// A receipt, never the picture: the person sees it on the reply.
 		toModelOutput: ({ output }) => ({

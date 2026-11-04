@@ -102,6 +102,36 @@ describe("native notification registration and privacy", () => {
 		expect(await f.mobile.query(api.mobileNotifications.resolve, { deliveryId: delivery!._id })).toBeNull();
 	});
 
+	it.each(["channel access", "member roles", "artifact source"] as const)("rechecks %s for queued pushes, badges, alerts and taps", async (revocation) => {
+		const f = await fixture();
+		const office = await f.owner.mutation(api.roles.create, { name: "Office" });
+		const basic = (await f.owner.query(api.roles.list))!.find((role) => role.name === "Member")!.id;
+		const membership = (await f.owner.query(api.workspace.team))!.members.find((row) => row.userId === f.member.userId)!;
+		await f.owner.mutation(api.workspace.setRoles, { id: membership.id, roles: [basic, office] });
+		const channel = await f.owner.mutation(api.chats.createChannel, { name: "office", private: false });
+		await f.owner.mutation(api.chats.join, { chatId: channel });
+		await f.member.mutation(api.chats.join, { chatId: channel });
+		await f.owner.mutation(api.chats.setAccess, { chatId: channel, access: [{ role: office, level: "view" }] });
+		const chatId = revocation === "artifact source" ? f.chatId : channel;
+		if (revocation === "artifact source") await f.t.run((ctx) => ctx.db.patch(chatId, { usedPlaces: [channel] }));
+		vi.setSystemTime(Date.now() + 10);
+		await post(f, chatId, { userIds: [f.member.userId], agentIds: [] });
+		const [delivery] = await deliveries(f.t);
+		expect(delivery).toBeDefined();
+		expect(await f.mobile.query(api.mobileNotifications.badge, {})).toBe(1);
+		expect((await f.member.query(api.chats.alerts))!.some((alert) => alert.chatId === chatId)).toBe(true);
+		expect(await f.mobile.query(api.mobileNotifications.resolve, { deliveryId: delivery!._id })).toMatchObject({ chatId });
+
+		if (revocation === "member roles") await f.owner.mutation(api.workspace.setRoles, { id: membership.id, roles: [basic] });
+		else await f.owner.mutation(api.chats.setAccess, { chatId: channel, access: [] });
+		expect(await f.mobile.query(api.mobileNotifications.badge, {})).toBe(0);
+		expect((await f.member.query(api.chats.alerts))!.some((alert) => alert.chatId === chatId)).toBe(false);
+		expect(await f.mobile.query(api.mobileNotifications.resolve, { deliveryId: delivery!._id })).toBeNull();
+		expect((await f.t.mutation(internal.mobileNotifications.claim, { kind: "send" }))?.jobs).toEqual([]);
+		await post(f, chatId, { userIds: [f.member.userId], agentIds: [] });
+		expect(await deliveries(f.t)).toHaveLength(1);
+	});
+
 	it("does not retarget queued jobs after token rotation or an account switch", async () => {
 		const f = await fixture();
 		await post(f);

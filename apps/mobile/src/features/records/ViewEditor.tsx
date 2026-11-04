@@ -11,7 +11,7 @@ import { buildFilter, draftFilter, replaceFilter, viewIsStale, type Condition, t
 
 type FilterStep = { index: number | 'new'; initial: FilterDraft; draft: FilterDraft };
 
-export function ViewEditor({ database, value, view: selectedView, baseVersion, onApply, onClose, canSave }: { database: Database; value: ViewConfig; view?: SavedView; baseVersion?: number; onApply: (config: ViewConfig, selected?: string) => void; onClose: () => void; canSave: boolean }) {
+export function ViewEditor({ database, value, view: selectedView, baseVersion, onApply, onClose, canSave, sharedDisplay }: { database: Database; value: ViewConfig; view?: SavedView; baseVersion?: number; onApply: (config: ViewConfig, selected?: string, baseline?: ViewConfig) => void | Promise<void>; sharedDisplay?: { editable: boolean }; onClose: () => void; canSave: boolean }) {
   // A remote deletion must not turn an existing-view draft into a new-view creation.
   const [view] = useState(selectedView);
   const [draft, setDraft] = useState(value);
@@ -40,7 +40,7 @@ export function ViewEditor({ database, value, view: selectedView, baseVersion, o
   };
   const saveShared = () => void task.run(async () => {
     const id = await save({ typeId: database._id, ...draft, name: name.trim(), ...(view ? { viewId: view._id, version } : {}) });
-    onApply(draft, id); onClose();
+    await onApply(draft, id); onClose();
   });
   return <EditorSheet title={filter ? filter.index === 'new' ? 'Add filter' : 'Edit filter' : step === 'name' ? 'New shared view' : 'View options'} onClose={() => void guard.close()} busy={task.busy} dismissible={guard.dismissible}>
     {dialog}{guard.dialog}
@@ -57,19 +57,20 @@ export function ViewEditor({ database, value, view: selectedView, baseVersion, o
       <Field label="Shared view name" value={name} onChangeText={setName} maxLength={120} editable={!task.busy} autoFocus />
       <Button label="Create shared view" disabled={!canSave || !name.trim()} loading={task.busy} onPress={saveShared} />
     </> : <>
-    <ChoicePicker disabled={task.busy} label="Layout" value={draft.layout ?? 'table'} options={[{ value: 'table', label: 'List' }, { value: 'board', label: 'Board' }]} onChange={v => { if (v === 'table' || v === 'board') setDraft({ ...draft, layout: v }); }} />
-    {draft.layout === 'board' && <ChoicePicker disabled={task.busy} label="Group by" value={draft.groupBy ?? ''} options={fields.filter(groupable).map(f => ({ value: f.key, label: f.label }))} onChange={v => { if (typeof v === 'string') setDraft({ ...draft, groupBy: v || undefined }); }} />}
+    <ChoicePicker disabled={task.busy || sharedDisplay?.editable === false} label="Layout" value={draft.layout ?? 'table'} options={[{ value: 'table', label: 'List' }, { value: 'board', label: 'Board' }]} onChange={v => { if (v === 'table' || v === 'board') setDraft({ ...draft, layout: v }); }} />
+    {draft.layout === 'board' && <ChoicePicker disabled={task.busy || sharedDisplay?.editable === false} label="Group by" value={draft.groupBy ?? ''} options={fields.filter(groupable).map(f => ({ value: f.key, label: f.label }))} onChange={v => { if (typeof v === 'string') setDraft({ ...draft, groupBy: v || undefined }); }} />}
     <ChoicePicker disabled={task.busy} allowEmpty emptyLabel="Default order" label="Sort by" value={draft.sort?.field ?? ''} options={[{ value: 'createdAt', label: 'Created' }, { value: 'updatedAt', label: 'Updated' }, ...fields.filter(sortable).map(f => ({ value: f.key, label: f.label }))]} onChange={v => { if (typeof v === 'string') setDraft({ ...draft, sort: v ? { field: v, order: draft.sort?.order ?? 'asc' } : undefined }); }} />
     {draft.sort && <ChoicePicker disabled={task.busy} label="Order" value={draft.sort.order} options={[{ value: 'asc', label: 'Ascending' }, { value: 'desc', label: 'Descending' }]} onChange={v => { if (v === 'asc' || v === 'desc') setDraft({ ...draft, sort: { ...draft.sort!, order: v } }); }} />}
-    <ChoicePicker disabled={task.busy} label="Properties shown" multiple value={draft.columns} options={fields.map(f => ({ value: f.key, label: f.label, disabled: f.key === 'name' }))} onChange={v => { if (Array.isArray(v)) setDraft({ ...draft, columns: ['name', ...v.filter(k => k !== 'name')] }); }} />
+    <ChoicePicker disabled={task.busy || sharedDisplay?.editable === false} label="Properties shown" multiple value={draft.columns} options={fields.map(f => ({ value: f.key, label: f.label, disabled: f.key === 'name' }))} onChange={v => { if (Array.isArray(v)) setDraft({ ...draft, columns: ['name', ...v.filter(k => k !== 'name')] }); }} />
     <Text variant="label">Filters · all must match</Text>
     {draft.filters.map((filter, index) => <Stack key={index} gap="xs"><ListRow title={fields.find(f => f.key === filter.field)?.label ?? filter.field} description={Object.entries(filter).filter(([key]) => key !== 'field').map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join(', ')} disabled={task.busy} onPress={() => openFilter(index)} /><Button label="Remove filter" variant="ghost" disabled={task.busy} onPress={() => setDraft({ ...draft, filters: draft.filters.filter((_, i) => i !== index) })} /></Stack>)}
     <Button label="Add filter" variant="secondary" disabled={task.busy || draft.filters.length >= 10} onPress={() => openFilter('new')} />
-    <Button label="Apply on this device" disabled={task.busy} onPress={() => { onApply(draft); onClose(); }} />
+    {sharedDisplay && <Text variant="caption" tone="muted">The All records layout, grouping and properties shown are shared. Filters and sorting apply on this device.</Text>}
+    <Button label={sharedDisplay ? "Apply view options" : "Apply on this device"} loading={task.busy} onPress={() => void task.run(async () => { await onApply(draft, undefined, initial.config); onClose(); })} />
     {canSave && (view ? <><Field label="Shared view name" value={name} onChangeText={setName} maxLength={120} editable={!task.busy} />
       <Button label="Save for everyone" variant="secondary" disabled={!name.trim() || !!stale} loading={task.busy} onPress={saveShared} />
     </> : <Button label="New shared view" variant="secondary" onPress={() => { task.clear(); setStep('name'); }} />)}
-    {view && canSave && (deleting ? <Stack><Text>Delete this shared view for everyone? Records are kept.</Text><Button label="Delete shared view" variant="danger" disabled={!!stale} loading={task.busy} onPress={() => void task.run(async () => { await remove({ viewId: view._id, version: version! }); onApply(value, ''); onClose(); })} /><Button label="Cancel deletion" variant="ghost" disabled={task.busy} onPress={() => setDeleting(false)} /></Stack> : <Button label="Delete shared view" variant="ghost" disabled={task.busy} onPress={() => setDeleting(true)} />)}
+    {view && canSave && (deleting ? <Stack><Text>Delete this shared view for everyone? Records are kept.</Text><Button label="Delete shared view" variant="danger" disabled={!!stale} loading={task.busy} onPress={() => void task.run(async () => { await remove({ viewId: view._id, version: version! }); await onApply(value, ''); onClose(); })} /><Button label="Cancel deletion" variant="ghost" disabled={task.busy} onPress={() => setDeleting(false)} /></Stack> : <Button label="Delete shared view" variant="ghost" disabled={task.busy} onPress={() => setDeleting(true)} />)}
     </>}
   </EditorSheet>;
 }

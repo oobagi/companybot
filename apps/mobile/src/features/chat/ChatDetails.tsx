@@ -9,6 +9,7 @@ import { Profile } from './Profile';
 import { Dialog } from './Dialog';
 import type { Chat } from './types';
 import { chatTitle } from './types';
+import { AccessSheet } from '@/features/access/AccessSheet';
 
 export function ChatDetails({ chatId }: { chatId: Id<'chats'> }) {
   const chat = useQuery(api.chats.get, { chatId });
@@ -26,17 +27,21 @@ function Details({ chat }: { chat: Chat }) {
   const archive = useMutation(api.trash.move);
   const leave = useMutation(api.chats.leave);
   const close = useMutation(api.chats.closeDm);
+  const setAccess = useMutation(api.chats.setAccess);
   const task = useTask();
   const [name, setName] = useState(chat.name ?? chat.label ?? '');
   const [topic, setTopic] = useState(chat.topic ?? '');
   const [mode, setMode] = useState(chat.replyMode);
   const [profile, setProfile] = useState<Chat['members'][number]>();
   const [adding, setAdding] = useState(false);
+  const [accessOpen, setAccessOpen] = useState(false);
   const [confirm, setConfirm] = useState<{ title: string; text: string; run: () => Promise<unknown> }>();
   const navigateAway = () => router.dismissTo('/');
   const members = new Set(chat.members.map((m) => m.id));
   const candidates = [...(team?.members.filter((p) => !members.has(p.userId)).map((p) => ({ id: p.userId, name: p.name || p.email, image: p.image, agent: false })) ?? []), ...(chats?.agents.filter((a) => !members.has(a._id)).map((a) => ({ id: a._id, name: a.name, image: a.image, agent: true })) ?? [])];
   return <Screen scroll><Stack><Text variant="heading">{chatTitle(chat)}</Text>{chat.private && <Badge label="Private" />}{task.error && <ErrorState message={task.error} />}
+    {chat.kind === 'channel' && <Button label="Who can access" variant="secondary" onPress={() => setAccessOpen(true)} />}
+    {accessOpen && chat.access && <AccessSheet access={chat.access} editLabel="Post" requireEveryone={chat.isDefault} description={chat.private ? 'This private channel is also limited to its invited members.' : undefined} onSave={chat.canManage && !chat.trash ? entries => setAccess({ chatId: chat._id, access: entries ?? [] }) : undefined} onClose={() => setAccessOpen(false)} />}
     {(chat.canManage || chat.parentId) && !chat.trash && <Card><Field label="Name" value={name} onChangeText={setName} editable={!task.busy} />{chat.kind === 'channel' && <><Field label="Topic" value={topic} onChangeText={setTopic} multiline editable={!task.busy} /><Section title="When agents reply">{(['mentions', 'relevant'] as const).map((value) => <ListRow key={value} title={value === 'mentions' ? 'Only when mentioned' : 'When relevant'} selected={mode === value} trailing={mode === value ? <Text>Selected</Text> : undefined} onPress={() => setMode(value)} />)}</Section></>}<Button label="Save changes" loading={task.busy} disabled={!name.trim()} onPress={() => void task.run(() => chat.parentId ? rename({ chatId: chat._id, title: name.trim() }) : update({ chatId: chat._id, name: name.trim(), topic: topic.trim(), replyMode: mode }))} /></Card>}
     <Section title={`Members · ${chat.members.length}`} action={chat.kind === 'channel' && !chat.trash ? <Button label="Add" variant="ghost" onPress={() => setAdding(true)} /> : undefined}>
       {chat.members.map((member) => <ListRow key={member.id} title={member.name} onPress={() => setProfile(member)} leading={<Avatar name={member.name} image={member.image} agent={member.type === 'agent'} />} trailing={chat.canManage && !chat.trash && !(chat.isDefault && member.type === 'user') ? <Button label="Remove" accessibilityLabel={`Remove ${member.name}`} variant="ghost" onPress={() => setConfirm({ title: `Remove ${member.name}?`, text: 'They will lose access to this channel.', run: () => remove({ chatId: chat._id, ...(member.type === 'agent' ? { agentId: member.id as Id<'agents'> } : { userId: member.id as Id<'users'> }) }) })} /> : member.type === 'agent' ? <Badge label="Bot" /> : undefined} />)}

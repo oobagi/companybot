@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { View } from 'react-native';
 import { router, Stack as RouterStack } from 'expo-router';
 import type { Id } from '@companybot/backend/convex/_generated/dataModel';
-import { can } from '@companybot/core/permissions';
 import type { FieldValue } from '@companybot/core/records';
 import { Button, Card, ConfirmSheet, EditorSheet, EmptyState, ErrorState, ListRow, Loading, Screen, Section, Stack, Text } from '@/components/ui';
 import { api } from '@/lib/api';
@@ -12,6 +11,7 @@ import { DocumentEditor } from '@/features/documents/DocumentEditor';
 import { FieldForm } from './DatabaseForms';
 import { ValueEditor } from './ValueEditor';
 import { valueText, type RecordDetail, type TypeField } from './model';
+import { recordCapabilities } from './access';
 
 export function RecordScreen({ recordId }: { recordId: string }) {
   const record = useQuery(api.records.get, { recordId: recordId as Id<'records'> });
@@ -31,8 +31,8 @@ function RecordContent({ record }: { record: RecordDetail }) {
   const [archive, setArchive] = useState(false);
   const [history, setHistory] = useState(false);
   const [field, setField] = useState<TypeField | 'new'>();
-  const canEdit = !!me?.role && can(me.role, 'records.edit');
-  const editable = canEdit && !record.archived;
+  const capabilities = recordCapabilities(me?.access, record);
+  const editable = capabilities.edit;
   const missing = record.unresolved.slice(0, 200);
   const resolved = useQuery(api.records.refs, missing.length ? { ids: missing } : 'skip');
   const refs = { ...record.refs, ...resolved };
@@ -46,19 +46,19 @@ function RecordContent({ record }: { record: RecordDetail }) {
         {record.fields.map(f => <Stack key={f.key} gap="xs">
           {editable ? <ValueEditor field={f} value={record.values[f.key]} refs={refs} onSave={next => update({ recordId: record._id, values: { [f.key]: next } })} /> : <ListRow title={f.label} description={valueText(f, record.values[f.key], refs)} />}
           {f.kind === 'link' && (Array.isArray(record.values[f.key]) ? record.values[f.key] as string[] : typeof record.values[f.key] === 'string' ? [record.values[f.key] as string] : []).filter(id => refs[id] && !refs[id].archived).map(id => <Button key={id} label={`Open ${refs[id].name}`} variant="ghost" onPress={() => router.push(`/record/${id}`)} />)}
-          {editable && type?.fields.find(candidate => candidate._id === f._id)?.canEdit && <Button label={`Edit ${f.label} field`} variant="ghost" onPress={() => setField(f)} />}
+          {!record.archived && type?.fields.find(candidate => candidate._id === f._id)?.canEdit && <Button label={`Edit ${f.label} field`} variant="ghost" onPress={() => setField(f)} />}
         </Stack>)}
-        {editable && me?.role && can(me.role, 'fields.create') && type && <Button label="Add field" variant="secondary" onPress={() => setField('new')} />}
+        {!record.archived && type?.canManage && <Button label="Add field" variant="secondary" onPress={() => setField('new')} />}
       </Section>
-      <RecordBody recordId={record._id} editable={!!me?.role && can(me.role, 'pages.edit') && !record.archived} />
+      <RecordBody recordId={record._id} editable={capabilities.notes} />
       <Followups recordId={record._id} />
       <LinkedRecords recordId={record._id} />
       <Discussion recordId={record._id} />
       <Button label="History" variant="secondary" onPress={() => setHistory(true)} />
       {editable && <Button label="Archive record" variant="ghost" onPress={() => setArchive(true)} />}
     </Stack>
-    {field && type && <FieldForm database={type} field={field === 'new' ? undefined : field} onClose={() => setField(undefined)} />}
-    {history && <History record={record} canUndo={canEdit} onClose={() => setHistory(false)} />}
+    {field && type?.canManage && <FieldForm database={type} field={field === 'new' ? undefined : field} onClose={() => setField(undefined)} />}
+    {history && <History record={record} canUndo={capabilities.undo} onClose={() => setHistory(false)} />}
     {archive && <ConfirmSheet title="Archive record?" message="Its properties, notes and history are kept. Restore it at any time from Archive." confirmLabel="Archive" busy={task.busy} error={task.error} onClose={() => setArchive(false)} onConfirm={() => void task.run(async () => { await move({ kind: 'record', id: record._id }); setArchive(false); })} />}
   </Screen>;
 }

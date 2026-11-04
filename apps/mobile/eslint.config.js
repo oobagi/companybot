@@ -11,7 +11,10 @@ module.exports = defineConfig([
     files: ['src/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': ['error', {
-        paths: [{ name: '@companybot/core', message: 'Use a browser-safe core subpath; the barrel imports the server agent runtime.' }],
+        paths: [
+          { name: '@companybot/core', message: 'Use a browser-safe core subpath; the barrel imports the server agent runtime.' },
+          { name: '@companybot/core/wakeups', message: 'Use core/wakeup-display for presentation; wakeups imports the server tool runtime.' },
+        ],
       }],
     },
   },

@@ -1,4 +1,4 @@
-import { ownerAndMember, signIn, newTest } from "./helpers";
+import { ownerAndMember, signIn, newTest, setMemberSwitch } from "./helpers";
 import migrationsTest from "@convex-dev/migrations/test";
 import { convexTest } from "convex-test";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
@@ -26,6 +26,15 @@ type List = FunctionReturnType<typeof api.records.list>;
 const titles = async (as: As, args: Omit<FunctionArgs<typeof api.records.list>, "paginationOpts">) =>
 	(await as.query(api.records.list, { ...args, paginationOpts: page })).page.map((r) => r.title);
 
+/** Many records in one transaction, through the same code the mutations use. */
+const seed = async (t: ReturnType<typeof convexTest>, userId: Id<"users">, typeId: Id<"recordTypes">, values: Record<string, unknown>[]) =>
+	t.run(async (ctx) => {
+		const who = { member: (await memberOf(ctx, userId, (await ctx.db.get(typeId))!.workspaceId))! };
+		const ids = [];
+		for (const v of values) ids.push((await createRecord(ctx, who, typeId, v)).id);
+		return ids;
+	});
+
 describe("databases", () => {
 	it("keeps existing databases and their links usable without a catalog", async () => {
 		const { client, deal, task, call } = await setup();
@@ -36,9 +45,10 @@ describe("databases", () => {
 		expect(task.fields.find((f) => f.key === "status")?.options?.map((o) => o.id)).toEqual(["to_do", "doing", "done"]);
 	});
 
-	it("lets only owners add databases, each starting with a name field", async () => {
+	it("lets only people with the databases switch add databases, each starting with a name field", async () => {
 		const { owner, member } = await setup();
-		await expect(member.mutation(api.recordTypes.create, { plural: "Jobs" })).rejects.toThrow("permission");
+		await setMemberSwitch(owner, "fields.edit", false);
+		await expect(member.mutation(api.recordTypes.create, { plural: "Jobs" })).rejects.toThrow("Only people with the");
 		await owner.mutation(api.recordTypes.create, { plural: "Jobs" });
 		await expect(owner.mutation(api.recordTypes.create, { plural: "jobs" })).rejects.toThrow("already");
 		const jobs = (await member.query(api.recordTypes.list)).find((t) => t.key === "job")!;
@@ -287,7 +297,8 @@ describe("records", () => {
 
 describe("fields", () => {
 	it("lets anyone add a field, then set, filter and sort by it", async () => {
-		const { member, client } = await setup();
+		const { owner, member, client } = await setup();
+		await setMemberSwitch(owner, "fields.edit", true);
 		const roof = await member.mutation(api.fields.create, {
 			typeId: client._id,
 			label: "Roof type",
@@ -305,15 +316,17 @@ describe("fields", () => {
 		await expect(member.mutation(api.fields.create, { typeId: client._id, label: "Parent", kind: "link" })).rejects.toThrow("Pick the database");
 	});
 
-	it("lets people change fields they added; owners change any", async () => {
+	it("lets the databases switch decide who changes a field, not who added it", async () => {
 		const { owner, member, client } = await setup();
+		await setMemberSwitch(owner, "fields.edit", true);
 		const status = client.fields.find((f) => f.key === "status")!;
-		await expect(member.mutation(api.fields.update, { fieldId: status._id, label: "Stage" })).rejects.toThrow("Only the person who made this");
 		const mine = await member.mutation(api.fields.create, { typeId: client._id, label: "Gate code", kind: "text" });
-		await member.mutation(api.fields.update, { fieldId: mine._id, label: "Gate" });
-		await owner.mutation(api.fields.update, { fieldId: status._id, label: "Stage" });
+		await member.mutation(api.fields.update, { fieldId: status._id, label: "Stage" });
+		await setMemberSwitch(owner, "fields.edit", false);
+		await expect(member.mutation(api.fields.update, { fieldId: mine._id, label: "Gate" })).rejects.toThrow("Only people with the Owner role");
+		await owner.mutation(api.fields.update, { fieldId: mine._id, label: "Gate" });
 		const fields = (await member.query(api.recordTypes.list)).find((t) => t.key === "client")!.fields;
-		expect(fields.find((f) => f._id === mine._id)).toMatchObject({ key: "gate_code", label: "Gate", canEdit: true });
+		expect(fields.find((f) => f._id === mine._id)).toMatchObject({ key: "gate_code", label: "Gate", canEdit: false });
 		expect(fields.find((f) => f._id === status._id)).toMatchObject({ label: "Stage", canEdit: false });
 	});
 
@@ -435,11 +448,12 @@ describe("records: limits and edge cases", () => {
 	});
 
 	it("lists a full page of records with many links inside transaction limits", async () => {
-		const { owner, client, deal } = await setup();
+		const { t, owner, client, deal } = await setup();
 		await owner.mutation(api.fields.create, { typeId: deal._id, label: "Contacts", kind: "link", multiple: true, linkTypeId: client._id });
-		const ids: Id<"records">[] = [];
-		for (let n = 0; n < 50; n++) ids.push(await owner.mutation(api.records.create, { typeId: client._id, values: { name: `C${n}` } }));
-		for (let n = 0; n < 82; n++) await owner.mutation(api.records.create, { typeId: deal._id, values: { name: `D${n}`, contacts: ids } });
+		const ids = await seed(t, owner.userId, client._id, Array.from({ length: 50 }, (_, n) => ({ name: `C${n}` })));
+		// A few transactions: each deal checks its 50 links.
+		for (let from = 0; from < 82; from += 5)
+			await seed(t, owner.userId, deal._id, Array.from({ length: Math.min(5, 82 - from) }, (_, n) => ({ name: `D${from + n}`, contacts: ids })));
 		const first = await owner.query(api.records.list, { typeId: deal._id, paginationOpts: { numItems: 100, cursor: null } });
 		expect(first.page).toHaveLength(50);
 		expect(Object.keys(first.page[0]!.refs)).toHaveLength(50);
@@ -448,12 +462,10 @@ describe("records: limits and edge cases", () => {
 	});
 
 	it("leaves names past a page's read budget for records.refs", async () => {
-		const { owner, client, deal } = await setup();
+		const { t, owner, client, deal } = await setup();
 		await owner.mutation(api.fields.create, { typeId: deal._id, label: "Contacts", kind: "link", multiple: true, linkTypeId: client._id });
-		const ids: Id<"records">[] = [];
-		for (let n = 0; n < 250; n++) ids.push(await owner.mutation(api.records.create, { typeId: client._id, values: { name: `C${n}` } }));
-		for (let n = 0; n < 5; n++)
-			await owner.mutation(api.records.create, { typeId: deal._id, values: { name: `D${n}`, contacts: ids.slice(n * 50, n * 50 + 50) } });
+		const ids = await seed(t, owner.userId, client._id, Array.from({ length: 250 }, (_, n) => ({ name: `C${n}` })));
+		await seed(t, owner.userId, deal._id, Array.from({ length: 5 }, (_, n) => ({ name: `D${n}`, contacts: ids.slice(n * 50, n * 50 + 50) })));
 		const rows = (await owner.query(api.records.list, { typeId: deal._id, paginationOpts: page })).page;
 		const unresolved = rows.flatMap((r) => r.unresolved);
 		expect(unresolved).toHaveLength(50);
@@ -499,7 +511,7 @@ describe("records: limits and edge cases", () => {
 				"currency code",
 			);
 		await expect(member.mutation(api.workspace.updateSettings, { name: next.name, currency: "GBP", expectedVersion: next.version })).rejects.toThrow(
-			"permission",
+			"Only people with the",
 		);
 	});
 
@@ -555,13 +567,6 @@ describe("records: list edge cases", () => {
 		for (let i = 0; i < 3; i++) keys.push((await owner.mutation(api.fields.create, { typeId, label: `Big ${i}`, kind: "text" })).key);
 		return { name: "界".repeat(10_000), ...Object.fromEntries(keys.map((k) => [k, "界".repeat(10_000)])) };
 	}
-	const seed = async (t: ReturnType<typeof convexTest>, userId: Id<"users">, typeId: Id<"recordTypes">, values: Record<string, unknown>[]) =>
-		t.run(async (ctx) => {
-			const who = { member: (await memberOf(ctx, userId, (await ctx.db.get(typeId))!.workspaceId))! };
-			const ids = [];
-			for (const v of values) ids.push((await createRecord(ctx, who, typeId, v)).id);
-			return ids;
-		});
 
 	it("keeps an older match from a short 'any of' stream behind a full one", async () => {
 		const { t, owner, task } = await setup();
@@ -723,5 +728,18 @@ describe("records: list edge cases", () => {
 		expect(await list("client", false)).toEqual(["Mixed"]);
 		expect(await list("partners", true)).toEqual(["To gone"]);
 		expect(await list("partners", false)).toEqual(["Mixed"]);
+	});
+});
+
+describe("record titles (the rail's pins and recents)", () => {
+	it("names live records with their database, and drops archived, unknown and other workspaces' ones", async () => {
+		const { t, owner, client } = await setup();
+		const acme = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Acme" } });
+		const gone = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Gone" } });
+		await owner.mutation(api.trash.move, { kind: "record", id: gone });
+		const outsider = await signIn(t, "outsider@example.com");
+		const recordIds = [acme, gone, "not-an-id"];
+		expect(await owner.query(api.records.titles, { recordIds })).toEqual([{ _id: acme, title: "Acme", typeKey: "client" }]);
+		expect(await outsider.query(api.records.titles, { recordIds })).toEqual([]);
 	});
 });

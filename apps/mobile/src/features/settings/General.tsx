@@ -19,13 +19,14 @@ export default function General() {
   const settings = useQuery(api.workspace.settings);
   const me = useQuery(api.workspace.me);
   const [editing, setEditing] = useState(false);
-  const [confirm, setConfirm] = useState<'delete' | 'leave'>();
+  const [confirm, setConfirm] = useState<'delete' | 'leave' | 'reset'>();
   const [name, setName] = useState('');
   const remove = useMutation(api.workspace.deleteWorkspace);
   const leave = useMutation(api.workspace.leave);
+  const reset = useMutation(api.workspace.resetWorkspace);
   const task = useTask();
-  if (!settings || !me?.role) return <Loading />;
-  const allowed = can(me.role, 'workspace.manage');
+  if (!settings || !me?.access) return <Loading />;
+  const allowed = can(me.access, 'workspace.manage');
   return <>
     {allowed && Platform.OS !== 'web' && <NavigationStack.Toolbar placement="right"><NavigationStack.Toolbar.Button onPress={() => setEditing(true)}>Edit</NavigationStack.Toolbar.Button></NavigationStack.Toolbar>}
     <Screen scroll><Stack gap="xl">
@@ -34,10 +35,12 @@ export default function General() {
       <Section title="Workspace"><Card style={{ padding: 0, gap: 0 }}><ListRow title="Currency" value={settings.currency} /><ListRow title="Active threads" value={threadWindows.find(w => w.hours === settings.threadHours)?.label ?? `${settings.threadHours} hours`} /></Card></Section>
       <Section title="Agents"><Card style={{ padding: 0, gap: 0 }}><ListRow title="Memory" value={settings.memory ? 'Enabled' : 'Off'} /><ListRow title="Reply decisions" value={settings.routerModels.find(m => m.id === settings.routerModel)?.name ?? settings.routerModel} /></Card></Section>
       <Section title="Images"><Card style={{ padding: 0, gap: 0 }}><ListRow title="Image model" value={settings.imageModels.find(m => m.id === settings.imageModel)?.name ?? settings.imageModel} /><ListRow title="Monthly budget" value={settings.imageBudgetUsd === 0 ? 'Image generation is off' : `$${settings.imageBudgetUsd.toLocaleString()} USD`} /></Card></Section>
-      <Section title="Membership"><Button label="Leave workspace" variant="ghost" disabled={task.busy} onPress={() => { task.clear(); setConfirm('leave'); }} />{allowed && <Button label="Delete workspace" variant="ghost" disabled={task.busy} onPress={() => { task.clear(); setName(''); setConfirm('delete'); }} />}</Section>
+      <Section title="Membership"><Button label="Leave workspace" variant="ghost" disabled={task.busy} onPress={() => { task.clear(); setConfirm('leave'); }} />{can(me.access, 'workspace.delete') && <Button label="Delete workspace" variant="ghost" disabled={task.busy} onPress={() => { task.clear(); setName(''); setConfirm('delete'); }} />}</Section>
+      {can(me.access, 'workspace.reset') && <Section title="Start again"><Button label="Reset workspace" variant="ghost" disabled={task.busy} onPress={() => { task.clear(); setName(''); setConfirm('reset'); }} /><Text variant="caption" tone="muted">Erase chats, pages, records and agent configuration. Members, roles, workspace settings and billing stay.</Text>{settings.lastReset && <Text variant="caption" tone="muted">Last reset by {settings.lastReset.by} on {new Date(settings.lastReset.at).toLocaleDateString()}.</Text>}</Section>}
     </Stack>
       {editing && <WorkspaceEditor initial={settings} onClose={() => setEditing(false)} />}
       {confirm === 'leave' && <ConfirmSheet title="Leave this workspace?" message="You will lose access to its chats, pages and records. An owner can invite you back." confirmLabel="Leave workspace" destructive busy={task.busy} error={task.error} onClose={() => setConfirm(undefined)} onConfirm={() => void task.run(async () => { await leave(); router.replace('/'); })} />}
+      {confirm === 'reset' && <EditorSheet title="Reset this workspace?" busy={task.busy} onClose={() => setConfirm(undefined)}><Text>All chats, pages, records and agent configuration will be permanently erased. Members, roles, settings and billing stay. Type {settings.name} to confirm.</Text><Field label="Workspace name" value={name} onChangeText={setName} editable={!task.busy} />{task.error && <ErrorState message={task.error} />}<Button label="Reset permanently" variant="danger" loading={task.busy} disabled={name !== settings.name} onPress={() => void task.run(async () => { await reset({ name }); setConfirm(undefined); })} /></EditorSheet>}
       {confirm === 'delete' && <EditorSheet title="Delete this workspace?" busy={task.busy} onClose={() => setConfirm(undefined)}><Text>Everyone loses access and all workspace data is permanently deleted. Type {settings.name} to confirm.</Text><Field label="Workspace name" value={name} onChangeText={setName} editable={!task.busy} />{task.error && <ErrorState message={task.error} />}<Button label="Delete permanently" variant="danger" loading={task.busy} disabled={name !== settings.name} onPress={() => void task.run(async () => { await remove({ name }); router.replace('/'); })} /></EditorSheet>}
     </Screen>
   </>;

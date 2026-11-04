@@ -7,15 +7,19 @@ import { useTheme } from '@/design';
 import { api } from '@/lib/api';
 import { useMutation, usePaginatedQuery, useQuery } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
+import { useDraftGuard } from '@/lib/useDraftGuard';
 import { DocumentEditor, VersionDocument } from './DocumentEditor';
 import { NewPage, openPage, PageChildren } from './PagesScreen';
 import { useDocumentConfirm } from './Confirm';
+import { AccessSheet } from '@/features/access/AccessSheet';
+import { useArrangements } from '@/features/arrangements/useArrangements';
 
 export function PageScreen({ pageId }: { pageId: string }) {
   const page = useQuery(api.pages.get, { pageId });
-  const [panel, setPanel] = useState<'rename' | 'move' | 'history' | 'children' | 'create'>();
+  const [panel, setPanel] = useState<'rename' | 'move' | 'history' | 'children' | 'create' | 'access'>();
   const archive = useMutation(api.trash.move);
   const restore = useMutation(api.trash.restore);
+  const setAccess = useMutation(api.pages.setAccess);
   const task = useTask();
   const { confirm, dialog } = useDocumentConfirm();
   const theme = useTheme();
@@ -32,6 +36,7 @@ export function PageScreen({ pageId }: { pageId: string }) {
     {page.trash?.canRestore && <Button label="Restore page" variant="secondary" loading={task.busy} onPress={() => void task.run(() => restore({ kind: page.trash!.kind, id: page.trash!.itemId }))} />}
     <ScrollView horizontal style={{ flexGrow: 0 }} contentContainerStyle={{ gap: theme.spacing.xs }}>
       <Button label="History" variant="ghost" onPress={() => setPanel('history')} />
+      <Button label="Who can access" variant="ghost" onPress={() => setPanel('access')} />
       {!page.recordId && <Button label="Sub-pages" variant="ghost" onPress={() => setPanel('children')} />}
       {page.canEdit && !page.recordId && <>
         <Button label="Rename" variant="ghost" onPress={() => setPanel('rename')} />
@@ -46,6 +51,7 @@ export function PageScreen({ pageId }: { pageId: string }) {
     </ScrollView>
     {task.error && <ErrorState message={task.error} />}
     <DocumentEditor pageId={page._id} editable={page.canEdit} />
+    {panel === 'access' && <AccessSheet access={page.access} following={page.parentId && !page.recordId ? page.ownAccess === null : undefined} description={page.recordId ? 'This page follows its database. Change access in the database’s menu.' : undefined} onSave={page.canManageAccess && !page.archived ? entries => setAccess({ pageId: page._id, access: entries }) : undefined} onClose={() => setPanel(undefined)} />}
     {panel === 'rename' && <RenamePage pageId={page._id} title={page.title} onClose={() => setPanel(undefined)} />}
     {panel === 'move' && <MovePage pageId={page._id} parentId={page.parentId} onClose={() => setPanel(undefined)} />}
     {panel === 'create' && <NewPage parentId={page._id} onClose={() => setPanel(undefined)} />}
@@ -60,9 +66,11 @@ export function PageScreen({ pageId }: { pageId: string }) {
 
 function RenamePage({ pageId, title, onClose }: { pageId: Id<'pages'>; title: string; onClose: () => void }) {
   const [value, setValue] = useState(title);
+  const [baseline] = useState(title);
   const rename = useMutation(api.pages.rename);
   const task = useTask();
-  return <EditorSheet title="Rename page" busy={task.busy} onClose={onClose}><Field label="Title" value={value} onChangeText={setValue} autoFocus />
+  const guard = useDraftGuard({ dirty: value !== baseline, busy: task.busy, onClose, description: 'Your unsaved page title will be discarded.' });
+  return <EditorSheet title="Rename page" busy={task.busy} dismissible={guard.dismissible} onClose={() => void guard.close()}>{guard.dialog}<Field label="Title" value={value} onChangeText={setValue} editable={!task.busy} autoFocus />
     {task.error && <ErrorState message={task.error} />}
     <Button label="Save title" loading={task.busy} disabled={!value.trim()} onPress={() => void task.run(async () => { await rename({ pageId, title: value.trim() }); onClose(); })} />
   </EditorSheet>;
@@ -72,6 +80,7 @@ function MovePage({ pageId, parentId, onClose }: { pageId: Id<'pages'>; parentId
   const [search, setSearch] = useState('');
   const matches = useQuery(api.pages.search, search.trim() ? { query: search.trim() } : 'skip');
   const roots = usePaginatedQuery(api.pages.children, {}, { initialNumItems: 30 });
+  const arrangements = useArrangements();
   const move = useMutation(api.pages.move);
   const task = useTask();
   const choose = (target?: Id<'pages'>) => void task.run(async () => { await move({ pageId, parentId: target }); onClose(); });
@@ -80,7 +89,7 @@ function MovePage({ pageId, parentId, onClose }: { pageId: Id<'pages'>; parentId
     <Field label="Find destination" value={search} onChangeText={setSearch} autoCorrect={false} />
     {task.error && <ErrorState message={task.error} />}
     <ListRow title="Top level" selected={!parentId} disabled={task.busy || !parentId} onPress={() => choose()} />
-    {(search.trim() ? matches ?? [] : roots.results).filter((row) => row._id !== pageId).map((row) => <ListRow key={row._id} title={row.title || 'Untitled'} description={'path' in row ? row.path.join(' / ') : undefined} selected={row._id === parentId} disabled={task.busy || row._id === parentId} onPress={() => choose(row._id)} />)}
+    {(search.trim() ? matches ?? [] : arrangements.order('pages', roots.results)).filter((row) => row._id !== pageId).map((row) => <ListRow key={row._id} title={row.title || 'Untitled'} description={'path' in row ? row.path.join(' / ') : undefined} selected={row._id === parentId} disabled={task.busy || row._id === parentId || !row.canEdit} onPress={() => choose(row._id)} />)}
     {!search.trim() && roots.status === 'CanLoadMore' && <Button label="More destinations" variant="ghost" onPress={() => roots.loadMore(30)} />}
     {search.trim() && matches?.length === 0 && <Text tone="muted">No pages found.</Text>}
   </EditorSheet>;

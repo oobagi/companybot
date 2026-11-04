@@ -19,7 +19,7 @@ export default function Agents() {
   const { itemId } = useLocalSearchParams<{ itemId?: string }>();
   const [selected, setSelected] = useState<string | undefined>(() => typeof itemId === 'string' ? itemId : undefined);
   const [creating, setCreating] = useState(false);
-  const owner = !!me?.role && can(me.role, 'agents.manage');
+  const owner = !!me?.access && can(me.access, 'agents.manage');
   const active = agents?.filter((agent) => !agent.archived);
   return <><DirectoryHeader workspaceSwitcher={false} action={owner ? { label: 'New agent', onPress: () => setCreating(true) } : undefined} /><Screen scroll><Stack style={{ flexGrow: 1 }}>
     {!agents ? <Loading /> : !active?.length ? <EmptyState title="No agents yet" description="Add a teammate to help with your team's work." /> : active.map((agent) => <ListRow key={agent._id} title={agent.name} description={`${agent.description}\nv${agent.version} · ${agent.model}`} leading={<Avatar name={agent.name} image={agent.image} agent />} onPress={() => setSelected(agent._id)} />)}
@@ -76,7 +76,7 @@ function AgentEditor({ agent, owner, onClose }: { agent: Agent; owner: boolean; 
       const grant = group.tools.length === 1 ? group.tools[0]!.id : `${group.id}.*`;
       const whole = config.tools.includes(grant) || config.tools.includes(`${group.id}.*`);
       return <Card key={group.id}><ListRow title={`${group.name}${group.connector ? ' (connector)' : ''}`} description="All tools, including future additions" selected={whole} disabled={!editable} trailing={<Text>{whole ? '✓' : '○'}</Text>} onPress={() => edit({ tools: whole ? config.tools.filter((id) => id !== grant && !id.startsWith(`${group.id}.`)) : [...config.tools.filter((id) => !id.startsWith(`${group.id}.`)), grant] })} />
-        {group.tools.length > 1 && <ChoicePicker label="Individual tools" disabled={!editable || whole} value={config.tools.filter((id) => group.tools.some((tool) => tool.id === id))} multiple options={group.tools.map((tool) => ({ value: tool.id, label: `${tool.id}${tool.ownersOnly ? ' · owners only' : ''} — ${tool.description}` }))} onChange={(value) => edit({ tools: [...config.tools.filter((id) => !group.tools.some((tool) => tool.id === id)), ...(Array.isArray(value) ? value : [value])] })} />}
+        {group.tools.length > 1 && <ChoicePicker label="Individual tools" disabled={!editable || whole} value={config.tools.filter((id) => group.tools.some((tool) => tool.id === id))} multiple options={group.tools.map((tool) => ({ value: tool.id, label: `${tool.id}${tool.needs ? ` · Requires permission to ${tool.needs}` : ''} — ${tool.description}` }))} onChange={(value) => edit({ tools: [...config.tools.filter((id) => !group.tools.some((tool) => tool.id === id)), ...(Array.isArray(value) ? value : [value])] })} />}
       </Card>;
     })}</Section>
     <Field label="Instructions" hint="Changes apply from the next reply." value={config.instructions} onChangeText={(instructions) => edit({ instructions })} multiline editable={editable} style={{ minHeight: 180 }} />

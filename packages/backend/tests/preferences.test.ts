@@ -55,7 +55,7 @@ describe("time zones", () => {
 		const chatId = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
 		await owner.mutation(api.messages.send, { chatId, text: "What time is it?", mentions: noMentions });
 		const [turn] = await turnsOf(t);
-		expect((await t.query(internal.turns.turnContext, { turnId: turn!._id })).actor.timeZone).toBe("America/Los_Angeles");
+		expect((await t.mutation(internal.turns.turnContext, { turnId: turn!._id })).actor.timeZone).toBe("America/Los_Angeles");
 
 		await owner.mutation(api.preferences.update, { timeZone: null });
 		expect(await timeZoneOfOwner()).toBe("Europe/Paris");

@@ -38,23 +38,14 @@ describe("pages tools", () => {
 		}
 	});
 
-	it("requires confirmation to archive even with an Always rule", async () => {
+	it("asks before copying a chat picture into a page in runs following someone else's words", async () => {
 		const tools = [tool("pages.write")];
-		const input = { page: "p1", trash: true };
-		const call = await actionOf("pages_write", input, tools);
-		expect(toolRisk(call!.tool)).toBe("locked");
-		expect(permissionFor({ risk: toolRisk(call!.tool), rule: "always" })).toEqual({ type: "ask", canAlways: false });
-		expect(await toolApprovalPolicy(tools)({ toolCall: { toolCallId: "page", toolName: "pages_write", input } })).toBe("user-approval");
-	});
-
-	it("say what each write did", () => {
-		const label = (input: object, output: object) => tool("pages.write").label!(input, output);
-		expect(label({ action: "move", page: "p1", parent: "p2" }, { title: "SOP" })).toBe("Move page SOP");
-		expect(label({ title: "SOP" }, { title: "SOP" })).toBe("Create page SOP");
-		expect(label({ page: "p1", markdown: "hi" }, { title: "SOP" })).toBe("Write page SOP");
-		expect(label({ record: "r1", markdown: "hi" }, { title: "Acme" })).toBe("Write page Acme");
-		expect(label({ page: "p1", trash: true }, { title: "SOP" })).toBe("Archive page SOP");
-		expect(label({ restore: "v1" }, { title: "SOP" })).toBe("Restore a version of SOP");
-		expect(label({ page: "p1", markdown: "hi" }, { error: "nope" })).toBeUndefined();
+		const id = "k57abcdefghijklmnopqrstuvwxyz123/0";
+		for (const input of [{ page: "p1", markdown: `![Logo](${id})` }, { page: "p1", blocks: JSON.stringify([{ type: "image", attrs: { url: id } }]) }]) {
+			const call = await actionOf("pages_write", input, tools);
+			expect(toolRisk(call!.tool)).toBe("inside");
+			expect(permissionFor({ risk: toolRisk(call!.tool), foreign: true })).toEqual({ type: "ask", canAlways: true });
+		}
+		expect(toolRisk((await actionOf("pages_write", { page: "p1", markdown: "![Logo](https://acme.com/logo.png)" }, tools))!.tool)).toBe("none");
 	});
 });

@@ -4,7 +4,7 @@ import { useMutation, useQuery } from "../../convex";
 import { AttachIcon, CloseIcon, FileCsvIcon, FileDocIcon, FileIcon, FilePdfIcon, FileXlsIcon, PageIcon } from "../../icons";
 import { useFileUpload } from "../../upload";
 import { api } from "../../api";
-import { useDismiss } from "./common";
+import { Layer } from "./common";
 import { type Pending, pendingFiles, pendingKey } from "./composerFiles";
 import type { Message } from "./data";
 
@@ -252,18 +252,15 @@ export function MessageFiles({ files }: { files: Message["attachments"] }) {
 
 /** A picture, big, over everything. A click outside or Escape closes it. */
 function Lightbox({ file, onClose }: { file: Message["attachments"][number]; onClose: () => void }) {
-	const ref = useDismiss<HTMLDivElement>(onClose);
 	return (
-		<div className="no-drag fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/70 p-10">
-			<div ref={ref} className="flex max-h-full max-w-full flex-col items-center gap-2">
-				<img src={file.url!} alt={file.name} className="max-h-[80vh] max-w-full rounded-lg object-contain shadow-2xl" />
-				<p className="flex items-center gap-3 text-sm text-white">
-					<span className="truncate">{file.name}</span>
-					<a href={file.url!} target="_blank" rel="noreferrer" className="text-white/70 underline hover:text-white">
-						Open
-					</a>
-				</p>
-			</div>
-		</div>
+		<Layer onClose={onClose} overlayClassName="bg-neutral-900/70" className="flex max-h-full max-w-full flex-col items-center gap-2 p-4 outline-none">
+			<img src={file.url!} alt={file.name} className="max-h-[80vh] max-w-full rounded-lg object-contain shadow-2xl" />
+			<p className="flex items-center gap-3 text-sm text-white">
+				<span className="truncate">{file.name}</span>
+				<a href={file.url!} target="_blank" rel="noreferrer" className="text-white/70 underline hover:text-white">
+					Open
+				</a>
+			</p>
+		</Layer>
 	);
 }

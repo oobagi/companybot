@@ -61,7 +61,7 @@ export function YourPermissions() {
 	);
 }
 
-/** Ask / Always / Never for one action. Always isn't offered where it always asks, and nothing where an owner blocked it (its note says so). */
+/** Ask / Always / Never for one action. Always isn't offered where it always asks, and nothing where it's blocked for everyone (its note says so). */
 function SettingSelect({ action: a }: { action: Action }) {
 	const set = useMutation(api.permissions.set);
 	const { error, run } = useRun();
@@ -84,7 +84,7 @@ function SettingSelect({ action: a }: { action: Action }) {
 }
 
 const lockNote = (a: Action) => {
-	if (a.result === "deny") return a.lock === "block" ? "Blocked by an owner." : "Never: agents can't do this for you.";
+	if (a.result === "deny") return a.lock === "block" ? "Blocked for everyone." : "Never: agents can't do this for you.";
 	if (a.result === "ask") return a.canAlways ? "Asks first." : "Always asks (locked).";
 	if (a.risk === "none") return "Only reads. Runs without asking.";
 	if (a.risk === "inside") return "Runs in your chats. Automations following others’ words ask first.";

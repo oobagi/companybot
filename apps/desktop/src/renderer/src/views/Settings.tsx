@@ -1,7 +1,8 @@
 import { threadWindows } from "@companybot/core/chat";
+import { pictureLimits } from "@companybot/core/images";
 import { type ImageModelInfo, type ModelInfo, defaultImageModel, imageModelNote, modelNote } from "@companybot/core/models";
 import { ROUTER_MODEL, isDecisionModel } from "@companybot/core/router";
-import { type Role, can } from "@companybot/core/permissions";
+import { type Access, can } from "@companybot/core/permissions";
 import { formatUsd, monthLabel, usageMonth } from "@companybot/core/usage";
 import { useState } from "react";
 import { api } from "../api";
@@ -25,7 +26,9 @@ import { UsageTab } from "./Usage";
 
 // Settings: /settings/<tab>[/<item>]. While it's open, the sidebar lists its tabs in place of the app's.
 // Two kinds, opened from different menus and never listed together: your account (your avatar, at
-// the bottom of the rail) and the open workspace (the workspace name, atop the sidebar).
+// the bottom of the rail) and the open workspace (the workspace switcher, in the title bar).
+// Customize's tabs keep their /settings/<tab> addresses but open from the rail (Customize),
+// so Settings' sidebar doesn't list them (`inRail`).
 const sections = [
 	{ title: "Account", scope: "account", tabs: [{ id: "preferences", label: "Your preferences", icon: <UserIcon /> }] },
 	{
@@ -33,17 +36,18 @@ const sections = [
 		scope: "workspace",
 		tabs: [
 			{ id: "general", label: "General", icon: <SettingsIcon /> },
-			{ id: "members", label: "Members", description: "We email invited people a link to get the app. They join when they sign in with that email. Role changes apply right away.", icon: <MembersIcon /> },
+			{ id: "members", label: "Members", description: "We email invited people a link to get the app. They join when they sign in with that email. Roles decide what each person can do, and changes apply right away.", icon: <MembersIcon /> },
 			{ id: "permissions", label: "Permissions", description: "Agents ask before anything that leaves Companybot: sends, calls, payments, changes in other apps.", icon: <PermissionsIcon /> },
 			{ id: "memory", label: "Memory", description: "Each agent has its own memory. Team memories are shared, and anyone can fix them. Only you can see your personal memories.", icon: <MemoryIcon /> },
 			{ id: "activity", label: "Activity", description: "Database changes, and what agents did in chats you can see. Agent results show only for what they did for you.", icon: <ActivityIcon /> },
-			{ id: "usage", label: "Usage", description: "What AI has cost this month. Owners see the whole workspace; everyone else sees only their own share.", icon: <UsageIcon /> },
+			{ id: "usage", label: "Usage", description: "What AI has cost this month. People whose role can see the whole workspace see everyone; everyone else sees only their own share.", icon: <UsageIcon /> },
 			{ id: "archive", label: "Archive", icon: <ArchiveIcon /> },
 		],
 	},
 	{
 		title: "Customize",
 		scope: "workspace",
+		inRail: true,
 		tabs: customizeTabs.map((t) => ({ id: t.id, label: t.label, icon: <t.icon /> })),
 	},
 ] as const;
@@ -59,24 +63,24 @@ export const settingsScope = (tab: SettingsTab) => sections.find((s) => s.tabs.s
  */
 export const settingsTabAliases: Record<string, SettingsTab> = { profile: "preferences", trash: "archive" };
 
-const isCustomize = (tab: SettingsTab): tab is CustomizeTab => customizeTabs.some((t) => t.id === tab);
+export const isCustomize = (tab: SettingsTab): tab is CustomizeTab => customizeTabs.some((t) => t.id === tab);
 
 /** A tab's screen, or with `itemId`, one agent, connector, skill or automation. */
-export function SettingsView({ role, tab, itemId }: { role: Role; tab: SettingsTab; itemId?: string }) {
-	if (isCustomize(tab)) return <CustomizeView role={role} tab={tab} itemId={itemId} />;
-	if (tab === "archive") return <TrashView role={role} />;
+export function SettingsView({ access, tab, itemId }: { access: Access; tab: SettingsTab; itemId?: string }) {
+	if (isCustomize(tab)) return <CustomizeView access={access} tab={tab} itemId={itemId} />;
+	if (tab === "archive") return <TrashView access={access} />;
 	const current = settingsTabs.find((t) => t.id === tab)!;
 	return (
 		<Page title={current.label} description={(current as { description?: string }).description}>
-			{tab === "general" && <GeneralTab role={role} />}
-			{tab === "members" && <MembersTab role={role} />}
-			{tab === "memory" && <MemoryTab role={role} />}
+			{tab === "general" && <GeneralTab access={access} />}
+			{tab === "members" && <MembersTab access={access} />}
+			{tab === "memory" && <MemoryTab access={access} />}
 			{tab === "activity" && <ActivityTab />}
 			{tab === "usage" && <UsageTab />}
 			{tab === "permissions" && (
 				<>
 					<YourPermissions />
-					{can(role, "actions.lock") && <WorkspaceLocks />}
+					{can(access, "actions.lock") && <WorkspaceLocks />}
 				</>
 			)}
 			{tab === "preferences" && <ProfileTab />}
@@ -89,7 +93,7 @@ export function SettingsNav({ tab }: { tab: SettingsTab }) {
 	const scope = settingsScope(tab);
 	return (
 		<>
-			{sections.filter((s) => s.scope === scope).map((s) => (
+			{sections.filter((s) => s.scope === scope && !("inRail" in s)).map((s) => (
 				<Group key={s.title} title={s.title}>
 					{s.tabs.map((t) => (
 						<Item key={t.id} icon={t.icon} active={t.id === tab} onClick={() => navigate("settings", t.id)}>
@@ -102,24 +106,43 @@ export function SettingsNav({ tab }: { tab: SettingsTab }) {
 	);
 }
 
-/** Shared workspace settings: everyone sees them, owners change them. */
-function GeneralTab({ role }: { role: Role }) {
+/** Shared workspace settings: everyone sees them; roles with workspace.manage change them. */
+function GeneralTab({ access }: { access: Access }) {
 	const settings = useQuery(api.workspace.settings);
 	const remove = useMutation(api.workspace.deleteWorkspace);
+	const reset = useMutation(api.workspace.resetWorkspace);
 	if (!settings) return <Loading />;
+	const { lastReset } = settings;
 	return (
 		<>
-			<GeneralForm settings={settings} isOwner={can(role, "workspace.manage")} />
-			{can(role, "workspace.delete") && (
-				<DangerZone
-					action="Delete workspace"
-					hint="Deletes this workspace and everything in it, for everyone."
-					confirm={settings.name}
-					onDelete={(name) => remove({ name }).then(() => navigate("chat"))}
-				>
-					Everyone in {settings.name} loses access at once, and its chats, records, agents, memory and connections are deleted. This
-					can't be undone.
-				</DangerZone>
+			<GeneralForm settings={settings} canManage={can(access, "workspace.manage")} />
+			{(can(access, "workspace.reset") || can(access, "workspace.delete")) && (
+				<Settings title="Danger zone">
+					{can(access, "workspace.reset") && (
+						<DangerAction
+							action="Reset workspace"
+							pending="Resetting…"
+							hint={`Puts this workspace back to how it was when it was made. Members and roles stay.${lastReset ? ` Last reset by ${lastReset.by} on ${new Date(lastReset.at).toLocaleDateString()}.` : ""}`}
+							confirm={settings.name}
+							// Everyone's app waits while it resets, then opens #general (App).
+							onConfirm={(name) => reset({ name }).then(() => navigate("chat"))}
+						>
+							Permanently deletes every message, chat, memory, database, page and automation in this workspace, and puts back the
+							starting agents and channels. Members and their roles stay. This can't be undone.
+						</DangerAction>
+					)}
+					{can(access, "workspace.delete") && (
+						<DangerAction
+							action="Delete workspace"
+							hint="Deletes this workspace and everything in it, for everyone."
+							confirm={settings.name}
+							onConfirm={(name) => remove({ name }).then(() => navigate("chat"))}
+						>
+							Everyone in {settings.name} loses access at once, and its chats, records, agents, memory and connections are deleted. This
+							can't be undone.
+						</DangerAction>
+					)}
+				</Settings>
 			)}
 		</>
 	);
@@ -150,20 +173,23 @@ function AppVersion() {
 	);
 }
 
-/** Deletes something for good, once you've typed `confirm` (its name, or your email). */
-function DangerZone({
+/** A danger zone's row: does something that can't be undone, once you've typed `confirm` (its name, or your email). */
+function DangerAction({
 	action,
+	pending = "Deleting…",
 	hint,
 	confirm,
 	ignoreCase = false,
-	onDelete,
+	onConfirm,
 	children,
 }: {
 	action: string;
+	/** The button while it runs. */
+	pending?: string;
 	hint: string;
 	confirm: string;
 	ignoreCase?: boolean;
-	onDelete: (typed: string) => Promise<unknown>;
+	onConfirm: (typed: string) => Promise<unknown>;
 	children: React.ReactNode;
 }) {
 	const [open, setOpen] = useState(false);
@@ -172,7 +198,7 @@ function DangerZone({
 	const matches = ignoreCase ? typed.trim().toLowerCase() === confirm.toLowerCase() : typed.trim() === confirm;
 	const close = () => !busy && (setOpen(false), setTyped(""));
 	return (
-		<Settings title="Danger zone">
+		<>
 			<Setting label={action} hint={hint}>
 				<button type="button" onClick={() => setOpen(true)} className={`${secondaryButton} text-red-600`}>
 					{action}
@@ -184,7 +210,7 @@ function DangerZone({
 						className="flex flex-col gap-4 text-sm"
 						onSubmit={() => {
 							if (busy || !matches) return;
-							run(onDelete(typed.trim()));
+							run(onConfirm(typed.trim()));
 						}}
 					>
 						<p className="text-neutral-600">{children}</p>
@@ -197,13 +223,13 @@ function DangerZone({
 								Cancel
 							</button>
 							<button type="submit" disabled={busy || !matches} className={dangerButton}>
-								{busy ? "Deleting…" : action}
+								{busy ? pending : action}
 							</button>
 						</div>
 					</Form>
 				</Modal>
 			)}
-		</Settings>
+		</>
 	);
 }
 
@@ -225,7 +251,7 @@ function Toggle({ checked, disabled, onChange }: { checked: boolean; disabled?: 
 
 function GeneralForm({
 	settings,
-	isOwner,
+	canManage,
 }: {
 	settings: {
 		name: string;
@@ -242,7 +268,7 @@ function GeneralForm({
 		threadHours: number;
 		version: number;
 	};
-	isOwner: boolean;
+	canManage: boolean;
 }) {
 	const save = useMutation(api.workspace.updateSettings);
 	// The budget is edited as typed; the server checks the number.
@@ -258,37 +284,37 @@ function GeneralForm({
 	};
 	const spent = settings.imageSpentUsd === null ? "" : ` ${formatUsd(settings.imageSpentUsd)} used in ${monthLabel(usageMonth(Date.now()))}.`;
 	const currencyChanged = draft.value.currency !== settings.currency;
-	const ownerOnly = isOwner ? undefined : "Only owners can change this.";
+	const ownerOnly = canManage ? undefined : "Your roles can't change workspace settings.";
 	return (
 		<>
 			<ConflictNotice draft={draft} />
 			<Notice>{error}</Notice>
 			<Settings title="Workspace" hint={ownerOnly}>
-				<Setting label="Logo" hint="Its icon in the workspace rail at the far left. PNG, JPEG, WebP or GIF, up to 2 MB.">
-					<ImagePicker of="workspace" name={settings.name} image={settings.image} agent disabled={!isOwner} />
+				<Setting label="Logo" hint={`Its icon in the workspace rail at the far left. ${pictureLimits}.`}>
+					<ImagePicker of="workspace" name={settings.name} image={settings.image} agent disabled={!canManage} />
 				</Setting>
 				<Setting label="Name">
 					<input
 						className={wideControlClass}
-						disabled={!isOwner}
+						disabled={!canManage}
 						value={draft.value.name}
 						onChange={(e) => draft.set({ ...draft.value, name: e.target.value })}
 					/>
 				</Setting>
 				<Setting label="Currency" hint="For new amounts. Existing amounts keep theirs.">
-					<CurrencySelect className={wideControlClass} disabled={!isOwner} value={draft.value.currency} onChange={(currency) => draft.set({ ...draft.value, currency })} />
+					<CurrencySelect className={wideControlClass} disabled={!canManage} value={draft.value.currency} onChange={(currency) => draft.set({ ...draft.value, currency })} />
 				</Setting>
 				<Setting label="Threads in the sidebar" hint="How long a thread stays under its channel after its last reply. It's still there under its message either way.">
 					<Select
 						className={wideControlClass}
-						disabled={!isOwner}
+						disabled={!canManage}
 						value={draft.value.threadHours}
 						options={threadWindows.map((w) => ({ value: String(w.hours), label: w.label }))}
 						onChange={(threadHours) => draft.set({ ...draft.value, threadHours })}
 					/>
 				</Setting>
 				<Setting label="Memory" hint="Agents remember what people tell them. Off keeps existing memories for later.">
-					<Toggle disabled={!isOwner} checked={draft.value.memory} onChange={(memory) => draft.set({ ...draft.value, memory })} />
+					<Toggle disabled={!canManage} checked={draft.value.memory} onChange={(memory) => draft.set({ ...draft.value, memory })} />
 				</Setting>
 			</Settings>
 			<Settings title="Agents in channels" hint={ownerOnly ?? "In channels set to \"When relevant\", a quick model call decides whether each agent replies, reacts or stays quiet."}>
@@ -298,7 +324,7 @@ function GeneralForm({
 						defaultModel={ROUTER_MODEL}
 						value={draft.value.routerModel}
 						note={(m) => (isDecisionModel(m.id) ? "Decision model · about 0.2s a call" : modelNote(m))}
-						disabled={!isOwner}
+						disabled={!canManage}
 						className={wideControlClass}
 						onChange={(routerModel) => draft.set({ ...draft.value, routerModel })}
 					/>
@@ -311,7 +337,7 @@ function GeneralForm({
 						defaultModel={defaultImageModel}
 						value={draft.value.imageModel}
 						note={imageModelNote}
-						disabled={!isOwner}
+						disabled={!canManage}
 						className={wideControlClass}
 						onChange={(imageModel) => draft.set({ ...draft.value, imageModel })}
 					/>
@@ -319,14 +345,14 @@ function GeneralForm({
 				<Setting label="Monthly budget" hint={`What agents may spend on pictures each month, in US dollars. $0 turns pictures off.${spent}`}>
 					<input
 						className={wideControlClass}
-						disabled={!isOwner}
+						disabled={!canManage}
 						inputMode="decimal"
 						value={draft.value.imageBudget}
 						onChange={(e) => draft.set({ ...draft.value, imageBudget: e.target.value.replace(/[^\d.]/g, "") })}
 					/>
 				</Setting>
 			</Settings>
-			{isOwner && <SaveBar dirty={draft.dirty} onDiscard={draft.discard} onSave={() => (currencyChanged && settings.hasAmounts ? setConfirming(true) : submit())} />}
+			{canManage && <SaveBar dirty={draft.dirty} onDiscard={draft.discard} onSave={() => (currencyChanged && settings.hasAmounts ? setConfirming(true) : submit())} />}
 			{confirming && (
 				<Confirm title="Change currency?" action="Change currency" onConfirm={submit} onClose={() => setConfirming(false)}>
 					Existing amounts stay in {settings.currency}. New amounts will use {draft.value.currency}.
@@ -353,7 +379,7 @@ function ProfileTab() {
 		<>
 			<Notice>{error}</Notice>
 			<Settings title="You" hint="Only you see these, except your photo, name and time zone. They follow you to every device.">
-				<Setting label="Photo" hint="Shown to your team in every workspace. PNG, JPEG, WebP or GIF, up to 2 MB.">
+				<Setting label="Photo" hint={`Shown to your team in every workspace. ${pictureLimits}.`}>
 					<ImagePicker of="me" name={prefs.displayName || me?.email || ""} image={prefs.image} />
 				</Setting>
 				<Setting label="Name" hint="What agents and teammates call you.">
@@ -400,17 +426,19 @@ function ProfileTab() {
 			</Settings>
 			<AppVersion />
 			{me && (
-				<DangerZone
-					action="Delete account"
-					hint="Deletes your account and takes you out of every workspace."
-					confirm={me.email}
-					ignoreCase
-					onDelete={() => erase()}
-				>
-					You'll leave every workspace and be signed out. Workspaces only you are in are deleted with everything in them. Your name,
-					preferences and connected accounts are deleted; what you said in shared chats stays, as a former member's. If you're the only
-					owner of a workspace with other people in it, make someone else an owner first. This can't be undone.
-				</DangerZone>
+				<Settings title="Danger zone">
+					<DangerAction
+						action="Delete account"
+						hint="Deletes your account and takes you out of every workspace."
+						confirm={me.email}
+						ignoreCase
+						onConfirm={() => erase()}
+					>
+						You'll leave every workspace and be signed out. Workspaces only you are in are deleted with everything in them. Your name,
+						preferences and connected accounts are deleted; what you said in shared chats stays, as a former member's. If you're the only
+						owner of a workspace with other people in it, make someone else an owner first. This can't be undone.
+					</DangerAction>
+				</Settings>
 			)}
 		</>
 	);

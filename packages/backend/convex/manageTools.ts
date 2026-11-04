@@ -1,22 +1,24 @@
-import { canEditMade, DEFAULT_CURRENCY, THREAD_HOURS_DEFAULT, isGranted, manageInputs, modelNote, normalizeCustomAutomation, pickAgentConfig, replyModeOf, searchModels } from "@companybot/core";
+import { can, DEFAULT_CURRENCY, THREAD_HOURS_DEFAULT, isGranted, manageInputs, modelNote, normalizeCustomAutomation, pickAgentConfig, replyModeOf, searchModels } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Id, TableNames } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
-import { addChannelMembers, markReadAs, createChannelAs, joinChannel, leaveChannel, openDirectMessage, removeChannelMember, updateChannelAs } from "./chats";
-import { chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
-import { automationName, automationScope, canView, definitionOf, installOf } from "./automationOps";
-import { removeAutomation, saveAutomation, updateAutomation } from "./automations";
-import { installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
-import { editMessage, hideMessagePreview, removeMessage, reactMessage, sendMessage } from "./messages";
-import { cancelMemberInvite, imageSettings, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
-import { asToolResult, checkPermission, type Member, nameOf, normalizeEmail, preferencesOf, requireAgent, skillOf, timeZoneOf } from "./lib";
 import { createAgent, setAgentTrashed, updateAgent } from "./agents";
-import { catalogModels } from "./modelCatalog";
-import { setImage } from "./images";
-import { updatePreferences } from "./preferences";
+import { automationName, automationScope, canView, definitionOf, installOf, outcomeText, privateTo, seenChannel, shownTrigger } from "./automationOps";
 import { runNowAs } from "./automationRuns";
+import { removeAutomation, saveAutomation, updateAutomation } from "./automations";
+import { canSee, chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
+import { addChannelMembers, markReadAs, createChannelAs, joinChannel, leaveChannel, openDirectMessage, removeChannelMember, updateChannelAs } from "./chats";
+import { setImage } from "./images";
+import { canSeeSkill, accessOf, asToolResult, checkPermission, type Member, nameOf, rolesOf, normalizeEmail, preferencesOf, requireAgent, skillOf, timeZoneOf } from "./lib";
+import { editMessage, hideMessagePreview, removeMessage, sendMessage } from "./messages";
+import { catalogModels } from "./modelCatalog";
+import { chatAccess } from "./placeAccess";
+import { updatePreferences } from "./preferences";
+import { notePlace, readArtifact, writeSources } from "./replySources";
+import { requirePersonalSkillChat, installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
 import { runningTurn } from "./turns";
 import { usageReport } from "./usage";
+import { cancelMemberInvite, imageSettings, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
 
 const paging = (cursor?: string) => ({ cursor: cursor ?? null, numItems: 30 });
 /** One page of the workspace's rows of `table` (every one's by_workspace index starts with workspaceId). */
@@ -38,9 +40,15 @@ const participants = (ctx: MutationCtx, r: { userIds?: string[]; agentIds?: stri
 });
 
 export const runFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), tool: v.string(), input: v.any() },
-	handler: async (ctx, { turnId, tool, input }): Promise<unknown> => {
-		const { who, turn } = await runningTurn(ctx, turnId);
+	args: { turnId: v.id("agentTurns"), tool: v.string(), input: v.any(), uploads: v.optional(v.record(v.string(), v.id("_storage"))) },
+	handler: async (ctx, { turnId, tool, input, uploads = {} }): Promise<unknown> => {
+		/** The copy of a chat file this call made. */
+		const copyOf = (id: string) => {
+			const copy = uploads[id];
+			if (!copy) throw new ConvexError(`No file "${id}" in a chat you can see.`);
+			return copy;
+		};
+		const { who, turn, chat } = await runningTurn(ctx, turnId);
 		const { member } = who;
 		const agent = await ctx.db.get(turn.agentId);
 		if (!agent || agent.archived || !isGranted(agent.tools, tool)) throw new ConvexError("This agent no longer has that tool.");
@@ -50,10 +58,11 @@ export const runFor = internalMutation({
 				case "chat.manage": {
 					const r = manageInputs[tool].parse(input).request;
 					if (r.action === "find_people") {
+						const roles = await rolesOf(ctx, member.workspaceId);
 						if (r.kind === "invites") {
 							checkPermission(member, "members.manage");
 							const result = await workspacePage(ctx, "invites", member, r.cursor);
-							return { ...result, page: result.page.map((i) => ({ id: i._id, email: i.email, role: i.role })) };
+							return { ...result, page: result.page.map((i) => ({ id: i._id, email: i.email, roles: roleNamesOf(member, accessOf(roles, i).roles) })) };
 						}
 						if (r.kind === "agents") {
 							const result = await workspacePage(ctx, "agents", member, r.cursor);
@@ -67,7 +76,7 @@ export const runFor = internalMutation({
 									userId: m.userId,
 									name: await nameOf(ctx, m.userId),
 									email: (await ctx.db.get(m.userId))?.email,
-									role: m.role,
+									roles: roleNamesOf(member, accessOf(roles, m).roles),
 									timeZone: await timeZoneOf(ctx, m.userId),
 								})),
 							),
@@ -78,22 +87,25 @@ export const runFor = internalMutation({
 							.query("chatMembers")
 							.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("userId", member.userId))
 							.paginate(paging(r.cursor));
-						return {
-							...result,
-							page: (await Promise.all(result.page.map((m) => ctx.db.get(m.chatId))))
-								.filter((c) => c && !c.archived)
-								.map((c) => ({ id: c!._id, name: c!.name, kind: c!.kind, private: c!.private })),
-						};
+						// A seat outlives access: only chats they can still see (Who can access).
+						const page = [];
+						for (const m of result.page) {
+							const c = await ctx.db.get(m.chatId);
+							if (c && !c.archived && (await canSee(ctx, c, { ...member, replyId: undefined }))) {
+								await notePlace(ctx, member, c._id, chatAccess(c), c.private);
+								page.push({ id: c._id, name: c.name, kind: c.kind, private: c.private });
+							}
+						}
+						return { ...result, page };
 					}
 					if (r.action === "mark_read") {
 						await markReadAs(ctx, member, await chatId(ctx, member, r.chat));
 						return { done: r.action };
 					}
-					if (r.action === "edit" || r.action === "delete" || r.action === "react" || r.action === "hide_preview") {
+					if (r.action === "edit" || r.action === "delete" || r.action === "hide_preview") {
 						const id = rowId(ctx, "chatMessages", r.messageId);
 						if (r.action === "edit") await editMessage(ctx, who, id, r.text);
 						if (r.action === "delete") await removeMessage(ctx, who, id);
-						if (r.action === "react") await reactMessage(ctx, who, id, r.emoji);
 						if (r.action === "hide_preview") await hideMessagePreview(ctx, who, id, r.url);
 						return { done: r.action, messageId: id };
 					}
@@ -105,7 +117,7 @@ export const runFor = internalMutation({
 						return { chatId: await openDirectMessage(ctx, member, alone ? { userIds: [], agentIds: [turn.agentId] } : others) };
 					}
 					const to = { chatId: await chatId(ctx, member, r.chat), threadId: r.threadId ? rowId(ctx, "chatMessages", r.threadId) : undefined };
-					const messageId = await sendMessage(ctx, who, { ...to, text: r.text, mentions: participants(ctx, r) });
+					const messageId = await sendMessage(ctx, who, { ...to, text: r.text ?? "", mentions: participants(ctx, r), attachments: r.files?.map(copyOf) });
 					// Posted right where the agent is replying: its reply shouldn't say it again.
 					const here = to.chatId === turn.chatId && to.threadId === turn.threadId;
 					return { messageId, ...to, ...(here && { note: "Posted here, above your reply. Don't repeat it." }) };
@@ -117,7 +129,12 @@ export const runFor = internalMutation({
 							.query("chats")
 							.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("kind", "channel"))
 							.paginate(paging(r.cursor));
-						return { ...result, page: result.page.filter((c) => !c.private && !c.archived).map((c) => ({ id: c._id, name: c.name, topic: c.topic })) };
+						const page = [];
+						for (const c of result.page) if (!c.private && !c.archived && await canSee(ctx, c, { ...member, replyId: undefined })) {
+							await notePlace(ctx, member, c._id, chatAccess(c));
+							page.push({ id: c._id, name: c.name, topic: c.topic });
+						}
+						return { ...result, page };
 					}
 					if (r.action === "create") return { chatId: await createChannelAs(ctx, member, r) };
 					const id = await chatId(ctx, member, r.chat);
@@ -160,26 +177,25 @@ export const runFor = internalMutation({
 						const result = await workspacePage(ctx, "automationInstalls", member, r.cursor);
 						return {
 							...result,
-							page: result.page
-								.filter((i) => canView(member, i) && !i.archived)
-								.map((i) => ({ id: i.automationId, name: automationName(i), enabled: i.enabled, agentId: i.agentId, version: i.custom?.version ?? i.definition?.version })),
+							page: (await Promise.all(result.page.map(async (i) => !i.archived && await canView(ctx, member, i) && await readArtifact(ctx, member, i, privateTo(i)) ? { id: i.automationId, name: automationName(i), enabled: i.enabled, agentId: i.agentId, version: i.custom?.version ?? i.definition?.version } : null))).filter((i) => i !== null),
 						};
 					}
 
 					const install = await installOf(ctx, member.workspaceId, r.id);
-					if (!install || !canView(member, install)) throw new ConvexError("Automation not found.");
+					if (!install || !(await canView(ctx, member, install))) throw new ConvexError("Automation not found.");
+					if (r.action === "get") await readArtifact(ctx, member, install, privateTo(install));
 					if (r.action === "get")
 						return {
 							id: r.id,
-							definition: await definitionOf(ctx, install),
-							config: install.custom && { ...install.custom, trigger: normalizeCustomAutomation(install.custom).trigger },
+							definition: await definitionOf(ctx, install, member),
+							config: install.custom && { ...install.custom, trigger: await shownTrigger(ctx, member, normalizeCustomAutomation(install.custom).trigger) },
 							enabled: install.enabled,
 							agentId: install.agentId,
 							audience: install.audience,
-							channelId: install.channelId,
+							channelId: (await seenChannel(ctx, member, install.channelId))?._id,
 							timeZone: install.timeZone,
 							lastRunAt: install.lastRunAt,
-							lastResult: install.lastResult,
+							lastResult: install.lastOutcome && (await outcomeText(ctx, install.lastOutcome, member)),
 						};
 					if (r.action === "run") {
 						if ((await automationScope(ctx, turn)).trigger?.automation) throw new ConvexError("An automation run cannot start another run.");
@@ -207,16 +223,18 @@ export const runFor = internalMutation({
 						const result = await workspacePage(ctx, "skillInstalls", member, r.cursor);
 						return {
 							...result,
-							page: result.page.filter((i) => !i.archived).map((i) => ({ id: i.skillId, name: skillOf(i)?.name, version: i.custom?.version ?? i.definition?.version })),
+							page: (await Promise.all(result.page.map(async (i) => !i.archived && canSeeSkill(member.userId, i) && await readArtifact(ctx, member, i, i.audience === "personal" ? i.ownerId : undefined) ? { id: i.skillId, name: skillOf(i)?.name, version: i.custom?.version ?? i.definition?.version } : null))).filter((i) => i !== null),
 						};
 					}
 					const install = await skillInstallOf(ctx, member.workspaceId, r.id);
-					const skill = install && skillOf(install);
+					const skill = install && canSeeSkill(member.userId, install) && await readArtifact(ctx, member, install, install.audience === "personal" ? install.ownerId : undefined) && skillOf(install);
 					if (!skill) throw new ConvexError("Skill not found.");
-					return { ...skill, id: r.id, version: install.custom?.version ?? skill.version, installed: true, canEdit: canEditMade(member, "skills.manage", install.custom?.createdBy) };
+					return { ...skill, id: r.id, version: install.custom?.version ?? skill.version, installed: true, audience: install.audience, canEdit: install.audience === "personal" || can(member, "skills.edit") };
 				}
 				case "skills.edit": {
 					const r = manageInputs[tool].parse(input).request;
+					const install = await skillInstallOf(ctx, member.workspaceId, r.id);
+					if (install?.audience === "personal") await requirePersonalSkillChat(ctx, chat);
 					await saveSkill(ctx, member, { skillId: r.id, config: r.config, expectedVersion: r.expectedVersion });
 					return { done: r.action, id: r.id };
 				}
@@ -227,11 +245,12 @@ export const runFor = internalMutation({
 				}
 				case "members.invite": {
 					const r = manageInputs[tool].parse(input).request;
-					if (r.action === "invite") return inviteMember(ctx, member, { email: r.email, role: "member" });
+					// Agents invite with Member, the default role; picking roles is a person's call.
+					if (r.action === "invite") return inviteMember(ctx, member, { email: r.email });
 					const invite = await inviteIn(ctx, member.workspaceId, normalizeEmail(r.email));
 					if (!invite) throw new ConvexError("No invitation for that email.");
 					if (r.action === "resend") {
-						if (invite.role !== "member") throw new ConvexError("Owner invitations require a person directly.");
+						if (accessOf(await rolesOf(ctx, member.workspaceId), invite).owner) throw new ConvexError("Owner invitations require a person directly.");
 						await resendMemberInvite(ctx, member, { id: invite._id });
 					}
 					if (r.action === "cancel") await cancelMemberInvite(ctx, member, { id: invite._id });
@@ -263,7 +282,7 @@ export const runFor = internalMutation({
 					if (r.action === "get") return { id, ...pickAgentConfig(agent), version: agent.version, inTrash: agent.archived };
 					if (r.action === "history") return ctx.db.query("agentVersions").withIndex("by_agent", (q) => q.eq("agentId", id)).order("desc").paginate(paging(r.cursor));
 					if (r.action === "delete") await setAgentTrashed(ctx, who, id, true);
-					if (r.action === "remove_image") await setImage(ctx, member, id, null);
+					if (r.action === "set_image") await setImage(ctx, member, id, r.file === null ? null : copyOf(r.file));
 					if (r.action === "update") {
 						if (id === turn.agentId && (r.instructions !== undefined || r.model !== undefined || r.reasoning !== undefined)) throw new ConvexError("Only a person can change your instructions, model or reasoning.");
 						const { action, id: _, expectedVersion, ...changes } = r;
@@ -278,12 +297,13 @@ export const runFor = internalMutation({
 						const prefs = await preferencesOf(ctx, member.userId);
 						return { displayName: prefs?.displayName ?? "", sendWith: prefs?.sendWith ?? "enter", notify: prefs?.notify ?? "all", timeZone: prefs?.timeZone ?? null };
 					}
-					if (r.action === "remove_image") {
-						await setImage(ctx, member, r.of, null);
+					if (r.action === "set_image") {
+						await setImage(ctx, member, r.of, r.file === null ? null : copyOf(r.file));
 						return { done: r.action };
 					}
 					if (r.action === "update_preferences") {
 						const { action, ...changes } = r;
+						if (changes.displayName !== undefined) await writeSources(ctx, member);
 						await updatePreferences(ctx, member.userId, changes);
 						return { updated: true };
 					}
@@ -299,3 +319,6 @@ export const runFor = internalMutation({
 		});
 	},
 });
+
+/** Role ids as their names, for agents: what people call them. */
+const roleNamesOf = (member: Member, ids: Id<"roles">[]) => member.workspaceRoles.filter((r) => (ids as string[]).includes(r.id)).map((r) => r.name);

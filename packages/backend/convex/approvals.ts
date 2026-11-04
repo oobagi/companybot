@@ -11,15 +11,16 @@ import {
 	toolGroup,
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
-import { internalMutation } from "./_generated/server";
-import { mutation, query } from "./functions";
-import { canSee, findOrCreateDm, insertMessage, namer } from "./chatOps";
 import type { Doc } from "./_generated/dataModel";
-import type { QueryCtx } from "./_generated/server";
+import { internalMutation, type QueryCtx } from "./_generated/server";
+import { mutation, query } from "./functions";
+import { automationName, automationScope } from "./automationOps";
+import { canSee, findOrCreateDm, insertMessage, namer } from "./chatOps";
+import { titleOf } from "./connectorTools";
 import { erased, getMember, memberOf, nameOf, requireLiveAgent, requireMember, toActor } from "./lib";
 import { decideFor, setRule } from "./permissions";
-import { automationName, automationScope } from "./automationOps";
-import { titleOf } from "./connectorTools";
+import { canReadReplyDetails, readReplyDetails } from "./replyPrivacy";
+import { writeSources } from "./replySources";
 import { risk } from "./schema";
 import { enqueueTurn, runningTurn } from "./turns";
 
@@ -34,15 +35,15 @@ import { enqueueTurn, runningTurn } from "./turns";
 export const request = internalMutation({
 	args: { turnId: v.id("agentTurns"), callId: v.string(), tool: v.string(), input: v.string(), risk, why: v.optional(v.string()) },
 	handler: async (ctx, { turnId, callId, tool, input, risk, why }) => {
-		const { turn } = await runningTurn(ctx, turnId);
+		const { turn, member } = await runningTurn(ctx, turnId);
 		const { automation, trigger } = await automationScope(ctx, turn);
 		// Automation and wake cards belong only in the acting person's DM, even for channel/thread runs.
 		// Keep chatId/threadId as the execution place: implicit targets must not change on approval.
 		const dmId = (trigger?.automation || turn.wakeupId) && await findOrCreateDm(ctx, turn.workspaceId, turn.actorId, [turn.actorId], [turn.agentId]);
-		// In the DM itself it goes in the reply, which is shown with it (turns.finishReply), quiet or not.
+		// In the DM itself it goes in the reply, which is shown with it (turns.ts `show`).
 		const separate = !!dmId && dmId !== turn.chatId;
 		const replyId = separate ? await insertMessage(ctx, (await ctx.db.get(dmId!))!, {
-			authorAgentId: turn.agentId, text: "", parts: [], mentions: { userIds: [], agentIds: [] }, status: "done",
+			authorAgentId: turn.agentId, usedPlaces: await writeSources(ctx, member, { filtered: true, preserveOwn: true }), repliedTo: turn.actorId, text: "", parts: [], mentions: { userIds: [], agentIds: [] }, status: "done",
 		}) : turn.replyId;
 		const approvalId = await ctx.db.insert("approvals", {
 			workspaceId: turn.workspaceId,
@@ -67,7 +68,7 @@ export const request = internalMutation({
 });
 
 /**
- * Whether the card may offer "Always allow", read live (an owner may have locked it
+ * Whether the card may offer "Always allow", read live (someone with actions.lock may have locked it
  * since), and the automation a grant would be scoped to. Old rows without a risk: no.
  */
 async function alwaysFor(ctx: QueryCtx, row: Doc<"approvals">) {
@@ -94,7 +95,7 @@ export const forReply = query({
 		const member = await getMember(ctx);
 		const reply = await ctx.db.get(replyId);
 		const chat = reply && (await ctx.db.get(reply.chatId));
-		if (!member || !chat || chat.archived || !(await canSee(ctx, chat, member))) return [];
+		if (!member || !chat || chat.archived || !(await canSee(ctx, chat, member)) || !(await canReadReplyDetails(ctx, member, reply!))) return [];
 		const rows = await ctx.db
 			.query("approvals")
 			.withIndex("by_reply", (q) => q.eq("replyId", replyId))
@@ -107,7 +108,10 @@ export const forReply = query({
 				const connector = findConnector(group) ?? null;
 				const always = mine && approvalStatus(row) === "pending" ? await alwaysFor(ctx, row) : null;
 				const title = await titleOf(ctx, row.workspaceId, row.tool);
-				const input: unknown = JSON.parse(row.input);
+				// A skill proposal may be private even when its write is later refused.
+				const privateInput = row.actorId !== member.userId && (row.tool === "skills.create" || row.tool === "skills.edit");
+				const shownInput = privateInput ? "{}" : row.input;
+				const input: unknown = JSON.parse(shownInput);
 				const automation = row.automationInstallId && (await ctx.db.get(row.automationInstallId));
 
 				return {
@@ -135,7 +139,7 @@ export const forReply = query({
 					/** Set when "Always allow" saved a rule. */
 					always: row.always ?? false,
 					/** The exact input that will run, as canonical JSON. */
-					input: row.input,
+					input: shownInput,
 					hash: row.hash,
 					status: approvalStatus(row),
 					approver: (await names.user(row.actorId)).name,
@@ -143,7 +147,7 @@ export const forReply = query({
 					expiresAt: row.expiresAt,
 					decidedAt: row.decidedAt ?? null,
 					result: mine ? (row.result ?? null) : null,
-					error: row.error ?? null,
+					error: privateInput ? null : row.error ?? null,
 				};
 			}),
 		);
@@ -165,6 +169,8 @@ export const decide = mutation({
 		const row = await ctx.db.get(approvalId);
 		const chat = row && row.workspaceId === member.workspaceId ? await ctx.db.get(row.chatId) : null;
 		if (!row || !chat || chat.archived || !(await canSee(ctx, chat, member))) throw new ConvexError("Approval not found.");
+		const reply = await ctx.db.get(row.replyId);
+		if (!reply || !(await canReadReplyDetails(ctx, member, reply))) throw new ConvexError("Approval not found.");
 		if (!canDecideApproval(toActor(member), row)) {
 			throw new ConvexError(`Only ${await nameOf(ctx, row.actorId)} can decide this. The agent is acting for them.`);
 		}
@@ -185,12 +191,12 @@ export const decide = mutation({
 			agentId: row.agentId,
 			chatId: row.chatId,
 			threadId: row.threadId,
-			// The message that started it all, so chat.react still reacts to the person's message.
+			// The message that started it all, so the decision's reaction lands on the person's message.
 			// An old welcome turn had none: then there's nothing to react to.
 			triggerId: asked ? asked.triggerId : row.replyId,
 			actorId: row.actorId,
 			approvalId,
-			// A wake's follow-up turn stays quiet, and as trusted as the wake.
+			// A wake's follow-up turn stays a wake, as trusted as the wake.
 			...(asked?.wakeupId && { wakeupId: asked.wakeupId }),
 			// Still in its chain of agents, or still answering another agent's ask (chains.ts).
 			...(asked?.chain && { chain: asked.chain }),
@@ -212,6 +218,9 @@ export const claim = internalMutation({
 		const member = await memberOf(ctx, row.actorId, row.workspaceId);
 		const chat = await ctx.db.get(row.chatId);
 		if (!member || !chat || chat.archived || !(await canSee(ctx, chat, member))) return null;
+		member.replyId = turn.replyId;
+		const reply = await ctx.db.get(row.replyId);
+		if (!(await canReadReplyDetails(ctx, member, reply))) return null;
 		const input: unknown = JSON.parse(row.input);
 		if ((await approvalHash(row.tool, input)) !== row.hash) {
 			await ctx.db.patch(approvalId, { status: "failed", error: "The stored action no longer matches what was approved." });
@@ -225,6 +234,7 @@ export const claim = internalMutation({
 			await ctx.db.patch(approvalId, { status: "failed", error: `${who} after it was approved, so it didn't run.` });
 			return null;
 		}
+		await readReplyDetails(ctx, member, reply);
 		await ctx.db.patch(approvalId, { status: "running" });
 		return { tool: row.tool, input };
 	},

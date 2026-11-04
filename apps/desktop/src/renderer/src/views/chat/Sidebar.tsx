@@ -1,12 +1,15 @@
+import { useStoredIds } from "../../arrangements";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Fragment, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery, useWorkspace } from "../../convex";
-import { AgentIcon, ArchiveIcon, CaretRightIcon, ChannelIcon, ChatIcon, CheckIcon, CloseIcon, EditIcon, MembersIcon, MoreIcon, PlusIcon, PrivateIcon, SignOutIcon, ThreadIcon } from "../../icons";
+import { AgentIcon, ArchiveIcon, CaretRightIcon, ChannelIcon, ChatIcon, CheckIcon, CloseIcon, EditIcon, MembersIcon, MoreIcon, PinIcon, PlusIcon, PrivateIcon, SignOutIcon, ThreadIcon, UnpinIcon } from "../../icons";
+import { type PinKey, usePins } from "../../pins";
 import { navigate } from "../../router";
-import { type DragProps, useSortable, useStoredIds } from "../../sortable";
+import { type DragProps, useSortable } from "../../sortable";
 import { Notice, RenameInput, useClock, useRun } from "../../ui";
 import { AgentBadge, Avatar, MenuItem, Popover, PopoverPanel, archiveQuestion, useConfirm } from "./common";
+import { AccessLock } from "../access";
 import type { ChatList, Participant } from "./data";
 import { BrowseChannels, ChannelDetailsFor, CreateChannel, NewMessage } from "./dialogs";
 import { useDraftChats } from "./drafts";
@@ -41,7 +44,7 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 	const workspace = useWorkspace();
 	const now = useClock();
 	const threads = useQuery(api.chats.activeThreads, section.collapsed ? "skip" : { now }) ?? [];
-	const [folded, setFolded] = useStoredIds(`sidebar.channels.folded:${workspace?.id}`);
+	const [folded, changeFolded] = useStoredIds("channelFolds");
 	const [dialog, setDialog] = useState<Dialog>();
 	const [details, setDetails] = useState<Id<"chats">>();
 	const markRead = useMutation(api.chats.markRead);
@@ -51,7 +54,7 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 	const { error, run } = useRun();
 	const { confirm, dialog: confirming } = useConfirm();
 	const drafts = useDraftChats(chats.me, workspace?.id);
-	const { sorted, drag } = useSortable(`sidebar.channels:${workspace?.id}`, chats.channels, chatKey);
+	const { sorted, drag } = useSortable("channels", chats.channels, chatKey);
 	const shown = section.collapsed ? sorted.filter((c) => c._id === openId || c.unread || c.mentioned) : sorted;
 	/** Leaving or deleting the open channel: nothing to show there anymore. */
 	const left = (chatId: Id<"chats">) => chatId === openId && navigate("chat");
@@ -77,10 +80,11 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 					<Fragment key={c._id}>
 				<Item
 					drag={drag(c._id)}
+					pin={`chat:${c._id}`}
 					icon={c.private ? <PrivateIcon /> : <ChannelIcon />}
 					label={`#${c.name}`}
 					expanded={open}
-					onToggle={own.length ? () => setFolded(open ? [...folded, c._id] : folded.filter((id) => id !== c._id)) : undefined}
+					onToggle={own.length ? () => changeFolded({ op: open ? "add" : "remove", id: c._id }) : undefined}
 					active={c._id === openId}
 					unread={c.unread}
 					mentioned={c.mentioned}
@@ -101,6 +105,7 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 					)}
 				>
 					<span className="truncate">{c.name}</span>
+					<AccessLock lock={c.lock} verb="post in" />
 				</Item>
 				{open && own.map((t, i) => (
 					<Item key={t.messageId} icon={<ThreadIcon />} guides={[i < own.length - 1]} title={t.title} active={c._id === openId && t.messageId === openThread} onClick={() => navigate("chat", c._id, "thread", t.messageId)}>
@@ -132,7 +137,7 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 	const renameChat = useMutation(api.chats.renameChat);
 	const renameAgent = useMutation(api.agents.rename);
 	const [dialog, setDialog] = useState<Dialog>();
-	const [folded, setFolded] = useStoredIds(`sidebar.dms.folded:${workspace?.id}`);
+	const [folded, changeFolded] = useStoredIds("dmFolds");
 	const { error, run } = useRun();
 	const { confirm, dialog: confirming } = useConfirm();
 	const sidesOf = (dmId: Id<"chats"> | null) => (dmId ? chats.dms.filter((d) => d.parentId === dmId) : []);
@@ -146,7 +151,7 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 			].sort((a, b) => b.at - a.at || a.name.localeCompare(b.name)),
 		[chats],
 	);
-	const { sorted, drag } = useSortable(`sidebar.dms:${workspace?.id}`, dms, dmKey);
+	const { sorted, drag } = useSortable("dms", dms, dmKey);
 	// Collapsed, only what needs you stays: open or unread rows, and the side chats (and their agent) that are.
 	const needed = (c: { _id: Id<"chats">; unread: boolean; mentioned: boolean }) => c._id === openId || c.unread || c.mentioned;
 	const shown = section.collapsed ? sorted.filter((d) => (d.dmId && d.dmId === openId) || d.unread || d.mentioned || sidesOf(d.dmId).some(needed)) : sorted;
@@ -166,6 +171,7 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 					<Fragment key={d.key}>
 				<Item
 					drag={drag(d.key)}
+					pin={d.dmId ? `chat:${d.dmId}` : undefined}
 					icon={<Avatar name={d.name} image={d.image} agent={d.agent} size="row" />}
 					label={d.name}
 					active={!!d.dmId && d.dmId === openId}
@@ -174,7 +180,7 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 					draft={!!d.dmId && drafts.has(d.dmId)}
 					title={d.title}
 					expanded={open}
-					onToggle={sides.length ? () => setFolded(open ? [...folded, d.key] : folded.filter((id) => id !== d.key)) : undefined}
+					onToggle={sides.length ? () => changeFolded({ op: open ? "add" : "remove", id: d.key }) : undefined}
 					onClick={() => (d.dmId ? onOpen(d.dmId) : d.agentId && openDm({ userIds: [], agentIds: [d.agentId] }).then(onOpen, onError))}
 					// Agents rename here (`agents.manage`); a person's name is their own, set in their preferences.
 					rename={d.agentId && canManageAgents ? { value: d.name, onSave: (name) => run(renameAgent({ agentId: d.agentId!, name })) } : undefined}
@@ -199,6 +205,7 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 				{open && sides.map((c, i) => (
 					<Item
 						key={c._id}
+						pin={`chat:${c._id}`}
 						icon={<ChatIcon />}
 						guides={[i < sides.length - 1]}
 						label={c.label ?? "New chat"}
@@ -293,6 +300,7 @@ export function Item({
 	actions,
 	rename,
 	drag,
+	pin,
 	onClick,
 	children,
 }: {
@@ -324,18 +332,24 @@ export function Item({
 	rename?: { value: string; onSave: (name: string) => Promise<unknown> };
 	/** From `useSortable`: makes the row draggable within its list. */
 	drag?: DragProps;
+	/** What it is as a pin: its menu gets Pin to rail / Unpin from rail. */
+	pin?: PinKey;
 	onClick: () => void;
 	children: React.ReactNode;
 }) {
-	const [menuAt, setMenuAt] = useState<DOMRect>();
+	const pins = usePins();
+	const pinned = !!pin && pins.pins.includes(pin);
+	// Open from its ⋯ button, or at the point you right-clicked.
+	const [menuAt, setMenuAt] = useState<"button" | { x: number; y: number }>();
 	const [renaming, setRenaming] = useState(false);
-	const more = useRef<HTMLButtonElement>(null);
 	const closeMenu = () => setMenuAt(undefined);
+	const row = useRef<HTMLButtonElement>(null);
 	const items =
-		menu || rename
+		menu || rename || pin
 			? (close: () => void) => (
 					<>
 						{rename && <MenuItem onClick={() => (close(), setRenaming(true))}><EditIcon /> Rename</MenuItem>}
+						{pin && <MenuItem onClick={() => (close(), pins.toggle(pin))}>{pinned ? <><UnpinIcon /> Unpin from rail</> : <><PinIcon /> Pin to rail</>}</MenuItem>}
 						{menu?.(close)}
 					</>
 				)
@@ -345,7 +359,7 @@ export function Item({
 			{...drag}
 			// While renaming, a drag would take the text selection, and right-click is the input's own.
 			draggable={renaming ? false : drag?.draggable}
-			onContextMenu={items && !renaming ? (e) => (e.preventDefault(), setMenuAt(new DOMRect(e.clientX, e.clientY, 0, 0))) : undefined}
+			onContextMenu={items && !renaming ? (e) => (e.preventDefault(), setMenuAt({ x: e.clientX, y: e.clientY })) : undefined}
 			className={`group/item relative flex items-stretch text-sm ${drag?.className ?? ""}`}
 		>
 			{/* Tree guides sit in a gutter before the pill, so hover and active backgrounds never paint over them. */}
@@ -377,6 +391,7 @@ export function Item({
 				<RenameInput value={rename.value} onSave={rename.onSave} onDone={() => setRenaming(false)} className="-my-0.5 -ml-1.5 flex-1 px-1.5 py-0.5" />
 			) : (
 				<button
+					ref={row}
 					type="button"
 					title={title}
 					onClick={onClick}
@@ -397,23 +412,24 @@ export function Item({
 			{(items || actions) && !renaming && (
 				<span className={`relative z-10 items-center gap-0.5 ${menuAt ? "flex" : "hidden group-focus-within/item:flex group-hover/item:flex has-[[aria-expanded=true]]:flex"}`}>
 					{items && (
-						<button
-							ref={more}
-							type="button"
-							title="More"
-							aria-label={label ? `Actions for ${label}` : "Actions"}
-							aria-expanded={!!menuAt}
-							onClick={(e) => (menuAt ? closeMenu() : setMenuAt(e.currentTarget.getBoundingClientRect()))}
-							className={trailingAction}
+						<PopoverPanel
+							opened={menuAt === "button"}
+							onClose={closeMenu}
+							className="w-52 p-1"
+							target={
+								<button type="button" title="More" aria-label={label ? `Actions for ${label}` : "Actions"} onClick={() => setMenuAt(menuAt === "button" ? undefined : "button")} className={trailingAction}>
+									<MoreIcon weight="bold" />
+								</button>
+							}
 						>
-							<MoreIcon weight="bold" />
-						</button>
+							{items(closeMenu)}
+						</PopoverPanel>
 					)}
 					{actions}
 				</span>
 			)}
-			{items && menuAt && (
-				<PopoverPanel anchor={menuAt} ignore={more} className="w-52 p-1" onClose={closeMenu}>
+			{items && typeof menuAt === "object" && (
+				<PopoverPanel opened at={menuAt} returnFocus={row} onClose={closeMenu} className="w-52 p-1">
 					{items(closeMenu)}
 				</PopoverPanel>
 			)}

@@ -20,16 +20,18 @@ An automation asks an agent to do something without you typing it. Make one in [
 
 ## Good to know
 - Runs act with the rights of the person they run for, and post in their DM with the agent (or once in the channel).
+- Private automations keep every restricted source the writing turn read, including its private or role-limited chat. Reading or running a personal automation counts as just its person and passes its saved sources to the next turn. Changing its audience is refused if the new audience cannot open them all. Only your own turn in your 1:1 DM with agents may publish your own one-person data; foreign automations and foreign wakeups never qualify. Personal sources still count for display privacy and other people’s turns. A private-channel event copied into a DM keeps its source too: losing that channel hides the event and reply.
 - **Run now** tests it with sample data. Each automation shows when it last ran and what happened.
 - Anything that leaves Companybot still asks first. In an automation someone else wrote, acting as you asks the first time: see **help: permissions**.
-- The maker or an owner can edit, pause or delete one. Deleted ones go to [Archive](#/settings/archive).
+- Anyone can make a personal automation (just for you). Team automations: anyone whose role can make and change team automations (not Member, to start; an owner can turn it on) can make, edit, pause or delete one. A personal one (just for you) only you can change. Deleted ones go to [Archive](#/settings/archive).
 
 ## Follow-ups
 Ask an agent to check back later and it sets a follow-up: "remind me to chase Acme's invoice in 3 days if it's unpaid", "reach out to them in April", "check this deal every Monday for a month".
+- Calendar repeats keep the local clock time and time zone they were set in, even if you change your time zone. Missing spring times move forward only that day; month ends clamp without changing the original day. Hours and minutes count elapsed time.
 - When it's time, the agent wakes in the same chat, acting for the same person, and checks whether it still applies (is the invoice still unpaid?). It gets the record's current values if the follow-up is about one.
 - It's quiet: it posts only when there's something worth telling you. Each time it wakes shows as one line in [Activity](#/settings/activity).
-- Pending follow-ups are listed under Follow-ups in [Automations](#/settings/automations), and on the record they're about. You see the ones in chats you can see; owners see all of them.
-- Cancel one there, or ask the agent. Its person, whoever set it up, or an owner can cancel it. Times use your time zone; one can be at most 2 years ahead.
+- Pending follow-ups are listed under Follow-ups in [Automations](#/settings/automations), and on the record they're about. You see the ones in chats you can see; people whose role can change agents see all of them.
+- Cancel one there, or ask the agent. Its person, whoever set it up, or anyone whose role can change agents can cancel it. Times use your time zone; one can be at most 2 years ahead.
 - If you leave the workspace, your follow-ups are deleted: they never run as anyone else. One whose record, agent or chat is in Archive waits, and runs once it's restored.
 - One set while an agent was following words you didn't write (a webhook, another person's automation) asks you before acting as you when it wakes, like that automation would.
 `,

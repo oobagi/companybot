@@ -24,10 +24,10 @@ const pageSpec = createReactBlockSpec(pageBlockConfig, {
     const pages = useContext(References);
     const page = pages[block.props.pageId];
     return <a className="mobile-page-link" href={pageHref(block.props.pageId)} contentEditable={false}>
-      <span aria-hidden>▤</span><span>{page?.title ?? block.props.title}</span>{page?.archived && <small>Archived</small>}{page === null && <small>Unavailable</small>}
+      <span aria-hidden>▤</span><span>{page?.title ?? 'Page'}</span>{page?.archived && <small>Archived</small>}{page === null && <small>Unavailable</small>}
     </a>;
   },
-  toExternalHTML: ({ block }) => <a href={pageHref(block.props.pageId)}>{block.props.title}</a>,
+  toExternalHTML: ({ block }) => <a href={pageHref(block.props.pageId)}>Page</a>,
 })();
 const schema = BlockNoteSchema.create({ blockSpecs: { ...defaultBlockSpecs, page: pageSpec } });
 

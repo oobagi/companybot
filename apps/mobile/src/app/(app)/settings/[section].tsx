@@ -16,8 +16,8 @@ import { settingsSections } from '@/features/settings/SettingsScreen';
 
 const screens = { general: General, preferences: Preferences, members: Members, permissions: Permissions, agents: Agents, skills: Skills, automations: Automations, connectors: Connectors, memory: Memory, activity: Activity, usage: Usage, archive: Archive };
 export default function SettingsRoute() {
-  const { section, itemId } = useLocalSearchParams<{ section: string; itemId?: string }>();
+  const { section, itemId, connectorId } = useLocalSearchParams<{ section: string; itemId?: string; connectorId?: string }>();
   const Component = screens[section as keyof typeof screens];
   const title = section === 'preferences' ? 'Your preferences' : settingsSections.find(s => s.id === section)?.label ?? 'Settings';
-  return <><Stack.Screen options={{ title }} />{Component ? <Component key={`${section}:${itemId ?? ''}`} /> : <Screen><EmptyState title="Settings page not found" /></Screen>}</>;
+  return <><Stack.Screen options={{ title }} />{section === 'permissions' ? <Permissions key={`permissions:${connectorId ?? ''}`} connectorId={typeof connectorId === 'string' ? connectorId : undefined} /> : Component ? <Component key={`${section}:${itemId ?? ''}`} /> : <Screen><EmptyState title="Settings page not found" /></Screen>}</>;
 }

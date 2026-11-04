@@ -1,4 +1,5 @@
 import migrationsTest from "@convex-dev/migrations/test";
+import prosemirrorSync from "@convex-dev/prosemirror-sync/test";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
@@ -171,4 +172,143 @@ describe("migrations", () => {
 		await t.run(ctx => ctx.db.patch(membership!._id, { email: undefined }));
 		await expect(owner.mutation(api.workspace.invite, { email: "next@co.com", role: "member" })).rejects.toThrow("being updated");
 	});
+
+	it("strips the retired chat.react from agents and their versions, and drops rules and locks on it", async () => {
+		const t = convexTest({ schema, modules, transactionLimits: true });
+		migrationsTest.register(t);
+		const owner = await signIn(t, "owner@co.com");
+		const { companybot } = await agentsOf(owner);
+		const tools = ["memory.search", "chat.react", "chat.read"];
+		await t.run(async (ctx) => {
+			const agent = (await ctx.db.get(companybot._id))!;
+			await ctx.db.patch(agent._id, { tools });
+			const version = (await ctx.db.query("agentVersions").withIndex("by_agent", (q) => q.eq("agentId", agent._id)).first())!;
+			await ctx.db.patch(version._id, { config: { ...version.config, tools } });
+			const rule = { workspaceId: agent.workspaceId, userId: owner.userId, setting: "never" as const, setAt: 1 };
+			await ctx.db.insert("permissionRules", { ...rule, action: "chat.react" });
+			await ctx.db.insert("permissionRules", { ...rule, action: "chat.read" });
+			await ctx.db.insert("permissionLocks", { workspaceId: agent.workspaceId, action: "chat.react", lock: "block", setBy: owner.userId, setAt: 1 });
+		});
+		vi.useFakeTimers();
+		try {
+			await t.mutation(internal.migrations.runAll);
+			await t.finishAllScheduledFunctions(vi.runAllTimers);
+		} finally {
+			vi.useRealTimers();
+		}
+		const after = await t.run(async (ctx) => ({
+			agent: (await ctx.db.get(companybot._id))!,
+			versions: await ctx.db.query("agentVersions").withIndex("by_agent", (q) => q.eq("agentId", companybot._id)).collect(),
+			rules: await ctx.db.query("permissionRules").collect(),
+			locks: await ctx.db.query("permissionLocks").collect(),
+		}));
+		expect(after.agent.tools).toEqual(["memory.search", "chat.read"]);
+		// Not a new version: nothing it can do changed.
+		expect(after.agent.version).toBe(companybot.version);
+		expect(after.versions.map((v) => v.config.tools)).toEqual([["memory.search", "chat.read"]]);
+		expect(after.rules.map((r) => r.action)).toEqual(["chat.read"]);
+		expect(after.locks).toEqual([]);
+	});
+
+	// COMPAT(0.1.0-alpha.10): delete with migrations.automationOutcomes.
+	it("turns automations' last run lines into outcomes that name channels by id, and drops ones it can't place", async () => {
+		const t = convexTest({ schema, modules, transactionLimits: true });
+		migrationsTest.register(t);
+		prosemirrorSync.register(t);
+		const owner = await signIn(t, "owner@co.com");
+		const vault = await owner.mutation(api.chats.createChannel, { name: "vault", private: false });
+		const { companybot } = await agentsOf(owner);
+		const make = async (name: string, trigger: object = { type: "schedule", cron: "0 9 * * *" }) =>
+			(await owner.mutation(api.automations.create, { config: { name, prompt: "Sum it up.", trigger: trigger as never }, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" }));
+		const lines = {
+			Posted: "Posted in #vault.",
+			Missing: "Didn't run: Owner, who made it, isn't in #vault. Pick another channel.",
+			Watches: "Didn't run: It watches #vault, which is private, so it can only post there or to people who turn it on.",
+			Plain: "Sent to 3 people.",
+			Gone: "Posted in #nowhere.",
+		};
+		const ids: Record<string, string> = {};
+		for (const name of Object.keys(lines)) ids[name] = await make(name, name === "Watches" ? { type: "event", event: "message.posted", channelId: vault } : undefined);
+		await t.run(async (ctx) => {
+			for (const install of await ctx.db.query("automationInstalls").collect()) {
+				const name = Object.keys(ids).find((n) => ids[n] === install.automationId) as keyof typeof lines | undefined;
+				if (name) await ctx.db.patch(install._id, { lastRunAt: 1, lastResult: lines[name] });
+			}
+		});
+		vi.useFakeTimers();
+		try {
+			await t.mutation(internal.migrations.runAll);
+			await t.finishAllScheduledFunctions(vi.runAllTimers);
+		} finally {
+			vi.useRealTimers();
+		}
+		const after = await t.run(async (ctx) => ctx.db.query("automationInstalls").collect());
+		const of = (name: string) => after.find((i) => i.automationId === ids[name])!;
+		expect(after.every((i) => i.lastResult === undefined)).toBe(true);
+		expect(of("Posted").lastOutcome).toEqual({ text: "Posted in {channel}.", channelId: vault });
+		expect(of("Missing").lastOutcome).toEqual({ text: "Didn't run: Owner, who made it, isn't in {channel}. Pick another channel.", channelId: vault });
+		expect(of("Watches").lastOutcome).toEqual({ text: "Didn't run: It watches {watched}, which is private, so it can only post there or to people who turn it on.", watchedId: vault });
+		expect(of("Plain").lastOutcome).toEqual({ text: "Sent to 3 people." });
+		expect(of("Gone").lastOutcome).toBeUndefined();
+		expect((await owner.query(api.automations.list)).find((a) => a.name === "Posted")!.lastResult).toBe("Posted in #vault.");
+	});
+
+	// COMPAT(0.1.0-alpha.10): delete with migrations.pageMoveIds.
+	it("turns page move history's titles into page ids, top level as null, unmatched or ambiguous as unknown", async () => {
+		const t = convexTest({ schema, modules, transactionLimits: true });
+		migrationsTest.register(t);
+		prosemirrorSync.register(t);
+		const owner = await signIn(t, "owner@co.com");
+		const board = await owner.mutation(api.pages.create, { title: "Board" });
+		const agenda = await owner.mutation(api.pages.create, { title: "Agenda" });
+		await owner.mutation(api.pages.create, { title: "Notes" });
+		await owner.mutation(api.pages.create, { title: "Notes" });
+		// Many near matches before the exact one, and a second exact one in Archive.
+		for (let i = 0; i < 25; i++) await owner.mutation(api.pages.create, { title: `Plan ${i}` });
+		const plan = await owner.mutation(api.pages.create, { title: "Plan" });
+		for (let i = 0; i < 25; i++) await owner.mutation(api.pages.create, { title: `Draft ${i}` });
+		await owner.mutation(api.pages.create, { title: "Draft" });
+		await owner.mutation(api.trash.move, { kind: "page", id: await owner.mutation(api.pages.create, { title: "Draft" }) });
+		const rows = await t.run(async (ctx) => {
+			const { workspaceId } = (await ctx.db.get(agenda))!;
+			const userId = (await ctx.db.query("users").first())!._id;
+			const row = (n: number, from: string, to: string) => ctx.db.insert("pageMoves", { workspaceId, pageId: agenda, n, userId, from, to });
+			return [await row(1, "Pages", "Board"), await row(2, "Notes", "Gone page"), await row(3, "Plan", "Draft")];
+		});
+		vi.useFakeTimers();
+		try {
+			await t.mutation(internal.migrations.runAll);
+			await t.finishAllScheduledFunctions(vi.runAllTimers);
+		} finally {
+			vi.useRealTimers();
+		}
+		const [first, second, third] = await t.run(async (ctx) => Promise.all(rows.map((id) => ctx.db.get(id))));
+		expect([third!.fromId, third!.toId]).toEqual([plan, undefined]);
+		expect(first).toMatchObject({ fromId: null, toId: board });
+		expect([second!.fromId, second!.toId]).toEqual([undefined, undefined]);
+		expect([first!.from, first!.to, second!.from, second!.to]).toEqual([undefined, undefined, undefined, undefined]);
+		expect((await owner.query(api.pages.moves, { pageId: agenda, paginationOpts: { numItems: 10, cursor: null } })).page.map((m) => [m.from, m.to])).toEqual([
+			["Plan", "another page"],
+			["another page", "another page"],
+			["Pages", "Board"],
+		]);
+	});
+});
+
+// COMPAT(0.1.0-alpha.10): delete with migrations.channelTopics.
+it("cuts channel topics from before the 250-character cap", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	migrationsTest.register(t);
+	prosemirrorSync.register(t);
+	const owner = await signIn(t, "owner@co.com");
+	const id = await owner.mutation(api.chats.createChannel, { name: "long", private: false });
+	await t.run((ctx) => ctx.db.patch(id, { topic: "y".repeat(18_000) }));
+	vi.useFakeTimers();
+	try {
+		await t.mutation(internal.migrations.runAll);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+	} finally {
+		vi.useRealTimers();
+	}
+	expect((await t.run((ctx) => ctx.db.get(id)))!.topic).toBe("y".repeat(250));
 });

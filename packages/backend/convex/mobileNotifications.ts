@@ -4,7 +4,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { alertCount } from "./alertOps";
-import { membership, shownAt } from "./chatOps";
+import { canSee, membership, shownAt } from "./chatOps";
 import { mutation, query } from "./functions";
 import { authUserId, memberOf, preferencesOf, requireUserId } from "./lib";
 
@@ -101,7 +101,9 @@ async function visibleMessage(ctx: QueryCtx, userId: Id<"users">, messageId: Id<
 	const message = await ctx.db.get(messageId);
 	if (!message || message.deleted || message.quiet || message.status !== "done") return null;
 	const chat = await ctx.db.get(message.chatId);
-	if (!chat || chat.archived || chat.workspaceId !== message.workspaceId || !(await memberOf(ctx, userId, chat.workspaceId))) return null;
+	if (!chat || chat.archived || chat.workspaceId !== message.workspaceId) return null;
+	const member = await memberOf(ctx, userId, chat.workspaceId);
+	if (!member || !(await canSee(ctx, chat, member))) return null;
 	const seat = await membership(ctx, chat._id, userId);
 	// Match desktop alerts: public channel membership is required too.
 	if (!seat || seat.workspaceId !== chat.workspaceId) return null;

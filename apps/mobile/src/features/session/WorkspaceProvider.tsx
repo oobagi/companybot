@@ -71,7 +71,7 @@ function AccountWorkspaces({ userId, mine, children }: { userId: Id<'users'>; mi
   if (!state.hydrated || state.pending) return <Screen><Loading label="Opening your workspace…" /></Screen>;
   if (!mine.workspaces.length) return <EnsureWorkspace onDone={choose} />;
   if (!workspace || !mine.workspaces.some(w => w.id === workspace.id)) return <Screen><Loading label="Checking workspace access…" /></Screen>;
-  return <SelectionContext.Provider value={{ choose }}><WorkspaceContext.Provider value={workspace}><WorkspaceContents key={workspace.id}>{children}</WorkspaceContents></WorkspaceContext.Provider></SelectionContext.Provider>;
+  return <SelectionContext.Provider value={{ choose }}><WorkspaceContext.Provider value={workspace}>{mine.workspaces.find(w => w.id === workspace.id)?.resetting ? <Screen><Loading label="Resetting workspace… It will reopen automatically." /></Screen> : <WorkspaceContents key={workspace.id}>{children}</WorkspaceContents>}</WorkspaceContext.Provider></SelectionContext.Provider>;
 }
 
 /** Remounts whenever the account has no workspaces, so each new empty period checks invites. */
@@ -108,6 +108,6 @@ function WorkspaceContents({ children }: { children: ReactNode }) {
     const subscription = AppState.addEventListener('change', state => { if (state === 'active') refresh(); });
     return () => subscription.remove();
   }, [preferences, update]);
-  if (!me?.role) return <Screen><Loading label="Checking workspace access…" /></Screen>;
+  if (!me?.access) return <Screen><Loading label="Checking workspace access…" /></Screen>;
   return children;
 }

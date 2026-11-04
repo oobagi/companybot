@@ -13,6 +13,7 @@ import { HeaderMenu } from '@/components/navigation/HeaderMenu';
 import { Composer } from './Composer';
 import { MessageRow } from './MessageRow';
 import { chatTitle, type Message } from './types';
+import { canWriteChat } from './access';
 
 export function Conversation({ chatId, threadId }: { chatId: Id<'chats'>; threadId?: Id<'chatMessages'> }) {
   const params = useLocalSearchParams<{ messageId?: string }>();
@@ -50,12 +51,13 @@ export function Conversation({ chatId, threadId }: { chatId: Id<'chats'>; thread
   if (chat === undefined) return <Loading label="Opening conversation…" />;
   if (!chat) return <EmptyState title="Chat not found" description="It may have been deleted, or you no longer have access." />;
   const readonlyThread = !!threadId && (!!messages?.[0]?.ask || messages?.[0]?.threadId !== null);
+  const writable = canWriteChat(chat, readonlyThread);
   const main = chat.parentId ?? chat._id;
   const sides = list?.dms.filter((d) => d.parentId === main) ?? [];
   const actions: Action[] = [
     { id: 'details', title: 'Conversation details', icon: 'info.circle' },
     ...(!threadId && chat.agentId ? [
-      { id: 'new', title: 'New chat', icon: 'square.and.pencil' as const, disabled: task.busy },
+      { id: 'new', title: 'New chat', icon: 'square.and.pencil' as const, disabled: task.busy || !writable },
       { id: 'switch', title: 'Switch chat', icon: 'bubble.left.and.bubble.right' as const, items: [
         { id: `chat:${main}`, title: 'Main conversation', selected: chat._id === main },
         ...sides.map(side => ({ id: `chat:${side._id}`, title: side.label ?? 'New chat', selected: side._id === chatId })),
@@ -65,7 +67,7 @@ export function Conversation({ chatId, threadId }: { chatId: Id<'chats'>; thread
   const perform = (action: string) => {
     if (action === 'details') router.push({ pathname: '/chat/[chatId]/details', params: { chatId } });
     else if (action.startsWith('chat:')) router.replace({ pathname: '/chat/[chatId]', params: { chatId: action.slice(5) } });
-    else if (action === 'new') void task.run(async () => { const id = await createSide({ parentId: main }); router.push({ pathname: '/chat/[chatId]', params: { chatId: id } }); });
+    else if (action === 'new' && writable) void task.run(async () => { const id = await createSide({ parentId: main }); router.push({ pathname: '/chat/[chatId]', params: { chatId: id } }); });
   };
   return <Screen keyboard padded={false}>
     <RouterStack.Screen options={{ title: threadId ? 'Thread' : chatTitle(chat) }} />
@@ -73,9 +75,9 @@ export function Conversation({ chatId, threadId }: { chatId: Id<'chats'>; thread
     {chat.topic && <View style={{ paddingHorizontal: spacing.lg, paddingVertical: spacing.sm }}><Text variant="caption" tone="muted">{chat.topic}</Text></View>}
     {task.error && <ErrorState message={task.error} />}
     {messageId && messages !== undefined && targetIndex < 0 && <Card><Text tone="muted">This message is not in the most recent 200 messages.</Text></Card>}
-    {messages === undefined ? <Loading label="Loading messages…" /> : !messages.length ? <EmptyState title={threadId ? 'Thread not found' : 'No messages yet'} description={threadId ? 'This thread is no longer available.' : `Start a conversation in ${chatTitle(chat)}.`} /> : <FlatList ref={timeline} data={data} inverted keyExtractor={(m) => m._id} renderItem={({ item }) => <MessageRow row={item} highlighted={item._id === messageId} readOnly={!!chat.trash || readonlyThread} inThread={!!threadId} />} onScrollToIndexFailed={({ index, averageItemLength }) => { if (retries.current++ >= 3) return; timeline.current?.scrollToOffset({ offset: index * averageItemLength, animated: false }); clearTimeout(retryTimer.current); retryTimer.current = setTimeout(scrollToTarget, 150); }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 80 }} initialNumToRender={16} maxToRenderPerBatch={12} windowSize={9} contentContainerStyle={{ paddingVertical: spacing.md }} />}
+    {messages === undefined ? <Loading label="Loading messages…" /> : !messages.length ? <EmptyState title={threadId ? 'Thread not found' : 'No messages yet'} description={threadId ? 'This thread is no longer available.' : `Start a conversation in ${chatTitle(chat)}.`} /> : <FlatList ref={timeline} data={data} inverted keyExtractor={(m) => m._id} renderItem={({ item }) => <MessageRow row={item} highlighted={item._id === messageId} readOnly={!writable} inThread={!!threadId} />} onScrollToIndexFailed={({ index, averageItemLength }) => { if (retries.current++ >= 3) return; timeline.current?.scrollToOffset({ offset: index * averageItemLength, animated: false }); clearTimeout(retryTimer.current); retryTimer.current = setTimeout(scrollToTarget, 150); }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 80 }} initialNumToRender={16} maxToRenderPerBatch={12} windowSize={9} contentContainerStyle={{ paddingVertical: spacing.md }} />}
     <TypingStatus chatId={chatId} threadId={threadId} />
-    {chat.trash ? <Card><Text>This conversation is in Archive.</Text><Button label="Open Archive" variant="secondary" onPress={() => router.push('/settings/archive')} /></Card> : readonlyThread ? <Card><Text tone="muted">This is a read-only conversation between agents.</Text></Card> : messages !== undefined && (!threadId || messages.length > 0) && <Composer key={`${chatId}:${threadId ?? 'main'}`} chatId={chatId} threadId={threadId} />}
+    {chat.trash ? <Card><Text>This conversation is in Archive.</Text><Button label="Open Archive" variant="secondary" onPress={() => router.push('/settings/archive')} /></Card> : readonlyThread ? <Card><Text tone="muted">This is a read-only conversation between agents.</Text></Card> : !chat.canPost ? <Card><Text tone="muted">You have view-only access to this conversation.</Text></Card> : messages !== undefined && (!threadId || messages.length > 0) && <Composer key={`${chatId}:${threadId ?? 'main'}`} chatId={chatId} threadId={threadId} />}
   </Screen>;
 }
 

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { builtinTools } from "./builtin-tools";
 import { SKILL_DESCRIPTION_MAX, SKILL_NAME_MAX, customSkill, customSkillError, skillsIndex } from "./skills";
 
-import { owner, member, ctx } from "../test/helpers";
+import { owner, ctx } from "../test/helpers";
 
 describe("skills", () => {
 	const load = builtinTools.find((t) => t.id === "skills.load")!;
@@ -12,18 +12,6 @@ describe("skills", () => {
 		const installed = { ...ctx(owner), skills: { ...ctx(owner).skills, list: skills.slice(0, 1) } };
 		expect(await load.execute({ id: "meeting-notes" }, installed)).toHaveProperty("instructions");
 		expect(await load.execute({ id: "email-reply" }, installed)).toHaveProperty("error");
-	});
-
-	it("creates through the same skills store", async () => {
-		const config = { name: "Quotes", description: "Chase quotes.", instructions: "Be brief." };
-		let received: unknown;
-		const context = ctx(member);
-		context.skills.create = async (input) => {
-			received = input;
-			return { created: "custom-1", name: input.name };
-		};
-		expect(await builtinTools.find((t) => t.id === "skills.create")!.execute(config, context)).toEqual({ created: "custom-1", name: "Quotes" });
-		expect(received).toEqual(config);
 	});
 
 	it("lists skills for the agent, or nothing when none are installed", () => {

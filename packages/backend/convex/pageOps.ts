@@ -1,4 +1,5 @@
 import { BlockNoteEditor } from "@blocknote/core";
+import { type AccessLevel, reaches } from "@companybot/core";
 import { pageHref } from "@companybot/core/page-links";
 import { ProsemirrorSync } from "@convex-dev/prosemirror-sync";
 import type { Node, Schema } from "@tiptap/pm/model";
@@ -7,12 +8,14 @@ import { ConvexError, getDocumentSize } from "convex/values";
 import { components, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { type Member, type Who, checkPermission, nameOf, requireInWorkspace } from "./lib";
 import { cascading, startCascade } from "./cascade";
+import { type Member, type Who, checkPermission, nameOf, requireInWorkspace } from "./lib";
+import { pageBlockSchema, withoutPageTitles } from "./pageBlocks";
+import { type PageState, keptAccess, pageState, pageStates, parentFor } from "./pageTree";
+import { reach, requireAccess } from "./placeAccess";
 import { inTrash, requireRecord } from "./recordOps";
-import { pageState, parentFor } from "./pageTree";
+import { notePlace, readArtifact, writeSources } from "./replySources";
 import { toggleTrash } from "./trashOps";
-import { pageBlockSchema } from "./pageBlocks";
 
 // Shared rules for standalone pages and record bodies. See wiki/pages.md.
 
@@ -44,8 +47,66 @@ export const pageSchema = () => (schema ??= BlockNoteEditor.create({ schema: pag
 /** An empty block, as BlockNote keeps at the end of every page. */
 const emptyBlock = () => ({ type: "blockContainer", attrs: { id: crypto.randomUUID() }, content: [{ type: "paragraph" }] });
 
-export async function requirePage(ctx: QueryCtx, member: Member, pageId: Id<"pages">) {
-	return requireInWorkspace(member, await ctx.db.get(pageId), "Page");
+/** A page in the person's workspace that they reach `need` in (`requirePageAccess`). */
+export async function requirePage(ctx: QueryCtx, member: Member, pageId: Id<"pages">, need: AccessLevel = "view") {
+	const page = requireInWorkspace(member, await ctx.db.get(pageId), "Page");
+	await requirePageAccess(ctx, member, page, need);
+	return page;
+}
+
+/**
+ * Refuses someone without `need` in a page, naming who has it: a standalone page by the list that
+ * rules it (its own or an ancestor's), a record's page by its database's.
+ */
+export async function requirePageAccess(ctx: QueryCtx, member: Member, page: Doc<"pages">, need: AccessLevel, state?: PageState, asked?: string) {
+	const { access, type } = state ?? (await pageState(ctx, page));
+	if (!(await readArtifact(ctx, member, type ?? page))) throw new ConvexError("Page not found.");
+	if (type) requireAccess(member, "database", type.plural, access, need);
+	else requireAccess(member, "page", page.title, access, need, asked);
+	await notePlace(ctx, member, type?._id ?? page._id, access);
+}
+
+/** How far someone reaches in each page ("edit", "view" or null), sharing reads across a list. */
+export function pageReach(ctx: QueryCtx, member: Member, get?: (id: Id<"pages">) => Promise<Doc<"pages"> | null>) {
+	const state = pageStates(ctx, get);
+	return async (page: Doc<"pages">) => {
+		const { access, type } = await state(page);
+		const level = await readArtifact(ctx, { ...member, replyId: undefined }, type ?? page) ? reach(member, access) : null;
+		if (level) await notePlace(ctx, member, type?._id ?? page._id, access);
+		return level;
+	};
+}
+
+/** Whether someone can see a page (`pageReach`). */
+export function pageVisible(ctx: QueryCtx, member: Member, get?: (id: Id<"pages">) => Promise<Doc<"pages"> | null>) {
+	const level = pageReach(ctx, member, get);
+	return async (page: Doc<"pages">) => reaches(await level(page), "view");
+}
+
+/**
+ * A document's page blocks titled for `member`, for agents (who read JSON, not the app's live blocks): the
+ * page's current title, or none for a page they can't see (or one deleted). Blocks store no title (pageBlocks.ts).
+ */
+export async function withPageTitles(ctx: QueryCtx, member: Member, content: string) {
+	const seen = pageVisible(ctx, member);
+	const titles = new Map<string, string>();
+	const titleOf = async (id: unknown) => {
+		if (typeof id !== "string") return "";
+		if (!titles.has(id)) {
+			const pageId = ctx.db.normalizeId("pages", id);
+			const page = pageId && (await ctx.db.get(pageId));
+			titles.set(id, page && page.workspaceId === member.workspaceId && (await seen(page)) ? page.title : "");
+		}
+		return titles.get(id)!;
+	};
+	type Json = { type?: string; attrs?: Record<string, unknown>; content?: Json[] };
+	const walk = async (node: Json) => {
+		if (node.type === "page" && node.attrs) node.attrs.title = await titleOf(node.attrs.pageId);
+		for (const child of node.content ?? []) await walk(child);
+	};
+	const doc = JSON.parse(content) as Json;
+	await walk(doc);
+	return JSON.stringify(doc);
 }
 
 /** A record's body, if it has one yet. */
@@ -55,10 +116,15 @@ export const pageOfRecord = (ctx: QueryCtx, workspaceId: Id<"workspaces">, recor
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId).eq("recordId", recordId))
 		.first();
 
-/** Every member reads every page; `pages.edit` changes them, unless the page or its record is in Archive. */
+/**
+ * `pages.edit` and Edit in the page (its Who can access list) change it, unless the page or its record
+ * is in Archive. Seeing it takes View.
+ */
 export async function requireEditable(ctx: QueryCtx, member: Member, page: Doc<"pages">) {
 	checkPermission(member, "pages.edit");
-	if ((await pageState(ctx, page)).archived) throw new ConvexError("This page is in Archive. Restore it to make changes.");
+	const state = await pageState(ctx, page);
+	await requirePageAccess(ctx, member, page, "edit", state);
+	if (state.archived) throw new ConvexError("This page is in Archive. Restore it to make changes.");
 	if (page.recordId && (await inTrash(ctx, await requireRecord(ctx, member, page.recordId)))) throw new ConvexError("This record is in Archive. Restore it to make changes.");
 }
 
@@ -77,13 +143,15 @@ export async function createPage(ctx: MutationCtx, who: Who, to: { title: string
 	if (parentId) await parentFor(ctx, member, parentId);
 	let recordId: Id<"records"> | undefined;
 	if ("recordId" in to) {
-		const record = await requireRecord(ctx, member, to.recordId);
+		const record = await requireRecord(ctx, member, to.recordId, "edit");
 		const existing = await pageOfRecord(ctx, member.workspaceId, record._id);
 		if (existing) return existing._id;
 		if (await inTrash(ctx, record)) throw new ConvexError("This record is in Archive. Restore it to make changes.");
 		recordId = record._id;
 	}
+	const usedPlaces = "title" in to ? await writeSources(ctx, member, parentId) : [];
 	const pageId = await ctx.db.insert("pages", {
+		usedPlaces,
 		workspaceId: member.workspaceId,
 		...(recordId && { recordId }),
 		...(parentId && { parentId }),
@@ -95,13 +163,13 @@ export async function createPage(ctx: MutationCtx, who: Who, to: { title: string
 	});
 	await sync.create(ctx, pageId, { type: "doc", content: [{ type: "blockGroup", content: [emptyBlock()] }] });
 	if (parentId && "title" in to && to.insertInParent !== false) {
-		await appendPageBlock(ctx, who, await requirePage(ctx, member, parentId), pageId, cleanTitle(to.title));
+		await appendPageBlock(ctx, who, await requirePage(ctx, member, parentId), pageId);
 	}
 	return pageId;
 }
 
 /** Sidebar/agent-created children occupy real document blocks too. */
-export async function appendPageBlock(ctx: MutationCtx, who: Who, parent: Doc<"pages">, pageId: Id<"pages">, title: string) {
+export async function appendPageBlock(ctx: MutationCtx, who: Who, parent: Doc<"pages">, pageId: Id<"pages">) {
 	return writeDoc(ctx, who, parent, (doc) => {
 		const tr = new Transform(doc);
 		let exists = false;
@@ -110,7 +178,7 @@ export async function appendPageBlock(ctx: MutationCtx, who: Who, parent: Doc<"p
 		const last = doc.firstChild!.lastChild!;
 		const empty = last.childCount === 1 && last.firstChild?.type.name === "paragraph" && last.firstChild.content.size === 0;
 		const pos = doc.content.size - 1 - (empty ? last.nodeSize : 0);
-		return tr.insert(pos, pageSchema().nodeFromJSON({ type: "blockContainer", attrs: { id: crypto.randomUUID() }, content: [{ type: "page", attrs: { pageId, title } }] }));
+		return tr.insert(pos, pageSchema().nodeFromJSON({ type: "blockContainer", attrs: { id: crypto.randomUUID() }, content: [{ type: "page", attrs: { pageId } }] }));
 	});
 }
 
@@ -131,19 +199,21 @@ export async function removePageBlock(ctx: MutationCtx, who: Who, parent: Doc<"p
 export async function renamePage(ctx: MutationCtx, who: Who, page: Doc<"pages">, title: string) {
 	await requireEditable(ctx, who.member, page);
 	if (page.recordId) throw new ConvexError("A record's page takes the record's name. Rename the record instead.");
+	await writeSources(ctx, who.member, page._id);
 	const clean = cleanTitle(title);
 	await ctx.db.patch(page._id, { title: clean, updatedAt: Date.now(), updatedBy: who.member.userId });
 	// Page links are plain link marks whose text is the title when inserted (alpha.7 can't render live titles),
 	// so keep the parent's links in step, as an edit by whoever renamed. Reworded links and other pages' links stay.
-	const parent = page.parentId && clean !== page.title && (await ctx.db.get(page.parentId));
+	// A sub-page with its own list keeps its link text as written: the parent may be open to people it isn't.
+	const parent = !page.access && page.parentId && clean !== page.title && (await ctx.db.get(page.parentId));
 	if (parent) await writeDoc(ctx, who, parent, (doc) => relabelLinks(doc, pageHref(page._id), page.title, clean));
 }
 
+/** Link text that still reads `from`, linking to `href`, now reads `to`. */
 function relabelLinks(doc: Node, href: string, from: string, to: string) {
 	const tr = new Transform(doc);
 	doc.descendants((node, pos) => {
-		if (node.type.name === "page" && pageHref(node.attrs.pageId) === href) tr.setNodeMarkup(tr.mapping.map(pos), undefined, { ...node.attrs, title: to });
-		else if (node.text === from && node.marks.some((m) => m.type.name === "link" && m.attrs.href === href))
+		if (node.text === from && node.marks.some((m) => m.type.name === "link" && m.attrs.href === href))
 			tr.replaceWith(tr.mapping.map(pos), tr.mapping.map(pos + node.nodeSize), doc.type.schema.text(to, node.marks));
 	});
 	return tr;
@@ -155,6 +225,7 @@ export async function setPageTrashed(ctx: MutationCtx, who: Who, page: Doc<"page
 	if (page.recordId) throw new ConvexError("A record's page goes to Archive with its record.");
 	if (page.archived === archived) return;
 	if (archived) await requireEditable(ctx, who.member, page);
+	else await requirePageAccess(ctx, who.member, page, "edit");
 	const child = archived && await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", page.workspaceId).eq("parentId", page._id).eq("recordId", undefined).eq("archived", false)).first();
 	await toggleTrash(ctx, who, archived, { kind: "page", id: page._id, name: page.title, includesSubpages: !!child });
 	if (!archived && page.parentId) {
@@ -162,15 +233,16 @@ export async function setPageTrashed(ctx: MutationCtx, who: Who, page: Doc<"page
 		const state = parent ? await pageState(ctx, parent) : null;
 		const missingId = state?.missingId ?? (!parent ? page.parentId : undefined);
 		if (missingId && await cascading(ctx, "page", { workspaceId: page.workspaceId, pageId: missingId })) throw new ConvexError("This page is being deleted forever.");
-		if (!parent || state?.archived) await ctx.db.patch(page._id, { parentId: undefined });
+		// Back at the top level, it keeps the list it had under its parent (as a move would), never Everyone's.
+		if (!parent || state?.archived) await ctx.db.patch(page._id, { parentId: undefined, ...keptAccess(who.member, page, (await pageState(ctx, page)).access, undefined) });
 	}
 	await ctx.db.patch(page._id, { archived, updatedAt: Date.now(), updatedBy: who.member.userId });
-	const restored = await ctx.db.get(page._id);
-	const parentId = archived ? page.parentId : restored?.parentId;
+	const restored = (await ctx.db.get(page._id))!;
+	const parentId = archived ? page.parentId : restored.parentId;
 	const parent = parentId && await ctx.db.get(parentId);
 	if (parent) {
 		if (archived) await removePageBlock(ctx, who, parent, page._id);
-		else await appendPageBlock(ctx, who, parent, page._id, page.title);
+		else await appendPageBlock(ctx, who, parent, page._id);
 	}
 }
 
@@ -238,11 +310,19 @@ export async function readDoc(ctx: QueryCtx, pageId: Id<"pages">) {
 
 const tooMuch = () => new ConvexError("That's too much to add at once. Split it into smaller pieces.");
 
-/** Validate and save steps (in deltas of at most DELTA_MAX_BYTES), their canonical snapshot and history in one transaction. */
+/**
+ * Validate and save steps (in deltas of at most DELTA_MAX_BYTES), their canonical snapshot and history in one
+ * transaction. Returns whether the content changed: steps that change nothing are still saved, since the
+ * editor that sent them counts them in its version (an old one setting a page block's title, which the
+ * schema no longer has); dropping them would refuse its next edit. They get no snapshot or history.
+ */
 export async function saveTransform(ctx: MutationCtx, who: Who, page: Doc<"pages">, version: number, tr: Transform, clientId: string | number = "transform", restored?: number) {
-	if (!tr.docChanged || tr.doc.eq(tr.before)) return false;
+	if (!tr.docChanged) return false;
+	const state = await pageState(ctx, page);
+	await writeSources(ctx, who.member, state.type?._id ?? page._id);
 	const content = JSON.stringify(tr.doc.toJSON());
-	const steps = tr.steps.map((s) => JSON.stringify(s.toJSON()));
+	// The schema has no page titles, but an old app's step can still try to set one (pageBlocks.ts).
+	const steps = tr.steps.map((s) => withoutPageTitles(JSON.stringify(s.toJSON())));
 	const bytes = getDocumentSize({ content });
 	if (bytes > PAGE_MAX_BYTES || getDocumentSize({ steps }) > PAGE_MAX_BYTES)
 		throw new ConvexError("That would make the page too long. Split it into several pages.");
@@ -267,6 +347,7 @@ export async function saveTransform(ctx: MutationCtx, who: Who, page: Doc<"pages
 		size += bytes;
 	}
 	await flush();
+	if (tr.doc.eq(tr.before)) return false;
 	await adoptImages(ctx, page, tr);
 	await ctx.runMutation(lib.submitSnapshot, { id: page._id, version: at, content });
 	await recordVersion(ctx, who, page, at, restored);

@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { TOPIC_MAX, manageInputs } from "@companybot/core";
 import { api } from "../convex/_generated/api";
 
-import { agentsOf, ownerAndMember, noMentions, tick, generalOf, turnsOf } from "./helpers";
+import { agentsOf, ownerAndMember, noMentions, tick, generalOf, turnsOf, setMemberSwitch } from "./helpers";
 
 afterEach(() => void vi.useRealTimers());
 
@@ -38,15 +39,19 @@ describe("chats", () => {
 		);
 	});
 
-	it("lets members manage only channels they created", async () => {
+	it("gives a channel's creator no extra rights: the channel switch decides", async () => {
 		const { owner, member } = await ownerAndMember();
 		const theirs = await member.mutation(api.chats.createChannel, { name: "design", private: false });
 		const ours = await owner.mutation(api.chats.createChannel, { name: "ops", private: false });
-		await member.mutation(api.chats.updateChannel, { chatId: theirs, topic: "Pixels" });
-		expect((await member.query(api.chats.get, { chatId: theirs }))?.canManage).toBe(true);
-		expect((await member.query(api.chats.get, { chatId: ours }))?.canManage).toBe(false);
-		await expect(member.mutation(api.chats.updateChannel, { chatId: ours, name: "x" })).rejects.toThrow("creator or an owner");
-		await owner.mutation(api.chats.updateChannel, { chatId: theirs, name: "Design Team" });
+		await member.mutation(api.chats.updateChannel, { chatId: ours, topic: "Runbooks" });
+		expect((await member.query(api.chats.get, { chatId: ours }))?.canManage).toBe(true);
+		await setMemberSwitch(owner, "channels.edit", false);
+		expect((await member.query(api.chats.get, { chatId: theirs }))?.canManage).toBe(false);
+		await expect(member.mutation(api.chats.updateChannel, { chatId: theirs, name: "x" })).rejects.toThrow(
+			"Only people with the Owner role can make and change channels.",
+		);
+		await expect(member.mutation(api.chats.createChannel, { name: "more", private: false })).rejects.toThrow("Only people with the Owner role");
+		await owner.mutation(api.chats.updateChannel, { chatId: theirs, name: "Design Team", topic: "Pixels" });
 		expect(await member.query(api.chats.get, { chatId: theirs })).toMatchObject({ name: "design-team", topic: "Pixels" });
 	});
 
@@ -58,10 +63,12 @@ describe("chats", () => {
 		const theirs = await member.mutation(api.chats.createChannel, { name: "design", private: false });
 		await owner.mutation(api.chats.join, { chatId: theirs });
 		const people = async (chatId: typeof ops) => (await owner.query(api.chats.get, { chatId }))!.members.map((m) => m.id);
-		// Not their channel: refused, and nothing changes.
-		await expect(member.mutation(api.chats.removeMember, { chatId: ops, userId: ownerId })).rejects.toThrow("creator or an owner");
-		expect(await people(ops)).toContain(ownerId);
-		// The creator removes from theirs; owners from any.
+		// Without the channel switch: refused, even from the channel they made, and nothing changes.
+		await setMemberSwitch(owner, "channels.edit", false);
+		await expect(member.mutation(api.chats.removeMember, { chatId: theirs, userId: ownerId })).rejects.toThrow("Only people with the");
+		expect(await people(theirs)).toContain(ownerId);
+		// With it, from any channel.
+		await setMemberSwitch(owner, "channels.edit", true);
 		await member.mutation(api.chats.removeMember, { chatId: theirs, userId: ownerId });
 		expect(await people(theirs)).not.toContain(ownerId);
 		await owner.mutation(api.chats.removeMember, { chatId: ops, userId: memberId });
@@ -320,4 +327,14 @@ describe("messages", () => {
 		await owner.mutation(api.messages.remove, { messageId: parent });
 		expect((await owner.query(api.messages.list, { chatId }))[0]).toMatchObject({ deleted: true, text: "", parts: [], replyCount: 3 });
 	});
+});
+
+it("caps channel topics at 250 characters for people and agents", async () => {
+	const { owner } = await ownerAndMember();
+	const long = "x".repeat(TOPIC_MAX + 1);
+	await expect(owner.mutation(api.chats.createChannel, { name: "long", topic: long, private: false })).rejects.toThrow(`under ${TOPIC_MAX} characters`);
+	const id = await owner.mutation(api.chats.createChannel, { name: "ok", topic: "x".repeat(TOPIC_MAX), private: false });
+	await expect(owner.mutation(api.chats.updateChannel, { chatId: id, topic: long })).rejects.toThrow(`under ${TOPIC_MAX} characters`);
+	expect(manageInputs["channels.manage"].safeParse({ request: { action: "set_topic", chat: id, topic: long } }).success).toBe(false);
+	expect(manageInputs["channels.manage"].safeParse({ request: { action: "create", name: "n", topic: long, private: false } }).success).toBe(false);
 });

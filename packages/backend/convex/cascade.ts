@@ -5,6 +5,7 @@ import type { Doc, Id, TableNames } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { deleteFile } from "./images";
 import { type Get, type Root, type Scope, type Step, childrenOf, edgesOf, filesOf } from "./lifecycle";
+import { startAgain } from "./workspace";
 
 // Deletes what belonged to something that went, as lifecycle.ts says, a little at a time:
 // each run reads one page of one edge, deletes it (children first), saves where it got to
@@ -29,7 +30,7 @@ const MAX_ATTEMPTS = 3;
 
 /** Names what's going, so callers can tell it's still being deleted. */
 const keyOf = (scope: Scope, root: Root) =>
-	[scope, root.workspaceId, root.userId, root.connectorId, root.automationInstallId, root.pageId, root.recordId, root.typeId, root.fieldId, root.chatId, root.agentId]
+	[scope, root.roleId, root.workspaceId, root.userId, root.connectorId, root.automationInstallId, root.pageId, root.recordId, root.typeId, root.fieldId, root.chatId, root.agentId]
 		.filter(Boolean)
 		.join(":");
 
@@ -162,11 +163,15 @@ const lastOf = ({ scope, root }: Doc<"cascades">): [TableNames, Id<TableNames> |
 		}) as Record<string, [TableNames, Id<TableNames> | undefined]>
 	)[scope];
 
-/** Every edge is done: the root row goes last (a workspace, or something deleted from Archive), then the cascade. */
+/**
+ * Every edge is done: the root row goes last (a workspace, or something deleted from Archive), then
+ * the cascade. A reset instead starts its workspace again, like new, in the same transaction.
+ */
 async function finish(ctx: MutationCtx, job: Doc<"cascades">) {
 	const [table, id] = lastOf(job) ?? [];
 	const last = id && (await ctx.db.get(id));
 	if (last) await deleteRow(ctx, table!, last);
+	if (job.scope === "reset") await startAgain(ctx, job.root.workspaceId!, job.root.userId!);
 	await ctx.db.delete(job._id);
 }
 

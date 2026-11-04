@@ -12,21 +12,22 @@ afterEach(() => void vi.useRealTimers());
 const opts = { paginationOpts: { numItems: 50, cursor: null } };
 
 describe("nested pages", () => {
-	it("stores child pages as real blocks, exports them, and keeps their titles and archive lifecycle in step", async () => {
+	it("stores child pages as real blocks of their id alone, exports them, and keeps their archive lifecycle in step", async () => {
 		const { t, owner } = await ownerAndMember();
 		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
 		const child = await owner.mutation(api.pages.create, { title: "Guide", parentId: root });
 		const blocks = () => t.run(async (ctx) => (await readDoc(ctx, root)).firstChild!.content.content.map((b) => b.firstChild!.toJSON()));
-		expect(await blocks()).toEqual([expect.objectContaining({ type: "page", attrs: { pageId: child, title: "Guide" } }), expect.objectContaining({ type: "paragraph" })]);
+		expect(await blocks()).toEqual([expect.objectContaining({ type: "page", attrs: { pageId: child } }), expect.objectContaining({ type: "paragraph" })]);
 		const doc = await t.run(async (ctx) => JSON.stringify((await readDoc(ctx, root)).toJSON()));
-		expect(await t.action(internal.pageMarkdown.toMarkdown, { doc })).toContain(`[Guide](companybot://page/${child})`);
+		expect(await t.action(internal.pageMarkdown.toMarkdown, { doc })).toContain(`[Page](companybot://page/${child})`);
 		await owner.mutation(api.pages.rename, { pageId: child, title: "Handbook" });
-		expect((await blocks())[0]).toMatchObject({ type: "page", attrs: { pageId: child, title: "Handbook" } });
+		// Titles resolve per reader when read (pageOps.withPageTitles), so a rename never touches the parent.
+		expect((await blocks())[0]).toEqual({ type: "page", attrs: { pageId: child } });
 		await owner.mutation(api.trash.move, { kind: "page", id: child });
 		expect((await blocks()).some((b) => b.type === "page")).toBe(false);
 		expect(await owner.query(api.pages.get, { pageId: child })).toMatchObject({ archived: true });
 		await owner.mutation(api.trash.restore, { kind: "page", id: child });
-		expect((await blocks()).filter((b) => b.type === "page")).toEqual([expect.objectContaining({ attrs: { pageId: child, title: "Handbook" } })]);
+		expect((await blocks()).filter((b) => b.type === "page")).toEqual([expect.objectContaining({ attrs: { pageId: child } })]);
 	});
 
 	it("moves page blocks between parents without leaving duplicates or changing child content", async () => {
@@ -241,9 +242,9 @@ describe("nested pages", () => {
 		const write = (input: object) => t.mutation(internal.pageTools.writeFor, { turnId, input });
 		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
 		const made = await write({ title: "Guide", parent: "Wiki" }) as { id: Id<"pages"> };
-		const tree = await t.query(internal.pageTools.findFor, { turnId, input: { parent: root } });
+		const tree = await t.mutation(internal.pageTools.findFor, { turnId, input: { parent: root } });
 		expect(tree.rows).toEqual([expect.objectContaining({ id: made.id, parentId: root })]);
-		const read = await t.query(internal.pageTools.readFor, { turnId, page: root });
+		const read = await t.mutation(internal.pageTools.readFor, { turnId, page: root });
 		expect(read).toMatchObject({ subpages: [{ id: made.id, title: "Guide" }], subpagesMore: false });
 		expect(await write({ action: "move", page: root, parent: made.id })).toMatchObject({ error: expect.stringContaining("descendants") });
 		await write({ action: "move", page: made.id, parent: null });
@@ -253,9 +254,9 @@ describe("nested pages", () => {
 		expect(await write({ title: "No blank page", parent: root })).toMatchObject({ error: expect.any(String) });
 		const trashedChild = await owner.mutation(api.pages.create, { title: "Guide", parentId: made.id });
 		await owner.mutation(api.trash.move, { kind: "page", id: made.id });
-		expect((await t.query(internal.pageTools.findFor, { turnId, input: { parent: made.id, trashed: true } })).rows).toEqual([expect.objectContaining({ id: trashedChild })]);
+		expect((await t.mutation(internal.pageTools.findFor, { turnId, input: { parent: made.id, trashed: true } })).rows).toEqual([expect.objectContaining({ id: trashedChild })]);
 		const live = await write({ title: "Guide" }) as { id: string };
-		expect(await t.query(internal.pageTools.readFor, { turnId, page: "Guide" })).toMatchObject({ id: live.id });
+		expect(await t.mutation(internal.pageTools.readFor, { turnId, page: "Guide" })).toMatchObject({ id: live.id });
 		expect((await owner.query(api.pages.list, {})).map((p) => p.title)).toEqual(["Guide"]);
 	});
 

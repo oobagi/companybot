@@ -15,6 +15,8 @@ Keep UI platform-specific. Extract shared client logic only when both clients us
 
 Install from the repository root with `pnpm install --frozen-lockfile`. Run `pnpm dev --mobile` for the local Convex backend and Metro together, or `pnpm dev:mobile` for Metro against an already running backend. Set `EXPO_PUBLIC_CONVEX_URL` in `apps/mobile/.env.local` for a remote development backend; never put secrets in public environment variables. From `apps/mobile`, use `pnpm ios` or `pnpm android` to generate and build native projects (Xcode or Android SDK required). SDK 58 is in the Expo Go transition period, so use a native development build if the installed Expo Go supports only SDK 57.
 
+When updating an existing local database across schema changes, run `pnpm exec convex run migrations:runAll` against that local deployment and check `migrations:status`. The retained migrations initialize custom roles and upgrade skills, wakeups and page data; clients must not seed partial replacements.
+
 Native `ios/` and `android/` folders are generated and ignored. Change app.json and config plugins instead of editing generated code. Bundle identifiers are provisional `com.companybot.mobile`; confirm ownership before store registration. Signing, store submission, push credentials, EAS project registration and OTA publishing still require project configuration. Notification registration, authenticated routing, delivery retries and receipts are implemented, but remote push delivery is not verified until APNs/FCM credentials and `extra.eas.projectId` are configured.
 
 ## Validation and upgrades

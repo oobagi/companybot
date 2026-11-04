@@ -1,11 +1,12 @@
 import { TYPING_MS } from "@companybot/core";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { type MutationCtx, internalMutation } from "./_generated/server";
-import { internal } from "./_generated/api";
-import { type Participant, agentOfDm, namer, requireChat, visibleChat } from "./chatOps";
 import { mutation, query } from "./functions";
+import { type Participant, agentOfDm, namer, requireChat, visibleChat } from "./chatOps";
 import { requireMember, sweepExpired } from "./lib";
+import { canReadReply } from "./replyPrivacy";
 import { STALE_TURN_MS, canStopTurn } from "./turns";
 
 // Typing indicators: who's typing in a place (chat + thread). Timing rules: core typing.ts.
@@ -65,15 +66,18 @@ export const list = query({
 		const agents = await Promise.all(
 			running
 				.filter((t) => now - (t.startedAt ?? t._creationTime) < STALE_TURN_MS)
-				// A dispatcher pick or hop may well post nothing: it shows what it's doing, never "typing".
-				// Stop (turns.stop): for the person it works for, or an owner.
-				.map(async (t) => ({
+				// "Thinking…" or its step until its message starts (any turn may post nothing), then "typing".
+				// Stop (turns.stop): for the person it works for, or anyone with turns.stopAny.
+				.map(async (t) => {
+					const reply = t.replyId && await ctx.db.get(t.replyId);
+					return {
 					...(await names.agent(t.agentId)),
-					step: t.step?.label ?? (t.routed ? "Thinking…" : null),
+					step: reply && !(await canReadReply(ctx, visible.member, reply)) ? "Private reply" : t.step?.label ?? null,
 					turnId: t._id,
 					canStop: canStopTurn(visible.member, t),
 					stopping: !!t.stopping,
-				})),
+				};
+				}),
 		);
 		return { people: people.slice(0, SHOWN_MAX), agents };
 	},

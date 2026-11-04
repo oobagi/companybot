@@ -20,6 +20,7 @@ export function Profile({ who, onClose }: { who: Participant; onClose: () => voi
   const [shown, setShown] = useState(who);
   const [now, setNow] = useState(() => Date.now());
   const team = useQuery(api.workspace.team);
+  const roles = useQuery(api.roles.list);
   const chats = useQuery(api.chats.list);
   const openDm = useMutation(api.chats.openDm);
   const task = useTask();
@@ -31,7 +32,7 @@ export function Profile({ who, onClose }: { who: Participant; onClose: () => voi
   const localTime = person?.timeZone ? new Date(now).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: person.timeZone }) : null;
   return <Dialog busy={task.busy} title="Profile" onClose={onClose}><Stack horizontal><Avatar name={shown.name} image={shown.image} agent={shown.type === 'agent'} size="lg" /><Stack style={{ flex: 1 }}><Text variant="heading">{shown.name}</Text>{shown.type === 'agent' && <Badge label="Bot" />}</Stack></Stack>
     {!loaded && <Loading layout="inline" />}
-    {person && <><Text selectable>{person.email}</Text><Text tone="muted">{person.role === 'owner' ? 'Workspace owner' : 'Member'}{person.isYou ? ' · You' : ''}</Text>{localTime && <Text tone="muted">{localTime} · {person.timeZone}</Text>}</>}
+    {person && <><Text selectable>{person.email}</Text><Text tone="muted">{roles?.filter(role => person.roles.includes(role.id)).map(role => role.name).join(', ') || 'Workspace member'}{person.isYou ? ' · You' : ''}</Text>{localTime && <Text tone="muted">{localTime} · {person.timeZone}</Text>}</>}
     {agent?.description && <Text>{agent.description}</Text>}
     {shown.for && <Button label={`Sent for ${shown.for.name}`} variant="ghost" onPress={() => { task.clear(); setShown(shown.for!); }} />}
     {gone && <Text tone="muted">No longer in this workspace.</Text>}

@@ -2,12 +2,13 @@ import { seedSkill } from "./legacyFixtures";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ManageTool } from "@companybot/core";
 import { api, internal } from "../convex/_generated/api";
-import { agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, sideWorkspace } from "./helpers";
+import { agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, sideWorkspace, setMemberSwitch } from "./helpers";
 import type { Id } from "../convex/_generated/dataModel";
 
 afterEach(() => vi.useRealTimers());
 
 async function ready() {
+	vi.useFakeTimers();
 	const { t, owner, member } = await ownerAndMember();
 	const { companybot, scribe } = await agentsOf(owner);
 	const chat = await generalOf(owner);
@@ -30,7 +31,9 @@ describe("messaging and channels as the person", () => {
 		expect(await call("channels.manage", { action: "delete", chat: id }, true)).toMatchObject({ done: "delete", chatId: id });
 		expect((await member.query(api.trash.list, { paginationOpts: { numItems: 50, cursor: null } })).page[0]).toMatchObject({ itemId: id, agent: "Companybot" });
 		const other = await owner.mutation(api.chats.createChannel, { name: "owner-channel", private: false });
-		expect(await call("channels.manage", { action: "delete", chat: other }, true)).toHaveProperty("error");
+		await setMemberSwitch(owner, "channels.edit", false);
+		expect(await call("channels.manage", { action: "delete", chat: other }, true)).toMatchObject({ error: expect.stringContaining("Only people with the Owner role") });
+		await setMemberSwitch(owner, "channels.edit", true);
 		expect(await call("channels.manage", { action: "delete", chat: chat._id })).toHaveProperty("error");
 		const dm = await member.mutation(api.chats.openDm, { userIds: [], agentIds: [] });
 		expect(await call("channels.manage", { action: "delete", chat: dm }, true)).toHaveProperty("error");
@@ -45,7 +48,7 @@ describe("messaging and channels as the person", () => {
 	it("discovers people/agents/invites, chats and channel metadata with paging", async () => {
 		const { call, owner, companybot, chat } = await ready();
 		expect((await call("chat.manage", { action: "find_people" })).page).toEqual(
-			expect.arrayContaining([expect.objectContaining({ userId: owner.userId, role: "owner" })]),
+			expect.arrayContaining([expect.objectContaining({ userId: owner.userId, roles: ["Owner"] })]),
 		);
 		expect((await call("chat.manage", { action: "find_people", kind: "agents" })).page).toEqual(
 			expect.arrayContaining([expect.objectContaining({ id: companybot._id })]),
@@ -98,7 +101,7 @@ describe("messaging and channels as the person", () => {
 		expect(sent!.actingFor).toBeUndefined();
 		expect(await fromGeneral({ action: "edit", messageId: toYou, text: "Surprise!" })).toMatchObject({ done: "edit" });
 		expect((await owner.query(api.messages.list, { chatId: own.chatId as Id<"chats"> })).at(-1)!.author).toEqual(expect.not.objectContaining({ for: expect.anything() }));
-		expect(await t.query(internal.chatTools.readFor, { turnId, chat: chatId })).toHaveProperty("messages");
+		expect(await t.mutation(internal.chatTools.readFor, { turnId, chat: chatId })).toHaveProperty("messages");
 		expect(await call("chat.manage", { action: "send", chat: chatId, threadId: parent, text: "Wrong parent" })).toHaveProperty("error");
 	});
 
@@ -130,6 +133,7 @@ describe("messaging and channels as the person", () => {
 		const { t, call, owner, member, chat } = await ready();
 		const privateId = await owner.mutation(api.chats.createChannel, { name: "secret", private: true });
 		const publicId = await owner.mutation(api.chats.createChannel, { name: "public", private: false });
+		await setMemberSwitch(owner, "channels.edit", false);
 		for (const request of [
 			{ action: "get" },
 			{ action: "join" },
@@ -160,7 +164,8 @@ describe("messaging and channels as the person", () => {
 
 describe("automation management", () => {
 	it("lists/reads, edits with versions, pauses/resumes, reassigns, changes audience and deletes", async () => {
-		const { t, call, member, companybot, scribe, chat } = await ready();
+		const { t, owner, call, member, companybot, scribe, chat } = await ready();
+		await setMemberSwitch(owner, "automations.edit", true);
 		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
 		expect((await call("automations.manage", { action: "list" }, true)).page).toEqual(expect.arrayContaining([expect.objectContaining({ id })]));
 		expect(await call("automations.manage", { action: "get", id }, true)).toMatchObject({ config: { version: 1 }, enabled: true });
@@ -177,9 +182,10 @@ describe("automation management", () => {
 		expect(await call("automations.manage", { action: "get", id }, true)).toHaveProperty("error");
 	});
 
-	it("denies another maker's edits and even an owner's read of a creator-only automation", async () => {
+	it("denies team automation edits without the switch, and even an owner's read of a creator-only automation", async () => {
 		const { call, owner, member, companybot, t } = await ready();
 		const id = await owner.mutation(api.automations.create, { config, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
+		await setMemberSwitch(owner, "automations.edit", false);
 		for (const r of [
 			{ action: "edit", expectedVersion: 1, config },
 			{ action: "pause" },
@@ -203,6 +209,7 @@ describe("automation management", () => {
 describe("skills, members and settings", () => {
 	it("lists and reads existing skills, edits versioned instructions and removes", async () => {
 		const { t, owner, call, member } = await ready();
+		await setMemberSwitch(owner, "skills.edit", true);
 		await seedSkill(t, owner, "meeting-notes");
 		const id = await member.mutation(api.skills.create, { config: skill });
 		expect((await call("skills.manage", { action: "list" })).page).toHaveLength(2);
@@ -218,9 +225,10 @@ describe("skills, members and settings", () => {
 		expect(await call("skills.manage", { action: "get", id }, true)).toHaveProperty("error");
 	});
 
-	it("denies another maker's skill changes, nonowner install/removal and settings writes", async () => {
+	it("denies skill changes and removal without the switch, and settings writes", async () => {
 		const { call, owner } = await ready();
 		const id = await owner.mutation(api.skills.create, { config: skill });
+		await setMemberSwitch(owner, "skills.edit", false);
 		expect(await call("skills.edit", { action: "edit", id, expectedVersion: 1, config: skill }, true)).toHaveProperty("error");
 		expect(await call("skills.remove", { action: "delete", id }, true)).toHaveProperty("error");
 		expect(await call("skills.remove", { action: "delete", id: "meeting-notes" }, true)).toHaveProperty("error");

@@ -7,8 +7,9 @@ One line per page: `- [Title](path.md) — what it covers`. Keep this file a tab
 - [Data](data.md) — records (clients, deals, tasks, calls), custom fields, links, history and undo; Archive; agent tools; why one generic records table; the API
 - [Pages](pages.md) — standalone pages and every record's body, one concept; BlockNote + prosemirror-sync, Notion-style history and restore, agent tools, storage bounds
 - [Chat](chat.md) — channels, DMs, threads, reactions; when agents reply, agents working together (handoffs, asks, loop limits), what they're fed, the chat API
-- [Permissions](permissions.md) — what asks, Allow once / Always / Deny, per-person rules, owner locks, automation grants, where it shows up, how others do it
+- [Permissions](permissions.md) — who can access each channel, database and page; what asks, Allow once / Always / Deny, per-person rules, roles, workspace locks, automation grants, where it shows up, how others do it
 - [Extending](extending.md) — how to add tools, connectors, skills, permissions, roles, memory rules; keeping the in-app help docs current; invariants to keep
+- [Testing](testing.md) — what to test and what not to (behavior, not wording or markup), how to write one, where tests live, how to run them
 - [Releases](releases.md) — cutting a release, CI, signing secrets, in-app updates
 - [Lessons](lessons.md) — what failed in Cottonwood/Night Owl and the rules that follow
 - [Competitors](competitors.md) — GoHighLevel, Dust, Lindy, Viktor, Polsia, Cofounder, Whop, Buzz, Sumus, Sameday, Airtable, Anytwo, Baserow, Teable, ChatGPT Sites; gaps, what to copy, threat

@@ -5,7 +5,11 @@
 /** No SVG: it's a document that can carry scripts and links, not just pixels. */
 export const imageTypes = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
 export type ImageType = (typeof imageTypes)[number];
-export const imageMaxBytes = 2 * 1024 * 1024;
+/** Big enough for a generated picture as it comes (often a few MB as PNG), not for filling storage. */
+export const imageMaxMb = 10;
+export const imageMaxBytes = imageMaxMb * 1024 * 1024;
+/** What a picture can be, for hints and help. */
+export const pictureLimits = `PNG, JPEG, WebP or GIF, up to ${imageMaxMb} MB`;
 /** How many leading bytes `sniffImage` needs. */
 export const imageHeadBytes = 12;
 
@@ -23,5 +27,5 @@ export function sniffImage(head: Uint8Array): ImageType | undefined {
 /** Why this file can't be a picture, or undefined if it can. `head` is at least its first `imageHeadBytes`. */
 export function imageError(head: Uint8Array, size: number) {
 	if (!sniffImage(head)) return "Pick a PNG, JPEG, WebP or GIF image.";
-	if (size > imageMaxBytes) return "Pick an image under 2 MB.";
+	if (size > imageMaxBytes) return `Pick an image under ${imageMaxMb} MB.`;
 }

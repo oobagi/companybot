@@ -11,6 +11,8 @@ import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { type Member, type Who, checkVersion, requireAgent, toActor } from "./lib";
+import { canReadSources } from "./replyPrivacy";
+import { readArtifact, writeSources } from "./replySources";
 import { putInTrash, takeFromTrash, trashEntry } from "./trashOps";
 
 // Shared by the app (public functions) and agents (internal functions), so both
@@ -36,7 +38,9 @@ export async function listMemories(ctx: QueryCtx, member: Member) {
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("archived", undefined))
 		.collect();
 	const actor = toActor(member);
-	return docs.map(toMemory).filter((m) => canReadMemory(actor, m));
+	const visible = [];
+	for (const doc of docs) if (canReadMemory(actor, toMemory(doc)) && await readArtifact(ctx, member, doc, doc.ownerId)) visible.push(toMemory(doc));
+	return visible;
 }
 
 /** Most memories one agent search returns. */
@@ -74,19 +78,23 @@ export async function searchMemories(ctx: QueryCtx, member: Member, agentId: Id<
 						.take(MEMORY_RESULTS_MAX);
 	const docs = await read("workspace");
 	if (personal) docs.push(...(await read("personal", member.userId)));
-	return docs
+	const visible = [];
+	for (const doc of docs) if (canReadMemory(actor, toMemory(doc)) && await canReadSources(ctx, member, doc.usedPlaces)) visible.push(doc);
+	const returned = visible
 		.filter((d) => d.workspaceId === member.workspaceId && memoryMatches(d.content, text))
 		.sort((a, b) => a._creationTime - b._creationTime)
-		.slice(-MEMORY_RESULTS_MAX)
-		.map(toMemory)
-		.filter((m) => canReadMemory(actor, m));
+		.slice(-MEMORY_RESULTS_MAX);
+	for (const doc of returned) await readArtifact(ctx, member, doc, doc.ownerId);
+	return returned.map(toMemory);
 }
 
 export async function createMemory(ctx: MutationCtx, { member, agentId: byAgent }: Who, agentId: Id<"agents">, scope: MemoryScope, content: string) {
-	if (!canCreateMemory(toActor(member), scope)) throw new ConvexError(deniedMessage("memory.team.write"));
+	if (!canCreateMemory(toActor(member), scope)) throw new ConvexError(deniedMessage("memory.team.write", member.workspaceRoles));
 	await requireAgent(ctx, member, agentId);
 	if (!content.trim()) throw new ConvexError("Memory can't be empty.");
+	const usedPlaces = await writeSources(ctx, member, scope === "personal" ? { users: [member.userId] } : undefined);
 	const id = await ctx.db.insert("memories", {
+		usedPlaces,
 		workspaceId: member.workspaceId,
 		agentId,
 		scope,
@@ -104,7 +112,7 @@ export async function createMemory(ctx: MutationCtx, { member, agentId: byAgent 
 /** A memory the person can read, not in Archive. Others look like they don't exist. */
 export async function requireReadable(ctx: QueryCtx, member: Member, id: Id<"memories">) {
 	const doc = await ctx.db.get(id);
-	if (!doc || doc.workspaceId !== member.workspaceId || doc.archived || !canReadMemory(toActor(member), toMemory(doc))) {
+	if (!doc || doc.workspaceId !== member.workspaceId || doc.archived || !canReadMemory(toActor(member), toMemory(doc)) || !(await readArtifact(ctx, member, doc, doc.ownerId))) {
 		throw new ConvexError("Memory not found.");
 	}
 	return doc;
@@ -125,8 +133,10 @@ export async function updateMemory(ctx: MutationCtx, { member, agentId: byAgent 
 	if (expectedVersion !== undefined) checkVersion(doc.version, expectedVersion);
 	if (!content.trim()) throw new ConvexError("Memory can't be empty.");
 	if (content.trim() === doc.content) return toMemory(doc);
+	const usedPlaces = await writeSources(ctx, member, doc.scope === "personal" ? { users: [doc.ownerId!] } : undefined, doc);
 	await keepVersion(ctx, doc);
 	await ctx.db.patch(id, {
+		usedPlaces,
 		content: content.trim(),
 		updatedAt: Date.now(),
 		updatedBy: member.userId,
@@ -160,7 +170,7 @@ async function keepVersion(ctx: MutationCtx, doc: Doc<"memories">) {
 /** A memory's old versions, newest first. None once the memory is gone or out of reach. */
 export async function memoryVersions(ctx: QueryCtx, member: Member, id: Id<"memories">) {
 	const doc = await ctx.db.get(id);
-	if (!doc || doc.workspaceId !== member.workspaceId || doc.archived || !canReadMemory(toActor(member), toMemory(doc))) return [];
+	if (!doc || doc.workspaceId !== member.workspaceId || doc.archived || !canReadMemory(toActor(member), toMemory(doc)) || !(await readArtifact(ctx, member, doc, doc.ownerId))) return [];
 	return ctx.db
 		.query("memoryVersions")
 		.withIndex("by_memory", (q) => q.eq("memoryId", id))

@@ -43,26 +43,27 @@ import {
 	agentStopAfter,
 	openConnector,
 	postDecision,
-	publishes,
+	responseOf,
 	resolveTools,
 	searchProvider,
 	deniedReason,
 	isImageType,
+	manageFiles,
 	toolApprovalPolicy,
 	toolLine,
 	toolRisk,
 	THINKING_STEP,
 } from "@companybot/core";
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { type ModelMessage, Output, generateText, streamText } from "ai";
 import type { FunctionReturnType } from "convex/server";
 import { ConvexError, type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { type ActionCtx, internalAction } from "./_generated/server";
 import { action } from "./functions";
-import { decrypt, encrypt } from "./crypto";
 import { oauthRedirectUrl } from "./connectors";
+import { decrypt, encrypt } from "./crypto";
 import type { messagePart } from "./schema";
 
 const SUMMARY_MODEL = "anthropic/claude-haiku-5.5";
@@ -109,8 +110,8 @@ export const respond = internalAction({
 type TurnUsage = ReplyUsage & { firstTokenMs?: number };
 
 async function runTurn(ctx: ActionCtx, turnId: Id<"agentTurns">, usage: TurnUsage, saveStep: () => Promise<unknown>) {
-	const turn = await ctx.runQuery(internal.turns.turnContext, { turnId });
-	const connectors = await loadConnectors(ctx, turn.member, turn.agent);
+	const turn = await ctx.runMutation(internal.turns.turnContext, { turnId });
+	const connectors = await loadConnectors(ctx, turn.member, turn.agent, turnId);
 	await saveTools(ctx, turn.member.workspaceId, connectors);
 	try {
 		const decision = await streamReply(ctx, turnId, turn, connectors, usage, saveStep);
@@ -182,6 +183,7 @@ async function loadConnectors(
 	ctx: ActionCtx,
 	{ userId, workspaceId }: { userId: Id<"users">; workspaceId: Id<"workspaces"> },
 	agent: Pick<AgentConfig, "tools">,
+	turnId?: Id<"agentTurns">,
 ): Promise<LoadedConnectors> {
 	const connectorIds = grantedConnectorIds(agent);
 	const oauth: LoadedConnectors["oauth"] = [];
@@ -201,7 +203,11 @@ async function loadConnectors(
 				if (connectionId) await ctx.runMutation(internal.connectors.setConnectionError, { connectionId });
 				// Access is read fresh before every call, so a role change or disconnect applies mid-reply.
 				const stillAllowed = async () =>
-					(await ctx.runQuery(internal.connectors.forTurn, { userId, workspaceId, connectorIds: [connectorId] }))[0]?.connectionId === connectionId;
+					(turnId
+						? await ctx.runMutation(internal.connectors.forCall, { turnId, connectorId })
+						: (await ctx.runQuery(internal.connectors.forTurn, { userId, workspaceId, connectorIds: [connectorId] }))[0])?.connectionId === connectionId;
+				// Personal servers can include account data in their instructions and tool descriptions too.
+				if (turnId && connector.connection === "personal" && !(await stillAllowed())) return { unavailable: connector.name };
 				const session: ConnectorSession = {
 					...opened,
 					tools: opened.tools.map((tool) => ({
@@ -255,24 +261,24 @@ async function streamReply(
 	const available = [...builtinTools, ...connectorTools];
 	const services = connectors.sessions.map((s) => s.connector);
 	const toolCtx: ToolContext = {
-		actor: { userId: member.userId, role: member.role },
+		actor: { userId: member.userId, roles: member.roles, owner: member.owner, permissions: member.permissions },
 		timeZone: turn.actor.timeZone,
 		agentId: agent.id,
 		memory: memoryStore(ctx, turnId),
 		chat: chatStore(ctx, turnId),
-		manage: { run: (tool, input) => ctx.runMutation(internal.manageTools.runFor, { turnId, tool, input }) },
+		manage: { run: (tool, input) => runManage(ctx, turnId, tool, input) },
 		skills: {
 			list: turn.skills,
-			create: (config) => ctx.runMutation(internal.skills.createFor, { turnId, config }),
+			create: ({ audience, ...config }) => ctx.runMutation(internal.skills.createFor, { turnId, config, audience }),
 		},
 		automations: {
-			list: () => ctx.runQuery(internal.automationTools.listFor, { turnId }),
+			list: () => ctx.runMutation(internal.automationTools.listFor, { turnId }),
 			create: (input) => ctx.runMutation(internal.automationTools.createFor, { turnId, input }),
 			setMine: (input) => ctx.runMutation(internal.automationTools.setMineFor, { turnId, ...input }),
 		},
 		wakeups: {
 			create: (input) => ctx.runMutation(internal.wakeups.createFor, { turnId, input }),
-			list: (input) => ctx.runQuery(internal.wakeups.listFor, { turnId, ...input }),
+			list: (input) => ctx.runMutation(internal.wakeups.listFor, { turnId, ...input }),
 			cancel: (input) => ctx.runMutation(internal.wakeups.cancelFor, { turnId, ...input }),
 		},
 		records: recordStore(ctx, turnId),
@@ -290,7 +296,7 @@ async function streamReply(
 		connectors.sessions.map((s) => ({ ...s.connector, instructions: s.instructions })),
 	);
 	/** What this person can run now; calls that ask are held (approvals.ts). */
-	const usable = resolveTools(agent, toolCtx.actor, available);
+	const usable = resolveTools(agent, available);
 	// Each call is decided from the rules in force right then (permissions.check), never cached.
 	// Remembered per call so the activity log says how it was allowed, or why it was blocked.
 	const allowedCalls = new Map<string, FunctionReturnType<typeof internal.permissions.check>["allowed"] & {}>();
@@ -298,9 +304,9 @@ async function streamReply(
 	/** Calls held in an automation's run: the model was told they're waiting, and the run goes on. */
 	const heldCalls = new Set<string>();
 	const check = async (t: ToolDef, callId: string) => {
-		const { decision, allowed } = await ctx.runQuery(internal.permissions.check, { turnId, action: t.id, risk: toolRisk(t) });
+		const { decision, allowed } = await ctx.runMutation(internal.permissions.check, { turnId, action: t.id, risk: toolRisk(t) });
 		if (allowed) allowedCalls.set(callId, allowed);
-		if (decision.type === "deny") deniedCalls.set(callId, deniedReason(decision.by, t.id));
+		if (decision.type === "deny") deniedCalls.set(callId, deniedReason(decision, t.id));
 		if (decision.type === "ask" && decision.waitFor) heldCalls.add(callId);
 		return decision;
 	};
@@ -313,7 +319,7 @@ async function streamReply(
 	// Stop (turns.stop) is seen on each flush, between flushes, and at each step (`stop`, set just before the model call).
 	const flush = () => stop.hear(ctx.runMutation(internal.turns.updateReply, { turnId, text: text(), parts }));
 	// The turn's step, for the line under the composer (turns.setStep): the newest call still running,
-	// else "Thinking…" until the model writes. The same words as its tool lines; never its reasoning.
+	// else "Thinking…" until its message starts (then it types, like a person). The same words as its tool lines; never its reasoning.
 	// Written in order, and only when it changes.
 	const stepCalls = new Map<string, string>();
 	let writing = false;
@@ -367,9 +373,9 @@ async function streamReply(
 	// result stays out of it (only its approver may see it); this turn alone gets it.
 	await ctx.runMutation(internal.turns.savePrompt, { turnId, prompt: approval ? buildTurnPrompt({ ...promptInput, forReplay: true }) : prompt });
 	const input = buildTurnInput({ agent, skills: turn.skills, session: turn.session, prompt, available: usable, images: await loadImages(ctx, turn.images) });
-	// Nobody asked a quiet turn: it ends with a decision, then its message (core postDecision), as the
-	// final step's structured output, so tools still run first. Its text is that JSON, never shown.
-	const decide = turn.quiet ? postDecision : null;
+	// Every turn ends with its decision (core postDecision): what it posts and reacts, the final step's
+	// structured output, so tools still run first. Its text is that JSON; only `message` is shown.
+	const output = Output.object({ schema: postDecision, name: "decision" });
 
 	const started = Date.now();
 	const stop = turnStop(ctx, turnId);
@@ -394,13 +400,13 @@ async function streamReply(
 			// Stopped mid-tool: the step's calls finish, and no step comes after them.
 			stopWhen: [agentStopAfter(done), stop.atStep],
 			abortSignal: stop.signal,
-			// Each step after the first takes in what the person sent meanwhile; a quiet reply's too (it still ends with a decision).
+			// Each step after the first takes in what the person sent meanwhile; it still ends with its decision.
 			prepareStep: agentPrepareStep(tools, toolCtx.web, { steer, done, sent: (m) => (sent = m) }),
 			headers: { "x-session-affinity": turn.session.id },
 			providerOptions: { gateway: { caching: "auto" } },
 			// Calls that need approval stop the run there, unexecuted; we hold them below.
 			toolApproval: toolApprovalPolicy(usable, check),
-			...(decide && { output: Output.object({ schema: decide, name: "decision" }) }),
+			output,
 		});
 	let result = run();
 
@@ -474,24 +480,36 @@ async function streamReply(
 
 	/** Where the current step's parts begin: a step cut off to take in a message loses what it wrote. */
 	let stepStart = 0;
+	// The message streams as the decision's JSON fills in: the SDK's partial output of the step's text
+	// (what `partialOutputStream` emits), read in this loop so it lands in order with the tool lines.
+	// It's the current step's only: a step that goes on to call tools wasn't the last, so its draft goes.
+	const draft = { type: "text" as const, text: "" };
+	let stepText = "";
+	const dropDraft = () => {
+		if (parts.includes(draft)) parts.splice(parts.indexOf(draft), 1);
+		draft.text = "";
+		stepText = "";
+	};
 	try {
 		for (;;) {
 			for await (const part of result.stream) {
 				stop.saw(part);
 				if (part.type === "start-step") {
+					dropDraft();
 					stepStart = parts.length;
 					writing = false;
 					showStep();
 				} else if (part.type === "text-delta") {
 					usage.firstTokenMs ??= Date.now() - started;
+					stepText += part.text;
+					const message = (await output.parsePartialOutput({ text: stepText }))?.partial?.message;
+					if (typeof message !== "string" || message === draft.text) continue;
+					draft.text = message;
+					if (!parts.includes(draft)) parts.push(draft);
 					if (!writing) {
 						writing = true;
 						showStep();
 					}
-					if (decide) continue;
-					const last = parts.at(-1);
-					if (last?.type === "text") last.text += part.text;
-					else parts.push({ type: "text", text: part.text });
 				} else if (part.type === "tool-call") {
 					// A connectors_call shows as the tool it ran.
 					const name = part.toolName === CONNECTOR_CALL ? (calledConnectorTool(part.input) ?? part.toolName) : part.toolName;
@@ -509,7 +527,7 @@ async function streamReply(
 					await logCall(part.toolCallId, { error: part.error instanceof Error ? part.error.message : String(part.error) });
 				} else if (part.type === "tool-output-denied") {
 					// Held in an automation's run: a card, while the run goes on. Otherwise blocked by a
-					// Never or an owner's lock: it didn't run, and the model was told why.
+					// Never or a workspace lock: it didn't run, and the model was told why.
 					if (heldCalls.has(part.toolCallId)) await hold(part.toolCallId, part.toolName, callInputs.get(part.toolCallId));
 					else {
 						setTool(part.toolCallId, part.toolName, "error");
@@ -555,11 +573,17 @@ async function streamReply(
 		for (const callId of [...calls.keys()]) await logCall(callId, { error: "The reply stopped before this finished." });
 		await stepWrites;
 	}
-	// None if it stopped before deciding (a call held for approval) or wrote no valid decision: then it's not shown.
-	// Stopped: no decision, so it's not shown (finishReply).
-	const decision = decide && !stop.signal.aborted ? await Promise.resolve(result.output).then((d) => d as PostDecision, () => null) : null;
-	if (publishes(decision)) parts.push({ type: "text", text: decision!.message });
+	// None if it stopped before deciding (a call held for approval) or wrote no valid decision. The draft
+	// gives way to what the decision posts, last, after its tool lines. Stopped: no decision; the reply
+	// keeps its message so far.
+	const stopped = stop.signal.aborted;
+	const decision = stopped ? null : await Promise.resolve(result.output).then((d) => d as PostDecision, () => null);
+	if (!stopped) dropDraft();
+	const { message } = responseOf(decision);
+	if (message) parts.push({ type: "text", text: message });
 	await flush();
+	// Neither an answer nor a call held for the person to decide on: it failed, where they see it.
+	if (!stopped && !decision && !parts.some((p) => p.type === "approval")) throw new Error("It didn't write a reply.");
 	return decision;
 }
 
@@ -622,7 +646,7 @@ export function turnStop(ctx: Pick<ActionCtx, "runQuery">, turnId: Id<"agentTurn
 			return steered && !requested;
 		},
 		/**
-		 * After a cut-off: waits until the person's newest message here is AGENT_DEBOUNCE_MS old
+		 * After a cut-off: waits until the person's newest message here is QUIET_WINDOW_MS old
 		 * (turns.steerWait), so a burst is one restart. False if the turn was stopped meanwhile (heard
 		 * within STOP_CHECK_MS). One short timeout at a time, and it ends: never an interval.
 		 */
@@ -701,7 +725,7 @@ async function runApproval(
  */
 function memoryStore(ctx: ActionCtx, turnId: Id<"agentTurns">): MemoryStore {
 	return {
-		search: (query, agentId) => ctx.runQuery(internal.memory.searchFor, { turnId, query, ...(agentId && { agentId: agentId as Id<"agents"> }) }),
+		search: (query, agentId) => ctx.runMutation(internal.memory.searchFor, { turnId, query, ...(agentId && { agentId: agentId as Id<"agents"> }) }),
 		create: ({ scope, content, agentId }) => ctx.runMutation(internal.memory.createFor, { turnId, scope, content, ...(agentId && { agentId: agentId as Id<"agents"> }) }),
 		update: (id, content) => ctx.runMutation(internal.memory.updateFor, { turnId, id: id as Id<"memories">, content }),
 		remove: async (id) => {
@@ -721,14 +745,24 @@ async function loadImages(ctx: ActionCtx, images: Turn["images"]): Promise<TurnI
 	return loaded.flat();
 }
 
+/** A manage tool call. Chat files it uses are copied first (files.copyFor), and dropped if the call fails. */
+async function runManage(ctx: ActionCtx, turnId: Id<"agentTurns">, tool: string, input: unknown) {
+	const files = manageFiles(tool, input);
+	if (!files) return ctx.runMutation(internal.manageTools.runFor, { turnId, tool, input });
+	const copied = await ctx.runAction(internal.files.copyFor, { turnId, ...files });
+	if ("error" in copied) return copied;
+	const result = await ctx.runMutation(internal.manageTools.runFor, { turnId, tool, input, uploads: copied.copies });
+	if (result && typeof result === "object" && "error" in result) await ctx.runMutation(internal.files.dropCopies, { turnId, storageIds: Object.values(copied.copies) });
+	return result;
+}
+
 /** Chats as the turn's person sees them; chatTools.ts and files.ts re-check access on every call. */
 function chatStore(ctx: ActionCtx, turnId: Id<"agentTurns">): ChatStore {
 	return {
-		react: (emoji) => ctx.runMutation(internal.chatTools.reactFor, { turnId, emoji }),
-		read: (input) => ctx.runQuery(internal.chatTools.readFor, { turnId, ...input }),
-		search: (input) => ctx.runQuery(internal.chatTools.searchFor, { turnId, ...input }),
+		read: (input) => ctx.runMutation(internal.chatTools.readFor, { turnId, ...input }),
+		search: (input) => ctx.runMutation(internal.chatTools.searchFor, { turnId, ...input }),
 		async readFile({ id, page }) {
-			const file = await ctx.runQuery(internal.files.readFor, { turnId, id });
+			const file = await ctx.runMutation(internal.files.readFor, { turnId, id });
 			if (!file) return { error: `No file "${id}" in a chat you can see.` };
 			if (isImageType(file.type)) return { error: `${file.name} is a picture, with no text to read. Pictures reach you with the message they're attached to, if your model sees pictures.` };
 			const text = await ctx.runAction(internal.fileText.page, { storageId: file.storageId, type: file.type, page });
@@ -741,15 +775,15 @@ function chatStore(ctx: ActionCtx, turnId: Id<"agentTurns">): ChatStore {
 /** Records as the turn's person may read and change them; recordTools.ts re-checks access on every call. */
 function recordStore(ctx: ActionCtx, turnId: Id<"agentTurns">): RecordStore {
 	return {
-		types: (input) => ctx.runQuery(internal.recordTools.typesFor, { turnId, ...input }),
-		history: (input) => ctx.runQuery(internal.recordTools.historyFor, { turnId, ...input }),
-		find: (input) => ctx.runQuery(internal.recordTools.findFor, { turnId, input }),
-		get: ({ id }) => ctx.runQuery(internal.recordTools.getFor, { turnId, id }),
+		types: (input) => ctx.runMutation(internal.recordTools.typesFor, { turnId, ...input }),
+		history: (input) => ctx.runMutation(internal.recordTools.historyFor, { turnId, ...input }),
+		find: (input) => ctx.runMutation(internal.recordTools.findFor, { turnId, input }),
+		get: ({ id }) => ctx.runMutation(internal.recordTools.getFor, { turnId, id }),
 		save: (input) => ctx.runMutation(internal.recordTools.saveFor, { turnId, input }),
 		undo: ({ change }) => ctx.runMutation(internal.recordTools.undoFor, { turnId, change }),
 		saveField: (input) => ctx.runMutation(internal.recordTools.saveFieldFor, { turnId, input }),
 		saveDatabase: (input) => ctx.runMutation(internal.recordTools.saveDatabaseFor, { turnId, input }),
-		views: ({ type }) => ctx.runQuery(internal.recordTools.viewsFor, { turnId, type }),
+		views: ({ type }) => ctx.runMutation(internal.recordTools.viewsFor, { turnId, type }),
 		saveView: (input) => ctx.runMutation(internal.recordTools.saveViewFor, { turnId, input }),
 	};
 }
@@ -757,20 +791,23 @@ function recordStore(ctx: ActionCtx, turnId: Id<"agentTurns">): RecordStore {
 /** Convert Markdown in Node; pageTools rechecks the acting person's access. */
 function pageStore(ctx: ActionCtx, turnId: Id<"agentTurns">): PageStore {
 	return {
-		find: (input) => ctx.runQuery(internal.pageTools.findFor, { turnId, input }),
+		find: (input) => ctx.runMutation(internal.pageTools.findFor, { turnId, input }),
 		async read(input) {
-			const page = await ctx.runQuery(internal.pageTools.readFor, { turnId, ...input });
+			const page = await ctx.runMutation(internal.pageTools.readFor, { turnId, ...input });
 			if ("error" in page) return page;
 			const { doc, ...rest } = page;
 			if (input.format === "blocks" && doc) return { ...rest, markdown: "", blocks: JSON.stringify(JSON.parse(doc).content[0].content) };
 			return { ...rest, markdown: doc === null ? "" : await ctx.runAction(internal.pageMarkdown.toMarkdown, { doc }) };
 		},
-		write: async (input) =>
-			ctx.runMutation(internal.pageTools.writeFor, {
-				turnId,
-				input,
-				...(input.markdown !== undefined && { blocks: await ctx.runAction(internal.pageMarkdown.fromMarkdown, { markdown: input.markdown }) }),
-			}),
+		async write(input) {
+			const blocks = input.markdown !== undefined ? await ctx.runAction(internal.pageMarkdown.fromMarkdown, { markdown: input.markdown }) : input.blocks;
+			const found = blocks === undefined ? undefined : await ctx.runAction(internal.pageTools.copyPictures, { turnId, blocks });
+			if (found && "error" in found) return found;
+			const result = await ctx.runMutation(internal.pageTools.writeFor, { turnId, input, ...found });
+			if (found?.pictures.length && result && typeof result === "object" && "error" in result)
+				await ctx.runMutation(internal.files.dropCopies, { turnId, storageIds: found.pictures.map((p) => p.storageId) });
+			return result;
+		},
 	};
 }
 
@@ -783,6 +820,7 @@ function webClient(ctx: ActionCtx, turnId: Id<"agentTurns">): WebClient {
 	return {
 		search: (query, options) => provider.search(query, options),
 		fetch: (url) => ctx.runAction(internal.webFetch.fetchPage, { url }),
+		save: (url) => ctx.runAction(internal.webFetch.saveFile, { turnId, url }),
 	};
 }
 

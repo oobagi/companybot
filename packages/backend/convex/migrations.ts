@@ -1,10 +1,14 @@
+import { fromLegacy } from "./wakeups";
 import { type MigrationFunctionReference, Migrations } from "@convex-dev/migrations";
 import { components, internal } from "./_generated/api";
-import type { DataModel } from "./_generated/dataModel";
-import { internalMutation, internalQuery } from "./_generated/server";
-import { defaultModel, scheduleCron, usageMonth } from "@companybot/core";
+import type { DataModel, Doc, Id } from "./_generated/dataModel";
+import { type MutationCtx, internalMutation, internalQuery } from "./_generated/server";
+import { TOPIC_MAX, defaultModel, scheduleCron, usageMonth, wakeAnchor } from "@companybot/core";
 import { recordUsage } from "./usage";
-import { scheduleCursor } from "./automationOps";
+import { type RunOutcome, scheduleCursor } from "./automationOps";
+import { rolesOf, timeZoneOf } from "./lib";
+import { seedRoles } from "./roles";
+import { withoutPageTitles } from "./pageBlocks";
 
 // Data migrations. Deploys never change stored rows; these do, once per deployment.
 // `pnpm release` runs every pending one on prod right after deploying, and the
@@ -133,6 +137,182 @@ export const cronSchedules = migrations.define({
 	},
 });
 
+// Roles became workspace data (roles.ts): each workspace gets Owner and Member, and every person,
+// invite and connector moves from "owner"/"member" to those roles' ids. Run in this order (`all`), so
+// each workspace has its roles before its people move. Rows the app made since already have them.
+// COMPAT(0.1.0-alpha.10): once these have run on prod, delete them and their test, and the legacy fields (schema.ts).
+export const customRoles = migrations.define({
+	table: "workspaces",
+	batchSize: 20,
+	migrateOne: async (ctx, workspace) => {
+		if ((await rolesOf(ctx, workspace._id)).length === 0) await seedRoles(ctx, workspace._id);
+	},
+});
+
+/** The workspace's role for a retired "owner" or "member", or none if the workspace is gone. */
+async function legacyRoleId(ctx: MutationCtx, workspaceId: Id<"workspaces">, role: "owner" | "member") {
+	return (await rolesOf(ctx, workspaceId)).find((r) => r.builtIn === role)?._id;
+}
+
+const moveRole = async (ctx: MutationCtx, row: Doc<"members"> | Doc<"invites">) => {
+	if (row.role === undefined) return;
+	const id = row.roles ? undefined : await legacyRoleId(ctx, row.workspaceId, row.role);
+	await ctx.db.patch(row._id, { role: undefined, ...(!row.roles && { roles: id ? [id] : [] }) });
+};
+
+export const customRolesMembers = migrations.define({ table: "members", batchSize: 50, migrateOne: moveRole });
+export const customRolesInvites = migrations.define({ table: "invites", batchSize: 50, migrateOne: moveRole });
+
+export const customRolesConnectors = migrations.define({
+	table: "connectorInstalls",
+	batchSize: 50,
+	migrateOne: async (ctx, install) => {
+		if (!install.roles.some((r) => r === "owner" || r === "member")) return;
+		// Owners can use every connector now, so "owner" needs no role.
+		const member = install.roles.includes("member") ? await legacyRoleId(ctx, install.workspaceId, "member") : undefined;
+		const kept = install.roles.filter((r) => r !== "owner" && r !== "member");
+		await ctx.db.patch(install._id, { roles: [...new Set([...kept, ...(member ? [member] : [])])] });
+	},
+});
+
+// Page move history held the titles of the places a page moved between, which named pages some people
+// can't see (Who can access). Rows now hold ids, named to each reader by what they can see (pages.moves).
+// "Pages" is the top level; any other title becomes the one standalone page in the workspace with exactly
+// that title, or stays unknown ("another page") when none or several match.
+// COMPAT(0.1.0-alpha.10): once this has run on prod, delete it, its entry in `all` and its test, and the legacy fields (schema.ts).
+export const pageMoveIds = migrations.define({
+	table: "pageMoves",
+	batchSize: 20,
+	migrateOne: async (ctx, row) => {
+		if (row.from === undefined && row.to === undefined) return;
+		const idOf = async (title: string | undefined) => {
+			if (title === undefined || title === "Pages") return title === undefined ? undefined : null;
+			// Exact title, live or archived, by index: the second match settles it as ambiguous.
+			const exact: Id<"pages">[] = [];
+			for (const archived of [false, true]) {
+				const found = await ctx.db
+					.query("pages")
+					.withIndex("by_workspace", (q) => q.eq("workspaceId", row.workspaceId).eq("recordId", undefined).eq("archived", archived).eq("title", title))
+					.take(2 - exact.length);
+				exact.push(...found.map((p) => p._id));
+				if (exact.length > 1) return undefined;
+			}
+			return exact[0];
+		};
+		await ctx.db.patch(row._id, { fromId: await idOf(row.from), toId: await idOf(row.to), from: undefined, to: undefined });
+	},
+});
+
+// Page blocks held their sub-page's title, so a page's history (and its sync) named sub-pages some
+// readers can't see. Blocks hold only the id now (pageBlocks.ts); this strips the titles from every kept
+// version's snapshot. Old steps keep theirs, but every read strips them on the way out (pageSync.ts).
+// COMPAT(0.1.0-alpha.10): once this has run on prod, delete it, its entry in `all` and its test.
+export const pageBlockTitles = migrations.define({
+	table: "pageVersions",
+	batchSize: 10,
+	migrateOne: async (ctx, row) => {
+		const { getSnapshot, deleteSnapshots, submitSnapshot } = components.prosemirrorSync.lib;
+		const snapshot = await ctx.runQuery(getSnapshot, { id: row.pageId, version: row.version });
+		if (snapshot.content === null || snapshot.version !== row.version) return;
+		const content = withoutPageTitles(snapshot.content);
+		if (content === snapshot.content) return;
+		// The component never overwrites a version's snapshot with different content, so replace it.
+		await ctx.runMutation(deleteSnapshots, { id: row.pageId, afterVersion: row.version - 1, beforeVersion: row.version + 1 });
+		await ctx.runMutation(submitSnapshot, { id: row.pageId, version: row.version, content });
+	},
+});
+
+// An automation's last run was stored as its line, naming channels to everyone who could see the automation,
+// some of whom can't see those channels. Runs store the channel's id now (automationOps.RunOutcome); this
+// turns each old line into that, finding the channel it names, or drops the line when it can't.
+// COMPAT(0.1.0-alpha.10): once this has run on prod, delete it, its entry in `all` and its test, and `lastResult` (schema.ts).
+export const automationOutcomes = migrations.define({
+	table: "automationInstalls",
+	batchSize: 50,
+	migrateOne: async (ctx, install) => {
+		const line = install.lastResult;
+		if (line === undefined) return;
+		const channel = async (name: string) => {
+			const found = [];
+			for (const archived of [false, true])
+				found.push(...(await ctx.db.query("chats").withIndex("by_name", (q) => q.eq("workspaceId", install.workspaceId).eq("name", name).eq("archived", archived)).take(2)));
+			return found.length === 1 && found[0]!.kind === "channel" ? found[0]!._id : undefined;
+		};
+		const trigger = install.custom?.trigger;
+		const watched = trigger?.type === "event" && trigger.event === "message.posted" ? ctx.db.normalizeId("chats", trigger.channelId) : null;
+		const posted = /^Posted in #(.+)\.$/.exec(line);
+		const missing = /^(Didn't run: .+) in #(.+)\. Pick another channel\.$/.exec(line);
+		const watches = /^(Didn't run: It watches )#.+?(, which .+)$/.exec(line);
+		let outcome: RunOutcome | undefined;
+		if (!line.includes("#")) outcome = { text: line };
+		else if (posted) {
+			const channelId = await channel(posted[1]!);
+			if (channelId) outcome = { text: "Posted in {channel}.", channelId };
+		} else if (missing) {
+			const channelId = await channel(missing[2]!);
+			if (channelId) outcome = { text: `${missing[1]} in {channel}. Pick another channel.`, channelId };
+		} else if (watches && watched) outcome = { text: `${watches[1]}{watched}${watches[2]}`, watchedId: watched };
+		await ctx.db.patch(install._id, { lastResult: undefined, ...(outcome && { lastOutcome: outcome }) });
+	},
+});
+
+// COMPAT(0.1.0-alpha.10): once this has run on prod, delete it and its test, and make audience required.
+export const skillAudience = migrations.define({
+	table: "skillInstalls",
+	migrateOne: async (ctx, row) => { if (!row.audience) await ctx.db.patch(row._id, { audience: "team" }); },
+});
+
+// COMPAT(0.1.0-alpha.10): retire after numeric wakeup intervals have been converted.
+export const wakeupDurations = migrations.define({
+	table: "wakeups",
+	migrateOne: async (ctx, row) => {
+		if (row.every === undefined) return;
+		return { repeat: row.repeat ?? fromLegacy(row.every), anchor: row.anchor ?? (row.at === undefined ? undefined : wakeAnchor(row.at, await timeZoneOf(ctx, row.actorId))), every: undefined };
+	},
+});
+
+// COMPAT(0.1.0-alpha.10): cuts topics from before the 250-character cap (core TOPIC_MAX) so the
+// sidebar's channel read stays small. Once this has run on prod, delete it, its entry in `all` and its test.
+export const channelTopics = migrations.define({
+	table: "chats",
+	migrateOne: async (ctx, row) => {
+		if (row.topic && row.topic.length > TOPIC_MAX) await ctx.db.patch(row._id, { topic: row.topic.slice(0, TOPIC_MAX) });
+	},
+});
+
+// chat_react is gone: an agent reacts only through its turn's decision (core postDecision). These strip
+// its grant from agents and their saved versions (a save or a restore would refuse the unknown tool) and
+// drop any rule or lock on it. Not a new version: nothing the agent can do changes.
+const CHAT_REACT = "chat.react";
+export const dropChatReact = migrations.define({
+	table: "agents",
+	batchSize: 20,
+	migrateOne: async (ctx, agent) => {
+		if (agent.tools.includes(CHAT_REACT)) await ctx.db.patch(agent._id, { tools: agent.tools.filter((t) => t !== CHAT_REACT) });
+	},
+});
+export const dropChatReactVersions = migrations.define({
+	table: "agentVersions",
+	batchSize: 20,
+	migrateOne: async (ctx, { _id, config }) => {
+		if (config.tools.includes(CHAT_REACT)) await ctx.db.patch(_id, { config: { ...config, tools: config.tools.filter((t) => t !== CHAT_REACT) } });
+	},
+});
+export const dropChatReactRules = migrations.define({
+	table: "permissionRules",
+	batchSize: 50,
+	migrateOne: async (ctx, rule) => {
+		if (rule.action === CHAT_REACT) await ctx.db.delete(rule._id);
+	},
+});
+export const dropChatReactLocks = migrations.define({
+	table: "permissionLocks",
+	batchSize: 50,
+	migrateOne: async (ctx, lock) => {
+		if (lock.action === CHAT_REACT) await ctx.db.delete(lock._id);
+	},
+});
+
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
@@ -143,6 +323,21 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.clearTurnWelcome,
 	internal.migrations.companybotFollowupTools,
 	internal.migrations.cronSchedules,
+	internal.migrations.customRoles,
+	internal.migrations.customRolesMembers,
+	internal.migrations.customRolesInvites,
+	internal.migrations.customRolesConnectors,
+	// COMPAT(0.1.0-alpha.10): retire these with their migrations above.
+	internal.migrations.pageMoveIds,
+	internal.migrations.pageBlockTitles,
+	internal.migrations.automationOutcomes,
+	internal.migrations.skillAudience,
+	internal.migrations.wakeupDurations,
+	internal.migrations.dropChatReact,
+	internal.migrations.dropChatReactVersions,
+	internal.migrations.dropChatReactRules,
+	internal.migrations.dropChatReactLocks,
+	internal.migrations.channelTopics,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

@@ -1,22 +1,28 @@
 import { findInput, readInput, writeInput } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
+import { type QueryCtx, internalAction, internalMutation } from "./_generated/server";
 import { type Member, asToolResult } from "./lib";
 import {
 	createPage,
 	pageOfRecord,
+	pageVisible,
 	readDoc,
+	requirePageAccess,
 	renamePage,
+	requireEditable,
 	requirePage,
 	restoreVersion,
 	setPageTrashed,
+	withPageTitles,
 	writeBlocks,
 } from "./pageOps";
 import { movePage, pageState, pageStates } from "./pageTree";
-import { inTrash, recordById } from "./recordOps";
+import { claimUpload } from "./images";
 import { pageHistory, requireVersion, versionContent } from "./pages";
+import { inTrash, recordById } from "./recordOps";
+import { writeSources } from "./replySources";
 import { runningTurn } from "./turns";
 
 // PageStore as the turn's person; conversion runs separately in pageMarkdown.ts.
@@ -39,6 +45,8 @@ async function pageNamed(ctx: QueryCtx, member: Member, name: string, trashed = 
 	for (const p of candidates) if ((await state(p)).archived === trashed) rows.push(p);
 	if (candidates.length > FIND_MAX || rows.length > 1) throw new ConvexError(`Several pages are titled “${name}”. Find them with pages_find and use an id.`);
 	if (!rows[0]) throw new ConvexError(`No page titled “${name}”. Find it with pages_find, or use its id.`);
+	// Found by title but kept from them: say who can see it, so the agent can tell its person whom to ask.
+	await requirePageAccess(ctx, member, rows[0], "view", undefined, name.trim());
 	return rows[0];
 }
 
@@ -47,14 +55,14 @@ const recordNamed = (ctx: QueryCtx, member: Member, id: string) => recordById(ct
 /** What the page is called: its title, or its record's name. */
 const titleOf = async (ctx: QueryCtx, page: Doc<"pages">) => (page.recordId ? ((await ctx.db.get(page.recordId))?.title ?? "") : page.title);
 
-export const findFor = internalQuery({
+export const findFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), input: v.any() },
 	handler: async (ctx, { turnId, input }) => {
 		const { member } = await runningTurn(ctx, turnId);
 		const { search, cursor, trashed = false, parent } = findInput.parse(input);
 		const parentPage = parent ? await pageNamed(ctx, member, parent) : null;
 		if (parentPage?.recordId) throw new ConvexError("Record bodies can't contain sub-pages.");
-		const row = (p: Doc<"pages">) => ({ id: p._id, title: p.title, parentId: p.parentId ?? null, edited: new Date(p.updatedAt).toISOString() });
+		const row = (p: Doc<"pages">, parentSeen: boolean) => ({ id: p._id, title: p.title, parentId: parentSeen ? (p.parentId ?? null) : null, edited: new Date(p.updatedAt).toISOString() });
 		const pages = ctx.db.query("pages");
 		const found = parent !== undefined
 			? pages.withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", parentPage?._id).eq("recordId", undefined))
@@ -63,13 +71,18 @@ export const findFor = internalQuery({
 			: pages.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("recordId", undefined).eq("archived", trashed));
 		const page = await found.paginate({ numItems: search?.trim() ? SEARCH_MAX : FIND_MAX, cursor: cursor ?? null });
 		const state = pageStates(ctx);
+		const seen = pageVisible(ctx, member);
 		const rows = [];
-		for (const p of page.page) if (!p.recordId && (await state(p)).archived === trashed) rows.push(row(p));
+		for (const p of page.page) {
+			if (p.recordId || !(await seen(p))) continue;
+			const { archived, ancestors } = await state(p);
+			if (archived === trashed) rows.push(row(p, !ancestors[0] || (await seen(ancestors[0]))));
+		}
 		return { rows, more: !page.isDone, ...(!page.isDone && { cursor: page.continueCursor }) };
 	},
 });
 
-export const readFor = internalQuery({
+export const readFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), page: v.optional(v.string()), record: v.optional(v.string()), version: v.optional(v.string()), history: v.optional(v.boolean()), cursor: v.optional(v.string()), format: v.optional(v.string()) },
 	handler: async (ctx, { turnId, ...input }) => {
 		const { member } = await runningTurn(ctx, turnId);
@@ -79,6 +92,7 @@ export const readFor = internalQuery({
 			if (version && !oldId) throw new ConvexError("Version not found.");
 			const old = oldId ? await requireVersion(ctx, member, oldId) : null;
 			const record = recordName ? await recordNamed(ctx, member, recordName) : null;
+			// recordNamed checked its database, which rules its page too.
 			const page = old?.page ?? (record ? await pageOfRecord(ctx, member.workspaceId, record._id) : name ? await pageNamed(ctx, member, name) : null);
 			if (old && ((record && old.page.recordId !== record._id) || (name && (await pageNamed(ctx, member, name))._id !== old.page._id))) throw new ConvexError("Version belongs to a different page.");
 			if (!record && !page) throw new ConvexError("Say which page (page) or record (record) to read.");
@@ -92,12 +106,18 @@ export const readFor = internalQuery({
 			}));
 			if (history) return { title: page ? await titleOf(ctx, page) : record!.title, doc: null, versions, moreVersions: !!result && !result.isDone, ...(result && !result.isDone && { cursor: result.continueCursor }) };
 			const state = page ? await pageState(ctx, page) : null;
-			const children = page && !page.recordId && !old ? await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", page._id).eq("recordId", undefined).eq("archived", false)).take(51) : [];
-			const doc = old ? await versionContent(ctx, old.page, old.row) : page ? JSON.stringify((await readDoc(ctx, page._id)).toJSON()) : null;
+			const seen = pageVisible(ctx, member);
+			const children = [];
+			for (const p of page && !page.recordId && !old ? await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", page._id).eq("recordId", undefined).eq("archived", false)).take(51) : []) if (await seen(p)) children.push(p);
+			const ancestors = [];
+			for (const p of state?.ancestors.slice().reverse() ?? []) if (await seen(p)) ancestors.push({ id: p._id, title: p.title });
+			// Page blocks titled as this person may see them, never as the document stores them.
+			const stored = old ? await versionContent(ctx, old.page, old.row) : page ? JSON.stringify((await readDoc(ctx, page._id)).toJSON()) : null;
+			const doc = stored === null ? null : await withPageTitles(ctx, member, stored);
 			if (old && doc === null) throw new ConvexError("This version is no longer available.");
 			return {
-				...(page && { id: page._id, parentId: page.parentId ?? null }),
-				ancestors: state?.ancestors.slice().reverse().map((p) => ({ id: p._id, title: p.title })) ?? [],
+				...(page && { id: page._id, parentId: state?.ancestors[0] && (await seen(state.ancestors[0])) ? state.ancestors[0]._id : null }),
+				ancestors,
 				subpages: children.slice(0, 50).map((p) => ({ id: p._id, title: p.title })),
 				subpagesMore: children.length > 50,
 				title: page ? await titleOf(ctx, page) : record!.title,
@@ -111,7 +131,52 @@ export const readFor = internalQuery({
 	},
 });
 
-const writeArgs = { turnId: v.id("agentTurns"), input: v.any(), blocks: v.optional(v.string()) };
+/** A chat file id, as an image's URL in a page ("![caption](<file id>)"). */
+const FILE_ID = /^[a-z0-9]{20,}\/\d+$/i;
+
+/**
+ * Pictures from the chat that page blocks point at by file id: copied (files.copyFor) and pointed at
+ * the copies, which writeChecked makes the page's own. Blocks that don't parse go on as they are, to be refused there.
+ */
+export const copyPictures = internalAction({
+	args: { turnId: v.id("agentTurns"), blocks: v.string() },
+	handler: async (ctx, { turnId, blocks }): Promise<{ blocks: string; pictures: { storageId: Id<"_storage">; url: string }[] } | { error: string }> => {
+		let doc: unknown;
+		try {
+			doc = JSON.parse(blocks);
+		} catch {
+			return { blocks, pictures: [] };
+		}
+		const images: { attrs: { url: string } }[] = [];
+		const walk = (node: unknown): void => {
+			if (!node || typeof node !== "object") return;
+			if (Array.isArray(node)) return node.forEach(walk);
+			const { type, attrs, content } = node as { type?: string; attrs?: { url?: unknown }; content?: unknown };
+			if (type === "image" && typeof attrs?.url === "string" && FILE_ID.test(attrs.url)) images.push(node as { attrs: { url: string } });
+			walk(content);
+		};
+		walk(doc);
+		if (images.length === 0) return { blocks, pictures: [] };
+		const copied = await ctx.runAction(internal.files.copyFor, { turnId, ids: images.map((i) => i.attrs.url), picture: true });
+		if ("error" in copied) return copied;
+		const urls: Record<string, string> = {};
+		const pictures = [];
+		for (const [id, storageId] of Object.entries(copied.copies)) {
+			urls[id] = (await ctx.storage.getUrl(storageId))!;
+			pictures.push({ storageId, url: urls[id] });
+		}
+		for (const image of images) image.attrs.url = urls[image.attrs.url]!;
+		return { blocks: JSON.stringify(doc), pictures };
+	},
+});
+
+/** `blocks`: the content to write, from the Markdown or with `pictures` (agent.ts pagePictures) pointed at their copies. */
+const writeArgs = {
+	turnId: v.id("agentTurns"),
+	input: v.any(),
+	blocks: v.optional(v.string()),
+	pictures: v.optional(v.array(v.object({ storageId: v.id("_storage"), url: v.string() }))),
+};
 
 // Catch expected errors outside the write transaction, so a refused edit saves nothing.
 export const writeFor = internalMutation({
@@ -121,7 +186,7 @@ export const writeFor = internalMutation({
 
 export const writeChecked = internalMutation({
 	args: writeArgs,
-	handler: async (ctx, { turnId, input, blocks }) => {
+	handler: async (ctx, { turnId, input, blocks, pictures = [] }) => {
 		const { member, who } = await runningTurn(ctx, turnId);
 		const { page: name, record, title, markdown, blocks: rich, mode = "append", trash, restore, parent, action = "write" } = writeInput.parse(input);
 		if (record && parent !== undefined) throw new ConvexError("Record bodies can't be nested.");
@@ -134,7 +199,7 @@ export const writeChecked = internalMutation({
 		}
 		if (name && parent !== undefined) throw new ConvexError("Use action move to change a page's parent.");
 		if (rich !== undefined && markdown !== undefined) throw new ConvexError("Use blocks or markdown, not both.");
-		const content = rich ?? blocks;
+		const content = blocks ?? rich;
 		const changes = [title, markdown, rich, trash, restore, parent].filter((x) => x !== undefined).length;
 		if ((trash !== undefined || restore) && changes > 1) throw new ConvexError("Delete, restore or bring back a version on its own.");
 		let page: Doc<"pages">;
@@ -156,6 +221,15 @@ export const writeChecked = internalMutation({
 		}
 		if (trash !== undefined) await setPageTrashed(ctx, who, page, trash);
 		if (title !== undefined && (name || record)) await renamePage(ctx, who, page, title);
+		// Pictures from the chat, copied as the person's uploads: claimed as pages.addImage claims one.
+		if (pictures.length) {
+			await requireEditable(ctx, member, page);
+			await writeSources(ctx, member, (await pageState(ctx, page)).type?._id ?? page._id);
+		}
+		for (const { storageId, url } of pictures) {
+			await claimUpload(ctx, member, storageId);
+			await ctx.db.insert("pageImages", { workspaceId: page.workspaceId, pageId: page._id, storageId, url });
+		}
 		const wrote = content !== undefined && (await writeBlocks(ctx, who, page, content, mode));
 		const after = (await ctx.db.get(page._id))!;
 		return { id: page._id, title: await titleOf(ctx, after), ...((markdown !== undefined || rich !== undefined) && !wrote && { unchanged: true }) };

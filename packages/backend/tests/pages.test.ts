@@ -36,7 +36,7 @@ async function turnFor(t: T, as: Person) {
 	await as.mutation(api.messages.send, { chatId: (await generalOf(as))._id, text: "@Companybot", mentions: { userIds: [], agentIds: [companybot._id] } });
 	const turnId = (await t.run((ctx) => ctx.db.query("agentTurns").collect())).find((x) => !before.some((b) => b._id === x._id))!._id;
 	return {
-		read: (input: { page?: string; record?: string }) => t.query(internal.pageTools.readFor, { turnId, ...input }),
+		read: (input: { page?: string; record?: string }) => t.mutation(internal.pageTools.readFor, { turnId, ...input }),
 		write: (input: object, blocks?: object[]) =>
 			t.mutation(internal.pageTools.writeFor, { turnId, input, ...(blocks && { blocks: JSON.stringify(blocks) }) }) as Promise<Record<string, string>>,
 	};
@@ -201,7 +201,7 @@ describe("pages", () => {
 		expect(await owner.query(api.pages.list, {})).toEqual([]);
 		expect(await member.query(api.pages.get, { pageId })).toMatchObject({ archived: true, canEdit: false, trash: { user: "member@co.com", canRestore: true } });
 		await expect(type(t, member, pageId, "more")).rejects.toThrow("in Archive");
-		await expect(member.mutation(api.trash.purge, { id: pageId })).rejects.toThrow("permission");
+		await expect(member.mutation(api.trash.purge, { id: pageId })).rejects.toThrow("Only people with the");
 		await owner.mutation(api.trash.purge, { id: pageId });
 		await settle(t);
 		expect(await t.run((ctx) => ctx.db.query("pageVersions").collect())).toEqual([]);
@@ -312,7 +312,7 @@ describe("pages tools", () => {
 			const seat = await ctx.db.query("chatMembers").withIndex("by_chat", q => q.eq("chatId", chatId)).first();
 			await ctx.db.delete(seat!._id);
 		});
-		await expect(t.query(internal.pageTools.readFor, { turnId, page: pageId })).rejects.toThrow("no longer see this chat");
+		await expect(t.mutation(internal.pageTools.readFor, { turnId, page: pageId })).rejects.toThrow("no longer see this chat");
 		await expect(t.mutation(internal.pageTools.writeFor, { turnId, input: { page: pageId, title: "No" } })).rejects.toThrow("no longer see this chat");
 	});
 

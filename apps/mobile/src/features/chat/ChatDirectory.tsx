@@ -1,3 +1,4 @@
+import { useArrangements } from '@/features/arrangements/useArrangements';
 import type { Id } from '@companybot/backend/convex/_generated/dataModel';
 import { can } from '@companybot/core/permissions';
 import { router } from 'expo-router';
@@ -7,6 +8,7 @@ import { Avatar, Badge, Button, EmptyState, ErrorState, Field, ListRow, Loading,
 import { api } from '@/lib/api';
 import { useMutation, useQuery } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
+import { useDraftGuard } from '@/lib/useDraftGuard';
 import { DirectoryHeader } from '@/components/navigation/DirectoryHeader';
 import { ActiveThreads } from './ActiveThreads';
 import { Dialog } from './Dialog';
@@ -14,6 +16,7 @@ import { chatTitle } from './types';
 
 export function ChatDirectory() {
   const chats = useQuery(api.chats.list);
+  const arrangements = useArrangements();
   const me = useQuery(api.workspace.me);
   const openDm = useMutation(api.chats.openDm);
   const task = useTask();
@@ -21,15 +24,15 @@ export function ChatDirectory() {
   const [dialog, setDialog] = useState<'new' | 'channel' | 'browse' | 'threads'>();
   const open = (chatId: Id<'chats'>) => router.push({ pathname: '/chat/[chatId]', params: { chatId } });
   const matches = (name: string) => name.toLocaleLowerCase().includes(search.toLocaleLowerCase());
-  if (chats === undefined) return <Screen><Loading label="Loading chats…" /></Screen>;
+  if (chats === undefined || !arrangements.loaded) return <Screen><Loading label="Loading chats…" /></Screen>;
   if (!chats) return <Screen><EmptyState title="Workspace unavailable" /></Screen>;
-  const channels = chats.channels.filter((c) => matches(chatTitle(c)));
+  const channels = arrangements.order('channels', chats.channels).filter((c) => matches(chatTitle(c)));
   const agents = chats.agents.filter((a) => matches(a.name));
   const dms = chats.dms.filter((c) => (!c.agentId || c.parentId) && matches(chatTitle(c)));
   return <><DirectoryHeader search={{ placeholder: 'Search chats', value: search, onChange: setSearch }} action={{ label: 'New message', onPress: () => setDialog('new') }} menu={[
     { label: 'Threads', onPress: () => setDialog('threads') },
     { label: 'Browse channels', onPress: () => setDialog('browse') },
-    ...(me?.role && can(me.role, 'channels.create') ? [{ label: 'New channel', onPress: () => setDialog('channel') }] : []),
+    ...(me?.access && can(me.access, 'channels.edit') ? [{ label: 'New channel', onPress: () => setDialog('channel') }] : []),
   ]} /><Screen scroll edges={['left', 'right']}><Stack style={{ flexGrow: 1 }}>
     {task.error && <ErrorState message={task.error} />}
     {!agents.length && !channels.length && !dms.length ? <EmptyState title={search ? 'No chats found' : 'No conversations yet'} description={search ? 'Try a different name.' : 'Start a conversation with a teammate or agent.'} /> : <>
@@ -68,8 +71,9 @@ function NewChannel({ onClose, onOpen }: { onClose: () => void; onOpen: (id: Id<
   const [topic, setTopic] = useState('');
   const [privateChannel, setPrivate] = useState(false);
   const task = useTask();
-  return <Dialog title="New channel" onClose={onClose} busy={task.busy}><Field label="Name" value={name} onChangeText={setName} autoCapitalize="none" /><Field label="Topic" value={topic} onChangeText={setTopic} multiline />
-    <ListRow title="Private channel" description="Only invited members can read it." trailing={<Switch accessibilityLabel="Private channel" value={privateChannel} onValueChange={setPrivate} />} />
+  const guard = useDraftGuard({ dirty: !!name || !!topic || privateChannel, busy: task.busy, onClose });
+  return <Dialog title="New channel" onClose={() => void guard.close()} dismissible={guard.dismissible} busy={task.busy}>{guard.dialog}<Field label="Name" value={name} onChangeText={setName} editable={!task.busy} autoCapitalize="none" /><Field label="Topic" value={topic} onChangeText={setTopic} editable={!task.busy} multiline />
+    <ListRow title="Private channel" description="Only invited members can read it." trailing={<Switch accessibilityLabel="Private channel" value={privateChannel} disabled={task.busy} onValueChange={setPrivate} />} />
     {task.error && <ErrorState message={task.error} />}<Button label="Create channel" loading={task.busy} disabled={!name.trim()} onPress={() => void task.run(async () => { const id = await create({ name: name.trim(), topic: topic.trim(), private: privateChannel }); onClose(); onOpen(id); })} />
   </Dialog>;
 }

@@ -9,7 +9,7 @@ import { compactControlClass, hintClass, useDebounced, useSynced } from "../../u
 import { Popover } from "../chat/common";
 import { useCurrency, useTypes } from "./data";
 import { type Refs, type TypeField, moneyInput, recordPath, valueText } from "./logic";
-import { CloseIcon } from "../../icons";
+import { CloseIcon, PrivateIcon } from "../../icons";
 
 // Showing and editing one field's value, for every kind. Edits save as you leave the
 // input (Enter, or clicking away); Escape puts it back.
@@ -40,7 +40,12 @@ function LinkChips({ field, ids, refs, onRemove }: { field: TypeField; ids: stri
 		<span className="flex flex-wrap gap-1.5">
 			{ids.map((id) => (
 				<Chip key={id} onRemove={onRemove && (() => onRemove(id))}>
-					{refs[id]?.archived ? (
+					{refs[id]?.locked ? (
+						// In a database you can't see: no name, nothing to open.
+						<span className="flex items-center gap-1 text-neutral-400" title="Only some roles can see this record">
+							<PrivateIcon /> Locked
+						</span>
+					) : refs[id]?.archived ? (
 						<span className="text-neutral-400">{valueText(field, id, refs)}</span>
 					) : (
 						<button type="button" onClick={() => key && navigate(...recordPath(key, id))} className="hover:underline">
@@ -186,7 +191,8 @@ function OneEditor({ field, id, refs, onSave }: { field: TypeField; id: string |
 		return (
 			<span className={`${cell} gap-2`}>
 				{id && <LinkChips field={field} ids={[id]} refs={refs} onRemove={() => onSave(null)} />}
-				<RecordPicker typeId={field.linkType!} exclude={id ? [id] : []} label={id ? "Change" : "Pick"} onPick={(picked) => onSave(picked)} />
+				{/* No database to pick from when it links to one you can't see (linksHidden). */}
+				{field.linkType && <RecordPicker typeId={field.linkType} exclude={id ? [id] : []} label={id ? "Change" : "Pick"} onPick={(picked) => onSave(picked)} />}
 			</span>
 		);
 	}
@@ -224,7 +230,7 @@ function MultiEditor({ field, ids, refs, onSave }: { field: TypeField; ids: stri
 				))
 			)}
 			{field.kind === "link" ? (
-				<RecordPicker typeId={field.linkType!} exclude={ids} label="Add" onPick={(picked) => add(picked)} />
+				field.linkType && <RecordPicker typeId={field.linkType} exclude={ids} label="Add" onPick={(picked) => add(picked)} />
 			) : (
 				options.length > 0 && (
 					<Select

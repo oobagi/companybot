@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
 
-import { type As, agentsOf, inWorkspace, ownerAndMember, sideWorkspace, settle } from "./helpers";
+import { type As, agentsOf, inWorkspace, ownerAndMember, sideWorkspace, settle, setMemberSwitch } from "./helpers";
 import "./connectorFixtures";
 
 afterEach(() => void vi.useRealTimers());
@@ -17,7 +17,7 @@ describe("workspaces", () => {
 	it("only lets owners invite", async () => {
 		const { member } = await ownerAndMember();
 		await expect(member.mutation(api.workspace.invite, { email: "x@co.com", role: "member" })).rejects.toThrow(
-			"permission",
+			"Only people with the",
 		);
 	});
 
@@ -70,6 +70,7 @@ describe("workspaces", () => {
 	it("removes automations only they could see, and their webhook stops answering", async () => {
 		const setup = await ownerAndMember();
 		const { t, owner, member } = setup;
+		await setMemberSwitch(owner, "automations.edit", true);
 		const { companybot } = await agentsOf(member);
 		const make = (name: string, audience: "creator" | "subscribers") =>
 			member.mutation(api.automations.create, {

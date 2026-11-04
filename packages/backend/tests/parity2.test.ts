@@ -1,13 +1,14 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { type ManageTool } from "@companybot/core";
+import { type ManageTool, manageInputs } from "@companybot/core";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { IDLE_MS, readDoc } from "../convex/pageOps";
-import { agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, sideWorkspace, turnsOf } from "./helpers";
+import { agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, sideWorkspace, turnsOf, setMemberSwitch } from "./helpers";
 
 afterEach(() => vi.useRealTimers());
 
 async function ready() {
+	vi.useFakeTimers();
 	const { t, owner, member } = await ownerAndMember();
 	const { companybot, scribe } = await agentsOf(owner);
 	const dm = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
@@ -24,37 +25,41 @@ it("renames options by stable id, reorders options/fields, retires and revives o
 	const { t, owner, turnId, field } = await ready();
 	const clients = (await owner.query(api.recordTypes.list)).find((t) => t.key === "client")!;
 	const record = await owner.mutation(api.records.create, { typeId: clients._id, values: { name: "Acme", status: "Lead" } });
-	const schema = await t.query(internal.recordTools.typesFor, { turnId });
+	const schema = await t.mutation(internal.recordTools.typesFor, { turnId });
 	const status = schema.types.find((t) => t.type === "client")!.fields.find((f) => f.key === "status")!;
 	const [lead, ...rest] = status.choices!;
 	const options = [...rest, { id: lead!.id, label: "Prospect" }];
 	expect(await field({ type: "client", field: "status", options })).toMatchObject({ choices: options });
 	expect((await owner.query(api.records.get, { recordId: record }))!.values.status).toBe(lead!.id);
-	expect(await t.query(internal.recordTools.getFor, { turnId, id: record })).toMatchObject({ values: { status: "Prospect" } });
+	expect(await t.mutation(internal.recordTools.getFor, { turnId, id: record })).toMatchObject({ values: { status: "Prospect" } });
 	await field({ type: "client", field: "status", options: rest });
 	expect((await field({ type: "client", field: "status", options })).choices.at(-1)).toEqual({ id: lead!.id, label: "Prospect" });
 	expect(await field({ type: "client", field: "status", position: 2 })).toHaveProperty("position", 2);
-	expect((await t.query(internal.recordTools.typesFor, { turnId })).types.find((t) => t.type === "client")!.fields[2]!.key).toBe("status");
+	expect((await t.mutation(internal.recordTools.typesFor, { turnId })).types.find((t) => t.type === "client")!.fields[2]!.key).toBe("status");
 	const last = (await owner.query(api.records.activity, { paginationOpts: { cursor: null, numItems: 1 } })).page[0]!;
 	expect(last).toMatchObject({ agent: "Companybot", changes: [expect.objectContaining({ key: "position", new: 2 })] });
 });
 
-it("enforces maker/owner field gates, Trash ownership and database discovery/restore", async () => {
+it("gates fields on the databases switch, not on who added them, through Trash and database discovery/restore", async () => {
 	const { t, owner, member, field, turnId } = await ready();
-	for (const update of [{ options: [{ id: "lead", label: "Prospect" }] }, { position: 1 }, { trash: true }])
-		expect(await field({ type: "client", field: "status", ...update }, true)).toHaveProperty("error");
+	await setMemberSwitch(owner, "fields.edit", true);
 	expect(await field({ type: "client", field: "name", position: 1 })).toHaveProperty("error");
 	const made = await field({ type: "client", label: "Roof", kind: "choice", options: ["Metal", "Tile"] }, true);
-	expect(await field({ type: "client", field: made.key, position: 1 }, true)).toHaveProperty("error");
+	await setMemberSwitch(owner, "fields.edit", false);
+	for (const update of [{ options: [{ id: "lead", label: "Prospect" }] }, { position: 1 }, { trash: true }])
+		expect(await field({ type: "client", field: "status", ...update }, true)).toMatchObject({ error: expect.stringContaining("Only people with the Owner role") });
+	expect(await field({ type: "client", field: made.key, trash: true }, true)).toMatchObject({ error: expect.stringContaining("Only people with the Owner role") });
+	await setMemberSwitch(owner, "fields.edit", true);
+	expect(await field({ type: "client", field: "status", position: 2 }, true)).not.toHaveProperty("error");
 	await field({ type: "client", field: made.key, trash: true }, true);
-	expect((await t.query(internal.recordTools.typesFor, { turnId })).types.find((t) => t.type === "client")!.fields.find((f) => f.key === made.key)).toHaveProperty("inTrash", true);
+	expect((await t.mutation(internal.recordTools.typesFor, { turnId })).types.find((t) => t.type === "client")!.fields.find((f) => f.key === made.key)).toHaveProperty("inTrash", true);
 	expect(await field({ type: "client", field: made.key, trash: false }, true)).not.toHaveProperty("error");
 	const other = await owner.mutation(api.fields.create, { typeId: (await member.query(api.recordTypes.list))[0]!._id, label: "Owner field", kind: "text" });
 	await owner.mutation(api.trash.move, { kind: "field", id: other._id });
-	expect(await field({ type: "client", field: other.key, trash: false }, true)).toHaveProperty("error");
+	expect(await field({ type: "client", field: other.key, trash: false }, true)).not.toHaveProperty("error");
 	const database = await owner.mutation(api.recordTypes.create, { plural: "Projects" });
 	await t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input: { type: database, trash: true } });
-	expect((await t.query(internal.recordTools.typesFor, { turnId, trashed: true })).types).toEqual(expect.arrayContaining([expect.objectContaining({ type: "project", inTrash: true })]));
+	expect((await t.mutation(internal.recordTools.typesFor, { turnId, trashed: true })).types).toEqual(expect.arrayContaining([expect.objectContaining({ type: "project", inTrash: true })]));
 	expect(await t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input: { type: database, trash: false } })).not.toHaveProperty("error");
 });
 
@@ -63,37 +68,41 @@ it("pages full record history and workspace Activity, with undo and cross-worksp
 	const typeId = (await owner.query(api.recordTypes.list))[0]!._id;
 	const id = await owner.mutation(api.records.create, { typeId, values: { name: "v0" } });
 	for (let i = 1; i <= 24; i++) await owner.mutation(api.records.update, { recordId: id, values: { name: `v${i}` } });
-	const first: any = await t.query(internal.recordTools.historyFor, { turnId, id });
-	expect(await t.query(internal.recordTools.historyFor, { turnId, change: first.page[0]._id })).toMatchObject(first.page[0]);
+	const first: any = await t.mutation(internal.recordTools.historyFor, { turnId, id });
+	expect(await t.mutation(internal.recordTools.historyFor, { turnId, change: first.page[0]._id })).toMatchObject(first.page[0]);
 	expect(first.page).toHaveLength(20);
 	expect(first.isDone).toBe(false);
-	const rest: any = await t.query(internal.recordTools.historyFor, { turnId, id, cursor: first.continueCursor });
+	const rest: any = await t.mutation(internal.recordTools.historyFor, { turnId, id, cursor: first.continueCursor });
 	expect(rest.isDone).toBe(true);
 	expect(new Set([...first.page, ...rest.page].map((e: any) => e._id)).size).toBe(25);
-	expect(await t.query(internal.recordTools.historyFor, { turnId })).toEqual(await owner.query(api.records.activity, { paginationOpts: { cursor: null, numItems: 20 } }));
+	expect(await t.mutation(internal.recordTools.historyFor, { turnId })).toEqual(await owner.query(api.records.activity, { paginationOpts: { cursor: null, numItems: 20 } }));
 	expect(await t.mutation(internal.recordTools.undoFor, { turnId: memberTurn, change: first.page[0]._id })).toMatchObject({ values: { name: "v23" } });
 	expect(await t.mutation(internal.recordTools.undoFor, { turnId, change: first.page[0]._id })).toHaveProperty("error");
 	const side = await sideWorkspace(t, "owner@co.com");
 	const foreignType = await owner.in(side.workspaceId).mutation(api.recordTypes.create, { plural: "Secrets" });
 	const foreign = await owner.in(side.workspaceId).mutation(api.records.create, { typeId: foreignType, values: { name: "secret" } });
-	expect(await t.query(internal.recordTools.historyFor, { turnId, id: foreign })).toHaveProperty("error");
+	expect(await t.mutation(internal.recordTools.historyFor, { turnId, id: foreign })).toHaveProperty("error");
 	const foreignHistory = (await owner.in(side.workspaceId).query(api.records.history, { recordId: foreign, paginationOpts: { cursor: null, numItems: 1 } })).page[0]!;
-	expect(await t.query(internal.recordTools.historyFor, { turnId, change: foreignHistory._id })).toHaveProperty("error");
+	expect(await t.mutation(internal.recordTools.historyFor, { turnId, change: foreignHistory._id })).toHaveProperty("error");
 });
 
 it("Activity keeps invisible chats and other people's private outputs out", async () => {
-	const { t, owner, turnId, memberTurn } = await ready();
+	const { t, owner, turnId, memberTurn, companybot } = await ready();
+	await t.mutation(internal.turns.turnContext, { turnId });
 	await t.mutation(internal.activity.log, { turnId, callId: "private", tool: "records.get", changes: false, input: "{}", output: "PRIVATE" });
-	expect((await t.query(internal.recordTools.historyFor, { turnId: memberTurn, source: "agents" }) as any).page).toEqual([]);
+	expect((await t.mutation(internal.recordTools.historyFor, { turnId: memberTurn, source: "agents" }) as any).page).toEqual([]);
 	const general = await generalOf(owner);
 	await t.run(async (ctx) => {
 		const row = (await ctx.db.query("agentActivity").collect())[0]!;
 		await ctx.db.patch(row._id, { chatId: general._id });
 	});
-	const feed: any = await t.query(internal.recordTools.historyFor, { turnId: memberTurn, source: "agents" });
+	expect((await t.mutation(internal.recordTools.historyFor, { turnId: memberTurn, source: "agents" }) as any).page).toEqual([]);
+	const publicTurn = await agentTurn(t, owner, general._id, companybot._id);
+	await t.mutation(internal.activity.log, { turnId: publicTurn, callId: "public", tool: "records.get", changes: false, input: "{}", output: "PRIVATE" });
+	const feed: any = await t.mutation(internal.recordTools.historyFor, { turnId: memberTurn, source: "agents" });
 	expect(feed.page).toHaveLength(1);
 	expect(feed.page[0].output).toBeUndefined();
-	expect((await t.query(internal.recordTools.historyFor, { turnId, source: "agents" }) as any).page[0].output).toBe("PRIVATE");
+	expect((await t.mutation(internal.recordTools.historyFor, { turnId, source: "agents" }) as any).page[0].output).toBe("PRIVATE");
 });
 
 it("pages all retained versions, previews/restores one, preserves rich block properties and denies foreign versions", async () => {
@@ -105,17 +114,17 @@ it("pages all retained versions, previews/restores one, preserves rich block pro
 		vi.advanceTimersByTime(IDLE_MS + 1);
 		expect(await write({ blocks: JSON.stringify(blocks), mode: "append" })).not.toHaveProperty("error");
 	}
-	const history: any = await t.query(internal.pageTools.readFor, { turnId, page, history: true });
+	const history: any = await t.mutation(internal.pageTools.readFor, { turnId, page, history: true });
 	expect(history.versions).toHaveLength(20);
 	expect(history.moreVersions).toBe(true);
-	const rest: any = await t.query(internal.pageTools.readFor, { turnId, page, history: true, cursor: history.cursor });
+	const rest: any = await t.mutation(internal.pageTools.readFor, { turnId, page, history: true, cursor: history.cursor });
 	expect(rest.versions).toHaveLength(3);
 	expect(rest.moreVersions).toBe(false);
 	const oldest = rest.versions.at(-1).version;
-	const preview: any = await t.query(internal.pageTools.readFor, { turnId, version: oldest });
+	const preview: any = await t.mutation(internal.pageTools.readFor, { turnId, version: oldest });
 	expect(JSON.parse(preview.doc).content[0].content[0]).toMatchObject(blocks[0]!);
 	expect(await write({ restore: oldest })).toHaveProperty("restored", oldest);
-	const restored: any = await t.query(internal.pageTools.readFor, { turnId, page });
+	const restored: any = await t.mutation(internal.pageTools.readFor, { turnId, page });
 	expect(restored.versions[0].version).not.toBe(history.versions[0].version);
 	expect(restored.versions[0]).toMatchObject({ agent: "Companybot", by: expect.any(String) });
 	const before = await t.run(async (ctx) => (await readDoc(ctx, page)).toJSON());
@@ -123,12 +132,12 @@ it("pages all retained versions, previews/restores one, preserves rich block pro
 	expect(await t.run(async (ctx) => (await readDoc(ctx, page)).toJSON())).toEqual(before);
 	const side = await sideWorkspace(t, "owner@co.com");
 	const foreign = await owner.in(side.workspaceId).mutation(api.pages.create, { title: "Foreign" });
-	expect(await t.query(internal.pageTools.readFor, { turnId, page: foreign, version: oldest })).toHaveProperty("error");
+	expect(await t.mutation(internal.pageTools.readFor, { turnId, page: foreign, version: oldest })).toHaveProperty("error");
 	const another = await owner.mutation(api.pages.create, { title: "Another" });
 	expect(await write({ page: another, restore: oldest })).toHaveProperty("error");
 	expect(await write({ markdown: "x", blocks: "[]" })).toHaveProperty("error");
 	await write({ trash: true });
-	expect((await t.query(internal.pageTools.findFor, { turnId, input: { trashed: true } })).rows).toContainEqual(expect.objectContaining({ id: page }));
+	expect((await t.mutation(internal.pageTools.findFor, { turnId, input: { trashed: true } })).rows).toContainEqual(expect.objectContaining({ id: page }));
 	expect(await write({ restore: oldest })).toHaveProperty("error");
 	await write({ trash: false });
 	expect(await write({ restore: oldest })).not.toHaveProperty("error");
@@ -175,15 +184,16 @@ it("updates only the acting person's preferences, validates zones and refuses de
 	expect(await member.query(api.preferences.get)).toMatchObject({ timeZone: null });
 });
 
-it("edits/deletes only own visible messages, reacts to chosen messages and marks read explicitly", async () => {
-	const { t, call, owner, member, companybot } = await ready();
+it("edits/deletes only own visible messages, marks read explicitly, sends for the person (here too), and never reacts", async () => {
+	const { t, call, owner, member, dm } = await ready();
 	const chatId = (await generalOf(owner))._id;
 	const mine = await owner.mutation(api.messages.send, { chatId, text: "Original", mentions: noMentions });
 	const theirs = await member.mutation(api.messages.send, { chatId, text: "Member", mentions: noMentions });
 	expect(await call("chat.manage", { action: "edit", messageId: mine, text: "Edited" })).toHaveProperty("done", "edit");
 	for (const action of ["edit", "delete"])
 		expect(await call("chat.manage", { action, messageId: theirs, ...(action === "edit" && { text: "No" }) })).toHaveProperty("error");
-	await call("chat.manage", { action: "react", messageId: theirs, emoji: "✅" });
+	// Reacting isn't a chat_manage action: an agent reacts only through its turn's decision.
+	expect(manageInputs["chat.manage"].safeParse({ request: { action: "react", messageId: theirs, emoji: "✅" } }).success).toBe(false);
 	// A card on your person's own message can be taken down; on someone else's it can't.
 	const linked = await owner.mutation(api.messages.send, { chatId, text: "https://news.example.com/story", mentions: noMentions });
 	await t.mutation(internal.linkPreviews.save, { messageId: linked, results: [{ url: "https://news.example.com/story", title: "Story" }] });
@@ -191,20 +201,24 @@ it("edits/deletes only own visible messages, reacts to chosen messages and marks
 	expect(await call("chat.manage", { action: "hide_preview", messageId: linked, url: "https://news.example.com/story" })).toHaveProperty("done", "hide_preview");
 	expect((await owner.query(api.messages.list, { chatId })).find((m) => m._id === linked)!.linkPreviews).toEqual([]);
 	expect(await call("chat.manage", { action: "hide_preview", messageId: theirs, url: "https://news.example.com/story" })).toHaveProperty("error");
-	expect((await owner.query(api.messages.list, { chatId })).find((m) => m._id === theirs)!.reactions[0]!.people.map((p) => p.name)).toContain(companybot.name);
+	expect((await owner.query(api.messages.list, { chatId })).find((m) => m._id === theirs)!.reactions).toEqual([]);
 	expect(await call("chat.manage", { action: "mark_read", chat: chatId })).toHaveProperty("done", "mark_read");
+	// A send into the chat it's answering (the DM) posts too, and says so, so its reply doesn't repeat it.
+	expect(await call("chat.manage", { action: "send", chat: dm, text: "Here" })).toMatchObject({ messageId: expect.any(String), note: expect.stringContaining("Don't repeat") });
 	const { messageId } = await call("chat.manage", { action: "send", chat: chatId, text: "Agent delivery" });
 	expect(await call("chat.manage", { action: "edit", messageId, text: "Corrected" })).toHaveProperty("done", "edit");
 	await call("chat.manage", { action: "delete", messageId: mine });
 	expect((await owner.query(api.messages.list, { chatId })).find((m) => m._id === mine)).toHaveProperty("deleted", true);
 	const privateId = await owner.mutation(api.chats.createChannel, { name: "secret", private: true });
 	const secret = await owner.mutation(api.messages.send, { chatId: privateId, text: "Secret", mentions: noMentions });
-	for (const request of [{ action: "react", messageId: secret, emoji: "✅" }, { action: "mark_read", chat: privateId }])
+	for (const request of [{ action: "send", chat: privateId, text: "Hi" }, { action: "mark_read", chat: privateId }])
 		expect(await call("chat.manage", request, true)).toHaveProperty("error");
+	expect((await owner.query(api.messages.list, { chatId: privateId })).map((m) => m._id)).toEqual([secret]);
 });
 
 it("sample-runs automations with the same edit and dispatch rules", async () => {
 	const { t, call, scribe, owner, member } = await ready();
+	await setMemberSwitch(owner, "automations.edit", true);
 	const custom = await member.mutation(api.automations.create, { config: { name: "Review", prompt: "Review", trigger: { type: "event", event: "member.joined" } }, agentId: scribe._id, audience: "subscribers", timeZone: "UTC" });
 	await t.run((ctx) => ctx.db.patch(scribe._id, { tools: ["automations.manage"] }));
 	const before = await turnsOf(t);
@@ -216,9 +230,9 @@ it("sample-runs automations with the same edit and dispatch rules", async () => 
 });
 
 it("targets another agent's memories while preserving personal privacy, team rights and the off switch", async () => {
-	const { t, owner, member, scribe, turnId, memberTurn } = await ready();
+	const { t, owner, member, scribe, companybot, turnId, memberTurn } = await ready();
 	const mine = await t.mutation(internal.memory.createFor, { turnId, agentId: scribe._id, scope: "personal", content: "Private preference" });
-	expect((await t.query(internal.memory.searchFor, { turnId, agentId: scribe._id, query: "" })).map((m) => m.id)).toEqual([mine.id]);
+	expect((await t.mutation(internal.memory.searchFor, { turnId, agentId: scribe._id, query: "" })).map((m) => m.id)).toEqual([mine.id]);
 	await t.mutation(internal.memory.updateFor, { turnId, id: mine.id as Id<"memories">, content: "Corrected" });
 	await expect(t.mutation(internal.memory.removeFor, { turnId: memberTurn, id: mine.id as Id<"memories"> })).rejects.toThrow("not found");
 	const team = await t.mutation(internal.memory.createFor, { turnId, agentId: scribe._id, scope: "workspace", content: "Shared" });
@@ -231,10 +245,10 @@ it("targets another agent's memories while preserving personal privacy, team rig
 	await expect(t.mutation(internal.memory.removeFor, { turnId: generalTurn, id: saved.id as Id<"memories"> })).rejects.toThrow("2+ people");
 	const side = await sideWorkspace(t, "owner@co.com");
 	const foreign = await owner.in(side.workspaceId).mutation(api.agents.create, {});
-	await expect(t.query(internal.memory.searchFor, { turnId, agentId: foreign, query: "" })).rejects.toThrow("not found");
+	await expect(t.mutation(internal.memory.searchFor, { turnId, agentId: foreign, query: "" })).rejects.toThrow("not found");
 	const settings = (await owner.query(api.workspace.settings))!;
 	await owner.mutation(api.workspace.updateSettings, { name: settings.name, expectedVersion: settings.version, memory: false });
-	await expect(t.query(internal.memory.searchFor, { turnId, agentId: scribe._id, query: "" })).rejects.toThrow("turned memory off");
+	await expect(t.mutation(internal.memory.searchFor, { turnId, agentId: scribe._id, query: "" })).rejects.toThrow("turned memory off");
 });
 
 it("rolls back refused rich writes and checks the exact page before restoring a version", async () => {

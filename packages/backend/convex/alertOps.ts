@@ -1,7 +1,7 @@
 import type { Doc, Id } from './_generated/dataModel';
 import type { QueryCtx } from './_generated/server';
-import { latestMentionSince, shownAt } from './chatOps';
-import { memberOf, preferencesOf } from './lib';
+import { canSee, latestMentionSince, shownAt } from './chatOps';
+import { type Member, memberOf, preferencesOf } from './lib';
 import { STALE_TURN_MS } from './turns';
 
 /** Shared desktop alerts and native badge semantics: one unread alert per visible chat. */
@@ -9,12 +9,13 @@ export async function alertMessages(ctx: QueryCtx, userId: Id<'users'>, workspac
   const notify = (await preferencesOf(ctx, userId))?.notify ?? 'all';
   const alerts: { chat: Doc<'chats'>; message: Doc<'chatMessages'> }[] = [];
   if (notify === 'off') return alerts;
-  const access = new Map<Id<'workspaces'>, boolean>();
+  const access = new Map<Id<'workspaces'>, Member | null>();
   for await (const seat of ctx.db.query('chatMembers').withIndex('by_user', q => q.eq('userId', userId))) {
     const chat = await ctx.db.get(seat.chatId);
     if (!chat || chat.archived || seat.workspaceId !== chat.workspaceId || (workspaceId && chat.workspaceId !== workspaceId)) continue;
-    if (!access.has(chat.workspaceId)) access.set(chat.workspaceId, !!await memberOf(ctx, userId, chat.workspaceId));
-    if (!access.get(chat.workspaceId)) continue;
+    if (!access.has(chat.workspaceId)) access.set(chat.workspaceId, await memberOf(ctx, userId, chat.workspaceId));
+    const member = access.get(chat.workspaceId);
+    if (!member || !await canSee(ctx, chat, member)) continue;
     const since = seat.lastReadAt ?? 0;
     const fromOthers = (message: Doc<'chatMessages'> | null) => message && !message.deleted && !message.quiet && message.authorUserId !== userId ? message : null;
     // A thread mention does not advance chat.lastMessageAt: its own index must be consulted.

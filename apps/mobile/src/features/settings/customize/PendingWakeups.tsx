@@ -1,3 +1,4 @@
+import { repeatLabel } from '@companybot/core/wakeup-display';
 import type { Id } from '@companybot/backend/convex/_generated/dataModel';
 import type { FunctionReturnType } from 'convex/server';
 import { router } from 'expo-router';
@@ -8,10 +9,8 @@ import { useTask } from '@/lib/useTask';
 
 type Wakeup = FunctionReturnType<typeof api.wakeups.list>[number];
 function repeats(wakeup: Wakeup) {
-  if (!wakeup.every) return '';
-  const day = 86_400_000;
-  const [count, unit] = wakeup.every % (7 * day) === 0 ? [wakeup.every / (7 * day), 'week'] : wakeup.every % day === 0 ? [wakeup.every / day, 'day'] : [Math.round(wakeup.every / 3_600_000), 'hour'];
-  return `Every ${count} ${unit}${count === 1 ? '' : 's'}${wakeup.left === null ? '' : ` · ${wakeup.left} times left`}`;
+  if (!wakeup.repeat) return '';
+  return `${repeatLabel(wakeup.repeat)}${wakeup.left === null ? '' : ` · ${wakeup.left} times left`}`;
 }
 export function PendingWakeups({ recordId }: { recordId?: Id<'records'> }) {
   const wakeups = useQuery(api.wakeups.list, { recordId });

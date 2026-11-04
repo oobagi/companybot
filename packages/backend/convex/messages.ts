@@ -1,9 +1,12 @@
-import { fireEvent } from "./automationRuns";
-import { completeSteps } from "./onboarding";
+import { emojiOf } from "@companybot/core";
+import { previewUrl } from "@companybot/core/link-preview";
 import { ConvexError, type Infer, v } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { mutation, query } from "./functions";
+import { fireEvent } from "./automationRuns";
+import { resetChains } from "./chains";
 import {
 	type Namer,
 	type Participant,
@@ -18,27 +21,30 @@ import {
 	reactionsOf,
 	replyAuthorsOf,
 	requireChat,
+	requirePost,
+	requireReactionAudience,
 	shownAt,
 	toggleReaction,
 	visibleChat,
 } from "./chatOps";
-import { type Who, type Member, memberOf, nameOf, requireMember } from "./lib";
-import { noteMentions, workspaceRecords } from "./recordOps";
-import { installOf } from "./skills";
-import type { messagePart, replyStats } from "./schema";
-import { internal } from "./_generated/api";
-import { enqueueTurn, queueFollowUps, streamOf } from "./turns";
-import { routeLater } from "./router";
-import { resetChains } from "./chains";
-import { stopTyping } from "./typing";
 import { claimFiles, deleteAttachments } from "./files";
+import { type Who, type Member, canSeeSkill, memberOf, nameOf, requireMember } from "./lib";
 import { type LinkPreview, previewMessage, previewRow, previewsOf } from "./linkPreviews";
-import { previewUrl } from "@companybot/core/link-preview";
+import { completeSteps } from "./onboarding";
+import { noteMentions, workspaceRecords } from "./recordOps";
+import { canReadReplyDetails, genericToolParts, canReadReply, maskedReply, replyPrivacy, type ReplyPrivacy } from "./replyPrivacy";
+import { readArtifact, writeSources } from "./replySources";
+import { routeLater } from "./router";
+import type { messagePart, replyStats } from "./schema";
 import type { fileInfo } from "./schema";
+import { installOf } from "./skills";
+import { enqueueTurn, queueFollowUps, streamOf } from "./turns";
+import { stopTyping } from "./typing";
 
 // Messages in a chat's main timeline or a thread. See wiki/chat.md.
 
 export type Message = {
+	privacy?: ReplyPrivacy | null;
 	_id: Id<"chatMessages">;
 	_creationTime: number;
 	chatId: Id<"chats">;
@@ -101,7 +107,7 @@ export const list = query({
 				.query("chatMessages")
 				.withIndex("by_chat_thread", (q) => q.eq("chatId", chatId).eq("threadId", threadId))
 				.order("desc")
-				// Wake turns' own replies are never shown (wakeups.ts).
+				// Replies not shown yet (turns.ts `show`), and asks.
 				.filter((q) => q.neq(q.field("quiet"), true))
 				.take(LIST_LIMIT)
 		).sort((a, b) => shownAt(a) - shownAt(b));
@@ -115,15 +121,21 @@ export const stream = query({
 	args: { messageId: v.id("chatMessages") },
 	handler: async (ctx, { messageId }) => {
 		const message = await ctx.db.get(messageId);
-		if (message?.status !== "streaming" || !(await visibleChat(ctx, message.chatId))) return null;
+		if (message?.status !== "streaming") return null;
+		const visible = await visibleChat(ctx, message.chatId);
+		if (!visible) return null;
+		const privacy = await replyPrivacy(ctx, visible.member, message);
+		if (privacy?.hidden) return { text: `🔒 ${privacy.label}`, parts: [], privacy };
 		const stream = await streamOf(ctx, messageId);
-		return { text: stream?.text ?? "", parts: stream?.parts ?? [] };
+		return { text: stream?.text ?? "", parts: stream?.parts ?? [], ...(privacy && { privacy }) };
 	},
 });
 
 async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, names: Namer): Promise<Message> {
+	const privacy = await replyPrivacy(ctx, member, m);
+	if (privacy?.hidden) m = maskedReply(m, privacy.label);
 	const reactions: Message["reactions"] = [];
-	for (const r of await reactionsOf(ctx, m._id)) {
+	for (const r of privacy?.hidden ? [] : await reactionsOf(ctx, m._id)) {
 		let group = reactions.find((g) => g.emoji === r.emoji);
 		if (!group) reactions.push((group = { emoji: r.emoji, count: 0, mine: false, people: [], names: [] }));
 		group.count++;
@@ -132,15 +144,16 @@ async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, 
 		group.people.push(who);
 		group.names.push(who.name);
 	}
-	const replyAuthors: Participant[] = m.threadId ? [] : await Promise.all((await replyAuthorsOf(ctx, m)).map(names.of));
+	const replyAuthors: Participant[] = m.threadId || privacy?.hidden ? [] : await Promise.all((await replyAuthorsOf(ctx, m)).map(names.of));
 	return {
+		privacy,
 		_id: m._id,
 		_creationTime: m._creationTime,
 		chatId: m.chatId,
 		threadId: m.threadId ?? null,
 		author: await names.of(m),
 		text: m.text,
-		parts: m.parts,
+		parts: m.sharedBy && !(await canReadReplyDetails(ctx, member, m)) ? genericToolParts(m.parts) : m.parts,
 		status: m.status,
 		error: m.error ?? null,
 		stoppedBy: m.stoppedBy ? await nameOf(ctx, m.stoppedBy) : null,
@@ -203,6 +216,7 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	const { member } = who;
 	const chat = await requireChat(ctx, member, chatId);
 	if (chat.archived) throw new ConvexError("This chat is in Archive.");
+	requirePost(member, chat);
 	text = text.trim();
 	if (!text && files.length === 0) throw new ConvexError("Write something first.");
 	if (threadId) {
@@ -222,11 +236,12 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 		if (agent?.workspaceId === member.workspaceId && !agent.archived) agentIds.push(id);
 	}
 
-	const recordIds = await workspaceRecords(ctx, member.workspaceId, mentions.recordIds ?? []);
+	const recordIds = await workspaceRecords(ctx, member, mentions.recordIds ?? []);
 	// Only skills installed here (and not in Archive), so a message can't point agents at a made-up one.
 	const skillIds: string[] = [];
 	for (const id of new Set(mentions.skillIds ?? [])) {
-		if (await installOf(ctx, member.workspaceId, id)) skillIds.push(id);
+		const install = await installOf(ctx, member.workspaceId, id);
+		if (install && canSeeSkill(member.userId, install) && await readArtifact(ctx, member, install, install.audience === "personal" ? install.ownerId : undefined)) skillIds.push(id);
 	}
 
 	// An agent writes as its person (`actingFor`), except to that person alone: there it's just the agent talking.
@@ -238,7 +253,9 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	// Last: a refused message keeps its uploads, to attach again.
 	const attachments = await claimFiles(ctx, member, files);
 
+	const usedPlaces = await writeSources(ctx, member, { filtered: true });
 	const messageId = await insertMessage(ctx, chat, {
+		...(usedPlaces.length && { usedPlaces, repliedTo: member.userId }),
 		threadId,
 		...(who.agentId ? { authorAgentId: who.agentId, ...(actingFor && { actingFor }) } : { authorUserId: member.userId }),
 		text,
@@ -324,16 +341,28 @@ export const hidePreview = mutation({
 	handler: async (ctx, { messageId, url }) => hideMessagePreview(ctx, { member: await requireMember(ctx) }, messageId, url),
 });
 
+/** Toggles your reaction. Agents react only through their turn's decision (turns.finishReply). */
 export const react = mutation({
 	args: { messageId: v.id("chatMessages"), emoji: v.string() },
-	handler: async (ctx, { messageId, emoji }) => reactMessage(ctx, { member: await requireMember(ctx) }, messageId, emoji),
+	handler: async (ctx, { messageId, emoji }) => {
+		const member = await requireMember(ctx);
+		const message = await ctx.db.get(messageId);
+		if (!message || message.deleted) throw new ConvexError("Message not found.");
+		await requireReactionAudience(ctx, member, message);
+		const one = emojiOf(emoji.trim());
+		if (!one) throw new ConvexError("Pick one emoji.");
+		return toggleReaction(ctx, message, one, member.userId);
+	},
 });
 
 export async function editMessage(ctx: MutationCtx, who: Who, messageId: Id<"chatMessages">, text: string) {
 	const message = await requireOwn(ctx, who, messageId);
+	// Deleting your own message stays open in a channel that turned read-only; changing it doesn't.
+	requirePost(who.member, (await ctx.db.get(message.chatId))!);
 	text = text.trim();
 	if (!text && !message.attachments?.length) throw new ConvexError("Write something first, or delete the message.");
-	await ctx.db.patch(message._id, { text, parts: text ? [{ type: "text", text }] : [], editedAt: Date.now() });
+	const sources = await writeSources(ctx, who.member, { filtered: true }, message);
+	await ctx.db.patch(message._id, { text, parts: text ? [{ type: "text", text }] : [], editedAt: Date.now(), sharedBy: undefined, usedPlaces: sources.length ? sources : undefined, ...(sources.length && { repliedTo: who.member.userId }) });
 	await previewMessage(ctx, { ...message, text }, { byAgent: !!who.agentId });
 }
 
@@ -353,16 +382,6 @@ export async function removeMessage(ctx: MutationCtx, who: Who, messageId: Id<"c
 	await clearMessageLinks(ctx, messageId);
 }
 
-export async function reactMessage(ctx: MutationCtx, who: Who, messageId: Id<"chatMessages">, emoji: string) {
-	const { member } = who;
-	const message = await ctx.db.get(messageId);
-	if (!message || message.deleted) throw new ConvexError("Message not found.");
-	await requireChat(ctx, member, message.chatId);
-	emoji = emoji.trim();
-	if (!emoji || emoji.length > 16) throw new ConvexError("Pick one emoji.");
-	return toggleReaction(ctx, message, emoji, who.agentId ? { agentId: who.agentId } : { userId: member.userId });
-}
-
 /** Deleted content disappears immediately; mentions and reactions drain in bounded batches. */
 async function clearMessageLinks(ctx: MutationCtx, messageId: Id<"chatMessages">) {
 	let more = false;
@@ -378,5 +397,20 @@ export const clearRemovedMessage = internalMutation({
 	args: { messageId: v.id("chatMessages") },
 	handler: async (ctx, { messageId }) => {
 		if ((await ctx.db.get(messageId))?.deleted) await clearMessageLinks(ctx, messageId);
+	},
+});
+
+/** Sharing is an explicit disclosure of this turn, never a change to the source's access list. */
+export const share = mutation({
+	args: { messageId: v.id("chatMessages") },
+	handler: async (ctx, { messageId }) => {
+		const member = await requireMember(ctx);
+		const message = await ctx.db.get(messageId);
+		if (!message || message.deleted) throw new ConvexError("Reply not found.");
+		requirePost(member, await requireChat(ctx, member, message.chatId));
+		if (!(await canReadReply(ctx, member, message))) throw new ConvexError("You can't see this reply.");
+		if (!message.usedPlaces?.length || message.sharedBy) return;
+		if (message.status === "streaming") throw new ConvexError("Wait until the reply finishes before sharing it.");
+		await ctx.db.patch(messageId, { sharedBy: member.userId });
 	},
 });

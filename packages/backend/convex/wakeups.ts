@@ -10,23 +10,28 @@ import {
 	followupWhen,
 	nextRepeat,
 	repeatEvery,
+	repeatLabel,
+	wakeAnchor,
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type MutationCtx, type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
+import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { mutation, query } from "./functions";
-import { addToChat, canSee, chatLabel, namer } from "./chatOps";
-import { type Member, asToolResult, getMember, liveWorkspace, memberOf, nameOf, requireMember, sweepExpired, timeZoneOf } from "./lib";
 import { automationScope } from "./automationOps";
+import { addToChat, canPost, canSee, chatLabel, namer } from "./chatOps";
+import { type Member, asToolResult, getMember, liveWorkspace, memberOf, nameOf, requireMember, sweepExpired, timeZoneOf } from "./lib";
+import { reach } from "./placeAccess";
 import { recordById } from "./recordOps";
+import { canReadSources } from "./replyPrivacy";
+import { inheritPlaces, notePlace, writeSources } from "./replySources";
 import { enqueueTurn, runningTurn } from "./turns";
 
 // Wakeups: an agent wakes later in a place (chat + thread), acting for a person. A wakeup is when
-// plus what. When: a time (`at`, through the scheduler; with `every` it's re-armed after each wake,
+// plus what. When: a time (`at`, through the scheduler; with `repeat` it's re-armed after each wake,
 // `times` wakes in all or forever) or a job (`jobId`: #114 calls `wake` with its result). What: a
 // note (a follow-up's task) or none (look around: #162's heartbeat). `wake` is the only path from
-// one to a turn. The turn is quiet: its reply is shown only if its decision posts it (turns.finishReply).
+// one to a turn. Like every turn, its reply shows only if it writes a message (turns.ts `show`).
 // Each wake writes one line in Activity. See wiki/architecture.md (Automations).
 
 /** Fired and cancelled wakeups are forgotten this long after. */
@@ -41,11 +46,11 @@ type Gate = (ctx: MutationCtx, row: Doc<"wakeups">) => Promise<string | null>;
  */
 const lookAroundGate: Gate | undefined = undefined;
 
-type NewWakeup = Pick<Doc<"wakeups">, "workspaceId" | "agentId" | "chatId" | "threadId" | "actorId" | "createdBy" | "note" | "recordId" | "typeId" | "foreign" | "at" | "every" | "times" | "jobId" | "answer">;
+type NewWakeup = Pick<Doc<"wakeups">, "workspaceId" | "agentId" | "chatId" | "threadId" | "actorId" | "createdBy" | "usedPlaces" | "note" | "recordId" | "typeId" | "foreign" | "at" | "repeat" | "anchor" | "times" | "jobId" | "answer">;
 
-/** Stores a wakeup and, if it has a time, schedules it. #114 makes `{ jobId }` ones; #162 note-less `{ at, every }` ones. */
+/** Stores a wakeup and, if it has a time, schedules it. #114 makes `{ jobId }` ones; #162 note-less `{ at, repeat }` ones. */
 export async function createWakeup(ctx: MutationCtx, wakeup: NewWakeup) {
-	const id = await ctx.db.insert("wakeups", { ...wakeup, status: "pending" });
+	const id = await ctx.db.insert("wakeups", { ...wakeup, ...(wakeup.repeat && wakeup.at !== undefined && !wakeup.anchor && {anchor: wakeAnchor(wakeup.at, await timeZoneOf(ctx, wakeup.actorId))}), status: "pending" });
 	if (wakeup.at !== undefined) await armAt(ctx, id, wakeup.at);
 	return id;
 }
@@ -86,8 +91,19 @@ export const fire = internalMutation({
 		const row = await ctx.db.get(id);
 		// A held one tries again too (armAt clears `held`): `wake` holds it again if it's still waiting.
 		if (!row || row.status !== "pending" || row.at !== at) return;
-		// The next one is scheduled first, so a wake that fails or is skipped doesn't end the repeat.
-		if (repeatsAfter(row)) await armAt(ctx, id, nextRepeat(at, row.every!, Date.now(), await timeZoneOf(ctx, row.actorId)));
+		// COMPAT(0.1.0-alpha.10): remove legacy conversion with every and wakeupDurations.
+		const repeat = row.repeat ?? fromLegacy(row.every);
+		if (repeat && (row.times === undefined || (row.wakes ?? 0) + 1 < row.times)) {
+			try {
+				const anchor = row.anchor ?? wakeAnchor(at, await timeZoneOf(ctx, row.actorId));
+				const next = nextRepeat(anchor, repeat, Math.max(at, Date.now()));
+				await ctx.db.patch(id, {repeat, anchor});
+				await armAt(ctx, id, next);
+			} catch {
+				// Settle after this wake if corrupt data or calendar range prevents another occurrence.
+				await ctx.db.patch(id, {repeat: undefined, every: undefined, reason: "Could not schedule the next repeat."});
+			}
+		}
 		await wake(ctx, id);
 	},
 });
@@ -103,8 +119,14 @@ export const release = internalMutation({
 	},
 });
 
+// COMPAT(0.1.0-alpha.10): remove with every, its fire fallback and wakeupDurations.
+export function fromLegacy(ms?: number) {
+	if (ms === undefined) return undefined;
+	return ms % 86_400_000 === 0 ? {days: ms / 86_400_000} : ms % 3_600_000 === 0 ? {hours: ms / 3_600_000} : {minutes: ms / 60_000};
+}
+
 /** Whether a wakeup has another wake after the one now: it repeats, and `times` (if set) isn't used up. */
-const repeatsAfter = (row: Doc<"wakeups">) => !!row.every && (row.times === undefined || (row.wakes ?? 0) + 1 < row.times);
+const repeatsAfter = (row: Doc<"wakeups">) => !!row.repeat && (row.times === undefined || (row.wakes ?? 0) + 1 < row.times);
 
 /** Called when anything comes back from Archive (trashOps): held wakeups in the workspace try again. */
 export async function releaseHeld(ctx: MutationCtx, workspaceId: Id<"workspaces">) {
@@ -118,7 +140,7 @@ export async function releaseHeld(ctx: MutationCtx, workspaceId: Id<"workspaces"
 /**
  * The only path from a wakeup to a turn. Re-checks, as of now, that its person is still a member
  * who can see the chat, and that its agent, chat and record are there; then the kind's gate; then
- * queues a quiet turn as that person, with the wakeup as its input. A job's `result` (#114) is
+ * queues a turn as that person, with the wakeup as its input. A job's `result` (#114) is
  * kept on the row for the turn. Every call writes one line in Activity.
  */
 export async function wake(ctx: MutationCtx, id: Id<"wakeups">, outcome?: { result?: string }) {
@@ -147,6 +169,10 @@ export async function wake(ctx: MutationCtx, id: Id<"wakeups">, outcome?: { resu
 		return logWake(ctx, row, "skipped", "Waiting: its agent, chat or record is in Archive. It wakes if that's restored.");
 	}
 	if (!(await canSee(ctx, chat, member))) return stop("Its person can no longer see the chat.");
+	// Its turn replies there as them (turns.ts checks again when it starts and before it's shown).
+	if (!canPost(member, chat)) return stop("Its person can no longer post in the chat.");
+	// Not the database's name: everyone in the chat reads this line in Activity, and some may not see it.
+	if (type && !reach(member, type.access)) return stop("Its person can no longer see this record.");
 	if (row.threadId && !(await ctx.db.get(row.threadId))) return stop("Its thread was deleted.");
 
 	// Its last wake settles it; a repeating one stays pending (`fire` already armed the next).
@@ -185,33 +211,40 @@ export async function setWakeOutcome(ctx: MutationCtx, turn: Doc<"agentTurns">, 
 	if (!line?.wake) return;
 	// Once it spoke up, it stays "notified".
 	if (line.wake.outcome === "notified" && outcome !== "notified") return;
-	await ctx.db.patch(line._id, { turnId: turn._id, status: outcome === "failed" ? "error" : "done", wake: { ...line.wake, outcome } });
+	await ctx.db.patch(line._id, { turnId: turn._id, replyId: turn.replyId, status: outcome === "failed" ? "error" : "done", wake: { ...line.wake, outcome } });
 }
 
 // ---- Who sees and cancels them ----
 
-/** Whether `member` can see a wakeup: it's as private as its chat. */
+/** Whether `member` can see a wakeup: it's as private as its chat, and its record's database. */
 async function visibleTo(ctx: QueryCtx, member: Member, row: Doc<"wakeups">) {
+	if (!(await canReadSources(ctx, member, row.usedPlaces))) return false;
 	const chat = await ctx.db.get(row.chatId);
+	// Its record's database, read from the record when the row doesn't hold it.
+	const typeId = row.typeId ?? (row.recordId && (await ctx.db.get(row.recordId))?.typeId);
+	const type = typeId && (await ctx.db.get(typeId));
+	if (type && !reach(member, type.access)) return false;
+	if (type) await notePlace(ctx, member, type._id, type.access);
+	await inheritPlaces(ctx, member, row.usedPlaces);
 	return !!chat && !chat.archived && (await canSee(ctx, chat, member));
 }
 
-/** Its person, whoever set it up, or an owner (`automations.manage`). */
+/** Its person, whoever set it up, or someone who oversees agents (`agents.manage`). */
 const canCancel = (member: Member, row: Doc<"wakeups">) =>
-	row.actorId === member.userId || row.createdBy === member.userId || can(member, "automations.manage");
+	row.actorId === member.userId || row.createdBy === member.userId || can(member, "agents.manage");
 
 async function requireCancellable(ctx: QueryCtx, member: Member, id: string) {
 	const wakeupId = ctx.db.normalizeId("wakeups", id);
 	const row = wakeupId && (await ctx.db.get(wakeupId));
 	if (!row || row.workspaceId !== member.workspaceId || row.status !== "pending") throw new ConvexError("No pending follow-up with that id.");
-	// Owners cancel ones they can't see too: Settings lists them without their note.
-	if (!canCancel(member, row) || (!can(member, "automations.manage") && !(await visibleTo(ctx, member, row))))
-		throw new ConvexError("Only its person, whoever set it up, or an owner can cancel it.");
+	// People who oversee agents cancel ones they can't see too: Settings lists them without their note.
+	if (!canCancel(member, row) || (!can(member, "agents.manage") && !(await visibleTo(ctx, member, row))))
+		throw new ConvexError("Only its person, whoever set it up, or someone who can change agents can cancel it.");
 	return row;
 }
 
 /**
- * Pending wakeups, soonest first: ones in chats `member` can see, and for owners the rest too,
+ * Pending wakeups, soonest first: ones in chats `member` can see, and for people who can change agents the rest too,
  * without their note, so what's running is always visible and can be stopped.
  */
 async function pendingFor(ctx: QueryCtx, member: Member, recordId?: Id<"records">) {
@@ -228,7 +261,7 @@ async function pendingFor(ctx: QueryCtx, member: Member, recordId?: Id<"records"
 	for (const row of rows) {
 		if (row.workspaceId !== member.workspaceId) continue;
 		const visible = await visibleTo(ctx, member, row);
-		if (visible || can(member, "automations.manage")) out.push({ row, visible });
+		if (visible || can(member, "agents.manage")) out.push({ row, visible });
 	}
 	return out.sort((a, b) => (a.row.at ?? Infinity) - (b.row.at ?? Infinity));
 }
@@ -250,9 +283,9 @@ export const list = query({
 					/** Null for ones in a chat you can't see (owners still see that they exist), and for check-ins that look around. */
 					note: visible ? (row.note ?? null) : null,
 					at: row.at ?? null,
-					every: row.every ?? null,
+					repeat: row.repeat ?? null,
 					/** Wakes left, this one included; null: until cancelled. */
-					left: row.every ? (row.times === undefined ? null : row.times - (row.wakes ?? 0)) : null,
+					left: row.repeat ? (row.times === undefined ? null : row.times - (row.wakes ?? 0)) : null,
 					job: !!row.jobId,
 					held: row.held ?? false,
 					actor: (await names.user(row.actorId)).name,
@@ -318,12 +351,13 @@ export const createFor = internalMutation({
 				actorId: member.userId,
 				createdBy: member.userId,
 				note: note.trim(),
+				usedPlaces: await writeSources(ctx, member, { filtered: true, preserveOwn: true }),
 				...(record && { recordId: record._id, typeId: record.typeId }),
 				foreign,
 				at: time,
-				...(every !== undefined && { every, ...(times !== undefined && { times }) }),
+				...(every !== undefined && { repeat: every, anchor: wakeAnchor(time, timeZone, at), ...(times !== undefined && { times }) }),
 			});
-			const repeat = every === undefined ? "" : `, then every ${often!.trim()}${times === undefined ? " until cancelled" : `, ${times} times in all`}`;
+			const repeat = every === undefined ? "" : `, then ${repeatLabel(every)}${times === undefined ? " until cancelled" : `, ${times} times in all`}`;
 			return { created: id, when: followupWhen(time, timeZone) + repeat, ...(record && { record: record.title }) };
 		});
 	},
@@ -337,7 +371,7 @@ async function pendingCount(ctx: QueryCtx, index: "by_record" | "by_agent", id: 
 	return rows.length;
 }
 
-export const listFor = internalQuery({
+export const listFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), recordId: v.optional(v.string()) },
 	handler: async (ctx, { turnId, recordId }) => {
 		const { member } = await runningTurn(ctx, turnId);
@@ -351,7 +385,7 @@ export const listFor = internalQuery({
 				const about = row.recordId && (await ctx.db.get(row.recordId));
 				followups.push({
 					id: row._id,
-					when: row.at ? followupWhen(row.at, timeZone) + (row.every ? ", then repeating" : "") : "When its job finishes",
+					when: row.at ? followupWhen(row.at, timeZone) + (row.repeat ? ", then repeating" : "") : "When its job finishes",
 					...(row.note !== undefined && { note: row.note }),
 					agent: (await names.agent(row.agentId)).name,
 					for: (await names.user(row.actorId)).name,

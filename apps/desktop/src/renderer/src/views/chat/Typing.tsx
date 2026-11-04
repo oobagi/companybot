@@ -8,7 +8,7 @@ import { Avatar, AvatarStack, MenuItem, PopoverPanel } from "./common";
 
 /**
  * An agent working here, and its step ("Searching records for Acme…"; null while it writes). `canStop`:
- * you may stop it (the person it works for, or an owner); `stopping`: someone did, and it's ending.
+ * you may stop it (the person it works for, or anyone with `turns.stopAny`); `stopping`: someone did, and it's ending.
  */
 type Working = { id: string; name: string; image?: string | null; step: string | null; turnId: Id<"agentTurns">; canStop: boolean; stopping: boolean };
 
@@ -108,52 +108,48 @@ function typingLine(names: string[]) {
 
 /** "2 agents working": hover (or click) lists each one's step, with a way to their activity. */
 function WorkingList({ agents, label }: { agents: Working[]; label: string }) {
-	const [anchor, setAnchor] = useState<DOMRect>();
-	const button = useRef<HTMLButtonElement>(null);
+	const [opened, setOpened] = useState(false);
 	// Closes a moment after the mouse leaves, so it can cross the gap to the panel.
 	const leaving = useRef<ReturnType<typeof setTimeout>>(undefined);
 	const stay = () => clearTimeout(leaving.current);
 	const leave = () => {
 		stay();
-		leaving.current = setTimeout(() => setAnchor(undefined), 150);
+		leaving.current = setTimeout(() => setOpened(false), 150);
 	};
 	useEffect(() => stay, []);
-	const open = () => {
-		stay();
-		if (button.current) setAnchor(button.current.getBoundingClientRect());
-	};
+	const open = () => (stay(), setOpened(true));
 	return (
-		<>
-			<button
-				ref={button}
-				type="button"
-				aria-expanded={!!anchor}
-				onMouseEnter={open}
-				onMouseLeave={leave}
-				onClick={() => (anchor ? setAnchor(undefined) : open())}
-				className="underline decoration-dotted underline-offset-2 hover:text-neutral-600"
-			>
-				{label}
-			</button>
-			{anchor && (
-				<PopoverPanel anchor={anchor} ignore={button} className="w-72" onClose={() => setAnchor(undefined)}>
-					<div onMouseEnter={stay} onMouseLeave={leave} className="p-1">
-						{agents.map((a) => (
-							<div key={a.id} className="flex gap-2 px-2 py-1.5">
-								<Avatar name={a.name} image={a.image} agent size="xs" />
-								<div className="min-w-0 flex-1">
-									<div className="font-medium">{a.name}</div>
-									<div className="truncate text-neutral-500">{a.step ?? "Writing a reply…"}</div>
-								</div>
-								<StopButton agent={a} />
-							</div>
-						))}
-						<div className="mt-1 border-t border-neutral-100 pt-1">
-							<MenuItem onClick={() => navigate("settings", "activity")}>See what they did in Activity</MenuItem>
+		<PopoverPanel
+			opened={opened}
+			onClose={() => setOpened(false)}
+			trapFocus={false}
+			target={
+				<button
+					type="button"
+					onMouseEnter={open}
+					onMouseLeave={leave}
+					onClick={() => (opened ? setOpened(false) : open())}
+					className="underline decoration-dotted underline-offset-2 hover:text-neutral-600"
+				>
+					{label}
+				</button>
+			}
+		>
+			<div onMouseEnter={stay} onMouseLeave={leave} className="p-1">
+				{agents.map((a) => (
+					<div key={a.id} className="flex gap-2 px-2 py-1.5">
+						<Avatar name={a.name} image={a.image} agent size="xs" />
+						<div className="min-w-0 flex-1">
+							<div className="font-medium">{a.name}</div>
+							<div className="truncate text-neutral-500">{a.step ?? "Writing a reply…"}</div>
 						</div>
+						<StopButton agent={a} />
 					</div>
-				</PopoverPanel>
-			)}
-		</>
+				))}
+				<div className="mt-1 border-t border-neutral-100 pt-1">
+					<MenuItem onClick={() => navigate("settings", "activity")}>See what they did in Activity</MenuItem>
+				</div>
+			</div>
+		</PopoverPanel>
 	);
 }

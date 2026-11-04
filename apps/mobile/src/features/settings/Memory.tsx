@@ -1,3 +1,4 @@
+import { can } from '@companybot/core/permissions';
 import { useState } from 'react';
 import { FlatList } from 'react-native';
 import type { FunctionReturnType } from 'convex/server';
@@ -11,6 +12,8 @@ import { Badge, Button, Card, ChoicePicker, ConfirmSheet, EditorSheet, EmptyStat
 type MemoryRow = FunctionReturnType<typeof api.memory.list>[number];
 export default function Memory() {
   const memories = useQuery(api.memory.list);
+  const me = useQuery(api.workspace.me);
+  const teamAllowed = !!me?.access && can(me.access, 'memory.team.write');
   const agents = useQuery(api.agents.list);
   const create = useMutation(api.memory.create);
   const update = useMutation(api.memory.update);
@@ -22,15 +25,15 @@ export default function Memory() {
   const [history, setHistory] = useState<MemoryRow>();
   const [content, setContent] = useState('');
   const [agentId, setAgentId] = useState('');
-  const [scope, setScope] = useState<'workspace' | 'personal'>('workspace');
+  const [scope, setScope] = useState<'workspace' | 'personal'>('personal');
   const [baseline, setBaseline] = useState('');
   const draft = JSON.stringify(editing === 'new' ? { content, agentId, scope } : { content });
   const guard = useDraftGuard({ dirty: !!editing && draft !== baseline, busy: !!editing && task.busy, onClose: () => setEditing(undefined) });
   if (!memories || !agents) return <Loading />;
-  return <Screen><Stack style={{ flex: 1 }}><Button label="New memory" onPress={() => { task.clear(); setEditing('new'); setContent(''); setAgentId(agents[0]?._id ?? ''); setScope('workspace'); setBaseline(JSON.stringify({ content: '', agentId: agents[0]?._id ?? '', scope: 'workspace' })); }} /><Field label="Search memories" value={search} onChangeText={setSearch} />
+  return <Screen><Stack style={{ flex: 1 }}><Button label="New memory" onPress={() => { task.clear(); setEditing('new'); setContent(''); setAgentId(agents[0]?._id ?? ''); setScope('personal'); setBaseline(JSON.stringify({ content: '', agentId: agents[0]?._id ?? '', scope: 'personal' })); }} /><Field label="Search memories" value={search} onChangeText={setSearch} />
     <FlatList data={memories.filter(m => m.content.toLowerCase().includes(search.toLowerCase()))} keyExtractor={m => m.id} contentContainerStyle={{ flexGrow: 1, gap: 12 }} ListEmptyComponent={<EmptyState title="No memories" description="Agents remember useful context here. Personal memories are visible only to you." />} renderItem={({ item }) => <Card><Stack horizontal><Text variant="label" style={{ flex: 1 }}>{agents.find(a => a._id === item.agentId)?.name ?? 'Agent'}</Text><Badge label={item.scope === 'personal' ? 'Personal' : 'Team'} /></Stack><Text selectable>{item.content}</Text><Text tone="muted" variant="caption">Updated by {item.updatedByName}</Text>{item.canEdit && <><Button label="Edit" variant="secondary" onPress={() => { task.clear(); setContent(item.content); setBaseline(JSON.stringify({ content: item.content })); setEditing(item); }} /><Button label="History" variant="ghost" onPress={() => setHistory(item)} /><Button label={item.scope === 'personal' ? 'Delete' : 'Archive'} variant="danger" onPress={() => { task.clear(); setDeleting(item); }} /></>}</Card>} />
   </Stack>
-  {editing && <EditorSheet title={editing === 'new' ? 'New memory' : 'Edit memory'} busy={task.busy} dismissible={guard.dismissible} onClose={() => void guard.close()}>{guard.dialog}{editing === 'new' && <><ChoicePicker label="Agent" value={agentId} options={agents.map(a => ({ value: a._id, label: a.name }))} onChange={v => { if (typeof v === 'string') setAgentId(v); }} /><ChoicePicker label="Who can see this?" value={scope} options={[{ value: 'workspace', label: 'Everyone in the workspace' }, { value: 'personal', label: 'Only you' }]} onChange={v => { if (v === 'workspace' || v === 'personal') setScope(v); }} /></>}<Field label="Memory" value={content} onChangeText={setContent} multiline style={{ minHeight: 180 }} />{task.error && <ErrorState message={task.error} />}<Button label="Save memory" loading={task.busy} disabled={!content.trim() || (editing === 'new' && !agentId)} onPress={() => void task.run(async () => { if (editing === 'new') await create({ agentId: agentId as Id<'agents'>, scope, content }); else await update({ id: editing.id, content, expectedVersion: editing.version }); setEditing(undefined); })} /></EditorSheet>}
+  {editing && <EditorSheet title={editing === 'new' ? 'New memory' : 'Edit memory'} busy={task.busy} dismissible={guard.dismissible} onClose={() => void guard.close()}>{guard.dialog}{editing === 'new' && <><ChoicePicker label="Agent" value={agentId} options={agents.map(a => ({ value: a._id, label: a.name }))} onChange={v => { if (typeof v === 'string') setAgentId(v); }} /><ChoicePicker label="Who can see this?" value={scope} options={[{ value: 'personal', label: 'Only you' }, ...(teamAllowed ? [{ value: 'workspace', label: 'Everyone in the workspace' }] : [])]} onChange={v => { if (v === 'workspace' || v === 'personal') setScope(v); }} /></>}<Field label="Memory" value={content} onChangeText={setContent} multiline style={{ minHeight: 180 }} />{task.error && <ErrorState message={task.error} />}<Button label="Save memory" loading={task.busy} disabled={!content.trim() || (editing === 'new' && (!agentId || (scope === 'workspace' && !teamAllowed)))} onPress={() => void task.run(async () => { if (editing === 'new') await create({ agentId: agentId as Id<'agents'>, scope, content }); else await update({ id: editing.id, content, expectedVersion: editing.version }); setEditing(undefined); })} /></EditorSheet>}
   {deleting && <ConfirmSheet title={deleting.scope === 'personal' ? 'Delete this memory?' : 'Archive this memory?'} message={deleting.scope === 'personal' ? 'Your personal memory is permanently deleted.' : 'You can restore this team memory from Archive.'} confirmLabel={deleting.scope === 'personal' ? 'Delete' : 'Archive'} destructive busy={task.busy} error={task.error} onClose={() => setDeleting(undefined)} onConfirm={() => void task.run(async () => { await remove({ id: deleting.id }); setDeleting(undefined); })} />}
   {history && <MemoryHistory memory={history} onClose={() => setHistory(undefined)} />}
   </Screen>;

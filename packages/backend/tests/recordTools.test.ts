@@ -1,4 +1,4 @@
-import { ownerAndMember, signIn } from "./helpers";
+import { ownerAndMember, signIn, setMemberSwitch } from "./helpers";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
@@ -21,9 +21,9 @@ async function turnFor(t: ReturnType<typeof convexTest>, as: As) {
 	const turns = await t.run((ctx) => ctx.db.query("agentTurns").collect());
 	const turnId = turns.find((x) => !before.some((b) => b._id === x._id))!._id;
 	const tools = {
-		types: () => t.query(internal.recordTools.typesFor, { turnId }),
-		find: (input: object) => result(t.query(internal.recordTools.findFor, { turnId, input: { numItems: 20, ...input } })),
-		get: (id: string) => result(t.query(internal.recordTools.getFor, { turnId, id })),
+		types: () => t.mutation(internal.recordTools.typesFor, { turnId }),
+		find: (input: object) => result(t.mutation(internal.recordTools.findFor, { turnId, input: { numItems: 20, ...input } })),
+		get: (id: string) => result(t.mutation(internal.recordTools.getFor, { turnId, id })),
 		save: (input: object) => result(t.mutation(internal.recordTools.saveFor, { turnId, input })),
 		undo: (change: string) => result(t.mutation(internal.recordTools.undoFor, { turnId, change })),
 		saveField: (input: object) => result(t.mutation(internal.recordTools.saveFieldFor, { turnId, input })),
@@ -146,6 +146,7 @@ describe("records tools", () => {
 
 	it("resolve exact keys before labels, and refuse names that could mean two things", async () => {
 		const { t, owner, member } = await ownerAndMember();
+		await setMemberSwitch(owner, "fields.edit", true);
 		const tools = await turnFor(t, member);
 		const first = await tools.saveField({ type: "client", label: "First slot", kind: "text" });
 		await tools.saveField({ type: "client", label: "Second slot", kind: "text" });
@@ -196,7 +197,8 @@ describe("records tools", () => {
 	});
 
 	it("bound name lookups: list limits first, repeats looked up once, a cap on distinct names", async () => {
-		const { t, member } = await ownerAndMember();
+		const { t, owner, member } = await ownerAndMember();
+		await setMemberSwitch(owner, "fields.edit", true);
 		const tools = await turnFor(t, member);
 		await tools.saveField({ type: "deal", label: "Partners", kind: "link", linksTo: "client", multiple: true });
 		await tools.save({ type: "client", values: { name: "Acme" } });
@@ -216,7 +218,8 @@ describe("records tools", () => {
 	});
 
 	it("keep a custom field called id or type apart from the row's own id and type", async () => {
-		const { t, member } = await ownerAndMember();
+		const { t, owner, member } = await ownerAndMember();
+		await setMemberSwitch(owner, "fields.edit", true);
 		const tools = await turnFor(t, member);
 		await tools.saveField({ type: "client", label: "ID", kind: "text" });
 		await tools.saveField({ type: "client", label: "Type", kind: "text" });
@@ -256,8 +259,9 @@ describe("records tools", () => {
 		expect((await tools.get(client.id)).linkedFrom).toEqual([{ id: deal.id, type: "deal", name: "Roof", via: "Client" }]);
 	});
 
-	it("add fields as anyone, but change built-in ones only as an owner, read fresh each call", async () => {
+	it("add and change fields with the databases switch, whoever added them, read fresh each call", async () => {
 		const { t, owner, member } = await ownerAndMember();
+		await setMemberSwitch(owner, "fields.edit", true);
 		const tools = await turnFor(t, member);
 		const roof = await tools.saveField({ type: "client", label: "Roof type", kind: "choice", options: ["Shingle", "Metal"] });
 		expect(roof).toMatchObject({ type: "client", typePlural: "Clients", key: "roof_type", label: "Roof type", kind: "choice", options: ["Shingle", "Metal"] });
@@ -265,9 +269,12 @@ describe("records tools", () => {
 		expect(acme.values.roof_type).toBe("Metal");
 		expect(await tools.saveField({ type: "client", field: "roof type", options: ["Shingle", "Metal", "Tile"] })).toMatchObject({ options: ["Shingle", "Metal", "Tile"] });
 		const stages = { type: "deal", field: "Stage", options: ["New", "Qualified", "Proposal", "Negotiation", "Won", "Lost"] };
-		expect(await tools.saveField(stages)).toEqual({ error: "Only the person who made this or an owner can change it." });
+		await setMemberSwitch(owner, "fields.edit", false);
+		expect(await tools.saveField(stages)).toEqual({ error: "Only people with the Owner role can add and change databases and fields. Ask someone who has it." });
+		expect(await tools.saveField({ type: "client", field: "roof type", options: ["Shingle"] })).toHaveProperty("error");
 		const row = await t.run((ctx) => ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", member.userId)).first());
-		await owner.mutation(api.workspace.setRole, { id: row!._id, role: "owner" });
+		const ownerRole = (await owner.query(api.roles.list))!.find((r) => r.builtIn === "owner")!.id;
+		await owner.mutation(api.workspace.setRoles, { id: row!._id, roles: [ownerRole] });
 		expect(await tools.saveField(stages)).toMatchObject({ options: stages.options });
 		expect(await tools.saveField({ type: "deal", field: "stage", kind: "text" })).toEqual({ error: expect.stringContaining("Only a field's name and options") });
 		const linked = await tools.saveField({ type: "task", label: "Call", kind: "link", linksTo: "Calls" });

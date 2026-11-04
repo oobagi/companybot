@@ -24,7 +24,7 @@ describe("connectors", () => {
 		mcp: { url: "https://example.com/mcp", transport: "http" },
 		connection: "personal",
 		auth: { type: "api_key", header: "Authorization", prefix: "Bearer ", label: "API key" },
-		defaultRoles: ["owner"],
+		ownersOnly: true,
 	});
 
 	it("validates connectors and credentials", () => {
@@ -41,12 +41,13 @@ describe("connectors", () => {
 			const agent = { tools: ["notes.*", "clock.now"] };
 			expect(validateAgentConfig({ ...scribe, tools: agent.tools })).toBeNull();
 			expect(grantedConnectorIds(agent)).toEqual(["notes"]);
-			const reason = (actor: Actor, state?: { roles: Actor["role"][]; connected: boolean }) =>
+			const reason = (actor: Actor, state?: { roles: string[]; connected: boolean }) =>
 				describeToolAccess(agent, actor, state ? [{ id: "notes", ...state }] : [])[0];
 			expect(reason(owner)).toMatchObject({ reason: "not_installed" });
-			expect(reason(member, { roles: ["owner"], connected: true })).toMatchObject({ reason: "role" });
-			expect(reason(owner, { roles: ["owner"], connected: false })).toMatchObject({ reason: "not_connected" });
-			expect(reason(owner, { roles: ["owner"], connected: true })).toMatchObject({ visible: true });
+			expect(reason(member, { roles: [], connected: true })).toMatchObject({ reason: "role" });
+			expect(reason(member, { roles: ["office", "member-role"], connected: true })).toMatchObject({ visible: true });
+			expect(reason(owner, { roles: [], connected: false })).toMatchObject({ reason: "not_connected" });
+			expect(reason(owner, { roles: [], connected: true })).toMatchObject({ visible: true });
 		} finally {
 			connectorCatalog.pop();
 		}

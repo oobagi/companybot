@@ -17,8 +17,8 @@ export type ChannelRef = { id: Id<"chats">; name: string; topic: string | null; 
 /** A skill the composer can invoke with /. */
 export type SkillRef = { id: string; name: string; description: string };
 
-/** What messages highlight as chips: @names, #channels (clickable), /skills. */
-export type TokenNames = { names: string[]; channels: { name: string; id: Id<"chats"> }[]; skills: string[] };
+/** What messages show as chips, each clickable: @names (profile card), #channels (opens it), /skills (opens it). */
+export type TokenNames = { people: Participant[]; channels: { name: string; id: Id<"chats"> }[]; skills: SkillRef[] };
 
 /**
  * Your message shows at once, dimmed, at the end of the chat or thread until the server's list has
@@ -79,9 +79,9 @@ export function useDirectory() {
 		channels,
 		skills,
 		tokens: {
-			names: [...people, ...agents].map((p) => p.name).filter(Boolean),
+			people: [...people, ...agents].filter((p) => p.name),
 			channels: channels.map((c) => ({ name: c.name, id: c.id })),
-			skills: skills.map((s) => s.name),
+			skills,
 		} satisfies TokenNames,
 	};
 }

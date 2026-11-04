@@ -2,7 +2,7 @@
 
 import { lookup as dnsLookup } from "node:dns/promises";
 import type { LookupFunction } from "node:net";
-import { DOCX, FILE_MAX_BYTES, PAGE_CHARS, type WebPage, XLSX, clipPage, sniffDocument } from "@companybot/core";
+import { DOCX, FILE_MAX_BYTES, PAGE_CHARS, type FileType, type SavedFile, type WebPage, XLSX, cleanFileName, clipPage, imageSize, isImageType, sniffDocument, sniffFile } from "@companybot/core";
 import { fileText } from "@companybot/core/file-text";
 import { type FetchedBody, UnsafeUrlError, safeFetch, textOf } from "@companybot/core/safe-fetch";
 import { Readability } from "@mozilla/readability";
@@ -10,6 +10,7 @@ import { v } from "convex/values";
 import { parseHTML } from "linkedom";
 import TurndownService from "turndown";
 import { Agent, fetch } from "undici";
+import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
 
 // web.fetch's network side (and link previews', linkUnfurl.ts). Node, for DNS: safeFetch (core)
@@ -28,12 +29,76 @@ export const fetchPage = internalAction({
 			// Files get the same limit as attachments: a cut-off PDF or spreadsheet can't be read at all.
 			return await pageFrom(await fetchBody(url, { timeoutMs: 15_000, maxBytes: FILE_MAX_BYTES, accept: ACCEPT }));
 		} catch (e) {
-			if (e instanceof UnsafeUrlError) return { error: e.message };
-			if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) return { error: "The page took too long to load." };
-			return { error: `Couldn't load the page: ${reason(e)}` };
+			return failure(e, "page");
 		}
 	},
 });
+
+/** Why a fetch failed, for the model. */
+function failure(e: unknown, what: string) {
+	if (e instanceof UnsafeUrlError) return { error: e.message };
+	if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) return { error: `The ${what} took too long to load.` };
+	return { error: `Couldn't load the ${what}: ${reason(e)}` };
+}
+
+/**
+ * web.save: downloads a file and attaches it to the turn's reply (files.attachToReply), so the agent
+ * can use it by file id. Its type comes from its bytes, as for an upload; anything a message can't take is refused.
+ */
+export const saveFile = internalAction({
+	args: { turnId: v.id("agentTurns"), url: v.string() },
+	handler: async (ctx, { turnId, url }): Promise<SavedFile | { error: string }> => {
+		let body: FetchedBody;
+		try {
+			body = await fetchBody(url, { timeoutMs: 15_000, maxBytes: FILE_MAX_BYTES, accept: "image/png, image/jpeg, image/webp, image/gif, application/pdf, */*;q=0.5" });
+		} catch (e) {
+			return failure(e, "file");
+		}
+		const file = savedFrom(body);
+		if ("error" in file) return file;
+		const { name, type } = file;
+		const storageId = await ctx.storage.store(new Blob([new Uint8Array(body.bytes)], { type }));
+		const attached = await ctx.runMutation(internal.files.attachToReply, { turnId, storageId, name, ...(isImageType(type) && imageSize(body.bytes, type)) });
+		return "error" in attached ? attached : { id: attached.id, name, type };
+	},
+});
+
+/** What web.save keeps of a download: its type by its bytes and a name with a matching extension, or why not. */
+export function savedFrom(body: FetchedBody): { name: string; type: FileType } | { error: string } {
+	if (body.status >= 400) return { error: `The link answered ${body.status}.` };
+	if (body.cut) return { error: `The file is over ${FILE_MAX_BYTES / 1024 / 1024} MB, too large to save.` };
+	const name = fileNameOf(body.url);
+	const type = sniffFile(body.bytes, name);
+	if (!type) return { error: "That's not a file messages take: save a picture (PNG, JPEG, WebP, GIF), PDF, Word, Excel or text file. For a page, read it with web_fetch." };
+	// The extension says what it is: "logo.png" served as WebP is saved as "logo.webp".
+	const ext = extensions[type];
+	const [, base = name, current] = /^(.*)\.([a-z0-9]{2,5})$/i.exec(name) ?? [];
+	const matches = current && (current.toLowerCase() === ext || (ext === "jpg" && current.toLowerCase() === "jpeg") || (ext === "txt" && !isImageType(type)));
+	return { name: matches ? name : `${current && isImageType(type) ? base : name}.${ext}`, type };
+}
+
+const extensions: Record<FileType, string> = {
+	"image/png": "png",
+	"image/jpeg": "jpg",
+	"image/webp": "webp",
+	"image/gif": "gif",
+	"application/pdf": "pdf",
+	[DOCX]: "docx",
+	[XLSX]: "xlsx",
+	"text/plain": "txt",
+	"text/markdown": "md",
+	"text/csv": "csv",
+	"application/json": "json",
+};
+
+/** The last part of a link's path, as a file name ("logo.png"), or "file". */
+function fileNameOf(url: string) {
+	try {
+		return cleanFileName(decodeURIComponent(new URL(url).pathname.split("/").pop() ?? ""));
+	} catch {
+		return "file";
+	}
+}
 
 /** undici's own message ("fetch failed", "terminated") says nothing; the cause says why. */
 function reason(e: unknown): string {
@@ -123,9 +188,41 @@ export function readable(html: string, url: string): { title?: string; markdown:
 		}
 	}
 	const title = document.querySelector("title")?.textContent?.trim() || undefined;
+	// Before Readability, which takes the <head> and most logos out of the document.
+	const pictures = pictureList(document, url);
 	const article = new Readability(document as unknown as Document).parse();
 	const markdown = turndown.turndown(article?.content ?? document.body?.innerHTML ?? "").trim();
-	return { title: article?.title?.trim() || title, markdown, files: fileList(linked, markdown) };
+	return { title: article?.title?.trim() || title, markdown, files: fileList(linked, markdown) + pictures };
+}
+
+/** Pictures listed per page: a logo, icons and the preview image are all anyone saves. */
+const PICTURES_MAX = 8;
+/** Formats web.save takes; SVG and ICO aren't. */
+const SAVABLE_PICTURE = /\.(png|jpe?g|webp|gif)$/i;
+
+/**
+ * "Pictures on this page": its icons (apple-touch-icon first, the usual square logo), pictures named
+ * logo, and its preview image, as links web.save can take. Images are otherwise dropped from the Markdown.
+ */
+function pictureList(document: ReturnType<typeof parseHTML>["document"], url: string) {
+	const found = new Map<string, string>();
+	const add = (raw: string | null | undefined, label: string, savable = true) => {
+		if (!raw || found.size >= PICTURES_MAX) return;
+		try {
+			const href = new URL(raw, url);
+			if ((href.protocol === "https:" || href.protocol === "http:") && savable && !found.has(href.href)) found.set(href.href, label);
+		} catch {}
+	};
+	const typed = (el: Element) => SAVABLE_PICTURE.test(el.getAttribute("href") ?? "") || /^image\/(png|jpeg|webp|gif)$/.test(el.getAttribute("type") ?? "");
+	for (const el of document.querySelectorAll('link[rel~="apple-touch-icon"], link[rel~="apple-touch-icon-precomposed"]')) add(el.getAttribute("href"), "Icon (apple-touch-icon)", typed(el) || !el.getAttribute("type"));
+	for (const el of document.querySelectorAll("img")) {
+		const words = ["src", "alt", "class", "id"].map((a) => el.getAttribute(a) ?? "").join(" ");
+		if (/logo/i.test(words)) add(el.getAttribute("src"), `Logo${el.getAttribute("alt") ? `: ${el.getAttribute("alt")!.replace(/\s+/g, " ").trim().slice(0, 80)}` : ""}`, !/\.svg(\?|$)/i.test(el.getAttribute("src") ?? ""));
+	}
+	for (const el of document.querySelectorAll('link[rel~="icon"]')) add(el.getAttribute("href"), `Icon${el.getAttribute("sizes") ? ` (${el.getAttribute("sizes")})` : ""}`, typed(el));
+	for (const el of document.querySelectorAll('meta[property="og:image"], meta[name="twitter:image"]')) add(el.getAttribute("content"), "Preview image");
+	if (found.size === 0) return "";
+	return `\n\n## Pictures on this page\n${[...found].map(([href, label]) => `- [${label.replace(/[[\]]/g, "")}](${href})`).join("\n")}`;
 }
 
 /** "Files linked on this page" as Markdown links, for the ones not already in `markdown`, within FILES_CHARS. */

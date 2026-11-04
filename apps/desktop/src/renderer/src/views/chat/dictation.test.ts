@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { micError, micOnce, pickMimeType, spaced } from "./dictation";
+import { micOnce, pickMimeType, spaced } from "./dictation";
 
 describe("dictation", () => {
 	it("records in the best format the browser can make", () => {
@@ -14,11 +14,6 @@ describe("dictation", () => {
 		expect(spaced("", "world")).toBe("world");
 		expect(spaced("a\n", "world")).toBe("world");
 		expect(spaced("hello", "  ")).toBe("");
-	});
-
-	it("explains a blocked or missing microphone", () => {
-		expect(micError({ name: "NotAllowedError" })).toMatch(/microphone access/);
-		expect(micError({ name: "NotFoundError" })).toMatch(/No microphone/);
 	});
 
 	describe("asking for the microphone", () => {

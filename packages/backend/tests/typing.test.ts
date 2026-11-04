@@ -89,7 +89,7 @@ describe("typing", () => {
 				yield { type: "tool-result", toolCallId: "c1", toolName: "memory_search", input: { query: "Acme" }, output: [] };
 				await look();
 				yield { type: "start-step" };
-				yield { type: "text-delta", text: "Nothing on Acme yet." };
+				yield { type: "text-delta", text: JSON.stringify({ emoji: null, new_point: "", to: "room", message: "Nothing on Acme yet." }) };
 				await look();
 			})(),
 		});
@@ -122,7 +122,7 @@ describe("typing", () => {
 		expect((await owner.query(api.typing.list, { chatId: board })).agents).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({ name: "Companybot", step: "Searching records for Acme…" }),
-				expect.objectContaining({ name: "Scribe", step: null }),
+				expect.objectContaining({ name: "Scribe", step: "Thinking…" }),
 			]),
 		);
 		expect(await member.query(api.typing.list, { chatId: board })).toEqual({ people: [], agents: [] });

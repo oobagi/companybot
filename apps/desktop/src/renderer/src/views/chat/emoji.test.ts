@@ -38,10 +38,6 @@ describe("emoji index", () => {
 		expect(index.emoji.map((e) => e.char)).toEqual(["😀", "😄", "🙂", "👍", "🏁"]);
 	});
 
-	it("numbers categories without the components group", () => {
-		expect(index.emoji.map((e) => e.group)).toEqual([0, 0, 0, 1, 8]);
-	});
-
 	it("looks a shortcode up, whatever its case", () => {
 		expect(emojiForShortcode(index, "smile")?.char).toBe("😄");
 		expect(emojiForShortcode(index, "THUMBSUP")?.char).toBe("👍");

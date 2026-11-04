@@ -79,7 +79,7 @@ describe("approvals", () => {
 		const resume = (await turnsOf(t)).at(-1)!;
 		await member.mutation(api.trash.move, { kind: "channel", id: chatId });
 		expect(await t.mutation(internal.approvals.claim, { approvalId, turnId: resume._id })).toBeNull();
-		await expect(t.query(internal.turns.turnContext, { turnId: resume._id })).rejects.toThrow("no longer see this chat");
+		await expect(t.mutation(internal.turns.turnContext, { turnId: resume._id })).rejects.toThrow("no longer see this chat");
 		await expect(t.mutation(internal.approvals.request, { turnId: resume._id, callId: "late", tool: call.tool, input: canonicalJson(call.input), risk: "outside" })).rejects.toThrow("no longer see this chat");
 	});
 
@@ -131,7 +131,7 @@ describe("approvals", () => {
 		const next = (await turnsOf(t))[1]!;
 		expect(next).toMatchObject({ status: "running", approvalId, triggerId: turn.triggerId });
 
-		const context = await t.query(internal.turns.turnContext, { turnId: next._id });
+		const context = await t.mutation(internal.turns.turnContext, { turnId: next._id });
 		expect(context.approval).toMatchObject({ id: approvalId, tool: call.tool, status: "approved", by: "member@co.com" });
 		// The held call replays the same way whatever happens to it (prompt caching), and no message is re-asked.
 		expect(context.session.turns.at(-1)?.reply).toBe("[Held for approval: crm.send_sms]");
@@ -166,8 +166,8 @@ describe("approvals", () => {
 		await inWorkspace(member, acme).mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true, always: false });
 		const next = (await turnsOf(t)).at(-1)!;
 		expect(next).toMatchObject({ status: "running", approvalId, workspaceId: acme });
-		const context = await t.query(internal.turns.turnContext, { turnId: next._id });
-		expect(context.member).toMatchObject({ userId, workspaceId: acme, role: "member" });
+		const context = await t.mutation(internal.turns.turnContext, { turnId: next._id });
+		expect(context.member).toMatchObject({ userId, workspaceId: acme, owner: false });
 		expect(await t.query(internal.connectors.forTurn, { userId, workspaceId: context.member.workspaceId, connectorIds: ["crm"] })).toHaveLength(1);
 		expect(await t.mutation(internal.approvals.claim, { approvalId, turnId: next._id })).toEqual(call);
 		expect(turn.workspaceId).toBe(acme);
@@ -208,7 +208,7 @@ describe("approvals", () => {
 		await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: false, always: false });
 		const next = (await turnsOf(t)).at(-1)!;
 		expect(next).toMatchObject({ status: "running", approvalId });
-		expect((await t.query(internal.turns.turnContext, { turnId: next._id })).approval?.status).toBe("denied");
+		expect((await t.mutation(internal.turns.turnContext, { turnId: next._id })).approval?.status).toBe("denied");
 		expect(await t.mutation(internal.approvals.claim, { approvalId, turnId: next._id })).toBeNull();
 	});
 });

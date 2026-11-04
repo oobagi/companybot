@@ -1,7 +1,10 @@
+import { TOPIC_MAX } from "./chat";
 import { z } from "zod";
 import { reasonings } from "./agent-config";
 import { cronHelp } from "./automation-tools";
 import { CUSTOM_NAME_MAX, CUSTOM_PROMPT_MAX } from "./automations";
+import { FILES_PER_MESSAGE } from "./files";
+import { pictureLimits } from "./images";
 import { replyModes } from "./router";
 import { SKILL_DESCRIPTION_MAX, SKILL_INSTRUCTIONS_MAX, SKILL_NAME_MAX } from "./skills";
 import { defineTool, type ToolDef } from "./tools";
@@ -12,6 +15,10 @@ const userIds = ids.describe("User ids from find_people");
 const agentIds = ids.describe("Agent ids from find_people with kind \"agents\"");
 const version = z.number().int().describe("version from get; a stale one is refused");
 const page = { cursor: z.string().optional() };
+/** A file on a chat message, as agents name it. Copied when used, so the message can go and the copy stays. */
+const fileRef = z.string().min(1).describe('A file id from the chat ("<message id>/<n>"): one someone attached, or one you made or saved this reply');
+/** A picture to use, or null to go back to initials. */
+const pictureRef = fileRef.nullable().describe(`A picture's file id from the chat ("<message id>/<n>"), ${pictureLimits}; null goes back to initials`);
 const skillConfig = z.object({ name: z.string().max(SKILL_NAME_MAX), description: z.string().max(SKILL_DESCRIPTION_MAX), instructions: z.string().max(SKILL_INSTRUCTIONS_MAX) });
 const trigger = z.union([
 	z.object({ type: z.literal("schedule"), cron: z.string().describe(cronHelp) }),
@@ -28,14 +35,14 @@ export const manageInputs = {
 			z.strictObject({ action: z.literal("mark_read"), chat: id }),
 			z.strictObject({ action: z.literal("edit"), messageId: id, text: z.string().min(1).max(20_000) }),
 			z.strictObject({ action: z.literal("delete"), messageId: id }),
-			z.strictObject({ action: z.literal("react"), messageId: id, emoji: z.string().min(1).max(16) }),
 			z.strictObject({ action: z.literal("hide_preview"), messageId: id, url: z.string().min(1).max(2048).describe("The link whose preview card to take down") }),
 			z.strictObject({ action: z.literal("open_dm"), userIds: userIds.describe("Others in the DM; your person is always added. With nobody else, it's your own DM with them"), agentIds }),
 			z.strictObject({
 				action: z.literal("send"),
 				chat: id.describe("Chat id or #channel, this one too: \"post X here for me\" is a send here, since your reply would be from you, not them"),
 				threadId: id.optional().describe("Top-level message id, to reply in its thread"),
-				text: z.string().min(1).max(20_000),
+				text: z.string().max(20_000).optional().describe("Can be left out when sending files"),
+				files: z.array(fileRef).min(1).max(FILES_PER_MESSAGE).optional().describe("Files from the chat to attach, by file id; each is copied"),
 				userIds: userIds.optional().describe("People to @mention"),
 				agentIds: agentIds.optional().describe("Agents to @mention; they don't reply"),
 			}),
@@ -45,10 +52,10 @@ export const manageInputs = {
 		request: z.discriminatedUnion("action", [
 			z.strictObject({ action: z.literal("list"), ...page }),
 			z.strictObject({ action: z.literal("get"), chat: id, ...page }),
-			z.strictObject({ action: z.literal("create"), name: z.string().min(1).max(80), topic: z.string().max(2000).optional(), private: z.boolean() }),
+			z.strictObject({ action: z.literal("create"), name: z.string().min(1).max(80), topic: z.string().max(TOPIC_MAX).optional().describe(`At most ${TOPIC_MAX} characters`), private: z.boolean() }),
 			z.strictObject({ action: z.literal("rename"), chat: id, name: z.string().min(1).max(80) }),
-			z.strictObject({ action: z.literal("set_topic"), chat: id, topic: z.string().max(2000) }),
-			z.strictObject({ action: z.literal("set_replies"), chat: id, replies: z.enum(replyModes).describe('"mentions": agents answer only @mentions. "relevant": they also answer, or react to, messages that look meant for them') }),
+			z.strictObject({ action: z.literal("set_topic"), chat: id, topic: z.string().max(TOPIC_MAX).describe(`At most ${TOPIC_MAX} characters; empty clears it`) }),
+			z.strictObject({ action: z.literal("set_replies"), chat: id, replies: z.enum(replyModes).describe('"mentions": agents answer only @mentions. "relevant": they also answer messages that look meant for them') }),
 			z.strictObject({ action: z.literal("add_members"), chat: id, userIds, agentIds }),
 			z
 				.strictObject({ action: z.literal("remove_member"), chat: id, userId: id.optional(), agentId: id.optional() })
@@ -103,7 +110,7 @@ export const manageInputs = {
 			z.strictObject({ action: z.literal("history"), id, ...page }),
 			z.strictObject({ action: z.literal("create") }),
 			z.strictObject({ action: z.literal("delete"), id }),
-			z.strictObject({ action: z.literal("remove_image"), id }),
+			z.strictObject({ action: z.literal("set_image"), id, file: pictureRef }),
 			z.strictObject({ action: z.literal("update"), id, expectedVersion: version, name: z.string().optional(), description: z.string().optional(), instructions: z.string().optional(), model: z.string().optional(), reasoning: z.enum(reasonings).optional().describe("How hard it thinks before answering; more is slower and costs more") }),
 		]),
 	}),
@@ -112,7 +119,7 @@ export const manageInputs = {
 			z.strictObject({ action: z.literal("get") }),
 			z.strictObject({ action: z.literal("get_preferences") }),
 			z.strictObject({ action: z.literal("usage"), month: z.string().optional().describe("Like 2026-10; this month if left out") }),
-			z.strictObject({ action: z.literal("remove_image"), of: z.enum(["workspace", "me"]).describe("The workspace's logo (owners), or the person's own photo") }),
+			z.strictObject({ action: z.literal("set_image"), of: z.enum(["workspace", "me"]).describe("The workspace's logo (settings switch), or the person's own photo"), file: pictureRef }),
 			z.strictObject({ action: z.literal("update_preferences"), displayName: z.string().max(60).optional(), sendWith: z.enum(["enter", "mod-enter"]).optional(), notify: z.enum(["all", "mentions", "off"]).optional(), timeZone: z.string().nullable().optional() }),
 			z.strictObject({
 				action: z.literal("update"),
@@ -128,22 +135,30 @@ export const manageInputs = {
 	}),
 };
 export type ManageTool = keyof typeof manageInputs;
+
+/** The chat files a call uses, by file id, which the backend copies before running it; `picture` if they become a picture. */
+export function manageFiles(tool: string, input: unknown): { ids: string[]; picture: boolean } | null {
+	const r = tool in manageInputs ? (manageInputs[tool as ManageTool].safeParse(input).data?.request as { action: string; file?: string | null; files?: string[] } | undefined) : undefined;
+	if (r?.action === "set_image" && r.file) return { ids: [r.file], picture: true };
+	if (r?.action === "send" && r.files) return { ids: r.files, picture: false };
+	return null;
+}
 export interface ManageStore {
 	run(tool: ManageTool, input: unknown): Promise<unknown>;
 }
 /** Each tool's title and description. */
 const about: Record<ManageTool, { title: string; description: string }> = {
-	"chat.manage": { title: "Manage messages and DMs", description: "Find people (paged directory, including agent ids), list your chats, open a DM with exact participant ids, post a message for your person in a chat or thread (this one too: when they ask you to post something for them, send it here rather than writing it as your reply, which is from you), edit your person's own messages, delete them with locked approval, react to an exact message, hide the link preview card on your person's own message, or explicitly mark a chat read when asked. Sent as you for the person (\"Companybot, for Dana\"); to your person alone (your DM with them) it's simply from you. Never triggers agents or automations. Only send when asked; do not copy private information to a wider audience without their request." },
-	"channels.manage": { title: "Manage channels", description: "Browse public channels, inspect a visible channel and paged participants, create, rename, set/clear topic, set when agents reply (mentions only or when relevant), add/remove members, join or leave. Use chat ids or #names. Managers remove members; everyone stays in general. Delete moves a channel to Archive and waits for approval; only its creator or an owner can do it. Restore by its exact id as the deleter or an owner. Never deletes forever." },
+	"chat.manage": { title: "Manage messages and DMs", description: "Find people (paged directory, including agent ids), list your chats, open a DM with exact participant ids, post a message (and files from the chat, by file id) for your person in a chat or thread (this one too: when they ask you to post something for them, send it here rather than writing it as your reply, which is from you), edit your person's own messages, delete them with locked approval, hide the link preview card on your person's own message, or explicitly mark a chat read when asked. Sent as you for the person (\"Companybot, for Dana\"); to your person alone (your DM with them) it's simply from you. Never triggers agents or automations. Only send when asked; do not copy private information to a wider audience without their request." },
+	"channels.manage": { title: "Manage channels", description: "Browse public channels, inspect a visible channel and paged participants, create, rename, set/clear topic, set when agents reply (mentions only or when relevant), add/remove members, join or leave. Use chat ids or #names. Creating, changing, removing members, deleting and restoring take the person's channel switch; everyone stays in general. Delete moves a channel to Archive and waits for approval. Restore by its exact id. Never deletes forever." },
 	"automations.manage": { title: "Manage automations", description: "List or inspect visible automations (prompt, version, agent, state), edit custom config using its current expectedVersion, pause/resume globally, change agent/audience, or run a sample once just for the person. Runs cannot start other runs. Confirm changes first. Resuming grants no consent: future outside actions still ask. Webhook secrets are omitted." },
-	"automations.remove": { title: "Archive an automation", description: "Move an automation to Archive, including retained library installs. It stops running; opt-ins and grants stay for restoration. The maker or an owner can restore custom automations; owners restore retained library installs. The exact call waits for approval." },
+	"automations.remove": { title: "Archive an automation", description: "Move an automation to Archive, including retained library installs. It stops running; opt-ins and grants stay for restoration. Whoever can change it can restore it. The exact call waits for approval." },
 	"skills.manage": { title: "Manage skills", description: "List workspace skills and read their full instructions and current version. Editing is a separate tool that asks first." },
 	"skills.edit": { title: "Edit a skill", description: "Edit a custom skill's name, description and instructions, using its current expectedVersion from skills_manage get. Every agent here follows skills, so the exact call waits for approval. Confirm the exact instructions with the person first." },
-	"skills.remove": { title: "Archive a skill", description: "Move a skill to Archive, including retained library installs. Agents stop seeing it; the maker or an owner can restore custom skills, and owners restore retained library installs. The exact call waits for approval." },
-	"members.invite": { title: "Manage member invitations", description: "Invite an email as a member, or resend or cancel the invitation for an email (owners). Invite and resend send email outside the workspace and wait for approval. Cannot invite owners or change roles." },
-	"members.remove": { title: "Remove a member", description: "Remove another member by their email (owners). Deletes their personal workspace data and access. The exact call waits for approval; cannot remove yourself." },
-	"agents.manage": { title: "Manage agents", description: "Browse agents and their paged configuration history, create an agent with no tools, edit metadata, reset its picture to initials, or delete an agent (to Archive; the last agent stays). Writes require an owner. Deleting and changing another agent's instructions, model or reasoning wait for approval; do them only when asked; you cannot change your own instructions/model/reasoning, grant tools, restore grants or restore an agent from Archive. Use the current expectedVersion. models lists the AI Gateway models an agent can run on (id, context, $ per M input/output tokens); use one of those ids." },
-	"workspace.settings": { title: "Manage workspace settings", description: "Read/update the acting person's display name, reset their photo or (owners) the workspace logo to initials, send shortcut, notification preference and explicit time zone (null = automatic). Device time zone is measured by the device. Read workspace name, default currency, memory switch, picture model, monthly image budget (USD; 0 = pictures off; owners also see this month's image spend; imageModels lists the ids to pick from), threadHours (how long a thread stays in the sidebar after its last reply) and version; update these as an owner using the current expectedVersion. Existing amounts keep their currency; the default only affects new amounts. Memory off keeps stored memories. Change only when asked. usage: what AI cost in a month, in USD: the whole workspace's by agent, person, kind and model for owners, otherwise only the person's own." },
+	"skills.remove": { title: "Archive a skill", description: "Move a skill to Archive, including retained library installs. Agents stop seeing it; only the maker can restore a personal skill; team skills need the skills edit switch. The exact call waits for approval." },
+	"members.invite": { title: "Manage member invitations", description: "Invite an email with the default role, or resend or cancel the invitation for an email (needs the members switch). Invite and resend send email outside the workspace and wait for approval. Cannot invite owners or change roles." },
+	"members.remove": { title: "Remove a member", description: "Remove another member by their email (needs the members switch; only owners remove an owner). Deletes their personal workspace data and access. The exact call waits for approval; cannot remove yourself." },
+	"agents.manage": { title: "Manage agents", description: "Browse agents and their paged configuration history, create an agent with no tools, edit metadata, set its picture from a picture in the chat (by file id) or reset it to initials, or delete an agent (to Archive; the last agent stays). Writes need the agents switch. Deleting and changing another agent's instructions, model or reasoning wait for approval; do them only when asked; you cannot change your own instructions/model/reasoning, grant tools, restore grants or restore an agent from Archive. Use the current expectedVersion. models lists the AI Gateway models an agent can run on (id, context, $ per M input/output tokens); use one of those ids." },
+	"workspace.settings": { title: "Manage workspace settings", description: "Read/update the acting person's display name, set their photo or (with the settings switch) the workspace logo from a picture in the chat (by file id), or reset it to initials, send shortcut, notification preference and explicit time zone (null = automatic). Device time zone is measured by the device. Read workspace name, default currency, memory switch, picture model, monthly image budget (USD; 0 = pictures off; people who see workspace usage also see this month's image spend; imageModels lists the ids to pick from), threadHours (how long a thread stays in the sidebar after its last reply) and version; update these with the settings switch, using the current expectedVersion. Existing amounts keep their currency; the default only affects new amounts. Memory off keeps stored memories. Change only when asked. usage: what AI cost in a month, in USD: the whole workspace's by agent, person, kind and model for people who see workspace usage, otherwise only the person's own." },
 };
 /** What a call does to whom, for its card and tool line: "Remove ben@acme.com from the workspace", "Post in #sales". */
 function manageLabel(input: unknown): string | undefined {
@@ -162,6 +177,8 @@ function manageLabel(input: unknown): string | undefined {
 			return `Remove ${at("email")} from the workspace`;
 		case "send":
 			return `Post in ${chat}`;
+		case "set_image":
+			return r.file === null ? (r.of === "workspace" ? "Remove the workspace logo" : "Reset a picture to initials") : r.of === "workspace" ? "Set the workspace logo" : r.of === "me" ? "Set your photo" : "Set an agent's picture";
 		case "remove_member":
 			return `Remove someone from ${chat}`;
 		case "add_members":

@@ -1,21 +1,29 @@
 import { actionLabel, toolLine } from "@companybot/core/action-words";
 import { splitLinks } from "@companybot/core/link-preview";
-import { routerDecisionModels } from "@companybot/core/router";
-import { Fragment, useRef, useState } from "react";
+import { routerActions, routerDecisionModels } from "@companybot/core/router";
+import { Fragment, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { Markdown } from "../../markdown";
 import { Notice, timeAgo, useTip } from "../../ui";
 import { WidgetView } from "../../widgets";
 import { CallDetails } from "../Activity";
-import { ApprovalMessages } from "./Approval";
+import { HeldCall } from "./Approval";
 import { AutomationIcon, EditIcon, MoreIcon, ReactIcon, ReplyIcon, TrashIcon } from "../../icons";
-import { AgentBadge, Avatar, AvatarStack, EmojiPicker, IconButton, MenuItem, PairAvatar, Popover, PopoverPanel, clock, useConfirm, useDismiss } from "./common";
+import { AgentBadge, Avatar, AvatarStack, EmojiPicker, IconButton, MenuItem, PairAvatar, Popover, clock, iconButton, useConfirm } from "./common";
 import type { Message, TokenNames } from "./data";
 import { navigate } from "../../router";
 import { ProfileLink } from "./Profile";
 import { MessageFiles } from "./Attachments";
 import { LinkPreviews } from "./LinkPreviews";
+import { TokenChip } from "./TokenChip";
+import { splitTokens } from "./tokens";
+
+/**
+ * Whether a row draws anything yet. A reply shows whole once it's written; meanwhile the line under
+ * the composer says what the agent is doing. A card asking permission shows at once, since the reply waits on it.
+ */
+export const shows = (m: Message) => m.status !== "streaming" || (!m.deleted && m.parts.some((p) => p.type === "approval"));
 
 export function MessageRow({
 	message: row,
@@ -41,24 +49,16 @@ export function MessageRow({
 	const message = live ? { ...row, ...live } : row;
 	const react = useMutation(api.messages.react);
 	const remove = useMutation(api.messages.remove);
-	const [picker, setPicker] = useState(false);
+	const share = useMutation(api.messages.share);
 	const [editing, setEditing] = useState(false);
-	// The ⋯ menu, then what it opened in its place.
-	const [more, setMore] = useState<{ at: DOMRect; view: "menu" | "reactions" }>();
-	const moreButton = useRef<HTMLSpanElement>(null);
-	const toolbar = useDismiss<HTMLDivElement>(() => setPicker(false), picker);
 	const { confirm, dialog } = useConfirm();
 	const isAgent = message.author.type === "agent";
 	const sending = message.sending;
 	const toggle = (emoji: string) => react({ messageId: message._id, emoji }).catch(onError);
 
-	const held = isAgent && !message.deleted ? message.parts.filter((p) => p.type === "approval") : [];
-
-	// A reply shows whole once it's written; meanwhile the line under the composer says what the agent is
-	// doing. A card asking permission shows at once, since the reply waits on it.
-	if (message.status === "streaming" && held.length === 0) return null;
+	if (message.privacy?.hidden) return <p id={`message-${message._id}`} className="px-5 py-2 text-sm text-neutral-500 italic">🔒 {message.privacy.label}</p>;
+	if (!shows(message)) return null;
 	if (message.pause && !message.deleted) return <PausedLine message={message} pause={message.pause} onError={onError} />;
-	if (held.length > 0 && held.length === message.parts.length && !message.text) return <ApprovalMessages message={message} parts={held} />;
 
 	return (
 		<>
@@ -109,6 +109,12 @@ export function MessageRow({
 							<span className="text-xs text-neutral-400 tabular-nums">{clock(message._creationTime)}</span>
 						</div>
 					)}
+					{message.privacy && (
+						<div className="flex items-center gap-3 text-xs text-neutral-500">
+							<span title={message.privacy.why ?? undefined} className="italic">{message.privacy.sharedBy ? "" : "🔒 "}{message.privacy.label}</span>
+							{message.privacy.share && message.status !== "streaming" && <button type="button" className="hover:underline" onClick={() => confirm({ title: message.privacy!.share!, action: "Share to channel", onConfirm: () => share({ messageId: message._id }) })}>Share to channel</button>}
+						</div>
+					)}
 					{message.deleted ? (
 						<p className="text-neutral-400 italic">This message was deleted.</p>
 					) : editing ? (
@@ -116,7 +122,7 @@ export function MessageRow({
 					) : message.automation ? (
 						<AutomationPrompt prompt={message.text} />
 					) : isAgent ? (
-						<AgentBody message={message} />
+						<AgentBody message={message} tokens={tokens} />
 					) : (
 						(message.text || message.editedAt) && (
 							<p className="leading-relaxed break-words whitespace-pre-wrap">
@@ -148,15 +154,11 @@ export function MessageRow({
 					) : null}
 				</div>
 				{!message.deleted && !editing && !sending && !readOnly && (
-					<div
-						ref={toolbar}
-						className={`absolute -top-3 right-5 z-10 items-center rounded-lg border border-neutral-200 bg-white p-0.5 shadow-sm ${
-							picker || more ? "flex" : "hidden group-hover:flex"
-						}`}
-					>
-						<IconButton label="Add reaction" onClick={() => setPicker(!picker)}>
-							<ReactIcon />
-						</IconButton>
+					// Stays while one of its popovers is open.
+					<div className="absolute -top-3 right-5 z-10 hidden items-center rounded-lg border border-neutral-200 bg-white p-0.5 shadow-sm group-hover:flex has-[[aria-expanded=true]]:flex">
+						<Popover trigger={<ReactIcon />} label="Add reaction" className={iconButton} panelClassName="w-auto p-1">
+							{(close) => <EmojiPicker onPick={(emoji) => (close(), toggle(emoji))} />}
+						</Popover>
 						{onOpenThread && (
 							<IconButton label="Reply in thread" onClick={onOpenThread}>
 								<ReplyIcon />
@@ -176,32 +178,13 @@ export function MessageRow({
 							</>
 						)}
 						{message.reactions.length > 0 && (
-							<span ref={moreButton} className="flex">
-								<IconButton
-									label="More"
-									onClick={() => setMore(more ? undefined : { at: moreButton.current!.getBoundingClientRect(), view: "menu" })}
-								>
-									<MoreIcon weight="bold" />
-								</IconButton>
-							</span>
+							<Popover trigger={<MoreIcon weight="bold" />} label="More" className={iconButton} panelClassName="w-auto p-1">
+								<MoreMenu reactions={message.reactions} />
+							</Popover>
 						)}
-						{more && (
-							<PopoverPanel anchor={more.at} ignore={moreButton} className={more.view === "menu" ? "w-52 p-1" : "w-64 p-1"} onClose={() => setMore(undefined)}>
-								{more.view === "menu" ? (
-									<MenuItem onClick={() => setMore({ ...more, view: "reactions" })}>
-										<ReactIcon /> Reactions
-									</MenuItem>
-								) : (
-									<ReactionList reactions={message.reactions} />
-								)}
-							</PopoverPanel>
-						)}
-						{picker && <EmojiPicker className="absolute top-full right-0 mt-1" onPick={toggle} onClose={() => setPicker(false)} />}
 					</div>
 				)}
 			</div>
-			{/* Calls held for permission read as their own messages from the agent, after its reply. */}
-			{held.length > 0 && <ApprovalMessages message={message} parts={held} />}
 			{dialog}
 		</>
 	);
@@ -249,6 +232,22 @@ function Reactions({ reactions, onToggle }: { reactions: Reaction[]; onToggle?: 
 	);
 }
 
+/** The ⋯ menu, then what it opened in its place. */
+function MoreMenu({ reactions }: { reactions: Reaction[] }) {
+	const [view, setView] = useState<"menu" | "reactions">("menu");
+	return view === "menu" ? (
+		<div className="w-52">
+			<MenuItem onClick={() => setView("reactions")}>
+				<ReactIcon /> Reactions
+			</MenuItem>
+		</div>
+	) : (
+		<div className="w-64">
+			<ReactionList reactions={reactions} />
+		</div>
+	);
+}
+
 /** Everyone who reacted, under each emoji. */
 function ReactionList({ reactions }: { reactions: Reaction[] }) {
 	return (
@@ -272,44 +271,17 @@ function ReactionList({ reactions }: { reactions: Reaction[] }) {
 	);
 }
 
-const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const alternation = (names: string[]) => [...names].sort((a, b) => b.length - a.length).map(escape).join("|");
-
-/** `@Ada`, `#sales` (opens the channel) and `/Proposal` as chips, like in the composer. */
-/** A person's message: its links open in the browser; @names, #channels and /skills stand out. */
+/** A person's message: its links open in the browser; @names, #channels and /skills are chips, like in the composer. */
 function TokenText({ text, tokens }: { text: string; tokens: TokenNames }) {
 	return splitLinks(text).map((part, i) =>
 		typeof part === "string" ? (
-			<Tokens key={i} text={part} tokens={tokens} />
+			splitTokens(part, tokens).map((t, j) => (typeof t === "string" ? <Fragment key={`${i}.${j}`}>{t}</Fragment> : <TokenChip key={`${i}.${j}`} token={t} />))
 		) : (
 			<a key={i} href={part.url} target="_blank" rel="noreferrer noopener" className="wrap-anywhere text-link hover:underline">
 				{part.url}
 			</a>
 		),
 	);
-}
-
-function Tokens({ text, tokens }: { text: string; tokens: TokenNames }) {
-	const parts = [
-		tokens.names.length > 0 && `@(?:${alternation(tokens.names)})(?!\\w)`,
-		tokens.channels.length > 0 && `#(?:${alternation(tokens.channels.map((c) => c.name))})(?![\\w-])`,
-		tokens.skills.length > 0 && `\\/(?:${alternation(tokens.skills)})(?!\\w)`,
-	].filter(Boolean);
-	if (parts.length === 0) return text;
-	const pattern = new RegExp(`(${parts.join("|")})`, "g");
-	return text.split(pattern).map((chunk, i) => {
-		if (i % 2 === 0) return <Fragment key={i}>{chunk}</Fragment>;
-		const channel = chunk.startsWith("#") ? tokens.channels.find((c) => c.name === chunk.slice(1)) : undefined;
-		return channel ? (
-			<button type="button" key={i} onClick={() => navigate("chat", channel.id)} className="token hover:underline">
-				{chunk}
-			</button>
-		) : (
-			<span key={i} className="token">
-				{chunk}
-			</span>
-		);
-	});
 }
 
 function EditForm({ message, onDone, onError }: { message: Message; onDone: () => void; onError: (e: unknown) => void }) {
@@ -348,7 +320,7 @@ function EditForm({ message, onDone, onError }: { message: Message; onDone: () =
 	);
 }
 
-function AgentBody({ message }: { message: Message }) {
+function AgentBody({ message, tokens }: { message: Message; tokens: TokenNames }) {
 	const streaming = message.status === "streaming";
 	const lastText = message.parts.findLastIndex((p) => p.type === "text");
 	return (
@@ -364,11 +336,13 @@ function AgentBody({ message }: { message: Message }) {
 							))}
 						</div>
 					) : run.part.type === "text" ? (
-						<Markdown key={run.i} className="leading-relaxed" isAnimating={streaming && run.i === lastText}>
+						<Markdown key={run.i} tokens={tokens} className="leading-relaxed" isAnimating={streaming && run.i === lastText}>
 							{run.part.text}
 						</Markdown>
 					) : run.part.type === "widget" ? (
 						<WidgetView key={run.part.id} widget={run.part.widget} />
+					) : run.part.type === "approval" ? (
+						<HeldCall key={run.part.id} replyId={message._id} part={run.part} />
 					) : null,
 				)}
 				{message.status === "error" && <Notice>{message.error ?? "Something went wrong."}</Notice>}
@@ -488,9 +462,9 @@ const usd = (n: number) => `$${n.toFixed(n < 0.01 ? 4 : n < 1 ? 3 : 2)}`;
 /** A dispatcher call costs a few hundredths of a cent. */
 const tinyUsd = (n: number) => (n < 0.001 ? `$${n.toFixed(5)}` : usd(n));
 const percent = (p: number) => `${Math.round(p * 100)}%`;
-/** Jev's chance of each choice ("84% reply · 1% react · 15% quiet"); a hop's, of going next; none from a language model. */
+/** Jev's chance of each choice ("84% reply · 16% quiet"); a hop's, of going next; none from a language model. */
 function confidence({ probability, probabilities }: NonNullable<Stats["dispatch"]>) {
-	if (probabilities) return ["reply", "react", "quiet"].filter((c) => probabilities[c] !== undefined).map((c) => `${percent(probabilities[c]!)} ${c}`).join(" · ");
+	if (probabilities) return routerActions.filter((c) => probabilities[c] !== undefined).map((c) => `${percent(probabilities[c]!)} ${c}`).join(" · ");
 	return probability !== undefined ? `${percent(probability)} go next` : "—";
 }
 /** "Jev" for TypeSafe's decision model, else the model's short id. */

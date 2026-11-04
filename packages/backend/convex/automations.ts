@@ -2,18 +2,19 @@ import {
 	type Automation,
 	type AutomationAudience,
 	type CustomAutomationConfig,
-	canEditMade,
+	canEditAutomation,
 	customAutomationError,
 	describeTrigger,
 	isValidTimeZone,
 	legacyFields,
-	madeEditDenied,
 	normalizeCustomAutomation,
 } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
+import { automationName, canView, definitionOf, installOf, outcomeText, postingProblem, privateTo, requireEditable, runsForLabel, seenChannel, shownTrigger, subscribersOf, visibleInstalls, webhookUrl } from "./automationOps";
+import { startCascade } from "./cascade";
 import { canSee } from "./chatOps";
 import {
 	type Member,
@@ -29,16 +30,15 @@ import {
 	requireMember,
 	saveMade,
 } from "./lib";
-import { automationName, canView, definitionOf, installOf, postingProblem, requireEditable, runsForLabel, subscribersOf, visibleInstalls, webhookUrl } from "./automationOps";
 import { forgetAutomationGrants } from "./permissions";
-import { startCascade } from "./cascade";
+import { writeSources } from "./replySources";
 import { audience, customTrigger } from "./schema";
 import { toggleTrash, trashInfo } from "./trashOps";
 
 // An automation is a trigger (schedule, webhook, or something happening in the app), a
 // prompt, an agent, and who it runs for (`AutomationAudience`): just its creator, each
 // person who turned it on, or one channel. Each run posts the prompt as the person it
-// runs for (or, in a channel, as its creator or an owner) and queues the agent's reply,
+// runs for (or, in a channel, as whoever set it up, falling back to an owner) and queues the agent's reply,
 // so the reply uses their permissions and connector accounts (wiki/chat.md).
 //
 // Anyone can make their own (`custom`, id "custom-…"). Retired library installs
@@ -55,15 +55,16 @@ export const list = query({
 		const installs = await visibleInstalls(ctx, member, true);
 		const rows = (await Promise.all(installs
 			.sort((a, b) => b._creationTime - a._creationTime)
-			.map(async (install) => ({ automation: await definitionOf(ctx, install), install }))))
+			.map(async (install) => ({ automation: await definitionOf(ctx, install, member), install }))))
 			.filter((row): row is { automation: Automation; install: Doc<"automationInstalls"> } => !!row.automation);
 		return Promise.all(
 			rows.map(async ({ automation, install }) => {
 				const agent = await ctx.db.get(install.agentId);
-				const channel = (install.channelId && (await ctx.db.get(install.channelId))) || null;
+				// Where it posts, if they can see it: one they can't see goes unnamed, without its id.
+				const channel = await seenChannel(ctx, member, install.channelId);
 				const scheduled = automation.trigger.type === "schedule";
 				const audience = install.audience;
-				const canEdit = canEditMade(member, "automations.manage", install.custom ? install.installedBy : undefined);
+				const canEdit = canEditAutomation(member, privateTo(install));
 				const subscribers = await subscribersOf(ctx, install._id);
 				const creatorName = await nameOf(ctx, install.installedBy);
 				return {
@@ -84,7 +85,7 @@ export const list = query({
 								name: automationName(install),
 								prompt: install.custom.prompt,
 								// COMPAT(0.1.0-alpha.10): alpha.9 apps edit a schedule as one time and days; send just the cron.
-								trigger: compatTrigger(normalizeCustomAutomation(install.custom).trigger),
+								trigger: compatTrigger(await shownTrigger(ctx, member, normalizeCustomAutomation(install.custom).trigger)),
 								version: install.custom.version,
 								updatedByName: await nameOf(ctx, install.custom.updatedBy),
 								updatedAt: install.custom.updatedAt,
@@ -101,14 +102,15 @@ export const list = query({
 					agentId: install.agentId,
 					agentName: agent?.name ?? null,
 					agentArchived: agent?.archived ?? false,
-					channelId: install.channelId ?? null,
+					channelId: channel?._id ?? null,
 					channelName: channel?.name ?? null,
 					channelArchived: channel?.archived ?? false,
 					/** Secret: only for people who can change it. */
 					webhookUrl: canEdit && install.webhookToken ? webhookUrl(install.webhookToken) : null,
 					timeZone: install.timeZone,
 					lastRunAt: install.lastRunAt ?? null,
-					lastResult: install.lastResult ?? null,
+					/** The last run's line, its channels named only if you can see them. */
+					lastResult: install.lastOutcome ? await outcomeText(ctx, install.lastOutcome, member) : null,
 					/** Set while it's in Archive. */
 					trash: install.archived ? await trashInfo(ctx, member, install._id) : null,
 				};
@@ -127,7 +129,7 @@ async function requireVisibleChannel(ctx: QueryCtx, member: Member, channelId: I
 
 /**
  * Checks an automation someone wrote, including that they can see any channel its trigger
- * watches. A channel it already watched (`before`) isn't re-checked, so an owner who isn't
+ * watches. A channel it already watched (`before`) isn't re-checked, so someone with automations.edit who isn't
  * in it can still rename it.
  */
 async function checkConfig(ctx: QueryCtx, member: Member, config: CustomAutomationConfig, before?: CustomAutomationConfig["trigger"]) {
@@ -142,9 +144,9 @@ async function checkConfig(ctx: QueryCtx, member: Member, config: CustomAutomati
 	}
 }
 
-async function checkPosting(ctx: QueryCtx, trigger: CustomAutomationConfig["trigger"] | undefined, destination?: Id<"chats">) {
+async function checkPosting(ctx: QueryCtx, member: Member, trigger: CustomAutomationConfig["trigger"] | undefined, destination?: Id<"chats">) {
 	const problem = destination && (await postingProblem(ctx, trigger, destination));
-	if (problem) throw new ConvexError(problem);
+	if (problem) throw new ConvexError(await outcomeText(ctx, problem, member));
 }
 
 /** A schedule with the time and days alpha.9 apps' editor reads. */
@@ -155,7 +157,7 @@ const customConfig = v.object({ name: v.string(), prompt: v.string(), trigger: c
 const audienceArgs = { audience, channelId: v.optional(v.id("chats")) };
 
 /**
- * Makes an automation someone wrote. Anyone with `automations.create` can; it starts
+ * Makes an automation someone wrote. Anyone can make a personal one; team ones need `automations.edit`. It starts
  * with them subscribed if it's for people who turn it on. Returns its id.
  */
 export const create = mutation({
@@ -175,7 +177,8 @@ export async function createAutomation(
 		timeZone,
 	}: { config: CustomAutomationConfig; agentId: Id<"agents">; audience: AutomationAudience; channelId?: Id<"chats">; timeZone: string },
 ) {
-	checkPermission(member, "automations.create");
+	// One just for its maker is theirs alone, so anyone can make one; the rest are the team's.
+	if (audience !== "creator") checkPermission(member, "automations.edit");
 	await checkConfig(ctx, member, config);
 	config = normalizeCustomAutomation(config);
 	if (!timeZone || !isValidTimeZone(timeZone)) throw new ConvexError("Unknown time zone.");
@@ -183,8 +186,9 @@ export async function createAutomation(
 	if (audience === "channel") {
 		if (!channelId) throw new ConvexError("Pick a channel to post in.");
 		await requireVisibleChannel(ctx, member, channelId);
-		await checkPosting(ctx, config.trigger, channelId);
+		await checkPosting(ctx, member, config.trigger, channelId);
 	}
+	const usedPlaces = await writeSources(ctx, member, audience === "creator" ? { users: [member.userId] } : undefined);
 	const automationId = newCustomId();
 	const { trigger } = config;
 	const installId = await ctx.db.insert("automationInstalls", {
@@ -200,6 +204,7 @@ export async function createAutomation(
 		audience,
 		...(audience === "channel" && { channelId, channelSetBy: member.userId }),
 		custom: madeCustom(config, member.userId),
+		usedPlaces,
 	});
 	if (audience === "subscribers") await ctx.db.insert("automationSubscriptions", { installId, userId: member.userId });
 	return automationId;
@@ -216,6 +221,7 @@ export const save = mutation({
 export async function saveAutomation(ctx: MutationCtx, member: Member, { automationId, config, expectedVersion }: Infer<typeof saveAutomationArgs>) {
 	const { install } = await requireEditable(ctx, automationId, member);
 	if (!install.custom) throw new ConvexError("Library automations can't be edited.");
+	let usedPlaces = install.usedPlaces;
 	const normal = normalizeCustomAutomation(config);
 	const rescheduled = normal.trigger.type === "schedule" && JSON.stringify(normal.trigger) !== JSON.stringify(normalizeCustomAutomation(install.custom).trigger);
 	await saveMade({
@@ -225,12 +231,14 @@ export async function saveAutomation(ctx: MutationCtx, member: Member, { automat
 		userId: member.userId,
 		validate: async () => {
 			await checkConfig(ctx, member, config, install.custom!.trigger);
-			if (install.audience === "channel") await checkPosting(ctx, config.trigger, install.channelId);
+			if (install.audience === "channel") await checkPosting(ctx, member, config.trigger, install.channelId);
+			usedPlaces = await writeSources(ctx, member, install.audience === "creator" ? { users: [install.installedBy] } : undefined, install);
 		},
 		patch: (custom) => ctx.db.patch(install._id, {
 			// A new schedule starts from its next time, never one already past.
 			...(rescheduled && { lastScheduledAt: Date.now() }),
 			custom,
+			usedPlaces,
 			// Becoming a webhook gets a URL; leaving webhooks drops it.
 			webhookToken: config.trigger.type === "webhook" ? (install.webhookToken ?? newToken()) : undefined,
 		}),
@@ -255,9 +263,8 @@ export const remove = mutation({
 export async function setAutomationTrashed(ctx: MutationCtx, who: Who, installId: Id<"automationInstalls">, archived: boolean) {
 	const { member } = who;
 	const install = await ctx.db.get(installId);
-	if (!install || install.workspaceId !== member.workspaceId || !canView(member, install)) throw new ConvexError("Automation not found.");
-	if (!install.custom) checkPermission(member, "automations.manage");
-	else if (!canEditMade(member, "automations.manage", install.installedBy)) throw new ConvexError(madeEditDenied);
+	if (!install || install.workspaceId !== member.workspaceId || !(await canView(ctx, member, install))) throw new ConvexError("Automation not found.");
+	if (!canEditAutomation(member, privateTo(install))) checkPermission(member, "automations.edit");
 	if (!!install.archived === archived) return;
 	await toggleTrash(ctx, who, archived, { kind: "automation", id: installId, name: automationName(install) });
 	await ctx.db.patch(installId, { archived });
@@ -288,17 +295,23 @@ export async function updateAutomation(ctx: MutationCtx, member: Member, { autom
 	if (agentId) await requireLiveAgent(ctx, member, agentId);
 	if (audience === "creator" && !install.custom) throw new ConvexError("Library automations run for people who turn them on, or a channel.");
 	if (audience === "creator" && install.installedBy !== member.userId) throw new ConvexError("Only the person who made it can make it just for them.");
+	// Sharing a personal one makes it the team's.
+	if (audience && audience !== "creator") {
+		checkPermission(member, "automations.edit");
+	}
 	if (audience === "channel") {
 		if (!channelId) throw new ConvexError("Pick a channel to post in.");
 		await requireVisibleChannel(ctx, member, channelId);
-		await checkPosting(ctx, install.custom?.trigger, channelId);
+		await checkPosting(ctx, member, install.custom?.trigger, channelId);
 		// Ones people make run as their maker, so the maker has to be able to see it too.
 		const maker = install.custom && (await memberOf(ctx, install.installedBy, install.workspaceId));
 		const chat = (await ctx.db.get(channelId))!;
 		if (install.custom && !(maker && (await canSee(ctx, chat, maker))))
 			throw new ConvexError(`${await nameOf(ctx, install.installedBy)} made it and can't see #${chat.name}, so it can't post there.`);
 	}
+	const usedPlaces = await writeSources(ctx, member, (audience ?? install.audience) === "creator" ? { users: [install.installedBy] } : undefined, install);
 	await ctx.db.patch(install._id, {
+		usedPlaces,
 		...(enabled !== undefined && { enabled }),
 		// Resuming doesn't make up the runs it missed while paused.
 		...(enabled && !install.enabled && { lastScheduledAt: Date.now() }),
@@ -326,7 +339,7 @@ export const subscribe = mutation({
 /** Turns an automation on or off for `member`. Returns why it can't, or null. Shared with the agents' tool. */
 export async function setSubscription(ctx: MutationCtx, member: Member, automationId: string, on: boolean) {
 	const install = await installOf(ctx, member.workspaceId, automationId);
-	if (!install || !canView(member, install)) return "Automation not found.";
+	if (!install || !(await canView(ctx, member, install))) return "Automation not found.";
 	if (install.audience !== "subscribers") return "This automation isn't one people turn on for themselves.";
 	const existing = await ctx.db
 		.query("automationSubscriptions")

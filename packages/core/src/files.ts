@@ -148,6 +148,12 @@ export function cleanFileName(raw: string) {
 	return [...name].slice(0, NAME_MAX).join("") || "file";
 }
 
+/**
+ * Text without pictures pointed at chat file ids ("![Logo](<message id>/<n>)"): they only mean
+ * something in a page (pages_write copies them in). In a message the file already shows on it.
+ */
+export const withoutFileImages = (text: string) => text.replace(/[ \t]*!\[[^\]]*\]\(\s*<?[a-z0-9]{20,}\/\d+>?\s*\)/gi, "").replace(/\n{3,}/g, "\n\n").trim();
+
 /** "1.2 MB", "340 KB", "12 bytes". */
 export function formatFileSize(bytes: number) {
 	if (bytes < 1024) return `${bytes} ${bytes === 1 ? "byte" : "bytes"}`;

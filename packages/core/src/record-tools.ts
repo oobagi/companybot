@@ -108,7 +108,7 @@ export const fieldInput = z.object({
 		.array(z.union([z.string(), z.strictObject({ id: z.string().optional(), label: z.string() })])).max(100)
 		.optional()
 		.describe("Choice fields: every option, in order. Use {id,label} from records_types choices to rename without changing stored values. When changing, list all to keep: one left out is retired (records keep it; it can't be picked)."),
-	position: z.number().int().min(1).max(100).optional().describe("Move an existing field to this display position, starting at 1 after Name (owners)."),
+	position: z.number().int().min(1).max(100).optional().describe("Move an existing field to this display position, starting at 1 after Name."),
 	linksTo: z.string().optional().describe("Link fields: the database it points at"),
 	multiple: z.boolean().optional().describe("Choice, user and link fields: holds several"),
 	trash: z.boolean().optional().describe("true archives `field` (to Archive: records keep its values until it's gone for good); false restores it. On its own."),
@@ -339,10 +339,10 @@ export const recordTools: ToolDef[] = [
 	defineTool({
 		id: "records.save_database",
 		title: "Save a database",
-		description: "Create, rename, delete (to Archive) or restore a database, when asked. Owners only. Changes are logged in Activity; record undo does not undo database changes.",
+		description: "Create, rename, delete (to Archive) or restore a database, when asked. Changes are logged in Activity; record undo does not undo database changes.",
 		input: databaseInput,
 		riskFor: (input) => input.trash === true ? "locked" : "inside",
-		permission: "fields.manage",
+		permission: "fields.edit",
 		execute: (input, { records }) => records.saveDatabase(input),
 	}),
 	defineTool({

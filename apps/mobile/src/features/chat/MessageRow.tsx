@@ -4,7 +4,7 @@ import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import { memo, useState } from 'react';
 import { Image, Pressable, View } from 'react-native';
-import { Avatar, Badge, Button, Card, ErrorState, Field, Stack, Text } from '@/components/ui';
+import { Avatar, Badge, Button, Card, ErrorState, Field, Stack, Text, useConfirm } from '@/components/ui';
 import { useTheme } from '@/design';
 import { api } from '@/lib/api';
 import { useMutation, useQuery } from '@/lib/convex';
@@ -17,14 +17,17 @@ import { openContentLink } from './links';
 import { RichText } from './RichText';
 import { Widget } from './Widgets';
 import type { Message } from './types';
+import { canShareReply, effectivePrivacy } from './access';
 
 export const MessageRow = memo(function MessageRow({ row, readOnly = false, inThread = false, highlighted = false }: { row: Message; readOnly?: boolean; inThread?: boolean; highlighted?: boolean }) {
   const live = useQuery(api.messages.stream, row.status === 'streaming' ? { messageId: row._id } : 'skip');
-  const message = live ? { ...row, ...live } : row;
+  const message = live ? { ...row, ...live, privacy: effectivePrivacy(row.privacy, live.privacy) } : row;
   const react = useMutation(api.messages.react);
   const remove = useMutation(api.messages.remove);
   const edit = useMutation(api.messages.edit);
   const hidePreview = useMutation(api.messages.hidePreview);
+  const share = useMutation(api.messages.share);
+  const confirmation = useConfirm();
   const { colors, spacing } = useTheme();
   const task = useTask();
   const [dialog, setDialog] = useState<'reaction' | 'edit' | 'delete' | 'stats'>();
@@ -32,9 +35,11 @@ export const MessageRow = memo(function MessageRow({ row, readOnly = false, inTh
   const [emoji, setEmoji] = useState('');
   const [photo, setPhoto] = useState<string>();
   const hasApproval = message.parts.some((p) => p.type === 'approval');
+  const shareable = canShareReply(message, readOnly);
   const thread = () => router.push({ pathname: '/chat/[chatId]/thread/[threadId]', params: { chatId: message.chatId, threadId: message._id } });
+  if (message.privacy?.hidden) return <View style={{ paddingHorizontal: spacing.lg, paddingVertical: spacing.md }}><Text tone="muted">🔒 {message.privacy.label}</Text></View>;
   if (message.status === 'streaming' && !hasApproval) return null;
-  if (message.pause && !message.deleted) return <Paused message={message} />;
+  if (message.pause && !message.deleted) return <Paused message={message} readOnly={readOnly} />;
   const actions: Action[] = [
     ...(!readOnly ? [{ id: 'react', title: 'React', icon: 'face.smiling', items: [...['👍', '❤️', '😂', '🎉', '👀', '✅'].map(value => ({ id: `react:${value}`, title: value, disabled: task.busy, selected: message.reactions.some(reaction => reaction.emoji === value && reaction.mine) })), { id: 'custom-reaction', title: 'Choose another…' }] } as Action] : []),
     ...(!readOnly && !inThread && !message.threadId ? [{ id: 'thread', title: 'Reply in thread', icon: 'bubble.left' as const }] : []),
@@ -51,6 +56,7 @@ export const MessageRow = memo(function MessageRow({ row, readOnly = false, inTh
     else if (action === 'delete' || action === 'stats') setDialog(action);
   };
   return <View style={{ paddingHorizontal: spacing.lg, paddingVertical: spacing.md, gap: spacing.sm, backgroundColor: highlighted ? colors.selected : undefined }}>
+    {confirmation.dialog}
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
       <View style={{ flex: 1, minWidth: 0 }}>
         <ProfileLink who={message.author}>
@@ -72,6 +78,7 @@ export const MessageRow = memo(function MessageRow({ row, readOnly = false, inTh
     {message.deleted ? <Text tone="muted">This message was deleted.</Text> : <>
       {message.automation && <Badge label={`Automation · ${message.automation.name}`} />}
       {message.ask && <Text variant="caption" tone="muted">{message.ask.from} asked {message.ask.to}</Text>}
+      {message.privacy && <Stack gap="xs"><Text variant="caption" tone="muted">{message.privacy.sharedBy ? '' : '🔒 '}{message.privacy.label}</Text>{message.privacy.why && <Text variant="caption" tone="muted">{message.privacy.why}</Text>}{shareable && <Button label="Share reply to chat" variant="ghost" loading={task.busy} onPress={() => void task.run(async () => { if (await confirmation.confirm({ title: 'Share this reply?', body: message.privacy!.share!, action: 'Share reply' })) await share({ messageId: message._id }); })} />}</Stack>}
       {message.author.type === 'agent' && message.parts.length ? <Stack gap="sm">{message.parts.map((part, index) => part.type === 'text' ? <RichText key={index} value={part.text} /> : part.type === 'tool' ? <ToolLine key={part.id} part={part} replyId={message._id} /> : part.type === 'widget' ? <Widget key={part.id} widget={part.widget} /> : null)}</Stack> : <RichText value={message.text} plain={message.author.type !== 'agent'} />}
       {hasApproval && <Approvals message={message} />}
       {message.attachments.map((file, i) => <Pressable key={i} accessibilityRole="button" accessibilityLabel={`Open ${file.name}`} disabled={!file.url} onPress={() => { if (!file.url) return; if (isImageType(file.type)) setPhoto(file.url); else void task.run(() => openContentLink(file.url!)); }}>
@@ -96,10 +103,10 @@ export const MessageRow = memo(function MessageRow({ row, readOnly = false, inTh
   </View>;
 });
 
-function Paused({ message }: { message: Message }) {
+function Paused({ message, readOnly }: { message: Message; readOnly: boolean }) {
   const decide = useMutation(api.chains.decide);
   const task = useTask();
-  return <Card><Text>{message.text}</Text>{message.pause?.canDecide ? <Stack horizontal><Button label="Continue" loading={task.busy} onPress={() => void task.run(() => decide({ messageId: message._id, action: 'continue' }))} /><Button label="Stop" variant="secondary" disabled={task.busy} onPress={() => void task.run(() => decide({ messageId: message._id, action: 'stop' }))} /></Stack> : <Text tone="muted">{message.pause?.status === 'paused' ? `Waiting for ${message.pause.for}` : `${message.pause?.status} ${message.pause?.by ?? ''}`}</Text>}{task.error && <ErrorState message={task.error} />}</Card>;
+  return <Card><Text>{message.text}</Text>{!readOnly && message.pause?.canDecide ? <Stack horizontal><Button label="Continue" loading={task.busy} onPress={() => void task.run(() => decide({ messageId: message._id, action: 'continue' }))} /><Button label="Stop" variant="secondary" disabled={task.busy} onPress={() => void task.run(() => decide({ messageId: message._id, action: 'stop' }))} /></Stack> : <Text tone="muted">{message.pause?.status === 'paused' ? `Waiting for ${message.pause.for}` : `${message.pause?.status} ${message.pause?.by ?? ''}`}</Text>}{task.error && <ErrorState message={task.error} />}</Card>;
 }
 
 function ToolLine({ part, replyId }: { part: Extract<Message['parts'][number], { type: 'tool' }>; replyId: Message['_id'] }) {

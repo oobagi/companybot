@@ -79,7 +79,7 @@ export function PageEditor({ pageId, editable, standalone = false, focusKey = 0 
 						...(standalone ? [{ title: "Page", subtext: "Add a page inside", aliases: ["page", "subpage"], group: "Pages", icon: <PageIcon />, onItemClick: async () => {
 							try {
 								const id = await create({ title: "Untitled", parentId: pageId, insertInParent: false });
-								insertOrUpdateBlockForSlashMenu(sync.editor, { type: "page", props: { pageId: id, title: "Untitled" } });
+								insertOrUpdateBlockForSlashMenu(sync.editor, { type: "page", props: { pageId: id } });
 								navigate("pages", id);
 							} catch (e) { fail(e); }
 						} }] : []),
@@ -121,20 +121,20 @@ function ChildPages({ editor, pageId, editable }: { editor: PageBlockEditor; pag
 	const linked = useLinkedPages(editor);
 	const placed = useRef(new Set<string>());
 	for (const id of linked) placed.current.add(id);
-	return <div className="flex flex-col gap-1"><PageLevel parentId={pageId} render={(p) => !placed.current.has(p._id) && <ChildPage key={p._id} editor={editor} pageId={p._id} title={p.title} editable={editable} />} /></div>;
+	return <div className="flex flex-col gap-1"><PageLevel parentId={pageId} render={(p) => !placed.current.has(p._id) && <ChildPage key={p._id} editor={editor} pageId={p._id} editable={editable} />} /></div>;
 }
 
 /** Older children without document links become movable blocks on the next editable open. */
-function ChildPage({ editor, pageId, title, editable }: { editor: PageBlockEditor; pageId: string; title: string; editable: boolean }) {
+function ChildPage({ editor, pageId, editable }: { editor: PageBlockEditor; pageId: string; editable: boolean }) {
 	useEffect(() => {
 		if (!editable) return;
 		let exists = false;
 		editor.forEachBlock((block) => { if (block.type === "page" && block.props.pageId === pageId) exists = true; return true; });
 		if (exists) return;
 		const last = editor.document.at(-1)!;
-		editor.insertBlocks([{ type: "page", props: { pageId, title } }], last, last.type === "paragraph" && last.content.length === 0 ? "before" : "after");
-	}, [editor, pageId, title, editable]);
-	return editable ? null : <PageBlockRow pageId={pageId} title={title} />;
+		editor.insertBlocks([{ type: "page", props: { pageId } }], last, last.type === "paragraph" && last.content.length === 0 ? "before" : "after");
+	}, [editor, pageId, editable]);
+	return editable ? null : <PageBlockRow pageId={pageId} />;
 }
 
 /** Existing page links become blocks, including ones with text accidentally typed beside them. */
