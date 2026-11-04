@@ -57,7 +57,7 @@ export const sidebarSections = ["channels", "dms"];
 export const railTabs = ["chat", "drive", "databases", "customize"];
 
 type Legacy = { list: ArrangementList | "layout"; workspaceId?: string; entityId?: string; databaseKey?: string };
-/** Used only by the one-time localStorage importer, never by live reads or writes. */
+/** COMPAT(0.1.0-alpha.10): used only by the one-time localStorage importer, never by live reads or writes; delete with it. */
 export function legacyArrangement(key: string): Legacy | undefined {
 	const fixed = { "rail.order": "workspaces", "rail.tabs": "tabs", "sidebar.sections": "sections", "sidebar.folded": "folded" } as const;
 	if (key in fixed) return { list: fixed[key as keyof typeof fixed] };

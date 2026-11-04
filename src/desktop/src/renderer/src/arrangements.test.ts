@@ -51,3 +51,12 @@ it("optimistic updates apply the command to the requested workspace only, includ
 		expect(setQuery).toHaveBeenCalledTimes(1);
 	}
 });
+
+it("clears a 1,100-channel key once the bounded import finishes", async () => {
+	const ids = Array.from({ length: 1_100 }, (_, i) => `c${i}`);
+	const local = storage({ "sidebar.channels:w1": JSON.stringify(ids) });
+	const upload = vi.fn(async () => {});
+	await migrateArrangements(local, upload, async () => {});
+	expect(upload).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ list: "channels", targetWorkspaceId: "w1", ids }));
+	expect(local.entries.size).toBe(0);
+});

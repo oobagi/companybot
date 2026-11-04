@@ -132,7 +132,7 @@ it("merges display changes so layout and grouping don't overwrite each other; im
 	expect((await owner.query(api.recordTypes.list)).find((t) => t._id === fresh._id)?.display).toEqual({ layout: "board" });
 });
 
-it("ignores commands naming removed or foreign things, and drops malformed fill and seed ids", async () => {
+it("refuses commands naming removed or foreign things, and drops dead or malformed fill and seed ids", async () => {
 	const { t, owner } = await ownerAndMember();
 	const other = await sideWorkspace(t, "owner@co.com");
 	const channel = await generalOf(owner);
@@ -146,25 +146,85 @@ it("ignores commands naming removed or foreign things, and drops malformed fill 
 	await owner.mutation(api.databaseViews.remove, { viewId: deletedView, version: 1 });
 	const cases: [ArrangementList, string, string?][] = [["channels", gone], ["channels", foreign], ["pages", gonePage], ["views", deletedView, type._id], ["databases", "deleted"], ["columns", "deleted", type._id], ["folded", "deleted"], ["tabs", "nope"], ["channelFolds", gone]];
 	for (const [list, id, entityId] of cases) {
-		await change(owner, list, add(id), entityId);
-		await change(owner, list, to(id, null), entityId);
+		await expect(change(owner, list, add(id), entityId), `${list} ${id}`).rejects.toThrow("Not found.");
+		await expect(change(owner, list, to(id, null), entityId)).rejects.toThrow("Not found.");
 		expect(await idsOf(owner, list, entityId), `${list} ${id}`).toBeUndefined();
 	}
-	await change(owner, "channels", to(channel._id, null, ["not-an-id", gone]));
-	expect(await idsOf(owner, "channels")).toEqual([gone, channel._id]);
+	await expect(change(owner, "channels", to(channel._id, gone))).rejects.toThrow("Not found.");
+	await change(owner, "channels", to(channel._id, null, ["not-an-id", gone, foreign]));
+	expect(await idsOf(owner, "channels")).toEqual([channel._id]);
 	await change(owner, "columns", { op: "remove", id: "status", seed: ["name", "status", "deleted"] }, type._id);
 	expect(await idsOf(owner, "columns", type._id)).toEqual(["name"]);
 });
 
-it("keeps private channels' slots when someone who can't see them reorders", async () => {
+/** Owner and a Member; Office is a role only the owner holds. */
+async function withOffice() {
+	const setup = await ownerAndMember();
+	const { owner } = setup;
+	const office = await owner.mutation(api.roles.create, { name: "Office" });
+	const ownerRole = (await owner.query(api.roles.list))!.find((r) => r.builtIn === "owner")!.id;
+	const me = (await owner.query(api.workspace.team))!.members.find((m) => m.userId === owner.userId)!;
+	await owner.mutation(api.workspace.setRoles, { id: me.id, roles: [ownerRole, office] });
+	return { ...setup, officeOnly: [{ role: office, level: "edit" as const }] };
+}
+
+it("never gives a non-member a private channel id, and won't let them move one", async () => {
 	const { owner, member } = await ownerAndMember();
 	const general = await generalOf(owner);
 	const privateId = await owner.mutation(api.chats.createChannel, { name: "private", private: true });
 	const publicId = await owner.mutation(api.chats.createChannel, { name: "public", private: false });
 	for (const id of [general._id, privateId, publicId]) await change(owner, "channels", add(id));
-	await change(member, "channels", to(publicId, general._id));
-	expect(await idsOf(owner, "channels")).toEqual([publicId, general._id, privateId]);
-	expect((await member.query(api.chats.list))!.channels.map((c) => c._id)).not.toContain(privateId);
+	expect(await idsOf(member, "channels")).toEqual([general._id, publicId]);
+	expect(await idsOf(owner, "channels")).toEqual([general._id, privateId, publicId]);
+	await expect(change(member, "channels", to(privateId, null))).rejects.toThrow("Not found.");
+	await expect(change(member, "channels", to(publicId, privateId))).rejects.toThrow("Not found.");
+	await expect(change(member, "channels", add(privateId))).rejects.toThrow("Not found.");
+	// The same error as a channel that doesn't exist.
+	await expect(change(member, "channels", add("missing"))).rejects.toThrow("Not found.");
+	expect(await idsOf(owner, "channels")).toEqual([general._id, privateId, publicId]);
+});
+
+it("keeps hidden items' order when someone who sees fewer reorders", async () => {
+	const { owner, member } = await ownerAndMember();
+	const general = await generalOf(owner);
+	const first = await owner.mutation(api.chats.createChannel, { name: "first", private: true });
+	const pub = await owner.mutation(api.chats.createChannel, { name: "pub", private: false });
+	const second = await owner.mutation(api.chats.createChannel, { name: "second", private: true });
+	for (const id of [general._id, first, pub, second]) await change(owner, "channels", add(id));
+	expect(await idsOf(member, "channels")).toEqual([general._id, pub]);
+	await change(member, "channels", to(pub, general._id));
+	expect(await idsOf(member, "channels")).toEqual([pub, general._id]);
+	expect(await idsOf(owner, "channels")).toEqual([pub, general._id, first, second]);
+});
+
+it("leaves out restricted pages, databases and their views and columns for people without View", async () => {
+	const { owner, member, officeOnly } = await withOffice();
+	const open = await owner.mutation(api.pages.create, { title: "Open" });
+	const later = await owner.mutation(api.pages.create, { title: "Later" });
+	const secret = await owner.mutation(api.pages.create, { title: "Secret" });
+	const under = await owner.mutation(api.pages.create, { title: "Under", parentId: secret });
+	await owner.mutation(api.pages.setAccess, { pageId: secret, access: officeOnly });
+	const [shown, hidden] = await owner.query(api.recordTypes.list);
+	await owner.mutation(api.recordTypes.setAccess, { typeId: hidden!._id, access: officeOnly });
+	const view = await owner.mutation(api.databaseViews.save, { typeId: hidden!._id, name: "One", columns: ["name"], filters: [] });
+	for (const id of [open, secret, later]) await change(owner, "pages", add(id));
+	await change(owner, "pages", add(under), secret);
+	for (const id of [hidden!._id, shown!._id]) await change(owner, "databases", add(id));
+	await change(owner, "views", add(view), hidden!._id);
+	await change(owner, "columns", add("name"), hidden!._id);
+	expect(await idsOf(member, "pages")).toEqual([open, later]);
+	expect(await idsOf(member, "pages", secret)).toBeUndefined();
+	expect(await idsOf(member, "databases")).toEqual([shown!._id]);
+	expect(await idsOf(member, "views", hidden!._id)).toBeUndefined();
+	expect(await idsOf(member, "columns", hidden!._id)).toBeUndefined();
+	await expect(change(member, "pages", to(secret, null))).rejects.toThrow("Not found.");
+	await expect(change(member, "databases", to(shown!._id, hidden!._id))).rejects.toThrow("Not found.");
+	await expect(change(member, "columns", add("name"), hidden!._id)).rejects.toThrow("Arrangement not found.");
+	await expect(change(member, "pages", add(under), secret)).rejects.toThrow("Arrangement not found.");
+	await expect(member.mutation(api.recordTypes.setDisplay, { typeId: hidden!._id, display: { layout: "board" } })).rejects.toThrow();
+	// Their reorder keeps the hidden page in place.
+	await change(member, "pages", to(later, open));
+	expect(await idsOf(owner, "pages")).toEqual([later, open, secret]);
 });
 
 it("deletes entity arrangements when pages and databases are deleted forever", async () => {

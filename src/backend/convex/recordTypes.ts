@@ -100,14 +100,14 @@ export const setDisplay = mutation({
 	handler: async (ctx, { typeId, display }) => saveDisplay(ctx, await requirePermission(ctx, "sidebar.arrange"), typeId, display),
 });
 
-/** One-time import of this computer's old choice. Anything that can never succeed is skipped, not thrown, so the importer can clear the key. */
+/** COMPAT(0.1.0-alpha.10): one-time import of this computer's old choice; delete with `arrangements.migrate`. Anything that can never succeed is skipped, not thrown, so the importer can clear the key. */
 export const migrateDisplay = mutation({
 	args: { databaseKey: v.string(), display: databaseDisplay },
 	handler: async (ctx, { databaseKey, display }) => {
 		const member = await requireMember(ctx);
 		if (!can(member, "sidebar.arrange")) return;
 		const type = await ctx.db.query("recordTypes").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("key", databaseKey)).unique();
-		if (!type || type.archived || type.display) return;
+		if (!type || type.archived || type.display || !reach(member, type.access)) return;
 		const groupBy = display.groupBy && (await groupable(ctx, type._id, display.groupBy)) ? display.groupBy : undefined;
 		await ctx.db.patch(type._id, { display: { layout: display.layout, groupBy } });
 	},

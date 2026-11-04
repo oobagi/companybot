@@ -53,7 +53,7 @@ export function useStoredIds(list: ArrangementList, entityId?: string) {
 type Storage = Pick<globalThis.Storage, "length" | "key" | "getItem" | "removeItem">;
 type Import = FunctionArgs<typeof api.arrangements.migrate>;
 type Display = FunctionArgs<typeof api.recordTypes.migrateDisplay>;
-/** Failed keys stay for the next launch; an unavailable upload must not prevent opening the app. */
+/** COMPAT(0.1.0-alpha.10): the one-time localStorage import; delete with `arrangements.migrate`. Failed keys stay for the next launch; an unavailable upload must not prevent opening the app. */
 export async function migrateArrangements(storage: Storage, upload: (args: Import) => Promise<unknown>, uploadDisplay: (args: Display) => Promise<unknown>) {
 	const keys = Array.from({ length: storage.length }, (_, i) => storage.key(i)).filter((key): key is string => !!key && (!!legacyArrangement(key) || /^(rail\.(pins|recent)|sidebar\.(channels|dms|databases|pages)|pages-expanded:|views\.order:|records\.(columns|layout)\.)/.test(key)));
 	for (const key of keys) {
