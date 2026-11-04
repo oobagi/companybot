@@ -217,6 +217,8 @@ export const apply = internalMutation({
 		for (const d of decisions) {
 			const agent = d.action === "react" && (await ctx.db.get(d.agentId));
 			if (!agent || !here.has(agent._id) || !d.emoji || !(ROUTER_EMOJI as readonly string[]).includes(d.emoji) || !isGranted(agent.tools, "chat.react")) continue;
+			// Already folded into this agent's reply (or queued for it): the reply answers it, no reaction on top.
+			if (await hasTurnFor(ctx, agent._id, message)) continue;
 			const existing = await ctx.db
 				.query("reactions")
 				.withIndex("by_message", (q) => q.eq("messageId", messageId).eq("emoji", d.emoji!).eq("userId", undefined).eq("agentId", agent._id))

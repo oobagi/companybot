@@ -375,6 +375,9 @@ describe("steering a dispatcher's pick in a channel", () => {
 		expect(await routerRuns(t)).toContainEqual({ messageId: nvm });
 		await t.mutation(internal.router.apply, { messageId: nvm, decisions: [{ agentId: companybot._id, action: "reply", probability: 0.4 }], model: "jev", costUsd: 0.0002 });
 		expect((await turnsOf(t)).filter((x) => x.triggerId === nvm)).toHaveLength(1);
+		// Nor reacts to it for Companybot: its reply already took it in.
+		await t.mutation(internal.router.apply, { messageId: nvm, decisions: [{ agentId: companybot._id, action: "react", emoji: "👍" }], model: "jev", costUsd: 0.0002 });
+		expect(await t.run((ctx) => ctx.db.query("reactions").collect())).toHaveLength(0);
 	});
 
 	it("while it writes its decision: starts over with your message, and still ends with a decision", async () => {
