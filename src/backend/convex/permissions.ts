@@ -23,6 +23,7 @@ import { riskOf, titleOf, toolsOf } from "./connectorTools";
 import { allowedRoles, installOf } from "./connectors";
 import { type Member, getMember, memberFor, nameOf, requireInWorkspace, requireMember, requirePermission } from "./lib";
 import { risk } from "./schema";
+import { turnIsRestricted } from "./replySources";
 import { runningTurn } from "./turns";
 
 // Who allowed what (core action-rules.ts `permissionFor`): each person's Always / Never per
@@ -102,11 +103,15 @@ type AllowedVia = { how: "always" | "automation"; by: Id<"users">; at: number; r
  * roles that have it, so the agent can tell them who to ask.
  */
 export const check = internalMutation({
-	args: { turnId: v.id("agentTurns"), action: v.string(), risk },
-	handler: async (ctx, { turnId, action, risk }): Promise<{ decision: PermissionDecision; allowed?: AllowedVia }> => {
+	/** `sendsOut`: the call's input leaves the workspace (core `ToolDef.sendsOut`, connector tools). */
+	args: { turnId: v.id("agentTurns"), action: v.string(), risk, sendsOut: v.optional(v.boolean()) },
+	handler: async (ctx, { turnId, action, risk: given, sendsOut }): Promise<{ decision: PermissionDecision; allowed?: AllowedVia; risk: Risk }> => {
 		const { turn, member } = await runningTurn(ctx, turnId);
+		// After reading something not everyone in this chat may see, nothing goes outside unseen: the exact
+		// query or link waits on a card, every time (locked: no Always), even in the person's own chat.
+		const risk: Risk = sendsOut && (await turnIsRestricted(ctx, member, turn.chatId)) ? "locked" : given;
 		const needs = builtinTools.find((t) => t.id === action)?.permission;
-		if (needs && !canUseTool(member, { permission: needs })) return { decision: { type: "deny", by: "role", message: deniedMessage(needs, member.workspaceRoles) } };
+		if (needs && !canUseTool(member, { permission: needs })) return { decision: { type: "deny", by: "role", message: deniedMessage(needs, member.workspaceRoles) }, risk };
 		const { trigger, automation, foreign } = await automationScope(ctx, turn);
 		if (trigger?.automation && !automation) throw new ConvexError("This automation was removed. Nothing ran.");
 		const decided = await decideFor(ctx, member, { action, risk, automationInstallId: automation?._id, foreign });
@@ -123,7 +128,7 @@ export const check = internalMutation({
 						...(decision.via === "automation" && automation && { automation: automationName(automation) }),
 					}
 				: undefined;
-		return { decision, allowed };
+		return { decision, allowed, risk };
 	},
 });
 

@@ -6,6 +6,7 @@ import { definitionOf, installOf, runsForLabel, seenChannel, subscribersOf, visi
 import { createAutomation, setSubscription } from "./automations";
 import { chatByRef } from "./chatOps";
 import { type Member, asToolResult, nameOf, timeZoneOf } from "./lib";
+import { withReceipt } from "./approvals";
 import { runningTurn } from "./turns";
 
 // ---- Agent tools (core's AutomationStore), acting as the turn's person ----
@@ -46,8 +47,8 @@ async function channelById(ctx: QueryCtx, member: Member, ref: string, here: Id<
 }
 
 export const createFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), input: v.any() },
-	handler: async (ctx, { turnId, input }) => {
+	args: { turnId: v.id("agentTurns"), op: v.optional(v.id("approvals")), input: v.any() },
+	handler: (ctx, { turnId, op, input }) => withReceipt(ctx, op, turnId, async () => {
 		const { turn, member } = await runningTurn(ctx, turnId);
 		const { name, prompt, trigger: t, runsFor } = input as AutomationToolInput;
 		return asToolResult(async () => {
@@ -89,14 +90,14 @@ export const createFor = internalMutation({
 				...(install.webhookToken && { webhookUrl: webhookUrl(install.webhookToken) }),
 			};
 		});
-	},
+	}),
 });
 
 export const setMineFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), id: v.string(), on: v.boolean() },
-	handler: async (ctx, { turnId, id, on }) => {
+	args: { turnId: v.id("agentTurns"), op: v.optional(v.id("approvals")), id: v.string(), on: v.boolean() },
+	handler: (ctx, { turnId, op, id, on }) => withReceipt(ctx, op, turnId, async () => {
 		const { member } = await runningTurn(ctx, turnId);
 		const problem = await setSubscription(ctx, member, id, on);
 		return problem ? { error: problem } : { id, on };
-	},
+	}),
 });

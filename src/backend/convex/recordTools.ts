@@ -45,6 +45,7 @@ import {
 import { ANY_OF_MAX, CONDITIONS_MAX, type Condition } from "./recordQuery";
 import { PAGE_MAX, activityAs, historyAs, linkingRecords, listRecords, searchRecords, toEntries } from "./recordReads";
 import { notePlace } from "./replySources";
+import { withReceipt } from "./approvals";
 import { runningTurn } from "./turns";
 
 // Records tools (core's RecordStore), acting as the turn's person: their role, read fresh
@@ -391,8 +392,8 @@ export const getFor = internalMutation({
 });
 
 export const saveFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), input: v.any() },
-	handler: async (ctx, { turnId, input }) => {
+	args: { turnId: v.id("agentTurns"), op: v.optional(v.id("approvals")), input: v.any() },
+	handler: (ctx, { turnId, op, input }) => withReceipt(ctx, op, turnId, async () => {
 		const { member, who } = await runningTurn(ctx, turnId);
 		const { id, type: typeName, values = {}, trash } = input as RecordSaveInput;
 		return asToolResult(async () => {
@@ -418,12 +419,12 @@ export const saveFor = internalMutation({
 			}
 			return { ...(await recordOut(ctx, member, recordId)), ...(change ? { change } : { unchanged: true }) };
 		});
-	},
+	}),
 });
 
 export const undoFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), change: v.string() },
-	handler: async (ctx, { turnId, change }) => {
+	args: { turnId: v.id("agentTurns"), op: v.optional(v.id("approvals")), change: v.string() },
+	handler: (ctx, { turnId, op, change }) => withReceipt(ctx, op, turnId, async () => {
 		const { member, who } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
 			const historyId = ctx.db.normalizeId("recordHistory", change);
@@ -432,12 +433,12 @@ export const undoFor = internalMutation({
 			const entry = (await ctx.db.get(historyId))!;
 			return { undone: change, ...(await recordOut(ctx, member, entry.recordId!)), change: undoneBy };
 		});
-	},
+	}),
 });
 
 export const saveFieldFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), input: v.any() },
-	handler: async (ctx, { turnId, input }) => {
+	args: { turnId: v.id("agentTurns"), op: v.optional(v.id("approvals")), input: v.any() },
+	handler: (ctx, { turnId, op, input }) => withReceipt(ctx, op, turnId, async () => {
 		const { member, who } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
 			const { type: typeName, field: name, label, kind, options: rawOptions, linksTo, multiple, trash, position } = fieldInput.parse(input);
@@ -463,12 +464,12 @@ export const saveFieldFor = internalMutation({
 			const f = (await ctx.db.get(fieldId))!;
 			return { type: type.key, typePlural: type.plural, ...fieldOut(f, f.linkTypeId && (await ctx.db.get(f.linkTypeId))?.key) };
 		});
-	},
+	}),
 });
 
 export const saveDatabaseFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), input: v.any() },
-	handler: async (ctx, { turnId, input }) => {
+	args: { turnId: v.id("agentTurns"), op: v.optional(v.id("approvals")), input: v.any() },
+	handler: (ctx, { turnId, op, input }) => withReceipt(ctx, op, turnId, async () => {
 		const { member, who } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
 			const parsed = databaseInput.safeParse(input);
@@ -489,7 +490,7 @@ export const saveDatabaseFor = internalMutation({
 			const type = (await ctx.db.get(id))!;
 			return { type: type.key, name: type.name, plural: type.plural, version: type.version ?? 0, ...(type.archived && { inTrash: true }) };
 		});
-	},
+	}),
 });
 
 export const viewsFor = internalMutation({
@@ -501,8 +502,8 @@ export const viewsFor = internalMutation({
 });
 
 export const saveViewFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), input: v.any() },
-	handler: async (ctx, { turnId, input }) => {
+	args: { turnId: v.id("agentTurns"), op: v.optional(v.id("approvals")), input: v.any() },
+	handler: (ctx, { turnId, op, input }) => withReceipt(ctx, op, turnId, async () => {
 		const { member, who } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
 			const checked = viewInput.safeParse(input);
@@ -532,7 +533,7 @@ export const saveViewFor = internalMutation({
 			}, viewId || undefined, parsed.version);
 			return ctx.db.get(id);
 		});
-	},
+	}),
 });
 
 export const historyFor = internalMutation({

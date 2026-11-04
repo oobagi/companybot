@@ -4,12 +4,13 @@ import { describe, expect, it } from "vitest";
 import { simulateReadableStream, streamText } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { APPROVAL_TTL_MS, WHY_MAX, approvalHash, approvalStatus, canDecideApproval, canonicalJson, cleanWhy, whyPrompt } from "./approvals";
-import { actionOf, buildToolSet, resolveTools, toolApprovalPolicy } from "./agents";
+import { actionOf, buildToolSet, resolveTools, toolApprovalPolicy, withIdempotencyKey } from "./agents";
 import { builtinTools } from "./builtin-tools";
 
 import { platformGuide } from "./guide";
 import { type ToolDef } from "./tools";
 import { z } from "zod";
+import { jsonSchema } from "ai";
 import { type TurnPromptInput, buildTurnPrompt } from "./turn-input";
 
 import { owner, member, other, ctx } from "../test/helpers";
@@ -31,11 +32,11 @@ describe("approvals", () => {
 		expect(toolRisk(find)).toBe("none");
 		const risk = (id: string) => toolRisk(builtinTools.find((t) => t.id === id)!);
 		// Acting as the person, or reading what only they see: "inside". Shared reads and display: "none".
-		expect(["memory.remember", "memory.search", "chat.read", "chat.search", "chat.manage", "records.save"].map(risk)).toEqual(Array(6).fill("inside"));
-		expect(["records.find", "pages.read", "pages.write", "clock.now", "skills.load", "widgets.table"].map(risk)).toEqual(Array(6).fill("none"));
+		expect(["memory.remember", "memory.search", "chat.read", "chat.search", "chat.manage", "records.save", "pages.write"].map(risk)).toEqual(Array(7).fill("inside"));
+		expect(["records.find", "pages.read", "clock.now", "skills.load", "widgets.table"].map(risk)).toEqual(Array(5).fill("none"));
 		// Exhaust the low-risk list: new private reads cannot silently inherit `none`.
 		expect(builtinTools.filter(t => toolRisk(t) === "none" && !t.id.startsWith("widgets.")).map(t => t.id).sort()).toEqual([
-			"automations.list", "chat.ask_agent", "clock.now", "help.read", "pages.find", "pages.read", "pages.write", "records.find", "records.get", "records.history", "records.types", "records.views", "skills.load", "web.fetch", "web.save", "web.search",
+			"automations.list", "chat.ask_agent", "clock.now", "help.read", "pages.find", "pages.read", "records.find", "records.get", "records.history", "records.types", "records.views", "skills.load", "web.fetch", "web.save", "web.search",
 		]);
 		// A built-in opts in by declaring risk; payments-style ones lock.
 		expect(toolRisk({ ...builtinTools[0]!, risk: "outside" })).toBe("outside");
@@ -289,5 +290,42 @@ describe("approvals", () => {
 		const long = cleanWhy("x".repeat(WHY_MAX + 50))!;
 		expect(long).toHaveLength(WHY_MAX);
 		expect(long.endsWith("…")).toBe(true);
+	});
+
+	it("binds the revision only when it's given, so existing hashes stay the same", async () => {
+		const input = { page: "p1", trash: true };
+		expect(await approvalHash("pages.write", input, undefined)).toBe(await approvalHash("pages.write", input));
+		expect(await approvalHash("pages.write", input, '[{"id":"p1","kind":"page","revision":3}]')).not.toBe(await approvalHash("pages.write", input, '[{"id":"p1","kind":"page","revision":4}]'));
+	});
+
+	it("checks web calls on every call, since they ask once the turn has read something more private than its chat", async () => {
+		const web = builtinTools.filter((t) => t.id.startsWith("web."));
+		expect(web.map((t) => [t.id, toolRisk(t), t.sendsOut])).toEqual([["web.search", "none", true], ["web.fetch", "none", true], ["web.save", "none", true]]);
+		const asked: string[] = [];
+		const policy = toolApprovalPolicy(web, async (t) => (asked.push(t.id), { type: "ask", canAlways: false }));
+		expect(await policy({ toolCall: { toolCallId: "s1", toolName: "web_search", input: { query: "Acme payroll" } } })).toBe("user-approval");
+		expect(asked).toEqual(["web.search"]);
+		// Other no-risk built-ins still skip the check.
+		expect(await toolApprovalPolicy([builtinTools.find((t) => t.id === "clock.now")!], async () => ({ type: "ask", canAlways: false }))({ toolCall: { toolCallId: "c", toolName: "clock_now", input: {} } })).toBeUndefined();
+	});
+
+	it("gives a connector call its operation key as the idempotency key when the service takes one", async () => {
+		const keyed = connectorTool("create_lead", { input: jsonSchema({ type: "object", properties: { name: { type: "string" }, idempotency_key: { type: "string" } } }) });
+		expect(await withIdempotencyKey(keyed, { name: "Acme" }, "call-1")).toEqual({ name: "Acme", idempotency_key: "call-1" });
+		// The model's own key stands; a service without one, or a built-in, is left alone.
+		expect(await withIdempotencyKey(keyed, { name: "Acme", idempotency_key: "mine" }, "call-1")).toEqual({ name: "Acme", idempotency_key: "mine" });
+		expect(await withIdempotencyKey(send, { to: "+1", body: "hi" }, "call-1")).toEqual({ to: "+1", body: "hi" });
+		expect(await withIdempotencyKey(builtinTools[0]!, { query: "x" }, "call-1")).toEqual({ query: "x" });
+	});
+
+	it("binds the message, memory or thing an edit, delete or archive depends on", () => {
+		const binds = (id: string, input: unknown) => builtinTools.find((t) => t.id === id)!.binds?.(input) ?? [];
+		expect(binds("chat.manage", { request: { action: "delete", messageId: "m1" } })).toEqual([{ kind: "message", id: "m1" }]);
+		expect(binds("chat.manage", { request: { action: "send", chat: "here", text: "hi" } })).toEqual([]);
+		expect(binds("memory.forget", { id: "mem1" })).toEqual([{ kind: "memory", id: "mem1" }]);
+		expect(binds("agents.manage", { request: { action: "delete", id: "a1" } })).toEqual([{ kind: "agent", id: "a1" }]);
+		expect(binds("skills.remove", { request: { action: "delete", id: "custom-1" } })).toEqual([{ kind: "skill", id: "custom-1" }]);
+		expect(binds("records.save", { id: "r1", trash: true })).toEqual([{ kind: "record", id: "r1" }]);
+		expect(binds("records.save", { id: "r1", values: { name: "x" } })).toEqual([]);
 	});
 });

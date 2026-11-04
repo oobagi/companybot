@@ -204,6 +204,22 @@ export async function actionOf(modelName: string, input: unknown, tools: ToolDef
 	return t ? { tool: t.riskFor ? { ...t, risk: t.riskFor(input) } : t, input } : null;
 }
 
+/** Input property names services use for an idempotency key (Night Owl's `idempotency_key`, Stripe-style `idempotencyKey`). */
+const IDEMPOTENCY_KEYS = ["idempotency_key", "idempotencyKey"];
+
+/**
+ * A connector call's input with `key` as its idempotency key, when the tool's schema takes one and the
+ * model left it out: a retry, or a call that may have happened, can't then happen twice at the service.
+ * Built-ins and other inputs come back as they are.
+ */
+export async function withIdempotencyKey(tool: ToolDef, input: unknown, key: string): Promise<unknown> {
+	if (tool.source.type !== "connector" || !input || typeof input !== "object" || Array.isArray(input)) return input;
+	const schema = (await asSchema(tool.input).jsonSchema) as { properties?: Record<string, unknown> };
+	const name = IDEMPOTENCY_KEYS.find((k) => schema.properties && k in schema.properties);
+	if (!name || (input as Record<string, unknown>)[name] !== undefined) return input;
+	return { ...input, [name]: key };
+}
+
 /**
  * Decides one call from the rules in force right now (see action-rules.permissionFor).
  * The runner reads them fresh for every call. Default: the tool's risk alone.
@@ -217,13 +233,14 @@ const byRiskOnly: PermissionCheck = async (t) => permissionFor({ risk: toolRisk(
  * unexecuted, except in automation runs (`waitFor`): there the model is told the call is
  * waiting and goes on, and the runner holds it. Blocked ones never run and the model is told
  * why. Built-ins with no risk skip the check (rules and locks only cover actions that can ask, plus
- * connector reads), unless they need a permission: that's checked per call too.
+ * connector reads), unless they need a permission or send their input out (`sendsOut`, which asks once the
+ * turn has read something more private than its chat): those are checked per call too.
  */
 export const toolApprovalPolicy =
 	(tools: ToolDef[], check: PermissionCheck = byRiskOnly) =>
 	async ({ toolCall }: { toolCall: { toolCallId: string; toolName: string; input: unknown } }) => {
 		const action = await actionOf(toolCall.toolName, toolCall.input, tools);
-		if (!action || (action.tool.source.type === "builtin" && toolRisk(action.tool) === "none" && !action.tool.permission)) return undefined;
+		if (!action || (action.tool.source.type === "builtin" && toolRisk(action.tool) === "none" && !action.tool.permission && !action.tool.sendsOut)) return undefined;
 		const decision = await check(action.tool, toolCall.toolCallId);
 		if (decision.type === "ask")
 			return decision.waitFor ? { type: "denied" as const, reason: heldReason(decision.waitFor, action.tool.id) } : ("user-approval" as const);

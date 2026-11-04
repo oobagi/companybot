@@ -270,7 +270,8 @@ describe("pages tools", () => {
 		const made = await tools.write({ title: "Pricing", markdown: "x" }, [paragraph("Roofs are $10/sqft")]);
 		expect(made).toMatchObject({ title: "Pricing" });
 		const pageId = made.id as Id<"pages">;
-		await tools.write({ page: "Pricing", markdown: "x" }, [paragraph("Gutters are extra")]);
+		expect(await tools.write({ page: "Pricing", markdown: "x" }, [paragraph("Gutters are extra")])).toMatchObject({ error: expect.stringContaining("by its id") });
+		await tools.write({ page: pageId, markdown: "x" }, [paragraph("Gutters are extra")]);
 		expect(await textOf(t, pageId)).toBe("Roofs are $10/sqftGutters are extra");
 		await tools.write({ page: pageId, markdown: "x", mode: "replace" }, [paragraph("Call for a quote")]);
 		expect(await textOf(t, pageId)).toBe("Call for a quote");

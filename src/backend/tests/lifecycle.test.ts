@@ -668,7 +668,7 @@ describe("writes that land after what they belong to went", () => {
 		await settle(t);
 		expect(await t.run((ctx) => ctx.db.query("cascades").first())).toBeNull();
 		await t.mutation(internal.activity.log, { turnId, callId: "c2", tool: "crm.find", changes: false, input: "{}", output: "private" });
-		await t.mutation(internal.approvals.finish, { approvalId, result: "private" });
+		await t.mutation(internal.approvals.finish, { approvalId, turnId, result: "private" });
 		const [activity] = await t.run((ctx) => ctx.db.query("agentActivity").collect());
 		expect(activity).toMatchObject({ callId: "c2", status: "done" });
 		expect(activity).not.toHaveProperty("output");

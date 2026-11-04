@@ -24,6 +24,7 @@ import {
 } from "./lib";
 import { readArtifact, writeSources } from "./replySources";
 import { toggleTrash, trashInfo } from "./trashOps";
+import { withReceipt } from "./approvals";
 import { personalMemoryHere, runningTurn } from "./turns";
 
 // Skills live on their install. Personal installs are visible only to their owner.
@@ -151,8 +152,8 @@ export async function setSkillTrashed(ctx: MutationCtx, who: Who, installId: Id<
 
 /** The `skills.create` tool from chat: makes a skill as the person the agent is helping. */
 export const createFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), config: customConfig, audience: v.union(v.literal("personal"), v.literal("team")) },
-	handler: async (ctx, { turnId, config, audience }) => {
+	args: { turnId: v.id("agentTurns"), op: v.optional(v.id("approvals")), config: customConfig, audience: v.union(v.literal("personal"), v.literal("team")) },
+	handler: (ctx, { turnId, op, config, audience }) => withReceipt(ctx, op, turnId, async () => {
 		const { member, chat } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
 			const used = can(member, "skills.edit") ? audience : "personal";
@@ -162,7 +163,7 @@ export const createFor = internalMutation({
 				...(audience === "team" && used === "personal" && { note: "Saved as Just me because your roles cannot edit team skills. Only you can see or use it." }),
 			};
 		});
-	},
+	}),
 });
 
 /** The maker explicitly confirms sharing in the app before calling this. */

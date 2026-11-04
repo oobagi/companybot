@@ -1,6 +1,6 @@
 import { actionLabel, findConnector, toolGroup } from "@companybot/core";
-import type { ObjectType, PaginationOptions } from "convex/server";
-import { v } from "convex/values";
+import type { PaginationOptions } from "convex/server";
+import { type ObjectType, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { query } from "./functions";

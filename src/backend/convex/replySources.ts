@@ -67,15 +67,41 @@ export async function readArtifact(ctx: QueryCtx, member: Member, artifact: Sour
  * destination audience. The original reply keeps all sources for display and context privacy.
  */
 export async function writeSources(ctx: MutationCtx, member: Member, audience?: Audience, artifact: Sourced = {}): Promise<UsedPlace[]> {
+	const { usedPlaces, place } = await fitSources(ctx, member, audience, artifact);
+	if (place) {
+		const saved = usedPlaces.filter((id) => id !== place._id);
+		if (saved.length !== (place.usedPlaces?.length ?? 0) || saved.some((id) => !place.usedPlaces?.includes(id))) await ctx.db.patch(place._id, { usedPlaces: saved.length ? saved : undefined });
+	}
+	return usedPlaces;
+}
+
+/**
+ * Whether what this turn has read so far is more private than its own chat: someone who can see the chat
+ * couldn't see one of its sources (the same rule as `writeSources` with the chat as the audience). Then what
+ * it sends outside the workspace (a web search's query, a link it opens) asks first (permissions.check).
+ */
+export async function turnIsRestricted(ctx: QueryCtx, member: Member, chatId: Id<"chats">) {
+	if (!member.replyId) return false;
+	try {
+		await fitSources(ctx, member, chatId);
+		return false;
+	} catch (e) {
+		if (e instanceof ConvexError) return true;
+		throw e;
+	}
+}
+
+/** `writeSources` without saving anything: the sources a write keeps, or a refusal if they don't fit `audience`. */
+async function fitSources(ctx: QueryCtx, member: Member, audience?: Audience, artifact: Sourced = {}) {
 	const placeId = typeof audience === "string" ? audience : audience && "place" in audience ? audience.place : undefined;
 	const place = placeId ? await ctx.db.get(placeId) : null;
 	const all = [...new Set([...(artifact.usedPlaces ?? []), ...(place?.usedPlaces ?? []), ...await turnSources(ctx, member)])];
-	if (audience && typeof audience === "object" && "filtered" in audience && audience.preserveOwn) return all;
+	if (audience && typeof audience === "object" && "filtered" in audience && audience.preserveOwn) return { usedPlaces: all, place };
 	const readSource = writeSourceReader(ctx, member);
 	const sources = await Promise.all(all.map(async (id) => ({ id, policy: await readSource(id) })));
 	const retained = sources.filter(({ policy }) => !member.ownWrites || !policy.visible || policy.exclusiveTo !== member.userId);
 	const usedPlaces = retained.map(({ id }) => id);
-	if (audience && typeof audience === "object" && "filtered" in audience) return usedPlaces;
+	if (audience && typeof audience === "object" && "filtered" in audience) return { usedPlaces, place };
 	const policies = typeof audience === "string" ? [await readSource(audience)] : audience && "places" in audience ? await Promise.all(audience.places.map(readSource)) : [audience];
 	const memberships = policies.flatMap((p) => p?.users ? [p.users] : []);
 	const users = memberships[0]?.filter((id) => memberships.every((list) => list.includes(id)));
@@ -108,9 +134,5 @@ export async function writeSources(ctx: MutationCtx, member: Member, audience?: 
 			throw new ConvexError(`This reply uses restricted places. Only ${who} can see this. It can't save it for a wider audience.`);
 		}
 	}
-	if (place) {
-		const saved = usedPlaces.filter((id) => id !== place._id);
-		if (saved.length !== (place.usedPlaces?.length ?? 0) || saved.some((id) => !place.usedPlaces?.includes(id))) await ctx.db.patch(place._id, { usedPlaces: saved.length ? saved : undefined });
-	}
-	return usedPlaces;
+	return { usedPlaces, place };
 }

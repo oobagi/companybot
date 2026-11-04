@@ -956,6 +956,8 @@ export default defineSchema({
 		automationInstallId: v.optional(v.id("automationInstalls")),
 		/** Set when the actor chose "Always allow": a rule was saved too. */
 		always: v.optional(v.boolean()),
+		/** Running a call to an outside service (a connector's): cut off, its outcome is unknown, not failed. */
+		outside: v.optional(v.boolean()),
 	})
 		.index("by_reply", ["replyId"])
 		.index("by_workspace", ["workspaceId"])

@@ -320,18 +320,18 @@ describe("trash", () => {
 		expect(await trashOf(owner)).toEqual([expect.objectContaining({ itemId: acme, user: "member@co.com", agent: "Companybot" })]);
 		expect(await t.mutation(internal.recordTools.getFor, { turnId, id: acme })).toMatchObject({ inTrash: true });
 		expect(await t.mutation(internal.recordTools.saveFor, { turnId, input: { id: acme, trash: false } })).not.toHaveProperty("inTrash");
-		// Fields and databases by name, in Archive or not, within the person's rights.
-		await t.mutation(internal.recordTools.saveFieldFor, { turnId, input: { type: "client", label: "Roof", kind: "text" } });
-		expect(await t.mutation(internal.recordTools.saveFieldFor, { turnId, input: { type: "client", field: "Roof", trash: true } })).toMatchObject({ inTrash: true });
-		expect(await t.mutation(internal.recordTools.saveFieldFor, { turnId, input: { type: "client", field: "Roof", trash: false } })).not.toHaveProperty("inTrash");
+		// Fields and databases by key, in Archive or not, within the person's rights.
+		const roof = (await t.mutation(internal.recordTools.saveFieldFor, { turnId, input: { type: "client", label: "Roof", kind: "text" } })) as { key: string };
+		expect(await t.mutation(internal.recordTools.saveFieldFor, { turnId, input: { type: "client", field: roof.key, trash: true } })).toMatchObject({ inTrash: true });
+		expect(await t.mutation(internal.recordTools.saveFieldFor, { turnId, input: { type: "client", field: roof.key, trash: false } })).not.toHaveProperty("inTrash");
 		await setMemberSwitch(owner, "fields.edit", false);
-		await t.mutation(internal.recordTools.saveFieldFor, { turnId, input: { type: "client", field: "Status", trash: true } }).then((r) => expect(r).toHaveProperty("error"));
+		await t.mutation(internal.recordTools.saveFieldFor, { turnId, input: { type: "client", field: "status", trash: true } }).then((r) => expect(r).toHaveProperty("error"));
 		expect(await t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input: { type: "client", trash: true } })).toEqual({ error: expect.stringContaining("Only people with the") });
-		// Pages too, by title once in Archive.
+		// Pages too, by id, found in Archive.
 		const pageId = await member.mutation(api.pages.create, { title: "SOP" });
 		await t.mutation(internal.pageTools.writeFor, { turnId, input: { page: pageId, trash: true } });
-		expect((await t.mutation(internal.pageTools.findFor, { turnId, input: { trashed: true } })).rows.map((r) => r.title)).toEqual(["SOP"]);
-		await t.mutation(internal.pageTools.writeFor, { turnId, input: { page: "SOP", trash: false } });
+		expect((await t.mutation(internal.pageTools.findFor, { turnId, input: { trashed: true } })).rows.map((r) => [r.id, r.title])).toEqual([[pageId, "SOP"]]);
+		await t.mutation(internal.pageTools.writeFor, { turnId, input: { page: pageId, trash: false } });
 		expect(await member.query(api.pages.get, { pageId })).toMatchObject({ archived: false });
 		// No agent tool reaches delete forever.
 		expect(Object.keys(internal.recordTools).concat(Object.keys(internal.pageTools)).some((k) => /purge|forever/i.test(k))).toBe(false);

@@ -103,7 +103,7 @@ describe("agents using chat files", () => {
 		const { messageId, ids } = await posted(owner, [[pngOf(64, 64), "logo.png"], [docx("Quote"), "quote.docx"]]);
 		const sales = await owner.mutation(api.chats.createChannel, { name: "sales", private: false });
 		const { turnId } = await turnOf(t, owner);
-		const sent = (await run(t, turnId, "chat.manage", { action: "send", chat: "#sales", files: ids }, ids, false)) as { messageId: Id<"chatMessages"> };
+		const sent = (await run(t, turnId, "chat.manage", { action: "send", chat: sales, files: ids }, ids, false)) as { messageId: Id<"chatMessages"> };
 		const [original, copy] = await t.run(async (ctx) => [(await ctx.db.get(messageId))!, (await ctx.db.get(sent.messageId))!]);
 		expect(copy.chatId).toBe(sales);
 		expect(copy.attachments!.map((a) => [a.name, a.type, a.width])).toEqual([

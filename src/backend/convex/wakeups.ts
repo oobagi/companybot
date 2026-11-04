@@ -25,6 +25,7 @@ import { reach } from "./placeAccess";
 import { recordById } from "./recordOps";
 import { canReadSources } from "./replyPrivacy";
 import { inheritPlaces, notePlace, writeSources } from "./replySources";
+import { withReceipt } from "./approvals";
 import { enqueueTurn, runningTurn } from "./turns";
 
 // Wakeups: an agent wakes later in a place (chat + thread), acting for a person. A wakeup is when
@@ -321,8 +322,8 @@ export const forgetSettled = internalMutation({
 // ---- Agent tools (core's WakeupStore), acting as the turn's person ----
 
 export const createFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), input: v.any() },
-	handler: async (ctx, { turnId, input }) => {
+	args: { turnId: v.id("agentTurns"), op: v.optional(v.id("approvals")), input: v.any() },
+	handler: (ctx, { turnId, op, input }) => withReceipt(ctx, op, turnId, async () => {
 		const { turn, member } = await runningTurn(ctx, turnId);
 		const { note, at, in: after, every: often, times, recordId } = input as FollowupInput;
 		return asToolResult(async () => {
@@ -360,7 +361,7 @@ export const createFor = internalMutation({
 			const repeat = every === undefined ? "" : `, then ${repeatLabel(every)}${times === undefined ? " until cancelled" : `, ${times} times in all`}`;
 			return { created: id, when: followupWhen(time, timeZone) + repeat, ...(record && { record: record.title }) };
 		});
-	},
+	}),
 });
 
 async function pendingCount(ctx: QueryCtx, index: "by_record" | "by_agent", id: Id<"records"> | Id<"agents">, max: number) {
@@ -398,13 +399,13 @@ export const listFor = internalMutation({
 });
 
 export const cancelFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), id: v.string() },
-	handler: async (ctx, { turnId, id }) => {
+	args: { turnId: v.id("agentTurns"), op: v.optional(v.id("approvals")), id: v.string() },
+	handler: (ctx, { turnId, op, id }) => withReceipt(ctx, op, turnId, async () => {
 		const { member } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
 			const row = await requireCancellable(ctx, member, id);
 			await cancelWakeup(ctx, row, `Cancelled by ${await nameOf(ctx, member.userId)}.`);
 			return { cancelled: row._id };
 		});
-	},
+	}),
 });

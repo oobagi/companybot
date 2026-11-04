@@ -16,6 +16,7 @@ import { chatAccess } from "./placeAccess";
 import { updatePreferences } from "./preferences";
 import { notePlace, readArtifact, writeSources } from "./replySources";
 import { requirePersonalSkillChat, installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
+import { withReceipt } from "./approvals";
 import { runningTurn } from "./turns";
 import { usageReport } from "./usage";
 import { cancelMemberInvite, imageSettings, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
@@ -50,8 +51,8 @@ const participants = (ctx: MutationCtx, r: { userIds?: string[]; agentIds?: stri
 });
 
 export const runFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), tool: v.string(), input: v.any(), uploads: v.optional(v.record(v.string(), v.id("_storage"))) },
-	handler: async (ctx, { turnId, tool, input, uploads = {} }): Promise<unknown> => {
+	args: { turnId: v.id("agentTurns"), op: v.optional(v.id("approvals")), tool: v.string(), input: v.any(), uploads: v.optional(v.record(v.string(), v.id("_storage"))) },
+	handler: (ctx, { turnId, op, tool, input, uploads = {} }): Promise<unknown> => withReceipt(ctx, op, turnId, async () => {
 		/** The copy of a chat file this call made. */
 		const copyOf = (id: string) => {
 			const copy = uploads[id];
@@ -327,7 +328,7 @@ export const runFor = internalMutation({
 				}
 			}
 		});
-	},
+	}),
 });
 
 /** Role ids as their names, for agents: what people call them. */
