@@ -65,11 +65,11 @@ export const list = query({
 		const agents = await Promise.all(
 			running
 				.filter((t) => now - (t.startedAt ?? t._creationTime) < STALE_TURN_MS)
-				// A dispatcher pick or hop may well post nothing: it shows what it's doing, never "typing".
+				// "Thinking…" or its step until its message starts (any turn may post nothing), then "typing".
 				// Stop (turns.stop): for the person it works for, or anyone with turns.stopAny.
 				.map(async (t) => ({
 					...(await names.agent(t.agentId)),
-					step: t.step?.label ?? (t.routed ? "Thinking…" : null),
+					step: t.step?.label ?? null,
 					turnId: t._id,
 					canStop: canStopTurn(visible.member, t),
 					stopping: !!t.stopping,

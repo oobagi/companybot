@@ -7,17 +7,18 @@ import type { MutationCtx } from "./_generated/server";
 import { privateTo } from "./automationOps";
 import { startCascade } from "./cascade";
 import { deleteFile } from "./images";
-import { hasLiveOwner, liveWorkspace } from "./lib";
+import { hasLiveOwner, keptWorkspace } from "./lib";
 import { deletePage, pageOfRecord } from "./pageOps";
 import { forgetTrashEntry } from "./memoryOps";
 import { trashEntry } from "./trashOps";
 import { toField } from "./recordOps";
 
-// What happens to every table's rows when what they belong to goes: a workspace is deleted,
-// a member removed, an account erased, a connector or automation uninstalled, a page deleted, or
-// a record, database, field, channel or agent deleted for good from Archive (trash.ts). cascade.ts
-// runs it. Every table must be listed (tests/lifecycle.test.ts fails otherwise), so a new
-// table can't ship until someone decides what happens to its rows. See wiki/architecture.md#data-lifecycle.
+// What happens to every table's rows when what they belong to goes: a workspace is deleted (or
+// reset: the same, minus what `keepOnReset` names), a member removed, an account erased, a
+// connector or automation uninstalled, a page deleted, or a record, database, field, channel or
+// agent deleted for good from Archive (trash.ts). cascade.ts runs it. Every table must be listed
+// (tests/lifecycle.test.ts fails otherwise), so a new table can't ship until someone decides what
+// happens to its rows. See wiki/architecture.md#data-lifecycle.
 
 /** What's going. Each cascade deletes the rows its scope lists; a workspace's deletes the workspace last. */
 export type Scope = Doc<"cascades">["scope"];
@@ -44,9 +45,11 @@ export type Edge<T extends TableNames> = {
 	onDelete?: (ctx: MutationCtx, row: Doc<T>, root: Root) => Promise<unknown>;
 };
 
-export type Lifecycle<T extends TableNames> = { [S in Scope]?: Edge<T> } & {
+export type Lifecycle<T extends TableNames> = { [S in Exclude<Scope, "reset">]?: Edge<T> } & {
 	/** Why the scopes not listed leave its rows alone. Required when no scope is. */
 	keep?: string;
+	/** Why a reset (workspace.resetWorkspace) leaves its rows alone, though deleting the workspace deletes them. */
+	keepOnReset?: string;
 	/** Deleted with each row of `table`, wherever one is deleted: the rows whose `field` is its id. One level only. */
 	childOf?: { table: TableNames; index: IndexNames<NamedTableInfo<DataModel, T>>; field: string };
 	/** Fields holding a storage id, or a list of `{ storageId }`: the files are deleted with the row, wherever a cascade deletes it. */
@@ -104,12 +107,21 @@ export async function removeWorkspace(ctx: MutationCtx, workspaceId: Id<"workspa
 }
 
 /**
+ * Closes a workspace at once (memberOf refuses it, as when deleting), then deletes its content
+ * in a reset cascade, which ends by seeding it like new (workspace.startAgain).
+ */
+export async function startReset(ctx: MutationCtx, workspaceId: Id<"workspaces">, userId: Id<"users">) {
+	await ctx.db.patch(workspaceId, { resetting: true, lastReset: { by: userId, at: Date.now() } });
+	await startCascade(ctx, "reset", { workspaceId, userId });
+}
+
+/**
  * An erased account leaves a workspace: what was theirs alone goes as on removal. One left with
  * no owner goes too. eraseAccount refuses a sole owner while others are in it, and invites to it
  * can't be accepted (workspace.ts invitesFor), so that's one only they were in.
  */
 async function leaveErased(ctx: MutationCtx, row: Doc<"members">) {
-	if (!(await liveWorkspace(ctx, row.workspaceId))) return;
+	if (!(await keptWorkspace(ctx, row.workspaceId))) return;
 	if (await hasLiveOwner(ctx, row.workspaceId)) await startCascade(ctx, "member", { workspaceId: row.workspaceId, userId: row.userId });
 	else await removeWorkspace(ctx, row.workspaceId);
 }
@@ -138,16 +150,19 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		user: { index: "by_user", eq: ["userId"], onDelete: leaveErased },
 		keep: "Removing someone deletes their row before the cascade starts (dropMember), so access ends at once.",
+		keepOnReset: "Everyone stays, with their role. The reset puts them all in the new #general, with a fresh tutorial.",
 	},
 	invites: {
 		role: roleRefs<"invites">(),
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		keep: "Invites are for an email, not an account: they outlive the person who sent them.",
+		keepOnReset: "Pending invites still stand: they join the fresh workspace.",
 	},
-	inviteEmails: { workspace: { index: "by_workspace", eq: ["workspaceId"] } },
+	inviteEmails: { workspace: { index: "by_workspace", eq: ["workspaceId"] }, keepOnReset: "The daily invite email limit: a reset doesn't start it over." },
 	roles: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		keep: "Roles belong to the workspace, not to whoever made them or holds them. Deleting one ends access immediately; its role cascade scrubs references.",
+		keepOnReset: "Roles are how the workspace is set up, like its members: they stay, and so does who holds which.",
 	},
 	// Uploads not yet attached to anything (images.ts); unclaimed ones also go after a day (images.sweepUploads).
 	uploads: {
@@ -162,6 +177,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		files: ["image"],
 		// "Last used" pointing at a deleted workspace: the app opens another.
 		workspace: { index: "by_workspace", eq: ["workspaceId"], scrub: () => ({ workspaceId: undefined }) },
+		keepOnReset: "The workspace is still there to open.",
 	},
 
 	// ---- Agents and memory ----
@@ -421,6 +437,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	usage: {
 		workspace: { index: "by_bucket", eq: ["workspaceId"] },
 		keep: "The workspace's bill: what a removed or erased person's replies cost stays in its totals, shown as a former member's. Agents deleted forever leave theirs as \"Agent\".",
+		keepOnReset: "What was spent before a reset is still owed, and still counts toward this month's picture budget.",
 	},
 
 	imageHolds: {
@@ -433,10 +450,11 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 
 export type Step = Edge<TableNames> & { table: TableNames };
 
-/** A scope's edges, in the order above. */
+/** A scope's edges, in the order above. A reset's are a workspace's, minus the tables it keeps. */
 export const edgesOf = (scope: Scope): Step[] =>
 	Object.entries(lifecycle).flatMap(([table, rules]) => {
-		const edge = (rules as Lifecycle<TableNames>)[scope];
+		const r = rules as Lifecycle<TableNames>;
+		const edge = scope === "reset" ? !r.keepOnReset && r.workspace : r[scope];
 		return edge ? [{ ...(edge as Edge<TableNames>), table: table as TableNames }] : [];
 	});
 

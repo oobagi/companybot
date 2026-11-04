@@ -6,7 +6,7 @@ import type { Id } from "../convex/_generated/dataModel";
 import { label } from "../convex/chatOps";
 import { enqueueTurn } from "../convex/turns";
 import { wake } from "../convex/wakeups";
-import { agentsOf, finishQuiet, generalOf, noMentions, ownerAndMember, turnsOf } from "./helpers";
+import { agentsOf, finishTurn, generalOf, noMentions, ownerAndMember, turnsOf } from "./helpers";
 
 // Agents handing work to each other (chains.ts). No network: the dispatcher's decide (Jev) is stubbed,
 // and fake timers hold every reply back, so each test writes the agents' replies itself.
@@ -220,13 +220,13 @@ describe("the dispatcher after an agent's message", () => {
 		await nextOf();
 		// Companybot got Scribe's result back and had nothing to add: nobody is asked who goes next.
 		const silent = await running(t, companybot);
-		await finishQuiet(t, silent._id, "");
+		await finishTurn(t, silent._id, "");
 		expect(decideWith).toHaveBeenCalledTimes(1);
 
 		// The next hop posts and @mentions Scout: that's what hands off.
 		await nextOf();
 		const hop = await running(t, companybot);
-		await finishQuiet(t, hop._id, "@Scout find three more like this");
+		await finishTurn(t, hop._id, "@Scout find three more like this");
 		expect(await running(t, scout)).toMatchObject({ triggerId: hop.replyId });
 	});
 });
@@ -263,9 +263,9 @@ describe("asking privately (chat.ask_agent)", () => {
 		expect(answer.threadId).toBeUndefined();
 		const context = await t.query(internal.turns.turnContext, { turnId: answer._id });
 		expect(context.wake).toMatchObject({ answer: { from: "Scribe" }, result: JSON.stringify("30 days, @Companybot.") });
-		// Not quiet: this reply finishes the one they were waiting for.
-		expect((await t.run((ctx) => ctx.db.get(answer.replyId! as Id<"chatMessages">)))!.quiet).toBeUndefined();
 		await say(t, companybot, "Refunds are within 30 days. @Scribe thanks");
+		// This reply finishes the one they were waiting for: shown like any other.
+		expect((await t.run((ctx) => ctx.db.get(answer.replyId! as Id<"chatMessages">)))!.quiet).toBeUndefined();
 		expect((await turnsOf(t)).filter((x) => x.status !== "done")).toEqual([]);
 	});
 

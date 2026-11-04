@@ -29,7 +29,7 @@ import { enqueueTurn, runningTurn } from "./turns";
 // plus what. When: a time (`at`, through the scheduler; with `repeat` it's re-armed after each wake,
 // `times` wakes in all or forever) or a job (`jobId`: #114 calls `wake` with its result). What: a
 // note (a follow-up's task) or none (look around: #162's heartbeat). `wake` is the only path from
-// one to a turn. The turn is quiet: its reply is shown only if its decision posts it (turns.finishReply).
+// one to a turn. Like every turn, its reply shows only if it writes a message (turns.ts `show`).
 // Each wake writes one line in Activity. See wiki/architecture.md (Automations).
 
 /** Fired and cancelled wakeups are forgotten this long after. */
@@ -138,7 +138,7 @@ export async function releaseHeld(ctx: MutationCtx, workspaceId: Id<"workspaces"
 /**
  * The only path from a wakeup to a turn. Re-checks, as of now, that its person is still a member
  * who can see the chat, and that its agent, chat and record are there; then the kind's gate; then
- * queues a quiet turn as that person, with the wakeup as its input. A job's `result` (#114) is
+ * queues a turn as that person, with the wakeup as its input. A job's `result` (#114) is
  * kept on the row for the turn. Every call writes one line in Activity.
  */
 export async function wake(ctx: MutationCtx, id: Id<"wakeups">, outcome?: { result?: string }) {

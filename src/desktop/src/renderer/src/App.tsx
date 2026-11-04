@@ -66,6 +66,12 @@ function Workspace() {
 	const { error, fail } = useRun();
 	const ids = mine?.workspaces.map((w) => w.id) ?? [];
 	const id = [chosen, mine?.lastUsed].find((w) => w && ids.includes(w as Id<"workspaces">)) ?? ids[0];
+	// Closed while an owner resets it: nothing in it can be read. It reopens on #general (no chat named), started fresh.
+	const resetting = mine?.workspaces.find((w) => w.id === id && w.resetting);
+	const isResetting = !!resetting;
+	useEffect(() => {
+		if (isResetting) navigate("chat");
+	}, [isResetting]);
 
 	// An erased account acts as signed out before its old token expires, in every window.
 	useEffect(() => {
@@ -105,6 +111,8 @@ function Workspace() {
 	// The new workspace opens once `mine` lists it.
 	if (mine && ids.length === 0) return ensured ? <Onboarding onDone={(next) => (localStorage.setItem(OPEN_KEY, next), setChosen(next))} /> : null;
 	if (!workspace) return null;
+	if (resetting)
+		return <div className="drag flex h-screen items-center justify-center p-8 text-sm text-neutral-500">Resetting {resetting.name}…</div>;
 	// Keyed by workspace: switching starts every screen fresh.
 	return (
 		<WorkspaceContext.Provider value={workspace}>

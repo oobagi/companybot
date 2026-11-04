@@ -3,7 +3,7 @@ import prosemirrorSync from "@convex-dev/prosemirror-sync/test";
 import { convexTest } from "convex-test";
 import type { FunctionArgs } from "convex/server";
 import { vi } from "vitest";
-import { type Permission, publishes } from "@companybot/core";
+import type { Permission } from "@companybot/core";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import schema from "../convex/schema";
@@ -98,19 +98,19 @@ export async function agentTurn(t: ReturnType<typeof convexTest>, as: As, chatId
 	await as.mutation(api.messages.send, { chatId, text: "hi", mentions: { userIds: [], agentIds: [agentId] } });
 	return (await turnsOf(t)).find((x) => !before.some((b) => b._id === x._id))!._id;
 }
+type Decision = NonNullable<FunctionArgs<typeof internal.turns.finishReply>["decision"]>;
 /**
- * Ends a quiet turn (a pick, a hop, a wake) as the runner does (agent.ts): `say` is the message its
- * decision posts; "" decides not to (new_point empty). Its message goes last in the reply, after `parts`.
+ * Ends a turn as the runner does (agent.ts): `say` is the message its answer posts; "" posts nothing.
+ * Its message goes last in the reply, after `parts`.
  */
-export async function finishQuiet(
+export async function finishTurn(
 	t: ReturnType<typeof convexTest>,
 	turnId: Id<"agentTurns">,
 	say: string,
-	{ parts = [], usage, ...decision }: { parts?: FunctionArgs<typeof internal.turns.updateReply>["parts"]; usage?: FunctionArgs<typeof internal.turns.finishReply>["usage"]; new_point?: string; post?: boolean; to?: string } = {},
+	{ parts = [], usage, ...decision }: { parts?: FunctionArgs<typeof internal.turns.updateReply>["parts"]; usage?: FunctionArgs<typeof internal.turns.finishReply>["usage"] } & Partial<Decision> = {},
 ) {
-	const decided = { new_point: say ? "Something new" : "", post: !!say, to: "room", message: say, ...decision };
-	const text = publishes(decided) ? say : "";
-	await t.mutation(internal.turns.updateReply, { turnId, text, parts: [...parts, ...(text ? [{ type: "text" as const, text }] : [])] });
+	const decided: Decision = { emoji: null, new_point: say ? "Something new" : "", to: "room", message: say, ...decision };
+	await t.mutation(internal.turns.updateReply, { turnId, text: say, parts: [...parts, ...(say ? [{ type: "text" as const, text: say }] : [])] });
 	await t.mutation(internal.turns.finishReply, { turnId, usage, decision: decided });
 }
 /** Runs everything scheduled (cascades, cleanups) until nothing is left. */

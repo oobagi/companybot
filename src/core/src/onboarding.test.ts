@@ -5,7 +5,7 @@ describe("welcomeText", () => {
 	it("asks a new workspace's owner about the company in one open message, with @mention", () => {
 		const text = welcomeText("new_workspace", { agent: "Companybot", name: "Ada", memory: true });
 		expect(text).toMatch(/^Hi Ada, I'm Companybot\./);
-		expect(text).toContain("only answer messages that @mention me");
+		expect(text).toContain("In channels, I answer when a message is for me, or when you @mention me.");
 		expect(text).toContain("I'll save it to team memory");
 	});
 

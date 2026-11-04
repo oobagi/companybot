@@ -122,12 +122,20 @@ export const dispatchInfo = v.object({
 	model: v.string(),
 	band: v.union(v.literal("clearly"), v.literal("probably"), v.literal("might")),
 	probability: v.optional(v.number()),
-	/** Jev's chance of each choice for this agent ({ reply, react, quiet }), for the reply's stats. */
+	/** Jev's chance of each choice for this agent ({ reply, quiet }), for the reply's stats. */
 	probabilities: v.optional(v.record(v.string(), v.number())),
 	/** The whole decision call's, which covers every agent in the channel. Recorded once, as kind "router". */
 	costUsd: v.number(),
 	/** Set when another agent named it in its decision (`to`), in place of a dispatcher: that agent's name. */
 	by: v.optional(v.string()),
+});
+
+/** How a turn ended (core `postDecision`): its reaction, what it would add, to whom, and its message. */
+export const postDecision = v.object({
+	emoji: v.union(v.string(), v.null()),
+	new_point: v.string(),
+	to: v.string(),
+	message: v.string(),
 });
 
 export const replyStats = v.object({
@@ -240,6 +248,10 @@ export default defineSchema({
 		threadHours: v.optional(v.number()),
 		/** Set when an owner deletes it: every access refuses at once, then a cascade deletes its rows (lifecycle.ts). */
 		deleting: v.optional(v.boolean()),
+		/** Set while an owner resets it: every access refuses, as when deleting, until its reset cascade seeds it again (workspace.resetWorkspace). */
+		resetting: v.optional(v.boolean()),
+		/** Its last reset: who started it, and when. */
+		lastReset: v.optional(v.object({ by: v.id("users"), at: v.number() })),
 		/** Its logo (images.ts). Unset shows its initials. */
 		image: v.optional(v.id("_storage")),
 	}),
@@ -557,10 +569,10 @@ export default defineSchema({
 		costUsd: v.optional(v.number()),
 		/** Server-written provenance. `foreign` snapshots whose words the run follows; absent on older messages, which ask. */
 		automation: v.optional(v.object({ id: v.string(), name: v.string(), foreign: v.optional(v.boolean()) })),
-		/** A quiet turn's own reply (a wake, a dispatcher pick, a hop): hidden unless its decision posts it (turns.finishReply). */
+		/** Not in the timeline: an agent's reply until it has something to show (turns.ts `show`), and an ask (chains.ts). */
 		quiet: v.optional(v.boolean()),
 		/**
-		 * Where it sits in the timeline, if not where it was made (chatOps `shownAt`): when a quiet reply was
+		 * Where it sits in the timeline, if not where it was made (chatOps `shownAt`): when an agent's reply was
 		 * shown, or when a reply took in messages sent after it began (turns.steer), so it shows below them.
 		 */
 		publishedAt: v.optional(v.number()),
@@ -624,7 +636,10 @@ export default defineSchema({
 		emoji: v.string(),
 		userId: v.optional(v.id("users")),
 		agentId: v.optional(v.id("agents")),
-	}).index("by_message", ["messageId", "emoji", "userId", "agentId"]),
+	})
+		.index("by_message", ["messageId", "emoji", "userId", "agentId"])
+		// Newest in a chat: what was reacted to since an agent's last reply (turns.turnContext).
+		.index("by_chat", ["chatId"]),
 
 	// A person @mentioned in a message (main timeline or a thread), so unread mentions are found
 	// by index however much else was said since. `at`: the message's _creationTime. Gone when it's deleted.
@@ -656,7 +671,7 @@ export default defineSchema({
 		sessionId: v.optional(v.id("agentSessions")),
 		/** The exact user message sent to the model this turn. Replayed as-is in later turns. */
 		prompt: v.optional(v.string()),
-		/** Nobody @mentioned the agent: the router queued it (router.ts), or a hop (chains.ts). Its reply is quiet. */
+		/** Nobody @mentioned the agent: the router queued it (router.ts), or a hop (chains.ts). Its prompt says so. */
 		routed: v.optional(v.literal(true)),
 		/**
 		 * The dispatcher's pick, for its prompt and its reply's stats. One message's picks run one after
@@ -666,15 +681,12 @@ export default defineSchema({
 		dispatch: v.optional(
 			v.object({
 				...dispatchInfo.fields,
-				// Retired with chat.notify: routed turns are all quiet now. Old turns have them.
-				quiet: v.optional(v.literal(true)),
 				after: v.optional(v.id("agentTurns")),
 				then: v.optional(v.id("agentTurns")),
 			}),
 		),
-		// Retired with chat.notify (no longer written). Old turns have them.
-		notifiedId: v.optional(v.id("chatMessages")),
-		claimSeen: v.optional(v.literal(true)),
+		/** The turn's decision, as it made it; unset if it made none (it failed, was stopped, or stopped for an approval). */
+		decision: v.optional(postDecision),
 		/** Another agent handed it this (chains.ts): its chain, how deep in asks, and the agents from the chain's start to this one. */
 		chain: v.optional(chainRef),
 		/** Answering another agent's private ask (chat.ask_agent): when it ends, this wakeup gives the asker the answer. */
@@ -701,7 +713,7 @@ export default defineSchema({
 		startedAt: v.optional(v.number()),
 		/** Set when the turn follows a decision on this approval: it runs the call if approved, then tells the agent. */
 		approvalId: v.optional(v.id("approvals")),
-		/** A wake turn (wakeups.ts): its input is the wakeup, its reply is quiet, and `wakeLogId` is its line in Activity. */
+		/** A wake turn (wakeups.ts): its input is the wakeup, and `wakeLogId` is its line in Activity. */
 		wakeupId: v.optional(v.id("wakeups")),
 		wakeLogId: v.optional(v.id("agentActivity")),
 		/** What its pictures cost so far (imageGen.ts), for its reply's stats. */
@@ -793,7 +805,7 @@ export default defineSchema({
 		turnId: v.optional(v.id("agentTurns")),
 		chatId: v.id("chats"),
 		threadId: v.optional(v.id("chatMessages")),
-		/** Unset on a wake's line: a wake turn's reply is quiet. */
+		/** Unset on a wake's line. */
 		replyId: v.optional(v.id("chatMessages")),
 		/** Same id as the reply's tool part, so the app can open one from the other. A wake's line: the wakeup's id. */
 		callId: v.string(),
@@ -1264,7 +1276,7 @@ export default defineSchema({
 	// edge of lifecycle.ts per run, resumed from `edge` and `cursor`. `key` names what's going,
 	// so rejoining or reinstalling waits until its old rows are gone.
 	cascades: defineTable({
-		scope: v.union(v.literal("role"), v.literal("workspace"), v.literal("member"), v.literal("user"), v.literal("connectorInstall"), v.literal("automationInstall"), trashKind),
+		scope: v.union(v.literal("role"), v.literal("workspace"), v.literal("reset"), v.literal("member"), v.literal("user"), v.literal("connectorInstall"), v.literal("automationInstall"), trashKind),
 		root: v.object({
 			roleId: v.optional(v.id("roles")),
 			workspaceId: v.optional(v.id("workspaces")),
