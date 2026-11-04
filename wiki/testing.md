@@ -26,11 +26,11 @@ A test earns its place by catching a bug a person or agent would notice. It shou
 - Before you keep a new test, break the code it protects and watch it fail.
 
 ## Where tests live
-- `src/core/src/*.test.ts`: next to the module. Pure, no Convex.
-- `src/backend/tests/*.test.ts`: Convex functions through `convex-test` (edge runtime). It doesn't enforce every Convex limit or run crons: call the cron's function yourself.
-- `src/backend/tests/*.scale.test.ts`: thousands of rows under real limits. Slow, so only in `pnpm test:scale` (CI runs both).
-- `src/desktop/src/**/*.test.ts`: the renderer's plain logic (drafts, emoji, filters, money input), plus a few flows where a regression loses data (delete-workspace confirmation, sign-out of an erased account). They run on a stand-in page (happy-dom); UI renders inside `inApp` (`testing.ts`), as `main.tsx` wraps the app.
-- `src/core/eval/`: model evals, paid, not in `pnpm test` ([Chat](chat.md)).
+- `packages/core/src/*.test.ts`: next to the module. Pure, no Convex.
+- `packages/backend/tests/*.test.ts`: Convex functions through `convex-test` (edge runtime). It doesn't enforce every Convex limit or run crons: call the cron's function yourself.
+- `packages/backend/tests/*.scale.test.ts`: thousands of rows under real limits. Slow, so only in `pnpm test:scale` (CI runs both).
+- `apps/desktop/src/**/*.test.ts`: the renderer's plain logic (drafts, emoji, filters, money input), plus a few flows where a regression loses data (delete-workspace confirmation, sign-out of an erased account). They run on a stand-in page (happy-dom); UI renders inside `inApp` (`testing.ts`), as `main.tsx` wraps the app.
+- `packages/core/eval/`: model evals, paid, not in `pnpm test` ([Chat](chat.md)).
 
 ## Run
 ```sh

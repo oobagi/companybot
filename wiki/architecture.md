@@ -1,14 +1,16 @@
 # Architecture
 
-pnpm monorepo. Each folder in `src/` is a package.
+pnpm monorepo. Clients live in `apps/`; shared packages live in `packages/`.
 
 | Package | What |
 |---|---|
-| `src/core` | Agent framework: agents, built-in tools, connectors, skills, memory rules. Pure logic, no I/O. |
-| `src/backend` | Convex: database, sign-in, live updates, and the agent runner (`convex/`). |
-| `src/desktop` | Electron app (electron-vite + React + Tailwind). Talks to Convex directly. |
+| `packages/core` | Agent framework: agents, built-in tools, connectors, skills, memory rules. Pure logic, no I/O. |
+| `packages/backend` | Convex: database, sign-in, live updates, and the agent runner (`convex/`). |
+| `apps/desktop` | Electron app (electron-vite + React + Tailwind). Talks to Convex directly. |
 
-## Concepts (`src/core`)
+| `apps/mobile` | Expo Router + React Native client for iOS and Android; see [Mobile](mobile.md). |
+
+## Concepts (`packages/core`)
 What each piece is. The rules for changing them: [Extending](extending.md).
 - **Role** — a workspace's named set of switches (`roles` table). Owner (everything, fixed) and Member (the default) are built in; owners add their own. A person holds one or more and gets the union ([Permissions](permissions.md#roles)).
 - **Who can access** — a channel's, database's or page's list of Everyone or roles at View or Edit (`place-access.ts`); not on it, the place doesn't exist for you ([Permissions](permissions.md#who-can-access)).
@@ -32,7 +34,7 @@ What each piece is. The rules for changing them: [Extending](extending.md).
 
 New workspaces start with only **#general** and **Companybot**. No databases, pages, skills, automations or connectors are seeded. Companybot can help people create databases, skills and automations, as their roles allow; the table, stats and card widgets remain available.
 
-## Backend (`src/backend/convex`)
+## Backend (`packages/backend/convex`)
 - **Sign-in:** Convex Auth (beta) with a 6-digit email code sent through Resend. Signed out, the app opens on a one-line landing (`views/Landing.tsx`, Get started), then sign-in (`views/SignIn.tsx`). Both use the same frame (`Split`): content centered on the left half, and on the right a picture drawn in code (`views/Art.tsx`, an SVG of flat shapes with grain), so no image ships.
 - **Workspaces:** a person can be in several (`members`, one row each). First sign-in joins every workspace that invited the email (`ensure`); with none, nothing is made: the app shows onboarding (`views/Onboarding.tsx`, three steps: your name, the company and its currency, emails to invite), which ends in one transaction (`setUp`: name saved first so the welcome uses it, then the workspace with its Owner and Member roles and you as Owner, with `#general`, then the invites as Member; a bad email refuses it all). The same screen comes back whenever you're in no workspace, such as after deleting your last one. **The workspace comes from each request, never from server state:** every public function is built with `functions.ts` (`query`/`mutation`/`action`), which takes `workspaceId` and puts it on ctx for `getMember`, which checks membership in that workspace (not a member → null/refused). The app's hooks (`desktop/.../convex.ts`) add the open workspace to every call; a test fails if a screen imports convex/react's hooks directly. Which workspace is open is per device (localStorage, pinned once chosen); `preferences.workspaceId` is only "last used", for a device's first launch (`workspace.mine`, `switchTo`). A row from another workspace (by id) looks like it doesn't exist: check it with `requireInWorkspace(member, row, what)` or a `require*` helper built on it (`tests/workspaces.test.ts` tries every id-taking function from the wrong workspace). A request that names no workspace acts nowhere. Anything acting for someone in a known place (turns, approvals, automations, agent tools, connectors, OAuth flows) passes that workspace to `memberOf(ctx, userId, workspaceId)`. The workspace switcher (`WorkspaceSwitcher`) is the open workspace's logo at the top of the app rail, as in Slack; its menu lists every workspace to switch (dragged into your order; ⌘1–9 follow it), invites to join or decline, New workspace (`create`: you're its owner, with the default agents, #general and a welcome, like a first sign-in's), Workspace settings, and Leave (`leave`; not the last owner). Joining or creating opens the workspace once `mine` lists it. Other workspaces show a dot when a chat is unread and a red count of chats with an unread @mention or DM (`activity`), in the menu and summed on the logo. Creating is capped at `MAX_OWNED_WORKSPACES` (10) owned. Your avatar sits at the bottom of the app rail: Account settings and Sign out.
 - **Invites:** anyone with `members.manage` (only owners invite an owner; invites pick one or more roles). One per email per workspace; accepting checks the signed-in (code-verified) email, so an invite can't be used by anyone else or for another workspace. Each invite (and Resend) emails who invited them, the workspace, and the download link (GitHub Releases), through the sign-in Resend account (`invites.ts`, text in core `invite-email.ts`); local backends log it instead. Limits: 20 emails per workspace per day; one email per address per 10 minutes, however invites come and go (a resend inside it is refused; a new invite is saved without one). Names are cut to one line before they go into the subject. Removing someone (or leaving) ends access at once, then a member cascade ([Data lifecycle](#data-lifecycle)) drops their channel seats, automation opt-ins, permission rules, personal connector accounts (the workspace's own stay), personal memories and skills, unread mentions, and automations only they could see (just-them ones, which nobody else could delete); rejoining waits until it's done, so it starts strict. DMs keep them as a past participant.

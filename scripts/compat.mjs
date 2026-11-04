@@ -22,11 +22,11 @@ function compareVersions(a, b) {
 	return 0;
 }
 
-/** Every COMPAT marker in src/: { version, where, note }. */
+/** Every COMPAT marker in apps/ and packages/: { version, where, note }. */
 function compatMarkers() {
 	let lines = "";
 	try {
-		lines = execSync(`git grep -n -E "COMPAT\\([^)]+\\)" -- src ':!**/_generated/**'`, { encoding: "utf8" });
+		lines = execSync(`git grep -n -E "COMPAT\\([^)]+\\)" -- apps packages ':!**/_generated/**'`, { encoding: "utf8" });
 	} catch {
 		return []; // git grep exits 1 when nothing matches
 	}
@@ -45,7 +45,7 @@ function compatMarkers() {
 export const dueMarkers = (currentVersion) => compatMarkers().filter((m) => compareVersions(m.version, currentVersion) <= 0);
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-	const current = JSON.parse(readFileSync("src/desktop/package.json", "utf8")).version;
+	const current = JSON.parse(readFileSync("apps/desktop/package.json", "utf8")).version;
 	const markers = compatMarkers();
 	if (markers.length === 0) console.log("No COMPAT markers.");
 	for (const m of markers) {

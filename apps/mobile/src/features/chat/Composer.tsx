@@ -1,0 +1,129 @@
+import type { Id } from '@companybot/backend/convex/_generated/dataModel';
+import { FILES_PER_MESSAGE } from '@companybot/core/files';
+import { TYPING_PING_MS } from '@companybot/core/typing';
+import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
+import { useRef, useState } from 'react';
+import { ActivityIndicator, TextInput, View } from 'react-native';
+import { ActionMenu, Button, ErrorState, IconButton, ListRow, Stack, Text } from '@/components/ui';
+import Photo from '@expo/material-symbols/photo_library.xml';
+import Camera from '@expo/material-symbols/photo_camera.xml';
+import Attach from '@expo/material-symbols/attach_file.xml';
+import Mention from '@expo/material-symbols/alternate_email.xml';
+import Microphone from '@expo/material-symbols/mic.xml';
+import { ComposerSymbol } from './ComposerSymbol';
+import { useTheme } from '@/design';
+import { api, errorMessage } from '@/lib/api';
+import { useMutation, useQuery, useWorkspace } from '@/lib/convex';
+import { useFileUpload, type PickedFile } from '@/lib/fileUpload';
+import { convexUrl } from '@/lib/config';
+import { useTask } from '@/lib/useTask';
+import { changeDraft, readDraft, useChatDraft } from './drafts';
+import { useDictation } from './useDictation';
+import { draftMentions, intactMention, rebaseMentions, recordMentions } from './logic';
+import { MentionPicker } from './MentionPicker';
+
+export function Composer({ chatId, threadId }: { chatId: Id<'chats'>; threadId?: Id<'chatMessages'> }) {
+  const chats = useQuery(api.chats.list);
+  const team = useQuery(api.workspace.team);
+  const skills = useQuery(api.skills.list);
+  const workspace = useWorkspace();
+  const send = useMutation(api.messages.send);
+  const discard = useMutation(api.files.discard);
+  const ping = useMutation(api.typing.ping);
+  const upload = useFileUpload();
+  const { colors, spacing, radii, typography, sizes } = useTheme();
+  const key = `companybot.draft:${convexUrl}:${chats?.me ?? 'loading'}:${workspace?.id}:${chatId}:${threadId ?? 'main'}`;
+  const draft = useChatDraft(key);
+  const dictation = useDictation((text) => changeDraft(key, (d) => ({ ...d, text: `${d.text}${d.text && !/\s$/.test(d.text) ? ' ' : ''}${text}` })));
+  const ready = draft.ready && !!chats?.me && !!workspace?.id;
+  const task = useTask();
+  const [picking, setPicking] = useState(false);
+  const [mentionsOpen, setMentionsOpen] = useState(false);
+  const [contentHeight, setContentHeight] = useState(44);
+  const [fileError, setFileError] = useState<string>();
+  const lastPing = useRef(0);
+  const pickerLock = useRef(false);
+  const edit = (text: string) => {
+    changeDraft(key, (d) => ({ ...d, text, mentions: rebaseMentions(d.text, text, d.mentions) }));
+    if (Date.now() - lastPing.current > TYPING_PING_MS) { lastPing.current = Date.now(); void ping({ chatId, threadId }).catch(() => {}); }
+  };
+  const addFiles = async (source: 'files' | 'photos' | 'camera') => {
+    if (pickerLock.current || !ready) return;
+    pickerLock.current = true;
+    setPicking(true); setFileError(undefined);
+    try {
+      let assets: PickedFile[];
+      if (source === 'files') {
+        const result = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: true });
+        if (result.canceled) return;
+        assets = result.assets;
+      } else {
+        if (source === 'camera' && !(await ImagePicker.requestCameraPermissionsAsync()).granted) throw new Error('Allow camera access in system settings to take a photo.');
+        const options: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], quality: 1, preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible };
+        const result = source === 'camera' ? await ImagePicker.launchCameraAsync(options) : await ImagePicker.launchImageLibraryAsync({ ...options, allowsMultipleSelection: true, selectionLimit: FILES_PER_MESSAGE - readDraft(key).files.length });
+        if (result.canceled) return;
+        assets = result.assets.map((asset) => ({ uri: asset.uri, name: asset.fileName ?? `Photo-${Date.now()}.jpg`, size: asset.fileSize, file: asset.file }));
+      }
+      const room = FILES_PER_MESSAGE - readDraft(key).files.length;
+      if (assets.length > room) setFileError(`Attach up to ${FILES_PER_MESSAGE} files per message.`);
+      const pending = assets.slice(0, Math.max(0, room)).map((asset) => ({ asset, key: `${Date.now()}:${Math.random()}` }));
+      changeDraft(key, (d) => ({ ...d, files: [...d.files, ...pending.map(({ asset, key: fileKey }) => ({ key: fileKey, name: asset.name }))] }));
+      // Serialize reads/uploads to bound peak memory on phones with ten large attachments.
+      for (const { asset, key: fileKey } of pending) {
+        if (!readDraft(key).files.some((file) => file.key === fileKey)) continue;
+        await upload(asset).then((file) => {
+          if (!readDraft(key).files.some((f) => f.key === fileKey)) { void discard({ file }).catch(() => {}); return; }
+          changeDraft(key, (d) => ({ ...d, files: d.files.map((f) => f.key === fileKey ? { ...f, file, uploadedAt: Date.now() } : f) }));
+        }, (error: unknown) => changeDraft(key, (d) => ({ ...d, files: d.files.map((f) => f.key === fileKey ? { ...f, error: errorMessage(error) } : f) })));
+      }
+    } catch (error) { setFileError(errorMessage(error)); } finally { pickerLock.current = false; setPicking(false); }
+  };
+  const removeFile = (fileKey: string) => {
+    const file = readDraft(key).files.find((f) => f.key === fileKey)?.file;
+    if (file) void discard({ file }).catch((error: unknown) => setFileError(errorMessage(error)));
+    changeDraft(key, (d) => ({ ...d, files: d.files.filter((f) => f.key !== fileKey) }));
+  };
+  const directory = [...(team?.members.map((p) => ({ id: p.userId, name: p.name || p.email, kind: 'user' as const, detail: p.email })) ?? []), ...(chats?.agents.map((a) => ({ id: a._id, name: a.name, kind: 'agent' as const, detail: a.description })) ?? []), ...(skills?.filter((s) => !s.trash).map((s) => ({ id: s.id, name: s.name, kind: 'skill' as const })) ?? [])];
+  const submit = () => void task.run(async () => {
+    if (!ready || team === undefined || skills === undefined) return;
+    const current = readDraft(key);
+    if ((!current.text.trim() && !current.files.length) || current.files.some((f) => !f.file)) return;
+    if (current.mentions.some(span => intactMention(current.text, span) && !directory.some(item => item.kind === span.kind && item.id === span.id))) throw new Error('A mentioned teammate or skill is no longer available. Remove or reselect that mention.');
+    const mentioned = draftMentions(current.text, directory, current.mentions);
+    await send({ chatId, threadId, text: current.text, attachments: current.files.flatMap((f) => f.file ? [f.file] : []), mentions: { userIds: mentioned.filter((p) => p.kind === 'user').map((p) => p.id as Id<'users'>), agentIds: mentioned.filter((p) => p.kind === 'agent').map((p) => p.id as Id<'agents'>), skillIds: mentioned.filter((p) => p.kind === 'skill').map((p) => p.id), recordIds: recordMentions(current.text) as Id<'records'>[] } });
+    changeDraft(key, (d) => ({ ...d, text: '', mentions: [], files: [] }));
+    lastPing.current = 0;
+  });
+  return <View style={{ borderTopWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, gap: spacing.xs }}>
+    {draft.files.map((file) => <ListRow key={file.key} title={file.name} description={file.error ?? (file.file ? 'Ready to send' : 'Uploading…')} trailing={<Button label="Remove" accessibilityLabel={`Remove ${file.name}`} variant="ghost" disabled={task.busy} onPress={() => removeFile(file.key)} />} />)}
+    {(task.error || fileError || dictation.error) && <ErrorState message={task.error ?? fileError ?? dictation.error!} />}
+    {draft.mentions.length > 0 && <Text variant="caption" tone="muted">Mentioning {draft.mentions.map(mention => `${mention.name}${mention.detail ? ` (${mention.detail})` : ''}`).join(', ')}</Text>}
+    <Stack horizontal gap="xs" style={{ alignItems: 'flex-end' }}>
+      <ActionMenu label="Add to message" actions={[
+        { id: 'photos', title: 'Photo library', icon: process.env.EXPO_OS === 'ios' ? 'photo' : Photo, disabled: !ready || picking || task.busy || draft.files.length >= FILES_PER_MESSAGE },
+        { id: 'camera', title: 'Take a photo', icon: process.env.EXPO_OS === 'ios' ? 'camera' : Camera, disabled: !ready || picking || task.busy || draft.files.length >= FILES_PER_MESSAGE },
+        { id: 'files', title: 'Choose files', icon: process.env.EXPO_OS === 'ios' ? 'paperclip' : Attach, disabled: !ready || picking || task.busy || draft.files.length >= FILES_PER_MESSAGE },
+        { id: 'mention', title: 'Mention…', icon: process.env.EXPO_OS === 'ios' ? 'at' : Mention, disabled: !ready || task.busy },
+        { id: 'dictate', title: 'Dictate message', icon: process.env.EXPO_OS === 'ios' ? 'mic' : Microphone, disabled: !ready || task.busy || dictation.state !== 'idle' },
+      ]} onAction={action => {
+        if (action === 'photos' || action === 'camera' || action === 'files') void addFiles(action);
+        else if (action === 'mention') setMentionsOpen(true);
+        else if (action === 'dictate') void dictation.toggle();
+      }}>
+        {picking ? <ActivityIndicator color={colors.muted} accessibilityLabel="Adding files" /> : <ComposerSymbol name="add" color={colors.muted} />}
+      </ActionMenu>
+      <TextInput accessibilityLabel={threadId ? 'Reply in thread' : 'Message'} placeholder={threadId ? 'Reply…' : 'Message…'}
+        multiline submitBehavior="newline" value={draft.text} onChangeText={edit} editable={ready && !task.busy}
+        onContentSizeChange={event => setContentHeight(Math.ceil(event.nativeEvent.contentSize.height))}
+        scrollEnabled={contentHeight >= 144} placeholderTextColor={colors.muted} selectionColor={colors.link} underlineColorAndroid="transparent"
+        style={[typography.body, { flex: 1, height: Math.max(44, Math.min(144, contentHeight)), minHeight: 44, maxHeight: 144, marginVertical: (sizes.touch - 44) / 2, borderRadius: radii.lg, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.surface, color: colors.text, textAlignVertical: 'top' }]} />
+      <IconButton label="Send message" accessibilityState={{ busy: task.busy }} disabled={!ready || task.busy || team === undefined || skills === undefined || picking || dictation.state !== 'idle' || (!draft.text.trim() && !draft.files.length) || draft.files.some((f) => !f.file)} onPress={submit}>
+        {task.busy ? <ActivityIndicator color={colors.link} /> : <ComposerSymbol name="send" color={colors.link} />}
+      </IconButton>
+    </Stack>
+    {dictation.state !== 'idle' && <Stack horizontal gap="sm"><Text tone="muted" variant="caption" accessibilityLiveRegion="polite" style={{ flex: 1 }}>{dictation.state === 'recording' ? 'Recording…' : dictation.state === 'transcribing' ? 'Transcribing…' : 'Preparing microphone…'}</Text>{dictation.state === 'recording' && <Button label="Stop" variant="secondary" accessibilityLabel="Stop dictation and transcribe" onPress={() => void dictation.toggle()} />}<Button label="Cancel" variant="ghost" accessibilityLabel="Cancel dictation" onPress={dictation.cancel} /></Stack>}
+    {mentionsOpen && <MentionPicker directory={directory} onClose={() => setMentionsOpen(false)} onPick={(token, mention) => { changeDraft(key, d => { const prefix = `${d.text}${d.text && !/\s$/.test(d.text) ? ' ' : ''}`; return { ...d, text: `${prefix}${token} `, mentions: mention ? [...d.mentions, { ...mention, start: prefix.length, end: prefix.length + token.length }] : d.mentions }; }); setMentionsOpen(false); }} />}
+
+  </View>;
+}

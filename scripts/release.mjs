@@ -31,7 +31,7 @@ const fail = (msg) => {
 
 if (!bump) fail("Say how to bump: pnpm release patch | minor | major | alpha | beta | 1.2.3");
 
-const pkgPath = "src/desktop/package.json";
+const pkgPath = "apps/desktop/package.json";
 const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
 const [base, pre] = pkg.version.split("-");
 const [major, minor, patch] = base.split(".").map(Number);

@@ -1,0 +1,489 @@
+import { withoutRole, type AccessList } from "./placeAccess";
+import { searchTextOf } from "@companybot/core";
+import type { IndexNames, NamedTableInfo } from "convex/server";
+import { internal } from "./_generated/api";
+import type { DataModel, Doc, Id, TableNames } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
+import { privateTo } from "./automationOps";
+import { startCascade } from "./cascade";
+import { deleteFile } from "./images";
+import { hasLiveOwner, keptWorkspace } from "./lib";
+import { deletePage, pageOfRecord } from "./pageOps";
+import { forgetTrashEntry } from "./memoryOps";
+import { trashEntry } from "./trashOps";
+import { toField } from "./recordOps";
+
+// What happens to every table's rows when what they belong to goes: a workspace is deleted (or
+// reset: the same, minus what `keepOnReset` names), a member removed, an account erased, a
+// connector or automation uninstalled, a page deleted, or a record, database, field, channel or
+// agent deleted for good from Archive (trash.ts). cascade.ts runs it. Every table must be listed
+// (tests/lifecycle.test.ts fails otherwise), so a new table can't ship until someone decides what
+// happens to its rows. See wiki/architecture.md#data-lifecycle.
+
+/** What's going. Each cascade deletes the rows its scope lists; a workspace's deletes the workspace last. */
+export type Scope = Doc<"cascades">["scope"];
+/** The ids naming what's going, read by each edge's `eq`. */
+export type Root = Doc<"cascades">["root"];
+
+/** Reads a row by id, counted against the cascade run's read budget. */
+export type Get = {
+	<T extends TableNames>(id: Id<T>): Promise<Doc<T> | null>;
+	/** Small text-field catalog, cached and counted against the same budget. */
+	searchFields(typeId: Id<"recordTypes">): Promise<Doc<"recordFields">[]>;
+};
+
+/** One range of one index: its rows are deleted (or patched, with `scrub`) when the scope's root goes. */
+export type Edge<T extends TableNames> = {
+	index: IndexNames<NamedTableInfo<DataModel, T>>;
+	/** The index's leading fields, valued from the root key of the same name, or `[field, root key]`. */
+	eq: (keyof Root | [string, keyof Root])[];
+	/** Only rows this passes. */
+	where?: (get: Get, row: Doc<T>, root: Root) => boolean | Promise<boolean>;
+	/** Patch rows instead of deleting them. */
+	scrub?: (row: Doc<T>, get: Get, root: Root) => Partial<Doc<T>> | Promise<Partial<Doc<T>>>;
+	/** Runs just before each row is deleted, in the same transaction. Keep it to a few small reads. */
+	onDelete?: (ctx: MutationCtx, row: Doc<T>, root: Root) => Promise<unknown>;
+};
+
+export type Lifecycle<T extends TableNames> = { [S in Exclude<Scope, "reset">]?: Edge<T> } & {
+	/** Why the scopes not listed leave its rows alone. Required when no scope is. */
+	keep?: string;
+	/** Why a reset (workspace.resetWorkspace) leaves its rows alone, though deleting the workspace deletes them. */
+	keepOnReset?: string;
+	/** Deleted with each row of `table`, wherever one is deleted: the rows whose `field` is its id. One level only. */
+	childOf?: { table: TableNames; index: IndexNames<NamedTableInfo<DataModel, T>>; field: string };
+	/** Fields holding a storage id, or a list of `{ storageId }`: the files are deleted with the row, wherever a cascade deletes it. */
+	files?: (keyof Doc<T> & string)[];
+};
+
+/** Role cleanup scans workspace indexes in bounded pages; empty lists stay Owners only. */
+const roleRefs = <T extends "members" | "invites" | "connectorInstalls">(): Edge<T> => ({
+	index: "by_workspace", eq: ["workspaceId"],
+	where: (_get, row, root) => !!row.roles?.includes(root.roleId!),
+	scrub: (row, _get, root) => ({ roles: row.roles!.filter((id: string) => id !== root.roleId) }) as unknown as Partial<Doc<T>>,
+});
+const roleAccess = <T extends "chats" | "recordTypes" | "pages">(): Edge<T> => ({
+	index: "by_workspace", eq: ["workspaceId"],
+	where: (_get, row, root) => !!row.access?.some((e: { role: string }) => e.role === root.roleId),
+	scrub: (row, _get, root) => ({ access: withoutRole(row.access as NonNullable<AccessList>, root.roleId!) }) as unknown as Partial<Doc<T>>,
+});
+
+/** A channel seat, not a DM: DMs keep people who left as past participants. */
+const inChannel = async (get: Get, row: { chatId: Id<"chats"> }) => (await get(row.chatId))?.kind === "channel";
+const inWorkspace = async (get: Get, id: Id<"chats"> | Id<"automationInstalls">, root: Root) => (await get(id))?.workspaceId === root.workspaceId;
+
+const pending = (_get: Get, row: Doc<"wakeups">) => row.status === "pending";
+/** Cancels a pending wakeup in a cascade: `fire` and `wake` do nothing for it after this. */
+const cancelled = (reason: string) => () => ({ status: "cancelled" as const, reason, held: undefined, settledAt: Date.now() });
+
+/** A record's page body goes with it. */
+async function deleteBody(ctx: MutationCtx, row: Doc<"records">) {
+	const page = await pageOfRecord(ctx, row.workspaceId, row._id);
+	if (page) await deletePage(ctx, page._id);
+}
+
+/** A page's content is the prosemirrorSync component's, deleted by the component a little at a time. */
+const deleteContent = (ctx: MutationCtx, row: Doc<"pages">) => ctx.scheduler.runAfter(0, internal.pageSync.deleteDoc, { id: row._id });
+
+/** A page going inside another cascade: its content, then a page cascade for its versions, moves and images. */
+async function deleteContentAndRest(ctx: MutationCtx, row: Doc<"pages">) {
+	await deleteContent(ctx, row);
+	await startCascade(ctx, "page", { workspaceId: row.workspaceId, pageId: row._id });
+}
+
+/** A page image's file goes with the last page that has it (copies share it). */
+async function deleteImageFile(ctx: MutationCtx, row: Doc<"pageImages">) {
+	const rows = await ctx.db.query("pageImages").withIndex("by_storage", (q) => q.eq("storageId", row.storageId)).take(2);
+	if (!rows.some((r) => r._id !== row._id)) await deleteFile(ctx, row.storageId);
+}
+
+/** The field being deleted, read once per run. */
+const fieldOf = async (get: Get, root: Root) => await get(root.fieldId!);
+
+/** Ends access to a workspace at once (memberOf refuses it), then deletes it in a cascade. */
+export async function removeWorkspace(ctx: MutationCtx, workspaceId: Id<"workspaces">) {
+	await ctx.db.patch(workspaceId, { deleting: true });
+	await startCascade(ctx, "workspace", { workspaceId });
+}
+
+/**
+ * Closes a workspace at once (memberOf refuses it, as when deleting), then deletes its content
+ * in a reset cascade, which ends by seeding it like new (workspace.startAgain).
+ */
+export async function startReset(ctx: MutationCtx, workspaceId: Id<"workspaces">, userId: Id<"users">) {
+	await ctx.db.patch(workspaceId, { resetting: true, lastReset: { by: userId, at: Date.now() } });
+	await startCascade(ctx, "reset", { workspaceId, userId });
+}
+
+/**
+ * An erased account leaves a workspace: what was theirs alone goes as on removal. One left with
+ * no owner goes too. eraseAccount refuses a sole owner while others are in it, and invites to it
+ * can't be accepted (workspace.ts invitesFor), so that's one only they were in.
+ */
+async function leaveErased(ctx: MutationCtx, row: Doc<"members">) {
+	if (!(await keptWorkspace(ctx, row.workspaceId))) return;
+	if (await hasLiveOwner(ctx, row.workspaceId)) await startCascade(ctx, "member", { workspaceId: row.workspaceId, userId: row.userId });
+	else await removeWorkspace(ctx, row.workspaceId);
+}
+
+export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
+	// ---- Convex Auth ----
+	users: {
+		keep: "Never deleted: ~20 tables point at people. Erasing an account (workspace.eraseAccount) scrubs it at once to `{ erasedAt }`, so they show as a former member and a sign-in from before acts as nobody.",
+	},
+	authAccounts: {
+		// eraseAccount also deletes these at once, so their email can't sign back in to the old account.
+		user: { index: "userIdAndProvider", eq: ["userId"] },
+	},
+	authVerificationCodes: { childOf: { table: "authAccounts", index: "accountId", field: "accountId" } },
+	authSessions: { user: { index: "userId", eq: ["userId"] } },
+	authRefreshTokens: { childOf: { table: "authSessions", index: "sessionId", field: "sessionId" } },
+	authVerifiers: { keep: "Sign-in handshakes Convex Auth deletes as they're used. They name no person or workspace." },
+	authRateLimits: { keep: "Sign-in attempt counters keyed by email: eraseAccount deletes the person's at once, while it still knows their email." },
+	modelCatalog: { keep: "AI Gateway's model list, shared by every workspace. Names no person or workspace." },
+	localSignInCodes: { keep: "Local backends only (`pnpm dev`): the latest code per email. eraseAccount deletes the person's at once, like authRateLimits." },
+
+	// ---- Workspaces and people ----
+	workspaces: { keep: "Its own cascade deletes it last, once everything in it is gone (cascade.ts).", files: ["image"] },
+	members: {
+		role: roleRefs<"members">(),
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		user: { index: "by_user", eq: ["userId"], onDelete: leaveErased },
+		keep: "Removing someone deletes their row before the cascade starts (dropMember), so access ends at once.",
+		keepOnReset: "Everyone stays, with their role. The reset puts them all in the new #general, with a fresh tutorial.",
+	},
+	invites: {
+		role: roleRefs<"invites">(),
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		keep: "Invites are for an email, not an account: they outlive the person who sent them.",
+		keepOnReset: "Pending invites still stand: they join the fresh workspace.",
+	},
+	inviteEmails: { workspace: { index: "by_workspace", eq: ["workspaceId"] }, keepOnReset: "The daily invite email limit: a reset doesn't start it over." },
+	roles: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		keep: "Roles belong to the workspace, not to whoever made them or holds them. Deleting one ends access immediately; its role cascade scrubs references.",
+		keepOnReset: "Roles are how the workspace is set up, like its members: they stay, and so does who holds which.",
+	},
+	// Uploads not yet attached to anything (images.ts); unclaimed ones also go after a day (images.sweepUploads).
+	uploads: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		user: { index: "by_user", eq: ["userId"] },
+		keep: "A removed member's unclaimed uploads go with the hourly sweep, within a day.",
+		files: ["storageId"],
+	},
+	arrangements: {
+		page: { index: "by_entity", eq: [["entityId", "pageId"]] },
+		database: { index: "by_entity", eq: [["entityId", "typeId"]] },
+		workspace: { index: "by_list", eq: ["workspaceId"] },
+		member: { index: "by_user", eq: ["userId", "workspaceId"] },
+		user: { index: "by_user", eq: ["userId"] },
+	},
+	preferences: {
+		user: { index: "by_user", eq: ["userId"] },
+		// Their photo goes with their account.
+		files: ["image"],
+		// "Last used" pointing at a deleted workspace: the app opens another.
+		workspace: { index: "by_workspace", eq: ["workspaceId"], scrub: () => ({ workspaceId: undefined }) },
+		keepOnReset: "The workspace is still there to open.",
+	},
+
+	// Mobile notification payloads contain only an opaque delivery id. Every send and tap rechecks access.
+	mobilePushDevices: { user: { index: "by_user", eq: ["userId"] }, keep: "Account-wide installations; inactive devices expire after 30 days; session revocation is checked before every send and tap." },
+	mobilePushLimits: { user: { index: "by_user", eq: ["userId"] } },
+	mobilePushWorkers: { keep: "Two global dispatch leases, with no account or content data." },
+	mobilePushDeliveries: {
+		user: { index: "by_user", eq: ["userId"] },
+		member: { index: "by_user", eq: ["userId", "workspaceId"] },
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		channel: { index: "by_chat", eq: ["chatId"] },
+		keep: "Delivery routes expire after one day; device/session/message removal also blocks sends and taps immediately.",
+	},
+
+	// ---- Agents and memory ----
+	// An agent deleted from Archive goes last in its own cascade, after its versions, memories, sessions and channel seats.
+	// What it said and did stays (messages, activity, history), shown as "Agent".
+	agents: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		keep: "Agents are the workspace's. Who last saved one stays on it.",
+		// Its picture stays while it's in Archive, and goes when it's deleted for good.
+		files: ["image"],
+	},
+	agentVersions: {
+		childOf: { table: "agents", index: "by_agent", field: "agentId" },
+		agent: { index: "by_agent", eq: ["agentId"] },
+	},
+	memories: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		// Team memories in Archive take their entry: it couldn't be restored anymore.
+		agent: { index: "by_agent_scope", eq: ["agentId"], onDelete: forgetTrashEntry },
+		// Personal memories are their owner's alone. Team memories they wrote stay with the team.
+		member: { index: "by_owner", eq: [["ownerId", "userId"], "workspaceId"] },
+	},
+	memoryVersions: { childOf: { table: "memories", index: "by_memory", field: "memoryId" } },
+
+	// ---- Connectors ----
+	connectorInstalls: {
+		role: roleRefs<"connectorInstalls">(),
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		keep: "Uninstalling deletes the row before the cascade starts, so access ends at once.",
+	},
+	connectorConnections: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		// Their own accounts. The workspace's (userId null) stay, whoever connected them.
+		member: { index: "by_user", eq: ["userId", "workspaceId"] },
+		// In every workspace, including ones they left before removal deleted them.
+		user: { index: "by_user", eq: ["userId"] },
+		connectorInstall: { index: "by_workspace", eq: ["workspaceId", "connectorId"] },
+	},
+	// Sign-ins in progress. Finishing one also checks it started under the membership and install still there.
+	connectorOAuthFlows: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		member: { index: "by_user", eq: ["userId", "workspaceId"] },
+		user: { index: "by_user", eq: ["userId"] },
+		connectorInstall: { index: "by_install", eq: ["connectorInstallId"] },
+	},
+	connectorTools: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		connectorInstall: { index: "by_workspace", eq: ["workspaceId", "connectorId"] },
+	},
+
+	skillInstalls: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		member: {
+			index: "by_owner", eq: [["ownerId", "userId"], "workspaceId"],
+			onDelete: async (ctx, row) => {
+				const entry = await trashEntry(ctx, row._id);
+				if (entry) await ctx.db.delete(entry._id);
+			},
+		},
+	},
+
+	// ---- Chat ----
+	// A channel deleted from Archive goes last in its own cascade, after its messages, seats and agent sessions.
+	chats: {
+		role: roleAccess<"chats">(),
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+	},
+	chatMembers: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		channel: { index: "by_chat", eq: ["chatId"] },
+		member: { index: "by_workspace", eq: ["workspaceId", "userId"], where: inChannel },
+		agent: { index: "by_agent", eq: ["agentId"], where: inChannel },
+	},
+	chatMessages: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		channel: { index: "by_chat_thread", eq: ["chatId"] },
+		// Deleting a message clears it but keeps the row (messages.remove), and deletes its files. What agents
+		// already saw of a deleted or edited message stays in their sessions: a product decision is pending.
+		keep: "Team history: what someone said stays when they leave; once their account is erased it shows as a former member's.",
+		files: ["attachments"],
+	},
+	linkPreviews: {
+		workspace: { index: "by_workspace_url", eq: ["workspaceId"] },
+		files: ["image"],
+		keep: "Shared by URL across the workspace's messages (a public page's title, text and picture), so no channel, member or account owns one.",
+	},
+	typing: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		member: { index: "by_workspace", eq: ["workspaceId", "userId"] },
+		channel: { index: "by_place", eq: ["chatId"] },
+	},
+	reactions: { childOf: { table: "chatMessages", index: "by_message", field: "messageId" } },
+	replyStreams: { childOf: { table: "chatMessages", index: "by_message", field: "messageId" } },
+	userMentions: {
+		childOf: { table: "chatMessages", index: "by_message", field: "messageId" },
+		member: { index: "by_user_chat", eq: ["userId"], where: (get, row, root) => inWorkspace(get, row.chatId, root) },
+	},
+
+	// ---- Agent runs ----
+	agentTurns: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		channel: { index: "by_chat", eq: ["chatId"] },
+		keep: "A queued turn acting for someone who left fails when it runs (runningTurn reads membership fresh).",
+	},
+	agentChains: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		channel: { index: "by_chat", eq: ["chatId"] },
+		keep: "Only counts and the agents handed to, no content. A chain acting for someone who left queues turns that fail when they run (runningTurn).",
+	},
+	agentSessions: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		channel: { index: "by_chat", eq: ["chatId"] },
+		agent: { index: "by_place", eq: ["agentId"] },
+	},
+	agentActivity: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		// Results show only to the person it acted for (their inbox, a private channel): erasing them clears those.
+		user: { index: "by_actor", eq: [["actorId", "userId"]], scrub: () => ({ output: undefined }) },
+		keep: "The workspace's log of what agents did. Results show only to the person it acted for, so once they leave nobody sees them. A deleted channel's entries stay, hidden with it (as private as its chat).",
+	},
+	approvals: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		user: { index: "by_actor", eq: [["actorId", "userId"]], scrub: () => ({ result: undefined }) },
+		keep: "Only the person it acted for can decide one; a removed person's expire undecided, as do ones in a deleted channel.",
+	},
+
+	// ---- Wakeups ----
+	// A person's go with them. Pending ones for something deleted forever are cancelled, saying why;
+	// `wake` re-checks the same at each wake. Settled ones go 30 days later (wakeups.forgetSettled).
+	wakeups: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		// Theirs alone, like their personal memories: nothing ever runs as anyone else (`wake` checks too).
+		member: { index: "by_actor", eq: ["workspaceId", ["actorId", "userId"]] },
+		agent: { index: "by_agent", eq: ["agentId"], where: pending, scrub: cancelled("Its agent was deleted.") },
+		channel: { index: "by_chat", eq: ["chatId"], where: pending, scrub: cancelled("Its chat was deleted.") },
+		record: { index: "by_record", eq: ["recordId"], where: pending, scrub: cancelled("Its record was deleted.") },
+		database: { index: "by_type", eq: ["typeId"], where: pending, scrub: cancelled("Its record was deleted.") },
+		keep: "Fired and cancelled ones stay 30 days for the record, then wakeups.forgetSettled deletes them.",
+	},
+
+	// ---- Automations and permissions ----
+	automationInstalls: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		// Just-them automations: nobody else can see or delete them (canView). Their grants go as on uninstall.
+		member: {
+			index: "by_workspace",
+			eq: ["workspaceId"],
+			where: (_get, row, root) => privateTo(row) === root.userId,
+			onDelete: (ctx, row) => startCascade(ctx, "automationInstall", { automationInstallId: row._id }),
+		},
+		keep: "Removing one, or deleting one people made forever from Archive, deletes the row before the cascade starts (removeInstall). In Trash, nothing triggers it.",
+	},
+	automationSubscriptions: {
+		childOf: { table: "automationInstalls", index: "by_install", field: "installId" },
+		member: { index: "by_user", eq: ["userId"], where: (get, row, root) => inWorkspace(get, row.installId, root) },
+		automationInstall: { index: "by_install", eq: [["installId", "automationInstallId"]] },
+	},
+	automationEvents: {
+		childOf: { table: "automationInstalls", index: "by_install", field: "installId" },
+		automationInstall: { index: "by_install", eq: [["installId", "automationInstallId"]] },
+	},
+	permissionRules: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		member: { index: "by_workspace", eq: ["workspaceId", "userId"] },
+		connectorInstall: { index: "by_connector", eq: ["connectorInstallId"] },
+		automationInstall: { index: "by_automation", eq: ["automationInstallId"] },
+	},
+	permissionLocks: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		connectorInstall: { index: "by_connector", eq: ["connectorInstallId"] },
+		keep: "An owner's lock is the workspace's: it stays when they leave.",
+	},
+
+	// ---- Records ----
+	// A record, database or field deleted from Archive (trash.ts) goes last in its own cascade.
+	recordTypes: {
+		role: roleAccess<"recordTypes">(),
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+	},
+	databaseViews: {
+		childOf: { table: "recordTypes", index: "by_type", field: "typeId" },
+		database: { index: "by_type", eq: ["typeId"] },
+	},
+	recordFields: {
+		childOf: { table: "recordTypes", index: "by_type", field: "typeId" },
+		database: { index: "by_type", eq: ["typeId"] },
+	},
+	records: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		database: { index: "by_type", eq: ["typeId"], onDelete: deleteBody },
+		// A deleted field's values leave every record in its database, in Archive or not, so a new field can reuse its key.
+		field: {
+			index: "by_type",
+			eq: ["typeId"],
+			where: async (get, row, root) => {
+				const field = await fieldOf(get, root);
+				return !!field && field.key in row.values;
+			},
+			scrub: async (row, get, root) => {
+				const field = await fieldOf(get, root);
+				const { [field!.key]: _, ...values } = row.values;
+				const fields = await get.searchFields(row.typeId);
+				return { values, searchText: searchTextOf(fields.filter((f) => f._id !== root.fieldId).map(toField), values) };
+			},
+		},
+		keep: "Records are the workspace's: deleting one moves it to Archive. Who made or changed them stays in history.",
+	},
+	recordValues: {
+		childOf: { table: "records", index: "by_record", field: "recordId" },
+		record: { index: "by_record", eq: ["recordId"] },
+		field: { index: "by_field_at", eq: ["fieldId"] },
+	},
+	recordHistory: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		record: { index: "by_record", eq: ["recordId"] },
+		database: { index: "by_type", eq: ["typeId"] },
+		field: { index: "by_field", eq: ["fieldId"] },
+	},
+	// Deleting a message deletes its rows here too (messages.remove).
+	recordMentions: {
+		channel: { index: "by_chat", eq: ["chatId"] },
+		childOf: { table: "records", index: "by_record", field: "recordId" },
+		record: { index: "by_record", eq: ["recordId"] },
+	},
+
+	// ---- Pages ----
+	pages: {
+		role: roleAccess<"pages">(),
+		workspace: { index: "by_workspace", eq: ["workspaceId"], onDelete: deleteContent },
+		page: { index: "by_parent", eq: ["workspaceId", ["parentId", "pageId"]], onDelete: deleteContentAndRest },
+		// A record's body goes with it.
+		record: { index: "by_workspace", eq: ["workspaceId", "recordId"], onDelete: deleteContentAndRest },
+		keep: "Pages are the workspace's, like records. Deleting one forever (trash.ts) deletes its row first, then its content and a page cascade.",
+	},
+	pageMoves: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		childOf: { table: "pages", index: "by_page", field: "pageId" },
+		page: { index: "by_page", eq: ["pageId"] },
+	},
+	pageVersions: {
+		childOf: { table: "pages", index: "by_page", field: "pageId" },
+		page: { index: "by_page", eq: ["pageId"] },
+	},
+	pageImages: {
+		workspace: { index: "by_url", eq: ["workspaceId"], onDelete: deleteImageFile },
+		page: { index: "by_page", eq: ["pageId"], onDelete: deleteImageFile },
+	},
+
+	trash: {
+		page: { index: "by_item", eq: [["itemId", "pageId"]] },
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		// Its records' and fields' entries: they go with it.
+		database: { index: "by_type", eq: ["typeId"] },
+		keep: "Deleting forever deletes the entry first (trash.ts). Who deleted something stays, as a former member once they leave.",
+	},
+
+	usage: {
+		workspace: { index: "by_bucket", eq: ["workspaceId"] },
+		keep: "The workspace's bill: what a removed or erased person's replies cost stays in its totals, shown as a former member's. Agents deleted forever leave theirs as \"Agent\".",
+		keepOnReset: "What was spent before a reset is still owed, and still counts toward this month's picture budget.",
+	},
+
+	imageHolds: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		keep: "A hold names no person: it's settled or released within HOLD_MS (imageGen.ts).",
+	},
+
+	cascades: { keep: "The cascades themselves: each deletes its own row when it's done." },
+};
+
+export type Step = Edge<TableNames> & { table: TableNames };
+
+/** A scope's edges, in the order above. A reset's are a workspace's, minus the tables it keeps. */
+export const edgesOf = (scope: Scope): Step[] =>
+	Object.entries(lifecycle).flatMap(([table, rules]) => {
+		const r = rules as Lifecycle<TableNames>;
+		const edge = scope === "reset" ? !r.keepOnReset && r.workspace : r[scope];
+		return edge ? [{ ...(edge as Edge<TableNames>), table: table as TableNames }] : [];
+	});
+
+/** The storage files a row of `table` holds (`files`). */
+export const filesOf = (table: TableNames, row: Doc<TableNames>) =>
+	((lifecycle[table] as Lifecycle<TableNames>).files ?? []).flatMap((field) => {
+		const value = row[field] as unknown as Id<"_storage"> | { storageId: Id<"_storage"> }[] | undefined;
+		return Array.isArray(value) ? value.map((a) => a.storageId) : value ? [value] : [];
+	});
+
+/** Tables deleted with each row of `table`. */
+export const childrenOf = (table: TableNames) =>
+	Object.entries(lifecycle).flatMap(([child, rules]) => (rules.childOf?.table === table ? [{ ...rules.childOf, table: child as TableNames }] : []));

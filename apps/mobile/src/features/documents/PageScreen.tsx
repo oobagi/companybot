@@ -1,0 +1,139 @@
+import type { Id } from '@companybot/backend/convex/_generated/dataModel';
+import { router, Stack as RouterStack } from 'expo-router';
+import { useState } from 'react';
+import { Modal, ScrollView } from 'react-native';
+import { Badge, Button, EditorSheet, EmptyState, ErrorState, Field, ListRow, Loading, Screen, Stack, Text } from '@/components/ui';
+import { useTheme } from '@/design';
+import { api } from '@/lib/api';
+import { useMutation, usePaginatedQuery, useQuery } from '@/lib/convex';
+import { useTask } from '@/lib/useTask';
+import { useDraftGuard } from '@/lib/useDraftGuard';
+import { DocumentEditor, VersionDocument } from './DocumentEditor';
+import { NewPage, openPage, PageChildren } from './PagesScreen';
+import { useDocumentConfirm } from './Confirm';
+import { AccessSheet } from '@/features/access/AccessSheet';
+import { useArrangements } from '@/features/arrangements/useArrangements';
+
+export function PageScreen({ pageId }: { pageId: string }) {
+  const page = useQuery(api.pages.get, { pageId });
+  const [panel, setPanel] = useState<'rename' | 'move' | 'history' | 'children' | 'create' | 'access'>();
+  const archive = useMutation(api.trash.move);
+  const restore = useMutation(api.trash.restore);
+  const setAccess = useMutation(api.pages.setAccess);
+  const task = useTask();
+  const { confirm, dialog } = useDocumentConfirm();
+  const theme = useTheme();
+  if (page === undefined) return <Screen><Loading /></Screen>;
+  if (!page) return <Screen><EmptyState title="Page not found" description="It may have been removed or you no longer have access." /></Screen>;
+  return <Screen keyboard contentStyle={{ gap: theme.spacing.sm }}>
+    <RouterStack.Screen options={{ title: page.title || 'Untitled' }} />
+    {dialog}
+    {!!page.ancestors.length && <ScrollView horizontal style={{ flexGrow: 0 }} contentContainerStyle={{ gap: theme.spacing.xs }}>
+      {page.ancestors.map((ancestor) => <Button key={ancestor._id} label={ancestor.title || 'Untitled'} variant="ghost" onPress={() => openPage(ancestor._id)} />)}
+    </ScrollView>}
+    <Text variant="title">{page.title || 'Untitled'}</Text>
+    {page.archived && <Badge label="Archived · read only" tone="warning" />}
+    {page.trash?.canRestore && <Button label="Restore page" variant="secondary" loading={task.busy} onPress={() => void task.run(() => restore({ kind: page.trash!.kind, id: page.trash!.itemId }))} />}
+    <ScrollView horizontal style={{ flexGrow: 0 }} contentContainerStyle={{ gap: theme.spacing.xs }}>
+      <Button label="History" variant="ghost" onPress={() => setPanel('history')} />
+      <Button label="Who can access" variant="ghost" onPress={() => setPanel('access')} />
+      {!page.recordId && <Button label="Sub-pages" variant="ghost" onPress={() => setPanel('children')} />}
+      {page.canEdit && !page.recordId && <>
+        <Button label="Rename" variant="ghost" onPress={() => setPanel('rename')} />
+        <Button label="Move" variant="ghost" onPress={() => setPanel('move')} />
+        <Button label="New inside" variant="ghost" onPress={() => setPanel('create')} />
+        <Button label="Archive" variant="danger" loading={task.busy} onPress={() => void task.run(async () => {
+          if (!await confirm({ title: `Archive ${page.title || 'Untitled'}?`, body: 'Its sub-pages will be archived with it. You can restore them from Archive.', action: 'Archive', danger: true })) return;
+          await archive({ kind: 'page', id: page._id });
+          router.replace(page.parentId ? { pathname: '/pages/[pageId]', params: { pageId: page.parentId } } : '/pages');
+        })} />
+      </>}
+    </ScrollView>
+    {task.error && <ErrorState message={task.error} />}
+    <DocumentEditor pageId={page._id} editable={page.canEdit} />
+    {panel === 'access' && <AccessSheet access={page.access} following={page.parentId && !page.recordId ? page.ownAccess === null : undefined} description={page.recordId ? 'This page follows its database. Change access in the database’s menu.' : undefined} onSave={page.canManageAccess && !page.archived ? entries => setAccess({ pageId: page._id, access: entries }) : undefined} onClose={() => setPanel(undefined)} />}
+    {panel === 'rename' && <RenamePage pageId={page._id} title={page.title} onClose={() => setPanel(undefined)} />}
+    {panel === 'move' && <MovePage pageId={page._id} parentId={page.parentId} onClose={() => setPanel(undefined)} />}
+    {panel === 'create' && <NewPage parentId={page._id} onClose={() => setPanel(undefined)} />}
+    {panel === 'history' && <PageHistory pageId={page._id} canRestore={page.canEdit} onClose={() => setPanel(undefined)} />}
+    {panel === 'children' && <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setPanel(undefined)}><Screen edges={['top', 'left', 'right', 'bottom']}><Stack style={{ flex: 1 }}>
+      <Stack horizontal><Text variant="heading" style={{ flex: 1 }}>Sub-pages</Text><Button label="Close" variant="ghost" onPress={() => setPanel(undefined)} /></Stack>
+      {page.canEdit && <Button label="New sub-page" onPress={() => setPanel('create')} />}
+      <PageChildren parentId={page._id} onSelect={(id) => { setPanel(undefined); openPage(id); }} />
+    </Stack></Screen></Modal>}
+  </Screen>;
+}
+
+function RenamePage({ pageId, title, onClose }: { pageId: Id<'pages'>; title: string; onClose: () => void }) {
+  const [value, setValue] = useState(title);
+  const [baseline] = useState(title);
+  const rename = useMutation(api.pages.rename);
+  const task = useTask();
+  const guard = useDraftGuard({ dirty: value !== baseline, busy: task.busy, onClose, description: 'Your unsaved page title will be discarded.' });
+  return <EditorSheet title="Rename page" busy={task.busy} dismissible={guard.dismissible} onClose={() => void guard.close()}>{guard.dialog}<Field label="Title" value={value} onChangeText={setValue} editable={!task.busy} autoFocus />
+    {task.error && <ErrorState message={task.error} />}
+    <Button label="Save title" loading={task.busy} disabled={!value.trim()} onPress={() => void task.run(async () => { await rename({ pageId, title: value.trim() }); onClose(); })} />
+  </EditorSheet>;
+}
+
+function MovePage({ pageId, parentId, onClose }: { pageId: Id<'pages'>; parentId: Id<'pages'> | null; onClose: () => void }) {
+  const [search, setSearch] = useState('');
+  const matches = useQuery(api.pages.search, search.trim() ? { query: search.trim() } : 'skip');
+  const roots = usePaginatedQuery(api.pages.children, {}, { initialNumItems: 30 });
+  const arrangements = useArrangements();
+  const move = useMutation(api.pages.move);
+  const task = useTask();
+  const choose = (target?: Id<'pages'>) => void task.run(async () => { await move({ pageId, parentId: target }); onClose(); });
+  return <EditorSheet title="Move page" busy={task.busy} onClose={onClose}>
+    <Text tone="muted">Choose a destination. Sub-pages move with this page.</Text>
+    <Field label="Find destination" value={search} onChangeText={setSearch} autoCorrect={false} />
+    {task.error && <ErrorState message={task.error} />}
+    <ListRow title="Top level" selected={!parentId} disabled={task.busy || !parentId} onPress={() => choose()} />
+    {(search.trim() ? matches ?? [] : arrangements.order('pages', roots.results)).filter((row) => row._id !== pageId).map((row) => <ListRow key={row._id} title={row.title || 'Untitled'} description={'path' in row ? row.path.join(' / ') : undefined} selected={row._id === parentId} disabled={task.busy || row._id === parentId || !row.canEdit} onPress={() => choose(row._id)} />)}
+    {!search.trim() && roots.status === 'CanLoadMore' && <Button label="More destinations" variant="ghost" onPress={() => roots.loadMore(30)} />}
+    {search.trim() && matches?.length === 0 && <Text tone="muted">No pages found.</Text>}
+  </EditorSheet>;
+}
+
+function PageHistory({ pageId, canRestore, onClose }: { pageId: Id<'pages'>; canRestore: boolean; onClose: () => void }) {
+  const [tab, setTab] = useState<'content' | 'moves'>('content');
+  const [selected, setSelected] = useState<Id<'pageVersions'>>();
+  const history = usePaginatedQuery(api.pages.history, { pageId }, { initialNumItems: 20 });
+  const restore = useMutation(api.pages.restore);
+  const task = useTask();
+  const { confirm, dialog } = useDocumentConfirm();
+  const theme = useTheme();
+  return <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { if (!task.busy) onClose(); }}><Screen edges={['top', 'left', 'right', 'bottom']} contentStyle={{ gap: theme.spacing.md }}>
+    {dialog}
+    <Stack horizontal><Text variant="heading" style={{ flex: 1 }}>{selected ? 'Version preview' : 'Page history'}</Text><Button label="Close" variant="ghost" onPress={onClose} disabled={task.busy} /></Stack>
+    {task.error && <ErrorState message={task.error} />}
+    {selected ? <>
+      <Button label="Back to versions" variant="ghost" onPress={() => setSelected(undefined)} />
+      <HistoryPreview versionId={selected} />
+      {canRestore && selected !== history.results[0]?._id && <Button label="Restore this version" loading={task.busy} onPress={() => void task.run(async () => {
+        if (!await confirm({ title: 'Restore this version?', body: 'This becomes the current content. Your current version stays in history.', action: 'Restore version' })) return;
+        await restore({ versionId: selected }); onClose();
+      })} />}
+    </> : <>
+      <Stack horizontal><Button label="Content" variant={tab === 'content' ? 'primary' : 'secondary'} onPress={() => setTab('content')} /><Button label="Moves" variant={tab === 'moves' ? 'primary' : 'secondary'} onPress={() => setTab('moves')} /></Stack>
+      {tab === 'moves' ? <PageMoves pageId={pageId} /> : <ScrollView contentContainerStyle={{ flexGrow: 1 }}>
+        {history.status === 'LoadingFirstPage' && <Loading />}
+        {history.status === 'Exhausted' && !history.results.length && <EmptyState title="No edits yet" />}
+        {history.results.map((version, index) => <ListRow key={version._id} title={new Date(version.time).toLocaleString()} description={`${index === 0 ? 'Current · ' : ''}${version.restored ? 'Restored' : 'Edited'} by ${[version, ...version.others].map((who) => who.agent ? `${who.agent}, for ${who.user}` : who.user).join(', ')}`} onPress={() => setSelected(version._id)} />)}
+        {(history.status === 'CanLoadMore' || history.status === 'LoadingMore') && <Button label="Older versions" variant="ghost" loading={history.status === 'LoadingMore'} onPress={() => history.loadMore(20)} />}
+      </ScrollView>}
+    </>}
+  </Screen></Modal>;
+}
+
+function HistoryPreview({ versionId }: { versionId: Id<'pageVersions'> }) {
+  const content = useQuery(api.pages.version, { versionId });
+  return content === undefined ? <Loading /> : content === null ? <EmptyState title="Version unavailable" description="This version may have expired from history." /> : <VersionDocument content={content} identity={versionId} />;
+}
+function PageMoves({ pageId }: { pageId: Id<'pages'> }) {
+  const moves = usePaginatedQuery(api.pages.moves, { pageId }, { initialNumItems: 20 });
+  return <ScrollView contentContainerStyle={{ flexGrow: 1 }}>{moves.results.map((move) => <ListRow key={move._id} title={`Moved from ${move.from} to ${move.to}`} description={`${move.agent ?? move.user} · ${new Date(move._creationTime).toLocaleString()}`} />)}
+    {moves.status === 'LoadingFirstPage' && <Loading />}{moves.status === 'Exhausted' && !moves.results.length && <EmptyState title="No moves yet" />}
+    {(moves.status === 'CanLoadMore' || moves.status === 'LoadingMore') && <Button label="Older moves" variant="ghost" loading={moves.status === 'LoadingMore'} onPress={() => moves.loadMore(20)} />}
+  </ScrollView>;
+}

@@ -1,0 +1,64 @@
+import type { Id } from "@companybot/backend/convex/_generated/dataModel";
+import { useQuery as useCachedQuery, usePaginatedQuery as useCachedPaginatedQuery } from "convex/react";
+import type { OptimisticUpdate } from "convex/browser";
+import { type PaginatedQueryReference, useAction as useConvexAction, useMutation as useConvexMutation } from "convex/react";
+import type { FunctionArgs, FunctionReference, FunctionReturnType } from "convex/server";
+import { createContext, useCallback, useContext, useMemo } from "react";
+
+// The app's Convex hooks. Use these, not convex/react's: each call carries the workspace this
+// app has open, so a request always acts where it was made, whatever another device opened
+// (backend functions.ts). Outside a workspace (sign-in, the workspace picker) they send none.
+
+/** The selected workspace and a guarded selector: false if you're not in it. */
+export type OpenWorkspace = { id: Id<"workspaces">; open: (id: Id<"workspaces">) => boolean };
+export const WorkspaceContext = createContext<OpenWorkspace | null>(null);
+
+export const useWorkspace = () => useContext(WorkspaceContext);
+
+type Args = Record<string, unknown> | undefined;
+/** A function's own args: the hooks add `workspaceId`. Optional when it takes nothing else. */
+type Own<F extends FunctionReference<"query" | "mutation" | "action">> = Omit<FunctionArgs<F>, "workspaceId">;
+type Rest<F extends FunctionReference<"query" | "mutation" | "action">, Extra = never> = keyof Own<F> extends never
+	? [args?: Own<F> | Extra]
+	: [args: Own<F> | Extra];
+const withWorkspace = <A extends Args>(args: A, workspaceId: Id<"workspaces"> | null) =>
+	(workspaceId ? { ...args, workspaceId } : (args ?? {})) as never;
+
+export function useQuery<Q extends FunctionReference<"query">>(query: Q, ...[args]: Rest<Q, "skip">): FunctionReturnType<Q> | undefined {
+	const workspaceId = useContext(WorkspaceContext)?.id ?? null;
+	return useCachedQuery(query as FunctionReference<"query">, args === "skip" ? "skip" : withWorkspace(args as Args, workspaceId));
+}
+
+export function usePaginatedQuery<Q extends PaginatedQueryReference>(
+	query: Q,
+	args: Parameters<typeof useCachedPaginatedQuery<Q>>[1],
+	options: Parameters<typeof useCachedPaginatedQuery<Q>>[2],
+) {
+	const workspaceId = useContext(WorkspaceContext)?.id ?? null;
+	return useCachedPaginatedQuery(query, args === "skip" ? "skip" : withWorkspace(args as Args, workspaceId), options);
+}
+
+// Stable between renders (like convex/react's), so effects can depend on them.
+
+/**
+ * `optimistic` (define it outside the component, so it's stable) changes cached query results until
+ * the server's arrive; its args include `workspaceId`, for the queries it reads and sets.
+ */
+export function useMutation<M extends FunctionReference<"mutation">>(mutation: M, optimistic?: OptimisticUpdate<FunctionArgs<M>>) {
+	const workspaceId = useContext(WorkspaceContext)?.id ?? null;
+	const plain = useConvexMutation(mutation);
+	const mutate = useMemo(() => (optimistic ? plain.withOptimisticUpdate(optimistic) : plain), [plain, optimistic]);
+	return useCallback(
+		(...[args]: Rest<M>): Promise<FunctionReturnType<M>> => mutate(withWorkspace(args as Args, workspaceId)),
+		[mutate, workspaceId],
+	);
+}
+
+export function useAction<A extends FunctionReference<"action">>(action: A) {
+	const workspaceId = useContext(WorkspaceContext)?.id ?? null;
+	const run = useConvexAction(action);
+	return useCallback(
+		(...[args]: Rest<A>): Promise<FunctionReturnType<A>> => run(withWorkspace(args as Args, workspaceId)),
+		[run, workspaceId],
+	);
+}

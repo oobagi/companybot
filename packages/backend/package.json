@@ -1,0 +1,44 @@
+{
+  "name": "@companybot/backend",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:scale": "SCALE=1 vitest run",
+    "typecheck": "tsc -p convex && tsc -p tests"
+  },
+  "dependencies": {
+    "@auth/core": "^0.41.3",
+    "@blocknote/core": "^0.57.0",
+    "@companybot/core": "workspace:*",
+    "@convex-dev/auth": "^0.0.96",
+    "@convex-dev/migrations": "^0.3.7",
+    "@convex-dev/prosemirror-sync": "^0.2.7",
+    "@mozilla/readability": "^0.6.0",
+    "@tiptap/core": "^3.32.2",
+    "@tiptap/pm": "^3.32.2",
+    "ai": "^7.0.162",
+    "convex": "1.49.0",
+    "convex-helpers": "^0.1.133",
+    "expo-server-sdk": "^8.0.0",
+    "happy-dom": "^21.0.4",
+    "linkedom": "^0.18.15",
+    "resend": "^6.37.0",
+    "turndown": "^7.2.4",
+    "undici": "^8.12.3",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@edge-runtime/vm": "^5.0.0",
+    "@types/turndown": "^5.0.6",
+    "convex-test": "^0.0.67",
+    "fflate": "^0.8.3",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "exports": {
+    "./page-blocks": "./convex/pageBlocks.ts",
+    "./convex/_generated/*": "./convex/_generated/*.js"
+  }
+}

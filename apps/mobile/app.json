@@ -1,0 +1,45 @@
+{
+  "expo": {
+    "name": "Companybot",
+    "slug": "companybot",
+    "version": "0.1.0",
+    "scheme": "companybot",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.companybot.mobile"
+    },
+    "android": {
+      "package": "com.companybot.mobile"
+    },
+    "web": {
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-web-browser",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow Companybot to record a voice message for transcription.",
+          "enableBackgroundRecording": false,
+          "enableBackgroundPlayback": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Companybot to attach pictures to your conversations.",
+          "cameraPermission": "Allow Companybot to take a picture for your conversation.",
+          "microphonePermission": "Allow Companybot to record a voice message for transcription."
+        }
+      ],
+      "expo-notifications",
+      "expo-asset"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
