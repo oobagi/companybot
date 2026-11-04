@@ -1,6 +1,7 @@
 import { act, createContext, createElement } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { inApp } from "../../testing";
 import { Confirm } from "../chat/common";
 import { PageReferences, type PageBlockEditor, type PageReference } from "./PageBlock";
 import { PageBlockRemoval } from "./PageBlockRemoval";
@@ -22,12 +23,11 @@ const editor = {
 
 beforeEach(async () => {
 	(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-	vi.stubGlobal("document", { addEventListener() {}, removeEventListener() {} });
 	archive.mockReset().mockResolvedValue(undefined);
 	remove.mockReset();
 	references.clear();
 	references.set("child", { _id: "child", title: "Guide", parentId: "parent", archived: false } as unknown as PageReference);
-	await act(async () => { root = create(createElement(PageReferences.Provider, { value: references }, createElement(PageBlockRemoval, { editor, pageId: "parent", editable: true }))); });
+	await act(async () => { root = create(inApp(createElement(PageReferences.Provider, { value: references }, createElement(PageBlockRemoval, { editor, pageId: "parent", editable: true })))); });
 });
 afterEach(async () => { await act(async () => root.unmount()); vi.unstubAllGlobals(); });
 

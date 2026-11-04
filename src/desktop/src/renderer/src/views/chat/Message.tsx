@@ -1,7 +1,7 @@
 import { actionLabel, toolLine } from "@companybot/core/action-words";
 import { splitLinks } from "@companybot/core/link-preview";
 import { routerActions, routerDecisionModels } from "@companybot/core/router";
-import { Fragment, useRef, useState } from "react";
+import { Fragment, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { Markdown } from "../../markdown";
@@ -10,7 +10,7 @@ import { WidgetView } from "../../widgets";
 import { CallDetails } from "../Activity";
 import { HeldCall } from "./Approval";
 import { AutomationIcon, EditIcon, MoreIcon, ReactIcon, ReplyIcon, TrashIcon } from "../../icons";
-import { AgentBadge, Avatar, AvatarStack, EmojiPicker, IconButton, MenuItem, PairAvatar, Popover, PopoverPanel, clock, useConfirm, useDismiss } from "./common";
+import { AgentBadge, Avatar, AvatarStack, EmojiPicker, IconButton, MenuItem, PairAvatar, Popover, clock, iconButton, useConfirm } from "./common";
 import type { Message, TokenNames } from "./data";
 import { navigate } from "../../router";
 import { ProfileLink } from "./Profile";
@@ -49,12 +49,7 @@ export function MessageRow({
 	const message = live ? { ...row, ...live } : row;
 	const react = useMutation(api.messages.react);
 	const remove = useMutation(api.messages.remove);
-	const [picker, setPicker] = useState(false);
 	const [editing, setEditing] = useState(false);
-	// The ⋯ menu, then what it opened in its place.
-	const [more, setMore] = useState<{ at: DOMRect; view: "menu" | "reactions" }>();
-	const moreButton = useRef<HTMLSpanElement>(null);
-	const toolbar = useDismiss<HTMLDivElement>(() => setPicker(false), picker);
 	const { confirm, dialog } = useConfirm();
 	const isAgent = message.author.type === "agent";
 	const sending = message.sending;
@@ -151,15 +146,11 @@ export function MessageRow({
 					) : null}
 				</div>
 				{!message.deleted && !editing && !sending && !readOnly && (
-					<div
-						ref={toolbar}
-						className={`absolute -top-3 right-5 z-10 items-center rounded-lg border border-neutral-200 bg-white p-0.5 shadow-sm ${
-							picker || more ? "flex" : "hidden group-hover:flex"
-						}`}
-					>
-						<IconButton label="Add reaction" onClick={() => setPicker(!picker)}>
-							<ReactIcon />
-						</IconButton>
+					// Stays while one of its popovers is open.
+					<div className="absolute -top-3 right-5 z-10 hidden items-center rounded-lg border border-neutral-200 bg-white p-0.5 shadow-sm group-hover:flex has-[[aria-expanded=true]]:flex">
+						<Popover trigger={<ReactIcon />} label="Add reaction" className={iconButton} panelClassName="w-auto p-1">
+							{(close) => <EmojiPicker onPick={(emoji) => (close(), toggle(emoji))} />}
+						</Popover>
 						{onOpenThread && (
 							<IconButton label="Reply in thread" onClick={onOpenThread}>
 								<ReplyIcon />
@@ -179,27 +170,10 @@ export function MessageRow({
 							</>
 						)}
 						{message.reactions.length > 0 && (
-							<span ref={moreButton} className="flex">
-								<IconButton
-									label="More"
-									onClick={() => setMore(more ? undefined : { at: moreButton.current!.getBoundingClientRect(), view: "menu" })}
-								>
-									<MoreIcon weight="bold" />
-								</IconButton>
-							</span>
+							<Popover trigger={<MoreIcon weight="bold" />} label="More" className={iconButton} panelClassName="w-auto p-1">
+								<MoreMenu reactions={message.reactions} />
+							</Popover>
 						)}
-						{more && (
-							<PopoverPanel anchor={more.at} ignore={moreButton} className={more.view === "menu" ? "w-52 p-1" : "w-64 p-1"} onClose={() => setMore(undefined)}>
-								{more.view === "menu" ? (
-									<MenuItem onClick={() => setMore({ ...more, view: "reactions" })}>
-										<ReactIcon /> Reactions
-									</MenuItem>
-								) : (
-									<ReactionList reactions={message.reactions} />
-								)}
-							</PopoverPanel>
-						)}
-						{picker && <EmojiPicker className="absolute top-full right-0 mt-1" onPick={toggle} onClose={() => setPicker(false)} />}
 					</div>
 				)}
 			</div>
@@ -247,6 +221,22 @@ function Reactions({ reactions, onToggle }: { reactions: Reaction[]; onToggle?: 
 			</div>
 			{tip}
 		</>
+	);
+}
+
+/** The ⋯ menu, then what it opened in its place. */
+function MoreMenu({ reactions }: { reactions: Reaction[] }) {
+	const [view, setView] = useState<"menu" | "reactions">("menu");
+	return view === "menu" ? (
+		<div className="w-52">
+			<MenuItem onClick={() => setView("reactions")}>
+				<ReactIcon /> Reactions
+			</MenuItem>
+		</div>
+	) : (
+		<div className="w-64">
+			<ReactionList reactions={reactions} />
+		</div>
 	);
 }
 

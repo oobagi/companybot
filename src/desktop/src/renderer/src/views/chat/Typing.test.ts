@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import { inApp } from "../../testing";
 import { TypingLine, statusLine } from "./Typing";
 
 const typing = vi.hoisted(() => ({ list: undefined as unknown }));
@@ -10,7 +11,7 @@ const agent = (name: string, step: string | null) => ({ id: name, name, step });
 const ada = { id: "u1", name: "Ada", at: Date.now() };
 const render = (list: { people: (typeof ada)[]; agents: ReturnType<typeof agent>[] }) => {
 	typing.list = list;
-	return renderToStaticMarkup(createElement(TypingLine, { chatId: "c1" as never }));
+	return renderToStaticMarkup(inApp(createElement(TypingLine, { chatId: "c1" as never })));
 };
 /** The line's words, without the working agents' avatars in front. */
 const words = (html: string) => html.match(/<span class="min-w-0 truncate">(.*)<\/span><\/span>$/)?.[1] ?? html;

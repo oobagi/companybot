@@ -2,6 +2,7 @@ import { act, createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { create } from "react-test-renderer";
 import { describe, expect, it } from "vitest";
+import { inApp } from "./testing";
 import { Markdown, appRoute } from "./markdown";
 
 const render = (text: string) => renderToStaticMarkup(createElement(Markdown, { mode: "static" }, text));
@@ -40,22 +41,23 @@ describe("Markdown chips", () => {
 		channels: [{ name: "sales", id: "c1" as never }],
 		skills: [{ id: "s1", name: "Proposal", description: "Write a proposal." }],
 	};
-	const chips = (text: string) => renderToStaticMarkup(createElement(Markdown, { mode: "static", tokens }, text));
+	const chips = (text: string) => renderToStaticMarkup(inApp(createElement(Markdown, { mode: "static", tokens }, text)));
 
 	it("makes @names, #channels and /skills in a reply clickable", () => {
 		const html = chips("Ask **@quill** in #sales to run /Proposal.");
-		expect(html).toContain('<button type="button" aria-expanded="false" class="cursor-pointer token hover:underline">@quill</button></span>');
+		// People and skills open a popover: a button, closed (Mantine adds its own aria and id).
+		expect(html).toMatch(/<button type="button" class="cursor-pointer token hover:underline"[^>]* aria-expanded="false"[^>]*>@quill<\/button><\/span>/);
 		expect(html).toContain('<button type="button" class="token hover:underline">#sales</button>');
-		expect(html).toContain('<button type="button" aria-expanded="false" class="token cursor-pointer hover:underline"><span title="Write a proposal.">/Proposal</span></button>');
+		expect(html).toMatch(/<button type="button" class="token cursor-pointer hover:underline"[^>]* aria-expanded="false"[^>]*><span title="Write a proposal.">\/Proposal<\/span><\/button>/);
 	});
 
 	it("uses the names it's given now, not the first ones (Streamdown caches its processor)", () => {
-		expect(renderToStaticMarkup(createElement(Markdown, { mode: "static", tokens: { ...tokens, people: [] } }, "Hi @Quill"))).not.toContain("token");
+		expect(renderToStaticMarkup(inApp(createElement(Markdown, { mode: "static", tokens: { ...tokens, people: [] } }, "Hi @Quill")))).not.toContain("token");
 		expect(chips("Hi @Quill")).toContain(">@Quill</button>");
 	});
 
 	it("turns names into chips once they load, after the reply showed", async () => {
-		const element = (t: typeof tokens) => createElement(Markdown, { mode: "static", tokens: t }, "Hi @Quill");
+		const element = (t: typeof tokens) => inApp(createElement(Markdown, { mode: "static", tokens: t }, "Hi @Quill"));
 		const root = await act(async () => create(element({ ...tokens, people: [] })));
 		expect(JSON.stringify(root.toJSON())).not.toContain("token");
 		await act(async () => root.update(element(tokens)));
