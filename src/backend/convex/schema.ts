@@ -513,7 +513,10 @@ export default defineSchema({
 		automation: v.optional(v.object({ id: v.string(), name: v.string(), foreign: v.optional(v.boolean()) })),
 		/** A quiet turn's own reply (a wake, a dispatcher pick, a hop): hidden unless its decision posts it (turns.finishReply). */
 		quiet: v.optional(v.boolean()),
-		/** When a quiet reply was shown, if it was: later than it was made. */
+		/**
+		 * Where it sits in the timeline, if not where it was made (chatOps `shownAt`): when a quiet reply was
+		 * shown, or when a reply took in messages sent after it began (turns.steer), so it shows below them.
+		 */
 		publishedAt: v.optional(v.number()),
 		/**
 		 * A chain of agents paused here (chains.ts): the line "Agents paused after 10 turns · Continue · Stop",
@@ -639,8 +642,16 @@ export default defineSchema({
 		person: v.optional(v.literal(true)),
 		/** A person turn still in its quiet window: it doesn't start until its timer (turns.startQueued) clears this. */
 		debouncing: v.optional(v.literal(true)),
-		/** Folded into this turn before it ran (turns.mergeQueued): its message was in that turn's prompt, so it never ran (status `done`, no reply). */
+		/**
+		 * Folded into this turn (status `done`, no reply): before it ran (turns.mergeQueued), its message was
+		 * in that turn's window; or while it ran (turns.steer), its message reached it as a steer.
+		 */
 		mergedInto: v.optional(v.id("agentTurns")),
+		/**
+		 * Its person's messages that reached it while it ran (turns.steer), appended to its prompt. They're
+		 * after its reply began, so the next turn's window leaves them out: nothing is answered twice.
+		 */
+		steered: v.optional(v.array(v.id("chatMessages"))),
 		startedAt: v.optional(v.number()),
 		/** Set when the turn follows a decision on this approval: it runs the call if approved, then tells the agent. */
 		approvalId: v.optional(v.id("approvals")),

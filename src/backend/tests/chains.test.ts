@@ -99,8 +99,9 @@ describe("handoffs by @mention", () => {
 		const first = await say(t, companybot, "@Scribe go");
 		await say(t, scribe, "@Companybot back");
 		await say(t, companybot, "@Scribe again");
-		// The member chimes in mid-chain: no new turn (no mention), but the counts start over.
+		// The member chimes in mid-chain, no mention: the counts start over, and it reaches Scribe's reply running for them (at its next step).
 		await member.mutation(api.messages.send, { chatId, threadId: first.replyId!, text: "keep going, you two", mentions: noMentions });
+		expect(await t.mutation(internal.turns.steer, { turnId: (await running(t, scribe))._id })).toMatchObject({ asked: ["keep going, you two"] });
 		const chain = await t.run(async (ctx) => (await ctx.db.query("agentChains").collect())[0]!);
 		expect(chain).toMatchObject({ turns: 0, pairs: [], epoch: 1 });
 		for (let i = 0; i < 2; i++) {

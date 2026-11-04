@@ -1,5 +1,5 @@
 import type { PlaceMessage, Skill } from "@companybot/core";
-import { AGENT_DEBOUNCE_MS, PROMPT_MESSAGE_CAP, approxTokens, can, defaultReasoning, fallbackModels, publishes } from "@companybot/core";
+import { AGENT_DEBOUNCE_MS, PROMPT_MESSAGE_CAP, approxTokens, can, defaultReasoning, fallbackModels, publishes, steerNote } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -12,9 +12,11 @@ import {
 	countMessage,
 	insertMessage,
 	label,
+	moveBelow,
 	requireChat,
 	namer,
 	replyForModel,
+	shownAt,
 	textForModel,
 } from "./chatOps";
 import { previewMessage } from "./linkPreviews";
@@ -164,10 +166,16 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 	if (!next || (await waiting(ctx, next))) return;
 	if (next.person) {
 		const actorId = next.actorId;
-		const newest = (await turnsAt(ctx, place, "queued").collect()).filter((t) => t.person && t.actorId === actorId).at(-1)!;
+		const theirs = (await turnsAt(ctx, place, "queued").collect()).filter((t) => t.person && t.actorId === actorId);
+		const newest = theirs.at(-1)!;
 		// Its timer (startQueued) starts it; past STALE_TURN_MS, whatever runs next does.
 		if (newest.debouncing && Date.now() - newest._creationTime < STALE_TURN_MS) return;
 		next = newest;
+		// A follow-up to a quiet reply is quiet too (queueFollowUps), unless one of the messages it covers asked the agent directly.
+		if (next.routed && theirs.some((t) => !t.routed)) {
+			await ctx.db.patch(next._id, { routed: undefined, dispatch: undefined });
+			next = { ...next, routed: undefined, dispatch: undefined };
+		}
 		await mergeQueued(ctx, next);
 	}
 	const chat = await ctx.db.get(next.chatId);
@@ -268,10 +276,12 @@ export const turnContext = internalQuery({
 		).find((t) => t._id !== turnId && t.prompt !== undefined);
 		const lastReply = last?.replyId && (await ctx.db.get(last.replyId));
 		const since = foreign ? (trigger?._creationTime ?? 0) : (lastReply?._creationTime ?? last?.startedAt ?? 0);
+		// Messages that steered the last turn (steer) came after its reply began, but it already took them in.
+		const steered = new Set(foreign ? [] : (last?.steered ?? []));
 		// Foreign runs get only their trigger, or replies in a thread rooted at that trigger.
 		// Never replay the person's DM/channel history, including compacted session summaries.
 		// A foreign wake has no trigger: it gets only its wakeup.
-		const recent = foreign && (!trigger || turn.threadId !== trigger._id) ? (trigger ? [trigger] : []) : (
+		const window = foreign && (!trigger || turn.threadId !== trigger._id) ? (trigger ? [trigger] : []) : (
 			await ctx.db
 				.query("chatMessages")
 				.withIndex("by_chat_thread", (q) =>
@@ -283,6 +293,7 @@ export const turnContext = internalQuery({
 				// The prompt shows PROMPT_MESSAGE_CAP; one more says there are earlier ones, one more for the trigger.
 				.take(PROMPT_MESSAGE_CAP + 2)
 		).reverse();
+		const recent = window.filter((m) => !steered.has(m._id));
 		// A turn after an approval answers the decision, not a message.
 		const approval = turn.approvalId && (await ctx.db.get(turn.approvalId));
 		if (!approval && turn.triggerId && !recent.some((m) => m._id === turn.triggerId)) {
@@ -461,30 +472,150 @@ export const streamOf = (ctx: QueryCtx, messageId: Id<"chatMessages">) =>
 		.withIndex("by_message", (q) => q.eq("messageId", messageId))
 		.first();
 
-/** Writes a streaming reply's content so far (~5×/s). `stopped`: someone pressed Stop on its turn (turns.stop), so the runner ends it. */
+/** Writes a streaming reply's content so far (~5×/s). `stopped`: someone pressed Stop on its turn (turns.stop), so the runner ends it; `steer`: its person wrote meanwhile (steering). */
 export const updateReply = internalMutation({
 	args: { turnId: v.id("agentTurns"), text: v.string(), parts: v.array(messagePart) },
 	handler: async (ctx, { turnId, text, parts }) => {
-		const stopped = await stopRequested(ctx, turnId);
+		const heard = await stopRequested(ctx, turnId);
 		const replyId = (await ctx.db.get(turnId))?.replyId;
-		if (!replyId || (await ctx.db.get(replyId))?.status !== "streaming") return { stopped };
+		if (!replyId || (await ctx.db.get(replyId))?.status !== "streaming") return heard;
 		const stream = await streamOf(ctx, replyId);
 		if (stream) await ctx.db.patch(stream._id, { text, parts });
 		else await ctx.db.insert("replyStreams", { messageId: replyId, text, parts });
-		return { stopped };
+		return heard;
 	},
 });
 
-/** Whether a turn should end now: someone pressed Stop, or it isn't running anymore (failed as stale). */
+/**
+ * What the runner should do now (agent.ts `turnStop`). `stopped`: end now (someone pressed Stop, or it
+ * isn't running anymore, failed as stale). `steer`: its person sent a message here meanwhile (steer).
+ */
 async function stopRequested(ctx: QueryCtx, turnId: Id<"agentTurns">) {
 	const turn = await ctx.db.get(turnId);
-	return !turn || turn.status !== "running" || !!turn.stopping;
+	const stopped = !turn || turn.status !== "running" || !!turn.stopping;
+	return { stopped, steer: !stopped && (await steering(ctx, turn)).length > 0 };
 }
 
 /** For the runner between flushes and at each step (agent.ts `turnStop`). */
 export const isStopping = internalQuery({
 	args: { turnId: v.id("agentTurns") },
 	handler: (ctx, { turnId }) => stopRequested(ctx, turnId),
+});
+
+/**
+ * A reply cut off to take in its person's messages waits for them to pause (agent.ts `turnStop`), so a
+ * burst is taken in at once: `waitMs` until their newest one here is AGENT_DEBOUNCE_MS old, 0 to go on.
+ * `stopped`: end the turn instead.
+ */
+export const steerWait = internalQuery({
+	args: { turnId: v.id("agentTurns") },
+	handler: async (ctx, { turnId }) => {
+		const turn = await ctx.db.get(turnId);
+		if (!turn || turn.status !== "running" || turn.stopping) return { stopped: true, waitMs: 0 };
+		// A person turn is queued with its message, in the same mutation (messages.send).
+		const newest = Math.max(0, ...(await steering(ctx, turn)).map((t) => t._creationTime));
+		return { stopped: false, waitMs: Math.max(0, newest + AGENT_DEBOUNCE_MS - Date.now()) };
+	},
+});
+
+/**
+ * Whether a running turn takes in its person's new messages here (steering): one acting for someone who
+ * is waiting on it, asked or picked for them (their DM, an @mention, a dispatcher pick, a hop or handoff,
+ * an approval's follow-up). Not a wake (nobody asked; an ask's answer goes to an agent), not an automation
+ * run's, not one being stopped, not one failing as stale.
+ */
+async function steerable(ctx: QueryCtx, turn: Doc<"agentTurns">) {
+	if (turn.status !== "running" || turn.stopping || turn.wakeupId || !turn.replyId) return false;
+	if (Date.now() - (turn.startedAt ?? turn._creationTime) >= STALE_TURN_MS) return false;
+	const trigger = turn.triggerId && (await ctx.db.get(turn.triggerId));
+	return !trigger?.automation;
+}
+
+/**
+ * Steering (#189): the queued person turns of the running turn's own person here (same actor, same chat
+ * and thread) sent since it began. A message from you takes priority over the work, so it reaches this
+ * turn (steer) instead of waiting for a follow-up. Every message you send where an agent is replying to
+ * you queues one: your DM, an @mention, or an un-mentioned message (queueFollowUps). Only the turn's own
+ * person: another person's message acts with their access, so it keeps its own turn.
+ */
+async function steering(ctx: QueryCtx, turn: Doc<"agentTurns">) {
+	if (!(await steerable(ctx, turn))) return [];
+	const queued = (await turnsAt(ctx, turn, "queued").collect()).filter((t) => t.person && t.actorId === turn.actorId && t.triggerId);
+	const reply = queued.length > 0 && (await ctx.db.get(turn.replyId!));
+	if (!reply) return [];
+	// Sent after its reply began: earlier ones were in its window (turnContext) and keep their own turn.
+	const sent = await Promise.all(queued.map((t) => ctx.db.get(t.triggerId!)));
+	return queued.filter((_, i) => (sent[i]?._creationTime ?? 0) > reply._creationTime);
+}
+
+/**
+ * From messages.send: a person's message reaches every agent replying to them in its place, @mention or
+ * not. For each running turn of theirs here (steerable) whose agent the message didn't already queue
+ * (`queued`: their DM's agent, the ones @mentioned), this queues a person turn on it, which the running
+ * turn takes in (steer). If it misses every chance (the reply ends first, or it restarted too often), it
+ * runs as the follow-up, like the turn it was for: a quiet reply that decides whether to post, after a
+ * pick or a hop. It isn't a dispatcher pick (no cost, not counted in mightThisHour, no `after`/`then`).
+ * Returns the agents it queued for.
+ */
+export async function queueFollowUps(ctx: MutationCtx, chat: Doc<"chats">, message: Doc<"chatMessages">, queued: Id<"agents">[]) {
+	const actorId = message.authorUserId;
+	if (!actorId) return [];
+	const running = await ctx.db
+		.query("agentTurns")
+		.withIndex("by_chat", (q) => q.eq("chatId", chat._id).eq("threadId", message.threadId).eq("status", "running"))
+		.take(20);
+	const agents: Id<"agents">[] = [];
+	for (const turn of running) {
+		if (turn.actorId !== actorId || queued.includes(turn.agentId) || agents.includes(turn.agentId) || !(await steerable(ctx, turn))) continue;
+		const dispatch = turn.routed && turn.dispatch && followUpDispatch(turn.dispatch);
+		await enqueueTurn(ctx, chat, {
+			agentId: turn.agentId,
+			chatId: chat._id,
+			threadId: message.threadId,
+			triggerId: message._id,
+			actorId,
+			person: true,
+			...(turn.routed && { routed: true as const, ...(dispatch && { dispatch }) }),
+		});
+		agents.push(turn.agentId);
+	}
+	return agents;
+}
+
+/** How sure the pick was, for a follow-up's prompt; not the pick itself (its call's cost, its place in line). */
+const followUpDispatch = ({ quiet: _, after: __, then: ___, costUsd: ____, ...rest }: NonNullable<Doc<"agentTurns">["dispatch"]>) => ({ ...rest, costUsd: 0 });
+
+/**
+ * Takes the person's new messages into the running turn (agent.ts, at a step boundary or a restart):
+ * their queued turns are folded into it (`mergedInto`, no reply of their own), their messages appended
+ * to its stored prompt (so later turns replay them) and listed on it (`steered`, so the next turn's
+ * window leaves them out). Returns the note to append to the model's messages (core steerNote), or null.
+ */
+export const steer = internalMutation({
+	args: { turnId: v.id("agentTurns") },
+	handler: async (ctx, { turnId }) => {
+		const turn = await ctx.db.get(turnId);
+		const absorbed = turn ? await steering(ctx, turn) : [];
+		if (!turn || absorbed.length === 0) return null;
+		for (const t of absorbed) await ctx.db.patch(t._id, { status: "done", mergedInto: turnId, debouncing: undefined });
+		const ids = [...new Set(absorbed.map((t) => t.triggerId!))];
+		const messages = (await Promise.all(ids.map((id) => ctx.db.get(id))))
+			.filter((m): m is Doc<"chatMessages"> => !!m && !m.deleted)
+			.sort((a, b) => a._creationTime - b._creationTime);
+		if (messages.length === 0) return null;
+		const names = namer(ctx);
+		const skills = await installedSkills(ctx, turn.workspaceId);
+		const actor = { id: turn.actorId, name: (await names.user(turn.actorId)).name, timeZone: await timeZoneOf(ctx, turn.actorId) };
+		const note = steerNote(await Promise.all(messages.map((m) => toPlaceMessage(m, names, turn.agentId, skills))), actor);
+		await ctx.db.patch(turnId, {
+			steered: [...(turn.steered ?? []), ...messages.map((m) => m._id)],
+			...(turn.prompt !== undefined && { prompt: `${turn.prompt}\n\n${note}` }),
+		});
+		// It answers them now, so it shows below them. A quiet reply is placed when it's shown (finishReply).
+		const reply = await ctx.db.get(turn.replyId!);
+		if (reply && !reply.quiet) await moveBelow(ctx, (await ctx.db.get(turn.chatId))!, reply);
+		return { note, asked: messages.map((m) => m.text) };
+	},
 });
 
 /** Who may stop a running turn: the person it runs for, or someone allowed to stop anyone's (an owner). */
@@ -600,7 +731,7 @@ async function shown(ctx: QueryCtx, turn: Doc<"agentTurns">, reply: Doc<"chatMes
 		.withIndex("by_chat_thread", (q) => q.eq("chatId", turn.chatId).eq("threadId", turn.threadId).gt("_creationTime", reply._creationTime - STALE_TURN_MS))
 		.filter((q) => q.and(q.neq(q.field("authorAgentId"), undefined), q.neq(q.field("authorAgentId"), turn.agentId), q.neq(q.field("quiet"), true), q.neq(q.field("deleted"), true)))
 		.take(50);
-	return !recent.some((m) => (m.publishedAt ?? m._creationTime) > reply._creationTime);
+	return !recent.some((m) => shownAt(m) > reply._creationTime);
 }
 
 /** After each finished model call (agent.ts), so its cost is recorded even if the action dies before finishReply. */

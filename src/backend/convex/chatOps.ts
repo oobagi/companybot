@@ -262,6 +262,27 @@ export async function countMessage(ctx: MutationCtx, chat: Doc<"chats">, message
 	} else await ctx.db.patch(chat._id, { lastMessageAt: now });
 }
 
+/**
+ * Where a message sits in its timeline: when it was shown. A quiet reply is shown when its decision posts
+ * it, and a reply that took in messages sent after it began moves below them (`publishedAt`); the rest
+ * sit where they were made. Never before that (`publishedAt` is whole ms; `_creationTime` isn't). Lists
+ * put messages in this order.
+ */
+export const shownAt = (m: Pick<Doc<"chatMessages">, "_creationTime" | "publishedAt">) => Math.max(m.publishedAt ?? 0, m._creationTime);
+
+/**
+ * A reply people already see takes in messages sent after it began (turns.steer): it moves below them,
+ * and its place's last activity (the chat's last message, the thread's last reply) moves with it. It
+ * isn't counted again.
+ */
+export async function moveBelow(ctx: MutationCtx, chat: Doc<"chats">, reply: Doc<"chatMessages">) {
+	const now = Date.now();
+	await ctx.db.patch(reply._id, { publishedAt: now });
+	if (!reply.threadId) return ctx.db.patch(chat._id, { lastMessageAt: now });
+	const parent = await ctx.db.get(reply.threadId);
+	if (parent && !parent.quiet) await ctx.db.patch(parent._id, { lastReplyAt: now });
+}
+
 type ReplyAuthor = NonNullable<Doc<"chatMessages">["replyAuthors"]>[number];
 const authorOf = (m: Pick<Doc<"chatMessages">, "authorUserId" | "authorAgentId">): ReplyAuthor =>
 	m.authorUserId ? { userId: m.authorUserId } : { agentId: m.authorAgentId };
