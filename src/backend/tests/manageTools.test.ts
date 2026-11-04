@@ -163,7 +163,8 @@ describe("messaging and channels as the person", () => {
 
 describe("automation management", () => {
 	it("lists/reads, edits with versions, pauses/resumes, reassigns, changes audience and deletes", async () => {
-		const { t, call, member, companybot, scribe, chat } = await ready();
+		const { t, owner, call, member, companybot, scribe, chat } = await ready();
+		await setMemberSwitch(owner, "automations.edit", true);
 		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
 		expect((await call("automations.manage", { action: "list" }, true)).page).toEqual(expect.arrayContaining([expect.objectContaining({ id })]));
 		expect(await call("automations.manage", { action: "get", id }, true)).toMatchObject({ config: { version: 1 }, enabled: true });
@@ -207,6 +208,7 @@ describe("automation management", () => {
 describe("skills, members and settings", () => {
 	it("lists and reads existing skills, edits versioned instructions and removes", async () => {
 		const { t, owner, call, member } = await ready();
+		await setMemberSwitch(owner, "skills.edit", true);
 		await seedSkill(t, owner, "meeting-notes");
 		const id = await member.mutation(api.skills.create, { config: skill });
 		expect((await call("skills.manage", { action: "list" })).page).toHaveLength(2);

@@ -40,6 +40,11 @@ describe("permissions", () => {
 			expect(memberDefaults, p).not.toContain(p);
 	});
 
+	it("lets Member work the data and talk, but not shape team skills, team automations or databases", () => {
+		for (const p of ["records.edit", "pages.edit", "memory.team.write", "channels.edit", "connectors.connect", "sidebar.arrange"] as const) expect(memberDefaults, p).toContain(p);
+		for (const p of ["skills.edit", "automations.edit", "fields.edit"] as const) expect(memberDefaults, p).not.toContain(p);
+	});
+
 	it("keeps owner-only actions out of the switches, even if a role lists one", () => {
 		expect(switches).not.toContain("workspace.delete");
 		expect(switches).not.toContain("roles.manage");
@@ -57,7 +62,8 @@ describe("permissions", () => {
 		expect(canEditAutomation(none, "member")).toBe(true);
 		expect(canEditAutomation(owner, "member")).toBe(false);
 		expect(canEditAutomation(none, null)).toBe(false);
-		expect(canEditAutomation(member, null)).toBe(true);
+		expect(canEditAutomation(member, null)).toBe(false);
+		expect(canEditAutomation({ ...member, permissions: ["automations.edit"] }, null)).toBe(true);
 		expect(canTrash(none, "automation", "member")).toBe(true);
 		expect(canTrash(none, "automation")).toBe(false);
 		expect(canTrash(none, "channel")).toBe(false);

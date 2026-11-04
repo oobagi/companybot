@@ -17,6 +17,6 @@ A skill is a saved way of doing something: "how we write proposals". Agents see 
 Agents load skills themselves. To point at one, type **/** in the message box and pick it.
 
 ## Who can do what
-Anyone can make, edit and delete their own personal skills. They are deleted when you leave the workspace or delete your account. Team skills need the skills edit switch (Member, to start). Deleted skills go to [Archive](#/settings/archive).
+Anyone can make, edit and delete their own personal skills. They are deleted when you leave the workspace or delete your account. Team skills need a role that can make and change team skills (not Member, to start; an owner can turn it on). Deleted skills go to [Archive](#/settings/archive).
 `,
 } satisfies HelpPage;

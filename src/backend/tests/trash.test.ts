@@ -122,6 +122,7 @@ describe("trash", () => {
 
 	it("rebuilds truncated search text without losing surviving multiline text", async () => {
 		const { t, owner, member, client, acme } = await seeded();
+		await setMemberSwitch(owner, "fields.edit", true);
 		const field = await member.mutation(api.fields.create, { typeId: client._id, label: "Long text", kind: "text" });
 		await member.mutation(api.fields.create, { typeId: client._id, label: "Notes", kind: "text" });
 		await member.mutation(api.records.update, { recordId: acme, values: { long_text: "Removedneedle " + "x".repeat(9980), notes: "Acme\nSurvivingneedle" } });
@@ -135,6 +136,7 @@ describe("trash", () => {
 
 	it("bounds field cleanup across large records and skips large choice catalogs", async () => {
 		const { t, owner, member, client } = await seeded();
+		await setMemberSwitch(owner, "fields.edit", true);
 		const field = await member.mutation(api.fields.create, { typeId: client._id, label: "Obsolete", kind: "text" });
 		const workspaceId = await workspaceOf(owner);
 		for (let batch = 0; batch < 5; batch++) await t.run(async (ctx) => {
@@ -160,6 +162,7 @@ describe("trash", () => {
 
 	it("refuses new child rows while a database is being deleted permanently", async () => {
 		const { owner, member, client, acme } = await seeded();
+		await setMemberSwitch(owner, "fields.edit", true);
 		await owner.mutation(api.trash.move, { kind: "database", id: client._id });
 		await owner.mutation(api.trash.purge, { id: client._id });
 		await expect(member.mutation(api.fields.create, { typeId: client._id, label: "Late", kind: "text" })).rejects.toThrow("in Archive");
@@ -235,6 +238,7 @@ describe("trash", () => {
 
 	it("deletes a field's values from every record forever, so its key can be reused", async () => {
 		const { t, owner, member, client, acme } = await seeded();
+		await setMemberSwitch(owner, "fields.edit", true);
 		const field = await member.mutation(api.fields.create, { typeId: client._id, label: "Roof type", kind: "text" });
 		await member.mutation(api.records.update, { recordId: acme, values: { roof_type: "Metal" } });
 		await member.mutation(api.trash.move, { kind: "field", id: field._id });
@@ -314,6 +318,7 @@ describe("trash", () => {
 
 	it("lets agents delete and restore as the person, never forever", async () => {
 		const { t, owner, member, acme } = await seeded();
+		await setMemberSwitch(owner, "fields.edit", true);
 		const { companybot } = await agentsOf(member);
 		const turnId = await agentTurn(t, member, (await generalOf(member))._id, companybot._id);
 		expect(await t.mutation(internal.recordTools.saveFor, { turnId, input: { id: acme, trash: true } })).toMatchObject({ inTrash: true });

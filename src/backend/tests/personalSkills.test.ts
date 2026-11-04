@@ -62,6 +62,7 @@ it("makes agent-created skills personal when the asker lacks the team switch", a
 
 it.each(["leave", "eraseAccount"] as const)("deletes personal skills and their Archive entries on %s, while keeping team skills", async (action) => {
 	const { t, owner, member } = await ownerAndMember();
+	await setMemberSwitch(owner, "skills.edit", true);
 	const personal = await member.mutation(api.skills.create, { config, audience: "personal" });
 	const team = await member.mutation(api.skills.create, { config, audience: "team" });
 	await member.mutation(api.skills.remove, { skillId: personal });
@@ -123,6 +124,7 @@ it("refuses personal skill writes in shared chats and keeps approval and Activit
 
 it("filters skill mentions by the sender and keeps steering scoped to the actor", async () => {
 	const { t, owner, member } = await ownerAndMember();
+	await setMemberSwitch(owner, "skills.edit", true);
 	const personal = await member.mutation(api.skills.create, { config, audience: "personal" });
 	const team = await member.mutation(api.skills.create, { config: { ...config, name: "Team process" }, audience: "team" });
 	const { companybot } = await agentsOf(member);

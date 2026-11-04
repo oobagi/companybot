@@ -315,6 +315,7 @@ describe("automations", () => {
 
 		it("lets an owner rename one watching a channel they're not in, but not make it just for them", async () => {
 			const { t, owner, member } = await ownerAndMember();
+			await setMemberSwitch(owner, "automations.edit", true);
 			const ops = await member.mutation(api.chats.createChannel, { name: "ops", private: true });
 			const { companybot } = await agentsOf(member);
 			const config = { name: "Ops log", prompt: "Log it.", trigger: { type: "event" as const, event: "message.posted" as const, channelId: ops } };
@@ -332,6 +333,7 @@ describe("automations", () => {
 
 		it("lets roles decide who changes a team automation, not who made it", async () => {
 			const { t, owner, member } = await ownerAndMember();
+			await setMemberSwitch(owner, "automations.edit", true);
 			await owner.mutation(api.workspace.invite, { email: "other@co.com" });
 			const other = await signIn(t, "other@co.com");
 			const id = await make(member, { name: "Leads", prompt: "Post the lead.", trigger: daily }, "subscribers");
@@ -372,6 +374,7 @@ describe("automations", () => {
 
 		it("removes custom automations and related rows", async () => {
 			const { t, owner, member } = await ownerAndMember();
+			await setMemberSwitch(owner, "automations.edit", true);
 			await owner.mutation(api.workspace.invite, { email: "other@co.com" });
 			const other = await signIn(t, "other@co.com");
 			const id = await make(member, { name: "Forms", prompt: "Post it.", trigger: { type: "webhook" } }, "subscribers");
@@ -526,6 +529,7 @@ describe("automations", () => {
 
 		it("runs ones people make only as their maker, never falling back to an owner", async () => {
 			const { t, owner, member } = await ownerAndMember();
+			await setMemberSwitch(owner, "automations.edit", true);
 			const ops = await member.mutation(api.chats.createChannel, { name: "ops", private: true });
 			await member.mutation(api.chats.addMembers, { chatId: ops, userIds: [owner.userId], agentIds: [] });
 			const { companybot } = await agentsOf(member);

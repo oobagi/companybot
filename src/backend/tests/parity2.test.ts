@@ -41,6 +41,7 @@ it("renames options by stable id, reorders options/fields, retires and revives o
 
 it("gates fields on the databases switch, not on who added them, through Trash and database discovery/restore", async () => {
 	const { t, owner, member, field, turnId } = await ready();
+	await setMemberSwitch(owner, "fields.edit", true);
 	expect(await field({ type: "client", field: "name", position: 1 })).toHaveProperty("error");
 	const made = await field({ type: "client", label: "Roof", kind: "choice", options: ["Metal", "Tile"] }, true);
 	await setMemberSwitch(owner, "fields.edit", false);
@@ -212,6 +213,7 @@ it("edits/deletes only own visible messages, marks read explicitly, sends for th
 
 it("sample-runs automations with the same edit and dispatch rules", async () => {
 	const { t, call, scribe, owner, member } = await ready();
+	await setMemberSwitch(owner, "automations.edit", true);
 	const custom = await member.mutation(api.automations.create, { config: { name: "Review", prompt: "Review", trigger: { type: "event", event: "member.joined" } }, agentId: scribe._id, audience: "subscribers", timeZone: "UTC" });
 	await t.run((ctx) => ctx.db.patch(scribe._id, { tools: ["automations.manage"] }));
 	const before = await turnsOf(t);

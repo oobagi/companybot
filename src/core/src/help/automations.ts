@@ -22,7 +22,7 @@ An automation asks an agent to do something without you typing it. Make one in [
 - Runs act with the rights of the person they run for, and post in their DM with the agent (or once in the channel).
 - **Run now** tests it with sample data. Each automation shows when it last ran and what happened.
 - Anything that leaves Companybot still asks first. In an automation someone else wrote, acting as you asks the first time: see **help: permissions**.
-- Team automations: anyone whose role can make and change team automations can edit, pause or delete one. A personal one (just for you) only you can change. Deleted ones go to [Archive](#/settings/archive).
+- Anyone can make a personal automation (just for you). Team automations: anyone whose role can make and change team automations (not Member, to start; an owner can turn it on) can make, edit, pause or delete one. A personal one (just for you) only you can change. Deleted ones go to [Archive](#/settings/archive).
 
 ## Follow-ups
 Ask an agent to check back later and it sets a follow-up: "remind me to chase Acme's invoice in 3 days if it's unpaid", "reach out to them in April", "check this deal every Monday for a month".
