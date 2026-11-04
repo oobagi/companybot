@@ -1,8 +1,7 @@
 import {
 	type CustomSkillConfig,
-	canEditMade,
+	can,
 	customSkillError,
-	madeEditDenied,
 	normalizeCustomSkill,
 } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
@@ -54,7 +53,7 @@ export const list = query({
 			rows.push({
 				...skill,
 				installed: true,
-				canEdit: canEditMade(member, "skills.manage", custom?.createdBy),
+				canEdit: can(member, "skills.edit"),
 				createdByName: custom?.createdBy ? await nameOf(ctx, custom.createdBy) : undefined,
 				custom: custom ? { version: custom.version, updatedByName: await nameOf(ctx, custom.updatedBy), updatedAt: custom.updatedAt } : null,
 				trash: install.archived ? await trashInfo(ctx, member, install._id) : null,
@@ -68,7 +67,7 @@ const customConfig = v.object({ name: v.string(), description: v.string(), instr
 
 /** Makes a skill for the workspace, as `member`. Throws a ConvexError with the problem. */
 async function createSkill(ctx: MutationCtx, member: Member, config: CustomSkillConfig) {
-	checkPermission(member, "skills.create");
+	checkPermission(member, "skills.edit");
 	config = normalizeCustomSkill(config);
 	const problem = customSkillError(config);
 	if (problem) throw new ConvexError(problem);
@@ -87,11 +86,11 @@ export const create = mutation({
 	handler: async (ctx, { config }) => createSkill(ctx, await requireMember(ctx), config),
 });
 
-/** A skill someone made, if `member` can change it. */
+/** A skill someone made, if `member` can change skills (`skills.edit`). */
 async function editableSkill(ctx: QueryCtx, member: Member, skillId: string) {
 	const install = await installOf(ctx, member.workspaceId, skillId);
 	if (!install?.custom) throw new ConvexError("Skill not found.");
-	if (!canEditMade(member, "skills.manage", install.custom.createdBy)) throw new ConvexError(madeEditDenied);
+	checkPermission(member, "skills.edit");
 	return install as Doc<"skillInstalls"> & { custom: NonNullable<Doc<"skillInstalls">["custom"]> };
 }
 
@@ -123,7 +122,7 @@ export async function removeSkill(ctx: MutationCtx, who: Who, skillId: string) {
 	const { member } = who;
 	const install = await installOf(ctx, member.workspaceId, skillId);
 	if (!install && skillId.startsWith("custom-")) throw new ConvexError("Skill not found.");
-	if (!install) return void checkPermission(member, "skills.manage");
+	if (!install) return void checkPermission(member, "skills.edit");
 	await setSkillTrashed(ctx, who, install._id, true);
 }
 
@@ -132,18 +131,17 @@ export const remove = mutation({
 	handler: async (ctx, { skillId }) => removeSkill(ctx, { member: await requireMember(ctx) }, skillId),
 });
 
-/** Moves a skill to Archive, or back: the maker or an owner. In Trash, agents don't see it. */
+/** Moves a skill to Archive, or back: whoever can change skills (`skills.edit`). In Trash, agents don't see it. */
 export async function setSkillTrashed(ctx: MutationCtx, who: Who, installId: Id<"skillInstalls">, archived: boolean) {
 	const install = await ctx.db.get(installId);
 	if (!install || install.workspaceId !== who.member.workspaceId) throw new ConvexError("Skill not found.");
-	if (!install.custom) checkPermission(who.member, "skills.manage");
-	else if (!canEditMade(who.member, "skills.manage", install.custom.createdBy)) throw new ConvexError(madeEditDenied);
+	checkPermission(who.member, "skills.edit");
 	if (!!install.archived === archived) return;
 	await toggleTrash(ctx, who, archived, { kind: "skill", id: installId, name: skillOf(install)?.name ?? install.skillId });
 	await ctx.db.patch(installId, { archived });
 }
 
-/** `skills.create` from chat: makes a skill as the person the agent is helping. */
+/** The `skills.create` tool from chat: makes a skill as the person the agent is helping. */
 export const createFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), config: customConfig },
 	handler: async (ctx, { turnId, config }) => {

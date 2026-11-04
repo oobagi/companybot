@@ -9,7 +9,7 @@ import { seedAgents } from "./agents";
 import { fieldsOf, typesOf } from "./recordOps";
 import { addToChat, ensureGeneral, latestMentionSince } from "./chatOps";
 import { sendInviteEmail } from "./invites";
-import { type Member, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, liveWorkspace, memberOf, nameOf, normalizeEmail, personOf, preferencesOf, requireMember, requirePermission, requireUserId, timeZoneOf } from "./lib";
+import { type Member, accessOf, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, liveWorkspace, memberOf, nameOf, normalizeEmail, personOf, preferencesOf, requireMember, requirePermission, requireUserId, rolesOf, timeZoneOf } from "./lib";
 import { cascading, startCascade } from "./cascade";
 import { imageUrl } from "./images";
 import { catalogImageModels, catalogModels, findImageModel, workspaceImageModel } from "./modelCatalog";
@@ -17,7 +17,7 @@ import { imageSpent } from "./usage";
 import { removeWorkspace } from "./lifecycle";
 import { updatePreferences } from "./preferences";
 import { completeSteps, freshTutorial, welcome } from "./onboarding";
-import { role } from "./schema";
+import { builtInId, checkRoles, seedRoles, setMemberRoles } from "./roles";
 
 export const me = query({
 	args: {},
@@ -30,7 +30,10 @@ export const me = query({
 		return {
 			userId: user._id,
 			email: user.email ?? "",
-			role: member?.role ?? null,
+			/** What they may do here (core `can`), or null outside a workspace. */
+			access: member ? { roles: member.roles, owner: member.owner, permissions: member.permissions } : null,
+			// COMPAT(0.1.0-alpha.10): alpha.9 apps read `role` to open the app and gate their screens; delete it.
+			role: member ? (member.owner ? ("owner" as const) : ("member" as const)) : null,
 			workspace: workspace?.name ?? null,
 			workspaceId: workspace?._id ?? null,
 			/** Its logo's URL, or null for its initials. */
@@ -74,7 +77,7 @@ export const setUp = mutation({
 		await updatePreferences(ctx, userId, { displayName });
 		const workspaceId = await startOwned(ctx, userId, name, currency);
 		const member = (await memberOf(ctx, userId, workspaceId))!;
-		for (const email of invites) await inviteMember(ctx, member, { email, role: "member" });
+		for (const email of invites) await inviteMember(ctx, member, { email });
 		return workspaceId;
 	},
 });
@@ -97,7 +100,7 @@ async function startOwned(ctx: MutationCtx, userId: Id<"users">, name: string, c
 	if (!name.trim()) throw new ConvexError("Name can't be empty.");
 	let owned = 0;
 	for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId)))
-		if (row.role === "owner" && (await liveWorkspace(ctx, row.workspaceId))) owned++;
+		if ((await liveWorkspace(ctx, row.workspaceId)) && (await ownsIn(ctx, row))) owned++;
 	if (owned >= MAX_OWNED_WORKSPACES) throw new ConvexError(`You can own up to ${MAX_OWNED_WORKSPACES} workspaces. Delete or leave one first.`);
 	return startWorkspace(ctx, userId, name.trim(), currency);
 }
@@ -133,7 +136,8 @@ export const activity = query({
 /** A new workspace with `userId` as its owner: the default agents, #general, and a welcome there. */
 async function startWorkspace(ctx: MutationCtx, userId: Id<"users">, name: string, currency?: string) {
 	const workspaceId = await ctx.db.insert("workspaces", { name, version: 1, ...(currency && { currency }) });
-	await ctx.db.insert("members", { workspaceId, userId, role: "owner", email: normalizeEmail((await ctx.db.get(userId))?.email ?? ""), tutorial: freshTutorial() });
+	const roles = await seedRoles(ctx, workspaceId);
+	await ctx.db.insert("members", { workspaceId, userId, roles: [roles.owner], email: normalizeEmail((await ctx.db.get(userId))?.email ?? ""), tutorial: freshTutorial() });
 	await seedAgents(ctx, workspaceId, userId);
 	const general = await ensureGeneral(ctx, workspaceId, userId);
 	await addToChat(ctx, general, { userId });
@@ -162,13 +166,18 @@ async function join(ctx: MutationCtx, invite: Doc<"invites">, userId: Id<"users"
 		throw new ConvexError("What you had in this workspace before is still being cleaned up. Try again in a few minutes.");
 	await ctx.db.delete(invite._id);
 	if (await memberOf(ctx, userId, invite.workspaceId)) return;
-	await ctx.db.insert("members", { workspaceId: invite.workspaceId, userId, role: invite.role, email: invite.email, tutorial: freshTutorial() });
+	// Through `accessOf`, so an Owner invite made before the migration still makes an owner.
+	// COMPAT(0.1.0-alpha.10): a workspace migrations.customRoles hasn't reached yet gets its roles
+	// here (the migration skips it after); delete this line with that migration.
+	if ((await rolesOf(ctx, invite.workspaceId)).length === 0) await seedRoles(ctx, invite.workspaceId);
+	const roles = accessOf(await rolesOf(ctx, invite.workspaceId), invite).roles;
+	await ctx.db.insert("members", { workspaceId: invite.workspaceId, userId, roles, email: invite.email, tutorial: freshTutorial() });
 	const general = await ensureGeneral(ctx, invite.workspaceId, userId);
 	await addToChat(ctx, general, { userId });
 	await rememberLastUsed(ctx, userId, invite.workspaceId);
 	await welcome(ctx, general, userId, "joined");
 	await fireEvent(ctx, invite.workspaceId, "member.joined", {
-		data: { name: await nameOf(ctx, userId), email: invite.email, role: invite.role },
+		data: { name: await nameOf(ctx, userId), email: invite.email, roles: await roleNames(ctx, invite.workspaceId, roles) },
 	});
 }
 
@@ -194,16 +203,23 @@ export const mine = query({
 		const workspaces = [];
 		for (const row of rows) {
 			const workspace = await liveWorkspace(ctx, row.workspaceId);
-			if (workspace) workspaces.push({ id: workspace._id, name: workspace.name, role: row.role, image: await imageUrl(ctx, workspace.image) });
+			if (!workspace) continue;
+			const owner = await ownsIn(ctx, row);
+			// COMPAT(0.1.0-alpha.10): alpha.9 apps read `role`; delete it.
+			workspaces.push({ id: workspace._id, name: workspace.name, owner, role: owner ? ("owner" as const) : ("member" as const), image: await imageUrl(ctx, workspace.image) });
 		}
 		const invitations = [];
 		for (const invite of await invitesFor(ctx, userId)) {
 			const workspace = await ctx.db.get(invite.workspaceId);
 			if (!workspace) continue;
+			const roles = await rolesOf(ctx, invite.workspaceId);
 			invitations.push({
 				id: invite._id,
 				workspace: workspace.name,
-				role: invite.role,
+				/** The names of the roles they'll have. */
+				roles: await roleNames(ctx, invite.workspaceId, accessOf(roles, invite).roles),
+				// COMPAT(0.1.0-alpha.10): alpha.9 apps read `role`; delete it.
+				role: accessOf(roles, invite).owner ? ("owner" as const) : ("member" as const),
 				invitedBy: invite.invitedBy ? await nameOf(ctx, invite.invitedBy) : null,
 			});
 		}
@@ -254,13 +270,18 @@ export const team = query({
 		const member = await getMember(ctx);
 		if (!member) return null;
 		const rows = await membersOf(ctx, member.workspaceId);
+		const roles = await rolesOf(ctx, member.workspaceId);
 		const members = await Promise.all(
 			rows.map(async (r) => {
 				const person = await personOf(ctx, r.userId);
+				const access = accessOf(roles, r);
 				return {
 					id: r._id,
 					userId: r.userId,
-					role: r.role,
+					/** Their roles' ids, in the workspace's order (roles.list). */
+					roles: access.roles,
+					// COMPAT(0.1.0-alpha.10): alpha.9 apps read `role`; delete it.
+					role: access.owner ? ("owner" as const) : ("member" as const),
 					name: person.name,
 					/** Their photo's URL, or null for their initials. */
 					image: await imageUrl(ctx, person.image),
@@ -272,20 +293,32 @@ export const team = query({
 			}),
 		);
 		const invites =
-			can(member.role, "members.manage")
+			can(member, "members.manage")
 				? (
 						await ctx.db
 							.query("invites")
 							.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
 							.collect()
-					).map((i) => ({ id: i._id, email: i.email, role: i.role }))
+					).map((i) => {
+						const access = accessOf(roles, i);
+						// COMPAT(0.1.0-alpha.10): alpha.9 apps read `role`; delete it.
+						return { id: i._id, email: i.email, roles: access.roles, role: access.owner ? ("owner" as const) : ("member" as const) };
+					})
 				: [];
 		return { members, invites };
 	},
 });
 
-/** Owners only. Emails them a link to the app; they join when they sign in with that email. */
-const inviteMemberArgs = v.object({ email: v.string(), role });
+/**
+ * Emails them a link to the app; they join with `roles` (Member if none) when they sign in with
+ * that email. Only owners invite an owner.
+ */
+const inviteMemberArgs = v.object({
+	email: v.string(),
+	roles: v.optional(v.array(v.id("roles"))),
+	// COMPAT(0.1.0-alpha.10): alpha.9 apps send "owner" or "member" instead of `roles`; delete it.
+	role: v.optional(v.union(v.literal("owner"), v.literal("member"))),
+});
 
 export const invite = mutation({
 	args: inviteMemberArgs.fields,
@@ -298,7 +331,8 @@ export async function inviteMember(ctx: MutationCtx, member: Member, args: Infer
 	if (!/^\S+@\S+\.\S+$/.test(email)) throw new ConvexError("That doesn't look like an email.");
 	if (await isMemberEmail(ctx, workspaceId, email)) throw new ConvexError("That person is already a member.");
 	if (await inviteIn(ctx, workspaceId, email)) throw new ConvexError("That person already has an invite.");
-	const id = await ctx.db.insert("invites", { workspaceId, email, role: args.role, invitedBy: userId });
+	const roles = await checkRoles(ctx, member, args.roles ?? [await builtInId(ctx, workspaceId, args.role ?? "member")]);
+	const id = await ctx.db.insert("invites", { workspaceId, email, roles, invitedBy: userId });
 	await completeSteps(ctx, member, ["invite"]);
 	/** False when they got one a moment ago (say, an invite cancelled and made again). */
 	const emailed = await sendInviteEmail(ctx, (await ctx.db.get(id))!, userId);
@@ -348,6 +382,7 @@ export async function removeWorkspaceMember(ctx: MutationCtx, member: Member, { 
 	const row = await ctx.db.get(id);
 	if (!row || row.workspaceId !== owner.workspaceId) return;
 	if (row.userId === owner.userId) throw new ConvexError("You can't remove yourself.");
+	if (!owner.owner && (await ownsIn(ctx, row))) throw new ConvexError("Only owners can remove an owner.");
 	await dropMember(ctx, row);
 }
 
@@ -356,7 +391,7 @@ export const leave = mutation({
 	args: {},
 	handler: async (ctx) => {
 		const member = await requireMember(ctx);
-		if (member.role === "owner" && !(await hasLiveOwner(ctx, member.workspaceId, member.userId))) {
+		if (member.owner && !(await hasLiveOwner(ctx, member.workspaceId, member.userId))) {
 			throw new ConvexError("You're the only owner. Make someone else an owner first.");
 		}
 		const row = await ctx.db.get(member.id);
@@ -406,7 +441,7 @@ export const eraseAccount = mutation({
 		// A few indexed reads per workspace however big it is. Leaving them is the cascade's (memberOf refuses an erased account until then).
 		for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId))) {
 			// One being deleted is going anyway, however many memberships its cascade has left to delete.
-			if (row.role !== "owner" || !(await liveWorkspace(ctx, row.workspaceId)) || (await hasLiveOwner(ctx, row.workspaceId, userId))) continue;
+			if (!(await liveWorkspace(ctx, row.workspaceId)) || !(await ownsIn(ctx, row)) || (await hasLiveOwner(ctx, row.workspaceId, userId))) continue;
 			const others = await ctx.db
 				.query("members")
 				.withIndex("by_workspace", (q) => q.eq("workspaceId", row.workspaceId))
@@ -434,19 +469,41 @@ export const eraseAccount = mutation({
 	},
 });
 
-/** Takes effect at once, including for replies already running. */
-export const setRole = mutation({
-	args: { id: v.id("members"), role },
-	handler: async (ctx, { id, role }) => {
-		const owner = await requirePermission(ctx, "members.manage");
+/** Gives someone exactly these roles (roles.ts `setMemberRoles`). Takes effect at once, including for replies already running. */
+export const setRoles = mutation({
+	args: { id: v.id("members"), roles: v.array(v.id("roles")) },
+	handler: async (ctx, { id, roles }) => {
+		const member = await requirePermission(ctx, "members.manage");
 		const row = await ctx.db.get(id);
-		if (!row || row.workspaceId !== owner.workspaceId) throw new ConvexError("Member not found.");
-		if (row.role === "owner" && role !== "owner" && !(await hasLiveOwner(ctx, owner.workspaceId, row.userId))) {
-			throw new ConvexError("A workspace needs at least one owner.");
-		}
-		await ctx.db.patch(id, { role });
+		if (!row || row.workspaceId !== member.workspaceId) throw new ConvexError("Member not found.");
+		await setMemberRoles(ctx, member, row, roles);
 	},
 });
+
+// COMPAT(0.1.0-alpha.10): alpha.9 apps pick Owner or Member here. Gives or takes the Owner role and keeps
+// the rest (Member if nothing's left); delete it.
+export const setRole = mutation({
+	args: { id: v.id("members"), role: v.union(v.literal("owner"), v.literal("member")) },
+	handler: async (ctx, { id, role }) => {
+		const member = await requirePermission(ctx, "members.manage");
+		const row = await ctx.db.get(id);
+		if (!row || row.workspaceId !== member.workspaceId) throw new ConvexError("Member not found.");
+		const owner = await builtInId(ctx, member.workspaceId, "owner");
+		const rest = accessOf(await rolesOf(ctx, member.workspaceId), row).roles.filter((r) => r !== owner);
+		const roles = role === "owner" ? [owner, ...rest] : rest.length > 0 ? rest : [await builtInId(ctx, member.workspaceId, "member")];
+		await setMemberRoles(ctx, member, row, roles);
+	},
+});
+
+/** Whether this membership holds the Owner role. */
+export async function ownsIn(ctx: QueryCtx, row: Doc<"members">) {
+	return accessOf(await rolesOf(ctx, row.workspaceId), row).owner;
+}
+
+/** The names of these roles, in the workspace's order. */
+async function roleNames(ctx: QueryCtx, workspaceId: Id<"workspaces">, ids: Id<"roles">[]) {
+	return (await rolesOf(ctx, workspaceId)).filter((r) => ids.includes(r._id)).map((r) => r.name);
+}
 
 const membersOf = (ctx: QueryCtx, workspaceId: Id<"workspaces">) =>
 	ctx.db
@@ -489,7 +546,7 @@ export async function imageSettings(ctx: QueryCtx, member: Member, workspace: Do
 		imageModel: (await workspaceImageModel(ctx, workspace.imageModel)).id,
 		imageBudgetUsd: workspace.imageBudgetUsd ?? IMAGE_BUDGET_DEFAULT_USD,
 		imageModels: await catalogImageModels(ctx),
-		imageSpentUsd: can(member.role, "usage.view") ? await imageSpent(ctx, workspace._id) : null,
+		imageSpentUsd: can(member, "usage.view") ? await imageSpent(ctx, workspace._id) : null,
 	};
 }
 

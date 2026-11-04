@@ -3,14 +3,15 @@
 Rules each system relies on. Break one and something leaks or breaks silently.
 
 ## Permissions — `core/src/permissions.ts`
-- Every workspace action has a permission listing the roles allowed. Backend mutations call `requirePermission(ctx, "x.y")`; the app calls `can(role, "x.y")`.
-- Shared navigation and database display arrangements use `sidebar.arrange` (owners and members). Use the structured list definition in `core/arrangements.ts` for scope and entity ownership; never accept a user id or scope from the client. Use `useSortable` / `useStoredIds` with the loaded arrangement context for ordered lists; database layout/grouping live on `recordTypes.display`. Keep widths, hidden state and chat drafts local.
-- New feature that needs a gate → add a permission first. Never check `role === "owner"` directly.
-- New role → add it to `roles` (`types.ts`; the schema's `role` validator is built from it), then to each permission it should have.
+- Each key is a switch: a plain-language `label` (shown in Settings → Members → Roles and in agent denials) and its **Member default** (`member`), or `ownerOnly` (never a switch). Roles are workspace data, not code ([Permissions](permissions.md#roles)).
+- Backend mutations call `requirePermission(ctx, "x.y")` (or `checkPermission(member, …)`); the app calls `can(access, "x.y")` with `me.access`. Never check for the Owner role directly; use `can` (Owner passes everything).
+- New feature that needs a gate → add a switch first, with its Member default. That's all: every workspace's Member gets the default at once, because Member stores only what an owner flipped (`roleSwitches`, `flipSwitch`); custom roles start with it off; Owner has it. No migration. Default anything sensitive (money, people, settings, deleting for good, acting for others) to `member: false`.
+- Don't give makers extra rights. If something private needs its owner, write it as a visibility rule (like `canEditAutomation` for personal automations).
+- Arrangements (sidebar and rail order, pins, recents, folds, database display) are server state (`arrangements.ts`, `core/arrangements.ts`). Each list's definition sets its scope (yours, yours across workspaces, or shared) and owning entity; never accept a user id or scope from the client. Clients send one small command (`pin`, `unpin`, `visit`, `fold`, `unfold`, `move`), applied to the current server state, never a whole list, so two devices' changes both land. Shared lists need `sidebar.arrange`: people whose role can rearrange shared sidebar lists. Database layout and grouping live on `recordTypes.display`. Keep widths, hidden state and chat drafts local.
 
 ## Tools — `core/src/tools.ts`, `builtin-tools.ts`
 - One shape (`ToolDef`) for built-ins and connector tools. Ids are `group.name`; model names come from `modelToolName`.
-- Add a built-in: `defineTool` in `builtin-tools.ts`. Set `permission` if not everyone may trigger it (checked through the role table, like everything else), `readOnly: true` if it changes nothing, and `risk` if it reaches outside ([Permissions](permissions.md)).
+- Add a built-in: `defineTool` in `builtin-tools.ts`. Set `permission` if not everyone may trigger it (checked against the person's roles at call time, and refused naming the roles that have it), `readOnly: true` if it changes nothing, and `risk` if it reaches outside ([Permissions](permissions.md)).
 - Tools reach data only through `ToolContext` (`memory`, `chat`, `skills`, `automations`, `records`, `pages`, `manage`, `web`), which enforce permissions. Don't do permission checks inside tools.
 - Agents grant exact ids or whole groups (`memory.*`). `resolveTools` is the only place that decides what the model sees.
 
@@ -21,11 +22,11 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 
 ## Connectors — `core/src/connectors.ts`, `mcp.ts`, `backend/convex/connectors.ts`
 - A connector is a catalog entry pointing at a remote MCP server. Add it with `defineConnector` to `connectorCatalog`; `validateConnector` must pass (https only).
-- `connection: "workspace"` = one shared account, set by owners. `"personal"` = each person connects their own; agents use the account of the person they're helping.
+- `connection: "workspace"` = one shared account, set by someone with `connectors.manage`. `"personal"` = each person connects their own; agents use the account of the person they're helping.
 - Tools are discovered each turn (`openConnector`) as `<connector>.<tool>`. Agents usually grant `<connector>.*`.
 - Connector tools load on demand (`connector-tools.ts`): the model gets two fixed tools, `connectors_search` (an empty query lists every tool plus the server's usage notes; words or exact ids return input schemas) and `connectors_call`. Never hand connector schemas to the model up front: one server can be 50k+ tokens per call, and a changing tool list breaks prompt caching.
 - Credentials: `ConnectorCredentials`, encrypted in an **action** (`crypto.ts`) and decrypted only by the agent runner. Never return them from a query.
-- Access = installed + role allowed (`connectorInstalls.roles`) + connected. Checked fresh each turn (`connectors.forTurn`).
+- Access = installed + one of the person's roles allowed (`connectorInstalls.roles`, role ids; owners always) + connected. Checked fresh each turn (`connectors.forTurn`).
 - Auth: `none`, `api_key` (pasted in), or `oauth` (MCP OAuth: discovery, dynamic client registration, PKCE, refresh — all via `@ai-sdk/mcp`). OAuth flow: `connectors.startOAuth` → browser → `GET /oauth/callback` (`backend/convex/oauth.ts`) → `saveConnection`. State lives in `OAuthState` (`core/src/oauth.ts`), encrypted like any credentials. The runner saves refreshed tokens after each turn.
 - Connector results keep structure (`structuredContent`, or JSON text) so widgets can show them by ref.
 - Risk and approval rules: [Permissions](permissions.md). `backend/convex/connectorTools.ts` saves the reported tool list for settings screens only. Not built yet: pre-registered OAuth clients (servers without dynamic registration).
@@ -40,7 +41,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 - Add one: `defineWidget` (type, description, zod `input`, `summary`, optional `prepare`) in `widgetCatalog`, then a component in the desktop `registry`. That's all; the tool `widgets.<type>` appears automatically.
 - `description` and `.describe()` on input are how the model learns to use it. Write them for the model.
 - **Refs:** tools with `returnsData` (connector tools, `memory.search`) reach the model as `{ ref: "r1", data }`, and their data is kept for the turn (`ResultStore`). A widget's `prepare` can look a ref up, so the model points at data instead of copying it (see `table`'s `from`). The model still sees the data; it just doesn't re-type it.
-- **After a widget** the run goes on (`agentStopWhen` stops only at the step limit, `AGENT_STEPS`), so work can continue after a table. The last step offers only widgets and adds a note to answer now (`agentPrepareStep`; Sonnet ignores a narrowed tool list without it), so a reply always ends with an answer, never a lookup with no step left to use it. The receipt tells the model not to describe the widget or repeat it, and to end the reply unless the task needs more steps.
+- **After a widget** the run goes on (`agentStopWhen` stops only at the step limit, `AGENT_STEPS`), so work can continue after a table. The last step offers only widgets and adds a note to answer now (`agentPrepareStep`; Sonnet ignores a narrowed tool list without it), so a reply always ends with an answer, never a lookup with no step left to use it. It also takes in the person's new messages before each step (`steer`, wiki/chat.md Steering); keep anything it adds at the end of the messages, so the cached prefix holds. The receipt tells the model not to describe the widget or repeat it, and to end the reply unless the task needs more steps.
 - `prepare` returns concrete props, which are stored and rendered by the app, so keep them plain data. Older apps show a placeholder for unknown types.
 - Widgets are generic UI, not tied to a skill or connector. Skills and connectors produce data; any widget can show it.
 - Connector-provided UI later: MCP Apps (`@ai-sdk/mcp` supports them) in a sandboxed frame, not this registry.
@@ -58,7 +59,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 
 ## Skills — `core/src/skills.ts`
 - Agents with `skills.load` see installed skills' one-line descriptions and load full text on demand. Keep descriptions short; they're in every prompt.
-- Anyone can make their own (`skills.create` permission; `create` / `save` in `backend/convex/skills.ts`, or the `skills.create` agent tool; the guide adds a short how-to when it's granted). The maker or an owner can edit or delete (`canEditMade`). They live on their `skillInstalls` row (`custom`, id `custom-…`), are always installed, and `installedSkills` turns them into the same `Skill` shape, so agents can't tell them apart. Limits are in `customSkillError`: name 64 and no tags (Claude's SKILL.md rules), description 200 (stricter than Claude's 1,024, since it's in every prompt), instructions 20k chars.
+- People with the `skills.edit` switch make, edit and delete them (`create` / `save` in `backend/convex/skills.ts`, or the `skills.create` agent tool; the guide adds a short how-to when it's granted). They live on their `skillInstalls` row (`custom`, id `custom-…`), are always installed, and `installedSkills` turns them into the same `Skill` shape, so agents can't tell them apart. Limits are in `customSkillError`: name 64 and no tags (Claude's SKILL.md rules), description 200 (stricter than Claude's 1,024, since it's in every prompt), instructions 20k chars.
 
 ## Automations — `core/src/automations.ts`
 Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automationTools.ts` (agent tools), `automationOps.ts` (shared lookups).
@@ -77,7 +78,7 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 ## Memory — `core/src/memory.ts`, `backend/convex/memoryOps.ts`
 - Each memory belongs to one agent; scope `workspace` or `personal`. Rules live in `canReadMemory` / `canEditMemory` / `canCreateMemory`.
 - Team memories are wiki-style (`memory.team.write`: every role). Don't narrow who can fix one; keep the undo instead: every edit saves the old content to `memoryVersions` first (`keepVersion`, last 20), a team delete goes to Trash (`removeMemory`), and anything reading memories skips `archived` ones.
-- Personal memories are their owner's alone. No role reads, edits or deletes someone else's, so never add a permission that does; owners get only the on/off switch. Removing a member deletes theirs, agents' in Trash included, through the member cascade (`lifecycle.ts`, index `by_owner`).
+- Personal memories are their owner's alone. No role reads, edits or deletes someone else's, so never add a switch that does; `workspace.manage` holds only the on/off switch. Removing a member deletes theirs, agents' in Trash included, through the member cascade (`lifecycle.ts`, index `by_owner`).
 - The switch is `workspaces.memory` (unset = on), read by `memoryOn`. Off: `memory.ts` refuses every agent call with a plain message, and the turn prompt says memory is off. People can still manage their memories in the app.
 - App and agents both go through `memoryOps.ts` with a `Who` (member + optional agent), so they can't drift. Agent calls take the `turnId` and act through `runningTurn`, like every other agent tool; whether personal memories work is read from the chat on each call (`personalMemoryHere`).
 - Agent search (`memory.search`) uses the `search_content` search index, filtered by agent, scope and owner, so it finds matches anywhere in the history; at most 50 back, oldest first. It matches words and prefixes, not substrings: "aus" finds "Austin", "ustin" doesn't; every word must match (`memoryMatches`). An empty query lists the newest 50.
@@ -93,7 +94,7 @@ Backend: `automations.ts` (settings), `automationRuns.ts` (dispatch), `automatio
 - The app imports only dependency-free modules from core, by deep path: `@companybot/core/permissions`, `@companybot/core/agent-config`. One exception: `@companybot/core/files` uses `fflate` (small, browser-safe) to list a ZIP's parts. `@companybot/core/file-text` pulls in PDF.js (unpdf), so only the backend's Node action (`fileText.ts`) imports it; it's kept out of the barrel. Importing the barrel would bundle the agent runtime (`ai`, zod) into the renderer. To expose another module, add it to `exports` in `core/package.json`.
 
 ## Things people make
-- Skills and automations share `canEditMade(who, managePermission, createdBy)` and one denial message. Pass no creator for library installs. Skills store the maker in `custom.createdBy`; automations use `installedBy`.
+- Making one gives no extra rights: skills need `skills.edit`, team automations `automations.edit`. A personal automation (audience `creator`) is its maker's alone (`canEditAutomation`). Skills store the maker in `custom.createdBy`; automations use `installedBy`.
 - Trim configs only in core (`normalizeCustomSkill` / `normalizeCustomAutomation`). Backend `madeCustom` adds creation metadata; `saveMade` checks the version, validates, then patches the next version and editor metadata. Agent creation uses `asToolResult` for expected errors.
 - Move custom and retained library installs to Trash with `skills.remove` / `automations.remove`. The old `setInstalled` endpoints only acknowledge existing installs or explain that the library has retired (COMPAT).
 - `ToolContext.skills` holds the installed `list` and `create`, like the automations store.

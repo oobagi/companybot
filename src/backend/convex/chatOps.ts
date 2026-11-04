@@ -1,9 +1,9 @@
-import { canManageChannel, describeWidget } from "@companybot/core";
+import { describeWidget } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { imageUrls } from "./images";
-import { type Member, type Who, getMember, memberOf, memo, nameOf, personOf, toActor } from "./lib";
+import { type Member, type Who, checkPermission, getMember, memberOf, memo, nameOf, personOf } from "./lib";
 import { putInTrash, takeFromTrash } from "./trashOps";
 
 // Shared by the app's chat functions (chats.ts, messages.ts) and the agent runner
@@ -14,6 +14,8 @@ export type Participant = ({ type: "user"; id: Id<"users"> } | { type: "agent"; 
 	name: string;
 	/** Their picture's URL, or null for initials. Only from `namer(ctx, { images: true })`: what the app shows, never what agents read. */
 	image?: string | null;
+	/** On a message an agent sent as a person ("Companybot, for Jaden"): that person. */
+	for?: Participant;
 };
 
 /** Finds a DM by who's in it: sorted "u:<id>" / "a:<id>" keys joined by ",". */
@@ -150,11 +152,11 @@ export async function availableName(ctx: QueryCtx, member: Member, raw: string, 
 	return name;
 }
 
-/** A channel you can see and manage (`channels.manage`, or you created it). */
+/** A channel you can see and manage (`channels.edit`). Making it gives no extra rights: roles decide. */
 export async function requireManagedChannel(ctx: QueryCtx, member: Member, chatId: Id<"chats">) {
 	const chat = await requireChat(ctx, member, chatId);
 	if (chat.kind !== "channel") throw new ConvexError("That's not a channel.");
-	if (!canManageChannel(toActor(member), chat)) throw new ConvexError("Only the channel's creator or an owner can change it.");
+	checkPermission(member, "channels.edit");
 	return chat;
 }
 
@@ -260,6 +262,27 @@ export async function countMessage(ctx: MutationCtx, chat: Doc<"chats">, message
 	} else await ctx.db.patch(chat._id, { lastMessageAt: now });
 }
 
+/**
+ * Where a message sits in its timeline: when it was shown. A quiet reply is shown when its decision posts
+ * it, and a reply that took in messages sent after it began moves below them (`publishedAt`); the rest
+ * sit where they were made. Never before that (`publishedAt` is whole ms; `_creationTime` isn't). Lists
+ * put messages in this order.
+ */
+export const shownAt = (m: Pick<Doc<"chatMessages">, "_creationTime" | "publishedAt">) => Math.max(m.publishedAt ?? 0, m._creationTime);
+
+/**
+ * A reply people already see takes in messages sent after it began (turns.steer): it moves below them,
+ * and its place's last activity (the chat's last message, the thread's last reply) moves with it. It
+ * isn't counted again.
+ */
+export async function moveBelow(ctx: MutationCtx, chat: Doc<"chats">, reply: Doc<"chatMessages">) {
+	const now = Date.now();
+	await ctx.db.patch(reply._id, { publishedAt: now });
+	if (!reply.threadId) return ctx.db.patch(chat._id, { lastMessageAt: now });
+	const parent = await ctx.db.get(reply.threadId);
+	if (parent && !parent.quiet) await ctx.db.patch(parent._id, { lastReplyAt: now });
+}
+
 type ReplyAuthor = NonNullable<Doc<"chatMessages">["replyAuthors"]>[number];
 const authorOf = (m: Pick<Doc<"chatMessages">, "authorUserId" | "authorAgentId">): ReplyAuthor =>
 	m.authorUserId ? { userId: m.authorUserId } : { agentId: m.authorAgentId };
@@ -348,12 +371,17 @@ export function namer(ctx: QueryCtx, { images = false } = {}) {
 		const userId = "authorUserId" in row ? row.authorUserId : "userId" in row ? row.userId : undefined;
 		const agentId = "authorAgentId" in row ? row.authorAgentId : "agentId" in row ? row.agentId : undefined;
 		const author = await (userId ? user(userId) : agent(agentId!));
-		return "actingFor" in row && row.actingFor ? { ...author, name: `${author.name}, for ${await nameOf(ctx, row.actingFor)}` } : author;
+		if (!("actingFor" in row) || !row.actingFor) return author;
+		const person = await user(row.actingFor);
+		return { ...author, for: person };
 	};
 	return { user, agent, of, imageUrl: url };
 }
 
 export type Namer = ReturnType<typeof namer>;
+
+/** How an author reads in text (agents' prompts, notifications): "Companybot, for Jaden" for an agent sending as a person. */
+export const label = (p: Participant) => (p.for ? `${p.name}, for ${p.for.name}` : p.name);
 
 /** "#sales", or "DM with Ada, Ben" (everyone but `except`). */
 export async function chatLabel(ctx: QueryCtx, chat: Doc<"chats">, names: Namer, except?: string) {
@@ -370,11 +398,12 @@ export async function chatLabel(ctx: QueryCtx, chat: Doc<"chats">, names: Namer,
 export function replyForModel(m: Doc<"chatMessages">) {
 	const tools = m.parts.flatMap((p) => (p.type === "tool" ? [`${p.name} (${p.status === "error" ? "failed" : "done"})`] : []));
 	// Held calls are noted without their outcome, so this text never changes once the reply is done (prompt caching).
-	const held = m.parts.flatMap((p) => (p.type === "approval" ? [p.tool] : []));
+	const held = m.parts.flatMap((p) => (p.type === "approval" ? [p.why ? `${p.tool} (the card said: ${JSON.stringify(p.why)})` : p.tool] : []));
 	return [
 		textForModel(m),
 		tools.length > 0 && `[Tools you used: ${tools.join(", ")}]`,
 		held.length > 0 && `[Held for approval: ${held.join(", ")}]`,
+		m.stoppedBy && "[Stopped by the person before you finished]",
 		m.attachments?.length && `[Files you attached: ${m.attachments.map((f) => JSON.stringify(f.name)).join(", ")}]`,
 	]
 		.filter(Boolean)

@@ -1,5 +1,5 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import type { Role } from "@companybot/core/permissions";
+import type { Access } from "@companybot/core/permissions";
 import { DatabaseIcon } from "../icons";
 import { EmptyState, NotFound, Page } from "../ui";
 import { useTypes } from "./records/data";
@@ -10,14 +10,14 @@ import { RecordPage } from "./records/RecordPage";
  * A type's list, or one record's page: /records/<key>[/<id>].
  * Every type shares the same screens.
  */
-export function RecordsView({ typeKey, recordId, role }: { typeKey?: string; recordId?: string; role: Role }) {
+export function RecordsView({ typeKey, recordId, access }: { typeKey?: string; recordId?: string; access: Access }) {
 	const types = useTypes();
 	// Databases are opened from the sidebar; /records alone (Databases with none open, or none yet) says so.
 	if (!typeKey)
 		return (
 			<Page title="Databases">
 				<EmptyState icon={<DatabaseIcon />} title={types?.length === 0 ? "No databases yet" : "No database open"}>
-					{types?.length === 0 ? "Owners make one with + beside Databases in the sidebar." : "Open a database from the sidebar."}
+					{types?.length === 0 ? "People whose role can add databases make one with + beside Databases in the sidebar." : "Open a database from the sidebar."}
 				</EmptyState>
 			</Page>
 		);
@@ -25,8 +25,8 @@ export function RecordsView({ typeKey, recordId, role }: { typeKey?: string; rec
 	const type = types.find((t) => t.key === typeKey);
 	if (!type) return <NotFound loaded icon={<DatabaseIcon />} title="Database not found" />;
 	return recordId ? (
-		<RecordPage key={recordId} type={type} recordId={recordId as Id<"records">} role={role} />
+		<RecordPage key={recordId} type={type} recordId={recordId as Id<"records">} access={access} />
 	) : (
-		<RecordList key={type._id} type={type} role={role} />
+		<RecordList key={type._id} type={type} access={access} />
 	);
 }

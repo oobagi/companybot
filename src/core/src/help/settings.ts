@@ -15,17 +15,17 @@ Open settings from your avatar (account) or the workspace logo at the top of the
 ## Workspace settings
 | Tab | What | Who can change |
 |---|---|---|
-| [General](#/settings/general) | Logo, name, currency, memory on/off, picture model and monthly image budget, delete workspace | Owners (everyone can look) |
-| [Members](#/settings/members) | Invite, roles, remove | Owners |
-| [Permissions](#/settings/permissions) | Your Always/Never rules; action locks | You (rules); owners (locks) |
+| [General](#/settings/general) | Logo, name, currency, memory on/off, picture model and monthly image budget, delete workspace | Roles that can change workspace settings (everyone can look) |
+| [Members](#/settings/members) | Invite, roles, remove | Roles that can invite and change people's roles; owners edit the roles themselves |
+| [Permissions](#/settings/permissions) | Your Always/Never rules; action locks | You (rules); roles that can lock (locks) |
 | [Memory](#/settings/memory) | Team and personal memories | Everyone (personal: only you) |
 | [Activity](#/settings/activity) | Database changes and agent activity | Read only |
-| [Usage](#/settings/usage) | What AI cost, by month | Read only (owners see everyone; others their own) |
-| [Archive](#/settings/archive) | Deleted things; restore | Anyone restores what they could delete; owners delete forever |
-| [Agents](#/settings/agents) | Agents, models, tools, instructions | Owners |
-| [Connectors](#/settings/connectors) | Outside services | Owners install; everyone connects their own |
-| [Skills](#/settings/skills) | Shared instructions | Anyone makes; maker or owner edits |
-| [Automations](#/settings/automations) | Jobs on a schedule or event | Anyone makes; maker or owner edits |
+| [Usage](#/settings/usage) | What AI cost, by month | Read only (roles that can see everyone do; others their own) |
+| [Archive](#/settings/archive) | Deleted things; restore | Anyone restores what they could delete; roles that can delete forever do |
+| [Agents](#/settings/agents) | Agents, models, tools, instructions | Roles that can change agents |
+| [Connectors](#/settings/connectors) | Outside services | Roles that can install connectors; everyone allowed connects their own |
+| [Skills](#/settings/skills) | Shared instructions | Roles that can make and change skills |
+| [Automations](#/settings/automations) | Jobs on a schedule or event | Anyone makes personal ones; roles that can make and change team automations do the rest |
 
 Shared settings (agents, workspace name and the like) are edited then saved. If someone saved first, you are asked whether to use theirs or keep yours.
 

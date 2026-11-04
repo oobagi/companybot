@@ -1,5 +1,5 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { type Role, can } from "@companybot/core/permissions";
+import { type Access, can } from "@companybot/core/permissions";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvexAuth } from "convex/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -12,6 +12,7 @@ import { navigate, useRoute } from "./router";
 import { ArchiveIcon, ArrowLeftIcon, DatabaseIcon, EditIcon, PlusIcon, SettingsIcon, SignOutIcon } from "./icons";
 import { MenuDivider, Notice, ResizeHandle, Scroll, TopBar, TruncatedTips, useRun, useStoredWidth } from "./ui";
 import { RecordsView } from "./views/Records";
+import { roleNames } from "./views/Members";
 import { SettingsNav, SettingsView, isCustomize, settingsScope, settingsTabAliases, settingsTabs } from "./views/Settings";
 import { Landing } from "./views/Landing";
 import { Onboarding } from "./views/Onboarding";
@@ -114,11 +115,11 @@ function Workspace() {
 
 function Opened() {
 	const me = useQuery(api.workspace.me);
-	if (!me?.role) return null;
-	return <LoadedArrangements userId={me.userId}><Shell email={me.email} role={me.role} workspace={me.workspace ?? ""} /></LoadedArrangements>;
+	if (!me?.access) return null;
+	return <LoadedArrangements userId={me.userId}><Shell email={me.email} access={me.access} workspace={me.workspace ?? ""} /></LoadedArrangements>;
 }
 
-function Shell({ email, role, workspace }: { email: string; role: Role; workspace: string }) {
+function Shell({ email, access, workspace }: { email: string; access: Access; workspace: string }) {
 	const arrangements = useArrangementState();
 	const { signOut } = useAuthActions();
 	const chats = useQuery(api.chats.list);
@@ -208,7 +209,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 							name={prefs?.displayName || email}
 							image={prefs?.image}
 							email={email}
-							role={role}
+							access={access}
 							onSettings={() => navigate("settings", "preferences")}
 							onSignOut={() => void signOut()}
 						/>
@@ -254,11 +255,11 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 										chats &&
 										sections.sorted.map((id) => {
 											const section = { collapsed: folded.includes(id), onToggle: () => fold(id), drag: sections.drag(id) };
-											const props = { chats, openId, openThread: route[2] === "thread" ? route[3] : undefined, onOpen: open, onError: fail, canManageAgents: can(role, "agents.manage"), section };
+											const props = { chats, openId, openThread: route[2] === "thread" ? route[3] : undefined, onOpen: open, onError: fail, canManageAgents: can(access, "agents.manage"), section };
 											return id === "channels" ? <ChannelsNav key={id} {...props} /> : <DmsNav key={id} {...props} />;
 										})}
-									{tab === "drive" && <PagesNav openId={route[1]} canEdit={can(role, "pages.edit")} />}
-									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} canCreate={can(role, "fields.manage")} onCreate={() => setNewDatabase(true)} />}
+									{tab === "drive" && <PagesNav openId={route[1]} canEdit={can(access, "pages.edit")} />}
+									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} canCreate={can(access, "fields.edit")} onCreate={() => setNewDatabase(true)} />}
 									{tab === "customize" && <CustomizeNav open={settingsTab} />}
 								</div>
 							</Scroll>
@@ -281,9 +282,9 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 							) : (
 								<TopBar title="" />
 							))}
-						{view === "records" && <RecordsView key={typeKey} typeKey={typeKey} recordId={recordId} role={role} />}
-						{view === "pages" && <PagesView pageId={route[1]} canEdit={can(role, "pages.edit")} />}
-						{view === "settings" && <SettingsView role={role} tab={settingsTab} itemId={route[2]} />}
+						{view === "records" && <RecordsView key={typeKey} typeKey={typeKey} recordId={recordId} access={access} />}
+						{view === "pages" && <PagesView pageId={route[1]} canEdit={can(access, "pages.edit")} />}
+						{view === "settings" && <SettingsView access={access} tab={settingsTab} itemId={route[2]} />}
 					</main>
 				</div>
 			</div>
@@ -296,7 +297,7 @@ const sectionIds = ["channels", "dms"];
 const sectionKey = (id: string) => id;
 const typeKeyOf = (t: { _id: string }) => t._id;
 
-/** Databases' sidebar: your databases, in your order. `canCreate` (fields.manage) also edits and deletes. */
+/** Databases' sidebar: your databases, in your order. `canCreate` (fields.edit) also edits and deletes. */
 function DatabasesNav({
 	types,
 	openKey,
@@ -375,17 +376,18 @@ function YouMenu({
 	name,
 	image,
 	email,
-	role,
+	access,
 	onSettings,
 	onSignOut,
 }: {
 	name: string;
 	image?: string | null;
 	email: string;
-	role: Role;
+	access: Access;
 	onSettings: () => void;
 	onSignOut: () => void;
 }) {
+	const roles = useQuery(api.roles.list);
 	return (
 		<Popover
 			trigger={
@@ -404,7 +406,7 @@ function YouMenu({
 						<div className="min-w-0">
 							<p className="truncate font-semibold">{name}</p>
 							{name !== email && <p className="truncate text-neutral-500">{email}</p>}
-							<p className="text-xs text-neutral-500 capitalize">{role}</p>
+							<p className="text-xs text-neutral-500">{roleNames(roles, access.roles).join(", ")}</p>
 						</div>
 					</div>
 					<MenuDivider />

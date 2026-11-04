@@ -62,7 +62,7 @@ describe("memory", () => {
 		expect(settings.memory).toBe(true);
 		await expect(
 			member.mutation(api.workspace.updateSettings, { name: settings.name, memory: false, expectedVersion: settings.version }),
-		).rejects.toThrow("permission");
+		).rejects.toThrow("Only people with the");
 		await owner.mutation(api.workspace.updateSettings, { name: settings.name, memory: false, expectedVersion: settings.version });
 		expect((await member.query(api.workspace.settings))!.memory).toBe(false);
 		// A save from an old version is refused, like any shared setting.

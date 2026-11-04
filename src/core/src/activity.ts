@@ -53,7 +53,7 @@ export function callLabel(
 	return `${(call && t?.label?.(call.input ?? {}, dataOf(call.output))) || actionLabel(t?.id ?? name, t?.title)}${service ? ` with ${service.name}` : ""}`;
 }
 
-/** A thread a finished call made, for its tool line to open (ToolDef `opens`). */
+/** A thread a finished call made, or a message it sent, for its tool line to open (ToolDef `opens`). */
 export function callOpens(name: string, tools: ToolDef[], output: unknown) {
 	return tools.find((x) => x.id === name || modelToolName(x.id) === name)?.opens?.(dataOf(output));
 }

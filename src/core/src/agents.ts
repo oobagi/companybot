@@ -4,11 +4,11 @@ import { type AgentConfig, reasonings } from "./agent-config";
 import { type PermissionDecision, deniedReason, heldReason, permissionFor, toolRisk } from "./action-rules";
 import { builtinTools } from "./builtin-tools";
 import { type ModelInfo, fallbackModels } from "./models";
-import { can } from "./permissions";
+import { can, canUseConnector } from "./permissions";
 import { CONNECTOR_CALL, type ConnectorService, calledConnectorTool, connectorMetaTools } from "./connector-tools";
 import { findConnector } from "./connectors";
 import { type ToolContext, type ToolDef, isGranted, modelToolName, toolGroup } from "./tools";
-import type { Actor, Role } from "./types";
+import type { Access, Actor } from "./types";
 import type { WebTurn } from "./web";
 
 export const defineAgent = (agent: AgentConfig) => agent;
@@ -43,8 +43,8 @@ export function validateAgentConfig(config: AgentConfig, models: readonly Pick<M
 /** Where a connector stands for this person, from the backend. */
 export interface ConnectorState {
 	id: string;
-	/** Roles the workspace allows to use it. */
-	roles: Role[];
+	/** Ids of the roles the workspace allows to use it. Owners always can. */
+	roles: string[];
 	/** Has a usable connection for this person (theirs, or the workspace's). */
 	connected: boolean;
 }
@@ -54,9 +54,9 @@ export type ToolAccess =
 	| { id: string; visible: false; reason: "role" | "not_found" | "not_installed" | "not_connected" };
 
 /**
- * For each of an agent's grants, whether this person can use it and why not.
- * A tool reaches the model only if the agent grants it, the person's role allows
- * it, and (for connectors) the connector is installed, allowed, and connected.
+ * For each of an agent's grants, whether this person can use it and why not. A connector's
+ * tools reach the model only if it's installed, allowed for one of their roles, and connected.
+ * Built-ins always reach it: one their roles lack is refused per call, naming who can (`check`).
  */
 export function describeToolAccess(
 	agent: Pick<AgentConfig, "tools">,
@@ -68,31 +68,29 @@ export function describeToolAccess(
 		if (findConnector(group)) {
 			const state = connectors.find((p) => p.id === group);
 			if (!state) return [{ id, visible: false, reason: "not_installed" }];
-			if (!state.roles.includes(actor.role)) return [{ id, visible: false, reason: "role" }];
+			if (!canUseConnector(actor, state.roles)) return [{ id, visible: false, reason: "role" }];
 			if (!state.connected) return [{ id, visible: false, reason: "not_connected" }];
 			return [{ id, visible: true }];
 		}
 		// Built-in grants are listed tool by tool, so a group shows which of its tools are hidden.
 		const defs = builtinTools.filter((t) => (id.endsWith(".*") ? toolGroup(t.id) === group : t.id === id));
 		if (defs.length === 0) return [{ id, visible: false, reason: "not_found" }];
-		return defs.map((d) => (canUseTool(actor, d) ? { id: d.id, visible: true } : { id: d.id, visible: false, reason: "role" }));
+		return defs.map((d) => ({ id: d.id, visible: true }));
 	});
 }
 
-/** Whether this person's role may use a tool: it needs no permission, or they have it. */
-export const canUseTool = (who: Actor | Role, tool: Pick<ToolDef, "permission">) => !tool.permission || can(who, tool.permission);
+/** Whether this person's roles may use a tool: it needs no permission, or they have it. */
+export const canUseTool = (who: Access, tool: Pick<ToolDef, "permission">) => !tool.permission || can(who, tool.permission);
 
 /**
- * The tools this agent can use for this person, out of `available` (built-ins plus
- * whatever connector tools were loaded for the turn). Connector role checks happen when
- * connectors are loaded; tool-level `permission` is checked here.
+ * The tools this agent offers, out of `available` (built-ins plus whatever connector tools were
+ * loaded for the turn: connector role checks happen when connectors load). A built-in whose
+ * `permission` the person lacks stays listed, so the list is the same for everyone and caches; the
+ * call is refused when made, telling the agent which roles can (backend permissions.check). So the
+ * agent can only do what both its tools and the person's roles allow.
  */
-export function resolveTools(
-	agent: Pick<AgentConfig, "tools">,
-	actor: Actor,
-	available: ToolDef[] = builtinTools,
-): ToolDef[] {
-	return available.filter((t) => isGranted(agent.tools, t.id) && canUseTool(actor, t));
+export function resolveTools(agent: Pick<AgentConfig, "tools">, available: ToolDef[] = builtinTools): ToolDef[] {
+	return available.filter((t) => isGranted(agent.tools, t.id));
 }
 
 /** Model calls in one reply: room to search and read the web's allowance, look things up, show a widget and answer. */
@@ -100,33 +98,52 @@ export const AGENT_STEPS = 20;
 
 /**
  * When a run stops: only at its step limit. Never at a widget: work can go on after a table
- * ("then mark them all won"). agentPrepareStep makes sure the last step answers.
+ * ("then mark them all won"). agentPrepareStep makes sure the last step answers. `done`: steps a
+ * reply already took before this run (a run restarted to take in a new message), so the limit is per reply.
  */
-export const agentStopWhen = isStepCount(AGENT_STEPS);
+export const agentStopAfter = (done = 0) => isStepCount(Math.max(1, AGENT_STEPS - done));
+export const agentStopWhen = agentStopAfter(0);
+
+export interface AgentStepOptions {
+	/**
+	 * New messages from the turn's person since it last looked (backend turns.steer), as one note, or
+	 * null. Asked before every step but the first, and appended to the messages: the AI SDK carries a
+	 * step's messages into the next, so it's sent once, after everything before it (the cache holds).
+	 */
+	steer?: () => Promise<string | null>;
+	/** Steps the reply took before this run (agentStopAfter). */
+	done?: number;
+	/** The messages each step is sent, so a run cut off mid-step can restart from them. */
+	sent?: (messages: ModelMessage[]) => void;
+}
 
 /**
- * Narrows the tools for each step (AI SDK `prepareStep`), so a reply always ends with an answer.
- * Once the turn's web searches or pages are spent, that tool is gone rather than failing when
- * called. The last step keeps only widgets and is told to answer now: some models (Sonnet) still
- * call a tool they weren't offered, or end silently when offered none, unless told. With nothing
- * left (`toolChoice: "none"`) the list stays, which providers need while the history has tool
- * calls. A narrowed list misses the prompt cache once, at most three times a reply; the note goes
- * at the end, so it doesn't.
+ * Narrows the tools for each step (AI SDK `prepareStep`), so a reply always ends with an answer, and
+ * adds what the person sent meanwhile (`steer`). Once the turn's web searches or pages are spent, that
+ * tool is gone rather than failing when called. The last step keeps only widgets and is told to answer
+ * now: some models (Sonnet) still call a tool they weren't offered, or end silently when offered none,
+ * unless told. With nothing left (`toolChoice: "none"`) the list stays, which providers need while the
+ * history has tool calls. A narrowed list misses the prompt cache once, at most three times a reply; the
+ * notes go at the end, so they don't.
  */
-export function agentPrepareStep(tools: ToolSet, web: Pick<WebTurn, "left">) {
+export function agentPrepareStep(tools: ToolSet, web: Pick<WebTurn, "left">, { steer, done = 0, sent }: AgentStepOptions = {}) {
 	const names = Object.keys(tools);
 	const widgets = names.filter((name) => name.startsWith(modelToolName("widgets.")));
 	const lastStep: ModelMessage = {
 		role: "user",
 		content: `[Note from Companybot, not the person: this is the last step of your reply. Don't look anything else up. Answer now from what you have${widgets.length > 0 ? ", in text or a widget" : ""}, and say what you couldn't confirm.]`,
 	};
-	return ({ stepNumber, messages }: { stepNumber: number; messages: ModelMessage[] }): { activeTools?: string[]; toolChoice?: "none"; messages?: ModelMessage[] } => {
+	return async ({ stepNumber, messages }: { stepNumber: number; messages: ModelMessage[] }): Promise<{ activeTools?: string[]; toolChoice?: "none"; messages?: ModelMessage[] }> => {
+		const news = steer && stepNumber > 0 ? await steer() : null;
+		const steered: ModelMessage[] = news ? [...messages, { role: "user", content: news }] : messages;
+		sent?.(steered);
 		const left = web.left();
 		const spent = new Set([left.searches <= 0 && modelToolName("web.search"), left.fetches <= 0 && modelToolName("web.fetch")]);
-		const last = stepNumber >= AGENT_STEPS - 1;
+		const last = done + stepNumber >= AGENT_STEPS - 1;
 		const active = last ? widgets : names.filter((name) => !spent.has(name));
 		const narrowed = active.length === names.length ? {} : active.length > 0 ? { activeTools: active } : { toolChoice: "none" as const };
-		return last ? { ...narrowed, messages: [...messages, lastStep] } : narrowed;
+		if (last) return { ...narrowed, messages: [...steered, lastStep] };
+		return news ? { ...narrowed, messages: steered } : narrowed;
 	};
 }
 
@@ -140,7 +157,7 @@ export function buildToolSet(
 ): ToolSet {
 	const tools: ToolSet = {};
 	const run = (t: ToolDef, input: unknown) => (t.returnsData ? withRef(t.execute(input, ctx), ctx) : t.execute(input, ctx));
-	const resolved = resolveTools(agent, ctx.actor, available);
+	const resolved = resolveTools(agent, available);
 	for (const t of resolved.filter((t) => t.source.type === "builtin")) {
 		tools[modelToolName(t.id)] = tool({
 			description: t.description,
@@ -198,17 +215,17 @@ const byRiskOnly: PermissionCheck = async (t) => permissionFor({ risk: toolRisk(
  * The AI SDK `toolApproval` setting for one run. Calls that ask stop the run there,
  * unexecuted, except in automation runs (`waitFor`): there the model is told the call is
  * waiting and goes on, and the runner holds it. Blocked ones never run and the model is told
- * why. Built-ins with no risk skip the check: rules and locks only cover actions that can ask,
- * plus connector reads.
+ * why. Built-ins with no risk skip the check (rules and locks only cover actions that can ask, plus
+ * connector reads), unless they need a permission: that's checked per call too.
  */
 export const toolApprovalPolicy =
 	(tools: ToolDef[], check: PermissionCheck = byRiskOnly) =>
 	async ({ toolCall }: { toolCall: { toolCallId: string; toolName: string; input: unknown } }) => {
 		const action = await actionOf(toolCall.toolName, toolCall.input, tools);
-		if (!action || (action.tool.source.type === "builtin" && toolRisk(action.tool) === "none")) return undefined;
+		if (!action || (action.tool.source.type === "builtin" && toolRisk(action.tool) === "none" && !action.tool.permission)) return undefined;
 		const decision = await check(action.tool, toolCall.toolCallId);
 		if (decision.type === "ask")
 			return decision.waitFor ? { type: "denied" as const, reason: heldReason(decision.waitFor, action.tool.id) } : ("user-approval" as const);
-		if (decision.type === "deny") return { type: "denied" as const, reason: deniedReason(decision.by, action.tool.id) };
+		if (decision.type === "deny") return { type: "denied" as const, reason: deniedReason(decision, action.tool.id) };
 		return undefined;
 	};

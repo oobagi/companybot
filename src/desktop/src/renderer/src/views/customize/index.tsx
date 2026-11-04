@@ -1,5 +1,5 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { type Role, can } from "@companybot/core/permissions";
+import { type Access, can } from "@companybot/core/permissions";
 import { api } from "../../api";
 import { useMutation } from "../../convex";
 import { navigate } from "../../router";
@@ -13,26 +13,27 @@ import { SkillScreen, SkillsTab } from "./Skills";
 export { type CustomizeTab, customizeTabs } from "./shared";
 
 /** The tab's list, or with `itemId`, that item's own screen. */
-export function CustomizeView({ role, tab, itemId }: { role: Role; tab: CustomizeTab; itemId?: string }) {
+export function CustomizeView({ access, tab, itemId }: { access: Access; tab: CustomizeTab; itemId?: string }) {
 	const createAgent = useMutation(api.agents.create);
 	const { error, run } = useRun();
 	const current = customizeTabs.find((t) => t.id === tab)!;
 	if (itemId) {
-		if (tab === "agents") return <AgentScreen role={role} agentId={itemId as Id<"agents">} />;
-		if (tab === "connectors") return <ConnectorScreen role={role} id={itemId} />;
-		if (tab === "skills") return <SkillScreen role={role} id={itemId} />;
-		return <AutomationScreen role={role} id={itemId} />;
+		if (tab === "agents") return <AgentScreen access={access} agentId={itemId as Id<"agents">} />;
+		if (tab === "connectors") return <ConnectorScreen access={access} id={itemId} />;
+		if (tab === "skills") return <SkillScreen access={access} id={itemId} />;
+		return <AutomationScreen access={access} id={itemId} />;
 	}
 	return (
 		<Page title={current.label} description={current.description} actions={{
-			agents: can(role, "agents.manage") && <NewButton label="New agent" onClick={() => run(createAgent().then((id) => navigate("settings", "agents", id)))} />,
+			agents: can(access, "agents.manage") && <NewButton label="New agent" onClick={() => run(createAgent().then((id) => navigate("settings", "agents", id)))} />,
 			connectors: null,
-			skills: can(role, "skills.create") && <NewButton label="New skill" onClick={() => navigate("settings", "skills", "new")} />,
-			automations: can(role, "automations.create") && <NewButton label="New automation" onClick={() => navigate("settings", "automations", "new")} />,
+			skills: can(access, "skills.edit") && <NewButton label="New skill" onClick={() => navigate("settings", "skills", "new")} />,
+			// Everyone: a personal one needs no switch (the form offers sharing only to those who can).
+			automations: <NewButton label="New automation" onClick={() => navigate("settings", "automations", "new")} />,
 		}[tab]}>
 			<Notice>{error}</Notice>
 			{tab === "agents" && <AgentsTab />}
-			{tab === "connectors" && <ConnectorsTab role={role} />}
+			{tab === "connectors" && <ConnectorsTab access={access} />}
 			{tab === "skills" && <SkillsTab />}
 			{tab === "automations" && <AutomationsTab />}
 		</Page>

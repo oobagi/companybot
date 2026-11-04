@@ -2,7 +2,7 @@ import { viewConfig } from "./recordValidators";
 import { arrangementLists, type ArrangementList } from "@companybot/core/arrangements";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
-import { fieldKinds, fileTypes, reasonings, replyModes, risks, roles, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
+import { builtInRoles, fieldKinds, fileTypes, permissions, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
 import { v } from "convex/values";
 
 /** One of `values`, each a literal. */
@@ -13,7 +13,11 @@ export const databaseDisplay = v.object({ layout: v.union(v.literal("table"), v.
 
 export const notify = v.union(v.literal("all"), v.literal("mentions"), v.literal("off"));
 
-export const role = oneOf(roles);
+// Retired: one of "owner" or "member" per person, before roles were workspace data. migrations.customRoles moves them.
+// COMPAT(0.1.0-alpha.10): once that has run on prod, drop the fields that use it, then this.
+const legacyRole = v.union(v.literal("owner"), v.literal("member"));
+
+export const permission = oneOf(Object.keys(permissions) as (keyof typeof permissions)[]);
 
 export const wakeOutcome = oneOf(wakeOutcomes);
 
@@ -42,19 +46,23 @@ export const toolStatus = v.union(v.literal("running"), v.literal("done"), v.lit
 export const messagePart = v.union(
 	v.object({ type: v.literal("text"), text: v.string() }),
 	/** `label`: what it did, for people ("Send SMS with Fake CRM"; core `callLabel`). Older parts lack it. */
-	/** `opens`: a thread the call made, that its line opens (chat.ask_agent's "Scout asked Quill →"). */
+	/** `opens`: what its line opens: a thread the call made (chat.ask_agent's "Scout asked Quill →"), or with `kind: "message"` a message it sent (chat.manage's "Companybot posted in #sales →"). */
 	v.object({
 		type: v.literal("tool"),
 		id: v.string(),
 		name: v.string(),
 		label: v.optional(v.string()),
 		status: toolStatus,
-		opens: v.optional(v.object({ chatId: v.id("chats"), messageId: v.id("chatMessages") })),
+		opens: v.optional(v.object({ chatId: v.id("chats"), messageId: v.id("chatMessages"), kind: v.optional(v.literal("message")) })),
 	}),
 	/** Props were validated against the widget's schema when the agent placed it. */
 	v.object({ type: v.literal("widget"), id: v.string(), widget: v.object({ type: v.string(), props: v.any() }) }),
-	/** A tool call held for approval (`id` is the tool call's id). The app reads its state from `approvals`. */
-	v.object({ type: v.literal("approval"), id: v.string(), approvalId: v.id("approvals"), tool: v.string() }),
+	/**
+	 * A tool call held for approval (`id` is the tool call's id). The app reads its state from `approvals`.
+	 * `why`: the agent's words at the top of the card, what it will do and why (core whyPrompt). Unset if
+	 * writing them failed, and on cards from before them: the card says the ask instead.
+	 */
+	v.object({ type: v.literal("approval"), id: v.string(), approvalId: v.id("approvals"), tool: v.string(), why: v.optional(v.string()) }),
 );
 
 /** A turn's place in a chain of agents (chains.ts). */
@@ -231,10 +239,28 @@ export default defineSchema({
 		image: v.optional(v.id("_storage")),
 	}),
 
+	// A workspace's roles (core permissions.ts). Owner and Member are built in: Owner has every
+	// permission and can't change; Member is what new people get. Owners make the rest.
+	roles: defineTable({
+		workspaceId: v.id("workspaces"),
+		name: v.string(),
+		/**
+		 * Stored switches (core `roleSwitches`). Member: only what an owner flipped from each
+		 * permission's default, so new permissions arrive as their default. Custom roles: what's on
+		 * (absent is off). Owner: none; it has everything.
+		 */
+		switches: v.array(v.object({ permission, on: v.boolean() })),
+		builtIn: v.optional(oneOf(builtInRoles)),
+	}).index("by_workspace", ["workspaceId"]),
+
 	members: defineTable({
 		workspaceId: v.id("workspaces"),
 		userId: v.id("users"),
-		role,
+		/** Their roles; they get every switch any of them has. Every row has at least one once migrations.customRoles ran; optional only until then. */
+		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, make this required.
+		roles: v.optional(v.array(v.id("roles"))),
+		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, drop this field. Nothing reads it.
+		role: v.optional(legacyRole),
 		/** Normalized for bounded invitation checks. Every row has it; optional only in the type. */
 		email: v.optional(v.string()),
 		/** The tutorial above the composer (onboarding.ts): steps done, or hidden. Unset for people who joined before it: they get none. */
@@ -242,14 +268,17 @@ export default defineSchema({
 	})
 		.index("by_user", ["userId", "workspaceId"])
 		.index("by_workspace", ["workspaceId"])
-		.index("by_role", ["workspaceId", "role"])
 		.index("by_email", ["workspaceId", "email"]),
 
 	// One per email per workspace. Only someone signed in with that email can accept it.
 	invites: defineTable({
 		workspaceId: v.id("workspaces"),
 		email: v.string(),
-		role,
+		/** What they'll have when they join. Every row has some once migrations.customRoles ran. */
+		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, make this required.
+		roles: v.optional(v.array(v.id("roles"))),
+		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, drop this field. Nothing reads it.
+		role: v.optional(legacyRole),
 		/** Missing on invites from before invite emails. */
 		invitedBy: v.optional(v.id("users")),
 	})
@@ -371,11 +400,13 @@ export default defineSchema({
 		.index("by_workspace", ["workspaceId"])
 		.index("by_created", ["createdAt"]),
 
-	// Connectors: an owner installs one and picks which roles may use it.
+	// Connectors: someone with connectors.manage installs one and picks which roles may use it. Owners always can.
 	connectorInstalls: defineTable({
 		workspaceId: v.id("workspaces"),
 		connectorId: v.string(),
-		roles: v.array(role),
+		/** The roles that may use it. Owners always can. */
+		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, drop the legacy "owner"/"member" names.
+		roles: v.array(v.union(v.id("roles"), legacyRole)),
 		installedBy: v.id("users"),
 	}).index("by_workspace", ["workspaceId", "connectorId"]),
 
@@ -424,7 +455,7 @@ export default defineSchema({
 		custom: v.optional(
 			v.object({
 				name: v.string(),
-				/** Who made it; they can always edit it (`canEditMade`). Missing on skills owners made before members could. */
+				/** Who made it. Missing on skills owners made before members could. */
 				createdBy: v.optional(v.id("users")),
 				description: v.string(),
 				instructions: v.string(),
@@ -510,6 +541,8 @@ export default defineSchema({
 		}),
 		status: v.union(v.literal("streaming"), v.literal("done"), v.literal("error")),
 		error: v.optional(v.string()),
+		/** An agent reply someone stopped partway (turns.stop): who. What it wrote and did so far stays. */
+		stoppedBy: v.optional(v.id("users")),
 		/** Agent replies only, once finished. `conversationCostUsd` is the chat's (or thread's) running total. */
 		stats: v.optional(replyStats),
 		editedAt: v.optional(v.number()),
@@ -526,7 +559,10 @@ export default defineSchema({
 		automation: v.optional(v.object({ id: v.string(), name: v.string(), foreign: v.optional(v.boolean()) })),
 		/** A quiet turn's own reply (a wake, a dispatcher pick, a hop): hidden unless its decision posts it (turns.finishReply). */
 		quiet: v.optional(v.boolean()),
-		/** When a quiet reply was shown, if it was: later than it was made. */
+		/**
+		 * Where it sits in the timeline, if not where it was made (chatOps `shownAt`): when a quiet reply was
+		 * shown, or when a reply took in messages sent after it began (turns.steer), so it shows below them.
+		 */
 		publishedAt: v.optional(v.number()),
 		/**
 		 * A chain of agents paused here (chains.ts): the line "Agents paused after 10 turns · Continue · Stop",
@@ -612,7 +648,7 @@ export default defineSchema({
 		// Retired: welcomes were agent turns; now they're fixed text (onboarding.ts). migrations.clearTurnWelcome clears it.
 		// COMPAT(0.1.0-alpha.9): once that has run on prod, drop this field, the migration and its test.
 		welcome: v.optional(v.union(v.literal("new_workspace"), v.literal("joined"))),
-		/** The agent acts as this person: their role, connector connections, and access. */
+		/** The agent acts as this person: their roles, connector connections, and access. */
 		actorId: v.id("users"),
 		/** The streaming reply, once running. */
 		replyId: v.optional(v.id("chatMessages")),
@@ -644,6 +680,24 @@ export default defineSchema({
 		/** Answering another agent's private ask (chat.ask_agent): when it ends, this wakeup gives the asker the answer. */
 		ask: v.optional(v.object({ wakeupId: v.id("wakeups") })),
 		status: v.union(v.literal("queued"), v.literal("running"), v.literal("done"), v.literal("error")),
+		/**
+		 * A person's own message asked (their agent DM, an @mention: messages.send). It waits a quiet
+		 * window (core AGENT_DEBOUNCE_MS) before it starts, and starting folds that person's other such
+		 * turns queued here into it (turns.mergeQueued), so a burst gets one reply.
+		 */
+		person: v.optional(v.literal(true)),
+		/** A person turn still in its quiet window: it doesn't start until its timer (turns.startQueued) clears this. */
+		debouncing: v.optional(v.literal(true)),
+		/**
+		 * Folded into this turn (status `done`, no reply): before it ran (turns.mergeQueued), its message was
+		 * in that turn's window; or while it ran (turns.steer), its message reached it as a steer.
+		 */
+		mergedInto: v.optional(v.id("agentTurns")),
+		/**
+		 * Its person's messages that reached it while it ran (turns.steer), appended to its prompt. They're
+		 * after its reply began, so the next turn's window leaves them out: nothing is answered twice.
+		 */
+		steered: v.optional(v.array(v.id("chatMessages"))),
 		startedAt: v.optional(v.number()),
 		/** Set when the turn follows a decision on this approval: it runs the call if approved, then tells the agent. */
 		approvalId: v.optional(v.id("approvals")),
@@ -664,6 +718,11 @@ export default defineSchema({
 		 * under the composer (typing.ts). Unset while it writes, and once it ends. Never model reasoning.
 		 */
 		step: v.optional(v.object({ label: v.string(), at: v.number() })),
+		/**
+		 * Someone pressed Stop while it ran (turns.stop): the runner ends it at the next chance (agent.ts
+		 * `turnStop`), and finishReply marks its reply stopped. Stays `running` until then, so the queue waits.
+		 */
+		stopping: v.optional(v.object({ by: v.id("users"), at: v.number() })),
 	})
 		.index("by_place", ["agentId", "chatId", "threadId", "status"])
 		.index("by_session", ["sessionId"])
@@ -1141,7 +1200,7 @@ export default defineSchema({
 		.index("by_chat", ["chatId"]),
 
 	// What's in Archive: one row per deleted record, database, field, page, channel, agent, or skill or automation people made (trash.ts).
-	// The item itself stays, `archived`, until it's restored or deleted for good: by an owner,
+	// The item itself stays, `archived`, until it's restored or deleted for good: by `trash.manage`,
 	// or after TRASH_DAYS by `trash.sweep`. See wiki/data.md#trash.
 	trash: defineTable({
 		workspaceId: v.id("workspaces"),

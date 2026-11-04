@@ -1,5 +1,5 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { type Role, can } from "@companybot/core/permissions";
+import { type Access, can } from "@companybot/core/permissions";
 import { type FieldValue, NAME_KEY } from "@companybot/core/records";
 import type { FunctionReturnType } from "convex/server";
 import { useEffect, useState } from "react";
@@ -24,7 +24,7 @@ import { type Refs, type TypeField, actionLabels, recordPath, valueText, whoLabe
 // wiki/pages.md), then what links to it, where it was discussed, and its history with undo.
 // The same page for every type.
 
-export function RecordPage({ type, recordId, role }: { type: RecordType; recordId: Id<"records">; role: Role }) {
+export function RecordPage({ type, recordId, access }: { type: RecordType; recordId: Id<"records">; access: Access }) {
 	const record = useQuery(api.records.get, { recordId });
 	const pageId = useQuery(api.pages.forRecord, { recordId });
 	const [history, setHistory] = useState(false);
@@ -38,7 +38,7 @@ export function RecordPage({ type, recordId, role }: { type: RecordType; recordI
 	if (!record || record.typeId !== type._id) {
 		return <NotFound crumbs={crumbs} loaded={record !== undefined} icon={<DatabaseIcon />} title={`${type.name} not found`} />;
 	}
-	const canEdit = can(role, "records.edit");
+	const canEdit = can(access, "records.edit");
 
 	return (
 		<Page
@@ -66,12 +66,12 @@ export function RecordPage({ type, recordId, role }: { type: RecordType; recordI
 			<Notice>{error}</Notice>
 			{dialog}
 			{record.trash && <TrashNotice trash={record.trash} />}
-			<Fields type={type} record={record} role={role} editable={canEdit && !record.archived} />
+			<Fields type={type} record={record} access={access} editable={canEdit && !record.archived} />
 			<PendingWakeups recordId={recordId} title="Follow-ups" />
-			<Body recordId={recordId} pageId={pageId} editable={can(role, "pages.edit") && !record.archived} />
+			<Body recordId={recordId} pageId={pageId} editable={can(access, "pages.edit") && !record.archived} />
 			<Linked recordId={recordId} />
 			<Discussion recordId={recordId} />
-			<RecordHistory open={history} onClose={() => setHistory(false)} type={type} recordId={recordId} pageId={pageId} canUndo={canEdit} canRestore={can(role, "pages.edit") && !record.archived} />
+			<RecordHistory open={history} onClose={() => setHistory(false)} type={type} recordId={recordId} pageId={pageId} canUndo={canEdit} canRestore={can(access, "pages.edit") && !record.archived} />
 		</Page>
 	);
 }
@@ -99,7 +99,7 @@ function Body({ recordId, pageId, editable }: { recordId: Id<"records">; pageId:
 	);
 }
 
-function Fields({ type, record, role, editable }: { type: RecordType; record: RecordDoc; role: Role; editable: boolean }) {
+function Fields({ type, record, access, editable }: { type: RecordType; record: RecordDoc; access: Access; editable: boolean }) {
 	const [adding, setAdding] = useState(false);
 	const [editing, setEditing] = useState<TypeField>();
 	// The name is the page's title, edited there like Notion's.
@@ -118,7 +118,7 @@ function Fields({ type, record, role, editable }: { type: RecordType; record: Re
 				))}
 			</dl>
 			<div className="flex gap-4 pt-2 text-sm">
-				{can(role, "fields.create") && !record.archived && (
+				{can(access, "fields.edit") && !record.archived && (
 					<button type="button" onClick={() => setAdding(true)} className="text-neutral-500 hover:text-neutral-900">
 						+ Add field
 					</button>

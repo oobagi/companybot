@@ -1,8 +1,7 @@
-import { permissions } from "@companybot/core/permissions";
 import type { ArrangementList } from "@companybot/core/arrangements";
 import { afterEach, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
-import { type As, generalOf, ownerAndMember, settle, sideWorkspace, workspaceOf } from "./helpers";
+import { type As, generalOf, ownerAndMember, setMemberSwitch, settle, sideWorkspace, workspaceOf } from "./helpers";
 
 const idsOf = async (as: As, list: ArrangementList, entityId?: string) => (await as.query(api.arrangements.get))?.rows.find((r) => r.list === list && r.entityId === entityId)?.ids;
 afterEach(() => vi.useRealTimers());
@@ -26,17 +25,13 @@ it("loads personal, shared and account rows together, isolated by person and wor
 it("checks sidebar.arrange for shared lists and display; personal choices remain writable", async () => {
 	const { owner, member } = await ownerAndMember();
 	const type = (await owner.query(api.recordTypes.list))[0]!;
-	const roles = permissions["sidebar.arrange"].roles as unknown as string[];
-	const before = [...roles];
-	roles.splice(roles.indexOf("member"), 1);
-	try {
-		expect((await member.query(api.arrangements.get))?.writable).toBe(false);
-		await expect(member.mutation(api.arrangements.set, { list: "channels", ids: [] })).rejects.toThrow("arrange the sidebar");
-		await expect(member.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { layout: "board" } })).rejects.toThrow("arrange the sidebar");
-		await member.mutation(api.arrangements.migrate, { list: "channels", ids: [] });
-		expect(await idsOf(owner, "channels")).toBeUndefined();
-		await member.mutation(api.arrangements.set, { list: "folded", ids: ["channels"] });
-	} finally { roles.splice(0, roles.length, ...before); }
+	await setMemberSwitch(owner, "sidebar.arrange", false);
+	expect((await member.query(api.arrangements.get))?.writable).toBe(false);
+	await expect(member.mutation(api.arrangements.set, { list: "channels", ids: [] })).rejects.toThrow("rearrange shared sidebar lists");
+	await expect(member.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { layout: "board" } })).rejects.toThrow("rearrange shared sidebar lists");
+	await member.mutation(api.arrangements.migrate, { list: "channels", ids: [] });
+	expect(await idsOf(owner, "channels")).toBeUndefined();
+	await member.mutation(api.arrangements.set, { list: "folded", ids: ["channels"] });
 });
 
 it("validates an imported page against the destination workspace, even when another is open", async () => {
@@ -81,17 +76,11 @@ it("merges display changes so layout and grouping don't overwrite each other; im
 	await owner.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { groupBy: choice.key } });
 	await member.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { layout: "board" } });
 	expect(await displayOf()).toEqual({ layout: "board", groupBy: choice.key });
-	const roles = permissions["sidebar.arrange"].roles as unknown as string[];
-	const before = [...roles];
-	roles.splice(0, roles.length, "owner");
-	try {
-		const fresh = (await owner.query(api.recordTypes.list))[1]!;
-		await member.mutation(api.recordTypes.migrateDisplay, { databaseKey: fresh.key, display: { layout: "board" } });
-		await owner.mutation(api.recordTypes.migrateDisplay, { databaseKey: fresh.key, display: { layout: "board", groupBy: "gone" } });
-		expect((await owner.query(api.recordTypes.list)).find((t) => t._id === fresh._id)?.display).toEqual({ layout: "board" });
-	} finally {
-		roles.splice(0, roles.length, ...before);
-	}
+	await setMemberSwitch(owner, "sidebar.arrange", false);
+	const fresh = (await owner.query(api.recordTypes.list))[1]!;
+	await member.mutation(api.recordTypes.migrateDisplay, { databaseKey: fresh.key, display: { layout: "board" } });
+	await owner.mutation(api.recordTypes.migrateDisplay, { databaseKey: fresh.key, display: { layout: "board", groupBy: "gone" } });
+	expect((await owner.query(api.recordTypes.list)).find((t) => t._id === fresh._id)?.display).toEqual({ layout: "board" });
 });
 
 it("prunes removed and foreign channels, pages, views, databases, columns and folds on save", async () => {

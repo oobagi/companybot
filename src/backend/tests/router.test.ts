@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { STALE_TURN_MS } from "../convex/turns";
-import { agentsOf, finishQuiet, noMentions, ownerAndMember, turnsOf, workspaceOf } from "./helpers";
+import { agentsOf, finishQuiet, noMentions, ownerAndMember, turnsOf, workspaceOf, setMemberSwitch } from "./helpers";
 
 // No network: the AI SDK's decide (Jev) is stubbed, so nothing is billed. Fake timers hold the
 // scheduled decision (and any reply it queues) back; tests run `router.decide` themselves.
@@ -60,9 +60,10 @@ describe("reply router", () => {
 		expect((await owner.query(api.chats.get, { chatId }))!.replyMode).toBe("relevant");
 	});
 
-	it("only lets the channel's managers change it", async () => {
-		const { member, chatId } = await setUp();
-		await expect(member.mutation(api.chats.updateChannel, { chatId, replyMode: "mentions" })).rejects.toThrow("Only the channel's creator or an owner");
+	it("only lets people with the channel switch change it", async () => {
+		const { owner, member, chatId } = await setUp();
+		await setMemberSwitch(owner, "channels.edit", false);
+		await expect(member.mutation(api.chats.updateChannel, { chatId, replyMode: "mentions" })).rejects.toThrow("Only people with the Owner role");
 	});
 
 	it("queues a reply for the agent it picks, as the person who wrote, and records its cost", async () => {
@@ -269,7 +270,7 @@ describe("reply router", () => {
 			const turn = (await turnsOf(t)).find((x) => x.status === "running")!;
 			// What it wrote doesn't matter: the decision does. Stored as written, for its session.
 			const replyId = turn.replyId as Id<"chatMessages">;
-			await t.mutation(internal.turns.updateReply, { replyId, text: say, parts: [{ type: "text", text: say }] });
+			await t.mutation(internal.turns.updateReply, { turnId: turn._id, text: say, parts: [{ type: "text", text: say }] });
 			await t.mutation(internal.turns.finishReply, { turnId: turn._id, decision: { new_point: "x", post: true, to: "room", message: say, ...decision } });
 			expect((await t.run((ctx) => ctx.db.get(replyId)))!.quiet).toBe(true);
 		}
@@ -287,7 +288,7 @@ describe("reply router", () => {
 		const [turn] = await turnsOf(t);
 		const { approvalId } = await t.mutation(internal.approvals.request, { turnId: turn!._id, callId: "c1", tool: "records.save", input: "{}", risk: "inside" });
 		const card = { type: "approval" as const, id: "c1", approvalId, tool: "records.save" };
-		await t.mutation(internal.turns.updateReply, { replyId: turn!.replyId as Id<"chatMessages">, text: "", parts: [card] });
+		await t.mutation(internal.turns.updateReply, { turnId: turn!._id, text: "", parts: [card] });
 		// The run stopped at the call, so it made no decision.
 		await t.mutation(internal.turns.finishReply, { turnId: turn!._id });
 		expect((await member.query(api.messages.list, { chatId })).find((m) => m._id === turn!.replyId)!.parts).toEqual([card]);
@@ -320,7 +321,11 @@ describe("reply router", () => {
 	it("wakes an agent on a near miss (\"might be for you\"), up to the hourly cap per channel", async () => {
 		const { t, member, companybot, send, decide } = await setUp();
 		withProbabilities({ a1: ["quiet", 0.45], a2: ["quiet", 0.2] });
-		for (let i = 0; i < ROUTER_MIGHT_PER_HOUR + 2; i++) await decide(await send(member, `hmm ${i}`));
+		// Each pick ends before the next message, so the message goes to the router (not to a reply running for them).
+		for (let i = 0; i < ROUTER_MIGHT_PER_HOUR + 2; i++) {
+			await decide(await send(member, `hmm ${i}`));
+			for (const x of (await turnsOf(t)).filter((x) => x.status === "running")) await finishQuiet(t, x._id, "");
+		}
 		const turns = await turnsOf(t);
 		expect(turns).toHaveLength(ROUTER_MIGHT_PER_HOUR);
 		expect(turns.every((x) => x.agentId === companybot._id && x.dispatch?.band === "might")).toBe(true);

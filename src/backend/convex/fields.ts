@@ -4,8 +4,8 @@ import { requireMember } from "./lib";
 import { createField, toField, updateField } from "./recordOps";
 import { fieldKind } from "./schema";
 
-// Fields on databases. Anyone can add one (`fields.create`) and change the ones they
-// added; owners can change any (`fields.manage`). See wiki/data.md.
+// Fields on databases. Adding, changing and deleting any of them takes `fields.edit`;
+// adding one gives no extra rights over it. See wiki/data.md.
 
 const options = v.array(v.object({ id: v.optional(v.string()), label: v.string() }));
 

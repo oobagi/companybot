@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { scribe } from "../../core/test/fixtures";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
+import { label } from "../convex/chatOps";
 import { enqueueTurn } from "../convex/turns";
 import { wake } from "../convex/wakeups";
 import { agentsOf, finishQuiet, generalOf, noMentions, ownerAndMember, turnsOf } from "./helpers";
@@ -44,7 +45,7 @@ async function running(t: T, agentId: Id<"agents">) {
 /** The agent's running turn writes `text` and ends. */
 async function say(t: T, agentId: Id<"agents">, text: string) {
 	const turn = await running(t, agentId);
-	await t.mutation(internal.turns.updateReply, { replyId: turn.replyId!, text, parts: [{ type: "text", text }] });
+	await t.mutation(internal.turns.updateReply, { turnId: turn._id, text, parts: [{ type: "text", text }] });
 	await t.mutation(internal.turns.finishReply, { turnId: turn._id });
 	return turn;
 }
@@ -98,8 +99,9 @@ describe("handoffs by @mention", () => {
 		const first = await say(t, companybot, "@Scribe go");
 		await say(t, scribe, "@Companybot back");
 		await say(t, companybot, "@Scribe again");
-		// The member chimes in mid-chain: no new turn (no mention), but the counts start over.
+		// The member chimes in mid-chain, no mention: the counts start over, and it reaches Scribe's reply running for them (at its next step).
 		await member.mutation(api.messages.send, { chatId, threadId: first.replyId!, text: "keep going, you two", mentions: noMentions });
+		expect(await t.mutation(internal.turns.steer, { turnId: (await running(t, scribe))._id })).toMatchObject({ asked: ["keep going, you two"] });
 		const chain = await t.run(async (ctx) => (await ctx.db.query("agentChains").collect())[0]!);
 		expect(chain).toMatchObject({ turns: 0, pairs: [], epoch: 1 });
 		for (let i = 0; i < 2; i++) {
@@ -250,7 +252,7 @@ describe("asking privately (chat.ask_agent)", () => {
 		// Its answer, even with an @mention, wakes nobody else; it goes back to the asker.
 		await say(t, scribe, "30 days, @Companybot.");
 		// The answer is in the ask's thread, read-only for whoever sees the chat, and not among the sidebar's threads.
-		expect((await owner.query(api.messages.list, { chatId, threadId: askId })).map((m) => [m.author.name, m.text])).toEqual([
+		expect((await owner.query(api.messages.list, { chatId, threadId: askId })).map((m) => [label(m.author), m.text])).toEqual([
 			["Companybot, for member@co.com", "@Scribe What's our refund policy?"],
 			["Scribe", "30 days, @Companybot."],
 		]);

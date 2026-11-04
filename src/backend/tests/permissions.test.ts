@@ -92,7 +92,7 @@ describe("permissions", () => {
 	it("lets owners lock actions for everyone, and lock wins over a person's rule", async () => {
 		const { t, owner, member } = await setup();
 		await member.mutation(api.permissions.set, { action: sms.tool, setting: "always" });
-		await expect(member.mutation(api.permissions.setLock, { action: sms.tool, lock: "block" })).rejects.toThrow("permission");
+		await expect(member.mutation(api.permissions.setLock, { action: sms.tool, lock: "block" })).rejects.toThrow("Only people with the");
 		await owner.mutation(api.permissions.setLock, { action: sms.tool, lock: "ask" });
 		const turn = await ask(t, member);
 		expect((await check(t, turn._id)).decision).toEqual({ type: "ask", canAlways: false });
@@ -128,7 +128,7 @@ describe("permissions", () => {
 		const turn = await ask(t, as);
 		await t.mutation(internal.turns.savePrompt, { turnId: turn._id, prompt: "Reply to this message: text Bob" });
 		const { approvalId } = await t.mutation(internal.approvals.request, { turnId: turn._id, callId: "c1", tool: sms.tool, input: canonicalJson(sms.input), risk });
-		await t.mutation(internal.turns.updateReply, { replyId: turn.replyId!, text: "", parts: [{ type: "approval", id: "c1", approvalId, tool: sms.tool }] });
+		await t.mutation(internal.turns.updateReply, { turnId: turn._id, text: "", parts: [{ type: "approval", id: "c1", approvalId, tool: sms.tool }] });
 		await t.mutation(internal.turns.finishReply, { turnId: turn._id });
 		const [card] = await as.query(api.approvals.forReply, { replyId: turn.replyId! });
 		return { turn, approvalId, card: card! };
@@ -245,7 +245,7 @@ describe("permissions", () => {
 		await cancelScheduled(t);
 		const run = (await turnsOf(t)).at(-1)!;
 		const { approvalId } = await t.mutation(internal.approvals.request, { turnId: run._id, callId: "c1", tool: sms.tool, input: canonicalJson(sms.input), risk: "outside" });
-		await t.mutation(internal.turns.updateReply, { replyId: run.replyId!, text: "", parts: [{ type: "approval", id: "c1", approvalId, tool: sms.tool }] });
+		await t.mutation(internal.turns.updateReply, { turnId: run._id, text: "", parts: [{ type: "approval", id: "c1", approvalId, tool: sms.tool }] });
 		await t.mutation(internal.turns.finishReply, { turnId: run._id });
 		const [card] = await member.query(api.approvals.forReply, { replyId: run.replyId! });
 		expect(card!.alwaysText).toContain("when running Follow up");
@@ -351,7 +351,7 @@ describe("permissions", () => {
 			const posting = await hold(owners, "c1", "chat.manage", post);
 			const reading = await hold(owners, "c2", "chat.read", {});
 			await t.mutation(internal.turns.updateReply, {
-				replyId: owners.replyId!,
+				turnId: owners._id,
 				text: "",
 				parts: [{ type: "approval", id: "c1", approvalId: posting, tool: "chat.manage" }, { type: "approval", id: "c2", approvalId: reading, tool: "chat.read" }],
 			});
@@ -533,7 +533,7 @@ describe("permissions", () => {
 			input: canonicalJson({ request: { action: "edit", id: "custom-1", expectedVersion: 1, config: { name: "Tone", description: "d", instructions: "Be rude." } } }),
 			risk: "outside",
 		});
-		await t.mutation(internal.turns.updateReply, { replyId: turn.replyId!, text: "", parts: [{ type: "approval", id: "s1", approvalId, tool: "skills.edit" }] });
+		await t.mutation(internal.turns.updateReply, { turnId: turn._id, text: "", parts: [{ type: "approval", id: "s1", approvalId, tool: "skills.edit" }] });
 		const [card] = await member.query(api.approvals.forReply, { replyId: turn.replyId! });
 		expect(card!.ask).toBe("I'd like to edit a skill in Companybot.");
 	});

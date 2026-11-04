@@ -3,7 +3,7 @@ import migrationsTest from "@convex-dev/migrations/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, components, internal } from "../convex/_generated/api";
 const YEAR_MS = 365 * 24 * 60 * 60_000;
-import { agentTurn, agentsOf, generalOf, newTest, noMentions, settle, ownerAndMember, sideWorkspace, signIn, workspaceOf, identityOf } from "./helpers";
+import { agentTurn, agentsOf, generalOf, newTest, noMentions, settle, ownerAndMember, sideWorkspace, signIn, workspaceOf, identityOf, builtInRoleIn, setMemberSwitch } from "./helpers";
 
 afterEach(() => vi.useRealTimers());
 const page = { numItems: 50, cursor: null };
@@ -44,6 +44,7 @@ describe("trash", () => {
 
 	it("lets anyone who could delete it restore it; only owners delete forever", async () => {
 		const { t, owner, member, client, acme, roof } = await seeded();
+		await setMemberSwitch(owner, "fields.edit", false);
 		// A member can undo an owner's delete of something members can delete…
 		await owner.mutation(api.trash.move, { kind: "record", id: acme });
 		expect((await trashOf(member))[0]).toMatchObject({ canRestore: true });
@@ -56,7 +57,7 @@ describe("trash", () => {
 		await owner.mutation(api.trash.move, { kind: "record", id: acme });
 		await member.mutation(api.trash.move, { kind: "record", id: roof });
 		await owner.mutation(api.trash.restore, { kind: "record", id: roof });
-		await expect(member.mutation(api.trash.purge, { id: acme })).rejects.toThrow("permission");
+		await expect(member.mutation(api.trash.purge, { id: acme })).rejects.toThrow("Only people with the");
 		await owner.mutation(api.trash.purge, { id: acme });
 		// Gone from Archive at once; it can't come back while its cascade runs.
 		expect(await trashOf(owner)).toEqual([]);
@@ -94,9 +95,11 @@ describe("trash", () => {
 
 	it("goes by what you can do now, not who deleted it: a demoted owner can't restore a database", async () => {
 		const { t, owner, member, client } = await seeded();
+		await setMemberSwitch(owner, "fields.edit", false);
 		await owner.mutation(api.trash.move, { kind: "database", id: client._id });
 		await t.run(async (ctx) => {
-			for (const row of await ctx.db.query("members").collect()) await ctx.db.patch(row._id, { role: row.userId === member.userId ? "owner" : "member" });
+			for (const row of await ctx.db.query("members").collect())
+				await ctx.db.patch(row._id, { roles: [await builtInRoleIn(ctx, row.workspaceId, row.userId === member.userId ? "owner" : "member")] });
 		});
 		expect((await trashOf(owner))[0]).toMatchObject({ kind: "database", canRestore: false });
 		await expect(owner.mutation(api.trash.restore, { kind: "database", id: client._id })).rejects.toThrow("same access as deleting it");
@@ -210,7 +213,8 @@ describe("trash", () => {
 	it("hides a database's records while it's in Archive, and deletes them, its fields and views forever", async () => {
 		const { t, owner, member, client, acme, roof } = await seeded();
 		const viewId = await member.mutation(api.databaseViews.save, { typeId: client._id, name: "All", filters: [], columns: ["name"] });
-		await expect(member.mutation(api.trash.move, { kind: "database", id: client._id })).rejects.toThrow("permission");
+		await setMemberSwitch(owner, "fields.edit", false);
+		await expect(member.mutation(api.trash.move, { kind: "database", id: client._id })).rejects.toThrow("Only people with the");
 		await owner.mutation(api.trash.move, { kind: "database", id: client._id });
 		expect(await owner.query(api.records.search, { query: "Acme" })).toEqual([]);
 		expect((await owner.query(api.records.get, { recordId: roof }))?.refs[acme]).toEqual({ name: "Acme", archived: true });
@@ -275,7 +279,7 @@ describe("trash", () => {
 		const chatId = await owner.mutation(api.chats.createChannel, { name: "ops", private: false });
 		await owner.mutation(api.chats.addMembers, { chatId, userIds: [], agentIds: [scribe._id] });
 		await t.run((ctx) => ctx.db.insert("memories", { workspaceId: scribe.workspaceId, agentId: scribe._id, scope: "workspace", ownerId: null, content: "Ops is Tuesdays.", updatedAt: Date.now(), updatedBy: owner.userId, version: 1 }));
-		await expect(member.mutation(api.trash.move, { kind: "agent", id: scribe._id })).rejects.toThrow("permission");
+		await expect(member.mutation(api.trash.move, { kind: "agent", id: scribe._id })).rejects.toThrow("Only people with the");
 		await owner.mutation(api.trash.move, { kind: "agent", id: scribe._id });
 		expect((await agentsOf(owner)).scribe).toMatchObject({ archived: true, trash: { kind: "agent", name: "Scribe", canRestore: true } });
 		expect(await trashOf(owner)).toEqual([expect.objectContaining({ kind: "agent", itemId: scribe._id, name: "Scribe" })]);
@@ -285,7 +289,7 @@ describe("trash", () => {
 		await owner.mutation(api.trash.restore, { kind: "agent", id: scribe._id });
 		expect((await agentsOf(owner)).scribe).toMatchObject({ archived: false, trash: null });
 		await owner.mutation(api.trash.move, { kind: "agent", id: scribe._id });
-		await expect(member.mutation(api.trash.purge, { id: scribe._id })).rejects.toThrow("permission");
+		await expect(member.mutation(api.trash.purge, { id: scribe._id })).rejects.toThrow("Only people with the");
 		await owner.mutation(api.trash.purge, { id: scribe._id });
 		await settle(t);
 		const left = await t.run(async (ctx) => ({
@@ -317,11 +321,12 @@ describe("trash", () => {
 		expect(await t.query(internal.recordTools.getFor, { turnId, id: acme })).toMatchObject({ inTrash: true });
 		expect(await t.mutation(internal.recordTools.saveFor, { turnId, input: { id: acme, trash: false } })).not.toHaveProperty("inTrash");
 		// Fields and databases by name, in Archive or not, within the person's rights.
-		await t.mutation(internal.recordTools.saveFieldFor, { turnId, input: { type: "client", field: "Status", trash: true } }).then((r) => expect(r).toHaveProperty("error"));
 		await t.mutation(internal.recordTools.saveFieldFor, { turnId, input: { type: "client", label: "Roof", kind: "text" } });
 		expect(await t.mutation(internal.recordTools.saveFieldFor, { turnId, input: { type: "client", field: "Roof", trash: true } })).toMatchObject({ inTrash: true });
 		expect(await t.mutation(internal.recordTools.saveFieldFor, { turnId, input: { type: "client", field: "Roof", trash: false } })).not.toHaveProperty("inTrash");
-		expect(await t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input: { type: "client", trash: true } })).toEqual({ error: expect.stringContaining("permission") });
+		await setMemberSwitch(owner, "fields.edit", false);
+		await t.mutation(internal.recordTools.saveFieldFor, { turnId, input: { type: "client", field: "Status", trash: true } }).then((r) => expect(r).toHaveProperty("error"));
+		expect(await t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input: { type: "client", trash: true } })).toEqual({ error: expect.stringContaining("Only people with the") });
 		// Pages too, by title once in Archive.
 		const pageId = await member.mutation(api.pages.create, { title: "SOP" });
 		await t.mutation(internal.pageTools.writeFor, { turnId, input: { page: pageId, trash: true } });

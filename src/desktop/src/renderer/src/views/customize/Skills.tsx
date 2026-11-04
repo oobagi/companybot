@@ -1,4 +1,4 @@
-import { type Role, can } from "@companybot/core/permissions";
+import { type Access, can } from "@companybot/core/permissions";
 import { SKILL_DESCRIPTION_MAX, SKILL_NAME_MAX } from "@companybot/core/skills";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
@@ -112,10 +112,10 @@ function CustomSkillDetail({ skill: s, custom }: { skill: SkillItem; custom: Non
 	);
 }
 
-export function SkillScreen({ role, id }: { role: Role; id: string }) {
+export function SkillScreen({ access, id }: { access: Access; id: string }) {
 	const skills = useQuery(api.skills.list);
 	const { error, busy, run } = useRun();
-	const canManage = can(role, "skills.manage");
+	const canManage = can(access, "skills.edit");
 	const removeSkill = useMutation(api.skills.remove);
 	if (id === "new") return <NewSkill />;
 	const open = skills?.find((s) => s.id === id);

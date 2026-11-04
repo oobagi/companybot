@@ -34,8 +34,8 @@ describe("help.read", () => {
 		expect(help.readOnly).toBe(true);
 		expect(toolRisk(help)).toBe("none");
 		expect(help.permission).toBeUndefined();
-		for (const who of [owner, member]) expect(resolveTools({ tools: ["help.read"] }, who).map((t) => t.id)).toEqual(["help.read"]);
-		expect(resolveTools({ tools: ["help.*"] }, member).map((t) => t.id)).toEqual(["help.read"]);
+		expect(resolveTools({ tools: ["help.read"] }).map((t) => t.id)).toEqual(["help.read"]);
+		expect(resolveTools({ tools: ["help.*"] }).map((t) => t.id)).toEqual(["help.read"]);
 	});
 
 	it("lists every topic with its id, title and summary when given nothing", async () => {

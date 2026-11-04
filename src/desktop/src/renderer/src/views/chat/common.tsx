@@ -12,7 +12,7 @@ const initials = (name: string) =>
 		.map((w) => w[0]!.toUpperCase())
 		.join("") || "?";
 
-const sizes = { line: "size-4 text-[8px]", xs: "size-5 text-[10px]", row: "size-[22px] text-[10px]", sm: "size-6 text-[11px]", md: "size-9 text-sm", lg: "size-14 text-lg" };
+const sizes = { line: "size-4 text-[8px]", xs: "size-5 text-[10px]", row: "size-[22px] text-[10px]", sm: "size-6 text-[11px]", pair: "size-7 text-[11px]", md: "size-9 text-sm", lg: "size-14 text-lg" };
 
 /**
  * A person's photo, an agent's picture or a workspace's logo, cropped to fit; initials until
@@ -52,6 +52,19 @@ export function AvatarStack({ people, size = "sm" }: { people: { name: string; t
 			{people.slice(0, 3).map((p, i) => (
 				<Avatar key={i} name={p.name} image={p.image} agent={p.type === "agent"} size={size} className="ring-2 ring-white" />
 			))}
+		</span>
+	);
+}
+
+/**
+ * An agent acting for a person ("Companybot, for Jaden"): the agent's picture, with the
+ * person's tucked over its lower right corner. The size of one `md` avatar.
+ */
+export function PairAvatar({ agent, person }: { agent: { name: string; image?: string | null }; person: { name: string; image?: string | null } }) {
+	return (
+		<span className="relative block size-9 shrink-0">
+			<Avatar name={agent.name} image={agent.image} agent size="pair" className="absolute top-0 left-0" />
+			<Avatar name={person.name} image={person.image} size="xs" className="absolute right-0 bottom-0 ring-2 ring-white" />
 		</span>
 	);
 }

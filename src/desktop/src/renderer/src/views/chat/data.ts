@@ -40,6 +40,7 @@ export const showSending: OptimisticUpdate<FunctionArgs<typeof api.messages.send
 		parts: [],
 		status: "done",
 		error: null,
+		stoppedBy: null,
 		stats: null,
 		editedAt: null,
 		deleted: false,

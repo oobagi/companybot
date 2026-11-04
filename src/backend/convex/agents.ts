@@ -2,7 +2,7 @@ import {
 	type AgentConfig,
 	blankAgent,
 	builtinTools,
-	canUseTool,
+	permissions,
 	defaultAgents,
 	describeToolAccess,
 	defaultModel,
@@ -23,7 +23,7 @@ import { allowedModels, catalogModels } from "./modelCatalog";
 import { agentConfig } from "./schema";
 import { toggleTrash, trashInfo } from "./trashOps";
 
-// Agents live in the database, one set per workspace. Owners edit them; every save
+// Agents live in the database, one set per workspace. People with agents.manage edit them; every save
 // is kept in agentVersions so changes can be reviewed and restored. Replies read the
 // agent fresh at the start of each turn, so edits apply from the next reply.
 
@@ -94,7 +94,7 @@ export const list = query({
 });
 
 /**
- * What owners can pick from when editing an agent: models (AI Gateway's, cached; modelCatalog.ts), and tool groups. Each
+ * What people with agents.manage can pick from when editing an agent: models (AI Gateway's, cached; modelCatalog.ts), and tool groups. Each
  * group can be granted whole ("memory.*") or tool by tool. Installed connectors are
  * granted whole, since their tools come from the connector's server.
  */
@@ -108,7 +108,8 @@ export const options = query({
 			connector: false,
 			tools: builtinTools
 				.filter((t) => toolGroup(t.id) === group)
-				.map((t) => ({ id: t.id, description: t.description, ownersOnly: !canUseTool("member", t) })),
+				// What a role needs for the agent to use it for someone (permissions.ts label), or null for everyone.
+				.map((t) => ({ id: t.id, description: t.description, needs: t.permission ? permissions[t.permission].label : null })),
 		}));
 		const installed = member ? await connectorStates(ctx, member) : [];
 		const connectors = installed.flatMap((state) => {

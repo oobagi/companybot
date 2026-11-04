@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { RecordType, Row } from "./data";
+import { memberDefaults } from "@companybot/core/permissions";
 import { RecordList } from "./RecordList";
 import { ArrangementProvider } from "../../arrangements";
 
@@ -53,7 +54,7 @@ afterEach(async () => {
 	await act(async () => root?.unmount());
 	vi.unstubAllGlobals();
 });
-const tree = () => createElement(ArrangementProvider, { data: { rows: [], writable: state.writable }, children: createElement(RecordList, { type: { ...type, display: { layout: state.layout, groupBy: "status" } }, role: "owner" as const }) });
+const tree = () => createElement(ArrangementProvider, { data: { rows: [], writable: state.writable }, children: createElement(RecordList, { type: { ...type, display: { layout: state.layout, groupBy: "status" } }, access: { roles: ["owner"], owner: true, permissions: [] } }) });
 
 it("continues an empty first page before deciding a retired column has no cards", async () => {
 	await act(async () => { root = create(tree(), { createNodeMock: () => ({}) }); });
@@ -112,7 +113,7 @@ it.each(["table", "board"] as const)("shows the whole-screen empty state only af
 	expect(JSON.stringify(root.toJSON())).toContain("No jobs yet");
 	expect(root.root.findAllByType("section")).toHaveLength(0);
 	expect(root.root.findAllByType("table")).toHaveLength(0);
-	await act(async () => root.update(createElement(ArrangementProvider, { data: { rows: [], writable: true }, children: createElement(RecordList, { type, role: "member" }) })));
+	await act(async () => root.update(createElement(ArrangementProvider, { data: { rows: [], writable: true }, children: createElement(RecordList, { type, access: { roles: ["member"], owner: false, permissions: memberDefaults } }) })));
 	// The empty state has no button; New stays in the top bar, for members too (records.edit).
 	expect(root.root.findAllByType("button").filter((b) => b.children.includes("New job"))).toHaveLength(1);
 });

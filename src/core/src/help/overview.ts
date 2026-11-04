@@ -32,7 +32,7 @@ Sidebar width, hidden state and chat drafts stay on this computer. On first load
 See the **help: settings** topic for who can change what.
 
 ## Roles
-Each person is an **Owner** or a **Member** in each workspace. Owners manage the workspace; members use it. See the **help: members** topic.
+Each person holds one or more roles in each workspace, like **Owner** or **Member**. Roles decide what they can do; owners can do everything. See the **help: members** topic.
 
 ## Links
 Screens have addresses you can link to: [Chat](#/chat), a database (#/records/<key>), a page (#/pages/<page id>), and each settings tab (#/settings/<tab>).

@@ -1,11 +1,11 @@
 import { arrangementLists, railTabs, sidebarSections, type Arrangement, type ArrangementList } from "@companybot/core/arrangements";
-import { can, deniedMessage } from "@companybot/core/permissions";
+import { can } from "@companybot/core/permissions";
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { canSee } from "./chatOps";
 import { mutation, query } from "./functions";
-import { type Member, getMember, memberOf, requireMember, requireUserId } from "./lib";
+import { type Member, checkPermission, getMember, memberOf, requireMember, requireUserId } from "./lib";
 import { arrangementList } from "./schema";
 
 type Target = { list: ArrangementList; entityId?: string };
@@ -103,7 +103,7 @@ export const get = query({
 		const rows = (await Promise.all([load(member.workspaceId, undefined), load(member.workspaceId, member.userId), load(undefined, member.userId)])).flat();
 		return {
 			rows: await Promise.all(rows.map(async ({ list, entityId, ids }) => ({ list, entityId, ids: list === "channels" ? await visibleChannels(ctx, member, ids) : ids }))),
-			writable: can(member.role, "sidebar.arrange"),
+			writable: can(member, "sidebar.arrange"),
 		};
 	},
 });
@@ -135,7 +135,7 @@ export const set = mutation({
 	args: { ...targetArgs, ids: v.array(v.string()) },
 	handler: async (ctx, { ids, ...target }) => {
 		const member = await requireMember(ctx);
-		if (arrangementLists[target.list].scope === "shared" && !can(member.role, "sidebar.arrange")) throw new ConvexError(deniedMessage("sidebar.arrange"));
+		if (arrangementLists[target.list].scope === "shared") checkPermission(member, "sidebar.arrange");
 		const place = await placeOf(ctx, member, target);
 		if (!place) throw new ConvexError("Arrangement not found.");
 		validate(ids);
@@ -155,7 +155,7 @@ export const migrate = mutation({
 			workspaceId = typeId ? (await ctx.db.get(typeId))?.workspaceId : undefined;
 		}
 		const member = workspaceId && await memberOf(ctx, userId, workspaceId);
-		if (!member || (arrangementLists[target.list].scope === "shared" && !can(member.role, "sidebar.arrange"))) return;
+		if (!member || (arrangementLists[target.list].scope === "shared" && !can(member, "sidebar.arrange"))) return;
 		if (databaseKey && target.list === "columns") {
 			const type = await ctx.db.query("recordTypes").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("key", databaseKey)).unique();
 			if (!type) return;

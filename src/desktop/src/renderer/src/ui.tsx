@@ -10,11 +10,18 @@ import { Popover } from "./views/chat/common";
 /**
  * The name (and shortcut) of whatever's hovered, at once: a title waits a second and can't be
  * styled. Spread `tipFor(label, hint)` on the thing, and render `tip` anywhere. `right` clears
- * the workspace rail's edge; `below` hangs under a title bar button.
+ * the workspace rail's edge; `below` hangs under a title bar button or a reaction.
  */
 export function useTip(side: "right" | "below") {
 	const [at, setAt] = useState<{ label: string; hint?: string; left: number; top: number }>();
 	const hide = () => setAt(undefined);
+	// It's placed once, on entering: a scroll would leave it behind (and the pointer may not leave).
+	const shown = !!at;
+	useEffect(() => {
+		if (!shown) return;
+		document.addEventListener("scroll", hide, true);
+		return () => document.removeEventListener("scroll", hide, true);
+	}, [shown]);
 	const tipFor = (label: string, hint?: string) => ({
 		onMouseEnter: (e: React.MouseEvent<HTMLElement>) => {
 			// A popover's open panel counts as inside its button to React, though it's elsewhere on the page.

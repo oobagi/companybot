@@ -1,6 +1,6 @@
 import { useStoredIds } from "../../arrangements";
 import type { FieldKind } from "@companybot/core/records";
-import { type Role, can } from "@companybot/core/permissions";
+import { type Access, can } from "@companybot/core/permissions";
 import { useEffect, useState } from "react";
 import type { OptimisticUpdate } from "convex/browser";
 import type { FunctionArgs } from "convex/server";
@@ -50,7 +50,7 @@ const optimisticDisplay: OptimisticUpdate<FunctionArgs<typeof api.recordTypes.se
 const noViews: never[] = [];
 const viewKey = (v: { _id: string }) => v._id;
 
-export function RecordList({ type, role }: { type: RecordType; role: Role }) {
+export function RecordList({ type, access }: { type: RecordType; access: Access }) {
 	const views = useQuery(api.databaseViews.list, { typeId: type._id });
 	// View tabs follow the workspace order. "All" stays first.
 	const tabs = useSortable("views", views ?? noViews, viewKey, "x", type._id);
@@ -109,7 +109,7 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 	const naming = useRun();
 	const shown = columns.map((k) => fields.find((f) => f.key === k)!);
 	const conditions = filters.map(toCondition).filter((c) => c !== null);
-	const canEdit = can(role, "records.edit");
+	const canEdit = can(access, "records.edit");
 	const sortField = sort && fields.find((f) => f.key === sort.field);
 	const args = { typeId: type._id, filters: conditions, sort };
 	const config = { filters: conditions, sort, columns, layout, groupBy: group?.key };
@@ -122,7 +122,7 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 			title={type.plural}
 			actions={
 				<>
-					{can(role, "fields.manage") && (
+					{can(access, "fields.edit") && (
 						<button type="button" className={barButton} onClick={() => setEditingDatabase(true)}>
 							<EditIcon /> Edit database
 						</button>
@@ -198,7 +198,7 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 					fields={fields}
 					columns={columns}
 					onChange={setColumns}
-					onNewField={can(role, "fields.create") ? () => setAddingField("text") : undefined}
+					onNewField={can(access, "fields.edit") ? () => setAddingField("text") : undefined}
 				/>}
 				{(selected || writable) && layout === "board" && group && (
 					<label className="flex items-center gap-2 text-neutral-600">

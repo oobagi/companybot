@@ -6,7 +6,7 @@ import { Select } from "../controls";
 import { UsageIcon } from "../icons";
 import { EmptyState, Loading, Setting, Settings } from "../ui";
 
-/** Settings → Usage: what AI cost in a month. Owners see the workspace; everyone else only their own share. */
+/** Settings → Usage: what AI cost in a month. Roles with usage.view see the workspace; everyone else only their own share. */
 export function UsageTab() {
 	const months = recentMonths(Date.now());
 	const [month, setMonth] = useState(months[0]!);
