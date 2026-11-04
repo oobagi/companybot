@@ -331,7 +331,7 @@ it("backfills event indexes and clears indexes for disabled installs", async () 
 	expect((await t.run(ctx => ctx.db.get(install._id)))!.eventKey).toBeUndefined();
 });
 
-it("backfills channel-specific and retained any-channel event keys", async () => {
+it("backfills channel-specific event keys and leaves channel-less triggers inactive", async () => {
 	const t = convexTest({ schema, modules, transactionLimits: true });
 	migrationsTest.register(t);
 	const owner = await signIn(t, "channel-index@co.com");
@@ -349,5 +349,5 @@ it("backfills channel-specific and retained any-channel event keys", async () =>
 	await t.finishAllScheduledFunctions(vi.runAllTimers);
 	const rows = await t.run(ctx => ctx.db.query("automationInstalls").collect());
 	expect(rows.find(i => i._id === install._id)!.eventKey).toBe(`message.posted:${chatId}`);
-	expect(rows.find(i => i.automationId === "legacy-any")!.eventKey).toBe("message.posted:*");
+	expect(rows.find(i => i.automationId === "legacy-any")!.eventKey).toBeUndefined();
 });

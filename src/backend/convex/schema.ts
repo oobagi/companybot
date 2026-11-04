@@ -969,6 +969,7 @@ export default defineSchema({
 		/** The schedule run it last did, or when its schedule was set or it was resumed: runs after it are due (core `scheduleDue`). */
 		lastScheduledAt: v.optional(v.number()),
 		nextRunAt: v.optional(v.number()),
+		consecutiveFailures: v.optional(v.number()),
 		eventKey: v.optional(v.string()),
 		// Retired: schedules ran once a local day. migrations.cronSchedules clears it.
 		// COMPAT(0.1.0-alpha.10): once that has run on prod, drop this field.

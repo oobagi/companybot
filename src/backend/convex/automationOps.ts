@@ -162,5 +162,5 @@ export function triggerIndexes(install: Pick<Doc<"automationInstalls">, "custom"
 	};
 }
 
-/** Channel watchers and legacy any-channel watchers occupy separate exact index ranges. */
-export const eventKeyFor = (event: string, channelId?: string) => event === "message.posted" ? `${event}:${channelId || "*"}` : event;
+/** The editor requires a channel; legacy channel-less triggers remain inactive. */
+export const eventKeyFor = (event: string, channelId?: string) => event === "message.posted" ? (channelId ? `${event}:${channelId}` : undefined) : event;

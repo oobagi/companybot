@@ -623,11 +623,37 @@ it("a failing scheduled install does not block another workspace", async () => {
 	const now = Date.UTC(2026, 10, 4, 10);
 	await t.mutation(internal.automationRuns.tick, { now });
 	await t.mutation(internal.automationRuns.runScheduled, { installId: brokenId, now });
-	expect((await t.run(ctx => ctx.db.get(brokenId)))!).toMatchObject({ enabled: false, lastOutcome: { text: expect.stringContaining("Failed:") } });
+	expect((await t.run(ctx => ctx.db.get(brokenId)))!).toMatchObject({ enabled: true, consecutiveFailures: 1, lastOutcome: { text: expect.stringContaining("Failed:") } });
 	await t.run(async ctx => {
 		for (const job of await ctx.db.system.query("_scheduled_functions").collect())
 			if (job.state.kind === "pending" && job.args[0]?.installId === brokenId) await ctx.scheduler.cancel(job._id);
 	});
 	await automationJobs(t);
 	expect((await owner.query(api.automations.list)).find(a => a.id === id)!.lastResult).toBe("Sent to 1 person.");
+});
+
+it("only pauses after three consecutive whole-run failures and resets the count on success", async () => {
+	vi.useFakeTimers();
+	const { t, owner } = await ownerAndMember();
+	const { companybot } = await agentsOf(owner);
+	await owner.mutation(api.automations.create, { config: { name: "Failures", prompt: "Hello", trigger: { type: "schedule", cron: "0 9 * * *" } }, agentId: companybot._id, audience: "creator", timeZone: "UTC" });
+	const install = (await t.run(ctx => ctx.db.query("automationInstalls").first()))!;
+	await t.run(ctx => ctx.db.patch(install._id, { timeZone: "invalid", lastScheduledAt: 0 }));
+	const now = Date.UTC(2026, 10, 4, 10);
+	const run = () => t.mutation(internal.automationRuns.runScheduled, { installId: install._id, now });
+	await run();
+	expect((await t.run(ctx => ctx.db.get(install._id)))!).toMatchObject({ enabled: true, consecutiveFailures: 1 });
+	await t.run(ctx => ctx.db.patch(install._id, { timeZone: "UTC" }));
+	await run();
+	expect((await t.run(ctx => ctx.db.get(install._id)))!.consecutiveFailures).toBe(0);
+	await t.run(ctx => ctx.db.patch(install._id, { timeZone: "invalid" }));
+	for (let attempt = 1; attempt <= 3; attempt++) {
+		await run();
+		const current = (await t.run(ctx => ctx.db.get(install._id)))!;
+		expect(current.enabled).toBe(attempt < 3);
+		expect(current.consecutiveFailures).toBe(attempt);
+		expect(current.lastOutcome?.text).toMatch(/^Failed:/);
+		expect(current.lastOutcome?.text).not.toContain("Invalid time zone");
+	}
+	expect((await t.run(ctx => ctx.db.get(install._id)))!.nextRunAt).toBeUndefined();
 });

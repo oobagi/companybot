@@ -123,11 +123,9 @@ export async function fireEvent(
 	details: { data: Record<string, unknown>; channelId?: Id<"chats">; messageId?: Id<"chatMessages"> },
 ) {
 	const key = eventKeyFor(event, details.channelId);
+	if (!key) return;
 	const matching = await ctx.db.query("automationInstalls").withIndex("by_event", q => q.eq("workspaceId", workspaceId).eq("eventKey", key)).first();
-	const anyChannel = event === "message.posted" && details.channelId && await ctx.db.query("automationInstalls").withIndex("by_event", q => q.eq("workspaceId", workspaceId).eq("eventKey", eventKeyFor(event))).first();
-	if (!matching && !anyChannel) return;
 	if (matching) await ctx.scheduler.runAfter(0, internal.automationRuns.dispatchEvent, { workspaceId, event, details, key });
-	if (anyChannel) await ctx.scheduler.runAfter(0, internal.automationRuns.dispatchEvent, { workspaceId, event, details, key: eventKeyFor(event) });
 }
 
 export const dispatchEvent = internalMutation({
@@ -149,7 +147,7 @@ export const runEvent = internalMutation({
 		const automation = await definitionOf(ctx, install, null);
 		const trigger = automation?.trigger;
 		if (!automation || trigger?.type !== "event" || trigger.event !== event) return;
-		if (trigger.event === "message.posted" && trigger.channelId && trigger.channelId !== details.channelId) return;
+		if (trigger.event === "message.posted" && (!trigger.channelId || trigger.channelId !== details.channelId)) return;
 		if (details.messageId && !(await liveTrigger(ctx, details.messageId))) return;
 		await runFor(ctx, install, automation, triggerPrompt(automation, details.data), {
 			thread: details.channelId && details.messageId ? { chatId: details.channelId, messageId: details.messageId } : undefined,
@@ -185,8 +183,8 @@ export const forgetOldWebhooks = internalMutation({
  * Records what a run did, for its page, and returns it. COMPAT(0.1.0-alpha.10): clears the old line too, so
  * migrations.automationOutcomes never puts it back over a newer run; stop once `lastResult` is dropped.
  */
-async function finish(ctx: MutationCtx, install: Doc<"automationInstalls">, outcome: RunOutcome) {
-	await ctx.db.patch(install._id, { lastRunAt: Date.now(), lastOutcome: outcome, lastResult: undefined });
+async function finish(ctx: MutationCtx, install: Doc<"automationInstalls">, outcome: RunOutcome, success = true) {
+	await ctx.db.patch(install._id, { lastRunAt: Date.now(), lastOutcome: outcome, lastResult: undefined, ...(success && { consecutiveFailures: 0 }) });
 	return outcome;
 }
 
@@ -213,7 +211,7 @@ async function runFor(
 	if (audience === "subscribers" && !target.person) {
 		const sourceChat = target.visibleIn && await ctx.db.get(target.visibleIn);
 		const sources = [...new Set([...artifactSources(install, privateTo(install)), ...(sourceChat ? chatSources(sourceChat) : [])])];
-		await ctx.scheduler.runAfter(0, internal.automationRuns.fanOut, { installId: install._id, prompt, visibleIn: target.visibleIn, messageId: target.thread?.messageId, sources, sent: 0 });
+		await ctx.scheduler.runAfter(0, internal.automationRuns.fanOut, { installId: install._id, prompt, visibleIn: target.visibleIn, messageId: target.thread?.messageId, sources, sent: 0, failed: 0 });
 		return { ran: true, outcome: { text: "Queued." } };
 	}
 	let userIds = [install.installedBy];
@@ -246,19 +244,28 @@ async function runFor(
 }
 
 /** Each page rechecks membership, visibility, and install/workspace liveness before delivery. */
-const fanOutArgs = { sources: v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats"), v.id("users"))), installId: v.id("automationInstalls"), prompt: v.string(), visibleIn: v.optional(v.id("chats")), messageId: v.optional(v.id("chatMessages")), cursor: v.optional(v.string()), sent: v.number() };
+const fanOutArgs = { sources: v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats"), v.id("users"))), installId: v.id("automationInstalls"), prompt: v.string(), visibleIn: v.optional(v.id("chats")), messageId: v.optional(v.id("chatMessages")), cursor: v.optional(v.string()), sent: v.number(), failed: v.number(), retry: v.optional(v.number()) };
 export const fanOut = internalMutation({
 	args: fanOutArgs,
 	handler: async (ctx, args): Promise<void> => {
 		try { await ctx.runMutation(internal.automationRuns.fanOutBatch, args); }
-		catch (error) { await failedRun(ctx, args.installId, error); }
+		catch (error) {
+			const retry = args.retry ?? 0;
+			if (transientError(error) && retry < 2) {
+				await ctx.scheduler.runAfter(1_000 * 2 ** retry, internal.automationRuns.fanOut, { ...args, retry: retry + 1 });
+			} else await failedRun(ctx, args.installId, error, args.sent);
+		}
 	},
 });
 export const fanOutBatch = internalMutation({
 	args: fanOutArgs,
 	handler: async (ctx, args) => {
 		const install = await ctx.db.get(args.installId);
-		if (!install || !install.enabled || install.archived || !(await liveWorkspace(ctx, install.workspaceId))) return;
+		if (!install || !(await liveWorkspace(ctx, install.workspaceId))) return;
+		if (!install.enabled || install.archived) {
+			await finish(ctx, install, { text: `Stopped after ${args.sent} people: ${install.archived ? "archived" : "turned off"}.${args.failed ? ` ${args.failed} failed.` : ""}` }, false);
+			return;
+		}
 		if (args.messageId && !(await liveTrigger(ctx, args.messageId))) return;
 		const automation = await definitionOf(ctx, install, null);
 		if (!automation || install.audience !== "subscribers") return;
@@ -271,10 +278,32 @@ export const fanOutBatch = internalMutation({
 		}
 		const agent = await activeAgent(ctx, install);
 		if (!agent) { await finish(ctx, install, noAgent); return; }
-		if (people.length) await deliverInDms(ctx, install, automation, agent, people, args.prompt, [...args.sources, ...(chat ? chatSources(chat) : [])]);
-		const sent = args.sent + people.length;
-		if (!page.isDone) await ctx.scheduler.runAfter(0, internal.automationRuns.fanOut, { ...args, cursor: page.continueCursor, sent });
-		else await finish(ctx, install, { text: sent ? `Sent to ${sent} ${sent === 1 ? "person" : "people"}.` : "Didn't run: nobody has turned it on." });
+		let sent = args.sent;
+		let failed = args.failed;
+		for (const userId of people) {
+			try {
+				// A recipient failure rolls back only their delivery, including a partially queued turn.
+				await ctx.runMutation(internal.automationRuns.deliverRecipient, { installId: install._id, userId, prompt: args.prompt, sources: [...args.sources, ...(chat ? chatSources(chat) : [])] });
+				sent++;
+			} catch (error) {
+				if (transientError(error)) throw error;
+				console.error("Automation recipient delivery failed", install._id, userId, error);
+				failed++;
+			}
+		}
+		if (!page.isDone) await ctx.scheduler.runAfter(0, internal.automationRuns.fanOut, { ...args, cursor: page.continueCursor, sent, failed, retry: 0 });
+		else await finish(ctx, install, { text: sent || failed ? `Sent to ${sent} ${sent === 1 ? "person" : "people"}${failed ? `, ${failed} failed` : ""}.` : "Didn't run: nobody has turned it on." });
+	},
+});
+
+/** Isolate each recipient's writes so one bad delivery cannot stop the audience. */
+export const deliverRecipient = internalMutation({
+	args: { installId: v.id("automationInstalls"), userId: v.id("users"), prompt: v.string(), sources: fanOutArgs.sources },
+	handler: async (ctx, { installId, userId, prompt, sources }) => {
+		const install = (await ctx.db.get(installId))!;
+		const automation = (await definitionOf(ctx, install, null))!;
+		const agent = (await activeAgent(ctx, install))!;
+		await deliverInDms(ctx, install, automation, agent, [userId], prompt, sources);
 	},
 });
 
@@ -327,15 +356,19 @@ async function liveTrigger(ctx: QueryCtx, id: Id<"chatMessages">) {
 	return message && !message.deleted;
 }
 
-/** Application failures pause the install visibly; infrastructure conflicts can still retry. */
-async function failedRun(ctx: MutationCtx, installId: Id<"automationInstalls">, error: unknown) {
-	const reason = error instanceof Error ? error.message : String(error);
-	if (/conflict|temporar|timeout|timed out|overloaded|rate limit/i.test(reason)) throw error;
+const transientError = (error: unknown) => /conflict|temporar|timeout|timed out|overloaded|rate limit|ECONNRESET|unavailable/i.test(error instanceof Error ? error.message : String(error));
+
+/** Keep failures visible, but only pause an install after three consecutive whole-run failures. */
+async function failedRun(ctx: MutationCtx, installId: Id<"automationInstalls">, error: unknown, sent?: number) {
 	const install = await ctx.db.get(installId);
 	if (!install || !(await liveWorkspace(ctx, install.workspaceId))) return;
-	console.error("Automation stuck; paused after failed run", installId, reason);
-	await ctx.db.patch(installId, { enabled: false, nextRunAt: undefined, eventKey: undefined });
-	await finish(ctx, install, { text: `Failed: ${reason.slice(0, 500)}. Automation paused; fix the cause and resume it.` });
+	const failures = (install.consecutiveFailures ?? 0) + 1;
+	console.error("Automation run failed", installId, error);
+	await ctx.db.patch(installId, {
+		consecutiveFailures: failures,
+		...(failures >= 3 && { enabled: false, nextRunAt: undefined, eventKey: undefined }),
+	});
+	await finish(ctx, install, { text: `Failed: could not complete the run${sent === undefined ? "" : ` after sending to ${sent} people`}.${failures >= 3 ? " Paused after 3 consecutive failures." : " Try again or check its settings."}` }, false);
 }
 
 /**

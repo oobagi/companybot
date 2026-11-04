@@ -1,3 +1,4 @@
+import * as automationOps from "../convex/automationOps";
 import * as turns from "../convex/turns";
 import { automationJob, automationJobs } from "./automationJobs";
 import { internal } from "../convex/_generated/api";
@@ -81,7 +82,7 @@ it.each(["tick", "send"] as const)("batches %s with 1,500 subscribers and 300 du
 	} finally { vi.useRealTimers(); }
 });
 
-it.each([false, true])("publishes only a complete fan-out result (later page fails: %s)", { timeout: 600_000 }, async fails => {
+it.each(["success", "recipient", "transient", "exhausted", "disabled", "archived"] as const)("reports fan-out completion and interruptions: %s", { timeout: 600_000 }, async mode => {
 	vi.useFakeTimers();
 	const t = newTest();
 	const owner = await signIn(t, "totals@co.com");
@@ -100,14 +101,30 @@ it.each([false, true])("publishes only a complete fan-out result (later page fai
 	await automationJob(t);
 	expect((await t.run(ctx => ctx.db.get(install._id)))!.lastOutcome).toBeUndefined();
 	expect((await t.run(ctx => ctx.db.query("chatMessages").collect())).filter(m => m.automation)).toHaveLength(100);
-	// One injected application failure verifies rollback and persisted failure without invoking a model.
-	const failure = fails ? vi.spyOn(turns, "enqueueTurn").mockRejectedValue(new Error("Invalid delivery configuration")) : undefined;
+	// Inject faults after the first page, so its committed deliveries must never be duplicated.
+	const failure = mode === "recipient" ? vi.spyOn(turns, "enqueueTurn").mockRejectedValueOnce(new Error("Bad config"))
+		: mode === "transient" ? vi.spyOn(automationOps, "definitionOf").mockRejectedValueOnce(new Error("Temporarily unavailable: private provider internals"))
+		: mode === "exhausted" ? vi.spyOn(automationOps, "definitionOf").mockRejectedValue(new Error("Temporarily unavailable: private provider internals")) : undefined;
 	try {
+		if (mode === "disabled") await owner.mutation(api.automations.update, { automationId: install.automationId, enabled: false });
+		if (mode === "archived") await owner.mutation(api.automations.remove, { automationId: install.automationId });
+		if (mode === "transient") {
+			await automationJob(t);
+			const retry = await t.run(async ctx => (await ctx.db.system.query("_scheduled_functions").collect()).find(j => j.state.kind === "pending" && j.name === "automationRuns:fanOut"));
+			expect(retry!.scheduledTime - Date.now()).toBeGreaterThanOrEqual(1000);
+			expect((await t.run(ctx => ctx.db.get(install._id)))!.lastOutcome).toBeUndefined();
+		}
 		await automationJobs(t);
 		const result = (await t.run(ctx => ctx.db.get(install._id)))!;
-		expect(result.lastOutcome?.text).toMatch(fails ? /^Failed:/ : /^Sent to 150 people\.$/);
-		expect((await t.run(ctx => ctx.db.query("chatMessages").collect())).filter(m => m.automation)).toHaveLength(fails ? 100 : 150);
-		if (fails) expect(result.enabled).toBe(false);
+		const stopped = mode === "disabled" || mode === "archived";
+		expect(result.lastOutcome?.text).toMatch(stopped ? /^Stopped after 100 people:/ : mode === "exhausted" ? /^Failed:/ : mode === "recipient" ? /^Sent to 149 people, 1 failed\.$/ : /^Sent to 150 people\.$/);
+		expect(result.lastOutcome?.text).not.toMatch(/private provider internals|Bad config/);
+		expect((await t.run(ctx => ctx.db.query("chatMessages").collect())).filter(m => m.automation)).toHaveLength(stopped || mode === "exhausted" ? 100 : mode === "recipient" ? 149 : 150);
+		if (!stopped) expect(result.enabled).toBe(true);
+		if (mode === "exhausted") {
+			expect(failure).toHaveBeenCalledTimes(3);
+			expect(result.consecutiveFailures).toBe(1);
+		} else if (!stopped) expect(result.consecutiveFailures).toBe(0);
 	} finally {
 		failure?.mockRestore();
 		vi.useRealTimers();
