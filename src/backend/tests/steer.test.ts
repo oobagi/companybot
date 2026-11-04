@@ -4,7 +4,7 @@ import type { ModelMessage } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { STEER_RESTARTS } from "../convex/agent";
+import { STEER_WINDOW_MS } from "../convex/agent";
 import { type As, agentTurn, agentsOf, finishQuiet, generalOf, noMentions, ownerAndMember, turnsOf } from "./helpers";
 
 // Your message steers the running turn (#189, wiki/chat.md "Steering"). No network: the runner's model
@@ -262,13 +262,16 @@ describe("steering a running turn", () => {
 		expect(await turnFor(t, sent)).toMatchObject({ status: "running" });
 	});
 
-	it(`starts over at most ${STEER_RESTARTS} times; a message after that gets the usual follow-up`, async () => {
+	it(`keeps starting over while the person writes; past ${STEER_WINDOW_MS / 1000}s a message gets the usual follow-up`, async () => {
 		const { t, owner, chatId, turnId } = await dm();
 		const sent: Id<"chatMessages">[] = [];
-		for (let run = 0; run <= STEER_RESTARTS; run++) {
+		// Five bursts (more than any old count limit) are all taken in; then the clock passes the window.
+		const restarts = 5;
+		for (let run = 0; run <= restarts; run++) {
 			scripted(async function* () {
 				yield { type: "start-step" };
 				yield { type: "text-delta", text: `Answer ${run}` };
+				if (run === restarts) vi.setSystemTime(Date.now() + STEER_WINDOW_MS);
 				sent.push(await say(owner, chatId, `more ${run}`));
 				await later();
 				yield { type: "text-delta", text: "." };
@@ -277,15 +280,15 @@ describe("steering a running turn", () => {
 		}
 		await t.action(internal.agent.respond, { turnId });
 
-		expect(streamText).toHaveBeenCalledTimes(STEER_RESTARTS + 1);
-		expect(await replyOf(t, turnId)).toMatchObject({ status: "done", text: `Answer ${STEER_RESTARTS}.` });
-		const merged = sent.slice(0, STEER_RESTARTS);
+		expect(streamText).toHaveBeenCalledTimes(restarts + 1);
+		expect(await replyOf(t, turnId)).toMatchObject({ status: "done", text: `Answer ${restarts}.` });
+		const merged = sent.slice(0, restarts);
 		for (const id of merged) expect(await turnFor(t, id)).toMatchObject({ status: "done", mergedInto: turnId });
 		expect((await turnOf(t, turnId))!.steered).toEqual(merged);
-		// The last one wasn't taken in: it starts its own turn, whose window has only it.
+		// The last one came past the window: it starts its own turn, whose window has only it.
 		const followUp = await turnFor(t, sent.at(-1)!);
 		expect(followUp.status).toBe("running");
-		expect((await t.query(internal.turns.turnContext, { turnId: followUp._id })).messages.map((m) => m.text)).toEqual([`more ${STEER_RESTARTS}`]);
+		expect((await t.query(internal.turns.turnContext, { turnId: followUp._id })).messages.map((m) => m.text)).toEqual([`more ${restarts}`]);
 	});
 
 	it("another person's message never steers someone else's turn: it keeps its own", async () => {

@@ -70,11 +70,12 @@ const FLUSH_MS = 200;
 /** How often a turn checks for Stop when it hasn't flushed lately (a long think streams reasoning, not text). */
 const STOP_CHECK_MS = 1_000;
 /**
- * Times a reply starts its answer over to take in the person's new messages (turnStop). Each time takes
- * in a whole burst (it waits for them to pause), so this counts bursts. Past it, a message that arrives
- * while it writes waits for the follow-up, so a chatty person can't keep it from finishing.
+ * How long into a reply it still starts its answer over to take in the person's new messages (turnStop).
+ * No count: each restart takes in a whole burst (it waits for them to pause) and only redoes the writing
+ * step, cached, so it's cheap. This is a safety net against something posting nonstop; past it, a message
+ * that arrives while it writes waits for the follow-up.
  */
-export const STEER_RESTARTS = 2;
+export const STEER_WINDOW_MS = 60_000;
 /** A connector that doesn't connect this fast is skipped for the turn, not waited on. */
 const CONNECTOR_CONNECT_MS = 10_000;
 
@@ -545,7 +546,7 @@ async function streamReply(
  * Steering (#189) hears the person's new message the same way (turns.steering). A step that called a tool
  * is left alone: the next step takes the message in (core agentPrepareStep). A step only writing (the
  * answer: no boundary left) is cut off with the same abort, `steered`; the runner waits for the person to
- * pause (`settle`) and starts it again with all they sent (`restart`), at most STEER_RESTARTS times a reply;
+ * pause (`settle`) and starts it again with all they sent (`restart`), for STEER_WINDOW_MS into the reply;
  * past that the message waits for its follow-up.
  */
 export function turnStop(ctx: Pick<ActionCtx, "runQuery">, turnId: Id<"agentTurns">) {
@@ -553,7 +554,8 @@ export function turnStop(ctx: Pick<ActionCtx, "runQuery">, turnId: Id<"agentTurn
 	let requested = false;
 	let steered = false;
 	let restarts = 0;
-	let lastHeard = Date.now();
+	const began = Date.now();
+	let lastHeard = began;
 	/** The current step called a tool: let it finish and end at the step boundary. */
 	let toolStep = false;
 	const request = () => {
@@ -570,7 +572,7 @@ export function turnStop(ctx: Pick<ActionCtx, "runQuery">, turnId: Id<"agentTurn
 		lastHeard = Date.now();
 		if (requested) return;
 		if (answer.stopped) request();
-		else if (answer.steer && run === restarts && !toolStep && !steered && restarts < STEER_RESTARTS) {
+		else if (answer.steer && run === restarts && !toolStep && !steered && Date.now() - began < STEER_WINDOW_MS) {
 			steered = true;
 			controller.abort();
 		}
