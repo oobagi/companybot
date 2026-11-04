@@ -329,6 +329,17 @@ export const chatActivity = migrations.define({
 	},
 });
 
+// Lists page by when each message was shown (`publishedAt`, index by_chat_shown), so a reply shown late is on the
+// newest page. New messages get it when sent or shown; this gives older ones theirs: where they sit now (shownAt).
+// COMPAT(0.1.0-alpha.10): once this has run on prod, delete it, its entry in `all` and its test.
+export const messageShownAt = migrations.define({
+	table: "chatMessages",
+	batchSize: 100,
+	migrateOne: async (ctx, m) => {
+		if (m.publishedAt === undefined && !m.quiet) await ctx.db.patch(m._id, { publishedAt: m._creationTime });
+	},
+});
+
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
@@ -355,6 +366,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.dropChatReactLocks,
 	internal.migrations.channelTopics,
 	internal.migrations.chatActivity,
+	internal.migrations.messageShownAt,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

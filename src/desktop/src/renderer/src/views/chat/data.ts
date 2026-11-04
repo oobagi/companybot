@@ -10,7 +10,7 @@ export type ChatList = NonNullable<FunctionReturnType<typeof api.chats.list>>;
 type ChatItem = ChatList["channels"][number];
 export type ChatDetails = NonNullable<FunctionReturnType<typeof api.chats.get>>;
 /** `sending`: only on your message shown while it sends (`showSending`), before the server has it. */
-export type Message = FunctionReturnType<typeof api.messages.list>["page"][number] & { sending?: { files: number } };
+export type Message = FunctionReturnType<typeof api.messages.page>["page"][number] & { sending?: { files: number } };
 export type Participant = Message["author"];
 export type Mentions = { userIds: Id<"users">[]; agentIds: Id<"agents">[]; skillIds: string[] };
 
@@ -31,7 +31,7 @@ export const inOrder = (messages: Message[], threadId?: Id<"chatMessages">) =>
  * there's none (then it's unset). Undefined until the first page arrives.
  */
 export function useMessages(chatId: Id<"chats">, threadId?: Id<"chatMessages">) {
-	const { results, status, loadMore } = usePaginatedQuery(api.messages.list, { chatId, ...(threadId && { threadId }) }, { initialNumItems: MESSAGE_PAGE });
+	const { results, status, loadMore } = usePaginatedQuery(api.messages.page, { chatId, ...(threadId && { threadId }) }, { initialNumItems: MESSAGE_PAGE });
 	const messages = useMemo(() => (status === "LoadingFirstPage" ? undefined : inOrder(results, threadId)), [results, status, threadId]);
 	const more = useMemo(() => (status === "CanLoadMore" ? () => loadMore(MESSAGE_PAGE) : undefined), [status, loadMore]);
 	return { messages, more, all: status === "Exhausted" };
@@ -42,12 +42,12 @@ export function useMessages(chatId: Id<"chats">, threadId?: Id<"chatMessages">) 
  * it (Discord does the same). A send that fails takes it out again; the composer gets the text back.
  */
 export const showSending: OptimisticUpdate<FunctionArgs<typeof api.messages.send>> = (store, { workspaceId, chatId, threadId, text, attachments = [] }) => {
-	// Its newest page: the one asked for with no cursor.
-	const first = store
-		.getAllQueries(api.messages.list)
-		.find(({ args }) => args.workspaceId === workspaceId && args.chatId === chatId && args.threadId === threadId && args.paginationOpts.cursor === null);
+	// Its newest page: every one asked for with no cursor (a split page is asked for again, with its end).
+	const newest = store
+		.getAllQueries(api.messages.page)
+		.filter(({ args, value }) => value && args.workspaceId === workspaceId && args.chatId === chatId && args.threadId === threadId && args.paginationOpts.cursor === null);
 	const me = store.getQuery(api.workspace.team, { workspaceId })?.members.find((m) => m.isYou);
-	if (!first?.value || !me) return;
+	if (!newest.length || !me) return;
 	const now = Date.now();
 	const message: Message = {
 		_id: `sending:${now}` as Id<"chatMessages">,
@@ -76,7 +76,7 @@ export const showSending: OptimisticUpdate<FunctionArgs<typeof api.messages.send
 		ask: null,
 		sending: { files: attachments.length },
 	};
-	store.setQuery(api.messages.list, first.args, { ...first.value, page: [...first.value.page, message] });
+	for (const { args, value } of newest) store.setQuery(api.messages.page, args, { ...value!, page: [...value!.page, message] });
 };
 
 /** People, agents, channels and skills you can mention or add. `people` leaves you out. */

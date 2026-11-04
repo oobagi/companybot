@@ -1,9 +1,9 @@
-import { defaultModel } from "@companybot/core";
+import { MESSAGE_PAGE, defaultModel } from "@companybot/core";
 import { afterEach, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { ACTIVE_THREADS_PER_CHANNEL } from "../convex/chats";
-import { agentTurn, agentsOf, finishTurn, generalOf, noMentions, ownerAndMember, tick } from "./helpers";
+import { agentTurn, agentsOf, finishTurn, generalOf, noMentions, ownerAndMember, settle, tick } from "./helpers";
 
 afterEach(() => void vi.useRealTimers());
 
@@ -32,7 +32,7 @@ it("pages a thread from its newest replies, its parent on the first page only", 
 	const parent = await owner.mutation(api.messages.send, { chatId, text: "Plan?", mentions: noMentions });
 	const replies: Id<"chatMessages">[] = [];
 	for (let i = 0; i < 5; i++) replies.push(await owner.mutation(api.messages.send, { chatId, threadId: parent, text: `Reply ${i}`, mentions: noMentions }));
-	const page = (cursor: string | null) => owner.query(api.messages.list, { chatId, threadId: parent, paginationOpts: { numItems: 3, cursor } });
+	const page = (cursor: string | null) => owner.query(api.messages.page, { chatId, threadId: parent, paginationOpts: { numItems: 3, cursor } });
 	const first = await page(null);
 	expect(first.page.map((m) => m._id)).toEqual([parent, ...replies.slice(2)]);
 	const older = await page(first.continueCursor);
@@ -56,4 +56,54 @@ it("shows each channel's newest threads in the sidebar, so one busy channel can'
 	}
 	const threads = await member.query(api.chats.activeThreads, { now: Date.now() });
 	expect(threads.map((x) => x.messageId)).toEqual([...busy.slice(2).reverse(), quiet]);
+});
+
+it("puts a reply shown late on the newest page, however many messages came in while it was quiet", async () => {
+	const { t, owner, member } = await ownerAndMember();
+	const { companybot } = await agentsOf(owner);
+	const chatId = (await generalOf(owner))._id;
+	const turnId = await agentTurn(t, owner, chatId, companybot._id);
+	const replyId = (await t.run((ctx) => ctx.db.get("agentTurns", turnId)))!.replyId!;
+	for (let i = 0; i < MESSAGE_PAGE + 5; i++, vi.setSystemTime(Date.now() + 10)) await member.mutation(api.messages.send, { chatId, text: `Meanwhile ${i}`, mentions: noMentions });
+	const newest = async () => (await member.query(api.messages.page, { chatId, paginationOpts: { numItems: MESSAGE_PAGE, cursor: null } })).page.map((m) => m._id);
+	expect(await newest()).not.toContain(replyId);
+	// The clock moves without running the turn's scheduled runner: this test ends the turn itself.
+	vi.setSystemTime(Date.now() + 1_000);
+	await finishTurn(t, turnId, "Here's the plan");
+	expect((await newest()).at(-1)).toBe(replyId);
+});
+
+// COMPAT(0.1.0-alpha.10): delete with messages.list.
+it("still answers alpha.9 apps' list: the newest messages in one array, a thread's parent first", async () => {
+	const { owner } = await ownerAndMember();
+	const chatId = (await generalOf(owner))._id;
+	const first = await owner.mutation(api.messages.send, { chatId, text: "First", mentions: noMentions });
+	const second = await owner.mutation(api.messages.send, { chatId, text: "Second", mentions: noMentions });
+	const reply = await owner.mutation(api.messages.send, { chatId, threadId: first, text: "In thread", mentions: noMentions });
+	const list = await owner.query(api.messages.list, { chatId });
+	expect(Array.isArray(list)).toBe(true);
+	expect(list.slice(-2).map((m) => m._id)).toEqual([first, second]);
+	expect((await owner.query(api.messages.list, { chatId, threadId: first })).map((m) => m._id)).toEqual([first, reply]);
+});
+
+it("keeps a channel's activity through Trash and restore, and deletes it with the channel or the workspace", async () => {
+	const { t, owner } = await ownerAndMember();
+	const activity = (chatId: Id<"chats">) => t.run((ctx) => ctx.db.query("chatActivity").withIndex("by_chat", (q) => q.eq("chatId", chatId)).unique());
+	const chatId = await owner.mutation(api.chats.createChannel, { name: "ops", private: false });
+	await owner.mutation(api.messages.send, { chatId, text: "Kickoff", mentions: noMentions });
+	const kept = await activity(chatId);
+	expect(kept).not.toBeNull();
+	await owner.mutation(api.trash.move, { kind: "channel", id: chatId });
+	await owner.mutation(api.trash.restore, { kind: "channel", id: chatId });
+	expect(await activity(chatId)).toEqual(kept);
+	expect((await owner.query(api.chats.list))!.channels.find((c) => c._id === chatId)!.lastMessageAt).toBe(kept!.lastMessageAt);
+	await owner.mutation(api.trash.move, { kind: "channel", id: chatId });
+	await owner.mutation(api.trash.purge, { id: chatId });
+	await settle(t);
+	expect(await activity(chatId)).toBeNull();
+	const general = (await generalOf(owner))._id;
+	expect(await activity(general)).not.toBeNull();
+	await owner.mutation(api.workspace.deleteWorkspace, { name: "My company" });
+	await settle(t);
+	expect(await t.run((ctx) => ctx.db.query("chatActivity").collect())).toEqual([]);
 });

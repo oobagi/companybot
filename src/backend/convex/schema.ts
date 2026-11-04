@@ -608,8 +608,9 @@ export default defineSchema({
 		/** Not in the timeline: an agent's reply until it has something to show (turns.ts `show`), and an ask (chains.ts). */
 		quiet: v.optional(v.boolean()),
 		/**
-		 * Where it sits in the timeline, if not where it was made (chatOps `shownAt`): when an agent's reply was
-		 * shown, or when a reply took in messages sent after it began (turns.steer), so it shows below them.
+		 * When it was shown in the timeline (chatOps `shownAt`), what lists page and sort by: when it was sent, when an
+		 * agent's reply was shown, or when a reply took in messages sent after it began (turns.steer), so it shows below
+		 * them. Unset while quiet. COMPAT(0.1.0-alpha.10): older rows have none until migrations.messageShownAt.
 		 */
 		publishedAt: v.optional(v.number()),
 		/**
@@ -626,6 +627,8 @@ export default defineSchema({
 	})
 		/** A timeline or thread without its quiet rows (`quiet` unset), or only them: lists never step over hidden replies. */
 		.index("by_chat_thread_quiet", ["chatId", "threadId", "quiet"])
+		/** The same, in the order shown: what the app pages by, so a reply shown late is on the newest page. */
+		.index("by_chat_shown", ["chatId", "threadId", "quiet", "publishedAt"])
 		/** Thread parents, newest reply first: the sidebar's active threads. Messages without replies have no `lastReplyAt` and sort first. */
 		.index("by_chat_lastReply", ["chatId", "lastReplyAt"])
 		.index("by_workspace", ["workspaceId"])

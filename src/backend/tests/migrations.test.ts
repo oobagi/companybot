@@ -345,3 +345,31 @@ it("moves each chat's last message time and running cost onto its activity, read
 	expect(activity).toMatchObject({ lastMessageAt: later, costUsd: 0.25 });
 	expect(await shown()).toEqual({ unread: true, costUsd: 0.25 });
 });
+
+// COMPAT(0.1.0-alpha.10): delete with migrations.messageShownAt.
+it("gives messages from before it the time they're shown at, so they page in order; quiet ones wait to be shown", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	migrationsTest.register(t);
+	prosemirrorSync.register(t);
+	const owner = await signIn(t, "owner@co.com");
+	const chatId = (await generalOf(owner))._id;
+	const old = await owner.mutation(api.messages.send, { chatId, text: "From before", mentions: { userIds: [], agentIds: [] } });
+	const steered = await owner.mutation(api.messages.send, { chatId, text: "Moved below", mentions: { userIds: [], agentIds: [] } });
+	const quiet = await t.run(async (ctx) => {
+		await ctx.db.patch(old, { publishedAt: undefined });
+		await ctx.db.patch(steered, { publishedAt: 9e15 });
+		const m = (await ctx.db.get(old))!;
+		return ctx.db.insert("chatMessages", { chatId, workspaceId: m.workspaceId, authorUserId: m.authorUserId, text: "Unshown", parts: [], mentions: m.mentions, status: "done", quiet: true });
+	});
+	vi.useFakeTimers();
+	try {
+		await t.mutation(internal.migrations.runAll);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+	} finally {
+		vi.useRealTimers();
+	}
+	const [a, b, c] = await t.run(async (ctx) => Promise.all([old, steered, quiet].map((id) => ctx.db.get(id))));
+	expect(a!.publishedAt).toBe(a!._creationTime);
+	expect(b!.publishedAt).toBe(9e15);
+	expect(c!.publishedAt).toBeUndefined();
+});

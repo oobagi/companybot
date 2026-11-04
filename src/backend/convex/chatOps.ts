@@ -310,7 +310,8 @@ export async function insertMessage(
 	chat: Doc<"chats">,
 	message: Omit<Doc<"chatMessages">, "_id" | "_creationTime" | "chatId" | "workspaceId">,
 ) {
-	const id = await ctx.db.insert("chatMessages", { chatId: chat._id, workspaceId: chat.workspaceId, ...message });
+	// Shown as it's sent: placed by now in the timeline's order (`by_chat_shown`).
+	const id = await ctx.db.insert("chatMessages", { chatId: chat._id, workspaceId: chat.workspaceId, ...(!message.quiet && { publishedAt: Date.now() }), ...message });
 	await countMessage(ctx, chat, message);
 	return id;
 }

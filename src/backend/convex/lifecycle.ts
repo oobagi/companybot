@@ -252,7 +252,12 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		role: roleAccess<"chats">(),
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 	},
-	chatActivity: { childOf: { table: "chats", index: "by_chat", field: "chatId" } },
+	// Goes with its chat wherever a chat row is deleted (a workspace's), and in a channel's own cascade, whose
+	// last step deletes the chat itself without its children. Archive and restore leave it, like the chat.
+	chatActivity: {
+		childOf: { table: "chats", index: "by_chat", field: "chatId" },
+		channel: { index: "by_chat", eq: ["chatId"] },
+	},
 	chatMembers: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		channel: { index: "by_chat", eq: ["chatId"] },

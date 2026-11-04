@@ -93,12 +93,13 @@ export type Message = {
 };
 
 /**
- * The main timeline, or a thread, newest page first (`paginationOpts`, for usePaginatedQuery). Quiet rows
- * (replies not shown yet, asks) are left out by the index, so no number of them makes a page short or
- * slow; replies the viewer can't open are in it, masked. Each page is in the order shown (chatOps `shownAt`:
- * a reply sits below every message it took in); a thread's first page starts with its parent.
+ * The main timeline, or a thread, newest page first (`paginationOpts`, for usePaginatedQuery). Pages are cut
+ * by when each message was shown (`publishedAt`, index `by_chat_shown`), the order the app sorts on, so a reply
+ * shown late is on the newest page. Quiet rows (replies not shown yet, asks) are left out by the index, so no
+ * number of them makes a page short or slow; replies the viewer can't open are in it, masked. Each page is in
+ * the order shown (chatOps `shownAt`); a thread's first page starts with its parent.
  */
-export const list = query({
+export const page = query({
 	args: { chatId: v.id("chats"), threadId: v.optional(v.id("chatMessages")), paginationOpts: paginationOptsValidator },
 	handler: async (ctx, { chatId, threadId, paginationOpts }): Promise<PaginationResult<Message>> => {
 		const none = { page: [], isDone: true, continueCursor: "" };
@@ -108,9 +109,9 @@ export const list = query({
 		if (threadId && (!parent || parent.chatId !== chatId)) return none;
 		const result = await ctx.db
 			.query("chatMessages")
-			.withIndex("by_chat_thread_quiet", (q) => q.eq("chatId", chatId).eq("threadId", threadId).eq("quiet", undefined))
+			.withIndex("by_chat_shown", (q) => q.eq("chatId", chatId).eq("threadId", threadId).eq("quiet", undefined))
 			.order("desc")
-			.paginate({ ...paginationOpts, numItems: Math.min(paginationOpts.numItems, LIST_MAX) });
+			.paginate({ ...paginationOpts, numItems: Math.min(paginationOpts.numItems, PAGE_MAX) });
 		const docs = result.page.sort((a, b) => shownAt(a) - shownAt(b));
 		const names = namer(ctx, { images: true });
 		const page = parent && paginationOpts.cursor === null ? [parent, ...docs] : docs;
@@ -119,7 +120,30 @@ export const list = query({
 });
 
 /** The most a page may ask for: what a page reads (reactions, previews, sources) stays within Convex's limits. */
-const LIST_MAX = 200;
+const PAGE_MAX = 200;
+
+/**
+ * COMPAT(0.1.0-alpha.10): alpha.9 apps read the newest 200 of a timeline (or thread, parent first) here, as one
+ * list in the order shown. Once they're gone, delete this and its test; the app reads `page`.
+ */
+export const list = query({
+	args: { chatId: v.id("chats"), threadId: v.optional(v.id("chatMessages")) },
+	handler: async (ctx, { chatId, threadId }): Promise<Message[]> => {
+		const visible = await visibleChat(ctx, chatId);
+		if (!visible) return [];
+		const parent = threadId && (await ctx.db.get(threadId));
+		if (threadId && (!parent || parent.chatId !== chatId)) return [];
+		const docs = (
+			await ctx.db
+				.query("chatMessages")
+				.withIndex("by_chat_shown", (q) => q.eq("chatId", chatId).eq("threadId", threadId).eq("quiet", undefined))
+				.order("desc")
+				.take(PAGE_MAX)
+		).sort((a, b) => shownAt(a) - shownAt(b));
+		const names = namer(ctx, { images: true });
+		return Promise.all((parent ? [parent, ...docs] : docs).map((m) => toMessage(ctx, m, visible.member, names)));
+	},
+});
 
 /** A streaming reply's content so far, or null once it ended (then it's on the message). */
 export const stream = query({

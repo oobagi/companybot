@@ -23,7 +23,7 @@ it("pages a 50,000-message channel, 40,000 quiet and 5,000 private to others, in
 			else shown.push(await ctx.db.insert("chatMessages", { ...base, authorUserId: owner.userId, text: `message ${i}` }));
 		}
 	});
-	const page = (cursor: string | null) => member.query(api.messages.list, { chatId, paginationOpts: { numItems: PAGE_SIZE, cursor } });
+	const page = (cursor: string | null) => member.query(api.messages.page, { chatId, paginationOpts: { numItems: PAGE_SIZE, cursor } });
 
 	const first = await page(null);
 	expect(first.page.map((m) => m._id)).toEqual(shown.slice(-PAGE_SIZE));
