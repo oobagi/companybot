@@ -1,5 +1,5 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { Modal as MantineModal, Popover as MantinePopover } from "@mantine/core";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CloseIcon, PlusIcon } from "../../icons";
 import { Notice, dangerButton, primaryButton, secondaryButton, useRun } from "../../ui";
 import { EmojiPanel } from "./EmojiPanel";
@@ -74,117 +74,124 @@ export function AgentBadge() {
 	return <span className="shrink-0 rounded bg-neutral-200/70 px-1 py-px text-[10px] leading-tight font-medium text-neutral-500 uppercase">Bot</span>;
 }
 
-/** What's open that a click outside or Escape closes, oldest first. Only the newest one closes. */
-const layers: object[] = [];
-
-/**
- * Calls `onClose` on a click outside `ref` or on Escape, when it's the newest open popover or
- * modal: Escape in a Confirm over a dialog closes just the Confirm. A popover's panel lives at
- * the end of the page, outside whatever opened it, so a click in one counts as inside.
- */
-export function useDismiss<T extends HTMLElement>(onClose: () => void, active = true, ignore?: React.RefObject<HTMLElement | null>) {
-	const ref = useRef<T>(null);
-	const close = useRef(onClose);
-	close.current = onClose;
-	useEffect(() => {
-		if (!active) return;
-		const layer = {};
-		layers.push(layer);
-		const newest = () => layers.at(-1) === layer;
-		const down = (e: MouseEvent) => {
-			const target = e.target as Element;
-			if (newest() && ref.current && !ref.current.contains(target) && !ignore?.current?.contains(target) && !target.closest?.("[data-popover]")) close.current();
-		};
-		const key = (e: KeyboardEvent) => e.key === "Escape" && newest() && close.current();
-		document.addEventListener("mousedown", down);
-		document.addEventListener("keydown", key);
-		return () => {
-			layers.splice(layers.indexOf(layer), 1);
-			document.removeEventListener("mousedown", down);
-			document.removeEventListener("keydown", key);
-		};
-	}, [active, ignore]);
-	return ref;
-}
-
 const EMOJI = ["👍", "❤️", "😂", "🎉", "👀", "🙏", "✅", "🔥"];
 
-/** The quick row of reactions, and "more" for the full picker. */
-export function EmojiPicker({ onPick, onClose, className = "" }: { onPick: (emoji: string) => void; onClose: () => void; className?: string }) {
+/** The quick row of reactions, and "more" for the full picker. Lives in a popover; `onPick` closes it. */
+export function EmojiPicker({ onPick }: { onPick: (emoji: string) => void }) {
 	return (
-		<div className={`z-20 flex gap-0.5 rounded-xl border border-neutral-200 bg-white p-1 shadow-lg ${className}`}>
+		<div className="flex gap-0.5">
 			{EMOJI.map((e) => (
-				<button
-					type="button"
-					key={e}
-					onClick={() => (onPick(e), onClose())}
-					className="flex size-8 items-center justify-center rounded-lg text-lg hover:bg-neutral-100"
-				>
+				<button type="button" key={e} onClick={() => onPick(e)} className="flex size-8 items-center justify-center rounded-lg text-lg hover:bg-neutral-100">
 					{e}
 				</button>
 			))}
 			<Popover trigger={<PlusIcon />} label="More emoji" className="flex size-8 items-center justify-center rounded-lg text-base text-neutral-500 hover:bg-neutral-100" panelClassName="w-auto">
-				{(close) => <EmojiPanel onPick={(e) => (onPick(e), close(), onClose())} />}
+				{(close) => <EmojiPanel onPick={(e) => (close(), onPick(e))} />}
 			</Popover>
 		</div>
 	);
 }
 
+/** How an open popover or dialog hears that one opened from inside it opened (1) or closed (-1). */
+const Inner = createContext<(change: 1 | -1) => void>(() => {});
+
 /**
- * `wide` for side-by-side content (page history). At the end of the page, like a popover's
- * panel, so it can open from anywhere (a menu, another dialog) and still take the mouse.
+ * An open popover or dialog is the newest while none opened from inside it is open. Only the newest
+ * closes on Escape (`onEscape`) or a click outside, so Escape in a Confirm over a dialog closes just
+ * the Confirm. `nest` goes around what's inside it.
  */
-export function Modal({ title, wide, onClose, children }: { title: string; wide?: boolean; onClose: () => void; children: React.ReactNode }) {
-	const ref = useDismiss<HTMLDivElement>(onClose);
-	const titleId = useId();
+function useNewest(opened: boolean, onEscape: () => void) {
+	const parent = useContext(Inner);
+	const [inner, setInner] = useState(0);
+	const report = useCallback((change: 1 | -1) => setInner((n) => n + change), []);
+	const escape = useRef(onEscape);
+	escape.current = onEscape;
+	const newest = opened && inner === 0;
+	useEffect(() => {
+		if (!opened) return;
+		parent(1);
+		return () => parent(-1);
+	}, [opened, parent]);
+	useEffect(() => {
+		if (!newest) return;
+		const key = (e: KeyboardEvent) => e.key === "Escape" && !e.isComposing && escape.current();
+		document.addEventListener("keydown", key);
+		return () => document.removeEventListener("keydown", key);
+	}, [newest]);
+	return { newest, nest: (children: React.ReactNode) => <Inner value={report}>{children}</Inner> };
+}
+
+/** Mantine's focus trap takes the first field unless one is marked: keep the one `autoFocus` picked. */
+function keepAutoFocus(layer: HTMLElement | null) {
+	const focused = document.activeElement;
+	if (layer && focused && focused !== layer && layer.contains(focused)) focused.setAttribute("data-autofocus", "");
+}
+
+/** Mantine's styles and motion off: ours are Tailwind classes, and nothing animates. */
+const plain = { unstyled: true, transitionProps: { duration: 0 } };
+
+/** Its children as they are: a dialog lays out its own content. */
+const Unwrapped = ({ children }: { children?: React.ReactNode }) => children;
+
+/**
+ * Something over the whole window (Mantine's Modal): it takes focus and gives it back, and Escape
+ * or a click outside closes it when it's the newest. At the end of the page, so it opens from
+ * anywhere (a menu, another dialog) and still takes the mouse from Electron's window-drag areas.
+ * `className` is the box; `overlayClassName` the dimmed rest.
+ */
+export function Layer({ onClose, className, overlayClassName, children }: { onClose: () => void; className: string; overlayClassName: string; children: React.ReactNode }) {
+	const { newest, nest } = useNewest(true, onClose);
+	// Ours, not Mantine's: dialogs unmount as they close, which Mantine's return of focus misses.
 	useLayoutEffect(() => {
 		const previous = document.activeElement as HTMLElement | null;
-		const panel = ref.current;
-		if (panel && !panel.contains(document.activeElement)) (panel.querySelector<HTMLElement>("input, textarea, button") ?? panel).focus();
 		return () => { if (previous?.isConnected) previous.focus({ preventScroll: true }); };
 	}, []);
-	return createPortal(
-		<div className="no-drag fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/20 p-6 text-[15px] text-neutral-900">
-			<div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={(event) => {
-				if (event.key !== "Tab") return;
-				const targets = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex="0"]')];
-				const next = event.shiftKey ? targets.at(-1) : targets[0];
-				if (document.activeElement === (event.shiftKey ? targets[0] : targets.at(-1))) { event.preventDefault(); next?.focus(); }
-			}} className={`flex max-h-[85vh] w-full ${wide ? "max-w-4xl" : "max-w-md"} flex-col gap-4 overflow-y-auto rounded-2xl bg-white p-6 shadow-xl`}>
-				<header className="flex items-center justify-between">
-					<h2 id={titleId} className="text-lg font-medium">{title}</h2>
-					<IconButton label="Close" onClick={onClose}>
-						<CloseIcon />
-					</IconButton>
-				</header>
-				{children}
-			</div>
-		</div>,
-		document.body,
+	return (
+		<MantineModal.Root
+			opened
+			onClose={onClose}
+			{...plain}
+			closeOnEscape={false} closeOnClickOutside={false} lockScroll={false} returnFocus={false} scrollAreaComponent={Unwrapped}
+			classNames={{ overlay: `no-drag fixed inset-0 z-50 ${overlayClassName}`, inner: "no-drag pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-6", content: `pointer-events-auto ${className}` }}
+		>
+			<MantineModal.Overlay onMouseDown={() => newest && onClose()} />
+			<MantineModal.Content ref={keepAutoFocus}>{nest(children)}</MantineModal.Content>
+		</MantineModal.Root>
 	);
 }
+
+/** `wide` for side-by-side content (page history). */
+export function Modal({ title, wide, onClose, children }: { title: string; wide?: boolean; onClose: () => void; children: React.ReactNode }) {
+	return (
+		<Layer
+			onClose={onClose}
+			overlayClassName="bg-neutral-900/20"
+			className={`flex max-h-[85vh] w-full ${wide ? "max-w-4xl" : "max-w-md"} flex-col gap-4 overflow-y-auto rounded-2xl bg-white p-6 text-[15px] text-neutral-900 shadow-xl`}
+		>
+			<header className="flex items-center justify-between">
+				<MantineModal.Title className="text-lg font-medium">{title}</MantineModal.Title>
+				<IconButton label="Close" onClick={onClose}>
+					<CloseIcon />
+				</IconButton>
+			</header>
+			{children}
+		</Layer>
+	);
+}
+
+export const iconButton = "no-drag flex size-7 items-center justify-center rounded-md text-base text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900";
 
 /** A square button holding only an icon; `label` is its tooltip and accessible name. */
 export function IconButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
 	return (
-		<button
-			type="button"
-			title={label}
-			aria-label={label}
-			onClick={onClick}
-			className="no-drag flex size-7 items-center justify-center rounded-md text-base text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
-		>
+		<button type="button" title={label} aria-label={label} onClick={onClick} className={iconButton}>
 			{children}
 		</button>
 	);
 }
 
-/** Invisible while it measures, but focusable, so a field in it can take focus as it opens. */
-const measuring: React.CSSProperties = { opacity: 0, pointerEvents: "none" };
-
 /**
  * A small panel that opens from the thing you clicked: profile cards, menus, details.
- * It sits below its button, or above when there's no room, and stays inside the window.
  * A click outside or Escape closes it. `children` can take `close`, for menus.
  */
 export function Popover({
@@ -209,94 +216,91 @@ export function Popover({
 	panelClassName?: string;
 	children: React.ReactNode | ((close: () => void) => React.ReactNode);
 }) {
-	const [anchor, setAnchor] = useState<DOMRect>();
-	const close = () => setAnchor(undefined);
-	const button = useRef<HTMLButtonElement>(null);
+	const [opened, setOpened] = useState(false);
+	const close = () => setOpened(false);
 	return (
-		<>
-			<button
-				ref={button}
-				type="button"
-				title={label}
-				aria-label={label}
-				aria-expanded={!!anchor}
-				disabled={disabled}
-				onClick={(e) => (anchor ? close() : setAnchor(e.currentTarget.getBoundingClientRect()))}
-				className={className}
-			>
-				{trigger}
-			</button>
-			{anchor && (
-				<PopoverPanel anchor={anchor} ignore={button} matchWidth={matchWidth} className={panelClassName} onClose={close}>
-					{typeof children === "function" ? children(close) : children}
-				</PopoverPanel>
-			)}
-		</>
+		<PopoverPanel
+			opened={opened}
+			onClose={close}
+			matchWidth={matchWidth}
+			className={panelClassName}
+			target={
+				<button type="button" title={label} aria-label={label} disabled={disabled} onClick={() => setOpened(!opened)} className={className}>
+					{trigger}
+				</button>
+			}
+		>
+			{typeof children === "function" ? children(close) : children}
+		</PopoverPanel>
 	);
 }
 
 /**
- * A Popover's panel on its own, placed by `anchor`: a button's box, or a point (a right-click).
- * A click outside or Escape closes it; a click on `ignore` (the button that toggles it) is left to that button.
+ * A Popover's panel on its own (Mantine's Popover), opened by you: from `target`, an element, or
+ * `at` a point (a right-click) inside the nearest positioned box. It sits below, or above when
+ * there's no room, inside the window, and follows its target as the page scrolls. It takes focus
+ * (unless `trapFocus` is off, for one that opens on hover) and gives it back to the target as it
+ * closes, unless you clicked into something else.
  */
 export function PopoverPanel({
-	anchor,
-	ignore,
-	matchWidth,
-	className = "w-72",
+	opened,
 	onClose,
+	target,
+	at,
+	matchWidth,
+	trapFocus = true,
+	className = "w-72",
 	children,
 }: {
-	anchor: DOMRect;
-	ignore?: React.RefObject<HTMLElement | null>;
-	matchWidth?: boolean;
-	className?: string;
+	opened: boolean;
 	onClose: () => void;
+	target?: React.ReactElement;
+	at?: { x: number; y: number };
+	matchWidth?: boolean;
+	trapFocus?: boolean;
+	className?: string;
 	children: React.ReactNode;
 }) {
-	const panel = useDismiss<HTMLDivElement>(onClose, true, ignore);
-	const [at, setAt] = useState<React.CSSProperties>(measuring);
-	// Measure, then place: below if it fits, else above if it fits there, else on the roomier
-	// side, shortened to fit (it scrolls). Never over its button; nudged in from the window's edges.
-	useLayoutEffect(() => {
-		const el = panel.current;
-		if (!el) return;
-		const place = () => {
-			const { width } = el.getBoundingClientRect();
-			// Use the full content height: the current height may already be capped on the wrong side.
-			const height = Math.min(el.scrollHeight + el.offsetHeight - el.clientHeight, window.innerHeight * 0.7);
-			const gap = 6;
-			const roomBelow = window.innerHeight - 8 - anchor.bottom - gap;
-			const roomAbove = anchor.top - gap - 8;
-			const below = height <= roomBelow || (height > roomAbove && roomBelow >= roomAbove);
-			const room = Math.max(0, below ? roomBelow : roomAbove);
-			setAt({
-				left: Math.max(8, Math.min(anchor.left, window.innerWidth - width - 8)),
-				top: below ? anchor.bottom + gap : anchor.top - gap - Math.min(height, room),
-				maxHeight: Math.min(room, window.innerHeight * 0.7),
-				minWidth: matchWidth ? anchor.width : undefined,
-			});
-		};
-		place();
-		// Tool details load after opening. Reposition when that content replaces the loading line.
-		const observer = new ResizeObserver(place);
-		observer.observe(el);
-		for (const child of el.children) observer.observe(child);
-		window.addEventListener("resize", place);
-		return () => { observer.disconnect(); window.removeEventListener("resize", place); };
-	}, [anchor, matchWidth, panel]);
-	// At the end of the page: Electron lets a later window-drag area (a top bar) take the mouse
-	// from anything drawn over it, so the panel has to come after them all.
-	return createPortal(
-		<div
-			ref={panel}
-			data-popover
-			style={at}
-			className={`no-drag fixed z-50 max-h-[70vh] overflow-y-auto rounded-xl border border-neutral-200 bg-white text-left text-sm font-normal text-neutral-900 shadow-lg ${className}`}
+	const anchor = useRef<HTMLElement>(null);
+	const { newest, nest } = useNewest(opened, onClose);
+	const wasOpen = useRef(false);
+	useEffect(() => {
+		if (opened) return void (wasOpen.current = true);
+		if (!wasOpen.current) return;
+		wasOpen.current = false;
+		// Focus was in the panel, now gone.
+		if (document.activeElement === document.body) anchor.current?.focus({ preventScroll: true });
+	}, [opened]);
+	const spot = useCallback((el: HTMLElement | null) => {
+		const box = el?.offsetParent?.getBoundingClientRect();
+		if (el && box && at) Object.assign(el.style, { left: `${at.x - box.left}px`, top: `${at.y - box.top}px` });
+	}, [at?.x, at?.y]);
+	return (
+		<MantinePopover
+			opened={opened}
+			onDismiss={onClose}
+			{...plain}
+			position="bottom-start" offset={6} width="" zIndex={50} floatingStrategy="fixed" trapFocus={trapFocus} closeOnEscape={false} closeOnClickOutside={newest}
+			middlewares={{
+				flip: true,
+				shift: { padding: 8 },
+				// Shortened to the room on its side (it scrolls); at least as wide as its button for a picker.
+				size: {
+					padding: 8,
+					apply: ({ rects, availableHeight, elements }) => {
+						Object.assign(elements.floating.style, { maxHeight: `${Math.min(availableHeight, window.innerHeight * 0.7)}px`, minWidth: matchWidth ? `${rects.reference.width}px` : "" });
+					},
+				},
+			}}
 		>
-			{children}
-		</div>,
-		document.body,
+			<MantinePopover.Target ref={anchor}>{target ?? <span ref={spot} className="pointer-events-none absolute size-0" />}</MantinePopover.Target>
+			<MantinePopover.Dropdown
+				ref={keepAutoFocus}
+				className={`no-drag fixed overflow-y-auto rounded-xl border border-neutral-200 bg-white text-left text-sm font-normal text-neutral-900 shadow-lg ${className}`}
+			>
+				{nest(children)}
+			</MantinePopover.Dropdown>
+		</MantinePopover>
 	);
 }
 

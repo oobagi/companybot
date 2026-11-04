@@ -2,6 +2,7 @@ import { getFunctionName } from "convex/server";
 import { act, createElement } from "react";
 import { type ReactTestRenderer, create } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { inApp } from "./testing";
 import { App } from "./App";
 import { navigate } from "./router";
 import { SettingsView } from "./views/Settings";
@@ -31,7 +32,6 @@ vi.mock("react-dom", async (actual) => ({ ...(await actual<typeof import("react-
 let root: ReactTestRenderer;
 beforeEach(() => {
 	(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-	vi.stubGlobal("document", { addEventListener: vi.fn(), removeEventListener: vi.fn() });
 	vi.stubGlobal("localStorage", { getItem: () => null });
 	vi.clearAllMocks();
 	state.queries = {
@@ -49,7 +49,7 @@ it.each(["general", "preferences"] as const)("guards confirmation and retries af
 	const account = tab === "preferences";
 	const action = account ? "Delete account" : "Delete workspace";
 	await act(async () => {
-		root = create(createElement(SettingsView, { access: { roles: ["owner"], owner: true, permissions: [] }, tab }));
+		root = create(inApp(createElement(SettingsView, { access: { roles: ["owner"], owner: true, permissions: [] }, tab })));
 	});
 	await act(async () => root.root.findAllByType("button").find((b) => b.children[0] === action)!.props.onClick());
 	const field = () => root.root.findByProps({ autoFocus: true });
@@ -85,10 +85,10 @@ it.each(["general", "preferences"] as const)("guards confirmation and retries af
 });
 
 it("signs out an erased account in any window instead of leaving it blank or provisioning a workspace", async () => {
-	await act(async () => { root = create(createElement(App)); });
+	await act(async () => { root = create(inApp(createElement(App))); });
 	expect(state.signOut).not.toHaveBeenCalled(); // Still loading.
 	state.queries["workspace:mine"] = null; // Erased on this or another device; JWT still valid.
-	await act(async () => root.update(createElement(App)));
+	await act(async () => root.update(inApp(createElement(App))));
 	expect(state.signOut).toHaveBeenCalledOnce();
 	expect(state.mutate).not.toHaveBeenCalled();
 });

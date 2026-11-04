@@ -1,5 +1,5 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { Fragment, useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery, useWorkspace } from "../../convex";
 import { AgentIcon, ArchiveIcon, CaretRightIcon, ChannelIcon, ChatIcon, CheckIcon, CloseIcon, EditIcon, MembersIcon, MoreIcon, PinIcon, PlusIcon, PrivateIcon, SignOutIcon, ThreadIcon, UnpinIcon } from "../../icons";
@@ -338,9 +338,9 @@ export function Item({
 }) {
 	const pins = usePins();
 	const pinned = !!pin && pins.pins.includes(pin);
-	const [menuAt, setMenuAt] = useState<DOMRect>();
+	// Open from its ⋯ button, or at the point you right-clicked.
+	const [menuAt, setMenuAt] = useState<"button" | { x: number; y: number }>();
 	const [renaming, setRenaming] = useState(false);
-	const more = useRef<HTMLButtonElement>(null);
 	const closeMenu = () => setMenuAt(undefined);
 	const items =
 		menu || rename || pin
@@ -357,7 +357,7 @@ export function Item({
 			{...drag}
 			// While renaming, a drag would take the text selection, and right-click is the input's own.
 			draggable={renaming ? false : drag?.draggable}
-			onContextMenu={items && !renaming ? (e) => (e.preventDefault(), setMenuAt(new DOMRect(e.clientX, e.clientY, 0, 0))) : undefined}
+			onContextMenu={items && !renaming ? (e) => (e.preventDefault(), setMenuAt({ x: e.clientX, y: e.clientY })) : undefined}
 			className={`group/item relative flex items-stretch text-sm ${drag?.className ?? ""}`}
 		>
 			{/* Tree guides sit in a gutter before the pill, so hover and active backgrounds never paint over them. */}
@@ -409,23 +409,24 @@ export function Item({
 			{(items || actions) && !renaming && (
 				<span className={`relative z-10 items-center gap-0.5 ${menuAt ? "flex" : "hidden group-focus-within/item:flex group-hover/item:flex has-[[aria-expanded=true]]:flex"}`}>
 					{items && (
-						<button
-							ref={more}
-							type="button"
-							title="More"
-							aria-label={label ? `Actions for ${label}` : "Actions"}
-							aria-expanded={!!menuAt}
-							onClick={(e) => (menuAt ? closeMenu() : setMenuAt(e.currentTarget.getBoundingClientRect()))}
-							className={trailingAction}
+						<PopoverPanel
+							opened={menuAt === "button"}
+							onClose={closeMenu}
+							className="w-52 p-1"
+							target={
+								<button type="button" title="More" aria-label={label ? `Actions for ${label}` : "Actions"} onClick={() => setMenuAt(menuAt === "button" ? undefined : "button")} className={trailingAction}>
+									<MoreIcon weight="bold" />
+								</button>
+							}
 						>
-							<MoreIcon weight="bold" />
-						</button>
+							{items(closeMenu)}
+						</PopoverPanel>
 					)}
 					{actions}
 				</span>
 			)}
-			{items && menuAt && (
-				<PopoverPanel anchor={menuAt} ignore={more} className="w-52 p-1" onClose={closeMenu}>
+			{items && typeof menuAt === "object" && (
+				<PopoverPanel opened at={menuAt} onClose={closeMenu} className="w-52 p-1">
 					{items(closeMenu)}
 				</PopoverPanel>
 			)}

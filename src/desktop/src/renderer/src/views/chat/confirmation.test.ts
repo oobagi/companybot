@@ -1,6 +1,7 @@
 import { act, createElement } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { inApp } from "../../testing";
 import { Confirm, archiveQuestion, useConfirm } from "./common";
 
 vi.mock("react-dom", async (actual) => ({ ...(await actual<typeof import("react-dom")>()), createPortal: (node: React.ReactNode) => node }));
@@ -10,8 +11,7 @@ function Harness() { control = useConfirm(); return control.dialog; }
 
 beforeEach(async () => {
 	(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-	vi.stubGlobal("document", { addEventListener() {}, removeEventListener() {} });
-	await act(async () => { root = create(createElement(Harness)); });
+	await act(async () => { root = create(inApp(createElement(Harness))); });
 });
 afterEach(async () => { await act(async () => root.unmount()); vi.unstubAllGlobals(); });
 

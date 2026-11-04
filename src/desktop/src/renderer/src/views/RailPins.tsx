@@ -102,11 +102,11 @@ function RailItem({
 	tip: ReturnType<TipFor>;
 	hideTip: () => void;
 }) {
-	const [menuAt, setMenuAt] = useState<DOMRect>();
+	const [menuAt, setMenuAt] = useState<{ x: number; y: number }>();
 	return (
 		<div
 			{...drag}
-			onContextMenu={(e) => (e.preventDefault(), hideTip(), setMenuAt(new DOMRect(e.clientX, e.clientY, 0, 0)))}
+			onContextMenu={(e) => (e.preventDefault(), hideTip(), setMenuAt({ x: e.clientX, y: e.clientY }))}
 			className={`relative flex shrink-0 ${drag?.className ?? ""}`}
 		>
 			<span className="relative flex" {...tip}>
@@ -124,7 +124,7 @@ function RailItem({
 				)}
 			</span>
 			{menuAt && (
-				<PopoverPanel anchor={menuAt} className="w-44 p-1 text-sm" onClose={() => setMenuAt(undefined)}>
+				<PopoverPanel opened at={menuAt} className="w-44 p-1 text-sm" onClose={() => setMenuAt(undefined)}>
 					<MenuItem onClick={() => (setMenuAt(undefined), onToggle())}>
 						{pinned ? (
 							<>
