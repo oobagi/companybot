@@ -75,6 +75,7 @@ export const list = query({
 			connectorCatalog.map(async (connector) => {
 				const state = states.find((s) => s.id === connector.id);
 				const connection = state ? await connectionFor(ctx, connector, member) : null;
+				const roleIds = state?.roles ?? defaultRoles(connector, memberRole);
 				return {
 					id: connector.id,
 					name: connector.name,
@@ -87,7 +88,9 @@ export const list = query({
 					auth: connector.auth,
 					installed: !!state,
 					/** Ids of the roles allowed to use it; before it's installed, the ones that would be. */
-					roles: state?.roles ?? defaultRoles(connector, memberRole),
+					roleIds,
+					// COMPAT(0.1.0-alpha.10): alpha.9 apps read `roles.includes("member")` for "Everyone" vs "Owners only"; delete this.
+					roles: (memberRole && roleIds.includes(memberRole) ? ["owner", "member"] : ["owner"]) as ("owner" | "member")[],
 					canUse: !!state && canUseConnector(member, state.roles),
 					connected: state?.connected ?? false,
 					error: connection?.error ?? null,
