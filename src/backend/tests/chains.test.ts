@@ -44,7 +44,7 @@ async function running(t: T, agentId: Id<"agents">) {
 /** The agent's running turn writes `text` and ends. */
 async function say(t: T, agentId: Id<"agents">, text: string) {
 	const turn = await running(t, agentId);
-	await t.mutation(internal.turns.updateReply, { replyId: turn.replyId!, text, parts: [{ type: "text", text }] });
+	await t.mutation(internal.turns.updateReply, { turnId: turn._id, text, parts: [{ type: "text", text }] });
 	await t.mutation(internal.turns.finishReply, { turnId: turn._id });
 	return turn;
 }

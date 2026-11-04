@@ -44,6 +44,7 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"memory.restoreVersion": { humanOnly: "Picking an old version is a review step in Settings → Memory; agents correct content with memory.update." },
 	"messages.send": { agent: ["chat.manage:send"] },
 	"onboarding.dismissTutorial": { humanOnly: "Hides the person's own tutorial in the app; agents have no tutorial." },
+	"turns.stop": { humanOnly: "The Stop button on a running reply; an agent ends its own turn by finishing it." },
 	"typing.ping": { humanOnly: "Comes from a keyboard; agents show as typing while their turn runs." },
 	"messages.edit": { agent: ["chat.manage:edit"] },
 	"messages.remove": { agent: ["chat.manage:delete"] },

@@ -1,21 +1,23 @@
 import type { PlaceMessage, Skill } from "@companybot/core";
-import { PROMPT_MESSAGE_CAP, approxTokens, defaultReasoning, fallbackModels, publishes } from "@companybot/core";
-import { type Infer, v } from "convex/values";
+import { PROMPT_MESSAGE_CAP, approxTokens, can, defaultReasoning, fallbackModels, publishes } from "@companybot/core";
+import { ConvexError, type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
+import { mutation } from "./functions";
 import {
 	type Namer,
 	canSee,
 	chatMembersOf,
 	countMessage,
 	insertMessage,
+	requireChat,
 	namer,
 	replyForModel,
 	textForModel,
 } from "./chatOps";
 import { previewMessage } from "./linkPreviews";
-import { type Who, installedSkills, liveWorkspace, memberOf, timeZoneOf } from "./lib";
+import { type Member, type Who, installedSkills, liveWorkspace, memberOf, nameOf, requireMember, timeZoneOf } from "./lib";
 import { automationScope } from "./automationOps";
 import { messagePart, replyStats, replyUsage } from "./schema";
 import { filesForModel, turnImages } from "./files";
@@ -419,13 +421,52 @@ export const streamOf = (ctx: QueryCtx, messageId: Id<"chatMessages">) =>
 		.withIndex("by_message", (q) => q.eq("messageId", messageId))
 		.first();
 
+/** Writes a streaming reply's content so far (~5×/s). `stopped`: someone pressed Stop on its turn (turns.stop), so the runner ends it. */
 export const updateReply = internalMutation({
-	args: { replyId: v.id("chatMessages"), text: v.string(), parts: v.array(messagePart) },
-	handler: async (ctx, { replyId, text, parts }) => {
-		if ((await ctx.db.get(replyId))?.status !== "streaming") return;
+	args: { turnId: v.id("agentTurns"), text: v.string(), parts: v.array(messagePart) },
+	handler: async (ctx, { turnId, text, parts }) => {
+		const stopped = await stopRequested(ctx, turnId);
+		const replyId = (await ctx.db.get(turnId))?.replyId;
+		if (!replyId || (await ctx.db.get(replyId))?.status !== "streaming") return { stopped };
 		const stream = await streamOf(ctx, replyId);
 		if (stream) await ctx.db.patch(stream._id, { text, parts });
 		else await ctx.db.insert("replyStreams", { messageId: replyId, text, parts });
+		return { stopped };
+	},
+});
+
+/** Whether a turn should end now: someone pressed Stop, or it isn't running anymore (failed as stale). */
+async function stopRequested(ctx: QueryCtx, turnId: Id<"agentTurns">) {
+	const turn = await ctx.db.get(turnId);
+	return !turn || turn.status !== "running" || !!turn.stopping;
+}
+
+/** For the runner between flushes and at each step (agent.ts `turnStop`). */
+export const isStopping = internalQuery({
+	args: { turnId: v.id("agentTurns") },
+	handler: (ctx, { turnId }) => stopRequested(ctx, turnId),
+});
+
+/** Who may stop a running turn: the person it runs for, or someone allowed to stop anyone's (an owner). */
+export const canStopTurn = (member: Member, turn: Doc<"agentTurns">) => turn.actorId === member.userId || can(member.role, "turns.stopAny");
+
+/**
+ * Stop: ends a running turn early. Convex can't kill a running action, so this only marks it; the
+ * runner sees it on its next flush or step and ends (agent.ts `turnStop`): a tool call already running
+ * finishes, nothing after it runs, nothing done is undone. finishReply keeps the partial reply, marked
+ * stopped, and starts the next queued turn. A UI control only: a message saying "stop" is just a message.
+ */
+export const stop = mutation({
+	args: { turnId: v.id("agentTurns") },
+	handler: async (ctx, { turnId }) => {
+		const member = await requireMember(ctx);
+		const turn = await ctx.db.get(turnId);
+		if (!turn || turn.workspaceId !== member.workspaceId) throw new ConvexError("Reply not found.");
+		await requireChat(ctx, member, turn.chatId);
+		if (!canStopTurn(member, turn)) throw new ConvexError(`Only ${await nameOf(ctx, turn.actorId)} or an owner can stop this: the agent is working for them.`);
+		// Already over (or already stopping): nothing to do.
+		if (turn.status !== "running" || turn.stopping) return;
+		await ctx.db.patch(turnId, { stopping: { by: member.userId, at: Date.now() } });
 	},
 });
 
@@ -552,18 +593,25 @@ export const finishReply = internalMutation({
 			if (reply && stats) await ctx.db.patch(reply._id, { stats });
 			return;
 		}
-		const show = !!reply && !!reply.quiet && !error && (await shown(ctx, turn, reply, decision));
+		// Stopped (turns.stop): what it wrote and did stays, marked stopped, and it ends like a failure, minus the
+		// error: no handoff, no decision, and an ask's asker hears it was stopped.
+		// Aborting can surface as an error; the stop is what happened.
+		const stopped = turn.stopping;
+		if (stopped) error = undefined;
+		// A stopped quiet reply has no decision; it's shown only if it holds a card the person must decide on.
+		const show = !!reply && !!reply.quiet && !error && (await shown(ctx, turn, reply, stopped ? undefined : decision));
 		if (reply) {
-			await endStream(ctx, reply, { ...(error ? { status: "error" as const, error } : { status: "done" as const }), stats, ...(show && { quiet: undefined, publishedAt: Date.now() }) });
+			const end = error ? { status: "error" as const, error } : { status: "done" as const, ...(stopped && { stoppedBy: stopped.by }) };
+			await endStream(ctx, reply, { ...end, stats, ...(show && { quiet: undefined, publishedAt: Date.now() }) });
 			if (show) await countMessage(ctx, (await ctx.db.get(turn.chatId))!, reply);
 			if (!error) await previewMessage(ctx, (await ctx.db.get(reply._id))!);
 		}
 		await ctx.db.patch(turnId, { status: error ? "error" : "done", step: undefined });
-		await setWakeOutcome(ctx, turn, error ? "failed" : show ? "notified" : "ran");
+		await setWakeOutcome(ctx, turn, error || stopped ? "failed" : show ? "notified" : "ran");
 		await settleApproval(ctx, turn);
 		// Agents it @mentioned or named take the work on (chains.ts); an asked agent's answer goes back to the asker.
-		if (!error) await handOff(ctx, (await ctx.db.get(turnId))!, decision?.to);
-		await answerAsk(ctx, turn, error);
+		if (!error && !stopped) await handOff(ctx, (await ctx.db.get(turnId))!, decision?.to);
+		await answerAsk(ctx, turn, error ?? (stopped ? "it was stopped" : undefined));
 		await startNext(ctx, turn);
 		await startThen(ctx, turn);
 	},
