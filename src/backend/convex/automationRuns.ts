@@ -7,6 +7,8 @@ import { mutation } from "./functions";
 import { addToChat, canPost, canSee, findOrCreateDm, insertMessage } from "./chatOps";
 import { type Member, accessOf, liveWorkspace, memberOf, nameOf, normalizeEmail, requireMember, rolesOf, sweepExpired } from "./lib";
 import { type RunOutcome, definitionOf, followsOthers, outcomeText, postingProblem, requireEditable, scheduleCursor, subscribersOf } from "./automationOps";
+import { canReadSources } from "./replyPrivacy";
+import { chatSources, type UsedPlace } from "./replySources";
 import { enqueueTurn } from "./turns";
 
 /** Runs it once now, just for you (webhooks and events use a sample), so you can see what it does. */
@@ -172,7 +174,7 @@ async function runFor(
 	const people: Id<"users">[] = [];
 	for (const id of userIds) {
 		const member = await memberOf(ctx, id, install.workspaceId);
-		if (!member) continue;
+		if (!member || !(await canReadSources(ctx, member, install.usedPlaces))) continue;
 		if (chat && !(await canSee(ctx, chat, member))) continue;
 		people.push(id);
 	}
@@ -187,7 +189,7 @@ async function runFor(
 					: "nobody has turned it on";
 		return { ran: false, outcome: await finish(ctx, install, { text: `Didn't run: ${why}.` }) };
 	}
-	return runInDms(ctx, install, automation, people, prompt);
+	return runInDms(ctx, install, automation, people, prompt, chat ? chatSources(chat) : []);
 }
 
 async function activeAgent(ctx: QueryCtx, install: Doc<"automationInstalls">) {
@@ -207,6 +209,7 @@ async function runInDms(
 	automation: Automation,
 	userIds: Id<"users">[],
 	prompt: string,
+	sources: UsedPlace[] = [],
 ): Promise<Run> {
 	const agent = await activeAgent(ctx, install);
 	if (!agent) return { ran: false, outcome: await finish(ctx, install, noAgent) };
@@ -214,6 +217,7 @@ async function runInDms(
 		const chatId = await findOrCreateDm(ctx, install.workspaceId, userId, [userId], [agent._id]);
 		const chat = (await ctx.db.get(chatId))!;
 		const triggerId = await insertMessage(ctx, chat, {
+			usedPlaces: [...new Set([...(install.usedPlaces ?? []), ...sources])],
 			authorUserId: userId,
 			text: prompt,
 			parts: [{ type: "text", text: prompt }],
@@ -263,7 +267,7 @@ async function runInChannel(
 	for (const userId of [preferred, ...owners.map((m) => m.userId)]) {
 		const member = await memberOf(ctx, userId, install.workspaceId);
 		// It posts there as them, so they need Post in it, not just View.
-		if (member && (await canSee(ctx, chat, member)) && canPost(member, chat)) {
+		if (member && await canReadSources(ctx, member, install.usedPlaces) && (await canSee(ctx, chat, member)) && canPost(member, chat)) {
 			actorId = userId;
 			break;
 		}
@@ -276,6 +280,7 @@ async function runInChannel(
 	await addToChat(ctx, chat, { agentId: agent._id });
 	const triggerId = await insertMessage(ctx, chat, {
 		threadId,
+		usedPlaces: install.usedPlaces,
 		authorUserId: actorId,
 		text: prompt,
 		parts: [{ type: "text", text: prompt }],

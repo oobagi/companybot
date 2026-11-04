@@ -28,7 +28,7 @@ export const manageInputs = {
 			z.strictObject({ action: z.literal("mark_read"), chat: id }),
 			z.strictObject({ action: z.literal("edit"), messageId: id, text: z.string().min(1).max(20_000) }),
 			z.strictObject({ action: z.literal("delete"), messageId: id }),
-			z.strictObject({ action: z.literal("react"), messageId: id, emoji: z.string().min(1).max(16) }),
+			z.strictObject({ action: z.literal("react"), messageId: id, emoji: z.string().min(1) }),
 			z.strictObject({ action: z.literal("hide_preview"), messageId: id, url: z.string().min(1).max(2048).describe("The link whose preview card to take down") }),
 			z.strictObject({ action: z.literal("open_dm"), userIds: userIds.describe("Others in the DM; your person is always added. With nobody else, it's your own DM with them"), agentIds }),
 			z.strictObject({

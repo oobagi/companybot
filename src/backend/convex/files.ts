@@ -2,11 +2,12 @@ import { FILE_MAX_BYTES, FILES_PER_MESSAGE, TURN_IMAGES_MAX, cleanFileName, imag
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, httpAction, internalMutation } from "./_generated/server";
-import { mutation, query } from "./functions";
 import { canSee } from "./chatOps";
+import { mutation, query } from "./functions";
 import { deleteFile, readBody, reply, storeUpload, uploadOf } from "./images";
 import { type Member, requireMember } from "./lib";
 import { readReply } from "./replyPrivacy";
+import { writeSources } from "./replySources";
 import type { attachment } from "./schema";
 import { runningTurn } from "./turns";
 
@@ -89,7 +90,7 @@ export const attachToReply = internalMutation({
 		const attachments = reply?.attachments ?? [];
 		if (!reply || reply.deleted || attachments.length >= FILES_PER_MESSAGE) return refuse(`A reply holds up to ${FILES_PER_MESSAGE} files.`);
 		const size = width && height ? { width, height } : {};
-		await ctx.db.patch(reply._id, { attachments: [...attachments, { storageId, name: cleanFileName(name), type, size: file.size, ...size }] });
+		await ctx.db.patch(reply._id, { usedPlaces: await writeSources(ctx, running.member, { filtered: true }, reply), attachments: [...attachments, { storageId, name: cleanFileName(name), type, size: file.size, ...size }] });
 		return { attached: true, id: fileId(reply._id, attachments.length) };
 	},
 });

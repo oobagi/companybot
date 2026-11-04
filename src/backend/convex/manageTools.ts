@@ -14,7 +14,7 @@ import { editMessage, hideMessagePreview, removeMessage, reactMessage, sendMessa
 import { catalogModels } from "./modelCatalog";
 import { chatAccess } from "./placeAccess";
 import { updatePreferences } from "./preferences";
-import { notePlace, requireUnrestrictedTurn } from "./replySources";
+import { notePlace, readArtifact, writeSources } from "./replySources";
 import { installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
 import { runningTurn } from "./turns";
 import { usageReport } from "./usage";
@@ -172,14 +172,13 @@ export const runFor = internalMutation({
 						const result = await workspacePage(ctx, "automationInstalls", member, r.cursor);
 						return {
 							...result,
-							page: result.page
-								.filter((i) => canView(member, i) && !i.archived)
-								.map((i) => ({ id: i.automationId, name: automationName(i), enabled: i.enabled, agentId: i.agentId, version: i.custom?.version ?? i.definition?.version })),
+							page: (await Promise.all(result.page.map(async (i) => !i.archived && await canView(ctx, member, i) && await readArtifact(ctx, member, i) ? { id: i.automationId, name: automationName(i), enabled: i.enabled, agentId: i.agentId, version: i.custom?.version ?? i.definition?.version } : null))).filter((i) => i !== null),
 						};
 					}
 
 					const install = await installOf(ctx, member.workspaceId, r.id);
-					if (!install || !canView(member, install)) throw new ConvexError("Automation not found.");
+					if (!install || !(await canView(ctx, member, install))) throw new ConvexError("Automation not found.");
+					if (r.action === "get") await readArtifact(ctx, member, install);
 					if (r.action === "get")
 						return {
 							id: r.id,
@@ -297,7 +296,7 @@ export const runFor = internalMutation({
 					}
 					if (r.action === "update_preferences") {
 						const { action, ...changes } = r;
-						if (changes.displayName !== undefined) await requireUnrestrictedTurn(ctx, member);
+						if (changes.displayName !== undefined) await writeSources(ctx, member);
 						await updatePreferences(ctx, member.userId, changes);
 						return { updated: true };
 					}

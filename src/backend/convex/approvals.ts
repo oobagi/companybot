@@ -20,7 +20,7 @@ import { titleOf } from "./connectorTools";
 import { erased, getMember, memberOf, nameOf, requireLiveAgent, requireMember, toActor } from "./lib";
 import { decideFor, setRule } from "./permissions";
 import { canReadReply, readReply } from "./replyPrivacy";
-import { turnSources } from "./replySources";
+import { writeSources } from "./replySources";
 import { risk } from "./schema";
 import { enqueueTurn, runningTurn } from "./turns";
 
@@ -43,7 +43,7 @@ export const request = internalMutation({
 		// In the DM itself it goes in the reply, which is shown with it (turns.finishReply), quiet or not.
 		const separate = !!dmId && dmId !== turn.chatId;
 		const replyId = separate ? await insertMessage(ctx, (await ctx.db.get(dmId!))!, {
-			authorAgentId: turn.agentId, usedPlaces: await turnSources(ctx, member), repliedTo: turn.actorId, text: "", parts: [], mentions: { userIds: [], agentIds: [] }, status: "done",
+			authorAgentId: turn.agentId, usedPlaces: await writeSources(ctx, member, { filtered: true }), repliedTo: turn.actorId, text: "", parts: [], mentions: { userIds: [], agentIds: [] }, status: "done",
 		}) : turn.replyId;
 		const approvalId = await ctx.db.insert("approvals", {
 			workspaceId: turn.workspaceId,

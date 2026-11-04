@@ -5,7 +5,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { imageUrls } from "./images";
 import { type Member, type Who, checkPermission, getMember, memberOf, memo, nameOf, personOf } from "./lib";
 import { channelName, chatAccess, reach, requireAccess } from "./placeAccess";
-import { notePlace } from "./replySources";
+import { notePlace, readArtifact } from "./replySources";
 import { putInTrash, takeFromTrash } from "./trashOps";
 
 // Shared by the app's chat functions (chats.ts, messages.ts) and the agent runner
@@ -61,13 +61,13 @@ export const membership = (ctx: QueryCtx, chatId: Id<"chats">, userId: Id<"users
  * channel's Who can access list applies on top: not on it, no access.
  */
 export async function canSee(ctx: QueryCtx, chat: Doc<"chats">, member: Member) {
-	const seen = (await reachOf(ctx, chat, member)) === "ok";
-	if (seen) await notePlace(ctx, member, chat._id, chatAccess(chat), !!chat.private);
+	const seen = (await reachOf(ctx, chat, member)) === "ok" && await readArtifact(ctx, member, chat);
+	if (seen) await notePlace(ctx, member, chat._id, chatAccess(chat), (chat.kind !== "channel" || !!chat.private));
 	return seen;
 }
 
 /** Whether someone can see a chat: "ok", "members" (a private chat they're not in) or "access" (not on its list). */
-async function reachOf(ctx: QueryCtx, chat: Doc<"chats">, member: Member) {
+export async function reachOf(ctx: QueryCtx, chat: Doc<"chats">, member: Member) {
 	if (chat.workspaceId !== member.workspaceId) return "members";
 	if ((chat.kind !== "channel" || chat.private) && !(await membership(ctx, chat._id, member.userId))) return "members";
 	return reach(member, chatAccess(chat)) ? "ok" : "access";
@@ -111,7 +111,8 @@ export async function chatByRef(ctx: QueryCtx, member: Member, ref: string) {
 async function seenOrRefused(ctx: QueryCtx, chat: Doc<"chats">, member: Member, asked?: string) {
 	const seen = await reachOf(ctx, chat, member);
 	if (seen === "access") requireAccess(member, "channel", channelName(chat), chatAccess(chat), "view", asked);
-	if (seen === "ok") await notePlace(ctx, member, chat._id, chatAccess(chat), !!chat.private);
+	if (seen === "ok" && !(await readArtifact(ctx, member, chat))) return null;
+	if (seen === "ok") await notePlace(ctx, member, chat._id, chatAccess(chat), (chat.kind !== "channel" || !!chat.private));
 	return seen === "ok" ? chat : null;
 }
 
@@ -132,7 +133,7 @@ export async function requireChat(ctx: QueryCtx, member: Member, chatId: Id<"cha
 	const seen = chat ? await reachOf(ctx, chat, member) : "members";
 	if (seen === "access") requireAccess(member, "channel", channelName(chat!), chatAccess(chat!), "view");
 	if (!chat || seen !== "ok") throw new ConvexError("Chat not found.");
-	await notePlace(ctx, member, chat._id, chatAccess(chat), !!chat.private);
+	await notePlace(ctx, member, chat._id, chatAccess(chat), (chat.kind !== "channel" || !!chat.private));
 	return chat;
 }
 

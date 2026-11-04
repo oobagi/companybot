@@ -23,7 +23,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { type Member, type Who, checkPermission, checkVersion, memberOf, memo, nameOf, requireInWorkspace } from "./lib";
 import { reach, requireAccess } from "./placeAccess";
-import { notePlace, requireUnrestrictedTurn } from "./replySources";
+import { notePlace, readArtifact, writeSources } from "./replySources";
 import { toggleTrash } from "./trashOps";
 
 // Records, fields and their history. Shared by the app's functions (records.ts,
@@ -41,6 +41,7 @@ type Change = Doc<"recordHistory">["changes"][number];
 export async function requireType(ctx: QueryCtx, member: Member, typeId: Id<"recordTypes">, need: AccessLevel = "view", asked?: string) {
 	const type = requireInWorkspace(member, await ctx.db.get(typeId), "Database");
 	requireAccess(member, "database", type.plural, type.access, need, asked);
+	if (!(await readArtifact(ctx, member, type))) throw new ConvexError("Database not found.");
 	await notePlace(ctx, member, type._id, type.access);
 	if (need === "edit" && type.archived) throw new ConvexError("This database is in Archive. Restore it to make changes.");
 	return type;
@@ -49,11 +50,7 @@ export async function requireType(ctx: QueryCtx, member: Member, typeId: Id<"rec
 /** A record whose database the person reaches `need` in (as `requireType`). */
 export async function requireRecord(ctx: QueryCtx, member: Member, recordId: Id<"records">, need: AccessLevel = "view") {
 	const record = requireInWorkspace(member, await ctx.db.get(recordId), "Record");
-	const type = await ctx.db.get(record.typeId);
-	if (type) {
-		requireAccess(member, "database", type.plural, type.access, need);
-		await notePlace(ctx, member, type._id, type.access);
-	}
+	await requireType(ctx, member, record.typeId, need);
 	return record;
 }
 
@@ -65,7 +62,7 @@ export const typeReach = (ctx: QueryCtx, member: Member) =>
 	memo(async (typeId: Id<"recordTypes">) => {
 		const type = await ctx.db.get(typeId);
 		if (!type || type.workspaceId !== member.workspaceId) return null;
-		const level = reach(member, type.access);
+		const level = await readArtifact(ctx, { ...member, replyId: undefined }, type) ? reach(member, type.access) : null;
 		if (level) await notePlace(ctx, member, type._id, type.access);
 		return level;
 	});
@@ -227,7 +224,7 @@ export async function createRecord(ctx: MutationCtx, who: Who, typeId: Id<"recor
 	const title = values[NAME_KEY];
 	if (typeof title !== "string") throw new ConvexError(`Give the ${type.name.toLowerCase()} a name.`);
 	requireSize(values);
-	await requireUnrestrictedTurn(ctx, who.member, typeId);
+	await writeSources(ctx, who.member, typeId);
 	const id = await ctx.db.insert("records", {
 		workspaceId: who.member.workspaceId,
 		typeId,
@@ -281,7 +278,7 @@ async function applyValues(
 	const title = values[NAME_KEY];
 	if (typeof title !== "string") throw new ConvexError("Every record needs a name.");
 	requireSize(values);
-	await requireUnrestrictedTurn(ctx, who.member, record.typeId);
+	await writeSources(ctx, who.member, record.typeId);
 	await ctx.db.patch(record._id, { title, values, searchText: searchTextOf(fields.map(toField), values), ...stamp(who) });
 	await writeIndex(ctx, { ...record, values }, fields, new Set(changes.map((c) => c.key)));
 	return logChange(ctx, who, { typeId: record.typeId, recordId: record._id, action: "updated", changes, ...(undoes && { undoes }) });
@@ -384,7 +381,7 @@ export async function createField(ctx: MutationCtx, who: Who, typeId: Id<"record
 	// Linking to a database shows its records' names here, so it takes seeing it.
 	if (linkTypeId && (await requireType(ctx, who.member, linkTypeId)).archived) throw new ConvexError("This database is in Archive. Restore it to make changes.");
 	const key = keyOf(config.label, fields.map((f) => f.key));
-	await requireUnrestrictedTurn(ctx, who.member, typeId);
+	await writeSources(ctx, who.member, typeId);
 	const id = await insertField(ctx, who.member, typeId, { ...config, key }, Math.max(0, ...fields.map((f) => f.position)) + 1, linkTypeId);
 	await logChange(ctx, who, { typeId, fieldId: id, action: "field.created", changes: [{ key: "label", new: config.label }] });
 	return (await ctx.db.get(id))!;
@@ -410,7 +407,7 @@ export async function updateField(
 ) {
 	const field = await requireEditableField(ctx, who.member, fieldId);
 	if (field.archived) throw new ConvexError("This field is in Archive. Restore it to make changes.");
-	if (update.label !== undefined || update.options !== undefined) await requireUnrestrictedTurn(ctx, who.member, field.typeId);
+	if (update.label !== undefined || update.options !== undefined) await writeSources(ctx, who.member, field.typeId);
 	let options = field.options;
 	if (update.options) {
 		const existing = field.options ?? [];
@@ -480,7 +477,7 @@ function databaseNames(plural: string, singular: string | undefined, types: Doc<
 /** A new database with just a name field. */
 export async function createType(ctx: MutationCtx, who: Who, input: { plural: string; name?: string }) {
 	checkPermission(who.member, "fields.edit");
-	await requireUnrestrictedTurn(ctx, who.member);
+	await writeSources(ctx, who.member);
 	const types = await typesOf(ctx, who.member.workspaceId);
 	if (types.length >= TYPES_MAX) throw new ConvexError(`A workspace holds up to ${TYPES_MAX} databases, including ones in Archive.`);
 	const names = databaseNames(input.plural, input.name, types);
@@ -495,7 +492,7 @@ export async function updateType(ctx: MutationCtx, who: Who, typeId: Id<"recordT
 	checkPermission(who.member, "fields.edit");
 	const type = await requireType(ctx, who.member, typeId, "edit");
 	checkVersion(type.version ?? 0, input.version);
-	await requireUnrestrictedTurn(ctx, who.member, typeId);
+	await writeSources(ctx, who.member, typeId);
 	const names = databaseNames(input.plural ?? type.plural, input.name ?? (input.plural === undefined ? type.name : undefined), await typesOf(ctx, who.member.workspaceId), typeId);
 	const changes = (["name", "plural"] as const).filter((key) => type[key] !== names[key]).map((key) => ({ key, old: type[key], new: names[key] }));
 	if (!changes.length) return;

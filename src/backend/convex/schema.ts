@@ -7,6 +7,8 @@ import { viewConfig } from "./recordValidators";
 /** One of `values`, each a literal. */
 const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map((value) => v.literal(value)));
 
+const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats"))));
+
 export const notify = v.union(v.literal("all"), v.literal("mentions"), v.literal("off"));
 
 // Retired: one of "owner" or "member" per person, before roles were workspace data. migrations.customRoles moves them.
@@ -320,6 +322,8 @@ export default defineSchema({
 	}).index("by_agent", ["agentId", "version"]),
 
 	memories: defineTable({
+		/** Sources retained across edits and later audience changes. Older rows have none. */
+		usedPlaces,
 		workspaceId: v.id("workspaces"),
 		agentId: v.id("agents"),
 		scope: v.union(v.literal("workspace"), v.literal("personal")),
@@ -466,6 +470,8 @@ export default defineSchema({
 
 	// A channel (named, public or private) or a DM (fixed set of people and agents).
 	chats: defineTable({
+		/** Sources retained across edits and later audience changes. Older rows have none. */
+		usedPlaces,
 		workspaceId: v.id("workspaces"),
 		kind: v.union(v.literal("channel"), v.literal("dm")),
 		/** Channels only: lowercase, no "#", unique per workspace. */
@@ -516,7 +522,7 @@ export default defineSchema({
 	// Written by a person (authorUserId) or an agent (authorAgentId), never both.
 	chatMessages: defineTable({
 		/** Restricted sources, checked live for every viewer. Records use their database. */
-		usedPlaces: v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats")))),
+		usedPlaces,
 		sharedBy: v.optional(v.id("users")),
 		/** The asker, even when the reply is just the agent speaking (not actingFor). */
 		repliedTo: v.optional(v.id("users")),
@@ -822,7 +828,7 @@ export default defineSchema({
 	// #114) and what (a note: a follow-up's task; none: look around, #162's heartbeat). One table and one
 	// path to a turn (wakeups.ts `wake`) for all of them.
 	wakeups: defineTable({
-		usedPlaces: v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats")))),
+		usedPlaces,
 		workspaceId: v.id("workspaces"),
 		agentId: v.id("agents"),
 		chatId: v.id("chats"),
@@ -910,6 +916,8 @@ export default defineSchema({
 
 	// Automations people make and retained library installs; each picks the agent that runs it.
 	automationInstalls: defineTable({
+		/** Sources retained across edits and later audience changes. Older rows have none. */
+		usedPlaces,
 		definition: v.optional(automationDefinition),
 		workspaceId: v.id("workspaces"),
 		automationId: v.string(),
@@ -1019,6 +1027,8 @@ export default defineSchema({
 
 	// A database created by the team. Existing keys stay stable.
 	recordTypes: defineTable({
+		/** Sources retained across edits and later audience changes. Older rows have none. */
+		usedPlaces,
 		version: v.optional(v.number()),
 		workspaceId: v.id("workspaces"),
 		/** Stable, unique per workspace. */
@@ -1086,6 +1096,8 @@ export default defineSchema({
 	// A page: a standalone doc (wiki, SOP, meeting notes) or a record's body. Its content lives
 	// in the prosemirrorSync component, keyed by the page's id (pageSync.ts). See wiki/pages.md.
 	pages: defineTable({
+		/** Sources retained across edits and later audience changes. Older rows have none. */
+		usedPlaces,
 		workspaceId: v.id("workspaces"),
 		/** Set for a record's body; standalone pages have none. */
 		recordId: v.optional(v.id("records")),

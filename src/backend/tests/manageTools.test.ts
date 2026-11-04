@@ -8,11 +8,13 @@ import type { Id } from "../convex/_generated/dataModel";
 afterEach(() => vi.useRealTimers());
 
 async function ready() {
+	vi.useFakeTimers();
 	const { t, owner, member } = await ownerAndMember();
 	const { companybot, scribe } = await agentsOf(owner);
 	const chat = await generalOf(owner);
-	const dm = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
-	const memberDm = await member.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
+	// Shared-text permission tests need public origins; private origins correctly refuse publication.
+	const dm = await owner.mutation(api.chats.createChannel, { name: "owner-work", private: false });
+	const memberDm = await member.mutation(api.chats.createChannel, { name: "member-work", private: false });
 	const turnId = await agentTurn(t, owner, dm, companybot._id);
 	const memberTurn = await agentTurn(t, member, memberDm, companybot._id);
 	const call = (tool: ManageTool, request: unknown, asMember = false): Promise<any> =>

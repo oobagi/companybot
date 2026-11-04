@@ -21,7 +21,7 @@ import {
 	saveMade,
 	skillOf,
 } from "./lib";
-import { requireUnrestrictedTurn } from "./replySources";
+import { writeSources } from "./replySources";
 import { toggleTrash, trashInfo } from "./trashOps";
 import { runningTurn } from "./turns";
 
@@ -69,7 +69,7 @@ const customConfig = v.object({ name: v.string(), description: v.string(), instr
 /** Makes a skill for the workspace, as `member`. Throws a ConvexError with the problem. */
 async function createSkill(ctx: MutationCtx, member: Member, config: CustomSkillConfig) {
 	checkPermission(member, "skills.edit");
-	await requireUnrestrictedTurn(ctx, member);
+	await writeSources(ctx, member);
 	config = normalizeCustomSkill(config);
 	const problem = customSkillError(config);
 	if (problem) throw new ConvexError(problem);
@@ -106,7 +106,7 @@ export const save = mutation({
 
 export async function saveSkill(ctx: MutationCtx, member: Member, { skillId, config, expectedVersion }: Infer<typeof saveSkillArgs>) {
 	const install = await editableSkill(ctx, member, skillId);
-	await requireUnrestrictedTurn(ctx, member);
+	await writeSources(ctx, member);
 	await saveMade({
 		current: install.custom,
 		expectedVersion,

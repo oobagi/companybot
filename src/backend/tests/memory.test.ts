@@ -124,21 +124,23 @@ describe("agent memory", () => {
 	});
 
 	it("reads the role fresh each call, and a demotion never shows anyone else's personal memories", async () => {
-		const { t, owner, member, companybot } = await setup();
+		const { t, owner, member, companybot, general } = await setup();
 		const row = (await owner.query(api.workspace.team))!.members.find((m) => !m.isYou)!;
 		await owner.mutation(api.workspace.setRole, { id: row.id, role: "owner" });
 		await member.mutation(api.memory.create, { agentId: companybot, scope: "personal", content: "Member's note." });
 		await owner.mutation(api.memory.create, { agentId: companybot, scope: "personal", content: "Owner's note." });
 		const turn = await turnIn(t, member, await dmWith(member, companybot), companybot);
-		const team = await turn.create("workspace", "Office is in Austin.");
+		await expect(turn.create("workspace", "Office is in Austin.")).rejects.toThrow("wider audience");
+		const teamTurn = await turnIn(t, member, general, companybot);
+		const team = await teamTurn.create("workspace", "Office is in Austin.");
 		// Being an owner never shows anyone else's personal memories.
 		expect((await turn.search("note")).map((m) => m.content)).toEqual(["Member's note."]);
 
 		await owner.mutation(api.workspace.setRole, { id: row.id, role: "member" });
 		expect((await turn.search("note")).map((m) => m.content)).toEqual(["Member's note."]);
 		// Members change team memories too (wiki-style), so a demotion leaves that alone.
-		await turn.update(team.id, "Office is in Dallas.");
-		await turn.remove(team.id);
+		await teamTurn.update(team.id, "Office is in Dallas.");
+		await teamTurn.remove(team.id);
 	});
 
 	it("blocks reads and writes once the turn has stopped", async () => {
@@ -253,11 +255,11 @@ describe("agent memory", () => {
 	it("searches by every word and returns the newest when there are many", async () => {
 		const { t, owner, companybot } = await setup();
 		const turn = await turnIn(t, owner, await dmWith(owner, companybot), companybot);
-		await turn.create("workspace", "Office is in Austin.");
+		await owner.mutation(api.memory.create, { agentId: companybot, scope: "workspace", content: "Office is in Austin." });
 		await turn.create("personal", "Prefers calls in the AFTERNOON.");
 		expect((await turn.search("afternoon calls")).map((m) => m.content)).toEqual(["Prefers calls in the AFTERNOON."]);
 		expect(await turn.search("austin calls")).toEqual([]);
-		for (let i = 0; i < MEMORY_RESULTS_MAX; i++) await turn.create("workspace", `Fact ${i}`);
+		for (let i = 0; i < MEMORY_RESULTS_MAX; i++) await owner.mutation(api.memory.create, { agentId: companybot, scope: "workspace", content: `Fact ${i}` });
 		const all = await turn.search();
 		expect(all).toHaveLength(MEMORY_RESULTS_MAX);
 		expect(all.at(-1)?.content).toBe(`Fact ${MEMORY_RESULTS_MAX - 1}`);

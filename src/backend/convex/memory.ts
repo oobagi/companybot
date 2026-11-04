@@ -5,7 +5,6 @@ import { type QueryCtx, internalMutation } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { type Member, getMember, namesOf, requireAgent, requireMember, toActor } from "./lib";
 import { createMemory, listMemories, memoryVersions, removeMemory, restoreMemoryVersion, searchMemories, updateMemory } from "./memoryOps";
-import { turnSources } from "./replySources";
 import { memoryOn, personalMemoryHere, runningTurn } from "./turns";
 
 const scope = v.union(v.literal("workspace"), v.literal("personal"));
@@ -101,7 +100,6 @@ export const createFor = internalMutation({
 		// Personal saves work in shared chats too: they go only to the person who asked, and what's
 		// saved was already said here, so nothing private leaks. Reading stays DM-only.
 		const { who, agentId } = await acting(ctx, turnId, target);
-		if (scope === "workspace" && (await turnSources(ctx, who.member)).length) throw new ConvexError("This reply uses restricted places. Save a personal memory instead.");
 		return createMemory(ctx, who, agentId, scope, content);
 	},
 });
@@ -111,7 +109,6 @@ export const updateFor = internalMutation({
 	handler: async (ctx, { turnId, id, content }) => {
 		const { who, personal } = await acting(ctx, turnId);
 		await requireChatMemory(ctx, id, who.member, personal);
-		if ((await ctx.db.get(id))?.scope === "workspace" && (await turnSources(ctx, who.member)).length) throw new ConvexError("This reply uses restricted places. Save a personal memory instead.");
 		return updateMemory(ctx, who, id, content);
 	},
 });

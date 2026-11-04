@@ -80,7 +80,7 @@ export const chatTools: ToolDef[] = [
 		id: "chat.react",
 		title: "React",
 		description: "React with one emoji to the message you're answering. The same emoji again removes it.",
-		input: z.object({ emoji: z.string().min(1).max(16) }),
+		input: z.object({ emoji: z.string().min(1) }),
 		// Only on the message it answers, as the agent: nothing to ask about.
 		risk: "none",
 		execute: ({ emoji }, { chat }) => chat.react(emoji),

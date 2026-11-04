@@ -10,7 +10,7 @@ import { saveView } from "../convex/databaseViews";
 import { type Who, memberOf } from "../convex/lib";
 import { canReadReply } from "../convex/replyPrivacy";
 import { KEEP_TOKENS } from "../convex/turns";
-import { agentsOf, agentTurn, generalOf, noMentions, ownerAndMember, signIn, type As } from "./helpers";
+import { agentsOf, agentTurn, generalOf, identityOf, noMentions, ownerAndMember, signIn, type As } from "./helpers";
 
 const SECRET = "Quartz contract: $91,000, margin 42%";
 beforeEach(() => void vi.useFakeTimers());
@@ -129,8 +129,10 @@ describe("private agent replies", () => {
 	});
 
 	it("does not extract restricted content into team memory", async () => {
-		const s = await setup(); await s.read();
-		await expect(s.t.mutation(internal.memory.createFor, { turnId: s.turnId, scope: "workspace", content: SECRET })).rejects.toThrow("personal memory");
+		const s = await setup();
+		await s.owner.mutation(api.roles.setPermission, { id: s.office, permission: "memory.team.write", on: true });
+		await s.read();
+		await expect(s.t.mutation(internal.memory.createFor, { turnId: s.turnId, scope: "workspace", content: SECRET })).rejects.toThrow("Only Office and Owners");
 		expect(JSON.stringify(await s.crew.query(api.memory.list))).not.toContain(SECRET);
 	});
 
@@ -278,7 +280,7 @@ describe("private agent replies", () => {
 		expect(replay).not.toContain(SECRET);
 	});
 
-	it.each(["private", "restricted"] as const)("does not treat its own %s channel as a source or block team memory there", async (kind) => {
+	it.each(["private", "restricted"] as const)("retains its own %s channel for writes but excludes it from display privacy", async (kind) => {
 		const s = await setup();
 		const room = await s.owner.mutation(api.chats.createChannel, { name: "ops", private: kind === "private" });
 		if (kind === "private") await s.owner.mutation(api.chats.addMembers, { chatId: room, userIds: [s.dana.userId], agentIds: [] });
@@ -287,9 +289,9 @@ describe("private agent replies", () => {
 		const turnId = await s.start(s.dana, room);
 		await s.t.mutation(internal.turns.turnContext, { turnId });
 		const turn = (await s.t.run((ctx) => ctx.db.get("agentTurns", turnId)))!;
-		expect((await s.t.run((ctx) => ctx.db.get("chatMessages", turn.replyId!)))!.usedPlaces ?? []).toEqual([]);
+		expect((await s.t.run((ctx) => ctx.db.get("chatMessages", turn.replyId!)))!.usedPlaces).toContain(room);
 		expect((await s.dana.query(api.messages.list, { chatId: room })).find((m) => m._id === turn.replyId)!.privacy).toBeNull();
-		await expect(s.t.mutation(internal.memory.createFor, { turnId, scope: "workspace", content: "The team meets every Monday." })).resolves.toHaveProperty("id");
+		await expect(s.t.mutation(internal.memory.createFor, { turnId, scope: "workspace", content: "The team meets every Monday." })).rejects.toThrow("wider audience");
 	});
 
 	it("names membership audiences, without naming a hidden source to outsiders", async () => {
@@ -448,7 +450,7 @@ describe("private agent replies", () => {
 		expect((await s.t.run((ctx) => ctx.db.get("chatMessages", old.messageId)))!.usedPlaces).toEqual([ops]);
 		expect(JSON.stringify(await s.crew.query(api.messages.list, { chatId: s.chat._id }))).not.toContain(SECRET);
 		const replyId = (await s.t.run((ctx) => ctx.db.get("agentTurns", turnId)))!.replyId!;
-		expect((await s.t.run((ctx) => ctx.db.get("chatMessages", replyId)))!.usedPlaces ?? []).not.toContain(ops);
+		expect((await s.t.run((ctx) => ctx.db.get("chatMessages", replyId)))!.usedPlaces).toContain(ops);
 	});
 
 	it("does not taint empty public database lookups or unrelated returned search rows", async () => {
@@ -528,6 +530,286 @@ describe("private agent replies", () => {
 		// Updating within the original database keeps its audience and remains available.
 		await s.owner.mutation(api.recordTypes.setAccess, { typeId: s.deals, access: [{ role: s.office, level: "edit" }] });
 		expect(await s.t.mutation(internal.recordTools.saveFor, { turnId, input: { id: s.deal, values: { name: "Still private" } } })).not.toHaveProperty("error");
+	});
+
+	it.each(["page", "database"] as const)("a restricted %s retains upstream sources before widening", async (kind) => {
+		const s = await setup();
+		await s.owner.mutation(api.roles.setPermission, { id: s.office, permission: "pages.edit", on: true });
+		await s.owner.mutation(api.roles.setPermission, { id: s.office, permission: "records.edit", on: true });
+		const page = await s.owner.mutation(api.pages.create, { title: "Restricted notes" });
+		await s.owner.mutation(api.pages.setAccess, { pageId: page, access: [{ role: s.office, level: "edit" }] });
+		const clients = (await s.owner.query(api.recordTypes.list)).find((t) => t.key === "client")!;
+		await s.owner.mutation(api.recordTypes.setAccess, { typeId: clients._id, access: [{ role: s.office, level: "edit" }] });
+		await s.read();
+		if (kind === "page") {
+			const blocks = JSON.stringify([{ type: "blockContainer", attrs: { id: "private" }, content: [{ type: "paragraph", content: [{ type: "text", text: SECRET }] }] }]);
+			expect(await s.t.mutation(internal.pageTools.writeFor, { turnId: s.turnId, input: { page, blocks, mode: "replace" } })).not.toHaveProperty("error");
+			expect((await s.t.run((ctx) => ctx.db.get(page)))!.usedPlaces).toContain(s.deals);
+			await expect(s.owner.mutation(api.pages.setAccess, { pageId: page, access: null })).rejects.toThrow("Only Office and Owners");
+		} else {
+			expect(await s.t.mutation(internal.recordTools.saveFor, { turnId: s.turnId, input: { type: clients.key, values: { name: SECRET } } })).not.toHaveProperty("error");
+			expect((await s.t.run((ctx) => ctx.db.get(clients._id)))!.usedPlaces).toContain(s.deals);
+			await expect(s.owner.mutation(api.recordTypes.setAccess, { typeId: clients._id, access: [{ role: "everyone", level: "edit" }] })).rejects.toThrow("Only Office and Owners");
+		}
+		await s.finish("Saved.");
+		const separate = await s.owner.mutation(api.chats.createChannel, { name: "separate", private: false });
+		const next = await s.start(s.dana, separate);
+		const read = kind === "page" ? await s.t.mutation(internal.pageTools.readFor, { turnId: next, page }) : await s.t.mutation(internal.recordTools.findFor, { turnId: next, input: { type: clients.key } });
+		expect(JSON.stringify(read)).toContain(SECRET);
+		const reply = (await s.t.run((ctx) => ctx.db.get("agentTurns", next)))!.replyId!;
+		expect((await s.t.run((ctx) => ctx.db.get("chatMessages", reply)))!.usedPlaces).toContain(s.deals);
+		await s.owner.mutation(api.recordTypes.setAccess, { typeId: s.deals, access: [] });
+		if (kind === "page") await expect(identityOf(s.t, s.dana.userId).query(api.pageSync.getSnapshot, { id: page })).rejects.toThrow("Page not found");
+		else expect((await s.dana.query(api.recordTypes.list)).some((t) => t._id === clients._id)).toBe(false);
+	});
+
+	it("new private channel text retains sources and refuses adding a wider audience", async () => {
+		const s = await setup();
+		await s.read();
+		const result = await s.t.mutation(internal.manageTools.runFor, { turnId: s.turnId, tool: "channels.manage", input: { request: { action: "create", name: "private-notes", topic: SECRET, private: true } } });
+		// Dana needs channels.edit before this can exercise the audience rule.
+		expect(result).toHaveProperty("error");
+		await s.owner.mutation(api.roles.setPermission, { id: s.office, permission: "channels.edit", on: true });
+		const created = await s.t.mutation(internal.manageTools.runFor, { turnId: s.turnId, tool: "channels.manage", input: { request: { action: "create", name: "private-notes", topic: SECRET, private: true } } }) as { chatId: Id<"chats"> };
+		expect(created).toHaveProperty("chatId");
+		expect((await s.t.run((ctx) => ctx.db.get(created.chatId)))!.usedPlaces).toContain(s.deals);
+		await expect(s.dana.mutation(api.chats.addMembers, { chatId: created.chatId, userIds: [s.crew.userId], agentIds: [] })).rejects.toThrow("Only Office and Owners");
+		await s.dana.mutation(api.chats.addMembers, { chatId: created.chatId, userIds: [s.owner.userId], agentIds: [] });
+		expect((await s.owner.query(api.chats.get, { chatId: created.chatId }))!.topic).toBe(SECRET);
+	});
+
+	it.each(["send", "edit"] as const)("a DM origin stays private on a cross-chat thread %s", async (action) => {
+		const s = await setup();
+		const dm = await s.owner.mutation(api.chats.openDm, { userIds: [], agentIds: [s.companybot._id] });
+		const turnId = await s.start(s.owner, dm);
+		const parent = await s.owner.mutation(api.messages.send, { chatId: s.chat._id, text: "Public thread", mentions: noMentions });
+		const old = await s.t.run((ctx) => ctx.db.insert("chatMessages", { workspaceId: s.turn.workspaceId, chatId: s.chat._id, threadId: parent, authorAgentId: s.companybot._id, actingFor: s.owner.userId, text: "Public note", parts: [], mentions: noMentions, status: "done" }));
+		const request = action === "send" ? { action, chat: "#general", threadId: parent, text: SECRET } : { action, messageId: old, text: SECRET };
+		const result = await s.t.mutation(internal.manageTools.runFor, { turnId, tool: "chat.manage", input: { request } }) as { messageId: Id<"chatMessages"> };
+		expect(result).not.toHaveProperty("error");
+		expect((await s.t.run((ctx) => ctx.db.get(result.messageId)))!.usedPlaces).toContain(dm);
+		expect(JSON.stringify(await s.crew.query(api.messages.list, { chatId: s.chat._id, threadId: parent }))).not.toContain(SECRET);
+	});
+
+	it("handoff carries sources into the next agent's reply", async () => {
+		const s = await setup();
+		const { scribe } = await agentsOf(s.owner);
+		await s.read();
+		await s.finish(`@Scribe ${SECRET}`);
+		const next = (await s.t.run((ctx) => ctx.db.query("agentTurns").collect())).find((t) => t.agentId === scribe._id)!;
+		expect(next).toBeDefined();
+		await s.t.mutation(internal.turns.turnContext, { turnId: next._id });
+		expect((await s.t.run((ctx) => ctx.db.get(next.replyId!)))!.usedPlaces).toContain(s.deals);
+		expect(JSON.stringify(await s.crew.query(api.messages.list, { chatId: s.chat._id, threadId: next.threadId }))).not.toContain(SECRET);
+	});
+
+	it("private asks carry sources through their answer and return wake", async () => {
+		const s = await setup();
+		const { scribe } = await agentsOf(s.owner);
+		await s.read();
+		const asked = await s.t.mutation(internal.chains.askFor, { turnId: s.turnId, agent: "Scribe", message: SECRET });
+		const thread = "thread" in asked ? asked.thread : undefined;
+		if (!thread) throw new Error(JSON.stringify(asked));
+		expect((await s.t.run((ctx) => ctx.db.get("chatMessages", thread.messageId)))!.usedPlaces).toContain(s.deals);
+		await s.t.mutation(internal.turns.finishReply, { turnId: s.turnId });
+		const next = (await s.t.run((ctx) => ctx.db.query("agentTurns").collect())).find((t) => t.agentId === scribe._id)!;
+		await s.t.mutation(internal.turns.turnContext, { turnId: next._id });
+		expect((await s.t.run((ctx) => ctx.db.get(next.replyId!)))!.usedPlaces).toContain(s.deals);
+		await s.t.mutation(internal.turns.updateReply, { turnId: next._id, text: SECRET, parts: [{ type: "text", text: SECRET }] });
+		await s.t.mutation(internal.turns.finishReply, { turnId: next._id });
+		const back = (await s.t.run((ctx) => ctx.db.query("agentTurns").collect())).find((t) => t.wakeupId)!;
+		await s.t.mutation(internal.turns.turnContext, { turnId: back._id });
+		expect((await s.t.run((ctx) => ctx.db.get(back.replyId!)))!.usedPlaces).toContain(s.deals);
+		expect(JSON.stringify(await s.crew.query(api.messages.list, { chatId: s.chat._id, threadId: thread.messageId }))).not.toContain(SECRET);
+	});
+
+	it("checks inherited child provenance before widening a parent page", async () => {
+		const s = await setup();
+		await s.owner.mutation(api.roles.setPermission, { id: s.office, permission: "pages.edit", on: true });
+		const parent = await s.owner.mutation(api.pages.create, { title: "Office notes" });
+		await s.owner.mutation(api.pages.setAccess, { pageId: parent, access: [{ role: s.office, level: "edit" }] });
+		const child = await s.owner.mutation(api.pages.create, { title: "Deal notes", parentId: parent });
+		await s.read();
+		expect(await s.t.mutation(internal.pageTools.writeFor, { turnId: s.turnId, input: { page: child, blocks: JSON.stringify([{ type: "blockContainer", attrs: { id: "child-note" }, content: [{ type: "paragraph", content: [{ type: "text", text: SECRET }] }] }]), mode: "replace" } })).not.toHaveProperty("error");
+		expect((await s.t.run((ctx) => ctx.db.get(child)))!.usedPlaces).toContain(s.deals);
+		await expect(s.owner.mutation(api.pages.setAccess, { pageId: parent, access: null })).rejects.toThrow("Only Office and Owners");
+		expect((await s.t.run((ctx) => ctx.db.get(parent)))!.access).toEqual([{ role: s.office, level: "edit" }]);
+	});
+
+	it("checks combined roles against a reaction's intersected audience", async () => {
+		const s = await setup();
+		const finance = await s.owner.mutation(api.roles.create, { name: "Finance" });
+		const crew = (await s.owner.query(api.roles.list))!.find((r) => r.name === "Member")!.id;
+		const pages: Id<"pages">[] = [];
+		for (const role of [crew, finance]) {
+			const page = await s.owner.mutation(api.pages.create, { title: "Audience" });
+			await s.owner.mutation(api.pages.setAccess, { pageId: page, access: [{ role, level: "view" }] });
+			pages.push(page);
+		}
+		const target = await s.t.run((ctx) => ctx.db.insert("chatMessages", { workspaceId: s.turn.workspaceId, chatId: s.chat._id, authorUserId: s.owner.userId, text: "For both roles", parts: [], status: "done", mentions: noMentions, usedPlaces: pages }));
+		const writer = await s.owner.mutation(api.chats.createChannel, { name: "writer", private: false });
+		const turnId = await s.start(s.owner, writer);
+		await s.t.mutation(internal.recordTools.getFor, { turnId, id: s.deal });
+		// Neither role alone reads the target; someone holding both reads it but cannot read Deals.
+		expect(await s.t.mutation(internal.manageTools.runFor, { turnId, tool: "chat.manage", input: { request: { action: "react", messageId: target, emoji: "✅" } } })).toMatchObject({ error: expect.stringContaining("Only Office and Owners") });
+	});
+
+});
+
+
+describe("central write audience review probes", () => {
+	const SECRET = "Vault margin 42%";
+	let network: ReturnType<typeof vi.spyOn>;
+	beforeEach(() => { network = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Network disabled during review")); });
+	afterEach(() => { expect(network).not.toHaveBeenCalled(); vi.restoreAllMocks(); });
+
+	async function probeSetup() {
+		const { t, owner, member: crew } = await ownerAndMember();
+		const general = await generalOf(owner);
+		const { companybot } = await agentsOf(owner);
+		const start = (chatId = general._id) => agentTurn(t, owner, chatId, companybot._id);
+		const privateTurn = async () => {
+			const ops = await owner.mutation(api.chats.createChannel, { name: "ops", private: true });
+			await owner.mutation(api.messages.send, { chatId: ops, text: SECRET, mentions: noMentions });
+			const turnId = await start(ops);
+			await t.mutation(internal.turns.turnContext, { turnId });
+			return { ops, turnId };
+		};
+		const restrict = async () => {
+			const type = (await owner.query(api.recordTypes.list)).find((t) => t.key === "deal")!;
+			const secret = await owner.mutation(api.records.create, { typeId: type._id, values: { name: SECRET } });
+			await owner.mutation(api.recordTypes.setAccess, { typeId: type._id, access: [] });
+			const turnId = await start();
+			await t.mutation(internal.recordTools.getFor, { turnId, id: secret });
+			return { type, turnId };
+		};
+		return { t, owner, crew, general, companybot, start, privateTurn, restrict };
+	}
+
+	it("private-origin text must not reach a shared workspace name", async () => {
+		const s = await probeSetup();
+		const { turnId } = await s.privateTurn();
+		const result = await s.t.mutation(internal.manageTools.runFor, { turnId, tool: "workspace.settings", input: { request: { action: "update", name: SECRET, expectedVersion: (await s.owner.query(api.workspace.settings))!.version } } });
+		expect(result).toHaveProperty("error");
+		expect((await s.crew.query(api.workspace.me))!.workspace).not.toBe(SECRET);
+	});
+
+	it("restricted-turn reaction must not publish secret text on a public message", async () => {
+		const s = await probeSetup();
+		const { turnId } = await s.restrict();
+		const target = await s.owner.mutation(api.messages.send, { chatId: s.general._id, text: "Public note", mentions: noMentions });
+		const result = await s.t.mutation(internal.manageTools.runFor, { turnId, tool: "chat.manage", input: { request: { action: "react", messageId: target, emoji: SECRET } } });
+		expect(result).toMatchObject({ error: expect.stringContaining("Only Owners") });
+		expect(JSON.stringify(await s.crew.query(api.messages.list, { chatId: s.general._id }))).not.toContain(SECRET);
+	});
+
+	it("private automation must retain source taint across turns before publishing", async () => {
+		const s = await probeSetup();
+		const { turnId, type } = await s.restrict();
+		await s.t.run(async (ctx) => { const a = (await ctx.db.get(s.companybot._id))!; await ctx.db.patch(a._id, { tools: [...new Set([...a.tools, "automations.manage"])] }); });
+		const created = await s.t.mutation(internal.automationTools.createFor, { turnId, input: { name: "My digest", prompt: SECRET, trigger: { type: "schedule", cron: "0 9 * * *" }, runsFor: "me" } });
+		if (!("created" in created)) throw new Error(JSON.stringify(created));
+		await s.t.mutation(internal.turns.finishReply, { turnId });
+		// Stored provenance guards publication even without first reading it in another turn.
+		await expect(s.owner.mutation(api.automations.update, { automationId: created.created, audience: "subscribers" })).rejects.toThrow("Only Owners");
+		const other = await s.owner.mutation(api.chats.createChannel, { name: "separate", private: false });
+		const next = await s.start(other);
+		const read = await s.t.mutation(internal.manageTools.runFor, { turnId: next, tool: "automations.manage", input: { request: { action: "get", id: created.created } } });
+		expect(JSON.stringify(read)).toContain(SECRET);
+		const reply = (await s.t.run((ctx) => ctx.db.get("agentTurns", next)))!.replyId!;
+		expect((await s.t.run((ctx) => ctx.db.get("chatMessages", reply)))!.usedPlaces).toContain(type._id);
+		const result = await s.t.mutation(internal.manageTools.runFor, { turnId: next, tool: "automations.manage", input: { request: { action: "set_audience", id: created.created, audience: "subscribers" } } });
+		expect(result).toHaveProperty("error");
+		expect(JSON.stringify(await s.crew.query(api.automations.list))).not.toContain(SECRET);
+	});
+
+	it("private-channel automation deliveries must retain the original source after revocation", async () => {
+		const s = await probeSetup();
+		const ops = await s.owner.mutation(api.chats.createChannel, { name: "ops", private: true });
+		await s.owner.mutation(api.automations.create, { config: { name: "Watch ops", prompt: "Summarize", trigger: { type: "event", event: "message.posted", channelId: ops } }, agentId: s.companybot._id, audience: "creator", timeZone: "UTC" });
+		await s.owner.mutation(api.messages.send, { chatId: ops, text: SECRET, mentions: noMentions });
+		const turn = (await s.t.run((ctx) => ctx.db.query("agentTurns").collect())).find((t) => t.chatId !== ops)!;
+		expect(turn).toBeDefined();
+		expect(JSON.stringify(await s.t.mutation(internal.turns.turnContext, { turnId: turn._id }))).toContain(SECRET);
+		await s.t.mutation(internal.turns.updateReply, { turnId: turn._id, text: SECRET, parts: [{ type: "text", text: SECRET }] });
+		await s.t.mutation(internal.turns.finishReply, { turnId: turn._id });
+		await s.t.run(async (ctx) => { for (const m of await ctx.db.query("chatMembers").collect()) if (m.chatId === ops && m.userId === s.owner.userId) await ctx.db.delete(m._id); });
+		expect(await s.owner.query(api.chats.get, { chatId: ops })).toBeNull();
+		const delivered = await s.owner.query(api.messages.list, { chatId: turn.chatId });
+		expect(delivered.find((m) => m._id === turn.replyId)!.text).not.toContain(SECRET);
+		expect(JSON.stringify(delivered)).not.toContain(SECRET);
+	});
+
+	it.each(["record", "page", "team memory"])("private-origin text must not reach public %s content", async (kind) => {
+		const s = await probeSetup();
+		const clients = (await s.owner.query(api.recordTypes.list)).find((t) => t.key === "client")!;
+		const page = await s.owner.mutation(api.pages.create, { title: "Public page" });
+		const { turnId } = await s.privateTurn();
+		if (kind === "record") {
+			const result = await s.t.mutation(internal.recordTools.saveFor, { turnId, input: { type: clients.key, values: { name: SECRET } } });
+			expect(result).toHaveProperty("error");
+			expect(JSON.stringify(await s.crew.query(api.records.list, { typeId: clients._id, paginationOpts: { numItems: 20, cursor: null } }))).not.toContain(SECRET);
+		} else if (kind === "page") {
+			const blocks = JSON.stringify([{ type: "blockContainer", attrs: { id: "leak" }, content: [{ type: "paragraph", content: [{ type: "text", text: SECRET }] }] }]);
+			const result = await s.t.mutation(internal.pageTools.writeFor, { turnId, input: { page, blocks, mode: "replace" } });
+			expect(result).toHaveProperty("error");
+			expect(JSON.stringify(await identityOf(s.t, s.crew.userId).query(api.pageSync.getSnapshot, { id: page }))).not.toContain(SECRET);
+		} else {
+			await expect(s.t.mutation(internal.memory.createFor, { turnId, scope: "workspace", content: SECRET })).rejects.toThrow("people in #ops");
+			expect(JSON.stringify(await s.crew.query(api.memory.list))).not.toContain(SECRET);
+		}
+	});
+	it("requires one real emoji and checks the reaction's actual readers", async () => {
+		const s = await probeSetup();
+		const { turnId } = await s.restrict();
+		const target = await s.owner.mutation(api.messages.send, { chatId: s.general._id, text: "Public note", mentions: noMentions });
+		const react = (emoji: string) => s.t.mutation(internal.manageTools.runFor, { turnId, tool: "chat.manage", input: { request: { action: "react", messageId: target, emoji } } });
+		expect(await react("👍")).toMatchObject({ error: expect.stringContaining("Only Owners") });
+		const privateReply = (await s.t.run((ctx) => ctx.db.get("agentTurns", turnId)))!.replyId!;
+		expect(await s.t.mutation(internal.manageTools.runFor, { turnId, tool: "chat.manage", input: { request: { action: "react", messageId: privateReply, emoji: "👍" } } })).not.toHaveProperty("error");
+		await s.t.mutation(internal.turns.finishReply, { turnId });
+		const publicChat = await s.owner.mutation(api.chats.createChannel, { name: "reaction-control", private: false });
+		const publicTurn = await s.start(publicChat);
+		// Use the app endpoint too: validation is in the shared writer, not only the tool schema.
+		for (const emoji of ["secret", "a", "1", "👍👍", "👍a", "🇺", "👍\u200d"]) {
+			await expect(s.owner.mutation(api.messages.react, { messageId: target, emoji })).rejects.toThrow("Pick one emoji");
+		}
+		for (const emoji of ["👍🏽", "👩‍💻", "🇺🇸", "1️⃣", "❤️", "👨‍👩‍👧‍👦"]) {
+			await expect(s.owner.mutation(api.messages.react, { messageId: target, emoji })).resolves.toBeDefined();
+		}
+		expect(await s.t.mutation(internal.manageTools.runFor, { turnId: publicTurn, tool: "chat.manage", input: { request: { action: "react", messageId: target, emoji: "👍" } } })).not.toHaveProperty("error");
+	});
+
+	it("private memory carries its sources into another turn and disappears after revocation", async () => {
+		const s = await probeSetup();
+		const { ops, turnId } = await s.privateTurn();
+		const memory = await s.t.mutation(internal.memory.createFor, { turnId, scope: "personal", content: SECRET });
+		expect((await s.t.run((ctx) => ctx.db.get("memories", memory.id as Id<"memories">)))!.usedPlaces).toContain(ops);
+		await s.t.mutation(internal.turns.finishReply, { turnId });
+		const dm = await s.owner.mutation(api.chats.openDm, { userIds: [], agentIds: [s.companybot._id] });
+		const next = await s.start(dm);
+		expect(JSON.stringify(await s.t.mutation(internal.memory.searchFor, { turnId: next, query: "Vault" }))).toContain(SECRET);
+		const replyId = (await s.t.run((ctx) => ctx.db.get("agentTurns", next)))!.replyId!;
+		expect((await s.t.run((ctx) => ctx.db.get("chatMessages", replyId)))!.usedPlaces).toContain(ops);
+		await s.t.run(async (ctx) => { for (const m of await ctx.db.query("chatMembers").collect()) if (m.chatId === ops && m.userId === s.owner.userId) await ctx.db.delete(m._id); });
+		expect(JSON.stringify(await s.owner.query(api.memory.list))).not.toContain(SECRET);
+		expect(await s.t.mutation(internal.memory.searchFor, { turnId: next, query: "Vault" })).toEqual([]);
+	});
+
+	it("private automations keep provenance when edited and run, and hide after revocation", async () => {
+		const s = await probeSetup();
+		const { ops, turnId } = await s.privateTurn();
+		const created = await s.t.mutation(internal.automationTools.createFor, { turnId, input: { name: "Private digest", prompt: SECRET, trigger: { type: "schedule", cron: "0 9 * * *" }, runsFor: "me" } });
+		if (!("created" in created)) throw new Error(JSON.stringify(created));
+		await s.owner.mutation(api.automations.save, { automationId: created.created, expectedVersion: 1, config: { name: "Revised", prompt: SECRET, trigger: { type: "schedule", cron: "0 10 * * *" } } });
+		await expect(s.owner.mutation(api.automations.update, { automationId: created.created, audience: "channel", channelId: s.general._id })).rejects.toThrow("people in #ops");
+		await s.owner.mutation(api.automationRuns.runNow, { automationId: created.created });
+		const run = (await s.t.run((ctx) => ctx.db.query("agentTurns").collect())).find((t) => t.chatId !== ops)!;
+		expect(JSON.stringify(await s.t.mutation(internal.turns.turnContext, { turnId: run._id }))).toContain(SECRET);
+		expect((await s.t.run((ctx) => ctx.db.get(run.replyId!)))!.usedPlaces).toContain(ops);
+		await s.t.run(async (ctx) => { for (const m of await ctx.db.query("chatMembers").collect()) if (m.chatId === ops && m.userId === s.owner.userId) await ctx.db.delete(m._id); });
+		expect(JSON.stringify(await s.owner.query(api.automations.list))).not.toContain(SECRET);
+		await expect(s.owner.mutation(api.automationRuns.runNow, { automationId: created.created })).rejects.toThrow("Automation not found");
 	});
 
 });

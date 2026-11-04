@@ -4,6 +4,8 @@ import { mutation, query } from "./functions";
 import { checkPermission, getMember, requireMember } from "./lib";
 import { accessInfo, reach, savedAccess } from "./placeAccess";
 import { createType, fieldsOf, fieldsShown, requireType, typesOf, updateType } from "./recordOps";
+import { canReadSources } from "./replyPrivacy";
+import { writeSources } from "./replySources";
 import { accessArg } from "./schema";
 
 // Databases: the workspace's data model. People with `fields.edit` add types; fields
@@ -19,9 +21,10 @@ export const list = query({
 		const member = await getMember(ctx);
 		if (!member) return [];
 		const types = (await typesOf(ctx, member.workspaceId)).filter((t) => !t.archived && reach(member, t.access)).sort((a, b) => a._creationTime - b._creationTime);
+		const readable = (await Promise.all(types.map(async (t) => await canReadSources(ctx, member, t.usedPlaces) ? t : null))).filter((t) => t !== null);
 		const shown = fieldsShown(ctx, member);
 		return Promise.all(
-			types.map(async (t) => {
+			readable.map(async (t) => {
 				const fields = await fieldsOf(ctx, t._id);
 				const { level, ...access } = accessInfo(member, t.access);
 				const manage = can(member, "fields.edit") && level === "edit";
@@ -69,6 +72,7 @@ export const setAccess = mutation({
 		checkPermission(member, "fields.edit");
 		const type = await requireType(ctx, member, typeId, "edit");
 		const list = await savedAccess(ctx, member, access);
+		await writeSources(ctx, member, { access: list }, type);
 		// Everyone at Edit is the default: store nothing.
 		const open = list.length === 1 && list[0]!.role === "everyone" && list[0]!.level === "edit";
 		await ctx.db.patch(type._id, { access: open ? undefined : list, version: (type.version ?? 0) + 1, updatedAt: Date.now() });

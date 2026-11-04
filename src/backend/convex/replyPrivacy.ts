@@ -1,13 +1,13 @@
 import { EVERYONE, whoCan } from "@companybot/core";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { canPost, canSee } from "./chatOps";
+import { canPost, reachOf } from "./chatOps";
 import { type Member, nameOf } from "./lib";
 import { pageState } from "./pageTree";
 import { type AccessList, chatAccess, reach } from "./placeAccess";
 import { inheritPlaces, type UsedPlace } from "./replySources";
 
-async function source(ctx: QueryCtx, member: Member, id: UsedPlace) {
+export async function source(ctx: QueryCtx, member: Member, id: UsedPlace, audience = false): Promise<{ membersOnly: boolean; users?: Id<"users">[]; where: string; access: AccessList; visible: boolean; name: string; why: string }> {
 	const databaseId = ctx.db.normalizeId("recordTypes", id);
 	if (databaseId) {
 		const db = await ctx.db.get(databaseId);
@@ -21,9 +21,10 @@ async function source(ctx: QueryCtx, member: Member, id: UsedPlace) {
 	}
 	const chatId = ctx.db.normalizeId("chats", id);
 	const chat = chatId && (await ctx.db.get(chatId));
-	const visible = !!chat && await canSee(ctx, chat, { ...member, replyId: undefined });
+	const visible = !!chat && (await reachOf(ctx, chat, member)) === "ok";
 	const named = chat?.kind === "channel" ? `#${chat.name}` : "a private conversation";
-	return { access: chat ? chatAccess(chat) : [], visible, membersOnly: !!chat && (chat.private || chat.kind === "dm"), where: visible ? named : chat?.kind === "channel" ? "a private channel" : "a private conversation", name: chat ? named : "a deleted channel", why: chat ? chat.kind === "channel" ? `the #${chat.name} channel` : "a private conversation" : "a deleted channel" };
+	const users = audience && chat && (chat.private || chat.kind !== "channel") ? (await ctx.db.query("chatMembers").withIndex("by_chat", (q) => q.eq("chatId", chat._id)).collect()).flatMap((m) => m.userId ? [m.userId] : []) : undefined;
+	return { users, access: chat ? chatAccess(chat) : [], visible, membersOnly: !!chat && (chat.private || chat.kind === "dm"), where: visible ? named : chat?.kind === "channel" ? "a private channel" : "a private conversation", name: chat ? named : "a deleted channel", why: chat ? chat.kind === "channel" ? `the #${chat.name} channel` : "a private conversation" : "a deleted channel" };
 }
 
 /** Current access, never a saved audience: gaining a role makes old replies readable too. */
@@ -54,9 +55,10 @@ export async function replyPrivacy(ctx: QueryCtx, member: Member, message: Doc<"
 		const sharedBy = await nameOf(ctx, message.sharedBy);
 		return { hidden: false, label: `Shared by ${sharedBy}`, why: null, share: null, sharedBy };
 	}
-	if (!message.usedPlaces?.length) return null;
+	const places = message.usedPlaces?.filter((id) => id !== message.chatId) ?? [];
+	if (!places.length) return null;
 	const chat = await ctx.db.get(message.chatId);
-	const sources = await Promise.all(message.usedPlaces.map((id) => source(ctx, member, id)));
+	const sources = await Promise.all(places.map((id) => source(ctx, member, id)));
 	const hidden = sources.some((s) => !s.visible);
 	// Membership is an additional limit that roles alone cannot describe.
 	const roles = member.workspaceRoles.filter((r) => !r.owner && sources.every((s) => !!reach({ ...member, owner: false, roles: [r.id] }, s.access)));

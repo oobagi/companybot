@@ -85,7 +85,7 @@ async function visibleEntry(ctx: QueryCtx, member: Member, entry: Doc<"trash">) 
 	if (entry.kind === "automation") {
 		const id = ctx.db.normalizeId("automationInstalls", entry.itemId);
 		const install = id && (await ctx.db.get(id));
-		return !!install && canView(member, install);
+		return !!install && await canView(ctx, member, install);
 	}
 	if (entry.kind === "database" || entry.typeId) {
 		const typeId = entry.typeId ?? ctx.db.normalizeId("recordTypes", entry.itemId);

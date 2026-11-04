@@ -14,7 +14,7 @@ import { pageBlockSchema, withoutPageTitles } from "./pageBlocks";
 import { type PageState, keptAccess, pageState, pageStates, parentFor } from "./pageTree";
 import { reach, requireAccess } from "./placeAccess";
 import { inTrash, requireRecord } from "./recordOps";
-import { notePlace, requireUnrestrictedTurn } from "./replySources";
+import { notePlace, readArtifact, writeSources } from "./replySources";
 import { toggleTrash } from "./trashOps";
 
 // Shared rules for standalone pages and record bodies. See wiki/pages.md.
@@ -60,6 +60,7 @@ export async function requirePage(ctx: QueryCtx, member: Member, pageId: Id<"pag
  */
 export async function requirePageAccess(ctx: QueryCtx, member: Member, page: Doc<"pages">, need: AccessLevel, state?: PageState, asked?: string) {
 	const { access, type } = state ?? (await pageState(ctx, page));
+	if (!(await readArtifact(ctx, member, type ?? page))) throw new ConvexError("Page not found.");
 	if (type) requireAccess(member, "database", type.plural, access, need);
 	else requireAccess(member, "page", page.title, access, need, asked);
 	await notePlace(ctx, member, type?._id ?? page._id, access);
@@ -70,7 +71,7 @@ export function pageReach(ctx: QueryCtx, member: Member) {
 	const state = pageStates(ctx);
 	return async (page: Doc<"pages">) => {
 		const { access, type } = await state(page);
-		const level = reach(member, access);
+		const level = await readArtifact(ctx, { ...member, replyId: undefined }, type ?? page) ? reach(member, access) : null;
 		if (level) await notePlace(ctx, member, type?._id ?? page._id, access);
 		return level;
 	};
@@ -148,8 +149,9 @@ export async function createPage(ctx: MutationCtx, who: Who, to: { title: string
 		if (await inTrash(ctx, record)) throw new ConvexError("This record is in Archive. Restore it to make changes.");
 		recordId = record._id;
 	}
-	if ("title" in to) await requireUnrestrictedTurn(ctx, member, parentId);
+	const usedPlaces = "title" in to ? await writeSources(ctx, member, parentId) : [];
 	const pageId = await ctx.db.insert("pages", {
+		usedPlaces,
 		workspaceId: member.workspaceId,
 		...(recordId && { recordId }),
 		...(parentId && { parentId }),
@@ -197,7 +199,7 @@ export async function removePageBlock(ctx: MutationCtx, who: Who, parent: Doc<"p
 export async function renamePage(ctx: MutationCtx, who: Who, page: Doc<"pages">, title: string) {
 	await requireEditable(ctx, who.member, page);
 	if (page.recordId) throw new ConvexError("A record's page takes the record's name. Rename the record instead.");
-	await requireUnrestrictedTurn(ctx, who.member, page._id);
+	await writeSources(ctx, who.member, page._id);
 	const clean = cleanTitle(title);
 	await ctx.db.patch(page._id, { title: clean, updatedAt: Date.now(), updatedBy: who.member.userId });
 	// Page links are plain link marks whose text is the title when inserted (alpha.7 can't render live titles),
@@ -317,7 +319,7 @@ const tooMuch = () => new ConvexError("That's too much to add at once. Split it 
 export async function saveTransform(ctx: MutationCtx, who: Who, page: Doc<"pages">, version: number, tr: Transform, clientId: string | number = "transform", restored?: number) {
 	if (!tr.docChanged) return false;
 	const state = await pageState(ctx, page);
-	await requireUnrestrictedTurn(ctx, who.member, state.type?._id ?? page._id);
+	await writeSources(ctx, who.member, state.type?._id ?? page._id);
 	const content = JSON.stringify(tr.doc.toJSON());
 	// The schema has no page titles, but an old app's step can still try to set one (pageBlocks.ts).
 	const steps = tr.steps.map((s) => withoutPageTitles(JSON.stringify(s.toJSON())));

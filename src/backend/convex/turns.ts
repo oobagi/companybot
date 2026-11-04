@@ -30,7 +30,7 @@ import { catalogModels } from "./modelCatalog";
 import { chatAccess } from "./placeAccess";
 import { recordOut } from "./recordTools";
 import { canReadReply, readReply, canReadSources } from "./replyPrivacy";
-import { inheritPlaces, notePlace } from "./replySources";
+import { inheritPlaces, notePlace, writeSources } from "./replySources";
 import { messagePart, replyStats, replyUsage } from "./schema";
 import { recordUsage } from "./usage";
 import { setWakeOutcome } from "./wakeups";
@@ -261,7 +261,7 @@ export async function runningTurn(ctx: QueryCtx, turnId: Id<"agentTurns">) {
 	// Its reply posts there as them: a read-only channel ends it (chatOps.canReplyAs).
 	if (!canPost(member, chat)) throw new Error("This person can no longer post in this chat.");
 	member.replyId = turn.replyId;
-	await notePlace(ctx, member, chat._id, chatAccess(chat), chat.kind === "channel" && !!chat.private);
+	await notePlace(ctx, member, chat._id, chatAccess(chat), chat.kind !== "channel" || !!chat.private);
 	const who: Who = { member, agentId: turn.agentId };
 	return { turn: turn as Doc<"agentTurns"> & { replyId: Id<"chatMessages">; sessionId: Id<"agentSessions"> }, member, chat, who };
 }
@@ -519,6 +519,8 @@ export const updateReply = internalMutation({
 		const replyId = (await ctx.db.get(turnId))?.replyId;
 		// Nothing more goes out as a person who can no longer post there; finishReply ends it.
 		if (lost || !replyId || (await ctx.db.get(replyId))?.status !== "streaming") return heard;
+		const { member } = await runningTurn(ctx, turnId);
+		await inheritPlaces(ctx, member, await writeSources(ctx, member, { filtered: true }));
 		const stream = await streamOf(ctx, replyId);
 		if (stream) await ctx.db.patch(stream._id, { text, parts });
 		else await ctx.db.insert("replyStreams", { messageId: replyId, text, parts });

@@ -19,7 +19,7 @@ import { mutation } from "./functions";
 import { automationScope } from "./automationOps";
 import { addToChat, addUserMentions, chatMembersOf, insertMessage, requireChat } from "./chatOps";
 import { asToolResult, nameOf, requireMember } from "./lib";
-import { turnSources } from "./replySources";
+import { writeSources } from "./replySources";
 import { enqueueTurn, runningTurn } from "./turns";
 import { createWakeup, wake } from "./wakeups";
 
@@ -274,7 +274,7 @@ export const askFor = internalMutation({
 
 			const ask = `@${to.name} ${text}`;
 			const askId = await ctx.db.insert("chatMessages", {
-				usedPlaces: await turnSources(ctx, member),
+				usedPlaces: await writeSources(ctx, member, { filtered: true }),
 				repliedTo: turn.actorId,
 				chatId: chat._id,
 				workspaceId: chat.workspaceId,

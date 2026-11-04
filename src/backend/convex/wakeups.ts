@@ -22,7 +22,7 @@ import { type Member, asToolResult, getMember, liveWorkspace, memberOf, nameOf, 
 import { reach } from "./placeAccess";
 import { recordById } from "./recordOps";
 import { canReadSources } from "./replyPrivacy";
-import { inheritPlaces, notePlace, turnSources } from "./replySources";
+import { inheritPlaces, notePlace, writeSources } from "./replySources";
 import { enqueueTurn, runningTurn } from "./turns";
 
 // Wakeups: an agent wakes later in a place (chat + thread), acting for a person. A wakeup is when
@@ -332,7 +332,7 @@ export const createFor = internalMutation({
 				actorId: member.userId,
 				createdBy: member.userId,
 				note: note.trim(),
-				usedPlaces: await turnSources(ctx, member),
+				usedPlaces: await writeSources(ctx, member, { filtered: true }),
 				...(record && { recordId: record._id, typeId: record.typeId }),
 				foreign,
 				at: time,

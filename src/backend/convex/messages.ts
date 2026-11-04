@@ -31,7 +31,7 @@ import { type LinkPreview, previewMessage, previewRow, previewsOf } from "./link
 import { completeSteps } from "./onboarding";
 import { noteMentions, workspaceRecords } from "./recordOps";
 import { canReadReply, maskedReply, replyPrivacy, type ReplyPrivacy } from "./replyPrivacy";
-import { turnSources } from "./replySources";
+import { writeSources } from "./replySources";
 import { routeLater } from "./router";
 import type { messagePart, replyStats } from "./schema";
 import type { fileInfo } from "./schema";
@@ -250,7 +250,7 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	// Last: a refused message keeps its uploads, to attach again.
 	const attachments = await claimFiles(ctx, member, files);
 
-	const usedPlaces = await turnSources(ctx, member, chatId);
+	const usedPlaces = await writeSources(ctx, member, { filtered: true });
 	const messageId = await insertMessage(ctx, chat, {
 		...(usedPlaces.length && { usedPlaces, repliedTo: member.userId }),
 		threadId,
@@ -349,7 +349,7 @@ export async function editMessage(ctx: MutationCtx, who: Who, messageId: Id<"cha
 	requirePost(who.member, (await ctx.db.get(message.chatId))!);
 	text = text.trim();
 	if (!text && !message.attachments?.length) throw new ConvexError("Write something first, or delete the message.");
-	const sources = await turnSources(ctx, who.member, message.chatId);
+	const sources = await writeSources(ctx, who.member, { filtered: true }, message);
 	await ctx.db.patch(message._id, { text, parts: text ? [{ type: "text", text }] : [], editedAt: Date.now(), sharedBy: undefined, ...(sources.length && { usedPlaces: [...new Set([...(message.usedPlaces ?? []), ...sources])], repliedTo: who.member.userId }) });
 	await previewMessage(ctx, { ...message, text }, { byAgent: !!who.agentId });
 }
@@ -375,8 +375,9 @@ export async function reactMessage(ctx: MutationCtx, who: Who, messageId: Id<"ch
 	const message = await ctx.db.get(messageId);
 	if (!message || message.deleted || !(await canReadReply(ctx, member, message))) throw new ConvexError("Message not found.");
 	requirePost(member, await requireChat(ctx, member, message.chatId));
+	await writeSources(ctx, member, { places: [message.chatId, ...(message.sharedBy ? [] : message.usedPlaces ?? [])] });
 	emoji = emoji.trim();
-	if (!emoji || emoji.length > 16) throw new ConvexError("Pick one emoji.");
+	if ([...new Intl.Segmenter().segment(emoji)].length !== 1 || !/^(?:\p{Regional_Indicator}{2}|[#*0-9]\uFE0F?\u20E3|\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier}|[\u{E0020}-\u{E007F}])*(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})*)*)$/u.test(emoji)) throw new ConvexError("Pick one emoji.");
 	return toggleReaction(ctx, message, emoji, who.agentId ? { agentId: who.agentId } : { userId: member.userId });
 }
 
