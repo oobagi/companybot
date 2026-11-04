@@ -70,7 +70,11 @@ export function savedFrom(body: FetchedBody): { name: string; type: FileType } |
 	const name = fileNameOf(body.url);
 	const type = sniffFile(body.bytes, name);
 	if (!type) return { error: "That's not a file messages take: save a picture (PNG, JPEG, WebP, GIF), PDF, Word, Excel or text file. For a page, read it with web_fetch." };
-	return { name: /\.[a-z0-9]{2,5}$/i.test(name) ? name : `${name}.${extensions[type]}`, type };
+	// The extension says what it is: "logo.png" served as WebP is saved as "logo.webp".
+	const ext = extensions[type];
+	const [, base = name, current] = /^(.*)\.([a-z0-9]{2,5})$/i.exec(name) ?? [];
+	const matches = current && (current.toLowerCase() === ext || (ext === "jpg" && current.toLowerCase() === "jpeg") || (ext === "txt" && !isImageType(type)));
+	return { name: matches ? name : `${current && isImageType(type) ? base : name}.${ext}`, type };
 }
 
 const extensions: Record<FileType, string> = {

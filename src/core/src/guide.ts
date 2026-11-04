@@ -58,7 +58,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 		const fileUses = [
 			has("chat.manage") && "chat_manage send (files)",
 			(has("workspace.settings") || has("agents.manage")) && "set_image (a logo, photo or agent's picture)",
-			has("pages.write") && "![caption](<file id>) in pages_write Markdown",
+			has("pages.write") && "![caption](<file id>) in pages_write Markdown (pages only)",
 		].filter(Boolean);
 		if (fileUses.length) lines.push(`- A file on a message has an id ("<message id>/<n>"), including pictures you make or save. Use one with ${fileUses.join(", ")}; it's copied, so it stays if the message goes. Only use ids you were given or got back.`);
 		if (has("chat.react")) lines.push("- A reaction (chat_react) can acknowledge a message; still reply when there's something to say.");

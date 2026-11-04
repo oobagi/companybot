@@ -121,6 +121,11 @@ describe("saving a file from the web", () => {
 		expect(savedFrom(body("https://acme.com/brand/logo?v=2", pngOf(64, 64)))).toEqual({ name: "logo.png", type: "image/png" });
 		expect(savedFrom(body("https://acme.com/quote%20final", docx("Quote")))).toMatchObject({ name: "quote final.docx" });
 		expect(savedFrom(body("https://acme.com/report.pdf", pdf("Q3")))).toEqual({ name: "report.pdf", type: "application/pdf" });
+		// Named for what it is: Wikimedia serves "….svg.png" thumbnails as WebP.
+		const webp = new Uint8Array(16);
+		webp.set([...new TextEncoder().encode("RIFF"), 0, 0, 0, 0, ...new TextEncoder().encode("WEBP")]);
+		expect(savedFrom(body("https://upload.wikimedia.org/250px-Vercel_logo.svg.png", webp))).toEqual({ name: "250px-Vercel_logo.svg.webp", type: "image/webp" });
+		expect(savedFrom(body("https://acme.com/photo.jpeg", new Uint8Array([0xff, 0xd8, 0xff, 0xe0])))).toMatchObject({ name: "photo.jpeg" });
 	});
 
 	it("refuses pages, SVG, errors and cut-off files", () => {

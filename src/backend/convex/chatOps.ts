@@ -1,4 +1,4 @@
-import { canManageChannel, describeWidget } from "@companybot/core";
+import { canManageChannel, describeWidget, withoutFileImages } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -379,7 +379,8 @@ export function replyForModel(m: Doc<"chatMessages">) {
 	// Held calls are noted without their outcome, so this text never changes once the reply is done (prompt caching).
 	const held = m.parts.flatMap((p) => (p.type === "approval" ? [p.tool] : []));
 	return [
-		textForModel(m),
+		// Pictures pointed at file ids don't show in a message; replaying them teaches the model to write more.
+		withoutFileImages(textForModel(m)),
 		tools.length > 0 && `[Tools you used: ${tools.join(", ")}]`,
 		held.length > 0 && `[Held for approval: ${held.join(", ")}]`,
 		// With ids, so a later turn can use a picture it made or saved (set it as a logo, put it in a page).

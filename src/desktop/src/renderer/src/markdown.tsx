@@ -1,3 +1,4 @@
+import { withoutFileImages } from "@companybot/core/files";
 import { linkedPageId } from "@companybot/core/page-links";
 import { code } from "@streamdown/code";
 import { type ComponentProps, type MouseEvent, useState } from "react";
@@ -88,5 +89,6 @@ export function Markdown({ className = "", children, ...props }: Omit<ComponentP
 /**
  * Images in text never load (the app fetches nothing from outside; pictures come as files), and
  * Streamdown would show "[Image blocked: …]". They read as links instead: ![Logo](url) → [Logo](url).
+ * Ones pointed at a chat file id go: the file shows on the message already.
  */
-export const imagesAsLinks = (markdown: string) => markdown.replace(/!\[([^\]]*)\]\(/g, (_, alt: string) => `[${alt || "Picture"}](`);
+export const imagesAsLinks = (markdown: string) => withoutFileImages(markdown).replace(/!\[([^\]]*)\]\(/g, (_, alt: string) => `[${alt || "Picture"}](`);

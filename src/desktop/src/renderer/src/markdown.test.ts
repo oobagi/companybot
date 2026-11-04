@@ -13,6 +13,8 @@ describe("Markdown links", () => {
 		// External links are Streamdown's open-with-confirmation buttons.
 		expect(html).toMatch(/data-streamdown="link"[^>]*>Linear logo<\/button>/);
 		expect(html).toMatch(/data-streamdown="link"[^>]*>Picture<\/button>/);
+		// A chat file id isn't a link: the picture shows on the message already.
+		expect(render("Saved it.\n\n![Vercel logo](md78sjk0df6bwp6m1hm2kc6fas8hk90y/0)")).not.toMatch(/Vercel logo|blocked/);
 	});
 
 	it("keeps page links as in-app links", () => {

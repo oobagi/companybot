@@ -134,3 +134,11 @@ describe("fileText", () => {
 		expect(await fileText(text("a,b"), "text/csv")).toBe("a,b");
 	});
 });
+
+describe("withoutFileImages", () => {
+	it("drops pictures pointed at chat file ids, keeping everything else", async () => {
+		const { withoutFileImages } = await import("./files");
+		expect(withoutFileImages("Saved it.\n\n![Logo](md78sjk0df6bwp6m1hm2kc6fas8hk90y/0)\n\nDone.")).toBe("Saved it.\n\nDone.");
+		expect(withoutFileImages("See ![x](https://a.io/x.png) and [docs](https://a.io)")).toBe("See ![x](https://a.io/x.png) and [docs](https://a.io)");
+	});
+});
