@@ -81,12 +81,14 @@ it("browses 50 channels of 1,000 people each, with their counts", { timeout: 600
 	const people = await seedPeople(t, workspaceId, 1_000);
 	for (let c = 0; c < 50; c++) {
 		const chatId = await owner.mutation(api.chats.createChannel, { name: `team-${c}`, private: false });
-		// The owner made it, so 999 more.
+		// The owner made it, so 999 more, in bulk with the count they'd leave (counting itself: lifecycle and migration tests).
 		await t.run(async (ctx) => {
-			for (const userId of people.slice(1)) await addToChat(ctx, (await ctx.db.get(chatId))!, { userId });
+			for (const userId of people.slice(1)) await ctx.db.insert("chatMembers", { chatId, workspaceId, userId, lastReadAt: 0 });
+			await ctx.db.patch(chatId, { memberCount: 1_000 });
 		});
 	}
-	const channels = await newcomer.in(workspaceId).query(api.chats.browse);
+	// #general shows too: they joined without a seat in it.
+	const channels = (await newcomer.in(workspaceId).query(api.chats.browse)).filter((c) => c.name.startsWith("team-"));
 	expect(channels).toHaveLength(50);
 	expect(channels.every((c) => c.memberCount === 1_000)).toBe(true);
 });
