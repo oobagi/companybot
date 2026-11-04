@@ -356,6 +356,7 @@ export default defineSchema({
 		.index("by_workspace", ["workspaceId", "archived"])
 		// One person's personal memories in a workspace (team memories have no owner).
 		.index("by_owner", ["ownerId", "workspaceId"])
+		.index("by_workspace_scope", ["workspaceId", "scope", "archived"])
 		// Newest first within a scope, across owners (lists), or one owner's personal memories (never in Archive).
 		.index("by_agent_scope", ["agentId", "scope", "archived"])
 		.index("by_agent_owner", ["agentId", "scope", "ownerId"])
@@ -839,6 +840,8 @@ export default defineSchema({
 		wake: v.optional(v.object({ wakeupId: v.id("wakeups"), outcome: wakeOutcome, reason: v.optional(v.string()) })),
 	})
 		.index("by_workspace", ["workspaceId"])
+		.index("by_workspace_actor", ["workspaceId", "actorId"])
+		.index("by_chat", ["chatId"])
 		.index("by_reply", ["replyId"])
 		.index("by_actor", ["actorId"]),
 
@@ -1281,6 +1284,7 @@ export default defineSchema({
 		model: v.optional(v.string()),
 		costUsd: v.number(),
 	})
+		.index("by_month_kind", ["workspaceId", "month", "kind"])
 		.index("by_bucket", ["workspaceId", "month", "userId", "agentId", "kind", "model"])
 		.index("by_user", ["workspaceId", "userId", "month"]),
 

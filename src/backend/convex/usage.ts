@@ -10,8 +10,8 @@ import { type Member, getMember, liveWorkspace } from "./lib";
 // What AI has cost, by month. Every paid call goes through `recordUsage`; the Usage screen and the
 // agents' `workspace_settings` usage action read the aggregate rows (schema `usage`). See wiki/architecture.md#usage.
 
-/** More rows than a month can have: people × agents × kinds × models, a few hundred at most. */
-const MAX_ROWS = 2000;
+/** Each row may need an agent, user and preference read; leave room for the catalog too. */
+const MAX_ROWS = 4_000;
 
 export type UsageEntry = {
 	workspaceId: Id<"workspaces">;
@@ -49,8 +49,8 @@ export const record = internalMutation({
 
 /** What the workspace's agents spent on pictures in a month (default this one), for the image budget. */
 export async function imageSpent(ctx: QueryCtx, workspaceId: Id<"workspaces">, month = usageMonth(Date.now())) {
-	const rows = await ctx.db.query("usage").withIndex("by_bucket", (q) => q.eq("workspaceId", workspaceId).eq("month", month)).take(MAX_ROWS);
-	return round(rows.reduce((sum, r) => sum + (r.kind === "image" ? r.costUsd : 0), 0));
+	const rows = await ctx.db.query("usage").withIndex("by_month_kind", (q) => q.eq("workspaceId", workspaceId).eq("month", month).eq("kind", "image")).collect();
+	return round(rows.reduce((sum, r) => sum + r.costUsd, 0));
 }
 
 type Line = { id: string | null; name: string; costUsd: number };
@@ -70,10 +70,11 @@ const round = (n: number) => Math.round(n * 1e6) / 1e6;
 export async function usageReport(ctx: QueryCtx, member: Member, month = usageMonth(Date.now())) {
 	if (!isUsageMonth(month)) throw new ConvexError("Month must look like 2026-10.");
 	const all = can(member, "usage.view");
-	const rows = await (all
+	const found = await (all
 		? ctx.db.query("usage").withIndex("by_bucket", (q) => q.eq("workspaceId", member.workspaceId).eq("month", month))
 		: ctx.db.query("usage").withIndex("by_user", (q) => q.eq("workspaceId", member.workspaceId).eq("userId", member.userId).eq("month", month))
-	).take(MAX_ROWS);
+	).take(MAX_ROWS + 1);
+	const rows = found.slice(0, MAX_ROWS);
 	const names = namer(ctx);
 	const byAgent: Line[] = await Promise.all(
 		group(rows, (r) => r.agentId ?? null).map(async (l) => ({ ...l, name: l.id ? (await names.agent(l.id as Id<"agents">)).name : "Other" })),
@@ -86,6 +87,8 @@ export async function usageReport(ctx: QueryCtx, member: Member, month = usageMo
 	modelNames.set(GATEWAY_SEARCH_USAGE, "Exa web search");
 	return {
 		month,
+		truncated: found.length > MAX_ROWS,
+		rowCount: rows.length,
 		scope: all ? ("workspace" as const) : ("mine" as const),
 		total: round(rows.reduce((sum, r) => sum + r.costUsd, 0)),
 		byAgent,

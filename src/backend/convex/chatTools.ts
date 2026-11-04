@@ -2,7 +2,7 @@ import type { ChatLine, ChatResult } from "@companybot/core";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalQuery } from "./_generated/server";
-import { type Namer, canSee, label as authorLabel, chatByRef, chatLabel, namer, reactionGroups, shownAt, textForModel } from "./chatOps";
+import { type Namer, canSee, label as authorLabel, chatByRef, chatLabel, namer, reactionGroups, recentVisibleChats, shownAt, textForModel } from "./chatOps";
 import { filesForModel } from "./files";
 import { asToolResult } from "./lib";
 import { runningTurn } from "./turns";
@@ -81,13 +81,11 @@ export const searchFor = internalQuery({
 			if (!chat) return { error: `No channel "${args.chat}" you can see.` };
 			chatId = chat._id;
 		}
-		const found = await ctx.db
+		const chats = chatId ? [chatId] : (await recentVisibleChats(ctx, member)).map((c) => c._id);
+		const found = (await Promise.all(chats.map((id) => ctx.db
 			.query("chatMessages")
-			.withSearchIndex("search_text", (q) => {
-				const s = q.search("text", args.query).eq("workspaceId", member.workspaceId);
-				return chatId ? s.eq("chatId", chatId) : s;
-			})
-			.take(60);
+			.withSearchIndex("search_text", (q) => q.search("text", args.query).eq("workspaceId", member.workspaceId).eq("chatId", id))
+			.take(60)))).flat();
 		const names = namer(ctx);
 		/** Each chat's label, or null if the person can't see it. */
 		const labels = new Map<Id<"chats">, string | null>();

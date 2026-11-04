@@ -476,3 +476,17 @@ export function textForModel(m: Doc<"chatMessages">, who = "You") {
 	const widgets = m.parts.flatMap((p) => (p.type === "widget" ? [describeWidget(p.widget, who)] : []));
 	return [m.text, ...widgets].filter(Boolean).join("\n");
 }
+
+/** Recent accessible chats, without scanning other people's DMs. */
+export async function recentVisibleChats(ctx: QueryCtx, member: Member, limit = 20) {
+	const joined = await ctx.db.query("chatMembers").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("userId", member.userId)).collect();
+	const channels = await ctx.db.query("chats").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("kind", "channel")).collect();
+	const chats = new Map(channels.map((c) => [c._id, c]));
+	for (const row of joined) {
+		const chat = await ctx.db.get(row.chatId);
+		if (chat) chats.set(chat._id, chat);
+	}
+	const visible = [];
+	for (const chat of chats.values()) if (!chat.archived && await canSee(ctx, chat, member)) visible.push(chat);
+	return visible.sort((a, b) => b.lastMessageAt - a.lastMessageAt).slice(0, limit);
+}

@@ -4,7 +4,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation } from "./_generated/server";
 import { query } from "./functions";
-import { type Namer, canSee, chatLabel, namer } from "./chatOps";
+import { type Namer, canSee, chatLabel, namer, recentVisibleChats } from "./chatOps";
 import { type Member, capped, erased, getMember, liveWorkspace } from "./lib";
 import { titleOf } from "./connectorTools";
 import { allowedHow } from "./schema";
@@ -14,9 +14,8 @@ import { allowedHow } from "./schema";
 // the person the agent acted for may see (a private channel, their own inbox), so
 // only that person gets them.
 
-/** Most entries a list returns, and most rows it reads to find them. */
+/** Most entries returned, and read per accessible chat or actor. */
 const LIST_LIMIT = 100;
-const SCAN_LIMIT = 1_000;
 
 /** Written by the runner (agent.ts) as each tool call finishes. */
 export const log = internalMutation({
@@ -62,11 +61,12 @@ export const list = query({
 		const names = namer(ctx);
 		const labels = new Map<Id<"chats">, string | null>();
 		const entries = [];
-		const rows = await ctx.db
-			.query("agentActivity")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
-			.order("desc")
-			.take(SCAN_LIMIT);
+		const chats = await recentVisibleChats(ctx, member);
+		const own = await ctx.db.query("agentActivity").withIndex("by_workspace_actor", (q) => q.eq("workspaceId", member.workspaceId).eq("actorId", member.userId))
+			.filter((q) => agentId ? q.eq(q.field("agentId"), agentId) : q.eq(q.field("workspaceId"), member.workspaceId)).order("desc").take(LIST_LIMIT);
+		const shared = (await Promise.all(chats.map((chat) => ctx.db.query("agentActivity").withIndex("by_chat", (q) => q.eq("chatId", chat._id))
+			.filter((q) => agentId ? q.eq(q.field("agentId"), agentId) : q.eq(q.field("workspaceId"), member.workspaceId)).order("desc").take(LIST_LIMIT)))).flat();
+		const rows = [...new Map([...own, ...shared].map((r) => [r._id, r])).values()].sort((a, b) => b._creationTime - a._creationTime);
 		for (const row of rows) {
 			if (agentId && row.agentId !== agentId) continue;
 			if (!labels.has(row.chatId)) labels.set(row.chatId, await visibleLabel(ctx, row.chatId, member, names));

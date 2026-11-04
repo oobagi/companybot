@@ -21,6 +21,7 @@ export function UsageTab() {
 					<Select value={month} options={months.map((m) => ({ value: m, label: monthLabel(m) }))} onChange={setMonth} />
 				</Setting>
 			</Settings>
+			{report.truncated && <p>Showing the first {report.rowCount.toLocaleString()} usage rows. Totals are partial.</p>}
 			{report.total === 0 ? (
 				<EmptyState icon={<UsageIcon />} title="No usage yet">Nothing has been spent in {monthLabel(month)}.</EmptyState>
 			) : (
