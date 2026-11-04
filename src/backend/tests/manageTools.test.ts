@@ -92,6 +92,7 @@ describe("messaging and channels as the person", () => {
 		const elsewhere = await agentTurn(t, owner, chat._id, companybot._id);
 		const fromGeneral = (request: unknown): Promise<any> => t.mutation(internal.manageTools.runFor, { turnId: elsewhere, tool: "chat.manage", input: { request } });
 		const { messageId: toYou } = await fromGeneral({ action: "send", chat: own.chatId, text: "Surprise" });
+		expect(await fromGeneral({ action: "send", chat: own.chatId, text: "Again" })).toMatchObject({ chatId: own.chatId, messageId: expect.any(String) });
 		const sent = await t.run((ctx) => ctx.db.get(toYou as Id<"chatMessages">));
 		expect(sent).toMatchObject({ authorAgentId: companybot._id, text: "Surprise" });
 		expect(sent!.actingFor).toBeUndefined();

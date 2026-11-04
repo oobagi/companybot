@@ -399,13 +399,14 @@ function ToolPart({ replyId, part, author }: { replyId: Message["_id"]; part: To
 	const label = toolLine(part.label ?? (part.name === "connectors_search" ? "Look up connected actions" : actionLabel(part.name)), part.status);
 	if (part.status === "running") return <p className="text-xs text-neutral-400">{label}</p>;
 	// A call that made a thread (an ask to another agent) is a chip that opens it, read-only: "Scout asked Quill →".
+	// One that sent a message jumps to it: "Companybot posted in #sales →".
 	if (part.opens) {
-		const { chatId, messageId } = part.opens;
+		const { chatId, messageId, kind } = part.opens;
 		return (
 			<div className="flex">
 				<button
 					type="button"
-					onClick={() => navigate("chat", chatId, "thread", messageId)}
+					onClick={() => navigate("chat", chatId, kind ?? "thread", messageId)}
 					className="rounded-full border border-neutral-200 px-2 py-0.5 text-xs text-neutral-600 hover:border-neutral-300 hover:text-neutral-900"
 				>
 					{author} {label.charAt(0).toLowerCase() + label.slice(1)} →
