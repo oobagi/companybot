@@ -17,7 +17,7 @@ export function Button({ label, variant = 'primary', loading = false, disabled, 
   const { colors, spacing, radii, sizes } = useTheme();
   if (Platform.OS !== 'web') return <NativeButton {...props} label={label} variant={variant} loading={loading} disabled={disabled} leading={leading} style={style} accessibilityState={accessibilityState} />;
   const inactive = disabled || loading;
-  const color = variant === 'primary' ? colors.onPrimary : variant === 'danger' ? colors.danger : colors.text;
+  const color = variant === 'primary' ? colors.onPrimary : variant === 'danger' ? colors.danger : variant === 'ghost' ? colors.link : colors.text;
   const backgroundColor = variant === 'primary' ? colors.primary : variant === 'danger' ? colors.dangerSurface : variant === 'secondary' ? colors.surface : 'transparent';
   return (
     <Pressable {...props} accessibilityRole="button" accessibilityState={{ ...accessibilityState, disabled: !!inactive, busy: loading }} disabled={inactive}

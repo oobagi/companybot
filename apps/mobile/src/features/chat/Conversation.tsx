@@ -1,3 +1,4 @@
+import { usePinAction } from '@/features/pins/usePins';
 import type { Id } from '@companybot/backend/convex/_generated/dataModel';
 import { TYPING_MS } from '@companybot/core/typing';
 import { Stack as RouterStack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -14,8 +15,10 @@ import { Composer } from './Composer';
 import { MessageRow } from './MessageRow';
 import { chatTitle, type Message } from './types';
 import { canWriteChat } from './access';
+import { messageTimeline } from './dates';
 
 export function Conversation({ chatId, threadId }: { chatId: Id<'chats'>; threadId?: Id<'chatMessages'> }) {
+  const pin = usePinAction(`chat:${chatId}`);
   const params = useLocalSearchParams<{ messageId?: string }>();
   const messageId = typeof params.messageId === 'string' ? params.messageId : undefined;
   const chat = useQuery(api.chats.get, { chatId });
@@ -25,7 +28,12 @@ export function Conversation({ chatId, threadId }: { chatId: Id<'chats'>; thread
   const createSide = useMutation(api.chats.createSideChat);
   const task = useTask();
   const { spacing } = useTheme();
-  const data = useMemo(() => messages?.slice().reverse() ?? [], [messages]);
+  const [liveVisible, setLiveVisible] = useState<ReadonlySet<string>>(() => new Set());
+  const streamVisibility = useCallback((id: string, visible: boolean) => setLiveVisible(previous => {
+    if (previous.has(id) === visible) return previous;
+    const next = new Set(previous); if (visible) next.add(id); else next.delete(id); return next;
+  }), []);
+  const { data, days } = useMemo(() => messageTimeline(messages ?? [], liveVisible), [messages, liveVisible]);
   const timeline = useRef<FlatList<Message>>(null);
   const focused = useRef<string | undefined>(undefined);
   const retries = useRef(0);
@@ -56,6 +64,7 @@ export function Conversation({ chatId, threadId }: { chatId: Id<'chats'>; thread
   const sides = list?.dms.filter((d) => d.parentId === main) ?? [];
   const actions: Action[] = [
     { id: 'details', title: 'Conversation details', icon: 'info.circle' },
+    { id: 'pin', title: pin.label, icon: 'pin', disabled: pin.disabled },
     ...(!threadId && chat.agentId ? [
       { id: 'new', title: 'New chat', icon: 'square.and.pencil' as const, disabled: task.busy || !writable },
       { id: 'switch', title: 'Switch chat', icon: 'bubble.left.and.bubble.right' as const, items: [
@@ -65,7 +74,8 @@ export function Conversation({ chatId, threadId }: { chatId: Id<'chats'>; thread
     ] : []),
   ];
   const perform = (action: string) => {
-    if (action === 'details') router.push({ pathname: '/chat/[chatId]/details', params: { chatId } });
+    if (action === 'pin') pin.onPress();
+    else if (action === 'details') router.push({ pathname: '/chat/[chatId]/details', params: { chatId } });
     else if (action.startsWith('chat:')) router.replace({ pathname: '/chat/[chatId]', params: { chatId: action.slice(5) } });
     else if (action === 'new' && writable) void task.run(async () => { const id = await createSide({ parentId: main }); router.push({ pathname: '/chat/[chatId]', params: { chatId: id } }); });
   };
@@ -74,8 +84,9 @@ export function Conversation({ chatId, threadId }: { chatId: Id<'chats'>; thread
     <HeaderMenu label="Conversation actions" actions={actions} onAction={perform} />
     {chat.topic && <View style={{ paddingHorizontal: spacing.lg, paddingVertical: spacing.sm }}><Text variant="caption" tone="muted">{chat.topic}</Text></View>}
     {task.error && <ErrorState message={task.error} />}
+    {pin.error && <ErrorState message={pin.error} />}
     {messageId && messages !== undefined && targetIndex < 0 && <Card><Text tone="muted">This message is not in the most recent 200 messages.</Text></Card>}
-    {messages === undefined ? <Loading label="Loading messages…" /> : !messages.length ? <EmptyState title={threadId ? 'Thread not found' : 'No messages yet'} description={threadId ? 'This thread is no longer available.' : `Start a conversation in ${chatTitle(chat)}.`} /> : <FlatList ref={timeline} data={data} inverted keyExtractor={(m) => m._id} renderItem={({ item }) => <MessageRow row={item} highlighted={item._id === messageId} readOnly={!writable} inThread={!!threadId} />} onScrollToIndexFailed={({ index, averageItemLength }) => { if (retries.current++ >= 3) return; timeline.current?.scrollToOffset({ offset: index * averageItemLength, animated: false }); clearTimeout(retryTimer.current); retryTimer.current = setTimeout(scrollToTarget, 150); }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 80 }} initialNumToRender={16} maxToRenderPerBatch={12} windowSize={9} contentContainerStyle={{ paddingVertical: spacing.md }} />}
+    {messages === undefined ? <Loading label="Loading messages…" /> : !messages.length ? <EmptyState title={threadId ? 'Thread not found' : 'No messages yet'} description={threadId ? 'This thread is no longer available.' : `Start a conversation in ${chatTitle(chat)}.`} /> : <FlatList ref={timeline} data={data} inverted keyExtractor={(m) => m._id} renderItem={({ item }) => <MessageRow row={item} highlighted={item._id === messageId} readOnly={!writable} inThread={!!threadId} dayLabel={days.get(item._id)} onStreamVisibility={streamVisibility} />} onScrollToIndexFailed={({ index, averageItemLength }) => { if (retries.current++ >= 3) return; timeline.current?.scrollToOffset({ offset: index * averageItemLength, animated: false }); clearTimeout(retryTimer.current); retryTimer.current = setTimeout(scrollToTarget, 150); }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 80 }} initialNumToRender={16} maxToRenderPerBatch={12} windowSize={9} contentContainerStyle={{ paddingVertical: spacing.md }} />}
     <TypingStatus chatId={chatId} threadId={threadId} />
     {chat.trash ? <Card><Text>This conversation is in Archive.</Text><Button label="Open Archive" variant="secondary" onPress={() => router.push('/settings/archive')} /></Card> : readonlyThread ? <Card><Text tone="muted">This is a read-only conversation between agents.</Text></Card> : !chat.canPost ? <Card><Text tone="muted">You have view-only access to this conversation.</Text></Card> : messages !== undefined && (!threadId || messages.length > 0) && <Composer key={`${chatId}:${threadId ?? 'main'}`} chatId={chatId} threadId={threadId} />}
   </Screen>;

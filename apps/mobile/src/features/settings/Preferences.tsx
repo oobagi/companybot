@@ -1,6 +1,6 @@
+import { EditToolbarButton } from '@/components/navigation/EditToolbarButton';
 import { useState } from 'react';
 import { Platform } from 'react-native';
-import { Stack as NavigationStack } from 'expo-router';
 import { useAuthActions } from '@convex-dev/auth/react';
 import type { FunctionReturnType } from 'convex/server';
 import { isValidTimeZone } from '@companybot/core/automations';
@@ -30,7 +30,7 @@ export default function Preferences() {
   if (!prefs) return <Loading />;
   const name = prefs.displayName || me?.email || 'Your account';
   return <>
-    {Platform.OS !== 'web' && <NavigationStack.Toolbar placement="right"><NavigationStack.Toolbar.Button onPress={() => setEditing(true)}>Edit</NavigationStack.Toolbar.Button></NavigationStack.Toolbar>}
+    {Platform.OS !== 'web' && <EditToolbarButton label="Edit profile" onPress={() => setEditing(true)} />}
     <Screen scroll><Stack gap="xl">
       <Stack horizontal><Avatar name={name} image={prefs.image} size="lg" /><Stack gap="xs" style={{ flex: 1 }}><Text variant="heading">{name}</Text>{me?.email && prefs.displayName && <Text tone="muted">{me.email}</Text>}</Stack></Stack>
       {Platform.OS === 'web' && <Button label="Edit profile" variant="secondary" onPress={() => setEditing(true)} />}

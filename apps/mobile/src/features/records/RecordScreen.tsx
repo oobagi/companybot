@@ -1,3 +1,5 @@
+import { usePinAction } from '@/features/pins/usePins';
+import { HeaderMenu } from '@/components/navigation/HeaderMenu';
 import { useState } from 'react';
 import { View } from 'react-native';
 import { router, Stack as RouterStack } from 'expo-router';
@@ -21,6 +23,7 @@ export function RecordScreen({ recordId }: { recordId: string }) {
 }
 
 function RecordContent({ record }: { record: RecordDetail }) {
+  const pin = usePinAction(`rec:${record._id}`);
   const me = useQuery(api.workspace.me);
   const databases = useQuery(api.recordTypes.list);
   const type = databases?.find(t => t._id === record.typeId);
@@ -38,6 +41,8 @@ function RecordContent({ record }: { record: RecordDetail }) {
   const refs = { ...record.refs, ...resolved };
   return <Screen scroll keyboard>
     <RouterStack.Screen options={{ title: record.type.name }} />
+    <HeaderMenu label="Record actions" actions={[{ id: 'pin', title: pin.label, disabled: pin.disabled, icon: 'pin' }]} onAction={pin.onPress} />
+    {pin.error && <ErrorState message={pin.error} />}
     <Stack gap="xl">
       <Text variant="title" accessibilityRole="header">{record.title}</Text>
       {task.error && <ErrorState message={task.error} />}
@@ -84,7 +89,7 @@ function LinkedRecords({ recordId }: { recordId: Id<'records'> }) {
 function Discussion({ recordId }: { recordId: Id<'records'> }) {
   const messages = useQuery(api.records.discussion, { recordId });
   if (!messages?.length) return null;
-  return <Section title="Discussion">{messages.map(m => <ListRow key={m.messageId} title={m.author} description={m.text} onPress={() => router.push(m.threadId ? { pathname: '/chat/[chatId]/thread/[threadId]', params: { chatId: m.chatId, threadId: m.threadId } } : { pathname: '/chat/[chatId]', params: { chatId: m.chatId, messageId: m.messageId } })} />)}</Section>;
+  return <Section title="Discussion">{messages.map(m => <ListRow key={m.messageId} title={m.author} description={m.text} onPress={() => router.push(m.threadId ? { pathname: '/chat/[chatId]/thread/[threadId]', params: { chatId: m.chatId, threadId: m.threadId, messageId: m.messageId } } : { pathname: '/chat/[chatId]', params: { chatId: m.chatId, messageId: m.messageId } })} />)}</Section>;
 }
 
 function Followups({ recordId }: { recordId: Id<'records'> }) {

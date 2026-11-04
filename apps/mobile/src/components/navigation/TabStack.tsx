@@ -5,9 +5,10 @@ import { OverlayChromeContext } from '@/components/ui/scrollViewport';
 
 /** Each native tab owns a navigation controller and its system header. */
 export function TabStack({ title }: { title: string }) {
-  const { colors } = useTheme();
+  const { colors, dark } = useTheme();
   return <OverlayChromeContext.Provider value={Platform.OS === 'ios'}><Stack screenOptions={{
     title,
+    statusBarStyle: dark ? 'light' : 'dark',
     headerLargeTitleEnabled: Platform.OS === 'ios',
     headerTransparent: Platform.OS === 'ios',
     // iOS 26 supplies the native content fade. Older iOS needs a translucent

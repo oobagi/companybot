@@ -10,26 +10,33 @@ import * as Linking from 'expo-linking';
 import { router, usePreventRemove } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, Platform, View } from 'react-native';
-import { Button, EmptyState, ErrorState, Loading, Stack, Text } from '@/components/ui';
+import { EmptyState, ErrorState, Loading } from '@/components/ui';
+import { ContentToolbar } from '@/components/ui/ContentToolbar';
+import PhotoIcon from '@expo/material-symbols/image.xml';
+import PageIcon from '@expo/material-symbols/note_add.xml';
+import BlocksIcon from '@expo/material-symbols/more_horiz.xml';
 import { useTheme } from '@/design';
 import { api, errorMessage } from '@/lib/api';
 import { useMutation, useQuery, useWorkspace } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
-import DocumentDOM, { type Reference } from './Editor.dom';
+import DocumentDOM from './Editor.dom';
+import type { Reference } from './schema';
 import { useDocumentConfirm } from './Confirm';
 import type { Submit } from './transport';
 import { boundDocumentSteps } from './requests';
 import { useUnsavedDocument } from '@/lib/UnsavedWork';
+import { useDocumentActions } from './DocumentActions';
+import type { DocumentCommand } from './commands';
 
 export function DocumentEditor({ pageId, editable }: { pageId: Id<'pages'>; editable: boolean }) {
   // pageSync resolves access from the document itself; first validate the selected workspace as well.
   const page = useQuery(api.pages.get, { pageId });
   if (page === undefined) return <Loading label="Loading document…" />;
   if (!page) return <EmptyState title="Document unavailable" description="It may have been removed or belong to another workspace." />;
-  return <ConnectedEditor key={pageId} pageId={pageId} editable={editable && page.canEdit && !page.archived} />;
+  return <ConnectedEditor key={pageId} pageId={pageId} editable={editable && page.canEdit && !page.archived} standalone={!page.recordId} />;
 }
 
-function ConnectedEditor({ pageId, editable }: { pageId: Id<'pages'>; editable: boolean }) {
+function ConnectedEditor({ pageId, editable, standalone }: { pageId: Id<'pages'>; editable: boolean; standalone: boolean }) {
   const convex = useConvex();
   const connection = useConvexConnectionState();
   const [retry, setRetry] = useState(0);
@@ -47,10 +54,18 @@ function ConnectedEditor({ pageId, editable }: { pageId: Id<'pages'>; editable: 
   const [references, setReferences] = useState<Record<string, Reference>>({});
   const [referenceIds, setReferenceIds] = useState<string[]>([]);
   const [image, setImage] = useState<{ url: string; request: number }>();
+  const [command, setCommand] = useState<DocumentCommand>();
+  const sendCommand = (kind: DocumentCommand['kind']) => setCommand(previous => ({ kind, request: (previous?.request ?? 0) + 1 }));
   const { confirm, dialog } = useDocumentConfirm();
   const upload = useTask();
   const archive = useMutation(api.trash.move);
   const addImage = useMutation(api.pages.addImage);
+  const create = useMutation(api.pages.create);
+  const actions = useDocumentActions({ editable, canCreate: standalone, create: title => {
+    if (!editable || !standalone) return Promise.reject(new Error('This document cannot contain sub-pages.'));
+    // The DOM cannot supply a workspace, parent, record id, or insertion flag.
+    return create({ title, parentId: pageId });
+  } });
   const endpoint = useQuery(api.images.uploadEndpoint);
   const token = useAuthToken();
   const mounted = useRef(true);
@@ -97,15 +112,12 @@ function ConnectedEditor({ pageId, editable }: { pageId: Id<'pages'>; editable: 
   });
   if (snapshot === undefined || version === undefined) return <Loading label="Opening editor…" />;
   if (!snapshot.content || version === null) return <EmptyState title="Document unavailable" />;
-  return <View style={{ flex: 1, minHeight: 0, gap: theme.spacing.sm }}>
+  return <View style={{ flex: 1, minHeight: 0 }}>
     {dialog}
-    <Stack horizontal style={{ flexWrap: 'wrap' }}>
-      <Text variant="caption" tone="muted" accessibilityLiveRegion="polite">{dirty ? 'Saving changes…' : editable ? 'All changes saved' : 'Read only'}</Text>
-      {editable && <Button label="Add image" variant="ghost" loading={upload.busy} onPress={() => void pickImage()} />}
-    </Stack>
+    {actions.dialog}
     {(error || upload.error) && <ErrorState message={error ?? upload.error!} onRetry={error ? () => setRetry(n => n + 1) : undefined} />}
     {referenceIds.map((id) => <PageReference key={id} id={id} onChange={setReference} />)}
-    <DocumentDOM pageId={pageId} snapshot={snapshot} latestVersion={version} retrySignal={`${connection.connectionCount}:${retry}`} editable={editable} dark={theme.dark} colors={theme.colors} image={image} references={references}
+    <DocumentDOM pageId={pageId} snapshot={snapshot} latestVersion={version} retrySignal={`${connection.connectionCount}:${retry}`} editable={editable} canCreatePage={standalone} onBlockActions={actions.onBlockActions} onCreatePage={actions.onCreatePage} command={command} dark={theme.dark} colors={theme.colors} image={image} references={references}
       getSteps={(atVersion) => convex.query(api.pageSync.getSteps, { id: pageId, version: atVersion })}
       submitSteps={(args: Submit) => {
         if (!editable) return Promise.reject(new Error('This document is read only.'));
@@ -117,7 +129,12 @@ function ConnectedEditor({ pageId, editable }: { pageId: Id<'pages'>; editable: 
         if (id) router.push({ pathname: '/pages/[pageId]', params: { pageId: id } });
         else if (/^(https?:|mailto:|tel:)/i.test(href)) await Linking.openURL(href).catch((e: unknown) => setError(errorMessage(e)));
       }}
-      dom={{ style: { flex: 1, minHeight: 0 }, scrollEnabled: true }} />
+      dom={{ style: { flex: 1, minHeight: 0 }, scrollEnabled: true, contentInsetAdjustmentBehavior: 'never', automaticallyAdjustContentInsets: false }} />
+    {editable && <ContentToolbar accessibilityLabel="Document editing" status={upload.busy ? 'Uploading image…' : dirty ? 'Saving changes…' : undefined} busy={upload.busy || actions.busy} actions={[
+      { id: 'blocks', label: 'Block actions', icon: { ios: 'ellipsis', android: BlocksIcon }, onPress: () => sendCommand('blocks') },
+      { id: 'image', label: 'Add image', icon: { ios: 'photo', android: PhotoIcon }, onPress: () => void pickImage() },
+      ...(standalone ? [{ id: 'page', label: 'New sub-page', icon: { ios: 'doc.badge.plus' as const, android: PageIcon }, onPress: () => sendCommand('page') }] : []),
+    ]} />}
   </View>;
 }
 
@@ -129,9 +146,9 @@ function PageReference({ id, onChange }: { id: string; onChange: (id: string, va
 
 export function VersionDocument({ content, identity }: { content: string; identity: string }) {
   const theme = useTheme();
-  return <View style={{ flex: 1, minHeight: 0 }}><DocumentDOM key={identity} pageId={identity} snapshot={{ content, version: 1 }} latestVersion={1} editable={false} dark={theme.dark} colors={theme.colors} references={{}}
+  return <View style={{ flex: 1, minHeight: 0 }}><DocumentDOM key={identity} pageId={identity} snapshot={{ content, version: 1 }} latestVersion={1} editable={false} canCreatePage={false} onBlockActions={async () => null} onCreatePage={async () => null} dark={theme.dark} colors={theme.colors} references={{}}
     getSteps={async () => ({ steps: [], clientIds: [], version: 1 })} submitSteps={async () => { throw new Error('History is read only.'); }}
     onReferences={async () => {}} onStatus={async () => {}} onRemovePages={async () => false}
     onOpenLink={async (href) => { const id = linkedPageId(href); if (id) router.push({ pathname: '/pages/[pageId]', params: { pageId: id } }); else if (/^(https?:|mailto:|tel:)/i.test(href)) await Linking.openURL(href); }}
-    dom={{ style: { flex: 1, minHeight: 0 }, scrollEnabled: true }} /></View>;
+    dom={{ style: { flex: 1, minHeight: 0 }, scrollEnabled: true, contentInsetAdjustmentBehavior: 'never', automaticallyAdjustContentInsets: false }} /></View>;
 }

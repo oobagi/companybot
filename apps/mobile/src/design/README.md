@@ -1,6 +1,6 @@
 # Mobile design system
 
-The desktop's neutral surfaces, quiet borders, native action hierarchy and blue links carry over to mobile. Use semantic color roles rather than adding feature-specific palettes. System typography respects the device's text size; custom touch controls use 48-point targets; system controls retain their native sizing (at least 44 points on iOS). Layout uses `spacing`, `radii`, `sizes` and `typography` from `@/design`.
+Start with the [component library contract](components.md). The development app exposes a Components gallery through the root toolbar menu; verify components there before composing screens. Neutral surfaces, native action hierarchy and blue actions carry over to mobile. Use semantic color roles rather than adding feature-specific palettes. System typography respects the device's text size; custom touch controls use 48-point targets; system controls retain their native sizing (at least 44 points on iOS). Layout uses `spacing`, `radii`, `sizes` and `typography` from `@/design`.
 
 Wrap the app once in `ThemeProvider`. It follows system appearance unless passed `appearance="light" | "dark"`. `useTheme()` returns `{ colors, spacing, radii, sizes, typography, dark }`; use those values for specialized layouts and navigation chrome. Keep domain data and navigation out of this layer.
 
@@ -29,7 +29,7 @@ Import the following from `@/components/ui`:
 
 For forms, enable `keyboard`; the screen uses padding on both platforms and obtains the header offset from Expo Router's header context. Expo's edge-to-edge Android guidance requires keyboard avoidance even when the window does not resize. Do not also enable Android keyboard pan. Complex forms may adopt Expo's recommended Keyboard Controller without changing the token layer.
 
-Labels and descriptions wrap rather than imposing fixed line counts. Use truncation only where the feature also provides a way to read the full value. `ListRow` with `onPress` must not contain independently interactive children: put additional actions alongside the row. Avatar initials alone have a font scaling cap to stay inside their fixed image footprint; all normal text keeps unrestricted scaling.
+Labels and descriptions wrap rather than imposing fixed line counts. Use truncation only where the feature also provides a way to read the full value. `ListRow` renders its `trailing` accessory beside its primary press target, so an action menu does not also open the row. Leading content is decorative. Avatar initials alone have a font scaling cap to stay inside their fixed image footprint; all normal text keeps unrestricted scaling.
 
 Sources: [Expo SDK 58](https://docs.expo.dev/versions/v58.0.0/), [Expo keyboard guidance](https://docs.expo.dev/guides/keyboard-handling/), [safe area context](https://docs.expo.dev/versions/v58.0.0/sdk/safe-area-context/), [React Native accessibility](https://reactnative.dev/docs/accessibility), [scrolling and virtualization](https://reactnative.dev/docs/scrollview).
 

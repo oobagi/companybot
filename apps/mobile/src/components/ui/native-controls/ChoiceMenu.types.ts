@@ -7,4 +7,5 @@ export type ChoiceMenuProps = {
   value: string;
   onChange: (value: string) => void;
   children: ReactNode;
+  presentation?: 'row' | 'compact';
 };

@@ -1,5 +1,7 @@
-html, body, #root { margin: 0; min-height: 100%; }
-.mobile-document { min-height: 100%; font-family: system-ui, sans-serif; overflow-wrap: anywhere; }
+html, body, #root { margin: 0; min-height: 100%; width: 100%; }
+/* Expo's DOM root is a flex row by default. Give the document the entire viewport. */
+#root { flex-direction: column; }
+.mobile-document { flex: 1; width: 100%; min-width: 0; min-height: 100%; box-sizing: border-box; font-family: system-ui, sans-serif; overflow-wrap: anywhere; }
 .mobile-document .bn-editor { padding: var(--space-md) var(--space-lg) var(--space-footer); font-size: var(--body-size); line-height: 1.6; }
 .mobile-document .bn-block-content[data-content-type="table"] { max-width: 100%; overflow-x: auto; }
 .mobile-document .bn-inline-content a { color: var(--page-link); }
@@ -7,3 +9,6 @@ html, body, #root { margin: 0; min-height: 100%; }
 .mobile-page-link > span:nth-child(2) { flex: 1; }
 .mobile-page-link small { font-size: var(--caption-size); }
 .mobile-document button { min-width: var(--touch); min-height: var(--touch); }
+.mobile-page-block { display: flex; align-items: center; gap: var(--space-sm); width: 100%; }
+.mobile-page-block .mobile-page-link { flex: 1; min-width: 0; }
+.mobile-page-block > button { color: inherit; background: transparent; border: 0; border-radius: var(--radius-md); padding: var(--space-sm) var(--space-md); font: inherit; touch-action: manipulation; }

@@ -1,3 +1,4 @@
+import { ReorderSheet } from '@/features/arrangements/ReorderSheet';
 import { useArrangements } from '@/features/arrangements/useArrangements';
 import { DirectoryHeader } from '@/components/navigation/DirectoryHeader';
 import { can } from '@companybot/core/permissions';
@@ -17,13 +18,16 @@ export function openPage(pageId: string) { router.push({ pathname: '/pages/[page
 export function PagesScreen() {
   const [search, setSearch] = useState('');
   const [creating, setCreating] = useState(false);
+  const [organize, setOrganize] = useState(false);
+  const arrangements = useArrangements();
   const me = useQuery(api.workspace.me);
   const found = useQuery(api.pages.search, search.trim() ? { query: search.trim() } : 'skip');
   const theme = useTheme();
-  return <><DirectoryHeader search={{ placeholder: 'Search pages', value: search, onChange: setSearch }} action={me?.access && can(me.access, 'pages.edit') ? { label: 'New page', onPress: () => setCreating(true) } : undefined} /><Screen nativeScroll padded={false} edges={['left', 'right']}><Stack style={{ flex: 1 }}>
+  return <><DirectoryHeader menu={arrangements.writable ? [{ label: 'Organize pages', onPress: () => setOrganize(true) }] : undefined} search={{ placeholder: 'Search pages', value: search, onChange: setSearch }} action={me?.access && can(me.access, 'pages.edit') ? { label: 'New page', onPress: () => setCreating(true) } : undefined} /><Screen nativeScroll padded={false} edges={['left', 'right']}><Stack style={{ flex: 1 }}>
     {search.trim() ? <ScreenList contentContainerStyle={{ paddingHorizontal: theme.spacing.lg }} data={found ?? []} keyboardShouldPersistTaps="handled" keyExtractor={(page) => page._id}
       renderItem={({ item }) => <ListRow title={item.title || 'Untitled'} description={item.path.join(' / ') || 'Top level'} leading={<FileText size={theme.sizes.icon} color={theme.colors.muted} />} onPress={() => openPage(item._id)} />}
       ListEmptyComponent={found === undefined ? <Loading /> : <EmptyState title="No pages found" description="Try a different title." />} /> : <PageChildren />}
+    {organize && <PageOrganizer onClose={() => setOrganize(false)} />}
     {creating && <NewPage onClose={() => setCreating(false)} />}
   </Stack></Screen></>;
 }
@@ -51,4 +55,12 @@ export function NewPage({ parentId, onClose }: { parentId?: Id<'pages'>; onClose
       const id = await create({ title: title.trim() || 'Untitled', parentId }); onClose(); openPage(id);
     })} />
   </EditorSheet>;
+}
+
+/** A dedicated paginated subscription avoids treating a search result as the complete sibling list. */
+export function PageOrganizer({ parentId, onClose }: { parentId?: Id<'pages'>; onClose: () => void }) {
+  const pages = usePaginatedQuery(api.pages.children, { parentId }, { initialNumItems: 30 });
+  return <ReorderSheet title={parentId ? 'Organize sub-pages' : 'Organize pages'} list="pages" entityId={parentId}
+    items={pages.results.map(page => ({ _id: page._id, title: page.title || 'Untitled' }))} loading={pages.status === 'LoadingFirstPage'}
+    complete={pages.status === 'Exhausted'} loadingMore={pages.status === 'LoadingMore'} onLoadMore={() => pages.loadMore(30)} onClose={onClose} />;
 }

@@ -1,11 +1,11 @@
 import type { TextStyle } from 'react-native';
 
-/** The desktop's neutral surfaces, dark primary actions and blue links, on touch-sized controls. */
+/** Neutral content surfaces with the system-style blue action hierarchy. */
 const light = {
   background: '#ffffff', surface: '#fafafa', elevated: '#ffffff',
   text: '#171717', muted: '#737373', border: '#e5e5e5',
-  primary: '#171717', onPrimary: '#ffffff', pressed: '#f0f0f0',
-  link: '#0369a1', selected: '#e0f2fe',
+  primary: '#007aff', onPrimary: '#ffffff', pressed: '#f0f0f0',
+  link: '#007aff', selected: '#e5f1ff', groupedBackground: '#f2f2f7',
   danger: '#b91c1c', dangerSurface: '#fef2f2',
   success: '#166534', successSurface: '#f0fdf4',
   warning: '#92400e', warningSurface: '#fffbeb',
@@ -15,8 +15,8 @@ export type Colors = { [Key in keyof typeof light]: string };
 const dark: Colors = {
   background: '#171717', surface: '#202020', elevated: '#262626',
   text: '#fafafa', muted: '#a3a3a3', border: '#404040',
-  primary: '#fafafa', onPrimary: '#171717', pressed: '#333333',
-  link: '#7dd3fc', selected: '#123447',
+  primary: '#0a84ff', onPrimary: '#ffffff', pressed: '#333333',
+  link: '#0a84ff', selected: '#102b46', groupedBackground: '#000000',
   danger: '#fca5a5', dangerSurface: '#431c1c',
   success: '#86efac', successSurface: '#143322',
   warning: '#fcd34d', warningSurface: '#3d3015',

@@ -1,3 +1,4 @@
+import { ReorderSheet } from '@/features/arrangements/ReorderSheet';
 import { useArrangements } from '@/features/arrangements/useArrangements';
 import type { Id } from '@companybot/backend/convex/_generated/dataModel';
 import { can } from '@companybot/core/permissions';
@@ -21,7 +22,7 @@ export function ChatDirectory() {
   const openDm = useMutation(api.chats.openDm);
   const task = useTask();
   const [search, setSearch] = useState('');
-  const [dialog, setDialog] = useState<'new' | 'channel' | 'browse' | 'threads'>();
+  const [dialog, setDialog] = useState<'new' | 'channel' | 'browse' | 'threads' | 'organize'>();
   const open = (chatId: Id<'chats'>) => router.push({ pathname: '/chat/[chatId]', params: { chatId } });
   const matches = (name: string) => name.toLocaleLowerCase().includes(search.toLocaleLowerCase());
   if (chats === undefined || !arrangements.loaded) return <Screen><Loading label="Loading chats…" /></Screen>;
@@ -31,6 +32,7 @@ export function ChatDirectory() {
   const dms = chats.dms.filter((c) => (!c.agentId || c.parentId) && matches(chatTitle(c)));
   return <><DirectoryHeader search={{ placeholder: 'Search chats', value: search, onChange: setSearch }} action={{ label: 'New message', onPress: () => setDialog('new') }} menu={[
     { label: 'Threads', onPress: () => setDialog('threads') },
+    ...(arrangements.writable ? [{ label: 'Organize channels', onPress: () => setDialog('organize') }] : []),
     { label: 'Browse channels', onPress: () => setDialog('browse') },
     ...(me?.access && can(me.access, 'channels.edit') ? [{ label: 'New channel', onPress: () => setDialog('channel') }] : []),
   ]} /><Screen scroll edges={['left', 'right']}><Stack style={{ flexGrow: 1 }}>
@@ -43,6 +45,7 @@ export function ChatDirectory() {
     </Section>
     <Section title="Direct messages">{dms.map((c) => <ListRow key={c._id} title={chatTitle(c)} description={c.parentId ? `Side chat · ${c.title}` : undefined} leading={<Avatar name={chatTitle(c)} agent={!!c.agentId} />} trailing={c.mentioned ? <Badge label="Mention" /> : c.unread ? <Badge label="Unread" /> : undefined} onPress={() => open(c._id)} />)}{!dms.length && <Text tone="muted">{search ? 'No matching messages.' : 'Start a conversation with your team.'}</Text>}</Section>
     </>}
+    {dialog === 'organize' && <ReorderSheet title="Organize channels" list="channels" items={chats.channels.map(channel => ({ _id: channel._id, title: chatTitle(channel) }))} onClose={() => setDialog(undefined)} />}
     {dialog === 'threads' && <ActiveThreads onClose={() => setDialog(undefined)} />}
     {dialog === 'new' && <NewMessage onClose={() => setDialog(undefined)} onOpen={open} />}
     {dialog === 'channel' && <NewChannel onClose={() => setDialog(undefined)} onOpen={open} />}

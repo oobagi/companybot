@@ -4,12 +4,15 @@ import { Stack } from 'expo-router';
 import { NotificationNavigation } from '@/lib/notifications/NotificationNavigation';
 import { WorkspaceProvider } from '@/features/session/WorkspaceProvider';
 import { useTheme } from '@/design';
+import { RecentNavigation } from '@/features/pins/RecentNavigation';
 
 export default function AppLayout() {
-  const { colors } = useTheme();
-  return <WorkspaceProvider><View style={{ flex: 1 }}><NotificationNavigation /><ConnectionStatus /><Stack screenOptions={{ headerStyle: { backgroundColor: colors.background }, headerTintColor: colors.text, contentStyle: { backgroundColor: colors.background }, headerShadowVisible: false, headerBackButtonDisplayMode: 'minimal' }}>
+  const { colors, dark } = useTheme();
+  return <WorkspaceProvider><View style={{ flex: 1 }}><NotificationNavigation /><RecentNavigation /><ConnectionStatus /><Stack screenOptions={{ statusBarStyle: dark ? 'light' : 'dark', headerStyle: { backgroundColor: colors.background }, headerTintColor: colors.text, contentStyle: { backgroundColor: colors.background }, headerShadowVisible: false, headerBackButtonDisplayMode: 'minimal' }}>
     <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
     <Stack.Screen name="workspaces" options={{ title: 'Workspaces', presentation: 'modal' }} />
+    <Stack.Screen name="saved" options={{ title: 'Pinned and recent' }} />
+    <Stack.Screen name="components" options={{ title: 'Components' }} />
     <Stack.Screen name="chat/[chatId]/index" options={{ title: 'Conversation' }} />
     <Stack.Screen name="chat/[chatId]/details" options={{ title: 'Conversation details' }} />
     <Stack.Screen name="chat/[chatId]/thread/[threadId]" options={{ title: 'Thread' }} />

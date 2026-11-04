@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { router } from 'expo-router';
 import { fieldKinds, type FieldKind } from '@companybot/core/records';
 import type { Id } from '@companybot/backend/convex/_generated/dataModel';
-import { Button, ChoicePicker, ConfirmSheet, EditorSheet, ErrorState, Field, Stack, Text } from '@/components/ui';
+import { Button, ChoicePicker, EditorSheet, ErrorState, Field, Stack, Text, useConfirm } from '@/components/ui';
 import { api } from '@/lib/api';
 import { useMutation, useQuery } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
@@ -14,7 +14,7 @@ export function DatabaseForm({ database, onClose }: { database?: Database; onClo
   const [name, setName] = useState(database?.name ?? '');
   const [version] = useState(database?.version);
   const [baseline] = useState(() => ({ plural: database?.plural ?? '', name: database?.name ?? '' }));
-  const [archive, setArchive] = useState(false);
+  const confirmation = useConfirm();
   const types = useQuery(api.recordTypes.list);
   const create = useMutation(api.recordTypes.create);
   const update = useMutation(api.recordTypes.update);
@@ -23,18 +23,26 @@ export function DatabaseForm({ database, onClose }: { database?: Database; onClo
   const guard = useDraftGuard({ dirty: plural !== baseline.plural || name !== baseline.name, busy: task.busy, onClose });
   const stale = database && types?.find(t => t._id === database._id)?.version !== version;
   return <EditorSheet title={database ? 'Edit database' : 'New database'} onClose={() => void guard.close()} dismissible={guard.dismissible} busy={task.busy}>
-    {guard.dialog}
+    {guard.dialog}{confirmation.dialog}
     {task.error && <ErrorState message={task.error} />}
     {stale && <Text tone="danger">This database changed. Close and reopen the editor to use its latest version.</Text>}
-    <Field label="Database name" value={plural} onChangeText={setPlural} maxLength={120} placeholder="Projects" />
-    {database && <Field label="One entry" value={name} onChangeText={setName} maxLength={120} placeholder="Project" />}
+    <Field label="Database name" value={plural} onChangeText={setPlural} editable={!task.busy} maxLength={120} placeholder="Projects" />
+    {database && <Field label="One entry" value={name} onChangeText={setName} editable={!task.busy} maxLength={120} placeholder="Project" />}
     <Button label={database ? 'Save' : 'Create database'} loading={task.busy} disabled={!plural.trim() || !!stale || (!!database && !name.trim())} onPress={() => void task.run(async () => {
+      let created: Id<'recordTypes'> | undefined;
       if (database) await update({ typeId: database._id, name: name.trim(), plural: plural.trim(), version: version! });
-      else { const id = await create({ plural: plural.trim() }); router.push(`/database/${id}`); }
+      else created = await create({ plural: plural.trim() });
+      guard.complete();
       onClose();
+      if (created) router.push(`/database/${created}`);
     })} />
-    {database && <Button label="Archive database" variant="secondary" onPress={() => setArchive(true)} disabled={task.busy} />}
-    {database && archive && <ConfirmSheet title="Archive database?" message="Its records and fields will be kept and can be restored from Archive." confirmLabel="Archive" busy={task.busy} error={task.error} onClose={() => setArchive(false)} onConfirm={() => void task.run(async () => { await move({ kind: 'database', id: database._id }); setArchive(false); onClose(); router.back(); })} />}
+    {database && <Button label="Archive database" variant="secondary" disabled={task.busy} onPress={() => void task.run(async () => {
+      if (!await confirmation.confirm({ title: 'Archive database?', body: 'Its records and fields will be kept and can be restored from Archive. Unsaved database changes will be discarded.', action: 'Archive', danger: true })) return;
+      await move({ kind: 'database', id: database._id });
+      guard.complete();
+      onClose();
+      if (router.canGoBack()) router.back(); else router.replace('/databases');
+    })} />}
   </EditorSheet>;
 }
 
@@ -47,7 +55,7 @@ export function FieldForm({ database, field, onClose }: { database: Database; fi
   const [options, setOptions] = useState(field?.options?.map(o => ({ ...o })) ?? []);
   const [optionText, setOptionText] = useState('');
   const [position, setPosition] = useState<number>();
-  const [archive, setArchive] = useState(false);
+  const confirmation = useConfirm();
   const types = useQuery(api.recordTypes.list);
   const create = useMutation(api.fields.create);
   const update = useMutation(api.fields.update);
@@ -57,15 +65,15 @@ export function FieldForm({ database, field, onClose }: { database: Database; fi
   const [baseline] = useState(draft);
   const guard = useDraftGuard({ dirty: draft !== baseline, busy: task.busy, onClose });
   return <EditorSheet title={field ? 'Edit field' : 'Add field'} onClose={() => void guard.close()} dismissible={guard.dismissible} busy={task.busy}>
-    {guard.dialog}
+    {guard.dialog}{confirmation.dialog}
     {task.error && <ErrorState message={task.error} />}
-    <Field label="Label" value={label} onChangeText={setLabel} maxLength={60} />
+    <Field label="Label" value={label} onChangeText={setLabel} editable={!task.busy} maxLength={60} />
     {!field && <ChoicePicker label="Type" value={kind} onChange={v => { if (typeof v === 'string' && v) setKind(v as FieldKind); }} options={fieldKinds.map(value => ({ value, label: value === 'link' ? 'Link to record' : value === 'user' ? 'Person' : value[0].toUpperCase() + value.slice(1) }))} />}
     {kind === 'choice' && <Stack gap="sm">
-      {options.filter(o => !o.retired).map((option, index) => <Stack key={option.id || index} gap="xs"><Field label={`Option ${index + 1}`} value={option.label} onChangeText={text => setOptions(options.map(o => o === option ? { ...o, label: text } : o))} /><Button label={`Remove ${option.label || 'option'}`} variant="ghost" onPress={() => setOptions(options.map(o => o === option ? { ...o, retired: true } : o))} /></Stack>)}
-      <Field label="New option" value={optionText} onChangeText={setOptionText} />
-      <Button label="Add option" variant="secondary" disabled={!optionText.trim()} onPress={() => { setOptions([...options, { id: '', label: optionText.trim() }]); setOptionText(''); }} />
-      {options.some(o => o.retired) && <Stack gap="sm"><Text tone="muted" variant="caption">Removed options stay visible on existing records. Restore an option to make it selectable again.</Text>{options.filter(o => o.retired).map((option, index) => <Button key={option.id || index} label={`Restore ${option.label}`} variant="secondary" onPress={() => setOptions(options.map(o => o === option ? { ...o, retired: false } : o))} />)}</Stack>}
+      {options.filter(o => !o.retired).map((option, index) => <Stack key={option.id || index} gap="xs"><Field label={`Option ${index + 1}`} value={option.label} editable={!task.busy} onChangeText={text => setOptions(options.map(o => o === option ? { ...o, label: text } : o))} /><Button label={`Remove ${option.label || 'option'}`} variant="ghost" disabled={task.busy} onPress={() => setOptions(options.map(o => o === option ? { ...o, retired: true } : o))} /></Stack>)}
+      <Field label="New option" value={optionText} onChangeText={setOptionText} editable={!task.busy} />
+      <Button label="Add option" variant="secondary" disabled={!optionText.trim() || task.busy} onPress={() => { setOptions([...options, { id: '', label: optionText.trim() }]); setOptionText(''); }} />
+      {options.some(o => o.retired) && <Stack gap="sm"><Text tone="muted" variant="caption">Removed options stay visible on existing records. Restore an option to make it selectable again.</Text>{options.filter(o => o.retired).map((option, index) => <Button key={option.id || index} label={`Restore ${option.label}`} variant="secondary" disabled={task.busy} onPress={() => setOptions(options.map(o => o === option ? { ...o, retired: false } : o))} />)}</Stack>}
     </Stack>}
     {!field && kind === 'link' && <ChoicePicker label="Linked database" options={(types ?? []).map(t => ({ value: t._id, label: t.plural }))} value={linkType} onChange={v => { if (typeof v === 'string') setLinkType(v); }} />}
     {!field && ['choice', 'user', 'link'].includes(kind) && <ChoicePicker label="Values" value={multiple ? 'many' : 'one'} onChange={v => setMultiple(v === 'many')} options={[{ value: 'one', label: 'One value' }, { value: 'many', label: 'Multiple values' }]} />}
@@ -76,7 +84,9 @@ export function FieldForm({ database, field, onClose }: { database: Database; fi
       else await create({ typeId: database._id, label: label.trim(), kind, options: choices, ...(kind === 'link' ? { linkTypeId: linkType as Id<'recordTypes'> } : {}), ...(['choice', 'user', 'link'].includes(kind) ? { multiple } : {}) });
       onClose();
     })} />
-    {field && field.key !== 'name' && <Button label="Archive field" variant="secondary" onPress={() => setArchive(true)} />}
-    {field && archive && <ConfirmSheet title="Archive field?" message="Stored values are kept and will return when the field is restored." confirmLabel="Archive" busy={task.busy} error={task.error} onClose={() => setArchive(false)} onConfirm={() => void task.run(async () => { await move({ kind: 'field', id: field._id }); onClose(); })} />}
+    {field && field.key !== 'name' && <Button label="Archive field" variant="secondary" disabled={task.busy} onPress={() => void task.run(async () => {
+      if (!await confirmation.confirm({ title: 'Archive field?', body: 'Stored values are kept and will return when the field is restored. Unsaved field changes will be discarded.', action: 'Archive', danger: true })) return;
+      await move({ kind: 'field', id: field._id }); onClose();
+    })} />}
   </EditorSheet>;
 }

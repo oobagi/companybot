@@ -1,6 +1,7 @@
+import { EditToolbarButton } from '@/components/navigation/EditToolbarButton';
 import { useState } from 'react';
 import { Platform } from 'react-native';
-import { router, Stack as NavigationStack } from 'expo-router';
+import { router } from 'expo-router';
 import type { FunctionReturnType } from 'convex/server';
 import { can } from '@companybot/core/permissions';
 import { threadWindows } from '@companybot/core/chat';
@@ -28,7 +29,7 @@ export default function General() {
   if (!settings || !me?.access) return <Loading />;
   const allowed = can(me.access, 'workspace.manage');
   return <>
-    {allowed && Platform.OS !== 'web' && <NavigationStack.Toolbar placement="right"><NavigationStack.Toolbar.Button onPress={() => setEditing(true)}>Edit</NavigationStack.Toolbar.Button></NavigationStack.Toolbar>}
+    {allowed && Platform.OS !== 'web' && <EditToolbarButton label="Edit workspace" onPress={() => setEditing(true)} />}
     <Screen scroll><Stack gap="xl">
       <Stack horizontal><Avatar name={settings.name} image={settings.image} size="lg" /><Stack gap="xs" style={{ flex: 1 }}><Text variant="heading">{settings.name}</Text><Text tone="muted">Workspace</Text></Stack></Stack>
       {allowed && Platform.OS === 'web' && <Button label="Edit workspace" variant="secondary" onPress={() => setEditing(true)} />}

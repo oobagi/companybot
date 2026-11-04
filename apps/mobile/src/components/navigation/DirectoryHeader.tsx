@@ -24,10 +24,11 @@ export function DirectoryHeader({ search, action, menu = [], workspaceSwitcher =
   const [failedImage, setFailedImage] = useState<string>();
   const workspaceImage = me?.workspaceImage;
   const switchLabel = `Switch workspace, ${workspace}`;
+  const actions = workspaceSwitcher ? [...menu, { label: 'Pinned and recent', onPress: () => router.push('/saved') }, ...(__DEV__ ? [{ label: 'Components', onPress: () => router.push('/components') }] : [])] : menu;
   if (Platform.OS === 'web') return <>
     {workspaceSwitcher && <Button label={workspace} variant="ghost" onPress={() => router.push('/workspaces')} />}
     {search && <Field label={search.placeholder} value={search.value} onChangeText={search.onChange} />}
-    <Row horizontal>{action && <Button label={action.label} onPress={action.onPress} disabled={action.disabled} />}{menu.map(item => <Button key={item.label} label={item.label} variant="ghost" onPress={item.onPress} disabled={item.disabled} />)}</Row>
+    <Row horizontal>{action && <Button label={action.label} onPress={action.onPress} disabled={action.disabled} />}{actions.map(item => <Button key={item.label} label={item.label} variant="ghost" onPress={item.onPress} disabled={item.disabled} />)}</Row>
   </>;
   return <>
     {workspaceSwitcher && <Stack.Toolbar placement="left">
@@ -39,8 +40,8 @@ export function DirectoryHeader({ search, action, menu = [], workspaceSwitcher =
     </Stack.Toolbar>}
     {search && <Stack.SearchBar placeholder={search.placeholder} onChangeText={event => search.onChange(event.nativeEvent.text)} onCancelButtonPress={() => search.onChange('')} autoCapitalize="none" obscureBackground={false} hideWhenScrolling={false} placement="stacked" />}
     <Stack.Toolbar placement="right">
-      {menu.length > 0 && <Stack.Toolbar.Menu icon={process.env.EXPO_OS === 'ios' ? 'ellipsis' : More} accessibilityLabel="More actions">
-        {menu.map(item => <Stack.Toolbar.MenuAction key={item.label} onPress={item.onPress} disabled={item.disabled}>{item.label}</Stack.Toolbar.MenuAction>)}
+      {actions.length > 0 && <Stack.Toolbar.Menu icon={process.env.EXPO_OS === 'ios' ? 'ellipsis' : More} accessibilityLabel="More actions">
+        {actions.map(item => <Stack.Toolbar.MenuAction key={item.label} onPress={item.onPress} disabled={item.disabled}>{item.label}</Stack.Toolbar.MenuAction>)}
       </Stack.Toolbar.Menu>}
       {action && <Stack.Toolbar.Button icon={process.env.EXPO_OS === 'ios' ? 'plus' : Add} accessibilityLabel={action.label} onPress={action.onPress} disabled={action.disabled}>{action.label}</Stack.Toolbar.Button>}
     </Stack.Toolbar>

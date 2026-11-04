@@ -1,3 +1,5 @@
+import { usePinAction } from '@/features/pins/usePins';
+import { HeaderMenu } from '@/components/navigation/HeaderMenu';
 import type { Id } from '@companybot/backend/convex/_generated/dataModel';
 import { router, Stack as RouterStack } from 'expo-router';
 import { useState } from 'react';
@@ -9,14 +11,17 @@ import { useMutation, usePaginatedQuery, useQuery } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
 import { useDraftGuard } from '@/lib/useDraftGuard';
 import { DocumentEditor, VersionDocument } from './DocumentEditor';
-import { NewPage, openPage, PageChildren } from './PagesScreen';
+import { NewPage, openPage, PageChildren, PageOrganizer } from './PagesScreen';
 import { useDocumentConfirm } from './Confirm';
 import { AccessSheet } from '@/features/access/AccessSheet';
 import { useArrangements } from '@/features/arrangements/useArrangements';
+import type { Action } from '@/components/ui/ActionMenu';
 
 export function PageScreen({ pageId }: { pageId: string }) {
   const page = useQuery(api.pages.get, { pageId });
-  const [panel, setPanel] = useState<'rename' | 'move' | 'history' | 'children' | 'create' | 'access'>();
+  const arrangements = useArrangements();
+  const pin = usePinAction(page ? page.recordId ? `rec:${page.recordId}` : `page:${page._id}` : undefined);
+  const [panel, setPanel] = useState<'rename' | 'move' | 'history' | 'children' | 'create' | 'access' | 'organize'>();
   const archive = useMutation(api.trash.move);
   const restore = useMutation(api.trash.restore);
   const setAccess = useMutation(api.pages.setAccess);
@@ -25,32 +30,41 @@ export function PageScreen({ pageId }: { pageId: string }) {
   const theme = useTheme();
   if (page === undefined) return <Screen><Loading /></Screen>;
   if (!page) return <Screen><EmptyState title="Page not found" description="It may have been removed or you no longer have access." /></Screen>;
+  const actions: Action[] = [
+    { id: 'pin', title: pin.label, disabled: pin.disabled, icon: 'pin' },
+    { id: 'history', title: 'History', icon: 'clock.arrow.circlepath' },
+    { id: 'access', title: 'Who can access', icon: 'lock' },
+    ...(!page.recordId ? [{ id: 'children', title: 'Sub-pages', icon: 'folder' as const }] : []),
+    ...(page.ancestors.length ? [{ id: 'ancestors', title: 'Parent pages', icon: 'folder' as const, items: page.ancestors.map(ancestor => ({ id: `parent:${ancestor._id}`, title: ancestor.title || 'Untitled' })) }] : []),
+    ...(page.canEdit && !page.archived && !page.recordId ? [
+      { id: 'rename', title: 'Rename', icon: 'pencil' as const },
+      { id: 'move', title: 'Move to…', icon: 'folder' as const },
+      { id: 'create', title: 'New sub-page', icon: 'plus' as const },
+      { id: 'archive', title: 'Archive page', icon: 'archivebox' as const, destructive: true },
+    ] : []),
+    ...(arrangements.writable && !page.recordId && !page.archived ? [{ id: 'organize', title: 'Organize sub-pages', icon: 'arrow.up.arrow.down' as const }] : []),
+    ...(page.trash?.canRestore ? [{ id: 'restore', title: 'Restore page', icon: 'arrow.uturn.backward' as const }] : []),
+  ];
+  const perform = (action: string) => {
+    if (action === 'pin') pin.onPress();
+    else if (action.startsWith('parent:')) openPage(action.slice(7));
+    else if (action === 'restore' && page.trash?.canRestore) void task.run(() => restore({ kind: page.trash!.kind, id: page.trash!.itemId }));
+    else if (action === 'archive') void task.run(async () => {
+      if (!await confirm({ title: `Archive ${page.title || 'Untitled'}?`, body: 'Its sub-pages will be archived with it. You can restore them from Archive.', action: 'Archive', danger: true })) return;
+      await archive({ kind: 'page', id: page._id });
+      router.replace(page.parentId ? { pathname: '/pages/[pageId]', params: { pageId: page.parentId } } : '/pages');
+    });
+    else if (action === 'history' || action === 'access' || action === 'children' || action === 'rename' || action === 'move' || action === 'create' || action === 'organize') setPanel(action);
+  };
   return <Screen keyboard contentStyle={{ gap: theme.spacing.sm }}>
     <RouterStack.Screen options={{ title: page.title || 'Untitled' }} />
+    <HeaderMenu label="Page actions" actions={actions.map(action => ({ ...action, disabled: action.disabled || task.busy }))} onAction={perform} />
+    {pin.error && <ErrorState message={pin.error} />}
     {dialog}
-    {!!page.ancestors.length && <ScrollView horizontal style={{ flexGrow: 0 }} contentContainerStyle={{ gap: theme.spacing.xs }}>
-      {page.ancestors.map((ancestor) => <Button key={ancestor._id} label={ancestor.title || 'Untitled'} variant="ghost" onPress={() => openPage(ancestor._id)} />)}
-    </ScrollView>}
-    <Text variant="title">{page.title || 'Untitled'}</Text>
     {page.archived && <Badge label="Archived · read only" tone="warning" />}
-    {page.trash?.canRestore && <Button label="Restore page" variant="secondary" loading={task.busy} onPress={() => void task.run(() => restore({ kind: page.trash!.kind, id: page.trash!.itemId }))} />}
-    <ScrollView horizontal style={{ flexGrow: 0 }} contentContainerStyle={{ gap: theme.spacing.xs }}>
-      <Button label="History" variant="ghost" onPress={() => setPanel('history')} />
-      <Button label="Who can access" variant="ghost" onPress={() => setPanel('access')} />
-      {!page.recordId && <Button label="Sub-pages" variant="ghost" onPress={() => setPanel('children')} />}
-      {page.canEdit && !page.recordId && <>
-        <Button label="Rename" variant="ghost" onPress={() => setPanel('rename')} />
-        <Button label="Move" variant="ghost" onPress={() => setPanel('move')} />
-        <Button label="New inside" variant="ghost" onPress={() => setPanel('create')} />
-        <Button label="Archive" variant="danger" loading={task.busy} onPress={() => void task.run(async () => {
-          if (!await confirm({ title: `Archive ${page.title || 'Untitled'}?`, body: 'Its sub-pages will be archived with it. You can restore them from Archive.', action: 'Archive', danger: true })) return;
-          await archive({ kind: 'page', id: page._id });
-          router.replace(page.parentId ? { pathname: '/pages/[pageId]', params: { pageId: page.parentId } } : '/pages');
-        })} />
-      </>}
-    </ScrollView>
     {task.error && <ErrorState message={task.error} />}
     <DocumentEditor pageId={page._id} editable={page.canEdit} />
+    {panel === 'organize' && <PageOrganizer parentId={page._id} onClose={() => setPanel(undefined)} />}
     {panel === 'access' && <AccessSheet access={page.access} following={page.parentId && !page.recordId ? page.ownAccess === null : undefined} description={page.recordId ? 'This page follows its database. Change access in the database’s menu.' : undefined} onSave={page.canManageAccess && !page.archived ? entries => setAccess({ pageId: page._id, access: entries }) : undefined} onClose={() => setPanel(undefined)} />}
     {panel === 'rename' && <RenamePage pageId={page._id} title={page.title} onClose={() => setPanel(undefined)} />}
     {panel === 'move' && <MovePage pageId={page._id} parentId={page.parentId} onClose={() => setPanel(undefined)} />}

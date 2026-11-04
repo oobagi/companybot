@@ -17,7 +17,7 @@ export default function Connectors() {
   const { itemId } = useLocalSearchParams<{ itemId?: string }>();
   const [selected, setSelected] = useState<string | undefined>(() => typeof itemId === 'string' ? itemId : undefined);
   const item = connectors?.find((connector) => connector.id === selected);
-  return <Screen scroll><Stack style={{ flexGrow: 1 }}><Text variant="heading">Connectors</Text><Text tone="muted">Connect outside services so your agents can work with them.</Text>
+  return <Screen scroll><Stack style={{ flexGrow: 1 }}><Text tone="muted">Connect outside services so your agents can work with them.</Text>
     {!connectors ? <Loading /> : !connectors.length ? <EmptyState title="No connectors available" description="Services appear here when they are available." /> : connectors.map((connector) => <ListRow key={connector.id} title={connector.name} description={connector.description} trailing={<Badge label={!connector.installed ? 'Not installed' : !connector.canUse ? 'Restricted' : connector.error ? 'Needs attention' : connector.connected ? 'Connected' : 'Not connected'} tone={connector.error ? 'warning' : 'default'} />} onPress={() => setSelected(connector.id)} />)}
     {item && <ConnectorEditor key={item.id} connector={item} owner={!!me?.access && can(me.access, 'connectors.manage')} onClose={() => setSelected(undefined)} />}
   </Stack></Screen>;
