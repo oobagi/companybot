@@ -122,12 +122,11 @@ export async function finishTurn(
 /** Chats whose `memberCount` isn't their number of seats: none, wherever seats were made. */
 export const miscounted = (t: ReturnType<typeof convexTest>) =>
 	t.run(async (ctx) => {
-		const wrong = [];
-		for (const chat of await ctx.db.query("chats").collect()) {
-			const seats = (await ctx.db.query("chatMembers").withIndex("by_chat", (q) => q.eq("chatId", chat._id)).collect()).length;
-			if (chat.memberCount !== seats) wrong.push({ chat: chat.name ?? chat.kind, memberCount: chat.memberCount, seats });
-		}
-		return wrong;
+		const seats = new Map<string, number>();
+		for (const row of await ctx.db.query("chatMembers").collect()) seats.set(row.chatId, (seats.get(row.chatId) ?? 0) + 1);
+		return (await ctx.db.query("chats").collect())
+			.filter((chat) => chat.memberCount !== (seats.get(chat._id) ?? 0))
+			.map((chat) => ({ chat: chat.name ?? chat.kind, memberCount: chat.memberCount, seats: seats.get(chat._id) ?? 0 }));
 	});
 /** Runs everything scheduled (cascades, cleanups) until nothing is left. */
 export async function settle(t: ReturnType<typeof convexTest>) {
