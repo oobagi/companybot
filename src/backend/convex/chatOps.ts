@@ -398,7 +398,7 @@ export async function chatLabel(ctx: QueryCtx, chat: Doc<"chats">, names: Namer,
 export function replyForModel(m: Doc<"chatMessages">) {
 	const tools = m.parts.flatMap((p) => (p.type === "tool" ? [`${p.name} (${p.status === "error" ? "failed" : "done"})`] : []));
 	// Held calls are noted without their outcome, so this text never changes once the reply is done (prompt caching).
-	const held = m.parts.flatMap((p) => (p.type === "approval" ? [p.tool] : []));
+	const held = m.parts.flatMap((p) => (p.type === "approval" ? [p.why ? `${p.tool} (the card said: ${JSON.stringify(p.why)})` : p.tool] : []));
 	return [
 		textForModel(m),
 		tools.length > 0 && `[Tools you used: ${tools.join(", ")}]`,

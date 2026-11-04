@@ -3,7 +3,7 @@ import { permissionFor, toolRisk } from "./action-rules";
 import { describe, expect, it } from "vitest";
 import { simulateReadableStream, streamText } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
-import { APPROVAL_TTL_MS, approvalHash, approvalStatus, canDecideApproval, canonicalJson } from "./approvals";
+import { APPROVAL_TTL_MS, WHY_MAX, approvalHash, approvalStatus, canDecideApproval, canonicalJson, cleanWhy, whyPrompt } from "./approvals";
 import { actionOf, buildToolSet, resolveTools, toolApprovalPolicy } from "./agents";
 import { builtinTools } from "./builtin-tools";
 
@@ -277,5 +277,16 @@ describe("approvals", () => {
 			expect(platformGuide({ tools: ["notes.*"] })).toContain("approve them in the chat");
 		} finally { connectorCatalog.pop(); }
 		expect(platformGuide({ tools: ["memory.*"] })).not.toContain("approve");
+	});
+
+	it("asks the agent for the card's top line and tidies what it writes", () => {
+		const prompt = whyPrompt("pages.write", '{"page":"p1","trash":true}');
+		expect(prompt).toContain('{"page":"p1","trash":true}');
+		expect(prompt).toContain("why you want to do it");
+		expect(cleanWhy('  "I\'ll archive Old pricing notes,\n  since it\'s outdated."  ')).toBe("I'll archive Old pricing notes, since it's outdated.");
+		expect(cleanWhy("   ")).toBeUndefined();
+		const long = cleanWhy("x".repeat(WHY_MAX + 50))!;
+		expect(long).toHaveLength(WHY_MAX);
+		expect(long.endsWith("…")).toBe(true);
 	});
 });

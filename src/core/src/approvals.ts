@@ -34,6 +34,31 @@ function sortKeys(value: unknown): unknown {
 	return value;
 }
 
+/** Longest card text an agent may write for a held call. */
+export const WHY_MAX = 280;
+
+/**
+ * Asked of the agent right after it makes a call that's held: what goes at the top of the card,
+ * in its words. The card shows the exact input under it, so this is the what and the why, not the details.
+ */
+export function whyPrompt(tool: string, input: string) {
+	return [
+		`Your ${tool} call is held: it won't run until the person you act for allows it on a card. The exact input:`,
+		"```json",
+		input,
+		"```",
+		"Write the top of that card: one or two short sentences to them, first person, saying what this will do (name the thing it touches) and why you want to do it.",
+		"Plain words, no greeting, no IDs, no markdown. Write only those sentences.",
+	].join("\n");
+}
+
+/** The agent's card text, tidied and capped; undefined if it wrote nothing usable. */
+export function cleanWhy(text: string) {
+	const flat = text.replace(/\s+/g, " ").trim().replace(/^["“](.*)["”]$/, "$1").trim();
+	if (!flat) return undefined;
+	return flat.length > WHY_MAX ? `${flat.slice(0, WHY_MAX - 1).trimEnd()}…` : flat;
+}
+
 /** SHA-256 (hex) of the exact tool id and input. The approval lock. */
 export async function approvalHash(tool: string, input: unknown): Promise<string> {
 	const bytes = new TextEncoder().encode(canonicalJson({ tool, input }));

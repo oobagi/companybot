@@ -32,8 +32,8 @@ import { enqueueTurn, runningTurn } from "./turns";
  * Written by the runner when the model makes a call that needs approval. `input` is canonical JSON.
  */
 export const request = internalMutation({
-	args: { turnId: v.id("agentTurns"), callId: v.string(), tool: v.string(), input: v.string(), risk },
-	handler: async (ctx, { turnId, callId, tool, input, risk }) => {
+	args: { turnId: v.id("agentTurns"), callId: v.string(), tool: v.string(), input: v.string(), risk, why: v.optional(v.string()) },
+	handler: async (ctx, { turnId, callId, tool, input, risk, why }) => {
 		const { turn } = await runningTurn(ctx, turnId);
 		const { automation, trigger } = await automationScope(ctx, turn);
 		// Automation and wake cards belong only in the acting person's DM, even for channel/thread runs.
@@ -61,7 +61,7 @@ export const request = internalMutation({
 			risk,
 			automationInstallId: automation?._id,
 		});
-		if (separate) await ctx.db.patch(replyId, { parts: [{ type: "approval", id: callId, approvalId, tool }] });
+		if (separate) await ctx.db.patch(replyId, { parts: [{ type: "approval", id: callId, approvalId, tool, ...(why && { why }) }] });
 		return { approvalId, separate };
 	},
 });
@@ -124,6 +124,8 @@ export const forReply = query({
 						said: builtinTools.find((t) => t.id === row.tool)?.label?.(input),
 						automation: automation ? automationName(automation) : undefined,
 					}),
+					/** The automation whose run made the call, so the card says where the agent's words came from. */
+					automation: automation ? automationName(automation) : null,
 					/** Set when "Always allow" would cover only this automation's runs. */
 					alwaysAutomation: always?.automation ? automationName(always.automation) : null,
 					/** Null when "Always allow" isn't offered (locked, or not yours to decide). */

@@ -49,8 +49,12 @@ export const messagePart = v.union(
 	}),
 	/** Props were validated against the widget's schema when the agent placed it. */
 	v.object({ type: v.literal("widget"), id: v.string(), widget: v.object({ type: v.string(), props: v.any() }) }),
-	/** A tool call held for approval (`id` is the tool call's id). The app reads its state from `approvals`. */
-	v.object({ type: v.literal("approval"), id: v.string(), approvalId: v.id("approvals"), tool: v.string() }),
+	/**
+	 * A tool call held for approval (`id` is the tool call's id). The app reads its state from `approvals`.
+	 * `why`: the agent's words at the top of the card, what it will do and why (core whyPrompt). Unset if
+	 * writing them failed, and on cards from before them: the card says the ask instead.
+	 */
+	v.object({ type: v.literal("approval"), id: v.string(), approvalId: v.id("approvals"), tool: v.string(), why: v.optional(v.string()) }),
 );
 
 /** A turn's place in a chain of agents (chains.ts). */
