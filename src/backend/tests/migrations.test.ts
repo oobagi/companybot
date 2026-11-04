@@ -312,3 +312,36 @@ it("cuts channel topics from before the 250-character cap", async () => {
 	}
 	expect((await t.run((ctx) => ctx.db.get(id)))!.topic).toBe("y".repeat(250));
 });
+
+// COMPAT(0.1.0-alpha.10): delete with migrations.chatActivity.
+it("moves each chat's last message time and running cost onto its activity, read from the chat until then", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	migrationsTest.register(t);
+	prosemirrorSync.register(t);
+	const owner = await signIn(t, "owner@co.com");
+	const chatId = (await generalOf(owner))._id;
+	await owner.mutation(api.chats.markRead, { chatId });
+	const later = Date.now() + 60_000;
+	// As a chat from before stored them: on itself, with no activity row.
+	await t.run(async (ctx) => {
+		for (const row of await ctx.db.query("chatActivity").collect()) await ctx.db.delete(row._id);
+		await ctx.db.patch(chatId, { lastMessageAt: later, costUsd: 0.25 });
+	});
+	const shown = async () => ({
+		unread: (await owner.query(api.chats.list))!.channels.find((c) => c._id === chatId)!.unread,
+		costUsd: (await owner.query(api.chats.place, { chatId }))!.costUsd,
+	});
+	expect(await shown()).toEqual({ unread: true, costUsd: 0.25 });
+	vi.useFakeTimers();
+	try {
+		await t.mutation(internal.migrations.runAll);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+	} finally {
+		vi.useRealTimers();
+	}
+	const chat = (await t.run((ctx) => ctx.db.get(chatId)))!;
+	expect([chat.lastMessageAt, chat.costUsd]).toEqual([undefined, undefined]);
+	const activity = await t.run((ctx) => ctx.db.query("chatActivity").withIndex("by_chat", (q) => q.eq("chatId", chatId)).unique());
+	expect(activity).toMatchObject({ lastMessageAt: later, costUsd: 0.25 });
+	expect(await shown()).toEqual({ unread: true, costUsd: 0.25 });
+});

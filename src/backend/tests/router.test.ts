@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { STALE_TURN_MS } from "../convex/turns";
-import { agentsOf, finishTurn, generalOf, noMentions, ownerAndMember, setMemberSwitch, turnsOf, workspaceOf } from "./helpers";
+import { agentsOf, finishTurn, generalOf, noMentions, ownerAndMember, setMemberSwitch, turnsOf, workspaceOf, messagesIn, chatActivityOf } from "./helpers";
 
 // No network: the AI SDK's decide (Jev) and the agents' calls are stubbed, so nothing is billed. Fake timers
 // hold the scheduled decision (and any reply it queues) back; tests run `router.decide` themselves.
@@ -99,7 +99,7 @@ describe("reply router", () => {
 		expect(generateText).not.toHaveBeenCalled();
 		await t.mutation(internal.turns.finishReply, { turnId: turn!._id, decision: { emoji: "🙏", new_point: "", to: "room", message: "" } });
 		expect(await t.run((ctx) => ctx.db.query("reactions").collect())).toEqual([expect.objectContaining({ messageId, emoji: "🙏", agentId: scribe._id })]);
-		expect((await member.query(api.messages.list, { chatId })).filter((m) => m.author.type === "agent")).toEqual([]);
+		expect((await messagesIn(member, { chatId })).filter((m) => m.author.type === "agent")).toEqual([]);
 	});
 
 	it("only wakes or leaves quiet: an answer of react from the model wakes nobody and reacts nothing", async () => {
@@ -224,17 +224,17 @@ describe("reply router", () => {
 		expect((await member.query(api.typing.list, { chatId })).agents).toMatchObject([{ step: "Thinking…" }]);
 		const context = await t.mutation(internal.turns.turnContext, { turnId: turn!._id });
 		expect(context.routed).toEqual({ band: "probably" });
-		const lastBefore = (await t.run((ctx) => ctx.db.get(chatId)))!.lastMessageAt;
+		const lastBefore = (await chatActivityOf(t, chatId)).lastMessageAt;
 
 		vi.advanceTimersByTime(1_000);
 		await finishTurn(t, turn!._id, "Log every call the same day.", { usage: usageOf(0.0003) });
-		const shown = await member.query(api.messages.list, { chatId });
+		const shown = await messagesIn(member, { chatId });
 		// One message: the reply itself, with its stats.
 		const posted = shown.filter((m) => m.author.type === "agent");
 		expect(posted).toEqual([expect.objectContaining({ _id: reply!._id, text: "Log every call the same day." })]);
 		expect(posted[0]!.stats).toMatchObject({ costUsd: 0.0003, dispatch: { model: ROUTER_MODEL, band: "probably", probability: 0.84, probabilities: { reply: 0.84 }, costUsd: 0.0002 } });
 		// Shown now: it counts as new in the chat.
-		expect((await t.run((ctx) => ctx.db.get(chatId)))!.lastMessageAt).toBeGreaterThan(lastBefore);
+		expect((await chatActivityOf(t, chatId)).lastMessageAt).toBeGreaterThan(lastBefore);
 		// Usage: the decision once under Reply decisions, the turn under the agent.
 		const usage = await t.run((ctx) => ctx.db.query("usage").collect());
 		expect(usage.map((u) => [u.kind, u.costUsd])).toEqual(expect.arrayContaining([["router", 0.0002], ["chat", 0.0003]]));
@@ -247,13 +247,13 @@ describe("reply router", () => {
 		await decide(await send(member, "can someone show me a stats widget?"));
 		const [first] = await turnsOf(t);
 		await finishTurn(t, first!._id, "Here it is.", { parts: [widget] });
-		expect((await member.query(api.messages.list, { chatId })).find((m) => m.text === "Here it is.")!.parts).toEqual([widget, { type: "text", text: "Here it is." }]);
+		expect((await messagesIn(member, { chatId })).find((m) => m.text === "Here it is.")!.parts).toEqual([widget, { type: "text", text: "Here it is." }]);
 
 		withProbabilities({ a1: ["reply", 0.9] });
 		await decide(await send(member, "and again?"));
 		const second = (await turnsOf(t)).find((turn) => turn._id !== first!._id)!;
 		await finishTurn(t, second._id, "", { parts: [widget] });
-		expect((await member.query(api.messages.list, { chatId })).filter((m) => m.author.type === "agent")).toHaveLength(1);
+		expect((await messagesIn(member, { chatId })).filter((m) => m.author.type === "agent")).toHaveLength(1);
 	});
 
 	it("shows no reply when its answer has no message, tool lines or not, and still records what it cost", async () => {
@@ -266,7 +266,7 @@ describe("reply router", () => {
 		await finishTurn(t, turn!._id, "  \n ", { parts: [tool], usage: usageOf(0.0003) });
 		const reply = (await t.run((ctx) => ctx.db.get(replyId)))!;
 		expect(reply).toMatchObject({ status: "done", quiet: true, stats: { costUsd: 0.0003 } });
-		expect((await member.query(api.messages.list, { chatId })).filter((m) => m.author.type === "agent")).toEqual([]);
+		expect((await messagesIn(member, { chatId })).filter((m) => m.author.type === "agent")).toEqual([]);
 		expect((await t.run((ctx) => ctx.db.query("usage").collect())).map((u) => u.kind)).toContain("chat");
 	});
 
@@ -286,7 +286,7 @@ describe("reply router", () => {
 		});
 		await t.action(internal.agent.respond, { turnId: turn!._id });
 		expect(await t.run((ctx) => ctx.db.query("reactions").collect())).toEqual([expect.objectContaining({ messageId, emoji: "👍", agentId: companybot._id })]);
-		expect((await member.query(api.messages.list, { chatId })).filter((m) => m.author.type === "agent")).toEqual([]);
+		expect((await messagesIn(member, { chatId })).filter((m) => m.author.type === "agent")).toEqual([]);
 		expect((await t.run((ctx) => ctx.db.get(turn!.replyId as Id<"chatMessages">)))!.quiet).toBe(true);
 	});
 
@@ -307,9 +307,9 @@ describe("reply router", () => {
 		// The reaction comes from its answer, on the message it answered.
 		expect(await t.run((ctx) => ctx.db.query("reactions").collect())).toEqual([expect.objectContaining({ messageId: ask, emoji: "👀", agentId: companybot._id })]);
 		// Here: the post for its person, then its own reply.
-		const here = (await member.query(api.messages.list, { chatId })).filter((m) => m.author.type === "agent");
+		const here = (await messagesIn(member, { chatId })).filter((m) => m.author.type === "agent");
 		expect(here.map((m) => [m.text, "for" in m.author])).toEqual([["Demo at 3pm", true], ["Posted it.", false]]);
-		expect((await member.query(api.messages.list, { chatId: general })).map((m) => m.text)).toContain("Heads up: #ops wants reactions.");
+		expect((await messagesIn(member, { chatId: general })).map((m) => m.text)).toContain("Heads up: #ops wants reactions.");
 		// The answer is kept on the turn, to debug what it chose.
 		expect((await turnsOf(t))[0]!.decision).toEqual({ emoji: "👀", new_point: "", to: "room", message: "Posted it." });
 	});
@@ -323,7 +323,7 @@ describe("reply router", () => {
 		const turn = (await turnsOf(t)).find((x) => x.status === "running")!;
 		// Without U+FE0F: the same heart, so the same row.
 		await t.mutation(internal.turns.finishReply, { turnId: turn._id, decision: { emoji: "❤", new_point: "", to: "room", message: "" } });
-		const message = (await member.query(api.messages.list, { chatId })).find((m) => m._id === messageId)!;
+		const message = (await messagesIn(member, { chatId })).find((m) => m._id === messageId)!;
 		expect(message.reactions).toMatchObject([{ emoji: "❤️", count: 2, mine: true, people: expect.arrayContaining([expect.objectContaining({ type: "agent", name: "Companybot" })]) }]);
 	});
 
@@ -350,10 +350,10 @@ describe("reply router", () => {
 		const { approvalId } = await t.mutation(internal.approvals.request, { turnId: turn!._id, callId: "c1", tool: "records.save", input: "{}", risk: "inside" });
 		const card = { type: "approval" as const, id: "c1", approvalId, tool: "records.save" };
 		await t.mutation(internal.turns.updateReply, { turnId: turn!._id, text: "", parts: [card] });
-		expect((await member.query(api.messages.list, { chatId })).find((m) => m._id === turn!.replyId)).toMatchObject({ status: "streaming" });
+		expect((await messagesIn(member, { chatId })).find((m) => m._id === turn!.replyId)).toMatchObject({ status: "streaming" });
 		// The run stopped at the call, so it made no answer: not a failure.
 		await t.mutation(internal.turns.finishReply, { turnId: turn!._id });
-		expect((await member.query(api.messages.list, { chatId })).find((m) => m._id === turn!.replyId)!.parts).toEqual([card]);
+		expect((await messagesIn(member, { chatId })).find((m) => m._id === turn!.replyId)!.parts).toEqual([card]);
 	});
 
 	it("names the next agent: a decision to Scribe wakes it as a hop on the post, unless its pick is still to run", async () => {

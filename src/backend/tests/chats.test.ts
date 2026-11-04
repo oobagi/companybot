@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { TOPIC_MAX, manageInputs } from "@companybot/core";
 import { api } from "../convex/_generated/api";
 
-import { agentsOf, ownerAndMember, noMentions, tick, generalOf, turnsOf, setMemberSwitch } from "./helpers";
+import { agentsOf, ownerAndMember, noMentions, tick, generalOf, turnsOf, setMemberSwitch, messagesIn } from "./helpers";
 
 afterEach(() => void vi.useRealTimers());
 
@@ -25,7 +25,7 @@ describe("chats", () => {
 		expect((await member.query(api.chats.browse)).map((c) => c.name)).toEqual(["sales-team"]);
 		expect(await member.query(api.chats.get, { chatId: secret })).toBeNull();
 		await owner.mutation(api.messages.send, { chatId: secret, text: "Q4 numbers", mentions: noMentions });
-		expect(await member.query(api.messages.list, { chatId: secret })).toEqual([]);
+		expect(await messagesIn(member, { chatId: secret })).toEqual([]);
 		await expect(member.mutation(api.messages.send, { chatId: secret, text: "hi", mentions: noMentions })).rejects.toThrow(
 			"not found",
 		);
@@ -109,7 +109,7 @@ describe("chats", () => {
 		expect(await dms(owner)).not.toContain(group);
 		// Only for you, and the history stays.
 		expect(await dms(member)).toEqual(expect.arrayContaining([dm, group]));
-		expect((await owner.query(api.messages.list, { chatId: dm })).map((m) => m.text)).toEqual(["hi"]);
+		expect((await messagesIn(owner, { chatId: dm })).map((m) => m.text)).toEqual(["hi"]);
 		// A new message brings it back; so does opening it again.
 		await tick();
 		await member.mutation(api.messages.send, { chatId: dm, text: "you there?", mentions: noMentions });
@@ -297,15 +297,15 @@ describe("messages", () => {
 		const parent = await owner.mutation(api.messages.send, { chatId, text: "Plan?", mentions: noMentions });
 		await member.mutation(api.messages.send, { chatId, threadId: parent, text: "Yes", mentions: noMentions });
 		await owner.mutation(api.messages.send, { chatId, threadId: parent, text: "Good", mentions: noMentions });
-		const [top] = await owner.query(api.messages.list, { chatId });
+		const [top] = await messagesIn(owner, { chatId });
 		expect(top).toMatchObject({ text: "Plan?", replyCount: 2, mine: true });
 		expect(top!.replyAuthors.map((a) => a.name)).toEqual(["owner@co.com", "member@co.com"]);
 		// A thread from before authors were stored reads its replies, and its next reply stores them all.
 		await t.run((ctx) => ctx.db.patch(parent, { replyAuthors: undefined }));
-		expect((await owner.query(api.messages.list, { chatId }))[0]!.replyAuthors.map((a) => a.name)).toEqual(["owner@co.com", "member@co.com"]);
+		expect((await messagesIn(owner, { chatId }))[0]!.replyAuthors.map((a) => a.name)).toEqual(["owner@co.com", "member@co.com"]);
 		await member.mutation(api.messages.send, { chatId, threadId: parent, text: "Ok", mentions: noMentions });
 		expect((await t.run((ctx) => ctx.db.get(parent)))!.replyAuthors).toHaveLength(2);
-		expect((await owner.query(api.messages.list, { chatId, threadId: parent })).map((m) => m.text)).toEqual([
+		expect((await messagesIn(owner, { chatId, threadId: parent })).map((m) => m.text)).toEqual([
 			"Plan?",
 			"Yes",
 			"Good",
@@ -314,18 +314,18 @@ describe("messages", () => {
 
 		await owner.mutation(api.messages.react, { messageId: parent, emoji: "👍" });
 		await member.mutation(api.messages.react, { messageId: parent, emoji: "👍" });
-		let [m] = await member.query(api.messages.list, { chatId });
+		let [m] = await messagesIn(member, { chatId });
 		expect(m!.reactions).toMatchObject([{ emoji: "👍", count: 2, mine: true, people: [{ type: "user", name: "owner@co.com" }, { type: "user", name: "member@co.com" }] }]);
 		await member.mutation(api.messages.react, { messageId: parent, emoji: "👍" });
-		[m] = await member.query(api.messages.list, { chatId });
+		[m] = await messagesIn(member, { chatId });
 		expect(m!.reactions).toMatchObject([{ emoji: "👍", count: 1, mine: false, people: [{ name: "owner@co.com" }] }]);
 		expect(m!.reactions[0]!.people).toHaveLength(1);
 
 		await expect(member.mutation(api.messages.edit, { messageId: parent, text: "x" })).rejects.toThrow("your own");
 		await owner.mutation(api.messages.edit, { messageId: parent, text: "Plan!" });
-		expect((await owner.query(api.messages.list, { chatId }))[0]?.editedAt).not.toBeNull();
+		expect((await messagesIn(owner, { chatId }))[0]?.editedAt).not.toBeNull();
 		await owner.mutation(api.messages.remove, { messageId: parent });
-		expect((await owner.query(api.messages.list, { chatId }))[0]).toMatchObject({ deleted: true, text: "", parts: [], replyCount: 3 });
+		expect((await messagesIn(owner, { chatId }))[0]).toMatchObject({ deleted: true, text: "", parts: [], replyCount: 3 });
 	});
 });
 

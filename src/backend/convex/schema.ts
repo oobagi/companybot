@@ -521,8 +521,8 @@ export default defineSchema({
 		/** In Trash (the `trash` table says who deleted it, and when). */
 		archived: v.boolean(),
 		createdBy: v.id("users"),
-		lastMessageAt: v.number(),
-		/** USD spent on agent replies and summaries here (main timeline). */
+		// COMPAT(0.1.0-alpha.10): moved to `chatActivity`. Once migrations.chatActivity has run on prod, drop these two and the fallback in chatOps `activityOf`.
+		lastMessageAt: v.optional(v.number()),
 		costUsd: v.optional(v.number()),
 		/** Channels: when agents answer without an @mention (core router.ts). Unset is "mentions", so no migration. */
 		replyMode: v.optional(oneOf(replyModes)),
@@ -532,6 +532,16 @@ export default defineSchema({
 		.index("by_workspace", ["workspaceId", "kind"])
 		.index("by_dm_key", ["workspaceId", "dmKey"])
 		.index("by_name", ["workspaceId", "name", "archived"]),
+
+	// What changes with every message in a chat, apart from it, so the many queries that read a chat's
+	// name, members or access don't re-run on each one (chatOps `activityOf`). Made with the chat.
+	chatActivity: defineTable({
+		chatId: v.id("chats"),
+		/** The main timeline's newest shown message. */
+		lastMessageAt: v.number(),
+		/** USD spent on agent replies and summaries here (main timeline). */
+		costUsd: v.optional(v.number()),
+	}).index("by_chat", ["chatId"]),
 
 	// Who's in a chat: one person or one agent per row.
 	chatMembers: defineTable({
@@ -614,7 +624,8 @@ export default defineSchema({
 			}),
 		),
 	})
-		.index("by_chat_thread", ["chatId", "threadId"])
+		/** A timeline or thread without its quiet rows (`quiet` unset), or only them: lists never step over hidden replies. */
+		.index("by_chat_thread_quiet", ["chatId", "threadId", "quiet"])
 		/** Thread parents, newest reply first: the sidebar's active threads. Messages without replies have no `lastReplyAt` and sort first. */
 		.index("by_chat_lastReply", ["chatId", "lastReplyAt"])
 		.index("by_workspace", ["workspaceId"])

@@ -57,11 +57,10 @@ export const readFor = internalMutation({
 		const docs = (
 			await ctx.db
 				.query("chatMessages")
-				.withIndex("by_chat_thread", (q) => q.eq("chatId", chat._id).eq("threadId", threadId).lt("_creationTime", before))
+				.withIndex("by_chat_thread_quiet", (q) => q.eq("chatId", chat._id).eq("threadId", threadId).eq("quiet", undefined).lt("_creationTime", before))
 				.order("desc")
 				// Replies still being written (this one included) aren't history yet.
-				// Quiet: replies never shown, and asks: never said in the chat.
-				.filter((q) => q.and(q.neq(q.field("deleted"), true), q.neq(q.field("status"), "streaming"), q.neq(q.field("quiet"), true)))
+				.filter((q) => q.and(q.neq(q.field("deleted"), true), q.neq(q.field("status"), "streaming")))
 				.take(limit)
 		).sort((a, b) => shownAt(a) - shownAt(b));
 		const parent = threadId && (await ctx.db.get(threadId));

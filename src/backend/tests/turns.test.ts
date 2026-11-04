@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 
-import { agentsOf, ownerAndMember, noMentions, generalOf, turnsOf, setMemberSwitch } from "./helpers";
+import { agentsOf, ownerAndMember, noMentions, generalOf, turnsOf, setMemberSwitch, messagesIn } from "./helpers";
 
 const usage = (costUsd: number) => ({
 	model: "anthropic/claude-haiku-5.5",
@@ -81,17 +81,17 @@ describe("agent turns", () => {
 		expect(turn).toMatchObject({ status: "running", triggerId: trigger, agentId: companybot._id });
 		expect((await generalOf(owner)).members.some((m) => m.id === companybot._id)).toBe(true);
 		// Not shown until it writes: the typing line says it's working.
-		expect((await owner.query(api.messages.list, { chatId })).at(-1)!._id).toBe(trigger);
+		expect((await messagesIn(owner, { chatId })).at(-1)!._id).toBe(trigger);
 
 		// Streaming writes go to the reply's own stream, not the message the timeline reads; ending moves them over.
 		const replyId = turn!.replyId!;
 		const parts = [{ type: "text" as const, text: "Hello" }];
 		await t.mutation(internal.turns.updateReply, { turnId: turn!._id, text: "Hello", parts });
 		expect(await owner.query(api.messages.stream, { messageId: replyId })).toEqual({ text: "Hello", parts });
-		expect((await owner.query(api.messages.list, { chatId })).at(-1)).toMatchObject({ _id: replyId, author: { type: "agent", name: "Companybot" }, status: "streaming", text: "", parts: [] });
+		expect((await messagesIn(owner, { chatId })).at(-1)).toMatchObject({ _id: replyId, author: { type: "agent", name: "Companybot" }, status: "streaming", text: "", parts: [] });
 		await t.mutation(internal.turns.finishReply, { turnId: turn!._id });
 		expect(await owner.query(api.messages.stream, { messageId: replyId })).toBeNull();
-		expect((await owner.query(api.messages.list, { chatId })).at(-1)).toMatchObject({ text: "Hello", parts, status: "done" });
+		expect((await messagesIn(owner, { chatId })).at(-1)).toMatchObject({ text: "Hello", parts, status: "done" });
 		expect(await t.run((ctx) => ctx.db.query("replyStreams").collect())).toEqual([]);
 	});
 
@@ -112,7 +112,7 @@ describe("agent turns", () => {
 		turns = await turnsOf(t);
 		expect(turns.map((x) => x.status)).toEqual(["done", "running"]);
 		await answer(turns[1]!, 0.02);
-		const stats = (await owner.query(api.messages.list, { chatId })).flatMap((m) => (m.stats ? [m.stats.conversationCostUsd] : []));
+		const stats = (await messagesIn(owner, { chatId })).flatMap((m) => (m.stats ? [m.stats.conversationCostUsd] : []));
 		expect(stats).toEqual([0.01, 0.03]);
 		expect((await owner.query(api.chats.place, { chatId }))?.costUsd).toBeCloseTo(0.03);
 	});
@@ -166,7 +166,7 @@ describe("agent turns", () => {
 		const [turn] = await turnsOf(t);
 		expect(turn?.threadId).toBe(parent);
 		await t.mutation(internal.turns.updateReply, { turnId: turn!._id, text: "Ship it", parts: [{ type: "text", text: "Ship it" }] });
-		expect((await owner.query(api.messages.list, { chatId, threadId: parent })).map((m) => m.author.type)).toEqual([
+		expect((await messagesIn(owner, { chatId, threadId: parent })).map((m) => m.author.type)).toEqual([
 			"user",
 			"user",
 			"agent",
@@ -305,7 +305,7 @@ describe("agent turns", () => {
 			["#general", "member@co.com", "@Companybot what's on #board?"],
 		]);
 		await t.mutation(internal.turns.finishReply, { turnId: turn!._id, decision: { emoji: "👀", new_point: "On #board", to: "room", message: "I can't see #board." } });
-		const [m] = (await member.query(api.messages.list, { chatId })).filter((x) => x._id === trigger);
+		const [m] = (await messagesIn(member, { chatId })).filter((x) => x._id === trigger);
 		expect(m!.reactions).toMatchObject([{ emoji: "👀", count: 1, mine: false, people: [{ type: "agent", name: "Companybot" }] }]);
 		await member.mutation(api.messages.send, { chatId, text: "@Companybot and now?", mentions: { userIds: [], agentIds: [companybot._id] } });
 		const after = await t.mutation(internal.chatTools.readFor, { turnId: (await turnsOf(t)).at(-1)!._id });

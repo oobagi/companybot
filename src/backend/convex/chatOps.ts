@@ -1,5 +1,6 @@
 import { type ReactionGroup, describeWidget, emojiOf, withoutFileImages } from "@companybot/core";
 import { ConvexError } from "convex/values";
+import type { WithoutSystemFields } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { imageUrls } from "./images";
@@ -169,7 +170,7 @@ export async function ensureGeneral(ctx: MutationCtx, workspaceId: Id<"workspace
 		.filter((q) => q.eq(q.field("isDefault"), true))
 		.first();
 	if (existing) return existing;
-	const id = await ctx.db.insert("chats", {
+	const id = await insertChat(ctx, {
 		workspaceId,
 		kind: "channel",
 		name: "general",
@@ -178,7 +179,6 @@ export async function ensureGeneral(ctx: MutationCtx, workspaceId: Id<"workspace
 		isDefault: true,
 		archived: false,
 		createdBy,
-		lastMessageAt: Date.now(),
 	});
 	return (await ctx.db.get(id))!;
 }
@@ -265,14 +265,13 @@ export async function findOrCreateDm(
 		.filter((q) => q.eq(q.field("parentId"), undefined))
 		.first();
 	if (existing) return existing._id;
-	const chatId = await ctx.db.insert("chats", {
+	const chatId = await insertChat(ctx, {
 		workspaceId,
 		kind: "dm",
 		private: true,
 		dmKey,
 		archived: false,
 		createdBy,
-		lastMessageAt: Date.now(),
 	});
 	const chat = (await ctx.db.get(chatId))!;
 	for (const userId of userIds) await addToChat(ctx, chat, { userId });
@@ -280,8 +279,29 @@ export async function findOrCreateDm(
 	return chatId;
 }
 
+/** A new chat, with its activity (`chatActivity`). */
+export async function insertChat(ctx: MutationCtx, chat: WithoutSystemFields<Doc<"chats">>) {
+	const chatId = await ctx.db.insert("chats", chat);
+	await ctx.db.insert("chatActivity", { chatId, lastMessageAt: Date.now() });
+	return chatId;
+}
+
+/** What changes with every message in a chat (`chatActivity`): its newest main-timeline message, and what agents spent there. */
+export async function activityOf(ctx: QueryCtx, chat: Doc<"chats">) {
+	const row = await ctx.db.query("chatActivity").withIndex("by_chat", (q) => q.eq("chatId", chat._id)).unique();
+	// COMPAT(0.1.0-alpha.10): a chat migrations.chatActivity hasn't reached keeps its own.
+	return { row, lastMessageAt: row?.lastMessageAt ?? chat.lastMessageAt ?? chat._creationTime, costUsd: row?.costUsd ?? chat.costUsd ?? 0 };
+}
+
+/** Moves a chat's activity on, never the chat itself, so nothing reading the chat re-runs. */
+export async function setActivity(ctx: MutationCtx, chat: Doc<"chats">, change: { lastMessageAt?: number; costUsd?: number }) {
+	const { row, lastMessageAt, costUsd } = await activityOf(ctx, chat);
+	if (row) await ctx.db.patch(row._id, change);
+	else await ctx.db.insert("chatActivity", { chatId: chat._id, lastMessageAt, ...(costUsd ? { costUsd } : {}), ...change });
+}
+
 /**
- * Stores a message and updates its place: the chat's `lastMessageAt` for the main
+ * Stores a message and updates its place: the chat's `lastMessageAt` (its activity) for the main
  * timeline, the parent's reply count for a thread. A quiet parent (an ask, chains.ts) is never
  * shown, so its thread stays out of the sidebar's active threads.
  */
@@ -305,7 +325,7 @@ export async function countMessage(ctx: MutationCtx, chat: Doc<"chats">, message
 			const others = (await replyAuthorsOf(ctx, parent)).filter((a) => a.userId !== author.userId || a.agentId !== author.agentId);
 			await ctx.db.patch(parent._id, { replyCount: (parent.replyCount ?? 0) + 1, lastReplyAt: now, replyAuthors: [author, ...others].slice(0, 3) });
 		}
-	} else await ctx.db.patch(chat._id, { lastMessageAt: now });
+	} else await setActivity(ctx, chat, { lastMessageAt: now });
 }
 
 /**
@@ -324,7 +344,7 @@ export const shownAt = (m: Pick<Doc<"chatMessages">, "_creationTime" | "publishe
 export async function moveBelow(ctx: MutationCtx, chat: Doc<"chats">, reply: Doc<"chatMessages">) {
 	const now = Date.now();
 	await ctx.db.patch(reply._id, { publishedAt: now });
-	if (!reply.threadId) return ctx.db.patch(chat._id, { lastMessageAt: now });
+	if (!reply.threadId) return setActivity(ctx, chat, { lastMessageAt: now });
 	const parent = await ctx.db.get(reply.threadId);
 	if (parent && !parent.quiet) await ctx.db.patch(parent._id, { lastReplyAt: now });
 }
@@ -338,7 +358,7 @@ export async function replyAuthorsOf(ctx: QueryCtx, parent: Doc<"chatMessages">)
 	if (parent.replyAuthors || !parent.replyCount) return parent.replyAuthors ?? [];
 	const replies = await ctx.db
 		.query("chatMessages")
-		.withIndex("by_chat_thread", (q) => q.eq("chatId", parent.chatId).eq("threadId", parent._id))
+		.withIndex("by_chat_thread_quiet", (q) => q.eq("chatId", parent.chatId).eq("threadId", parent._id).eq("quiet", undefined))
 		.order("desc")
 		.take(30);
 	const authors: ReplyAuthor[] = [];
