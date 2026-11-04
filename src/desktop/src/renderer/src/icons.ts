@@ -39,6 +39,8 @@ export {
 	PlusIcon,
 	PulseIcon as ActivityIcon,
 	PuzzlePieceIcon as CustomizeIcon,
+	PushPinIcon as PinIcon,
+	PushPinSlashIcon as UnpinIcon,
 	QuestionIcon as HelpIcon,
 	RobotIcon as AgentIcon,
 	SidebarSimpleIcon as SidebarIcon,

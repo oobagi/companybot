@@ -18,6 +18,8 @@ import { SignIn } from "./views/SignIn";
 import { TitleBar } from "./views/TitleBar";
 import { AppRail, type AppTab, type TabBadge, appTabs } from "./views/AppRail";
 import { WorkspaceSwitcher } from "./views/WorkspaceSwitcher";
+import { RailPins } from "./views/RailPins";
+import { type PinKey, pinOf, usePins } from "./pins";
 import { customizeTabs } from "./views/customize";
 import { ChatView } from "./views/chat/ChatView";
 import { GettingStarted } from "./views/chat/Tutorial";
@@ -166,6 +168,12 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 		fail();
 	};
 	useAlerts();
+	// What's on screen, as a pin: lit in the rail, and added to its recents.
+	const here: PinKey | undefined = view === "chat" ? (openId ? `chat:${openId}` : undefined) : pinOf(route);
+	const { visit } = usePins();
+	useEffect(() => {
+		if (here) visit(here);
+	}, [here, visit]);
 	// What's waiting in Chat: chats with an unread @mention or DM, else any unread one.
 	const waiting = chats ? [...chats.channels, ...chats.dms, ...chats.agents] : [];
 	const badges: Partial<Record<AppTab, TabBadge>> = { chat: { mentions: waiting.filter((c) => c.mentioned).length, unread: waiting.some((c) => c.unread) } };
@@ -190,6 +198,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 					badges={badges}
 					workspace={<WorkspaceSwitcher name={workspace} onSettings={() => navigate(...lastWorkspaceSettings.current)} />}
 					workspaceName={workspace}
+					below={(tipFor, hideTip) => <RailPins open={here} tipFor={tipFor} hideTip={hideTip} />}
 					you={prefs?.displayName || email}
 					youMenu={
 						<YouMenu
@@ -312,6 +321,7 @@ function DatabasesNav({
 				<Item
 					key={type._id}
 					drag={drag(type.key)}
+					pin={`db:${type.key}`}
 					icon={<DatabaseIcon />}
 					label={type.plural}
 					active={openKey === type.key}

@@ -10,7 +10,8 @@ Companybot is where a team's chat, business data and AI agents live together. Pe
 A new workspace starts with one channel, #general, and one agent, Companybot. Databases, pages, skills and automations start empty: the team makes what it needs, and Companybot can help.
 
 ## Finding your way around
-- **Rail** (far left): the parts of the app. [Chat](#/chat), Drive (your pages, #/pages), Databases (#/records) and Customize (agents, connectors, skills, automations). Press G, then C, F, D or X, to jump to one. Chat shows a red count for unread mentions and DMs, or a dot when something is unread.
+- **Rail** (far left): the parts of the app. [Chat](#/chat), Drive (your pages, #/pages), Databases (#/records) and Customize (agents, connectors, skills, automations). Press G, then C, F, D or X, to jump to one. Chat shows a red count for unread mentions and DMs, or a dot when something is unread. Drag a tab to reorder them.
+- **Pins and recents** (in the rail, under the tabs): anything you pin, then what you opened lately. Pin a channel, DM, side chat, page or database with **Pin to rail** in its ⋯ menu in the sidebar, or right-click it in the rail; drag pins to reorder. Pins and the rail's order stay on this computer, per workspace.
 - **Your avatar** (bottom of the rail): [Your preferences](#/settings/preferences) and Sign out.
 - **Workspace logo** (top of the rail): the open workspace. Its menu switches to another (⌘1–9 also do), answers invites, starts a new one, and opens Workspace settings or lets you leave. A red count means a mention or DM in another workspace; a dot means something unread there, or an invite.
 - **Sidebar**: the open tab's things. For Chat: Channels and Direct messages (click a section title to fold it; drag to reorder). For Drive: pages. For Databases: each database. For Customize: Agents, Connectors, Skills and Automations.

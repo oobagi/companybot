@@ -58,7 +58,7 @@ function PageNavTree({ openId, canEdit, section, workspaceId }: { openId?: strin
 			const guides = parentId ? [...above, !last] : [];
 			return (
 				<Fragment key={p._id}>
-					<Item drag={drag} icon={<PageIcon />} expanded={open} onToggle={p.hasChildren ? () => toggle(p._id) : undefined} label={p.title} guides={guides} active={p._id === openId} onClick={() => navigate("pages", p._id)}
+					<Item drag={drag} pin={`page:${p._id}`} icon={<PageIcon />} expanded={open} onToggle={p.hasChildren ? () => toggle(p._id) : undefined} label={p.title} guides={guides} active={p._id === openId} onClick={() => navigate("pages", p._id)}
 						rename={canEdit ? { value: p.title, onSave: (title) => run(rename({ pageId: p._id, title })) } : undefined}
 						menu={(close) => <>
 							<MenuItem onClick={() => { close(); add(p._id); }}><PlusIcon /> New page inside</MenuItem>

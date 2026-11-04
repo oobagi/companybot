@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { ChatIcon, CustomizeIcon, DatabaseIcon, DriveIcon } from "../icons";
+import { useSortable } from "../sortable";
 import { useTip } from "../ui";
 
 /** The rail's tabs, top to bottom. `key` is the letter after G that opens it. */
@@ -14,6 +15,8 @@ export type AppTab = (typeof appTabs)[number]["id"];
 /** What's waiting in a tab: a red count of chats with a mention or DM, else a dot for unread. */
 export type TabBadge = { mentions: number; unread: boolean };
 
+const tabId = (t: (typeof appTabs)[number]) => t.id;
+
 /** How long G waits for its letter. */
 const LEADER_MS = 1500;
 
@@ -26,7 +29,8 @@ const typing = (target: EventTarget | null) =>
  * centered, as in Macro and Linear. The sidebar beside it lists the open tab's things.
  * Press G then the tab's letter to open it. `workspace` (the workspace switcher, named
  * `workspaceName`) sits at the top and `youMenu` (your avatar and its menu, named `you`) at the
- * bottom. In Settings no tab is lit.
+ * bottom. `below` (pins and recents) goes under the tabs, with the rail's tips. Drag a tab to
+ * reorder them; the order stays on this computer. In Settings no tab is lit.
  */
 export function AppRail({
 	tab,
@@ -34,6 +38,7 @@ export function AppRail({
 	badges = {},
 	workspace,
 	workspaceName,
+	below,
 	you,
 	youMenu,
 }: {
@@ -42,10 +47,12 @@ export function AppRail({
 	badges?: Partial<Record<AppTab, TabBadge>>;
 	workspace?: React.ReactNode;
 	workspaceName?: string;
+	below?: (tipFor: ReturnType<typeof useTip>["tipFor"], hideTip: () => void) => React.ReactNode;
 	you?: string;
 	youMenu?: React.ReactNode;
 }) {
 	const { tipFor, tip, hideTip } = useTip("right");
+	const { sorted: tabs, drag } = useSortable("rail.tabs", appTabs, tabId);
 
 	useEffect(() => {
 		let leader: ReturnType<typeof setTimeout> | undefined;
@@ -76,31 +83,38 @@ export function AppRail({
 					{workspace}
 				</span>
 			)}
-			<div className="flex flex-1 flex-col items-center justify-center gap-1">
-				{appTabs.map((t) => {
-					const active = t.id === tab;
-					const badge = badges[t.id];
-					return (
-						<span key={t.id} className="relative flex" {...tipFor(t.label, `G ${t.key.toUpperCase()}`)}>
-							<button
-								type="button"
-								aria-label={badge?.mentions ? `${t.label}, ${badge.mentions} unread mentions` : t.label}
-								aria-current={active ? "page" : undefined}
-								onClick={() => (hideTip(), onOpen(t.id))}
-								className={`no-drag flex size-9 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`}
-							>
-								<t.icon size={20} weight={active ? "fill" : "regular"} />
-							</button>
-							{badge?.mentions ? (
-								<span className="pointer-events-none absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-neutral-100 bg-red-500 px-0.5 text-[10px] leading-none font-semibold text-white">
-									{badge.mentions > 9 ? "9+" : badge.mentions}
+			{/* Centered while it fits; with many pins it scrolls (my-auto keeps a short list in the middle). */}
+			<div onScroll={hideTip} className="no-drag flex min-h-0 w-full flex-1 flex-col items-center overflow-y-auto py-2 [scrollbar-width:none]">
+				<div className="my-auto flex flex-col items-center gap-1">
+					{tabs.map((t) => {
+						const active = t.id === tab;
+						const badge = badges[t.id];
+						const d = drag(t.id);
+						return (
+							<span key={t.id} {...d} onDragStart={(e) => (hideTip(), d.onDragStart(e))} className={`relative flex ${d.className}`}>
+								<span className="relative flex" {...tipFor(t.label, `G ${t.key.toUpperCase()}`)}>
+									<button
+										type="button"
+										aria-label={badge?.mentions ? `${t.label}, ${badge.mentions} unread mentions` : t.label}
+										aria-current={active ? "page" : undefined}
+										onClick={() => (hideTip(), onOpen(t.id))}
+										className={`no-drag flex size-9 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`}
+									>
+										<t.icon size={20} weight={active ? "fill" : "regular"} />
+									</button>
+									{badge?.mentions ? (
+										<span className="pointer-events-none absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-neutral-100 bg-red-500 px-0.5 text-[10px] leading-none font-semibold text-white">
+											{badge.mentions > 9 ? "9+" : badge.mentions}
+										</span>
+									) : (
+										badge?.unread && <span className="pointer-events-none absolute top-1 right-1 size-2 rounded-full border-2 border-neutral-100 bg-sky-500" />
+									)}
 								</span>
-							) : (
-								badge?.unread && <span className="pointer-events-none absolute top-1 right-1 size-2 rounded-full border-2 border-neutral-100 bg-sky-500" />
-							)}
-						</span>
-					);
-				})}
+							</span>
+						);
+					})}
+					{below?.(tipFor, hideTip)}
+				</div>
 			</div>
 			{youMenu && (
 				// Hovered, it names you, as the rail names each tab.
