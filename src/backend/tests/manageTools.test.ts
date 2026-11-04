@@ -85,6 +85,14 @@ describe("messaging and channels as the person", () => {
 		expect(await call("chat.manage", { action: "send", chat: chatId, threadId: parent, text: "Wrong parent" })).toHaveProperty("error");
 	});
 
+	it("won't send where the turn is replying: the reply already posts there", async () => {
+		const { t, call, owner, turnId } = await ready();
+		const { chatId } = (await t.run((ctx) => ctx.db.get(turnId as Id<"agentTurns">)))!;
+		expect(await call("chat.manage", { action: "send", chat: chatId, text: "Twice" })).toMatchObject({ error: expect.stringContaining("reply") });
+		const parent = await owner.mutation(api.messages.send, { chatId, text: "Parent", mentions: noMentions });
+		expect(await call("chat.manage", { action: "send", chat: chatId, threadId: parent, text: "In its thread" })).toHaveProperty("messageId");
+	});
+
 	it("creates, renames, clears topic, adds/removes members and joins/leaves via the UI's rules", async () => {
 		const { call, member, owner } = await ready();
 		const { chatId } = await call("channels.manage", { action: "create", name: "Project room", topic: "Plans", private: false }, true);

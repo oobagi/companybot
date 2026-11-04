@@ -101,10 +101,12 @@ export const runFor = internalMutation({
 						return {
 							chatId: await openDirectMessage(ctx, member, participants(ctx, r)),
 						};
+					const to = { chatId: await chatId(ctx, member, r.chat), threadId: r.threadId ? rowId(ctx, "chatMessages", r.threadId) : undefined };
+					// The reply is how an agent speaks where it is; sending there too posts it twice.
+					if (to.chatId === turn.chatId && to.threadId === turn.threadId) throw new ConvexError("Your reply already posts here: put this in your reply instead.");
 					return {
 						messageId: await sendMessage(ctx, who, {
-							chatId: await chatId(ctx, member, r.chat),
-							threadId: r.threadId ? rowId(ctx, "chatMessages", r.threadId) : undefined,
+							...to,
 							text: r.text,
 							mentions: participants(ctx, r),
 						}),
