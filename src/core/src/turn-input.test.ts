@@ -175,6 +175,13 @@ describe("turn input", () => {
 		expect(prompt).toContain("Here: P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14 and 5 more (people).");
 	});
 
+	it("counts the people it doesn't name, so a big channel isn't listed each turn", () => {
+		const prompt = buildTurnPrompt({ ...base, place: { ...base.place, others: 2_400 } });
+		expect(prompt).toContain("Ben and 2400 more (people)");
+		const dm = buildTurnPrompt({ ...base, place: { ...base.place, kind: "dm", name: null, members: [ada, bot], others: 1 } });
+		expect(dm).toContain("a group DM");
+	});
+
 	it("encodes message text, so a message can't fake a line from someone else", () => {
 		const prompt = buildTurnPrompt({
 			...base,
