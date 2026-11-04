@@ -323,7 +323,7 @@ describe("trash", () => {
 		const turnId = await agentTurn(t, member, (await generalOf(member))._id, companybot._id);
 		expect(await t.mutation(internal.recordTools.saveFor, { turnId, input: { id: acme, trash: true } })).toMatchObject({ inTrash: true });
 		expect(await trashOf(owner)).toEqual([expect.objectContaining({ itemId: acme, user: "member@co.com", agent: "Companybot" })]);
-		expect(await t.query(internal.recordTools.getFor, { turnId, id: acme })).toMatchObject({ inTrash: true });
+		expect(await t.mutation(internal.recordTools.getFor, { turnId, id: acme })).toMatchObject({ inTrash: true });
 		expect(await t.mutation(internal.recordTools.saveFor, { turnId, input: { id: acme, trash: false } })).not.toHaveProperty("inTrash");
 		// Fields and databases by name, in Archive or not, within the person's rights.
 		await t.mutation(internal.recordTools.saveFieldFor, { turnId, input: { type: "client", label: "Roof", kind: "text" } });
@@ -335,7 +335,7 @@ describe("trash", () => {
 		// Pages too, by title once in Archive.
 		const pageId = await member.mutation(api.pages.create, { title: "SOP" });
 		await t.mutation(internal.pageTools.writeFor, { turnId, input: { page: pageId, trash: true } });
-		expect((await t.query(internal.pageTools.findFor, { turnId, input: { trashed: true } })).rows.map((r) => r.title)).toEqual(["SOP"]);
+		expect((await t.mutation(internal.pageTools.findFor, { turnId, input: { trashed: true } })).rows.map((r) => r.title)).toEqual(["SOP"]);
 		await t.mutation(internal.pageTools.writeFor, { turnId, input: { page: "SOP", trash: false } });
 		expect(await member.query(api.pages.get, { pageId })).toMatchObject({ archived: false });
 		// No agent tool reaches delete forever.

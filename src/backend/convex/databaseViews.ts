@@ -8,6 +8,7 @@ import { currencyOf, fieldsOf, logChange, requireType, toField } from "./recordO
 import { validateView } from "./recordQuery";
 import { reach } from "./placeAccess";
 import { viewConfig } from "./recordValidators";
+import { writeSources } from "./replySources";
 
 // Shared database views. App and agent writes use the same validation and history.
 const VIEWS_MAX = 50;
@@ -23,6 +24,7 @@ export async function viewsOf(ctx: QueryCtx, member: Member, typeId: Id<"recordT
 export async function saveView(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, input: Config, viewId?: Id<"databaseViews">, version?: number) {
 	checkPermission(who.member, "records.edit");
 	const views = await viewsOf(ctx, who.member, typeId, "edit");
+	await writeSources(ctx, who.member, typeId);
 	const old = viewId ? requireInWorkspace(who.member, await ctx.db.get(viewId), "View") : undefined;
 	if (old && old.typeId !== typeId) throw new ConvexError("View not found.");
 	if (old) checkVersion(old.version, version ?? -1);

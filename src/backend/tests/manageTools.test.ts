@@ -8,6 +8,7 @@ import type { Id } from "../convex/_generated/dataModel";
 afterEach(() => vi.useRealTimers());
 
 async function ready() {
+	vi.useFakeTimers();
 	const { t, owner, member } = await ownerAndMember();
 	const { companybot, scribe } = await agentsOf(owner);
 	const chat = await generalOf(owner);
@@ -100,7 +101,7 @@ describe("messaging and channels as the person", () => {
 		expect(sent!.actingFor).toBeUndefined();
 		expect(await fromGeneral({ action: "edit", messageId: toYou, text: "Surprise!" })).toMatchObject({ done: "edit" });
 		expect((await owner.query(api.messages.list, { chatId: own.chatId as Id<"chats"> })).at(-1)!.author).toEqual(expect.not.objectContaining({ for: expect.anything() }));
-		expect(await t.query(internal.chatTools.readFor, { turnId, chat: chatId })).toHaveProperty("messages");
+		expect(await t.mutation(internal.chatTools.readFor, { turnId, chat: chatId })).toHaveProperty("messages");
 		expect(await call("chat.manage", { action: "send", chat: chatId, threadId: parent, text: "Wrong parent" })).toHaveProperty("error");
 	});
 

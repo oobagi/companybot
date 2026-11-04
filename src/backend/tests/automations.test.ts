@@ -463,7 +463,7 @@ describe("automations", () => {
 
 			const made = await create({ ...weekly, runsFor: "me" });
 			expect(made).toMatchObject({ name: "Quiet deals", when: "Mondays at 9:00 AM (UTC)", runsFor: "Just member@co.com, in their chat with the agent" });
-			const listed = await t.query(internal.automationTools.listFor, { turnId });
+			const listed = await t.mutation(internal.automationTools.listFor, { turnId });
 			expect(listed).toEqual([expect.objectContaining({ name: "Quiet deals", madeByYou: true, onForYou: null })]);
 			expect(await create({ ...weekly, runsFor: "#board" })).toEqual({ error: "There's no channel #board they can see." });
 			expect(await create({ ...weekly, runsFor: "everyone" })).toEqual({ error: 'runsFor must be "me", "anyone", or a channel like "#sales".' });

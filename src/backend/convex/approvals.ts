@@ -11,15 +11,16 @@ import {
 	toolGroup,
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
-import { internalMutation } from "./_generated/server";
-import { mutation, query } from "./functions";
-import { canSee, findOrCreateDm, insertMessage, namer } from "./chatOps";
 import type { Doc } from "./_generated/dataModel";
-import type { QueryCtx } from "./_generated/server";
+import { internalMutation, type QueryCtx } from "./_generated/server";
+import { mutation, query } from "./functions";
+import { automationName, automationScope } from "./automationOps";
+import { canSee, findOrCreateDm, insertMessage, namer } from "./chatOps";
+import { titleOf } from "./connectorTools";
 import { erased, getMember, memberOf, nameOf, requireLiveAgent, requireMember, toActor } from "./lib";
 import { decideFor, setRule } from "./permissions";
-import { automationName, automationScope } from "./automationOps";
-import { titleOf } from "./connectorTools";
+import { canReadReplyDetails, readReplyDetails } from "./replyPrivacy";
+import { writeSources } from "./replySources";
 import { risk } from "./schema";
 import { enqueueTurn, runningTurn } from "./turns";
 
@@ -34,7 +35,7 @@ import { enqueueTurn, runningTurn } from "./turns";
 export const request = internalMutation({
 	args: { turnId: v.id("agentTurns"), callId: v.string(), tool: v.string(), input: v.string(), risk, why: v.optional(v.string()) },
 	handler: async (ctx, { turnId, callId, tool, input, risk, why }) => {
-		const { turn } = await runningTurn(ctx, turnId);
+		const { turn, member } = await runningTurn(ctx, turnId);
 		const { automation, trigger } = await automationScope(ctx, turn);
 		// Automation and wake cards belong only in the acting person's DM, even for channel/thread runs.
 		// Keep chatId/threadId as the execution place: implicit targets must not change on approval.
@@ -42,7 +43,7 @@ export const request = internalMutation({
 		// In the DM itself it goes in the reply, which is shown with it (turns.ts `show`).
 		const separate = !!dmId && dmId !== turn.chatId;
 		const replyId = separate ? await insertMessage(ctx, (await ctx.db.get(dmId!))!, {
-			authorAgentId: turn.agentId, text: "", parts: [], mentions: { userIds: [], agentIds: [] }, status: "done",
+			authorAgentId: turn.agentId, usedPlaces: await writeSources(ctx, member, { filtered: true, preserveOwn: true }), repliedTo: turn.actorId, text: "", parts: [], mentions: { userIds: [], agentIds: [] }, status: "done",
 		}) : turn.replyId;
 		const approvalId = await ctx.db.insert("approvals", {
 			workspaceId: turn.workspaceId,
@@ -94,7 +95,7 @@ export const forReply = query({
 		const member = await getMember(ctx);
 		const reply = await ctx.db.get(replyId);
 		const chat = reply && (await ctx.db.get(reply.chatId));
-		if (!member || !chat || chat.archived || !(await canSee(ctx, chat, member))) return [];
+		if (!member || !chat || chat.archived || !(await canSee(ctx, chat, member)) || !(await canReadReplyDetails(ctx, member, reply!))) return [];
 		const rows = await ctx.db
 			.query("approvals")
 			.withIndex("by_reply", (q) => q.eq("replyId", replyId))
@@ -168,6 +169,8 @@ export const decide = mutation({
 		const row = await ctx.db.get(approvalId);
 		const chat = row && row.workspaceId === member.workspaceId ? await ctx.db.get(row.chatId) : null;
 		if (!row || !chat || chat.archived || !(await canSee(ctx, chat, member))) throw new ConvexError("Approval not found.");
+		const reply = await ctx.db.get(row.replyId);
+		if (!reply || !(await canReadReplyDetails(ctx, member, reply))) throw new ConvexError("Approval not found.");
 		if (!canDecideApproval(toActor(member), row)) {
 			throw new ConvexError(`Only ${await nameOf(ctx, row.actorId)} can decide this. The agent is acting for them.`);
 		}
@@ -215,6 +218,9 @@ export const claim = internalMutation({
 		const member = await memberOf(ctx, row.actorId, row.workspaceId);
 		const chat = await ctx.db.get(row.chatId);
 		if (!member || !chat || chat.archived || !(await canSee(ctx, chat, member))) return null;
+		member.replyId = turn.replyId;
+		const reply = await ctx.db.get(row.replyId);
+		if (!(await canReadReplyDetails(ctx, member, reply))) return null;
 		const input: unknown = JSON.parse(row.input);
 		if ((await approvalHash(row.tool, input)) !== row.hash) {
 			await ctx.db.patch(approvalId, { status: "failed", error: "The stored action no longer matches what was approved." });
@@ -228,6 +234,7 @@ export const claim = internalMutation({
 			await ctx.db.patch(approvalId, { status: "failed", error: `${who} after it was approved, so it didn't run.` });
 			return null;
 		}
+		await readReplyDetails(ctx, member, reply);
 		await ctx.db.patch(approvalId, { status: "running" });
 		return { tool: row.tool, input };
 	},

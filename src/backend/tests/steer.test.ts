@@ -137,7 +137,7 @@ describe("steering a running turn", () => {
 
 		// Nothing answered twice: the next turn's window starts after what this one took in.
 		const next = await turnFor(t, await say(owner, chatId, "and Z"));
-		expect((await t.query(internal.turns.turnContext, { turnId: next._id })).messages.map((m) => m.text)).toEqual(["and Z"]);
+		expect((await t.mutation(internal.turns.turnContext, { turnId: next._id })).messages.map((m) => m.text)).toEqual(["and Z"]);
 	});
 
 	it("a message saying stop is taken in like any other, and the model ends the task", async () => {
@@ -315,7 +315,7 @@ describe("steering a running turn", () => {
 		// The last one came past the window: it starts its own turn, whose window has only it.
 		const followUp = await turnFor(t, sent.at(-1)!);
 		expect(followUp.status).toBe("running");
-		expect((await t.query(internal.turns.turnContext, { turnId: followUp._id })).messages.map((m) => m.text)).toEqual([`more ${restarts}`]);
+		expect((await t.mutation(internal.turns.turnContext, { turnId: followUp._id })).messages.map((m) => m.text)).toEqual([`more ${restarts}`]);
 	});
 
 	it("another person's message never steers someone else's turn: it keeps its own", async () => {

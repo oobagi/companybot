@@ -147,7 +147,7 @@ describe("agents and files", () => {
 		vi.useFakeTimers();
 		const messageId = await owner.mutation(api.messages.send, { chatId: chat._id, text: "@Companybot thoughts?", mentions: { userIds: [], agentIds: [companybot._id] }, attachments: [photo, word] });
 		const turn = (await t.run((ctx) => ctx.db.query("agentTurns").collect())).at(-1)!;
-		const context = await t.query(internal.turns.turnContext, { turnId: turn._id });
+		const context = await t.mutation(internal.turns.turnContext, { turnId: turn._id });
 		expect(context.messages.at(-1)!.files).toEqual([
 			{ id: `${messageId}/0`, name: "roof.png", type: "image/png", size: 64 },
 			{ id: `${messageId}/1`, name: "quote.docx", type: DOCX, size: docx("Quote: $12,000").length },
@@ -157,17 +157,17 @@ describe("agents and files", () => {
 		expect(context).toMatchObject({ vision: true, images });
 		// A catalog saved before it kept the vision tag still can't hide the default model's.
 		await t.mutation(internal.modelCatalog.save, { models: [{ id: "openai/gpt-6-luna", name: "GPT-6 Luna", provider: "openai" }, { id: "deepseek/deepseek-v4", name: "DeepSeek V4", provider: "deepseek" }] });
-		expect(await t.query(internal.turns.turnContext, { turnId: turn._id })).toMatchObject({ vision: true, images });
+		expect(await t.mutation(internal.turns.turnContext, { turnId: turn._id })).toMatchObject({ vision: true, images });
 		// A model that doesn't see pictures gets none.
 		await t.run((ctx) => ctx.db.patch(companybot._id, { model: "deepseek/deepseek-v4" }));
-		expect(await t.query(internal.turns.turnContext, { turnId: turn._id })).toMatchObject({ vision: false, images: [] });
+		expect(await t.mutation(internal.turns.turnContext, { turnId: turn._id })).toMatchObject({ vision: false, images: [] });
 
 		// chat.read_file finds it as the turn's person, and reads the Word file's text.
-		const found = await t.query(internal.files.readFor, { turnId: turn._id, id: `${messageId}/1` });
+		const found = await t.mutation(internal.files.readFor, { turnId: turn._id, id: `${messageId}/1` });
 		expect(found).toMatchObject({ storageId: word, name: "quote.docx", type: DOCX });
 		expect(await t.action(internal.fileText.page, { storageId: word, type: DOCX })).toEqual({ text: "Quote: $12,000", page: 1, pages: 1 });
-		expect(await t.query(internal.files.readFor, { turnId: turn._id, id: `${messageId}/7` })).toBeNull();
-		expect(await t.query(internal.files.readFor, { turnId: turn._id, id: "nonsense" })).toBeNull();
+		expect(await t.mutation(internal.files.readFor, { turnId: turn._id, id: `${messageId}/7` })).toBeNull();
+		expect(await t.mutation(internal.files.readFor, { turnId: turn._id, id: "nonsense" })).toBeNull();
 	});
 
 	it("reads files only in chats the turn's person can see", async () => {
@@ -177,7 +177,7 @@ describe("agents and files", () => {
 		const file = await upload(owner);
 		const messageId = await owner.mutation(api.messages.send, { chatId: secret, text: "", mentions: noMentions, attachments: [file] });
 		const turnId = await agentTurn(t, member, (await generalOf(member))._id, companybot._id);
-		expect(await t.query(internal.files.readFor, { turnId, id: `${messageId}/0` })).toBeNull();
+		expect(await t.mutation(internal.files.readFor, { turnId, id: `${messageId}/0` })).toBeNull();
 	});
 
 	it("attaches a file the runner made to the running reply, and refuses once it's done", async () => {

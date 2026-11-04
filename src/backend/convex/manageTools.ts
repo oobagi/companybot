@@ -2,22 +2,23 @@ import { can, DEFAULT_CURRENCY, THREAD_HOURS_DEFAULT, isGranted, manageInputs, m
 import { ConvexError, v } from "convex/values";
 import type { Id, TableNames } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
-import { addChannelMembers, markReadAs, createChannelAs, joinChannel, leaveChannel, openDirectMessage, removeChannelMember, updateChannelAs } from "./chats";
-import { canSee, chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
-import { chatAccess, reach } from "./placeAccess";
-import { automationName, automationScope, canView, definitionOf, installOf, outcomeText, seenChannel, shownTrigger } from "./automationOps";
-import { removeAutomation, saveAutomation, updateAutomation } from "./automations";
-import { requirePersonalSkillChat, installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
-import { editMessage, hideMessagePreview, removeMessage, sendMessage } from "./messages";
-import { cancelMemberInvite, imageSettings, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
-import { canSeeSkill, accessOf, asToolResult, checkPermission, type Member, nameOf, rolesOf, normalizeEmail, preferencesOf, requireAgent, skillOf, timeZoneOf } from "./lib";
 import { createAgent, setAgentTrashed, updateAgent } from "./agents";
-import { catalogModels } from "./modelCatalog";
-import { setImage } from "./images";
-import { updatePreferences } from "./preferences";
+import { automationName, automationScope, canView, definitionOf, installOf, outcomeText, privateTo, seenChannel, shownTrigger } from "./automationOps";
 import { runNowAs } from "./automationRuns";
+import { removeAutomation, saveAutomation, updateAutomation } from "./automations";
+import { canSee, chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
+import { addChannelMembers, markReadAs, createChannelAs, joinChannel, leaveChannel, openDirectMessage, removeChannelMember, updateChannelAs } from "./chats";
+import { setImage } from "./images";
+import { canSeeSkill, accessOf, asToolResult, checkPermission, type Member, nameOf, rolesOf, normalizeEmail, preferencesOf, requireAgent, skillOf, timeZoneOf } from "./lib";
+import { editMessage, hideMessagePreview, removeMessage, sendMessage } from "./messages";
+import { catalogModels } from "./modelCatalog";
+import { chatAccess } from "./placeAccess";
+import { updatePreferences } from "./preferences";
+import { notePlace, readArtifact, writeSources } from "./replySources";
+import { requirePersonalSkillChat, installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
 import { runningTurn } from "./turns";
 import { usageReport } from "./usage";
+import { cancelMemberInvite, imageSettings, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
 
 const paging = (cursor?: string) => ({ cursor: cursor ?? null, numItems: 30 });
 /** One page of the workspace's rows of `table` (every one's by_workspace index starts with workspaceId). */
@@ -90,7 +91,10 @@ export const runFor = internalMutation({
 						const page = [];
 						for (const m of result.page) {
 							const c = await ctx.db.get(m.chatId);
-							if (c && !c.archived && (await canSee(ctx, c, member))) page.push({ id: c._id, name: c.name, kind: c.kind, private: c.private });
+							if (c && !c.archived && (await canSee(ctx, c, { ...member, replyId: undefined }))) {
+								await notePlace(ctx, member, c._id, chatAccess(c), c.private);
+								page.push({ id: c._id, name: c.name, kind: c.kind, private: c.private });
+							}
 						}
 						return { ...result, page };
 					}
@@ -125,7 +129,12 @@ export const runFor = internalMutation({
 							.query("chats")
 							.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("kind", "channel"))
 							.paginate(paging(r.cursor));
-						return { ...result, page: result.page.filter((c) => !c.private && !c.archived && reach(member, chatAccess(c))).map((c) => ({ id: c._id, name: c.name, topic: c.topic })) };
+						const page = [];
+						for (const c of result.page) if (!c.private && !c.archived && await canSee(ctx, c, { ...member, replyId: undefined })) {
+							await notePlace(ctx, member, c._id, chatAccess(c));
+							page.push({ id: c._id, name: c.name, topic: c.topic });
+						}
+						return { ...result, page };
 					}
 					if (r.action === "create") return { chatId: await createChannelAs(ctx, member, r) };
 					const id = await chatId(ctx, member, r.chat);
@@ -168,14 +177,13 @@ export const runFor = internalMutation({
 						const result = await workspacePage(ctx, "automationInstalls", member, r.cursor);
 						return {
 							...result,
-							page: result.page
-								.filter((i) => canView(member, i) && !i.archived)
-								.map((i) => ({ id: i.automationId, name: automationName(i), enabled: i.enabled, agentId: i.agentId, version: i.custom?.version ?? i.definition?.version })),
+							page: (await Promise.all(result.page.map(async (i) => !i.archived && await canView(ctx, member, i) && await readArtifact(ctx, member, i, privateTo(i)) ? { id: i.automationId, name: automationName(i), enabled: i.enabled, agentId: i.agentId, version: i.custom?.version ?? i.definition?.version } : null))).filter((i) => i !== null),
 						};
 					}
 
 					const install = await installOf(ctx, member.workspaceId, r.id);
-					if (!install || !canView(member, install)) throw new ConvexError("Automation not found.");
+					if (!install || !(await canView(ctx, member, install))) throw new ConvexError("Automation not found.");
+					if (r.action === "get") await readArtifact(ctx, member, install, privateTo(install));
 					if (r.action === "get")
 						return {
 							id: r.id,
@@ -215,11 +223,11 @@ export const runFor = internalMutation({
 						const result = await workspacePage(ctx, "skillInstalls", member, r.cursor);
 						return {
 							...result,
-							page: result.page.filter((i) => !i.archived && canSeeSkill(member.userId, i)).map((i) => ({ id: i.skillId, name: skillOf(i)?.name, version: i.custom?.version ?? i.definition?.version })),
+							page: (await Promise.all(result.page.map(async (i) => !i.archived && canSeeSkill(member.userId, i) && await readArtifact(ctx, member, i, i.audience === "personal" ? i.ownerId : undefined) ? { id: i.skillId, name: skillOf(i)?.name, version: i.custom?.version ?? i.definition?.version } : null))).filter((i) => i !== null),
 						};
 					}
 					const install = await skillInstallOf(ctx, member.workspaceId, r.id);
-					const skill = install && canSeeSkill(member.userId, install) && skillOf(install);
+					const skill = install && canSeeSkill(member.userId, install) && await readArtifact(ctx, member, install, install.audience === "personal" ? install.ownerId : undefined) && skillOf(install);
 					if (!skill) throw new ConvexError("Skill not found.");
 					return { ...skill, id: r.id, version: install.custom?.version ?? skill.version, installed: true, audience: install.audience, canEdit: install.audience === "personal" || can(member, "skills.edit") };
 				}
@@ -295,6 +303,7 @@ export const runFor = internalMutation({
 					}
 					if (r.action === "update_preferences") {
 						const { action, ...changes } = r;
+						if (changes.displayName !== undefined) await writeSources(ctx, member);
 						await updatePreferences(ctx, member.userId, changes);
 						return { updated: true };
 					}

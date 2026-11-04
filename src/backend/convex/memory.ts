@@ -1,7 +1,7 @@
 import { canEditMemory } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
+import { type QueryCtx, internalMutation } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { type Member, getMember, namesOf, requireAgent, requireMember, toActor } from "./lib";
 import { createMemory, listMemories, memoryVersions, removeMemory, restoreMemoryVersion, searchMemories, updateMemory } from "./memoryOps";
@@ -86,7 +86,7 @@ async function requireChatMemory(ctx: QueryCtx, id: Id<"memories">, member: Memb
 	if (!personal && memory.scope === "personal") throw new ConvexError(SHARED_CHAT);
 }
 
-export const searchFor = internalQuery({
+export const searchFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), query: v.string(), agentId: v.optional(v.id("agents")) },
 	handler: async (ctx, { turnId, query, agentId: target }) => {
 		const { who, agentId, personal } = await acting(ctx, turnId, target);

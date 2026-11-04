@@ -18,8 +18,8 @@ it("keeps personal skills private in settings, agent tools, turn context and Arc
 	const dm = (as: typeof member) => as.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
 	const mine = await agentTurn(t, member, await dm(member), companybot._id);
 	const theirs = await agentTurn(t, owner, await dm(owner), companybot._id);
-	expect((await t.query(internal.turns.turnContext, { turnId: mine })).skills.map(s => s.id)).toContain(id);
-	expect((await t.query(internal.turns.turnContext, { turnId: theirs })).skills.map(s => s.id)).not.toContain(id);
+	expect((await t.mutation(internal.turns.turnContext, { turnId: mine })).skills.map(s => s.id)).toContain(id);
+	expect((await t.mutation(internal.turns.turnContext, { turnId: theirs })).skills.map(s => s.id)).not.toContain(id);
 	const call = (turnId: typeof mine, request: unknown) => t.mutation(internal.manageTools.runFor, { turnId, tool: "skills.manage", input: { request } });
 	expect(await owner.query(api.skills.list)).toEqual([]);
 	expect(await call(theirs, { action: "list" })).toMatchObject({ page: [] });

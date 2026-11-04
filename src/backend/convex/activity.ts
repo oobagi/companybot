@@ -5,12 +5,14 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation } from "./_generated/server";
 import { query } from "./functions";
 import { type Namer, canSee, chatLabel, namer } from "./chatOps";
-import { type Member, capped, erased, getMember, liveWorkspace } from "./lib";
 import { titleOf } from "./connectorTools";
+import { type Member, capped, erased, getMember, liveWorkspace } from "./lib";
+import { canReadReplyDetails, canReadSources, readReplyDetails } from "./replyPrivacy";
+import { inheritPlaces } from "./replySources";
 import { allowedHow } from "./schema";
 
 // The activity log: every tool call an agent made, with its input and output.
-// An entry is as private as the chat it happened in. Outputs can hold things only
+// An entry follows its reply's source audience as well as its chat. Outputs can hold things only
 // the person the agent acted for may see (a private channel, their own inbox), so
 // only that person gets them.
 
@@ -71,7 +73,7 @@ export const list = query({
 			if (agentId && row.agentId !== agentId) continue;
 			if (!labels.has(row.chatId)) labels.set(row.chatId, await visibleLabel(ctx, row.chatId, member, names));
 			const chat = labels.get(row.chatId);
-			if (!chat) continue;
+			if (!chat || !(await visibleReply(ctx, row, member))) continue;
 			entries.push({ ...(await toEntry(ctx, row, member, names)), chat });
 			if (entries.length >= LIST_LIMIT) break;
 		}
@@ -86,7 +88,7 @@ export const forReply = query({
 		const member = await getMember(ctx);
 		const reply = await ctx.db.get(replyId);
 		const chat = reply && (await ctx.db.get(reply.chatId));
-		if (!member || !chat || chat.archived || !(await canSee(ctx, chat, member))) return [];
+		if (!member || !chat || chat.archived || !(await canSee(ctx, chat, member)) || !(await canReadReplyDetails(ctx, member, reply!))) return [];
 		const names = namer(ctx);
 		const rows = await ctx.db
 			.query("agentActivity")
@@ -152,7 +154,22 @@ export async function activityPage(ctx: QueryCtx, member: Member, opts: Paginati
 	const page = [];
 	for (const row of result.page) {
 		const chat = await visibleLabel(ctx, row.chatId, member, names);
-		if (chat) page.push({ ...(await toEntry(ctx, row, member, names)), chat });
+		if (chat && await visibleReply(ctx, row, member)) {
+			if (row.replyId) await readReplyDetails(ctx, member, await ctx.db.get(row.replyId));
+			else if (row.wake) await inheritPlaces(ctx, member, (await ctx.db.get(row.wake.wakeupId))?.usedPlaces);
+			page.push({ ...(await toEntry(ctx, row, member, names)), chat });
+		}
 	}
 	return { ...result, page };
+}
+
+async function visibleReply(ctx: QueryCtx, row: Doc<"agentActivity">, member: Member) {
+	const reply = row.replyId && await ctx.db.get(row.replyId);
+	if (row.replyId) return !!reply && await canReadReplyDetails(ctx, member, reply);
+	if (row.wake) {
+		const wakeup = await ctx.db.get(row.wake.wakeupId);
+		if (!wakeup) return row.actorId === member.userId;
+		if (!(await canReadSources(ctx, member, wakeup.usedPlaces))) return false;
+	}
+	return row.wake ? true : row.actorId === member.userId;
 }

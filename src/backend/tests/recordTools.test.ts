@@ -21,9 +21,9 @@ async function turnFor(t: ReturnType<typeof convexTest>, as: As) {
 	const turns = await t.run((ctx) => ctx.db.query("agentTurns").collect());
 	const turnId = turns.find((x) => !before.some((b) => b._id === x._id))!._id;
 	const tools = {
-		types: () => t.query(internal.recordTools.typesFor, { turnId }),
-		find: (input: object) => result(t.query(internal.recordTools.findFor, { turnId, input: { numItems: 20, ...input } })),
-		get: (id: string) => result(t.query(internal.recordTools.getFor, { turnId, id })),
+		types: () => t.mutation(internal.recordTools.typesFor, { turnId }),
+		find: (input: object) => result(t.mutation(internal.recordTools.findFor, { turnId, input: { numItems: 20, ...input } })),
+		get: (id: string) => result(t.mutation(internal.recordTools.getFor, { turnId, id })),
 		save: (input: object) => result(t.mutation(internal.recordTools.saveFor, { turnId, input })),
 		undo: (change: string) => result(t.mutation(internal.recordTools.undoFor, { turnId, change })),
 		saveField: (input: object) => result(t.mutation(internal.recordTools.saveFieldFor, { turnId, input })),
