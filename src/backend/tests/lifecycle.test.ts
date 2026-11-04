@@ -102,7 +102,7 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		const flow = { connectorId: "notes", userId: memberId, workspaceId, memberId: memberRowId, connectorInstallId, data: "sealed", expiresAt: now + 60_000 };
 		mine.push(await ctx.db.insert("connectorOAuthFlows", { ...flow, state: `s-${workspaceId}` }));
 		const made = { version: 1, updatedBy: memberId, updatedAt: now };
-		await ctx.db.insert("skillInstalls", { workspaceId, skillId: "custom-skill", custom: { name: "Skill", createdBy: memberId, description: "d", instructions: "i", ...made } });
+		await ctx.db.insert("skillInstalls", { audience: "team", workspaceId, skillId: "custom-skill", custom: { name: "Skill", createdBy: memberId, description: "d", instructions: "i", ...made } });
 
 		const chat = { workspaceId, archived: false, createdBy: ownerId, lastMessageAt: now };
 		const channel = await ctx.db.insert("chats", { ...chat, kind: "channel", name: "board", private: true });

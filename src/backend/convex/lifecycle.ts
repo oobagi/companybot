@@ -197,7 +197,13 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 
 	skillInstalls: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
-		keep: "Skills people made are the workspace's: they stay when their maker leaves. Deleting one forever from Archive deletes its row.",
+		member: {
+			index: "by_owner", eq: [["ownerId", "userId"], "workspaceId"],
+			onDelete: async (ctx, row) => {
+				const entry = await ctx.db.query("trash").withIndex("by_item", (q) => q.eq("itemId", row._id)).first();
+				if (entry) await ctx.db.delete(entry._id);
+			},
+		},
 	},
 
 	// ---- Chat ----

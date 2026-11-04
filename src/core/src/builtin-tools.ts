@@ -122,8 +122,9 @@ export const builtinTools: ToolDef[] = [
 		id: "skills.create",
 		title: "Create a skill",
 		description:
-			"Save a skill for the whole team: instructions any agent here loads when a task calls for it. Only after the person confirmed the name, description, and instructions you showed them.",
+			"Save a personal or team skill (defaults to personal without team edit access): instructions any agent here loads when a task calls for it. Only after the person confirmed the name, description, and instructions you showed them.",
 		input: z.object({
+			audience: z.enum(["personal", "team"]).optional().describe("Just me or Team"),
 			name: z.string().describe(`Short display name, under ${SKILL_NAME_MAX} characters`),
 			description: z
 				.string()

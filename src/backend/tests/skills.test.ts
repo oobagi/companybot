@@ -45,7 +45,7 @@ describe("customize", () => {
 				createdByName: "member@co.com",
 			});
 			await setMemberSwitch(owner, "skills.edit", false);
-			await expect(member.mutation(api.skills.create, { config: quote })).rejects.toThrow("Only people with the Owner role can make and change skills.");
+			await expect(member.mutation(api.skills.create, { config: quote, audience: "team" })).rejects.toThrow("Only people with the Owner role can make and change skills.");
 			expect((await member.query(api.skills.list)).find((s) => s.id === mine)).toMatchObject({ canEdit: false });
 		});
 

@@ -173,6 +173,11 @@ export const customRolesConnectors = migrations.define({
 	},
 });
 
+export const skillAudience = migrations.define({
+	table: "skillInstalls",
+	migrateOne: async (ctx, row) => { if (!row.audience) await ctx.db.patch(row._id, { audience: "team" }); },
+});
+
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
@@ -187,6 +192,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.customRolesMembers,
 	internal.migrations.customRolesInvites,
 	internal.migrations.customRolesConnectors,
+	internal.migrations.skillAudience,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */
