@@ -8,7 +8,7 @@ import { Markdown } from "../../markdown";
 import { Notice, timeAgo, useTip } from "../../ui";
 import { WidgetView } from "../../widgets";
 import { CallDetails } from "../Activity";
-import { ApprovalMessages } from "./Approval";
+import { HeldCall } from "./Approval";
 import { AutomationIcon, EditIcon, MoreIcon, ReactIcon, ReplyIcon, TrashIcon } from "../../icons";
 import { AgentBadge, Avatar, AvatarStack, EmojiPicker, IconButton, MenuItem, PairAvatar, Popover, PopoverPanel, clock, useConfirm, useDismiss } from "./common";
 import type { Message, TokenNames } from "./data";
@@ -54,13 +54,12 @@ export function MessageRow({
 	const sending = message.sending;
 	const toggle = (emoji: string) => react({ messageId: message._id, emoji }).catch(onError);
 
-	const held = isAgent && !message.deleted ? message.parts.filter((p) => p.type === "approval") : [];
+	const asking = isAgent && !message.deleted && message.parts.some((p) => p.type === "approval");
 
 	// A reply shows whole once it's written; meanwhile the line under the composer says what the agent is
 	// doing. A card asking permission shows at once, since the reply waits on it.
-	if (message.status === "streaming" && held.length === 0) return null;
+	if (message.status === "streaming" && !asking) return null;
 	if (message.pause && !message.deleted) return <PausedLine message={message} pause={message.pause} onError={onError} />;
-	if (held.length > 0 && held.length === message.parts.length && !message.text) return <ApprovalMessages message={message} parts={held} />;
 
 	return (
 		<>
@@ -202,8 +201,6 @@ export function MessageRow({
 					</div>
 				)}
 			</div>
-			{/* Calls held for permission read as their own messages from the agent, after its reply. */}
-			{held.length > 0 && <ApprovalMessages message={message} parts={held} />}
 			{dialog}
 		</>
 	);
@@ -344,6 +341,8 @@ function AgentBody({ message, tokens }: { message: Message; tokens: TokenNames }
 						</Markdown>
 					) : run.part.type === "widget" ? (
 						<WidgetView key={run.part.id} widget={run.part.widget} />
+					) : run.part.type === "approval" ? (
+						<HeldCall key={run.part.id} replyId={message._id} part={run.part} />
 					) : null,
 				)}
 				{message.status === "error" && <Notice>{message.error ?? "Something went wrong."}</Notice>}
