@@ -261,7 +261,7 @@ export default defineSchema({
 	members: defineTable({
 		workspaceId: v.id("workspaces"),
 		userId: v.id("users"),
-		/** Their roles; they get every switch any of them has. Every row has at least one once migrations.customRoles ran; optional only until then. */
+		/** Their roles; they get every switch any of them has. Empty when the only one was deleted (they get the baseline). Optional only until migrations.customRoles ran. */
 		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, make this required.
 		roles: v.optional(v.array(v.id("roles"))),
 		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, drop this field. Nothing reads it.
@@ -1261,8 +1261,9 @@ export default defineSchema({
 	// edge of lifecycle.ts per run, resumed from `edge` and `cursor`. `key` names what's going,
 	// so rejoining or reinstalling waits until its old rows are gone.
 	cascades: defineTable({
-		scope: v.union(v.literal("workspace"), v.literal("member"), v.literal("user"), v.literal("connectorInstall"), v.literal("automationInstall"), trashKind),
+		scope: v.union(v.literal("role"), v.literal("workspace"), v.literal("member"), v.literal("user"), v.literal("connectorInstall"), v.literal("automationInstall"), trashKind),
 		root: v.object({
+			roleId: v.optional(v.id("roles")),
 			workspaceId: v.optional(v.id("workspaces")),
 			userId: v.optional(v.id("users")),
 			connectorId: v.optional(v.string()),
