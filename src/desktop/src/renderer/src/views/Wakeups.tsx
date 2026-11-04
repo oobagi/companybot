@@ -1,3 +1,4 @@
+import { repeatLabel } from "@companybot/core/wakeups";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "../api";
@@ -13,16 +14,13 @@ import { recordPath } from "./records/logic";
 
 type Wakeup = FunctionReturnType<typeof api.wakeups.list>[number];
 
-const DAY = 86_400_000;
 const when = (ms: number) =>
 	new Date(ms).toLocaleString([], { weekday: "short", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 
 /** "every week, 2 more times", "every 6 hours". */
 function repeats(w: Wakeup) {
-	if (!w.every) return null;
-	const every = w.every % (7 * DAY) === 0 ? `${w.every / (7 * DAY)} week` : w.every % DAY === 0 ? `${w.every / DAY} day` : `${Math.round(w.every / 3_600_000)} hour`;
-	const [n, unit] = every.split(" ");
-	const often = n === "1" ? `every ${unit}` : `every ${n} ${unit}s`;
+	if (!w.repeat) return null;
+	const often = repeatLabel(w.repeat);
 	return w.left === null ? often : `${often}, ${w.left} ${w.left === 1 ? "time" : "times"} left`;
 }
 

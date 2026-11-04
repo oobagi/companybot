@@ -75,6 +75,7 @@ export function accessOf(roles: Doc<"roles">[], row: { roles?: Id<"roles">[]; ro
 	if (!row.role) return accessFrom(roles, []);
 	const role = roles.find((r) => r.builtIn === row.role);
 	if (role) return accessFrom(roles, [role._id]);
+	if (roles.length) return accessFrom(roles, []);
 	// Not seeded yet: a stand-in id lets connector access ("member" on old installs) match it too.
 	return { roles: row.role === "member" ? [UNSEEDED_MEMBER] : [], owner: row.role === "owner", permissions: roleSwitches(row.role, []) };
 }

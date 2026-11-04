@@ -1,3 +1,4 @@
+import { Temporal } from "temporal-polyfill";
 import { z } from "zod";
 import { type ToolDef, defineTool, resultText } from "./tools";
 
@@ -42,121 +43,94 @@ export const FOLLOWUPS_PER_AGENT = 200;
 export const REPEAT_MIN_MS = 60 * 60_000;
 export const REPEAT_TIMES_MAX = 100;
 
-const units: Record<string, "minute" | "hour" | "day" | "week" | "month" | "year"> = {
-	m: "minute", min: "minute", mins: "minute", minute: "minute", minutes: "minute",
-	h: "hour", hr: "hour", hrs: "hour", hour: "hour", hours: "hour",
-	d: "day", day: "day", days: "day",
-	w: "week", wk: "week", wks: "week", week: "week", weeks: "week",
-	mo: "month", month: "month", months: "month",
-	y: "year", yr: "year", yrs: "year", year: "year", years: "year",
-};
+const durationInput = z.object({
+	years: z.number().int().nonnegative().max(2).optional().describe("Calendar years; keeps local clock time."),
+	months: z.number().int().nonnegative().max(24).optional().describe("Calendar months; keeps local clock time and clamps month ends."),
+	weeks: z.number().int().nonnegative().max(104).optional().describe("Calendar weeks; keeps local clock time."),
+	days: z.number().int().nonnegative().max(FOLLOWUP_MAX_DAYS).optional().describe("Calendar days; keeps local clock time."),
+	hours: z.number().int().nonnegative().max(FOLLOWUP_MAX_DAYS * 24).optional().describe("Elapsed hours, including across DST changes."),
+	minutes: z.number().int().nonnegative().max(FOLLOWUP_MAX_DAYS * 1440).optional().describe("Elapsed minutes, including across DST changes."),
+}).strict().refine((d) => Object.values(d).some((n) => n > 0), "Give a positive duration.");
+const timeInput = z.object({
+	year: z.number().int().min(1).max(9999).describe("Calendar year (1–9999)."),
+	month: z.number().int().min(1).max(12).describe("Calendar month (1–12)."),
+	day: z.number().int().min(1).max(31).describe("Day of month (1–31); must exist in that month."),
+	hour: z.number().int().min(0).max(23).optional().describe("Local hour (0–23); defaults to 9."),
+	minute: z.number().int().min(0).max(59).optional().describe("Local minute (0–59); defaults to 0."),
+	timeZone: z.string().optional().describe("IANA time zone, e.g. America/New_York for ET; defaults to the person's zone."),
+}).strict();
+export type WakeDuration = z.infer<typeof durationInput>;
+export type WakeAnchor = { local: string; timeZone: string };
+const zoned = (time: number, timeZone: string) => Temporal.Instant.fromEpochMilliseconds(time).toZonedDateTimeISO(timeZone);
+export function wakeAnchor(time: number, timeZone: string, at?: z.infer<typeof timeInput>): WakeAnchor {
+	return { local: at ? Temporal.PlainDateTime.from({ ...at, hour: at.hour ?? 9, minute: at.minute ?? 0 }).toString() : zoned(time, timeZone).toPlainDateTime().toString(), timeZone: at?.timeZone ?? timeZone };
+}
 
-/** The time `when` names, after `now`, or a one-line reason it can't be used. */
-export function followupTime(when: { at?: string; in?: string }, now: number, timeZone: string): number | string {
+/** What a model sent wrong, field by field, so it can fix the call. */
+const invalid = (error: z.ZodError) => `Fix the time: ${error.issues.map((i) => (i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message).replace(/\.$/, "")).join("; ")}.`;
+
+/** IANA names only ("America/New_York", or UTC): abbreviations like EST are fixed offsets with no daylight saving. */
+export function timeZoneError(zone: string) {
+	try {
+		if (zone === "UTC" || (zone.includes("/") && new Intl.DateTimeFormat("en", { timeZone: zone }))) return null;
+	} catch {}
+	return `Unknown time zone "${zone}"; use an IANA name like America/New_York.`;
+}
+
+/** Structured wall time, or calendar duration from now. */
+export function followupTime(when: { at?: z.infer<typeof timeInput>; in?: WakeDuration }, now: number, timeZone: string): number | string {
 	if ((when.at === undefined) === (when.in === undefined)) return 'Give either "at" or "in".';
-	const time = when.in !== undefined ? afterInterval(when.in, now, timeZone) : atTime(when.at!, timeZone);
-	if (typeof time === "string") return time;
-	if (time < now + FOLLOWUP_MIN_MS) return "Pick a time at least a minute from now.";
-	if (time > now + FOLLOWUP_MAX_DAYS * 86_400_000) return "Pick a time within 2 years.";
-	return time;
-}
-
-/** "3 days", "an hour", "2 hours 30 minutes", "5 months" as amounts of each unit, or a reason. */
-function intervalParts(text: string) {
-	// "a"/"an" only as a word, so "and" isn't "an d(ay)".
-	const pair = /\b(\d+|an?(?=\s))\s*([a-z]+)\b/g;
-	const pairs = [...text.toLowerCase().matchAll(pair)];
-	const leftover = text.toLowerCase().replace(pair, "").replace(/\band\b|[\s,]/g, "");
-	if (pairs.length === 0 || leftover) return `Couldn't read "${text}". Use something like "3 days" or "2 hours".`;
-	const add = { minute: 0, hour: 0, day: 0, month: 0 };
-	for (const [, count, word] of pairs) {
-		const unit = units[word!];
-		if (!unit) return `Couldn't read "${text}". Use minutes, hours, days, weeks, months or years.`;
-		const n = count === "a" || count === "an" ? 1 : Number(count);
-		if (unit === "week") add.day += 7 * n;
-		else if (unit === "year") add.month += 12 * n;
-		else add[unit] += n;
+	const checked = when.at !== undefined ? timeInput.safeParse(when.at) : durationInput.safeParse(when.in);
+	if (!checked.success) return invalid(checked.error);
+	if (when.at?.timeZone !== undefined) {
+		const error = timeZoneError(when.at.timeZone);
+		if (error) return error;
 	}
-	return add;
+	try {
+		if (when.at) {
+			const at = timeInput.parse(when.at);
+			const month = Temporal.PlainYearMonth.from({year: at.year, month: at.month});
+			if (at.day > month.daysInMonth) return `${new Intl.DateTimeFormat("en", {month: "long", timeZone: "UTC"}).format(new Date(Date.UTC(at.year, at.month - 1, 1)))} has ${month.daysInMonth} days in ${at.year}.`;
+		}
+		const time = when.in !== undefined
+			? zoned(now, timeZone).add(durationInput.parse(when.in), { overflow: "constrain" }).epochMilliseconds
+			: Temporal.ZonedDateTime.from({ ...timeInput.parse(when.at), hour: when.at!.hour ?? 9, minute: when.at!.minute ?? 0, timeZone: when.at!.timeZone ?? timeZone }, { overflow: "reject", disambiguation: "compatible" }).epochMilliseconds;
+		if (time < now + FOLLOWUP_MIN_MS) return "Pick a time at least a minute from now.";
+		if (time > now + FOLLOWUP_MAX_DAYS * 86_400_000) return "Pick a time within 2 years.";
+		return time;
+	} catch { return "Give a valid structured time or positive duration within 2 years."; }
 }
 
-/** "3 days", "5 months" from `now`: calendar units keep the local time of day. */
-function afterInterval(text: string, now: number, timeZone: string): number | string {
-	const add = intervalParts(text);
-	if (typeof add === "string") return add;
-	let time = now;
-	if (add.day || add.month) {
-		const p = localParts(now, timeZone);
-		const month = p.month - 1 + add.month;
-		const year = p.year + Math.floor(month / 12);
-		const inMonth = ((month % 12) + 12) % 12;
-		// Jan 31 + 1 month is the last day of February, not March 3.
-		const day = Math.min(p.day, daysIn(year, inMonth));
-		time = zonedTime(year, inMonth + 1, day + add.day, p.hour, p.minute, timeZone);
+export function repeatEvery(input: WakeDuration): WakeDuration | string {
+	const parsed = durationInput.safeParse(input);
+	if (!parsed.success) return invalid(parsed.error).replace("Fix the time", "Fix the repeat");
+	const d = parsed.data;
+	const days = Temporal.Duration.from(d).total({unit: "days", relativeTo: "2027-01-01"});
+	if (days > FOLLOWUP_MAX_DAYS) return "Repeat within 2 years.";
+	if (days * 86_400_000 < REPEAT_MIN_MS) return "Repeat at most once an hour.";
+	return d;
+}
+
+/** "every week", "every 2 weeks", "every 1 day, 6 hours". */
+export function repeatLabel(d: WakeDuration) {
+	const parts = Object.entries(d).filter(([, n]) => n) as [string, number][];
+	if (parts.length === 1 && parts[0]![1] === 1) return `every ${parts[0]![0].slice(0, -1)}`;
+	return "every " + parts.map(([unit, n]) => `${n} ${n === 1 ? unit.slice(0, -1) : unit}`).join(", ");
+}
+
+/** Calendar arithmetic happens before zone resolution: a gap shifts only that occurrence. */
+export function nextRepeat(anchor: WakeAnchor, every: WakeDuration, now: number) {
+	const start = Temporal.PlainDateTime.from(anchor.local);
+	const {hours = 0, minutes = 0, ...calendar} = every;
+	const occurrence = (n: number) => (Object.keys(calendar).length ? start.add(Object.fromEntries(Object.entries(calendar).map(([k, v]) => [k, v * n])), { overflow: "constrain" }) : start)
+		.toZonedDateTime(anchor.timeZone, {disambiguation: "compatible"}).add({hours: hours * n, minutes: minutes * n}).epochMilliseconds;
+	let low = 1, high = 1;
+	while (occurrence(high) <= now) high *= 2;
+	while (low < high) {
+		const mid = Math.floor((low + high) / 2);
+		if (occurrence(mid) <= now) low = mid + 1; else high = mid;
 	}
-	return time + (add.hour * 60 + add.minute) * 60_000;
-}
-
-/** "2027-04-01" (9:00 in the morning), "2027-04-01 14:30" or "2027-04-01T14:30" in `timeZone`, or an ISO time with its own offset. */
-function atTime(text: string, timeZone: string): number | string {
-	const local = text.trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{1,2}):(\d{2}))?$/);
-	if (local) {
-		const [, y, mo, d, h = "9", mi = "0"] = local;
-		return zonedTime(Number(y), Number(mo), Number(d), Number(h), Number(mi), timeZone);
-	}
-	const parsed = /\d{4}-\d{2}-\d{2}T.+(Z|[+-]\d{2}:?\d{2})$/.test(text.trim()) ? Date.parse(text) : Number.NaN;
-	return Number.isNaN(parsed) ? `Couldn't read "${text}". Use "YYYY-MM-DD" or "YYYY-MM-DD HH:MM".` : parsed;
-}
-
-const DAY_MS = 86_400_000;
-
-/** How often a follow-up repeats ("1 week", "2 days", "6 hours"), in ms, or a reason. Months vary, so they're refused. */
-export function repeatEvery(text: string): number | string {
-	const add = intervalParts(text);
-	if (typeof add === "string") return add;
-	if (add.month) return 'Repeat in days or weeks: "4 weeks" for about a month.';
-	const every = add.day * DAY_MS + (add.hour * 60 + add.minute) * 60_000;
-	if (every < REPEAT_MIN_MS) return "Repeat at most once an hour.";
-	return every;
-}
-
-/**
- * The next time after `now` for a wakeup that started at `at` and repeats `every` ms, skipping
- * missed ones. Whole days step in `timeZone`'s calendar, so "every Monday at 9" stays at 9 across
- * clock changes.
- */
-export function nextRepeat(at: number, every: number, now: number, timeZone: string) {
-	const steps = Math.max(Math.floor((now - at) / every) + 1, 1);
-	if (every % DAY_MS !== 0) return at + steps * every;
-	const p = localParts(at, timeZone);
-	const next = zonedTime(p.year, p.month, p.day + steps * (every / DAY_MS), p.hour, p.minute, timeZone);
-	// Right after a clock change the calendar step can land an hour short of `now`.
-	return next > now ? next : zonedTime(p.year, p.month, p.day + (steps + 1) * (every / DAY_MS), p.hour, p.minute, timeZone);
-}
-
-const daysIn = (year: number, month0: number) => new Date(Date.UTC(year, month0 + 1, 0)).getUTCDate();
-
-function localParts(time: number, timeZone: string) {
-	const parts = Object.fromEntries(
-		new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", hourCycle: "h23" })
-			.formatToParts(time)
-			.map((p) => [p.type, Number(p.value)]),
-	);
-	return { year: parts.year!, month: parts.month!, day: parts.day!, hour: parts.hour!, minute: parts.minute! };
-}
-
-/** How far `timeZone` is ahead of UTC at `time`, in ms. */
-function offsetAt(time: number, timeZone: string) {
-	const p = localParts(time, timeZone);
-	return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute) - Math.floor(time / 60_000) * 60_000;
-}
-
-/** A wall-clock time in `timeZone` as epoch ms. Days past the month's end roll over, like Date.UTC. */
-export function zonedTime(year: number, month: number, day: number, hour: number, minute: number, timeZone: string) {
-	const wall = Date.UTC(year, month - 1, day, hour, minute);
-	const first = wall - offsetAt(wall, timeZone);
-	// Near a clock change the offset at the answer can differ from the guess's.
-	return wall - offsetAt(first, timeZone);
+	return occurrence(low);
 }
 
 /** "Thu, Apr 1, 2027, 9:00 AM PDT" in `timeZone`. */
@@ -175,9 +149,9 @@ const createInput = z.object({
 		.string()
 		.max(FOLLOWUP_NOTE_MAX)
 		.describe('What to check or do when it\'s time, with the condition, e.g. "Chase the invoice if it\'s still unpaid."'),
-	at: z.string().optional().describe('A date "YYYY-MM-DD" (9:00 AM) or "YYYY-MM-DD HH:MM", in the person\'s time zone'),
-	in: z.string().optional().describe('How long from now, e.g. "2 hours", "3 days", "5 months". Give "at" or "in".'),
-	every: z.string().optional().describe('Repeat this often after the first time, e.g. "1 week" (days or weeks; at most hourly). Leave out for once.'),
+	at: timeInput.optional().describe("Local calendar date and time in the specified zone (or the person's); defaults to 09:00."),
+	in: durationInput.optional().describe('Duration from now, e.g. {days: 3}. Give at or in.'),
+	every: durationInput.optional().describe('Repeat duration, e.g. {weeks: 1} or {months: 1}; at most hourly and within 2 years.'),
 	times: z.number().int().min(2).max(REPEAT_TIMES_MAX).optional().describe("With every: how many times in all, e.g. 4 for weekly over a month. Leave out to repeat until cancelled."),
 	recordId: z.string().optional().describe("The record it's about (id from the records tools): it shows on that record, and you get its current values when it's time"),
 });

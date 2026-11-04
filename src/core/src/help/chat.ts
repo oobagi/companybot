@@ -15,7 +15,7 @@ Open [Chat](#/chat) from the rail (or press G then C).
 - You can edit or delete your own messages. Click a name or avatar for their profile card (roles, local time, Message).
 
 ## The message box
-- **@** picks a person or agent, **#** a channel, **/** a skill. Each becomes a chip. Enter sends (or ⌘Enter, your choice in [Your preferences](#/settings/preferences)); Shift+Enter makes a new line.
+- **@** picks a person or agent, **#** a channel, **/** a skill. Each becomes a chip. In any message, yours or an agent's, click one: a name opens their card, a channel opens it, a skill shows its instructions in a card (hover for its description). Enter sends (or ⌘Enter, your choice in [Your preferences](#/settings/preferences)); Shift+Enter makes a new line.
 - **Emoji**: the smiley button opens the picker (search, categories, skin tone, recents). Or type a colon and two letters, like \`:smi\`, to pick from a list, and a finished \`:smile:\` turns into 😄.
 - **Files**: the paperclip, pasting or dropping files on the chat attaches up to 10 per message, 20 MB each: pictures, PDF, Word, Excel and text files. Send waits until they've uploaded. Agents see attached pictures when their model can.
 - **Dictation**: click the mic, talk, click again; the words land where your cursor is. It stops by itself after 2 minutes. Nothing is kept, and it counts in Usage (**help: usage**).
