@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { TOPIC_MAX, manageInputs } from "@companybot/core";
 import { api } from "../convex/_generated/api";
 
 import { agentsOf, ownerAndMember, noMentions, tick, generalOf, turnsOf, setMemberSwitch } from "./helpers";
@@ -326,4 +327,14 @@ describe("messages", () => {
 		await owner.mutation(api.messages.remove, { messageId: parent });
 		expect((await owner.query(api.messages.list, { chatId }))[0]).toMatchObject({ deleted: true, text: "", parts: [], replyCount: 3 });
 	});
+});
+
+it("caps channel topics at 250 characters for people and agents", async () => {
+	const { owner } = await ownerAndMember();
+	const long = "x".repeat(TOPIC_MAX + 1);
+	await expect(owner.mutation(api.chats.createChannel, { name: "long", topic: long, private: false })).rejects.toThrow(`under ${TOPIC_MAX} characters`);
+	const id = await owner.mutation(api.chats.createChannel, { name: "ok", topic: "x".repeat(TOPIC_MAX), private: false });
+	await expect(owner.mutation(api.chats.updateChannel, { chatId: id, topic: long })).rejects.toThrow(`under ${TOPIC_MAX} characters`);
+	expect(manageInputs["channels.manage"].safeParse({ request: { action: "set_topic", chat: id, topic: long } }).success).toBe(false);
+	expect(manageInputs["channels.manage"].safeParse({ request: { action: "create", name: "n", topic: long, private: false } }).success).toBe(false);
 });

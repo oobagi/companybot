@@ -1,3 +1,4 @@
+import { useStoredIds } from "../../arrangements";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../api";
@@ -17,28 +18,18 @@ type Row = { _id: PageId; title: string; hasChildren?: boolean; parentId?: PageI
 /** Each expanded level loads independently; no workspace-wide list or fixed tree-size cutoff. */
 export function PagesNav({ openId, canEdit, section }: { openId: string | undefined; canEdit: boolean; section?: SectionProps }) {
 	const workspace = useWorkspace();
-	return <PageNavTree key={workspace?.id} openId={openId} canEdit={canEdit} section={section} workspaceId={workspace?.id ?? ""} />;
+	return <PageNavTree key={workspace?.id} openId={openId} canEdit={canEdit} section={section} />;
 }
-function PageNavTree({ openId, canEdit, section, workspaceId }: { openId?: string; canEdit: boolean; section?: SectionProps; workspaceId: string }) {
-	const storageKey = `pages-expanded:${workspaceId}`;
-	const [expanded, setExpanded] = useState<Set<string>>(() => {
-		try { const saved = JSON.parse(localStorage.getItem(storageKey) ?? "[]"); return new Set(Array.isArray(saved) ? saved.filter((id): id is string => typeof id === "string") : []); } catch { return new Set(); }
-	});
-	useEffect(() => {
-		try { localStorage.setItem(storageKey, JSON.stringify([...expanded])); } catch { /* Storage may be unavailable. */ }
-	}, [expanded, storageKey]);
+function PageNavTree({ openId, canEdit, section }: { openId?: string; canEdit: boolean; section?: SectionProps }) {
+	const [expandedIds, changeExpanded] = useStoredIds("expanded");
+	const expanded = useMemo(() => new Set(expandedIds), [expandedIds]);
 	const batches = useMemo(() => {
 		const ids = [...expanded];
 		return Array.from({ length: Math.ceil(ids.length / 100) }, (_, i) => ids.slice(i * 100, (i + 1) * 100));
 	}, [expanded]);
 	const prune = useCallback((ids: string[]) => {
-		if (!ids.length) return;
-		setExpanded((before) => {
-			const next = new Set(before);
-			for (const id of ids) next.delete(id);
-			return next.size === before.size ? before : next;
-		});
-	}, []);
+		for (const id of ids) changeExpanded({ op: "remove", id });
+	}, [changeExpanded]);
 	const [moving, setMoving] = useState<Row>();
 	const [sharing, setSharing] = useState<PageId>();
 	const create = useMutation(api.pages.create);
@@ -46,17 +37,11 @@ function PageNavTree({ openId, canEdit, section, workspaceId }: { openId?: strin
 	const rename = useMutation(api.pages.rename);
 	const { confirm, dialog } = useConfirm();
 	const { error, run } = useRun();
-	const toggle = (id: string, open = !expanded.has(id)) => {
-		setExpanded((before) => {
-			const next = new Set(before);
-			if (open) next.add(id); else next.delete(id);
-			return next;
-		});
-	};
+	const toggle = (id: string, open = !expanded.has(id)) => changeExpanded({ op: open ? "add" : "remove", id });
 	const add = (parentId?: PageId) => run(create({ title: "Untitled", parentId }).then((id) => { if (parentId) toggle(parentId, true); navigate("pages", id); }));
 	/** `above`: for each level above this one, whether its line continues past these rows. */
 	const level = (parentId?: PageId, above: boolean[] = []): React.ReactNode => (
-		<PageLevel parentId={parentId} sortKey={`sidebar.pages:${workspaceId}:${parentId ?? "top"}`} empty={!above.length && canEdit && <Item icon={<PlusIcon />} onClick={() => add()} muted>New page</Item>} render={(p, drag, last) => {
+		<PageLevel parentId={parentId} sortable empty={!above.length && canEdit && <Item icon={<PlusIcon />} onClick={() => add()} muted>New page</Item>} render={(p, drag, last) => {
 			const open = p.hasChildren && expanded.has(p._id);
 			const guides = parentId ? [...above, !last] : [];
 			return (
@@ -98,11 +83,11 @@ function PruneExpanded({ ids, onPrune }: { ids: string[]; onPrune: (ids: string[
 	return null;
 }
 
-/** One level of the tree. With `sortKey`, drag rows to reorder them within the level; the order is yours, kept on this computer (`useSortable`). */
-export function PageLevel({ parentId, sortKey = "", render, empty }: { parentId?: PageId; sortKey?: string; render: (row: Row, drag: DragProps | undefined, last: boolean) => React.ReactNode; empty?: React.ReactNode }) {
+/** One level of the tree. With `sortable`, drag rows to reorder them within the level; the sibling order is shared with the workspace. */
+export function PageLevel({ parentId, sortable = false, render, empty }: { parentId?: PageId; sortable?: boolean; render: (row: Row, drag: DragProps | undefined, last: boolean) => React.ReactNode; empty?: React.ReactNode }) {
 	const { results, status, loadMore } = usePaginatedQuery(api.pages.children, { parentId }, { initialNumItems: 30 });
-	const { sorted, drag } = useSortable(sortKey, results, rowId);
-	return <>{status === "Exhausted" && !results.length && empty}{sorted.map((p, i) => render(p, sortKey ? drag(p._id) : undefined, i === sorted.length - 1 && status !== "CanLoadMore"))}<LoadMore status={status} onMore={() => loadMore(30)} /></>;
+	const { sorted, drag } = useSortable("pages", results, rowId, "y", parentId);
+	return <>{status === "Exhausted" && !results.length && empty}{sorted.map((p, i) => render(p, sortable ? drag(p._id) : undefined, i === sorted.length - 1 && status !== "CanLoadMore"))}<LoadMore status={status} onMore={() => loadMore(30)} /></>;
 }
 const rowId = (p: Row) => p._id;
 

@@ -3,6 +3,10 @@
 // such a claim goes stale silently once they can (tests/parity.test.ts refuses it).
 // Mixed entries name the covered subset and the authority decision that stays human-only.
 export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = {
+	"recordTypes.setDisplay": { humanOnly: "People choose the database All tab display directly in the app." },
+	"recordTypes.migrateDisplay": { humanOnly: "Imports this computer's database display once." },
+	"arrangements.change": { humanOnly: "People arrange their navigation and database display directly in the app." },
+	"arrangements.migrate": { humanOnly: "Imports this computer's navigation once, without replacing saved arrangements." },
 	"agents.create": { agent: ["agents.manage:create"], humanOnly: "Default tool grants require direct owner review; agents create without tools." },
 	"agents.update": { agent: ["agents.manage:update"], humanOnly: "Direct owner reviews tool grants and the acting agent's own instructions/model; metadata and other agents' config are covered." },
 	"agents.rename": { agent: ["agents.manage:update"] },

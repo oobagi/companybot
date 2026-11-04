@@ -1,71 +1,21 @@
-import { useCallback, useSyncExternalStore } from "react";
-import { useWorkspace } from "./convex";
-
-// Pins and recents: what you keep at hand in the rail, under its tabs. Each is a key, "kind:id":
-// a chat (channel, DM, agent DM or side chat), a page, a database, or one record. Per workspace, on this
-// computer (localStorage), like the sidebar's order. Every component reading a list sees a change
-// at once: one store, shared.
+import { useCallback } from "react";
+import { useStoredIds } from "./arrangements";
 
 export type PinKind = "chat" | "page" | "db" | "rec";
 export type PinKey = `${PinKind}:${string}`;
 
-/** Recents kept, so a few can be pinned or deleted and some still show. The rail shows `RECENT_SHOWN`. */
-const RECENT_KEPT = 12;
+/** Recents the rail shows, of the `RECENT_KEPT` saved. */
 export const RECENT_SHOWN = 5;
 
-const lists = new Map<string, PinKey[]>();
-const listeners = new Set<() => void>();
-
-const isKey = (k: unknown): k is PinKey => typeof k === "string" && /^(chat|page|db|rec):./.test(k);
-
-function read(storeKey: string): PinKey[] {
-	let list = lists.get(storeKey);
-	if (!list) {
-		try {
-			const saved = JSON.parse(localStorage.getItem(storeKey) ?? "[]");
-			list = Array.isArray(saved) ? saved.filter(isKey) : [];
-		} catch {
-			list = [];
-		}
-		lists.set(storeKey, list);
-	}
-	return list;
-}
-
-function write(storeKey: string, list: PinKey[]) {
-	lists.set(storeKey, list);
-	try {
-		localStorage.setItem(storeKey, JSON.stringify(list));
-	} catch {
-		// Storage may be unavailable; it still holds until reload.
-	}
-	for (const l of listeners) l();
-}
-
-const subscribe = (onChange: () => void) => (listeners.add(onChange), () => void listeners.delete(onChange));
-
-/** The open workspace's pins (in the order pinned; the rail keeps your drag order) and recents (newest first). */
+/** The open workspace's personal pins and recents, shared by every live reader. */
 export function usePins() {
-	const workspace = useWorkspace()?.id ?? "";
-	const pinsKey = `rail.pins:${workspace}`;
-	const recentKey = `rail.recent:${workspace}`;
-	const pins = useSyncExternalStore(subscribe, () => read(pinsKey));
-	const recent = useSyncExternalStore(subscribe, () => read(recentKey));
-	const toggle = useCallback(
-		(key: PinKey) => {
-			const now = read(pinsKey);
-			write(pinsKey, now.includes(key) ? now.filter((k) => k !== key) : [...now, key]);
-		},
-		[pinsKey],
-	);
-	const visit = useCallback(
-		(key: PinKey) => {
-			const now = read(recentKey);
-			if (now[0] !== key) write(recentKey, [key, ...now.filter((k) => k !== key)].slice(0, RECENT_KEPT));
-		},
-		[recentKey],
-	);
-	return { pins, recent, toggle, visit };
+	const [pins, changePins] = useStoredIds("pins");
+	const [recent, changeRecent, canSaveRecent] = useStoredIds("recent");
+	const toggle = useCallback((key: PinKey) => {
+		changePins({ op: pins.includes(key) ? "remove" : "add", id: key });
+	}, [changePins, pins]);
+	const visit = useCallback((key: PinKey) => changeRecent({ op: "visit", id: key }), [changeRecent]);
+	return { pins: pins as PinKey[], recent: recent as PinKey[], toggle, visit, canSaveRecent };
 }
 
 /** What a screen's path shows, if it's something you can pin: a record's page is the record. */

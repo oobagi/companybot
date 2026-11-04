@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { api } from "../api";
-import { useQuery, useWorkspace } from "../convex";
+import { useQuery } from "../convex";
 import { ChannelIcon, ChatIcon, DatabaseIcon, PageIcon, PinIcon, PrivateIcon, RecordIcon, UnpinIcon } from "../icons";
 import { type PinKey, RECENT_SHOWN, pathOf, splitPin, usePins } from "../pins";
 import { navigate } from "../router";
@@ -59,11 +59,10 @@ function useEntries(keys: PinKey[]) {
  * `open` is what's on screen, lit like a tab.
  */
 export function RailPins({ open, tipFor, hideTip }: { open: PinKey | undefined; tipFor: TipFor; hideTip: () => void }) {
-	const workspace = useWorkspace();
 	const { pins, recent, toggle } = usePins();
 	const resolve = useEntries([...pins, ...recent]);
 	const pinned = pins.map(resolve).filter((e): e is Entry => !!e);
-	const { sorted, drag } = useSortable(`rail.pins.order:${workspace?.id}`, pinned, entryKey);
+	const { sorted, drag } = useSortable("pinsOrder", pinned, entryKey);
 	const lately = recent
 		.filter((k) => !pins.includes(k))
 		.map(resolve)

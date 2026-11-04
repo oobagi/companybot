@@ -14,6 +14,9 @@ export const threadWindows = [
 	{ hours: 0, label: "Forever" },
 ] as const;
 export const THREAD_HOURS_DEFAULT = 72;
+/** Longest channel topic, in characters, like Slack. Every writer (app, agents, tools) holds to it. */
+export const TOPIC_MAX = 250;
+
 export const isThreadWindow = (hours: number) => threadWindows.some((w) => w.hours === hours);
 
 /** A person or agent in a chat, with a display name. */

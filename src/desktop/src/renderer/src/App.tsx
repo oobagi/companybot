@@ -4,7 +4,8 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvexAuth } from "convex/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
-import { WorkspaceContext, useMutation, useQuery, useWorkspace } from "./convex";
+import { LoadedArrangements, useArrangementState, useStoredIds } from "./arrangements";
+import { WorkspaceContext, useMutation, useQuery } from "./convex";
 import { desktop, useUpdates } from "./desktop";
 import { useAlerts } from "./notifications";
 import { navigate, useRoute } from "./router";
@@ -26,7 +27,7 @@ import { ChatView } from "./views/chat/ChatView";
 import { GettingStarted } from "./views/chat/Tutorial";
 import { Avatar, MenuItem, Popover, archiveQuestion, deviceTimeZone, useConfirm } from "./views/chat/common";
 import { AddButton, ChannelsNav, DmsNav, Group, Item, type SectionProps } from "./views/chat/Sidebar";
-import { useSortable, useStoredIds } from "./sortable";
+import { useSortable } from "./sortable";
 import { PagesNav, PagesView } from "./views/Pages";
 import { DatabaseDialog } from "./views/records/DatabaseDialog";
 import { AccessLock } from "./views/access";
@@ -124,10 +125,11 @@ function Workspace() {
 function Opened() {
 	const me = useQuery(api.workspace.me);
 	if (!me?.access) return null;
-	return <Shell email={me.email} access={me.access} workspace={me.workspace ?? ""} />;
+	return <LoadedArrangements userId={me.userId}><Shell email={me.email} access={me.access} workspace={me.workspace ?? ""} /></LoadedArrangements>;
 }
 
 function Shell({ email, access, workspace }: { email: string; access: Access; workspace: string }) {
+	const arrangements = useArrangementState();
 	const { signOut } = useAuthActions();
 	const chats = useQuery(api.chats.list);
 	const prefs = useQuery(api.preferences.get);
@@ -180,17 +182,17 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	useAlerts();
 	// What's on screen, as a pin: lit in the rail, and added to its recents.
 	const here: PinKey | undefined = view === "chat" ? (openId ? `chat:${openId}` : undefined) : pinOf(route);
-	const { visit } = usePins();
+	const { visit, canSaveRecent } = usePins();
 	useEffect(() => {
-		if (here) visit(here);
-	}, [here, visit]);
+		if (here && canSaveRecent) visit(here);
+	}, [here, visit, canSaveRecent]);
 	// What's waiting in Chat: chats with an unread @mention or DM, else any unread one.
 	const waiting = chats ? [...chats.channels, ...chats.dms, ...chats.agents] : [];
 	const badges: Partial<Record<AppTab, TabBadge>> = { chat: { mentions: waiting.filter((c) => c.mentioned).length, unread: waiting.some((c) => c.unread) } };
-	// The sidebar's sections: drag a title to move one, click it to fold it. Both stay on this computer.
-	const sections = useSortable("sidebar.sections", sectionIds, sectionKey);
-	const [folded, setFolded] = useStoredIds("sidebar.folded");
-	const fold = (id: string) => setFolded(folded.includes(id) ? folded.filter((f) => f !== id) : [...folded, id]);
+	// The sidebar's sections: drag a title to move one, click it to fold it. Both sync with your account in this workspace.
+	const sections = useSortable("sections", sectionIds, sectionKey);
+	const [folded, changeFolded] = useStoredIds("folded");
+	const fold = (id: string) => changeFolded({ op: folded.includes(id) ? "remove" : "add", id });
 	// Hidden or shown, the sidebar stays that way on this computer.
 	const [sidebar, setSidebar] = useState(() => localStorage.getItem("sidebar.hidden") !== "true");
 	const sidebarWidth = useStoredWidth("sidebar.width", 240, 160, 600);
@@ -200,6 +202,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 		<div className="flex h-screen flex-col bg-neutral-100 text-[15px] text-neutral-900">
 			{/* A title bar the width of the window holds its buttons; everything else sits below it. */}
 			<TitleBar sidebar={sidebar} onSidebar={toggleSidebar} />
+			<Notice>{arrangements?.error}</Notice>
 			<TruncatedTips />
 			<div className="flex min-h-0 flex-1">
 				<AppRail
@@ -301,7 +304,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 // Chat's sections. Databases and Pages were sections too before they got rail tabs; their saved places are ignored.
 const sectionIds = ["channels", "dms"];
 const sectionKey = (id: string) => id;
-const typeKeyOf = (t: { key: string }) => t.key;
+const typeKeyOf = (t: { _id: string }) => t._id;
 
 /** Databases' sidebar: your databases, in your order. `canCreate` (fields.edit) also edits and deletes. */
 function DatabasesNav({
@@ -317,8 +320,7 @@ function DatabasesNav({
 	onCreate: () => void;
 	section?: SectionProps;
 }) {
-	const workspace = useWorkspace();
-	const { sorted, drag } = useSortable(`sidebar.databases:${workspace?.id}`, types, typeKeyOf);
+	const { sorted, drag } = useSortable("databases", types, typeKeyOf);
 	const shown = section?.collapsed ? sorted.filter((t) => t.key === openKey) : sorted;
 	const [editing, setEditing] = useState<RecordType>();
 	const remove = useMutation(api.trash.move);
@@ -330,7 +332,7 @@ function DatabasesNav({
 			{shown.map((type) => (
 				<Item
 					key={type._id}
-					drag={drag(type.key)}
+					drag={drag(type._id)}
 					pin={`db:${type.key}`}
 					icon={<DatabaseIcon />}
 					label={type.plural}

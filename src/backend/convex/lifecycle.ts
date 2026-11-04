@@ -171,6 +171,13 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		keep: "A removed member's unclaimed uploads go with the hourly sweep, within a day.",
 		files: ["storageId"],
 	},
+	arrangements: {
+		page: { index: "by_entity", eq: [["entityId", "pageId"]] },
+		database: { index: "by_entity", eq: [["entityId", "typeId"]] },
+		workspace: { index: "by_list", eq: ["workspaceId"] },
+		member: { index: "by_user", eq: ["userId", "workspaceId"] },
+		user: { index: "by_user", eq: ["userId"] },
+	},
 	preferences: {
 		user: { index: "by_user", eq: ["userId"] },
 		// Their photo goes with their account.

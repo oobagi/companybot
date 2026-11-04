@@ -39,7 +39,7 @@ export const keptAccess = (member: Member, page: Doc<"pages">, before: AccessLis
  * `access`: the Who can access list that rules the page: its own, else the nearest ancestor's; a record's
  * page, its database's. `type`: that database, for a record's page.
  */
-export function pageStates(ctx: QueryCtx) {
+export function pageStates(ctx: QueryCtx, get: (id: Id<"pages">) => Promise<Doc<"pages"> | null> = (id) => ctx.db.get(id)) {
 	const seen = new Map<Id<"pages">, Promise<Doc<"pages"> | null>>();
 	const typeOf = memo(async (recordId: Id<"records">) => {
 		const record = await ctx.db.get(recordId);
@@ -57,7 +57,7 @@ export function pageStates(ctx: QueryCtx) {
 		while (current.parentId) {
 			if (ancestors.length >= PAGE_DEPTH_MAX || current.parentId === page._id) throw new ConvexError("This page's nesting is too deep.");
 			let pending = seen.get(current.parentId);
-			if (!pending) { pending = ctx.db.get(current.parentId); seen.set(current.parentId, pending); }
+			if (!pending) { pending = get(current.parentId); seen.set(current.parentId, pending); }
 			const parent = await pending;
 			if (!parent || parent.workspaceId !== page.workspaceId) return { ancestors, archived: true, trashPage, missingId: current.parentId, access: [] };
 			ancestors.push(parent);

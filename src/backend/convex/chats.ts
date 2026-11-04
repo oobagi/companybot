@@ -1,4 +1,4 @@
-import { type ReplyMode, THREAD_HOURS_DEFAULT, can, replyModeOf, replyModes } from "@companybot/core";
+import { type ReplyMode, THREAD_HOURS_DEFAULT, TOPIC_MAX, can, replyModeOf, replyModes } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx } from "./_generated/server";
@@ -289,6 +289,13 @@ export const get = query({
 	},
 });
 
+/** A topic as stored: trimmed, at most `TOPIC_MAX` characters. Longer is refused, so nobody's words are cut silently. */
+function checkedTopic(topic: string) {
+	const trimmed = topic.trim();
+	if (trimmed.length > TOPIC_MAX) throw new ConvexError(`Keep the topic under ${TOPIC_MAX} characters.`);
+	return trimmed;
+}
+
 const createChannelArgs = v.object({ name: v.string(), topic: v.optional(v.string()), private: v.boolean() });
 
 export const createChannel = mutation({
@@ -303,7 +310,7 @@ export async function createChannelAs(ctx: MutationCtx, member: Member, args: In
 		workspaceId: member.workspaceId,
 		kind: "channel",
 		name,
-		...(args.topic?.trim() && { topic: args.topic.trim() }),
+		...(args.topic?.trim() && { topic: checkedTopic(args.topic) }),
 		private: args.private,
 		archived: false,
 		createdBy: member.userId,
@@ -331,7 +338,7 @@ export async function updateChannelAs(ctx: MutationCtx, member: Member, { chatId
 	if (chat.archived) throw new ConvexError("This channel is in Archive.");
 	await ctx.db.patch(chat._id, {
 		...(name !== undefined && { name: await availableName(ctx, member, name, chat._id) }),
-		...(topic !== undefined && { topic: topic.trim() || undefined }),
+		...(topic !== undefined && { topic: checkedTopic(topic) || undefined }),
 		// Unset is "mentions", like every channel from before the setting.
 		...(replyMode !== undefined && { replyMode: replyMode === "relevant" ? undefined : replyMode }),
 	});
