@@ -1,5 +1,5 @@
 import type { PlaceMessage, Skill } from "@companybot/core";
-import { PROMPT_MESSAGE_CAP, approxTokens, defaultReasoning, fallbackModels, publishes } from "@companybot/core";
+import { AGENT_DEBOUNCE_MS, PROMPT_MESSAGE_CAP, approxTokens, defaultReasoning, fallbackModels, publishes } from "@companybot/core";
 import { type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -36,11 +36,14 @@ const KEEP_TOKENS = 15_000;
 
 type Place = { agentId: Id<"agents">; chatId: Id<"chats">; threadId?: Id<"chatMessages"> };
 
-/** Queues a reply from `agentId` to `triggerId` (or to a wakeup), and starts it if nothing is running there. */
+/**
+ * Queues a reply from `agentId` to `triggerId` (or to a wakeup), and starts it if nothing is running there.
+ * A `person` turn (a person's own message asked) starts only after AGENT_DEBOUNCE_MS (startQueued).
+ */
 export async function enqueueTurn(
 	ctx: MutationCtx,
 	chat: Doc<"chats">,
-	turn: Place & { actorId: Id<"users">; routed?: true; dispatch?: Doc<"agentTurns">["dispatch"]; chain?: Doc<"agentTurns">["chain"]; ask?: Doc<"agentTurns">["ask"] } & (
+	turn: Place & { actorId: Id<"users">; person?: true; routed?: true; dispatch?: Doc<"agentTurns">["dispatch"]; chain?: Doc<"agentTurns">["chain"]; ask?: Doc<"agentTurns">["ask"] } & (
 			// After an approval, the original turn's trigger: none if it followed an old welcome turn.
 			| { triggerId: Id<"chatMessages">; approvalId?: Id<"approvals"> }
 			| { triggerId: Id<"chatMessages"> | undefined; approvalId: Id<"approvals">; wakeupId?: Id<"wakeups"> }
@@ -48,9 +51,32 @@ export async function enqueueTurn(
 			| { wakeupId: Id<"wakeups">; wakeLogId: Id<"agentActivity"> }
 		),
 ) {
-	const turnId = await ctx.db.insert("agentTurns", { ...turn, workspaceId: chat.workspaceId, status: "queued" });
-	await startNext(ctx, turn);
+	const turnId = await ctx.db.insert("agentTurns", { ...turn, ...(turn.person && { debouncing: true as const }), workspaceId: chat.workspaceId, status: "queued" });
+	if (turn.person) await ctx.scheduler.runAfter(AGENT_DEBOUNCE_MS, internal.turns.startQueued, { turnId });
+	else await startNext(ctx, turn);
 	return turnId;
+}
+
+/** A person turn's quiet window is over: it may start (or the newer one it's folded into), unless one is running. */
+export const startQueued = internalMutation({
+	args: { turnId: v.id("agentTurns") },
+	handler: async (ctx, { turnId }) => {
+		const turn = await ctx.db.get(turnId);
+		if (turn?.status !== "queued") return;
+		await ctx.db.patch(turnId, { debouncing: undefined });
+		await startNext(ctx, turn);
+	},
+});
+
+/**
+ * Folds the same person's other queued person turns in `into`'s place into it: they get no turn or
+ * reply of their own. Only `person` turns, and only that person's (another person's acts with their
+ * permissions). The caller makes sure their messages reach `into` (startNext: all in its window).
+ */
+export async function mergeQueued(ctx: MutationCtx, into: Doc<"agentTurns">) {
+	if (!into.person) return;
+	for (const t of await turnsAt(ctx, into, "queued").collect())
+		if (t._id !== into._id && t.person && t.actorId === into.actorId) await ctx.db.patch(t._id, { status: "done", mergedInto: into._id, debouncing: undefined });
 }
 
 /**
@@ -112,7 +138,11 @@ async function settleApproval(ctx: MutationCtx, turn: Doc<"agentTurns">) {
 		});
 }
 
-/** Starts the oldest queued turn in a place, unless one is running (a stale one is failed first). */
+/**
+ * Starts the oldest queued turn in a place, unless one is running (a stale one is failed first).
+ * A person turn starts as that person's newest queued here, once its quiet window is over, with the
+ * older ones folded into it: its context covers all their messages.
+ */
 async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place) {
 	const place = { agentId, chatId, threadId };
 	const running = await turnsAt(ctx, place, "running").first();
@@ -128,8 +158,16 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 		if (reply?.status === "streaming")
 			await endStream(ctx, reply, { status: "error", error: "Reply timed out.", ...(running.usage && { stats: await statsOf(ctx, running, running.usage) }) });
 	}
-	const next = await turnsAt(ctx, place, "queued").first();
+	let next = await turnsAt(ctx, place, "queued").first();
 	if (!next || (await waiting(ctx, next))) return;
+	if (next.person) {
+		const actorId = next.actorId;
+		const newest = (await turnsAt(ctx, place, "queued").collect()).filter((t) => t.person && t.actorId === actorId).at(-1)!;
+		// Its timer (startQueued) starts it; past STALE_TURN_MS, whatever runs next does.
+		if (newest.debouncing && Date.now() - newest._creationTime < STALE_TURN_MS) return;
+		next = newest;
+		await mergeQueued(ctx, next);
+	}
 	const chat = await ctx.db.get(next.chatId);
 	// A workspace being deleted starts nothing: its cascade may already be past the rows this would add.
 	if (!chat || chat.archived || !(await liveWorkspace(ctx, chat.workspaceId))) {
@@ -158,7 +196,7 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 	const replyId = quiet
 		? await ctx.db.insert("chatMessages", { chatId: chat._id, workspaceId: chat.workspaceId, ...reply, quiet: true })
 		: await insertMessage(ctx, chat, reply);
-	await ctx.db.patch(next._id, { status: "running", replyId, sessionId: session._id, startedAt: Date.now() });
+	await ctx.db.patch(next._id, { status: "running", replyId, sessionId: session._id, startedAt: Date.now(), debouncing: undefined });
 	await ctx.scheduler.runAfter(0, internal.agent.respond, { turnId: next._id });
 }
 
