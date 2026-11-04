@@ -26,7 +26,7 @@ import { UsageTab } from "./Usage";
 // Settings: /settings/<tab>[/<item>]. While it's open, the sidebar lists its tabs in place of the app's.
 // Two kinds, opened from different menus and never listed together: your account (your avatar, at
 // the bottom of the rail) and the open workspace (the workspace switcher, in the title bar).
-// Customize's tabs keep their /settings/<tab> addresses but open from the rail (Agents, Customize),
+// Customize's tabs keep their /settings/<tab> addresses but open from the rail (Customize),
 // so Settings' sidebar doesn't list them (`inRail`).
 const sections = [
 	{ title: "Account", scope: "account", tabs: [{ id: "preferences", label: "Your preferences", icon: <UserIcon /> }] },

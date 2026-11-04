@@ -8,7 +8,7 @@ import { WorkspaceContext, useMutation, useQuery, useWorkspace } from "./convex"
 import { desktop, useUpdates } from "./desktop";
 import { useAlerts } from "./notifications";
 import { navigate, useRoute } from "./router";
-import { AgentIcon, ArchiveIcon, ArrowLeftIcon, DatabaseIcon, EditIcon, PlusIcon, SettingsIcon, SignOutIcon } from "./icons";
+import { ArchiveIcon, ArrowLeftIcon, DatabaseIcon, EditIcon, PlusIcon, SettingsIcon, SignOutIcon } from "./icons";
 import { MenuDivider, Notice, ResizeHandle, Scroll, TopBar, TruncatedTips, useRun, useStoredWidth } from "./ui";
 import { RecordsView } from "./views/Records";
 import { SettingsNav, SettingsView, isCustomize, settingsScope, settingsTabAliases, settingsTabs } from "./views/Settings";
@@ -136,9 +136,9 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	}, [route]);
 	const view: View = views.find((v) => v === route[0]) ?? "chat";
 	const settingsTab = settingsTabs.find((t) => t.id === (settingsTabAliases[route[1] ?? ""] ?? route[1]))?.id ?? "general";
-	// The rail's tab on screen. Agents and Customize keep their /settings/<tab> addresses; the rest of Settings lights none.
+	// The rail's tab on screen. Customize's tabs (Agents, Connectors, Skills, Automations) keep their /settings/<tab> addresses; the rest of Settings lights none.
 	const tab: AppTab | undefined =
-		view === "chat" ? "chat" : view === "pages" ? "drive" : view === "records" ? "databases" : settingsTab === "agents" ? "agents" : isCustomize(settingsTab) ? "customize" : undefined;
+		view === "chat" ? "chat" : view === "pages" ? "drive" : view === "records" ? "databases" : isCustomize(settingsTab) ? "customize" : undefined;
 	const types = useTypes();
 	const [newDatabase, setNewDatabase] = useState(false);
 	// The database on screen, by key, and the record open in it.
@@ -150,11 +150,11 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	// Where "Back to app" goes from Settings.
 	const lastApp = useRef<string[]>(["chat"]);
 	if (tab) lastApp.current = route;
-	// Each tab reopens where you left it; clicking the open one goes to its start (Agents' list, the first database).
+	// Each tab reopens where you left it; clicking the open one goes to its start (the first database, Customize's Agents).
 	const lastIn = useRef<Partial<Record<AppTab, string[]>>>({});
 	if (tab) lastIn.current[tab] = route;
 	const startOf = (t: AppTab): string[] =>
-		({ chat: ["chat"], drive: ["pages"], databases: types?.[0] ? recordPath(types[0].key) : ["records"], agents: ["settings", "agents"], customize: ["settings", customizeTabs[1].id] })[t];
+		({ chat: ["chat"], drive: ["pages"], databases: types?.[0] ? recordPath(types[0].key) : ["records"], customize: ["settings", customizeTabs[0].id] })[t];
 	const openTab = useCallback((t: AppTab) => navigate(...(t !== tab && lastIn.current[t] ? lastIn.current[t] : startOf(t))), [tab, types]);
 	const { error, fail } = useRun();
 	const { status: update } = useUpdates();
@@ -247,7 +247,6 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 										})}
 									{tab === "drive" && <PagesNav openId={route[1]} canEdit={can(role, "pages.edit")} />}
 									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} canCreate={can(role, "fields.manage")} onCreate={() => setNewDatabase(true)} />}
-									{tab === "agents" && <AgentsNav openId={route[2]} />}
 									{tab === "customize" && <CustomizeNav open={settingsTab} />}
 								</div>
 							</Scroll>
@@ -346,36 +345,15 @@ function DatabasesNav({
 	);
 }
 
-/** Agents' sidebar: All agents (the list, where owners add one), then each one, to open its settings. */
-function AgentsNav({ openId }: { openId: string | undefined }) {
-	const agents = useQuery(api.agents.list);
-	return (
-		<div className="flex flex-col gap-px">
-			<Item icon={<AgentIcon />} active={!openId} onClick={() => navigate("settings", "agents")}>
-				All agents
-			</Item>
-			{agents
-				?.filter((a) => !a.archived)
-				.map((a) => (
-					<Item key={a._id} icon={<Avatar name={a.name} image={a.image} agent size="row" />} label={a.name} active={openId === a._id} onClick={() => navigate("settings", "agents", a._id)}>
-						{a.name}
-					</Item>
-				))}
-		</div>
-	);
-}
-
-/** Customize's sidebar: what agents work with, besides themselves (Agents has its own tab). */
+/** Customize's sidebar: Agents, and what they work with (Connectors, Skills, Automations). */
 function CustomizeNav({ open }: { open: string }) {
 	return (
 		<div className="flex flex-col gap-px">
-			{customizeTabs
-				.filter((t) => t.id !== "agents")
-				.map((t) => (
-					<Item key={t.id} icon={<t.icon />} active={open === t.id} onClick={() => navigate("settings", t.id)}>
-						{t.label}
-					</Item>
-				))}
+			{customizeTabs.map((t) => (
+				<Item key={t.id} icon={<t.icon />} active={open === t.id} onClick={() => navigate("settings", t.id)}>
+					{t.label}
+				</Item>
+			))}
 		</div>
 	);
 }

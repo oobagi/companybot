@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { AgentIcon, ChatIcon, CustomizeIcon, DatabaseIcon, DriveIcon } from "../icons";
+import { ChatIcon, CustomizeIcon, DatabaseIcon, DriveIcon } from "../icons";
 import { useTip } from "../ui";
 
 /** The rail's tabs, top to bottom. `key` is the letter after G that opens it. */
@@ -7,7 +7,6 @@ export const appTabs = [
 	{ id: "chat", label: "Chat", key: "c", icon: ChatIcon },
 	{ id: "drive", label: "Drive", key: "f", icon: DriveIcon },
 	{ id: "databases", label: "Databases", key: "d", icon: DatabaseIcon },
-	{ id: "agents", label: "Agents", key: "a", icon: AgentIcon },
 	{ id: "customize", label: "Customize", key: "x", icon: CustomizeIcon },
 ] as const;
 export type AppTab = (typeof appTabs)[number]["id"];
@@ -23,8 +22,8 @@ const typing = (target: EventTarget | null) =>
 	target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
 
 /**
- * The strip at the far left: one button per part of the app (Chat, Drive, Databases, Agents,
- * Customize), centered, as in Macro and Linear. The sidebar beside it lists the open tab's things.
+ * The strip at the far left: one button per part of the app (Chat, Drive, Databases, Customize),
+ * centered, as in Macro and Linear. The sidebar beside it lists the open tab's things.
  * Press G then the tab's letter to open it. `workspace` (the workspace switcher, named
  * `workspaceName`) sits at the top and `youMenu` (your avatar and its menu, named `you`) at the
  * bottom. In Settings no tab is lit.
