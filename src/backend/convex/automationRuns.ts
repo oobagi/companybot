@@ -7,7 +7,7 @@ import { mutation } from "./functions";
 import { addToChat, canPost, canSee, findOrCreateDm, insertMessage } from "./chatOps";
 import { type Member, accessOf, liveWorkspace, memberOf, nameOf, normalizeEmail, requireMember, rolesOf, sweepExpired } from "./lib";
 import { type RunOutcome, definitionOf, followsOthers, outcomeText, postingProblem, privateTo, requireEditable, scheduleCursor, subscribersOf } from "./automationOps";
-import { canReadSources } from "./replyPrivacy";
+import { blockedSource, type Source } from "./replyPrivacy";
 import { artifactSources, chatSources, type UsedPlace } from "./replySources";
 import { enqueueTurn } from "./turns";
 
@@ -153,6 +153,20 @@ async function finish(ctx: MutationCtx, install: Doc<"automationInstalls">, outc
 
 type Run = { ran: boolean; outcome: RunOutcome };
 
+/** Record the failure; a metadata-only notice stays readable even when its maker cannot open the automation. */
+async function sourceFailure(ctx: MutationCtx, install: Doc<"automationInstalls">, member: Member, policy: Source): Promise<Run> {
+	const text = policy.deletedConnector
+		? `Didn't run: saved data from ${policy.name} is Owners-only after uninstall. Ask a workspace Owner to restore access.`
+		: "Didn't run: the person running this automation no longer has access to its saved sources.";
+	const outcome = await finish(ctx, install, { text, failed: true });
+	if (policy.deletedConnector && await activeAgent(ctx, install)) {
+		const chatId = await findOrCreateDm(ctx, member.workspaceId, member.userId, [member.userId], [install.agentId]);
+		const chat = (await ctx.db.get(chatId))!;
+		await insertMessage(ctx, chat, { authorAgentId: install.agentId, text, parts: [{ type: "text", text }], status: "done", mentions: { userIds: [], agentIds: [] } });
+	}
+	return { ran: false, outcome };
+}
+
 /**
  * One run, for the automation's audience. `person` narrows "subscribers" to one person
  * (a webhook naming them); `visibleIn` drops anyone who can't see that chat; `thread`
@@ -172,13 +186,17 @@ async function runFor(
 	if (target.person) userIds = userIds.filter((id) => id === target.person);
 	const chat = target.visibleIn && (await ctx.db.get(target.visibleIn));
 	const people: Id<"users">[] = [];
+	let denied: { member: Member; policy: Source } | undefined;
 	for (const id of userIds) {
 		const member = await memberOf(ctx, id, install.workspaceId);
-		if (!member || !(await canReadSources(ctx, member, install.usedPlaces))) continue;
+		if (!member) continue;
+		const policy = await blockedSource(ctx, member, install.usedPlaces);
+		if (policy) { denied = { member, policy }; continue; }
 		if (chat && !(await canSee(ctx, chat, member))) continue;
 		people.push(id);
 	}
 	if (people.length === 0) {
+		if (denied) return sourceFailure(ctx, install, denied.member, denied.policy);
 		const why =
 			audience === "creator"
 				? target.person && target.person !== install.installedBy
@@ -264,15 +282,20 @@ async function runInChannel(
 			).filter((m) => accessOf(roles, m).owner && m.userId !== preferred);
 	// Each read through memberOf, so a workspace being deleted has nobody to act as.
 	let actorId: Id<"users"> | null = null;
+	let denied: { member: Member; policy: Source } | undefined;
 	for (const userId of [preferred, ...owners.map((m) => m.userId)]) {
 		const member = await memberOf(ctx, userId, install.workspaceId);
+		if (!member) continue;
+		const policy = await blockedSource(ctx, member, install.usedPlaces);
+		if (policy) { denied = { member, policy }; continue; }
 		// It posts there as them, so they need Post in it, not just View.
-		if (member && await canReadSources(ctx, member, install.usedPlaces) && (await canSee(ctx, chat, member)) && canPost(member, chat)) {
+		if ((await canSee(ctx, chat, member)) && canPost(member, chat)) {
 			actorId = userId;
 			break;
 		}
 	}
 	if (!actorId) {
+		if (denied) return sourceFailure(ctx, install, denied.member, denied.policy);
 		const who = install.custom ? `${await nameOf(ctx, install.installedBy)}, who made it, isn't` : "nobody who can run it is";
 		return { ran: false, outcome: await finish(ctx, install, { text: `Didn't run: ${who} in {channel}. Pick another channel.`, channelId: chat._id }) };
 	}
