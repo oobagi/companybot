@@ -79,7 +79,7 @@ export function MembersTab({ access }: { access: Access }) {
 							{editable ? (
 								<RolePicker roles={roles} value={m.roles} canGiveOwner={access.owner} onChange={(ids) => run(setRoles({ id: m.id, roles: ids }))} />
 							) : (
-								<span className="text-neutral-400">{roleNames(roles, m.roles).join(", ")}</span>
+								<span className="text-neutral-400">{roleNames(roles, m.roles).join(", ") || "No role"}</span>
 							)}
 							{editable && !m.isYou && (
 								<button type="button" onClick={() => confirm({ title: `Remove ${m.name}?`, action: "Remove member", body: "They will lose access to this workspace, and their personal workspace data will be deleted.", onConfirm: () => removeMember({ id: m.id }) })} className="hover:text-red-600">
@@ -90,7 +90,7 @@ export function MembersTab({ access }: { access: Access }) {
 					);
 				})}
 				{team.invites.map((i) => (
-					<Row key={i.id} label={i.email} detail={`Invited as ${roleNames(roles, i.roles).join(", ")} · hasn't joined yet`}>
+					<Row key={i.id} label={i.email} detail={`Invited as ${roleNames(roles, i.roles).join(", ") || "No role"} · hasn't joined yet`}>
 						{resent === i.id ? (
 							<span className="text-neutral-400">Sent</span>
 						) : (
@@ -119,7 +119,7 @@ function RolePicker({ roles, value, canGiveOwner, onChange }: { roles: readonly 
 			matchWidth
 			trigger={
 				<>
-					<span className="min-w-0 flex-1 truncate">{names.join(", ") || "Pick roles"}</span>
+					<span className="min-w-0 flex-1 truncate">{names.join(", ") || "No role"}</span>
 					<CaretUpDownIcon className="shrink-0 text-neutral-400" />
 				</>
 			}
@@ -185,7 +185,7 @@ function RolesSection({ roles, canEdit }: { roles: readonly Role[]; canEdit: boo
 								confirm({
 									title: `Delete ${open.name}?`,
 									action: "Delete role",
-									body: `${open.people === 1 ? "1 person loses it" : `${open.people} people lose it`}. Anyone left without a role gets Member.`,
+									body: `${open.people === 1 ? "1 person loses it" : `${open.people} people lose it`}. Anyone left without a role keeps only shared reads, chat and personal items.`,
 									onConfirm: () => remove({ id: open.id }).then(() => setOpenId(undefined)),
 								})
 							}

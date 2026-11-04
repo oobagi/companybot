@@ -36,6 +36,8 @@ export const channelName = (chat: Doc<"chats">) => `#${chat.name ?? "channel"}`;
 
 /** What the app shows about a place's list: who's on it and whether it's restricted, for the lock and its tooltip. */
 export function accessInfo(member: Member, list: AccessList) {
+	// Preserve an empty restricted list while hiding roles already deleted, before cleanup runs.
+	list = list?.filter((e) => e.role === EVERYONE || member.workspaceRoles.some((r) => r.id === e.role));
 	return {
 		access: (list ?? [{ role: EVERYONE, level: "edit" as const }]).map((e) => ({ role: e.role as string, level: e.level })),
 		restricted: isRestricted(list),

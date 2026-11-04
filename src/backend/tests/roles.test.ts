@@ -125,8 +125,8 @@ describe("roles", () => {
 		expect((await crew.query(api.workspace.me))!.access!.roles).toEqual([admins]);
 	});
 
-	it("moves people and invites off a deleted role, to Member if it was their only one, and stops connectors allowing it", async () => {
-		const { owner, member, id, membership } = await setup();
+	it("moves people and invites off a deleted role, without granting a replacement, and stops connectors allowing it", async () => {
+		const { t, owner, member, id, membership } = await setup();
 		const [office, crew] = [await owner.mutation(api.roles.create, { name: "Office" }), await owner.mutation(api.roles.create, { name: "Crew" })];
 		const them = await membership(member);
 		await owner.mutation(api.workspace.setRoles, { id: them.id, roles: [office] });
@@ -135,11 +135,35 @@ describe("roles", () => {
 		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
 		await owner.mutation(api.connectors.setRoles, { connectorId: "crm", roles: [office, crew] });
 		await owner.mutation(api.roles.remove, { id: office });
-		expect((await membership(member)).roles).toEqual([await id("Member")]);
+		expect((await membership(member)).roles).toEqual([]);
 		expect((await membership(owner)).roles).toEqual([await id("Owner"), crew]);
-		expect((await owner.query(api.workspace.team))!.invites[0]!.roles).toEqual([await id("Member")]);
+		expect((await owner.query(api.workspace.team))!.invites[0]!.roles).toEqual([]);
 		expect((await owner.query(api.connectors.list)).find((c) => c.id === "crm")!.roles).toEqual([crew]);
 		expect((await owner.query(api.roles.list))!.map((r) => r.name)).toEqual(["Owner", "Member", "Crew"]);
+		expect((await member.query(api.workspace.me))!.access!.permissions).toEqual([]);
+		await settle(t);
+		expect((await member.query(api.workspace.me))!.access!.permissions).toEqual([]);
+		expect(await t.run(async (ctx) => (await ctx.db.get(them.id))!.roles)).toEqual([]);
+		await owner.mutation(api.workspace.setRoles, { id: them.id, roles: [await id("Member")] });
+	});
+
+	it("keeps channels and pages restricted to Owners before and after scrubbing their only role", async () => {
+		const { t, owner, member } = await setup();
+		const workspaceId = await workspaceOf(owner);
+		const role = await owner.mutation(api.roles.create, { name: "Temporary" });
+		const chatId = await owner.mutation(api.chats.createChannel, { name: "restricted", private: false });
+		await owner.mutation(api.chats.setAccess, { chatId, access: [{ role, level: "edit" }] });
+		const pageId = await t.run((ctx) => ctx.db.insert("pages", { workspaceId, title: "Restricted", archived: false, createdBy: owner.userId, updatedBy: owner.userId, updatedAt: 0, access: [{ role, level: "edit" }] }));
+		await owner.mutation(api.roles.remove, { id: role });
+		for (const scrubbed of [false, true]) {
+			if (scrubbed) await settle(t);
+			expect(await member.query(api.pages.get, { pageId })).toBeNull();
+			expect(await owner.query(api.pages.get, { pageId })).not.toBeNull();
+			expect((await member.query(api.chats.list))!.channels.some((c) => c._id === chatId)).toBe(false);
+			expect((await owner.query(api.chats.list))!.channels.some((c) => c._id === chatId)).toBe(true);
+		}
+		expect(await t.run(async (ctx) => (await ctx.db.get(chatId))!.access)).toEqual([]);
+		expect(await t.run(async (ctx) => (await ctx.db.get(pageId))!.access)).toEqual([]);
 	});
 
 	it("lets connectors be used by the roles picked for them; owners always", async () => {
