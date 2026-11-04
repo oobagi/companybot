@@ -73,6 +73,7 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"records.create": { agent: ["records.save"] },
 	"records.update": { agent: ["records.save"] },
 	"records.undo": { agent: ["records.undo"] },
+	"skills.share": { humanOnly: "The maker confirms publishing their private instructions to the team in Customize." },
 	"skills.create": { agent: ["skills.create"] },
 	"skills.save": { agent: ["skills.edit:edit"] },
 	"skills.remove": { agent: ["skills.remove:delete"] },

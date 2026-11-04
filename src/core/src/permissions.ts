@@ -129,5 +129,5 @@ const trashPermission: Record<TrashKind, Permission> = {
  * these rules meet; trashOps.canRestore uses it.
  */
 export function canTrash(who: Access & { userId: string }, kind: TrashKind, privateTo?: string | null): boolean {
-	return kind === "automation" ? canEditAutomation(who, privateTo ?? null) : can(who, trashPermission[kind]);
+	return kind === "skill" && privateTo ? who.userId === privateTo : kind === "automation" ? canEditAutomation(who, privateTo ?? null) : can(who, trashPermission[kind]);
 }

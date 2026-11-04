@@ -267,10 +267,12 @@ export const skillOf = (install: Doc<"skillInstalls">): Skill | undefined => ins
 	? customSkill(install.skillId, install.custom, install.custom.version)
 	: install.definition;
 
+export const canSeeSkill = (userId: Id<"users"> | undefined, install: Doc<"skillInstalls">) => install.audience === "team" || (install.audience === "personal" && !!userId && install.ownerId === userId);
+
 /** Live retained skills, then custom skills, oldest first within each group. */
-export async function installedSkills(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<Skill[]> {
+export async function installedSkills(ctx: QueryCtx, workspaceId: Id<"workspaces">, userId: Id<"users">): Promise<Skill[]> {
 	const installs = (await ctx.db.query("skillInstalls").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect())
-		.filter((i) => !i.archived).sort((a, b) => a._creationTime - b._creationTime);
+		.filter((i) => !i.archived && canSeeSkill(userId, i)).sort((a, b) => a._creationTime - b._creationTime);
 	return [...installs.filter((i) => !i.custom), ...installs.filter((i) => i.custom)].flatMap((i) => {
 		const skill = skillOf(i);
 		return skill ? [skill] : [];
