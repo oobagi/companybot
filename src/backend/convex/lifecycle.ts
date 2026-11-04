@@ -261,8 +261,8 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	chatMembers: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		channel: { index: "by_chat", eq: ["chatId"] },
-		member: { index: "by_workspace", eq: ["workspaceId", "userId"], where: inChannel, onDelete: (ctx, row) => countSeats(ctx, row.chatId, -1) },
-		agent: { index: "by_agent", eq: ["agentId"], where: inChannel, onDelete: (ctx, row) => countSeats(ctx, row.chatId, -1) },
+		member: { index: "by_workspace", eq: ["workspaceId", "userId"], where: inChannel, onDelete: (ctx, row) => countSeats(ctx, row.chatId, -1, row._creationTime) },
+		agent: { index: "by_agent", eq: ["agentId"], where: inChannel, onDelete: (ctx, row) => countSeats(ctx, row.chatId, -1, row._creationTime) },
 	},
 	chatMessages: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },

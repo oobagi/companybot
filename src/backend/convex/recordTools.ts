@@ -17,7 +17,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation } from "./_generated/server";
 import { activityPage } from "./activity";
 import { deleteView, saveView, viewsOf } from "./databaseViews";
-import { type Member, asToolResult, nameOf, normalizeEmail, requireInWorkspace } from "./lib";
+import { type Member, asToolResult, nameOf, normalizeEmail, profileOf, requireInWorkspace } from "./lib";
 import {
 	createType,
 	updateType,
@@ -134,7 +134,7 @@ const TEAM_LISTED = 20;
  */
 class Names {
 	private cache = new Map<string, Promise<string>>();
-	private team?: Promise<Doc<"members">[]>;
+	private team?: Promise<{ userId: Id<"users">; name: string }[]>;
 	constructor(
 		private ctx: QueryCtx,
 		private member: Member,
@@ -170,16 +170,17 @@ class Names {
 			.query("members")
 			.withIndex("by_email", (q) => q.eq("workspaceId", this.member.workspaceId).eq("email", normalizeEmail(text)))
 			.first();
-		if (byEmail) return byEmail.userId;
 		this.team ??= this.ctx.db
 			.query("members")
 			.withIndex("by_workspace", (q) => q.eq("workspaceId", this.member.workspaceId))
-			.collect();
+			.collect()
+			.then((rows) => Promise.all(rows.map(async (m) => ({ userId: m.userId, name: (await profileOf(this.ctx, m)).name }))));
 		const team = await this.team;
-		const matches = team.filter((m) => m.name?.toLowerCase() === lower);
-		if (matches.length === 1) return matches[0]!.userId;
-		if (matches.length) throw new ConvexError(`Several teammates are called “${text}”. Use their email.`);
-		const names = team.slice(0, TEAM_LISTED).map((m) => m.name ?? "");
+		// Someone's email and someone else's name alike is as ambiguous as two names.
+		const matches = new Set([...(byEmail ? [byEmail.userId] : []), ...team.filter((m) => m.name.toLowerCase() === lower).map((m) => m.userId)]);
+		if (matches.size === 1) return [...matches][0]!;
+		if (matches.size) throw new ConvexError(`Several teammates are called “${text}”. Use their email.`);
+		const names = team.slice(0, TEAM_LISTED).map((m) => m.name);
 		throw new ConvexError(`No teammate “${text}”. Teammates: ${names.join(", ")}${team.length > TEAM_LISTED ? ` and ${team.length - TEAM_LISTED} more` : ""}.`);
 	}
 

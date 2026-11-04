@@ -47,6 +47,8 @@ export const STALE_TURN_MS = 5 * 60_000;
 export const KEEP_TOKENS = 15_000;
 /** Turns a session replays at most, newest kept: summaries that keep failing can't grow it without end. */
 const SESSION_TURNS_MAX = 200;
+/** Bytes a session's replay reads at most (turns, replies, steps): a quarter of Convex's 16 MiB, so the rest of a turn fits. */
+const REPLAY_BYTES = 4 * 1024 * 1024;
 
 type Place = { agentId: Id<"agents">; chatId: Id<"chats">; threadId?: Id<"chatMessages"> };
 
@@ -249,17 +251,24 @@ async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">, member
 	let scanned = 0;
 	// Newest first, so a cap keeps the newest. Reads are bounded on both paths: summaries that keep
 	// failing, or many hidden turns filling the tail, can't grow it without end.
+	// A turn that doesn't fit whole ends the replay there: it and everything older are left out.
 	for await (const turn of query.order("desc")) {
 		bytes += getDocumentSize(turn);
-		if (++scanned > SESSION_TURNS_MAX || bytes > 4 * 1024 * 1024) break;
+		if (++scanned > SESSION_TURNS_MAX || bytes > REPLAY_BYTES) break;
 		if ((turn.status !== "done" && turn.status !== "error") || turn.prompt === undefined) continue;
 		const reply = turn.replyId ? await ctx.db.get(turn.replyId) : null;
 		bytes += reply ? getDocumentSize(reply) : 0;
-		if (bytes > 4 * 1024 * 1024) break;
+		if (bytes > REPLAY_BYTES) break;
 		if (member && reply && !(await canReadReply(ctx, member, reply))) continue;
 		const details = !member || await canReadReplyDetails(ctx, member, reply);
-		const kept = await ctx.db.query("turnSteps").withIndex("by_turn", (q) => q.eq("turnId", turn._id)).collect();
-		bytes += kept.reduce((sum, s) => sum + getDocumentSize(s), 0);
+		// Read one step at a time against the budget: a turn's steps can be many near-1 MiB rows.
+		const kept: Doc<"turnSteps">[] = [];
+		for await (const step of ctx.db.query("turnSteps").withIndex("by_turn", (q) => q.eq("turnId", turn._id))) {
+			bytes += getDocumentSize(step);
+			if (bytes > REPLAY_BYTES) break;
+			kept.push(step);
+		}
+		if (bytes > REPLAY_BYTES) break;
 		const steps = kept.flatMap((s) => JSON.parse(s.messages) as ModelMessage[]);
 		const shown = JSON.stringify(member ? stepsFor(steps, { details, results: turn.actorId === member.userId }) : steps);
 		const answer = answerOf(turn, reply);

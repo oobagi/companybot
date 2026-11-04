@@ -9,7 +9,7 @@ import { seedAgents } from "./agents";
 import { fieldsOf, typesOf } from "./recordOps";
 import { addToChat, canSee, ensureGeneral, latestMentionSince } from "./chatOps";
 import { sendInviteEmail } from "./invites";
-import { type Member, accessOf, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, keptWorkspace, liveWorkspace, memberOf, memberProfile, nameOf, normalizeEmail, requireMember, requirePermission, requireUserId, rolesOf, syncMemberProfiles } from "./lib";
+import { type Member, accessOf, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, keptWorkspace, liveWorkspace, FORMER_MEMBER, memberOf, memberProfile, nameOf, normalizeEmail, profileOf, requireMember, requirePermission, requireUserId, rolesOf } from "./lib";
 import { cascading, startCascade } from "./cascade";
 import { imageUrl } from "./images";
 import { catalogImageModels, catalogModels, findImageModel, workspaceImageModel } from "./modelCatalog";
@@ -303,6 +303,7 @@ export const team = query({
 		const members = await Promise.all(
 			rows.map(async (r) => {
 				const access = accessOf(roles, r);
+				const profile = await profileOf(ctx, r);
 				return {
 					id: r._id,
 					userId: r.userId,
@@ -310,13 +311,13 @@ export const team = query({
 					roles: access.roles,
 					// COMPAT(0.1.0-alpha.10): alpha.9 apps read `role`; delete it.
 					role: access.owner ? ("owner" as const) : ("member" as const),
-					name: r.name ?? "",
+					name: profile.name,
 					/** Their photo's URL, or null for their initials. */
-					image: await imageUrl(ctx, r.image),
+					image: await imageUrl(ctx, profile.image),
 					email: r.email ?? "",
 					isYou: r.userId === member.userId,
 					/** For profiles: the zone they picked, else their computer's. */
-					timeZone: r.timeZone ?? "UTC",
+					timeZone: profile.timeZone,
 				};
 			}),
 		);
@@ -509,8 +510,9 @@ export const eraseAccount = mutation({
 			for (const row of await ctx.db.query("localSignInCodes").withIndex("by_email", (q) => q.eq("email", email)).collect()) await ctx.db.delete(row._id);
 		}
 		await ctx.db.replace(userId, { erasedAt: Date.now() });
-		// Their memberships wait for the cascade: until then lists show them as a former member.
-		await syncMemberProfiles(ctx, userId);
+		// Their memberships wait for the cascade: until then they keep nothing that names them, and show as a former member.
+		for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId)))
+			await ctx.db.patch(row._id, { email: "", name: FORMER_MEMBER, image: undefined });
 		await startCascade(ctx, "user", { userId });
 	},
 });

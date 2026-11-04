@@ -545,8 +545,10 @@ export default defineSchema({
 		/** Channels: who can see and post (Post is `edit`), on top of a private channel's members. */
 		access,
 		/** Its `chatMembers` rows, people and agents: kept ±1 where seats change (chatOps addToChat, dropSeat). */
-		// COMPAT(0.1.0-alpha.10): once migrations.chatMemberCounts has run on prod, make this required.
+		// COMPAT(0.1.0-alpha.10): once migrations.chatMemberCounts has run on prod, make this required and drop `seatCount`.
 		memberCount: v.optional(v.number()),
+		/** While migrations.chatMemberCounts counts a big chat over several transactions: seats so far, up to `after` (a seat's _creationTime). */
+		seatCount: v.optional(v.object({ counted: v.number(), after: v.number() })),
 	})
 		.index("by_workspace", ["workspaceId", "kind"])
 		.index("by_dm_key", ["workspaceId", "dmKey"])

@@ -1,4 +1,5 @@
 import { fromLegacy } from "./wakeups";
+import { v } from "convex/values";
 import { type MigrationFunctionReference, Migrations } from "@convex-dev/migrations";
 import { components, internal } from "./_generated/api";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
@@ -339,14 +340,36 @@ export const lastWorkspaces = migrations.define({
 });
 
 // Each chat counts its seats, so channel browsing doesn't read them. Chats made since start at 0 and count live.
+// A big chat is counted SEAT_COUNT_STEP seats a transaction, oldest first, its progress on the chat (`seatCount`):
+// seats added meanwhile are newer, so a later step reads them; one removed that was already counted comes off
+// (chatOps.countSeats).
+const SEAT_COUNT_STEP = 4_000;
 export const chatMemberCounts = migrations.define({
 	table: "chats",
-	batchSize: 5,
+	batchSize: 1,
 	migrateOne: async (ctx, chat) => {
-		if (chat.memberCount !== undefined) return;
-		let memberCount = 0;
-		for await (const _ of ctx.db.query("chatMembers").withIndex("by_chat", (q) => q.eq("chatId", chat._id))) memberCount++;
-		await ctx.db.patch(chat._id, { memberCount });
+		if (!(await countSeatsStep(ctx, chat._id))) await ctx.scheduler.runAfter(0, internal.migrations.continueSeatCount, { chatId: chat._id });
+	},
+});
+
+/** Counts the next seats of a chat still being counted. True once it has its `memberCount`. */
+async function countSeatsStep(ctx: MutationCtx, chatId: Id<"chats">) {
+	const chat = await ctx.db.get(chatId);
+	if (!chat || chat.memberCount !== undefined) return true;
+	const { counted, after } = chat.seatCount ?? { counted: 0, after: 0 };
+	const seats = await ctx.db.query("chatMembers").withIndex("by_chat", (q) => q.eq("chatId", chatId).gt("_creationTime", after)).take(SEAT_COUNT_STEP);
+	if (seats.length < SEAT_COUNT_STEP) {
+		await ctx.db.patch(chatId, { memberCount: counted + seats.length, seatCount: undefined });
+		return true;
+	}
+	await ctx.db.patch(chatId, { seatCount: { counted: counted + seats.length, after: seats.at(-1)!._creationTime } });
+	return false;
+}
+
+export const continueSeatCount = internalMutation({
+	args: { chatId: v.id("chats") },
+	handler: async (ctx, { chatId }) => {
+		if (!(await countSeatsStep(ctx, chatId))) await ctx.scheduler.runAfter(0, internal.migrations.continueSeatCount, { chatId });
 	},
 });
 

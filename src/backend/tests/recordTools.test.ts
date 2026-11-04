@@ -96,6 +96,26 @@ describe("records tools", () => {
 		expect((await tools.find({ type: "deal", filters: [{ field: "value", gte: "EUR 1000" }] })).rows.map((r) => r.name)).toEqual(["Berlin"]);
 	});
 
+	it("refuse a teammate whose name is someone else's email, as for two names", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		await member.mutation(api.preferences.update, { displayName: "owner@co.com" });
+		const tools = await turnFor(t, owner);
+		expect(await tools.save({ type: "deal", values: { name: "x", owner: "owner@co.com" } })).toEqual({ error: expect.stringContaining("Several teammates") });
+	});
+
+	// COMPAT(0.1.0-alpha.10): delete with migrations.memberProfiles.
+	it("find a teammate by name before their membership has a copy of it", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		await member.mutation(api.preferences.update, { displayName: "Mia", timeZone: "Asia/Tokyo" });
+		await t.run(async (ctx) => {
+			for (const row of await ctx.db.query("members").collect()) await ctx.db.patch(row._id, { name: undefined, image: undefined, timeZone: undefined });
+		});
+		const tools = await turnFor(t, owner);
+		expect(await tools.save({ type: "deal", values: { name: "x", owner: "mia" } })).toMatchObject({ values: { owner: "Mia" } });
+		const team = (await owner.query(api.workspace.team))!;
+		expect(team.members.find((m) => m.email === "member@co.com")).toMatchObject({ name: "Mia", timeZone: "Asia/Tokyo" });
+	});
+
 	it("explain what's wrong instead of failing the reply", async () => {
 		const { t, member } = await ownerAndMember();
 		const tools = await turnFor(t, member);

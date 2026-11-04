@@ -321,15 +321,25 @@ export const nameOf = async (ctx: QueryCtx, userId: Id<"users">) => (await perso
 export async function personOf(ctx: QueryCtx, userId: Id<"users">): Promise<{ name: string; image?: Id<"_storage"> }> {
 	const user = await ctx.db.get(userId);
 	// Erased accounts keep a scrubbed row (workspace.eraseAccount), whatever is left to clean up.
-	if (!user || user.erasedAt) return { name: "Former member" };
+	if (!user || user.erasedAt) return { name: FORMER_MEMBER };
 	const prefs = await preferencesOf(ctx, userId);
-	return { name: prefs?.displayName || user.email || "Former member", image: prefs?.image };
+	return { name: prefs?.displayName || user.email || FORMER_MEMBER, image: prefs?.image };
 }
 
 /** Someone's time zone: the one they picked, else their computer's, else UTC. */
 export async function timeZoneOf(ctx: QueryCtx, userId: Id<"users">) {
 	const prefs = await preferencesOf(ctx, userId);
 	return resolveTimeZone(prefs?.timeZone, prefs?.deviceTimeZone);
+}
+
+/** The name lists show for an erased account, or one whose row is gone. */
+export const FORMER_MEMBER = "Former member";
+
+/** A membership's copy of its person's profile (`memberProfile`). */
+export async function profileOf(ctx: QueryCtx, row: Doc<"members">): Promise<{ name: string; image?: Id<"_storage">; timeZone: string }> {
+	// COMPAT(0.1.0-alpha.10): a row from before migrations.memberProfiles has no copy yet, so it's read fresh. Drop with it.
+	if (row.name === undefined || row.timeZone === undefined) return memberProfile(ctx, row.userId);
+	return { name: row.name, image: row.image, timeZone: row.timeZone };
 }
 
 /** What lists of members show of someone. Every `members` row keeps a copy (`syncMemberProfiles`). */

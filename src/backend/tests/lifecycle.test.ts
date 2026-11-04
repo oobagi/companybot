@@ -433,6 +433,11 @@ describe("erasing an account", () => {
 		await m.mutation(api.workspace.eraseAccount);
 		// At once: their sign-in acts as nobody, and their email can't sign back in to this account.
 		expect(await m.query(api.workspace.mine)).toBeNull();
+		// Memberships waiting for the cascade keep nothing that names them.
+		const waiting = await t.run(async (ctx) => (await ctx.db.query("members").collect()).filter((r) => r.userId === m.userId));
+		expect(waiting.length).toBeGreaterThan(0);
+		for (const row of waiting) expect(row).toMatchObject({ email: "", name: "Former member" });
+		expect(waiting.every((row) => row.image === undefined)).toBe(true);
 		// Their memberships go in the cascade; until then nothing (a queued reply, an automation) can act as them.
 		expect(await t.run((ctx) => memberOf(ctx, m.userId, A))).toBeNull();
 		await expect(m.mutation(api.workspace.ensure)).rejects.toThrow("erased");
