@@ -72,8 +72,12 @@ export function accessOf(roles: Doc<"roles">[], row: { roles?: Id<"roles">[]; ro
 	if (!row.role) return accessFrom(roles, []);
 	const role = roles.find((r) => r.builtIn === row.role);
 	if (role) return accessFrom(roles, [role._id]);
-	return { roles: [], owner: row.role === "owner", permissions: roleSwitches(row.role, []) };
+	// Not seeded yet: a stand-in id lets connector access ("member" on old installs) match it too.
+	return { roles: row.role === "member" ? [UNSEEDED_MEMBER] : [], owner: row.role === "owner", permissions: roleSwitches(row.role, []) };
 }
+
+/** COMPAT(0.1.0-alpha.10): the Member role of a workspace whose roles aren't seeded yet. Never stored. Delete with `accessOf`'s fallback. */
+export const UNSEEDED_MEMBER = "unseeded:member" as Id<"roles">;
 
 /**
  * Who's acting: a member, or an agent acting for one (its `agentId` set). Every change an

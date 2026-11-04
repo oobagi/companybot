@@ -253,6 +253,19 @@ describe("while the custom roles migration runs", () => {
 				// Two owners now, so the first can go.
 				await owner.mutation(api.workspace.leave, {});
 			});
+
+			it("keeps an old member's use of a connector that lists \"member\"", async () => {
+				const { t, owner, member, workspaceId } = await legacy(true);
+				await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
+				await owner.action(api.connectors.connect, { connectorId: "crm", credentials: { type: "api_key", key: "k" } });
+				await t.run(async (ctx) => {
+					const install = (await ctx.db.query("connectorInstalls").collect())[0]!;
+					await ctx.db.patch(install._id, { roles: ["owner", "member"] });
+					if (!seeded) for (const r of await rolesOf(ctx, workspaceId)) await ctx.db.delete(r._id);
+				});
+				expect((await member.query(api.connectors.list)).find((c) => c.id === "crm")).toMatchObject({ canUse: true });
+				expect(await t.query(internal.connectors.forTurn, { userId: member.userId, workspaceId, connectorIds: ["crm"] })).toHaveLength(1);
+			});
 		});
 
 	it("still treats an old owner as one after someone else's roles moved", async () => {

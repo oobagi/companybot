@@ -15,7 +15,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
 import { action, mutation, query } from "./functions";
 import { encrypt } from "./crypto";
-import { type Member, checkPermission, getMember, memberFor, memberOf, requireMember, requirePermission, rolesOf, sweepExpired } from "./lib";
+import { type Member, UNSEEDED_MEMBER, checkPermission, getMember, memberFor, memberOf, requireMember, requirePermission, rolesOf, sweepExpired } from "./lib";
 import { cascading, startCascade } from "./cascade";
 import { builtInId } from "./roles";
 
@@ -50,7 +50,7 @@ export function allowedRoles(member: Member, install: Doc<"connectorInstalls">):
 	// COMPAT(0.1.0-alpha.10): installs list "owner"/"member" until migrations.customRolesConnectors
 	// runs; read "member" as the Member role so nobody loses a connector mid-migration. Delete with it.
 	const memberRole = member.workspaceRoles.find((r) => r.builtIn === "member")?.id;
-	return install.roles.flatMap((r) => (r === "owner" ? [] : r === "member" ? (memberRole ? [memberRole] : []) : [r]));
+	return install.roles.flatMap((r) => (r === "owner" ? [] : r === "member" ? [memberRole ?? UNSEEDED_MEMBER] : [r]));
 }
 
 /** Where each installed connector stands for this person. Feeds `describeToolAccess`. */
