@@ -271,6 +271,11 @@ async function streamReply(
 		...stores(ctx, turnId),
 		// Each call writes under its own call id, so the same call never writes twice (approvals.withReceipt).
 		forCall: (callId) => stores(ctx, turnId, { call: callId }),
+		// Connector writes without an idempotency key are claimed by call id before they're sent (approvals.startCall).
+		calls: {
+			start: (callId) => ctx.runMutation(internal.approvals.startCall, { turnId, callId }),
+			finish: (callId, output) => ctx.runMutation(internal.approvals.finishCall, { turnId, callId, output: clipJson(output) }),
+		},
 		results: createResultStore(),
 		// Links the person wrote (turns.ts `asked`) are the only ones web.fetch opens before searching.
 		web: createWebTurn(webClient(ctx, turnId), turn.asked),
@@ -753,6 +758,7 @@ function stores(ctx: ActionCtx, turnId: Id<"agentTurns">, op?: Op) {
 		pages: pageStore(ctx, turnId, op),
 		// imageGen.ts checks the budget and edit files as this person, then attaches and records each picture.
 		images: { generate: (request) => ctx.runAction(internal.imageGen.generateFor, { turnId, op, ...request }) },
+		op,
 	} satisfies Partial<ToolContext>;
 }
 
@@ -858,7 +864,7 @@ function webClient(ctx: ActionCtx, turnId: Id<"agentTurns">): WebClient {
 	return {
 		search: (query, options) => provider.search(query, options),
 		fetch: (url) => ctx.runAction(internal.webFetch.fetchPage, { url }),
-		save: (url) => ctx.runAction(internal.webFetch.saveFile, { turnId, url }),
+		save: (url, op) => ctx.runAction(internal.webFetch.saveFile, { turnId, url, op: op as Op | undefined }),
 	};
 }
 

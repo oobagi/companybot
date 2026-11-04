@@ -786,16 +786,25 @@ export default defineSchema({
 		// A channel's recent "might be for you" picks, for their hourly cap (router.ts).
 		.index("by_chat_dispatch", ["chatId", "dispatch.band"]),
 
-	// A turn's tool steps as its model had them (core replay.ts keptStep): its calls and their results,
-	// as JSON ModelMessage[] (a call's input can have any keys). Later turns in its session replay them
-	// (turns.ts sessionTurns); results only to the person it acted for, as in the activity log.
-	// A write a tool call made, keyed by the call's id (the model's, or `approval-<id>`), committed with
-	// its effect (approvals.withReceipt), so a rerun of the same call writes nothing twice. No content.
+	// What a tool call did, keyed by its operation key (the model's call id, or `approval-<id>`), so a rerun
+	// of the same call never does it twice (approvals.ts). A built-in's write commits it with its effect;
+	// a connector write or a multi-step built-in claims it first (`started`) and settles it after (`done`).
+	// Done ones go 30 days later (approvals.forgetReceipts); started ones (outcome unknown) stay with their turn.
 	toolReceipts: defineTable({
 		turnId: v.id("agentTurns"),
 		callId: v.string(),
-	}).index("by_turn", ["turnId", "callId"]),
+		actorId: v.id("users"),
+		state: v.union(v.literal("started"), v.literal("done")),
+		/** A connector call's result (clipped JSON), returned to a repeat of the same call. Only its person sees it. */
+		output: v.optional(v.string()),
+	})
+		.index("by_turn", ["turnId", "callId"])
+		.index("by_state", ["state"])
+		.index("by_actor", ["actorId"]),
 
+	// A turn's tool steps as its model had them (core replay.ts keptStep): its calls and their results,
+	// as JSON ModelMessage[] (a call's input can have any keys). Later turns in its session replay them
+	// (turns.ts sessionTurns); results only to the person it acted for, as in the activity log.
 	turnSteps: defineTable({
 		workspaceId: v.id("workspaces"),
 		turnId: v.id("agentTurns"),

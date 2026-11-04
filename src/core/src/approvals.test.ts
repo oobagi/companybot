@@ -318,6 +318,28 @@ describe("approvals", () => {
 		expect(await withIdempotencyKey(builtinTools[0]!, { query: "x" }, "call-1")).toEqual({ query: "x" });
 	});
 
+	it("claims a connector write without an idempotency key by call id, so a repeat never sends it twice", async () => {
+		const sent: unknown[] = [];
+		const receipts = new Map<string, unknown>();
+		const write = connectorTool("send_sms", { execute: async (input) => (sent.push(input), { ok: true }) });
+		const keyed = connectorTool("create_lead", { input: jsonSchema({ type: "object", properties: { idempotency_key: { type: "string" } } }), execute: async (input) => (sent.push(input), { ok: true }) });
+		const calls = {
+			start: async (id: string) => (receipts.has(id) ? { note: "already ran", result: receipts.get(id) ?? null } : (receipts.set(id, undefined), null)),
+			finish: async (id: string, output: unknown) => void receipts.set(id, output),
+		};
+		const tools = buildToolSet({ tools: ["crm.*"] }, { ...ctx(owner), calls }, [write, find, keyed]);
+		const call = (tool: string, input: object, toolCallId: string) => tools.connectors_call!.execute!({ tool, input }, { toolCallId, messages: [] });
+		expect(await call("crm.send_sms", { to: "+1", body: "hi" }, "c1")).toEqual({ ok: true });
+		expect(await call("crm.send_sms", { to: "+1", body: "hi" }, "c1")).toEqual({ note: "already ran", result: { ok: true } });
+		expect(sent).toHaveLength(1);
+		// Reads aren't claimed; a tool that takes a key gets the call id instead, and the service dedupes.
+		await call("crm.find_leads", {}, "c2");
+		await call("crm.create_lead", {}, "c3");
+		expect(receipts.has("c2")).toBe(false);
+		expect(receipts.has("c3")).toBe(false);
+		expect(sent.at(-1)).toEqual({ idempotency_key: "c3" });
+	});
+
 	it("binds the message, memory or thing an edit, delete or archive depends on", () => {
 		const binds = (id: string, input: unknown) => builtinTools.find((t) => t.id === id)!.binds?.(input) ?? [];
 		expect(binds("chat.manage", { request: { action: "delete", messageId: "m1" } })).toEqual([{ kind: "message", id: "m1" }]);

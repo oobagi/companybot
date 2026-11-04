@@ -303,7 +303,12 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		channel: { index: "by_chat", eq: ["chatId"] },
 		agent: { index: "by_place", eq: ["agentId"] },
 	},
-	toolReceipts: { childOf: { table: "agentTurns", index: "by_turn", field: "turnId" } },
+	toolReceipts: {
+		childOf: { table: "agentTurns", index: "by_turn", field: "turnId" },
+		// A connector call's result shows only to the person it acted for: erasing them clears it.
+		user: { index: "by_actor", eq: [["actorId", "userId"]], scrub: () => ({ output: undefined }) },
+		keep: "Done receipts go 30 days later (approvals.forgetReceipts); a started one, whose outcome is unknown, stays with its turn.",
+	},
 	turnSteps: {
 		childOf: { table: "agentTurns", index: "by_turn", field: "turnId" },
 		// Results show only to the person it acted for: erasing them takes their turns' steps.

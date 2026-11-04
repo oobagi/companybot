@@ -12,6 +12,11 @@ import "./connectorFixtures";
 // reply read something its chat can't all see. No network: the runner's model call is a scripted stream.
 const streamText = vi.hoisted(() => vi.fn());
 vi.mock("ai", async (original) => ({ ...(await original<typeof import("ai")>()), streamText }));
+// web.save downloads through safeFetch: a 1×1 PNG, no network.
+const PNG = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+const safeFetch = vi.hoisted(() => vi.fn());
+vi.mock("@companybot/core/safe-fetch", async (original) => ({ ...(await original<typeof import("@companybot/core/safe-fetch")>()), safeFetch }));
+beforeEach(() => void safeFetch.mockImplementation(async (url: string) => ({ url, status: 200, contentType: "image/png", bytes: PNG, cut: false })));
 
 /** A run that just answers, as the model streams it. */
 function answers(message: string) {
@@ -30,6 +35,7 @@ beforeEach(() => void vi.useFakeTimers());
 afterEach(() => {
 	vi.useRealTimers();
 	streamText.mockReset();
+	safeFetch.mockReset();
 });
 
 type T = Awaited<ReturnType<typeof ownerAndMember>>["t"];
@@ -187,6 +193,56 @@ describe("approved calls commit once, with their receipt", () => {
 	});
 });
 
+describe("connector writes and multi-step built-ins claim their call id", () => {
+	const turnOf = async (t: T, as: As) => agentTurn(t, as, (await generalOf(as))._id, (await agentsOf(as)).companybot._id);
+
+	it("answers a repeated connector write with its first result, or unknown if it never finished", async () => {
+		const { t, owner } = await ownerAndMember();
+		const turnId = await turnOf(t, owner);
+		const start = (callId: string) => t.mutation(internal.approvals.startCall, { turnId, callId });
+		expect(await start("c1")).toBeNull();
+		expect(await start("c1")).toEqual({ error: expect.stringContaining("may or may not have happened") });
+		await t.mutation(internal.approvals.finishCall, { turnId, callId: "c1", output: '{"sent":true}' });
+		expect(await start("c1")).toEqual({ note: expect.stringContaining("already ran"), result: '{"sent":true}' });
+	});
+
+	it("saves a file from the web once per call id: one attachment, one receipt", async () => {
+		const { t, owner } = await ownerAndMember();
+		const turnId = await turnOf(t, owner);
+		vi.useRealTimers();
+		const save = () => t.action(internal.webFetch.saveFile, { turnId, url: "https://example.com/logo.png", op: { call: "s1" } });
+		expect(await save()).toMatchObject({ name: "logo.png", type: "image/png" });
+		expect(await save()).toEqual({ error: expect.stringContaining("already ran") });
+		expect(safeFetch).toHaveBeenCalledTimes(1);
+		const reply = await t.run(async (ctx) => ctx.db.get((await ctx.db.get("agentTurns", turnId))!.replyId!));
+		expect(reply!.attachments).toHaveLength(1);
+		expect(await t.run((ctx) => ctx.db.query("toolReceipts").collect())).toMatchObject([{ callId: "s1", state: "done" }]);
+	});
+
+	it("forgets done receipts after 30 days, a batch at a time, and keeps ones whose outcome is unknown", async () => {
+		const { t, owner } = await ownerAndMember();
+		const turnId = await turnOf(t, owner);
+		for (let i = 1; i <= 12; i++) expect(await t.mutation(internal.pageTools.writeFor, { turnId, op: { call: `m${i}` }, input: { title: `Page ${i}` } })).not.toHaveProperty("error");
+		await t.mutation(internal.approvals.startCall, { turnId, callId: "cut-off" });
+		expect(await t.run((ctx) => ctx.db.query("toolReceipts").collect())).toHaveLength(13);
+		vi.advanceTimersByTime(29 * 24 * 60 * 60 * 1000);
+		await t.mutation(internal.approvals.forgetReceipts, {});
+		expect(await t.run((ctx) => ctx.db.query("toolReceipts").collect())).toHaveLength(13);
+		vi.advanceTimersByTime(2 * 24 * 60 * 60 * 1000);
+		await t.mutation(internal.approvals.forgetReceipts, {});
+		await settle(t);
+		expect(await t.run((ctx) => ctx.db.query("toolReceipts").collect())).toMatchObject([{ callId: "cut-off", state: "started" }]);
+	});
+
+	it("writes no receipt for a turn whose workspace is being deleted", async () => {
+		const { t, owner } = await ownerAndMember();
+		const turnId = await turnOf(t, owner);
+		await t.run(async (ctx) => ctx.db.patch((await ctx.db.get("agentTurns", turnId))!.workspaceId, { deleting: true }));
+		await expect(t.mutation(internal.approvals.startCall, { turnId, callId: "late" })).rejects.toThrow("stopped");
+		expect(await t.run((ctx) => ctx.db.query("toolReceipts").collect())).toEqual([]);
+	});
+});
+
 describe("record writes bind ids, not keys or labels", () => {
 	async function setup() {
 		const { t, owner } = await ownerAndMember();
@@ -323,7 +379,12 @@ describe("nothing leaves the workspace unseen after a restricted read", () => {
 		const installs = await s.t.run((ctx) => ctx.db.query("connectorInstalls").collect());
 		for (const install of installs) {
 			const tools = install.connectorId === "crm"
-				? [{ name: "find_leads", description: "Find leads", risk: "none" as const }, { name: "charge_card", description: "Charge a card", risk: "locked" as const }]
+				? [
+						{ name: "find_leads", description: "Find leads", risk: "none" as const },
+						{ name: "search", description: "Search", risk: "none" as const },
+						{ name: "send_email", description: "Email anyone", risk: "outside" as const },
+						{ name: "charge_card", description: "Charge a card", risk: "locked" as const },
+					]
 				: [{ name: "add_note", description: "Add a note", risk: "outside" as const }];
 			await s.t.mutation(internal.connectorTools.saveTools, { workspaceId: install.workspaceId, connectorId: install.connectorId, installId: install._id, tools });
 		}
@@ -338,8 +399,19 @@ describe("nothing leaves the workspace unseen after a restricted read", () => {
 		expect(await s.read("crm")).not.toBeNull();
 		expect(await s.check(s.turnId, "notes.add_note", "outside")).toMatchObject(asks);
 		expect(await s.check(s.turnId)).toMatchObject(asks);
-		// Its own data going back to the same CRM stays within the CRM's audience.
+		// Reading more from the same CRM stays within the CRM's audience.
 		expect(await s.check(s.turnId, "crm.find_leads", "none")).toMatchObject({ decision: { type: "run" }, risk: "none" });
+	});
+
+	it("exempts only read-only calls to the same connector: a send through it asks, even with Always", async () => {
+		const s = await connectors();
+		await s.owner.mutation(api.permissions.set, { action: "crm.send_email", setting: "always" });
+		expect(await s.check(s.turnId, "crm.send_email", "outside")).toMatchObject({ decision: { type: "run", via: "always" } });
+		await s.read("crm");
+		expect(await s.check(s.turnId, "crm.send_email", "outside")).toMatchObject(asks);
+		expect(await s.check(s.turnId, "crm.search", "none")).toMatchObject({ decision: { type: "run" }, risk: "none" });
+		// A tool the server hasn't listed counts as a write, whatever the call claims.
+		expect(await s.check(s.turnId, "crm.unlisted", "none")).toMatchObject(asks);
 	});
 
 	it("isn't lifted by an Unlocked action or an Always rule", async () => {

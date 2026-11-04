@@ -27,8 +27,8 @@ export interface WebPage {
 export interface WebClient {
 	search: SearchProvider["search"];
 	fetch(url: string): Promise<WebPage | { error: string }>;
-	/** Downloads a file and attaches it to the turn's reply. */
-	save(url: string): Promise<SavedFile | { error: string }>;
+	/** Downloads a file and attaches it to the turn's reply, once per `op` (the call's operation key, ToolContext.op). */
+	save(url: string, op?: object): Promise<SavedFile | { error: string }>;
 }
 
 /** A file web.save attached to the reply: its chat file id, for any tool that takes one. */
@@ -84,8 +84,8 @@ export function linksIn(text: string, { bare = false } = {}): string[] {
 export interface WebTurn {
 	search(query: string, limit: number): Promise<{ results: SearchResult[] } | { error: string }>;
 	fetch(url: string): Promise<WebPage | { error: string }>;
-	/** Same links and allowance as fetch. */
-	save(url: string): Promise<SavedFile | { error: string }>;
+	/** Same links and allowance as fetch. `op`: the call's operation key, so a rerun doesn't save it twice. */
+	save(url: string, op?: object): Promise<SavedFile | { error: string }>;
 	/** What's left of this turn's allowance, so a spent tool can be taken away (agentPrepareStep). */
 	left(): { searches: number; fetches: number };
 	/** More the person wrote this turn (a message that steered it, backend turns.steer): its links may be opened too. */
@@ -143,11 +143,11 @@ export function createWebTurn(client: WebClient, asked: readonly string[]): WebT
 				return { error: `Couldn't open it: ${e instanceof Error ? e.message : String(e)}` };
 			}
 		},
-		async save(url) {
+		async save(url, op) {
 			const refused = allow(url);
 			if (refused) return refused;
 			try {
-				return await client.save(url);
+				return await client.save(url, op);
 			} catch (e) {
 				return { error: `Couldn't save it: ${e instanceof Error ? e.message : String(e)}` };
 			}
@@ -214,7 +214,7 @@ export const webTools: ToolDef[] = [
 		// Fetches, stores, then attaches: not one transaction.
 		untransacted: true,
 		label: ({ url }) => (typeof url === "string" ? `Save ${shortLink(url)}` : undefined),
-		execute: ({ url }, { web }) => web.save(url),
+		execute: ({ url }, { web, op }) => web.save(url, op),
 		toModelOutput: ({ output }) => ({
 			type: "text",
 			value:

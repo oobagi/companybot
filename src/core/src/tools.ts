@@ -44,6 +44,17 @@ export interface ToolContext {
 	 * (a retried step doesn't write twice). buildToolSet uses them for every call when given.
 	 */
 	forCall?(callId: string): Partial<ToolContext>;
+	/** This call's operation key (backend approvals.ts), for tools whose effect takes several steps (`untransacted`). */
+	op?: object;
+	/**
+	 * Claims a connector call that changes something, by its call id, before it's sent (when its tool takes no
+	 * idempotency key): `start` returns what to answer instead if this call already went, else null; `finish` saves
+	 * its result. The runner keeps them in the database, so a retried step never sends it twice.
+	 */
+	calls?: {
+		start(callId: string): Promise<unknown>;
+		finish(callId: string, output: unknown): Promise<unknown>;
+	};
 }
 
 /**

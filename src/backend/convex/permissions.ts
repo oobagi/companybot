@@ -110,7 +110,11 @@ export const check = internalMutation({
 		const { turn, member } = await runningTurn(ctx, turnId);
 		// After reading anything restricted, nothing goes outside unseen: the exact query, link or payload waits on
 		// a card, every time (locked: no Always). Only the person's own data in their own agent DM is exempt.
-		const gated = !!sendsOut && (await turnIsRestricted(ctx, member, (await connectorInstallOf(ctx, member.workspaceId, action))?._id));
+		// A read through the same workspace connector the data came from stays within its audience. Anything that
+		// changes or sends through it (or a tool it hasn't listed) can reach anyone, so it asks like any other.
+		const install = sendsOut ? await connectorInstallOf(ctx, member.workspaceId, action) : undefined;
+		const readsOnly = !!install && given === "none" && (await riskOf(ctx, member.workspaceId, action)) === "none";
+		const gated = !!sendsOut && (await turnIsRestricted(ctx, member, readsOnly ? install._id : undefined));
 		const risk: Risk = gated ? "locked" : given;
 		const needs = builtinTools.find((t) => t.id === action)?.permission;
 		if (needs && !canUseTool(member, { permission: needs })) return { decision: { type: "deny", by: "role", message: deniedMessage(needs, member.workspaceRoles) }, risk };

@@ -16,14 +16,14 @@ import {
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { components } from "./_generated/api";
+import { components, internal } from "./_generated/api";
 import { internalMutation, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { logCall } from "./activity";
 import { mutation, query } from "./functions";
 import { automationName, automationScope } from "./automationOps";
 import { canSee, findOrCreateDm, insertMessage, namer } from "./chatOps";
 import { titleOf } from "./connectorTools";
-import { erased, getMember, memberOf, nameOf, requireLiveAgent, requireMember, toActor } from "./lib";
+import { erased, getMember, liveWorkspace, memberOf, nameOf, requireLiveAgent, requireMember, sweepExpired, toActor } from "./lib";
 import { decideFor, setRule } from "./permissions";
 import { canReadReplyDetails, readReplyDetails } from "./replyPrivacy";
 import { fieldsOf, typesOf } from "./recordOps";
@@ -406,13 +406,26 @@ const opKey = (op: Op) => ("call" in op ? op.call : `approval-${op.approval}`);
 const ALREADY_RAN = "This call already ran, or was stopped, so it didn't run again.";
 const EDITED = "What this changes was edited after it was approved, so it didn't run. Ask again if you still want it.";
 
+/** How long a done receipt is kept: far past any retry of the same call (a turn goes stale in minutes). */
+export const RECEIPT_KEEP_MS = 30 * 24 * 60 * 60 * 1000;
+
+const receiptOf = (ctx: QueryCtx, turnId: Id<"agentTurns">, callId: string) =>
+	ctx.db.query("toolReceipts").withIndex("by_turn", (q) => q.eq("turnId", turnId).eq("callId", callId)).first();
+
+/** Saves a receipt, only for a turn in a live workspace: a deleted one's cascade may already be past this table. */
+async function addReceipt(ctx: MutationCtx, turnId: Id<"agentTurns">, callId: string, state: "started" | "done", output?: string) {
+	const turn = await ctx.db.get(turnId);
+	if (!turn || !(await liveWorkspace(ctx, turn.workspaceId))) throw new ConvexError("This reply was stopped.");
+	return ctx.db.insert("toolReceipts", { turnId, callId, actorId: turn.actorId, state, ...(output !== undefined && { output }) });
+}
+
 /**
  * Claims `op` in the caller's transaction: refused if a write with this key already committed, or (approved
  * calls) if the approval isn't running for this turn, or what it changes was edited since it was approved.
  * Checked here, with the effect, not only at `claim`, so an edit in between can't slip through.
  */
 async function claimOp(ctx: MutationCtx, op: Op, turnId: Id<"agentTurns">): Promise<{ row?: Doc<"approvals"> } | { error: string }> {
-	if (await ctx.db.query("toolReceipts").withIndex("by_turn", (q) => q.eq("turnId", turnId).eq("callId", opKey(op))).first()) return { error: ALREADY_RAN };
+	if (await receiptOf(ctx, turnId, opKey(op))) return { error: ALREADY_RAN };
 	if ("call" in op) return {};
 	const [row, turn] = await Promise.all([ctx.db.get(op.approval), ctx.db.get(turnId)]);
 	if (row?.status !== "running" || turn?.approvalId !== op.approval) return { error: ALREADY_RAN };
@@ -436,22 +449,66 @@ export async function withReceipt<T>(ctx: MutationCtx, op: Op | undefined, turnI
 	const end = callEnd(output);
 	if (claimed.row) await settle(ctx, claimed.row, turnId, "output" in end ? { result: clipJson(end.output) } : { error: end.error });
 	// A refused write changed nothing (asToolResult), so the model may fix it and try again; an approval runs once either way.
-	if ("output" in end || claimed.row) await ctx.db.insert("toolReceipts", { turnId, callId: opKey(op) });
+	if ("output" in end || claimed.row) await addReceipt(ctx, turnId, opKey(op), "done");
 	return output;
 }
 
 /**
- * For a built-in whose effects span several transactions (making pictures: a provider call, files, attaching):
- * claims its key before it spends or writes anything, so a rerun of the same call refuses instead of doing it
- * twice. An approved one stays running until the runner's `finish`; cut off, it ends "may or may not have happened".
+ * For a built-in whose effects span several transactions (making pictures, saving a file from the web: a
+ * download or provider call, a stored file, attaching it): claims its key before it spends or writes anything,
+ * so a rerun of the same call refuses instead of doing it twice. `finishOp` settles it; one that never does was
+ * cut off, so its outcome is unknown (an approved one's card says it may or may not have happened).
  */
 export const startOp = internalMutation({
 	args: { turnId: v.id("agentTurns"), op: opArg },
 	handler: async (ctx, { turnId, op }): Promise<string | null> => {
 		const claimed = await claimOp(ctx, op, turnId);
 		if ("error" in claimed) return claimed.error;
-		await ctx.db.insert("toolReceipts", { turnId, callId: opKey(op) });
+		await addReceipt(ctx, turnId, opKey(op), "started");
 		return null;
+	},
+});
+
+export const finishOp = internalMutation({
+	args: { turnId: v.id("agentTurns"), op: opArg },
+	handler: async (ctx, { turnId, op }) => {
+		const receipt = await receiptOf(ctx, turnId, opKey(op));
+		if (receipt?.state === "started") await ctx.db.patch(receipt._id, { state: "done" });
+	},
+});
+
+/**
+ * A connector call that changes something, and whose tool takes no idempotency key, claims its call id before
+ * it's sent (core buildToolSet). A repeat of the same call isn't sent again: it gets what the first one returned,
+ * or, if the first never finished, that it may or may not have happened. Null: go ahead.
+ */
+export const startCall = internalMutation({
+	args: { turnId: v.id("agentTurns"), callId: v.string() },
+	handler: async (ctx, { turnId, callId }): Promise<{ error: string } | { note: string; result: string | null } | null> => {
+		const receipt = await receiptOf(ctx, turnId, callId);
+		if (receipt?.state === "started") return { error: "This call was already sent and never finished, so it may or may not have happened. Check before trying again." };
+		if (receipt) return { note: "This exact call already ran, so it wasn't sent again. What it returned then:", result: receipt.output ?? null };
+		await addReceipt(ctx, turnId, callId, "started");
+		return null;
+	},
+});
+
+export const finishCall = internalMutation({
+	args: { turnId: v.id("agentTurns"), callId: v.string(), output: v.string() },
+	handler: async (ctx, { turnId, callId, output }) => {
+		const receipt = await receiptOf(ctx, turnId, callId);
+		if (receipt?.state !== "started") return;
+		// Only its person sees it: once their account is erased, it's not kept.
+		await ctx.db.patch(receipt._id, { state: "done", ...(!(await erased(ctx, receipt.actorId)) && { output }) });
+	},
+});
+
+/** Done receipts a month old, a batch at a time. Started ones (outcome unknown) stay until their turn goes. */
+export const forgetReceipts = internalMutation({
+	args: {},
+	handler: async (ctx) => {
+		const old = ctx.db.query("toolReceipts").withIndex("by_state", (q) => q.eq("state", "done").lt("_creationTime", Date.now() - RECEIPT_KEEP_MS));
+		await sweepExpired(ctx, old, (row) => ctx.db.delete(row._id), internal.approvals.forgetReceipts);
 	},
 });
 

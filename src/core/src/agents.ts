@@ -159,10 +159,18 @@ export function buildToolSet(
 	const tools: ToolSet = {};
 	// Every call runs with its own call id: built-ins write under it once (`forCall`), and a connector that takes an
 	// idempotency key gets it, so a retry can't do the same thing twice at the service either.
+	// A connector write whose tool takes no key is claimed by call id instead (`calls`), so it's never sent twice.
 	const run = async (t: ToolDef, input: unknown, callId: string) => {
 		const c = ctx.forCall ? { ...ctx, ...ctx.forCall(callId) } : ctx;
 		const keyed = await withIdempotencyKey(t, input, callId);
-		return t.returnsData ? withRef(t.execute(keyed, c), c) : t.execute(keyed, c);
+		const claims = !!ctx.calls && t.source.type === "connector" && !t.readOnly && !(await idempotencyField(t));
+		if (claims) {
+			const instead = await ctx.calls!.start(callId);
+			if (instead) return instead;
+		}
+		const output = await (t.returnsData ? withRef(t.execute(keyed, c), c) : t.execute(keyed, c));
+		if (claims) await ctx.calls!.finish(callId, output);
+		return output;
 	};
 	const resolved = resolveTools(agent, available);
 	for (const t of resolved.filter((t) => t.source.type === "builtin")) {
@@ -213,6 +221,13 @@ export async function actionOf(modelName: string, input: unknown, tools: ToolDef
 /** Input property names services use for an idempotency key (Night Owl's `idempotency_key`, Stripe-style `idempotencyKey`). */
 const IDEMPOTENCY_KEYS = ["idempotency_key", "idempotencyKey"];
 
+/** The input property a connector tool takes an idempotency key in, if it has one. */
+export async function idempotencyField(tool: ToolDef): Promise<string | undefined> {
+	if (tool.source.type !== "connector") return undefined;
+	const schema = (await asSchema(tool.input).jsonSchema) as { properties?: Record<string, unknown> };
+	return IDEMPOTENCY_KEYS.find((k) => schema.properties && k in schema.properties);
+}
+
 /**
  * A connector call's input with `key` as its idempotency key, when the tool's schema takes one and the
  * model left it out: a retry, or a call that may have happened, can't then happen twice at the service.
@@ -220,8 +235,7 @@ const IDEMPOTENCY_KEYS = ["idempotency_key", "idempotencyKey"];
  */
 export async function withIdempotencyKey(tool: ToolDef, input: unknown, key: string): Promise<unknown> {
 	if (tool.source.type !== "connector" || !input || typeof input !== "object" || Array.isArray(input)) return input;
-	const schema = (await asSchema(tool.input).jsonSchema) as { properties?: Record<string, unknown> };
-	const name = IDEMPOTENCY_KEYS.find((k) => schema.properties && k in schema.properties);
+	const name = await idempotencyField(tool);
 	if (!name || (input as Record<string, unknown>)[name] !== undefined) return input;
 	return { ...input, [name]: key };
 }

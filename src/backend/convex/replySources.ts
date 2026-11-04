@@ -94,14 +94,14 @@ export async function writeSources(ctx: MutationCtx, member: Member, audience?: 
  * Whether anything this turn has read is restricted: then what it sends outside the workspace (a web search's
  * query, a link it opens, a connector call) asks first (permissions.check). Outside has a wider audience than
  * any chat, so the chat it runs in counts too (a private channel, a group DM), and so does a role-limited
- * connector it read (#234), except when calling that same connector again. The one exception is #210's
+ * connector it read (#234), except for a read-only call to that same connector (`target`). The one exception is #210's
  * own-data rule: in the asker's own 1:1 agent DM, their one-person data (that DM, personal memory, skills and
  * connector data) doesn't count; anyone else's restricted place still does.
  */
 export async function turnIsRestricted(ctx: QueryCtx, member: Member, target?: Id<"connectorInstalls">) {
 	if (!member.replyId) return false;
 	// The same check as a write to a place open to the whole workspace: a source that wouldn't fit it is restricted.
-	// A workspace connector's own data going back to it (`target`) stays within its audience.
+	// Reading more from the workspace connector the data came from (`target`, read-only calls only) stays within its audience.
 	try {
 		await fitSources(ctx, member, { access: [{ role: EVERYONE, level: "view" }], skip: target });
 		return false;
