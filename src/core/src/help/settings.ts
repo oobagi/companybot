@@ -5,7 +5,7 @@ export default {
 	title: "Settings: every tab and who can change it",
 	summary: "Where each setting lives, account and workspace, and who can change it.",
 	text: `# Settings
-Open settings from your avatar (account) or the workspace name above the sidebar (workspace). Each tab has its own address, #/settings/<tab>.
+Open settings from your avatar (account) or the workspace logo at the top of the rail (workspace). Agents, Connectors, Skills and Automations keep settings addresses but open from Customize in the rail. Each tab has its own address, #/settings/<tab>.
 
 ## Account settings (only you)
 | Tab | What | Topic |

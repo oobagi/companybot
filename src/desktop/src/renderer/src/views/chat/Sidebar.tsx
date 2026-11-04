@@ -2,7 +2,8 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Fragment, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery, useWorkspace } from "../../convex";
-import { AgentIcon, ArchiveIcon, CaretRightIcon, ChannelIcon, ChatIcon, CheckIcon, CloseIcon, EditIcon, MembersIcon, MoreIcon, PlusIcon, PrivateIcon, SignOutIcon, ThreadIcon } from "../../icons";
+import { AgentIcon, ArchiveIcon, CaretRightIcon, ChannelIcon, ChatIcon, CheckIcon, CloseIcon, EditIcon, MembersIcon, MoreIcon, PinIcon, PlusIcon, PrivateIcon, SignOutIcon, ThreadIcon, UnpinIcon } from "../../icons";
+import { type PinKey, usePins } from "../../pins";
 import { navigate } from "../../router";
 import { type DragProps, useSortable, useStoredIds } from "../../sortable";
 import { Notice, RenameInput, useClock, useRun } from "../../ui";
@@ -77,6 +78,7 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 					<Fragment key={c._id}>
 				<Item
 					drag={drag(c._id)}
+					pin={`chat:${c._id}`}
 					icon={c.private ? <PrivateIcon /> : <ChannelIcon />}
 					label={`#${c.name}`}
 					expanded={open}
@@ -166,6 +168,7 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 					<Fragment key={d.key}>
 				<Item
 					drag={drag(d.key)}
+					pin={d.dmId ? `chat:${d.dmId}` : undefined}
 					icon={<Avatar name={d.name} image={d.image} agent={d.agent} size="row" />}
 					label={d.name}
 					active={!!d.dmId && d.dmId === openId}
@@ -199,6 +202,7 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 				{open && sides.map((c, i) => (
 					<Item
 						key={c._id}
+						pin={`chat:${c._id}`}
 						icon={<ChatIcon />}
 						guides={[i < sides.length - 1]}
 						label={c.label ?? "New chat"}
@@ -293,6 +297,7 @@ export function Item({
 	actions,
 	rename,
 	drag,
+	pin,
 	onClick,
 	children,
 }: {
@@ -324,18 +329,23 @@ export function Item({
 	rename?: { value: string; onSave: (name: string) => Promise<unknown> };
 	/** From `useSortable`: makes the row draggable within its list. */
 	drag?: DragProps;
+	/** What it is as a pin: its menu gets Pin to rail / Unpin from rail. */
+	pin?: PinKey;
 	onClick: () => void;
 	children: React.ReactNode;
 }) {
+	const pins = usePins();
+	const pinned = !!pin && pins.pins.includes(pin);
 	const [menuAt, setMenuAt] = useState<DOMRect>();
 	const [renaming, setRenaming] = useState(false);
 	const more = useRef<HTMLButtonElement>(null);
 	const closeMenu = () => setMenuAt(undefined);
 	const items =
-		menu || rename
+		menu || rename || pin
 			? (close: () => void) => (
 					<>
 						{rename && <MenuItem onClick={() => (close(), setRenaming(true))}><EditIcon /> Rename</MenuItem>}
+						{pin && <MenuItem onClick={() => (close(), pins.toggle(pin))}>{pinned ? <><UnpinIcon /> Unpin from rail</> : <><PinIcon /> Pin to rail</>}</MenuItem>}
 						{menu?.(close)}
 					</>
 				)
