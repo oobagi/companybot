@@ -7,7 +7,7 @@ import { chatAccess, reach, type AccessList } from "./placeAccess";
 import { canReadSources, opensSource, writeSourceReader } from "./replyPrivacy";
 
 type Place = Id<"recordTypes"> | Id<"pages"> | Id<"chats">;
-export type UsedPlace = Place | Id<"users">;
+export type UsedPlace = Place | Id<"users"> | Id<"connectorInstalls">;
 const writes = new WeakMap<Member, Promise<void>>();
 
 /** Reads in a turn are mutations: the source commits before its result can reach the model or stream. */
@@ -49,7 +49,7 @@ export function chatSources(chat: Doc<"chats">): UsedPlace[] {
 }
 
 export type Sourced = { usedPlaces?: UsedPlace[] };
-export type Audience = Place | { place?: Place; access?: AccessList; users?: Id<"users">[] } | { places: UsedPlace[] } | { filtered: true; preserveOwn?: true };
+export type Audience = Place | { place?: Place; access?: AccessList; users?: Id<"users">[]; settings?: true } | { places: UsedPlace[] } | { filtered: true; preserveOwn?: true };
 
 /** The same provenance applies when an artifact is read by a turn or copied into a scheduled trigger. */
 export const artifactSources = (artifact: Sourced, personalTo?: Id<"users"> | null): UsedPlace[] => [...new Set([...(artifact.usedPlaces ?? []), ...(personalTo ? [personalTo] : [])])];
@@ -60,6 +60,21 @@ export async function readArtifact(ctx: QueryCtx, member: Member, artifact: Sour
 	if (!(await canReadSources(ctx, member, sources))) return false;
 	await inheritPlaces(ctx, member, sources);
 	return true;
+}
+
+/** Direct Owner access changes may release deleted installs, only on the place being deliberately re-shared. */
+export async function changeAccessSources(ctx: MutationCtx, member: Member, place: Doc<"recordTypes"> | Doc<"chats"> | Doc<"pages">, audience: { access?: AccessList; users?: Id<"users">[] }) {
+	const retained: UsedPlace[] = [];
+	for (const id of place.usedPlaces ?? []) {
+		if (id === place._id) continue;
+		const connector = ctx.db.normalizeId("connectorInstalls", id);
+		if (member.owner && !member.replyId && connector && !(await ctx.db.get(connector))) continue;
+		retained.push(id);
+	}
+	const saved = await writeSources(ctx, member, { ...audience, settings: true }, { usedPlaces: retained });
+	if (saved.length !== (place.usedPlaces?.length ?? 0) || saved.some((id) => !place.usedPlaces?.includes(id))) {
+		await ctx.db.patch(place._id, { usedPlaces: saved.length ? saved : undefined });
+	}
 }
 
 /**
@@ -77,6 +92,9 @@ export async function writeSources(ctx: MutationCtx, member: Member, audience?: 
 	const usedPlaces = retained.map(({ id }) => id);
 	if (audience && typeof audience === "object" && "filtered" in audience) return usedPlaces;
 	const policies = typeof audience === "string" ? [await readSource(audience)] : audience && "places" in audience ? await Promise.all(audience.places.map(readSource)) : [audience];
+	// Content edits keep the destination's saved sources, which can narrow its audience beyond its access list.
+	// Proposed access changes still have to fit every source on their own.
+	if (typeof audience === "string") policies.push(...await Promise.all((place?.usedPlaces ?? []).map(readSource)));
 	const memberships = policies.flatMap((p) => p?.users ? [p.users] : []);
 	const users = memberships[0]?.filter((id) => memberships.every((list) => list.includes(id)));
 	// Load memberships and roles once per write, not once per source and destination member.
@@ -105,6 +123,10 @@ export async function writeSources(ctx: MutationCtx, member: Member, audience?: 
 		}
 		if (!allowed || !from.visible) {
 			const who = from.person ?? (from.membersOnly ? `${whoCan(from.access, member.workspaceRoles) === "Everyone" ? "people" : whoCan(from.access, member.workspaceRoles)} in ${from.where}` : whoCan(from.access, member.workspaceRoles));
+			if (audience && typeof audience === "object" && "settings" in audience && audience.settings) {
+				const name = from.visible || from.deletedConnector ? from.name : "a restricted source";
+				throw new ConvexError(`Can't change access: ${name} is restricted. Only ${who} can open this source.${from.deletedConnector ? " An Owner can re-share its saved work after uninstall." : " Choose roles that can open every source."}`);
+			}
 			throw new ConvexError(`This reply uses restricted places. Only ${who} can see this. It can't save it for a wider audience.`);
 		}
 	}
