@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import { decrypt } from "../convex/crypto";
 
-import { workspaceOf, agentsOf, ownerAndMember, settle } from "./helpers";
+import { workspaceOf, agentTurn, generalOf, agentsOf, ownerAndMember, settle } from "./helpers";
 import "./connectorFixtures";
 
 afterEach(() => void vi.useRealTimers());
@@ -73,4 +73,35 @@ describe("connectors", () => {
 		expect(await t.run((ctx) => ctx.db.query("connectorConnections").collect())).toHaveLength(0);
 		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
 	});
+});
+
+
+it("personal connector data records a one-person source before results or metadata reach the model", async () => {
+	vi.useFakeTimers();
+	const { t, owner, member } = await ownerAndMember();
+	const { companybot } = await agentsOf(owner);
+	const chat = await generalOf(owner);
+	for (const connectorId of ["notes", "crm"]) {
+		await owner.mutation(api.connectors.setInstalled, { connectorId, installed: true });
+		await owner.action(api.connectors.connect, { connectorId, credentials: { type: "api_key", key: "fixture-key" } });
+	}
+	const turnId = await agentTurn(t, owner, chat._id, companybot._id);
+	const replyId = (await t.run((ctx) => ctx.db.get("agentTurns", turnId)))!.replyId!;
+	expect(await t.mutation(internal.connectors.forCall, { turnId, connectorId: "crm" })).not.toBeNull();
+	expect((await t.run((ctx) => ctx.db.get("chatMessages", replyId)))!.usedPlaces ?? []).not.toContain(owner.userId);
+	expect(await t.mutation(internal.connectors.forCall, { turnId, connectorId: "notes" })).not.toBeNull();
+	expect((await t.run((ctx) => ctx.db.get("chatMessages", replyId)))!.usedPlaces).toContain(owner.userId);
+	await t.mutation(internal.turns.updateReply, { turnId, text: "PERSONAL_NOTES_SECRET", parts: [{ type: "text", text: "PERSONAL_NOTES_SECRET" }] });
+	const shown = (await member.query(api.messages.list, { chatId: chat._id })).find((m) => m._id === replyId)!;
+	expect(shown.privacy?.hidden).toBe(true);
+	expect(JSON.stringify(shown)).not.toContain("PERSONAL_NOTES_SECRET");
+	await expect(t.mutation(internal.memory.createFor, { turnId, scope: "workspace", content: "PERSONAL_NOTES_SECRET" })).rejects.toThrow("wider audience");
+	expect(JSON.stringify(await member.query(api.memory.list))).not.toContain("PERSONAL_NOTES_SECRET");
+	const dm = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
+	const ownTurn = await agentTurn(t, owner, dm, companybot._id);
+	expect(await t.mutation(internal.connectors.forCall, { turnId: ownTurn, connectorId: "notes" })).not.toBeNull();
+	await expect(t.mutation(internal.memory.createFor, { turnId: ownTurn, scope: "workspace", content: "PERSONAL_NOTES_SECRET" })).resolves.toHaveProperty("id");
+	expect(JSON.stringify(await member.query(api.memory.list))).toContain("PERSONAL_NOTES_SECRET");
+	await owner.mutation(api.connectors.disconnect, { connectorId: "notes" });
+	expect(await t.mutation(internal.connectors.forCall, { turnId, connectorId: "notes" })).toBeNull();
 });

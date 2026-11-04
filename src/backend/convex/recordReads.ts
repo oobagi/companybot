@@ -2,7 +2,7 @@ import type { PaginationOptions, PaginationResult } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { type Member, capped, memo, nameOf } from "./lib";
-import { currencyOf, fieldsOf, idsIn, resolveRefs, typeTrashed, typeVisible, typesOf } from "./recordOps";
+import { currencyOf, fieldsOf, idsIn, resolveRefs, requireType, typeTrashed, typeVisible, typesOf } from "./recordOps";
 import { type Condition, type Group, type Sort, findRecords } from "./recordQuery";
 
 // Reads the app (records.ts) and agents (recordTools.ts) share, so their lists, search and
@@ -52,7 +52,7 @@ export async function searchRecords(
 	{ typeId, limit, cursor }: { typeId?: Id<"recordTypes">; limit: number; cursor?: string | null },
 ): Promise<{ items: RecordItem[]; cursor: string | null }> {
 	const fields = fieldsByType(ctx);
-	const visible = typeVisible(ctx, member);
+	const visible = typeVisible(ctx, { ...member, replyId: undefined });
 	const typeIds: Id<"recordTypes">[] = [];
 	for (const t of await typesOf(ctx, member.workspaceId)) if (!t.archived && (!typeId || t._id === typeId) && (await visible(t._id))) typeIds.push(t._id);
 	if (typeIds.length === 0) return { items: [], cursor: null };
@@ -65,7 +65,10 @@ export async function searchRecords(
 		.filter((q) => q.or(...typeIds.map((id) => q.eq(q.field("typeId"), id))))
 		.paginate({ numItems: limit, cursor: cursor ?? null, maximumRowsRead: SEARCH_ROWS, maximumBytesRead: SEARCH_BYTES });
 	const items = [];
-	for (const record of result.page) items.push({ record, fields: await fields(record.typeId) });
+	for (const record of result.page) {
+		await requireType(ctx, member, record.typeId);
+		items.push({ record, fields: await fields(record.typeId) });
+	}
 	return { items, cursor: result.isDone ? null : result.continueCursor };
 }
 
@@ -86,13 +89,16 @@ export async function linkingRecords(
 		.paginate(capped(paginationOpts, PAGE_MAX));
 	const fields = fieldsByType(ctx);
 	const trashed = typeTrashed(ctx);
-	const visible = typeVisible(ctx, member);
+	const visible = typeVisible(ctx, { ...member, replyId: undefined });
 	const page = [];
 	for (const row of rows.page) {
 		const record = await ctx.db.get(row.recordId);
 		if (!record || (await trashed(record.typeId)) || !(await visible(record.typeId))) continue;
 		const recordFields = await fields(record.typeId);
-		if (recordFields.some((f) => f._id === row.fieldId && !f.archived)) page.push({ record, fields: recordFields, fieldId: row.fieldId });
+		if (recordFields.some((f) => f._id === row.fieldId && !f.archived)) {
+			await requireType(ctx, member, record.typeId);
+			page.push({ record, fields: recordFields, fieldId: row.fieldId });
+		}
 	}
 	return { ...rows, page };
 }
@@ -150,9 +156,12 @@ export async function activityAs(ctx: QueryCtx, member: Member, paginationOpts: 
 		.order("desc")
 		.paginate(capped(paginationOpts, HISTORY_PAGE_MAX));
 	const fields = fieldsByType(ctx);
-	const visible = typeVisible(ctx, member);
+	const visible = typeVisible(ctx, { ...member, replyId: undefined });
 	const shown = [];
-	for (const entry of result.page) if (await visible(entry.typeId)) shown.push(entry);
+	for (const entry of result.page) if (await visible(entry.typeId)) {
+		await requireType(ctx, member, entry.typeId);
+		shown.push(entry);
+	}
 	const entries = await toEntries(ctx, member, await Promise.all(shown.map(async (entry) => ({ entry, fields: await fields(entry.typeId) }))));
 	const page = [];
 	for (const [i, e] of shown.entries()) {

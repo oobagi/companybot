@@ -52,7 +52,7 @@ describe("permissions", () => {
 				if (job.state.kind === "pending") await ctx.scheduler.cancel(job._id);
 		});
 	const check = (t: ReturnType<typeof convexTest>, turnId: Id<"agentTurns">, action = sms.tool, risk: "none" | "inside" | "outside" | "locked" = "outside") =>
-		t.query(internal.permissions.check, { turnId, action, risk });
+		t.mutation(internal.permissions.check, { turnId, action, risk });
 
 	/** Consent is saved by deciding an exact held call, never at turn-on. */
 	async function allowCall(t: ReturnType<typeof convexTest>, as: As, turn: Awaited<ReturnType<typeof ask>>, tool = sms.tool, risk: "inside" | "outside" = "outside") {
@@ -149,7 +149,7 @@ describe("permissions", () => {
 		await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true, always: true });
 		expect((await member.query(api.permissions.mine))!).toMatchObject([{ action: sms.tool, setting: "always", automation: null }]);
 		const next = (await turnsOf(t)).at(-1)!;
-		expect((await t.query(internal.turns.turnContext, { turnId: next._id })).approval).toMatchObject({ always: true });
+		expect((await t.mutation(internal.turns.turnContext, { turnId: next._id })).approval).toMatchObject({ always: true });
 		expect(await t.mutation(internal.approvals.claim, { approvalId, turnId: next._id })).toEqual(sms);
 	});
 

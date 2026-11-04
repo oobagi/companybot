@@ -1,13 +1,14 @@
-import { viewConfig } from "./recordValidators";
+import { accessLevels, builtInRoles, fieldKinds, fileTypes, permissions, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
 import { arrangementLists, type ArrangementList } from "@companybot/core/arrangements";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
-import { accessLevels, builtInRoles, fieldKinds, fileTypes, permissions, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
 import { v } from "convex/values";
+import { viewConfig } from "./recordValidators";
 
 /** One of `values`, each a literal. */
 const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map((value) => v.literal(value)));
 
+const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats"), v.id("users"))));
 export const arrangementList = oneOf(Object.keys(arrangementLists) as ArrangementList[]);
 export const databaseDisplay = v.object({ layout: v.union(v.literal("table"), v.literal("board")), groupBy: v.optional(v.string()) });
 
@@ -336,6 +337,8 @@ export default defineSchema({
 	}).index("by_agent", ["agentId", "version"]),
 
 	memories: defineTable({
+		/** Sources retained across edits and later audience changes. Older rows have none. */
+		usedPlaces,
 		workspaceId: v.id("workspaces"),
 		agentId: v.id("agents"),
 		scope: v.union(v.literal("workspace"), v.literal("personal")),
@@ -469,6 +472,7 @@ export default defineSchema({
 		.index("by_install", ["connectorInstallId"]),
 
 	skillInstalls: defineTable({
+		usedPlaces,
 		/** Personal owner; team rows have audience team and no owner. */
 		// COMPAT(0.1.0-alpha.10): after skillAudience runs on prod, make audience required.
 		audience: v.optional(v.union(v.literal("team"), v.literal("personal"))),
@@ -497,6 +501,8 @@ export default defineSchema({
 
 	// A channel (named, public or private) or a DM (fixed set of people and agents).
 	chats: defineTable({
+		/** Sources retained across edits and later audience changes. Older rows have none. */
+		usedPlaces,
 		workspaceId: v.id("workspaces"),
 		kind: v.union(v.literal("channel"), v.literal("dm")),
 		/** Channels only: lowercase, no "#", unique per workspace. */
@@ -546,6 +552,11 @@ export default defineSchema({
 	// A message in a chat's main timeline, or in a thread (threadId = the parent message).
 	// Written by a person (authorUserId) or an agent (authorAgentId), never both.
 	chatMessages: defineTable({
+		/** Restricted sources, checked live for every viewer. Records use their database. */
+		usedPlaces,
+		sharedBy: v.optional(v.id("users")),
+		/** The asker, even when the reply is just the agent speaking (not actingFor). */
+		repliedTo: v.optional(v.id("users")),
 		chatId: v.id("chats"),
 		workspaceId: v.id("workspaces"),
 		threadId: v.optional(v.id("chatMessages")),
@@ -686,7 +697,9 @@ export default defineSchema({
 		sessionId: v.optional(v.id("agentSessions")),
 		/** The exact user message sent to the model this turn. Replayed as-is in later turns. */
 		prompt: v.optional(v.string()),
-		/** Nobody @mentioned the agent: the router queued it (router.ts), or a hop (chains.ts). Its prompt says so. */
+		/** Sources of the stored prompt, independent of a shared answer. Missing means unknown: omit it. */
+		promptPlaces: usedPlaces,
+		/** Nobody @mentioned the agent: the router queued it (router.ts), or a hop (chains.ts). Its reply is quiet. */
 		routed: v.optional(v.literal(true)),
 		/**
 		 * The dispatcher's pick, for its prompt and its reply's stats. One message's picks run one after
@@ -795,6 +808,12 @@ export default defineSchema({
 	// One agent's ongoing context in one place (chat + thread). Append-only: past turns
 	// replay exactly as sent, so prompt caching hits. Older turns fold into `summary`.
 	agentSessions: defineTable({
+		summaryPlaces: usedPlaces,
+		/** Old summaries could contain prompts whose answers had been shared. Only the new format is trusted. */
+		summaryPrivacy: v.optional(v.literal(1)),
+		compactingPlaces: usedPlaces,
+		/** A compaction begun before prompt isolation cannot produce a trusted summary. */
+		compactingPrivacy: v.optional(v.literal(1)),
 		workspaceId: v.id("workspaces"),
 		agentId: v.id("agents"),
 		chatId: v.id("chats"),
@@ -846,6 +865,7 @@ export default defineSchema({
 	// #114) and what (a note: a follow-up's task; none: look around, #162's heartbeat). One table and one
 	// path to a turn (wakeups.ts `wake`) for all of them.
 	wakeups: defineTable({
+		usedPlaces,
 		workspaceId: v.id("workspaces"),
 		agentId: v.id("agents"),
 		chatId: v.id("chats"),
@@ -936,6 +956,8 @@ export default defineSchema({
 
 	// Automations people make and retained library installs; each picks the agent that runs it.
 	automationInstalls: defineTable({
+		/** Sources retained across edits and later audience changes. Older rows have none. */
+		usedPlaces,
 		definition: v.optional(automationDefinition),
 		workspaceId: v.id("workspaces"),
 		automationId: v.string(),
@@ -1048,6 +1070,8 @@ export default defineSchema({
 
 	// A database created by the team. Existing keys stay stable.
 	recordTypes: defineTable({
+		/** Sources retained across edits and later audience changes. Older rows have none. */
+		usedPlaces,
 		display: v.optional(databaseDisplay),
 		version: v.optional(v.number()),
 		workspaceId: v.id("workspaces"),
@@ -1116,6 +1140,8 @@ export default defineSchema({
 	// A page: a standalone doc (wiki, SOP, meeting notes) or a record's body. Its content lives
 	// in the prosemirrorSync component, keyed by the page's id (pageSync.ts). See wiki/pages.md.
 	pages: defineTable({
+		/** Sources retained across edits and later audience changes. Older rows have none. */
+		usedPlaces,
 		workspaceId: v.id("workspaces"),
 		/** Set for a record's body; standalone pages have none. */
 		recordId: v.optional(v.id("records")),

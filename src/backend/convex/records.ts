@@ -1,12 +1,9 @@
-import type { Id } from "./_generated/dataModel";
-import { condition, recordGroup, recordSort } from "./recordValidators";
 import { type PaginationResult, paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./functions";
 import { canSee } from "./chatOps";
 import { emptyPage, getMember, nameOf, requireMember } from "./lib";
-import { trashInfo } from "./trashOps";
-import { activityAs, historyAs, linkingRecords, listRecords, searchRecords } from "./recordReads";
 import { reach } from "./placeAccess";
 import {
 	createRecord,
@@ -19,6 +16,10 @@ import {
 	undoChange,
 	updateRecord,
 } from "./recordOps";
+import { activityAs, historyAs, linkingRecords, listRecords, searchRecords } from "./recordReads";
+import { condition, recordGroup, recordSort } from "./recordValidators";
+import { canReadReply } from "./replyPrivacy";
+import { trashInfo } from "./trashOps";
 
 // Records: the app's API. Reading a database's records takes View in it (its Who can access
 // list); changing them takes `records.edit` and Edit in it. Lists page through indexes only, so they stay fast at any size.
@@ -97,7 +98,7 @@ export const titles = query({
 			const record = id && (await ctx.db.get(id));
 			if (!record || record.workspaceId !== member.workspaceId || (await inTrash(ctx, record))) continue;
 			const type = await ctx.db.get(record.typeId);
-			if (type) out.push({ _id: record._id, title: record.title, typeKey: type.key });
+			if (type && await typeVisible(ctx, member)(type._id)) out.push({ _id: record._id, title: record.title, typeKey: type.key });
 		}
 		return out;
 	},
@@ -174,7 +175,7 @@ export const discussion = query({
 		for (const m of mentions) {
 			const message = await ctx.db.get(m.messageId);
 			const chat = await ctx.db.get(m.chatId);
-			if (!message || message.deleted || !chat || !(await canSee(ctx, chat, member))) continue;
+			if (!message || message.deleted || !chat || !(await canSee(ctx, chat, member)) || !(await canReadReply(ctx, member, message))) continue;
 			const author = message.authorUserId
 				? await nameOf(ctx, message.authorUserId)
 				: ((message.authorAgentId && (await ctx.db.get(message.authorAgentId))?.name) ?? "");

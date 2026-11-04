@@ -4,8 +4,10 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { imageUrls } from "./images";
 import { type Member, type Who, checkPermission, getMember, memberOf, memo, nameOf, personOf } from "./lib";
-import { putInTrash, takeFromTrash } from "./trashOps";
 import { channelName, chatAccess, reach, requireAccess } from "./placeAccess";
+import { notePlace, readArtifact, writeSources } from "./replySources";
+import { canReadReply } from "./replyPrivacy";
+import { putInTrash, takeFromTrash } from "./trashOps";
 
 // Shared by the app's chat functions (chats.ts, messages.ts) and the agent runner
 // (chatTools.ts), so both follow the same visibility rules. See wiki/chat.md.
@@ -60,11 +62,13 @@ export const membership = (ctx: QueryCtx, chatId: Id<"chats">, userId: Id<"users
  * channel's Who can access list applies on top: not on it, no access.
  */
 export async function canSee(ctx: QueryCtx, chat: Doc<"chats">, member: Member) {
-	return (await reachOf(ctx, chat, member)) === "ok";
+	const seen = (await reachOf(ctx, chat, member)) === "ok" && await readArtifact(ctx, member, chat);
+	if (seen) await notePlace(ctx, member, chat._id, chatAccess(chat), (chat.kind !== "channel" || !!chat.private));
+	return seen;
 }
 
 /** Whether someone can see a chat: "ok", "members" (a private chat they're not in) or "access" (not on its list). */
-async function reachOf(ctx: QueryCtx, chat: Doc<"chats">, member: Member) {
+export async function reachOf(ctx: QueryCtx, chat: Doc<"chats">, member: Member) {
 	if (chat.workspaceId !== member.workspaceId) return "members";
 	if ((chat.kind !== "channel" || chat.private) && !(await membership(ctx, chat._id, member.userId))) return "members";
 	return reach(member, chatAccess(chat)) ? "ok" : "access";
@@ -108,6 +112,8 @@ export async function chatByRef(ctx: QueryCtx, member: Member, ref: string) {
 async function seenOrRefused(ctx: QueryCtx, chat: Doc<"chats">, member: Member, asked?: string) {
 	const seen = await reachOf(ctx, chat, member);
 	if (seen === "access") requireAccess(member, "channel", channelName(chat), chatAccess(chat), "view", asked);
+	if (seen === "ok" && !(await readArtifact(ctx, member, chat))) return null;
+	if (seen === "ok") await notePlace(ctx, member, chat._id, chatAccess(chat), (chat.kind !== "channel" || !!chat.private));
 	return seen === "ok" ? chat : null;
 }
 
@@ -128,6 +134,7 @@ export async function requireChat(ctx: QueryCtx, member: Member, chatId: Id<"cha
 	const seen = chat ? await reachOf(ctx, chat, member) : "members";
 	if (seen === "access") requireAccess(member, "channel", channelName(chat!), chatAccess(chat!), "view");
 	if (!chat || seen !== "ok") throw new ConvexError("Chat not found.");
+	await notePlace(ctx, member, chat._id, chatAccess(chat), (chat.kind !== "channel" || !!chat.private));
 	return chat;
 }
 
@@ -390,6 +397,13 @@ const findReaction = (ctx: QueryCtx, message: Doc<"chatMessages">, emoji: string
 			.eq("userId", "userId" in who ? who.userId : undefined).eq("agentId", "agentId" in who ? who.agentId : undefined))
 		.first();
 
+/** Reactions publish to the message's readers, just like other turn writes. */
+export async function requireReactionAudience(ctx: MutationCtx, member: Member, message: Doc<"chatMessages">) {
+	if (message.deleted || !(await canReadReply(ctx, member, message))) throw new ConvexError("Message not found.");
+	requirePost(member, await requireChat(ctx, member, message.chatId));
+	await writeSources(ctx, member, { places: [message.chatId, ...(message.sharedBy ? [] : message.usedPlaces ?? [])] });
+}
+
 /** Toggles one person's reaction. Returns whether it's now on. */
 export async function toggleReaction(ctx: MutationCtx, message: Doc<"chatMessages">, emoji: string, userId: Id<"users">) {
 	const existing = await findReaction(ctx, message, emoji, { userId });
@@ -454,13 +468,13 @@ export async function chatLabel(ctx: QueryCtx, chat: Doc<"chats">, names: Namer,
  * An agent's own past reply as it replays in its session: the text, widget notes, and
  * the tools it used. Without the tools, the agent can't tell later that it really did act.
  */
-export function replyForModel(m: Doc<"chatMessages">) {
-	const tools = m.parts.flatMap((p) => (p.type === "tool" ? [`${p.name} (${p.status === "error" ? "failed" : "done"})`] : []));
+export function replyForModel(m: Doc<"chatMessages">, details = true) {
+	const tools = (details ? m.parts : []).flatMap((p) => (p.type === "tool" ? [`${p.name} (${p.status === "error" ? "failed" : "done"})`] : []));
 	// Held calls are noted without their outcome, so this text never changes once the reply is done (prompt caching).
-	const held = m.parts.flatMap((p) => (p.type === "approval" ? [p.why ? `${p.tool} (the card said: ${JSON.stringify(p.why)})` : p.tool] : []));
+	const held = (details ? m.parts : []).flatMap((p) => (p.type === "approval" ? [p.why ? `${p.tool} (the card said: ${JSON.stringify(p.why)})` : p.tool] : []));
 	return [
-		// Pictures pointed at file ids don't show in a message; replaying them teaches the model to write more.
 		withoutFileImages(textForModel(m)),
+		!details && m.parts.some((p) => p.type === "tool" || p.type === "approval") && `[Used ${new Set(m.parts.flatMap((p) => p.type === "tool" || p.type === "approval" ? [p.id] : [])).size} tools]`,
 		tools.length > 0 && `[Tools you used: ${tools.join(", ")}]`,
 		held.length > 0 && `[Held for approval: ${held.join(", ")}]`,
 		m.stoppedBy && "[Stopped by the person before you finished]",

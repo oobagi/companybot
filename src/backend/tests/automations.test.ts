@@ -140,7 +140,7 @@ describe("automations", () => {
 		});
 
 		it("runs for the person named only if they turned it on, once per event id, with its data", async () => {
-			const { member, post } = await installed();
+			const { t, owner, member, post } = await installed();
 			const named = { person: { email: "MEMBER@co.com" } };
 			expect(await post(call("c1", named))).toEqual([200, "Didn't run: the person it's for hasn't turned it on."]);
 			await member.mutation(api.automations.subscribe, { automationId: "after-call-summary", on: true });
@@ -158,6 +158,8 @@ describe("automations", () => {
 			]);
 			// Naming nobody: everyone who turned it on.
 			expect(await post(call("c4"))).toEqual([200, "Queued."]);
+			await automationJobs(t);
+			expect((await find(owner, "after-call-summary"))!.lastResult).toBe("Sent to 2 people.");
 		});
 
 		it("posts in the channel when one is picked", async () => {
@@ -468,7 +470,7 @@ describe("automations", () => {
 
 			const made = await create({ ...weekly, runsFor: "me" });
 			expect(made).toMatchObject({ name: "Quiet deals", when: "Mondays at 9:00 AM (UTC)", runsFor: "Just member@co.com, in their chat with the agent" });
-			const listed = await t.query(internal.automationTools.listFor, { turnId });
+			const listed = await t.mutation(internal.automationTools.listFor, { turnId });
 			expect(listed).toEqual([expect.objectContaining({ name: "Quiet deals", madeByYou: true, onForYou: null })]);
 			expect(await create({ ...weekly, runsFor: "#board" })).toEqual({ error: "There's no channel #board they can see." });
 			expect(await create({ ...weekly, runsFor: "everyone" })).toEqual({ error: 'runsFor must be "me", "anyone", or a channel like "#sales".' });
@@ -616,7 +618,8 @@ it("a failing scheduled install does not block another workspace", async () => {
 	});
 	const now = Date.UTC(2026, 10, 4, 10);
 	await t.mutation(internal.automationRuns.tick, { now });
-	await expect(t.mutation(internal.automationRuns.runScheduled, { installId: brokenId, now })).rejects.toThrow();
+	await t.mutation(internal.automationRuns.runScheduled, { installId: brokenId, now });
+	expect((await t.run(ctx => ctx.db.get(brokenId)))!).toMatchObject({ enabled: false, lastOutcome: { text: expect.stringContaining("Failed:") } });
 	await t.run(async ctx => {
 		for (const job of await ctx.db.system.query("_scheduled_functions").collect())
 			if (job.state.kind === "pending" && job.args[0]?.installId === brokenId) await ctx.scheduler.cancel(job._id);

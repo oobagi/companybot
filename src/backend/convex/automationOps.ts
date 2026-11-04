@@ -4,13 +4,15 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type Member, checkPermission, requireMember } from "./lib";
 import type { QueryCtx } from "./_generated/server";
 import { canSee } from "./chatOps";
+import { canReadSources } from "./replyPrivacy";
+import { readArtifact } from "./replySources";
 
 /** Automations that run just for their creator are theirs alone (their id here); the rest are visible to the workspace (null). */
 export const privateTo = (install: Doc<"automationInstalls">) => (install.custom && install.audience === "creator" ? install.installedBy : null);
 
-export const canView = (member: Member, install: Doc<"automationInstalls">) => {
+export const canView = async (ctx: QueryCtx, member: Member, install: Doc<"automationInstalls">) => {
 	const only = privateTo(install);
-	return !only || only === member.userId;
+	return (!only || only === member.userId) && await canReadSources(ctx, member, install.usedPlaces);
 };
 
 /**
@@ -53,13 +55,12 @@ export const installOf = async (ctx: QueryCtx, workspaceId: Id<"workspaces">, au
 };
 
 /** The workspace's installs this person can see; ones in Archive only if `trashed`. */
-export const visibleInstalls = async (ctx: QueryCtx, member: Member, trashed = false) =>
-	(
-		await ctx.db
-			.query("automationInstalls")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
-			.collect()
-	).filter((i) => canView(member, i) && (trashed || !i.archived));
+export async function visibleInstalls(ctx: QueryCtx, member: Member, trashed = false) {
+	const rows = await ctx.db.query("automationInstalls").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId)).collect();
+	const visible = [];
+	for (const row of rows) if ((trashed || !row.archived) && await canView(ctx, member, row)) visible.push(row);
+	return visible;
+}
 
 /** What an install runs: its custom config or its retained stored definition. */
 /**
@@ -67,6 +68,7 @@ export const visibleInstalls = async (ctx: QueryCtx, member: Member, trashed = f
  * ("When someone posts in #a channel"); null for the runner, which shows it to no one.
  */
 export async function definitionOf(ctx: QueryCtx, install: Doc<"automationInstalls">, viewer: Member | null): Promise<Automation | undefined> {
+	if (viewer && !(await readArtifact(ctx, viewer, install, privateTo(install)))) return undefined;
 	if (!install.custom) return install.definition && { ...install.definition, trigger: normalizeTrigger(install.definition.trigger) };
 	const { trigger } = install.custom;
 	const watched = trigger.type === "event" && trigger.event === "message.posted" ? trigger.channelId : undefined;
@@ -98,7 +100,7 @@ export const scheduleCursor = (install: Doc<"automationInstalls">) => install.la
 export async function requireEditable(ctx: QueryCtx, automationId: string, acting?: Member) {
 	const member = acting ?? await requireMember(ctx);
 	const install = await installOf(ctx, member.workspaceId, automationId);
-	if (!install || !canView(member, install)) throw new ConvexError("Automation not found.");
+	if (!install || !(await canView(ctx, member, install))) throw new ConvexError("Automation not found.");
 	if (!canEditAutomation(member, privateTo(install))) checkPermission(member, "automations.edit");
 	return { member, install };
 }
@@ -156,6 +158,9 @@ export function triggerIndexes(install: Pick<Doc<"automationInstalls">, "custom"
 	const trigger = install.custom?.trigger ?? install.definition?.trigger;
 	return {
 		nextRunAt: install.enabled && !install.archived && trigger?.type === "schedule" ? nextRuns(scheduleCron(trigger), install.timeZone, after, 1)[0] : undefined,
-		eventKey: install.enabled && !install.archived && trigger?.type === "event" ? trigger.event : undefined,
+		eventKey: install.enabled && !install.archived && trigger?.type === "event" ? eventKeyFor(trigger.event, trigger.event === "message.posted" ? trigger.channelId : undefined) : undefined,
 	};
 }
+
+/** Channel watchers and legacy any-channel watchers occupy separate exact index ranges. */
+export const eventKeyFor = (event: string, channelId?: string) => event === "message.posted" ? `${event}:${channelId || "*"}` : event;

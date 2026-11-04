@@ -330,3 +330,24 @@ it("backfills event indexes and clears indexes for disabled installs", async () 
 	await owner.mutation(api.automations.update, { automationId: install.automationId, enabled: false });
 	expect((await t.run(ctx => ctx.db.get(install._id)))!.eventKey).toBeUndefined();
 });
+
+it("backfills channel-specific and retained any-channel event keys", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	migrationsTest.register(t);
+	const owner = await signIn(t, "channel-index@co.com");
+	const { companybot } = await agentsOf(owner);
+	const chatId = (await generalOf(owner))._id;
+	await owner.mutation(api.automations.create, { config: { name: "Watch", prompt: "Read", trigger: { type: "event", event: "message.posted", channelId: chatId } }, agentId: companybot._id, audience: "creator", timeZone: "UTC" });
+	const install = (await t.run(ctx => ctx.db.query("automationInstalls").first()))!;
+	await t.run(async ctx => {
+		await ctx.db.patch(install._id, { eventKey: "message.posted" });
+		const { _id, _creationTime, custom, ...fields } = install;
+		await ctx.db.insert("automationInstalls", { ...fields, automationId: "legacy-any", eventKey: "message.posted", definition: { id: "legacy-any", name: "Anywhere", description: "Any", details: "Any", publisher: "Test", version: "1", connectors: [], prompt: "Read", trigger: { type: "event", event: "message.posted", label: "Any message" } } });
+	});
+	vi.useFakeTimers();
+	await t.mutation(internal.migrations.runAll);
+	await t.finishAllScheduledFunctions(vi.runAllTimers);
+	const rows = await t.run(ctx => ctx.db.query("automationInstalls").collect());
+	expect(rows.find(i => i._id === install._id)!.eventKey).toBe(`message.posted:${chatId}`);
+	expect(rows.find(i => i.automationId === "legacy-any")!.eventKey).toBe("message.posted:*");
+});

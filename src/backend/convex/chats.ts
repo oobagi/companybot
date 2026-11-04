@@ -2,10 +2,12 @@ import { type ReplyMode, THREAD_HOURS_DEFAULT, TOPIC_MAX, can, replyModeOf, repl
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx } from "./_generated/server";
-import { mutation, query } from "./functions";
 import { addToChat, agentOfDm, availableName, chatMembersOf, findOrCreateDm, label, latestMentionSince, markChatRead, membership, namer, requireActiveAgents, requireChat, requireManagedChannel, requireWorkspaceUsers, shownAt, sideChatTitle, titleFrom, type Namer, type Participant, visibleChat } from "./chatOps";
+import { mutation, query } from "./functions";
 import { type Member, checkPermission, getMember, preferencesOf, requireMember, toActor } from "./lib";
 import { type AccessList, accessInfo, chatAccess, reach, savedAccess } from "./placeAccess";
+import { canReadReply, canReadSources } from "./replyPrivacy";
+import { writeSources } from "./replySources";
 import { accessArg } from "./schema";
 import { trashInfo } from "./trashOps";
 import { STALE_TURN_MS, sessionAt } from "./turns";
@@ -174,7 +176,7 @@ export const activeThreads = query({
 				.withIndex("by_chat_lastReply", (q) => q.eq("chatId", chat._id).gt("lastReplyAt", since))
 				.order("desc")
 				.take(ACTIVE_THREADS_MAX);
-			for (const m of parents) threads.push({ chatId: chat._id, messageId: m._id, title: threadTitle(m), lastReplyAt: m.lastReplyAt! });
+			for (const m of parents) threads.push({ chatId: chat._id, messageId: m._id, title: await canReadReply(ctx, member, m) ? threadTitle(m) : "🔒 Private reply", lastReplyAt: m.lastReplyAt! });
 		}
 		return threads;
 	},
@@ -245,7 +247,7 @@ export const alerts = query({
 				messageId: message._id,
 				...(message.threadId && { threadId: message.threadId }),
 				title: chat.kind === "channel" ? `${author} in #${chat.name}` : author,
-				text: message.text.slice(0, 200),
+				text: await canReadReply(ctx, member, message) ? message.text.slice(0, 200) : "🔒 Private reply",
 			});
 		}
 		return alerts;
@@ -305,8 +307,10 @@ export const createChannel = mutation({
 
 export async function createChannelAs(ctx: MutationCtx, member: Member, args: Infer<typeof createChannelArgs>): Promise<Id<"chats">> {
 	checkPermission(member, "channels.edit");
+	const usedPlaces = await writeSources(ctx, member, args.private ? { users: [member.userId] } : undefined);
 	const name = await availableName(ctx, member, args.name);
 	const chatId = await ctx.db.insert("chats", {
+		usedPlaces,
 		workspaceId: member.workspaceId,
 		kind: "channel",
 		name,
@@ -336,6 +340,7 @@ export const updateChannel = mutation({
 export async function updateChannelAs(ctx: MutationCtx, member: Member, { chatId, name, topic, replyMode }: Infer<typeof updateChannelArgs>) {
 	const chat = await requireManagedChannel(ctx, member, chatId);
 	if (chat.archived) throw new ConvexError("This channel is in Archive.");
+	if (name !== undefined || topic !== undefined) await writeSources(ctx, member, chatId);
 	await ctx.db.patch(chat._id, {
 		...(name !== undefined && { name: await availableName(ctx, member, name, chat._id) }),
 		...(topic !== undefined && { topic: checkedTopic(topic) || undefined }),
@@ -358,6 +363,8 @@ export const setAccess = mutation({
 		if (chat.isDefault && !list.some((e) => e.role === "everyone")) throw new ConvexError(`Everyone is in #${chat.name}, so everyone keeps at least View.`);
 		// Everyone at Post is the default: store nothing, as for a channel nobody restricted.
 		const open = list.length === 1 && list[0]!.role === "everyone" && list[0]!.level === "edit";
+		const users = chat.private ? (await chatMembersOf(ctx, chat._id)).flatMap((m) => m.userId ? [m.userId] : []) : undefined;
+		await writeSources(ctx, member, { place: chat._id, access: list, users }, chat);
 		await ctx.db.patch(chat._id, { access: open ? undefined : list });
 	},
 });
@@ -406,6 +413,10 @@ export async function addChannelMembers(ctx: MutationCtx, member: Member, { chat
 	}
 	await requireWorkspaceUsers(ctx, member.workspaceId, userIds);
 	await requireActiveAgents(ctx, member.workspaceId, agentIds);
+	if (chat.private) {
+		const users = [...new Set([...(await chatMembersOf(ctx, chatId)).flatMap((m) => m.userId ? [m.userId] : []), ...userIds])];
+		await writeSources(ctx, member, { place: chatId, users, access: chatAccess(chat) }, chat);
+	}
 	for (const userId of userIds) await addToChat(ctx, chat, { userId });
 	for (const agentId of agentIds) await addToChat(ctx, chat, { agentId });
 }
@@ -485,6 +496,7 @@ export const renameChat = mutation({
 		if (!chat.parentId) throw new ConvexError("Only side chats are renamed here.");
 		title = title.trim().slice(0, 120);
 		if (!title) throw new ConvexError("Give it a name.");
+		await writeSources(ctx, member, chatId);
 		await ctx.db.patch(chatId, { title });
 	},
 });
@@ -504,15 +516,16 @@ export const place = query({
 		ctx,
 		{ chatId, threadId },
 	): Promise<{ summary: string | null; summarizedUpTo: number | null; compacting: boolean; costUsd: number } | null> => {
-		const chat = (await visibleChat(ctx, chatId))?.chat;
-		if (!chat) return null;
+		const visible = await visibleChat(ctx, chatId);
+		if (!visible) return null;
+		const { chat, member } = visible;
 		const parent = threadId && (await ctx.db.get(threadId));
 		if (threadId && parent?.chatId !== chatId) return null;
 		const costUsd = (parent ? parent.costUsd : chat.costUsd) ?? 0;
 		const agentId = agentOfDm(chat);
 		const session = agentId && (await sessionAt(ctx, { agentId, chatId, threadId }));
 		return {
-			summary: session?.summary ?? null,
+			summary: session?.summaryPrivacy === 1 && await canReadSources(ctx, member, session.summaryPlaces) ? session.summary ?? null : null,
 			summarizedUpTo: session?.summarizedUpTo ?? null,
 			compacting: session?.compacting ?? false,
 			costUsd,

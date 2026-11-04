@@ -229,6 +229,11 @@ describe("turn input", () => {
 		]);
 	});
 
+	it("replays shared answers without an empty or private user prompt", () => {
+		const input = buildTurnInput({ agent: { instructions: "Be brief.", tools: [] }, skills: [], session: { summary: null, turns: [{ prompt: "", reply: "Shared answer" }] }, prompt: "Next question" });
+		expect(input.messages).toEqual([{ role: "user", content: "Earlier reply in this chat:" }, { role: "assistant", content: "Shared answer" }, { role: "user", content: "Next question" }]);
+	});
+
 	it("tells a handed-off turn who handed it over, and where a private ask's reply goes", () => {
 		expect(buildTurnPrompt({ ...base, handoff: { from: "Scribe", ask: false } })).toContain("Scribe is an agent working for Ada and handed this to you.");
 		expect(buildTurnPrompt({ ...base, handoff: { from: "Scribe", ask: true } })).toContain("your reply goes back to it, not into the chat.");

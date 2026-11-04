@@ -1,4 +1,5 @@
-import { automationJobs } from "./automationJobs";
+import * as turns from "../convex/turns";
+import { automationJob, automationJobs } from "./automationJobs";
 import { internal } from "../convex/_generated/api";
 import { signIn, newTest, workspaceOf, generalOf, addMember } from "./helpers";
 import { expect, it, vi } from "vitest";
@@ -78,4 +79,37 @@ it.each(["tick", "send"] as const)("batches %s with 1,500 subscribers and 300 du
 		expect((await t.run(ctx => ctx.db.get(install._id)))!.lastOutcome?.text).toBe("Sent to 1500 people.");
 		if (kind === "tick") expect(await t.run(ctx => ctx.db.query("automationInstalls").withIndex("by_due", q => q.gt("nextRunAt", undefined).lte("nextRunAt", Date.UTC(2026, 10, 4, 10))).collect())).toHaveLength(0);
 	} finally { vi.useRealTimers(); }
+});
+
+it.each([false, true])("publishes only a complete fan-out result (later page fails: %s)", { timeout: 600_000 }, async fails => {
+	vi.useFakeTimers();
+	const t = newTest();
+	const owner = await signIn(t, "totals@co.com");
+	const workspaceId = await workspaceOf(owner);
+	const agentId = (await owner.query(api.agents.list))[0]!._id;
+	await owner.mutation(api.automations.create, { config: { name: "Total", prompt: "Hello", trigger: { type: "webhook" } }, agentId, audience: "subscribers", timeZone: "UTC" });
+	const install = (await t.run(ctx => ctx.db.query("automationInstalls").first()))!;
+	for (let start = 1; start < 150; start += 50) await t.run(async ctx => {
+		for (let i = start; i < Math.min(start + 50, 150); i++) {
+			const userId = await ctx.db.insert("users", { email: `total${i}@co.com` });
+			await addMember(ctx, { workspaceId, userId, email: `total${i}@co.com`, role: "member" });
+			await ctx.db.insert("automationSubscriptions", { installId: install._id, userId });
+		}
+	});
+	await t.mutation(internal.automationRuns.receive, { token: install.webhookToken!, body: JSON.stringify({ id: "total" }) });
+	await automationJob(t);
+	expect((await t.run(ctx => ctx.db.get(install._id)))!.lastOutcome).toBeUndefined();
+	expect((await t.run(ctx => ctx.db.query("chatMessages").collect())).filter(m => m.automation)).toHaveLength(100);
+	// One injected application failure verifies rollback and persisted failure without invoking a model.
+	const failure = fails ? vi.spyOn(turns, "enqueueTurn").mockRejectedValue(new Error("Invalid delivery configuration")) : undefined;
+	try {
+		await automationJobs(t);
+		const result = (await t.run(ctx => ctx.db.get(install._id)))!;
+		expect(result.lastOutcome?.text).toMatch(fails ? /^Failed:/ : /^Sent to 150 people\.$/);
+		expect((await t.run(ctx => ctx.db.query("chatMessages").collect())).filter(m => m.automation)).toHaveLength(fails ? 100 : 150);
+		if (fails) expect(result.enabled).toBe(false);
+	} finally {
+		failure?.mockRestore();
+		vi.useRealTimers();
+	}
 });
