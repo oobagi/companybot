@@ -50,7 +50,7 @@ if (!existsSync("node_modules")) {
 }
 
 // pnpm sometimes skips Electron's download (e.g. a fast install from its store).
-const electron = execFileSync("node", ["-p", "require.resolve('electron/package.json')"], { cwd: "src/desktop", encoding: "utf8" })
+const electron = execFileSync("node", ["-p", "require.resolve('electron/package.json')"], { cwd: "apps/desktop", encoding: "utf8" })
 	.trim()
 	.replace(/package\.json$/, "");
 if (!existsSync(`${electron}path.txt`)) {

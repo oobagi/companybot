@@ -2,7 +2,7 @@ node_modules/
 dist/
 out/
 build/
-src/desktop/release/
+apps/desktop/release/
 coverage/
 backups/
 *.tsbuildinfo

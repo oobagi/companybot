@@ -36,12 +36,12 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
-    "@ai-sdk/mcp": "^2.0.81",
-    "ai": "^7.0.148",
+    "@ai-sdk/mcp": "^2.0.90",
+    "ai": "^7.0.162",
     "croner": "^11.0.0",
     "cronstrue": "^3.38.0",
     "fflate": "^0.8.3",
-    "unpdf": "^1.9.1",
+    "unpdf": "^2.1.0",
     "zod": "^4.6.7"
   }
 }

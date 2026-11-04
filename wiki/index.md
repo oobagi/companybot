@@ -13,3 +13,5 @@ One line per page: `- [Title](path.md) — what it covers`. Keep this file a tab
 - [Lessons](lessons.md) — what failed in Cottonwood/Night Owl and the rules that follow
 - [Competitors](competitors.md) — GoHighLevel, Dust, Lindy, Viktor, Polsia, Cofounder, Whop, Buzz, Sumus, Sameday, Airtable, Anytwo, Baserow, Teable, ChatGPT Sites; gaps, what to copy, threat
 - [Sandbox](sandbox.md) — where agents run code, spreadsheets and a real browser: E2B vs Vercel Sandbox vs Daytona and others (license, self-host, price, isolation), recommendation, Convex fit, tool design, security rules
+
+- [Mobile](mobile.md) — Expo foundation, package boundaries, native builds, validation and upgrade policy
