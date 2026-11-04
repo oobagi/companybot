@@ -17,10 +17,9 @@ const button =
 
 /**
  * The strip across the top of the window, beside its buttons: hide the sidebar, step back and
- * forward through screens, the open workspace (`workspace`, its switcher), and Help. Empty space
- * in it drags the window.
+ * forward through screens, and Help. Empty space in it drags the window.
  */
-export function TitleBar({ sidebar, onSidebar, workspace }: { sidebar: boolean; onSidebar: () => void; workspace?: React.ReactNode }) {
+export function TitleBar({ sidebar, onSidebar }: { sidebar: boolean; onSidebar: () => void }) {
 	const [, changed] = useReducer((n: number) => n + 1, 0);
 	const { tipFor, tip } = useTip("below");
 	useEffect(() => {
@@ -59,7 +58,6 @@ export function TitleBar({ sidebar, onSidebar, workspace }: { sidebar: boolean; 
 					<ArrowRightIcon />
 				</button>
 			</span>
-			{workspace}
 			<span className="ml-auto flex" {...tipFor("Help")}>
 				<Help />
 			</span>

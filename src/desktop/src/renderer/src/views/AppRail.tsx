@@ -24,20 +24,25 @@ const typing = (target: EventTarget | null) =>
 
 /**
  * The strip at the far left: one button per part of the app (Chat, Drive, Databases, Agents,
- * Customize), as in Macro and Linear. The sidebar beside it lists the open tab's things. Press G
- * then the tab's letter to open it. `youMenu` (your avatar and its menu, named `you`) sits at the
+ * Customize), centered, as in Macro and Linear. The sidebar beside it lists the open tab's things.
+ * Press G then the tab's letter to open it. `workspace` (the workspace switcher, named
+ * `workspaceName`) sits at the top and `youMenu` (your avatar and its menu, named `you`) at the
  * bottom. In Settings no tab is lit.
  */
 export function AppRail({
 	tab,
 	onOpen,
 	badges = {},
+	workspace,
+	workspaceName,
 	you,
 	youMenu,
 }: {
 	tab: AppTab | undefined;
 	onOpen: (tab: AppTab) => void;
 	badges?: Partial<Record<AppTab, TabBadge>>;
+	workspace?: React.ReactNode;
+	workspaceName?: string;
 	you?: string;
 	youMenu?: React.ReactNode;
 }) {
@@ -66,34 +71,41 @@ export function AppRail({
 	}, [onOpen]);
 
 	return (
-		<nav aria-label="App" className="drag flex w-[60px] shrink-0 flex-col items-center gap-1 pt-2 pb-3">
-			{appTabs.map((t) => {
-				const active = t.id === tab;
-				const badge = badges[t.id];
-				return (
-					<span key={t.id} className="relative flex" {...tipFor(t.label, `G ${t.key.toUpperCase()}`)}>
-						<button
-							type="button"
-							aria-label={badge?.mentions ? `${t.label}, ${badge.mentions} unread mentions` : t.label}
-							aria-current={active ? "page" : undefined}
-							onClick={() => (hideTip(), onOpen(t.id))}
-							className={`no-drag flex size-9 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`}
-						>
-							<t.icon size={20} weight={active ? "fill" : "regular"} />
-						</button>
-						{badge?.mentions ? (
-							<span className="pointer-events-none absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-neutral-100 bg-red-500 px-0.5 text-[10px] leading-none font-semibold text-white">
-								{badge.mentions > 9 ? "9+" : badge.mentions}
-							</span>
-						) : (
-							badge?.unread && <span className="pointer-events-none absolute top-1 right-1 size-2 rounded-full border-2 border-neutral-100 bg-sky-500" />
-						)}
-					</span>
-				);
-			})}
+		<nav aria-label="App" className="drag flex w-[60px] shrink-0 flex-col items-center pt-2 pb-3">
+			{workspace && (
+				<span className="flex" {...tipFor(workspaceName ?? "")}>
+					{workspace}
+				</span>
+			)}
+			<div className="flex flex-1 flex-col items-center justify-center gap-1">
+				{appTabs.map((t) => {
+					const active = t.id === tab;
+					const badge = badges[t.id];
+					return (
+						<span key={t.id} className="relative flex" {...tipFor(t.label, `G ${t.key.toUpperCase()}`)}>
+							<button
+								type="button"
+								aria-label={badge?.mentions ? `${t.label}, ${badge.mentions} unread mentions` : t.label}
+								aria-current={active ? "page" : undefined}
+								onClick={() => (hideTip(), onOpen(t.id))}
+								className={`no-drag flex size-9 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`}
+							>
+								<t.icon size={20} weight={active ? "fill" : "regular"} />
+							</button>
+							{badge?.mentions ? (
+								<span className="pointer-events-none absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-neutral-100 bg-red-500 px-0.5 text-[10px] leading-none font-semibold text-white">
+									{badge.mentions > 9 ? "9+" : badge.mentions}
+								</span>
+							) : (
+								badge?.unread && <span className="pointer-events-none absolute top-1 right-1 size-2 rounded-full border-2 border-neutral-100 bg-sky-500" />
+							)}
+						</span>
+					);
+				})}
+			</div>
 			{youMenu && (
 				// Hovered, it names you, as the rail names each tab.
-				<span className="mt-auto flex" {...tipFor(you ?? "")}>
+				<span className="flex" {...tipFor(you ?? "")}>
 					{youMenu}
 				</span>
 			)}

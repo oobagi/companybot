@@ -181,13 +181,15 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	return (
 		<div className="flex h-screen flex-col bg-neutral-100 text-[15px] text-neutral-900">
 			{/* A title bar the width of the window holds its buttons; everything else sits below it. */}
-			<TitleBar sidebar={sidebar} onSidebar={toggleSidebar} workspace={<WorkspaceSwitcher name={workspace} onSettings={() => navigate(...lastWorkspaceSettings.current)} />} />
+			<TitleBar sidebar={sidebar} onSidebar={toggleSidebar} />
 			<TruncatedTips />
 			<div className="flex min-h-0 flex-1">
 				<AppRail
 					tab={tab}
 					onOpen={openTab}
 					badges={badges}
+					workspace={<WorkspaceSwitcher name={workspace} onSettings={() => navigate(...lastWorkspaceSettings.current)} />}
+					workspaceName={workspace}
 					you={prefs?.displayName || email}
 					youMenu={
 						<YouMenu

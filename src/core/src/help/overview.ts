@@ -12,7 +12,7 @@ A new workspace starts with one channel, #general, and one agent, Companybot. Da
 ## Finding your way around
 - **Rail** (far left): the parts of the app. [Chat](#/chat), Drive (your pages, #/pages), Databases (#/records), [Agents](#/settings/agents) and Customize (connectors, skills, automations). Press G, then C, F, D, A or X, to jump to one. Chat shows a red count for unread mentions and DMs, or a dot when something is unread.
 - **Your avatar** (bottom of the rail): [Your preferences](#/settings/preferences) and Sign out.
-- **Workspace switcher** (title bar, next to Back and Forward): the open workspace. Its menu switches to another (⌘1–9 also do), answers invites, starts a new one, and opens Workspace settings or lets you leave. A red count means a mention or DM in another workspace; a dot means something unread there, or an invite.
+- **Workspace logo** (top of the rail): the open workspace. Its menu switches to another (⌘1–9 also do), answers invites, starts a new one, and opens Workspace settings or lets you leave. A red count means a mention or DM in another workspace; a dot means something unread there, or an invite.
 - **Sidebar**: the open tab's things. For Chat: Channels and Direct messages (click a section title to fold it; drag to reorder). For Drive: pages. For Databases: each database. For Agents: each agent. For Customize: Connectors, Skills and Automations.
 - **Top bar**: where you are, plus that screen's actions.
 - **Help button** (top right): What's new and Report a problem.

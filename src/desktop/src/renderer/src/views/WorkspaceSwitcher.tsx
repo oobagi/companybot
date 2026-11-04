@@ -2,7 +2,7 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery, useWorkspace } from "../convex";
-import { CaretDownIcon, CheckIcon, PlusIcon, SettingsIcon, SignOutIcon } from "../icons";
+import { CheckIcon, PlusIcon, SettingsIcon, SignOutIcon } from "../icons";
 import { navigate } from "../router";
 import { useSortable } from "../sortable";
 import { Field, Form, MenuDivider, Notice, inputClass, primaryButton, useRun } from "../ui";
@@ -32,10 +32,11 @@ function Slot({ danger, children }: { danger?: boolean; children: React.ReactNod
 const dot = <span className="size-1.5 shrink-0 rounded-full bg-sky-500" />;
 
 /**
- * The open workspace, in the title bar beside Back and Forward. Its menu lists every workspace you're
- * in, in your order (drag to reorder; ⌘1–9 follow it), with what's waiting in each, then invites to
- * join or decline, + New workspace, and this workspace's settings or Leave. While closed it shows a
- * red count when other workspaces have mentions or DMs, else a dot when one is unread or invites wait.
+ * The open workspace's logo, at the top of the app rail (as in Slack). Its menu lists every workspace
+ * you're in, in your order (drag to reorder; ⌘1–9 follow it), with what's waiting in each, then
+ * invites to join or decline, New workspace, and this workspace's settings or Leave. While closed the
+ * logo shows a red count when other workspaces have mentions or DMs, else a dot when one is unread or
+ * invites wait.
  */
 export function WorkspaceSwitcher({ name, onSettings }: { name: string; onSettings: () => void }) {
 	const mine = useQuery(api.workspace.mine);
@@ -79,13 +80,18 @@ export function WorkspaceSwitcher({ name, onSettings }: { name: string; onSettin
 			<Popover
 				trigger={
 					<>
-						<Avatar name={name} image={image} agent size="xs" className="pointer-events-none" />
-						<span className="truncate">{name}</span>
-						{mentions > 0 ? <Mentions count={mentions} /> : news && dot}
-						<CaretDownIcon className="shrink-0 text-neutral-400" />
+						<span className="sr-only">{name}</span>
+						<Avatar name={name} image={image} agent className="pointer-events-none" />
+						{mentions > 0 ? (
+							<span className="pointer-events-none absolute -right-1 -bottom-1 rounded-full border-2 border-neutral-100">
+								<Mentions count={mentions} />
+							</span>
+						) : (
+							news && <span className="pointer-events-none absolute -top-0.5 -right-0.5 size-2.5 rounded-full border-2 border-neutral-100 bg-sky-500" />
+						)}
 					</>
 				}
-				className="no-drag ml-1.5 flex min-w-0 items-center gap-1.5 rounded-md py-0.5 pr-1.5 pl-0.5 text-sm font-semibold hover:bg-neutral-200/70 aria-expanded:bg-neutral-200/70"
+				className="no-drag relative flex size-9 rounded-xl transition-opacity hover:opacity-85 aria-expanded:opacity-85"
 				panelClassName="flex w-64 flex-col gap-px p-1"
 			>
 				{(close) => (
