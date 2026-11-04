@@ -11,6 +11,6 @@ One line per page: `- [Title](path.md) — what it covers`. Keep this file a tab
 - [Extending](extending.md) — how to add tools, connectors, skills, permissions, roles, memory rules; keeping the in-app help docs current; invariants to keep
 - [Testing](testing.md) — what to test and what not to (behavior, not wording or markup), how to write one, where tests live, how to run them
 - [Releases](releases.md) — cutting a release, CI, signing secrets, in-app updates
-- [Lessons](lessons.md) — what failed in Cottonwood/Night Owl and the rules that follow
+- [Lessons](lessons.md) — what failed in Cottonwood/Night Owl and the rules that follow, plus scale/design rules from the Nov 4 audit
 - [Competitors](competitors.md) — GoHighLevel, Dust, Lindy, Viktor, Polsia, Cofounder, Whop, Buzz, Sumus, Sameday, Airtable, Anytwo, Baserow, Teable, ChatGPT Sites; gaps, what to copy, threat
 - [Sandbox](sandbox.md) — where agents run code, spreadsheets and a real browser: E2B vs Vercel Sandbox vs Daytona and others (license, self-host, price, isolation), recommendation, Convex fit, tool design, security rules
