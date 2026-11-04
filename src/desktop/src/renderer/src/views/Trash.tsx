@@ -1,4 +1,4 @@
-import { type Role, can } from "@companybot/core/permissions";
+import { type Access, can } from "@companybot/core/permissions";
 import { Select } from "../controls";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
@@ -10,7 +10,7 @@ import { useConfirm } from "./chat/common";
 import { EmptyState, LoadMore, NoMatches, Notice, Page, listClass, metadataClass, timeAgo, toolbarClass, useDebounced, useRun, wideControlClass } from "../ui";
 import { recordPath, whoLabel } from "./records/logic";
 
-// Archive keeps content indefinitely. Owners can explicitly delete forever.
+// Archive keeps content indefinitely. Roles with trash.manage can explicitly delete forever.
 // The existing trash API/storage remains compatible with installed clients.
 
 type TrashRow = FunctionReturnType<typeof api.trash.list>["page"][number];
@@ -37,7 +37,7 @@ function pathOf(e: TrashRow): string[] | undefined {
 	if ((e.kind === "skill" || e.kind === "automation") && e.screenId) return ["settings", `${e.kind}s`, e.screenId];
 }
 
-export function TrashView({ role }: { role: Role }) {
+export function TrashView({ access }: { access: Access }) {
 	const [search, setSearch] = useState("");
 	const query = useDebounced(search);
 	const [kind, setKind] = useState<Kind | "">("");
@@ -47,7 +47,7 @@ export function TrashView({ role }: { role: Role }) {
 	const purge = useMutation(api.trash.purge);
 	const { error, run } = useRun();
 	const { confirm, dialog } = useConfirm();
-	const canPurge = can(role, "trash.manage");
+	const canPurge = can(access, "trash.manage");
 	return (
 		<Page title="Archive" description="Archived items are kept here until you restore them or explicitly delete them forever.">
 			<div className={toolbarClass}>

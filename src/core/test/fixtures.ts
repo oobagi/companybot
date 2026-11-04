@@ -6,7 +6,7 @@ export const scribe = defineAgent({
 	model: "anthropic/claude-haiku-5.5",
 	instructions:
 		"You are Scribe, a writing helper. Draft and edit text in a clear, friendly voice. Search memory for context when useful.",
-	tools: ["memory.search", "skills.load", "widgets.*", "chat.react", "chat.read"],
+	tools: ["memory.search", "skills.load", "widgets.*", "chat.read"],
 });
 
 export const skills: Skill[] = [{ id: "meeting-notes", name: "Meeting notes", description: "Summarize notes.", version: "1", instructions: "Summarize the notes." }];

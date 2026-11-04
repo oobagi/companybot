@@ -2,7 +2,8 @@ import { type TrashKind, canTrash } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { type Member, type Who, nameOf, toActor } from "./lib";
+import { type Member, type Who, nameOf } from "./lib";
+import { privateTo } from "./automationOps";
 import { releaseHeld } from "./wakeups";
 
 // Trash: what people deleted, until it's restored or deleted for good. Each kind's own rules
@@ -41,22 +42,20 @@ export const toggleTrash = (ctx: MutationCtx, who: Who, archived: boolean, item:
 
 /** Anyone who could delete it can restore it, whoever deleted it (core `canTrash`). */
 export async function canRestore(ctx: QueryCtx, member: Member, entry: Doc<"trash">) {
-	return canTrash(toActor(member), entry.kind, await madeBy(ctx, entry));
+	return canTrash(member, entry.kind, entry.kind === "skill" ? await skillOwner(ctx, entry) : entry.kind === "automation" ? await personalTo(ctx, entry) : null);
 }
 
-/** Who made a trashed item, for kinds whose makers manage their own. */
-async function madeBy(ctx: QueryCtx, entry: Doc<"trash">) {
-	const get = async <T extends "recordFields" | "chats" | "skillInstalls" | "automationInstalls">(table: T) => {
-		const id = ctx.db.normalizeId(table, entry.itemId);
-		return id ? await ctx.db.get(id) : null;
-	};
-	if (entry.kind === "field") return (await get("recordFields"))?.createdBy;
-	if (entry.kind === "channel") return (await get("chats"))?.createdBy;
-	if (entry.kind === "skill") return (await get("skillInstalls"))?.custom?.createdBy;
-	if (entry.kind === "automation") {
-		const install = await get("automationInstalls");
-		return install?.custom ? install.installedBy : undefined;
-	}
+async function skillOwner(ctx: QueryCtx, entry: Doc<"trash">) {
+	const id = ctx.db.normalizeId("skillInstalls", entry.itemId);
+	const install = id && await ctx.db.get(id);
+	return install?.audience === "personal" ? install.ownerId : null;
+}
+
+/** Who a trashed personal automation belongs to: only they can see it, so only they can restore it. */
+async function personalTo(ctx: QueryCtx, entry: Doc<"trash">) {
+	const id = ctx.db.normalizeId("automationInstalls", entry.itemId);
+	const install = id && (await ctx.db.get(id));
+	return install ? privateTo(install) : null;
 }
 
 /** Takes an item out of Trash. Refused unless they can restore it, or once it's being deleted for good. */

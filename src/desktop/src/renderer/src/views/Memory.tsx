@@ -1,7 +1,7 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Select } from "../controls";
 import type { MemoryScope } from "@companybot/core/memory";
-import { type Role, can } from "@companybot/core/permissions";
+import { type Access, can } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { agentLabel, agentOptions } from "../agent-options";
@@ -15,7 +15,7 @@ import { archiveQuestion, useConfirm } from "./chat/common";
 type MemoryItem = FunctionReturnType<typeof api.memory.list>[number];
 type Agent = { _id: Id<"agents">; name: string; archived: boolean };
 
-export function MemoryTab({ role }: { role: Role }) {
+export function MemoryTab({ access }: { access: Access }) {
 	const memories = useQuery(api.memory.list);
 	const agents = useQuery(api.agents.list);
 	const settings = useQuery(api.workspace.settings);
@@ -34,14 +34,14 @@ export function MemoryTab({ role }: { role: Role }) {
 		<>
 			{!settings.memory && (
 				<p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
-					Memory is turned off by an owner. Agents don't read or save memories until it's back on. Yours are kept, and you can
+					Memory is turned off for this workspace. Agents don't read or save memories until it's back on. Yours are kept, and you can
 					still edit or delete them here.
 				</p>
 			)}
 			<Notice>{error}</Notice>
 			<AddMemory
 				agents={agents.filter((a) => !a.archived)}
-				canAddTeam={can(role, "memory.team.write")}
+				canAddTeam={can(access, "memory.team.write")}
 				onAdd={(agentId, scope, content) => run(create({ agentId, scope, content }))}
 			/>
 			<div className={toolbarClass}>

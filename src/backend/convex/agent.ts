@@ -43,7 +43,7 @@ import {
 	agentStopAfter,
 	openConnector,
 	postDecision,
-	publishes,
+	responseOf,
 	resolveTools,
 	searchProvider,
 	deniedReason,
@@ -256,7 +256,7 @@ async function streamReply(
 	const available = [...builtinTools, ...connectorTools];
 	const services = connectors.sessions.map((s) => s.connector);
 	const toolCtx: ToolContext = {
-		actor: { userId: member.userId, role: member.role },
+		actor: { userId: member.userId, roles: member.roles, owner: member.owner, permissions: member.permissions },
 		timeZone: turn.actor.timeZone,
 		agentId: agent.id,
 		memory: memoryStore(ctx, turnId),
@@ -264,7 +264,7 @@ async function streamReply(
 		manage: { run: (tool, input) => runManage(ctx, turnId, tool, input) },
 		skills: {
 			list: turn.skills,
-			create: (config) => ctx.runMutation(internal.skills.createFor, { turnId, config }),
+			create: ({ audience, ...config }) => ctx.runMutation(internal.skills.createFor, { turnId, config, audience }),
 		},
 		automations: {
 			list: () => ctx.runQuery(internal.automationTools.listFor, { turnId }),
@@ -291,7 +291,7 @@ async function streamReply(
 		connectors.sessions.map((s) => ({ ...s.connector, instructions: s.instructions })),
 	);
 	/** What this person can run now; calls that ask are held (approvals.ts). */
-	const usable = resolveTools(agent, toolCtx.actor, available);
+	const usable = resolveTools(agent, available);
 	// Each call is decided from the rules in force right then (permissions.check), never cached.
 	// Remembered per call so the activity log says how it was allowed, or why it was blocked.
 	const allowedCalls = new Map<string, FunctionReturnType<typeof internal.permissions.check>["allowed"] & {}>();
@@ -301,7 +301,7 @@ async function streamReply(
 	const check = async (t: ToolDef, callId: string) => {
 		const { decision, allowed } = await ctx.runQuery(internal.permissions.check, { turnId, action: t.id, risk: toolRisk(t) });
 		if (allowed) allowedCalls.set(callId, allowed);
-		if (decision.type === "deny") deniedCalls.set(callId, deniedReason(decision.by, t.id));
+		if (decision.type === "deny") deniedCalls.set(callId, deniedReason(decision, t.id));
 		if (decision.type === "ask" && decision.waitFor) heldCalls.add(callId);
 		return decision;
 	};
@@ -314,7 +314,7 @@ async function streamReply(
 	// Stop (turns.stop) is seen on each flush, between flushes, and at each step (`stop`, set just before the model call).
 	const flush = () => stop.hear(ctx.runMutation(internal.turns.updateReply, { turnId, text: text(), parts }));
 	// The turn's step, for the line under the composer (turns.setStep): the newest call still running,
-	// else "Thinking…" until the model writes. The same words as its tool lines; never its reasoning.
+	// else "Thinking…" until its message starts (then it types, like a person). The same words as its tool lines; never its reasoning.
 	// Written in order, and only when it changes.
 	const stepCalls = new Map<string, string>();
 	let writing = false;
@@ -368,9 +368,9 @@ async function streamReply(
 	// result stays out of it (only its approver may see it); this turn alone gets it.
 	await ctx.runMutation(internal.turns.savePrompt, { turnId, prompt: approval ? buildTurnPrompt({ ...promptInput, forReplay: true }) : prompt });
 	const input = buildTurnInput({ agent, skills: turn.skills, session: turn.session, prompt, available: usable, images: await loadImages(ctx, turn.images) });
-	// Nobody asked a quiet turn: it ends with a decision, then its message (core postDecision), as the
-	// final step's structured output, so tools still run first. Its text is that JSON, never shown.
-	const decide = turn.quiet ? postDecision : null;
+	// Every turn ends with its decision (core postDecision): what it posts and reacts, the final step's
+	// structured output, so tools still run first. Its text is that JSON; only `message` is shown.
+	const output = Output.object({ schema: postDecision, name: "decision" });
 
 	const started = Date.now();
 	const stop = turnStop(ctx, turnId);
@@ -395,13 +395,13 @@ async function streamReply(
 			// Stopped mid-tool: the step's calls finish, and no step comes after them.
 			stopWhen: [agentStopAfter(done), stop.atStep],
 			abortSignal: stop.signal,
-			// Each step after the first takes in what the person sent meanwhile; a quiet reply's too (it still ends with a decision).
+			// Each step after the first takes in what the person sent meanwhile; it still ends with its decision.
 			prepareStep: agentPrepareStep(tools, toolCtx.web, { steer, done, sent: (m) => (sent = m) }),
 			headers: { "x-session-affinity": turn.session.id },
 			providerOptions: { gateway: { caching: "auto" } },
 			// Calls that need approval stop the run there, unexecuted; we hold them below.
 			toolApproval: toolApprovalPolicy(usable, check),
-			...(decide && { output: Output.object({ schema: decide, name: "decision" }) }),
+			output,
 		});
 	let result = run();
 
@@ -475,24 +475,36 @@ async function streamReply(
 
 	/** Where the current step's parts begin: a step cut off to take in a message loses what it wrote. */
 	let stepStart = 0;
+	// The message streams as the decision's JSON fills in: the SDK's partial output of the step's text
+	// (what `partialOutputStream` emits), read in this loop so it lands in order with the tool lines.
+	// It's the current step's only: a step that goes on to call tools wasn't the last, so its draft goes.
+	const draft = { type: "text" as const, text: "" };
+	let stepText = "";
+	const dropDraft = () => {
+		if (parts.includes(draft)) parts.splice(parts.indexOf(draft), 1);
+		draft.text = "";
+		stepText = "";
+	};
 	try {
 		for (;;) {
 			for await (const part of result.stream) {
 				stop.saw(part);
 				if (part.type === "start-step") {
+					dropDraft();
 					stepStart = parts.length;
 					writing = false;
 					showStep();
 				} else if (part.type === "text-delta") {
 					usage.firstTokenMs ??= Date.now() - started;
+					stepText += part.text;
+					const message = (await output.parsePartialOutput({ text: stepText }))?.partial?.message;
+					if (typeof message !== "string" || message === draft.text) continue;
+					draft.text = message;
+					if (!parts.includes(draft)) parts.push(draft);
 					if (!writing) {
 						writing = true;
 						showStep();
 					}
-					if (decide) continue;
-					const last = parts.at(-1);
-					if (last?.type === "text") last.text += part.text;
-					else parts.push({ type: "text", text: part.text });
 				} else if (part.type === "tool-call") {
 					// A connectors_call shows as the tool it ran.
 					const name = part.toolName === CONNECTOR_CALL ? (calledConnectorTool(part.input) ?? part.toolName) : part.toolName;
@@ -510,7 +522,7 @@ async function streamReply(
 					await logCall(part.toolCallId, { error: part.error instanceof Error ? part.error.message : String(part.error) });
 				} else if (part.type === "tool-output-denied") {
 					// Held in an automation's run: a card, while the run goes on. Otherwise blocked by a
-					// Never or an owner's lock: it didn't run, and the model was told why.
+					// Never or a workspace lock: it didn't run, and the model was told why.
 					if (heldCalls.has(part.toolCallId)) await hold(part.toolCallId, part.toolName, callInputs.get(part.toolCallId));
 					else {
 						setTool(part.toolCallId, part.toolName, "error");
@@ -556,11 +568,17 @@ async function streamReply(
 		for (const callId of [...calls.keys()]) await logCall(callId, { error: "The reply stopped before this finished." });
 		await stepWrites;
 	}
-	// None if it stopped before deciding (a call held for approval) or wrote no valid decision: then it's not shown.
-	// Stopped: no decision, so it's not shown (finishReply).
-	const decision = decide && !stop.signal.aborted ? await Promise.resolve(result.output).then((d) => d as PostDecision, () => null) : null;
-	if (publishes(decision)) parts.push({ type: "text", text: decision!.message });
+	// None if it stopped before deciding (a call held for approval) or wrote no valid decision. The draft
+	// gives way to what the decision posts, last, after its tool lines. Stopped: no decision; the reply
+	// keeps its message so far.
+	const stopped = stop.signal.aborted;
+	const decision = stopped ? null : await Promise.resolve(result.output).then((d) => d as PostDecision, () => null);
+	if (!stopped) dropDraft();
+	const { message } = responseOf(decision);
+	if (message) parts.push({ type: "text", text: message });
 	await flush();
+	// Neither an answer nor a call held for the person to decide on: it failed, where they see it.
+	if (!stopped && !decision && !parts.some((p) => p.type === "approval")) throw new Error("It didn't write a reply.");
 	return decision;
 }
 
@@ -736,7 +754,6 @@ async function runManage(ctx: ActionCtx, turnId: Id<"agentTurns">, tool: string,
 /** Chats as the turn's person sees them; chatTools.ts and files.ts re-check access on every call. */
 function chatStore(ctx: ActionCtx, turnId: Id<"agentTurns">): ChatStore {
 	return {
-		react: (emoji) => ctx.runMutation(internal.chatTools.reactFor, { turnId, emoji }),
 		read: (input) => ctx.runQuery(internal.chatTools.readFor, { turnId, ...input }),
 		search: (input) => ctx.runQuery(internal.chatTools.searchFor, { turnId, ...input }),
 		async readFile({ id, page }) {

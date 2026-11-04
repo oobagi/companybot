@@ -18,11 +18,12 @@ import {
 	reactionsOf,
 	replyAuthorsOf,
 	requireChat,
+	requirePost,
 	shownAt,
 	toggleReaction,
 	visibleChat,
 } from "./chatOps";
-import { type Who, type Member, memberOf, nameOf, requireMember } from "./lib";
+import { type Who, type Member, canSeeSkill, memberOf, nameOf, requireMember } from "./lib";
 import { noteMentions, workspaceRecords } from "./recordOps";
 import { installOf } from "./skills";
 import type { messagePart, replyStats } from "./schema";
@@ -33,6 +34,7 @@ import { resetChains } from "./chains";
 import { stopTyping } from "./typing";
 import { claimFiles, deleteAttachments } from "./files";
 import { type LinkPreview, previewMessage, previewRow, previewsOf } from "./linkPreviews";
+import { emojiOf } from "@companybot/core";
 import { previewUrl } from "@companybot/core/link-preview";
 import type { fileInfo } from "./schema";
 
@@ -101,7 +103,7 @@ export const list = query({
 				.query("chatMessages")
 				.withIndex("by_chat_thread", (q) => q.eq("chatId", chatId).eq("threadId", threadId))
 				.order("desc")
-				// Wake turns' own replies are never shown (wakeups.ts).
+				// Replies not shown yet (turns.ts `show`), and asks.
 				.filter((q) => q.neq(q.field("quiet"), true))
 				.take(LIST_LIMIT)
 		).sort((a, b) => shownAt(a) - shownAt(b));
@@ -203,6 +205,7 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	const { member } = who;
 	const chat = await requireChat(ctx, member, chatId);
 	if (chat.archived) throw new ConvexError("This chat is in Archive.");
+	requirePost(member, chat);
 	text = text.trim();
 	if (!text && files.length === 0) throw new ConvexError("Write something first.");
 	if (threadId) {
@@ -222,11 +225,12 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 		if (agent?.workspaceId === member.workspaceId && !agent.archived) agentIds.push(id);
 	}
 
-	const recordIds = await workspaceRecords(ctx, member.workspaceId, mentions.recordIds ?? []);
+	const recordIds = await workspaceRecords(ctx, member, mentions.recordIds ?? []);
 	// Only skills installed here (and not in Archive), so a message can't point agents at a made-up one.
 	const skillIds: string[] = [];
 	for (const id of new Set(mentions.skillIds ?? [])) {
-		if (await installOf(ctx, member.workspaceId, id)) skillIds.push(id);
+		const install = await installOf(ctx, member.workspaceId, id);
+		if (install && canSeeSkill(member.userId, install)) skillIds.push(id);
 	}
 
 	// An agent writes as its person (`actingFor`), except to that person alone: there it's just the agent talking.
@@ -324,13 +328,24 @@ export const hidePreview = mutation({
 	handler: async (ctx, { messageId, url }) => hideMessagePreview(ctx, { member: await requireMember(ctx) }, messageId, url),
 });
 
+/** Toggles your reaction. Agents react only through their turn's decision (turns.finishReply). */
 export const react = mutation({
 	args: { messageId: v.id("chatMessages"), emoji: v.string() },
-	handler: async (ctx, { messageId, emoji }) => reactMessage(ctx, { member: await requireMember(ctx) }, messageId, emoji),
+	handler: async (ctx, { messageId, emoji }) => {
+		const member = await requireMember(ctx);
+		const message = await ctx.db.get(messageId);
+		if (!message || message.deleted) throw new ConvexError("Message not found.");
+		requirePost(member, await requireChat(ctx, member, message.chatId));
+		const one = emojiOf(emoji.trim());
+		if (!one) throw new ConvexError("Pick one emoji.");
+		return toggleReaction(ctx, message, one, member.userId);
+	},
 });
 
 export async function editMessage(ctx: MutationCtx, who: Who, messageId: Id<"chatMessages">, text: string) {
 	const message = await requireOwn(ctx, who, messageId);
+	// Deleting your own message stays open in a channel that turned read-only; changing it doesn't.
+	requirePost(who.member, (await ctx.db.get(message.chatId))!);
 	text = text.trim();
 	if (!text && !message.attachments?.length) throw new ConvexError("Write something first, or delete the message.");
 	await ctx.db.patch(message._id, { text, parts: text ? [{ type: "text", text }] : [], editedAt: Date.now() });
@@ -351,16 +366,6 @@ export async function removeMessage(ctx: MutationCtx, who: Who, messageId: Id<"c
 	await deleteAttachments(ctx, message);
 	await ctx.db.patch(message._id, { text: "", parts: [], attachments: undefined, linkPreviews: undefined, deleted: true });
 	await clearMessageLinks(ctx, messageId);
-}
-
-export async function reactMessage(ctx: MutationCtx, who: Who, messageId: Id<"chatMessages">, emoji: string) {
-	const { member } = who;
-	const message = await ctx.db.get(messageId);
-	if (!message || message.deleted) throw new ConvexError("Message not found.");
-	await requireChat(ctx, member, message.chatId);
-	emoji = emoji.trim();
-	if (!emoji || emoji.length > 16) throw new ConvexError("Pick one emoji.");
-	return toggleReaction(ctx, message, emoji, who.agentId ? { agentId: who.agentId } : { userId: member.userId });
 }
 
 /** Deleted content disappears immediately; mentions and reactions drain in bounded batches. */

@@ -1,5 +1,5 @@
 import type { FieldKind } from "@companybot/core/records";
-import { type Role, can } from "@companybot/core/permissions";
+import { type Access, can } from "@companybot/core/permissions";
 import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { Checkbox, Segmented, Select } from "../../controls";
@@ -48,7 +48,7 @@ function useStored<T>(key: string) {
 const noViews: never[] = [];
 const viewKey = (v: { _id: string }) => v._id;
 
-export function RecordList({ type, role }: { type: RecordType; role: Role }) {
+export function RecordList({ type, access }: { type: RecordType; access: Access }) {
 	const views = useQuery(api.databaseViews.list, { typeId: type._id });
 	// Saved views are shared; their order is yours (drag a tab). "All" stays first.
 	const tabs = useSortable(`views.order:${type._id}`, views ?? noViews, viewKey, "x");
@@ -104,7 +104,8 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 	const naming = useRun();
 	const shown = columns.map((k) => fields.find((f) => f.key === k)!);
 	const conditions = filters.map(toCondition).filter((c) => c !== null);
-	const canEdit = can(role, "records.edit");
+	// The server says: the switch, and Edit in this database's Who can access list.
+	const canEdit = type.canEdit;
 	const sortField = sort && fields.find((f) => f.key === sort.field);
 	const args = { typeId: type._id, filters: conditions, sort };
 	const config = { filters: conditions, sort, columns, layout, groupBy: group?.key };
@@ -117,7 +118,7 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 			title={type.plural}
 			actions={
 				<>
-					{can(role, "fields.manage") && (
+					{type.canManage && (
 						<button type="button" className={barButton} onClick={() => setEditingDatabase(true)}>
 							<EditIcon /> Edit database
 						</button>
@@ -193,7 +194,7 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 					fields={fields}
 					columns={columns}
 					onChange={setColumns}
-					onNewField={can(role, "fields.create") ? () => setAddingField("text") : undefined}
+					onNewField={type.canManage ? () => setAddingField("text") : undefined}
 				/>
 				{layout === "board" && group && (
 					<label className="flex items-center gap-2 text-neutral-600">
@@ -425,8 +426,8 @@ function FilterValue({ field, filter, onChange }: { field: TypeField; filter: Fi
 					<Chip key={id} onRemove={() => onChange(ids.filter((i) => i !== id))}>{label(id)}</Chip>
 				))}
 				{field.kind === "link" ? (
-					<RecordPicker
-						typeId={field.linkType!}
+					field.linkType && <RecordPicker
+						typeId={field.linkType}
 						exclude={ids}
 						label="Pick"
 						onPick={(id, name) => {

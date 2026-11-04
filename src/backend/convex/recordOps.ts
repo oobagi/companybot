@@ -7,11 +7,9 @@ import {
 	NAME_KEY,
 	RECORD_MAX_BYTES,
 	type ValueMode,
-	canEditMade,
 	fieldConfigError,
 	indexEntries,
 	keyOf,
-	madeEditDenied,
 	normalizeFieldConfig,
 	normalizeValue,
 	singularOf,
@@ -22,8 +20,10 @@ import {
 import { ConvexError, getDocumentSize } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { type Member, type Who, checkPermission, checkVersion, memberOf, memo, nameOf, requireInWorkspace, toActor } from "./lib";
+import { type Member, type Who, checkPermission, checkVersion, memberOf, memo, nameOf, requireInWorkspace } from "./lib";
 import { toggleTrash } from "./trashOps";
+import { type AccessLevel, reaches } from "@companybot/core";
+import { reach, requireAccess } from "./placeAccess";
 
 // Records, fields and their history. Shared by the app's functions (records.ts,
 // recordTypes.ts) and agent tools (recordTools.ts), so both follow the same rules. Agents pass
@@ -32,16 +32,41 @@ import { toggleTrash } from "./trashOps";
 export type Values = Record<string, FieldValue>;
 type Change = Doc<"recordHistory">["changes"][number];
 
-/** A database in the person's workspace. Other workspaces' look like they don't exist. */
-export async function requireType(ctx: QueryCtx, member: Member, typeId: Id<"recordTypes">, live = false) {
+/**
+ * A database in the person's workspace that they reach `need` in (its Who can access list).
+ * Other workspaces' look like they don't exist; one kept from them names who can see or change it.
+ * `edit` is for changes, so it also refuses a database in Archive.
+ */
+export async function requireType(ctx: QueryCtx, member: Member, typeId: Id<"recordTypes">, need: AccessLevel = "view", asked?: string) {
 	const type = requireInWorkspace(member, await ctx.db.get(typeId), "Database");
-	if (live && type.archived) throw new ConvexError("This database is in Archive. Restore it to make changes.");
+	requireAccess(member, "database", type.plural, type.access, need, asked);
+	if (need === "edit" && type.archived) throw new ConvexError("This database is in Archive. Restore it to make changes.");
 	return type;
 }
 
-export async function requireRecord(ctx: QueryCtx, member: Member, recordId: Id<"records">) {
-	return requireInWorkspace(member, await ctx.db.get(recordId), "Record");
+/** A record whose database the person reaches `need` in (as `requireType`). */
+export async function requireRecord(ctx: QueryCtx, member: Member, recordId: Id<"records">, need: AccessLevel = "view") {
+	const record = requireInWorkspace(member, await ctx.db.get(recordId), "Record");
+	const type = await ctx.db.get(record.typeId);
+	if (type) requireAccess(member, "database", type.plural, type.access, need);
+	return record;
 }
+
+/**
+ * How far someone reaches in each database ("edit", "view" or null), read once per call however many
+ * records share it. Lists, search, links and history drop what this says null to.
+ */
+export const typeReach = (ctx: QueryCtx, member: Member) =>
+	memo(async (typeId: Id<"recordTypes">) => {
+		const type = await ctx.db.get(typeId);
+		return type && type.workspaceId === member.workspaceId ? reach(member, type.access) : null;
+	});
+
+/** Whether someone can see records of this database (`typeReach`). */
+export const typeVisible = (ctx: QueryCtx, member: Member) => {
+	const level = typeReach(ctx, member);
+	return async (typeId: Id<"recordTypes">) => reaches(await level(typeId), "view");
+};
 
 /** A record from an id an agent sent, which may be any string. */
 export function recordById(ctx: QueryCtx, member: Member, id: string, notFound = "Record not found.") {
@@ -79,6 +104,19 @@ export const toField = (f: Doc<"recordFields">): Field => ({
 	...(f.multiple && { multiple: true }),
 });
 
+/**
+ * Fields as this person's app shows them. A link to a database they can't see keeps no id of it, which
+ * agents' tools would take and name: `linksHidden` instead, and its values show as locked records.
+ */
+export function fieldsShown(ctx: QueryCtx, member: Member) {
+	const visible = typeVisible(ctx, member);
+	return async (f: Doc<"recordFields">) => {
+		const { linkType, ...field } = toField(f);
+		if (!linkType) return field;
+		return (await visible(f.linkTypeId!)) ? { ...field, linkType } : { ...field, linksHidden: true as const };
+	};
+}
+
 /** Changes go through here, so this is where record automations will hook in (`fireEvent`). */
 export async function logChange(ctx: MutationCtx, who: Who, entry: Omit<Doc<"recordHistory">, "_id" | "_creationTime" | "workspaceId" | "userId" | "agentId">) {
 	return ctx.db.insert("recordHistory", {
@@ -105,6 +143,8 @@ async function normalizeInput(
 	fields: Doc<"recordFields">[],
 	input: Record<string, unknown>,
 	mode: ValueMode = "input",
+	/** The record's values now: a link it already has may stay even where the person can't see its target. */
+	current: Values = {},
 ) {
 	const byKey = new Map(fields.map((f) => [f.key, f]));
 	const currency = await currencyOf(ctx, member.workspaceId);
@@ -120,11 +160,14 @@ async function normalizeInput(
 			if (!userId || !(await memberOf(ctx, userId, member.workspaceId)))
 				throw new ConvexError(`Someone picked for “${field.label}” isn't in this workspace.`);
 		}
+		const kept = new Set([current[key] ?? []].flat().map(String));
 		for (const id of field.kind === "link" ? ids : []) {
 			const recordId = ctx.db.normalizeId("records", id);
 			const target = recordId && (await ctx.db.get(recordId));
 			if (!target || target.workspaceId !== member.workspaceId || target.typeId !== field.linkTypeId || (await inTrash(ctx, target)))
 				throw new ConvexError(`“${field.label}” links to a record that doesn't exist.`);
+			// Linking reads the target (its name shows on this record), so it takes seeing its database.
+			if (!kept.has(id)) await requireRecord(ctx, member, target._id);
 		}
 		out[key] = result.value;
 	}
@@ -167,6 +210,7 @@ export async function createRecord(ctx: MutationCtx, who: Who, typeId: Id<"recor
 	checkPermission(who.member, "records.edit");
 	const type = await requireType(ctx, who.member, typeId);
 	if (type.archived) throw new ConvexError(`${type.plural} is in Archive.`);
+	requireAccess(who.member, "database", type.plural, type.access, "edit");
 	const fields = await fieldsOf(ctx, typeId);
 	const values: Values = {};
 	for (const [key, value] of Object.entries(await normalizeInput(ctx, who.member, fields, input))) {
@@ -201,10 +245,10 @@ export async function createRecord(ctx: MutationCtx, who: Who, typeId: Id<"recor
  */
 export async function updateRecord(ctx: MutationCtx, who: Who, recordId: Id<"records">, input: Record<string, unknown>) {
 	checkPermission(who.member, "records.edit");
-	const record = await requireRecord(ctx, who.member, recordId);
+	const record = await requireRecord(ctx, who.member, recordId, "edit");
 	await requireLive(ctx, record);
 	const fields = await fieldsOf(ctx, record.typeId);
-	return applyValues(ctx, who, record, fields, await normalizeInput(ctx, who.member, fields, input));
+	return applyValues(ctx, who, record, fields, await normalizeInput(ctx, who.member, fields, input, "input", record.values));
 }
 
 /** Stores `next` (null clears) and logs what changed. Returns the history entry, if anything changed. */
@@ -241,7 +285,7 @@ async function applyValues(
  */
 export async function setRecordTrashed(ctx: MutationCtx, who: Who, recordId: Id<"records">, archived: boolean, undoes?: Id<"recordHistory">) {
 	checkPermission(who.member, "records.edit");
-	const record = await requireRecord(ctx, who.member, recordId);
+	const record = await requireRecord(ctx, who.member, recordId, "edit");
 	if (record.archived === archived) return null;
 	if (archived) await requireLive(ctx, record);
 	else {
@@ -265,7 +309,7 @@ export async function undoChange(ctx: MutationCtx, who: Who, historyId: Id<"reco
 	const entry = await ctx.db.get(historyId);
 	if (!entry || entry.workspaceId !== who.member.workspaceId || !entry.recordId) throw new ConvexError("Change not found.");
 	if (entry.undoneBy) throw new ConvexError("That change was already undone.");
-	const record = await requireRecord(ctx, who.member, entry.recordId);
+	const record = await requireRecord(ctx, who.member, entry.recordId, "edit");
 	let undoneBy: Id<"recordHistory"> | null;
 	if (entry.action === "updated") {
 		await requireLive(ctx, record);
@@ -277,7 +321,7 @@ export async function undoChange(ctx: MutationCtx, who: Who, historyId: Id<"reco
 			}
 		}
 		const old = Object.fromEntries(entry.changes.map((c) => [c.key, c.old ?? null]));
-		undoneBy = await applyValues(ctx, who, record, fields, await normalizeInput(ctx, who.member, fields, old, "stored"), historyId);
+		undoneBy = await applyValues(ctx, who, record, fields, await normalizeInput(ctx, who.member, fields, old, "stored", record.values), historyId);
 	} else undoneBy = await setRecordTrashed(ctx, who, record._id, entry.action !== "archived", historyId);
 	if (!undoneBy) throw new ConvexError("Nothing to undo.");
 	await ctx.db.patch(historyId, { undoneBy });
@@ -289,10 +333,14 @@ export async function noteMentions(ctx: MutationCtx, message: { _id: Id<"chatMes
 	for (const recordId of recordIds) await ctx.db.insert("recordMentions", { recordId, messageId: message._id, chatId: message.chatId });
 }
 
-/** The records among `ids` in the workspace, deduped. Others are dropped, not trusted. */
-export async function workspaceRecords(ctx: QueryCtx, workspaceId: Id<"workspaces">, ids: Id<"records">[]) {
+/** The records among `ids` the person can see, deduped. Others are dropped, not trusted. */
+export async function workspaceRecords(ctx: QueryCtx, member: Member, ids: Id<"records">[]) {
+	const visible = typeVisible(ctx, member);
 	const out: Id<"records">[] = [];
-	for (const id of new Set(ids)) if ((await ctx.db.get(id))?.workspaceId === workspaceId) out.push(id);
+	for (const id of new Set(ids)) {
+		const record = await ctx.db.get(id);
+		if (record?.workspaceId === member.workspaceId && (await visible(record.typeId))) out.push(id);
+	}
 	return out;
 }
 
@@ -315,15 +363,16 @@ function requireFieldConfig(config: FieldConfig) {
 
 /** Adds a field to a type. Existing records just don't have a value yet: nothing to backfill. */
 export async function createField(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, input: FieldInput) {
-	checkPermission(who.member, "fields.create");
-	await requireType(ctx, who.member, typeId, true);
+	checkPermission(who.member, "fields.edit");
+	await requireType(ctx, who.member, typeId, "edit");
 	const fields = await fieldsOf(ctx, typeId);
 	if (fields.length >= FIELDS_PER_TYPE_MAX) throw new ConvexError(`A database holds up to ${FIELDS_PER_TYPE_MAX} fields.`);
 	const { linkTypeId, ...rest } = input;
 	const config = normalizeFieldConfig({ ...rest, linkType: linkTypeId });
 	requireFieldConfig(config);
 	requireUniqueLabel(fields, config.label);
-	if (linkTypeId) await requireType(ctx, who.member, linkTypeId, true);
+	// Linking to a database shows its records' names here, so it takes seeing it.
+	if (linkTypeId && (await requireType(ctx, who.member, linkTypeId)).archived) throw new ConvexError("This database is in Archive. Restore it to make changes.");
 	const key = keyOf(config.label, fields.map((f) => f.key));
 	const id = await insertField(ctx, who.member, typeId, { ...config, key }, Math.max(0, ...fields.map((f) => f.position)) + 1, linkTypeId);
 	await logChange(ctx, who, { typeId, fieldId: id, action: "field.created", changes: [{ key: "label", new: config.label }] });
@@ -332,8 +381,8 @@ export async function createField(ctx: MutationCtx, who: Who, typeId: Id<"record
 
 async function requireEditableField(ctx: QueryCtx, member: Member, fieldId: Id<"recordFields">) {
 	const field = requireInWorkspace(member, await ctx.db.get(fieldId), "Field");
-	await requireType(ctx, member, field.typeId, true);
-	if (!canEditMade(toActor(member), "fields.manage", field.createdBy)) throw new ConvexError(madeEditDenied);
+	await requireType(ctx, member, field.typeId, "edit");
+	checkPermission(member, "fields.edit");
 	return field;
 }
 
@@ -368,7 +417,7 @@ export async function updateField(
 	const changes: Change[] = [];
 	let reordered: Doc<"recordFields">[] | undefined;
 	if (update.position !== undefined) {
-		checkPermission(who.member, "fields.manage");
+		checkPermission(who.member, "fields.edit");
 		const fields = (await fieldsOf(ctx, field.typeId)).filter((f) => !f.archived);
 		if (field.key === NAME_KEY || !Number.isInteger(update.position) || update.position < 1 || update.position >= fields.length)
 			throw new ConvexError("Choose a field position after Name within the live fields.");
@@ -397,7 +446,7 @@ export async function setFieldTrashed(ctx: MutationCtx, who: Who, fieldId: Id<"r
 	if (field.key === NAME_KEY) throw new ConvexError("Every record needs a name, so this field stays.");
 	if (field.archived === archived) return;
 	if (!archived) {
-		await requireType(ctx, who.member, field.typeId, true);
+		await requireType(ctx, who.member, field.typeId, "edit");
 		requireUniqueLabel(await fieldsOf(ctx, field.typeId), field.label, fieldId);
 	}
 	await toggleTrash(ctx, who, archived, { kind: "field", id: fieldId, name: field.label, typeId: field.typeId });
@@ -418,7 +467,7 @@ function databaseNames(plural: string, singular: string | undefined, types: Doc<
 
 /** A new database with just a name field. */
 export async function createType(ctx: MutationCtx, who: Who, input: { plural: string; name?: string }) {
-	checkPermission(who.member, "fields.manage");
+	checkPermission(who.member, "fields.edit");
 	const types = await typesOf(ctx, who.member.workspaceId);
 	if (types.length >= TYPES_MAX) throw new ConvexError(`A workspace holds up to ${TYPES_MAX} databases, including ones in Archive.`);
 	const names = databaseNames(input.plural, input.name, types);
@@ -430,8 +479,8 @@ export async function createType(ctx: MutationCtx, who: Who, input: { plural: st
 
 /** Rename. A new plural alone re-guesses the singular. */
 export async function updateType(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, input: { name?: string; plural?: string; version: number }) {
-	checkPermission(who.member, "fields.manage");
-	const type = await requireType(ctx, who.member, typeId, true);
+	checkPermission(who.member, "fields.edit");
+	const type = await requireType(ctx, who.member, typeId, "edit");
 	checkVersion(type.version ?? 0, input.version);
 	const names = databaseNames(input.plural ?? type.plural, input.name ?? (input.plural === undefined ? type.name : undefined), await typesOf(ctx, who.member.workspaceId), typeId);
 	const changes = (["name", "plural"] as const).filter((key) => type[key] !== names[key]).map((key) => ({ key, old: type[key], new: names[key] }));
@@ -442,8 +491,10 @@ export async function updateType(ctx: MutationCtx, who: Who, typeId: Id<"recordT
 
 /** Moves a database to Archive, with its records, fields and views, or brings it back if its names are free. */
 export async function setTypeTrashed(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, archived: boolean) {
-	if (archived) checkPermission(who.member, "fields.manage");
+	if (archived) checkPermission(who.member, "fields.edit");
 	const type = await requireType(ctx, who.member, typeId);
+	// Archiving or restoring changes it for everyone who sees it, so it takes Edit in it.
+	requireAccess(who.member, "database", type.plural, type.access, "edit");
 	if (type.archived === archived) return;
 	if (!archived) databaseNames(type.plural, type.name, await typesOf(ctx, who.member.workspaceId), typeId);
 	await toggleTrash(ctx, who, archived, { kind: "database", id: typeId, name: type.plural });
@@ -479,8 +530,11 @@ const insertField = (
 
 // ---- Display ----
 
-/** A person's or record's name, for a user or link value. `archived`: the record is in Archive, or deleted for good. */
-export type Ref = { name: string; archived?: true };
+/**
+ * A person's or record's name, for a user or link value. `archived`: the record is in Archive, or
+ * deleted for good. `locked`: a record in a database the person can't see; its name stays hidden.
+ */
+export type Ref = { name: string; archived?: true; locked?: true };
 
 /** Most names one response resolves, and most bytes it reads doing so; the rest go through `records.refs`. */
 const REFS_MAX = 200;
@@ -495,7 +549,9 @@ export function idsIn(fields: Doc<"recordFields">[], values: Partial<Values>) {
  * Names for `ids`, each read once, within a read budget so a page full of links can't
  * hit Convex's per-query limits. Ids past the budget come back in `unresolved`.
  */
-export async function resolveRefs(ctx: QueryCtx, workspaceId: Id<"workspaces">, ids: Iterable<string>) {
+export async function resolveRefs(ctx: QueryCtx, member: Member, ids: Iterable<string>) {
+	const { workspaceId } = member;
+	const visible = typeVisible(ctx, member);
 	const refs: Record<string, Ref> = {};
 	const unresolved: string[] = [];
 	let count = 0;
@@ -511,10 +567,16 @@ export async function resolveRefs(ctx: QueryCtx, workspaceId: Id<"workspaces">, 
 		const userId = recordId ? null : ctx.db.normalizeId("users", id);
 		if (recordId) {
 			const record = await ctx.db.get(recordId);
+			// Every record read counts against the budget, including ones refused below.
+			if (record) bytes += getDocumentSize(record);
 			// Deleted for good: its links stay stored, like ones to a record in Archive.
 			if (!record) refs[id] = { name: "Deleted record", archived: true };
 			if (record?.workspaceId !== workspaceId) continue;
-			bytes += getDocumentSize(record);
+			// A link into a database they can't see shows as a locked chip, without the record's name.
+			if (!(await visible(record.typeId))) {
+				refs[id] = { name: "", locked: true };
+				continue;
+			}
 			refs[id] = { name: record.title, ...((record.archived || (await trashed(record.typeId))) && { archived: true }) };
 		} else if (userId) {
 			refs[id] = { name: (await memberOf(ctx, userId, workspaceId)) ? await nameOf(ctx, userId) : "Former member" };
@@ -524,9 +586,9 @@ export async function resolveRefs(ctx: QueryCtx, workspaceId: Id<"workspaces">, 
 }
 
 /** Records, display-ready, with the names their values point at resolved once for all of them. */
-export async function toRows(ctx: QueryCtx, workspaceId: Id<"workspaces">, items: { record: Doc<"records">; fields: Doc<"recordFields">[] }[]) {
+export async function toRows(ctx: QueryCtx, member: Member, items: { record: Doc<"records">; fields: Doc<"recordFields">[] }[]) {
 	const idsOf = items.map(({ record, fields }) => idsIn(fields, record.values));
-	const { refs, unresolved } = await resolveRefs(ctx, workspaceId, idsOf.flat());
+	const { refs, unresolved } = await resolveRefs(ctx, member, idsOf.flat());
 	const missing = new Set(unresolved);
 	return items.map(({ record }, i) => ({
 		_id: record._id,

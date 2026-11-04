@@ -1,6 +1,6 @@
 import { scribe } from "../test/fixtures";
 import { describe, expect, it } from "vitest";
-import { buildToolSet, describeToolAccess, resolveTools, validateAgentConfig } from "./agents";
+import { buildToolSet, describeToolAccess, resolveTools, toolApprovalPolicy, validateAgentConfig } from "./agents";
 import { blankAgent, companybot } from "./default-agents";
 import { isGranted, modelToolName } from "./tools";
 import { isWidgetToolName } from "./widgets";
@@ -25,7 +25,6 @@ describe("tool visibility", () => {
 			"widgets.table",
 			"widgets.stats",
 			"widgets.card",
-			"chat.react",
 			"chat.read",
 			"chat.search",
 			"chat.read_file",
@@ -55,14 +54,20 @@ describe("tool visibility", () => {
 			"images.generate",
 			"chat.manage", "channels.manage", "automations.manage", "automations.remove", "skills.manage", "skills.remove", "members.invite", "members.remove", "workspace.settings", "agents.manage",
 		].sort());
-		expect(resolveTools(companybot, owner).map((t) => t.id)).toContain("memory.forget");
+		expect(resolveTools(companybot).map((t) => t.id)).toContain("memory.forget");
 	});
 
-	it("hides owner-only tools from members", () => {
+	it("offers every granted built-in whatever the person's roles; a call their roles lack is checked, then refused", async () => {
 		const agent = { tools: ["records.save_database"] };
-		expect(describeToolAccess(agent, member)).toEqual([{ id: "records.save_database", visible: false, reason: "role" }]);
-		expect(resolveTools(companybot, member).map((t) => t.id)).not.toContain("records.save_database");
-		expect(resolveTools(companybot, member).map((t) => t.id)).toContain("memory.remember_for_team");
+		expect(describeToolAccess(agent, { ...member, permissions: [] })).toEqual([{ id: "records.save_database", visible: true }]);
+		expect(resolveTools(companybot).map((t) => t.id)).toContain("records.save_database");
+		const tools = resolveTools(agent);
+		const message = "Only people with the Owner role can add and change databases and fields. Ask someone who has it.";
+		const policy = toolApprovalPolicy(tools, async () => ({ type: "deny", by: "role", message }));
+		expect(await policy({ toolCall: { toolCallId: "c1", toolName: "records_save_database", input: { name: "Deals" } } })).toEqual({
+			type: "denied",
+			reason: `The person you act for can't do this, so records.save_database didn't run. ${message} Tell them that; don't try it again.`,
+		});
 	});
 
 	it("covers a whole group with a wildcard grant", () => {
@@ -78,17 +83,18 @@ describe("tool visibility", () => {
 			"widgets.table",
 			"widgets.stats",
 			"widgets.card",
-			"chat.react",
 			"chat.read",
 		]);
 	});
 
-	it("only sends visible tools to the model", () => {
+	it("sends the same granted tools to the model whatever the person's roles", () => {
 		expect(Object.keys(buildToolSet(companybot, ctx(member))).sort()).toEqual([
 			"memory_search",
 			"memory_remember",
 			"memory_remember_for_team",
 			"memory_update",
+			"members_invite",
+			"members_remove",
 			"memory_forget",
 			"clock_now",
 			"help_read",
@@ -98,7 +104,6 @@ describe("tool visibility", () => {
 			"widgets_table",
 			"widgets_stats",
 			"widgets_card",
-			"chat_react",
 			"chat_read",
 			"chat_search",
 			"chat_read_file",
@@ -115,6 +120,7 @@ describe("tool visibility", () => {
 			"records_history",
 			"records_save",
 			"records_undo",
+			"records_save_database",
 			"records_save_field",
 			"records_views",
 			"records_save_view",

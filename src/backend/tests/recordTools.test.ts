@@ -1,4 +1,4 @@
-import { ownerAndMember, signIn } from "./helpers";
+import { ownerAndMember, signIn, setMemberSwitch } from "./helpers";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
@@ -256,7 +256,7 @@ describe("records tools", () => {
 		expect((await tools.get(client.id)).linkedFrom).toEqual([{ id: deal.id, type: "deal", name: "Roof", via: "Client" }]);
 	});
 
-	it("add fields as anyone, but change built-in ones only as an owner, read fresh each call", async () => {
+	it("add and change fields with the databases switch, whoever added them, read fresh each call", async () => {
 		const { t, owner, member } = await ownerAndMember();
 		const tools = await turnFor(t, member);
 		const roof = await tools.saveField({ type: "client", label: "Roof type", kind: "choice", options: ["Shingle", "Metal"] });
@@ -265,9 +265,12 @@ describe("records tools", () => {
 		expect(acme.values.roof_type).toBe("Metal");
 		expect(await tools.saveField({ type: "client", field: "roof type", options: ["Shingle", "Metal", "Tile"] })).toMatchObject({ options: ["Shingle", "Metal", "Tile"] });
 		const stages = { type: "deal", field: "Stage", options: ["New", "Qualified", "Proposal", "Negotiation", "Won", "Lost"] };
-		expect(await tools.saveField(stages)).toEqual({ error: "Only the person who made this or an owner can change it." });
+		await setMemberSwitch(owner, "fields.edit", false);
+		expect(await tools.saveField(stages)).toEqual({ error: "Only people with the Owner role can add and change databases and fields. Ask someone who has it." });
+		expect(await tools.saveField({ type: "client", field: "roof type", options: ["Shingle"] })).toHaveProperty("error");
 		const row = await t.run((ctx) => ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", member.userId)).first());
-		await owner.mutation(api.workspace.setRole, { id: row!._id, role: "owner" });
+		const ownerRole = (await owner.query(api.roles.list))!.find((r) => r.builtIn === "owner")!.id;
+		await owner.mutation(api.workspace.setRoles, { id: row!._id, roles: [ownerRole] });
 		expect(await tools.saveField(stages)).toMatchObject({ options: stages.options });
 		expect(await tools.saveField({ type: "deal", field: "stage", kind: "text" })).toEqual({ error: expect.stringContaining("Only a field's name and options") });
 		const linked = await tools.saveField({ type: "task", label: "Call", kind: "link", linksTo: "Calls" });

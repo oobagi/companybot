@@ -4,7 +4,7 @@ import type { Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { channelNamed } from "./chatOps";
 import { asToolResult, nameOf, timeZoneOf } from "./lib";
-import { definitionOf, installOf, runsForLabel, subscribersOf, visibleInstalls, webhookUrl } from "./automationOps";
+import { definitionOf, installOf, runsForLabel, seenChannel, subscribersOf, visibleInstalls, webhookUrl } from "./automationOps";
 import { createAutomation, setSubscription } from "./automations";
 import { runningTurn } from "./turns";
 
@@ -17,10 +17,10 @@ export const listFor = internalQuery({
 		const installs = await visibleInstalls(ctx, member);
 		const rows = await Promise.all(
 			installs.map(async (install) => {
-				const automation = await definitionOf(ctx, install);
+				const automation = await definitionOf(ctx, install, member);
 				if (!automation) return null; // its library entry was removed
 				const audience = install.audience;
-				const channel = (install.channelId && (await ctx.db.get(install.channelId))) || null;
+				const channel = await seenChannel(ctx, member, install.channelId);
 				return {
 					id: install.automationId,
 					name: automation.name,
@@ -69,7 +69,7 @@ export const createFor = internalMutation({
 				timeZone,
 			});
 			const install = (await installOf(ctx, member.workspaceId, id))!;
-			const automation = (await definitionOf(ctx, install))!;
+			const automation = (await definitionOf(ctx, install, member))!;
 			const channel = channelId ? await ctx.db.get(channelId) : null;
 			return {
 				created: id,

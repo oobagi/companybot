@@ -39,7 +39,7 @@ export const request = internalMutation({
 		// Automation and wake cards belong only in the acting person's DM, even for channel/thread runs.
 		// Keep chatId/threadId as the execution place: implicit targets must not change on approval.
 		const dmId = (trigger?.automation || turn.wakeupId) && await findOrCreateDm(ctx, turn.workspaceId, turn.actorId, [turn.actorId], [turn.agentId]);
-		// In the DM itself it goes in the reply, which is shown with it (turns.finishReply), quiet or not.
+		// In the DM itself it goes in the reply, which is shown with it (turns.ts `show`).
 		const separate = !!dmId && dmId !== turn.chatId;
 		const replyId = separate ? await insertMessage(ctx, (await ctx.db.get(dmId!))!, {
 			authorAgentId: turn.agentId, text: "", parts: [], mentions: { userIds: [], agentIds: [] }, status: "done",
@@ -67,7 +67,7 @@ export const request = internalMutation({
 });
 
 /**
- * Whether the card may offer "Always allow", read live (an owner may have locked it
+ * Whether the card may offer "Always allow", read live (someone with actions.lock may have locked it
  * since), and the automation a grant would be scoped to. Old rows without a risk: no.
  */
 async function alwaysFor(ctx: QueryCtx, row: Doc<"approvals">) {
@@ -107,7 +107,10 @@ export const forReply = query({
 				const connector = findConnector(group) ?? null;
 				const always = mine && approvalStatus(row) === "pending" ? await alwaysFor(ctx, row) : null;
 				const title = await titleOf(ctx, row.workspaceId, row.tool);
-				const input: unknown = JSON.parse(row.input);
+				// A skill proposal may be private even when its write is later refused.
+				const privateInput = row.actorId !== member.userId && (row.tool === "skills.create" || row.tool === "skills.edit");
+				const shownInput = privateInput ? "{}" : row.input;
+				const input: unknown = JSON.parse(shownInput);
 				const automation = row.automationInstallId && (await ctx.db.get(row.automationInstallId));
 
 				return {
@@ -135,7 +138,7 @@ export const forReply = query({
 					/** Set when "Always allow" saved a rule. */
 					always: row.always ?? false,
 					/** The exact input that will run, as canonical JSON. */
-					input: row.input,
+					input: shownInput,
 					hash: row.hash,
 					status: approvalStatus(row),
 					approver: (await names.user(row.actorId)).name,
@@ -143,7 +146,7 @@ export const forReply = query({
 					expiresAt: row.expiresAt,
 					decidedAt: row.decidedAt ?? null,
 					result: mine ? (row.result ?? null) : null,
-					error: row.error ?? null,
+					error: privateInput ? null : row.error ?? null,
 				};
 			}),
 		);
@@ -185,12 +188,12 @@ export const decide = mutation({
 			agentId: row.agentId,
 			chatId: row.chatId,
 			threadId: row.threadId,
-			// The message that started it all, so chat.react still reacts to the person's message.
+			// The message that started it all, so the decision's reaction lands on the person's message.
 			// An old welcome turn had none: then there's nothing to react to.
 			triggerId: asked ? asked.triggerId : row.replyId,
 			actorId: row.actorId,
 			approvalId,
-			// A wake's follow-up turn stays quiet, and as trusted as the wake.
+			// A wake's follow-up turn stays a wake, as trusted as the wake.
 			...(asked?.wakeupId && { wakeupId: asked.wakeupId }),
 			// Still in its chain of agents, or still answering another agent's ask (chains.ts).
 			...(asked?.chain && { chain: asked.chain }),

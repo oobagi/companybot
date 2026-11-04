@@ -1,31 +1,17 @@
 import type { ChatLine, ChatResult } from "@companybot/core";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
-import { type Namer, canSee, label as authorLabel, chatByRef, chatLabel, namer, reactionsOf, shownAt, textForModel } from "./chatOps";
+import { type QueryCtx, internalQuery } from "./_generated/server";
+import { type Namer, canSee, label as authorLabel, chatByRef, chatLabel, namer, reactionGroups, shownAt, textForModel } from "./chatOps";
 import { filesForModel } from "./files";
 import { asToolResult } from "./lib";
-import { reactMessage } from "./messages";
 import { runningTurn } from "./turns";
 
 // ---- Chat tools (core's ChatStore), acting as the turn's person ----
 
-export const reactFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), emoji: v.string() },
-	handler: async (ctx, { turnId, emoji }): Promise<{ reacted: boolean } | { error: string }> => {
-		const { turn, who } = await runningTurn(ctx, turnId);
-		if (!turn.triggerId) return { error: "Nobody asked you anything yet, so there's no message to react to." };
-		const triggerId = turn.triggerId;
-		return asToolResult(async () => ({ reacted: await reactMessage(ctx, who, triggerId, emoji) }));
-	},
-});
-
 async function toLine(ctx: QueryCtx, m: Doc<"chatMessages">, names: Namer, label: string): Promise<ChatLine> {
 	const author = authorLabel(await names.of(m));
-	const reactions = new Map<string, string[]>();
-	for (const r of await reactionsOf(ctx, m._id)) {
-		reactions.set(r.emoji, [...(reactions.get(r.emoji) ?? []), (await names.of(r)).name]);
-	}
+	const reactions = await reactionGroups(ctx, m._id, names);
 	return {
 		id: m._id,
 		chat: label,
@@ -34,7 +20,7 @@ async function toLine(ctx: QueryCtx, m: Doc<"chatMessages">, names: Namer, label
 		time: new Date(m._creationTime).toISOString(),
 		text: textForModel(m, author),
 		...(!m.threadId && m.replyCount && { replies: m.replyCount }),
-		...(reactions.size > 0 && { reactions: [...reactions].map(([emoji, by]) => ({ emoji, by })) }),
+		...(reactions.length > 0 && { reactions }),
 		...(m.attachments?.length && { files: filesForModel(m) }),
 	};
 }
@@ -49,6 +35,7 @@ export const readFor = internalQuery({
 	},
 	handler: async (ctx, args): Promise<ChatResult> => {
 		const { turn, member, chat: here } = await runningTurn(ctx, args.turnId);
+		return asToolResult(async (): Promise<ChatResult> => {
 		let chat: Doc<"chats"> | null = here;
 		let threadId: Id<"chatMessages"> | undefined = args.chat ? undefined : turn.threadId;
 		if (args.threadOf) {
@@ -70,7 +57,7 @@ export const readFor = internalQuery({
 				.withIndex("by_chat_thread", (q) => q.eq("chatId", chat._id).eq("threadId", threadId).lt("_creationTime", before))
 				.order("desc")
 				// Replies still being written (this one included) aren't history yet.
-				// Wake turns' quiet replies were never said in the chat.
+				// Quiet: replies never shown, and asks: never said in the chat.
 				.filter((q) => q.and(q.neq(q.field("deleted"), true), q.neq(q.field("status"), "streaming"), q.neq(q.field("quiet"), true)))
 				.take(limit)
 		).sort((a, b) => shownAt(a) - shownAt(b));
@@ -79,6 +66,7 @@ export const readFor = internalQuery({
 		const label = await chatLabel(ctx, chat, names, turn.agentId);
 		const all = parent && !parent.deleted && parent._creationTime < before ? [parent, ...docs] : docs;
 		return { messages: await Promise.all(all.map((m) => toLine(ctx, m, names, label))) };
+		});
 	},
 });
 
@@ -86,6 +74,7 @@ export const searchFor = internalQuery({
 	args: { turnId: v.id("agentTurns"), query: v.string(), chat: v.optional(v.string()) },
 	handler: async (ctx, args): Promise<ChatResult> => {
 		const { turn, member } = await runningTurn(ctx, args.turnId);
+		return asToolResult(async (): Promise<ChatResult> => {
 		let chatId: Id<"chats"> | undefined;
 		if (args.chat) {
 			const chat = await chatByRef(ctx, member, args.chat);
@@ -114,5 +103,6 @@ export const searchFor = internalQuery({
 			if (label) lines.push(await toLine(ctx, m, names, label));
 		}
 		return { messages: lines };
+		});
 	},
 });

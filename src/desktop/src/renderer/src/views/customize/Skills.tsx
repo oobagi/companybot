@@ -1,13 +1,15 @@
-import { type Role, can } from "@companybot/core/permissions";
+import { type Access, can } from "@companybot/core/permissions";
 import { SKILL_DESCRIPTION_MAX, SKILL_NAME_MAX } from "@companybot/core/skills";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
+import { Select } from "../../controls";
+import { useConfirm } from "../chat/common";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { SkillIcon } from "../../icons";
 import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
-import { Field, Loading, Notice, Section, inputClass, useRun } from "../../ui";
+import { Field, Loading, Notice, Section, secondaryButton, inputClass, useRun } from "../../ui";
 import { Card, Detail, Facts, ItemList, MadeItemDetail, Missing, NewItem } from "./shared";
 
 type SkillItem = FunctionReturnType<typeof api.skills.list>[number];
@@ -20,6 +22,7 @@ export function SkillsTab() {
 			key={s.id}
 			title={s.name}
 			meta={`v${s.version}`}
+			status={s.audience === "personal" ? "Just me" : "Team"}
 			description={s.description}
 			onOpen={() => navigate("settings", "skills", s.id)}
 		/>
@@ -73,7 +76,8 @@ function SkillFields({ value, onChange }: { value: SkillConfig; onChange: (value
 	);
 }
 
-function NewSkill() {
+function NewSkill({ access }: { access: Access }) {
+	const [audience, setAudience] = useState<"team" | "personal">("personal");
 	const create = useMutation(api.skills.create);
 	const { error, run } = useRun();
 	const [config, setConfig] = useState<SkillConfig>({ name: "", description: "", instructions: "" });
@@ -83,14 +87,21 @@ function NewSkill() {
 			tab="skills"
 			noun="skill"
 			error={error}
-			onCreate={() => run(create({ config }).then((id) => navigate("settings", "skills", id)))}
+			onCreate={() => run(create({ config, audience }).then((id) => navigate("settings", "skills", id)))}
 		>
+			<Field label="Runs for" hint={!can(access, "skills.edit") ? "This skill is just for you. Sharing with the team needs a role that can make and change team skills." : undefined}>
+				<Select label="Runs for" className={inputClass} value={audience}
+					options={[{ value: "personal", label: "Just me" }, ...(can(access, "skills.edit") ? [{ value: "team", label: "Team" }] : [])]}
+					onChange={(value) => setAudience(value as "personal" | "team")} />
+			</Field>
 			<SkillFields value={config} onChange={setConfig} />
 		</NewItem>
 	);
 }
 
-function CustomSkillDetail({ skill: s, custom }: { skill: SkillItem; custom: NonNullable<SkillItem["custom"]> }) {
+function CustomSkillDetail({ skill: s, custom, access }: { access: Access; skill: SkillItem; custom: NonNullable<SkillItem["custom"]> }) {
+	const share = useMutation(api.skills.share);
+	const { confirm, dialog } = useConfirm();
 	const save = useMutation(api.skills.save);
 	const remove = useMutation(api.skills.remove);
 
@@ -107,20 +118,28 @@ function CustomSkillDetail({ skill: s, custom }: { skill: SkillItem; custom: Non
 			onSave={(config, expectedVersion) => save({ skillId: s.id, config, expectedVersion })}
 			fields={(value, onChange) => <SkillFields value={value} onChange={onChange} />}
 		>
-			<Facts rows={[["Used by", 'Everyone\'s agents granted "skills.load", when a task calls for it']]} />
+			<Facts rows={[["Runs for", s.audience === "personal" ? "Just me" : "Team"]]} />
+			{s.audience === "personal" && !s.trash && can(access, "skills.edit") && (
+				<button className={secondaryButton} onClick={() => confirm({
+					title: "Share with team?", action: "Share with team", danger: false,
+					body: "Everyone in this workspace will see and use these instructions. Anyone with the skills edit switch can change them.",
+					onConfirm: () => share({ skillId: s.id }),
+				})}>Share with team</button>
+			)}
+			{dialog}
 		</MadeItemDetail>
 	);
 }
 
-export function SkillScreen({ role, id }: { role: Role; id: string }) {
+export function SkillScreen({ access, id }: { access: Access; id: string }) {
 	const skills = useQuery(api.skills.list);
 	const { error, busy, run } = useRun();
-	const canManage = can(role, "skills.manage");
+	const canManage = can(access, "skills.edit");
 	const removeSkill = useMutation(api.skills.remove);
-	if (id === "new") return <NewSkill />;
+	if (id === "new") return <NewSkill access={access} />;
 	const open = skills?.find((s) => s.id === id);
 	if (!open) return <Missing tab="skills" loaded={!!skills} />;
-	if (open.custom) return <CustomSkillDetail skill={open} custom={open.custom} />;
+	if (open.custom) return <CustomSkillDetail skill={open} custom={open.custom} access={access} />;
 	return (
 		<Detail
 			tab="skills"

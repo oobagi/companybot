@@ -8,7 +8,7 @@ import { Avatar, AvatarStack, MenuItem, PopoverPanel } from "./common";
 
 /**
  * An agent working here, and its step ("Searching records for Acme…"; null while it writes). `canStop`:
- * you may stop it (the person it works for, or an owner); `stopping`: someone did, and it's ending.
+ * you may stop it (the person it works for, or anyone with `turns.stopAny`); `stopping`: someone did, and it's ending.
  */
 type Working = { id: string; name: string; image?: string | null; step: string | null; turnId: Id<"agentTurns">; canStop: boolean; stopping: boolean };
 

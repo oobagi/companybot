@@ -43,7 +43,7 @@ describe("pictures", () => {
 	it("sets, replaces and removes the workspace logo, deleting old files; only owners", async () => {
 		const { t, owner, member } = await ownerAndMember();
 		const first = await upload(owner);
-		await expect(member.mutation(api.images.set, { of: "workspace", file: first })).rejects.toThrow("permission");
+		await expect(member.mutation(api.images.set, { of: "workspace", file: first })).rejects.toThrow("Only people with the");
 		await owner.mutation(api.images.set, { of: "workspace", file: first });
 		const url = (await owner.query(api.workspace.settings))!.image;
 		expect(url).toBeTruthy();
@@ -245,7 +245,7 @@ describe("pictures", () => {
 		const { t, owner, member } = await ownerAndMember();
 		const { scribe, companybot } = await agentsOf(owner);
 		const file = await upload(owner);
-		await expect(member.mutation(api.images.set, { of: scribe._id, file })).rejects.toThrow("permission");
+		await expect(member.mutation(api.images.set, { of: scribe._id, file })).rejects.toThrow("Only people with the");
 		await owner.mutation(api.images.set, { of: scribe._id, file });
 
 		const dm = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
@@ -358,7 +358,7 @@ it("refuses cross-workspace targets and member agent resets", async () => {
 	await expect(outsider.mutation(api.images.set, { of: scribe._id, file: null })).rejects.toThrow("not found");
 	const dm = await member.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
 	const turnId = await agentTurn(t, member, dm, companybot._id);
-	expect(await t.mutation(internal.manageTools.runFor, { turnId, tool: "agents.manage", input: { request: { action: "set_image", id: scribe._id, file: null } } })).toMatchObject({ error: expect.stringMatching(/permission/) });
+	expect(await t.mutation(internal.manageTools.runFor, { turnId, tool: "agents.manage", input: { request: { action: "set_image", id: scribe._id, file: null } } })).toMatchObject({ error: expect.stringContaining("Only people with the") });
 	expect(await exists(t, file)).toBe(true);
 });
 

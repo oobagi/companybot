@@ -1,9 +1,9 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { type ManageTool } from "@companybot/core";
+import { type ManageTool, manageInputs } from "@companybot/core";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { IDLE_MS, readDoc } from "../convex/pageOps";
-import { agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, sideWorkspace, turnsOf } from "./helpers";
+import { agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, sideWorkspace, turnsOf, setMemberSwitch } from "./helpers";
 
 afterEach(() => vi.useRealTimers());
 
@@ -39,19 +39,22 @@ it("renames options by stable id, reorders options/fields, retires and revives o
 	expect(last).toMatchObject({ agent: "Companybot", changes: [expect.objectContaining({ key: "position", new: 2 })] });
 });
 
-it("enforces maker/owner field gates, Trash ownership and database discovery/restore", async () => {
+it("gates fields on the databases switch, not on who added them, through Trash and database discovery/restore", async () => {
 	const { t, owner, member, field, turnId } = await ready();
-	for (const update of [{ options: [{ id: "lead", label: "Prospect" }] }, { position: 1 }, { trash: true }])
-		expect(await field({ type: "client", field: "status", ...update }, true)).toHaveProperty("error");
 	expect(await field({ type: "client", field: "name", position: 1 })).toHaveProperty("error");
 	const made = await field({ type: "client", label: "Roof", kind: "choice", options: ["Metal", "Tile"] }, true);
-	expect(await field({ type: "client", field: made.key, position: 1 }, true)).toHaveProperty("error");
+	await setMemberSwitch(owner, "fields.edit", false);
+	for (const update of [{ options: [{ id: "lead", label: "Prospect" }] }, { position: 1 }, { trash: true }])
+		expect(await field({ type: "client", field: "status", ...update }, true)).toMatchObject({ error: expect.stringContaining("Only people with the Owner role") });
+	expect(await field({ type: "client", field: made.key, trash: true }, true)).toMatchObject({ error: expect.stringContaining("Only people with the Owner role") });
+	await setMemberSwitch(owner, "fields.edit", true);
+	expect(await field({ type: "client", field: "status", position: 2 }, true)).not.toHaveProperty("error");
 	await field({ type: "client", field: made.key, trash: true }, true);
 	expect((await t.query(internal.recordTools.typesFor, { turnId })).types.find((t) => t.type === "client")!.fields.find((f) => f.key === made.key)).toHaveProperty("inTrash", true);
 	expect(await field({ type: "client", field: made.key, trash: false }, true)).not.toHaveProperty("error");
 	const other = await owner.mutation(api.fields.create, { typeId: (await member.query(api.recordTypes.list))[0]!._id, label: "Owner field", kind: "text" });
 	await owner.mutation(api.trash.move, { kind: "field", id: other._id });
-	expect(await field({ type: "client", field: other.key, trash: false }, true)).toHaveProperty("error");
+	expect(await field({ type: "client", field: other.key, trash: false }, true)).not.toHaveProperty("error");
 	const database = await owner.mutation(api.recordTypes.create, { plural: "Projects" });
 	await t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input: { type: database, trash: true } });
 	expect((await t.query(internal.recordTools.typesFor, { turnId, trashed: true })).types).toEqual(expect.arrayContaining([expect.objectContaining({ type: "project", inTrash: true })]));
@@ -175,15 +178,16 @@ it("updates only the acting person's preferences, validates zones and refuses de
 	expect(await member.query(api.preferences.get)).toMatchObject({ timeZone: null });
 });
 
-it("edits/deletes only own visible messages, reacts to chosen messages and marks read explicitly", async () => {
-	const { t, call, owner, member, companybot } = await ready();
+it("edits/deletes only own visible messages, marks read explicitly, sends for the person (here too), and never reacts", async () => {
+	const { t, call, owner, member, dm } = await ready();
 	const chatId = (await generalOf(owner))._id;
 	const mine = await owner.mutation(api.messages.send, { chatId, text: "Original", mentions: noMentions });
 	const theirs = await member.mutation(api.messages.send, { chatId, text: "Member", mentions: noMentions });
 	expect(await call("chat.manage", { action: "edit", messageId: mine, text: "Edited" })).toHaveProperty("done", "edit");
 	for (const action of ["edit", "delete"])
 		expect(await call("chat.manage", { action, messageId: theirs, ...(action === "edit" && { text: "No" }) })).toHaveProperty("error");
-	await call("chat.manage", { action: "react", messageId: theirs, emoji: "✅" });
+	// Reacting isn't a chat_manage action: an agent reacts only through its turn's decision.
+	expect(manageInputs["chat.manage"].safeParse({ request: { action: "react", messageId: theirs, emoji: "✅" } }).success).toBe(false);
 	// A card on your person's own message can be taken down; on someone else's it can't.
 	const linked = await owner.mutation(api.messages.send, { chatId, text: "https://news.example.com/story", mentions: noMentions });
 	await t.mutation(internal.linkPreviews.save, { messageId: linked, results: [{ url: "https://news.example.com/story", title: "Story" }] });
@@ -191,16 +195,19 @@ it("edits/deletes only own visible messages, reacts to chosen messages and marks
 	expect(await call("chat.manage", { action: "hide_preview", messageId: linked, url: "https://news.example.com/story" })).toHaveProperty("done", "hide_preview");
 	expect((await owner.query(api.messages.list, { chatId })).find((m) => m._id === linked)!.linkPreviews).toEqual([]);
 	expect(await call("chat.manage", { action: "hide_preview", messageId: theirs, url: "https://news.example.com/story" })).toHaveProperty("error");
-	expect((await owner.query(api.messages.list, { chatId })).find((m) => m._id === theirs)!.reactions[0]!.people.map((p) => p.name)).toContain(companybot.name);
+	expect((await owner.query(api.messages.list, { chatId })).find((m) => m._id === theirs)!.reactions).toEqual([]);
 	expect(await call("chat.manage", { action: "mark_read", chat: chatId })).toHaveProperty("done", "mark_read");
+	// A send into the chat it's answering (the DM) posts too, and says so, so its reply doesn't repeat it.
+	expect(await call("chat.manage", { action: "send", chat: dm, text: "Here" })).toMatchObject({ messageId: expect.any(String), note: expect.stringContaining("Don't repeat") });
 	const { messageId } = await call("chat.manage", { action: "send", chat: chatId, text: "Agent delivery" });
 	expect(await call("chat.manage", { action: "edit", messageId, text: "Corrected" })).toHaveProperty("done", "edit");
 	await call("chat.manage", { action: "delete", messageId: mine });
 	expect((await owner.query(api.messages.list, { chatId })).find((m) => m._id === mine)).toHaveProperty("deleted", true);
 	const privateId = await owner.mutation(api.chats.createChannel, { name: "secret", private: true });
 	const secret = await owner.mutation(api.messages.send, { chatId: privateId, text: "Secret", mentions: noMentions });
-	for (const request of [{ action: "react", messageId: secret, emoji: "✅" }, { action: "mark_read", chat: privateId }])
+	for (const request of [{ action: "send", chat: privateId, text: "Hi" }, { action: "mark_read", chat: privateId }])
 		expect(await call("chat.manage", request, true)).toHaveProperty("error");
+	expect((await owner.query(api.messages.list, { chatId: privateId })).map((m) => m._id)).toEqual([secret]);
 });
 
 it("sample-runs automations with the same edit and dispatch rules", async () => {

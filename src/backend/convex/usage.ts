@@ -69,7 +69,7 @@ const round = (n: number) => Math.round(n * 1e6) / 1e6;
  */
 export async function usageReport(ctx: QueryCtx, member: Member, month = usageMonth(Date.now())) {
 	if (!isUsageMonth(month)) throw new ConvexError("Month must look like 2026-10.");
-	const all = can(member.role, "usage.view");
+	const all = can(member, "usage.view");
 	const rows = await (all
 		? ctx.db.query("usage").withIndex("by_bucket", (q) => q.eq("workspaceId", member.workspaceId).eq("month", month))
 		: ctx.db.query("usage").withIndex("by_user", (q) => q.eq("workspaceId", member.workspaceId).eq("userId", member.userId).eq("month", month))

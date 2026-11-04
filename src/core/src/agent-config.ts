@@ -1,4 +1,4 @@
-/** What an owner edits. Each workspace stores its own agents; saves are versioned. */
+/** What people with agents.manage edit. Each workspace stores its own agents; saves are versioned. */
 export interface AgentConfig {
 	name: string;
 	description: string;

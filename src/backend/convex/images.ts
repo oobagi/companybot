@@ -116,7 +116,7 @@ export const set = mutation({
 });
 
 /**
- * Owners change the workspace's logo and, like any other agent edit, agents' pictures (in
+ * People with workspace.manage change the workspace's logo and, like any other agent edit, agents' pictures (in
  * Trash, they're read-only). Everyone changes their own photo, wherever they are.
  */
 export async function setImage(ctx: MutationCtx, member: Member, of: Infer<typeof owner>, file: Id<"_storage"> | null) {

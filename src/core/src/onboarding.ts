@@ -1,5 +1,5 @@
 import { can } from "./permissions";
-import type { Role } from "./types";
+import type { Access } from "./types";
 
 // Onboarding: Companybot's welcome (#general for a new workspace, a DM for each joiner), and the tutorial above the composer (wiki/chat.md).
 // No dependencies, so the app can import it.
@@ -20,7 +20,7 @@ export function welcomeText(kind: Welcome, { agent, name, memory }: { agent: str
 			`Tell me your role and what you're working on${memory ? ", and I'll remember it" : ""}.`,
 		].join("\n\n");
 	return [
-		`Hi${name ? ` ${name}` : ""}, I'm ${agent}. I help the whole team here. Outside DMs, I only answer messages that @mention me.`,
+		`Hi${name ? ` ${name}` : ""}, I'm ${agent}. I help the whole team here. In channels, I answer when a message is for me, or when you @mention me.`,
 		`To get started, @mention me with a few lines about the company: what you do, who your customers are, and what you're focused on right now.${memory ? " I'll save it to team memory, which everyone here can see and edit." : ""}`,
 	].join("\n\n");
 }
@@ -30,5 +30,5 @@ export const tutorialSteps = ["mention", "dm", "thread", "invite"] as const;
 export type TutorialStep = (typeof tutorialSteps)[number];
 
 /** Everyone gets the same steps; people who can invite get that one too. */
-export const tutorialStepsFor = (role: Role): TutorialStep[] =>
-	tutorialSteps.filter((s) => s !== "invite" || can(role, "members.manage"));
+export const tutorialStepsFor = (access: Access): TutorialStep[] =>
+	tutorialSteps.filter((s) => s !== "invite" || can(access, "members.manage"));

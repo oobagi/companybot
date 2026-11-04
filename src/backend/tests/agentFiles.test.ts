@@ -81,13 +81,13 @@ describe("agents using chat files", () => {
 		expect(await logo(ids[1]!)).toEqual({ error: "huge.png is 10.0 MB; pictures here can be up to 10 MB." });
 		expect(await logo("nonsense/0")).toEqual({ error: 'No file "nonsense/0" in a chat you can see.' });
 
-		// A member's agent copies it, but the owner-only logo is refused: the copy goes.
+		// A member's agent copies it, but the logo needs the settings switch: the copy goes.
 		const { turnId: memberTurn } = await turnOf(t, member);
 		const copied = await t.action(internal.files.copyFor, { turnId: memberTurn, ids: [ids[2]!], picture: true });
 		expect(copied).toHaveProperty("copies");
 		const copy = Object.values((copied as { copies: Record<string, Id<"_storage">> }).copies)[0]!;
 		const refused = await t.mutation(internal.manageTools.runFor, { turnId: memberTurn, tool: "workspace.settings", input: { request: { action: "set_image", of: "workspace", file: ids[2] } }, uploads: { [ids[2]!]: copy } });
-		expect(refused).toMatchObject({ error: expect.stringMatching(/permission/) });
+		expect(refused).toMatchObject({ error: expect.stringContaining("Only people with the") });
 		await t.mutation(internal.files.dropCopies, { turnId: memberTurn, storageIds: [copy] });
 		expect(await exists(t, copy)).toBe(false);
 		expect(await uploads(t)).toHaveLength(0);

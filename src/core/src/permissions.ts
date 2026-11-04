@@ -1,104 +1,135 @@
-import type { Actor, Role } from "./types";
+import type { Access, BuiltInRole } from "./types";
 
-export type { Role } from "./types";
+export type { Access, BuiltInRole, RoleInfo } from "./types";
 
 /**
- * Every workspace-level action and the roles allowed to take it. This is the one
- * place to change who can do what; the backend checks it with `requirePermission`.
+ * Every workspace-level action. Roles are workspace data (`roles` table): the built-in Owner can
+ * do everything; every other role is a set of these switches, and someone holding several roles
+ * gets every switch any of them has. The backend checks with `requirePermission`.
  *
- * Add a permission here before adding a feature that needs one. Adding a role
- * means adding it to `Role` and to each list below that it should have.
+ * `label` finishes "Only people with … can …" and names the switch in Settings → Members → Roles.
+ * `member`: the built-in Member role's default. Member stores only the switches an owner flipped
+ * (`roleSwitches`), so a new permission reaches every workspace's Member as its default, with no
+ * migration. Default anything sensitive (money, people, settings, deleting for good) to false.
+ * Custom roles store what's on; a new permission starts off for them.
+ * `ownerOnly`: never a switch; only the Owner role has it.
+ *
+ * Add a permission here before adding a feature that needs one (wiki/extending.md).
  */
 export const permissions = {
-	"workspace.manage": { roles: ["owner"], label: "change workspace settings" },
+	"workspace.manage": { label: "change workspace settings", member: false },
 	/** Delete the workspace and everything in it. */
-	"workspace.delete": { roles: ["owner"], label: "delete the workspace" },
-	"members.manage": { roles: ["owner"], label: "manage members" },
-	"agents.manage": { roles: ["owner"], label: "change agents" },
-	"connectors.manage": { roles: ["owner"], label: "manage connectors" },
-	/** Lock agent actions for everyone: always ask, block, or lift a default lock (action-rules.ts). */
-	"actions.lock": { roles: ["owner"], label: "lock agent actions" },
+	"workspace.delete": { label: "delete the workspace", ownerOnly: true },
+	/** Erase everything in the workspace and start it again like new; its members, roles and settings stay. */
+	"workspace.reset": { label: "reset the workspace", ownerOnly: true },
+	/** Make, rename and delete roles and choose their switches. Owner-only, so nobody can give themselves more than an owner chose. */
+	"roles.manage": { label: "change roles", ownerOnly: true },
+	/** Invite and remove people and give them roles. Only owners give or take the Owner role, or remove an owner. */
+	"members.manage": { label: "invite and remove people and change their roles", member: false },
+	"agents.manage": { label: "change agents", member: false },
+	"connectors.manage": { label: "install connectors and choose who can use them", member: false },
 	/** Connect your own account to a connector that uses personal connections. */
-	"connectors.connect": { roles: ["owner", "member"], label: "connect connectors" },
-	/** Install library skills, and change or delete anyone's (`canEditMade`). */
-	"skills.manage": { roles: ["owner"], label: "manage skills" },
-	/** Make your own skills. You can always change and delete the ones you made. */
-	"skills.create": { roles: ["owner", "member"], label: "make skills" },
-	/** Install library automations, and change or delete anyone's (`canEditMade`). */
-	"automations.manage": { roles: ["owner"], label: "manage automations" },
-	/** Make your own automations. You can always change and delete the ones you made. */
-	"automations.create": { roles: ["owner", "member"], label: "make automations" },
+	"connectors.connect": { label: "connect their own accounts to connectors", member: true },
+	/** Lock agent actions for everyone: always ask, block, or lift a default lock (action-rules.ts). */
+	"actions.lock": { label: "lock agent actions for everyone", member: false },
+	/** Make, install, change and delete team skills. */
+	"skills.edit": { label: "make and change skills", member: true },
+	/** Make, install, change and delete team automations. Personal ones are their maker's alone (`canEditAutomation`). */
+	"automations.edit": { label: "make and change team automations", member: true },
 	/** Add, change and delete (to Archive) any team memory, and restore old versions. Wiki-style: anyone can fix a wrong fact; history undoes it. */
-	"memory.team.write": { roles: ["owner", "member"], label: "change team memories" },
+	"memory.team.write": { label: "change team memories", member: true },
 	/** Add, change, delete (to Archive) and restore records (clients, deals, tasks…), and undo changes. */
-	"records.edit": { roles: ["owner", "member"], label: "change records" },
+	"records.edit": { label: "add and change records", member: true },
 	/** Write, rename, delete (to Archive) and restore pages, and restore old versions (wiki/pages.md). */
-	"pages.edit": { roles: ["owner", "member"], label: "change pages" },
-	/** Add fields to a database. You can always change and delete the ones you added. */
-	"fields.create": { roles: ["owner", "member"], label: "add fields" },
-	/** Add and delete databases, and change or delete anyone's fields (`canEditMade`). */
-	"fields.manage": { roles: ["owner"], label: "manage fields and databases" },
-	"channels.create": { roles: ["owner", "member"], label: "create channels" },
-	/** Rename, delete, and add members to any channel. Creators can always manage their own (`canManageChannel`). */
-	"channels.manage": { roles: ["owner"], label: "manage channels" },
+	"pages.edit": { label: "write and change pages", member: true },
+	/** Add, change and delete (to Archive) databases and their fields. */
+	"fields.edit": { label: "add and change databases and fields", member: true },
+	/** Make channels, and rename, delete and add people to any channel. */
+	"channels.edit": { label: "make and change channels", member: true },
 	/** Delete forever from Archive (wiki/data.md#trash). Agents never delete forever. */
-	"trash.manage": { roles: ["owner"], label: "manage Archive" },
+	"trash.manage": { label: "delete things forever from Archive", member: false },
 	/** See the whole workspace's AI usage and cost. Everyone sees their own share (usage.ts). */
 	/** Stop an agent's reply that's running for someone else. Anyone can always stop one running for them (turns.stop). */
-	"turns.stopAny": { roles: ["owner"], label: "stop agents working for someone else" },
-	"usage.view": { roles: ["owner"], label: "see the workspace's AI usage" },
-} as const satisfies Record<string, { roles: readonly Role[]; label: string }>;
+	"turns.stopAny": { label: "stop agents working for someone else", member: false },
+	"usage.view": { label: "see the whole workspace's AI usage", member: false },
+} as const satisfies Record<string, { label: string; member: boolean } | { label: string; ownerOnly: true }>;
 
 export type Permission = keyof typeof permissions;
 
-export function can(who: Actor | Role, permission: Permission): boolean {
-	const role = typeof who === "string" ? who : who.role;
-	return (permissions[permission].roles as readonly Role[]).includes(role);
+/** Switches a role can have, in the order Settings shows them. */
+export const switches = (Object.keys(permissions) as Permission[]).filter((p) => !("ownerOnly" in permissions[p]));
+
+/** What the built-in Member role has until an owner flips something. */
+export const memberDefaults: Permission[] = switches.filter((p) => (permissions[p] as { member: boolean }).member);
+
+/** Switches a role stores: Member's flips from its defaults, a custom role's own (absent is off). */
+export type StoredSwitches = readonly { permission: Permission; on: boolean }[];
+
+/** A role's switch when it stores nothing for it: Member's default, otherwise off. */
+const baseline = (kind: BuiltInRole | undefined, p: Permission) => kind === "member" && memberDefaults.includes(p);
+
+/** What a role allows: Owner everything; others each switch's stored value, else its baseline. */
+export function roleSwitches(kind: BuiltInRole | undefined, stored: StoredSwitches): Permission[] {
+	if (kind === "owner") return [...switches];
+	return switches.filter((p) => stored.find((s) => s.permission === p)?.on ?? baseline(kind, p));
 }
 
-/** The message shown when someone lacks a permission. */
-export const deniedMessage = (permission: Permission) =>
-	`You don't have permission to ${permissions[permission].label}. Ask a workspace owner.`;
-
-/** Whether someone can rename or delete a channel, or add people to it: `channels.manage`, or they created it. */
-export function canManageChannel(who: Actor, channel: { createdBy: string }): boolean {
-	return can(who, "channels.manage") || channel.createdBy === who.userId;
+/** A role's stored switches after turning one on or off: only what differs from the baseline is kept. */
+export function flipSwitch(kind: BuiltInRole | undefined, stored: StoredSwitches, permission: Permission, on: boolean) {
+	const rest = stored.filter((s) => s.permission !== permission);
+	return on === baseline(kind, permission) ? rest : [...rest, { permission, on }];
 }
 
-/** Makers can edit their own; managers can edit anyone's or library installs. */
-export function canEditMade(who: Actor, managePermission: "skills.manage" | "automations.manage" | "fields.manage", createdBy?: string): boolean {
-	return can(who, managePermission) || (!!createdBy && createdBy === who.userId);
+export function can(who: Access, permission: Permission): boolean {
+	return who.owner || (!("ownerOnly" in permissions[permission]) && who.permissions.includes(permission));
 }
 
-export const madeEditDenied = "Only the person who made this or an owner can change it.";
+/** Whether someone may use a connector allowed for these role ids. Owners can use every one. */
+export const canUseConnector = (who: Access, allowed: readonly string[]) => who.owner || who.roles.some((r) => allowed.includes(r));
+
+/** Names of the roles that have a permission, Owner last: what a refusal tells people to ask. */
+export const rolesWith = (roles: readonly RoleLike[], permission: Permission) =>
+	[...roles.filter((r) => !r.owner && !("ownerOnly" in permissions[permission]) && r.permissions.includes(permission)), ...roles.filter((r) => r.owner)].map((r) => r.name);
+
+type RoleLike = { name: string; owner: boolean; permissions: readonly string[] };
+
+/** "Owner", "Office or Owner", "Crew, Office or Owner". */
+const either = (names: string[]) => (names.length < 2 ? (names[0] ?? "Owner") : `${names.slice(0, -1).join(", ")} or ${names.at(-1)}`);
+
+/** The message shown when someone lacks a permission, naming the workspace's roles that have it. */
+export const deniedMessage = (permission: Permission, roles: readonly RoleLike[]) => {
+	const names = rolesWith(roles, permission);
+	return `Only people with the ${either(names)} role can ${permissions[permission].label}. Ask someone who has ${names.length > 1 ? "one of them" : "it"}.`;
+};
+
+/**
+ * Who can change an automation. `privateTo`: who a personal one (made to run just for its maker)
+ * belongs to. Nobody else can see it, so it's theirs to change whatever their roles; this is about
+ * who can see it, not who made it. Team ones need the switch.
+ */
+export const canEditAutomation = (who: Access & { userId: string }, privateTo: string | null) =>
+	privateTo ? privateTo === who.userId : can(who, "automations.edit");
 
 export const trashKinds = ["record", "database", "field", "page", "channel", "agent", "skill", "automation", "memory"] as const;
 export type TrashKind = (typeof trashKinds)[number];
 
+const trashPermission: Record<TrashKind, Permission> = {
+	record: "records.edit",
+	page: "pages.edit",
+	memory: "memory.team.write",
+	database: "fields.edit",
+	field: "fields.edit",
+	agent: "agents.manage",
+	skill: "skills.edit",
+	automation: "automations.edit",
+	channel: "channels.edit",
+};
+
 /**
  * Who can move an item to Archive, and so back out of it, whoever deleted it (Google Drive's shared
- * drives work this way). `madeBy`: who made it, for kinds whose makers manage their own (a library
- * skill or automation has none). The one place these rules meet; trashOps.canRestore uses it.
+ * drives work this way): the kind's switch, or for an automation, `canEditAutomation`. The one place
+ * these rules meet; trashOps.canRestore uses it.
  */
-export function canTrash(who: Actor, kind: TrashKind, madeBy?: string): boolean {
-	switch (kind) {
-		case "record":
-			return can(who, "records.edit");
-		case "page":
-			return can(who, "pages.edit");
-		case "memory":
-			return can(who, "memory.team.write");
-		case "database":
-			return can(who, "fields.manage");
-		case "agent":
-			return can(who, "agents.manage");
-		case "field":
-			return canEditMade(who, "fields.manage", madeBy);
-		case "skill":
-			return canEditMade(who, "skills.manage", madeBy);
-		case "automation":
-			return canEditMade(who, "automations.manage", madeBy);
-		case "channel":
-			return canManageChannel(who, { createdBy: madeBy ?? "" });
-	}
+export function canTrash(who: Access & { userId: string }, kind: TrashKind, privateTo?: string | null): boolean {
+	return kind === "skill" && privateTo ? who.userId === privateTo : kind === "automation" ? canEditAutomation(who, privateTo ?? null) : can(who, trashPermission[kind]);
 }

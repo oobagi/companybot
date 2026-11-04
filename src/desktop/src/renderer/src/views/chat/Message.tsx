@@ -1,6 +1,6 @@
 import { actionLabel, toolLine } from "@companybot/core/action-words";
 import { splitLinks } from "@companybot/core/link-preview";
-import { routerDecisionModels } from "@companybot/core/router";
+import { routerActions, routerDecisionModels } from "@companybot/core/router";
 import { Fragment, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
@@ -8,7 +8,7 @@ import { Markdown } from "../../markdown";
 import { Notice, timeAgo, useTip } from "../../ui";
 import { WidgetView } from "../../widgets";
 import { CallDetails } from "../Activity";
-import { ApprovalMessages } from "./Approval";
+import { HeldCall } from "./Approval";
 import { AutomationIcon, EditIcon, MoreIcon, ReactIcon, ReplyIcon, TrashIcon } from "../../icons";
 import { AgentBadge, Avatar, AvatarStack, EmojiPicker, IconButton, MenuItem, PairAvatar, Popover, PopoverPanel, clock, useConfirm, useDismiss } from "./common";
 import type { Message, TokenNames } from "./data";
@@ -16,6 +16,14 @@ import { navigate } from "../../router";
 import { ProfileLink } from "./Profile";
 import { MessageFiles } from "./Attachments";
 import { LinkPreviews } from "./LinkPreviews";
+import { TokenChip } from "./TokenChip";
+import { splitTokens } from "./tokens";
+
+/**
+ * Whether a row draws anything yet. A reply shows whole once it's written; meanwhile the line under
+ * the composer says what the agent is doing. A card asking permission shows at once, since the reply waits on it.
+ */
+export const shows = (m: Message) => m.status !== "streaming" || (!m.deleted && m.parts.some((p) => p.type === "approval"));
 
 export function MessageRow({
 	message: row,
@@ -52,13 +60,8 @@ export function MessageRow({
 	const sending = message.sending;
 	const toggle = (emoji: string) => react({ messageId: message._id, emoji }).catch(onError);
 
-	const held = isAgent && !message.deleted ? message.parts.filter((p) => p.type === "approval") : [];
-
-	// A reply shows whole once it's written; meanwhile the line under the composer says what the agent is
-	// doing. A card asking permission shows at once, since the reply waits on it.
-	if (message.status === "streaming" && held.length === 0) return null;
+	if (!shows(message)) return null;
 	if (message.pause && !message.deleted) return <PausedLine message={message} pause={message.pause} onError={onError} />;
-	if (held.length > 0 && held.length === message.parts.length && !message.text) return <ApprovalMessages message={message} parts={held} />;
 
 	return (
 		<>
@@ -116,7 +119,7 @@ export function MessageRow({
 					) : message.automation ? (
 						<AutomationPrompt prompt={message.text} />
 					) : isAgent ? (
-						<AgentBody message={message} />
+						<AgentBody message={message} tokens={tokens} />
 					) : (
 						(message.text || message.editedAt) && (
 							<p className="leading-relaxed break-words whitespace-pre-wrap">
@@ -200,8 +203,6 @@ export function MessageRow({
 					</div>
 				)}
 			</div>
-			{/* Calls held for permission read as their own messages from the agent, after its reply. */}
-			{held.length > 0 && <ApprovalMessages message={message} parts={held} />}
 			{dialog}
 		</>
 	);
@@ -272,44 +273,17 @@ function ReactionList({ reactions }: { reactions: Reaction[] }) {
 	);
 }
 
-const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const alternation = (names: string[]) => [...names].sort((a, b) => b.length - a.length).map(escape).join("|");
-
-/** `@Ada`, `#sales` (opens the channel) and `/Proposal` as chips, like in the composer. */
-/** A person's message: its links open in the browser; @names, #channels and /skills stand out. */
+/** A person's message: its links open in the browser; @names, #channels and /skills are chips, like in the composer. */
 function TokenText({ text, tokens }: { text: string; tokens: TokenNames }) {
 	return splitLinks(text).map((part, i) =>
 		typeof part === "string" ? (
-			<Tokens key={i} text={part} tokens={tokens} />
+			splitTokens(part, tokens).map((t, j) => (typeof t === "string" ? <Fragment key={`${i}.${j}`}>{t}</Fragment> : <TokenChip key={`${i}.${j}`} token={t} />))
 		) : (
 			<a key={i} href={part.url} target="_blank" rel="noreferrer noopener" className="wrap-anywhere text-link hover:underline">
 				{part.url}
 			</a>
 		),
 	);
-}
-
-function Tokens({ text, tokens }: { text: string; tokens: TokenNames }) {
-	const parts = [
-		tokens.names.length > 0 && `@(?:${alternation(tokens.names)})(?!\\w)`,
-		tokens.channels.length > 0 && `#(?:${alternation(tokens.channels.map((c) => c.name))})(?![\\w-])`,
-		tokens.skills.length > 0 && `\\/(?:${alternation(tokens.skills)})(?!\\w)`,
-	].filter(Boolean);
-	if (parts.length === 0) return text;
-	const pattern = new RegExp(`(${parts.join("|")})`, "g");
-	return text.split(pattern).map((chunk, i) => {
-		if (i % 2 === 0) return <Fragment key={i}>{chunk}</Fragment>;
-		const channel = chunk.startsWith("#") ? tokens.channels.find((c) => c.name === chunk.slice(1)) : undefined;
-		return channel ? (
-			<button type="button" key={i} onClick={() => navigate("chat", channel.id)} className="token hover:underline">
-				{chunk}
-			</button>
-		) : (
-			<span key={i} className="token">
-				{chunk}
-			</span>
-		);
-	});
 }
 
 function EditForm({ message, onDone, onError }: { message: Message; onDone: () => void; onError: (e: unknown) => void }) {
@@ -348,7 +322,7 @@ function EditForm({ message, onDone, onError }: { message: Message; onDone: () =
 	);
 }
 
-function AgentBody({ message }: { message: Message }) {
+function AgentBody({ message, tokens }: { message: Message; tokens: TokenNames }) {
 	const streaming = message.status === "streaming";
 	const lastText = message.parts.findLastIndex((p) => p.type === "text");
 	return (
@@ -364,11 +338,13 @@ function AgentBody({ message }: { message: Message }) {
 							))}
 						</div>
 					) : run.part.type === "text" ? (
-						<Markdown key={run.i} className="leading-relaxed" isAnimating={streaming && run.i === lastText}>
+						<Markdown key={run.i} tokens={tokens} className="leading-relaxed" isAnimating={streaming && run.i === lastText}>
 							{run.part.text}
 						</Markdown>
 					) : run.part.type === "widget" ? (
 						<WidgetView key={run.part.id} widget={run.part.widget} />
+					) : run.part.type === "approval" ? (
+						<HeldCall key={run.part.id} replyId={message._id} part={run.part} />
 					) : null,
 				)}
 				{message.status === "error" && <Notice>{message.error ?? "Something went wrong."}</Notice>}
@@ -488,9 +464,9 @@ const usd = (n: number) => `$${n.toFixed(n < 0.01 ? 4 : n < 1 ? 3 : 2)}`;
 /** A dispatcher call costs a few hundredths of a cent. */
 const tinyUsd = (n: number) => (n < 0.001 ? `$${n.toFixed(5)}` : usd(n));
 const percent = (p: number) => `${Math.round(p * 100)}%`;
-/** Jev's chance of each choice ("84% reply · 1% react · 15% quiet"); a hop's, of going next; none from a language model. */
+/** Jev's chance of each choice ("84% reply · 16% quiet"); a hop's, of going next; none from a language model. */
 function confidence({ probability, probabilities }: NonNullable<Stats["dispatch"]>) {
-	if (probabilities) return ["reply", "react", "quiet"].filter((c) => probabilities[c] !== undefined).map((c) => `${percent(probabilities[c]!)} ${c}`).join(" · ");
+	if (probabilities) return routerActions.filter((c) => probabilities[c] !== undefined).map((c) => `${percent(probabilities[c]!)} ${c}`).join(" · ");
 	return probability !== undefined ? `${percent(probability)} go next` : "—";
 }
 /** "Jev" for TypeSafe's decision model, else the model's short id. */
