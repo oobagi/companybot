@@ -5,7 +5,7 @@ export default {
 	title: "Pages",
 	summary: "Longer writing: wiki pages, how-tos, meeting notes, and notes on a record.",
 	text: `# Pages
-Pages are for longer writing, in the style of Notion. Find them under Pages in the sidebar; each opens at #/pages/<page id>.
+Pages are for longer writing, in the style of Notion. Find them in Drive (in the rail), under Pages in its sidebar; each opens at #/pages/<page id>.
 
 - **Make one** with the + beside Pages. Nest pages by creating inside one (hover + on it) or using Move to…
 - **Edit**: owners and members. Everyone can read. Type **/** in the page for blocks, including **Page** to create and open a child page. Child pages appear as blocks in their parent, with their current titles. Use a block’s menu to rename, move or archive its page.

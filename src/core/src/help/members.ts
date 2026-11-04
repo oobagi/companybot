@@ -30,9 +30,9 @@ Two roles, per workspace:
 | Delete the workspace | yes | no |
 
 ## Changing a role, removing, leaving
-Owners change roles with the menu beside a name and remove people with Remove; it takes effect at once. To leave, use the workspace name menu → leave. The last owner can't leave. Removed or leaving people lose their personal memories and automations only they could see; what they said in chats stays.
+Owners change roles with the menu beside a name and remove people with Remove; it takes effect at once. To leave, open the workspace logo's menu (top of the rail) → Leave. The last owner can't leave. Removed or leaving people lose their personal memories and automations only they could see; what they said in chats stays.
 
 ## Switching and joining
-A person can be in many workspaces. Use the rail on the left: click a logo to switch, answer invites there, or press + to start your own.
+A person can be in many workspaces. Use the workspace logo at the top of the rail: pick one in its menu to switch (or press ⌘1–9), answer invites there, or pick New workspace to start your own.
 `,
 } satisfies HelpPage;
