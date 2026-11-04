@@ -28,13 +28,12 @@ export const routerDecisionModels: ModelInfo[] = [{ id: "typesafe-ai/jev-1.14.0"
 export const isDecisionModel = (id: string) => routerDecisionModels.some((m) => m.id === id);
 /** The default pick (Settings → General → Reply decisions); any AI Gateway language model works too. */
 export const ROUTER_MODEL = routerDecisionModels[0]!.id;
-/** Wait this long after a message: a burst of messages gets one decision, on the newest. */
-export const ROUTER_DEBOUNCE_MS = 2_500;
 /**
- * A person's message to an agent (its DM, an @mention) starts its turn after this quiet window:
- * a burst from one person in one place gets one reply, on the newest, seeing all of it.
+ * A person's message waits this quiet window before anything answers it, so a burst gets one answer,
+ * on the newest, seeing all of it: one reply when it's to an agent (its DM, an @mention), else one
+ * decision on who wakes (router.decide).
  */
-export const AGENT_DEBOUNCE_MS = 1_500;
+export const QUIET_WINDOW_MS = 1_500;
 /** Messages before the newest one that the router sees. */
 export const ROUTER_CONTEXT_MESSAGES = 8;
 /** Agents it decides for at most; past that, the channel's oldest members. */

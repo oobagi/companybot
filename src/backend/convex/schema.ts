@@ -694,7 +694,7 @@ export default defineSchema({
 		status: v.union(v.literal("queued"), v.literal("running"), v.literal("done"), v.literal("error")),
 		/**
 		 * A person's own message asked (their agent DM, an @mention: messages.send). It waits a quiet
-		 * window (core AGENT_DEBOUNCE_MS) before it starts, and starting folds that person's other such
+		 * window (core QUIET_WINDOW_MS) before it starts, and starting folds that person's other such
 		 * turns queued here into it (turns.mergeQueued), so a burst gets one reply.
 		 */
 		person: v.optional(v.literal(true)),

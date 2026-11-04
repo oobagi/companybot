@@ -1,5 +1,5 @@
 import type { PlaceMessage, Skill } from "@companybot/core";
-import { AGENT_DEBOUNCE_MS, PROMPT_MESSAGE_CAP, THINKING_STEP, approxTokens, can, defaultReasoning, deniedMessage, fallbackModels, replayOf, responseOf, steerNote } from "@companybot/core";
+import { QUIET_WINDOW_MS, PROMPT_MESSAGE_CAP, THINKING_STEP, approxTokens, can, defaultReasoning, deniedMessage, fallbackModels, replayOf, responseOf, steerNote } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -44,7 +44,7 @@ type Place = { agentId: Id<"agents">; chatId: Id<"chats">; threadId?: Id<"chatMe
 
 /**
  * Queues a reply from `agentId` to `triggerId` (or to a wakeup), and starts it if nothing is running there.
- * A `person` turn (a person's own message asked) starts only after AGENT_DEBOUNCE_MS (startQueued).
+ * A `person` turn (a person's own message asked) starts only after QUIET_WINDOW_MS (startQueued).
  */
 export async function enqueueTurn(
 	ctx: MutationCtx,
@@ -58,7 +58,7 @@ export async function enqueueTurn(
 		),
 ) {
 	const turnId = await ctx.db.insert("agentTurns", { ...turn, ...(turn.person && { debouncing: true as const }), workspaceId: chat.workspaceId, status: "queued" });
-	if (turn.person) await ctx.scheduler.runAfter(AGENT_DEBOUNCE_MS, internal.turns.startQueued, { turnId });
+	if (turn.person) await ctx.scheduler.runAfter(QUIET_WINDOW_MS, internal.turns.startQueued, { turnId });
 	else await startNext(ctx, turn);
 	return turnId;
 }
@@ -559,7 +559,7 @@ export const isStopping = internalQuery({
 
 /**
  * A reply cut off to take in its person's messages waits for them to pause (agent.ts `turnStop`), so a
- * burst is taken in at once: `waitMs` until their newest one here is AGENT_DEBOUNCE_MS old, 0 to go on.
+ * burst is taken in at once: `waitMs` until their newest one here is QUIET_WINDOW_MS old, 0 to go on.
  * `stopped`: end the turn instead.
  */
 export const steerWait = internalQuery({
@@ -569,7 +569,7 @@ export const steerWait = internalQuery({
 		if (!turn || turn.status !== "running" || turn.stopping || (await lostReply(ctx, turn))) return { stopped: true, waitMs: 0 };
 		// A person turn is queued with its message, in the same mutation (messages.send).
 		const newest = Math.max(0, ...(await steering(ctx, turn)).map((t) => t._creationTime));
-		return { stopped: false, waitMs: Math.max(0, newest + AGENT_DEBOUNCE_MS - Date.now()) };
+		return { stopped: false, waitMs: Math.max(0, newest + QUIET_WINDOW_MS - Date.now()) };
 	},
 });
 
