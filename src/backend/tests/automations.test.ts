@@ -35,7 +35,7 @@ describe("automations", () => {
 		await install(t, owner, "morning-brief");
 		await owner.mutation(api.automationRuns.runNow, { automationId: "morning-brief" });
 		const { companybot } = await agentsOf(owner);
-		expect(await dmWith(owner, companybot._id)).toEqual([["user", "Morning brief"], ["agent", null]]);
+		expect(await dmWith(owner, companybot._id)).toEqual([["user", "Morning brief"]]);
 		await t.mutation(internal.automationRuns.forgetOldWebhooks, {});
 		await t.mutation(internal.automationRuns.tick, { now: 0 });
 	});
@@ -56,12 +56,11 @@ describe("automations", () => {
 			expect(await dmWith(member, companybot._id)).toHaveLength(0);
 			expect(await dmWith(owner, companybot._id)).toEqual([
 				["user", "Morning brief"],
-				["agent", null],
 			]);
 
 			await member.mutation(api.automations.subscribe, { automationId: "morning-brief", on: true });
 			await tickThursday(t);
-			expect(await dmWith(member, companybot._id)).toHaveLength(2);
+			expect(await dmWith(member, companybot._id)).toHaveLength(1);
 			expect((await find(owner, "morning-brief"))!.lastResult).toBe("Sent to 2 people.");
 			await member.mutation(api.automations.subscribe, { automationId: "morning-brief", on: false });
 			expect((await find(member, "morning-brief"))!.subscribed).toBe(false);
@@ -82,7 +81,6 @@ describe("automations", () => {
 			const messages = await member.query(api.messages.list, { chatId: sales });
 			expect(messages.map((m) => [m.author.type, m.author.name, m.automation?.name ?? null])).toEqual([
 				["user", "owner@co.com", "Morning brief"],
-				["agent", "Companybot", null],
 			]);
 			const brief = (await find(owner, "morning-brief"))!;
 			expect([brief.lastResult, brief.runsFor]).toEqual(["Posted in #sales.", "Posts once in #sales"]);
@@ -105,7 +103,7 @@ describe("automations", () => {
 			await owner.mutation(api.automations.update, { automationId: "morning-brief", enabled: false });
 			await owner.mutation(api.automationRuns.runNow, { automationId: "morning-brief" });
 			const { companybot } = await agentsOf(owner);
-			expect(await dmWith(owner, companybot._id)).toHaveLength(2);
+			expect(await dmWith(owner, companybot._id)).toHaveLength(1);
 			await expect(member.mutation(api.automationRuns.runNow, { automationId: "morning-brief" })).rejects.toThrow("Only people with the");
 		});
 	});
@@ -148,7 +146,6 @@ describe("automations", () => {
 			const { companybot } = await agentsOf(member);
 			expect(await dmWith(member, companybot._id)).toEqual([
 				["user", "After-call summary"],
-				["agent", null],
 			]);
 			const dmId = (await member.query(api.chats.list))!.agents.find((a) => a._id === companybot._id)!.dmId!;
 			expect((await member.query(api.messages.list, { chatId: dmId }))[0]!.text).toContain("Leaky water heater.");
@@ -167,7 +164,7 @@ describe("automations", () => {
 			// The sender is outside the workspace, so the reply names no channel; the automation's page does.
 			expect(await post(call("c1"))).toEqual([200, "Posted in a channel."]);
 			expect((await owner.query(api.automations.list)).find((a) => a.id === "after-call-summary")!.lastResult).toBe("Posted in #calls.");
-			expect(await member.query(api.messages.list, { chatId: calls })).toHaveLength(2);
+			expect(await member.query(api.messages.list, { chatId: calls })).toHaveLength(1);
 		});
 
 		it("forgets event ids after a week and on purge, preserving them through Trash", async () => {
@@ -238,7 +235,6 @@ describe("automations", () => {
 			const { companybot } = await agentsOf(member);
 			expect(await dmWith(member, companybot._id)).toEqual([
 				["user", "Standup"],
-				["agent", null],
 			]);
 			expect(await dmWith(owner, companybot._id)).toHaveLength(0);
 		});
@@ -302,7 +298,7 @@ describe("automations", () => {
 			expect(await dmWith(member, companybot._id)).toHaveLength(0);
 			await t.mutation(internal.automationRuns.tick, { now: Date.UTC(2026, 9, 22, 16, 5) });
 			await t.mutation(internal.automationRuns.tick, { now: Date.UTC(2026, 9, 22, 16, 10) });
-			expect(await dmWith(member, companybot._id)).toEqual([["user", "Standup"], ["agent", null]]);
+			expect(await dmWith(member, companybot._id)).toEqual([["user", "Standup"]]);
 		});
 
 		it("keeps a cron an alpha.9 app saves back untouched, and takes its time and days when changed", async () => {
@@ -371,7 +367,7 @@ describe("automations", () => {
 			const [entry] = (await member.query(api.trash.list, { kind: "automation", paginationOpts: { numItems: 10, cursor: null } })).page;
 			await member.mutation(api.trash.restore, { kind: "automation", id: entry!.itemId });
 			await tickThursday(t);
-			expect(await dmWith(member, companybot._id)).toHaveLength(2);
+			expect(await dmWith(member, companybot._id)).toHaveLength(1);
 		});
 
 		it("removes custom automations and related rows", async () => {
@@ -507,7 +503,6 @@ describe("automations", () => {
 			const [, ...replies] = await member.query(api.messages.list, { chatId: support, threadId: messageId });
 			expect(replies.map((m) => [m.author.type, m.automation?.name ?? null])).toEqual([
 				["user", "Triage"],
-				["agent", null],
 			]);
 			expect(replies[0]!.text).toContain("My invoice is wrong");
 		});
@@ -574,7 +569,6 @@ describe("automations", () => {
 			expect(await dmWith(member, companybot._id)).toHaveLength(0);
 			expect(await dmWith(owner, companybot._id)).toEqual([
 				["user", "Board notes"],
-				["agent", null],
 			]);
 		});
 
@@ -591,7 +585,6 @@ describe("automations", () => {
 			await signIn(t, "new@co.com");
 			expect(await dmWith(owner, companybot._id)).toEqual([
 				["user", "Welcome"],
-				["agent", null],
 			]);
 		});
 	});

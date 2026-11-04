@@ -1,6 +1,6 @@
 import { actionLabel, toolLine } from "@companybot/core/action-words";
 import { splitLinks } from "@companybot/core/link-preview";
-import { routerDecisionModels } from "@companybot/core/router";
+import { routerActions, routerDecisionModels } from "@companybot/core/router";
 import { Fragment, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
@@ -462,9 +462,9 @@ const usd = (n: number) => `$${n.toFixed(n < 0.01 ? 4 : n < 1 ? 3 : 2)}`;
 /** A dispatcher call costs a few hundredths of a cent. */
 const tinyUsd = (n: number) => (n < 0.001 ? `$${n.toFixed(5)}` : usd(n));
 const percent = (p: number) => `${Math.round(p * 100)}%`;
-/** Jev's chance of each choice ("84% reply · 1% react · 15% quiet"); a hop's, of going next; none from a language model. */
+/** Jev's chance of each choice ("84% reply · 16% quiet"); a hop's, of going next; none from a language model. */
 function confidence({ probability, probabilities }: NonNullable<Stats["dispatch"]>) {
-	if (probabilities) return ["reply", "react", "quiet"].filter((c) => probabilities[c] !== undefined).map((c) => `${percent(probabilities[c]!)} ${c}`).join(" · ");
+	if (probabilities) return routerActions.filter((c) => probabilities[c] !== undefined).map((c) => `${percent(probabilities[c]!)} ${c}`).join(" · ");
 	return probability !== undefined ? `${percent(probability)} go next` : "—";
 }
 /** "Jev" for TypeSafe's decision model, else the model's short id. */

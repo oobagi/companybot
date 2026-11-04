@@ -1,25 +1,26 @@
 import type { RouterAction, RouterAgent, RouterInput, RouterMessage } from "../src/router";
 
 // Chat moments for scoring the reply router (router.eval.ts) and the full path, dispatcher then the
-// agent's quiet turn (full-path.eval.ts): what's been said, the newest message, and what each agent
-// should end up doing. "reply" means it should end up answered by that agent; the dispatcher only has
-// to wake it. Written like a small roofing company's channels. Keep each one unambiguous to a person
+// agent's turn (full-path.eval.ts): what's been said, the newest message, and what each agent
+// should end up doing. "reply" means the dispatcher should wake that agent: it should end up answered
+// by it, or, for thanks (`reacts`), reacted to. Written like a small roofing company's channels. Keep each one unambiguous to a person
 // reading it: the eval measures the models, not the labels.
 
 const companybot: RouterAgent = {
 	key: "a1",
 	name: "Companybot",
-	description: "Your company's assistant. Answers questions about clients, deals, tasks and the team's data, and does things in the app.",
-	canReact: true,
+	description: "Your company's assistant. Answers questions about clients, deals, tasks and the team's data, and does things in the app."
 };
-const scribe: RouterAgent = { key: "a2", name: "Scribe", description: "Takes meeting notes and writes summaries and recaps.", canReact: true };
-const closer: RouterAgent = { key: "a3", name: "Closer", description: "Writes proposals, quotes and follow-up emails for deals.", canReact: true };
+const scribe: RouterAgent = { key: "a2", name: "Scribe", description: "Takes meeting notes and writes summaries and recaps." };
+const closer: RouterAgent = { key: "a3", name: "Closer", description: "Writes proposals, quotes and follow-up emails for deals." };
 
 export interface RouterCase {
 	name: string;
 	input: RouterInput;
 	/** By agent key. */
 	expect: Record<string, RouterAction>;
+	/** Agents woken only to react (thanks, an okay): the full path expects a reaction from them, and no post. */
+	reacts?: string[];
 }
 
 const m = (author: string, text: string): RouterMessage => ({ author, text });
@@ -37,9 +38,10 @@ function moment(
 		message: RouterMessage;
 	},
 	expect: Record<string, RouterAction>,
+	reacts?: string[],
 ): RouterCase {
 	const all = Object.fromEntries(agents.map((a) => [a.key, "quiet" as RouterAction]));
-	return { name, input: { place: { name: channel, topic }, agents, people: people.filter((p) => p !== message.author), parent, before, message }, expect: { ...all, ...expect } };
+	return { name, input: { place: { name: channel, topic }, agents, people: people.filter((p) => p !== message.author), parent, before, message }, expect: { ...all, ...expect }, ...(reacts && { reacts }) };
 }
 
 export const routerCases: RouterCase[] = [
@@ -72,30 +74,38 @@ export const routerCases: RouterCase[] = [
 	}, { a1: "reply" }),
 	moment("asks where a file or record is", { message: m("Dana", "where's the signed contract for the Baker job?") }, { a1: "reply" }),
 
-	// Thanks and acknowledgements: a reaction.
+	// Thanks and acknowledgements: the agent is woken, and reacts.
 	moment("thanks after an answer", {
 		before: [m("Dana", "@Companybot what's Ortiz's phone number?"), bot(companybot, "Maria Ortiz: (555) 201-3344.")],
 		message: m("Dana", "thanks!"),
-	}, { a1: "react" }),
+	}, { a1: "reply" }, ["a1"]),
 	moment("perfect, after notes", {
 		before: [m("Luis", "@Scribe recap the client call"), bot(scribe, "Recap: client wants a start date before Nov 15, budget confirmed at $22k, needs gutter quote too.")],
 		message: m("Luis", "perfect, exactly what I needed"),
-	}, { a2: "react" }),
+	}, { a2: "reply" }, ["a2"]),
 	moment("got it in a thread", {
 		parent: m("Priya", "@Companybot when is the Walker inspection?"),
 		before: [bot(companybot, "Thursday Oct 30, 10am, with the county inspector.")],
 		message: m("Priya", "got it"),
-	}, { a1: "react" }),
+	}, { a1: "reply" }, ["a1"]),
 	moment("thanks to the proposal writer", {
 		agents: [companybot, scribe, closer],
 		channel: "sales",
 		before: [m("Dana", "@Closer draft the follow-up to Hendricks"), bot(closer, "Draft: Hi Tom, following up on the estimate we sent Monday…")],
 		message: m("Dana", "nice, sending it now. thank you"),
-	}, { a3: "react" }),
+	}, { a3: "reply" }, ["a3"]),
 	moment("ok answering the agent's question", {
 		before: [m("Luis", "@Companybot add a task to call Chen"), bot(companybot, "Added \"Call Chen\" for you. Want a due date on it?")],
 		message: m("Luis", "nah no due date is fine"),
-	}, { a1: "react" }),
+	}, { a1: "reply" }, ["a1"]),
+	moment("thanks again, in a 1:1 channel", {
+		agents: [companybot],
+		people: ["Jaden"],
+		channel: "jaden",
+		before: [m("Jaden", "what's 15% of 240?"), bot(companybot, "36."), m("Jaden", "thanks!")],
+		message: m("Jaden", "ty, appreciate it"),
+	}, { a1: "reply" }, ["a1"]),
+	moment("asks for a reaction and a hello, no @mention", { agents: [companybot], people: ["Jaden"], channel: "jaden", message: m("Jaden", "react with a 🦄 and say hi") }, { a1: "reply" }),
 
 	// People talking to each other: nothing.
 	moment("small talk", { message: m("Luis", "anyone else freezing in the office today?") }, {}),
@@ -160,10 +170,12 @@ export const routerCases: RouterCase[] = [
 
 /**
  * What an agent should do after a step: post, stay silent (a reaction is fine), either, "one" (exactly
- * one of the agents marked so posts), "handoff" (silent, or a post that @mentions another agent), or
- * "respond" (post or react: its own answer, as to a vote).
+ * one of the agents marked so posts), "handoff" (silent, or a post that @mentions another agent),
+ * "respond" (post or react: its own answer, as to a vote), "react" (a reaction, never a post), or
+ * "both" (a post and a reaction), or "proxy" (sends its person's message here for them with chat_manage,
+ * once, and replies in a line without repeating it).
  */
-export type Outcome = "post" | "silent" | "either" | "one" | "handoff" | "respond";
+export type Outcome = "post" | "silent" | "either" | "one" | "handoff" | "respond" | "react" | "both" | "proxy";
 
 export interface Transcript {
 	name: string;
@@ -182,10 +194,10 @@ export interface Transcript {
 }
 
 // The test app's #general, 2026-10-31 (Companybot is the default agent; the others as the team set them up).
-const mainBot: RouterAgent = { key: "a1", name: "Companybot", description: "Your main teammate. Remembers things and keeps work moving.", canReact: true };
-const scout: RouterAgent = { key: "a2", name: "Scout", description: "Finds and researches new leads.", canReact: true };
-const penny: RouterAgent = { key: "a3", name: "Penny", description: "Handles invoices, payments and the books.", canReact: true };
-const quill: RouterAgent = { key: "a4", name: "Quill", description: "Writes copy: emails, posts and website text.", canReact: true };
+const mainBot: RouterAgent = { key: "a1", name: "Companybot", description: "Your main teammate. Remembers things and keeps work moving." };
+const scout: RouterAgent = { key: "a2", name: "Scout", description: "Finds and researches new leads." };
+const penny: RouterAgent = { key: "a3", name: "Penny", description: "Handles invoices, payments and the books." };
+const quill: RouterAgent = { key: "a4", name: "Quill", description: "Writes copy: emails, posts and website text." };
 const team = [mainBot, scout, penny, quill];
 
 /** Every agent `outcome`. */
@@ -285,6 +297,39 @@ export const transcripts: Transcript[] = [
 			{ message: m("j", "Everyone, thumbs up or down??"), expect: (_, responded) => Object.fromEntries(team.map((a) => [a.key, responded.includes(a.key) ? "either" : "respond"])) },
 		],
 	},
+{
+	// The test app, 2026-11-03: a channel with one person and Companybot. Woken for five thanks in a
+	// row, it answered each with nothing, copying its own earlier turns. Each gets a reaction.
+	name: "thanks after thanks in a 1:1 channel",
+	channel: "jaden",
+	agents: [mainBot],
+	people: ["Jaden"],
+	steps: [
+		{ message: m("Jaden", "what's 15% of 240?"), expect: () => ({ a1: "post" }) },
+		...["thanks!", "thank you", "ty", "thanks, that helped", "appreciate it 🙏"].map((text) => ({ message: m("Jaden", text), expect: () => ({ a1: "react" as const }) })),
+	],
+},
+{
+	// The test app, 2026-11-03: without an @mention, "both" got only the hello: an un-asked turn could
+	// post or react, not both.
+	name: "react and say hi, no @mention",
+	channel: "jaden",
+	agents: [mainBot],
+	people: ["Jaden"],
+	steps: [
+		{ message: m("Jaden", "react with a 🦄 and say hi"), expect: () => ({ a1: "both" }) },
+		{ message: m("Jaden", "now do both again, with a 🎉 this time"), expect: () => ({ a1: "both" }) },
+	],
+},
+{
+	// #205: "post X here for me" is the person's message, so it goes out for them ("Companybot, for
+	// Jaden") with chat_manage, here; the reply only says it's done.
+	name: "post something here for the person",
+	channel: "general",
+	agents: [mainBot],
+	people: ["Jaden", "Dana"],
+	steps: [{ message: m("Jaden", "post 'Demo at 3pm today' here for me"), expect: () => ({ a1: "proxy" }) }],
+},
 ];
 
 /**

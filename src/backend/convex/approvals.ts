@@ -39,7 +39,7 @@ export const request = internalMutation({
 		// Automation and wake cards belong only in the acting person's DM, even for channel/thread runs.
 		// Keep chatId/threadId as the execution place: implicit targets must not change on approval.
 		const dmId = (trigger?.automation || turn.wakeupId) && await findOrCreateDm(ctx, turn.workspaceId, turn.actorId, [turn.actorId], [turn.agentId]);
-		// In the DM itself it goes in the reply, which is shown with it (turns.finishReply), quiet or not.
+		// In the DM itself it goes in the reply, which is shown with it (turns.ts `show`).
 		const separate = !!dmId && dmId !== turn.chatId;
 		const replyId = separate ? await insertMessage(ctx, (await ctx.db.get(dmId!))!, {
 			authorAgentId: turn.agentId, text: "", parts: [], mentions: { userIds: [], agentIds: [] }, status: "done",
@@ -188,12 +188,12 @@ export const decide = mutation({
 			agentId: row.agentId,
 			chatId: row.chatId,
 			threadId: row.threadId,
-			// The message that started it all, so chat.react still reacts to the person's message.
+			// The message that started it all, so the decision's reaction lands on the person's message.
 			// An old welcome turn had none: then there's nothing to react to.
 			triggerId: asked ? asked.triggerId : row.replyId,
 			actorId: row.actorId,
 			approvalId,
-			// A wake's follow-up turn stays quiet, and as trusted as the wake.
+			// A wake's follow-up turn stays a wake, as trusted as the wake.
 			...(asked?.wakeupId && { wakeupId: asked.wakeupId }),
 			// Still in its chain of agents, or still answering another agent's ask (chains.ts).
 			...(asked?.chain && { chain: asked.chain }),

@@ -34,6 +34,7 @@ import { resetChains } from "./chains";
 import { stopTyping } from "./typing";
 import { claimFiles, deleteAttachments } from "./files";
 import { type LinkPreview, previewMessage, previewRow, previewsOf } from "./linkPreviews";
+import { emojiOf } from "@companybot/core";
 import { previewUrl } from "@companybot/core/link-preview";
 import type { fileInfo } from "./schema";
 
@@ -102,7 +103,7 @@ export const list = query({
 				.query("chatMessages")
 				.withIndex("by_chat_thread", (q) => q.eq("chatId", chatId).eq("threadId", threadId))
 				.order("desc")
-				// Wake turns' own replies are never shown (wakeups.ts).
+				// Replies not shown yet (turns.ts `show`), and asks.
 				.filter((q) => q.neq(q.field("quiet"), true))
 				.take(LIST_LIMIT)
 		).sort((a, b) => shownAt(a) - shownAt(b));
@@ -327,9 +328,18 @@ export const hidePreview = mutation({
 	handler: async (ctx, { messageId, url }) => hideMessagePreview(ctx, { member: await requireMember(ctx) }, messageId, url),
 });
 
+/** Toggles your reaction. Agents react only through their turn's decision (turns.finishReply). */
 export const react = mutation({
 	args: { messageId: v.id("chatMessages"), emoji: v.string() },
-	handler: async (ctx, { messageId, emoji }) => reactMessage(ctx, { member: await requireMember(ctx) }, messageId, emoji),
+	handler: async (ctx, { messageId, emoji }) => {
+		const member = await requireMember(ctx);
+		const message = await ctx.db.get(messageId);
+		if (!message || message.deleted) throw new ConvexError("Message not found.");
+		requirePost(member, await requireChat(ctx, member, message.chatId));
+		const one = emojiOf(emoji.trim());
+		if (!one) throw new ConvexError("Pick one emoji.");
+		return toggleReaction(ctx, message, one, member.userId);
+	},
 });
 
 export async function editMessage(ctx: MutationCtx, who: Who, messageId: Id<"chatMessages">, text: string) {
@@ -356,16 +366,6 @@ export async function removeMessage(ctx: MutationCtx, who: Who, messageId: Id<"c
 	await deleteAttachments(ctx, message);
 	await ctx.db.patch(message._id, { text: "", parts: [], attachments: undefined, linkPreviews: undefined, deleted: true });
 	await clearMessageLinks(ctx, messageId);
-}
-
-export async function reactMessage(ctx: MutationCtx, who: Who, messageId: Id<"chatMessages">, emoji: string) {
-	const { member } = who;
-	const message = await ctx.db.get(messageId);
-	if (!message || message.deleted) throw new ConvexError("Message not found.");
-	requirePost(member, await requireChat(ctx, member, message.chatId));
-	emoji = emoji.trim();
-	if (!emoji || emoji.length > 16) throw new ConvexError("Pick one emoji.");
-	return toggleReaction(ctx, message, emoji, who.agentId ? { agentId: who.agentId } : { userId: member.userId });
 }
 
 /** Deleted content disappears immediately; mentions and reactions drain in bounded batches. */

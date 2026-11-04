@@ -20,7 +20,7 @@ export function welcomeText(kind: Welcome, { agent, name, memory }: { agent: str
 			`Tell me your role and what you're working on${memory ? ", and I'll remember it" : ""}.`,
 		].join("\n\n");
 	return [
-		`Hi${name ? ` ${name}` : ""}, I'm ${agent}. I help the whole team here. Outside DMs, I only answer messages that @mention me.`,
+		`Hi${name ? ` ${name}` : ""}, I'm ${agent}. I help the whole team here. In channels, I answer when a message is for me, or when you @mention me.`,
 		`To get started, @mention me with a few lines about the company: what you do, who your customers are, and what you're focused on right now.${memory ? " I'll save it to team memory, which everyone here can see and edit." : ""}`,
 	].join("\n\n");
 }

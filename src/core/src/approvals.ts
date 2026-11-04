@@ -48,14 +48,15 @@ export function whyPrompt(tool: string, input: string) {
 		input,
 		"```",
 		"Write the top of that card: one or two short sentences to them, first person, saying what this will do (name the thing it touches) and why you want to do it.",
-		"Plain words, no greeting, no IDs, no markdown. Write only those sentences.",
+		"Plain words, no greeting, no IDs, no markdown. This is only for the card, not your answer: write only those sentences.",
 	].join("\n");
 }
 
 /** The agent's card text, tidied and capped; undefined if it wrote nothing usable. */
 export function cleanWhy(text: string) {
 	const flat = text.replace(/\s+/g, " ").trim().replace(/^["“](.*)["”]$/, "$1").trim();
-	if (!flat) return undefined;
+	// The conversation it's asked in ends with how to answer the chat; if it answered that way, the card keeps its plain ask.
+	if (!flat || flat.startsWith("{")) return undefined;
 	return flat.length > WHY_MAX ? `${flat.slice(0, WHY_MAX - 1).trimEnd()}…` : flat;
 }
 
