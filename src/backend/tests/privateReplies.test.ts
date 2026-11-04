@@ -284,7 +284,7 @@ describe("private agent replies", () => {
 		});
 		const turnId = await s.start(s.crew);
 		const context = await s.t.mutation(internal.turns.turnContext, { turnId });
-		const replay = context.session.turns.map((t) => t.prompt + t.reply).join("");
+		const replay = context.session.turns.map((t) => t.prompt + t.steps + t.answer).join("");
 		expect(approxTokens(replay)).toBeLessThanOrEqual(KEEP_TOKENS);
 		expect(replay).toContain("Readable request 99:");
 		expect(replay).not.toContain("Readable request 0:");

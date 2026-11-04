@@ -220,6 +220,11 @@ describe("agent turns", () => {
 		expect(context.memory).toBe("personal");
 		expect(context.messages.map((m) => m.text)).toEqual(["first"]);
 		await t.mutation(internal.turns.savePrompt, { turnId: turn!._id, prompt: "PROMPT 1" });
+		const steps = JSON.stringify([
+			{ role: "assistant", content: [{ type: "tool-call", toolCallId: "c1", toolName: "memory_search", input: { query: "q4" } }] },
+			{ role: "tool", content: [{ type: "tool-result", toolCallId: "c1", toolName: "memory_search", output: { type: "json", value: { found: [] } } }] },
+		]);
+		await t.mutation(internal.turns.keepStep, { turnId: turn!._id, messages: steps });
 		await t.mutation(internal.turns.updateReply, {
 			turnId: turn!._id,
 			text: "answer",
@@ -233,8 +238,8 @@ describe("agent turns", () => {
 		await owner.mutation(api.messages.send, { chatId, text: "second", mentions: noMentions });
 		turn = (await turnsOf(t))[1];
 		context = await t.mutation(internal.turns.turnContext, { turnId: turn!._id });
-		// Tools it used replay too, so later it knows it really acted.
-		expect(context.session.turns).toEqual([{ prompt: "PROMPT 1", reply: "answer\n[Tools you used: memory_search (done)]" }]);
+		// Its tool calls and their results replay as it had them, so later it knows it really acted.
+		expect(context.session.turns).toEqual([{ prompt: "PROMPT 1", steps, answer: "answer" }]);
 		expect(context.messages.map((m) => m.text)).toEqual(["second"]);
 		expect(context.triggerId).toBe(context.messages[0]!.id);
 	});
