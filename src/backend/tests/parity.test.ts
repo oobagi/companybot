@@ -17,6 +17,8 @@ describe("the parity registry", () => {
 		expect(Object.keys(parity).sort()).toEqual(mutations.sort());
 		for (const [name, rule] of Object.entries(parity)) {
 			expect(rule.humanOnly ?? "", name).not.toMatch(/pending|deferred|part [12]/i);
+			// "Agents can't upload pictures" stayed after they could make them. What agents can't do is a gap to build, not a reason.
+			expect(rule.humanOnly ?? "", name).not.toMatch(/\bagents? (can't|cannot|can not|never|don't|do not|have no|are unable)\b/i);
 			expect(!!rule.agent?.length || !!rule.humanOnly?.trim(), name).toBe(true);
 			for (const action of rule.agent ?? []) {
 				const [id, verb] = action.split(":");

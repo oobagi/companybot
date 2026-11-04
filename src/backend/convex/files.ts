@@ -1,12 +1,13 @@
-import { FILE_MAX_BYTES, FILES_PER_MESSAGE, TURN_IMAGES_MAX, cleanFileName, imageSize, isFileType, isImageType, modelTakesImage, sniffFile } from "@companybot/core";
+import { FILE_MAX_BYTES, FILES_PER_MESSAGE, TURN_IMAGES_MAX, cleanFileName, imageMaxBytes, imageSize, isFileType, isImageType, modelTakesImage, sniffFile } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type MutationCtx, type QueryCtx, httpAction, internalMutation, internalQuery } from "./_generated/server";
+import { internal } from "./_generated/api";
+import { type MutationCtx, type QueryCtx, httpAction, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { canSee } from "./chatOps";
 import { mutation, query } from "./functions";
 import { deleteFile, readBody, reply, storeUpload, uploadOf } from "./images";
 import { type Member, requireMember } from "./lib";
-import type { attachment } from "./schema";
+import { type attachment, fileInfo } from "./schema";
 import { runningTurn } from "./turns";
 
 // Files attached to chat messages, on Convex file storage, through the same signed-in upload as
@@ -122,6 +123,63 @@ export const readFor = internalQuery({
 	handler: async (ctx, { turnId, id }) => {
 		const { member } = await runningTurn(ctx, turnId);
 		const file = await visibleFile(ctx, member, id);
-		return file && { storageId: file.storageId, name: file.name, type: file.type };
+		return file;
+	},
+});
+
+/**
+ * For agents using a chat file elsewhere (a logo, an agent's picture, a page, another message):
+ * copies each file the turn's person can see into a new upload of theirs, which the app's own
+ * mutations then claim, so an agent passes the same checks a person does. A copy, because a
+ * message's files go with it. `picture`: only pictures a person could upload as one (images.ts).
+ * Returns the copies by file id; unclaimed ones go with `dropCopies`, or the upload sweep.
+ */
+export const copyFor = internalAction({
+	args: { turnId: v.id("agentTurns"), ids: v.array(v.string()), picture: v.boolean() },
+	handler: async (ctx, { turnId, ids, picture }): Promise<{ copies: Record<string, Id<"_storage">> } | { error: string }> => {
+		const copies: Record<string, Id<"_storage">> = {};
+		const fail = async (error: string) => {
+			await ctx.runMutation(internal.files.dropCopies, { turnId, storageIds: Object.values(copies) });
+			return { error };
+		};
+		for (const id of new Set(ids)) {
+			const found = await ctx.runQuery(internal.files.readFor, { turnId, id });
+			if (!found) return fail(`No file "${id}" in a chat you can see.`);
+			const { storageId: source, ...file } = found;
+			if (picture && !isImageType(file.type)) return fail(`${file.name} isn't a picture (PNG, JPEG, WebP or GIF).`);
+			if (picture && file.size > imageMaxBytes) return fail(`${file.name} is ${(file.size / 1024 / 1024).toFixed(1)} MB; pictures here can be up to ${imageMaxBytes / 1024 / 1024} MB.`);
+			const blob = await ctx.storage.get(source);
+			if (!blob) return fail(`${file.name} was deleted.`);
+			const storageId = await ctx.storage.store(blob);
+			copies[id] = storageId;
+			const saved = await ctx.runMutation(internal.files.saveCopy, { turnId, storageId, ...(!picture && { file }) });
+			if (saved) return fail(saved);
+		}
+		return { copies };
+	},
+});
+
+/** Notes a copy as the turn's person's unclaimed upload (with `file`, one for a message). Returns why not, after deleting it. */
+export const saveCopy = internalMutation({
+	args: { turnId: v.id("agentTurns"), storageId: v.id("_storage"), file: v.optional(fileInfo) },
+	handler: async (ctx, { turnId, storageId, file }) => {
+		const running = await runningTurn(ctx, turnId).catch((e: Error) => e);
+		if (running instanceof Error) return (await deleteFile(ctx, storageId), running.message);
+		const { member } = running;
+		await ctx.db.insert("uploads", { storageId, userId: member.userId, workspaceId: member.workspaceId, createdAt: Date.now(), ...(file && { file }) });
+		return null;
+	},
+});
+
+/** Deletes copies nothing claimed (the call that wanted them failed). Claimed ones have no upload row, so they're left alone. */
+export const dropCopies = internalMutation({
+	args: { turnId: v.id("agentTurns"), storageIds: v.array(v.id("_storage")) },
+	handler: async (ctx, { storageIds }) => {
+		for (const storageId of storageIds) {
+			const upload = await uploadOf(ctx, storageId);
+			if (!upload) continue;
+			await deleteFile(ctx, storageId);
+			await ctx.db.delete(upload._id);
+		}
 	},
 });

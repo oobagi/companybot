@@ -121,7 +121,7 @@ describe("agents", () => {
 	it("offers web search and pages in the tool picker, and new Companybots have them", async () => {
 		const { owner } = await ownerAndMember();
 		const web = (await owner.query(api.agents.options)).groups.find((g) => g.id === "web");
-		expect(web?.tools.map((t) => [t.id, t.ownersOnly])).toEqual([["web.search", false], ["web.fetch", false]]);
+		expect(web?.tools.map((t) => [t.id, t.ownersOnly])).toEqual([["web.search", false], ["web.fetch", false], ["web.save", false]]);
 		expect((await agentsOf(owner)).companybot.tools).toContain("web.*");
 	});
 

@@ -250,11 +250,11 @@ describe("pictures", () => {
 		const turnId = await agentTurn(t, owner, dm, companybot._id);
 		const call = (request: unknown, tool: "agents.manage" | "workspace.settings" = "agents.manage") =>
 			t.mutation(internal.manageTools.runFor, { turnId, tool, input: { request } });
-		await call({ action: "remove_image", id: scribe._id });
+		await call({ action: "set_image", id: scribe._id, file: null });
 		expect(await exists(t, file)).toBe(false);
 		const photo = await upload(owner);
 		await owner.mutation(api.images.set, { of: "me", file: photo });
-		await call({ action: "remove_image", of: "me" }, "workspace.settings");
+		await call({ action: "set_image", of: "me", file: null }, "workspace.settings");
 		expect(await exists(t, photo)).toBe(false);
 
 		await owner.mutation(api.trash.move, { kind: "agent", id: scribe._id });
@@ -356,7 +356,7 @@ it("refuses cross-workspace targets and member agent resets", async () => {
 	await expect(outsider.mutation(api.images.set, { of: scribe._id, file: null })).rejects.toThrow("not found");
 	const dm = await member.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
 	const turnId = await agentTurn(t, member, dm, companybot._id);
-	expect(await t.mutation(internal.manageTools.runFor, { turnId, tool: "agents.manage", input: { request: { action: "remove_image", id: scribe._id } } })).toMatchObject({ error: expect.stringMatching(/permission/) });
+	expect(await t.mutation(internal.manageTools.runFor, { turnId, tool: "agents.manage", input: { request: { action: "set_image", id: scribe._id, file: null } } })).toMatchObject({ error: expect.stringMatching(/permission/) });
 	expect(await exists(t, file)).toBe(true);
 });
 

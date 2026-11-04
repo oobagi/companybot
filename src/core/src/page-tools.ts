@@ -58,13 +58,17 @@ export const writeInput = z.object({
 	parent: z.string().nullable().optional().describe("Parent page id or exact title for creation or action move; null moves to the top level. Record bodies cannot be nested."),
 	...target,
 	title: z.string().optional().describe("A new page's title, or a new title for a page (not a record's body)"),
-	markdown: z.string().max(MARKDOWN_MAX).optional().describe("Content in Markdown: headings, lists, - [ ] to-dos, > quotes, ``` code, --- dividers, tables"),
+	markdown: z.string().max(MARKDOWN_MAX).optional().describe("Content in Markdown: headings, lists, - [ ] to-dos, > quotes, ``` code, --- dividers, tables, and pictures from the chat as ![caption](<file id>), copied into the page"),
 	blocks: z.string().max(500_000).optional().describe("JSON array from pages_read format blocks, edited with properties intact. Use instead of markdown; append or replace."),
 	mode: z.enum(["replace", "append"]).optional().describe("replace: the page becomes `markdown`; append (default): `markdown` goes at the end"),
 	trash: z.boolean().optional().describe("true archives a page (to Archive, kept until restored or explicitly deleted forever); false restores it. On its own."),
 	restore: z.string().optional().describe("A version id from pages_read: its content comes back as a new version. On its own."),
 });
 export type PageWriteInput = z.infer<typeof writeInput>;
+
+/** Whether a write points a picture at a chat file id ("![caption](<file id>)", or an image block's url). */
+export const usesChatFile = (input: PageWriteInput) =>
+	/!\[[^\]]*\]\(\s*<?[a-z0-9]{20,}\/\d+>?\s*\)/i.test(input.markdown ?? "") || /"url"\s*:\s*"[a-z0-9]{20,}\/\d+"/i.test(input.blocks ?? "");
 
 /** "Create page Onboarding", "Write page Onboarding", "Delete page Onboarding". */
 function writeLabel(input: PageWriteInput, output: unknown) {
@@ -113,7 +117,8 @@ export const pageTools: ToolDef[] = [
 			"Create a page (title, optional parent and markdown), move it (action move, page, parent; null for top level), add to a page or a record's page body (append), rewrite it (replace), rename it, delete it (to Archive) or restore it, or bring back an old version. Archiving waits for confirmation. Other writes run right away and are saved in the page's history as you acting for the person, so it can be restored. Read a page before replacing it.",
 		input: writeInput,
 		risk: "none",
-		riskFor: (input) => input.trash === true ? "locked" : "none",
+		// A picture from the chat can come from the person's private chats: like images.generate, that asks in runs following someone else's words.
+		riskFor: (input) => (input.trash === true ? "locked" : usesChatFile(input) ? "inside" : "none"),
 		execute: (input, { pages }) => pages.write(input),
 		label: writeLabel,
 	}),

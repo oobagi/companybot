@@ -51,6 +51,7 @@ describe("tool visibility", () => {
 			"pages.write",
 			"web.search",
 			"web.fetch",
+			"web.save",
 			"images.generate",
 			"chat.manage", "channels.manage", "automations.manage", "automations.remove", "skills.manage", "skills.remove", "members.invite", "members.remove", "workspace.settings", "agents.manage",
 		].sort());
@@ -122,6 +123,7 @@ describe("tool visibility", () => {
 			"pages_write",
 			"web_search",
 			"web_fetch",
+			"web_save",
 			"images_generate",
 			"chat_manage", "channels_manage", "automations_manage", "automations_remove", "skills_manage", "skills_remove", "workspace_settings", "agents_manage",
 		].sort());
