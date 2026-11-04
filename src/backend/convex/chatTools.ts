@@ -1,4 +1,3 @@
-import { canReadReply } from "./replyPrivacy";
 import type { ChatLine, ChatResult } from "@companybot/core";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -7,6 +6,9 @@ import { type Namer, canSee, label as authorLabel, chatByRef, chatLabel, namer, 
 import { filesForModel } from "./files";
 import { asToolResult } from "./lib";
 import { reactMessage } from "./messages";
+import { chatAccess } from "./placeAccess";
+import { canReadReply, readReply } from "./replyPrivacy";
+import { notePlace } from "./replySources";
 import { runningTurn } from "./turns";
 
 // ---- Chat tools (core's ChatStore), acting as the turn's person ----
@@ -57,7 +59,7 @@ export const readFor = internalMutation({
 			const id = ctx.db.normalizeId("chatMessages", args.threadOf);
 			const message = id && (await ctx.db.get(id));
 			chat = message ? await ctx.db.get(message.chatId) : null;
-			if (!message || !chat || !(await canSee(ctx, chat, member)) || !(await canReadReply(ctx, member, message))) return { error: `No message "${args.threadOf}" you can see.` };
+			if (!message || !chat || !(await canSee(ctx, chat, member)) || !(await readReply(ctx, member, message))) return { error: `No message "${args.threadOf}" you can see.` };
 			threadId = message.threadId ?? message._id;
 		} else if (args.chat) {
 			chat = await chatByRef(ctx, member, args.chat);
@@ -81,7 +83,7 @@ export const readFor = internalMutation({
 		const label = await chatLabel(ctx, chat, names, turn.agentId);
 		const all = parent && !parent.deleted && parent._creationTime < before ? [parent, ...docs] : docs;
 		const visible = [];
-		for (const m of all) if (await canReadReply(ctx, member, m)) visible.push(m);
+		for (const m of all) if (await readReply(ctx, member, m)) visible.push(m);
 		return { messages: await Promise.all(visible.map((m) => toLine(ctx, m, names, label))) };
 		});
 	},
@@ -94,7 +96,7 @@ export const searchFor = internalMutation({
 		return asToolResult(async (): Promise<ChatResult> => {
 		let chatId: Id<"chats"> | undefined;
 		if (args.chat) {
-			const chat = await chatByRef(ctx, member, args.chat);
+			const chat = await chatByRef(ctx, { ...member, replyId: undefined }, args.chat);
 			if (!chat) return { error: `No channel "${args.chat}" you can see.` };
 			chatId = chat._id;
 		}
@@ -110,14 +112,19 @@ export const searchFor = internalMutation({
 		const labels = new Map<Id<"chats">, string | null>();
 		const lines: ChatLine[] = [];
 		for (const m of found) {
-			if (m.deleted || m.quiet || lines.length >= 20 || !(await canReadReply(ctx, member, m))) continue;
+			if (lines.length >= 20) break;
+			if (m.deleted || m.quiet) continue;
 			if (!labels.has(m.chatId)) {
 				const chat = await ctx.db.get(m.chatId);
-				const ok = chat && !chat.archived && (await canSee(ctx, chat, member));
+				const ok = chat && !chat.archived && (await canSee(ctx, chat, { ...member, replyId: undefined }));
 				labels.set(m.chatId, ok ? await chatLabel(ctx, chat, names, turn.agentId) : null);
 			}
 			const label = labels.get(m.chatId);
-			if (label) lines.push(await toLine(ctx, m, names, label));
+			if (!label || !(await canReadReply(ctx, member, m))) continue;
+			const chat = (await ctx.db.get(m.chatId))!;
+			await notePlace(ctx, member, chat._id, chatAccess(chat), chat.private);
+			await readReply(ctx, member, m);
+			lines.push(await toLine(ctx, m, names, label));
 		}
 		return { messages: lines };
 		});

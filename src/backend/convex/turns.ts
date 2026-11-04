@@ -1,13 +1,12 @@
-import { chatAccess } from "./placeAccess";
-import { canReadReply, canReadSources } from "./replyPrivacy";
-import { inheritPlaces, notePlace } from "./replySources";
 import type { PlaceMessage, Skill } from "@companybot/core";
 import { AGENT_DEBOUNCE_MS, PROMPT_MESSAGE_CAP, approxTokens, can, defaultReasoning, deniedMessage, fallbackModels, publishes, steerNote } from "@companybot/core";
-import { ConvexError, type Infer, v } from "convex/values";
+import { ConvexError, getDocumentSize, type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
 import { mutation } from "./functions";
+import { automationScope } from "./automationOps";
+import { answerAsk, handOff } from "./chains";
 import {
 	type Namer,
 	canPost,
@@ -24,16 +23,17 @@ import {
 	shownAt,
 	textForModel,
 } from "./chatOps";
-import { previewMessage } from "./linkPreviews";
-import { type Member, type Who, installedSkills, liveWorkspace, memberOf, nameOf, requireMember, timeZoneOf } from "./lib";
-import { automationScope } from "./automationOps";
-import { messagePart, replyStats, replyUsage } from "./schema";
 import { filesForModel, turnImages } from "./files";
+import { type Member, type Who, installedSkills, liveWorkspace, memberOf, nameOf, requireMember, timeZoneOf } from "./lib";
+import { previewMessage } from "./linkPreviews";
 import { catalogModels } from "./modelCatalog";
-import { recordUsage } from "./usage";
+import { chatAccess } from "./placeAccess";
 import { recordOut } from "./recordTools";
+import { canReadReply, readReply, canReadSources } from "./replyPrivacy";
+import { inheritPlaces, notePlace } from "./replySources";
+import { messagePart, replyStats, replyUsage } from "./schema";
+import { recordUsage } from "./usage";
 import { setWakeOutcome } from "./wakeups";
-import { answerAsk, handOff } from "./chains";
 
 // The agent turn queue and everything the runner (agent.ts) reads and writes.
 // One `running` turn per agent per place (chat + thread); the rest wait in order.
@@ -41,7 +41,7 @@ import { answerAsk, handOff } from "./chains";
 /** A running turn this old (e.g. the action crashed) is failed so the queue moves on. */
 export const STALE_TURN_MS = 5 * 60_000;
 /** Newest turns kept verbatim when a session is compacted. */
-const KEEP_TOKENS = 15_000;
+export const KEEP_TOKENS = 15_000;
 
 type Place = { agentId: Id<"agents">; chatId: Id<"chats">; threadId?: Id<"chatMessages"> };
 
@@ -225,20 +225,29 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 
 /** A session's finished, unsummarized turns as they replay to the model, oldest first. */
 async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">, member?: Member) {
-	const since = member && !(await canReadSources(ctx, member, session.summaryPlaces)) ? 0 : session.summarizedUpTo ?? 0;
-	const turns = await ctx.db
-		.query("agentTurns")
-		.withIndex("by_session", (q) => q.eq("sessionId", session._id).gt("_creationTime", since))
-		.collect();
-	const finished = turns.filter((t) => (t.status === "done" || t.status === "error") && t.prompt !== undefined);
-	const replay = await Promise.all(
-		finished.map(async (t) => {
-			const reply = t.replyId && (await ctx.db.get(t.replyId));
-			if (member && reply && !(await canReadReply(ctx, member, reply))) return null;
-			return { prompt: t.prompt!, reply: reply ? replyForModel(reply) : "", time: t._creationTime, usedPlaces: reply?.sharedBy ? [] : reply?.usedPlaces ?? [] };
-		}),
-	);
-	return replay.filter((t) => t !== null);
+	const hiddenSummary = !!member && !(await canReadSources(ctx, member, session.summaryPlaces));
+	const query = ctx.db.query("agentTurns").withIndex("by_session", (q) => q.eq("sessionId", session._id).gt("_creationTime", hiddenSummary ? 0 : session.summarizedUpTo ?? 0));
+	const replay = [];
+	let tokens = 0;
+	let bytes = 0;
+	let scanned = 0;
+	// Newest first for the bounded fallback. Bound reads too when many hidden turns fill the tail.
+	for await (const turn of query.order(hiddenSummary ? "desc" : "asc")) {
+		bytes += getDocumentSize(turn);
+		if (hiddenSummary && (++scanned > 200 || bytes > 4 * 1024 * 1024)) break;
+		if ((turn.status !== "done" && turn.status !== "error") || turn.prompt === undefined) continue;
+		const reply = turn.replyId ? await ctx.db.get(turn.replyId) : null;
+		bytes += reply ? getDocumentSize(reply) : 0;
+		if (hiddenSummary && bytes > 4 * 1024 * 1024) break;
+		if (member && reply && !(await canReadReply(ctx, member, reply))) continue;
+		const text = reply ? replyForModel(reply) : "";
+		const size = approxTokens(turn.prompt + text);
+		if (hiddenSummary && tokens + size > KEEP_TOKENS) break;
+		if (member && reply) await readReply(ctx, member, reply);
+		replay.push({ prompt: turn.prompt, reply: text, time: turn._creationTime, usedPlaces: reply?.sharedBy ? [] : reply?.usedPlaces ?? [] });
+		tokens += size;
+	}
+	return hiddenSummary ? replay.reverse() : replay;
 }
 
 /** The running turn, its person (read fresh), and the chat, if they can still see it. */
@@ -320,13 +329,13 @@ export const turnContext = internalMutation({
 				.take(PROMPT_MESSAGE_CAP + 2)
 		).reverse();
 		const recent = [];
-		for (const m of window) if (!steered.has(m._id) && await canReadReply(ctx, member, m)) recent.push(m);
+		for (const m of window) if (!steered.has(m._id) && await readReply(ctx, member, m)) recent.push(m);
 		// A turn after an approval answers the decision, not a message.
 		const approval = turn.approvalId && (await ctx.db.get(turn.approvalId));
-		if (approval && !(await canReadReply(ctx, member, await ctx.db.get(approval.replyId)))) throw new Error("This approval uses places you can no longer see.");
+		if (approval && !(await readReply(ctx, member, await ctx.db.get(approval.replyId)))) throw new Error("This approval uses places you can no longer see.");
 		if (!approval && turn.triggerId && !recent.some((m) => m._id === turn.triggerId)) {
 			const trigger = await ctx.db.get(turn.triggerId);
-			if (trigger && await canReadReply(ctx, member, trigger)) recent.push(trigger);
+			if (trigger && await readReply(ctx, member, trigger)) recent.push(trigger);
 		}
 		const skills = await installedSkills(ctx, chat.workspaceId);
 		const messages = await Promise.all(
@@ -340,7 +349,7 @@ export const turnContext = internalMutation({
 		);
 
 		const threadParent = turn.threadId && (!foreign || turn.threadId === trigger?._id) && (await ctx.db.get(turn.threadId));
-		const parent = threadParent && await canReadReply(ctx, member, threadParent) ? threadParent : null;
+		const parent = threadParent && await readReply(ctx, member, threadParent) ? threadParent : null;
 		// What the person wrote, the only links web.fetch opens before searching: this turn's messages,
 		// the thread's parent, and after an approval the message that started it (it's before the window).
 		const own = (m: Doc<"chatMessages"> | null | undefined | false): m is Doc<"chatMessages"> => !!m && !m.deleted && m.authorUserId === member.userId;
@@ -649,7 +658,7 @@ export const steer = internalMutation({
 			.filter((m): m is Doc<"chatMessages"> => !!m && !m.deleted)
 			.sort((a, b) => a._creationTime - b._creationTime);
 		const messages = [];
-		for (const m of candidates) if (await canReadReply(ctx, member, m)) messages.push(m);
+		for (const m of candidates) if (await readReply(ctx, member, m)) messages.push(m);
 		if (messages.length === 0) return null;
 		const names = namer(ctx);
 		const skills = await installedSkills(ctx, turn.workspaceId);

@@ -1,11 +1,11 @@
-import { canReadReply, maskedReply, replyPrivacy, type ReplyPrivacy } from "./replyPrivacy";
-import { turnSources } from "./replySources";
-import { fireEvent } from "./automationRuns";
-import { completeSteps } from "./onboarding";
+import { previewUrl } from "@companybot/core/link-preview";
 import { ConvexError, type Infer, v } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { mutation, query } from "./functions";
+import { fireEvent } from "./automationRuns";
+import { resetChains } from "./chains";
 import {
 	type Namer,
 	type Participant,
@@ -25,19 +25,19 @@ import {
 	toggleReaction,
 	visibleChat,
 } from "./chatOps";
-import { type Who, type Member, memberOf, nameOf, requireMember } from "./lib";
-import { noteMentions, workspaceRecords } from "./recordOps";
-import { installOf } from "./skills";
-import type { messagePart, replyStats } from "./schema";
-import { internal } from "./_generated/api";
-import { enqueueTurn, queueFollowUps, streamOf } from "./turns";
-import { routeLater } from "./router";
-import { resetChains } from "./chains";
-import { stopTyping } from "./typing";
 import { claimFiles, deleteAttachments } from "./files";
+import { type Who, type Member, memberOf, nameOf, requireMember } from "./lib";
 import { type LinkPreview, previewMessage, previewRow, previewsOf } from "./linkPreviews";
-import { previewUrl } from "@companybot/core/link-preview";
+import { completeSteps } from "./onboarding";
+import { noteMentions, workspaceRecords } from "./recordOps";
+import { canReadReply, maskedReply, replyPrivacy, type ReplyPrivacy } from "./replyPrivacy";
+import { turnSources } from "./replySources";
+import { routeLater } from "./router";
+import type { messagePart, replyStats } from "./schema";
 import type { fileInfo } from "./schema";
+import { installOf } from "./skills";
+import { enqueueTurn, queueFollowUps, streamOf } from "./turns";
+import { stopTyping } from "./typing";
 
 // Messages in a chat's main timeline or a thread. See wiki/chat.md.
 
@@ -350,7 +350,7 @@ export async function editMessage(ctx: MutationCtx, who: Who, messageId: Id<"cha
 	text = text.trim();
 	if (!text && !message.attachments?.length) throw new ConvexError("Write something first, or delete the message.");
 	const sources = await turnSources(ctx, who.member);
-	await ctx.db.patch(message._id, { text, parts: text ? [{ type: "text", text }] : [], editedAt: Date.now(), ...(sources.length && { usedPlaces: [...new Set([...(message.usedPlaces ?? []), ...sources])], sharedBy: undefined, repliedTo: who.member.userId }) });
+	await ctx.db.patch(message._id, { text, parts: text ? [{ type: "text", text }] : [], editedAt: Date.now(), sharedBy: undefined, ...(sources.length && { usedPlaces: [...new Set([...(message.usedPlaces ?? []), ...sources])], repliedTo: who.member.userId }) });
 	await previewMessage(ctx, { ...message, text }, { byAgent: !!who.agentId });
 }
 
@@ -405,7 +405,7 @@ export const share = mutation({
 		const member = await requireMember(ctx);
 		const message = await ctx.db.get(messageId);
 		if (!message || message.deleted) throw new ConvexError("Reply not found.");
-		await requireChat(ctx, member, message.chatId);
+		requirePost(member, await requireChat(ctx, member, message.chatId));
 		if (!(await canReadReply(ctx, member, message))) throw new ConvexError("You can't see this reply.");
 		if (!message.usedPlaces?.length || message.sharedBy) return;
 		if (message.status === "streaming") throw new ConvexError("Wait until the reply finishes before sharing it.");

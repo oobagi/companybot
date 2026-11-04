@@ -18,10 +18,10 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
 import { mutation, query } from "./functions";
-import { type Member, getMember, memberFor, nameOf, requireInWorkspace, requireMember, requirePermission } from "./lib";
 import { automationName, automationScope } from "./automationOps";
-import { allowedRoles, installOf } from "./connectors";
 import { riskOf, titleOf, toolsOf } from "./connectorTools";
+import { allowedRoles, installOf } from "./connectors";
+import { type Member, getMember, memberFor, nameOf, requireInWorkspace, requireMember, requirePermission } from "./lib";
 import { risk } from "./schema";
 import { runningTurn } from "./turns";
 

@@ -1,5 +1,3 @@
-import { canReadSources } from "./replyPrivacy";
-import { inheritPlaces, notePlace, turnSources } from "./replySources";
 import {
 	FOLLOWUPS_PER_AGENT,
 	FOLLOWUPS_PER_RECORD,
@@ -18,11 +16,13 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { mutation, query } from "./functions";
+import { automationScope } from "./automationOps";
 import { addToChat, canPost, canSee, chatLabel, namer } from "./chatOps";
 import { type Member, asToolResult, getMember, liveWorkspace, memberOf, nameOf, requireMember, sweepExpired, timeZoneOf } from "./lib";
-import { automationScope } from "./automationOps";
-import { recordById } from "./recordOps";
 import { reach } from "./placeAccess";
+import { recordById } from "./recordOps";
+import { canReadSources } from "./replyPrivacy";
+import { inheritPlaces, notePlace, turnSources } from "./replySources";
 import { enqueueTurn, runningTurn } from "./turns";
 
 // Wakeups: an agent wakes later in a place (chat + thread), acting for a person. A wakeup is when

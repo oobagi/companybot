@@ -2,21 +2,23 @@ import { can, DEFAULT_CURRENCY, THREAD_HOURS_DEFAULT, isGranted, manageInputs, m
 import { ConvexError, v } from "convex/values";
 import type { Id, TableNames } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
-import { addChannelMembers, markReadAs, createChannelAs, joinChannel, leaveChannel, openDirectMessage, removeChannelMember, updateChannelAs } from "./chats";
-import { canSee, chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
-import { automationName, automationScope, canView, definitionOf, installOf, outcomeText, seenChannel, shownTrigger } from "./automationOps";
-import { removeAutomation, saveAutomation, updateAutomation } from "./automations";
-import { installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
-import { editMessage, hideMessagePreview, removeMessage, reactMessage, sendMessage } from "./messages";
-import { cancelMemberInvite, imageSettings, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
-import { accessOf, asToolResult, checkPermission, type Member, nameOf, rolesOf, normalizeEmail, preferencesOf, requireAgent, skillOf, timeZoneOf } from "./lib";
 import { createAgent, setAgentTrashed, updateAgent } from "./agents";
-import { catalogModels } from "./modelCatalog";
-import { setImage } from "./images";
-import { updatePreferences } from "./preferences";
+import { automationName, automationScope, canView, definitionOf, installOf, outcomeText, seenChannel, shownTrigger } from "./automationOps";
 import { runNowAs } from "./automationRuns";
+import { removeAutomation, saveAutomation, updateAutomation } from "./automations";
+import { canSee, chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
+import { addChannelMembers, markReadAs, createChannelAs, joinChannel, leaveChannel, openDirectMessage, removeChannelMember, updateChannelAs } from "./chats";
+import { setImage } from "./images";
+import { accessOf, asToolResult, checkPermission, type Member, nameOf, rolesOf, normalizeEmail, preferencesOf, requireAgent, skillOf, timeZoneOf } from "./lib";
+import { editMessage, hideMessagePreview, removeMessage, reactMessage, sendMessage } from "./messages";
+import { catalogModels } from "./modelCatalog";
+import { chatAccess } from "./placeAccess";
+import { updatePreferences } from "./preferences";
+import { notePlace } from "./replySources";
+import { installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
 import { runningTurn } from "./turns";
 import { usageReport } from "./usage";
+import { cancelMemberInvite, imageSettings, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
 
 const paging = (cursor?: string) => ({ cursor: cursor ?? null, numItems: 30 });
 /** One page of the workspace's rows of `table` (every one's by_workspace index starts with workspaceId). */
@@ -83,7 +85,10 @@ export const runFor = internalMutation({
 						const page = [];
 						for (const m of result.page) {
 							const c = await ctx.db.get(m.chatId);
-							if (c && !c.archived && (await canSee(ctx, c, member))) page.push({ id: c._id, name: c.name, kind: c.kind, private: c.private });
+							if (c && !c.archived && (await canSee(ctx, c, { ...member, replyId: undefined }))) {
+								await notePlace(ctx, member, c._id, chatAccess(c), c.private);
+								page.push({ id: c._id, name: c.name, kind: c.kind, private: c.private });
+							}
 						}
 						return { ...result, page };
 					}
@@ -120,7 +125,10 @@ export const runFor = internalMutation({
 							.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("kind", "channel"))
 							.paginate(paging(r.cursor));
 						const page = [];
-						for (const c of result.page) if (!c.private && !c.archived && await canSee(ctx, c, member)) page.push({ id: c._id, name: c.name, topic: c.topic });
+						for (const c of result.page) if (!c.private && !c.archived && await canSee(ctx, c, { ...member, replyId: undefined })) {
+							await notePlace(ctx, member, c._id, chatAccess(c));
+							page.push({ id: c._id, name: c.name, topic: c.topic });
+						}
 						return { ...result, page };
 					}
 					if (r.action === "create") return { chatId: await createChannelAs(ctx, member, r) };

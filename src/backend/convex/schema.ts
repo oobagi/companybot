@@ -1,8 +1,8 @@
-import { viewConfig } from "./recordValidators";
+import { accessLevels, builtInRoles, fieldKinds, fileTypes, permissions, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
-import { accessLevels, builtInRoles, fieldKinds, fileTypes, permissions, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
 import { v } from "convex/values";
+import { viewConfig } from "./recordValidators";
 
 /** One of `values`, each a literal. */
 const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map((value) => v.literal(value)));

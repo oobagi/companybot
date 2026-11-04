@@ -1,12 +1,8 @@
-import { canReadReply } from "./replyPrivacy";
-import { condition, recordGroup, recordSort } from "./recordValidators";
 import { type PaginationResult, paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./functions";
 import { canSee } from "./chatOps";
 import { emptyPage, getMember, nameOf, requireMember } from "./lib";
-import { trashInfo } from "./trashOps";
-import { activityAs, historyAs, linkingRecords, listRecords, searchRecords } from "./recordReads";
 import { reach } from "./placeAccess";
 import {
 	createRecord,
@@ -19,6 +15,10 @@ import {
 	undoChange,
 	updateRecord,
 } from "./recordOps";
+import { activityAs, historyAs, linkingRecords, listRecords, searchRecords } from "./recordReads";
+import { condition, recordGroup, recordSort } from "./recordValidators";
+import { canReadReply } from "./replyPrivacy";
+import { trashInfo } from "./trashOps";
 
 // Records: the app's API. Reading a database's records takes View in it (its Who can access
 // list); changing them takes `records.edit` and Edit in it. Lists page through indexes only, so they stay fast at any size.

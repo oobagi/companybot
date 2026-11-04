@@ -1,12 +1,12 @@
-import { canReadReply } from "./replyPrivacy";
 import { TYPING_MS } from "@companybot/core";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { type MutationCtx, internalMutation } from "./_generated/server";
-import { internal } from "./_generated/api";
-import { type Participant, agentOfDm, namer, requireChat, visibleChat } from "./chatOps";
 import { mutation, query } from "./functions";
+import { type Participant, agentOfDm, namer, requireChat, visibleChat } from "./chatOps";
 import { requireMember, sweepExpired } from "./lib";
+import { canReadReply } from "./replyPrivacy";
 import { STALE_TURN_MS, canStopTurn } from "./turns";
 
 // Typing indicators: who's typing in a place (chat + thread). Timing rules: core typing.ts.

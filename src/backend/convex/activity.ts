@@ -1,5 +1,3 @@
-import { inheritPlaces } from "./replySources";
-import { canReadReply, canReadSources } from "./replyPrivacy";
 import { actionLabel, findConnector, toolGroup } from "@companybot/core";
 import type { PaginationOptions } from "convex/server";
 import { v } from "convex/values";
@@ -7,8 +5,10 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation } from "./_generated/server";
 import { query } from "./functions";
 import { type Namer, canSee, chatLabel, namer } from "./chatOps";
-import { type Member, capped, erased, getMember, liveWorkspace } from "./lib";
 import { titleOf } from "./connectorTools";
+import { type Member, capped, erased, getMember, liveWorkspace } from "./lib";
+import { canReadReply, canReadSources, readReply } from "./replyPrivacy";
+import { inheritPlaces } from "./replySources";
 import { allowedHow } from "./schema";
 
 // The activity log: every tool call an agent made, with its input and output.
@@ -71,10 +71,9 @@ export const list = query({
 			.take(SCAN_LIMIT);
 		for (const row of rows) {
 			if (agentId && row.agentId !== agentId) continue;
-			if (!(await visibleReply(ctx, row, member))) continue;
 			if (!labels.has(row.chatId)) labels.set(row.chatId, await visibleLabel(ctx, row.chatId, member, names));
 			const chat = labels.get(row.chatId);
-			if (!chat) continue;
+			if (!chat || !(await visibleReply(ctx, row, member))) continue;
 			entries.push({ ...(await toEntry(ctx, row, member, names)), chat });
 			if (entries.length >= LIST_LIMIT) break;
 		}
@@ -154,7 +153,11 @@ export async function activityPage(ctx: QueryCtx, member: Member, opts: Paginati
 	const page = [];
 	for (const row of result.page) {
 		const chat = await visibleLabel(ctx, row.chatId, member, names);
-		if (chat && await visibleReply(ctx, row, member)) page.push({ ...(await toEntry(ctx, row, member, names)), chat });
+		if (chat && await visibleReply(ctx, row, member)) {
+			if (row.replyId) await readReply(ctx, member, await ctx.db.get(row.replyId));
+			else if (row.wake) await inheritPlaces(ctx, member, (await ctx.db.get(row.wake.wakeupId))?.usedPlaces);
+			page.push({ ...(await toEntry(ctx, row, member, names)), chat });
+		}
 	}
 	return { ...result, page };
 }
@@ -164,8 +167,8 @@ async function visibleReply(ctx: QueryCtx, row: Doc<"agentActivity">, member: Me
 	if (row.replyId) return !!reply && await canReadReply(ctx, member, reply);
 	if (row.wake) {
 		const wakeup = await ctx.db.get(row.wake.wakeupId);
-		if (!wakeup || !(await canReadSources(ctx, member, wakeup.usedPlaces))) return false;
-		await inheritPlaces(ctx, member, wakeup.usedPlaces);
+		if (!wakeup) return row.actorId === member.userId;
+		if (!(await canReadSources(ctx, member, wakeup.usedPlaces))) return false;
 	}
-	return true;
+	return row.wake ? true : row.actorId === member.userId;
 }

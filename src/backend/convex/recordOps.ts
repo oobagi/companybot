@@ -1,4 +1,3 @@
-import { notePlace } from "./replySources";
 import {
 	FIELDS_PER_TYPE_MAX,
 	DEFAULT_CURRENCY,
@@ -18,13 +17,14 @@ import {
 	searchTextOf,
 	valuesBytes,
 } from "@companybot/core";
+import { type AccessLevel, reaches } from "@companybot/core";
 import { ConvexError, getDocumentSize } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { type Member, type Who, checkPermission, checkVersion, memberOf, memo, nameOf, requireInWorkspace } from "./lib";
-import { toggleTrash } from "./trashOps";
-import { type AccessLevel, reaches } from "@companybot/core";
 import { reach, requireAccess } from "./placeAccess";
+import { notePlace } from "./replySources";
+import { toggleTrash } from "./trashOps";
 
 // Records, fields and their history. Shared by the app's functions (records.ts,
 // recordTypes.ts) and agent tools (recordTools.ts), so both follow the same rules. Agents pass

@@ -13,6 +13,8 @@ import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
+import { automationName, canView, definitionOf, installOf, outcomeText, postingProblem, privateTo, requireEditable, runsForLabel, seenChannel, shownTrigger, subscribersOf, visibleInstalls, webhookUrl } from "./automationOps";
+import { startCascade } from "./cascade";
 import { canSee } from "./chatOps";
 import {
 	type Member,
@@ -28,9 +30,8 @@ import {
 	requireMember,
 	saveMade,
 } from "./lib";
-import { automationName, canView, definitionOf, installOf, outcomeText, postingProblem, privateTo, requireEditable, runsForLabel, seenChannel, shownTrigger, subscribersOf, visibleInstalls, webhookUrl } from "./automationOps";
 import { forgetAutomationGrants } from "./permissions";
-import { startCascade } from "./cascade";
+import { requireUnrestrictedTurn } from "./replySources";
 import { audience, customTrigger } from "./schema";
 import { toggleTrash, trashInfo } from "./trashOps";
 
@@ -187,6 +188,7 @@ export async function createAutomation(
 		await requireVisibleChannel(ctx, member, channelId);
 		await checkPosting(ctx, member, config.trigger, channelId);
 	}
+	if (audience !== "creator") await requireUnrestrictedTurn(ctx, member);
 	const automationId = newCustomId();
 	const { trigger } = config;
 	const installId = await ctx.db.insert("automationInstalls", {
@@ -218,6 +220,7 @@ export const save = mutation({
 export async function saveAutomation(ctx: MutationCtx, member: Member, { automationId, config, expectedVersion }: Infer<typeof saveAutomationArgs>) {
 	const { install } = await requireEditable(ctx, automationId, member);
 	if (!install.custom) throw new ConvexError("Library automations can't be edited.");
+	if (install.audience !== "creator") await requireUnrestrictedTurn(ctx, member);
 	const normal = normalizeCustomAutomation(config);
 	const rescheduled = normal.trigger.type === "schedule" && JSON.stringify(normal.trigger) !== JSON.stringify(normalizeCustomAutomation(install.custom).trigger);
 	await saveMade({
@@ -228,6 +231,7 @@ export async function saveAutomation(ctx: MutationCtx, member: Member, { automat
 		validate: async () => {
 			await checkConfig(ctx, member, config, install.custom!.trigger);
 			if (install.audience === "channel") await checkPosting(ctx, member, config.trigger, install.channelId);
+			if (install.audience !== "creator") await requireUnrestrictedTurn(ctx, member);
 		},
 		patch: (custom) => ctx.db.patch(install._id, {
 			// A new schedule starts from its next time, never one already past.
@@ -290,7 +294,9 @@ export async function updateAutomation(ctx: MutationCtx, member: Member, { autom
 	if (audience === "creator" && !install.custom) throw new ConvexError("Library automations run for people who turn them on, or a channel.");
 	if (audience === "creator" && install.installedBy !== member.userId) throw new ConvexError("Only the person who made it can make it just for them.");
 	// Sharing a personal one makes it the team's.
-	if (audience && audience !== "creator") checkPermission(member, "automations.edit");
+	if (audience && audience !== "creator") {
+		checkPermission(member, "automations.edit");
+	}
 	if (audience === "channel") {
 		if (!channelId) throw new ConvexError("Pick a channel to post in.");
 		await requireVisibleChannel(ctx, member, channelId);
@@ -301,6 +307,7 @@ export async function updateAutomation(ctx: MutationCtx, member: Member, { autom
 		if (install.custom && !(maker && (await canSee(ctx, chat, maker))))
 			throw new ConvexError(`${await nameOf(ctx, install.installedBy)} made it and can't see #${chat.name}, so it can't post there.`);
 	}
+	if (audience && audience !== "creator") await requireUnrestrictedTurn(ctx, member);
 	await ctx.db.patch(install._id, {
 		...(enabled !== undefined && { enabled }),
 		// Resuming doesn't make up the runs it missed while paused.

@@ -2,10 +2,10 @@ import { type AutomationAudience, type AutomationSummary, type AutomationToolInp
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { internalMutation } from "./_generated/server";
-import { channelNamed } from "./chatOps";
-import { asToolResult, nameOf, timeZoneOf } from "./lib";
 import { definitionOf, installOf, runsForLabel, seenChannel, subscribersOf, visibleInstalls, webhookUrl } from "./automationOps";
 import { createAutomation, setSubscription } from "./automations";
+import { channelNamed } from "./chatOps";
+import { asToolResult, nameOf, timeZoneOf } from "./lib";
 import { runningTurn } from "./turns";
 
 // ---- Agent tools (core's AutomationStore), acting as the turn's person ----

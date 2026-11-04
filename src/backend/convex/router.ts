@@ -1,5 +1,3 @@
-import type { Member } from "./lib";
-import { canReadReply } from "./replyPrivacy";
 import {
 	ROUTER_CONTEXT_MESSAGES,
 	ROUTER_DEBOUNCE_MS,
@@ -33,11 +31,13 @@ import { type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalAction, internalMutation, internalQuery } from "./_generated/server";
-import { type Namer, canSee, chatMembersOf, label, namer, textForModel } from "./chatOps";
 import { dispatchTo, shownReply } from "./chains";
+import { type Namer, canSee, chatMembersOf, label, namer, textForModel } from "./chatOps";
+import type { Member } from "./lib";
 import { liveWorkspace, memberOf } from "./lib";
-import { STALE_TURN_MS, enqueueTurn } from "./turns";
+import { canReadReply } from "./replyPrivacy";
 import type { dispatchInfo } from "./schema";
+import { STALE_TURN_MS, enqueueTurn } from "./turns";
 import { recordUsage } from "./usage";
 
 // Agents that answer without an @mention, in channels set to "When relevant" (wiki/chat.md, When

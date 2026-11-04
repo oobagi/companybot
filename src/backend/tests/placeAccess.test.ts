@@ -1,11 +1,11 @@
+import { Transform } from "@tiptap/pm/transform";
 import migrationsTest from "@convex-dev/migrations/test";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, components, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { wake } from "../convex/wakeups";
-import { Transform } from "@tiptap/pm/transform";
 import { pageSchema } from "../convex/pageOps";
+import { wake } from "../convex/wakeups";
 import { type As, agentsOf, finishQuiet, identityOf, ownerAndMember, sideWorkspace, signIn } from "./helpers";
 
 // Who can access each channel, database and page (placeAccess.ts): every read path and agent tool
@@ -686,7 +686,7 @@ describe("a restricted place, as someone not on its list", () => {
 			toolAutomationList: await tools.manage("automations.manage", { action: "list" }),
 			toolFollowups: await tools.followups(),
 			agentActivity: await crew.query(api.activity.list, {}),
-			toolAgentActivity: await t.query(internal.recordTools.historyFor, { turnId: tools.turnId, source: "agents" }),
+			toolAgentActivity: await t.mutation(internal.recordTools.historyFor, { turnId: tools.turnId, source: "agents" }),
 			views: await crew.query(api.databaseViews.list, { typeId: vaultType }),
 			toolViews: await tools.views(vaultType),
 			linked: await crew.query(api.records.linked, { recordId: acme, ...PAGE }),

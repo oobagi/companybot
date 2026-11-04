@@ -1,4 +1,3 @@
-import { canReadReply, canReadSources } from "./replyPrivacy";
 import { type ReplyMode, THREAD_HOURS_DEFAULT, can, replyModeOf, replyModes } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -7,6 +6,7 @@ import { mutation, query } from "./functions";
 import { addToChat, agentOfDm, availableName, chatMembersOf, findOrCreateDm, label, latestMentionSince, markChatRead, membership, namer, requireActiveAgents, requireChat, requireManagedChannel, requireWorkspaceUsers, shownAt, sideChatTitle, titleFrom, type Namer, type Participant, visibleChat } from "./chatOps";
 import { type Member, checkPermission, getMember, preferencesOf, requireMember, toActor } from "./lib";
 import { type AccessList, accessInfo, chatAccess, reach, savedAccess } from "./placeAccess";
+import { canReadReply, canReadSources } from "./replyPrivacy";
 import { accessArg } from "./schema";
 import { trashInfo } from "./trashOps";
 import { STALE_TURN_MS, sessionAt } from "./turns";

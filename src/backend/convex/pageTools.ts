@@ -1,7 +1,7 @@
 import { findInput, readInput, writeInput } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
+import type { Doc } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation } from "./_generated/server";
 import { type Member, asToolResult } from "./lib";
 import {
@@ -18,8 +18,8 @@ import {
 	writeBlocks,
 } from "./pageOps";
 import { movePage, pageState, pageStates } from "./pageTree";
-import { inTrash, recordById } from "./recordOps";
 import { pageHistory, requireVersion, versionContent } from "./pages";
+import { inTrash, recordById } from "./recordOps";
 import { runningTurn } from "./turns";
 
 // PageStore as the turn's person; conversion runs separately in pageMarkdown.ts.

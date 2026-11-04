@@ -1,4 +1,3 @@
-import { turnSources } from "./replySources";
 import { canEditMemory } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
@@ -6,6 +5,7 @@ import { type QueryCtx, internalMutation } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { type Member, getMember, namesOf, requireAgent, requireMember, toActor } from "./lib";
 import { createMemory, listMemories, memoryVersions, removeMemory, restoreMemoryVersion, searchMemories, updateMemory } from "./memoryOps";
+import { turnSources } from "./replySources";
 import { memoryOn, personalMemoryHere, runningTurn } from "./turns";
 
 const scope = v.union(v.literal("workspace"), v.literal("personal"));

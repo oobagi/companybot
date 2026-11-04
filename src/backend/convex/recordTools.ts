@@ -1,4 +1,3 @@
-import { deleteView, saveView, viewsOf } from "./databaseViews";
 import {
 	type RecordFindInput,
 	type RecordPage,
@@ -16,6 +15,8 @@ import {
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation } from "./_generated/server";
+import { activityPage } from "./activity";
+import { deleteView, saveView, viewsOf } from "./databaseViews";
 import { type Member, asToolResult, nameOf, requireInWorkspace } from "./lib";
 import {
 	createType,
@@ -43,7 +44,7 @@ import {
 } from "./recordOps";
 import { ANY_OF_MAX, CONDITIONS_MAX, type Condition } from "./recordQuery";
 import { PAGE_MAX, activityAs, historyAs, linkingRecords, listRecords, searchRecords, toEntries } from "./recordReads";
-import { activityPage } from "./activity";
+import { notePlace } from "./replySources";
 import { runningTurn } from "./turns";
 
 // Records tools (core's RecordStore), acting as the turn's person: their role, read fresh
@@ -264,25 +265,28 @@ export const typesFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), trashed: v.optional(v.boolean()) },
 	handler: async (ctx, { turnId, trashed = false }): Promise<RecordTypesResult> => {
 		const { member } = await runningTurn(ctx, turnId);
-		const visible = typeVisible(ctx, member);
+		const visible = typeVisible(ctx, { ...member, replyId: undefined });
 		const all = await typesOf(ctx, member.workspaceId);
 		const types = [];
 		for (const t of all) if (t.archived === trashed && (await visible(t._id))) types.push(t);
 		// A link into a database they can't see names no key, so the agent can't go looking.
 		const keys = new Map<Id<"recordTypes">, string>();
-		for (const t of all) keys.set(t._id, (await visible(t._id)) ? t.key : "(a database you can't see)");
+		const rows = [];
+		for (const t of types) {
+			await notePlace(ctx, member, t._id, t.access);
+			const fields = await fieldsOf(ctx, t._id);
+			for (const field of fields) {
+				if (!field.linkTypeId || keys.has(field.linkTypeId)) continue;
+				const linked = all.find((t) => t._id === field.linkTypeId);
+				const seen = linked && await visible(linked._id);
+				keys.set(field.linkTypeId, seen ? linked.key : "(a database you can't see)");
+				if (seen) await notePlace(ctx, member, linked._id, linked.access);
+			}
+			rows.push({ type: t.key, name: t.name, plural: t.plural, version: t.version ?? 0, ...(t.archived && { inTrash: true }), fields: fields.map((f) => fieldOut(f, f.linkTypeId && (keys.get(f.linkTypeId) ?? "(a deleted database)"))) });
+		}
 		return {
 			currency: await currencyOf(ctx, member.workspaceId),
-			types: await Promise.all(
-				types.map(async (t) => ({
-					type: t.key,
-					name: t.name,
-					plural: t.plural,
-					version: t.version ?? 0,
-					...(t.archived && { inTrash: true }),
-					fields: (await fieldsOf(ctx, t._id)).map((f) => fieldOut(f, f.linkTypeId && (keys.get(f.linkTypeId) ?? "(a deleted database)"))),
-				})),
-			),
+			types: rows,
 		};
 	},
 });

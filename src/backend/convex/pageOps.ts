@@ -1,5 +1,5 @@
-import { notePlace } from "./replySources";
 import { BlockNoteEditor } from "@blocknote/core";
+import { type AccessLevel, reaches } from "@companybot/core";
 import { pageHref } from "@companybot/core/page-links";
 import { ProsemirrorSync } from "@convex-dev/prosemirror-sync";
 import type { Node, Schema } from "@tiptap/pm/model";
@@ -8,14 +8,14 @@ import { ConvexError, getDocumentSize } from "convex/values";
 import { components, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { type Member, type Who, checkPermission, nameOf, requireInWorkspace } from "./lib";
 import { cascading, startCascade } from "./cascade";
-import { inTrash, requireRecord } from "./recordOps";
-import { type PageState, keptAccess, pageState, pageStates, parentFor } from "./pageTree";
-import { type AccessLevel, reaches } from "@companybot/core";
-import { reach, requireAccess } from "./placeAccess";
-import { toggleTrash } from "./trashOps";
+import { type Member, type Who, checkPermission, nameOf, requireInWorkspace } from "./lib";
 import { pageBlockSchema, withoutPageTitles } from "./pageBlocks";
+import { type PageState, keptAccess, pageState, pageStates, parentFor } from "./pageTree";
+import { reach, requireAccess } from "./placeAccess";
+import { inTrash, requireRecord } from "./recordOps";
+import { notePlace } from "./replySources";
+import { toggleTrash } from "./trashOps";
 
 // Shared rules for standalone pages and record bodies. See wiki/pages.md.
 

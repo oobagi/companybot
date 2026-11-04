@@ -53,16 +53,16 @@ import {
 	toolRisk,
 	THINKING_STEP,
 } from "@companybot/core";
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { type ModelMessage, Output, generateText, streamText } from "ai";
 import type { FunctionReturnType } from "convex/server";
 import { ConvexError, type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { type ActionCtx, internalAction } from "./_generated/server";
 import { action } from "./functions";
-import { decrypt, encrypt } from "./crypto";
 import { oauthRedirectUrl } from "./connectors";
+import { decrypt, encrypt } from "./crypto";
 import type { messagePart } from "./schema";
 
 const SUMMARY_MODEL = "anthropic/claude-haiku-5.5";

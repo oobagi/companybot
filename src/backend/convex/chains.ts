@@ -1,4 +1,3 @@
-import { turnSources } from "./replySources";
 import {
 	type ChainBudget,
 	FOLLOWUP_NOTE_MAX,
@@ -17,9 +16,10 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { mutation } from "./functions";
+import { automationScope } from "./automationOps";
 import { addToChat, addUserMentions, chatMembersOf, insertMessage, requireChat } from "./chatOps";
 import { asToolResult, nameOf, requireMember } from "./lib";
-import { automationScope } from "./automationOps";
+import { turnSources } from "./replySources";
 import { enqueueTurn, runningTurn } from "./turns";
 import { createWakeup, wake } from "./wakeups";
 

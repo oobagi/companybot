@@ -1,5 +1,3 @@
-import { turnSources } from "./replySources";
-import { canReadReply } from "./replyPrivacy";
 import {
 	APPROVAL_TTL_MS,
 	actionLabel,
@@ -13,15 +11,17 @@ import {
 	toolGroup,
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
-import { internalMutation } from "./_generated/server";
-import { mutation, query } from "./functions";
-import { canSee, findOrCreateDm, insertMessage, namer } from "./chatOps";
 import type { Doc } from "./_generated/dataModel";
+import { internalMutation } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
+import { mutation, query } from "./functions";
+import { automationName, automationScope } from "./automationOps";
+import { canSee, findOrCreateDm, insertMessage, namer } from "./chatOps";
+import { titleOf } from "./connectorTools";
 import { erased, getMember, memberOf, nameOf, requireLiveAgent, requireMember, toActor } from "./lib";
 import { decideFor, setRule } from "./permissions";
-import { automationName, automationScope } from "./automationOps";
-import { titleOf } from "./connectorTools";
+import { canReadReply, readReply } from "./replyPrivacy";
+import { turnSources } from "./replySources";
 import { risk } from "./schema";
 import { enqueueTurn, runningTurn } from "./turns";
 
@@ -217,7 +217,8 @@ export const claim = internalMutation({
 		const chat = await ctx.db.get(row.chatId);
 		if (!member || !chat || chat.archived || !(await canSee(ctx, chat, member))) return null;
 		member.replyId = turn.replyId;
-		if (!(await canReadReply(ctx, member, await ctx.db.get(row.replyId)))) return null;
+		const reply = await ctx.db.get(row.replyId);
+		if (!(await canReadReply(ctx, member, reply))) return null;
 		const input: unknown = JSON.parse(row.input);
 		if ((await approvalHash(row.tool, input)) !== row.hash) {
 			await ctx.db.patch(approvalId, { status: "failed", error: "The stored action no longer matches what was approved." });
@@ -231,6 +232,7 @@ export const claim = internalMutation({
 			await ctx.db.patch(approvalId, { status: "failed", error: `${who} after it was approved, so it didn't run.` });
 			return null;
 		}
+		await readReply(ctx, member, reply);
 		await ctx.db.patch(approvalId, { status: "running" });
 		return { tool: row.tool, input };
 	},
