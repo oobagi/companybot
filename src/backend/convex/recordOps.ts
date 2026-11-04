@@ -554,6 +554,8 @@ export async function resolveRefs(ctx: QueryCtx, member: Member, ids: Iterable<s
 		const userId = recordId ? null : ctx.db.normalizeId("users", id);
 		if (recordId) {
 			const record = await ctx.db.get(recordId);
+			// Every record read counts against the budget, including ones refused below.
+			if (record) bytes += getDocumentSize(record);
 			// Deleted for good: its links stay stored, like ones to a record in Archive.
 			if (!record) refs[id] = { name: "Deleted record", archived: true };
 			if (record?.workspaceId !== workspaceId) continue;
@@ -562,7 +564,6 @@ export async function resolveRefs(ctx: QueryCtx, member: Member, ids: Iterable<s
 				refs[id] = { name: "", locked: true };
 				continue;
 			}
-			bytes += getDocumentSize(record);
 			refs[id] = { name: record.title, ...((record.archived || (await trashed(record.typeId))) && { archived: true }) };
 		} else if (userId) {
 			refs[id] = { name: (await memberOf(ctx, userId, workspaceId)) ? await nameOf(ctx, userId) : "Former member" };

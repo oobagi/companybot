@@ -27,6 +27,7 @@ import {
 	idsIn,
 	inTrash,
 	recordById,
+	requireRecord,
 	requireType,
 	resolveRefs,
 	setFieldTrashed,
@@ -75,18 +76,23 @@ function pickOne<T>(matches: T[], what: string, describe: (m: T) => string) {
  * Deals."), so the agent can tell them whom to ask.
  */
 async function typeNamed(ctx: QueryCtx, member: Member, name: string, trashed = false) {
-	const types = (await typesOf(ctx, member.workspaceId)).filter((t) => t.archived === trashed).sort((a, b) => a._creationTime - b._creationTime);
+	const all = (await typesOf(ctx, member.workspaceId)).filter((t) => t.archived === trashed).sort((a, b) => a._creationTime - b._creationTime);
+	const visible = typeVisible(ctx, member);
+	const types: Doc<"recordTypes">[] = [];
+	const hidden: Doc<"recordTypes">[] = [];
+	for (const t of all) ((await visible(t._id)) ? types : hidden).push(t);
 	const raw = name.trim();
 	const n = raw.toLowerCase();
+	const exact = (among: Doc<"recordTypes">[]) => among.find((t) => t._id === raw || t.key === raw) ?? among.find((t) => t.key === n);
+	const named = (among: Doc<"recordTypes">[]) => among.filter((t) => [t.name, t.plural].some((x) => x.toLowerCase() === n));
+	// Ones they can see first, so suggestions and "could be" lists never name the rest. One they can't see,
+	// named unambiguously, is refused naming who can (requireType), so they know whom to ask.
 	const type =
-		types.find((t) => t._id === raw || t.key === raw) ??
-		types.find((t) => t.key === n) ??
-		pickOne(
-			types.filter((t) => [t.name, t.plural].some((x) => x.toLowerCase() === n)),
-			raw,
-			(t) => `${t.plural} (${t.key})`,
-		);
-	if (!type) throw new ConvexError(`There's no database “${name}”. Types: ${(trashed ? types : await liveTypes(ctx, member)).filter((t) => types.includes(t)).map((t) => t.key).join(", ")}.`);
+		exact(types) ??
+		pickOne(named(types), raw, (t) => `${t.plural} (${t.key})`) ??
+		exact(hidden) ??
+		(named(hidden).length === 1 ? named(hidden)[0] : undefined);
+	if (!type) throw new ConvexError(`There's no database “${name}”. Types: ${types.map((t) => t.key).join(", ")}.`);
 	return requireType(ctx, member, type._id);
 }
 
@@ -229,10 +235,13 @@ async function rowsOf(ctx: QueryCtx, member: Member, items: { record: Doc<"recor
 	}));
 }
 
-/** A record as agents read it: values by field key, as people read them. Also a wake turn's record (turns.ts). */
+/**
+ * A record as agents read it: values by field key, as people read them. Also a wake turn's record (turns.ts).
+ * Checks, as of this read, that the person can see its database: a queued wake or a long turn may outlive their access.
+ */
 export async function recordOut(ctx: QueryCtx, member: Member, recordId: Id<"records">) {
-	const record = (await ctx.db.get(recordId))!;
-	const type = (await ctx.db.get(record.typeId))!;
+	const record = await requireRecord(ctx, member, recordId);
+	const type = await requireType(ctx, member, record.typeId);
 	const [row] = await rowsOf(ctx, member, [{ record, fields: await fieldsOf(ctx, record.typeId) }]);
 	const { _id, ...values } = row!;
 	return { id: _id, type: type.key, typeName: type.name, name: record.title, ...((await inTrash(ctx, record)) && { inTrash: true }), values };
@@ -284,12 +293,12 @@ export const findFor = internalQuery({
 		const { type: typeName, search, filters = [], sort, trashed = false, cursor, numItems } = input as RecordFindInput & { numItems: number };
 		return asToolResult(async (): Promise<RecordPage> => {
 			if (search?.trim()) {
-				if (filters.length || sort || cursor || trashed) throw new ConvexError("Search on its own, or list with filters and a sort instead.");
+				if (filters.length || sort || trashed) throw new ConvexError("Search on its own, or list with filters and a sort instead.");
 				const type = typeName ? await typeNamed(ctx, member, typeName) : null;
-				const found = await searchRecords(ctx, member, search, { typeId: type?._id, limit: Math.min(numItems, SEARCH_MAX) });
+				const found = await searchRecords(ctx, member, search, { typeId: type?._id, limit: Math.min(numItems, SEARCH_MAX), cursor });
 				const keys = type ? undefined : new Map((await liveTypes(ctx, member)).map((t) => [t._id, t.key]));
-				const rows = await rowsOf(ctx, member, found, keys);
-				return { type: type?.plural ?? "Records", typeName: type?.name ?? "Record", rows, more: false };
+				const rows = await rowsOf(ctx, member, found.items, keys);
+				return { type: type?.plural ?? "Records", typeName: type?.name ?? "Record", rows, more: !!found.cursor, ...(found.cursor && { cursor: found.cursor }) };
 			}
 			if (!typeName) throw new ConvexError("Say which database to list, or search.");
 			const type = await typeNamed(ctx, member, typeName);

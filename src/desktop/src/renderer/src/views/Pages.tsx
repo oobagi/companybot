@@ -18,14 +18,14 @@ import { TrashNotice } from "./Trash";
 export { PagesNav } from "./pages/PageTree";
 
 /** Pages are opened from the sidebar; /pages alone has nothing to show, so it goes to chat. */
-export function PagesView({ pageId, canEdit }: { pageId?: string; canEdit: boolean }) {
+export function PagesView({ pageId }: { pageId?: string }) {
 	useEffect(() => {
 		if (!pageId) navigate("chat");
 	}, [pageId]);
-	return pageId ? <PageScreen key={pageId} pageId={pageId as Id<"pages">} canEdit={canEdit} /> : null;
+	return pageId ? <PageScreen key={pageId} pageId={pageId as Id<"pages">} /> : null;
 }
 
-function PageScreen({ pageId, canEdit }: { pageId: Id<"pages">; canEdit: boolean }) {
+function PageScreen({ pageId }: { pageId: Id<"pages"> }) {
 	const page = useQuery(api.pages.get, { pageId });
 	const rename = useMutation(api.pages.rename);
 	const remove = useMutation(api.trash.move);
@@ -53,7 +53,7 @@ function PageScreen({ pageId, canEdit }: { pageId: Id<"pages">; canEdit: boolean
 							{page.restricted && <PrivateIcon />} Who can access
 						</button>
 					)}
-					{canEdit && !page.archived && (
+					{page.canEdit && !page.archived && (
 						<button type="button" onClick={() => confirm(archiveQuestion(page.title, () => remove({ kind: "page", id: pageId }).then(() => navigate(...(page.ancestors.length ? ["pages", page.ancestors.at(-1)!._id] : ["chat"]))), "Its sub-pages will be archived with it."))} className={barButton}>
 							<ArchiveIcon /> Archive
 						</button>
@@ -64,6 +64,7 @@ function PageScreen({ pageId, canEdit }: { pageId: Id<"pages">; canEdit: boolean
 			{dialog}
 			<Notice>{error}</Notice>
 			{page.trash && <TrashNotice trash={page.trash} />}
+			{page.archived && !page.trash && <Notice>It's in Archive with a page you can't see.</Notice>}
 			<PageEditor pageId={pageId} editable={page.canEdit} standalone={!page.recordId} focusKey={focusBody} />
 			{moving && <MovePage page={page} onClose={() => setMoving(false)} />}
 			{history && <PageHistory pageId={pageId} canRestore={page.canEdit} onClose={() => setHistory(false)} />}

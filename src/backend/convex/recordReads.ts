@@ -31,18 +31,26 @@ export async function listRecords(
 	return findRecords(ctx, { workspaceId, ...type, ...opts, currency: await currencyOf(ctx, workspaceId), pageMax: PAGE_MAX });
 }
 
-/** Live records whose title or text matches, best first, leaving out databases in Archive. Optionally one type. */
+/** Hits one search walks per result it can return, past ones in databases the person can't see or in Archive. */
+const SEARCH_SCAN = 5;
+
+/**
+ * Live records whose title or text matches, best first, leaving out databases in Archive and ones the person
+ * can't see. Optionally one type. A walk stops after `limit` results or `limit * SEARCH_SCAN` hits; `cursor`
+ * (hits walked so far) continues it, so hidden hits never end a search early. Null when there's nothing more.
+ */
 export async function searchRecords(
 	ctx: QueryCtx,
 	member: Member,
 	text: string,
-	{ typeId, limit }: { typeId?: Id<"recordTypes">; limit: number },
-): Promise<RecordItem[]> {
+	{ typeId, limit, cursor }: { typeId?: Id<"recordTypes">; limit: number; cursor?: string | null },
+): Promise<{ items: RecordItem[]; cursor: string | null }> {
 	const fields = fieldsByType(ctx);
 	const trashed = typeTrashed(ctx);
 	const visible = typeVisible(ctx, member);
+	if (typeId && !(await visible(typeId))) return { items: [], cursor: null };
+	const skip = Math.max(0, Math.floor(Number(cursor ?? 0)) || 0);
 	const items = [];
-	// Walks hits past ones in hidden databases, a bounded number, so a restricted database can't crowd out the rest.
 	let read = 0;
 	for await (const record of ctx.db
 		.query("records")
@@ -50,10 +58,16 @@ export async function searchRecords(
 			const s = q.search("searchText", text).eq("workspaceId", member.workspaceId).eq("archived", false);
 			return typeId ? s.eq("typeId", typeId) : s;
 		})) {
-		if (items.length >= limit || ++read > limit * 5) break;
+		if (read < skip) {
+			read++;
+			continue;
+		}
+		// Another hit is here: say there's more rather than stopping silently.
+		if (items.length >= limit || read - skip >= limit * SEARCH_SCAN) return { items, cursor: String(read) };
+		read++;
 		if (!(await trashed(record.typeId)) && (await visible(record.typeId))) items.push({ record, fields: await fields(record.typeId) });
 	}
-	return items;
+	return { items, cursor: null };
 }
 
 /**

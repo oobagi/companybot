@@ -3,6 +3,7 @@ import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type Member, checkPermission, requireMember } from "./lib";
 import type { QueryCtx } from "./_generated/server";
+import { canSee } from "./chatOps";
 
 /** Automations that run just for their creator are theirs alone (their id here); the rest are visible to the workspace (null). */
 export const privateTo = (install: Doc<"automationInstalls">) => (install.custom && install.audience === "creator" ? install.installedBy : null);
@@ -61,11 +62,30 @@ export const visibleInstalls = async (ctx: QueryCtx, member: Member, trashed = f
 	).filter((i) => canView(member, i) && (trashed || !i.archived));
 
 /** What an install runs: its custom config or its retained stored definition. */
-export async function definitionOf(ctx: QueryCtx, install: Doc<"automationInstalls">): Promise<Automation | undefined> {
+/**
+ * An install's definition. `viewer`: whoever it's shown to, so a watched channel they can't see goes unnamed
+ * ("When someone posts in #a channel"); null for the runner, which shows it to no one.
+ */
+export async function definitionOf(ctx: QueryCtx, install: Doc<"automationInstalls">, viewer: Member | null): Promise<Automation | undefined> {
 	if (!install.custom) return install.definition && { ...install.definition, trigger: normalizeTrigger(install.definition.trigger) };
 	const { trigger } = install.custom;
-	const channel = trigger.type === "event" && trigger.event === "message.posted" ? await ctx.db.get(trigger.channelId as Id<"chats">) : null;
-	return customAutomation(install.automationId, install.custom, install.custom.version, channel?.name);
+	const watched = trigger.type === "event" && trigger.event === "message.posted" ? trigger.channelId : undefined;
+	const channel = watched && (viewer ? await seenChannel(ctx, viewer, watched) : await ctx.db.get(watched as Id<"chats">));
+	const config = watched && !channel ? { ...install.custom, trigger: { ...trigger, channelId: "" } } : install.custom;
+	return customAutomation(install.automationId, config, install.custom.version, channel ? channel.name : undefined);
+}
+
+/** A channel by id, if `member` can see it: listings name, and give the ids of, only channels their reader can see. */
+export async function seenChannel(ctx: QueryCtx, member: Member, id: string | undefined) {
+	const chatId = id ? ctx.db.normalizeId("chats", id) : null;
+	const chat = chatId && (await ctx.db.get(chatId));
+	return chat && chat.workspaceId === member.workspaceId && (await canSee(ctx, chat, member)) ? chat : null;
+}
+
+/** A custom trigger as `member` may read it: one watching a channel they can't see, without its id. */
+export async function shownTrigger<T extends CustomAutomationConfig["trigger"]>(ctx: QueryCtx, member: Member, trigger: T): Promise<T> {
+	if (trigger.type !== "event" || trigger.event !== "message.posted" || (await seenChannel(ctx, member, trigger.channelId))) return trigger;
+	return { ...trigger, channelId: "" };
 }
 
 /**
@@ -95,7 +115,7 @@ export const webhookUrl = (token: string) => `${process.env.CONVEX_SITE_URL ?? "
 
 export const runsForLabel = (audience: AutomationAudience, channel: Doc<"chats"> | null, scheduled: boolean, creatorName: string) =>
 	audience === "channel"
-		? `Posts once in #${channel?.name ?? "a channel"}`
+		? (channel ? `Posts once in #${channel.name}` : "Posts once in a channel")
 		: audience === "creator"
 			? `Just ${creatorName}, in their chat with the agent`
 			: scheduled

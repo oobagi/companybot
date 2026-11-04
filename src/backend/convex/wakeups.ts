@@ -16,7 +16,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
 import { mutation, query } from "./functions";
-import { addToChat, canSee, chatLabel, namer } from "./chatOps";
+import { addToChat, canPost, canSee, chatLabel, namer } from "./chatOps";
 import { type Member, asToolResult, getMember, liveWorkspace, memberOf, nameOf, requireMember, sweepExpired, timeZoneOf } from "./lib";
 import { automationScope } from "./automationOps";
 import { recordById } from "./recordOps";
@@ -148,6 +148,8 @@ export async function wake(ctx: MutationCtx, id: Id<"wakeups">, outcome?: { resu
 		return logWake(ctx, row, "skipped", "Waiting: its agent, chat or record is in Archive. It wakes if that's restored.");
 	}
 	if (!(await canSee(ctx, chat, member))) return stop("Its person can no longer see the chat.");
+	// Its turn replies there as them (turns.ts checks again when it starts and before it's shown).
+	if (!canPost(member, chat)) return stop("Its person can no longer post in the chat.");
 	if (type && !reach(member, type.access)) return stop(`Its person can no longer see ${type.plural}.`);
 	if (row.threadId && !(await ctx.db.get(row.threadId))) return stop("Its thread was deleted.");
 
@@ -195,7 +197,9 @@ export async function setWakeOutcome(ctx: MutationCtx, turn: Doc<"agentTurns">, 
 /** Whether `member` can see a wakeup: it's as private as its chat, and its record's database. */
 async function visibleTo(ctx: QueryCtx, member: Member, row: Doc<"wakeups">) {
 	const chat = await ctx.db.get(row.chatId);
-	const type = row.typeId && (await ctx.db.get(row.typeId));
+	// Its record's database, read from the record when the row doesn't hold it.
+	const typeId = row.typeId ?? (row.recordId && (await ctx.db.get(row.recordId))?.typeId);
+	const type = typeId && (await ctx.db.get(typeId));
 	if (type && !reach(member, type.access)) return false;
 	return !!chat && !chat.archived && (await canSee(ctx, chat, member));
 }

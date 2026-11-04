@@ -1097,8 +1097,12 @@ export default defineSchema({
 		n: v.number(),
 		userId: v.id("users"),
 		agentId: v.optional(v.id("agents")),
-		from: v.string(),
-		to: v.string(),
+		/** Where it moved from and to: a page, or null for the top level. Unset only on an old row no page matched. */
+		fromId: v.optional(v.union(v.id("pages"), v.null())),
+		toId: v.optional(v.union(v.id("pages"), v.null())),
+		// COMPAT: titles, as rows held them before ids. migrations.pageMoveIds turns them into ids; nothing reads them.
+		from: v.optional(v.string()),
+		to: v.optional(v.string()),
 	}).index("by_page", ["pageId", "n"]).index("by_workspace", ["workspaceId"]),
 
 	// A page's history: one row per run of edits, like Notion's: whoever started it, and

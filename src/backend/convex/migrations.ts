@@ -174,6 +174,28 @@ export const customRolesConnectors = migrations.define({
 });
 
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
+// Page move history held the titles of the places a page moved between, which named pages some people
+// can't see (Who can access). Rows now hold ids, named to each reader by what they can see (pages.moves).
+// "Pages" is the top level; any other title becomes the one standalone page in the workspace with exactly
+// that title, or stays unknown ("another page") when none or several match.
+export const pageMoveIds = migrations.define({
+	table: "pageMoves",
+	batchSize: 20,
+	migrateOne: async (ctx, row) => {
+		if (row.from === undefined && row.to === undefined) return;
+		const idOf = async (title: string | undefined) => {
+			if (title === undefined || title === "Pages") return title === undefined ? undefined : null;
+			const hits = await ctx.db
+				.query("pages")
+				.withSearchIndex("search_title", (q) => q.search("title", title).eq("workspaceId", row.workspaceId))
+				.take(20);
+			const exact = hits.filter((p) => !p.recordId && p.title === title);
+			return exact.length === 1 ? exact[0]!._id : undefined;
+		};
+		await ctx.db.patch(row._id, { fromId: await idOf(row.from), toId: await idOf(row.to), from: undefined, to: undefined });
+	},
+});
+
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
 	internal.migrations.companybotHelpTool,
@@ -187,6 +209,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.customRolesMembers,
 	internal.migrations.customRolesInvites,
 	internal.migrations.customRolesConnectors,
+	internal.migrations.pageMoveIds,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

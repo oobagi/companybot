@@ -7,6 +7,8 @@ import { type MutationCtx, type QueryCtx, internalMutation, internalQuery } from
 import { mutation } from "./functions";
 import {
 	type Namer,
+	canPost,
+	canReplyAs,
 	canSee,
 	chatMembersOf,
 	countMessage,
@@ -180,11 +182,18 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 	}
 	const chat = await ctx.db.get(next.chatId);
 	// A workspace being deleted starts nothing: its cascade may already be past the rows this would add.
-	if (!chat || chat.archived || !(await liveWorkspace(ctx, chat.workspaceId))) {
+	// Nor does a reply its person can no longer post: a read-only channel, or one they lost (wakes, automations, asks).
+	const problem =
+		!chat || chat.archived || !(await liveWorkspace(ctx, chat.workspaceId))
+			? "its chat was deleted"
+			: !(await canReplyAs(ctx, chat, await memberOf(ctx, next.actorId, chat.workspaceId)))
+				? "its person can no longer post there"
+				: null;
+	if (!chat || problem) {
 		await ctx.db.patch(next._id, { status: "error" });
 		await startThen(ctx, next);
 		await setWakeOutcome(ctx, next, "failed");
-		await answerAsk(ctx, next, "its chat was deleted");
+		await answerAsk(ctx, next, problem ?? undefined);
 		return await settleApproval(ctx, next);
 	}
 
@@ -233,6 +242,8 @@ export async function runningTurn(ctx: QueryCtx, turnId: Id<"agentTurns">) {
 	if (!member) throw new Error("This person is no longer in the workspace.");
 	const chat = await ctx.db.get(turn.chatId);
 	if (!chat || chat.archived || !(await canSee(ctx, chat, member))) throw new Error("This person can no longer see this chat.");
+	// Its reply posts there as them: a read-only channel ends it (chatOps.canReplyAs).
+	if (!canPost(member, chat)) throw new Error("This person can no longer post in this chat.");
 	const who: Who = { member, agentId: turn.agentId };
 	return { turn: turn as Doc<"agentTurns"> & { replyId: Id<"chatMessages">; sessionId: Id<"agentSessions"> }, member, chat, who };
 }
@@ -323,6 +334,7 @@ export const turnContext = internalQuery({
 		const { models } = await catalogModels(ctx);
 		const vision = [models, fallbackModels].some((list) => list.find((m) => m.id === agent.model)?.vision);
 		const user = await ctx.db.get(member.userId);
+		// Deleted: null. Its database hidden from them since: recordOut refuses, and the turn ends with why.
 		const about = wakeup?.recordId ? await ctx.db.get(wakeup.recordId) : undefined;
 		const answering = turn.routed ? await answeringHere(ctx, turn, names) : [];
 		return {
@@ -770,11 +782,13 @@ export const finishReply = internalMutation({
 		const stopped = turn.stopping;
 		if (stopped) error = undefined;
 		// A stopped quiet reply has no decision; it's shown only if it holds a card the person must decide on.
-		const show = !!reply && !!reply.quiet && !error && (await shown(ctx, turn, reply, stopped ? undefined : decision));
+		const chat = await ctx.db.get(turn.chatId);
+		// Shown only if its person can still post there: they may have lost it while it ran.
+		const show = !!reply && !!reply.quiet && !error && !!chat && (await canReplyAs(ctx, chat, await memberOf(ctx, turn.actorId, turn.workspaceId))) && (await shown(ctx, turn, reply, stopped ? undefined : decision));
 		if (reply) {
 			const end = error ? { status: "error" as const, error } : { status: "done" as const, ...(stopped && { stoppedBy: stopped.by }) };
 			await endStream(ctx, reply, { ...end, stats, ...(show && { quiet: undefined, publishedAt: Date.now() }) });
-			if (show) await countMessage(ctx, (await ctx.db.get(turn.chatId))!, reply);
+			if (show) await countMessage(ctx, chat!, reply);
 			if (!error) await previewMessage(ctx, (await ctx.db.get(reply._id))!);
 		}
 		await ctx.db.patch(turnId, { status: error ? "error" : "done", step: undefined });

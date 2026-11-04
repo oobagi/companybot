@@ -1,8 +1,9 @@
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api, internal } from "../convex/_generated/api";
+import { api, components, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { type As, ownerAndMember, sideWorkspace, signIn } from "./helpers";
+import { wake } from "../convex/wakeups";
+import { type As, agentsOf, finishQuiet, ownerAndMember, sideWorkspace, signIn } from "./helpers";
 
 // Who can access each channel, database and page (placeAccess.ts): every read path and agent tool
 // follows the list, and refusals name the roles that have access.
@@ -40,6 +41,7 @@ async function turnFor(t: ReturnType<typeof convexTest>, as: As) {
 	const turnId = (await t.run((ctx) => ctx.db.query("agentTurns").collect())).find((x) => !before.some((b) => b._id === x._id))!._id;
 	const any = <T,>(p: Promise<T>) => p as Promise<T & { error?: string } & Record<string, unknown>>;
 	return {
+		turnId,
 		types: () => t.query(internal.recordTools.typesFor, { turnId }),
 		find: (input: object) => any(t.query(internal.recordTools.findFor, { turnId, input: { numItems: 20, ...input } })),
 		get: (id: string) => any(t.query(internal.recordTools.getFor, { turnId, id })),
@@ -47,6 +49,13 @@ async function turnFor(t: ReturnType<typeof convexTest>, as: As) {
 		readChat: (chat: string) => any(t.query(internal.chatTools.readFor, { turnId, chat })),
 		readPage: (page: string) => any(t.query(internal.pageTools.readFor, { turnId, page })),
 		findPages: () => t.query(internal.pageTools.findFor, { turnId, input: {} }),
+		saveDatabase: (input: object) => any(t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input })),
+		manage: (tool: string, request: object) => any(t.mutation(internal.manageTools.runFor, { turnId, tool, input: { request } })),
+		automations: () => t.query(internal.automationTools.listFor, { turnId }),
+		followups: () => any(t.query(internal.wakeups.listFor, { turnId })),
+		searchChat: (query: string) => any(t.query(internal.chatTools.searchFor, { turnId, query })),
+		history: () => any(t.query(internal.recordTools.historyFor, { turnId })),
+		views: (type: string) => any(t.query(internal.recordTools.viewsFor, { turnId, type })),
 	};
 }
 
@@ -210,5 +219,264 @@ describe("who can access a page", () => {
 		await restrict([{ role: officeRole, level: "edit" }]);
 		expect(await crew.query(api.pages.get, { pageId: page })).toBeNull();
 		expect(await crew.query(api.pages.forRecord, { recordId: deal })).toBeNull();
+	});
+});
+
+type T = ReturnType<typeof convexTest>;
+const PAGE = { paginationOpts: { numItems: 50, cursor: null } };
+const generalOf = async (as: As) => (await as.query(api.chats.list))!.channels.find((c) => c.isDefault)!._id;
+const turnOfWake = async (t: T, id: Id<"wakeups">) => (await t.run((ctx) => ctx.db.query("agentTurns").collect())).find((x) => x.wakeupId === id);
+
+/** A follow-up of Companybot's for `as` in `chatId`, woken at once (wakeups.wake, as the scheduler would). */
+async function wakeIn(t: T, as: Person, chatId: Id<"chats">, extra: { recordId?: Id<"records">; typeId?: Id<"recordTypes"> } = {}) {
+	vi.useFakeTimers();
+	const { companybot } = await agentsOf(as);
+	return t.run(async (ctx) => {
+		const chat = (await ctx.db.get(chatId))!;
+		const id = await ctx.db.insert("wakeups", { workspaceId: chat.workspaceId, agentId: companybot._id, chatId, actorId: as.userId, createdBy: as.userId, note: "Check in", foreign: false, status: "pending", jobId: "j", ...extra });
+		await wake(ctx, id);
+		return id;
+	});
+}
+
+// Each of these was a way around the list, found in review. Each test keeps one closed.
+describe("restored, woken, queued and background paths", () => {
+	it("keeps a restored page's list when its parent stays in Archive", async () => {
+		const { owner, crew, office, officeRole } = await setup();
+		const parent = await owner.mutation(api.pages.create, { title: "Office only" });
+		const child = await owner.mutation(api.pages.create, { title: "Budget", parentId: parent });
+		await owner.mutation(api.pages.setAccess, { pageId: parent, access: [{ role: officeRole, level: "edit" }] });
+		await owner.mutation(api.trash.move, { kind: "page", id: child });
+		await owner.mutation(api.trash.move, { kind: "page", id: parent });
+		await owner.mutation(api.trash.restore, { kind: "page", id: child });
+		expect(await owner.query(api.pages.get, { pageId: child })).toMatchObject({ archived: false, parentId: null, ownAccess: [{ role: officeRole, level: "edit" }] });
+		expect(await crew.query(api.pages.get, { pageId: child })).toBeNull();
+		expect((await office.query(api.pages.get, { pageId: child }))!.title).toBe("Budget");
+	});
+
+	it("never wakes or replies for someone who can only view: checked when it starts, on each step and before it's shown", async () => {
+		const { t, owner, crew, officeRole } = await setup();
+		const general = await generalOf(owner);
+		// Both set while they could post: the first runs, the second waits behind it.
+		const first = await wakeIn(t, crew, general);
+		const second = await wakeIn(t, crew, general);
+		const running = (await turnOfWake(t, first))!;
+		expect(running.status).toBe("running");
+		expect((await turnOfWake(t, second))!.status).toBe("queued");
+		await owner.mutation(api.chats.setAccess, { chatId: general, access: [{ role: "everyone", level: "view" }, { role: officeRole, level: "edit" }] });
+		await expect(t.query(internal.turns.turnContext, { turnId: running._id })).rejects.toThrow("This person can no longer post in this chat.");
+		await finishQuiet(t, running._id, "Posting anyway");
+		expect((await crew.query(api.messages.list, { chatId: general })).map((m) => m.text)).not.toContain("Posting anyway");
+		expect((await turnOfWake(t, second))!.status).toBe("error");
+		// A new one stops before any turn.
+		const third = await wakeIn(t, crew, general);
+		expect(await t.run((ctx) => ctx.db.get(third))).toMatchObject({ status: "cancelled", reason: "Its person can no longer post in the chat." });
+		expect(await turnOfWake(t, third)).toBeUndefined();
+	});
+
+	it("stops a queued wake from reading a record whose database was hidden since", async () => {
+		const { t, owner, crew, officeRole, deals, deal, restrict } = await setup();
+		const id = await wakeIn(t, crew, await generalOf(owner), { recordId: deal, typeId: deals });
+		const turn = (await turnOfWake(t, id))!;
+		expect((await t.query(internal.turns.turnContext, { turnId: turn._id })).wake).toMatchObject({ record: { id: deal, name: "Big roof deal" } });
+		await restrict([{ role: officeRole, level: "edit" }]);
+		await expect(t.query(internal.turns.turnContext, { turnId: turn._id })).rejects.toThrow("Only Office and Owners can see Deals.");
+		expect(await t.query(internal.recordTools.getFor, { turnId: turn._id, id: deal })).toEqual({ error: "Only Office and Owners can see Deals." });
+	});
+
+	it("keeps a sub-page's title out of its parent's document, history and agents' reads for people who can't see it", async () => {
+		const { t, owner, crew, office, officeRole } = await setup();
+		vi.useFakeTimers();
+		const handbook = await owner.mutation(api.pages.create, { title: "Handbook" });
+		const salaries = await owner.mutation(api.pages.create, { title: "Salaries", parentId: handbook });
+		// Past a version's idle time, so the version that added its block keeps the title it was added with.
+		vi.advanceTimersByTime(15 * 60_000);
+		await owner.mutation(api.pages.setAccess, { pageId: salaries, access: [{ role: officeRole, level: "edit" }] });
+		await office.mutation(api.pages.rename, { pageId: salaries, title: "Salaries 2027" });
+		// The document the editor syncs whole to everyone who can see it, as stored: its block has no title.
+		const synced = (await t.run((ctx) => ctx.runQuery(components.prosemirrorSync.lib.getSnapshot, { id: handbook }))) as { content: string };
+		expect(synced.content).toContain(salaries);
+		expect(synced.content).not.toMatch(/Salaries/);
+		const read = await (await turnFor(t, crew)).readPage("Handbook");
+		expect(read.doc).toContain(salaries);
+		expect(JSON.stringify(read)).not.toMatch(/Salaries/);
+		const versions = (await crew.query(api.pages.history, { pageId: handbook, ...PAGE })).page;
+		// The first version still held the title it was created with: history shows it as the reader may see it.
+		expect(versions.length).toBeGreaterThan(1);
+		for (const v of versions) expect(await crew.query(api.pages.version, { versionId: v._id })).not.toMatch(/Salaries/);
+		expect(await office.query(api.pages.version, { versionId: versions.at(-1)!._id })).toContain("Salaries 2027");
+	});
+
+	it("drops a channel someone lost from their chat list and their workspace badges", async () => {
+		const { t, owner, crew, officeRole } = await setup();
+		const vault = await owner.mutation(api.chats.createChannel, { name: "vault", private: false });
+		await crew.mutation(api.chats.join, { chatId: vault });
+		const tools = await turnFor(t, crew);
+		const names = async () => ((await tools.manage("chat.manage", { action: "list_chats" })).page as { name?: string }[]).map((c) => c.name);
+		expect(await names()).toContain("vault");
+		await owner.mutation(api.chats.setAccess, { chatId: vault, access: [{ role: officeRole, level: "edit" }] });
+		expect(await names()).not.toContain("vault");
+		const before = await crew.query(api.workspace.activity);
+		await owner.mutation(api.messages.send, { chatId: vault, text: "For you", mentions: { userIds: [crew.userId], agentIds: [] } });
+		expect(await crew.query(api.workspace.activity)).toEqual(before);
+	});
+
+	it("doesn't name or point at a hidden channel in automation listings", async () => {
+		const { t, owner, crew, office, officeRole } = await setup();
+		const vault = await owner.mutation(api.chats.createChannel, { name: "vault", private: false });
+		await owner.mutation(api.chats.setAccess, { chatId: vault, access: [{ role: officeRole, level: "edit" }] });
+		const { companybot } = await agentsOf(owner);
+		const make = (name: string, trigger: object, audience: "subscribers" | "channel", channelId?: Id<"chats">) =>
+			owner.mutation(api.automations.create, { config: { name, prompt: "Sum it up.", trigger: trigger as never }, agentId: companybot._id, audience, channelId, timeZone: "UTC" });
+		const watcher = await make("Watcher", { type: "event", event: "message.posted", channelId: vault }, "subscribers");
+		await make("Poster", { type: "schedule", cron: "0 9 * * *" }, "channel", vault);
+		const seen = await crew.query(api.automations.list);
+		expect(seen.find((a) => a.name === "Watcher")).toMatchObject({ trigger: "When someone posts in #a channel", channelId: null, channelName: null });
+		expect(seen.find((a) => a.name === "Poster")).toMatchObject({ runsFor: "Posts once in a channel", channelId: null, channelName: null });
+		const tools = await turnFor(t, crew);
+		const text = JSON.stringify([seen, await tools.automations(), await tools.manage("automations.manage", { action: "list" }), await tools.manage("automations.manage", { action: "get", id: watcher })]);
+		expect(text).not.toMatch(/vault/);
+		expect(text).not.toContain(vault);
+		expect(JSON.stringify(await office.query(api.automations.list))).toContain("#vault");
+	});
+
+	it("names neither a hidden page a sub-page moved from nor a hidden ancestor that holds it in Archive", async () => {
+		const { owner, crew, officeRole } = await setup();
+		const board = await owner.mutation(api.pages.create, { title: "Board" });
+		await owner.mutation(api.pages.setAccess, { pageId: board, access: [{ role: officeRole, level: "edit" }] });
+		const agenda = await owner.mutation(api.pages.create, { title: "Agenda", parentId: board });
+		await owner.mutation(api.pages.setAccess, { pageId: agenda, access: [{ role: "everyone", level: "view" }] });
+		await owner.mutation(api.pages.move, { pageId: agenda });
+		const moves = async (as: As) => (await as.query(api.pages.moves, { pageId: agenda, ...PAGE })).page.map((m) => [m.from, m.to]);
+		expect(await moves(crew)).toEqual([["a page you can't see", "Pages"]]);
+		expect(await moves(owner)).toEqual([["Board", "Pages"]]);
+
+		// Under it, a page everyone can see: its row in a deeper page's breadcrumbs doesn't point at Board either.
+		const notes = await owner.mutation(api.pages.create, { title: "Notes", parentId: board });
+		await owner.mutation(api.pages.setAccess, { pageId: notes, access: [{ role: "everyone", level: "view" }] });
+		const deeper = await owner.mutation(api.pages.create, { title: "Deeper", parentId: notes });
+		const crumbs = (await crew.query(api.pages.get, { pageId: deeper }))!;
+		expect(crumbs.ancestors).toEqual([expect.objectContaining({ _id: notes, parentId: null })]);
+		expect(JSON.stringify(crumbs)).not.toContain(board);
+
+		const minutes = await owner.mutation(api.pages.create, { title: "Minutes", parentId: board });
+		await owner.mutation(api.pages.setAccess, { pageId: minutes, access: [{ role: "everyone", level: "view" }] });
+		await owner.mutation(api.trash.move, { kind: "page", id: board });
+		const seen = (await crew.query(api.pages.get, { pageId: minutes }))!;
+		expect(seen).toMatchObject({ archived: true, trash: null, parentId: null, ancestors: [] });
+		expect(JSON.stringify(seen)).not.toMatch(/Board/);
+		expect(JSON.stringify(seen)).not.toContain(board);
+	});
+
+	it("counts linked records in hidden databases against the read budget", async () => {
+		const { t, crew, deal, client, officeRole, restrict } = await setup();
+		await restrict([{ role: officeRole, level: "edit" }]);
+		// Five near-1 MB records the crew can't see, then one they can: the budget (4 MB) runs out first.
+		const hidden = await t.run(async (ctx) => {
+			const { _id, _creationTime, ...row } = (await ctx.db.get(deal))!;
+			const ids = [];
+			for (let i = 0; i < 5; i++) ids.push(await ctx.db.insert("records", { ...row, title: `Big ${i}`, values: { ...row.values, notes: "x".repeat(900_000) } }));
+			return ids;
+		});
+		const refs = await crew.query(api.records.refs, { ids: [...hidden, client] });
+		expect(refs[client]).toBeUndefined();
+		for (const id of hidden) expect(refs[id]).toEqual({ name: "", locked: true });
+	});
+
+	it("searches past hidden matches instead of stopping short, and says when there's more", async () => {
+		const { t, owner, crew, officeRole, deals, client, restrict } = await setup();
+		for (let i = 0; i < 12; i++) await owner.mutation(api.records.create, { typeId: deals, values: { name: `Zebra deal ${i}` } });
+		const clients = (await t.run((ctx) => ctx.db.get(client)))!.typeId;
+		const zebra = await owner.mutation(api.records.create, { typeId: clients, values: { name: "Zebra Co" } });
+		await restrict([{ role: officeRole, level: "edit" }]);
+		const tools = await turnFor(t, crew);
+		const found: string[] = [];
+		let cursor: string | undefined;
+		for (let i = 0; i < 30; i++) {
+			const page = await tools.find({ search: "Zebra", numItems: 1, ...(cursor && { cursor }) });
+			found.push(...(page.rows as { _id: string }[]).map((r) => r._id));
+			// Empty pages say there's more while hidden hits were skipped.
+			if (!found.length) expect(page.more).toBe(true);
+			if (!page.more) break;
+			cursor = page.cursor as string;
+		}
+		expect(found).toEqual([zebra]);
+	});
+
+	it("doesn't list hidden databases when a name isn't found", async () => {
+		const { t, owner, crew, deals, officeRole, restrict } = await setup();
+		await restrict([{ role: officeRole, level: "edit" }]);
+		await owner.mutation(api.trash.move, { kind: "database", id: deals });
+		const tools = await turnFor(t, crew);
+		const restored = await tools.saveDatabase({ type: "Nope", trash: false });
+		expect(restored.error).toMatch(/^There's no database “Nope”/);
+		expect(restored.error).not.toMatch(/deal/i);
+		expect((await tools.find({ type: "Nope" })).error).not.toMatch(/deal/i);
+	});
+
+	it("tells the page tree which pages each person can change", async () => {
+		const { owner, crew, office, officeRole } = await setup();
+		const policy = await owner.mutation(api.pages.create, { title: "Policy" });
+		await owner.mutation(api.pages.setAccess, { pageId: policy, access: [{ role: "everyone", level: "view" }, { role: officeRole, level: "edit" }] });
+		const row = async (as: As) => (await as.query(api.pages.children, PAGE)).page.find((p) => p._id === policy)!;
+		expect((await row(crew)).canEdit).toBe(false);
+		expect((await row(office)).canEdit).toBe(true);
+		expect((await crew.query(api.pages.list)).find((p) => p._id === policy)!.canEdit).toBe(false);
+	});
+});
+
+describe("a restricted place, as someone not on its list", () => {
+	it("never shows in a listing or an agent tool, by name or id", async () => {
+		const { t, owner, crew, officeRole } = await setup();
+		const office = [{ role: officeRole, level: "edit" as const }];
+		// A database, a channel and a page only Office can see, each with something in it, some in Archive.
+		const vaultType = await owner.mutation(api.recordTypes.create, { plural: "Vaultbids" });
+		const bid = await owner.mutation(api.records.create, { typeId: vaultType, values: { name: "Vaultbid quartz" } });
+		const old = await owner.mutation(api.records.create, { typeId: vaultType, values: { name: "Vaultbid old quartz" } });
+		await owner.mutation(api.trash.move, { kind: "record", id: old });
+		await owner.mutation(api.recordTypes.setAccess, { typeId: vaultType, access: office });
+		const room = await owner.mutation(api.chats.createChannel, { name: "vaultroom", private: false });
+		await crew.mutation(api.chats.join, { chatId: room });
+		await owner.mutation(api.messages.send, { chatId: room, text: "Quartz plans", mentions: { userIds: [crew.userId], agentIds: [] } });
+		await owner.mutation(api.chats.setAccess, { chatId: room, access: office });
+		const plan = await owner.mutation(api.pages.create, { title: "Vaultplan quartz" });
+		await owner.mutation(api.pages.create, { title: "Vaultplan inside", parentId: plan });
+		await owner.mutation(api.pages.setAccess, { pageId: plan, access: office });
+		const { companybot } = await agentsOf(owner);
+		await owner.mutation(api.automations.create, { config: { name: "Digest", prompt: "Sum it up.", trigger: { type: "event", event: "message.posted", channelId: room } }, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
+
+		const tools = await turnFor(t, crew);
+		const seen = {
+			chats: await crew.query(api.chats.list),
+			browse: await crew.query(api.chats.browse),
+			alerts: await crew.query(api.chats.alerts),
+			threads: await crew.query(api.chats.activeThreads, { now: Date.now() }),
+			badges: await crew.query(api.workspace.activity),
+			types: await crew.query(api.recordTypes.list),
+			search: await crew.query(api.records.search, { query: "quartz" }),
+			activity: await crew.query(api.records.activity, PAGE),
+			pages: await crew.query(api.pages.list),
+			pageSearch: await crew.query(api.pages.search, { query: "quartz" }),
+			children: await crew.query(api.pages.children, PAGE),
+			trash: await crew.query(api.trash.list, PAGE),
+			automations: await crew.query(api.automations.list),
+			followups: await crew.query(api.wakeups.list, {}),
+			toolTypes: await tools.types(),
+			toolArchivedTypes: await t.query(internal.recordTools.typesFor, { turnId: tools.turnId, trashed: true }),
+			toolSearch: await tools.find({ search: "quartz" }),
+			toolHistory: await tools.history(),
+			toolPages: await tools.findPages(),
+			toolChat: await tools.readChat("#general"),
+			toolChatSearch: await tools.searchChat("Quartz"),
+			toolChats: await tools.manage("chat.manage", { action: "list_chats" }),
+			toolPeople: await tools.manage("chat.manage", { action: "find_people" }),
+			toolChannels: await tools.manage("channels.manage", { action: "list" }),
+			toolAutomations: await tools.automations(),
+			toolAutomationList: await tools.manage("automations.manage", { action: "list" }),
+			toolFollowups: await tools.followups(),
+		};
+		const text = JSON.stringify(seen);
+		expect(text).not.toMatch(/vault/i);
+		for (const id of [vaultType, bid, old, room, plan]) expect(text).not.toContain(id);
 	});
 });

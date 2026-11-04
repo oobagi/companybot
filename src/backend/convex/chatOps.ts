@@ -77,6 +77,13 @@ export const requirePost = (member: Member, chat: Doc<"chats">) => requireAccess
 export const canPost = (member: Member, chat: Doc<"chats">) => reach(member, chatAccess(chat)) === "edit";
 
 /**
+ * Whether an agent may reply in a chat for this person: they're still a member who sees it and can post in it.
+ * Turns check it when they start, on every step (turns.runningTurn) and before a quiet reply is shown.
+ */
+export const canReplyAs = async (ctx: QueryCtx, chat: Doc<"chats">, member: Member | null) =>
+	!!member && (await canSee(ctx, chat, member)) && canPost(member, chat);
+
+/**
  * A channel by name ("#sales" or "sales") that the person can see. Agents name channels, so one
  * kept from them by its access list refuses with who can see it, rather than looking missing.
  */

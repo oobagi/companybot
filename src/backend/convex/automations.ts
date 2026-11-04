@@ -28,7 +28,7 @@ import {
 	requireMember,
 	saveMade,
 } from "./lib";
-import { automationName, canView, definitionOf, installOf, postingProblem, privateTo, requireEditable, runsForLabel, subscribersOf, visibleInstalls, webhookUrl } from "./automationOps";
+import { automationName, canView, definitionOf, installOf, postingProblem, privateTo, requireEditable, runsForLabel, seenChannel, shownTrigger, subscribersOf, visibleInstalls, webhookUrl } from "./automationOps";
 import { forgetAutomationGrants } from "./permissions";
 import { startCascade } from "./cascade";
 import { audience, customTrigger } from "./schema";
@@ -54,12 +54,13 @@ export const list = query({
 		const installs = await visibleInstalls(ctx, member, true);
 		const rows = (await Promise.all(installs
 			.sort((a, b) => b._creationTime - a._creationTime)
-			.map(async (install) => ({ automation: await definitionOf(ctx, install), install }))))
+			.map(async (install) => ({ automation: await definitionOf(ctx, install, member), install }))))
 			.filter((row): row is { automation: Automation; install: Doc<"automationInstalls"> } => !!row.automation);
 		return Promise.all(
 			rows.map(async ({ automation, install }) => {
 				const agent = await ctx.db.get(install.agentId);
-				const channel = (install.channelId && (await ctx.db.get(install.channelId))) || null;
+				// Where it posts, if they can see it: one they can't see goes unnamed, without its id.
+				const channel = await seenChannel(ctx, member, install.channelId);
 				const scheduled = automation.trigger.type === "schedule";
 				const audience = install.audience;
 				const canEdit = canEditAutomation(member, privateTo(install));
@@ -83,7 +84,7 @@ export const list = query({
 								name: automationName(install),
 								prompt: install.custom.prompt,
 								// COMPAT(0.1.0-alpha.10): alpha.9 apps edit a schedule as one time and days; send just the cron.
-								trigger: compatTrigger(normalizeCustomAutomation(install.custom).trigger),
+								trigger: compatTrigger(await shownTrigger(ctx, member, normalizeCustomAutomation(install.custom).trigger)),
 								version: install.custom.version,
 								updatedByName: await nameOf(ctx, install.custom.updatedBy),
 								updatedAt: install.custom.updatedAt,
@@ -100,7 +101,7 @@ export const list = query({
 					agentId: install.agentId,
 					agentName: agent?.name ?? null,
 					agentArchived: agent?.archived ?? false,
-					channelId: install.channelId ?? null,
+					channelId: channel?._id ?? null,
 					channelName: channel?.name ?? null,
 					channelArchived: channel?.archived ?? false,
 					/** Secret: only for people who can change it. */

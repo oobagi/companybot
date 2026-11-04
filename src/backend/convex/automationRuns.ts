@@ -28,7 +28,7 @@ export const tick = internalMutation({
 			.collect();
 		for (const install of installs) {
 			if (install.archived) continue;
-			const automation = await definitionOf(ctx, install);
+			const automation = await definitionOf(ctx, install, null);
 			if (!automation || !(await liveWorkspace(ctx, install.workspaceId))) continue;
 			const due = scheduleDue(automation.trigger, now, install.timeZone, scheduleCursor(install));
 			if (due === null) continue;
@@ -51,7 +51,7 @@ export const receive = internalMutation({
 					.withIndex("by_webhook", (q) => q.eq("webhookToken", token))
 					.first()
 			: null;
-		const automation = install && (await definitionOf(ctx, install));
+		const automation = install && (await definitionOf(ctx, install, null));
 		// A workspace being deleted has no webhooks, and one in Archive has none: nothing runs, and nothing new is saved behind its cascade.
 		if (!install || install.archived || automation?.trigger.type !== "webhook" || !(await liveWorkspace(ctx, install.workspaceId)))
 			return { status: 404, ok: false, message: "Unknown webhook URL." };
@@ -103,7 +103,7 @@ export async function fireEvent(
 		.collect();
 	for (const install of installs) {
 		if (!install.enabled || install.archived) continue;
-		const automation = await definitionOf(ctx, install);
+		const automation = await definitionOf(ctx, install, null);
 		const trigger = automation?.trigger;
 		if (!automation || trigger?.type !== "event" || trigger.event !== event) continue;
 		if (trigger.event === "message.posted" && trigger.channelId !== details.channelId) continue;
@@ -285,7 +285,7 @@ async function runInChannel(
 
 export async function runNowAs(ctx: MutationCtx, acting: Member, automationId: string) {
 	const { member, install } = await requireEditable(ctx, automationId, acting);
-	const automation = await definitionOf(ctx, install);
+	const automation = await definitionOf(ctx, install, member);
 	if (!automation) throw new ConvexError("Install it first.");
 	const result = await runInDms(ctx, install, automation, [member.userId], triggerPrompt(automation, sampleData(automation.trigger)));
 	if (!result.ran) throw new ConvexError(result.summary);

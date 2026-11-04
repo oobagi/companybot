@@ -14,6 +14,7 @@ import {
 	requirePage,
 	restoreVersion,
 	setPageTrashed,
+	withPageTitles,
 	writeBlocks,
 } from "./pageOps";
 import { movePage, pageState, pageStates } from "./pageTree";
@@ -58,7 +59,7 @@ export const findFor = internalQuery({
 		const { search, cursor, trashed = false, parent } = findInput.parse(input);
 		const parentPage = parent ? await pageNamed(ctx, member, parent) : null;
 		if (parentPage?.recordId) throw new ConvexError("Record bodies can't contain sub-pages.");
-		const row = (p: Doc<"pages">) => ({ id: p._id, title: p.title, parentId: p.parentId ?? null, edited: new Date(p.updatedAt).toISOString() });
+		const row = (p: Doc<"pages">, parentSeen: boolean) => ({ id: p._id, title: p.title, parentId: parentSeen ? (p.parentId ?? null) : null, edited: new Date(p.updatedAt).toISOString() });
 		const pages = ctx.db.query("pages");
 		const found = parent !== undefined
 			? pages.withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", parentPage?._id).eq("recordId", undefined))
@@ -69,7 +70,11 @@ export const findFor = internalQuery({
 		const state = pageStates(ctx);
 		const seen = pageVisible(ctx, member);
 		const rows = [];
-		for (const p of page.page) if (!p.recordId && (await state(p)).archived === trashed && (await seen(p))) rows.push(row(p));
+		for (const p of page.page) {
+			if (p.recordId || !(await seen(p))) continue;
+			const { archived, ancestors } = await state(p);
+			if (archived === trashed) rows.push(row(p, !ancestors[0] || (await seen(ancestors[0]))));
+		}
 		return { rows, more: !page.isDone, ...(!page.isDone && { cursor: page.continueCursor }) };
 	},
 });
@@ -103,10 +108,11 @@ export const readFor = internalQuery({
 			for (const p of page && !page.recordId && !old ? await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", page._id).eq("recordId", undefined).eq("archived", false)).take(51) : []) if (await seen(p)) children.push(p);
 			const ancestors = [];
 			for (const p of state?.ancestors.slice().reverse() ?? []) if (await seen(p)) ancestors.push({ id: p._id, title: p.title });
-			const doc = old ? await versionContent(ctx, old.page, old.row) : page ? JSON.stringify((await readDoc(ctx, page._id)).toJSON()) : null;
+			// Page blocks titled as this person may see them, never as the document stores them.
+			const doc = old ? await versionContent(ctx, member, old.page, old.row) : page ? await withPageTitles(ctx, member, JSON.stringify((await readDoc(ctx, page._id)).toJSON())) : null;
 			if (old && doc === null) throw new ConvexError("This version is no longer available.");
 			return {
-				...(page && { id: page._id, parentId: page.parentId ?? null }),
+				...(page && { id: page._id, parentId: state?.ancestors[0] && (await seen(state.ancestors[0])) ? state.ancestors[0]._id : null }),
 				ancestors,
 				subpages: children.slice(0, 50).map((p) => ({ id: p._id, title: p.title })),
 				subpagesMore: children.length > 50,

@@ -15,7 +15,10 @@ import { RenamePage } from "./PageTitle";
 export type PageReference = FunctionReturnType<typeof api.pages.get>;
 export const PageReferences = createContext<Map<string, PageReference> | null>(null);
 
-/** A page is an atomic block. Its title comes from the page, never from editable link text. */
+/**
+ * A page is an atomic block. Its title comes from the page, never from editable link text, nor from the
+ * title stored in the block: one you can't open shows as "Page" (backend pageOps.blockTitle).
+ */
 export function PageBlockRow({ pageId, title, editable = false }: { pageId: string; title: string; editable?: boolean }) {
 	const page = useQuery(api.pages.get, { pageId });
 	const references = useContext(PageReferences);
@@ -24,7 +27,7 @@ export function PageBlockRow({ pageId, title, editable = false }: { pageId: stri
 	const { confirm, dialog } = useConfirm();
 	const [moving, setMoving] = useState(false);
 	const [renaming, setRenaming] = useState(false);
-	const name = page?.title ?? title;
+	const name = page ? page.title : (page === undefined && title) || "Page";
 	return (
 		<div className="page-block group/page flex w-full min-w-0 items-center rounded-md hover:bg-neutral-100/70" contentEditable={false}>
 			<a href={pageHref(pageId)} onClick={(e) => { e.preventDefault(); navigate("pages", pageId); }} className="page-block-link flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-1.5 text-inherit focus-visible:outline-2 focus-visible:outline-neutral-400">
@@ -50,7 +53,7 @@ export function PageBlockRow({ pageId, title, editable = false }: { pageId: stri
 
 const pageBlock = createReactBlockSpec(pageBlockConfig, {
 	render: ({ block, editor }) => <PageBlockRow pageId={block.props.pageId} title={block.props.title} editable={editor.isEditable} />,
-	toExternalHTML: ({ block }) => <a href={pageHref(block.props.pageId)}>{block.props.title}</a>,
+	toExternalHTML: ({ block }) => <a href={pageHref(block.props.pageId)}>{block.props.title || "Page"}</a>,
 })();
 
 export const pageEditorSchema = BlockNoteSchema.create({ blockSpecs: { ...defaultBlockSpecs, page: pageBlock } });

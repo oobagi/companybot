@@ -262,7 +262,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 								<TopBar title="" />
 							))}
 						{view === "records" && <RecordsView key={typeKey} typeKey={typeKey} recordId={recordId} access={access} />}
-						{view === "pages" && <PagesView pageId={route[1]} canEdit={can(access, "pages.edit")} />}
+						{view === "pages" && <PagesView pageId={route[1]} />}
 						{view === "settings" && <SettingsView access={access} tab={settingsTab} itemId={route[2]} />}
 					</main>
 				</div>

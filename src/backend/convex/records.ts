@@ -99,7 +99,7 @@ export const search = query({
 	handler: async (ctx, { query: text, typeId }): Promise<Row[]> => {
 		const member = await getMember(ctx);
 		if (!member || !text.trim()) return [];
-		return toRows(ctx, member, await searchRecords(ctx, member, text, { typeId, limit: 20 }));
+		return toRows(ctx, member, (await searchRecords(ctx, member, text, { typeId, limit: 20 })).items);
 	},
 });
 

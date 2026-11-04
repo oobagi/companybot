@@ -1,4 +1,5 @@
 import migrationsTest from "@convex-dev/migrations/test";
+import prosemirrorSync from "@convex-dev/prosemirror-sync/test";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
@@ -170,5 +171,37 @@ describe("migrations", () => {
 		await expect(owner.mutation(api.workspace.invite, { email: "MIXEDCASE@CO.COM", role: "member" })).rejects.toThrow("already a member");
 		await t.run(ctx => ctx.db.patch(membership!._id, { email: undefined }));
 		await expect(owner.mutation(api.workspace.invite, { email: "next@co.com", role: "member" })).rejects.toThrow("being updated");
+	});
+
+	it("turns page move history's titles into page ids, top level as null, unmatched or ambiguous as unknown", async () => {
+		const t = convexTest({ schema, modules, transactionLimits: true });
+		migrationsTest.register(t);
+		prosemirrorSync.register(t);
+		const owner = await signIn(t, "owner@co.com");
+		const board = await owner.mutation(api.pages.create, { title: "Board" });
+		const agenda = await owner.mutation(api.pages.create, { title: "Agenda" });
+		await owner.mutation(api.pages.create, { title: "Notes" });
+		await owner.mutation(api.pages.create, { title: "Notes" });
+		const rows = await t.run(async (ctx) => {
+			const { workspaceId } = (await ctx.db.get(agenda))!;
+			const userId = (await ctx.db.query("users").first())!._id;
+			const row = (n: number, from: string, to: string) => ctx.db.insert("pageMoves", { workspaceId, pageId: agenda, n, userId, from, to });
+			return [await row(1, "Pages", "Board"), await row(2, "Notes", "Gone page")];
+		});
+		vi.useFakeTimers();
+		try {
+			await t.mutation(internal.migrations.runAll);
+			await t.finishAllScheduledFunctions(vi.runAllTimers);
+		} finally {
+			vi.useRealTimers();
+		}
+		const [first, second] = await t.run(async (ctx) => Promise.all(rows.map((id) => ctx.db.get(id))));
+		expect(first).toMatchObject({ fromId: null, toId: board });
+		expect([second!.fromId, second!.toId]).toEqual([undefined, undefined]);
+		expect([first!.from, first!.to, second!.from, second!.to]).toEqual([undefined, undefined, undefined, undefined]);
+		expect((await owner.query(api.pages.moves, { pageId: agenda, paginationOpts: { numItems: 10, cursor: null } })).page.map((m) => [m.from, m.to])).toEqual([
+			["another page", "another page"],
+			["Pages", "Board"],
+		]);
 	});
 });

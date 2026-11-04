@@ -10,7 +10,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { type Member, type Who, checkPermission, nameOf, requireInWorkspace } from "./lib";
 import { cascading, startCascade } from "./cascade";
 import { inTrash, requireRecord } from "./recordOps";
-import { type PageState, pageState, pageStates, parentFor } from "./pageTree";
+import { type PageState, keptAccess, pageState, pageStates, parentFor } from "./pageTree";
 import { type AccessLevel, reaches } from "@companybot/core";
 import { reach, requireAccess } from "./placeAccess";
 import { toggleTrash } from "./trashOps";
@@ -73,6 +73,50 @@ export function pageReach(ctx: QueryCtx, member: Member) {
 export function pageVisible(ctx: QueryCtx, member: Member) {
 	const level = pageReach(ctx, member);
 	return async (page: Doc<"pages">) => reaches(await level(page), "view");
+}
+
+/**
+ * The title a page block in its parent's document stores. Documents sync whole to everyone who can see
+ * them, so a sub-page with its own Who can access list is stored untitled: readers get its title through
+ * the access check (`pages.get`, `withPageTitles`), never from the parent.
+ */
+export const blockTitle = (page: Pick<Doc<"pages">, "title" | "access">) => (page.access ? "" : page.title);
+
+/**
+ * A document's page blocks titled as `member` may see them: the page's current title, or none for a page
+ * they can't see (or one deleted). Agents' reads and history go through this, so a stored title never reaches them.
+ */
+export async function withPageTitles(ctx: QueryCtx, member: Member, content: string) {
+	const seen = pageVisible(ctx, member);
+	const titles = new Map<string, string>();
+	const titleOf = async (id: unknown) => {
+		if (typeof id !== "string") return "";
+		if (!titles.has(id)) {
+			const pageId = ctx.db.normalizeId("pages", id);
+			const page = pageId && (await ctx.db.get(pageId));
+			titles.set(id, page && page.workspaceId === member.workspaceId && (await seen(page)) ? page.title : "");
+		}
+		return titles.get(id)!;
+	};
+	type Json = { type?: string; attrs?: Record<string, unknown>; content?: Json[] };
+	const walk = async (node: Json) => {
+		if (node.type === "page" && node.attrs) node.attrs.title = await titleOf(node.attrs.pageId);
+		for (const child of node.content ?? []) await walk(child);
+	};
+	const doc = JSON.parse(content) as Json;
+	await walk(doc);
+	return JSON.stringify(doc);
+}
+
+/**
+ * Keeps a sub-page's block in its parent's document titled by `blockTitle`, after its list changes.
+ * It's a label the app keeps, not an edit: whoever changed the list may not be able to edit the parent.
+ */
+export async function relabelInParent(ctx: MutationCtx, who: Who, page: Doc<"pages">) {
+	const parent = page.parentId && (await ctx.db.get(page.parentId));
+	if (!parent) return;
+	const { doc, version } = await sync.getDoc(ctx, parent._id, pageSchema());
+	await saveTransform(ctx, who, parent, version, relabelLinks(doc, pageHref(page._id), page.title, blockTitle(page), false));
 }
 
 /** A record's body, if it has one yet. */
@@ -167,15 +211,18 @@ export async function renamePage(ctx: MutationCtx, who: Who, page: Doc<"pages">,
 	await ctx.db.patch(page._id, { title: clean, updatedAt: Date.now(), updatedBy: who.member.userId });
 	// Page links are plain link marks whose text is the title when inserted (alpha.7 can't render live titles),
 	// so keep the parent's links in step, as an edit by whoever renamed. Reworded links and other pages' links stay.
+	// A sub-page with its own list keeps its block untitled and its link text as written (`blockTitle`).
 	const parent = page.parentId && clean !== page.title && (await ctx.db.get(page.parentId));
-	if (parent) await writeDoc(ctx, who, parent, (doc) => relabelLinks(doc, pageHref(page._id), page.title, clean));
+	if (parent) await writeDoc(ctx, who, parent, (doc) => relabelLinks(doc, pageHref(page._id), page.title, blockTitle({ ...page, title: clean }), !page.access));
 }
 
-function relabelLinks(doc: Node, href: string, from: string, to: string) {
+/** Sets the page's blocks to `to`, and (`links`) link text that still reads `from`. */
+function relabelLinks(doc: Node, href: string, from: string, to: string, links: boolean) {
 	const tr = new Transform(doc);
 	doc.descendants((node, pos) => {
-		if (node.type.name === "page" && pageHref(node.attrs.pageId) === href) tr.setNodeMarkup(tr.mapping.map(pos), undefined, { ...node.attrs, title: to });
-		else if (node.text === from && node.marks.some((m) => m.type.name === "link" && m.attrs.href === href))
+		if (node.type.name === "page" && pageHref(node.attrs.pageId) === href) {
+			if (node.attrs.title !== to) tr.setNodeMarkup(tr.mapping.map(pos), undefined, { ...node.attrs, title: to });
+		} else if (links && node.text === from && node.marks.some((m) => m.type.name === "link" && m.attrs.href === href))
 			tr.replaceWith(tr.mapping.map(pos), tr.mapping.map(pos + node.nodeSize), doc.type.schema.text(to, node.marks));
 	});
 	return tr;
@@ -195,15 +242,16 @@ export async function setPageTrashed(ctx: MutationCtx, who: Who, page: Doc<"page
 		const state = parent ? await pageState(ctx, parent) : null;
 		const missingId = state?.missingId ?? (!parent ? page.parentId : undefined);
 		if (missingId && await cascading(ctx, "page", { workspaceId: page.workspaceId, pageId: missingId })) throw new ConvexError("This page is being deleted forever.");
-		if (!parent || state?.archived) await ctx.db.patch(page._id, { parentId: undefined });
+		// Back at the top level, it keeps the list it had under its parent (as a move would), never Everyone's.
+		if (!parent || state?.archived) await ctx.db.patch(page._id, { parentId: undefined, ...keptAccess(who.member, page, (await pageState(ctx, page)).access, undefined) });
 	}
 	await ctx.db.patch(page._id, { archived, updatedAt: Date.now(), updatedBy: who.member.userId });
-	const restored = await ctx.db.get(page._id);
-	const parentId = archived ? page.parentId : restored?.parentId;
+	const restored = (await ctx.db.get(page._id))!;
+	const parentId = archived ? page.parentId : restored.parentId;
 	const parent = parentId && await ctx.db.get(parentId);
 	if (parent) {
 		if (archived) await removePageBlock(ctx, who, parent, page._id);
-		else await appendPageBlock(ctx, who, parent, page._id, page.title);
+		else await appendPageBlock(ctx, who, parent, page._id, blockTitle(restored));
 	}
 }
 
