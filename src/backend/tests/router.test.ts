@@ -320,7 +320,11 @@ describe("reply router", () => {
 	it("wakes an agent on a near miss (\"might be for you\"), up to the hourly cap per channel", async () => {
 		const { t, member, companybot, send, decide } = await setUp();
 		withProbabilities({ a1: ["quiet", 0.45], a2: ["quiet", 0.2] });
-		for (let i = 0; i < ROUTER_MIGHT_PER_HOUR + 2; i++) await decide(await send(member, `hmm ${i}`));
+		// Each pick ends before the next message, so the message goes to the router (not to a reply running for them).
+		for (let i = 0; i < ROUTER_MIGHT_PER_HOUR + 2; i++) {
+			await decide(await send(member, `hmm ${i}`));
+			for (const x of (await turnsOf(t)).filter((x) => x.status === "running")) await finishQuiet(t, x._id, "");
+		}
 		const turns = await turnsOf(t);
 		expect(turns).toHaveLength(ROUTER_MIGHT_PER_HOUR);
 		expect(turns.every((x) => x.agentId === companybot._id && x.dispatch?.band === "might")).toBe(true);

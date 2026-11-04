@@ -26,7 +26,7 @@ import { noteMentions, workspaceRecords } from "./recordOps";
 import { installOf } from "./skills";
 import type { messagePart, replyStats } from "./schema";
 import { internal } from "./_generated/api";
-import { enqueueTurn, streamOf } from "./turns";
+import { enqueueTurn, queueFollowUps, streamOf } from "./turns";
 import { routeLater } from "./router";
 import { resetChains } from "./chains";
 import { stopTyping } from "./typing";
@@ -267,6 +267,9 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	for (const agentId of responders) {
 		await enqueueTurn(ctx, chat, { agentId, chatId, threadId, triggerId: messageId, actorId: member.userId, person: true });
 	}
+	// Any message you send here reaches an agent already replying to you here, @mention or not.
+	await queueFollowUps(ctx, chat, sent, responders);
+	// The router still weighs it for the other agents (router.apply skips the ones it already reached).
 	if (agentIds.length === 0) await routeLater(ctx, chat, sent);
 	// The tutorial: steps count only when they did what the step teaches (an agent answers a mention).
 	await completeSteps(ctx, member, [threadId && "thread", dmAgent ? "dm" : responders.length > 0 && "mention"]);

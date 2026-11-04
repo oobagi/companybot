@@ -164,10 +164,16 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 	if (!next || (await waiting(ctx, next))) return;
 	if (next.person) {
 		const actorId = next.actorId;
-		const newest = (await turnsAt(ctx, place, "queued").collect()).filter((t) => t.person && t.actorId === actorId).at(-1)!;
+		const theirs = (await turnsAt(ctx, place, "queued").collect()).filter((t) => t.person && t.actorId === actorId);
+		const newest = theirs.at(-1)!;
 		// Its timer (startQueued) starts it; past STALE_TURN_MS, whatever runs next does.
 		if (newest.debouncing && Date.now() - newest._creationTime < STALE_TURN_MS) return;
 		next = newest;
+		// A follow-up to a quiet reply is quiet too (queueFollowUps), unless one of the messages it covers asked the agent directly.
+		if (next.routed && theirs.some((t) => !t.routed)) {
+			await ctx.db.patch(next._id, { routed: undefined, dispatch: undefined });
+			next = { ...next, routed: undefined, dispatch: undefined };
+		}
 		await mergeQueued(ctx, next);
 	}
 	const chat = await ctx.db.get(next.chatId);
@@ -495,24 +501,71 @@ export const isStopping = internalQuery({
 });
 
 /**
- * Steering (#189): the queued turns of the running turn's own person here (same actor, same chat and
- * thread: their agent DM, an @mention) sent since it began. A message from you takes priority over the
- * work, so it reaches this turn (steer) instead of waiting for a follow-up. Only the turn's own person:
- * another person's message acts with their access, so it keeps its own turn. Only a turn someone is
- * waiting on: not a quiet one (a pick, a hop, a wake: its reply may never show), not an automation
- * run's, not one being stopped. Those, and messages that aren't person turns, queue as before.
+ * Whether a running turn takes in its person's new messages here (steering): one acting for someone who
+ * is waiting on it, asked or picked for them (their DM, an @mention, a dispatcher pick, a hop or handoff,
+ * an approval's follow-up). Not a wake (nobody asked; an ask's answer goes to an agent), not an automation
+ * run's, not one being stopped, not one failing as stale.
+ */
+async function steerable(ctx: QueryCtx, turn: Doc<"agentTurns">) {
+	if (turn.status !== "running" || turn.stopping || turn.wakeupId || !turn.replyId) return false;
+	if (Date.now() - (turn.startedAt ?? turn._creationTime) >= STALE_TURN_MS) return false;
+	const trigger = turn.triggerId && (await ctx.db.get(turn.triggerId));
+	return !trigger?.automation;
+}
+
+/**
+ * Steering (#189): the queued person turns of the running turn's own person here (same actor, same chat
+ * and thread) sent since it began. A message from you takes priority over the work, so it reaches this
+ * turn (steer) instead of waiting for a follow-up. Every message you send where an agent is replying to
+ * you queues one: your DM, an @mention, or an un-mentioned message (queueFollowUps). Only the turn's own
+ * person: another person's message acts with their access, so it keeps its own turn.
  */
 async function steering(ctx: QueryCtx, turn: Doc<"agentTurns">) {
-	if (turn.status !== "running" || turn.stopping || turn.wakeupId || !turn.replyId) return [];
+	if (!(await steerable(ctx, turn))) return [];
 	const queued = (await turnsAt(ctx, turn, "queued").collect()).filter((t) => t.person && t.actorId === turn.actorId && t.triggerId);
-	if (queued.length === 0) return [];
-	const reply = await ctx.db.get(turn.replyId);
-	const trigger = turn.triggerId && (await ctx.db.get(turn.triggerId));
-	if (!reply || reply.quiet || trigger?.automation) return [];
+	const reply = queued.length > 0 && (await ctx.db.get(turn.replyId!));
+	if (!reply) return [];
 	// Sent after its reply began: earlier ones were in its window (turnContext) and keep their own turn.
 	const sent = await Promise.all(queued.map((t) => ctx.db.get(t.triggerId!)));
 	return queued.filter((_, i) => (sent[i]?._creationTime ?? 0) > reply._creationTime);
 }
+
+/**
+ * From messages.send: a person's message reaches every agent replying to them in its place, @mention or
+ * not. For each running turn of theirs here (steerable) whose agent the message didn't already queue
+ * (`queued`: their DM's agent, the ones @mentioned), this queues a person turn on it, which the running
+ * turn takes in (steer). If it misses every chance (the reply ends first, or it restarted too often), it
+ * runs as the follow-up, like the turn it was for: a quiet reply that decides whether to post, after a
+ * pick or a hop. It isn't a dispatcher pick (no cost, not counted in mightThisHour, no `after`/`then`).
+ * Returns the agents it queued for.
+ */
+export async function queueFollowUps(ctx: MutationCtx, chat: Doc<"chats">, message: Doc<"chatMessages">, queued: Id<"agents">[]) {
+	const actorId = message.authorUserId;
+	if (!actorId) return [];
+	const running = await ctx.db
+		.query("agentTurns")
+		.withIndex("by_chat", (q) => q.eq("chatId", chat._id).eq("threadId", message.threadId).eq("status", "running"))
+		.take(20);
+	const agents: Id<"agents">[] = [];
+	for (const turn of running) {
+		if (turn.actorId !== actorId || queued.includes(turn.agentId) || agents.includes(turn.agentId) || !(await steerable(ctx, turn))) continue;
+		const dispatch = turn.routed && turn.dispatch && followUpDispatch(turn.dispatch);
+		await enqueueTurn(ctx, chat, {
+			agentId: turn.agentId,
+			chatId: chat._id,
+			threadId: message.threadId,
+			triggerId: message._id,
+			actorId,
+			person: true,
+			...(turn.routed && { routed: true as const, ...(dispatch && { dispatch }) }),
+		});
+		agents.push(turn.agentId);
+	}
+	return agents;
+}
+
+/** How sure the pick was, for a follow-up's prompt; not the pick itself (its call's cost, its place in line). */
+const followUpDispatch = ({ quiet: _, after: __, then: ___, costUsd: ____, ...rest }: NonNullable<Doc<"agentTurns">["dispatch"]>) => ({ ...rest, costUsd: 0 });
 
 /**
  * Takes the person's new messages into the running turn (agent.ts, at a step boundary or a restart):

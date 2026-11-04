@@ -390,8 +390,8 @@ async function streamReply(
 			// Stopped mid-tool: the step's calls finish, and no step comes after them.
 			stopWhen: [agentStopAfter(done), stop.atStep],
 			abortSignal: stop.signal,
-			// Each step after the first takes in what the person sent meanwhile (quiet turns are never steered).
-			prepareStep: agentPrepareStep(tools, toolCtx.web, { ...(!decide && { steer }), done, sent: (m) => (sent = m) }),
+			// Each step after the first takes in what the person sent meanwhile; a quiet reply's too (it still ends with a decision).
+			prepareStep: agentPrepareStep(tools, toolCtx.web, { steer, done, sent: (m) => (sent = m) }),
 			headers: { "x-session-affinity": turn.session.id },
 			providerOptions: { gateway: { caching: "auto" } },
 			// Calls that need approval stop the run there, unexecuted; we hold them below.

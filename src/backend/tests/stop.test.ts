@@ -132,8 +132,12 @@ describe("stopping an agent mid-reply", () => {
 	it("a message saying stop is just a message", async () => {
 		const { t, owner, general, companybot } = await setUp();
 		const turnId = await agentTurn(t, owner, general, companybot._id);
-		await owner.mutation(api.messages.send, { chatId: general, text: "stop", mentions: noMentions });
+		const sent = await owner.mutation(api.messages.send, { chatId: general, text: "stop", mentions: noMentions });
 		expect((await turnOf(t, turnId))!.stopping).toBeUndefined();
-		expect(await turnsOf(t)).toHaveLength(1);
+		// It reaches the reply like any message from them (steering), for the model to read.
+		const turns = await turnsOf(t);
+		expect(turns).toHaveLength(2);
+		expect(turns.find((x) => x.triggerId === sent)).toMatchObject({ status: "queued", person: true, actorId: owner.userId });
+		expect(await t.query(internal.turns.isStopping, { turnId })).toEqual({ stopped: false, steer: true });
 	});
 });

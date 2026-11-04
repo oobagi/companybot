@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { STEER_RESTARTS } from "../convex/agent";
-import { type As, agentTurn, agentsOf, generalOf, ownerAndMember, turnsOf } from "./helpers";
+import { type As, agentTurn, agentsOf, finishQuiet, generalOf, noMentions, ownerAndMember, turnsOf } from "./helpers";
 
 // Your message steers the running turn (#189, wiki/chat.md "Steering"). No network: the runner's model
 // call is a scripted stream that honors the abort signal, and calls the run's prepareStep and stop
@@ -19,9 +19,10 @@ type Options = {
 	stopWhen: ((o: { steps: unknown[] }) => boolean | PromiseLike<boolean>)[];
 	prepareStep: (o: { stepNumber: number; messages: ModelMessage[] }) => Promise<{ messages?: ModelMessage[] }>;
 };
-/** Scripts one run: `script` yields stream parts; the stub ends the stream on abort, like the SDK. */
-function scripted(script: (o: Options) => AsyncGenerator<object>) {
+/** Scripts one run: `script` yields stream parts; the stub ends the stream on abort, like the SDK. `output`: a quiet reply's decision. */
+function scripted(script: (o: Options) => AsyncGenerator<object>, output?: object) {
 	streamText.mockImplementationOnce((o: Options) => ({
+		...(output && { output: Promise.resolve(output) }),
 		stream: (async function* (): AsyncGenerator<object> {
 			for await (const part of script(o)) {
 				if (o.abortSignal.aborted) {
@@ -95,7 +96,9 @@ describe("steering a running turn", () => {
 		});
 		await t.action(internal.agent.respond, { turnId });
 
-		expect(lastContent(steered!)).toMatchObject({ role: "user", text: expect.stringMatching(/while you were working on this reply[\s\S]*priority[\s\S]*\(asker\)[^\n]*"actually do Y"/) });
+		expect(lastContent(steered!)).toMatchObject({ role: "user", text: expect.stringMatching(/while you were replying\. It comes first[\s\S]*\(asker\)[^\n]*"actually do Y"/) });
+		// Plain words only: nothing internal ("steer", "turn") reaches the model.
+		expect(lastContent(steered!).text).not.toMatch(/steer|\bturn\b/i);
 		const turn = (await turnOf(t, turnId))!;
 		expect(turn).toMatchObject({ status: "done", steered: [sent] });
 		// Its stored prompt (replayed to later turns) has the message, after what was there.
@@ -232,5 +235,177 @@ describe("steering a running turn", () => {
 		// The member's turn runs next, as the member.
 		expect(await turnFor(t, theirs)).toMatchObject({ status: "running", actorId: member.userId });
 		expect((await turnFor(t, theirs)).mergedInto).toBeUndefined();
+	});
+});
+
+// A channel set to "When relevant": the dispatcher's pick is a quiet reply, ending with a decision.
+describe("steering a dispatcher's pick in a channel", () => {
+	const quietly = { new_point: "", post: false, to: "room", message: "" };
+	/** Lets an un-awaited check (turnStop's, on a stream part) land before the script goes on. */
+	const settled = async (o: Options) => {
+		for (let i = 0; i < 500 && !o.abortSignal.aborted; i++) await Promise.resolve();
+	};
+	const routerRuns = (t: T) => t.run(async (ctx) => (await ctx.db.system.query("_scheduled_functions").collect()).filter((f) => f.name.startsWith("router")).map((f) => f.args[0]));
+
+	/** #ops with Companybot and Scribe; the owner's un-mentioned question was picked for Companybot, whose quiet reply runs. */
+	async function picked() {
+		const { t, owner, member } = await ownerAndMember();
+		const { companybot, scribe } = await agentsOf(owner);
+		const chatId = await owner.mutation(api.chats.createChannel, { name: "ops", private: false });
+		await owner.mutation(api.chats.addMembers, { chatId, userIds: [member.userId], agentIds: [companybot._id, scribe._id] });
+		const asked = await say(owner, chatId, "Can you do this problem for me: 5 / 10");
+		await t.mutation(internal.router.apply, { messageId: asked, decisions: [{ agentId: companybot._id, action: "reply", probability: 0.4 }], model: "jev", costUsd: 0.0002 });
+		const turn = await turnFor(t, asked);
+		expect(turn).toMatchObject({ status: "running", routed: true, dispatch: { band: "might" } });
+		expect((await replyOf(t, turn._id))!.quiet).toBe(true);
+		return { t, owner, member, companybot, scribe, chatId, turnId: turn._id };
+	}
+
+	it("your un-mentioned message reaches it at its next step: no reply of its own", async () => {
+		const { t, owner, chatId, turnId, companybot } = await picked();
+		let next: ModelMessage[] | null = null;
+		let nvm!: Id<"chatMessages">;
+		scripted(async function* (o) {
+			yield { type: "start-step" };
+			yield toolCall("c1");
+			nvm = await say(owner, chatId, "nvm");
+			yield toolResult("c1");
+			yield finishStep;
+			next = await nextStep(o, 1, o.messages);
+			yield { type: "start-step" };
+			yield { type: "text-delta", text: JSON.stringify(quietly) };
+			yield finishStep;
+		}, quietly);
+		await t.action(internal.agent.respond, { turnId });
+
+		expect(lastContent(next!)).toMatchObject({ role: "user", text: expect.stringMatching(/sent this while you were replying[\s\S]*\(asker\)[^\n]*"nvm"/) });
+		expect((await turnOf(t, turnId))!).toMatchObject({ status: "done", steered: [nvm] });
+		// Queued as a follow-up like the pick (quiet, how sure it was), but not a pick: no cost, nothing to wait for.
+		const followUp = await turnFor(t, nvm);
+		expect(followUp).toMatchObject({ status: "done", mergedInto: turnId, person: true, routed: true, dispatch: { band: "might", costUsd: 0 } });
+		expect(followUp.dispatch!.after).toBeUndefined();
+		// It decided not to post, and "nvm" got no reply of its own.
+		expect((await agentMessages(t, chatId)).filter((m) => !m.quiet)).toHaveLength(0);
+		expect((await turnsOf(t)).filter((x) => x.status === "queued" || x.status === "running")).toHaveLength(0);
+		// The router still weighs "nvm" for the others, but doesn't pick Companybot for it again.
+		expect(await routerRuns(t)).toContainEqual({ messageId: nvm });
+		await t.mutation(internal.router.apply, { messageId: nvm, decisions: [{ agentId: companybot._id, action: "reply", probability: 0.4 }], model: "jev", costUsd: 0.0002 });
+		expect((await turnsOf(t)).filter((x) => x.triggerId === nvm)).toHaveLength(1);
+	});
+
+	it("while it writes its decision: starts over with your message, and still ends with a decision", async () => {
+		const { t, owner, chatId, turnId } = await picked();
+		let nvm!: Id<"chatMessages">;
+		let cutOff = true;
+		scripted(async function* (o) {
+			yield { type: "start-step" };
+			yield { type: "text-delta", text: '{"new_point":"5 ÷ 10 = 0.5"' };
+			nvm = await say(owner, chatId, "nvm");
+			await later();
+			// The next part's check hears it and cuts the step off.
+			yield { type: "text-delta", text: ',"post":true' };
+			await settled(o);
+			yield { type: "text-delta", text: ',"to":"room","message":"5 ÷ 10 = 0.5"}' };
+			yield finishStep;
+			cutOff = false;
+		}, { new_point: "5 ÷ 10 = 0.5", post: true, to: "room", message: "5 ÷ 10 = 0.5" });
+		let restarted: ModelMessage[] = [];
+		scripted(async function* (o) {
+			restarted = o.messages;
+			yield { type: "start-step" };
+			yield { type: "text-delta", text: JSON.stringify(quietly) };
+			yield finishStep;
+		}, quietly);
+		await t.action(internal.agent.respond, { turnId });
+
+		expect(cutOff).toBe(true);
+		expect(streamText).toHaveBeenCalledTimes(2);
+		expect(lastContent(restarted)).toMatchObject({ role: "user", text: expect.stringContaining('"nvm"') });
+		// The math was never posted: the new run's decision held it back, and nothing of the cut-off step is left.
+		const reply = (await replyOf(t, turnId))!;
+		expect(reply).toMatchObject({ status: "done", quiet: true, parts: [] });
+		expect((await agentMessages(t, chatId)).filter((m) => !m.quiet)).toHaveLength(0);
+		expect(await turnFor(t, nvm)).toMatchObject({ status: "done", mergedInto: turnId });
+	});
+
+	it("an @mention of another agent reaches it too, and that agent still answers", async () => {
+		const { t, owner, chatId, turnId, scribe } = await picked();
+		let next: ModelMessage[] | null = null;
+		let sent!: Id<"chatMessages">;
+		scripted(async function* (o) {
+			yield { type: "start-step" };
+			yield toolCall("c1");
+			sent = await say(owner, chatId, "@Scribe can you take this instead?", [scribe._id]);
+			yield toolResult("c1");
+			yield finishStep;
+			next = await nextStep(o, 1, o.messages);
+			yield { type: "start-step" };
+			yield { type: "text-delta", text: JSON.stringify(quietly) };
+			yield finishStep;
+		}, quietly);
+		await t.action(internal.agent.respond, { turnId });
+
+		expect(lastContent(next!).text).toContain("can you take this instead?");
+		const turns = (await turnsOf(t)).filter((x) => x.triggerId === sent);
+		expect(turns.find((x) => x.agentId === scribe._id)).toMatchObject({ status: "running", person: true });
+		expect(turns.find((x) => x.agentId !== scribe._id)).toMatchObject({ status: "done", mergedInto: turnId });
+	});
+
+	it("missed, it runs as a quiet follow-up like the pick; one that covers a direct ask answers", async () => {
+		const { t, owner, chatId, turnId, companybot } = await picked();
+		const nvm = await say(owner, chatId, "nvm");
+		// The pick ends before taking it in (no step boundary came).
+		await finishQuiet(t, turnId, "");
+		const followUp = await turnFor(t, nvm);
+		expect(followUp).toMatchObject({ status: "running", routed: true });
+		expect((await replyOf(t, followUp._id))!.quiet).toBe(true);
+		await finishQuiet(t, followUp._id, "");
+
+		// Again, but they also @mention it meanwhile: asked directly, it answers (not quiet).
+		const again = await say(owner, chatId, "and 6 / 3?");
+		await t.mutation(internal.router.apply, { messageId: again, decisions: [{ agentId: companybot._id, action: "reply", probability: 0.9 }], model: "jev", costUsd: 0.0002 });
+		const pick = await turnFor(t, again);
+		const quiet = await say(owner, chatId, "hm");
+		const direct = await say(owner, chatId, "@Companybot answer it", [companybot._id]);
+		await finishQuiet(t, pick._id, "");
+		const next = await turnFor(t, direct);
+		expect(next).toMatchObject({ status: "running" });
+		expect(next.routed).toBeUndefined();
+		expect((await replyOf(t, next._id))!.quiet).toBeUndefined();
+		expect(await turnFor(t, quiet)).toMatchObject({ status: "done", mergedInto: next._id });
+	});
+
+	it("another person's un-mentioned message doesn't reach it: it goes to the router", async () => {
+		const { t, member, chatId, turnId } = await picked();
+		let heard: unknown;
+		let theirs!: Id<"chatMessages">;
+		scripted(async function* (o) {
+			yield { type: "start-step" };
+			yield toolCall("c1");
+			theirs = await say(member, chatId, "nvm");
+			heard = await t.query(internal.turns.isStopping, { turnId });
+			yield toolResult("c1");
+			yield finishStep;
+			await nextStep(o, 1, o.messages);
+			yield { type: "start-step" };
+			yield { type: "text-delta", text: JSON.stringify(quietly) };
+			yield finishStep;
+		}, quietly);
+		await t.action(internal.agent.respond, { turnId });
+
+		expect(heard).toEqual({ stopped: false, steer: false });
+		expect((await turnOf(t, turnId))!.steered).toBeUndefined();
+		expect((await turnsOf(t)).filter((x) => x.triggerId === theirs)).toHaveLength(0);
+		expect(await routerRuns(t)).toContainEqual({ messageId: theirs });
+	});
+
+	it("with nothing running, an un-mentioned message goes to the router as before", async () => {
+		const { t, owner } = await ownerAndMember();
+		const { companybot } = await agentsOf(owner);
+		const chatId = await owner.mutation(api.chats.createChannel, { name: "ops", private: false });
+		await owner.mutation(api.chats.addMembers, { chatId, userIds: [], agentIds: [companybot._id] });
+		const sent = await owner.mutation(api.messages.send, { chatId, text: "nvm", mentions: noMentions });
+		expect(await turnsOf(t)).toEqual([]);
+		expect(await routerRuns(t)).toEqual([{ messageId: sent }]);
 	});
 });
