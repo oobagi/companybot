@@ -13,11 +13,11 @@ type PageId = Id<"pages">;
 type Row = { _id: PageId; title: string; hasChildren?: boolean; parentId?: PageId | null };
 
 /** Each expanded level loads independently; no workspace-wide list or fixed tree-size cutoff. */
-export function PagesNav({ openId, canEdit, section }: { openId: string | undefined; canEdit: boolean; section: SectionProps }) {
+export function PagesNav({ openId, canEdit, section }: { openId: string | undefined; canEdit: boolean; section?: SectionProps }) {
 	const workspace = useWorkspace();
 	return <PageNavTree key={workspace?.id} openId={openId} canEdit={canEdit} section={section} workspaceId={workspace?.id ?? ""} />;
 }
-function PageNavTree({ openId, canEdit, section, workspaceId }: { openId?: string; canEdit: boolean; section: SectionProps; workspaceId: string }) {
+function PageNavTree({ openId, canEdit, section, workspaceId }: { openId?: string; canEdit: boolean; section?: SectionProps; workspaceId: string }) {
 	const storageKey = `pages-expanded:${workspaceId}`;
 	const [expanded, setExpanded] = useState<Set<string>>(() => {
 		try { const saved = JSON.parse(localStorage.getItem(storageKey) ?? "[]"); return new Set(Array.isArray(saved) ? saved.filter((id): id is string => typeof id === "string") : []); } catch { return new Set(); }
@@ -76,7 +76,7 @@ function PageNavTree({ openId, canEdit, section, workspaceId }: { openId?: strin
 	return (
 		<Group title="Pages" section={section} add={<AddButton label="New page" onClick={() => add()} />}>
 			{batches.map((ids, i) => <PruneExpanded key={i} ids={ids} onPrune={prune} />)}
-			{!section.collapsed && level()}
+			{!section?.collapsed && level()}
 			{dialog}
 			<Notice>{error}</Notice>
 			{moving && <MovePage page={moving} onClose={() => setMoving(undefined)} />}

@@ -8,16 +8,17 @@ import { WorkspaceContext, useMutation, useQuery, useWorkspace } from "./convex"
 import { desktop, useUpdates } from "./desktop";
 import { useAlerts } from "./notifications";
 import { navigate, useRoute } from "./router";
-import { ArchiveIcon, ArrowLeftIcon, DatabaseIcon, EditIcon, PlusIcon, SettingsIcon, SignOutIcon } from "./icons";
+import { AgentIcon, ArchiveIcon, ArrowLeftIcon, DatabaseIcon, EditIcon, PlusIcon, SettingsIcon, SignOutIcon } from "./icons";
 import { MenuDivider, Notice, ResizeHandle, Scroll, TopBar, TruncatedTips, useRun, useStoredWidth } from "./ui";
 import { RecordsView } from "./views/Records";
-import { SettingsNav, SettingsView, settingsScope, settingsTabAliases, settingsTabs } from "./views/Settings";
+import { SettingsNav, SettingsView, isCustomize, settingsScope, settingsTabAliases, settingsTabs } from "./views/Settings";
 import { Landing } from "./views/Landing";
 import { Onboarding } from "./views/Onboarding";
 import { SignIn } from "./views/SignIn";
 import { TitleBar } from "./views/TitleBar";
-import { WorkspaceMenu } from "./views/WorkspaceMenu";
-import { WorkspaceRail } from "./views/WorkspaceRail";
+import { AppRail, type AppTab, type TabBadge, appTabs } from "./views/AppRail";
+import { WorkspaceSwitcher } from "./views/WorkspaceSwitcher";
+import { customizeTabs } from "./views/customize";
 import { ChatView } from "./views/chat/ChatView";
 import { GettingStarted } from "./views/chat/Tutorial";
 import { Avatar, MenuItem, Popover, archiveQuestion, deviceTimeZone, useConfirm } from "./views/chat/common";
@@ -135,6 +136,9 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	}, [route]);
 	const view: View = views.find((v) => v === route[0]) ?? "chat";
 	const settingsTab = settingsTabs.find((t) => t.id === (settingsTabAliases[route[1] ?? ""] ?? route[1]))?.id ?? "general";
+	// The rail's tab on screen. Agents and Customize keep their /settings/<tab> addresses; the rest of Settings lights none.
+	const tab: AppTab | undefined =
+		view === "chat" ? "chat" : view === "pages" ? "drive" : view === "records" ? "databases" : settingsTab === "agents" ? "agents" : isCustomize(settingsTab) ? "customize" : undefined;
 	const types = useTypes();
 	const [newDatabase, setNewDatabase] = useState(false);
 	// The database on screen, by key, and the record open in it.
@@ -142,10 +146,16 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	const recordId = view === "records" ? route[2] : undefined;
 	// Workspace settings reopen on the tab you left them on.
 	const lastWorkspaceSettings = useRef<string[]>(["settings", "general"]);
-	if (view === "settings" && settingsScope(settingsTab) === "workspace") lastWorkspaceSettings.current = route;
+	if (view === "settings" && !tab && settingsScope(settingsTab) === "workspace") lastWorkspaceSettings.current = route;
 	// Where "Back to app" goes from Settings.
 	const lastApp = useRef<string[]>(["chat"]);
-	if (view !== "settings") lastApp.current = route;
+	if (tab) lastApp.current = route;
+	// Each tab reopens where you left it; clicking the open one goes to its start (Agents' list, the first database).
+	const lastIn = useRef<Partial<Record<AppTab, string[]>>>({});
+	if (tab) lastIn.current[tab] = route;
+	const startOf = (t: AppTab): string[] =>
+		({ chat: ["chat"], drive: ["pages"], databases: types?.[0] ? recordPath(types[0].key) : ["records"], agents: ["settings", "agents"], customize: ["settings", customizeTabs[1].id] })[t];
+	const openTab = useCallback((t: AppTab) => navigate(...(t !== tab && lastIn.current[t] ? lastIn.current[t] : startOf(t))), [tab, types]);
 	const { error, fail } = useRun();
 	const { status: update } = useUpdates();
 
@@ -156,6 +166,9 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 		fail();
 	};
 	useAlerts();
+	// What's waiting in Chat: chats with an unread @mention or DM, else any unread one.
+	const waiting = chats ? [...chats.channels, ...chats.dms, ...chats.agents] : [];
+	const badges: Partial<Record<AppTab, TabBadge>> = { chat: { mentions: waiting.filter((c) => c.mentioned).length, unread: waiting.some((c) => c.unread) } };
 	// The sidebar's sections: drag a title to move one, click it to fold it. Both stay on this computer.
 	const sections = useSortable("sidebar.sections", sectionIds, sectionKey);
 	const [folded, setFolded] = useStoredIds("sidebar.folded");
@@ -168,10 +181,13 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	return (
 		<div className="flex h-screen flex-col bg-neutral-100 text-[15px] text-neutral-900">
 			{/* A title bar the width of the window holds its buttons; everything else sits below it. */}
-			<TitleBar sidebar={sidebar} onSidebar={toggleSidebar} />
+			<TitleBar sidebar={sidebar} onSidebar={toggleSidebar} workspace={<WorkspaceSwitcher name={workspace} onSettings={() => navigate(...lastWorkspaceSettings.current)} />} />
 			<TruncatedTips />
 			<div className="flex min-h-0 flex-1">
-				<WorkspaceRail
+				<AppRail
+					tab={tab}
+					onOpen={openTab}
+					badges={badges}
 					you={prefs?.displayName || email}
 					youMenu={
 						<YouMenu
@@ -186,7 +202,7 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 				/>
 				{/* The sidebar and the open screen share one panel, its corner tucked under the title bar. */}
 				<div className="flex min-w-0 flex-1 overflow-hidden rounded-tl-xl border-t border-l border-neutral-200 bg-white">
-					{/* The sidebar's lists scroll under the workspace name and you. */}
+					{/* The sidebar lists the open tab's things, scrolling under its name. */}
 					{sidebar && (
 						<aside style={{ width: sidebarWidth.width }} className="drag relative flex shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 [--scrim:var(--color-neutral-50)]">
 							<Scroll
@@ -194,14 +210,14 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 								header={
 									// pt-2.5: its name sits on the same line as the top bar's title.
 									<div className="drag px-3 pt-2.5 pb-4">
-										{view === "settings" ? (
+										{tab ? (
+											<h1 className="truncate px-2 py-1 text-sm font-semibold">{appTabs.find((t) => t.id === tab)!.label}</h1>
+										) : (
 											<div className="no-drag flex flex-col">
 												<Item icon={<ArrowLeftIcon />} onClick={() => navigate(...lastApp.current)}>
 													Back to app
 												</Item>
 											</div>
-										) : (
-											<WorkspaceMenu name={workspace} onSettings={() => navigate(...lastWorkspaceSettings.current)} />
 										)}
 									</div>
 								}
@@ -219,25 +235,18 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 								}
 							>
 								<div className="flex flex-col gap-4 px-3 pb-2">
-									{view === "settings" ? (
-										<SettingsNav tab={settingsTab} />
-									) : (
-										<>
-											{sections.sorted.map((id) => {
-												const section = { collapsed: folded.includes(id), onToggle: () => fold(id), drag: sections.drag(id) };
-												if (id === "databases")
-													return (
-														(!!types?.length || can(role, "fields.manage")) && (
-															<DatabasesNav key={id} types={types ?? []} openKey={typeKey} canCreate={can(role, "fields.manage")} onCreate={() => setNewDatabase(true)} section={section} />
-														)
-													);
-												if (id === "pages") return <PagesNav key={id} openId={view === "pages" ? route[1] : undefined} canEdit={can(role, "pages.edit")} section={section} />;
-												const props = { chats, openId: view === "chat" ? openId : undefined, openThread: view === "chat" && route[2] === "thread" ? route[3] : undefined, onOpen: open, onError: fail, canManageAgents: can(role, "agents.manage"), section };
-												if (!chats) return null;
-												return id === "channels" ? <ChannelsNav key={id} {...props} chats={chats} /> : <DmsNav key={id} {...props} chats={chats} />;
-											})}
-										</>
-									)}
+									{!tab && <SettingsNav tab={settingsTab} />}
+									{tab === "chat" &&
+										chats &&
+										sections.sorted.map((id) => {
+											const section = { collapsed: folded.includes(id), onToggle: () => fold(id), drag: sections.drag(id) };
+											const props = { chats, openId, openThread: route[2] === "thread" ? route[3] : undefined, onOpen: open, onError: fail, canManageAgents: can(role, "agents.manage"), section };
+											return id === "channels" ? <ChannelsNav key={id} {...props} /> : <DmsNav key={id} {...props} />;
+										})}
+									{tab === "drive" && <PagesNav openId={route[1]} canEdit={can(role, "pages.edit")} />}
+									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} canCreate={can(role, "fields.manage")} onCreate={() => setNewDatabase(true)} />}
+									{tab === "agents" && <AgentsNav openId={route[2]} />}
+									{tab === "customize" && <CustomizeNav open={settingsTab} />}
 								</div>
 							</Scroll>
 							<ResizeHandle side="right" label="Resize sidebar" size={sidebarWidth} />
@@ -269,11 +278,12 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	);
 }
 
-const sectionIds = ["databases", "pages", "channels", "dms"];
+// Chat's sections. Databases and Pages were sections too before they got rail tabs; their saved places are ignored.
+const sectionIds = ["channels", "dms"];
 const sectionKey = (id: string) => id;
 const typeKeyOf = (t: { key: string }) => t.key;
 
-/** Your databases, in your order. Folded, only the open one stays. `canCreate` (fields.manage) also edits and deletes. */
+/** Databases' sidebar: your databases, in your order. `canCreate` (fields.manage) also edits and deletes. */
 function DatabasesNav({
 	types,
 	openKey,
@@ -285,11 +295,11 @@ function DatabasesNav({
 	openKey: string | undefined;
 	canCreate: boolean;
 	onCreate: () => void;
-	section: SectionProps;
+	section?: SectionProps;
 }) {
 	const workspace = useWorkspace();
 	const { sorted, drag } = useSortable(`sidebar.databases:${workspace?.id}`, types, typeKeyOf);
-	const shown = section.collapsed ? sorted.filter((t) => t.key === openKey) : sorted;
+	const shown = section?.collapsed ? sorted.filter((t) => t.key === openKey) : sorted;
 	const [editing, setEditing] = useState<RecordType>();
 	const remove = useMutation(api.trash.move);
 	const update = useMutation(api.recordTypes.update);
@@ -311,7 +321,7 @@ function DatabasesNav({
 							? (close) => (
 									<>
 										<MenuItem onClick={() => (close(), setEditing(type))}><EditIcon /> Edit database</MenuItem>
-										<MenuItem onClick={() => (close(), confirm(archiveQuestion(type.plural, () => remove({ kind: "database", id: type._id }).then(() => openKey === type.key && navigate("chat")), "Its records will be archived with it.")))}>
+										<MenuItem onClick={() => (close(), confirm(archiveQuestion(type.plural, () => remove({ kind: "database", id: type._id }).then(() => openKey === type.key && navigate("records")), "Its records will be archived with it.")))}>
 											<ArchiveIcon /> Archive database
 										</MenuItem>
 									</>
@@ -325,7 +335,7 @@ function DatabasesNav({
 			<Notice>{error}</Notice>
 			{editing && <DatabaseDialog type={editing} onClose={() => setEditing(undefined)} />}
 			{dialog}
-			{!types.length && canCreate && !section.collapsed && (
+			{!types.length && canCreate && !section?.collapsed && (
 				<Item icon={<PlusIcon />} muted onClick={onCreate}>
 					New database
 				</Item>
@@ -334,7 +344,41 @@ function DatabasesNav({
 	);
 }
 
-/** You, at the bottom of the workspace rail: who you're signed in as, your account settings, and Sign out. */
+/** Agents' sidebar: All agents (the list, where owners add one), then each one, to open its settings. */
+function AgentsNav({ openId }: { openId: string | undefined }) {
+	const agents = useQuery(api.agents.list);
+	return (
+		<div className="flex flex-col gap-px">
+			<Item icon={<AgentIcon />} active={!openId} onClick={() => navigate("settings", "agents")}>
+				All agents
+			</Item>
+			{agents
+				?.filter((a) => !a.archived)
+				.map((a) => (
+					<Item key={a._id} icon={<Avatar name={a.name} image={a.image} agent size="row" />} label={a.name} active={openId === a._id} onClick={() => navigate("settings", "agents", a._id)}>
+						{a.name}
+					</Item>
+				))}
+		</div>
+	);
+}
+
+/** Customize's sidebar: what agents work with, besides themselves (Agents has its own tab). */
+function CustomizeNav({ open }: { open: string }) {
+	return (
+		<div className="flex flex-col gap-px">
+			{customizeTabs
+				.filter((t) => t.id !== "agents")
+				.map((t) => (
+					<Item key={t.id} icon={<t.icon />} active={open === t.id} onClick={() => navigate("settings", t.id)}>
+						{t.label}
+					</Item>
+				))}
+		</div>
+	);
+}
+
+/** You, at the bottom of the app rail: who you're signed in as, your account settings, and Sign out. */
 function YouMenu({
 	name,
 	image,

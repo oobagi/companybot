@@ -25,7 +25,9 @@ import { UsageTab } from "./Usage";
 
 // Settings: /settings/<tab>[/<item>]. While it's open, the sidebar lists its tabs in place of the app's.
 // Two kinds, opened from different menus and never listed together: your account (your avatar, at
-// the bottom of the rail) and the open workspace (the workspace name, atop the sidebar).
+// the bottom of the rail) and the open workspace (the workspace switcher, in the title bar).
+// Customize's tabs keep their /settings/<tab> addresses but open from the rail (Agents, Customize),
+// so Settings' sidebar doesn't list them (`inRail`).
 const sections = [
 	{ title: "Account", scope: "account", tabs: [{ id: "preferences", label: "Your preferences", icon: <UserIcon /> }] },
 	{
@@ -44,6 +46,7 @@ const sections = [
 	{
 		title: "Customize",
 		scope: "workspace",
+		inRail: true,
 		tabs: customizeTabs.map((t) => ({ id: t.id, label: t.label, icon: <t.icon /> })),
 	},
 ] as const;
@@ -59,7 +62,7 @@ export const settingsScope = (tab: SettingsTab) => sections.find((s) => s.tabs.s
  */
 export const settingsTabAliases: Record<string, SettingsTab> = { profile: "preferences", trash: "archive" };
 
-const isCustomize = (tab: SettingsTab): tab is CustomizeTab => customizeTabs.some((t) => t.id === tab);
+export const isCustomize = (tab: SettingsTab): tab is CustomizeTab => customizeTabs.some((t) => t.id === tab);
 
 /** A tab's screen, or with `itemId`, one agent, connector, skill or automation. */
 export function SettingsView({ role, tab, itemId }: { role: Role; tab: SettingsTab; itemId?: string }) {
@@ -89,7 +92,7 @@ export function SettingsNav({ tab }: { tab: SettingsTab }) {
 	const scope = settingsScope(tab);
 	return (
 		<>
-			{sections.filter((s) => s.scope === scope).map((s) => (
+			{sections.filter((s) => s.scope === scope && !("inRail" in s)).map((s) => (
 				<Group key={s.title} title={s.title}>
 					{s.tabs.map((t) => (
 						<Item key={t.id} icon={t.icon} active={t.id === tab} onClick={() => navigate("settings", t.id)}>

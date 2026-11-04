@@ -41,7 +41,7 @@ export function DatabaseDialog({ type, onClose }: { type?: RecordType; onClose: 
 				)}
 				<div className="flex items-center gap-2">
 					<button type="submit" disabled={draft.stale} className={primaryButton}>{type ? "Save" : "Create database"}</button>
-					{type && <button type="button" className={secondaryButton} onClick={() => confirm(archiveQuestion(type.plural, () => remove({ kind: "database", id: type._id }).then(() => { onClose(); navigate("chat"); }), "Its records and fields will be archived with it."))}>Archive database</button>}
+					{type && <button type="button" className={secondaryButton} onClick={() => confirm(archiveQuestion(type.plural, () => remove({ kind: "database", id: type._id }).then(() => { onClose(); navigate("records"); }), "Its records and fields will be archived with it."))}>Archive database</button>}
 				</div>
 			</Form>
 		</Modal>

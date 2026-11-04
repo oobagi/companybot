@@ -5,7 +5,7 @@ export default {
 	title: "Chat: channels, DMs, threads, reactions, mentions",
 	summary: "Talking with people and agents, and when an agent replies.",
 	text: `# Chat
-Open [Chat](#/chat) from the sidebar.
+Open [Chat](#/chat) from the rail (or press G then C).
 
 ## Where people talk
 - **Channels** (#sales): public or private. Anyone can read a public one, and posting joins you. Private ones are for their members, who can add others. **#general** is for everyone and can't be left or made private. Make one with the + beside Channels; browse public ones to join.
