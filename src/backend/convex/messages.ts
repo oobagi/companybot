@@ -31,7 +31,7 @@ import { type LinkPreview, previewMessage, previewRow, previewsOf } from "./link
 import { completeSteps } from "./onboarding";
 import { noteMentions, workspaceRecords } from "./recordOps";
 import { canReadReply, maskedReply, replyPrivacy, type ReplyPrivacy } from "./replyPrivacy";
-import { writeSources } from "./replySources";
+import { readArtifact, writeSources } from "./replySources";
 import { routeLater } from "./router";
 import type { messagePart, replyStats } from "./schema";
 import type { fileInfo } from "./schema";
@@ -239,7 +239,7 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	const skillIds: string[] = [];
 	for (const id of new Set(mentions.skillIds ?? [])) {
 		const install = await installOf(ctx, member.workspaceId, id);
-		if (install && canSeeSkill(member.userId, install)) skillIds.push(id);
+		if (install && canSeeSkill(member.userId, install) && await readArtifact(ctx, member, install, install.audience === "personal" ? install.ownerId : undefined)) skillIds.push(id);
 	}
 
 	// An agent writes as its person (`actingFor`), except to that person alone: there it's just the agent talking.

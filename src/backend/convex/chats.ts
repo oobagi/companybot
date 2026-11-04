@@ -518,7 +518,7 @@ export const place = query({
 		const agentId = agentOfDm(chat);
 		const session = agentId && (await sessionAt(ctx, { agentId, chatId, threadId }));
 		return {
-			summary: session && await canReadSources(ctx, member, session.summaryPlaces) ? session.summary ?? null : null,
+			summary: session?.summaryPrivacy === 1 && await canReadSources(ctx, member, session.summaryPlaces) ? session.summary ?? null : null,
 			summarizedUpTo: session?.summarizedUpTo ?? null,
 			compacting: session?.compacting ?? false,
 			costUsd,

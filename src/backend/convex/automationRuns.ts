@@ -6,9 +6,9 @@ import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/
 import { mutation } from "./functions";
 import { addToChat, canPost, canSee, findOrCreateDm, insertMessage } from "./chatOps";
 import { type Member, accessOf, liveWorkspace, memberOf, nameOf, normalizeEmail, requireMember, rolesOf, sweepExpired } from "./lib";
-import { type RunOutcome, definitionOf, followsOthers, outcomeText, postingProblem, requireEditable, scheduleCursor, subscribersOf } from "./automationOps";
+import { type RunOutcome, definitionOf, followsOthers, outcomeText, postingProblem, privateTo, requireEditable, scheduleCursor, subscribersOf } from "./automationOps";
 import { canReadSources } from "./replyPrivacy";
-import { chatSources, type UsedPlace } from "./replySources";
+import { artifactSources, chatSources, type UsedPlace } from "./replySources";
 import { enqueueTurn } from "./turns";
 
 /** Runs it once now, just for you (webhooks and events use a sample), so you can see what it does. */
@@ -217,7 +217,7 @@ async function runInDms(
 		const chatId = await findOrCreateDm(ctx, install.workspaceId, userId, [userId], [agent._id]);
 		const chat = (await ctx.db.get(chatId))!;
 		const triggerId = await insertMessage(ctx, chat, {
-			usedPlaces: [...new Set([...(install.usedPlaces ?? []), ...sources])],
+			usedPlaces: [...new Set([...artifactSources(install, privateTo(install)), ...sources])],
 			authorUserId: userId,
 			text: prompt,
 			parts: [{ type: "text", text: prompt }],
@@ -280,7 +280,7 @@ async function runInChannel(
 	await addToChat(ctx, chat, { agentId: agent._id });
 	const triggerId = await insertMessage(ctx, chat, {
 		threadId,
-		usedPlaces: install.usedPlaces,
+		usedPlaces: artifactSources(install, privateTo(install)),
 		authorUserId: actorId,
 		text: prompt,
 		parts: [{ type: "text", text: prompt }],

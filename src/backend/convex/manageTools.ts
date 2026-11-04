@@ -3,7 +3,7 @@ import { ConvexError, v } from "convex/values";
 import type { Id, TableNames } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { createAgent, setAgentTrashed, updateAgent } from "./agents";
-import { automationName, automationScope, canView, definitionOf, installOf, outcomeText, seenChannel, shownTrigger } from "./automationOps";
+import { automationName, automationScope, canView, definitionOf, installOf, outcomeText, privateTo, seenChannel, shownTrigger } from "./automationOps";
 import { runNowAs } from "./automationRuns";
 import { removeAutomation, saveAutomation, updateAutomation } from "./automations";
 import { canSee, chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
@@ -172,13 +172,13 @@ export const runFor = internalMutation({
 						const result = await workspacePage(ctx, "automationInstalls", member, r.cursor);
 						return {
 							...result,
-							page: (await Promise.all(result.page.map(async (i) => !i.archived && await canView(ctx, member, i) && await readArtifact(ctx, member, i) ? { id: i.automationId, name: automationName(i), enabled: i.enabled, agentId: i.agentId, version: i.custom?.version ?? i.definition?.version } : null))).filter((i) => i !== null),
+							page: (await Promise.all(result.page.map(async (i) => !i.archived && await canView(ctx, member, i) && await readArtifact(ctx, member, i, privateTo(i)) ? { id: i.automationId, name: automationName(i), enabled: i.enabled, agentId: i.agentId, version: i.custom?.version ?? i.definition?.version } : null))).filter((i) => i !== null),
 						};
 					}
 
 					const install = await installOf(ctx, member.workspaceId, r.id);
 					if (!install || !(await canView(ctx, member, install))) throw new ConvexError("Automation not found.");
-					if (r.action === "get") await readArtifact(ctx, member, install);
+					if (r.action === "get") await readArtifact(ctx, member, install, privateTo(install));
 					if (r.action === "get")
 						return {
 							id: r.id,
@@ -218,11 +218,11 @@ export const runFor = internalMutation({
 						const result = await workspacePage(ctx, "skillInstalls", member, r.cursor);
 						return {
 							...result,
-							page: result.page.filter((i) => !i.archived && canSeeSkill(member.userId, i)).map((i) => ({ id: i.skillId, name: skillOf(i)?.name, version: i.custom?.version ?? i.definition?.version })),
+							page: (await Promise.all(result.page.map(async (i) => !i.archived && canSeeSkill(member.userId, i) && await readArtifact(ctx, member, i, i.audience === "personal" ? i.ownerId : undefined) ? { id: i.skillId, name: skillOf(i)?.name, version: i.custom?.version ?? i.definition?.version } : null))).filter((i) => i !== null),
 						};
 					}
 					const install = await skillInstallOf(ctx, member.workspaceId, r.id);
-					const skill = install && canSeeSkill(member.userId, install) && skillOf(install);
+					const skill = install && canSeeSkill(member.userId, install) && await readArtifact(ctx, member, install, install.audience === "personal" ? install.ownerId : undefined) && skillOf(install);
 					if (!skill) throw new ConvexError("Skill not found.");
 					return { ...skill, id: r.id, version: install.custom?.version ?? skill.version, installed: true, audience: install.audience, canEdit: install.audience === "personal" || can(member, "skills.edit") };
 				}

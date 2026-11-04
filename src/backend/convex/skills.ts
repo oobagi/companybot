@@ -22,7 +22,7 @@ import {
 	saveMade,
 	skillOf,
 } from "./lib";
-import { writeSources } from "./replySources";
+import { readArtifact, writeSources } from "./replySources";
 import { toggleTrash, trashInfo } from "./trashOps";
 import { personalMemoryHere, runningTurn } from "./turns";
 
@@ -49,7 +49,7 @@ export const list = query({
 		const rows = [];
 		for (const install of installs.sort((a, b) => b._creationTime - a._creationTime)) {
 			const skill = skillOf(install);
-			if (!skill || !canSeeSkill(member.userId, install)) continue;
+			if (!skill || !canSeeSkill(member.userId, install) || !(await readArtifact(ctx, member, install, install.audience === "personal" ? install.ownerId : undefined))) continue;
 			const custom = install.custom;
 			rows.push({
 				...skill,
@@ -71,12 +71,13 @@ const customConfig = v.object({ name: v.string(), description: v.string(), instr
 /** Makes a skill for the workspace, as `member`. Throws a ConvexError with the problem. */
 async function createSkill(ctx: MutationCtx, member: Member, config: CustomSkillConfig, audience: "personal" | "team" = can(member, "skills.edit") ? "team" : "personal") {
 	if (audience === "team") checkPermission(member, "skills.edit");
-	await writeSources(ctx, member, audience === "personal" ? { users: [member.userId] } : undefined);
+	const usedPlaces = await writeSources(ctx, member, audience === "personal" ? { users: [member.userId] } : undefined);
 	config = normalizeCustomSkill(config);
 	const problem = customSkillError(config);
 	if (problem) throw new ConvexError(problem);
 	const skillId = newCustomId();
 	await ctx.db.insert("skillInstalls", {
+		usedPlaces,
 		workspaceId: member.workspaceId,
 		skillId,
 		audience,
@@ -95,7 +96,7 @@ export const create = mutation({
 /** Personal skills belong only to their maker; team edits need the switch. */
 async function editableSkill(ctx: QueryCtx, member: Member, skillId: string) {
 	const install = await installOf(ctx, member.workspaceId, skillId);
-	if (!install?.custom || !canSeeSkill(member.userId, install)) throw new ConvexError("Skill not found.");
+	if (!install?.custom || !canSeeSkill(member.userId, install) || !(await readArtifact(ctx, member, install, install.audience === "personal" ? install.ownerId : undefined))) throw new ConvexError("Skill not found.");
 	if (install.audience === "team") checkPermission(member, "skills.edit");
 	return install as Doc<"skillInstalls"> & { custom: NonNullable<Doc<"skillInstalls">["custom"]> };
 }
@@ -110,7 +111,7 @@ export const save = mutation({
 
 export async function saveSkill(ctx: MutationCtx, member: Member, { skillId, config, expectedVersion }: Infer<typeof saveSkillArgs>) {
 	const install = await editableSkill(ctx, member, skillId);
-	await writeSources(ctx, member, install.audience === "personal" ? { users: [install.ownerId!] } : undefined, install);
+	const usedPlaces = await writeSources(ctx, member, install.audience === "personal" ? { users: [install.ownerId!] } : undefined, install);
 	await saveMade({
 		current: install.custom,
 		expectedVersion,
@@ -120,7 +121,7 @@ export async function saveSkill(ctx: MutationCtx, member: Member, { skillId, con
 			const problem = customSkillError(config);
 			if (problem) throw new ConvexError(problem);
 		},
-		patch: (custom) => ctx.db.patch(install._id, { custom }),
+		patch: (custom) => ctx.db.patch(install._id, { custom, usedPlaces }),
 	});
 }
 
@@ -141,7 +142,7 @@ export const remove = mutation({
 /** Only the maker restores a personal skill; team skills need the switch. Archived skills never load. */
 export async function setSkillTrashed(ctx: MutationCtx, who: Who, installId: Id<"skillInstalls">, archived: boolean) {
 	const install = await ctx.db.get(installId);
-	if (!install || install.workspaceId !== who.member.workspaceId || !canSeeSkill(who.member.userId, install)) throw new ConvexError("Skill not found.");
+	if (!install || install.workspaceId !== who.member.workspaceId || !canSeeSkill(who.member.userId, install) || !(await readArtifact(ctx, who.member, install, install.audience === "personal" ? install.ownerId : undefined))) throw new ConvexError("Skill not found.");
 	if (install.audience === "team") checkPermission(who.member, "skills.edit");
 	if (!!install.archived === archived) return;
 	await toggleTrash(ctx, who, archived, { kind: "skill", id: installId, name: skillOf(install)?.name ?? install.skillId });
@@ -172,6 +173,7 @@ export const share = mutation({
 		const install = await editableSkill(ctx, member, skillId);
 		if (install.audience !== "personal" || install.ownerId !== member.userId) throw new ConvexError("Personal skill not found.");
 		checkPermission(member, "skills.edit");
+		await writeSources(ctx, member, undefined, install);
 		await ctx.db.patch(install._id, { audience: "team", ownerId: undefined });
 	},
 });

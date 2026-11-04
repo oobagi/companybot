@@ -98,7 +98,7 @@ export const titles = query({
 			const record = id && (await ctx.db.get(id));
 			if (!record || record.workspaceId !== member.workspaceId || (await inTrash(ctx, record))) continue;
 			const type = await ctx.db.get(record.typeId);
-			if (type) out.push({ _id: record._id, title: record.title, typeKey: type.key });
+			if (type && await typeVisible(ctx, member)(type._id)) out.push({ _id: record._id, title: record.title, typeKey: type.key });
 		}
 		return out;
 	},

@@ -6,11 +6,12 @@ import { type Member, memberOf } from "./lib";
 import { chatAccess, reach, type AccessList } from "./placeAccess";
 import { canReadSources, source } from "./replyPrivacy";
 
-export type UsedPlace = Id<"recordTypes"> | Id<"pages"> | Id<"chats">;
+type Place = Id<"recordTypes"> | Id<"pages"> | Id<"chats">;
+export type UsedPlace = Place | Id<"users">;
 const writes = new WeakMap<Member, Promise<void>>();
 
 /** Reads in a turn are mutations: the source commits before its result can reach the model or stream. */
-export async function notePlace(ctx: QueryCtx, member: Member, id: UsedPlace, access: AccessList, privateChannel = false) {
+export async function notePlace(ctx: QueryCtx, member: Member, id: Place, access: AccessList, privateChannel = false) {
 	if (!member.replyId) return;
 
 	const place = await ctx.db.get(id);
@@ -48,12 +49,16 @@ export function chatSources(chat: Doc<"chats">): UsedPlace[] {
 }
 
 export type Sourced = { usedPlaces?: UsedPlace[] };
-export type Audience = UsedPlace | { access?: AccessList; users?: Id<"users">[] } | { places: UsedPlace[] } | { filtered: true };
+export type Audience = Place | { access?: AccessList; users?: Id<"users">[] } | { places: UsedPlace[] } | { filtered: true };
+
+/** The same provenance applies when an artifact is read by a turn or copied into a scheduled trigger. */
+export const artifactSources = (artifact: Sourced, personalTo?: Id<"users"> | null): UsedPlace[] => [...new Set([...(artifact.usedPlaces ?? []), ...(personalTo ? [personalTo] : [])])];
 
 /** A private artifact has the same read rule as a reply, and passes on everything it used. */
-export async function readArtifact(ctx: QueryCtx, member: Member, artifact: Sourced) {
-	if (!(await canReadSources(ctx, member, artifact.usedPlaces))) return false;
-	await inheritPlaces(ctx, member, artifact.usedPlaces);
+export async function readArtifact(ctx: QueryCtx, member: Member, artifact: Sourced, personalTo?: Id<"users"> | null) {
+	const sources = artifactSources(artifact, personalTo);
+	if (!(await canReadSources(ctx, member, sources))) return false;
+	await inheritPlaces(ctx, member, sources);
 	return true;
 }
 
@@ -87,7 +92,7 @@ export async function writeSources(ctx: MutationCtx, member: Member, audience?: 
 			allowed = !from.membersOnly && (!policies.every((p) => !!reach(viewer, p?.access)) || !!reach(viewer, from.access));
 		}
 		if (!allowed || !from.visible) {
-			const who = from.membersOnly ? `${whoCan(from.access, member.workspaceRoles) === "Everyone" ? "people" : whoCan(from.access, member.workspaceRoles)} in ${from.where}` : whoCan(from.access, member.workspaceRoles);
+			const who = from.person ?? (from.membersOnly ? `${whoCan(from.access, member.workspaceRoles) === "Everyone" ? "people" : whoCan(from.access, member.workspaceRoles)} in ${from.where}` : whoCan(from.access, member.workspaceRoles));
 			throw new ConvexError(`This reply uses restricted places. Only ${who} can see this. It can't save it for a wider audience.`);
 		}
 	}

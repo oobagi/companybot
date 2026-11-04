@@ -30,7 +30,7 @@ import { catalogModels } from "./modelCatalog";
 import { chatAccess } from "./placeAccess";
 import { recordOut } from "./recordTools";
 import { canReadReply, readReply, canReadSources } from "./replyPrivacy";
-import { inheritPlaces, notePlace, writeSources } from "./replySources";
+import { inheritPlaces, notePlace, turnSources, writeSources } from "./replySources";
 import { messagePart, replyStats, replyUsage } from "./schema";
 import { recordUsage } from "./usage";
 import { setWakeOutcome } from "./wakeups";
@@ -225,7 +225,7 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 
 /** A session's finished, unsummarized turns as they replay to the model, oldest first. */
 async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">, member?: Member) {
-	const hiddenSummary = !!member && !(await canReadSources(ctx, member, session.summaryPlaces));
+	const hiddenSummary = !!session.summary && (session.summaryPrivacy !== 1 || !!member && !(await canReadSources(ctx, member, session.summaryPlaces)));
 	const query = ctx.db.query("agentTurns").withIndex("by_session", (q) => q.eq("sessionId", session._id).gt("_creationTime", hiddenSummary ? 0 : session.summarizedUpTo ?? 0));
 	const replay = [];
 	let tokens = 0;
@@ -241,10 +241,12 @@ async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">, member
 		if (hiddenSummary && bytes > 4 * 1024 * 1024) break;
 		if (member && reply && !(await canReadReply(ctx, member, reply))) continue;
 		const text = reply ? replyForModel(reply) : "";
-		const size = approxTokens(turn.prompt + text);
+		const prompt = turn.promptPlaces !== undefined && (!member || await canReadSources(ctx, member, turn.promptPlaces)) ? turn.prompt : "";
+		const size = approxTokens(prompt + text);
 		if (hiddenSummary && tokens + size > KEEP_TOKENS) break;
 		if (member && reply) await readReply(ctx, member, reply);
-		replay.push({ prompt: turn.prompt, reply: text, time: turn._creationTime, usedPlaces: reply?.sharedBy ? [] : reply?.usedPlaces ?? [] });
+		if (member && prompt) await inheritPlaces(ctx, member, turn.promptPlaces);
+		replay.push({ prompt, reply: text, time: turn._creationTime, usedPlaces: [...new Set([...(prompt ? turn.promptPlaces ?? [] : []), ...(reply?.sharedBy ? [] : reply?.usedPlaces ?? [])])] });
 		tokens += size;
 	}
 	return hiddenSummary ? replay.reverse() : replay;
@@ -291,7 +293,7 @@ export const turnContext = internalMutation({
 		const reply = (await ctx.db.get(turn.replyId))!;
 		const names = namer(ctx);
 		const { trigger, foreign, wakeup } = await automationScope(ctx, turn);
-		const summary = !foreign && await canReadSources(ctx, member, session.summaryPlaces) ? session.summary ?? null : null;
+		const summary = !foreign && session.summaryPrivacy === 1 && await canReadSources(ctx, member, session.summaryPlaces) ? session.summary ?? null : null;
 		if (summary) await inheritPlaces(ctx, member, session.summaryPlaces);
 		if (wakeup) {
 			if (!(await canReadSources(ctx, member, wakeup.usedPlaces))) throw new Error("This follow-up uses places you can no longer see.");
@@ -337,7 +339,7 @@ export const turnContext = internalMutation({
 			const trigger = await ctx.db.get(turn.triggerId);
 			if (trigger && await readReply(ctx, member, trigger)) recent.push(trigger);
 		}
-		const skills = await installedSkills(ctx, chat.workspaceId, turn.actorId);
+		const skills = await installedSkills(ctx, chat.workspaceId, turn.actorId, member);
 		const messages = await Promise.all(
 			recent
 				.filter((m) => !m.deleted)
@@ -489,7 +491,10 @@ async function toPlaceMessage(m: Doc<"chatMessages">, names: Namer, self: Id<"ag
 /** Stored before the model call, so later turns replay it exactly. */
 export const savePrompt = internalMutation({
 	args: { turnId: v.id("agentTurns"), prompt: v.string() },
-	handler: async (ctx, { turnId, prompt }) => ctx.db.patch(turnId, { prompt }),
+	handler: async (ctx, { turnId, prompt }) => {
+		const { member } = await runningTurn(ctx, turnId);
+		await ctx.db.patch(turnId, { prompt, promptPlaces: await turnSources(ctx, member) });
+	},
 });
 
 /**
@@ -663,12 +668,12 @@ export const steer = internalMutation({
 		for (const m of candidates) if (await readReply(ctx, member, m)) messages.push(m);
 		if (messages.length === 0) return null;
 		const names = namer(ctx);
-		const skills = await installedSkills(ctx, turn.workspaceId, turn.actorId);
+		const skills = await installedSkills(ctx, turn.workspaceId, turn.actorId, member);
 		const actor = { id: turn.actorId, name: (await names.user(turn.actorId)).name, timeZone: await timeZoneOf(ctx, turn.actorId) };
 		const note = steerNote(await Promise.all(messages.map((m) => toPlaceMessage(m, names, turn.agentId, skills))), actor);
 		await ctx.db.patch(turnId, {
 			steered: [...(turn.steered ?? []), ...messages.map((m) => m._id)],
-			...(turn.prompt !== undefined && { prompt: `${turn.prompt}\n\n${note}` }),
+			...(turn.prompt !== undefined && { prompt: `${turn.prompt}\n\n${note}`, ...(turn.promptPlaces !== undefined && { promptPlaces: [...new Set([...turn.promptPlaces, ...await turnSources(ctx, member)])] }) }),
 		});
 		// It answers them now, so it shows below them. A quiet reply is placed when it's shown (finishReply).
 		const reply = await ctx.db.get(turn.replyId!);
@@ -871,8 +876,8 @@ export const startCompaction = internalMutation({
 		}
 		const old = turns.slice(0, turns.length - keep);
 		if (old.length === 0) return null;
-		await ctx.db.patch(sessionId, { compacting: true, compactingPlaces: [...new Set([...(session.summaryPlaces ?? []), ...old.flatMap((t) => t.usedPlaces)])] });
-		return { summary: session.summary ?? null, turns: old.map(({ prompt, reply }) => ({ prompt, reply })), upTo: old.at(-1)!.time };
+		await ctx.db.patch(sessionId, { compacting: true, compactingPrivacy: 1, compactingPlaces: [...new Set([...(session.summaryPlaces ?? []), ...old.flatMap((t) => t.usedPlaces)])] });
+		return { summary: session.summaryPrivacy === 1 ? session.summary ?? null : null, turns: old.map(({ prompt, reply }) => ({ prompt, reply })), upTo: old.at(-1)!.time };
 	},
 });
 
@@ -887,13 +892,13 @@ export const finishCompaction = internalMutation({
 	handler: async (ctx, { sessionId, turnId, result }) => {
 		const session = await ctx.db.get(sessionId);
 		if (!session) return;
-		if (!result) return await ctx.db.patch(sessionId, { compacting: false });
+		if (!result) return await ctx.db.patch(sessionId, { compacting: false, compactingPlaces: undefined, compactingPrivacy: undefined });
 		await ctx.db.patch(sessionId, {
 			compacting: false,
-			summary: result.summary,
-			summaryPlaces: session.compactingPlaces,
+			// A pre-deploy model call did not snapshot private prompt sources; discard its text.
+			...(session.compactingPrivacy === 1 && { summary: result.summary, summaryPlaces: session.compactingPlaces, summaryPrivacy: 1 as const, summarizedUpTo: result.upTo }),
 			compactingPlaces: undefined,
-			summarizedUpTo: result.upTo,
+			compactingPrivacy: undefined,
 			costUsd: (session.costUsd ?? 0) + result.costUsd,
 		});
 		await addPlaceCost(ctx, session.chatId, session.threadId, result.costUsd);

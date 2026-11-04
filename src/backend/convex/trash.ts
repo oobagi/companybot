@@ -8,12 +8,12 @@ import { removeInstall, setAutomationTrashed } from "./automations";
 import { startCascade } from "./cascade";
 import { canSee, setChannelTrashed } from "./chatOps";
 import { mutation, query } from "./functions";
-import { type Member, type Who, capped, checkPermission, emptyPage, getMember, requireMember } from "./lib";
+import { type Member, type Who, canSeeSkill, capped, checkPermission, emptyPage, getMember, requireMember } from "./lib";
 import { deletePage, pageVisible, requirePage, setPageTrashed } from "./pageOps";
 import { setFieldTrashed, setRecordTrashed, setTypeTrashed, typeVisible } from "./recordOps";
 import { trashKind } from "./schema";
 import { deleteMemory, setMemoryTrashed } from "./memoryOps";
-import { canSeeSkill } from "./lib";
+import { readArtifact } from "./replySources";
 import { setSkillTrashed } from "./skills";
 import { type TrashKind, describeTrash, trashEntry } from "./trashOps";
 
@@ -86,7 +86,7 @@ async function visibleEntry(ctx: QueryCtx, member: Member, entry: Doc<"trash">) 
 	if (entry.kind === "skill") {
 		const id = ctx.db.normalizeId("skillInstalls", entry.itemId);
 		const install = id && await ctx.db.get(id);
-		return !!install && canSeeSkill(member.userId, install);
+		return !!install && canSeeSkill(member.userId, install) && await readArtifact(ctx, member, install, install.audience === "personal" ? install.ownerId : undefined);
 	}
 	if (entry.kind === "automation") {
 		const id = ctx.db.normalizeId("automationInstalls", entry.itemId);

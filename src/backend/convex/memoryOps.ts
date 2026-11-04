@@ -39,7 +39,7 @@ export async function listMemories(ctx: QueryCtx, member: Member) {
 		.collect();
 	const actor = toActor(member);
 	const visible = [];
-	for (const doc of docs) if (canReadMemory(actor, toMemory(doc)) && await readArtifact(ctx, member, doc)) visible.push(toMemory(doc));
+	for (const doc of docs) if (canReadMemory(actor, toMemory(doc)) && await readArtifact(ctx, member, doc, doc.ownerId)) visible.push(toMemory(doc));
 	return visible;
 }
 
@@ -84,7 +84,7 @@ export async function searchMemories(ctx: QueryCtx, member: Member, agentId: Id<
 		.filter((d) => d.workspaceId === member.workspaceId && memoryMatches(d.content, text))
 		.sort((a, b) => a._creationTime - b._creationTime)
 		.slice(-MEMORY_RESULTS_MAX);
-	for (const doc of returned) await readArtifact(ctx, member, doc);
+	for (const doc of returned) await readArtifact(ctx, member, doc, doc.ownerId);
 	return returned.map(toMemory);
 }
 
@@ -112,7 +112,7 @@ export async function createMemory(ctx: MutationCtx, { member, agentId: byAgent 
 /** A memory the person can read, not in Archive. Others look like they don't exist. */
 export async function requireReadable(ctx: QueryCtx, member: Member, id: Id<"memories">) {
 	const doc = await ctx.db.get(id);
-	if (!doc || doc.workspaceId !== member.workspaceId || doc.archived || !canReadMemory(toActor(member), toMemory(doc)) || !(await readArtifact(ctx, member, doc))) {
+	if (!doc || doc.workspaceId !== member.workspaceId || doc.archived || !canReadMemory(toActor(member), toMemory(doc)) || !(await readArtifact(ctx, member, doc, doc.ownerId))) {
 		throw new ConvexError("Memory not found.");
 	}
 	return doc;
@@ -170,7 +170,7 @@ async function keepVersion(ctx: MutationCtx, doc: Doc<"memories">) {
 /** A memory's old versions, newest first. None once the memory is gone or out of reach. */
 export async function memoryVersions(ctx: QueryCtx, member: Member, id: Id<"memories">) {
 	const doc = await ctx.db.get(id);
-	if (!doc || doc.workspaceId !== member.workspaceId || doc.archived || !canReadMemory(toActor(member), toMemory(doc)) || !(await readArtifact(ctx, member, doc))) return [];
+	if (!doc || doc.workspaceId !== member.workspaceId || doc.archived || !canReadMemory(toActor(member), toMemory(doc)) || !(await readArtifact(ctx, member, doc, doc.ownerId))) return [];
 	return ctx.db
 		.query("memoryVersions")
 		.withIndex("by_memory", (q) => q.eq("memoryId", id))

@@ -7,7 +7,7 @@ import { viewConfig } from "./recordValidators";
 /** One of `values`, each a literal. */
 const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map((value) => v.literal(value)));
 
-const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats"))));
+const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats"), v.id("users"))));
 
 export const notify = v.union(v.literal("all"), v.literal("mentions"), v.literal("off"));
 
@@ -446,6 +446,7 @@ export default defineSchema({
 		.index("by_install", ["connectorInstallId"]),
 
 	skillInstalls: defineTable({
+		usedPlaces,
 		/** Personal owner; team rows have audience team and no owner. */
 		// COMPAT(0.1.0-alpha.10): after skillAudience runs on prod, make audience required.
 		audience: v.optional(v.union(v.literal("team"), v.literal("personal"))),
@@ -667,6 +668,8 @@ export default defineSchema({
 		sessionId: v.optional(v.id("agentSessions")),
 		/** The exact user message sent to the model this turn. Replayed as-is in later turns. */
 		prompt: v.optional(v.string()),
+		/** Sources of the stored prompt, independent of a shared answer. Missing means unknown: omit it. */
+		promptPlaces: usedPlaces,
 		/** Nobody @mentioned the agent: the router queued it (router.ts), or a hop (chains.ts). Its reply is quiet. */
 		routed: v.optional(v.literal(true)),
 		/**
@@ -779,8 +782,12 @@ export default defineSchema({
 	// One agent's ongoing context in one place (chat + thread). Append-only: past turns
 	// replay exactly as sent, so prompt caching hits. Older turns fold into `summary`.
 	agentSessions: defineTable({
-		summaryPlaces: v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats")))),
-		compactingPlaces: v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats")))),
+		summaryPlaces: usedPlaces,
+		/** Old summaries could contain prompts whose answers had been shared. Only the new format is trusted. */
+		summaryPrivacy: v.optional(v.literal(1)),
+		compactingPlaces: usedPlaces,
+		/** A compaction begun before prompt isolation cannot produce a trusted summary. */
+		compactingPrivacy: v.optional(v.literal(1)),
 		workspaceId: v.id("workspaces"),
 		agentId: v.id("agents"),
 		chatId: v.id("chats"),

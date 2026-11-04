@@ -15,6 +15,7 @@ import type { FunctionReference, PaginationResult } from "convex/server";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { readArtifact } from "./replySources";
 import type { Requested } from "./functions";
 
 export interface Member extends Actor {
@@ -270,13 +271,17 @@ export const skillOf = (install: Doc<"skillInstalls">): Skill | undefined => ins
 export const canSeeSkill = (userId: Id<"users"> | undefined, install: Doc<"skillInstalls">) => install.audience === "team" || (install.audience === "personal" && !!userId && install.ownerId === userId);
 
 /** Live retained skills, then custom skills, oldest first within each group. */
-export async function installedSkills(ctx: QueryCtx, workspaceId: Id<"workspaces">, userId: Id<"users">): Promise<Skill[]> {
+export async function installedSkills(ctx: QueryCtx, workspaceId: Id<"workspaces">, userId: Id<"users">, acting?: Member): Promise<Skill[]> {
 	const installs = (await ctx.db.query("skillInstalls").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect())
 		.filter((i) => !i.archived && canSeeSkill(userId, i)).sort((a, b) => a._creationTime - b._creationTime);
-	return [...installs.filter((i) => !i.custom), ...installs.filter((i) => i.custom)].flatMap((i) => {
-		const skill = skillOf(i);
-		return skill ? [skill] : [];
-	});
+	const member = acting ?? await memberOf(ctx, userId, workspaceId);
+	if (!member) return [];
+	const skills: Skill[] = [];
+	for (const install of [...installs.filter((i) => !i.custom), ...installs.filter((i) => i.custom)]) {
+		const skill = skillOf(install);
+		if (skill && await readArtifact(ctx, member, install, install.audience === "personal" ? install.ownerId : undefined)) skills.push(skill);
+	}
+	return skills;
 }
 
 /** Someone's `preferences` row, if they've saved any. */

@@ -267,7 +267,7 @@ describe("private agent replies", () => {
 			for (let i = 0; i < 100; i++) {
 				const text = `Readable answer ${i}: ` + "y".repeat(2000);
 				const replyId = await ctx.db.insert("chatMessages", { workspaceId: s.turn.workspaceId, chatId: s.chat._id, authorAgentId: s.companybot._id, text, parts: [], status: "done", mentions: noMentions });
-				await ctx.db.insert("agentTurns", { workspaceId: s.turn.workspaceId, chatId: s.chat._id, agentId: s.companybot._id, actorId: s.crew.userId, sessionId: s.turn.sessionId!, replyId, prompt: `Readable request ${i}: ` + "x".repeat(2000), status: "done" });
+				await ctx.db.insert("agentTurns", { workspaceId: s.turn.workspaceId, chatId: s.chat._id, agentId: s.companybot._id, actorId: s.crew.userId, sessionId: s.turn.sessionId!, replyId, promptPlaces: [], prompt: `Readable request ${i}: ` + "x".repeat(2000), status: "done" });
 			}
 			await ctx.db.patch(s.turn.sessionId!, { summary: SECRET, summaryPlaces: [s.deals], summarizedUpTo: Date.now() + 100 });
 		});
@@ -402,7 +402,7 @@ describe("private agent replies", () => {
 		await s.t.run(async (ctx) => { const agent = (await ctx.db.get("agents", s.companybot._id))!; await ctx.db.patch(agent._id, { tools: [...new Set([...agent.tools, "skills.edit", "automations.manage"])] }); });
 		const turnId = await s.start(s.owner);
 		await s.t.mutation(internal.recordTools.getFor, { turnId, id: s.deal });
-		expect(await s.t.mutation(internal.skills.createFor, { turnId, config: { ...safe, instructions: SECRET } })).toHaveProperty("error", expect.stringContaining("restricted places"));
+		expect(await s.t.mutation(internal.skills.createFor, { turnId, audience: "team", config: { ...safe, instructions: SECRET } })).toHaveProperty("error", expect.stringContaining("restricted places"));
 		const manage = (tool: string, request: object) => s.t.mutation(internal.manageTools.runFor, { turnId, tool, input: { request } });
 		expect(await manage("skills.edit", { action: "edit", id: skillId, config: { ...safe, instructions: SECRET }, expectedVersion: 1 })).toHaveProperty("error", expect.stringContaining("restricted places"));
 		for (const runsFor of ["anyone", "#general"]) expect(await s.t.mutation(internal.automationTools.createFor, { turnId, input: { name: "Secret digest", prompt: SECRET, trigger: { type: "schedule", cron: "0 9 * * *" }, runsFor } })).toHaveProperty("error", expect.stringContaining("restricted places"));
@@ -654,6 +654,154 @@ describe("private agent replies", () => {
 		expect(await s.t.mutation(internal.manageTools.runFor, { turnId, tool: "chat.manage", input: { request: { action: "react", messageId: target, emoji: "✅" } } })).toMatchObject({ error: expect.stringContaining("Only Office and Owners") });
 	});
 
+	it("personal-memory reads keep a just-that-person source and cannot become team memory", async () => {
+		const s = await setup();
+		await s.owner.mutation(api.memory.create, { agentId: s.companybot._id, scope: "personal", content: SECRET });
+		const dm = await s.owner.mutation(api.chats.openDm, { userIds: [], agentIds: [s.companybot._id] });
+		const turnId = await s.start(s.owner, dm);
+		expect(JSON.stringify(await s.t.mutation(internal.memory.searchFor, { turnId, query: "Quartz" }))).toContain(SECRET);
+		const replyId = (await s.t.run((ctx) => ctx.db.get("agentTurns", turnId)))!.replyId!;
+		expect((await s.t.run((ctx) => ctx.db.get(replyId)))!.usedPlaces).toContain(s.owner.userId);
+		await s.t.mutation(internal.turns.updateReply, { turnId, text: SECRET, parts: [{ type: "text", text: SECRET }] });
+		expect((await s.owner.query(api.messages.list, { chatId: dm })).find((m) => m._id === replyId)!.privacy!.label).toBe("Only owner@co.com can see this");
+		await expect(s.t.mutation(internal.memory.createFor, { turnId, scope: "workspace", content: SECRET })).rejects.toThrow("wider audience");
+	});
+
+	it("sharing an answer never releases its private prompt into another viewer's replay", async () => {
+		const s = await setup();
+		await s.read();
+		await s.t.mutation(internal.turns.savePrompt, { turnId: s.turnId, prompt: SECRET });
+		await s.finish("I have checked it.");
+		await s.owner.mutation(api.messages.share, { messageId: s.replyId });
+		const next = await s.start(s.crew);
+		const context = await s.t.mutation(internal.turns.turnContext, { turnId: next });
+		expect(JSON.stringify(context)).not.toContain(SECRET);
+		expect(JSON.stringify(context)).toContain("I have checked it.");
+	});
+
+	it("lists 200 deep-page-sourced replies in an agent DM under transaction limits", async () => {
+		const s = await setup();
+		const dm = await s.owner.mutation(api.chats.openDm, { userIds: [], agentIds: [s.companybot._id] });
+		await s.t.run(async (ctx) => {
+			let parentId: Id<"pages"> | undefined;
+			for (let depth = 0; depth < 31; depth++) parentId = await ctx.db.insert("pages", { workspaceId: s.turn.workspaceId, title: `Level ${depth}`, parentId, ...(depth === 0 && { access: [] }), archived: false, createdBy: s.owner.userId, updatedBy: s.owner.userId, updatedAt: Date.now() });
+			for (let i = 0; i < 200; i++) {
+				const page = await ctx.db.insert("pages", { workspaceId: s.turn.workspaceId, title: `Source ${i}`, parentId, archived: false, createdBy: s.owner.userId, updatedBy: s.owner.userId, updatedAt: Date.now() });
+				await ctx.db.insert("chatMessages", { workspaceId: s.turn.workspaceId, chatId: dm, authorAgentId: s.companybot._id, text: SECRET, parts: [{ type: "text", text: SECRET }], status: "done", mentions: noMentions, usedPlaces: [page], repliedTo: s.owner.userId });
+			}
+		});
+		const messages = await s.owner.query(api.messages.list, { chatId: dm });
+		expect(messages).toHaveLength(200);
+		expect(messages.every((m) => m.text === SECRET && m.privacy?.hidden === false)).toBe(true);
+	});
+
+	it("personal skill reads mark a just-that-person source before shared writes", async () => {
+		const s = await setup();
+		await s.owner.mutation(api.skills.create, { audience: "personal", config: { name: "Personal procedure", description: "Private preferences", instructions: SECRET } });
+		const chat = await s.owner.mutation(api.chats.createChannel, { name: "skill-reader", private: false });
+		const turnId = await s.start(s.owner, chat);
+		expect(JSON.stringify(await s.t.mutation(internal.turns.turnContext, { turnId }))).toContain(SECRET);
+		const replyId = (await s.t.run((ctx) => ctx.db.get("agentTurns", turnId)))!.replyId!;
+		expect((await s.t.run((ctx) => ctx.db.get(replyId)))!.usedPlaces).toContain(s.owner.userId);
+		await expect(s.t.mutation(internal.memory.createFor, { turnId, scope: "workspace", content: SECRET })).rejects.toThrow("owner@co.com");
+	});
+
+	it("personal skills retain sources across edits and refuse widening to team", async () => {
+		const s = await setup();
+		const dm = await s.owner.mutation(api.chats.openDm, { userIds: [], agentIds: [s.companybot._id] });
+		const turnId = await s.start(s.owner, dm);
+		await s.t.mutation(internal.recordTools.getFor, { turnId, id: s.deal });
+		const config = { name: "Personal procedure", description: "Private preferences", instructions: SECRET };
+		const created = await s.t.mutation(internal.skills.createFor, { turnId, audience: "personal", config });
+		if (!("created" in created)) throw new Error(JSON.stringify(created));
+		const install = (await s.t.run((ctx) => ctx.db.query("skillInstalls").withIndex("by_workspace", (q) => q.eq("workspaceId", s.turn.workspaceId).eq("skillId", created.created)).first()))!;
+		expect(install.usedPlaces).toContain(s.deals);
+		await s.owner.mutation(api.skills.save, { skillId: created.created, expectedVersion: 1, config: { ...config, name: "Revised" } });
+		await expect(s.owner.mutation(api.skills.share, { skillId: created.created })).rejects.toThrow("wider audience");
+		expect(JSON.stringify(await s.crew.query(api.skills.list))).not.toContain(SECRET);
+	});
+
+	it("compaction keeps a shared answer's private prompt sources", async () => {
+		const s = await setup();
+		await s.read();
+		await s.t.mutation(internal.turns.savePrompt, { turnId: s.turnId, prompt: SECRET });
+		await s.finish("Checked.");
+		await s.owner.mutation(api.messages.share, { messageId: s.replyId });
+		const next = await s.start(s.crew);
+		await s.t.mutation(internal.turns.savePrompt, { turnId: next, prompt: "Public follow-up" });
+		await s.t.mutation(internal.turns.finishReply, { turnId: next });
+		const compact = await s.t.mutation(internal.turns.startCompaction, { sessionId: s.turn.sessionId!, keepTokens: 1 });
+		expect(JSON.stringify(compact)).toContain(SECRET);
+		expect((await s.t.run((ctx) => ctx.db.get("agentSessions", s.turn.sessionId!)))!.compactingPlaces).toContain(s.deals);
+		await s.t.mutation(internal.turns.finishCompaction, { sessionId: s.turn.sessionId!, result: { summary: SECRET, upTo: compact!.upTo, costUsd: 0 } });
+		const crewTurn = await s.start(s.crew);
+		expect(JSON.stringify(await s.t.mutation(internal.turns.turnContext, { turnId: crewTurn }))).not.toContain(SECRET);
+		expect((await s.crew.query(api.chats.place, { chatId: s.chat._id }))!.summary).toBeNull();
+	});
+
+	it("steering updates prompt sources without releasing them when the answer is shared", async () => {
+		const s = await setup();
+		await s.t.mutation(internal.turns.savePrompt, { turnId: s.turnId, prompt: "Public question" });
+		const note = await s.dana.mutation(api.messages.send, { chatId: s.chat._id, text: SECRET, mentions: noMentions });
+		await s.t.run((ctx) => ctx.db.patch(note, { usedPlaces: [s.deals] }));
+		expect(JSON.stringify(await s.t.mutation(internal.turns.steer, { turnId: s.turnId }))).toContain(SECRET);
+		expect((await s.t.run((ctx) => ctx.db.get("agentTurns", s.turnId)))!.promptPlaces).toContain(s.deals);
+		await s.finish("Checked.");
+		await s.owner.mutation(api.messages.share, { messageId: s.replyId });
+		const next = await s.start(s.crew);
+		expect(JSON.stringify(await s.t.mutation(internal.turns.turnContext, { turnId: next }))).not.toContain(SECRET);
+	});
+
+	it("ignores old prompts and summaries with unknown prompt provenance", async () => {
+		const s = await setup();
+		await s.t.run((ctx) => ctx.db.patch(s.turnId, { prompt: SECRET }));
+		await s.finish("Public answer.");
+		await s.t.run((ctx) => ctx.db.patch(s.turn.sessionId!, { summary: SECRET, summaryPlaces: [], summarizedUpTo: Date.now() + 100 }));
+		const next = await s.start(s.crew);
+		const context = await s.t.mutation(internal.turns.turnContext, { turnId: next });
+		expect(JSON.stringify(context)).not.toContain(SECRET);
+		expect(JSON.stringify(context)).toContain("Public answer.");
+		expect((await s.owner.query(api.chats.place, { chatId: s.chat._id }))!.summary).toBeNull();
+	});
+
+	it("personal skills disappear from app and agent reads after an upstream source is revoked", async () => {
+		const s = await setup();
+		const dm = await s.dana.mutation(api.chats.openDm, { userIds: [], agentIds: [s.companybot._id] });
+		const turnId = await s.start(s.dana, dm);
+		await s.t.mutation(internal.recordTools.getFor, { turnId, id: s.deal });
+		const created = await s.t.mutation(internal.skills.createFor, { turnId, audience: "personal", config: { name: "Private procedure", description: "Private", instructions: SECRET } });
+		if (!("created" in created)) throw new Error(JSON.stringify(created));
+		await s.owner.mutation(api.recordTypes.setAccess, { typeId: s.deals, access: [] });
+		expect(JSON.stringify(await s.dana.query(api.skills.list))).not.toContain(SECRET);
+		expect(JSON.stringify(await s.t.mutation(internal.turns.turnContext, { turnId }))).not.toContain(SECRET);
+		expect(await s.t.mutation(internal.manageTools.runFor, { turnId, tool: "skills.manage", input: { request: { action: "get", id: created.created } } })).toHaveProperty("error");
+	});
+
+	it("rail record titles respect both database access and retained upstream sources", async () => {
+		const s = await setup();
+		expect(await s.crew.query(api.records.titles, { recordIds: [s.deal] })).toEqual([]);
+		await s.owner.mutation(api.roles.setPermission, { id: s.office, permission: "records.edit", on: true });
+		const clients = (await s.owner.query(api.recordTypes.list)).find((t) => t.key === "client")!;
+		await s.owner.mutation(api.recordTypes.setAccess, { typeId: clients._id, access: [{ role: s.office, level: "edit" }] });
+		await s.read();
+		const saved = await s.t.mutation(internal.recordTools.saveFor, { turnId: s.turnId, input: { type: clients.key, values: { name: SECRET } } });
+		if (!("id" in saved)) throw new Error(JSON.stringify(saved));
+		expect(await s.dana.query(api.records.titles, { recordIds: [saved.id] })).toHaveLength(1);
+		await s.owner.mutation(api.recordTypes.setAccess, { typeId: s.deals, access: [] });
+		expect(await s.dana.query(api.records.titles, { recordIds: [saved.id] })).toEqual([]);
+	});
+
+	it("discards a summary from compaction that started before prompt source isolation", async () => {
+		const s = await setup();
+		await s.t.run((ctx) => ctx.db.patch(s.turn.sessionId!, { compacting: true, compactingPlaces: [] }));
+		await s.t.mutation(internal.turns.finishCompaction, { sessionId: s.turn.sessionId!, result: { summary: SECRET, upTo: Date.now(), costUsd: 0 } });
+		const session = (await s.t.run((ctx) => ctx.db.get("agentSessions", s.turn.sessionId!)))!;
+		expect(session.compacting).toBe(false);
+		expect(session.summary).toBeUndefined();
+		expect(session.summaryPrivacy).toBeUndefined();
+		expect((await s.owner.query(api.chats.place, { chatId: s.chat._id }))!.summary).toBeNull();
+	});
+
 });
 
 
@@ -805,6 +953,7 @@ describe("central write audience review probes", () => {
 		await expect(s.owner.mutation(api.automations.update, { automationId: created.created, audience: "channel", channelId: s.general._id })).rejects.toThrow("people in #ops");
 		await s.owner.mutation(api.automationRuns.runNow, { automationId: created.created });
 		const run = (await s.t.run((ctx) => ctx.db.query("agentTurns").collect())).find((t) => t.chatId !== ops)!;
+		expect((await s.t.run((ctx) => ctx.db.get("chatMessages", run.triggerId!)))!.usedPlaces).toContain(s.owner.userId);
 		expect(JSON.stringify(await s.t.mutation(internal.turns.turnContext, { turnId: run._id }))).toContain(SECRET);
 		expect((await s.t.run((ctx) => ctx.db.get(run.replyId!)))!.usedPlaces).toContain(ops);
 		await s.t.run(async (ctx) => { for (const m of await ctx.db.query("chatMembers").collect()) if (m.chatId === ops && m.userId === s.owner.userId) await ctx.db.delete(m._id); });

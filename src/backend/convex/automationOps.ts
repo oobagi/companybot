@@ -68,7 +68,7 @@ export async function visibleInstalls(ctx: QueryCtx, member: Member, trashed = f
  * ("When someone posts in #a channel"); null for the runner, which shows it to no one.
  */
 export async function definitionOf(ctx: QueryCtx, install: Doc<"automationInstalls">, viewer: Member | null): Promise<Automation | undefined> {
-	if (viewer && !(await readArtifact(ctx, viewer, install))) return undefined;
+	if (viewer && !(await readArtifact(ctx, viewer, install, privateTo(install)))) return undefined;
 	if (!install.custom) return install.definition && { ...install.definition, trigger: normalizeTrigger(install.definition.trigger) };
 	const { trigger } = install.custom;
 	const watched = trigger.type === "event" && trigger.event === "message.posted" ? trigger.channelId : undefined;

@@ -211,6 +211,11 @@ describe("turn input", () => {
 		]);
 	});
 
+	it("replays shared answers without an empty or private user prompt", () => {
+		const input = buildTurnInput({ agent: { instructions: "Be brief.", tools: [] }, skills: [], session: { summary: null, turns: [{ prompt: "", reply: "Shared answer" }] }, prompt: "Next question" });
+		expect(input.messages).toEqual([{ role: "user", content: "Earlier reply in this chat:" }, { role: "assistant", content: "Shared answer" }, { role: "user", content: "Next question" }]);
+	});
+
 	it("tells a handed-off turn who handed it over and how to answer", () => {
 		const mention = buildTurnPrompt({ ...base, handoff: { from: "Scribe", ask: false } });
 		expect(mention.endsWith("Scribe is an agent working for Ada and handed this to you. Do it as if Ada asked, within what they'd want. Your reply is posted in this thread, where Ada sees it: put the result in it. @mention Scribe in it only if Scribe needs the result to finish; never just to acknowledge.")).toBe(true);

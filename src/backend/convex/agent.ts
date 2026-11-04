@@ -110,7 +110,7 @@ type TurnUsage = ReplyUsage & { firstTokenMs?: number };
 
 async function runTurn(ctx: ActionCtx, turnId: Id<"agentTurns">, usage: TurnUsage, saveStep: () => Promise<unknown>) {
 	const turn = await ctx.runMutation(internal.turns.turnContext, { turnId });
-	const connectors = await loadConnectors(ctx, turn.member, turn.agent);
+	const connectors = await loadConnectors(ctx, turn.member, turn.agent, turnId);
 	await saveTools(ctx, turn.member.workspaceId, connectors);
 	try {
 		const decision = await streamReply(ctx, turnId, turn, connectors, usage, saveStep);
@@ -182,6 +182,7 @@ async function loadConnectors(
 	ctx: ActionCtx,
 	{ userId, workspaceId }: { userId: Id<"users">; workspaceId: Id<"workspaces"> },
 	agent: Pick<AgentConfig, "tools">,
+	turnId?: Id<"agentTurns">,
 ): Promise<LoadedConnectors> {
 	const connectorIds = grantedConnectorIds(agent);
 	const oauth: LoadedConnectors["oauth"] = [];
@@ -201,7 +202,11 @@ async function loadConnectors(
 				if (connectionId) await ctx.runMutation(internal.connectors.setConnectionError, { connectionId });
 				// Access is read fresh before every call, so a role change or disconnect applies mid-reply.
 				const stillAllowed = async () =>
-					(await ctx.runQuery(internal.connectors.forTurn, { userId, workspaceId, connectorIds: [connectorId] }))[0]?.connectionId === connectionId;
+					(turnId
+						? await ctx.runMutation(internal.connectors.forCall, { turnId, connectorId })
+						: (await ctx.runQuery(internal.connectors.forTurn, { userId, workspaceId, connectorIds: [connectorId] }))[0])?.connectionId === connectionId;
+				// Personal servers can include account data in their instructions and tool descriptions too.
+				if (turnId && connector.connection === "personal" && !(await stillAllowed())) return { unavailable: connector.name };
 				const session: ConnectorSession = {
 					...opened,
 					tools: opened.tools.map((tool) => ({

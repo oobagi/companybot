@@ -17,6 +17,8 @@ import { action, mutation, query } from "./functions";
 import { encrypt } from "./crypto";
 import { type Member, UNSEEDED_MEMBER, checkPermission, getMember, memberFor, memberOf, requireMember, requirePermission, rolesOf, sweepExpired } from "./lib";
 import { cascading, startCascade } from "./cascade";
+import { readArtifact } from "./replySources";
+import { runningTurn } from "./turns";
 import { builtInId } from "./roles";
 
 // Install → choose roles (owners always can) → connect an account → agents granted "<connector>.*" use it.
@@ -318,19 +320,35 @@ export const forTurn = internalQuery({
 	handler: async (ctx, { userId, workspaceId, connectorIds }) => {
 		const member = await memberOf(ctx, userId, workspaceId);
 		if (!member) return [];
-		const usable: { connectorId: string; installId: Id<"connectorInstalls">; connectionId: Id<"connectorConnections"> | null; credentials: string | null }[] = [];
-		for (const connectorId of connectorIds) {
-			const connector = findConnector(connectorId);
-			const install = connector && (await installOf(ctx, member.workspaceId, connectorId));
-			if (!connector || !install || !canUseConnector(member, allowedRoles(member, install))) continue;
-			if (connector.auth.type === "none") {
-				usable.push({ connectorId, installId: install._id, connectionId: null, credentials: null });
-				continue;
-			}
-			const connection: Doc<"connectorConnections"> | null = await connectionFor(ctx, connector, member);
-			if (connection) usable.push({ connectorId, installId: install._id, connectionId: connection._id, credentials: connection.credentials });
+		return usableConnectors(ctx, member, connectorIds);
+	},
+});
+
+async function usableConnectors(ctx: QueryCtx, member: Member, connectorIds: string[]) {
+	const usable: { connectorId: string; installId: Id<"connectorInstalls">; connectionId: Id<"connectorConnections"> | null; credentials: string | null }[] = [];
+	for (const connectorId of connectorIds) {
+		const connector = findConnector(connectorId);
+		const install = connector && (await installOf(ctx, member.workspaceId, connectorId));
+		if (!connector || !install || !canUseConnector(member, allowedRoles(member, install))) continue;
+		if (connector.auth.type === "none") {
+			usable.push({ connectorId, installId: install._id, connectionId: null, credentials: null });
+			continue;
 		}
-		return usable;
+		const connection: Doc<"connectorConnections"> | null = await connectionFor(ctx, connector, member);
+		if (connection) usable.push({ connectorId, installId: install._id, connectionId: connection._id, credentials: connection.credentials });
+	}
+	return usable;
+}
+
+/** Before any personal connector result can reach the model, record its one-person audience. */
+export const forCall = internalMutation({
+	args: { turnId: v.id("agentTurns"), connectorId: v.string() },
+	handler: async (ctx, { turnId, connectorId }) => {
+		const { member } = await runningTurn(ctx, turnId);
+		const connection = (await usableConnectors(ctx, member, [connectorId]))[0];
+		if (!connection) return null;
+		if (findConnector(connectorId)?.connection === "personal") await readArtifact(ctx, member, {}, member.userId);
+		return { connectionId: connection.connectionId };
 	},
 });
 
