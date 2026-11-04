@@ -2,7 +2,7 @@ import type { ChatLine, ChatResult } from "@companybot/core";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
-import { type Namer, canSee, chatByRef, chatLabel, namer, reactionsOf, textForModel } from "./chatOps";
+import { type Namer, canSee, label as authorLabel, chatByRef, chatLabel, namer, reactionsOf, textForModel } from "./chatOps";
 import { filesForModel } from "./files";
 import { asToolResult } from "./lib";
 import { reactMessage } from "./messages";
@@ -21,7 +21,7 @@ export const reactFor = internalMutation({
 });
 
 async function toLine(ctx: QueryCtx, m: Doc<"chatMessages">, names: Namer, label: string): Promise<ChatLine> {
-	const author = (await names.of(m)).name;
+	const author = authorLabel(await names.of(m));
 	const reactions = new Map<string, string[]>();
 	for (const r of await reactionsOf(ctx, m._id)) {
 		reactions.set(r.emoji, [...(reactions.get(r.emoji) ?? []), (await names.of(r)).name]);

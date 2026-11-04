@@ -31,7 +31,7 @@ import { type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalAction, internalMutation, internalQuery } from "./_generated/server";
-import { type Namer, canSee, chatMembersOf, namer, textForModel } from "./chatOps";
+import { type Namer, canSee, chatMembersOf, label, namer, textForModel } from "./chatOps";
 import { dispatchTo, shownReply } from "./chains";
 import { liveWorkspace, memberOf } from "./lib";
 import { STALE_TURN_MS, enqueueTurn } from "./turns";
@@ -110,7 +110,7 @@ export const context = internalQuery({
 /** A message as the router reads it: its author (an agent by key), text, and files by name. */
 const routerMessage = (names: Namer, keys: Map<Id<"agents">, string>) => async (m: Doc<"chatMessages">): Promise<RouterMessage> => {
 	const files = m.attachments?.length ? `(${m.attachments.length === 1 ? "a file" : `${m.attachments.length} files`}: ${m.attachments.map((f) => f.name).join(", ")})` : "";
-	const author = (await names.of(m)).name;
+	const author = label(await names.of(m));
 	return {
 		author,
 		...(m.authorAgentId && { agent: keys.get(m.authorAgentId) ?? "agent" }),

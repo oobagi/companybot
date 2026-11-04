@@ -10,6 +10,7 @@ import {
 	addToChat,
 	addUserMentions,
 	agentOfDm,
+	chatMembersOf,
 	titleFrom,
 	insertMessage,
 	markChatRead,
@@ -211,6 +212,8 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 		if (await installOf(ctx, member.workspaceId, id)) skillIds.push(id);
 	}
 
+	// An agent writes as its person (`actingFor`), except to that person alone: there it's just the agent talking.
+	const actingFor = who.agentId && !(await onlyPerson(ctx, chat, member.userId)) ? member.userId : undefined;
 	const dmAgent = agentOfDm(chat);
 	if (dmAgent && (await ctx.db.get(dmAgent))?.archived) throw new ConvexError("This agent is in Archive.");
 	// A side chat takes its name from the person's first message.
@@ -220,7 +223,7 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 
 	const messageId = await insertMessage(ctx, chat, {
 		threadId,
-		...(who.agentId ? { authorAgentId: who.agentId, actingFor: member.userId } : { authorUserId: member.userId }),
+		...(who.agentId ? { authorAgentId: who.agentId, ...(actingFor && { actingFor }) } : { authorUserId: member.userId }),
 		text,
 		parts: text ? [{ type: "text", text }] : [],
 		...(attachments.length > 0 && { attachments }),
@@ -265,13 +268,22 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	}
 	return messageId;
 }
-/** Your own message, not deleted. */
+/** A DM whose only person is `userId` (with agents, or nobody else). */
+async function onlyPerson(ctx: QueryCtx, chat: Doc<"chats">, userId: Id<"users">) {
+	return chat.kind === "dm" && (await chatMembersOf(ctx, chat._id)).every((m) => !m.userId || m.userId === userId);
+}
+
+/** Your own message, not deleted: an agent's own too, if it wrote it as you or to you alone. */
 async function requireOwn(ctx: QueryCtx, who: Who, messageId: Id<"chatMessages">) {
 	const { member } = who;
 	const message = await ctx.db.get(messageId);
 	if (!message || message.workspaceId !== member.workspaceId || message.deleted) throw new ConvexError("Message not found.");
-	await requireChat(ctx, member, message.chatId);
-	if (message.authorUserId !== member.userId && !(who.agentId && message.authorAgentId === who.agentId && message.actingFor === member.userId)) throw new ConvexError("You can only change your own messages.");
+	const chat = await requireChat(ctx, member, message.chatId);
+	const agents = who.agentId !== undefined && message.authorAgentId === who.agentId;
+	const allowed =
+		message.authorUserId === member.userId ||
+		(agents && (message.actingFor === member.userId || (!message.actingFor && (await onlyPerson(ctx, chat, member.userId)))));
+	if (!allowed) throw new ConvexError("You can only change your own messages.");
 	return message;
 }
 

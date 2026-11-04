@@ -80,7 +80,23 @@ describe("messaging and channels as the person", () => {
 		}
 		expect(await t.run((ctx) => ctx.db.query("agentTurns").collect())).toHaveLength(before.length);
 		const lines = await owner.query(api.messages.list, { chatId });
-		expect(lines.at(-1)!.author.name).toContain("Companybot, for");
+		expect(lines.at(-1)!.author).toMatchObject({ name: "Companybot", for: { type: "user", id: owner.userId } });
+		// "DM me": with nobody but the person, it's the agent's own DM with them, not a DM with themselves.
+		for (const userIds of [[], [owner.userId]]) {
+			const own = await call("chat.manage", { action: "open_dm", userIds, agentIds: [] });
+			expect(await t.run((ctx) => ctx.db.get(own.chatId as Id<"chats">))).toMatchObject({ dmKey: `a:${companybot._id},u:${owner.userId}` });
+		}
+		// To the person alone, it's the agent talking, not the agent as them; it can still edit what it wrote.
+		const own = await call("chat.manage", { action: "open_dm", userIds: [], agentIds: [] });
+		// From a turn in #general: the DM's own turn replies instead (it can't send where it's replying).
+		const elsewhere = await agentTurn(t, owner, chat._id, companybot._id);
+		const fromGeneral = (request: unknown): Promise<any> => t.mutation(internal.manageTools.runFor, { turnId: elsewhere, tool: "chat.manage", input: { request } });
+		const { messageId: toYou } = await fromGeneral({ action: "send", chat: own.chatId, text: "Surprise" });
+		const sent = await t.run((ctx) => ctx.db.get(toYou as Id<"chatMessages">));
+		expect(sent).toMatchObject({ authorAgentId: companybot._id, text: "Surprise" });
+		expect(sent!.actingFor).toBeUndefined();
+		expect(await fromGeneral({ action: "edit", messageId: toYou, text: "Surprise!" })).toMatchObject({ done: "edit" });
+		expect((await owner.query(api.messages.list, { chatId: own.chatId as Id<"chats"> })).at(-1)!.author).toEqual(expect.not.objectContaining({ for: expect.anything() }));
 		expect(await t.query(internal.chatTools.readFor, { turnId, chat: chatId })).toHaveProperty("messages");
 		expect(await call("chat.manage", { action: "send", chat: chatId, threadId: parent, text: "Wrong parent" })).toHaveProperty("error");
 	});

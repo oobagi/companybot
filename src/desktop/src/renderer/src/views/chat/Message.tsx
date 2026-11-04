@@ -10,7 +10,7 @@ import { WidgetView } from "../../widgets";
 import { CallDetails } from "../Activity";
 import { ApprovalMessages } from "./Approval";
 import { AutomationIcon, EditIcon, ReactIcon, ReplyIcon, TrashIcon } from "../../icons";
-import { AgentBadge, Avatar, AvatarStack, EmojiPicker, IconButton, Popover, clock, useConfirm, useDismiss } from "./common";
+import { AgentBadge, Avatar, AvatarStack, EmojiPicker, PairAvatar, IconButton, Popover, clock, useConfirm, useDismiss } from "./common";
 import type { Message, TokenNames } from "./data";
 import { navigate } from "../../router";
 import { ProfileLink } from "./Profile";
@@ -70,16 +70,33 @@ export function MessageRow({
 						</span>
 					) : (
 						<ProfileLink who={message.author}>
-							<Avatar name={message.author.name} image={message.author.image} agent={isAgent} />
+							{message.author.for ? (
+								<PairAvatar agent={message.author} person={message.author.for} />
+							) : (
+								<Avatar name={message.author.name} image={message.author.image} agent={isAgent} />
+							)}
 						</ProfileLink>
 					)}
 				</div>
 				<div className={`flex min-w-0 flex-1 flex-col gap-1 ${sending ? "opacity-50" : ""}`}>
 					{!grouped && (
 						<div className="flex items-baseline gap-2">
-							<ProfileLink who={message.author} className="font-semibold hover:underline">
-								{message.author.name}
-							</ProfileLink>
+							{message.author.for ? (
+								// An agent sending as a person: each name opens its own card.
+								<span className="font-semibold">
+									<ProfileLink who={{ ...message.author, for: undefined }} className="hover:underline">
+										{message.author.name}
+									</ProfileLink>
+									{", for "}
+									<ProfileLink who={message.author.for} className="hover:underline">
+										{message.author.for.name}
+									</ProfileLink>
+								</span>
+							) : (
+								<ProfileLink who={message.author} className="font-semibold hover:underline">
+									{message.author.name}
+								</ProfileLink>
+							)}
 							{isAgent && <AgentBadge />}
 							{message.automation && (
 								<span className="flex items-center gap-1 self-center rounded bg-amber-50 px-1.5 text-xs text-amber-800">

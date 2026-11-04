@@ -16,6 +16,7 @@ const grouped = (m: Message, prev: Message | undefined) =>
 	!prev.deleted &&
 	prev.author.type === m.author.type &&
 	prev.author.id === m.author.id &&
+	prev.author.for?.id === m.author.for?.id &&
 	m._creationTime - prev._creationTime < GROUP_MS &&
 	sameDay(m._creationTime, prev._creationTime);
 

@@ -10,6 +10,7 @@ import {
 	chatMembersOf,
 	countMessage,
 	insertMessage,
+	label,
 	namer,
 	replyForModel,
 	textForModel,
@@ -376,7 +377,8 @@ async function handoffOf(ctx: QueryCtx, turn: Doc<"agentTurns">) {
 }
 
 async function toPlaceMessage(m: Doc<"chatMessages">, names: Namer, self: Id<"agents">, skills: Skill[] = []): Promise<PlaceMessage> {
-	const author = await names.of(m);
+	const { for: person, ...who } = await names.of(m);
+	const author = { ...who, name: label({ ...who, for: person }) };
 	// Skills named with /, still installed. Gone ones are left out: the text still shows what was typed.
 	const named = (m.mentions.skillIds ?? []).flatMap((id) => {
 		const skill = skills.find((s) => s.id === id);

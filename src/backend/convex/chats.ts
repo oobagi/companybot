@@ -3,7 +3,7 @@ import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
-import { addToChat, agentOfDm, availableName, chatMembersOf, findOrCreateDm, latestMentionSince, markChatRead, membership, namer, requireActiveAgents, requireChat, requireManagedChannel, requireWorkspaceUsers, sideChatTitle, titleFrom, type Namer, type Participant, visibleChat } from "./chatOps";
+import { addToChat, agentOfDm, availableName, chatMembersOf, findOrCreateDm, label, latestMentionSince, markChatRead, membership, namer, requireActiveAgents, requireChat, requireManagedChannel, requireWorkspaceUsers, sideChatTitle, titleFrom, type Namer, type Participant, visibleChat } from "./chatOps";
 import { type Member, checkPermission, getMember, preferencesOf, requireMember, toActor } from "./lib";
 import { trashInfo } from "./trashOps";
 import { sessionAt } from "./turns";
@@ -224,7 +224,7 @@ export const alerts = query({
 				if (newest && (!message || newest._creationTime > message._creationTime)) message = newest;
 			}
 			if (!message) continue;
-			const author = (await names.of(message)).name;
+			const author = label(await names.of(message));
 			alerts.push({
 				workspaceId: chat.workspaceId,
 				chatId: chat._id,
