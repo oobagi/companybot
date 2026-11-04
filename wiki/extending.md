@@ -4,7 +4,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 
 ## Permissions — `core/src/permissions.ts`
 - Every workspace action has a permission listing the roles allowed. Backend mutations call `requirePermission(ctx, "x.y")`; the app calls `can(role, "x.y")`.
-- Shared navigation and database display arrangements use `sidebar.arrange` (owners and members). Derive arrangement scope from `core/arrangements.ts`; never accept a user id or scope from the client. Use `useSortable` / `useStoredIds` for synced lists. Keep widths, hidden state and chat drafts local.
+- Shared navigation and database display arrangements use `sidebar.arrange` (owners and members). Use the structured list definition in `core/arrangements.ts` for scope and entity ownership; never accept a user id or scope from the client. Use `useSortable` / `useStoredIds` with the loaded arrangement context for ordered lists; database layout/grouping live on `recordTypes.display`. Keep widths, hidden state and chat drafts local.
 - New feature that needs a gate → add a permission first. Never check `role === "owner"` directly.
 - New role → add it to `roles` (`types.ts`; the schema's `role` validator is built from it), then to each permission it should have.
 

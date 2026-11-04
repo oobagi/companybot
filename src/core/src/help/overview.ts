@@ -23,7 +23,7 @@ Your rail tabs, pins, recents, pin order, DM order, Chat section order, folded s
 
 Channel order, page sibling order, database order, database view tab order, and each database's All tab columns and layout are shared with the workspace. Owners and members can arrange these; it requires permission to **arrange the sidebar**. Moving a page to another parent works as before.
 
-Sidebar width, hidden state and chat drafts stay on this computer. On first load, existing arrangements from this computer are copied up only where nothing is saved yet, then the local keys are deleted.
+Sidebar width, hidden state and chat drafts stay on this computer. On first load, existing arrangements from this computer are copied up only where nothing is saved yet, then the local keys are deleted. Recents start fresh; old pins are claimed by whoever signs in first on a shared computer. An import that fails retries next launch while you keep using the app.
 
 ## Two kinds of settings
 - **Account settings** are yours alone: [Your preferences](#/settings/preferences).

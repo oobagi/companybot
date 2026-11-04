@@ -1,10 +1,11 @@
+import { useStoredIds } from "../../arrangements";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery, useWorkspace } from "../../convex";
 import { ArchiveIcon, ArrowRightIcon, ArrowUpIcon, PageIcon, PlusIcon } from "../../icons";
 import { navigate } from "../../router";
-import { type DragProps, useSortable, useStoredIds } from "../../sortable";
+import { type DragProps, useSortable } from "../../sortable";
 import { LoadMore, Notice, inputClass, useDebounced, useRun } from "../../ui";
 import { AddButton, Group, Item, type SectionProps, trailingAction } from "../chat/Sidebar";
 import { MenuItem, Modal, archiveQuestion, useConfirm } from "../chat/common";
@@ -15,10 +16,10 @@ type Row = { _id: PageId; title: string; hasChildren?: boolean; parentId?: PageI
 /** Each expanded level loads independently; no workspace-wide list or fixed tree-size cutoff. */
 export function PagesNav({ openId, canEdit, section }: { openId: string | undefined; canEdit: boolean; section?: SectionProps }) {
 	const workspace = useWorkspace();
-	return <PageNavTree key={workspace?.id} openId={openId} canEdit={canEdit} section={section} workspaceId={workspace?.id ?? ""} />;
+	return <PageNavTree key={workspace?.id} openId={openId} canEdit={canEdit} section={section} />;
 }
-function PageNavTree({ openId, canEdit, section, workspaceId }: { openId?: string; canEdit: boolean; section?: SectionProps; workspaceId: string }) {
-	const [expandedIds, saveExpanded] = useStoredIds(`pages-expanded:${workspaceId}`);
+function PageNavTree({ openId, canEdit, section }: { openId?: string; canEdit: boolean; section?: SectionProps }) {
+	const [expandedIds, saveExpanded] = useStoredIds("expanded");
 	const expanded = useMemo(() => new Set(expandedIds), [expandedIds]);
 	const setExpanded = useCallback((change: (before: Set<string>) => Set<string>) => {
 		saveExpanded((before) => [...change(new Set(before))]);
@@ -51,7 +52,7 @@ function PageNavTree({ openId, canEdit, section, workspaceId }: { openId?: strin
 	const add = (parentId?: PageId) => run(create({ title: "Untitled", parentId }).then((id) => { if (parentId) toggle(parentId, true); navigate("pages", id); }));
 	/** `above`: for each level above this one, whether its line continues past these rows. */
 	const level = (parentId?: PageId, above: boolean[] = []): React.ReactNode => (
-		<PageLevel parentId={parentId} sortKey={`sidebar.pages:${workspaceId}:${parentId ?? "top"}`} empty={!above.length && <Item icon={<PlusIcon />} onClick={() => add()} muted>New page</Item>} render={(p, drag, last) => {
+		<PageLevel parentId={parentId} sortable empty={!above.length && <Item icon={<PlusIcon />} onClick={() => add()} muted>New page</Item>} render={(p, drag, last) => {
 			const open = p.hasChildren && expanded.has(p._id);
 			const guides = parentId ? [...above, !last] : [];
 			return (
@@ -90,11 +91,11 @@ function PruneExpanded({ ids, onPrune }: { ids: string[]; onPrune: (ids: string[
 	return null;
 }
 
-/** One level of the tree. With `sortKey`, drag rows to reorder them within the level; the sibling order is shared with the workspace. */
-export function PageLevel({ parentId, sortKey = "", render, empty }: { parentId?: PageId; sortKey?: string; render: (row: Row, drag: DragProps | undefined, last: boolean) => React.ReactNode; empty?: React.ReactNode }) {
+/** One level of the tree. With `sortable`, drag rows to reorder them within the level; the sibling order is shared with the workspace. */
+export function PageLevel({ parentId, sortable = false, render, empty }: { parentId?: PageId; sortable?: boolean; render: (row: Row, drag: DragProps | undefined, last: boolean) => React.ReactNode; empty?: React.ReactNode }) {
 	const { results, status, loadMore } = usePaginatedQuery(api.pages.children, { parentId }, { initialNumItems: 30 });
-	const { sorted, drag } = useSortable(sortKey, results, rowId);
-	return <>{status === "Exhausted" && !results.length && empty}{sorted.map((p, i) => render(p, sortKey ? drag(p._id) : undefined, i === sorted.length - 1 && status !== "CanLoadMore"))}<LoadMore status={status} onMore={() => loadMore(30)} /></>;
+	const { sorted, drag } = useSortable("pages", results, rowId, "y", parentId);
+	return <>{status === "Exhausted" && !results.length && empty}{sorted.map((p, i) => render(p, sortable ? drag(p._id) : undefined, i === sorted.length - 1 && status !== "CanLoadMore"))}<LoadMore status={status} onMore={() => loadMore(30)} /></>;
 }
 const rowId = (p: Row) => p._id;
 

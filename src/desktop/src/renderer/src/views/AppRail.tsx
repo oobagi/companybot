@@ -52,7 +52,7 @@ export function AppRail({
 	youMenu?: React.ReactNode;
 }) {
 	const { tipFor, tip, hideTip } = useTip("right");
-	const { sorted: tabs, drag } = useSortable("rail.tabs", appTabs, tabId);
+	const { sorted: tabs, drag } = useSortable("tabs", appTabs, tabId);
 
 	useEffect(() => {
 		let leader: ReturnType<typeof setTimeout> | undefined;

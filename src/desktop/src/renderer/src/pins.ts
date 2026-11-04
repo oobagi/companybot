@@ -1,6 +1,5 @@
 import { useCallback } from "react";
-import { useStoredIds } from "./sortable";
-import { useWorkspace } from "./convex";
+import { useStoredIds } from "./arrangements";
 
 export type PinKind = "chat" | "page" | "db" | "rec";
 export type PinKey = `${PinKind}:${string}`;
@@ -11,16 +10,15 @@ export const RECENT_SHOWN = 5;
 
 /** The open workspace's personal pins and recents, shared by every live reader. */
 export function usePins() {
-	const workspace = useWorkspace()?.id ?? "";
-	const [pins, savePins] = useStoredIds(`rail.pins:${workspace}`);
-	const [recent, saveRecent, ready] = useStoredIds(`rail.recent:${workspace}`);
+	const [pins, savePins] = useStoredIds("pins");
+	const [recent, saveRecent, canSaveRecent] = useStoredIds("recent");
 	const toggle = useCallback((key: PinKey) => {
 		savePins((now) => now.includes(key) ? now.filter((k) => k !== key) : [...now, key]);
 	}, [savePins]);
 	const visit = useCallback((key: PinKey) => {
 		saveRecent((now) => now[0] === key ? now : [key, ...now.filter((k) => k !== key)].slice(0, RECENT_KEPT));
 	}, [saveRecent]);
-	return { pins: pins as PinKey[], recent: recent as PinKey[], toggle, visit, ready };
+	return { pins: pins as PinKey[], recent: recent as PinKey[], toggle, visit, canSaveRecent };
 }
 
 /** What a screen's path shows, if it's something you can pin: a record's page is the record. */

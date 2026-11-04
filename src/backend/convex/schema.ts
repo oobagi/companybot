@@ -1,4 +1,5 @@
 import { viewConfig } from "./recordValidators";
+import { arrangementLists, type ArrangementList } from "@companybot/core/arrangements";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { fieldKinds, fileTypes, reasonings, replyModes, risks, roles, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
@@ -6,6 +7,9 @@ import { v } from "convex/values";
 
 /** One of `values`, each a literal. */
 const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map((value) => v.literal(value)));
+
+export const arrangementList = oneOf(Object.keys(arrangementLists) as ArrangementList[]);
+export const databaseDisplay = v.object({ layout: v.union(v.literal("table"), v.literal("board")), groupBy: v.optional(v.string()) });
 
 export const notify = v.union(v.literal("all"), v.literal("mentions"), v.literal("off"));
 
@@ -324,10 +328,12 @@ export default defineSchema({
 	arrangements: defineTable({
 		workspaceId: v.optional(v.id("workspaces")),
 		userId: v.optional(v.id("users")),
-		key: v.string(),
+		list: arrangementList,
+		entityId: v.optional(v.union(v.id("pages"), v.id("recordTypes"))),
 		ids: v.array(v.string()),
-	}).index("by_key", ["workspaceId", "userId", "key"])
-		.index("by_user", ["userId", "workspaceId"]),
+	}).index("by_list", ["workspaceId", "userId", "list", "entityId"])
+		.index("by_user", ["userId", "workspaceId"])
+		.index("by_entity", ["entityId"]),
 
 	// Personal preferences follow the person across devices.
 	preferences: defineTable({
@@ -944,6 +950,7 @@ export default defineSchema({
 
 	// A database created by the team. Existing keys stay stable.
 	recordTypes: defineTable({
+		display: v.optional(databaseDisplay),
 		version: v.optional(v.number()),
 		workspaceId: v.id("workspaces"),
 		/** Stable, unique per workspace. */

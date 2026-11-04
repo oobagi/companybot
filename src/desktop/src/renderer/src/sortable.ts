@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useState } from "react";
-import { useArrangement } from "./arrangements";
+import { useCallback, useId, useMemo, useState } from "react";
+import { useStoredIds } from "./arrangements";
+import type { ArrangementList } from "@companybot/core/arrangements";
 
 type Edge = "before" | "after";
 
@@ -16,9 +17,6 @@ export type DragProps = {
 
 /** What's being dragged, by list. dragover can't read dataTransfer, so it's kept here. */
 let dragging: { list: string; id: string } | undefined;
-
-/** A live list saved to the account or workspace, according to its key. */
-export const useStoredIds = useArrangement;
 
 /** `items` in the saved order; unsaved ones keep their place relative to each other, after the saved ones. */
 export function applyOrder<T>(order: readonly string[], items: readonly T[], id: (item: T) => string): T[] {
@@ -40,11 +38,13 @@ export function moveId(ids: readonly string[], from: string, to: string, edge: E
 }
 
 /**
- * A reorderable list saved under `key`. Spread `drag(id)` on each item; it needs `relative`
+ * A reorderable list, optionally belonging to a page or database. Spread `drag(id)` on each item; it needs `relative`
  * for the drop line. Lists are kept apart, so a row dragged over its section header does nothing.
  */
-export function useSortable<T>(key: string, items: readonly T[], id: (item: T) => string, axis: "y" | "x" = "y") {
-	const [order, setOrder, writable] = useStoredIds(key);
+export function useSortable<T>(list: ArrangementList, items: readonly T[], id: (item: T) => string, axis: "y" | "x" = "y", entityId?: string) {
+	const [order, setOrder, writable] = useStoredIds(list, entityId);
+	const instance = useId();
+	const key = `${list}:${entityId ?? ""}:${instance}`;
 	const [over, setOver] = useState<{ id: string; edge: Edge }>();
 	const sorted = useMemo(() => applyOrder(order, items, id), [order, items, id]);
 

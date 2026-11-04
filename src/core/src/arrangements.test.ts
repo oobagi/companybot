@@ -1,9 +1,15 @@
 import { expect, it } from "vitest";
-import { arrangementScope } from "./arrangements";
+import { arrangementLists, legacyArrangement } from "./arrangements";
 
-it("assigns every arrangement to its account or workspace scope", () => {
-	expect(arrangementScope("rail.order")).toBe("account");
-	for (const key of ["rail.tabs", "sidebar.sections", "sidebar.folded", "rail.pins:w", "rail.recent:w", "rail.pins.order:w", "sidebar.dms:w", "sidebar.channels.folded:w", "sidebar.dms.folded:w", "pages-expanded:w"]) expect(arrangementScope(key), key).toBe("personal");
-	for (const key of ["sidebar.channels:w", "sidebar.databases:w", "sidebar.pages:w:top", "sidebar.pages:w:page", "views.order:type", "records.columns.job", "records.layout.job"]) expect(arrangementScope(key), key).toBe("shared");
-	for (const key of ["sidebar.width", "sidebar.hidden", "draft:w", "unknown", "sidebar.pages:w"]) expect(arrangementScope(key), key).toBeUndefined();
+it("defines scope and entity ownership once and translates local keys only for migration", () => {
+	expect(arrangementLists.workspaces.scope).toBe("account");
+	expect(arrangementLists.pins.scope).toBe("personal");
+	expect(arrangementLists.channels.scope).toBe("shared");
+	expect(arrangementLists.views.entity).toBe("recordTypes");
+	expect(arrangementLists.pages.entity).toBe("pages");
+	expect(legacyArrangement("sidebar.pages:ws:parent")).toEqual({ list: "pages", workspaceId: "ws", entityId: "parent" });
+	expect(legacyArrangement("records.columns.job")).toEqual({ list: "columns", databaseKey: "job" });
+	expect(legacyArrangement("records.layout.job")).toEqual({ list: "layout", databaseKey: "job" });
+	expect(legacyArrangement("rail.pins:ws")).toEqual({ list: "pins", workspaceId: "ws" });
+	for (const key of ["sidebar.width", "sidebar.hidden", "draft:w", "unknown"]) expect(legacyArrangement(key)).toBeUndefined();
 });

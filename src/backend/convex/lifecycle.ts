@@ -137,7 +137,9 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		files: ["storageId"],
 	},
 	arrangements: {
-		workspace: { index: "by_key", eq: ["workspaceId"] },
+		page: { index: "by_entity", eq: [["entityId", "pageId"]] },
+		database: { index: "by_entity", eq: [["entityId", "typeId"]] },
+		workspace: { index: "by_list", eq: ["workspaceId"] },
 		member: { index: "by_user", eq: ["userId", "workspaceId"] },
 		user: { index: "by_user", eq: ["userId"] },
 	},

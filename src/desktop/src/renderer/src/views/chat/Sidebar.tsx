@@ -1,3 +1,4 @@
+import { useStoredIds } from "../../arrangements";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Fragment, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
@@ -5,7 +6,7 @@ import { useMutation, useQuery, useWorkspace } from "../../convex";
 import { AgentIcon, ArchiveIcon, CaretRightIcon, ChannelIcon, ChatIcon, CheckIcon, CloseIcon, EditIcon, MembersIcon, MoreIcon, PinIcon, PlusIcon, PrivateIcon, SignOutIcon, ThreadIcon, UnpinIcon } from "../../icons";
 import { type PinKey, usePins } from "../../pins";
 import { navigate } from "../../router";
-import { type DragProps, useSortable, useStoredIds } from "../../sortable";
+import { type DragProps, useSortable } from "../../sortable";
 import { Notice, RenameInput, useClock, useRun } from "../../ui";
 import { AgentBadge, Avatar, MenuItem, Popover, PopoverPanel, archiveQuestion, useConfirm } from "./common";
 import type { ChatList, Participant } from "./data";
@@ -42,7 +43,7 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 	const workspace = useWorkspace();
 	const now = useClock();
 	const threads = useQuery(api.chats.activeThreads, section.collapsed ? "skip" : { now }) ?? [];
-	const [folded, setFolded] = useStoredIds(`sidebar.channels.folded:${workspace?.id}`);
+	const [folded, setFolded] = useStoredIds("channelFolds");
 	const [dialog, setDialog] = useState<Dialog>();
 	const [details, setDetails] = useState<Id<"chats">>();
 	const markRead = useMutation(api.chats.markRead);
@@ -52,7 +53,7 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 	const { error, run } = useRun();
 	const { confirm, dialog: confirming } = useConfirm();
 	const drafts = useDraftChats(chats.me, workspace?.id);
-	const { sorted, drag } = useSortable(`sidebar.channels:${workspace?.id}`, chats.channels, chatKey);
+	const { sorted, drag } = useSortable("channels", chats.channels, chatKey);
 	const shown = section.collapsed ? sorted.filter((c) => c._id === openId || c.unread || c.mentioned) : sorted;
 	/** Leaving or deleting the open channel: nothing to show there anymore. */
 	const left = (chatId: Id<"chats">) => chatId === openId && navigate("chat");
@@ -134,7 +135,7 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 	const renameChat = useMutation(api.chats.renameChat);
 	const renameAgent = useMutation(api.agents.rename);
 	const [dialog, setDialog] = useState<Dialog>();
-	const [folded, setFolded] = useStoredIds(`sidebar.dms.folded:${workspace?.id}`);
+	const [folded, setFolded] = useStoredIds("dmFolds");
 	const { error, run } = useRun();
 	const { confirm, dialog: confirming } = useConfirm();
 	const sidesOf = (dmId: Id<"chats"> | null) => (dmId ? chats.dms.filter((d) => d.parentId === dmId) : []);
@@ -148,7 +149,7 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 			].sort((a, b) => b.at - a.at || a.name.localeCompare(b.name)),
 		[chats],
 	);
-	const { sorted, drag } = useSortable(`sidebar.dms:${workspace?.id}`, dms, dmKey);
+	const { sorted, drag } = useSortable("dms", dms, dmKey);
 	// Collapsed, only what needs you stays: open or unread rows, and the side chats (and their agent) that are.
 	const needed = (c: { _id: Id<"chats">; unread: boolean; mentioned: boolean }) => c._id === openId || c.unread || c.mentioned;
 	const shown = section.collapsed ? sorted.filter((d) => (d.dmId && d.dmId === openId) || d.unread || d.mentioned || sidesOf(d.dmId).some(needed)) : sorted;

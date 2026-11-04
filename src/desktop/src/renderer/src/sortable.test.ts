@@ -20,7 +20,7 @@ it("moves an id before or after another", () => {
 });
 
 const saved = vi.hoisted(() => ({ ids: [] as string[], writable: true, writes: 0 }));
-vi.mock("./arrangements", () => ({ useArrangement: () => [saved.ids, (next: (ids: string[]) => string[]) => { saved.ids = next(saved.ids); saved.writes++; }, saved.writable] }));
+vi.mock("./arrangements", () => ({ useStoredIds: () => [saved.ids, (next: (ids: string[]) => string[]) => { saved.ids = next(saved.ids); saved.writes++; }, saved.writable] }));
 
 it("keeps unseen shared rows when dragging visible ones and disables forbidden drags", () => {
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -28,7 +28,7 @@ it("keeps unseen shared rows when dragging visible ones and disables forbidden d
 	saved.writable = true;
 	saved.writes = 0;
 	let list!: ReturnType<typeof useSortable<string>>;
-	const List = () => ((list = useSortable("shared", ["a", "b"], id)), null);
+	const List = () => ((list = useSortable("channels", ["a", "b"], id)), null);
 	let root!: ReturnType<typeof create>;
 	act(() => { root = create(createElement(List)); });
 	const event = { stopPropagation: vi.fn(), preventDefault: vi.fn(), clientY: 0, dataTransfer: { setData: vi.fn() }, currentTarget: { getBoundingClientRect: () => ({ top: 0, height: 20 }) } } as unknown as React.DragEvent;
