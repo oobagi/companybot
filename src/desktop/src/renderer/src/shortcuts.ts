@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { anyLayerOpen } from "./views/chat/common";
 
 /**
  * The app's number shortcuts, one place for all three:
@@ -7,7 +8,8 @@ import { useEffect, useRef } from "react";
  * - ⌥1–9 open the Nth row of the open tab's sidebar (Alt+1–9), not while typing.
  * - ⌃⌘1–9 switch to the Nth workspace in the switcher (Ctrl+Shift+1–9).
  * Keys are read by position (`e.code`, Digit1): Option+1 on a Mac types ¡, so `e.key` isn't 1.
- * A key something else already handled (the editor's own shortcuts) is left alone.
+ * A key something else already handled (the editor's own shortcuts) is left alone, and none fire
+ * while a dialog or menu is open (`layers`): switching screens would unmount it and lose its form.
  */
 export type Jump = { to: "tab" | "item" | "workspace"; n: number };
 
@@ -19,7 +21,7 @@ export const typing = (target: EventTarget | null) =>
 
 export function jumpOf(e: KeyboardEvent): Jump | undefined {
 	const digit = /^Digit([1-9])$/.exec(e.code);
-	if (!digit || e.repeat || e.defaultPrevented) return undefined;
+	if (!digit || e.repeat || e.defaultPrevented || anyLayerOpen()) return undefined;
 	const n = Number(digit[1]);
 	const mods = `${e.metaKey ? "M" : ""}${e.ctrlKey ? "C" : ""}${e.altKey ? "A" : ""}${e.shiftKey ? "S" : ""}`;
 	const [tab, workspace] = isMac() ? ["M", "MC"] : ["C", "CS"];

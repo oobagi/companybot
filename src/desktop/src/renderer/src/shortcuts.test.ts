@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { inApp } from "./testing";
 import { AppRail, type AppTab } from "./views/AppRail";
+import { Modal } from "./views/chat/common";
 import { Group, Item, SidebarList } from "./views/chat/Sidebar";
 
 const saved = vi.hoisted(() => ({ tabs: [] as string[], pins: [] as string[] }));
@@ -56,6 +57,21 @@ it("opens a tab with ⌘N while typing a message, as in Slack", () => {
 	press("Digit1", { metaKey: true }, composer);
 	expect(onOpen).toHaveBeenCalledWith("chat");
 	composer.remove();
+});
+
+it("does nothing while a dialog or menu is open, so a half-filled form isn't lost", () => {
+	const onOpen = vi.fn();
+	const open = vi.fn();
+	render(h("div", null, rail(onOpen), sidebar(open), h(Modal, { title: "New channel", onClose: () => {}, children: h("input", { "aria-label": "Name" }) })));
+	press("Digit2", { metaKey: true });
+	press("Digit1", { metaKey: true, ctrlKey: true });
+	press("Digit1", { altKey: true });
+	expect(onOpen).not.toHaveBeenCalled();
+	expect(open).not.toHaveBeenCalled();
+	// Closed, they work again.
+	render(h("div", null, rail(onOpen)));
+	press("Digit2", { metaKey: true });
+	expect(onOpen).toHaveBeenCalledWith("drive");
 });
 
 it("no longer opens tabs with G then a letter", () => {

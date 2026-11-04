@@ -8,7 +8,7 @@ import { LoadedArrangements, useArrangementState, useStoredIds } from "./arrange
 import { WorkspaceContext, useMutation, useQuery } from "./convex";
 import { desktop, useUpdates } from "./desktop";
 import { useAlerts } from "./notifications";
-import { navigate, useRoute } from "./router";
+import { navigate, useRoute, views } from "./router";
 import { ArchiveIcon, ArrowLeftIcon, DatabaseIcon, EditIcon, PlusIcon, SettingsIcon, SignOutIcon } from "./icons";
 import { MenuDivider, Notice, ResizeHandle, Scroll, TopBar, TruncatedTips, useRun, useStoredWidth } from "./ui";
 import { RecordsView } from "./views/Records";
@@ -34,7 +34,6 @@ import { AccessLock } from "./views/access";
 import { type RecordType, useTypes } from "./views/records/data";
 import { recordPath } from "./views/records/logic";
 
-export const views = ["chat", "records", "pages", "settings"] as const;
 // The first databases used to have their own screens (#/clients …). Links to them in old messages still open.
 const oldRecordTabs: Record<string, string> = { clients: "client", deals: "deal", tasks: "task", calls: "call" };
 type View = (typeof views)[number];
