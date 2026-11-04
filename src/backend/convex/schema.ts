@@ -248,6 +248,10 @@ export default defineSchema({
 		threadHours: v.optional(v.number()),
 		/** Set when an owner deletes it: every access refuses at once, then a cascade deletes its rows (lifecycle.ts). */
 		deleting: v.optional(v.boolean()),
+		/** Set while an owner resets it: every access refuses, as when deleting, until its reset cascade seeds it again (workspace.resetWorkspace). */
+		resetting: v.optional(v.boolean()),
+		/** Its last reset: who started it, and when. */
+		lastReset: v.optional(v.object({ by: v.id("users"), at: v.number() })),
 		/** Its logo (images.ts). Unset shows its initials. */
 		image: v.optional(v.id("_storage")),
 	}),
@@ -1272,7 +1276,7 @@ export default defineSchema({
 	// edge of lifecycle.ts per run, resumed from `edge` and `cursor`. `key` names what's going,
 	// so rejoining or reinstalling waits until its old rows are gone.
 	cascades: defineTable({
-		scope: v.union(v.literal("role"), v.literal("workspace"), v.literal("member"), v.literal("user"), v.literal("connectorInstall"), v.literal("automationInstall"), trashKind),
+		scope: v.union(v.literal("role"), v.literal("workspace"), v.literal("reset"), v.literal("member"), v.literal("user"), v.literal("connectorInstall"), v.literal("automationInstall"), trashKind),
 		root: v.object({
 			roleId: v.optional(v.id("roles")),
 			workspaceId: v.optional(v.id("workspaces")),

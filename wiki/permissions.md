@@ -26,7 +26,7 @@ How agents get the go-ahead for actions that leave the building, or that act as 
 
 ## Roles
 What a person may do at all, before any of the above. Roles are workspace data (`roles` table); the switches are the keys in `core/src/permissions.ts`, each with a plain label and a Member default.
-- **Owner** (built in) can do everything, can't be edited or deleted, and every workspace keeps one (`hasLiveOwner`). Owner-only things are never switches: deleting the workspace and changing roles (`roles.manage`). Only owners give or take Owner, change an owner's roles, invite an owner or remove one.
+- **Owner** (built in) can do everything, can't be edited or deleted, and every workspace keeps one (`hasLiveOwner`). Owner-only things are never switches: resetting or deleting the workspace (`workspace.reset`, `workspace.delete`) and changing roles (`roles.manage`). Only owners give or take Owner, change an owner's roles, invite an owner or remove one.
 - **Member** (built in) is what new people and invites get. Owners toggle its switches and can't delete it. It stores only their changes (`roles.switches`): each switch is `override ?? default`, so a new permission reaches every workspace's Member as its default.
 - **Custom roles**: owners create, rename and delete them (`backend/convex/roles.ts`, max 30). They store what's on; anything absent (a new permission too) is off. Deleting one takes it off everyone and every connector; anyone left with none keeps only baseline access: shared reads, chat and personal items, until an owner assigns a role.
 - A person holds one or more (`members.roles`) and gets the **union** of their switches (`accessFrom` → `Access { roles, owner, permissions }`; `can(access, p)`). `members.manage` hands out any role but Owner.
