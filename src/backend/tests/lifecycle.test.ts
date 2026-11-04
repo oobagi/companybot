@@ -110,8 +110,8 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		await ctx.db.insert("skillInstalls", { audience: "team", workspaceId, skillId: "custom-skill", custom: { name: "Skill", createdBy: memberId, description: "d", instructions: "i", ...made } });
 
 		const chat = { workspaceId, archived: false, createdBy: ownerId, lastMessageAt: now };
-		const channel = await ctx.db.insert("chats", { ...chat, kind: "channel", name: "board", private: true });
-		const dm = await ctx.db.insert("chats", { ...chat, kind: "dm", private: true, dmKey: `u:${ownerId},u:${memberId}` });
+		const channel = await ctx.db.insert("chats", { ...chat, kind: "channel", name: "board", private: true, memberCount: 3 });
+		const dm = await ctx.db.insert("chats", { ...chat, kind: "dm", private: true, dmKey: `u:${ownerId},u:${memberId}`, memberCount: 1 });
 		await ctx.db.insert("chatMembers", { chatId: channel, workspaceId, userId: ownerId });
 		mine.push(await ctx.db.insert("chatMembers", { chatId: channel, workspaceId, userId: memberId }));
 		await ctx.db.insert("chatMembers", { chatId: channel, workspaceId, agentId });
@@ -217,6 +217,9 @@ const seatsIn = (rows: Awaited<ReturnType<typeof dump>>, workspaceId: string, us
 		.filter(({ table, row }) => table === "chatMembers" && row.workspaceId === workspaceId && row.userId === userId && rows.get(row.chatId as string)!.row.kind === "channel")
 		.flatMap(({ row }) => [row._id, ...[...rows.values()].filter((entry) => entry.table === "seatActivity" && entry.row.seatId === row._id).map((entry) => entry.row._id)]);
 
+/** The chats these seats are in. */
+const seatChats = (rows: Awaited<ReturnType<typeof dump>>, seats: string[]) => new Set(seats.map((id) => rows.get(id)!.row.chatId as string));
+
 /** Rows of `workspaceId`: its own, and their children (lifecycle childOf). */
 function rowsOf(rows: Awaited<ReturnType<typeof dump>>, workspaceId: string) {
 	const owned = new Set<string>([workspaceId]);
@@ -283,9 +286,9 @@ describe("deleting a workspace", () => {
 			const json = JSON.stringify(row);
 			expect([...owned].filter((id) => id !== row._id && json.includes(id)), `${table} ${row._id}`).toEqual([]);
 		}
-		// Everything else is as it was, but "last used" no longer names it.
+		// Everything else is as it was ("last used" naming it went with it).
 		const { changed } = diff(before, after);
-		expect([...changed].map((id) => before.get(id)!.table)).toEqual(["preferences"]);
+		expect(changed).toEqual(new Set());
 		expect(await b.query(api.workspace.me)).toMatchObject({ workspaceId: B, role: "owner" });
 		expect(await t.run((ctx) => ctx.db.query("cascades").collect())).toEqual([]);
 		// In no workspace now, nothing is made for them (onboarding will); then they start a fresh one.
@@ -394,7 +397,8 @@ describe("removing a member", () => {
 		await settle(t);
 		const { deleted, changed } = diff(before, await dump(t));
 		expect([...deleted].sort()).toEqual([...new Set([row._id, ...mineIn[A]!, ...seatsIn(before, A, m.userId)])].sort());
-		expect(changed).toEqual(new Set());
+		// Only the channels they left, one seat fewer.
+		expect(changed).toEqual(seatChats(before, seatsIn(before, A, m.userId)));
 	});
 });
 
@@ -434,6 +438,11 @@ describe("erasing an account", () => {
 		await m.mutation(api.workspace.eraseAccount);
 		// At once: their sign-in acts as nobody, and their email can't sign back in to this account.
 		expect(await m.query(api.workspace.mine)).toBeNull();
+		// Memberships waiting for the cascade keep nothing that names them.
+		const waiting = await t.run(async (ctx) => (await ctx.db.query("members").collect()).filter((r) => r.userId === m.userId));
+		expect(waiting.length).toBeGreaterThan(0);
+		for (const row of waiting) expect(row).toMatchObject({ email: "", name: "Former member" });
+		expect(waiting.every((row) => row.image === undefined)).toBe(true);
 		// Their memberships go in the cascade; until then nothing (a queued reply, an automation) can act as them.
 		expect(await t.run((ctx) => memberOf(ctx, m.userId, A))).toBeNull();
 		await expect(m.mutation(api.workspace.ensure)).rejects.toThrow("erased");
@@ -443,7 +452,7 @@ describe("erasing an account", () => {
 
 		const theirs = new Set<string>([...mineIn[A]!, ...mineIn[B]!, ...seatsIn(before, A, m.userId), ...seatsIn(before, B, m.userId), leftBehind]);
 		for (const [id, { table, row }] of before) {
-			const own = row.userId === m.userId && ["members", "preferences", "authAccounts", "authSessions", "connectorOAuthFlows", "uploads", "seatActivity"].includes(table);
+			const own = row.userId === m.userId && ["members", "preferences", "lastWorkspaces", "authAccounts", "authSessions", "connectorOAuthFlows", "uploads", "seatActivity"].includes(table);
 			const email = (table === "authRateLimits" && row.identifier === "m@co.com") || (table === "localSignInCodes" && row.email === "m@co.com");
 			if (email) theirs.add(id);
 			const child = (table === "authVerificationCodes" && !after.has(row.accountId as string)) || (table === "authRefreshTokens" && sessions.has(row.sessionId as string));
@@ -456,7 +465,7 @@ describe("erasing an account", () => {
 		// The account row stays for history, with nothing that names them; what agents got back for them (Activity, approvals, call receipts) is cleared.
 		const scrubbed = [...after.values()].filter(({ table, row }) => ["agentActivity", "approvals", "toolReceipts"].includes(table) && row.actorId === m.userId).map(({ row }) => row._id);
 		expect(scrubbed).toHaveLength(6);
-		expect([...changed].sort()).toEqual([m.userId, ...scrubbed].sort());
+		expect([...changed].sort()).toEqual([m.userId, ...scrubbed, ...seatChats(before, [...seatsIn(before, A, m.userId), ...seatsIn(before, B, m.userId)])].sort());
 		for (const id of scrubbed) expect(after.get(id)!.row).not.toHaveProperty(before.get(id)!.table === "approvals" ? "result" : "output");
 		expect(after.get(m.userId)!.row).toEqual({ _id: m.userId, _creationTime: before.get(m.userId)!.row._creationTime, erasedAt: expect.any(Number) });
 		expect((await a.query(api.workspace.team))!.members.map((x) => x.email)).toEqual(["a@co.com"]);

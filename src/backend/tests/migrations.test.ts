@@ -444,3 +444,42 @@ it("shows a chat's newest messages before the backfill gives them a shown time, 
 	// By when each was shown now: the late one last, after the 70.
 	expect(await newest()).toEqual([...newer.slice(-49), late]);
 });
+
+// COMPAT(0.1.0-alpha.10): delete with migrations.memberProfiles, lastWorkspaces and chatMemberCounts.
+it("copies profiles onto memberships, moves last used out of preferences, and counts chat seats", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	migrationsTest.register(t);
+	prosemirrorSync.register(t);
+	const owner = await signIn(t, "owner@co.com");
+	const general = (await generalOf(owner))._id;
+	const channel = await owner.mutation(api.chats.createChannel, { name: "ops", private: false });
+	// As rows were before: no profile on the membership, last used in preferences, no counts.
+	await t.run(async (ctx) => {
+		const prefs = await ctx.db.query("preferences").withIndex("by_user", (q) => q.eq("userId", owner.userId)).first();
+		const member = (await ctx.db.query("members").collect()).find((m) => m.userId === owner.userId)!;
+		const saved = { displayName: "Olive", timeZone: "Asia/Tokyo", workspaceId: member.workspaceId };
+		if (prefs) await ctx.db.patch(prefs._id, saved);
+		else await ctx.db.insert("preferences", { userId: owner.userId, sendWith: "enter", ...saved });
+		await ctx.db.patch(member._id, { name: undefined, timeZone: undefined });
+		for (const row of await ctx.db.query("lastWorkspaces").collect()) await ctx.db.delete(row._id);
+		for (const id of [general, channel]) await ctx.db.patch(id, { memberCount: undefined });
+	});
+	vi.useFakeTimers();
+	try {
+		await t.mutation(internal.migrations.runAll);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+	} finally {
+		vi.useRealTimers();
+	}
+	const team = (await owner.query(api.workspace.team))!;
+	expect(team.members[0]).toMatchObject({ name: "Olive", timeZone: "Asia/Tokyo" });
+	const { workspaceId } = (await t.run((ctx) => ctx.db.query("members").first()))!;
+	expect((await owner.query(api.workspace.mine))!.lastUsed).toBe(workspaceId);
+	expect(await t.run(async (ctx) => (await ctx.db.query("preferences").collect()).every((p) => p.workspaceId === undefined))).toBe(true);
+	const counts = await t.run(async (ctx) => {
+		const seats = async (chatId: typeof general) => (await ctx.db.query("chatMembers").withIndex("by_chat", (q) => q.eq("chatId", chatId)).collect()).length;
+		return { general: [(await ctx.db.get(general))!.memberCount, await seats(general)], channel: [(await ctx.db.get(channel))!.memberCount, await seats(channel)] };
+	});
+	expect(counts.general[0]).toBe(counts.general[1]);
+	expect(counts.channel).toEqual([1, 1]);
+});

@@ -1,7 +1,7 @@
 import migrationsTest from "@convex-dev/migrations/test";
 import { expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
-import { activityOf, addToChat, insertMessage, markChatRead } from "../convex/chatOps";
+import { activityOf, addToChat, dropSeat, insertMessage, markChatRead } from "../convex/chatOps";
 import { newTest, noMentions, signIn, workspaceOf } from "./helpers";
 
 it("backfills legacy search audiences and activity seats, and reindexes access changes", async () => {
@@ -100,4 +100,11 @@ it("does not create discovery rows for agents or count them toward the inline th
 	const activity = await t.run((ctx) => ctx.db.query("seatActivity").withIndex("by_chat", (q) => q.eq("chatId", chatId)).collect());
 	expect(activity).toHaveLength(1);
 	expect(activity[0]!.userId).toBe(owner.userId);
+	expect((await t.run((ctx) => ctx.db.get("chats", chatId)))!.memberCount).toBe(101);
+	await t.run(async (ctx) => {
+		const seat = (await ctx.db.query("chatMembers").withIndex("by_user", (q) => q.eq("userId", owner.userId).eq("chatId", chatId)).first())!;
+		await dropSeat(ctx, seat);
+		expect(await ctx.db.query("seatActivity").withIndex("by_chat", (q) => q.eq("chatId", chatId)).collect()).toEqual([]);
+		expect((await ctx.db.get("chats", chatId))!.memberCount).toBe(100);
+	});
 });

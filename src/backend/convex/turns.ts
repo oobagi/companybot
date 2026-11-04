@@ -18,7 +18,9 @@ import {
 	chatMembersOf,
 	countMessage,
 	label,
+	membership,
 	moveBelow,
+	type Participant,
 	requireChat,
 	namer,
 	reactOnce,
@@ -46,6 +48,10 @@ import { setWakeOutcome } from "./wakeups";
 export const STALE_TURN_MS = 5 * 60_000;
 /** Newest turns kept verbatim when a session is compacted. */
 export const KEEP_TOKENS = 15_000;
+/** Turns a session replays at most, newest kept: summaries that keep failing can't grow it without end. */
+const SESSION_TURNS_MAX = 200;
+/** Bytes a session's replay reads at most (turns, replies, steps): a quarter of Convex's 16 MiB, so the rest of a turn fits. */
+const REPLAY_BYTES = 4 * 1024 * 1024;
 
 type Place = { agentId: Id<"agents">; chatId: Id<"chats">; threadId?: Id<"chatMessages"> };
 
@@ -250,18 +256,26 @@ async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">, member
 	let tokens = 0;
 	let bytes = 0;
 	let scanned = 0;
-	// Newest first for the bounded fallback. Bound reads too when many hidden turns fill the tail.
-	for await (const turn of query.order(hiddenSummary ? "desc" : "asc")) {
+	// Newest first, so a cap keeps the newest. Reads are bounded on both paths: summaries that keep
+	// failing, or many hidden turns filling the tail, can't grow it without end.
+	// A turn that doesn't fit whole ends the replay there: it and everything older are left out.
+	for await (const turn of query.order("desc")) {
 		bytes += getDocumentSize(turn);
-		if (hiddenSummary && (++scanned > 200 || bytes > 4 * 1024 * 1024)) break;
+		if (++scanned > SESSION_TURNS_MAX || bytes > REPLAY_BYTES) break;
 		if ((turn.status !== "done" && turn.status !== "error") || turn.prompt === undefined) continue;
 		const reply = turn.replyId ? await ctx.db.get(turn.replyId) : null;
 		bytes += reply ? getDocumentSize(reply) : 0;
-		if (hiddenSummary && bytes > 4 * 1024 * 1024) break;
+		if (bytes > REPLAY_BYTES) break;
 		if (member && reply && !(await canReadReply(ctx, member, reply))) continue;
 		const details = !member || await canReadReplyDetails(ctx, member, reply);
-		const kept = await ctx.db.query("turnSteps").withIndex("by_turn", (q) => q.eq("turnId", turn._id)).collect();
-		bytes += kept.reduce((sum, s) => sum + getDocumentSize(s), 0);
+		// Read one step at a time against the budget: a turn's steps can be many near-1 MiB rows.
+		const kept: Doc<"turnSteps">[] = [];
+		for await (const step of ctx.db.query("turnSteps").withIndex("by_turn", (q) => q.eq("turnId", turn._id))) {
+			bytes += getDocumentSize(step);
+			if (bytes > REPLAY_BYTES) break;
+			kept.push(step);
+		}
+		if (bytes > REPLAY_BYTES) break;
 		const steps = kept.flatMap((s) => JSON.parse(s.messages) as ModelMessage[]);
 		const shown = JSON.stringify(member ? stepsFor(steps, { details, results: turn.actorId === member.userId }) : steps);
 		const answer = answerOf(turn, reply);
@@ -276,7 +290,7 @@ async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">, member
 		replay.push({ prompt, steps: shown, answer, ...(reply?.stoppedBy && { stopped: true as const }), calls: calledTools(steps), time: turn._creationTime, usedPlaces: [...new Set([...(prompt ? turn.promptPlaces ?? [] : []), ...(details ? reply?.usedPlaces ?? [] : [])])] });
 		tokens += size;
 	}
-	return hiddenSummary ? replay.reverse() : replay;
+	return replay.reverse();
 }
 
 /** The running turn, its person (read fresh), and the chat, if they can still see it. */
@@ -389,7 +403,6 @@ export const turnContext = internalMutation({
 		const asked = [...recent, parent, origin].filter(own).map((m) => m.text);
 		/** A thread's first turn starts with its parent. */
 		const first = turns.length === 0 && (foreign || !summary);
-		const rows = await chatMembersOf(ctx, chat._id);
 		const { models } = await catalogModels(ctx);
 		const vision = [models, fallbackModels].some((list) => list.find((m) => m.id === agent.model)?.vision);
 		const user = await ctx.db.get(member.userId);
@@ -418,7 +431,7 @@ export const turnContext = internalMutation({
 				thread: parent
 					? { parent: await toPlaceMessage(ctx, parent, names, agent._id), first }
 					: null,
-				members: await Promise.all(rows.map(async (r) => ({ ...(await names.of(r)), ...(r.agentId && { role: (await ctx.db.get(r.agentId))?.description }) }))),
+				...(await placeMembers(ctx, chat, [member.userId, ...[parent, ...recent].flatMap((m) => (m ? [m.authorUserId, m.actingFor] : []))], names)),
 			},
 			messages,
 			reacted: await Promise.all(reacted.map((m) => toPlaceMessage(ctx, m, names, agent._id))),
@@ -982,3 +995,21 @@ export const finishCompaction = internalMutation({
 		await recordUsage(ctx, { workspaceId: session.workspaceId, userId: turn ? turn.actorId : undefined, agentId: session.agentId, kind: "summary", model: result.model, costUsd: result.costUsd });
 	},
 });
+
+/**
+ * Who a turn's prompt names in its chat: its live agents, and `people` still in it (the asker, the
+ * authors in view), with the rest counted. A few indexed reads, however big the channel is.
+ */
+async function placeMembers(ctx: QueryCtx, chat: Doc<"chats">, people: (Id<"users"> | undefined)[], names: Namer) {
+	const members: (Participant & { role?: string })[] = [];
+	for (const id of new Set(people)) if (id && (await membership(ctx, chat._id, id))) members.push(await names.user(id));
+	let seated = members.length;
+	// Archived agents keep their seats: counted, not named.
+	for (const agent of await ctx.db.query("agents").withIndex("by_workspace", (q) => q.eq("workspaceId", chat.workspaceId)).collect()) {
+		if (!(await ctx.db.query("chatMembers").withIndex("by_agent", (q) => q.eq("agentId", agent._id).eq("chatId", chat._id)).first())) continue;
+		seated++;
+		if (!agent.archived) members.push({ ...(await names.agent(agent._id)), role: agent.description });
+	}
+	// COMPAT(0.1.0-alpha.10): an uncounted chat (before migrations.chatMemberCounts) counts none; drop `?? 0` with it.
+	return { members, others: Math.max((chat.memberCount ?? 0) - seated, 0) };
+}

@@ -223,7 +223,6 @@ it("limits steady 50ms traffic to one 500-seat refresh pass per minute and catch
 	const chatId = await owner.mutation(api.chats.createChannel, { name: "steady", private: true });
 	const dm = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [agentId] });
 	const turnId = await agentTurn(t, owner, dm, agentId);
-	const start = Date.now();
 	const post = (text: string) => t.run(async (ctx) => insertMessage(ctx, (await ctx.db.get("chats", chatId))!, { authorUserId: owner.userId, text, parts: [], mentions: { userIds: [], agentIds: [] }, status: "done" }));
 	try {
 		await t.run(async (ctx) => {
@@ -264,11 +263,11 @@ it("limits steady 50ms traffic to one 500-seat refresh pass per minute and catch
 			await runPage();
 		}
 		expect(starts).toEqual([firstPass, secondPass]);
-		expect(await nextJob()).toBeUndefined();
+		expect(await nextJob()).toBeNull();
 		const activity = await t.run((ctx) => ctx.db.query("seatActivity").withIndex("by_chat", (q) => q.eq("chatId", chatId)).collect());
 		expect(activity).toHaveLength(500);
 		expect(activity.every((row) => row.activityAt === firstPass + 2000)).toBe(true);
 		expect(Date.now() - (firstPass + 2000)).toBeLessThanOrEqual(60_250);
-		expect(await t.mutation(internal.chatTools.searchFor, { turnId, query: "steady newest" })).toMatchObject({ messages: [{ text: "steady newest" }] });
+		expect(await t.mutation(internal.chatTools.searchFor, { turnId, query: "steady newest" })).toHaveProperty("messages.0.text", "steady newest");
 	} finally { vi.useRealTimers(); }
 });

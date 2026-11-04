@@ -65,8 +65,13 @@ export interface TurnPlace {
 	topic: string | null;
 	/** Set when the turn is in a thread. */
 	thread: { parent: PlaceMessage; first: boolean } | null;
-	/** Everyone in the chat, the agent included; agents with their one-line role. */
+	/**
+	 * Who's named here: the chat's agents (the agent included, each with its one-line role), and the
+	 * people with a message in view and the asker. A big channel's thousands aren't read for each turn.
+	 */
 	members: (Participant & { role?: string })[];
+	/** The chat's other people, not in `members`: counted only ("and 40 more"). */
+	others: number;
 }
 
 export interface TurnPromptInput {
@@ -120,10 +125,10 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 	const agents = others("agent");
 	const roles = place.members.filter((m) => m.type === "agent" && m.id !== input.agentId).map((m) => (m.role ? `${clean(m.name)} (${clip(clean(m.role), 80)})` : clean(m.name)));
 	const here =
-		[people.length > 0 && `${listed(people)} (people)`, agents.length > 0 && `${listed(roles)} (agents)`]
+		[people.length + place.others > 0 && `${listed(people, place.others)} (people)`, agents.length > 0 && `${listed(roles)} (agents)`]
 			.filter(Boolean)
 			.join("; ") || "just you";
-	const team = place.kind === "channel" || people.length + agents.length > 1;
+	const team = place.kind === "channel" || people.length + agents.length + place.others > 1;
 
 	const header = [
 		`Where you are: ${describePlace(place, people, agents)}${place.thread ? ", in a thread" : ""}.`,
@@ -353,13 +358,16 @@ function describePlace(place: TurnPlace, people: string[], agents: string[]) {
 		const topic = place.topic ? `. Topic: ${JSON.stringify(place.topic)}` : "";
 		return `#${place.name}, a ${place.private ? "private" : "public"} channel${topic}`;
 	}
-	return people.length === 1 && agents.length === 0 ? `a DM with ${people[0]}` : "a group DM";
+	return people.length === 1 && agents.length === 0 && place.others === 0 ? `a DM with ${people[0]}` : "a group DM";
 }
 
-/** Names in a place, at most HERE_MAX: the line is replayed in every later turn, so a big #general stays cheap. */
+/** Names in a place, at most HERE_MAX, then how many `more` there are: the line is replayed in every later turn, so a big #general stays cheap. */
 const HERE_MAX = 15;
-const listed = (names: string[]) =>
-	names.length > HERE_MAX ? `${names.slice(0, HERE_MAX).join(", ")} and ${names.length - HERE_MAX} more` : names.join(", ");
+const listed = (names: string[], more = 0) => {
+	const rest = Math.max(names.length - HERE_MAX, 0) + more;
+	const shown = names.slice(0, HERE_MAX).join(", ");
+	return rest === 0 ? shown : shown ? `${shown} and ${rest} more` : `${rest} ${rest === 1 ? "person" : "people"}`;
+};
 
 /**
  * A name or email that people set, as one line with no brackets, so it can't fake a chat line or

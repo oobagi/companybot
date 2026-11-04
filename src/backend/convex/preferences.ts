@@ -4,7 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { imageUrl } from "./images";
-import { authUserId, preferencesOf, requireUserId } from "./lib";
+import { authUserId, preferencesOf, requireUserId, syncMemberProfiles } from "./lib";
 import { notify } from "./schema";
 
 // Personal preferences: only you see them, and they follow you to every device.
@@ -61,9 +61,10 @@ export async function updatePreferences(ctx: MutationCtx, userId: Id<"users">, {
 	await savePreferences(ctx, userId, changes);
 }
 
-/** Writes someone's preferences, making their row the first time. */
-export async function savePreferences(ctx: MutationCtx, userId: Id<"users">, changes: Partial<Omit<Doc<"preferences">, "_id" | "_creationTime" | "userId">>) {
+/** Writes someone's preferences, making their row the first time, and the copy on their memberships. */
+export async function savePreferences(ctx: MutationCtx, userId: Id<"users">, changes: Partial<Omit<Doc<"preferences">, "_id" | "_creationTime" | "userId" | "workspaceId">>) {
 	const prefs = await preferencesOf(ctx, userId);
 	if (prefs) await ctx.db.patch(prefs._id, changes);
 	else await ctx.db.insert("preferences", { userId, ...defaults, ...changes });
+	await syncMemberProfiles(ctx, userId);
 }

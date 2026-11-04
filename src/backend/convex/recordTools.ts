@@ -17,7 +17,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation } from "./_generated/server";
 import { activityPage } from "./activity";
 import { deleteView, saveView, viewsOf } from "./databaseViews";
-import { type Member, asToolResult, nameOf, requireInWorkspace } from "./lib";
+import { type Member, asToolResult, nameOf, normalizeEmail, profileOf, requireInWorkspace } from "./lib";
 import {
 	createType,
 	updateType,
@@ -130,16 +130,19 @@ function fieldNamed(fields: Doc<"recordFields">[], name: string, type: Doc<"reco
 
 /** Distinct names one call may look up; ids don't count. Each lookup is a couple of index rows. */
 const LOOKUPS_MAX = 100;
+/** Teammates a failed name lookup lists. */
+const TEAM_LISTED = 20;
 
 /**
  * Turns teammates and linked records as people name them ("me", "Ana", "Acme Roofing") into
  * ids, for one call. Ids pass through. Linked names are an exact lookup of the target type's
- * name field in the index (live records only), so each costs two index rows. Lookups are
+ * name field in the index (live records only), so each costs two index rows. Teammates are an
+ * email in `members.by_email`, else a name in one read of the members' stored names. Lookups are
  * memoized and capped, and the team is read once.
  */
 class Names {
 	private cache = new Map<string, Promise<string>>();
-	private team?: Promise<{ id: Id<"users">; name: string; email: string }[]>;
+	private team?: Promise<{ userId: Id<"users">; name: string }[]>;
 	/** `exact`, for writes: linked records by id only, and teammates by id, email or "me", never by a name that can change. */
 	constructor(
 		private ctx: QueryCtx,
@@ -174,24 +177,26 @@ class Names {
 	private async user(text: string) {
 		const lower = text.toLowerCase();
 		if (lower === "me") return this.member.userId;
+		const byEmail = await this.ctx.db
+			.query("members")
+			.withIndex("by_email", (q) => q.eq("workspaceId", this.member.workspaceId).eq("email", normalizeEmail(text)))
+			.first();
+		if (this.exact) {
+			if (byEmail) return byEmail.userId;
+			throw new ConvexError(`Name teammates by id, email or "me", not “${text}”: names can change.`);
+		}
 		this.team ??= this.ctx.db
 			.query("members")
 			.withIndex("by_workspace", (q) => q.eq("workspaceId", this.member.workspaceId))
 			.collect()
-			.then((rows) =>
-				Promise.all(
-					rows.map(async (m) => ({ id: m.userId, name: await nameOf(this.ctx, m.userId), email: (await this.ctx.db.get(m.userId))?.email ?? "" })),
-				),
-			);
+			.then((rows) => Promise.all(rows.map(async (m) => ({ userId: m.userId, name: (await profileOf(this.ctx, m)).name }))));
 		const team = await this.team;
-		const matches = team.filter((p) => (!this.exact && p.name.toLowerCase() === lower) || p.email.toLowerCase() === lower);
-		if (this.exact && !matches.length) throw new ConvexError(`Name teammates by id, email or "me", not “${text}”: names can change.`);
-		if (matches.length === 1) return matches[0]!.id;
-		throw new ConvexError(
-			matches.length
-				? `Several teammates are called “${text}”. Use their email.`
-				: `No teammate “${text}”. Teammates: ${team.map((p) => p.name).join(", ")}.`,
-		);
+		// Someone's email and someone else's name alike is as ambiguous as two names.
+		const matches = new Set([...(byEmail ? [byEmail.userId] : []), ...team.filter((m) => m.name.toLowerCase() === lower).map((m) => m.userId)]);
+		if (matches.size === 1) return [...matches][0]!;
+		if (matches.size) throw new ConvexError(`Several teammates are called “${text}”. Use their email.`);
+		const names = team.slice(0, TEAM_LISTED).map((m) => m.name);
+		throw new ConvexError(`No teammate “${text}”. Teammates: ${names.join(", ")}${team.length > TEAM_LISTED ? ` and ${team.length - TEAM_LISTED} more` : ""}.`);
 	}
 
 	/** The live record of `typeId` named exactly `text` (case-insensitive). */
