@@ -10,11 +10,15 @@ import {
 	createPage,
 	editorsOf,
 	pageOfRecord,
+	pageVisible,
 	renamePage,
 	requireEditable,
 	requirePage,
 	restoreVersion,
 } from "./pageOps";
+import { accessInfo, savedAccess } from "./placeAccess";
+import { accessArg } from "./schema";
+import { can } from "@companybot/core";
 import { movePage, pageRow, pageState, pageStates } from "./pageTree";
 import { trashInfo } from "./trashOps";
 
@@ -30,7 +34,7 @@ const canEdit = async (ctx: QueryCtx, member: Member, page: Doc<"pages">) =>
 		() => false,
 	);
 
-/** Standalone pages, by title. */
+/** Standalone pages you can see, by title. */
 export const list = query({
 	args: {},
 	handler: async (ctx) => {
@@ -42,8 +46,9 @@ export const list = query({
 			.take(LIST_MAX);
 		// A page under a trashed one is in Trash too.
 		const state = pageStates(ctx);
+		const seen = pageVisible(ctx, member);
 		const visible = [];
-		for (const p of pages) if (!(await state(p)).archived) visible.push(pageRow(p));
+		for (const p of pages) if (!(await state(p)).archived && (await seen(p))) visible.push(pageRow(p, member));
 		return visible;
 	},
 });
@@ -56,15 +61,25 @@ export const get = query({
 		const page = member && id && (await ctx.db.get(id));
 		if (!member || page?.workspaceId !== member.workspaceId) return null;
 		const state = await pageState(ctx, page);
+		const { level, ...access } = accessInfo(member, state.access);
+		if (!level) return null;
+		const seen = pageVisible(ctx, member);
+		const ancestors = [];
+		for (const a of state.ancestors.slice().reverse()) if (await seen(a)) ancestors.push(pageRow(a, member));
 		return {
 			_id: page._id,
 			title: page.title,
 			archived: state.archived,
 			parentId: page.parentId ?? null,
-			ancestors: state.ancestors.slice().reverse().map(pageRow),
+			ancestors,
 			recordId: page.recordId ?? null,
 			canEdit: await canEdit(ctx, member, page),
 			trash: await trashInfo(ctx, member, state.trashPage?._id ?? page._id),
+			...access,
+			/** Its own list, or null when it follows its parent's (a record's page always follows its database). */
+			ownAccess: page.access ? access.access : null,
+			/** Who can access can be changed here: `pages.edit` and Edit in it, standalone pages only. */
+			canManageAccess: !page.recordId && can(member, "pages.edit") && level === "edit",
 		};
 	},
 });
@@ -74,7 +89,8 @@ export const forRecord = query({
 	args: { recordId: v.id("records") },
 	handler: async (ctx, { recordId }) => {
 		const member = await getMember(ctx);
-		return member ? ((await pageOfRecord(ctx, member.workspaceId, recordId))?._id ?? null) : null;
+		const page = member && (await pageOfRecord(ctx, member.workspaceId, recordId));
+		return member && page && (await pageVisible(ctx, member)(page)) ? page._id : null;
 	},
 });
 
@@ -94,14 +110,18 @@ export const children = query({
 	handler: async (ctx, { parentId, paginationOpts }) => {
 		const member = await getMember(ctx);
 		if (!member) return emptyPage();
+		const seen = pageVisible(ctx, member);
 		if (parentId) {
 			const parent = await ctx.db.get(parentId);
-			if (parent?.workspaceId !== member.workspaceId || parent.recordId || (await pageState(ctx, parent)).archived) return emptyPage();
+			if (parent?.workspaceId !== member.workspaceId || parent.recordId || (await pageState(ctx, parent)).archived || !(await seen(parent))) return emptyPage();
 		}
 		const result = await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", parentId).eq("recordId", undefined).eq("archived", false))
 			.paginate(capped(paginationOpts, 50));
 		const hasChildren = async (p: Doc<"pages">) => !!(await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", p._id).eq("recordId", undefined).eq("archived", false)).first());
-		return { ...result, page: await Promise.all(result.page.map(async (p) => ({ ...pageRow(p), hasChildren: await hasChildren(p) }))) };
+		const page = [];
+		// Pages kept from them are left out; a page can come back short.
+		for (const p of result.page) if (await seen(p)) page.push({ ...pageRow(p, member), hasChildren: await hasChildren(p) });
+		return { ...result, page };
 	},
 });
 
@@ -113,11 +133,16 @@ export const search = query({
 		if (!member || !text.trim()) return [];
 		// Record bodies can't be filtered out by the index, so walk hits until enough standalone, live pages are found.
 		const state = pageStates(ctx);
+		const seen = pageVisible(ctx, member);
 		const rows = [];
+		let read = 0;
 		for await (const p of ctx.db.query("pages").withSearchIndex("search_title", (q) => q.search("title", text).eq("workspaceId", member.workspaceId).eq("archived", false))) {
-			if (p.recordId) continue;
+			if (++read > 200) break;
+			if (p.recordId || !(await seen(p))) continue;
 			const { archived, ancestors } = await state(p);
-			if (!archived) rows.push({ ...pageRow(p), path: ancestors.map((a) => a.title).reverse() });
+			const path = [];
+			for (const a of ancestors.slice().reverse()) if (await seen(a)) path.push(a.title);
+			if (!archived) rows.push({ ...pageRow(p, member), path });
 			if (rows.length === 20) break;
 		}
 		return rows;
@@ -133,11 +158,12 @@ export const liveIds = query({
 		// Unknown isn't deleted: signed out (or not yet), keep the saved ids.
 		if (!member) return null;
 		const state = pageStates(ctx);
+		const seen = pageVisible(ctx, member);
 		const live = [];
 		for (const value of ids) {
 			const id = ctx.db.normalizeId("pages", value);
 			const page = id && await ctx.db.get(id);
-			if (page && page.workspaceId === member.workspaceId && !page.recordId && !(await state(page)).archived) live.push(value);
+			if (page && page.workspaceId === member.workspaceId && !page.recordId && !(await state(page)).archived && (await seen(page))) live.push(value);
 		}
 		return live;
 	},
@@ -157,7 +183,7 @@ export const moves = query({
 	handler: async (ctx, { pageId, paginationOpts }) => {
 		const member = await getMember(ctx);
 		const page = member && await ctx.db.get(pageId);
-		if (!member || page?.workspaceId !== member.workspaceId) return emptyPage();
+		if (!member || page?.workspaceId !== member.workspaceId || !(await pageVisible(ctx, member)(page))) return emptyPage();
 		const result = await ctx.db.query("pageMoves").withIndex("by_page", (q) => q.eq("pageId", pageId)).order("desc")
 			.paginate(capped(paginationOpts, 20));
 		return { ...result, page: await Promise.all(result.page.map(async (r) => ({ ...r, user: await nameOf(ctx, r.userId), agent: r.agentId ? (await ctx.db.get(r.agentId))?.name ?? "An agent" : null }))) };
@@ -178,6 +204,22 @@ export const addImage = mutation({
 	},
 });
 
+/**
+ * Who can access a standalone page and the sub-pages that follow it: Everyone or roles, each at View or
+ * Edit, or `null` to follow its parent's again. People with `pages.edit` and Edit in it choose. A
+ * record's page follows its database.
+ */
+export const setAccess = mutation({
+	args: { pageId: v.id("pages"), access: v.union(accessArg, v.null()) },
+	handler: async (ctx, { pageId, access }) => {
+		const member = await requireMember(ctx);
+		const page = await requirePage(ctx, member, pageId);
+		if (page.recordId) throw new ConvexError("A record's page follows its database. Change who can access the database instead.");
+		await requireEditable(ctx, member, page);
+		await ctx.db.patch(page._id, { access: access ? await savedAccess(ctx, member, access) : undefined });
+	},
+});
+
 export const rename = mutation({
 	args: { pageId: v.id("pages"), title: v.string() },
 	handler: async (ctx, { pageId, title }) => {
@@ -192,7 +234,7 @@ export const history = query({
 	handler: async (ctx, { pageId, paginationOpts }) => {
 		const member = await getMember(ctx);
 		const page = member && (await ctx.db.get(pageId));
-		if (!member || page?.workspaceId !== member.workspaceId) return emptyPage();
+		if (!member || page?.workspaceId !== member.workspaceId || !(await pageVisible(ctx, member)(page))) return emptyPage();
 		return pageHistory(ctx, page._id, paginationOpts);
 	},
 });
@@ -201,6 +243,7 @@ export async function requireVersion(ctx: QueryCtx, member: Member, versionId: I
 	const row = await ctx.db.get(versionId);
 	const page = row && (await ctx.db.get(row.pageId));
 	if (!row || page?.workspaceId !== member.workspaceId) throw new ConvexError("Version not found.");
+	await requirePage(ctx, member, page._id);
 	return { row, page };
 }
 

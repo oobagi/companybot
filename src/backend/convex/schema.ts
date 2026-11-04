@@ -1,7 +1,7 @@
 import { viewConfig } from "./recordValidators";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
-import { builtInRoles, fieldKinds, fileTypes, permissions, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
+import { accessLevels, builtInRoles, fieldKinds, fileTypes, permissions, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
 import { v } from "convex/values";
 
 /** One of `values`, each a literal. */
@@ -16,6 +16,15 @@ const legacyRole = v.union(v.literal("owner"), v.literal("member"));
 export const permission = oneOf(Object.keys(permissions) as (keyof typeof permissions)[]);
 
 export const wakeOutcome = oneOf(wakeOutcomes);
+
+/**
+ * Who can access a place (core place-access.ts): Everyone or a role, each at View or Edit. Unset is
+ * Everyone at Edit; on a page, its parent's (a record's page follows its database).
+ */
+export const accessEntry = v.object({ role: v.union(v.literal("everyone"), v.id("roles")), level: oneOf(accessLevels) });
+const access = v.optional(v.array(accessEntry));
+/** A Who can access list as the app sends it: role ids are checked against the workspace's (placeAccess `savedAccess`). */
+export const accessArg = v.array(v.object({ role: v.string(), level: oneOf(accessLevels) }));
 
 export const agentConfig = v.object({
 	name: v.string(),
@@ -480,6 +489,8 @@ export default defineSchema({
 		costUsd: v.optional(v.number()),
 		/** Channels: when agents answer without an @mention (core router.ts). Unset is "mentions", so no migration. */
 		replyMode: v.optional(oneOf(replyModes)),
+		/** Channels: who can see and post (Post is `edit`), on top of a private channel's members. */
+		access,
 	})
 		.index("by_workspace", ["workspaceId", "kind"])
 		.index("by_dm_key", ["workspaceId", "dmKey"])
@@ -1004,6 +1015,8 @@ export default defineSchema({
 		archived: v.boolean(),
 		createdBy: v.id("users"),
 		updatedAt: v.number(),
+		/** Who can see and change it, its records and their pages. */
+		access,
 	}).index("by_workspace", ["workspaceId", "key"]),
 
 	// Named sorting, filtering and columns, shared with the workspace.
@@ -1071,6 +1084,8 @@ export default defineSchema({
 		createdBy: v.id("users"),
 		updatedAt: v.number(),
 		updatedBy: v.id("users"),
+		/** Standalone pages: who can see and edit it. Unset follows its parent; a top-level page's is Everyone at Edit. */
+		access,
 	})
 		.index("by_workspace", ["workspaceId", "recordId", "archived", "title"])
 		.index("by_parent", ["workspaceId", "parentId", "recordId", "archived", "title"])

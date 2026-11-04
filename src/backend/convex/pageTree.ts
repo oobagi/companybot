@@ -1,18 +1,34 @@
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import type { Member, Who } from "./lib";
+import { widens } from "@companybot/core";
+import { type Member, type Who, memo } from "./lib";
+import { type AccessList, accessInfo } from "./placeAccess";
 import { appendPageBlock, removePageBlock, requireEditable, requirePage } from "./pageOps";
 
 // A deleted ancestor gates the whole subtree immediately; no fan-out on trash/restore.
 export const PAGE_DEPTH_MAX = 32;
 const MOVE_SCAN_MAX = 1_000;
-export const pageRow = (p: Doc<"pages">) => ({ _id: p._id, title: p.title, parentId: p.parentId ?? null, updatedAt: p.updatedAt });
+/** A page as lists show it. `lock`: who its own list lets in, for the sidebar's lock ("Office and Owners"); sub-pages following it show none. */
+export const pageRow = (p: Doc<"pages">, member: Member) => ({ _id: p._id, title: p.title, parentId: p.parentId ?? null, updatedAt: p.updatedAt, lock: accessInfo(member, p.access).lock });
 
-/** Share this reader across a list to avoid rereading common ancestors. Missing parents fail closed during purge. */
+/**
+ * Share this reader across a list to avoid rereading common ancestors. Missing parents fail closed during purge.
+ * `access`: the Who can access list that rules the page: its own, else the nearest ancestor's; a record's
+ * page, its database's. `type`: that database, for a record's page.
+ */
 export function pageStates(ctx: QueryCtx) {
 	const seen = new Map<Id<"pages">, Promise<Doc<"pages"> | null>>();
-	return async (page: Doc<"pages">) => {
+	const typeOf = memo(async (recordId: Id<"records">) => {
+		const record = await ctx.db.get(recordId);
+		return record && (await ctx.db.get(record.typeId));
+	});
+	return async (page: Doc<"pages">): Promise<PageState> => {
+		if (page.recordId) {
+			const type = await typeOf(page.recordId);
+			// A record's page has no parent; it's in Archive with its record (pageOps.requireEditable checks that).
+			return { ancestors: [], archived: page.archived, trashPage: page.archived ? page : undefined, access: type ? type.access : [], type: type ?? undefined };
+		}
 		const ancestors: Doc<"pages">[] = [];
 		let current = page;
 		let trashPage = page.archived ? page : undefined;
@@ -21,14 +37,23 @@ export function pageStates(ctx: QueryCtx) {
 			let pending = seen.get(current.parentId);
 			if (!pending) { pending = ctx.db.get(current.parentId); seen.set(current.parentId, pending); }
 			const parent = await pending;
-			if (!parent || parent.workspaceId !== page.workspaceId) return { ancestors, archived: true, trashPage, missingId: current.parentId };
+			if (!parent || parent.workspaceId !== page.workspaceId) return { ancestors, archived: true, trashPage, missingId: current.parentId, access: [] };
 			ancestors.push(parent);
 			if (parent.archived) trashPage = parent;
 			current = parent;
 		}
-		return { ancestors, archived: !!trashPage, trashPage };
+		return { ancestors, archived: !!trashPage, trashPage, access: [page, ...ancestors].find((p) => p.access)?.access };
 	};
 }
+
+export type PageState = {
+	ancestors: Doc<"pages">[];
+	archived: boolean;
+	trashPage?: Doc<"pages">;
+	missingId?: Id<"pages">;
+	access: AccessList;
+	type?: Doc<"recordTypes">;
+};
 export const pageState = (ctx: QueryCtx, page: Doc<"pages">) => pageStates(ctx)(page);
 
 /** Record bodies are neither parents nor children. */
@@ -63,7 +88,10 @@ export async function movePage(ctx: MutationCtx, who: Who, page: Doc<"pages">, p
 			queue.push(...children.map((p) => ({ id: p._id, depth: next.depth + 1 })));
 		}
 	}
-	await ctx.db.patch(page._id, { parentId, updatedAt: Date.now(), updatedBy: who.member.userId });
+	// Moving never opens a page to more people: one following its old parent's list keeps that list
+	// if the new place's would let anyone further in. Moving somewhere stricter makes it stricter.
+	const keep = !page.access && widens(before.access, destination ? destination.access : undefined, who.member.workspaceRoles.map((r) => r.id));
+	await ctx.db.patch(page._id, { parentId, updatedAt: Date.now(), updatedBy: who.member.userId, ...(keep && { access: before.access ?? [] }) });
 	if (before.ancestors[0]) await removePageBlock(ctx, who, before.ancestors[0], page._id);
 	if (destination) await appendPageBlock(ctx, who, destination.parent, page._id, page.title);
 	const latest = await ctx.db.query("pageMoves").withIndex("by_page", (q) => q.eq("pageId", page._id)).order("desc").first();

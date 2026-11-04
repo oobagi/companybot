@@ -48,7 +48,9 @@ export function ThreadPanel({
 			</span>
 		</header>
 	);
-	const footer = ask ? (
+	const footer = !ask && !chat.canPost ? (
+		<div className="px-5 pt-3 pb-7 text-sm text-neutral-500">Only {chat.lock?.who ?? "some roles"} can post in #{chat.name}.</div>
+	) : ask ? (
 		<div className="flex flex-col gap-1 px-5 pt-3 pb-7 text-xs text-neutral-400">
 			<Notice>{error}</Notice>
 			<TypingLine chatId={chat._id} threadId={threadId} />
@@ -94,7 +96,7 @@ export function ThreadPanel({
 					messages={messages}
 					tokens={tokens}
 					summaryLabel="Agents"
-					readOnly={!!ask}
+					readOnly={!!ask || !chat.canPost}
 					onError={fail}
 					header={header}
 					footer={footer}

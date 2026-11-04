@@ -12,7 +12,7 @@ Each database has its own entry under Databases in the sidebar; its address is #
 ## Who can do what
 - **Create, rename or delete databases, and add or change fields**: people whose role can add and change databases and fields (Member, to start). The + is beside Databases.
 - **Add and edit records, undo changes**: people whose role can add and change records (Member, to start).
-- Everyone can read every record.
+- **Who can access**: each database's settings has a Who can access list (Everyone, or chosen roles, at View or Edit). Its records and their pages follow it. People not on it don't see the database at all, and links to its records show as locked chips. See **help: permissions**.
 
 ## Using a database
 - **List**: pick columns, click a header to sort, and filter by any field. Search by name and text.

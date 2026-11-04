@@ -4,7 +4,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { mutation } from "./functions";
-import { addToChat, canSee, findOrCreateDm, insertMessage } from "./chatOps";
+import { addToChat, canPost, canSee, findOrCreateDm, insertMessage } from "./chatOps";
 import { type Member, accessOf, liveWorkspace, memberOf, nameOf, normalizeEmail, requireMember, rolesOf, sweepExpired } from "./lib";
 import { definitionOf, followsOthers, postingProblem, requireEditable, scheduleCursor, subscribersOf } from "./automationOps";
 import { enqueueTurn } from "./turns";
@@ -258,7 +258,8 @@ async function runInChannel(
 	let actorId: Id<"users"> | null = null;
 	for (const userId of [preferred, ...owners.map((m) => m.userId)]) {
 		const member = await memberOf(ctx, userId, install.workspaceId);
-		if (member && (await canSee(ctx, chat, member))) {
+		// It posts there as them, so they need Post in it, not just View.
+		if (member && (await canSee(ctx, chat, member)) && canPost(member, chat)) {
 			actorId = userId;
 			break;
 		}

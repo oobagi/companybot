@@ -7,7 +7,9 @@ import { type Member, asToolResult } from "./lib";
 import {
 	createPage,
 	pageOfRecord,
+	pageVisible,
 	readDoc,
+	requirePageAccess,
 	renamePage,
 	requirePage,
 	restoreVersion,
@@ -39,6 +41,8 @@ async function pageNamed(ctx: QueryCtx, member: Member, name: string, trashed = 
 	for (const p of candidates) if ((await state(p)).archived === trashed) rows.push(p);
 	if (candidates.length > FIND_MAX || rows.length > 1) throw new ConvexError(`Several pages are titled “${name}”. Find them with pages_find and use an id.`);
 	if (!rows[0]) throw new ConvexError(`No page titled “${name}”. Find it with pages_find, or use its id.`);
+	// Found by title but kept from them: say who can see it, so the agent can tell its person whom to ask.
+	await requirePageAccess(ctx, member, rows[0], "view");
 	return rows[0];
 }
 
@@ -63,8 +67,9 @@ export const findFor = internalQuery({
 			: pages.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("recordId", undefined).eq("archived", trashed));
 		const page = await found.paginate({ numItems: search?.trim() ? SEARCH_MAX : FIND_MAX, cursor: cursor ?? null });
 		const state = pageStates(ctx);
+		const seen = pageVisible(ctx, member);
 		const rows = [];
-		for (const p of page.page) if (!p.recordId && (await state(p)).archived === trashed) rows.push(row(p));
+		for (const p of page.page) if (!p.recordId && (await state(p)).archived === trashed && (await seen(p))) rows.push(row(p));
 		return { rows, more: !page.isDone, ...(!page.isDone && { cursor: page.continueCursor }) };
 	},
 });
@@ -79,6 +84,7 @@ export const readFor = internalQuery({
 			if (version && !oldId) throw new ConvexError("Version not found.");
 			const old = oldId ? await requireVersion(ctx, member, oldId) : null;
 			const record = recordName ? await recordNamed(ctx, member, recordName) : null;
+			// recordNamed checked its database, which rules its page too.
 			const page = old?.page ?? (record ? await pageOfRecord(ctx, member.workspaceId, record._id) : name ? await pageNamed(ctx, member, name) : null);
 			if (old && ((record && old.page.recordId !== record._id) || (name && (await pageNamed(ctx, member, name))._id !== old.page._id))) throw new ConvexError("Version belongs to a different page.");
 			if (!record && !page) throw new ConvexError("Say which page (page) or record (record) to read.");
@@ -92,12 +98,16 @@ export const readFor = internalQuery({
 			}));
 			if (history) return { title: page ? await titleOf(ctx, page) : record!.title, doc: null, versions, moreVersions: !!result && !result.isDone, ...(result && !result.isDone && { cursor: result.continueCursor }) };
 			const state = page ? await pageState(ctx, page) : null;
-			const children = page && !page.recordId && !old ? await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", page._id).eq("recordId", undefined).eq("archived", false)).take(51) : [];
+			const seen = pageVisible(ctx, member);
+			const children = [];
+			for (const p of page && !page.recordId && !old ? await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", page._id).eq("recordId", undefined).eq("archived", false)).take(51) : []) if (await seen(p)) children.push(p);
+			const ancestors = [];
+			for (const p of state?.ancestors.slice().reverse() ?? []) if (await seen(p)) ancestors.push({ id: p._id, title: p.title });
 			const doc = old ? await versionContent(ctx, old.page, old.row) : page ? JSON.stringify((await readDoc(ctx, page._id)).toJSON()) : null;
 			if (old && doc === null) throw new ConvexError("This version is no longer available.");
 			return {
 				...(page && { id: page._id, parentId: page.parentId ?? null }),
-				ancestors: state?.ancestors.slice().reverse().map((p) => ({ id: p._id, title: p.title })) ?? [],
+				ancestors,
 				subpages: children.slice(0, 50).map((p) => ({ id: p._id, title: p.title })),
 				subpagesMore: children.length > 50,
 				title: page ? await titleOf(ctx, page) : record!.title,

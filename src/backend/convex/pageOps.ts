@@ -10,7 +10,9 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { type Member, type Who, checkPermission, nameOf, requireInWorkspace } from "./lib";
 import { cascading, startCascade } from "./cascade";
 import { inTrash, requireRecord } from "./recordOps";
-import { pageState, parentFor } from "./pageTree";
+import { type PageState, pageState, pageStates, parentFor } from "./pageTree";
+import { type AccessLevel, reaches } from "@companybot/core";
+import { reach, requireAccess } from "./placeAccess";
 import { toggleTrash } from "./trashOps";
 import { pageBlockSchema } from "./pageBlocks";
 
@@ -44,8 +46,33 @@ export const pageSchema = () => (schema ??= BlockNoteEditor.create({ schema: pag
 /** An empty block, as BlockNote keeps at the end of every page. */
 const emptyBlock = () => ({ type: "blockContainer", attrs: { id: crypto.randomUUID() }, content: [{ type: "paragraph" }] });
 
-export async function requirePage(ctx: QueryCtx, member: Member, pageId: Id<"pages">) {
-	return requireInWorkspace(member, await ctx.db.get(pageId), "Page");
+/** A page in the person's workspace that they reach `need` in (`requirePageAccess`). */
+export async function requirePage(ctx: QueryCtx, member: Member, pageId: Id<"pages">, need: AccessLevel = "view") {
+	const page = requireInWorkspace(member, await ctx.db.get(pageId), "Page");
+	await requirePageAccess(ctx, member, page, need);
+	return page;
+}
+
+/**
+ * Refuses someone without `need` in a page, naming who has it: a standalone page by the list that
+ * rules it (its own or an ancestor's), a record's page by its database's.
+ */
+export async function requirePageAccess(ctx: QueryCtx, member: Member, page: Doc<"pages">, need: AccessLevel, state?: PageState) {
+	const { access, type } = state ?? (await pageState(ctx, page));
+	if (type) requireAccess(member, "database", type.plural, access, need);
+	else requireAccess(member, "page", page.title, access, need);
+}
+
+/** How far someone reaches in each page ("edit", "view" or null), sharing reads across a list. */
+export function pageReach(ctx: QueryCtx, member: Member) {
+	const state = pageStates(ctx);
+	return async (page: Doc<"pages">) => reach(member, (await state(page)).access);
+}
+
+/** Whether someone can see a page (`pageReach`). */
+export function pageVisible(ctx: QueryCtx, member: Member) {
+	const level = pageReach(ctx, member);
+	return async (page: Doc<"pages">) => reaches(await level(page), "view");
 }
 
 /** A record's body, if it has one yet. */
@@ -55,10 +82,15 @@ export const pageOfRecord = (ctx: QueryCtx, workspaceId: Id<"workspaces">, recor
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId).eq("recordId", recordId))
 		.first();
 
-/** Every member reads every page; `pages.edit` changes them, unless the page or its record is in Archive. */
+/**
+ * `pages.edit` and Edit in the page (its Who can access list) change it, unless the page or its record
+ * is in Archive. Seeing it takes View.
+ */
 export async function requireEditable(ctx: QueryCtx, member: Member, page: Doc<"pages">) {
 	checkPermission(member, "pages.edit");
-	if ((await pageState(ctx, page)).archived) throw new ConvexError("This page is in Archive. Restore it to make changes.");
+	const state = await pageState(ctx, page);
+	await requirePageAccess(ctx, member, page, "edit", state);
+	if (state.archived) throw new ConvexError("This page is in Archive. Restore it to make changes.");
 	if (page.recordId && (await inTrash(ctx, await requireRecord(ctx, member, page.recordId)))) throw new ConvexError("This record is in Archive. Restore it to make changes.");
 }
 
@@ -77,7 +109,7 @@ export async function createPage(ctx: MutationCtx, who: Who, to: { title: string
 	if (parentId) await parentFor(ctx, member, parentId);
 	let recordId: Id<"records"> | undefined;
 	if ("recordId" in to) {
-		const record = await requireRecord(ctx, member, to.recordId);
+		const record = await requireRecord(ctx, member, to.recordId, "edit");
 		const existing = await pageOfRecord(ctx, member.workspaceId, record._id);
 		if (existing) return existing._id;
 		if (await inTrash(ctx, record)) throw new ConvexError("This record is in Archive. Restore it to make changes.");
@@ -155,6 +187,7 @@ export async function setPageTrashed(ctx: MutationCtx, who: Who, page: Doc<"page
 	if (page.recordId) throw new ConvexError("A record's page goes to Archive with its record.");
 	if (page.archived === archived) return;
 	if (archived) await requireEditable(ctx, who.member, page);
+	else await requirePageAccess(ctx, who.member, page, "edit");
 	const child = archived && await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", page.workspaceId).eq("parentId", page._id).eq("recordId", undefined).eq("archived", false)).first();
 	await toggleTrash(ctx, who, archived, { kind: "page", id: page._id, name: page.title, includesSubpages: !!child });
 	if (!archived && page.parentId) {

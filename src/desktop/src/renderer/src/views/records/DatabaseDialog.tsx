@@ -6,6 +6,7 @@ import { ConflictNotice, Field, Form, Notice, secondaryButton, inputClass, prima
 import { Modal, archiveQuestion, useConfirm } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { recordPath } from "./logic";
+import { WhoCanAccess } from "../access";
 
 export function DatabaseDialog({ type, onClose }: { type?: RecordType; onClose: () => void }) {
 	const types = useTypes();
@@ -16,6 +17,7 @@ export function DatabaseDialog({ type, onClose }: { type?: RecordType; onClose: 
 	}, [types, created, onClose]);
 	const create = useMutation(api.recordTypes.create);
 	const update = useMutation(api.recordTypes.update);
+	const setAccess = useMutation(api.recordTypes.setAccess);
 	const remove = useMutation(api.trash.move);
 	const draft = useDraft({ name: type?.name ?? "", plural: type?.plural ?? "" }, type?.version ?? 0);
 	const { error, run } = useRun();
@@ -38,6 +40,13 @@ export function DatabaseDialog({ type, onClose }: { type?: RecordType; onClose: 
 					<Field label="One entry">
 						<input required maxLength={120} placeholder="e.g. Project" className={inputClass} value={draft.value.name} onChange={(e) => draft.set({ ...draft.value, name: e.target.value })} />
 					</Field>
+				)}
+				{type && (
+					<div className="flex flex-col gap-1.5">
+						<span className="text-sm font-medium">Who can access</span>
+						<span className="text-xs text-neutral-500">Its records and their pages follow this too.</span>
+						<WhoCanAccess access={type.access} onSave={(access) => setAccess({ typeId: type._id, access })} />
+					</div>
 				)}
 				<div className="flex items-center gap-2">
 					<button type="submit" disabled={draft.stale} className={primaryButton}>{type ? "Save" : "Create database"}</button>

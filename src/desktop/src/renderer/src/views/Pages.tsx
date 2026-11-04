@@ -3,9 +3,9 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { navigate } from "../router";
-import { ArchiveIcon, HistoryIcon, PageIcon } from "../icons";
+import { ArchiveIcon, HistoryIcon, PageIcon, PrivateIcon } from "../icons";
 import { NotFound, Notice, Page, barButton, useRun } from "../ui";
-import { MovePage } from "./pages/PageTree";
+import { MovePage, PageAccess } from "./pages/PageTree";
 import { PageEditor } from "./pages/PageEditor";
 import { PageHistory } from "./pages/PageHistory";
 import { PageTitle } from "./pages/PageTitle";
@@ -31,6 +31,7 @@ function PageScreen({ pageId, canEdit }: { pageId: Id<"pages">; canEdit: boolean
 	const remove = useMutation(api.trash.move);
 	const [history, setHistory] = useState(false);
 	const [moving, setMoving] = useState(false);
+	const [sharing, setSharing] = useState(false);
 	const [focusBody, setFocusBody] = useState(0);
 	const { error } = useRun();
 	const { confirm, dialog } = useConfirm();
@@ -47,6 +48,11 @@ function PageScreen({ pageId, canEdit }: { pageId: Id<"pages">; canEdit: boolean
 						<HistoryIcon /> History
 					</button>
 					{page.canEdit && <button type="button" onClick={() => setMoving(true)} className={barButton}>Move to…</button>}
+					{!page.recordId && (
+						<button type="button" onClick={() => setSharing(true)} title={page.lock ? (page.lock.edit ? `Only ${page.lock.who} can edit it` : `Only ${page.lock.who} can see it`) : "Everyone can access it"} className={barButton}>
+							{page.restricted && <PrivateIcon />} Who can access
+						</button>
+					)}
 					{canEdit && !page.archived && (
 						<button type="button" onClick={() => confirm(archiveQuestion(page.title, () => remove({ kind: "page", id: pageId }).then(() => navigate(...(page.ancestors.length ? ["pages", page.ancestors.at(-1)!._id] : ["chat"]))), "Its sub-pages will be archived with it."))} className={barButton}>
 							<ArchiveIcon /> Archive

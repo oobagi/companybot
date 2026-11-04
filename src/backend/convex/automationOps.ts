@@ -1,4 +1,4 @@
-import { type Automation, type AutomationAudience, type CustomAutomationConfig, canEditAutomation, customAutomation, normalizeTrigger } from "@companybot/core";
+import { type Automation, type AutomationAudience, type CustomAutomationConfig, canEditAutomation, customAutomation, isRestricted, normalizeTrigger } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type Member, checkPermission, requireMember } from "./lib";
@@ -110,5 +110,7 @@ export const runsForLabel = (audience: AutomationAudience, channel: Doc<"chats">
 export async function postingProblem(ctx: QueryCtx, trigger: CustomAutomationConfig["trigger"] | undefined, destination: Id<"chats">) {
 	if (trigger?.type !== "event" || trigger.event !== "message.posted" || trigger.channelId === destination) return null;
 	const source = await ctx.db.get(trigger.channelId as Id<"chats">);
-	return source?.private ? `It watches #${source.name}, which is private, so it can only post there or to people who turn it on.` : null;
+	if (source?.private) return `It watches #${source.name}, which is private, so it can only post there or to people who turn it on.`;
+	// Same for one only some roles can see: posting elsewhere would show its messages to people they're kept from.
+	return source && isRestricted(source.access) ? `It watches #${source.name}, which only some roles can see, so it can only post there or to people who turn it on.` : null;
 }

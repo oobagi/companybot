@@ -6,20 +6,23 @@ import { mutation, query } from "./functions";
 import { type Member, type Who, checkPermission, checkVersion, getMember, requireInWorkspace, requireMember } from "./lib";
 import { currencyOf, fieldsOf, logChange, requireType, toField } from "./recordOps";
 import { validateView } from "./recordQuery";
+import { reach } from "./placeAccess";
 import { viewConfig } from "./recordValidators";
 
 // Shared database views. App and agent writes use the same validation and history.
 const VIEWS_MAX = 50;
 type Config = Pick<Doc<"databaseViews">, "name" | "filters" | "sort" | "columns" | "layout" | "groupBy">;
 
-export async function viewsOf(ctx: QueryCtx, member: Member, typeId: Id<"recordTypes">) {
-	await requireType(ctx, member, typeId, true);
+/** A database's saved views. Seeing them takes View in the database; changing them, Edit (`need`). */
+export async function viewsOf(ctx: QueryCtx, member: Member, typeId: Id<"recordTypes">, need: "view" | "edit" = "view") {
+	const type = await requireType(ctx, member, typeId, need);
+	if (type.archived) throw new ConvexError("This database is in Archive. Restore it to make changes.");
 	return ctx.db.query("databaseViews").withIndex("by_type", (q) => q.eq("typeId", typeId)).take(VIEWS_MAX);
 }
 
 export async function saveView(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, input: Config, viewId?: Id<"databaseViews">, version?: number) {
 	checkPermission(who.member, "records.edit");
-	const views = await viewsOf(ctx, who.member, typeId);
+	const views = await viewsOf(ctx, who.member, typeId, "edit");
 	const old = viewId ? requireInWorkspace(who.member, await ctx.db.get(viewId), "View") : undefined;
 	if (old && old.typeId !== typeId) throw new ConvexError("View not found.");
 	if (old) checkVersion(old.version, version ?? -1);
@@ -61,7 +64,7 @@ export async function saveView(ctx: MutationCtx, who: Who, typeId: Id<"recordTyp
 export async function deleteView(ctx: MutationCtx, who: Who, viewId: Id<"databaseViews">, version: number) {
 	checkPermission(who.member, "records.edit");
 	const view = requireInWorkspace(who.member, await ctx.db.get(viewId), "View");
-	await viewsOf(ctx, who.member, view.typeId);
+	await viewsOf(ctx, who.member, view.typeId, "edit");
 	checkVersion(view.version, version);
 	await ctx.db.delete(viewId);
 	await logChange(ctx, who, { typeId: view.typeId, subject: view.name, action: "view.deleted", changes: [{ key: "name", old: view.name }] });
@@ -72,7 +75,7 @@ export const list = query({
 	handler: async (ctx, { typeId }) => {
 		const member = await getMember(ctx);
 		const type = member && (await ctx.db.get(typeId));
-		return member && type?.workspaceId === member.workspaceId && !type.archived ? viewsOf(ctx, member, typeId) : [];
+		return member && type?.workspaceId === member.workspaceId && !type.archived && reach(member, type.access) ? viewsOf(ctx, member, typeId) : [];
 	},
 });
 

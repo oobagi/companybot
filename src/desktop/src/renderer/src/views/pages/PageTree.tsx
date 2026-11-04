@@ -2,7 +2,8 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery, useWorkspace } from "../../convex";
-import { ArchiveIcon, ArrowRightIcon, ArrowUpIcon, PageIcon, PlusIcon } from "../../icons";
+import { ArchiveIcon, ArrowRightIcon, ArrowUpIcon, PageIcon, PlusIcon, PrivateIcon } from "../../icons";
+import { AccessLock, WhoCanAccess } from "../access";
 import { navigate } from "../../router";
 import { type DragProps, useSortable } from "../../sortable";
 import { LoadMore, Notice, inputClass, useDebounced, useRun } from "../../ui";
@@ -10,7 +11,7 @@ import { AddButton, Group, Item, type SectionProps, trailingAction } from "../ch
 import { MenuItem, Modal, archiveQuestion, useConfirm } from "../chat/common";
 
 type PageId = Id<"pages">;
-type Row = { _id: PageId; title: string; hasChildren?: boolean; parentId?: PageId | null };
+type Row = { _id: PageId; title: string; hasChildren?: boolean; parentId?: PageId | null; lock?: { who: string; edit: boolean } | null };
 
 /** Each expanded level loads independently; no workspace-wide list or fixed tree-size cutoff. */
 export function PagesNav({ openId, canEdit, section }: { openId: string | undefined; canEdit: boolean; section: SectionProps }) {
@@ -38,6 +39,7 @@ function PageNavTree({ openId, canEdit, section, workspaceId }: { openId?: strin
 		});
 	}, []);
 	const [moving, setMoving] = useState<Row>();
+	const [sharing, setSharing] = useState<PageId>();
 	const create = useMutation(api.pages.create);
 	const remove = useMutation(api.trash.move);
 	const rename = useMutation(api.pages.rename);
@@ -63,10 +65,12 @@ function PageNavTree({ openId, canEdit, section, workspaceId }: { openId?: strin
 						menu={(close) => <>
 							<MenuItem onClick={() => { close(); add(p._id); }}><PlusIcon /> New page inside</MenuItem>
 							<MenuItem onClick={() => { close(); setMoving({ ...p, parentId }); }}><ArrowRightIcon /> Move to…</MenuItem>
+							<MenuItem onClick={() => { close(); setSharing(p._id); }}><PrivateIcon /> Who can access</MenuItem>
 							<MenuItem onClick={() => { close(); confirm(archiveQuestion(p.title, () => remove({ kind: "page", id: p._id }), "Its sub-pages will be archived with it.")); }}><ArchiveIcon /> Archive</MenuItem>
 						</>}
 						actions={<button type="button" title="Add a page inside" aria-label={`Add a page inside ${p.title}`} onClick={() => add(p._id)} className={trailingAction}><PlusIcon /></button>}>
 						<span className="truncate">{p.title}</span>
+						<AccessLock lock={p.lock ?? null} />
 					</Item>
 					{open && level(p._id, guides)}
 				</Fragment>
@@ -80,6 +84,7 @@ function PageNavTree({ openId, canEdit, section, workspaceId }: { openId?: strin
 			{dialog}
 			<Notice>{error}</Notice>
 			{moving && <MovePage page={moving} onClose={() => setMoving(undefined)} />}
+			{sharing && <PageAccess pageId={sharing} onClose={() => setSharing(undefined)} />}
 		</Group>
 	);
 }
@@ -146,3 +151,27 @@ export function MovePage({ page, onClose }: { page: Row; onClose: () => void }) 
 }
 
 const Current = () => <span className="ml-auto text-xs text-neutral-400">Current</span>;
+
+/**
+ * Who can access a page: its own list, or its parent's (a top-level page's "parent" is Everyone at
+ * Edit). Everyone who sees the page sees who's on it; people who can edit it change it.
+ */
+export function PageAccess({ pageId, onClose }: { pageId: PageId; onClose: () => void }) {
+	const page = useQuery(api.pages.get, { pageId });
+	const setAccess = useMutation(api.pages.setAccess);
+	return (
+		<Modal title={page ? `Who can access ${page.title || "this page"}` : "Who can access"} onClose={onClose}>
+			{page?.recordId ? (
+				<p className="text-sm text-neutral-500">A record's page follows its database's list.</p>
+			) : (
+				page && (
+					<WhoCanAccess
+						access={page.access}
+						onSave={page.canManageAccess ? (access) => setAccess({ pageId, access }) : undefined}
+						follow={page.canManageAccess ? { following: !page.ownAccess, onFollow: () => setAccess({ pageId, access: null }) } : undefined}
+					/>
+				)
+			)}
+		</Modal>
+	);
+}

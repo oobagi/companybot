@@ -4,7 +4,7 @@ import { components } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, mutation, query } from "./_generated/server";
 import { authUserId, memberOf } from "./lib";
-import { pageSchema, requireEditable, saveTransform, sync } from "./pageOps";
+import { pageSchema, requireEditable, requirePageAccess, saveTransform, sync } from "./pageOps";
 
 // Sync names a page alone, so resolve its workspace before checking access.
 async function pageFor(ctx: QueryCtx, id: string) {
@@ -13,6 +13,7 @@ async function pageFor(ctx: QueryCtx, id: string) {
 	const userId = await authUserId(ctx);
 	const member = page && userId && (await memberOf(ctx, userId, page.workspaceId));
 	if (!page || !member) throw new ConvexError("Page not found.");
+	await requirePageAccess(ctx, member, page, "view");
 	return { page, member };
 }
 

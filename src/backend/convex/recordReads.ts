@@ -2,11 +2,12 @@ import type { PaginationOptions, PaginationResult } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { type Member, capped, memo, nameOf } from "./lib";
-import { currencyOf, fieldsOf, idsIn, resolveRefs, typeTrashed } from "./recordOps";
+import { currencyOf, fieldsOf, idsIn, resolveRefs, typeTrashed, typeVisible } from "./recordOps";
 import { type Condition, type Group, type Sort, findRecords } from "./recordQuery";
 
 // Reads the app (records.ts) and agents (recordTools.ts) share, so their lists, search and
-// "what links here" can't drift. Callers check access first; these only read.
+// "what links here" can't drift. Callers check the database they name; reads that span databases
+// (search, what links here, Activity) drop the ones the person can't see.
 
 /**
  * Most records a page returns. A record is at most RECORD_MAX_BYTES of values, so a full page
@@ -33,21 +34,25 @@ export async function listRecords(
 /** Live records whose title or text matches, best first, leaving out databases in Archive. Optionally one type. */
 export async function searchRecords(
 	ctx: QueryCtx,
-	workspaceId: Id<"workspaces">,
+	member: Member,
 	text: string,
 	{ typeId, limit }: { typeId?: Id<"recordTypes">; limit: number },
 ): Promise<RecordItem[]> {
-	const records = await ctx.db
-		.query("records")
-		.withSearchIndex("search", (q) => {
-			const s = q.search("searchText", text).eq("workspaceId", workspaceId).eq("archived", false);
-			return typeId ? s.eq("typeId", typeId) : s;
-		})
-		.take(limit);
 	const fields = fieldsByType(ctx);
 	const trashed = typeTrashed(ctx);
+	const visible = typeVisible(ctx, member);
 	const items = [];
-	for (const record of records) if (!(await trashed(record.typeId))) items.push({ record, fields: await fields(record.typeId) });
+	// Walks hits past ones in hidden databases, a bounded number, so a restricted database can't crowd out the rest.
+	let read = 0;
+	for await (const record of ctx.db
+		.query("records")
+		.withSearchIndex("search", (q) => {
+			const s = q.search("searchText", text).eq("workspaceId", member.workspaceId).eq("archived", false);
+			return typeId ? s.eq("typeId", typeId) : s;
+		})) {
+		if (items.length >= limit || ++read > limit * 5) break;
+		if (!(await trashed(record.typeId)) && (await visible(record.typeId))) items.push({ record, fields: await fields(record.typeId) });
+	}
 	return items;
 }
 
@@ -58,6 +63,7 @@ export async function searchRecords(
  */
 export async function linkingRecords(
 	ctx: QueryCtx,
+	member: Member,
 	recordId: Id<"records">,
 	{ fieldId, paginationOpts }: { fieldId?: Id<"recordFields">; paginationOpts: PaginationOptions },
 ): Promise<PaginationResult<RecordItem & { fieldId: Id<"recordFields"> }>> {
@@ -67,10 +73,11 @@ export async function linkingRecords(
 		.paginate(capped(paginationOpts, PAGE_MAX));
 	const fields = fieldsByType(ctx);
 	const trashed = typeTrashed(ctx);
+	const visible = typeVisible(ctx, member);
 	const page = [];
 	for (const row of rows.page) {
 		const record = await ctx.db.get(row.recordId);
-		if (!record || (await trashed(record.typeId))) continue;
+		if (!record || (await trashed(record.typeId)) || !(await visible(record.typeId))) continue;
 		const recordFields = await fields(record.typeId);
 		if (recordFields.some((f) => f._id === row.fieldId && !f.archived)) page.push({ record, fields: recordFields, fieldId: row.fieldId });
 	}
@@ -81,11 +88,11 @@ export async function linkingRecords(
 const HISTORY_PAGE_MAX = 20;
 
 /** History entries, display-ready, with names resolved once for the page. */
-export async function toEntries(ctx: QueryCtx, workspaceId: Id<"workspaces">, items: { entry: Doc<"recordHistory">; fields: Doc<"recordFields">[] }[]) {
+export async function toEntries(ctx: QueryCtx, member: Member, items: { entry: Doc<"recordHistory">; fields: Doc<"recordFields">[] }[]) {
 	const idsOf = items.map(({ entry, fields }) =>
 		entry.recordId ? entry.changes.flatMap((c) => [...idsIn(fields, { [c.key]: c.old }), ...idsIn(fields, { [c.key]: c.new })]) : [],
 	);
-	const { refs } = await resolveRefs(ctx, workspaceId, idsOf.flat());
+	const { refs } = await resolveRefs(ctx, member, idsOf.flat());
 	return Promise.all(
 		items.map(async ({ entry: e, fields }, i) => {
 			const field = e.fieldId && fields.find((f) => f._id === e.fieldId);
@@ -116,10 +123,13 @@ export async function historyAs(ctx: QueryCtx, member: Member, record: Doc<"reco
 		.order("desc")
 		.paginate(capped(paginationOpts, HISTORY_PAGE_MAX));
 	const fields = await fieldsOf(ctx, record.typeId);
-	return { ...result, page: await toEntries(ctx, member.workspaceId, result.page.map((entry) => ({ entry, fields }))) };
+	return { ...result, page: await toEntries(ctx, member, result.page.map((entry) => ({ entry, fields }))) };
 }
 
-/** Every record and field change in the workspace, newest first, with each one's record and database. */
+/**
+ * Every record and field change in the workspace, newest first, with each one's record and database.
+ * Changes in databases the person can't see are left out, so a page can come back short.
+ */
 export async function activityAs(ctx: QueryCtx, member: Member, paginationOpts: PaginationOptions) {
 	const result = await ctx.db
 		.query("recordHistory")
@@ -127,9 +137,12 @@ export async function activityAs(ctx: QueryCtx, member: Member, paginationOpts: 
 		.order("desc")
 		.paginate(capped(paginationOpts, HISTORY_PAGE_MAX));
 	const fields = fieldsByType(ctx);
-	const entries = await toEntries(ctx, member.workspaceId, await Promise.all(result.page.map(async (entry) => ({ entry, fields: await fields(entry.typeId) }))));
+	const visible = typeVisible(ctx, member);
+	const shown = [];
+	for (const entry of result.page) if (await visible(entry.typeId)) shown.push(entry);
+	const entries = await toEntries(ctx, member, await Promise.all(shown.map(async (entry) => ({ entry, fields: await fields(entry.typeId) }))));
 	const page = [];
-	for (const [i, e] of result.page.entries()) {
+	for (const [i, e] of shown.entries()) {
 		const record = e.recordId && (await ctx.db.get(e.recordId));
 		page.push({ ...entries[i]!, record: record ? record.title : null, type: (await ctx.db.get(e.typeId))?.name ?? "" });
 	}

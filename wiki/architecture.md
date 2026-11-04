@@ -11,6 +11,7 @@ pnpm monorepo. Each folder in `src/` is a package.
 ## Concepts (`src/core`)
 What each piece is. The rules for changing them: [Extending](extending.md).
 - **Role** — a workspace's named set of switches (`roles` table). Owner (everything, fixed) and Member (the default) are built in; owners add their own. A person holds one or more and gets the union ([Permissions](permissions.md#roles)).
+- **Who can access** — a channel's, database's or page's list of Everyone or roles at View or Edit (`place-access.ts`); not on it, the place doesn't exist for you ([Permissions](permissions.md#who-can-access)).
 - **Permission** — a switch: one workspace action, with a plain label and a Member default (`permissions.ts`). Backend and app both read this table.
 - **Tool** — something an agent can call. Built-ins live in code; connector tools are discovered from the connector's MCP server each turn and reach the model on demand through `connectors_search` / `connectors_call`, not up front. Ids are `group.name`.
 - **Agent** — name, instructions, model, tool grants. A tool reaches the model only if granted, allowed for one of the person's roles, and (connectors) installed, allowed, and connected.

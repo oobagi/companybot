@@ -27,12 +27,14 @@ import {
 	idsIn,
 	inTrash,
 	recordById,
+	requireType,
 	resolveRefs,
 	setFieldTrashed,
 	setRecordTrashed,
 	setTypeTrashed,
 	toField,
 	toRows,
+	typeVisible,
 	typesOf,
 	undoChange,
 	updateField,
@@ -53,8 +55,13 @@ const SEARCH_MAX = 20;
 const LINKED_MAX = 10;
 const CHANGES_MAX = 5;
 
-const liveTypes = async (ctx: QueryCtx, member: Member) =>
-	(await typesOf(ctx, member.workspaceId)).filter((t) => !t.archived).sort((a, b) => a._creationTime - b._creationTime);
+/** Live databases the person can see, oldest first. */
+async function liveTypes(ctx: QueryCtx, member: Member) {
+	const visible = typeVisible(ctx, member);
+	const types = [];
+	for (const t of await typesOf(ctx, member.workspaceId)) if (!t.archived && (await visible(t._id))) types.push(t);
+	return types.sort((a, b) => a._creationTime - b._creationTime);
+}
 
 /** Pick one by name, or say which ones it could be. */
 function pickOne<T>(matches: T[], what: string, describe: (m: T) => string) {
@@ -62,9 +69,13 @@ function pickOne<T>(matches: T[], what: string, describe: (m: T) => string) {
 	return matches[0];
 }
 
-/** A type by id or key, else by name or plural ("deal", "Deals"). Ambiguous names are refused. `trashed`: one in Archive. */
+/**
+ * A type by id or key, else by name or plural ("deal", "Deals"). Ambiguous names are refused. `trashed`: one in Archive.
+ * One the person can't see is found all the same, then refused naming who can ("Only Office and Owners can see
+ * Deals."), so the agent can tell them whom to ask.
+ */
 async function typeNamed(ctx: QueryCtx, member: Member, name: string, trashed = false) {
-	const types = trashed ? (await typesOf(ctx, member.workspaceId)).filter((t) => t.archived) : await liveTypes(ctx, member);
+	const types = (await typesOf(ctx, member.workspaceId)).filter((t) => t.archived === trashed).sort((a, b) => a._creationTime - b._creationTime);
 	const raw = name.trim();
 	const n = raw.toLowerCase();
 	const type =
@@ -75,8 +86,8 @@ async function typeNamed(ctx: QueryCtx, member: Member, name: string, trashed = 
 			raw,
 			(t) => `${t.plural} (${t.key})`,
 		);
-	if (!type) throw new ConvexError(`There's no database “${name}”. Types: ${types.map((t) => t.key).join(", ")}.`);
-	return type;
+	if (!type) throw new ConvexError(`There's no database “${name}”. Types: ${(trashed ? types : await liveTypes(ctx, member)).filter((t) => types.includes(t)).map((t) => t.key).join(", ")}.`);
+	return requireType(ctx, member, type._id);
 }
 
 /** A live field (or, `trashed`, one in Archive) by exact key, else by label. A label two fields could match is refused. */
@@ -161,7 +172,8 @@ class Names {
 	/** The live record of `typeId` named exactly `text` (case-insensitive). */
 	private async record(typeId: Id<"recordTypes">, text: string) {
 		const ctx = this.ctx;
-		const type = (await ctx.db.get(typeId))!;
+		// Finding a record by name reads its database, so it takes seeing it.
+		const type = await requireType(ctx, this.member, typeId);
 		const nameField = (await fieldsOf(ctx, typeId)).find((f) => f.key === NAME_KEY)!;
 		const entry = indexEntries(toField(nameField), text)[0] as { str: string };
 		const rows = await ctx.db
@@ -209,7 +221,7 @@ async function conditionsFor(ctx: QueryCtx, member: Member, type: Doc<"recordTyp
  * read them by field key. Field keys always start with a letter (keyOf), so they never clash.
  */
 async function rowsOf(ctx: QueryCtx, member: Member, items: { record: Doc<"records">; fields: Doc<"recordFields">[] }[], withType?: Map<Id<"recordTypes">, string>) {
-	const rows = await toRows(ctx, member.workspaceId, items);
+	const rows = await toRows(ctx, member, items);
 	return rows.map((row, i): { _id: Id<"records">; _type?: string } & Record<string, string | number> => ({
 		_id: row._id,
 		...(withType && { _type: withType.get(row.typeId) ?? "" }),
@@ -242,8 +254,13 @@ export const typesFor = internalQuery({
 	args: { turnId: v.id("agentTurns"), trashed: v.optional(v.boolean()) },
 	handler: async (ctx, { turnId, trashed = false }): Promise<RecordTypesResult> => {
 		const { member } = await runningTurn(ctx, turnId);
-		const types = (await typesOf(ctx, member.workspaceId)).filter((t) => t.archived === trashed);
-		const keys = new Map(types.map((t) => [t._id, t.key]));
+		const visible = typeVisible(ctx, member);
+		const all = await typesOf(ctx, member.workspaceId);
+		const types = [];
+		for (const t of all) if (t.archived === trashed && (await visible(t._id))) types.push(t);
+		// A link into a database they can't see names no key, so the agent can't go looking.
+		const keys = new Map<Id<"recordTypes">, string>();
+		for (const t of all) keys.set(t._id, (await visible(t._id)) ? t.key : "(a database you can't see)");
 		return {
 			currency: await currencyOf(ctx, member.workspaceId),
 			types: await Promise.all(
@@ -269,7 +286,7 @@ export const findFor = internalQuery({
 			if (search?.trim()) {
 				if (filters.length || sort || cursor || trashed) throw new ConvexError("Search on its own, or list with filters and a sort instead.");
 				const type = typeName ? await typeNamed(ctx, member, typeName) : null;
-				const found = await searchRecords(ctx, member.workspaceId, search, { typeId: type?._id, limit: Math.min(numItems, SEARCH_MAX) });
+				const found = await searchRecords(ctx, member, search, { typeId: type?._id, limit: Math.min(numItems, SEARCH_MAX) });
 				const keys = type ? undefined : new Map((await liveTypes(ctx, member)).map((t) => [t._id, t.key]));
 				const rows = await rowsOf(ctx, member, found, keys);
 				return { type: type?.plural ?? "Records", typeName: type?.name ?? "Record", rows, more: false };
@@ -303,14 +320,14 @@ export const getFor = internalQuery({
 			const recordId = record._id;
 			const fields = await fieldsOf(ctx, record.typeId);
 			const out = await recordOut(ctx, member, recordId);
-			const [row] = await toRows(ctx, member.workspaceId, [{ record, fields }]);
+			const [row] = await toRows(ctx, member, [{ record, fields }]);
 			const links = Object.fromEntries(
 				fields
 					.filter((f) => f.kind === "link" && !f.archived && record.values[f.key] !== undefined)
-					.map((f) => [f.key, [record.values[f.key]!].flat().map((x) => ({ id: String(x), name: row!.refs[String(x)]?.name ?? String(x) }))]),
+					.map((f) => [f.key, [record.values[f.key]!].flat().map((x) => ({ id: String(x), name: row!.refs[String(x)]?.locked ? "Locked record" : (row!.refs[String(x)]?.name ?? String(x)) }))]),
 			);
 			const linkedFrom = [];
-			for (const { record: other, fields: theirs, fieldId } of (await linkingRecords(ctx, recordId, { paginationOpts: { numItems: LINKED_MAX, cursor: null } })).page) {
+			for (const { record: other, fields: theirs, fieldId } of (await linkingRecords(ctx, member, recordId, { paginationOpts: { numItems: LINKED_MAX, cursor: null } })).page) {
 				const type = await ctx.db.get(other.typeId);
 				if (type) linkedFrom.push({ id: other._id, type: type.key, name: other.title, via: theirs.find((f) => f._id === fieldId)?.label ?? "" });
 			}
@@ -319,7 +336,7 @@ export const getFor = internalQuery({
 				.withIndex("by_record", (q) => q.eq("recordId", recordId))
 				.order("desc")
 				.take(CHANGES_MAX);
-			const { refs } = await resolveRefs(ctx, member.workspaceId, entries.flatMap((e) => e.changes.flatMap((c) => [...idsIn(fields, { [c.key]: c.old }), ...idsIn(fields, { [c.key]: c.new })])));
+			const { refs } = await resolveRefs(ctx, member, entries.flatMap((e) => e.changes.flatMap((c) => [...idsIn(fields, { [c.key]: c.old }), ...idsIn(fields, { [c.key]: c.new })])));
 			const shown = (field: Doc<"recordFields"> | undefined, key: string, value: unknown) =>
 				value === undefined ? "empty" : field ? String(displayValues([toField(field)], { [key]: value as never }, refs)[key]) : JSON.stringify(value);
 			const changes = await Promise.all(
@@ -500,8 +517,9 @@ export const historyFor = internalQuery({
 				if (source === "agents") throw new ConvexError("Use change only for record history.");
 				const entryId = ctx.db.normalizeId("recordHistory", change);
 				const entry = requireInWorkspace(member, entryId ? await ctx.db.get(entryId) : null, "Change");
+				await requireType(ctx, member, entry.typeId);
 				if (id && entry.recordId !== id) throw new ConvexError("Change belongs to a different record.");
-				return (await toEntries(ctx, member.workspaceId, [{ entry, fields: await fieldsOf(ctx, entry.typeId) }]))[0]!;
+				return (await toEntries(ctx, member, [{ entry, fields: await fieldsOf(ctx, entry.typeId) }]))[0]!;
 			}
 			if (source === "agents") {
 				if (id) throw new ConvexError("Use id only for record history.");
