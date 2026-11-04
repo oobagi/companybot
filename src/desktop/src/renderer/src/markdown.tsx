@@ -1,10 +1,13 @@
 import { linkedPageId } from "@companybot/core/page-links";
 import { code } from "@streamdown/code";
-import { type ComponentProps, type MouseEvent, useState } from "react";
+import { type ComponentProps, type MouseEvent, useMemo, useState } from "react";
 import { type Components, type LinkSafetyModalProps, defaultComponents, defaultRehypePlugins, Streamdown } from "streamdown";
 import { navigate } from "./router";
 import { Notice, descriptionClass, primaryButton, secondaryButton, useRun } from "./ui";
 import { Modal } from "./views/chat/common";
+import type { TokenNames } from "./views/chat/data";
+import { TokenChip } from "./views/chat/TokenChip";
+import { TOKEN_TAG, findToken, rehypeTokens } from "./views/chat/tokens";
 
 // How agent replies render. Streamdown handles Markdown, streaming, and code;
 // our overrides keep its content and link confirmation in the app's shared UI.
@@ -75,8 +78,20 @@ const components: Components = {
 
 /**
  * No `allowedTags`: Streamdown only applies it to its own default plugin list. Paragraphs, lists
- * and code are 12px apart.
+ * and code are 12px apart. With `tokens` (a chat reply), @names, #channels and /skills are chips.
  */
-export function Markdown({ className = "", ...props }: Omit<ComponentProps<typeof Streamdown>, "plugins" | "components" | "rehypePlugins" | "allowedTags">) {
-	return <Streamdown plugins={plugins} components={components} rehypePlugins={rehypePlugins} linkSafety={linkSafety} className={`space-y-3 ${className}`} {...props} />;
+export function Markdown({ className = "", tokens, ...props }: Omit<ComponentProps<typeof Streamdown>, "plugins" | "components" | "rehypePlugins" | "allowedTags"> & { tokens?: TokenNames }) {
+	// Keyed on the names, not the object: the directory makes a new one every render.
+	const key = tokens && JSON.stringify(tokens);
+	const withTokens = useMemo(() => {
+		if (!tokens) return { components, rehypePlugins };
+		const chip = ({ node }: { node?: { properties?: Record<string, unknown> } }) => {
+			const text = String(node?.properties?.dataToken ?? "");
+			const token = findToken(text, tokens);
+			return token ? <TokenChip token={token} /> : text;
+		};
+		return { components: { ...components, [TOKEN_TAG]: chip } as Components, rehypePlugins: [...(rehypePlugins ?? []), [rehypeTokens, tokens]] as typeof rehypePlugins };
+	}, [key]);
+	// Remounted when the names change: Streamdown re-renders only when the text changes, not its plugins.
+	return <Streamdown key={key} plugins={plugins} components={withTokens.components} rehypePlugins={withTokens.rehypePlugins} linkSafety={linkSafety} className={`space-y-3 ${className}`} {...props} />;
 }

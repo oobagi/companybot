@@ -1,3 +1,4 @@
+import { withoutRole, type AccessList } from "./placeAccess";
 import { searchTextOf } from "@companybot/core";
 import type { IndexNames, NamedTableInfo } from "convex/server";
 import { internal } from "./_generated/api";
@@ -51,6 +52,18 @@ export type Lifecycle<T extends TableNames> = { [S in Scope]?: Edge<T> } & {
 	/** Fields holding a storage id, or a list of `{ storageId }`: the files are deleted with the row, wherever a cascade deletes it. */
 	files?: (keyof Doc<T> & string)[];
 };
+
+/** Role cleanup scans workspace indexes in bounded pages; empty lists stay Owners only. */
+const roleRefs = <T extends "members" | "invites" | "connectorInstalls">(): Edge<T> => ({
+	index: "by_workspace", eq: ["workspaceId"],
+	where: (_get, row, root) => !!row.roles?.includes(root.roleId!),
+	scrub: (row, _get, root) => ({ roles: row.roles!.filter((id: string) => id !== root.roleId) }) as unknown as Partial<Doc<T>>,
+});
+const roleAccess = <T extends "chats" | "recordTypes" | "pages">(): Edge<T> => ({
+	index: "by_workspace", eq: ["workspaceId"],
+	where: (_get, row, root) => !!row.access?.some((e: { role: string }) => e.role === root.roleId),
+	scrub: (row, _get, root) => ({ access: withoutRole(row.access as NonNullable<AccessList>, root.roleId!) }) as unknown as Partial<Doc<T>>,
+});
 
 /** A channel seat, not a DM: DMs keep people who left as past participants. */
 const inChannel = async (get: Get, row: { chatId: Id<"chats"> }) => (await get(row.chatId))?.kind === "channel";
@@ -121,18 +134,20 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	// ---- Workspaces and people ----
 	workspaces: { keep: "Its own cascade deletes it last, once everything in it is gone (cascade.ts).", files: ["image"] },
 	members: {
+		role: roleRefs<"members">(),
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		user: { index: "by_user", eq: ["userId"], onDelete: leaveErased },
 		keep: "Removing someone deletes their row before the cascade starts (dropMember), so access ends at once.",
 	},
 	invites: {
+		role: roleRefs<"invites">(),
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		keep: "Invites are for an email, not an account: they outlive the person who sent them.",
 	},
 	inviteEmails: { workspace: { index: "by_workspace", eq: ["workspaceId"] } },
 	roles: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
-		keep: "Roles belong to the workspace, not to whoever made them or holds them. Deleting one moves its people off first (roles.remove).",
+		keep: "Roles belong to the workspace, not to whoever made them or holds them. Deleting one ends access immediately; its role cascade scrubs references.",
 	},
 	// Uploads not yet attached to anything (images.ts); unclaimed ones also go after a day (images.sweepUploads).
 	uploads: {
@@ -180,6 +195,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 
 	// ---- Connectors ----
 	connectorInstalls: {
+		role: roleRefs<"connectorInstalls">(),
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		keep: "Uninstalling deletes the row before the cascade starts, so access ends at once.",
 	},
@@ -216,7 +232,10 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 
 	// ---- Chat ----
 	// A channel deleted from Archive goes last in its own cascade, after its messages, seats and agent sessions.
-	chats: { workspace: { index: "by_workspace", eq: ["workspaceId"] } },
+	chats: {
+		role: roleAccess<"chats">(),
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+	},
 	chatMembers: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		channel: { index: "by_chat", eq: ["chatId"] },
@@ -325,7 +344,10 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 
 	// ---- Records ----
 	// A record, database or field deleted from Archive (trash.ts) goes last in its own cascade.
-	recordTypes: { workspace: { index: "by_workspace", eq: ["workspaceId"] } },
+	recordTypes: {
+		role: roleAccess<"recordTypes">(),
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+	},
 	databaseViews: {
 		childOf: { table: "recordTypes", index: "by_type", field: "typeId" },
 		database: { index: "by_type", eq: ["typeId"] },
@@ -374,6 +396,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 
 	// ---- Pages ----
 	pages: {
+		role: roleAccess<"pages">(),
 		workspace: { index: "by_workspace", eq: ["workspaceId"], onDelete: deleteContent },
 		page: { index: "by_parent", eq: ["workspaceId", ["parentId", "pageId"]], onDelete: deleteContentAndRest },
 		// A record's body goes with it.

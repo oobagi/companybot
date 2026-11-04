@@ -1,7 +1,7 @@
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { type AccessLevel, can, widens } from "@companybot/core";
+import { type AccessLevel, EVERYONE, can, widens } from "@companybot/core";
 import { type Member, type Who, memo } from "./lib";
 import { type AccessList, accessInfo } from "./placeAccess";
 import { appendPageBlock, removePageBlock, requireEditable, requirePage } from "./pageOps";
@@ -28,8 +28,11 @@ export const pageRow = (p: Doc<"pages">, member: Member, level: AccessLevel, par
  * What a page leaving its parent's list keeps (a move, or a restore to the top level): never more people.
  * One following its parent's list keeps that list if `after` would let anyone further in; one with its own keeps it.
  */
-export const keptAccess = (member: Member, page: Doc<"pages">, before: AccessList, after: AccessList) =>
-	!page.access && widens(before, after, member.workspaceRoles.map((r) => r.id)) ? { access: before ?? [] } : {};
+export const keptAccess = (member: Member, page: Doc<"pages">, before: AccessList, after: AccessList) => {
+	const live = member.workspaceRoles.map((r) => r.id as string);
+	// A deleted role's id is copied nowhere: it matches nobody, and the role cleanup may have passed this page already.
+	return !page.access && widens(before, after, live) ? { access: (before ?? []).filter((e) => e.role === EVERYONE || live.includes(e.role)) } : {};
+};
 
 /**
  * Share this reader across a list to avoid rereading common ancestors. Missing parents fail closed during purge.

@@ -29,7 +29,7 @@ const MAX_ATTEMPTS = 3;
 
 /** Names what's going, so callers can tell it's still being deleted. */
 const keyOf = (scope: Scope, root: Root) =>
-	[scope, root.workspaceId, root.userId, root.connectorId, root.automationInstallId, root.pageId, root.recordId, root.typeId, root.fieldId, root.chatId, root.agentId]
+	[scope, root.roleId, root.workspaceId, root.userId, root.connectorId, root.automationInstallId, root.pageId, root.recordId, root.typeId, root.fieldId, root.chatId, root.agentId]
 		.filter(Boolean)
 		.join(":");
 
