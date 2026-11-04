@@ -1,3 +1,4 @@
+import * as turnOps from "../convex/turns";
 import { automationJobs } from "./automationJobs";
 import { seedAutomation } from "./legacyFixtures";
 import "./connectorFixtures";
@@ -656,4 +657,30 @@ it("only pauses after three consecutive whole-run failures and resets the count 
 		expect(current.lastOutcome?.text).not.toContain("Invalid time zone");
 	}
 	expect((await t.run(ctx => ctx.db.get(install._id)))!.nextRunAt).toBeUndefined();
+	await t.run(ctx => ctx.db.patch(install._id, { timeZone: "UTC" }));
+	await owner.mutation(api.automations.update, { automationId: install.automationId, enabled: true });
+	expect((await t.run(ctx => ctx.db.get(install._id)))!).toMatchObject({ enabled: true, consecutiveFailures: 0 });
+	await t.run(ctx => ctx.db.patch(install._id, { timeZone: "invalid" }));
+	await run();
+	expect((await t.run(ctx => ctx.db.get(install._id)))!).toMatchObject({ enabled: true, consecutiveFailures: 1 });
+});
+
+
+it("counts a fan-out where every recipient fails as a whole-run failure", async () => {
+	vi.useFakeTimers();
+	const { t, owner } = await ownerAndMember();
+	const { companybot } = await agentsOf(owner);
+	await owner.mutation(api.automations.create, { config: { name: "All fail", prompt: "Hello", trigger: { type: "webhook" } }, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
+	const install = (await t.run(ctx => ctx.db.query("automationInstalls").first()))!;
+	const failure = vi.spyOn(turnOps, "enqueueTurn").mockRejectedValue(new Error("Bad config"));
+	try {
+		for (let attempt = 1; attempt <= 3; attempt++) {
+			await t.mutation(internal.automationRuns.receive, { token: install.webhookToken!, body: JSON.stringify({ id: `failed-${attempt}` }) });
+			await automationJobs(t);
+			const current = (await t.run(ctx => ctx.db.get(install._id)))!;
+			expect(current.consecutiveFailures).toBe(attempt);
+			expect(current.enabled).toBe(attempt < 3);
+			expect(current.lastOutcome?.text).toContain("Sent to 0 people, 1 failed.");
+		}
+	} finally { failure.mockRestore(); }
 });

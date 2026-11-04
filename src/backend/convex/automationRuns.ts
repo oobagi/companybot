@@ -263,7 +263,7 @@ export const fanOutBatch = internalMutation({
 		const install = await ctx.db.get(args.installId);
 		if (!install || !(await liveWorkspace(ctx, install.workspaceId))) return;
 		if (!install.enabled || install.archived) {
-			await finish(ctx, install, { text: `Stopped after ${args.sent} people: ${install.archived ? "archived" : "turned off"}.${args.failed ? ` ${args.failed} failed.` : ""}` }, false);
+			await finish(ctx, install, { text: `Stopped after ${args.sent} ${args.sent === 1 ? "person" : "people"}: ${install.archived ? "archived" : "turned off"}.${args.failed ? ` ${args.failed} failed.` : ""}` }, false);
 			return;
 		}
 		if (args.messageId && !(await liveTrigger(ctx, args.messageId))) return;
@@ -292,6 +292,7 @@ export const fanOutBatch = internalMutation({
 			}
 		}
 		if (!page.isDone) await ctx.scheduler.runAfter(0, internal.automationRuns.fanOut, { ...args, cursor: page.continueCursor, sent, failed, retry: 0 });
+		else if (!sent && failed) await failedRun(ctx, install._id, new Error("Every recipient delivery failed"), sent, `Sent to 0 people, ${failed} failed`);
 		else await finish(ctx, install, { text: sent || failed ? `Sent to ${sent} ${sent === 1 ? "person" : "people"}${failed ? `, ${failed} failed` : ""}.` : "Didn't run: nobody has turned it on." });
 	},
 });
@@ -359,7 +360,7 @@ async function liveTrigger(ctx: QueryCtx, id: Id<"chatMessages">) {
 const transientError = (error: unknown) => /conflict|temporar|timeout|timed out|overloaded|rate limit|ECONNRESET|unavailable/i.test(error instanceof Error ? error.message : String(error));
 
 /** Keep failures visible, but only pause an install after three consecutive whole-run failures. */
-async function failedRun(ctx: MutationCtx, installId: Id<"automationInstalls">, error: unknown, sent?: number) {
+async function failedRun(ctx: MutationCtx, installId: Id<"automationInstalls">, error: unknown, sent?: number, summary?: string) {
 	const install = await ctx.db.get(installId);
 	if (!install || !(await liveWorkspace(ctx, install.workspaceId))) return;
 	const failures = (install.consecutiveFailures ?? 0) + 1;
@@ -368,7 +369,7 @@ async function failedRun(ctx: MutationCtx, installId: Id<"automationInstalls">, 
 		consecutiveFailures: failures,
 		...(failures >= 3 && { enabled: false, nextRunAt: undefined, eventKey: undefined }),
 	});
-	await finish(ctx, install, { text: `Failed: could not complete the run${sent === undefined ? "" : ` after sending to ${sent} people`}.${failures >= 3 ? " Paused after 3 consecutive failures." : " Try again or check its settings."}` }, false);
+	await finish(ctx, install, { text: `${summary ?? `Failed: could not complete the run${sent === undefined ? "" : ` after sending to ${sent} ${sent === 1 ? "person" : "people"}`}`}.${failures >= 3 ? " Paused after 3 consecutive failures." : summary ? "" : " Try again or check its settings."}` }, false);
 }
 
 /**

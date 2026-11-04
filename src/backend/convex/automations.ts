@@ -317,7 +317,7 @@ export async function updateAutomation(ctx: MutationCtx, member: Member, { autom
 		usedPlaces,
 		...(enabled !== undefined && { enabled }),
 		// Resuming doesn't make up the runs it missed while paused.
-		...(enabled && !install.enabled && { lastScheduledAt: Date.now() }),
+		...(enabled && !install.enabled && { lastScheduledAt: Date.now(), consecutiveFailures: 0 }),
 		...(agentId && { agentId }),
 		...(audience && {
 			audience,
