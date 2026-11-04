@@ -8,7 +8,7 @@ import { mutation, query } from "./functions";
 import { type Member, checkPermission, getMember, preferencesOf, requireMember, toActor } from "./lib";
 import { type AccessList, accessInfo, chatAccess, reach, savedAccess } from "./placeAccess";
 import { canReadReply, canReadSources } from "./replyPrivacy";
-import { writeSources } from "./replySources";
+import { changeAccessSources, writeSources } from "./replySources";
 import { accessArg } from "./schema";
 import { trashInfo } from "./trashOps";
 import { STALE_TURN_MS, sessionAt } from "./turns";
@@ -366,7 +366,7 @@ export const setAccess = mutation({
 		// Everyone at Post is the default: store nothing, as for a channel nobody restricted.
 		const open = list.length === 1 && list[0]!.role === "everyone" && list[0]!.level === "edit";
 		const users = chat.private ? (await chatMembersOf(ctx, chat._id)).flatMap((m) => m.userId ? [m.userId] : []) : undefined;
-		await writeSources(ctx, member, { place: chat._id, access: list, users }, chat);
+		await changeAccessSources(ctx, member, chat, { access: list, users });
 		await ctx.db.patch(chat._id, { access: open ? undefined : list });
 		await refreshAudience(ctx, { ...chat, access: open ? undefined : list });
 	},
