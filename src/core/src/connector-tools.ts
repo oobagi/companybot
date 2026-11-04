@@ -23,7 +23,7 @@ export interface ConnectorService {
 export function connectorMetaTools(
 	tools: ToolDef[],
 	services: ConnectorService[],
-	run: (t: ToolDef, input: unknown) => Promise<unknown>,
+	run: (t: ToolDef, input: unknown, callId: string) => Promise<unknown>,
 ): ToolSet {
 	const byId = new Map(tools.map((t) => [t.id, t]));
 	return {
@@ -50,12 +50,12 @@ export function connectorMetaTools(
 				tool: z.string().describe("The tool's id from connectors_search"),
 				input: z.record(z.string(), z.unknown()).default({}),
 			}),
-			execute: async ({ tool: id, input }) => {
+			execute: async ({ tool: id, input }, { toolCallId }) => {
 				const t = byId.get(id);
 				if (!t) return { error: `No connected tool "${id}". Use connectors_search first.` };
 				const check = await asSchema(t.input).validate?.(input);
 				if (check && !check.success) return { error: `Input doesn't match ${id}'s schema: ${check.error.message}` };
-				return run(t, check?.success ? check.value : input);
+				return run(t, check?.success ? check.value : input, toolCallId);
 			},
 		}),
 	};

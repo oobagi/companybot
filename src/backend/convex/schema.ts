@@ -2,7 +2,7 @@ import { accessLevels, builtInRoles, fieldKinds, fileTypes, permissions, reasoni
 import { arrangementLists, type ArrangementList } from "@companybot/core/arrangements";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
-import { v } from "convex/values";
+import { type Infer, v } from "convex/values";
 import { viewConfig } from "./recordValidators";
 
 /** One of `values`, each a literal. */
@@ -93,6 +93,13 @@ export const approvalStatus = v.union(
 	v.literal("failed"),
 	v.literal("denied"),
 );
+
+/**
+ * A tool call's operation key (approvals.withReceipt): the approval it runs from, or the model's call id. Every
+ * write a built-in makes for a call carries it, so the same call never writes twice.
+ */
+export const opArg = v.union(v.object({ approval: v.id("approvals") }), v.object({ call: v.string() }));
+export type Op = Infer<typeof opArg>;
 
 export const trashKind = oneOf(trashKinds);
 
@@ -813,6 +820,22 @@ export default defineSchema({
 		// A channel's recent "might be for you" picks, for their hourly cap (router.ts).
 		.index("by_chat_dispatch", ["chatId", "dispatch.band"]),
 
+	// What a tool call did, keyed by its operation key (the model's call id, or `approval-<id>`), so a rerun
+	// of the same call never does it twice (approvals.ts). A built-in's write commits it with its effect;
+	// a connector write or a multi-step built-in claims it first (`started`) and settles it after (`done`).
+	// Done ones go 30 days later (approvals.forgetReceipts); started ones (outcome unknown) stay with their turn.
+	toolReceipts: defineTable({
+		turnId: v.id("agentTurns"),
+		callId: v.string(),
+		actorId: v.id("users"),
+		state: v.union(v.literal("started"), v.literal("done")),
+		/** A connector call's result (clipped JSON), returned to a repeat of the same call. Only its person sees it. */
+		output: v.optional(v.string()),
+	})
+		.index("by_turn", ["turnId", "callId"])
+		.index("by_state", ["state"])
+		.index("by_actor", ["actorId"]),
+
 	// A turn's tool steps as its model had them (core replay.ts keptStep): its calls and their results,
 	// as JSON ModelMessage[] (a call's input can have any keys). Later turns in its session replay them
 	// (turns.ts sessionTurns); results only to the person it acted for, as in the activity log.
@@ -991,6 +1014,11 @@ export default defineSchema({
 		tool: v.string(),
 		/** Canonical JSON (approvals.canonicalJson) of the exact input. Never clipped: this is what runs. */
 		input: v.string(),
+		/**
+		 * The revisions of what the call's effect depends on when it was held (core `ToolDef.binds`), as canonical
+		 * JSON, hashed with the input; unset when it depends on nothing. `claim` refuses a call whose targets changed since.
+		 */
+		bound: v.optional(v.string()),
 		hash: v.string(),
 		status: approvalStatus,
 		expiresAt: v.number(),
@@ -1004,7 +1032,15 @@ export default defineSchema({
 		automationInstallId: v.optional(v.id("automationInstalls")),
 		/** Set when the actor chose "Always allow": a rule was saved too. */
 		always: v.optional(v.boolean()),
+		/**
+		 * Running a call whose effect isn't one transaction (a connector's, an async built-in's): cut off, its
+		 * outcome is unknown, not "nothing changed".
+		 */
+		outside: v.optional(v.boolean()),
+		/** With `failed`: it may or may not have happened. A field, not a status, so older apps still show the error. */
+		outcome: v.optional(v.literal("unknown")),
 	})
+		.index("by_call", ["turnId", "callId"])
 		.index("by_reply", ["replyId"])
 		.index("by_workspace", ["workspaceId"])
 		.index("by_actor", ["actorId"]),
@@ -1023,6 +1059,9 @@ export default defineSchema({
 		installedBy: v.id("users"),
 		/** The schedule run it last did, or when its schedule was set or it was resumed: runs after it are due (core `scheduleDue`). */
 		lastScheduledAt: v.optional(v.number()),
+		nextRunAt: v.optional(v.number()),
+		consecutiveFailures: v.optional(v.number()),
+		eventKey: v.optional(v.string()),
 		// Retired: schedules ran once a local day. migrations.cronSchedules clears it.
 		// COMPAT(0.1.0-alpha.10): once that has run on prod, drop this field.
 		lastRunDate: v.optional(v.string()),
@@ -1058,7 +1097,8 @@ export default defineSchema({
 		archived: v.optional(v.boolean()),
 	})
 		.index("by_workspace", ["workspaceId", "automationId"])
-		.index("by_enabled", ["enabled"])
+		.index("by_due", ["nextRunAt"])
+		.index("by_event", ["workspaceId", "eventKey"])
 		.index("by_webhook", ["webhookToken"]),
 
 	// People who turned on an automation whose audience is "subscribers".

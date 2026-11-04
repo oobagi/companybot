@@ -141,7 +141,7 @@ describe("approvals", () => {
 
 		expect(await t.mutation(internal.approvals.claim, { approvalId, turnId: next._id })).toEqual(call);
 		expect(await t.mutation(internal.approvals.claim, { approvalId, turnId: next._id })).toBeNull();
-		await t.mutation(internal.approvals.finish, { approvalId, result: '{"sent":true}' });
+		await t.mutation(internal.approvals.finish, { approvalId, turnId: next._id, result: '{"sent":true}' });
 		const [mine] = await member.query(api.approvals.forReply, { replyId: turn.replyId! });
 		expect(mine).toMatchObject({ status: "done", result: '{"sent":true}' });
 	});
@@ -198,9 +198,19 @@ describe("approvals", () => {
 		const second = await holdCall(t, member, chatId);
 		await member.mutation(api.approvals.decide, { approvalId: second.approvalId, hash: second.card.hash, approve: true, always: false });
 		const next = (await turnsOf(t)).at(-1)!;
-		await t.mutation(internal.approvals.claim, { approvalId: second.approvalId, turnId: next._id });
+		// An outside service's call (a connector's) may have landed: failed, with an unknown outcome (older apps show the error).
+		await t.mutation(internal.approvals.claim, { approvalId: second.approvalId, turnId: next._id, outside: true });
 		await t.mutation(internal.turns.finishReply, { turnId: next._id, error: "Timed out" });
-		expect(await t.run((ctx) => ctx.db.get(second.approvalId))).toMatchObject({ status: "failed", error: expect.stringContaining("may or may not have happened") });
+		expect(await t.run((ctx) => ctx.db.get(second.approvalId))).toMatchObject({ status: "failed", outcome: "unknown", error: expect.stringContaining("may or may not have happened") });
+		expect((await member.query(api.approvals.forReply, { replyId: second.turn.replyId! }))[0]).toMatchObject({ status: "failed", outcome: "unknown" });
+
+		// A built-in's effect commits with its receipt, so one still running when its turn ends never happened.
+		const third = await holdCall(t, member, chatId);
+		await member.mutation(api.approvals.decide, { approvalId: third.approvalId, hash: third.card.hash, approve: true, always: false });
+		const last = (await turnsOf(t)).at(-1)!;
+		await t.mutation(internal.approvals.claim, { approvalId: third.approvalId, turnId: last._id });
+		await t.mutation(internal.turns.finishReply, { turnId: last._id, error: "Timed out" });
+		expect(await t.run((ctx) => ctx.db.get(third.approvalId))).toMatchObject({ status: "failed", error: expect.stringContaining("nothing changed") });
 	});
 
 	it("tells the agent about a denial and runs nothing", async () => {

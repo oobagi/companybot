@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import schema from "../convex/schema";
 
-import { agentTurn, agentsOf, generalOf, modules, signIn } from "./helpers";
+import { agentTurn, agentsOf, generalOf, modules, signIn, messagesIn } from "./helpers";
 import { seedAutomation } from "./legacyFixtures";
 import "./connectorFixtures";
 
@@ -41,6 +41,8 @@ describe("migrations", () => {
 		const made = installs.find((i) => i.automationId === id)!;
 		const brief = installs.find((i) => i.automationId === "morning-brief")!;
 		expect(made).toMatchObject({ custom: { trigger: { type: "schedule", cron: "30 9 * * 1,3" }, version: 1 }, lastScheduledAt: 1_000 });
+		expect(made.nextRunAt).toBeGreaterThan(1_000);
+		expect(brief.nextRunAt).toBeGreaterThan(1_000);
 		expect(brief).toMatchObject({ definition: { trigger: { type: "schedule", cron: "0 8 * * 1-5" } }, lastScheduledAt: 1_000 });
 		expect([made.lastRunDate, brief.lastRunDate]).toEqual([undefined, undefined]);
 	});
@@ -313,6 +315,43 @@ it("cuts channel topics from before the 250-character cap", async () => {
 	expect((await t.run((ctx) => ctx.db.get(id)))!.topic).toBe("y".repeat(250));
 });
 
+it("backfills event indexes and clears indexes for disabled installs", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	migrationsTest.register(t);
+	const owner = await signIn(t, "indexes@co.com");
+	const { companybot } = await agentsOf(owner);
+	await owner.mutation(api.automations.create, { config: { name: "Join", prompt: "Welcome", trigger: { type: "event", event: "member.joined" } }, agentId: companybot._id, audience: "creator", timeZone: "UTC" });
+	const install = (await t.run(ctx => ctx.db.query("automationInstalls").first()))!;
+	await t.run(ctx => ctx.db.patch(install._id, { eventKey: undefined }));
+	vi.useFakeTimers();
+	await t.mutation(internal.migrations.runAll);
+	await t.finishAllScheduledFunctions(vi.runAllTimers);
+	expect((await t.run(ctx => ctx.db.get(install._id)))!.eventKey).toBe("member.joined");
+	await owner.mutation(api.automations.update, { automationId: install.automationId, enabled: false });
+	expect((await t.run(ctx => ctx.db.get(install._id)))!.eventKey).toBeUndefined();
+});
+
+it("backfills channel-specific event keys and leaves channel-less triggers inactive", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	migrationsTest.register(t);
+	const owner = await signIn(t, "channel-index@co.com");
+	const { companybot } = await agentsOf(owner);
+	const chatId = (await generalOf(owner))._id;
+	await owner.mutation(api.automations.create, { config: { name: "Watch", prompt: "Read", trigger: { type: "event", event: "message.posted", channelId: chatId } }, agentId: companybot._id, audience: "creator", timeZone: "UTC" });
+	const install = (await t.run(ctx => ctx.db.query("automationInstalls").first()))!;
+	await t.run(async ctx => {
+		await ctx.db.patch(install._id, { eventKey: "message.posted" });
+		const { _id, _creationTime, custom, ...fields } = install;
+		await ctx.db.insert("automationInstalls", { ...fields, automationId: "legacy-any", eventKey: "message.posted", definition: { id: "legacy-any", name: "Anywhere", description: "Any", details: "Any", publisher: "Test", version: "1", connectors: [], prompt: "Read", trigger: { type: "event", event: "message.posted", label: "Any message" } } });
+	});
+	vi.useFakeTimers();
+	await t.mutation(internal.migrations.runAll);
+	await t.finishAllScheduledFunctions(vi.runAllTimers);
+	const rows = await t.run(ctx => ctx.db.query("automationInstalls").collect());
+	expect(rows.find(i => i._id === install._id)!.eventKey).toBe(`message.posted:${chatId}`);
+	expect(rows.find(i => i.automationId === "legacy-any")!.eventKey).toBeUndefined();
+});
+
 // COMPAT(0.1.0-alpha.10): delete with migrations.chatActivity.
 it("moves each chat's last message time and running cost onto its activity, read from the chat until then", async () => {
 	const t = convexTest({ schema, modules, transactionLimits: true });
@@ -394,7 +433,7 @@ it("shows a chat's newest messages before the backfill gives them a shown time, 
 	});
 	const newest = async () => (await owner.query(api.messages.page, { chatId, paginationOpts: { numItems: 50, cursor: null } })).page.map((m) => m._id);
 	expect(await newest()).toEqual(newer.slice(-50));
-	expect((await owner.query(api.messages.list, { chatId })).slice(-70).map((m) => m._id)).toEqual(newer);
+	expect((await messagesIn(owner, { chatId })).slice(-70).map((m) => m._id)).toEqual(newer);
 	vi.useFakeTimers();
 	try {
 		await t.mutation(internal.migrations.runAll);

@@ -300,7 +300,7 @@ describe("reply router", () => {
 		const general = (await generalOf(owner))._id;
 		const tried = await runWith(t, turn!._id, { emoji: "👀", new_point: "", to: "room", message: "Posted it." }, [
 			{ action: "send", chat: chatId, text: "Demo at 3pm" },
-			{ action: "send", chat: "#general", text: "Heads up: #ops wants reactions." },
+			{ action: "send", chat: general, text: "Heads up: #ops wants reactions." },
 		]);
 		expect(tried).toMatchObject([{ messageId: expect.any(String), note: expect.stringContaining("Don't repeat") }, { messageId: expect.any(String) }]);
 		expect(tried[1]).not.toHaveProperty("note");

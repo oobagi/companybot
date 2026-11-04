@@ -20,6 +20,8 @@ import { automationScope } from "./automationOps";
 import { addToChat, addUserMentions, chatMembersOf, insertMessage, requireChat } from "./chatOps";
 import { asToolResult, nameOf, requireMember } from "./lib";
 import { writeSources } from "./replySources";
+import { withReceipt } from "./approvals";
+import { opArg } from "./schema";
 import { enqueueTurn, runningTurn } from "./turns";
 import { createWakeup, wake } from "./wakeups";
 
@@ -248,8 +250,8 @@ export const decide = mutation({
  * (`answerAsk`), whose wake turn finishes the original reply where it was.
  */
 export const askFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), agent: v.string(), message: v.string() },
-	handler: async (ctx, { turnId, agent: name, message }) => {
+	args: { turnId: v.id("agentTurns"), op: v.optional(opArg), agent: v.string(), message: v.string() },
+	handler: (ctx, { turnId, op, agent: name, message }) => withReceipt(ctx, op, turnId, async () => {
 		const { turn, chat, member } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
 			if (!(await personAsked(ctx, turn)))
@@ -314,7 +316,7 @@ export const askFor = internalMutation({
 				note: `${to.name} is answering, out of the chat. Its answer comes back to you in a new message here: say you asked, and stop until then.`,
 			};
 		});
-	},
+	}),
 });
 
 /** An asked agent's turn ended (turns.ts): its answer, or why there's none, goes back to the asker. */

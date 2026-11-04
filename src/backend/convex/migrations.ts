@@ -7,7 +7,7 @@ import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, internalMutation, internalQuery } from "./_generated/server";
 import { TOPIC_MAX, defaultModel, scheduleCron, usageMonth, wakeAnchor } from "@companybot/core";
 import { recordUsage } from "./usage";
-import { type RunOutcome, scheduleCursor } from "./automationOps";
+import { type RunOutcome, triggerIndexes, scheduleCursor } from "./automationOps";
 import { rolesOf, timeZoneOf } from "./lib";
 import { seedRoles } from "./roles";
 import { withoutPageTitles } from "./pageBlocks";
@@ -347,6 +347,15 @@ export const moveSeatActivity = migrations.define({
 	},
 });
 
+// COMPAT(0.1.0-alpha.10): retire after existing installs have their trigger indexes backfilled.
+export const automationTriggerIndexes = migrations.define({
+	table: "automationInstalls",
+	batchSize: 50,
+	migrateOne: async (ctx, install) => {
+		await ctx.db.patch(install._id, triggerIndexes(install, scheduleCursor(install)));
+	},
+});
+
 // A chat's last message time and running cost moved to its own `chatActivity` row, so a message no longer
 // re-runs every query that reads the chat. This moves each chat's onto that row (one the app made since
 // already started from the chat's, so it's newer and stays) and clears them from the chat.
@@ -405,6 +414,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.dropChatReactRules,
 	internal.migrations.dropChatReactLocks,
 	internal.migrations.channelTopics,
+	internal.migrations.automationTriggerIndexes,
 	internal.migrations.chatActivity,
 	internal.migrations.messageShownAt,
 	internal.migrations.searchAudience,

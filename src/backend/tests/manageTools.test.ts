@@ -67,7 +67,9 @@ describe("messaging and channels as the person", () => {
 		expect(await call("chat.manage", r)).toEqual({ chatId });
 		const before = await t.run((ctx) => ctx.db.query("agentTurns").collect());
 		const parent = await owner.mutation(api.messages.send, { chatId: chat._id, text: "Parent", mentions: noMentions });
-		for (const destination of [{ chat: "#general" }, { chat: chat._id, threadId: parent }, { chat: chatId }]) {
+		// A write names its chat by id or "here", never by #name: a rename can hand a name to another channel.
+		expect(await call("chat.manage", { action: "send", chat: "#general", text: "Delivered" })).toEqual({ error: expect.stringContaining("by its id or \"here\"") });
+		for (const destination of [{ chat: chat._id }, { chat: chat._id, threadId: parent }, { chat: chatId }]) {
 			const { messageId } = await call("chat.manage", {
 				action: "send",
 				...destination,

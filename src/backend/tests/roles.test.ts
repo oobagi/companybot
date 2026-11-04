@@ -260,6 +260,7 @@ describe("roles", () => {
 				by: "role",
 				message: "Only people with the Office or Owner role can add and change databases and fields. Ask someone who has one of them.",
 			},
+			risk: "inside",
 		});
 		// The same refusal comes back from the call itself, whatever path it takes.
 		expect(await t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input: { name: "Deals 2" } })).toEqual({
