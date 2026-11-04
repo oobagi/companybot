@@ -11,6 +11,7 @@ import {
 	deniedMessage,
 	findConnector,
 	permissionFor,
+	readOnlyRisk,
 	toolGroup,
 	toolRisk,
 } from "@companybot/core";
@@ -105,15 +106,17 @@ type AllowedVia = { how: "always" | "automation"; by: Id<"users">; at: number; r
  */
 export const check = internalMutation({
 	/** `sendsOut`: the call's input leaves the workspace (core `ToolDef.sendsOut`, connector tools). */
-	args: { turnId: v.id("agentTurns"), action: v.string(), risk, sendsOut: v.optional(v.boolean()) },
-	handler: async (ctx, { turnId, action, risk: given, sendsOut }): Promise<{ decision: PermissionDecision; allowed?: AllowedVia; risk: Risk }> => {
+	/** `readOnly`: the live tool only reads (core `readsOnly`); unset is a write. */
+	args: { turnId: v.id("agentTurns"), action: v.string(), risk, sendsOut: v.optional(v.boolean()), readOnly: v.optional(v.boolean()) },
+	handler: async (ctx, { turnId, action, risk: given, sendsOut, readOnly }): Promise<{ decision: PermissionDecision; allowed?: AllowedVia; risk: Risk }> => {
 		const { turn, member } = await runningTurn(ctx, turnId);
 		// After reading anything restricted, nothing goes outside unseen: the exact query, link or payload waits on
 		// a card, every time (locked: no Always). Only the person's own data in their own agent DM is exempt.
 		// A read through the same workspace connector the data came from stays within its audience. Anything that
 		// changes or sends through it (or a tool it hasn't listed) can reach anyone, so it asks like any other.
 		const install = sendsOut ? await connectorInstallOf(ctx, member.workspaceId, action) : undefined;
-		const readsOnly = !!install && given === "none" && (await riskOf(ctx, member.workspaceId, action)) === "none";
+		// Read-only on both sides (core `readsOnly`, the same rule as the call-id claim): the live tool, and the server's last listing.
+		const readsOnly = !!install && !!readOnly && readOnlyRisk(given) && readOnlyRisk(await riskOf(ctx, member.workspaceId, action));
 		const gated = !!sendsOut && (await turnIsRestricted(ctx, member, readsOnly ? install._id : undefined));
 		const risk: Risk = gated ? "locked" : given;
 		const needs = builtinTools.find((t) => t.id === action)?.permission;

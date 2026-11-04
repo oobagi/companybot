@@ -1,5 +1,5 @@
 import { connectorCatalog, defineConnector } from "./connectors";
-import { permissionFor, toolRisk } from "./action-rules";
+import { permissionFor, readsOnly, toolRisk } from "./action-rules";
 import { describe, expect, it } from "vitest";
 import { simulateReadableStream, streamText } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
@@ -338,6 +338,22 @@ describe("approvals", () => {
 		expect(receipts.has("c2")).toBe(false);
 		expect(receipts.has("c3")).toBe(false);
 		expect(sent.at(-1)).toEqual({ idempotency_key: "c3" });
+	});
+
+	it("claims a tool that says read-only but is destructive, like the gate counts it", async () => {
+		let sent = 0;
+		const receipts = new Set<string>();
+		// What mcp.ts makes of readOnlyHint plus destructiveHint: read-only, but locked.
+		const wipe = connectorTool("wipe", { readOnly: true, risk: "locked", input: z.object({}), execute: async () => (sent++, { ok: true }) });
+		expect(readsOnly(wipe)).toBe(false);
+		expect(readsOnly(find)).toBe(true);
+		const calls = { start: async (id: string) => (receipts.has(id) ? { note: "already ran" } : (receipts.add(id), null)), finish: async () => {} };
+		const tools = buildToolSet({ tools: ["crm.*"] }, { ...ctx(owner), calls }, [wipe]);
+		const call = () => tools.connectors_call!.execute!({ tool: "crm.wipe", input: {} }, { toolCallId: "w1", messages: [] } as never);
+		await call();
+		expect(await call()).toEqual({ note: "already ran" });
+		expect(sent).toBe(1);
+		expect([...receipts]).toEqual(["w1"]);
 	});
 
 	it("binds the message, memory or thing an edit, delete or archive depends on", () => {

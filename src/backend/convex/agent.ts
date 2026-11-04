@@ -52,6 +52,7 @@ import {
 	manageFiles,
 	toolApprovalPolicy,
 	toolLine,
+	readsOnly,
 	toolRisk,
 	type Risk,
 	withIdempotencyKey,
@@ -298,7 +299,7 @@ async function streamReply(
 	const callRisks = new Map<string, Risk>();
 	const check = async (t: ToolDef, callId: string) => {
 		const sendsOut = !!t.sendsOut || t.source.type === "connector";
-		const { decision, allowed, risk } = await ctx.runMutation(internal.permissions.check, { turnId, action: t.id, risk: toolRisk(t), sendsOut });
+		const { decision, allowed, risk } = await ctx.runMutation(internal.permissions.check, { turnId, action: t.id, risk: toolRisk(t), sendsOut, readOnly: readsOnly(t) });
 		callRisks.set(callId, risk);
 		if (allowed) allowedCalls.set(callId, allowed);
 		if (decision.type === "deny") deniedCalls.set(callId, deniedReason(decision, t.id));

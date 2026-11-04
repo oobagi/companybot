@@ -1,7 +1,7 @@
 import { type ModelMessage, type ToolSet, asSchema, isStepCount, tool } from "ai";
 import { callEnd } from "./activity";
 import { type AgentConfig, reasonings } from "./agent-config";
-import { type PermissionDecision, deniedReason, heldReason, permissionFor, toolRisk } from "./action-rules";
+import { type PermissionDecision, deniedReason, heldReason, permissionFor, readsOnly, toolRisk } from "./action-rules";
 import { builtinTools } from "./builtin-tools";
 import { type ModelInfo, fallbackModels } from "./models";
 import { can, canUseConnector } from "./permissions";
@@ -163,7 +163,7 @@ export function buildToolSet(
 	const run = async (t: ToolDef, input: unknown, callId: string) => {
 		const c = ctx.forCall ? { ...ctx, ...ctx.forCall(callId) } : ctx;
 		const keyed = await withIdempotencyKey(t, input, callId);
-		const claims = !!ctx.calls && t.source.type === "connector" && !t.readOnly && !(await idempotencyField(t));
+		const claims = !!ctx.calls && t.source.type === "connector" && !readsOnly(t) && !(await idempotencyField(t));
 		if (claims) {
 			const instead = await ctx.calls!.start(callId);
 			if (instead) return instead;

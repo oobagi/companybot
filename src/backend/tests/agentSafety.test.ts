@@ -318,8 +318,9 @@ describe("nothing leaves the workspace unseen after a restricted read", () => {
 		await owner.mutation(api.recordTypes.setAccess, { typeId: deals, access: [{ role: office, level: "view" }] });
 		const { companybot } = await agentsOf(owner);
 		const start = (chatId: Id<"chats">, as: As = dana) => agentTurn(t, as, chatId, companybot._id);
-		const check = (turnId: Id<"agentTurns">, action = "web.search", risk: "none" | "inside" | "outside" | "locked" = "none") =>
-			t.mutation(internal.permissions.check, { turnId, action, risk, sendsOut: true });
+		/** As the runner asks: `readOnly` is core `readsOnly` of the live tool. */
+		const check = (turnId: Id<"agentTurns">, action = "web.search", risk: "none" | "inside" | "outside" | "locked" = "none", readOnly = false) =>
+			t.mutation(internal.permissions.check, { turnId, action, risk, sendsOut: true, readOnly });
 		return { t, owner, crew, dana, companybot, deal, start, check, general: (await generalOf(owner))._id };
 	}
 	const asks = { decision: { type: "ask", canAlways: false }, risk: "locked" };
@@ -384,6 +385,8 @@ describe("nothing leaves the workspace unseen after a restricted read", () => {
 						{ name: "search", description: "Search", risk: "none" as const },
 						{ name: "send_email", description: "Email anyone", risk: "outside" as const },
 						{ name: "charge_card", description: "Charge a card", risk: "locked" as const },
+						// readOnlyHint and destructiveHint both: destructive wins (core mcp.ts).
+						{ name: "wipe", description: "Wipe leads", risk: "locked" as const },
 					]
 				: [{ name: "add_note", description: "Add a note", risk: "outside" as const }];
 			await s.t.mutation(internal.connectorTools.saveTools, { workspaceId: install.workspaceId, connectorId: install.connectorId, installId: install._id, tools });
@@ -400,7 +403,7 @@ describe("nothing leaves the workspace unseen after a restricted read", () => {
 		expect(await s.check(s.turnId, "notes.add_note", "outside")).toMatchObject(asks);
 		expect(await s.check(s.turnId)).toMatchObject(asks);
 		// Reading more from the same CRM stays within the CRM's audience.
-		expect(await s.check(s.turnId, "crm.find_leads", "none")).toMatchObject({ decision: { type: "run" }, risk: "none" });
+		expect(await s.check(s.turnId, "crm.find_leads", "none", true)).toMatchObject({ decision: { type: "run" }, risk: "none" });
 	});
 
 	it("exempts only read-only calls to the same connector: a send through it asks, even with Always", async () => {
@@ -409,9 +412,12 @@ describe("nothing leaves the workspace unseen after a restricted read", () => {
 		expect(await s.check(s.turnId, "crm.send_email", "outside")).toMatchObject({ decision: { type: "run", via: "always" } });
 		await s.read("crm");
 		expect(await s.check(s.turnId, "crm.send_email", "outside")).toMatchObject(asks);
-		expect(await s.check(s.turnId, "crm.search", "none")).toMatchObject({ decision: { type: "run" }, risk: "none" });
-		// A tool the server hasn't listed counts as a write, whatever the call claims.
-		expect(await s.check(s.turnId, "crm.unlisted", "none")).toMatchObject(asks);
+		expect(await s.check(s.turnId, "crm.search", "none", true)).toMatchObject({ decision: { type: "run" }, risk: "none" });
+		// Read-only on both sides, or it's a write: a tool the server hasn't listed, one listed as destructive
+		// though the call claims a read, or a listed read the live tool no longer calls read-only.
+		expect(await s.check(s.turnId, "crm.unlisted", "none", true)).toMatchObject(asks);
+		expect(await s.check(s.turnId, "crm.wipe", "none", true)).toMatchObject(asks);
+		expect(await s.check(s.turnId, "crm.search", "none", false)).toMatchObject(asks);
 	});
 
 	it("isn't lifted by an Unlocked action or an Always rule", async () => {
