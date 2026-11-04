@@ -1,3 +1,5 @@
+import { inheritPlaces } from "./replySources";
+import { canReadReply, canReadSources } from "./replyPrivacy";
 import { actionLabel, findConnector, toolGroup } from "@companybot/core";
 import type { PaginationOptions } from "convex/server";
 import { v } from "convex/values";
@@ -10,7 +12,7 @@ import { titleOf } from "./connectorTools";
 import { allowedHow } from "./schema";
 
 // The activity log: every tool call an agent made, with its input and output.
-// An entry is as private as the chat it happened in. Outputs can hold things only
+// An entry follows its reply's source audience as well as its chat. Outputs can hold things only
 // the person the agent acted for may see (a private channel, their own inbox), so
 // only that person gets them.
 
@@ -69,6 +71,7 @@ export const list = query({
 			.take(SCAN_LIMIT);
 		for (const row of rows) {
 			if (agentId && row.agentId !== agentId) continue;
+			if (!(await visibleReply(ctx, row, member))) continue;
 			if (!labels.has(row.chatId)) labels.set(row.chatId, await visibleLabel(ctx, row.chatId, member, names));
 			const chat = labels.get(row.chatId);
 			if (!chat) continue;
@@ -86,7 +89,7 @@ export const forReply = query({
 		const member = await getMember(ctx);
 		const reply = await ctx.db.get(replyId);
 		const chat = reply && (await ctx.db.get(reply.chatId));
-		if (!member || !chat || chat.archived || !(await canSee(ctx, chat, member))) return [];
+		if (!member || !chat || chat.archived || !(await canSee(ctx, chat, member)) || !(await canReadReply(ctx, member, reply!))) return [];
 		const names = namer(ctx);
 		const rows = await ctx.db
 			.query("agentActivity")
@@ -151,7 +154,18 @@ export async function activityPage(ctx: QueryCtx, member: Member, opts: Paginati
 	const page = [];
 	for (const row of result.page) {
 		const chat = await visibleLabel(ctx, row.chatId, member, names);
-		if (chat) page.push({ ...(await toEntry(ctx, row, member, names)), chat });
+		if (chat && await visibleReply(ctx, row, member)) page.push({ ...(await toEntry(ctx, row, member, names)), chat });
 	}
 	return { ...result, page };
+}
+
+async function visibleReply(ctx: QueryCtx, row: Doc<"agentActivity">, member: Member) {
+	const reply = row.replyId && await ctx.db.get(row.replyId);
+	if (row.replyId) return !!reply && await canReadReply(ctx, member, reply);
+	if (row.wake) {
+		const wakeup = await ctx.db.get(row.wake.wakeupId);
+		if (!wakeup || !(await canReadSources(ctx, member, wakeup.usedPlaces))) return false;
+		await inheritPlaces(ctx, member, wakeup.usedPlaces);
+	}
+	return true;
 }

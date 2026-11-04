@@ -1,3 +1,4 @@
+import { notePlace } from "./replySources";
 import { describeWidget } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -60,7 +61,9 @@ export const membership = (ctx: QueryCtx, chatId: Id<"chats">, userId: Id<"users
  * channel's Who can access list applies on top: not on it, no access.
  */
 export async function canSee(ctx: QueryCtx, chat: Doc<"chats">, member: Member) {
-	return (await reachOf(ctx, chat, member)) === "ok";
+	const seen = (await reachOf(ctx, chat, member)) === "ok";
+	if (seen) await notePlace(ctx, member, chat._id, chatAccess(chat), !!chat.private);
+	return seen;
 }
 
 /** Whether someone can see a chat: "ok", "members" (a private chat they're not in) or "access" (not on its list). */
@@ -108,6 +111,7 @@ export async function chatByRef(ctx: QueryCtx, member: Member, ref: string) {
 async function seenOrRefused(ctx: QueryCtx, chat: Doc<"chats">, member: Member, asked?: string) {
 	const seen = await reachOf(ctx, chat, member);
 	if (seen === "access") requireAccess(member, "channel", channelName(chat), chatAccess(chat), "view", asked);
+	if (seen === "ok") await notePlace(ctx, member, chat._id, chatAccess(chat), !!chat.private);
 	return seen === "ok" ? chat : null;
 }
 
@@ -128,6 +132,7 @@ export async function requireChat(ctx: QueryCtx, member: Member, chatId: Id<"cha
 	const seen = chat ? await reachOf(ctx, chat, member) : "members";
 	if (seen === "access") requireAccess(member, "channel", channelName(chat!), chatAccess(chat!), "view");
 	if (!chat || seen !== "ok") throw new ConvexError("Chat not found.");
+	await notePlace(ctx, member, chat._id, chatAccess(chat), !!chat.private);
 	return chat;
 }
 

@@ -35,6 +35,13 @@ Open [Chat](#/chat) from the sidebar.
 - Each agent answers one thing at a time per place; extra mentions wait their turn.
 - In a chat with several people, agents use team memories only, never anyone's personal ones: see **help: memory**.
 
+## Private agent replies
+An agent can use a database, page or channel that you can open but others in the chat cannot. Its reply says **🔒 Only Office and Owners can see this**. Hover the lock for why, like **Uses the Deals database**. Anyone missing one of its sources sees only **🔒 Replied to Dana. Only Office and Owners can see this.** Its files, tool cards, approvals and Activity stay hidden too.
+
+Access is checked when you read: gaining a role later reveals earlier replies. Agents answering someone without access leave those replies out of their context. The same rule applies in channels, group DMs and side chats; a primary DM with one person looks as usual.
+
+Anyone who can see a finished private reply can choose **Share to channel**. It asks **Not everyone in #general can see Deals. Share anyway?** Confirming shows the reply to the chat and labels it **Shared by Dana**. It also shares the turn's tool cards; personal connector results still show only to the person the agent acted for.
+
 ## Notifications
 You get a desktop notification and a dock count for DMs and @mentions while the app isn't in front. Change it in [Your preferences](#/settings/preferences).
 

@@ -515,6 +515,11 @@ export default defineSchema({
 	// A message in a chat's main timeline, or in a thread (threadId = the parent message).
 	// Written by a person (authorUserId) or an agent (authorAgentId), never both.
 	chatMessages: defineTable({
+		/** Restricted sources, checked live for every viewer. Records use their database. */
+		usedPlaces: v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats")))),
+		sharedBy: v.optional(v.id("users")),
+		/** The asker, even when the reply is just the agent speaking (not actingFor). */
+		repliedTo: v.optional(v.id("users")),
 		chatId: v.id("chats"),
 		workspaceId: v.id("workspaces"),
 		threadId: v.optional(v.id("chatMessages")),
@@ -764,6 +769,8 @@ export default defineSchema({
 	// One agent's ongoing context in one place (chat + thread). Append-only: past turns
 	// replay exactly as sent, so prompt caching hits. Older turns fold into `summary`.
 	agentSessions: defineTable({
+		summaryPlaces: v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats")))),
+		compactingPlaces: v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats")))),
 		workspaceId: v.id("workspaces"),
 		agentId: v.id("agents"),
 		chatId: v.id("chats"),
@@ -815,6 +822,7 @@ export default defineSchema({
 	// #114) and what (a note: a follow-up's task; none: look around, #162's heartbeat). One table and one
 	// path to a turn (wakeups.ts `wake`) for all of them.
 	wakeups: defineTable({
+		usedPlaces: v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats")))),
 		workspaceId: v.id("workspaces"),
 		agentId: v.id("agents"),
 		chatId: v.id("chats"),

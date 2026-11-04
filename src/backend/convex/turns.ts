@@ -1,3 +1,6 @@
+import { chatAccess } from "./placeAccess";
+import { canReadReply, canReadSources } from "./replyPrivacy";
+import { inheritPlaces, notePlace } from "./replySources";
 import type { PlaceMessage, Skill } from "@companybot/core";
 import { AGENT_DEBOUNCE_MS, PROMPT_MESSAGE_CAP, approxTokens, can, defaultReasoning, deniedMessage, fallbackModels, publishes, steerNote } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
@@ -203,6 +206,7 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 	const reply = {
 		threadId: place.threadId,
 		authorAgentId: place.agentId,
+		repliedTo: next.actorId,
 		text: "",
 		parts: [],
 		mentions: { userIds: [], agentIds: [] },
@@ -220,18 +224,21 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 }
 
 /** A session's finished, unsummarized turns as they replay to the model, oldest first. */
-async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">) {
+async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">, member?: Member) {
+	const since = member && !(await canReadSources(ctx, member, session.summaryPlaces)) ? 0 : session.summarizedUpTo ?? 0;
 	const turns = await ctx.db
 		.query("agentTurns")
-		.withIndex("by_session", (q) => q.eq("sessionId", session._id).gt("_creationTime", session.summarizedUpTo ?? 0))
+		.withIndex("by_session", (q) => q.eq("sessionId", session._id).gt("_creationTime", since))
 		.collect();
 	const finished = turns.filter((t) => (t.status === "done" || t.status === "error") && t.prompt !== undefined);
-	return Promise.all(
+	const replay = await Promise.all(
 		finished.map(async (t) => {
 			const reply = t.replyId && (await ctx.db.get(t.replyId));
-			return { prompt: t.prompt!, reply: reply ? replyForModel(reply) : "", time: t._creationTime };
+			if (member && reply && !(await canReadReply(ctx, member, reply))) return null;
+			return { prompt: t.prompt!, reply: reply ? replyForModel(reply) : "", time: t._creationTime, usedPlaces: reply?.sharedBy ? [] : reply?.usedPlaces ?? [] };
 		}),
 	);
+	return replay.filter((t) => t !== null);
 }
 
 /** The running turn, its person (read fresh), and the chat, if they can still see it. */
@@ -244,6 +251,8 @@ export async function runningTurn(ctx: QueryCtx, turnId: Id<"agentTurns">) {
 	if (!chat || chat.archived || !(await canSee(ctx, chat, member))) throw new Error("This person can no longer see this chat.");
 	// Its reply posts there as them: a read-only channel ends it (chatOps.canReplyAs).
 	if (!canPost(member, chat)) throw new Error("This person can no longer post in this chat.");
+	member.replyId = turn.replyId;
+	await notePlace(ctx, member, chat._id, chatAccess(chat), chat.kind === "channel" && !!chat.private);
 	const who: Who = { member, agentId: turn.agentId };
 	return { turn: turn as Doc<"agentTurns"> & { replyId: Id<"chatMessages">; sessionId: Id<"agentSessions"> }, member, chat, who };
 }
@@ -263,7 +272,7 @@ export async function personalMemoryHere(ctx: QueryCtx, chat: Doc<"chats">) {
  * Everything the runner needs for one turn: the agent (read fresh, so edits apply
  * from the next reply), the session to replay, and what's new in the place.
  */
-export const turnContext = internalQuery({
+export const turnContext = internalMutation({
 	args: { turnId: v.id("agentTurns") },
 	handler: async (ctx, { turnId }) => {
 		const { turn, member, chat } = await runningTurn(ctx, turnId);
@@ -273,9 +282,15 @@ export const turnContext = internalQuery({
 		const reply = (await ctx.db.get(turn.replyId))!;
 		const names = namer(ctx);
 		const { trigger, foreign, wakeup } = await automationScope(ctx, turn);
+		const summary = !foreign && await canReadSources(ctx, member, session.summaryPlaces) ? session.summary ?? null : null;
+		if (summary) await inheritPlaces(ctx, member, session.summaryPlaces);
+		if (wakeup) {
+			if (!(await canReadSources(ctx, member, wakeup.usedPlaces))) throw new Error("This follow-up uses places you can no longer see.");
+			await inheritPlaces(ctx, member, wakeup.usedPlaces);
+		}
 
 		// Finished turns only, so never this (running) one.
-		const turns = (foreign ? [] : await sessionTurns(ctx, session)).map(({ prompt, reply }) => ({ prompt, reply }));
+		const turns = (foreign ? [] : await sessionTurns(ctx, session, member)).map(({ prompt, reply }) => ({ prompt, reply }));
 
 		// What's new: everything in the place after the last turn's reply started.
 		const last = (
@@ -304,12 +319,14 @@ export const turnContext = internalQuery({
 				// The prompt shows PROMPT_MESSAGE_CAP; one more says there are earlier ones, one more for the trigger.
 				.take(PROMPT_MESSAGE_CAP + 2)
 		).reverse();
-		const recent = window.filter((m) => !steered.has(m._id));
+		const recent = [];
+		for (const m of window) if (!steered.has(m._id) && await canReadReply(ctx, member, m)) recent.push(m);
 		// A turn after an approval answers the decision, not a message.
 		const approval = turn.approvalId && (await ctx.db.get(turn.approvalId));
+		if (approval && !(await canReadReply(ctx, member, await ctx.db.get(approval.replyId)))) throw new Error("This approval uses places you can no longer see.");
 		if (!approval && turn.triggerId && !recent.some((m) => m._id === turn.triggerId)) {
 			const trigger = await ctx.db.get(turn.triggerId);
-			if (trigger) recent.push(trigger);
+			if (trigger && await canReadReply(ctx, member, trigger)) recent.push(trigger);
 		}
 		const skills = await installedSkills(ctx, chat.workspaceId);
 		const messages = await Promise.all(
@@ -322,14 +339,15 @@ export const turnContext = internalQuery({
 				}),
 		);
 
-		const parent = turn.threadId && (!foreign || turn.threadId === trigger?._id) && (await ctx.db.get(turn.threadId));
+		const threadParent = turn.threadId && (!foreign || turn.threadId === trigger?._id) && (await ctx.db.get(turn.threadId));
+		const parent = threadParent && await canReadReply(ctx, member, threadParent) ? threadParent : null;
 		// What the person wrote, the only links web.fetch opens before searching: this turn's messages,
 		// the thread's parent, and after an approval the message that started it (it's before the window).
 		const own = (m: Doc<"chatMessages"> | null | undefined | false): m is Doc<"chatMessages"> => !!m && !m.deleted && m.authorUserId === member.userId;
 		const origin = approval && turn.triggerId && (await ctx.db.get(turn.triggerId));
 		const asked = [...recent, parent, origin].filter(own).map((m) => m.text);
 		/** A thread's first turn starts with its parent. */
-		const first = turns.length === 0 && (foreign || !session.summary);
+		const first = turns.length === 0 && (foreign || !summary);
 		const rows = await chatMembersOf(ctx, chat._id);
 		const { models } = await catalogModels(ctx);
 		const vision = [models, fallbackModels].some((list) => list.find((m) => m.id === agent.model)?.vision);
@@ -344,7 +362,7 @@ export const turnContext = internalQuery({
 			member,
 			agent: { id: agent._id, name: agent.name, instructions: agent.instructions, model: agent.model, reasoning: agent.reasoning ?? defaultReasoning, tools: agent.tools },
 			skills,
-			session: { id: session._id, summary: foreign ? null : (session.summary ?? null), turns },
+			session: { id: session._id, summary, turns },
 			/** Off when it's turned off for the workspace; personal only in a DM with exactly one person. memory.ts checks again on every call. */
 			memory: !(await memoryOn(ctx, chat.workspaceId)) ? ("off" as const) : (await personalMemoryHere(ctx, chat)) ? ("personal" as const) : ("team" as const),
 			actor: {
@@ -624,11 +642,14 @@ export const steer = internalMutation({
 		const turn = await ctx.db.get(turnId);
 		const absorbed = turn ? await steering(ctx, turn) : [];
 		if (!turn || absorbed.length === 0) return null;
+		const { member } = await runningTurn(ctx, turnId);
 		for (const t of absorbed) await ctx.db.patch(t._id, { status: "done", mergedInto: turnId, debouncing: undefined });
 		const ids = [...new Set(absorbed.map((t) => t.triggerId!))];
-		const messages = (await Promise.all(ids.map((id) => ctx.db.get(id))))
+		const candidates = (await Promise.all(ids.map((id) => ctx.db.get(id))))
 			.filter((m): m is Doc<"chatMessages"> => !!m && !m.deleted)
 			.sort((a, b) => a._creationTime - b._creationTime);
+		const messages = [];
+		for (const m of candidates) if (await canReadReply(ctx, member, m)) messages.push(m);
 		if (messages.length === 0) return null;
 		const names = namer(ctx);
 		const skills = await installedSkills(ctx, turn.workspaceId);
@@ -839,7 +860,7 @@ export const startCompaction = internalMutation({
 		}
 		const old = turns.slice(0, turns.length - keep);
 		if (old.length === 0) return null;
-		await ctx.db.patch(sessionId, { compacting: true });
+		await ctx.db.patch(sessionId, { compacting: true, compactingPlaces: [...new Set([...(session.summaryPlaces ?? []), ...old.flatMap((t) => t.usedPlaces)])] });
 		return { summary: session.summary ?? null, turns: old.map(({ prompt, reply }) => ({ prompt, reply })), upTo: old.at(-1)!.time };
 	},
 });
@@ -859,6 +880,8 @@ export const finishCompaction = internalMutation({
 		await ctx.db.patch(sessionId, {
 			compacting: false,
 			summary: result.summary,
+			summaryPlaces: session.compactingPlaces,
+			compactingPlaces: undefined,
 			summarizedUpTo: result.upTo,
 			costUsd: (session.costUsd ?? 0) + result.costUsd,
 		});

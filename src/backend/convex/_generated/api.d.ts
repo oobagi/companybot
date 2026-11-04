@@ -66,6 +66,8 @@ import type * as recordTools from "../recordTools.js";
 import type * as recordTypes from "../recordTypes.js";
 import type * as recordValidators from "../recordValidators.js";
 import type * as records from "../records.js";
+import type * as replyPrivacy from "../replyPrivacy.js";
+import type * as replySources from "../replySources.js";
 import type * as roles from "../roles.js";
 import type * as router from "../router.js";
 import type * as skills from "../skills.js";
@@ -143,6 +145,8 @@ declare const fullApi: ApiFromModules<{
   recordTypes: typeof recordTypes;
   recordValidators: typeof recordValidators;
   records: typeof records;
+  replyPrivacy: typeof replyPrivacy;
+  replySources: typeof replySources;
   roles: typeof roles;
   router: typeof router;
   skills: typeof skills;

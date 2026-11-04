@@ -1,3 +1,5 @@
+import { turnSources } from "./replySources";
+import { canReadReply } from "./replyPrivacy";
 import {
 	APPROVAL_TTL_MS,
 	actionLabel,
@@ -34,7 +36,7 @@ import { enqueueTurn, runningTurn } from "./turns";
 export const request = internalMutation({
 	args: { turnId: v.id("agentTurns"), callId: v.string(), tool: v.string(), input: v.string(), risk, why: v.optional(v.string()) },
 	handler: async (ctx, { turnId, callId, tool, input, risk, why }) => {
-		const { turn } = await runningTurn(ctx, turnId);
+		const { turn, member } = await runningTurn(ctx, turnId);
 		const { automation, trigger } = await automationScope(ctx, turn);
 		// Automation and wake cards belong only in the acting person's DM, even for channel/thread runs.
 		// Keep chatId/threadId as the execution place: implicit targets must not change on approval.
@@ -42,7 +44,7 @@ export const request = internalMutation({
 		// In the DM itself it goes in the reply, which is shown with it (turns.finishReply), quiet or not.
 		const separate = !!dmId && dmId !== turn.chatId;
 		const replyId = separate ? await insertMessage(ctx, (await ctx.db.get(dmId!))!, {
-			authorAgentId: turn.agentId, text: "", parts: [], mentions: { userIds: [], agentIds: [] }, status: "done",
+			authorAgentId: turn.agentId, usedPlaces: await turnSources(ctx, member), repliedTo: turn.actorId, text: "", parts: [], mentions: { userIds: [], agentIds: [] }, status: "done",
 		}) : turn.replyId;
 		const approvalId = await ctx.db.insert("approvals", {
 			workspaceId: turn.workspaceId,
@@ -94,7 +96,7 @@ export const forReply = query({
 		const member = await getMember(ctx);
 		const reply = await ctx.db.get(replyId);
 		const chat = reply && (await ctx.db.get(reply.chatId));
-		if (!member || !chat || chat.archived || !(await canSee(ctx, chat, member))) return [];
+		if (!member || !chat || chat.archived || !(await canSee(ctx, chat, member)) || !(await canReadReply(ctx, member, reply!))) return [];
 		const rows = await ctx.db
 			.query("approvals")
 			.withIndex("by_reply", (q) => q.eq("replyId", replyId))
@@ -165,6 +167,8 @@ export const decide = mutation({
 		const row = await ctx.db.get(approvalId);
 		const chat = row && row.workspaceId === member.workspaceId ? await ctx.db.get(row.chatId) : null;
 		if (!row || !chat || chat.archived || !(await canSee(ctx, chat, member))) throw new ConvexError("Approval not found.");
+		const reply = await ctx.db.get(row.replyId);
+		if (!reply || !(await canReadReply(ctx, member, reply))) throw new ConvexError("Approval not found.");
 		if (!canDecideApproval(toActor(member), row)) {
 			throw new ConvexError(`Only ${await nameOf(ctx, row.actorId)} can decide this. The agent is acting for them.`);
 		}
@@ -212,6 +216,8 @@ export const claim = internalMutation({
 		const member = await memberOf(ctx, row.actorId, row.workspaceId);
 		const chat = await ctx.db.get(row.chatId);
 		if (!member || !chat || chat.archived || !(await canSee(ctx, chat, member))) return null;
+		member.replyId = turn.replyId;
+		if (!(await canReadReply(ctx, member, await ctx.db.get(row.replyId)))) return null;
 		const input: unknown = JSON.parse(row.input);
 		if ((await approvalHash(row.tool, input)) !== row.hash) {
 			await ctx.db.patch(approvalId, { status: "failed", error: "The stored action no longer matches what was approved." });

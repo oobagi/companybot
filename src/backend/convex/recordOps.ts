@@ -1,3 +1,4 @@
+import { notePlace } from "./replySources";
 import {
 	FIELDS_PER_TYPE_MAX,
 	DEFAULT_CURRENCY,
@@ -40,6 +41,7 @@ type Change = Doc<"recordHistory">["changes"][number];
 export async function requireType(ctx: QueryCtx, member: Member, typeId: Id<"recordTypes">, need: AccessLevel = "view", asked?: string) {
 	const type = requireInWorkspace(member, await ctx.db.get(typeId), "Database");
 	requireAccess(member, "database", type.plural, type.access, need, asked);
+	await notePlace(ctx, member, type._id, type.access);
 	if (need === "edit" && type.archived) throw new ConvexError("This database is in Archive. Restore it to make changes.");
 	return type;
 }
@@ -48,7 +50,10 @@ export async function requireType(ctx: QueryCtx, member: Member, typeId: Id<"rec
 export async function requireRecord(ctx: QueryCtx, member: Member, recordId: Id<"records">, need: AccessLevel = "view") {
 	const record = requireInWorkspace(member, await ctx.db.get(recordId), "Record");
 	const type = await ctx.db.get(record.typeId);
-	if (type) requireAccess(member, "database", type.plural, type.access, need);
+	if (type) {
+		requireAccess(member, "database", type.plural, type.access, need);
+		await notePlace(ctx, member, type._id, type.access);
+	}
 	return record;
 }
 
@@ -59,7 +64,10 @@ export async function requireRecord(ctx: QueryCtx, member: Member, recordId: Id<
 export const typeReach = (ctx: QueryCtx, member: Member) =>
 	memo(async (typeId: Id<"recordTypes">) => {
 		const type = await ctx.db.get(typeId);
-		return type && type.workspaceId === member.workspaceId ? reach(member, type.access) : null;
+		if (!type || type.workspaceId !== member.workspaceId) return null;
+		const level = reach(member, type.access);
+		if (level) await notePlace(ctx, member, type._id, type.access);
+		return level;
 	});
 
 /** Whether someone can see records of this database (`typeReach`). */

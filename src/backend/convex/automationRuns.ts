@@ -98,6 +98,11 @@ export async function fireEvent(
 	event: AppEvent,
 	details: { data: Record<string, unknown>; channelId?: Id<"chats">; messageId?: Id<"chatMessages"> },
 ) {
+	// Event payloads have a team audience. A private reply needs an explicit share first.
+	if (event === "message.posted" && details.messageId) {
+		const message = await ctx.db.get(details.messageId);
+		if (!message || message.usedPlaces?.length && !message.sharedBy) return;
+	}
 	const installs = await ctx.db
 		.query("automationInstalls")
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))

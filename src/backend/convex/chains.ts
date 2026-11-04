@@ -1,3 +1,4 @@
+import { turnSources } from "./replySources";
 import {
 	type ChainBudget,
 	FOLLOWUP_NOTE_MAX,
@@ -249,7 +250,7 @@ export const decide = mutation({
 export const askFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), agent: v.string(), message: v.string() },
 	handler: async (ctx, { turnId, agent: name, message }) => {
-		const { turn, chat } = await runningTurn(ctx, turnId);
+		const { turn, chat, member } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
 			if (!(await personAsked(ctx, turn)))
 				return { error: "Nobody asked you just now (a follow-up, check-in or automation), so don't ask other agents. Do what you can yourself." };
@@ -273,6 +274,8 @@ export const askFor = internalMutation({
 
 			const ask = `@${to.name} ${text}`;
 			const askId = await ctx.db.insert("chatMessages", {
+				usedPlaces: await turnSources(ctx, member),
+				repliedTo: turn.actorId,
 				chatId: chat._id,
 				workspaceId: chat.workspaceId,
 				authorAgentId: turn.agentId,
@@ -320,5 +323,7 @@ export async function answerAsk(ctx: MutationCtx, turn: Doc<"agentTurns">, error
 	const reply = turn.replyId && (await ctx.db.get(turn.replyId));
 	const name = (await ctx.db.get(turn.agentId))?.name ?? "The agent";
 	const answer = error || !reply ? `${name} couldn't answer${error ? `: ${error}` : "."}` : reply.text || `${name} answered with no text.`;
+	const waiting = await ctx.db.get(turn.ask.wakeupId);
+	if (waiting && reply?.usedPlaces?.length) await ctx.db.patch(waiting._id, { usedPlaces: [...new Set([...(waiting.usedPlaces ?? []), ...reply.usedPlaces])] });
 	await wake(ctx, turn.ask.wakeupId, { result: JSON.stringify(answer) });
 }

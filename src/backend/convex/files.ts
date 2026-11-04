@@ -1,7 +1,8 @@
+import { canReadReply } from "./replyPrivacy";
 import { FILE_MAX_BYTES, FILES_PER_MESSAGE, TURN_IMAGES_MAX, cleanFileName, imageSize, isFileType, isImageType, modelTakesImage, sniffFile } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type MutationCtx, type QueryCtx, httpAction, internalMutation, internalQuery } from "./_generated/server";
+import { type MutationCtx, type QueryCtx, httpAction, internalMutation } from "./_generated/server";
 import { canSee } from "./chatOps";
 import { mutation, query } from "./functions";
 import { deleteFile, readBody, reply, storeUpload, uploadOf } from "./images";
@@ -112,12 +113,12 @@ export async function visibleFile(ctx: QueryCtx, member: Member, id: string) {
 	const normalized = messageId && ctx.db.normalizeId("chatMessages", messageId);
 	const message = normalized && (await ctx.db.get(normalized));
 	const chat = message && !message.deleted && message.workspaceId === member.workspaceId && (await ctx.db.get(message.chatId));
-	if (!chat || chat.archived || !(await canSee(ctx, chat, member))) return null;
+	if (!chat || chat.archived || !(await canSee(ctx, chat, member)) || !(await canReadReply(ctx, member, message!))) return null;
 	return message.attachments?.[Number(index)] ?? null;
 }
 
 /** chat.read_file's lookup, as the turn's person now: null if they can't see it. */
-export const readFor = internalQuery({
+export const readFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), id: v.string() },
 	handler: async (ctx, { turnId, id }) => {
 		const { member } = await runningTurn(ctx, turnId);

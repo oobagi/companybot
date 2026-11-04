@@ -56,7 +56,7 @@ describe("follow-ups", () => {
 		expect(turn).toMatchObject({ chatId: dmId, actorId: member.userId, status: "running" });
 		// No trigger message, and its reply is quiet.
 		expect(await shown(member, dmId)).toEqual(before);
-		const context = await t.query(internal.turns.turnContext, { turnId: turn!._id });
+		const context = await t.mutation(internal.turns.turnContext, { turnId: turn!._id });
 		expect(context.wake).toMatchObject({ note: "Chase the invoice if it's still unpaid.", record: { id: record._id, name: record.title } });
 		expect(context.quiet).toBe(true);
 		expect(context.triggerId).toBeNull();
@@ -70,7 +70,7 @@ describe("follow-ups", () => {
 
 	it("speaks up only when its decision posts: its reply is then shown, and its line says so", async () => {
 		const { t, member, dmId, turnId } = await setup();
-		expect((await t.query(internal.turns.turnContext, { turnId })).quiet).toBe(false);
+		expect((await t.mutation(internal.turns.turnContext, { turnId })).quiet).toBe(false);
 		const { created } = (await create(t, turnId, { note: "Check in", in: "1 hour" })) as { created: string };
 		await fire(t, created);
 		const [turn] = await turnsFor(t, created);
@@ -188,7 +188,7 @@ describe("trust", () => {
 		const check = async (id: string) => {
 			await fire(t, id);
 			const [turn] = await turnsFor(t, id);
-			const { decision } = await t.query(internal.permissions.check, { turnId: turn!._id, action: "records.save", risk: "inside" });
+			const { decision } = await t.mutation(internal.permissions.check, { turnId: turn!._id, action: "records.save", risk: "inside" });
 			await t.mutation(internal.turns.finishReply, { turnId: turn!._id });
 			return decision;
 		};
@@ -214,7 +214,7 @@ describe("jobs (#114)", () => {
 			return id;
 		});
 		const [turn] = await turnsFor(t, id);
-		expect((await t.query(internal.turns.turnContext, { turnId: turn!._id })).wake).toMatchObject({ result: '{"rows":42}' });
+		expect((await t.mutation(internal.turns.turnContext, { turnId: turn!._id })).wake).toMatchObject({ result: '{"rows":42}' });
 		expect((await rowOf(t, id))!.status).toBe("fired");
 	});
 });

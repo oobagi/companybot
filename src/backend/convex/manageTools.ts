@@ -4,7 +4,6 @@ import type { Id, TableNames } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { addChannelMembers, markReadAs, createChannelAs, joinChannel, leaveChannel, openDirectMessage, removeChannelMember, updateChannelAs } from "./chats";
 import { canSee, chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
-import { chatAccess, reach } from "./placeAccess";
 import { automationName, automationScope, canView, definitionOf, installOf, outcomeText, seenChannel, shownTrigger } from "./automationOps";
 import { removeAutomation, saveAutomation, updateAutomation } from "./automations";
 import { installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
@@ -120,7 +119,9 @@ export const runFor = internalMutation({
 							.query("chats")
 							.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("kind", "channel"))
 							.paginate(paging(r.cursor));
-						return { ...result, page: result.page.filter((c) => !c.private && !c.archived && reach(member, chatAccess(c))).map((c) => ({ id: c._id, name: c.name, topic: c.topic })) };
+						const page = [];
+						for (const c of result.page) if (!c.private && !c.archived && await canSee(ctx, c, member)) page.push({ id: c._id, name: c.name, topic: c.topic });
+						return { ...result, page };
 					}
 					if (r.action === "create") return { chatId: await createChannelAs(ctx, member, r) };
 					const id = await chatId(ctx, member, r.chat);

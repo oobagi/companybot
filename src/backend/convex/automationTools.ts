@@ -1,7 +1,7 @@
 import { type AutomationAudience, type AutomationSummary, type AutomationToolInput, type CustomAutomationConfig, describeTrigger } from "@companybot/core";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { internalMutation, internalQuery } from "./_generated/server";
+import { internalMutation } from "./_generated/server";
 import { channelNamed } from "./chatOps";
 import { asToolResult, nameOf, timeZoneOf } from "./lib";
 import { definitionOf, installOf, runsForLabel, seenChannel, subscribersOf, visibleInstalls, webhookUrl } from "./automationOps";
@@ -10,7 +10,7 @@ import { runningTurn } from "./turns";
 
 // ---- Agent tools (core's AutomationStore), acting as the turn's person ----
 
-export const listFor = internalQuery({
+export const listFor = internalMutation({
 	args: { turnId: v.id("agentTurns") },
 	handler: async (ctx, { turnId }): Promise<AutomationSummary[]> => {
 		const { member } = await runningTurn(ctx, turnId);

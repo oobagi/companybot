@@ -1,3 +1,4 @@
+import { canReadReply } from "./replyPrivacy";
 import { TYPING_MS } from "@companybot/core";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
@@ -67,13 +68,16 @@ export const list = query({
 				.filter((t) => now - (t.startedAt ?? t._creationTime) < STALE_TURN_MS)
 				// A dispatcher pick or hop may well post nothing: it shows what it's doing, never "typing".
 				// Stop (turns.stop): for the person it works for, or anyone with turns.stopAny.
-				.map(async (t) => ({
+				.map(async (t) => {
+					const reply = t.replyId && await ctx.db.get(t.replyId);
+					return {
 					...(await names.agent(t.agentId)),
-					step: t.step?.label ?? (t.routed ? "Thinking…" : null),
+					step: reply && !(await canReadReply(ctx, visible.member, reply)) ? "Private reply" : t.step?.label ?? (t.routed ? "Thinking…" : null),
 					turnId: t._id,
 					canStop: canStopTurn(visible.member, t),
 					stopping: !!t.stopping,
-				})),
+				};
+				}),
 		);
 		return { people: people.slice(0, SHOWN_MAX), agents };
 	},

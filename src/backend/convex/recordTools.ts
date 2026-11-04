@@ -15,7 +15,7 @@ import {
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
+import { type QueryCtx, internalMutation } from "./_generated/server";
 import { type Member, asToolResult, nameOf, requireInWorkspace } from "./lib";
 import {
 	createType,
@@ -260,7 +260,7 @@ const fieldOut = (f: Doc<"recordFields">, linksTo?: string) => ({
 	...(f.multiple && { multiple: true as const }),
 });
 
-export const typesFor = internalQuery({
+export const typesFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), trashed: v.optional(v.boolean()) },
 	handler: async (ctx, { turnId, trashed = false }): Promise<RecordTypesResult> => {
 		const { member } = await runningTurn(ctx, turnId);
@@ -287,7 +287,7 @@ export const typesFor = internalQuery({
 	},
 });
 
-export const findFor = internalQuery({
+export const findFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), input: v.any() },
 	handler: async (ctx, { turnId, input }) => {
 		const { member } = await runningTurn(ctx, turnId);
@@ -321,7 +321,7 @@ export const findFor = internalQuery({
 	},
 });
 
-export const getFor = internalQuery({
+export const getFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), id: v.string() },
 	handler: async (ctx, { turnId, id }) => {
 		const { member } = await runningTurn(ctx, turnId);
@@ -472,7 +472,7 @@ export const saveDatabaseFor = internalMutation({
 	},
 });
 
-export const viewsFor = internalQuery({
+export const viewsFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), type: v.string() },
 	handler: async (ctx, { turnId, type: name }) => {
 		const { member } = await runningTurn(ctx, turnId);
@@ -515,7 +515,7 @@ export const saveViewFor = internalMutation({
 	},
 });
 
-export const historyFor = internalQuery({
+export const historyFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), id: v.optional(v.string()), source: v.optional(v.union(v.literal("records"), v.literal("agents"))), cursor: v.optional(v.string()), change: v.optional(v.string()), limit: v.optional(v.number()) },
 	handler: async (ctx, { turnId, id, source, cursor, change, limit }) => {
 		const { member, turn } = await runningTurn(ctx, turnId);

@@ -1,3 +1,4 @@
+import { canReadReply } from "./replyPrivacy";
 import { condition, recordGroup, recordSort } from "./recordValidators";
 import { type PaginationResult, paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
@@ -152,7 +153,7 @@ export const discussion = query({
 		for (const m of mentions) {
 			const message = await ctx.db.get(m.messageId);
 			const chat = await ctx.db.get(m.chatId);
-			if (!message || message.deleted || !chat || !(await canSee(ctx, chat, member))) continue;
+			if (!message || message.deleted || !chat || !(await canSee(ctx, chat, member)) || !(await canReadReply(ctx, member, message))) continue;
 			const author = message.authorUserId
 				? await nameOf(ctx, message.authorUserId)
 				: ((message.authorAgentId && (await ctx.db.get(message.authorAgentId))?.name) ?? "");

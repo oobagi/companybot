@@ -1,3 +1,5 @@
+import type { Member } from "./lib";
+import { canReadReply } from "./replyPrivacy";
 import {
 	ROUTER_CONTEXT_MESSAGES,
 	ROUTER_DEBOUNCE_MS,
@@ -92,7 +94,9 @@ export const context = internalQuery({
 		const keys = new Map(agents.map((a, i) => [a._id, `a${i + 1}`]));
 		const names = namer(ctx);
 		const toRouter = routerMessage(names, keys);
-		const { before, parent } = await around(ctx, message);
+		const viewer = await memberOf(ctx, message.authorUserId!, chat.workspaceId);
+		if (!viewer || !(await canReadReply(ctx, viewer, message))) return null;
+		const { before, parent } = await around(ctx, message, viewer);
 		const people = (await chatMembersOf(ctx, chat._id)).filter((r) => r.userId && r.userId !== message.authorUserId);
 		const input: RouterInput = {
 			place: { name: chat.name ?? "", topic: chat.topic ?? null },
@@ -119,7 +123,7 @@ const routerMessage = (names: Namer, keys: Map<Id<"agents">, string>) => async (
 };
 
 /** The few finished messages before one in its place, and its thread's parent. */
-async function around(ctx: QueryCtx, message: Doc<"chatMessages">) {
+async function around(ctx: QueryCtx, message: Doc<"chatMessages">, member: Member) {
 	const before = (
 		await ctx.db
 			.query("chatMessages")
@@ -129,7 +133,9 @@ async function around(ctx: QueryCtx, message: Doc<"chatMessages">) {
 			.take(ROUTER_CONTEXT_MESSAGES)
 	).reverse();
 	const parent = message.threadId && (await ctx.db.get(message.threadId));
-	return { before, parent };
+	const visible = [];
+	for (const m of before) if (await canReadReply(ctx, member, m)) visible.push(m);
+	return { before: visible, parent: parent && await canReadReply(ctx, member, parent) ? parent : null };
 }
 
 /** Asks the model, then acts on its answer. Scheduled by routeLater. */
@@ -282,7 +288,9 @@ export const nextContext = internalQuery({
 		const keys = new Map(agents.map((a, i) => [a._id, `a${i + 1}`]));
 		const names = namer(ctx);
 		const toRouter = routerMessage(names, keys);
-		const { before, parent } = await around(ctx, reply);
+		const viewer = await memberOf(ctx, chain.actorId, chat.workspaceId);
+		if (!viewer || !(await canReadReply(ctx, viewer, reply))) return null;
+		const { before, parent } = await around(ctx, reply, viewer);
 		const input: NextInput = {
 			place: { name: chat.name ?? "", topic: chat.topic ?? null },
 			from: (await names.agent(turn.agentId)).name,

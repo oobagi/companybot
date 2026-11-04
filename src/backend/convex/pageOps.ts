@@ -1,3 +1,4 @@
+import { notePlace } from "./replySources";
 import { BlockNoteEditor } from "@blocknote/core";
 import { pageHref } from "@companybot/core/page-links";
 import { ProsemirrorSync } from "@convex-dev/prosemirror-sync";
@@ -61,12 +62,18 @@ export async function requirePageAccess(ctx: QueryCtx, member: Member, page: Doc
 	const { access, type } = state ?? (await pageState(ctx, page));
 	if (type) requireAccess(member, "database", type.plural, access, need);
 	else requireAccess(member, "page", page.title, access, need, asked);
+	await notePlace(ctx, member, type?._id ?? page._id, access);
 }
 
 /** How far someone reaches in each page ("edit", "view" or null), sharing reads across a list. */
 export function pageReach(ctx: QueryCtx, member: Member) {
 	const state = pageStates(ctx);
-	return async (page: Doc<"pages">) => reach(member, (await state(page)).access);
+	return async (page: Doc<"pages">) => {
+		const { access, type } = await state(page);
+		const level = reach(member, access);
+		if (level) await notePlace(ctx, member, type?._id ?? page._id, access);
+		return level;
+	};
 }
 
 /** Whether someone can see a page (`pageReach`). */

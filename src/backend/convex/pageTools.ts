@@ -2,7 +2,7 @@ import { findInput, readInput, writeInput } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
+import { type QueryCtx, internalMutation } from "./_generated/server";
 import { type Member, asToolResult } from "./lib";
 import {
 	createPage,
@@ -52,7 +52,7 @@ const recordNamed = (ctx: QueryCtx, member: Member, id: string) => recordById(ct
 /** What the page is called: its title, or its record's name. */
 const titleOf = async (ctx: QueryCtx, page: Doc<"pages">) => (page.recordId ? ((await ctx.db.get(page.recordId))?.title ?? "") : page.title);
 
-export const findFor = internalQuery({
+export const findFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), input: v.any() },
 	handler: async (ctx, { turnId, input }) => {
 		const { member } = await runningTurn(ctx, turnId);
@@ -79,7 +79,7 @@ export const findFor = internalQuery({
 	},
 });
 
-export const readFor = internalQuery({
+export const readFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), page: v.optional(v.string()), record: v.optional(v.string()), version: v.optional(v.string()), history: v.optional(v.boolean()), cursor: v.optional(v.string()), format: v.optional(v.string()) },
 	handler: async (ctx, { turnId, ...input }) => {
 		const { member } = await runningTurn(ctx, turnId);

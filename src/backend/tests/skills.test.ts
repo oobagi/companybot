@@ -165,7 +165,7 @@ describe("customize", () => {
 			const chatId = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
 			await owner.mutation(api.messages.send, { chatId, text: "Chase the Reyes quote", mentions: noMentions });
 			const [turn] = await turnsOf(t);
-			const context = await t.query(internal.turns.turnContext, { turnId: turn!._id });
+			const context = await t.mutation(internal.turns.turnContext, { turnId: turn!._id });
 			expect(context.skills.map((s) => s.id)).toEqual(["meeting-notes", skillId]);
 			expect(systemPrompt(context.agent, context.skills)).toContain(`- ${skillId}: ${quote.description}`);
 			const load = builtinTools.find((x) => x.id === "skills.load")!;

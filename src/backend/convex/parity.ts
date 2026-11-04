@@ -42,6 +42,7 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"memory.update": { agent: ["memory.update"] },
 	"memory.remove": { agent: ["memory.forget"] },
 	"memory.restoreVersion": { humanOnly: "Picking an old version is a review step in Settings → Memory; agents correct content with memory.update." },
+	"messages.share": { humanOnly: "Sharing discloses a private reply to the chat. A person must confirm it directly; an agent cannot share its own restricted answer." },
 	"messages.send": { agent: ["chat.manage:send"] },
 	"onboarding.dismissTutorial": { humanOnly: "Hides the person's own tutorial in the app; agents have no tutorial." },
 	"turns.stop": { humanOnly: "The Stop button on a running reply; an agent ends its own turn by finishing it." },

@@ -45,20 +45,20 @@ async function turnFor(t: ReturnType<typeof convexTest>, as: As) {
 	const any = <T,>(p: Promise<T>) => p as Promise<T & { error?: string } & Record<string, unknown>>;
 	return {
 		turnId,
-		types: () => t.query(internal.recordTools.typesFor, { turnId }),
-		find: (input: object) => any(t.query(internal.recordTools.findFor, { turnId, input: { numItems: 20, ...input } })),
-		get: (id: string) => any(t.query(internal.recordTools.getFor, { turnId, id })),
+		types: () => t.mutation(internal.recordTools.typesFor, { turnId }),
+		find: (input: object) => any(t.mutation(internal.recordTools.findFor, { turnId, input: { numItems: 20, ...input } })),
+		get: (id: string) => any(t.mutation(internal.recordTools.getFor, { turnId, id })),
 		save: (input: object) => any(t.mutation(internal.recordTools.saveFor, { turnId, input })),
-		readChat: (chat: string) => any(t.query(internal.chatTools.readFor, { turnId, chat })),
-		readPage: (page: string) => any(t.query(internal.pageTools.readFor, { turnId, page })),
-		findPages: () => t.query(internal.pageTools.findFor, { turnId, input: {} }),
+		readChat: (chat: string) => any(t.mutation(internal.chatTools.readFor, { turnId, chat })),
+		readPage: (page: string) => any(t.mutation(internal.pageTools.readFor, { turnId, page })),
+		findPages: () => t.mutation(internal.pageTools.findFor, { turnId, input: {} }),
 		saveDatabase: (input: object) => any(t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input })),
 		manage: (tool: string, request: object) => any(t.mutation(internal.manageTools.runFor, { turnId, tool, input: { request } })),
-		automations: () => t.query(internal.automationTools.listFor, { turnId }),
-		followups: () => any(t.query(internal.wakeups.listFor, { turnId })),
-		searchChat: (query: string) => any(t.query(internal.chatTools.searchFor, { turnId, query })),
-		history: () => any(t.query(internal.recordTools.historyFor, { turnId })),
-		views: (type: string) => any(t.query(internal.recordTools.viewsFor, { turnId, type })),
+		automations: () => t.mutation(internal.automationTools.listFor, { turnId }),
+		followups: () => any(t.mutation(internal.wakeups.listFor, { turnId })),
+		searchChat: (query: string) => any(t.mutation(internal.chatTools.searchFor, { turnId, query })),
+		history: () => any(t.mutation(internal.recordTools.historyFor, { turnId })),
+		views: (type: string) => any(t.mutation(internal.recordTools.viewsFor, { turnId, type })),
 	};
 }
 
@@ -267,7 +267,7 @@ describe("restored, woken, queued and background paths", () => {
 		expect(running.status).toBe("running");
 		expect((await turnOfWake(t, second))!.status).toBe("queued");
 		await owner.mutation(api.chats.setAccess, { chatId: general, access: [{ role: "everyone", level: "view" }, { role: officeRole, level: "edit" }] });
-		await expect(t.query(internal.turns.turnContext, { turnId: running._id })).rejects.toThrow("This person can no longer post in this chat.");
+		await expect(t.mutation(internal.turns.turnContext, { turnId: running._id })).rejects.toThrow("This person can no longer post in this chat.");
 		await finishQuiet(t, running._id, "Posting anyway");
 		expect((await crew.query(api.messages.list, { chatId: general })).map((m) => m.text)).not.toContain("Posting anyway");
 		expect((await turnOfWake(t, second))!.status).toBe("error");
@@ -312,10 +312,10 @@ describe("restored, woken, queued and background paths", () => {
 		const { t, owner, crew, officeRole, deals, deal, restrict } = await setup();
 		const id = await wakeIn(t, crew, await generalOf(owner), { recordId: deal, typeId: deals });
 		const turn = (await turnOfWake(t, id))!;
-		expect((await t.query(internal.turns.turnContext, { turnId: turn._id })).wake).toMatchObject({ record: { id: deal, name: "Big roof deal" } });
+		expect((await t.mutation(internal.turns.turnContext, { turnId: turn._id })).wake).toMatchObject({ record: { id: deal, name: "Big roof deal" } });
 		await restrict([{ role: officeRole, level: "edit" }]);
-		await expect(t.query(internal.turns.turnContext, { turnId: turn._id })).rejects.toThrow("Only Office and Owners can see this database.");
-		expect(await t.query(internal.recordTools.getFor, { turnId: turn._id, id: deal })).toEqual({ error: "Only Office and Owners can see this database." });
+		await expect(t.mutation(internal.turns.turnContext, { turnId: turn._id })).rejects.toThrow("Only Office and Owners can see this database.");
+		expect(await t.mutation(internal.recordTools.getFor, { turnId: turn._id, id: deal })).toEqual({ error: "Only Office and Owners can see this database." });
 	});
 
 	it("stores no sub-page's title in its parent: sync, history, a restore and agents name a hidden one to nobody", async () => {
@@ -673,7 +673,7 @@ describe("a restricted place, as someone not on its list", () => {
 			automations: await crew.query(api.automations.list),
 			followups: await crew.query(api.wakeups.list, {}),
 			toolTypes: await tools.types(),
-			toolArchivedTypes: await t.query(internal.recordTools.typesFor, { turnId: tools.turnId, trashed: true }),
+			toolArchivedTypes: await t.mutation(internal.recordTools.typesFor, { turnId: tools.turnId, trashed: true }),
 			toolSearch: await tools.find({ search: "quartz" }),
 			toolHistory: await tools.history(),
 			toolPages: await tools.findPages(),

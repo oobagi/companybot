@@ -170,7 +170,7 @@ describe("roles", () => {
 		const { companybot } = await agentsOf(member);
 		const dm = (as: As) => as.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
 		const turnId = await agentTurn(t, member, await dm(member), companybot._id);
-		expect(await t.query(internal.permissions.check, { turnId, action: "records.save_database", risk: "inside" })).toEqual({
+		expect(await t.mutation(internal.permissions.check, { turnId, action: "records.save_database", risk: "inside" })).toEqual({
 			decision: {
 				type: "deny",
 				by: "role",
@@ -182,7 +182,7 @@ describe("roles", () => {
 			error: "Only people with the Office or Owner role can add and change databases and fields. Ask someone who has one of them.",
 		});
 		const ownerTurn = await agentTurn(t, owner, await dm(owner), companybot._id);
-		expect((await t.query(internal.permissions.check, { turnId: ownerTurn, action: "records.save_database", risk: "inside" })).decision.type).toBe("run");
+		expect((await t.mutation(internal.permissions.check, { turnId: ownerTurn, action: "records.save_database", risk: "inside" })).decision.type).toBe("run");
 	});
 
 	it("keeps older apps' owner/member calls working on top of roles", async () => {

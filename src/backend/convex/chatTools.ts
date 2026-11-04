@@ -1,7 +1,8 @@
+import { canReadReply } from "./replyPrivacy";
 import type { ChatLine, ChatResult } from "@companybot/core";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
+import { type QueryCtx, internalMutation } from "./_generated/server";
 import { type Namer, canSee, label as authorLabel, chatByRef, chatLabel, namer, reactionsOf, shownAt, textForModel } from "./chatOps";
 import { filesForModel } from "./files";
 import { asToolResult } from "./lib";
@@ -39,7 +40,7 @@ async function toLine(ctx: QueryCtx, m: Doc<"chatMessages">, names: Namer, label
 	};
 }
 
-export const readFor = internalQuery({
+export const readFor = internalMutation({
 	args: {
 		turnId: v.id("agentTurns"),
 		chat: v.optional(v.string()),
@@ -56,7 +57,7 @@ export const readFor = internalQuery({
 			const id = ctx.db.normalizeId("chatMessages", args.threadOf);
 			const message = id && (await ctx.db.get(id));
 			chat = message ? await ctx.db.get(message.chatId) : null;
-			if (!message || !chat || !(await canSee(ctx, chat, member))) return { error: `No message "${args.threadOf}" you can see.` };
+			if (!message || !chat || !(await canSee(ctx, chat, member)) || !(await canReadReply(ctx, member, message))) return { error: `No message "${args.threadOf}" you can see.` };
 			threadId = message.threadId ?? message._id;
 		} else if (args.chat) {
 			chat = await chatByRef(ctx, member, args.chat);
@@ -79,12 +80,14 @@ export const readFor = internalQuery({
 		const names = namer(ctx);
 		const label = await chatLabel(ctx, chat, names, turn.agentId);
 		const all = parent && !parent.deleted && parent._creationTime < before ? [parent, ...docs] : docs;
-		return { messages: await Promise.all(all.map((m) => toLine(ctx, m, names, label))) };
+		const visible = [];
+		for (const m of all) if (await canReadReply(ctx, member, m)) visible.push(m);
+		return { messages: await Promise.all(visible.map((m) => toLine(ctx, m, names, label))) };
 		});
 	},
 });
 
-export const searchFor = internalQuery({
+export const searchFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), query: v.string(), chat: v.optional(v.string()) },
 	handler: async (ctx, args): Promise<ChatResult> => {
 		const { turn, member } = await runningTurn(ctx, args.turnId);
@@ -107,7 +110,7 @@ export const searchFor = internalQuery({
 		const labels = new Map<Id<"chats">, string | null>();
 		const lines: ChatLine[] = [];
 		for (const m of found) {
-			if (m.deleted || m.quiet || lines.length >= 20) continue;
+			if (m.deleted || m.quiet || lines.length >= 20 || !(await canReadReply(ctx, member, m))) continue;
 			if (!labels.has(m.chatId)) {
 				const chat = await ctx.db.get(m.chatId);
 				const ok = chat && !chat.archived && (await canSee(ctx, chat, member));

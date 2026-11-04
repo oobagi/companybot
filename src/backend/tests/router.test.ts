@@ -86,7 +86,7 @@ describe("reply router", () => {
 		expect(usage).toEqual([expect.objectContaining({ userId: member.userId, kind: "router", model: ROUTER_MODEL, costUsd: 0.0002 })]);
 		expect(usage[0]!.agentId).toBeUndefined();
 		// The reply's prompt says nobody mentioned it; Jev gave no probability, so "probably".
-		const context = await t.query(internal.turns.turnContext, { turnId: turns[0]!._id });
+		const context = await t.mutation(internal.turns.turnContext, { turnId: turns[0]!._id });
 		expect(context.routed).toEqual({ band: "probably" });
 	});
 
@@ -222,7 +222,7 @@ describe("reply router", () => {
 		expect(reply!.quiet).toBe(true);
 		// It shows working, but never as typing: it may well say nothing.
 		expect((await member.query(api.typing.list, { chatId })).agents).toMatchObject([{ step: "Thinking…" }]);
-		const context = await t.query(internal.turns.turnContext, { turnId: turn!._id });
+		const context = await t.mutation(internal.turns.turnContext, { turnId: turn!._id });
 		expect(context.routed).toEqual({ band: "probably" });
 		expect(context.quiet).toBe(true);
 		const lastBefore = (await t.run((ctx) => ctx.db.get(chatId)))!.lastMessageAt;
@@ -303,7 +303,7 @@ describe("reply router", () => {
 		await finishQuiet(t, first._id, "I'm in! Scribe, want to take the verse?", { to: "Scribe" });
 		const hop = (await turnsOf(t)).find((x) => x.agentId === scribe._id)!;
 		expect(hop).toMatchObject({ routed: true, triggerId: first.replyId, chain: expect.anything(), dispatch: { band: "clearly", by: "Companybot", costUsd: 0 } });
-		const context = await t.query(internal.turns.turnContext, { turnId: hop._id });
+		const context = await t.mutation(internal.turns.turnContext, { turnId: hop._id });
 		expect(context).toMatchObject({ quiet: true, routed: { band: "clearly", by: "Companybot" }, handoff: { from: "Companybot" } });
 		// Talking to a person: nobody else is asked who goes next.
 		await finishQuiet(t, hop._id, "Here's a verse idea. j, which mood?", { to: "Ada" });
@@ -353,7 +353,7 @@ describe("reply router", () => {
 		// Companybot answers and hands to Scribe by @mention; Scribe's waiting pick starts, told who went first.
 		await finishQuiet(t, first._id, "Log every call. @Scribe can you add it to the tips page?");
 		expect((await turnOf(scribe._id)).status).toBe("running");
-		expect((await t.query(internal.turns.turnContext, { turnId: second._id })).routed).toMatchObject({ band: "might", before: ["Companybot"] });
+		expect((await t.mutation(internal.turns.turnContext, { turnId: second._id })).routed).toMatchObject({ band: "might", before: ["Companybot"] });
 		const handed = (await turnsOf(t)).filter((x) => x.agentId === scribe._id && x.triggerId !== messageId);
 		expect(handed).toEqual([expect.objectContaining({ triggerId: first.replyId, chain: expect.anything() })]);
 	});
@@ -368,7 +368,7 @@ describe("reply router", () => {
 		await decide(await send(member, "?"));
 		const [mine, theirs] = [companybot._id, scribe._id].map((id) => async () => (await turnsOf(t)).find((x) => x.agentId === id)!);
 		const scribeTurn = await theirs!();
-		expect((await t.query(internal.turns.turnContext, { turnId: scribeTurn._id })).routed).toMatchObject({ answering: ["Companybot"] });
+		expect((await t.mutation(internal.turns.turnContext, { turnId: scribeTurn._id })).routed).toMatchObject({ answering: ["Companybot"] });
 
 		// Companybot started first, but it's shown later: still a post Scribe's prompt didn't have.
 		vi.advanceTimersByTime(1_000);

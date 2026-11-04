@@ -30,7 +30,7 @@ const say = (as: As, chatId: Id<"chats">, text: string, agentIds: Id<"agents">[]
 const textOf = (t: T, id: Id<"chatMessages">) => t.run(async (ctx) => (await ctx.db.get(id))!.text);
 const running = async (t: T) => (await turnsOf(t)).filter((x) => x.status === "running");
 const contextTexts = async (t: T, turnId: Id<"agentTurns">) =>
-	(await t.query(internal.turns.turnContext, { turnId })).messages.map((m) => m.text);
+	(await t.mutation(internal.turns.turnContext, { turnId })).messages.map((m) => m.text);
 
 describe("bursts", () => {
 	it("gives three quick messages in an agent DM one reply, on the newest, seeing all three", async () => {

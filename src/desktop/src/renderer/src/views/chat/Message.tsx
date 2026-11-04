@@ -41,6 +41,7 @@ export function MessageRow({
 	const message = live ? { ...row, ...live } : row;
 	const react = useMutation(api.messages.react);
 	const remove = useMutation(api.messages.remove);
+	const share = useMutation(api.messages.share);
 	const [picker, setPicker] = useState(false);
 	const [editing, setEditing] = useState(false);
 	// The ⋯ menu, then what it opened in its place.
@@ -56,6 +57,7 @@ export function MessageRow({
 
 	// A reply shows whole once it's written; meanwhile the line under the composer says what the agent is
 	// doing. A card asking permission shows at once, since the reply waits on it.
+	if (message.privacy?.hidden) return <p id={`message-${message._id}`} className="px-5 py-2 text-sm text-neutral-500 italic">🔒 {message.privacy.label}</p>;
 	if (message.status === "streaming" && held.length === 0) return null;
 	if (message.pause && !message.deleted) return <PausedLine message={message} pause={message.pause} onError={onError} />;
 	if (held.length > 0 && held.length === message.parts.length && !message.text) return <ApprovalMessages message={message} parts={held} />;
@@ -107,6 +109,12 @@ export function MessageRow({
 								</span>
 							)}
 							<span className="text-xs text-neutral-400 tabular-nums">{clock(message._creationTime)}</span>
+						</div>
+					)}
+					{message.privacy && (
+						<div className="flex items-center gap-3 text-xs text-neutral-500">
+							<span title={message.privacy.why ?? undefined} className="italic">{message.privacy.sharedBy ? "" : "🔒 "}{message.privacy.label}</span>
+							{message.privacy.share && message.status !== "streaming" && <button type="button" className="hover:underline" onClick={() => confirm({ title: message.privacy!.share!, action: "Share to channel", onConfirm: () => share({ messageId: message._id }) })}>Share to channel</button>}
 						</div>
 					)}
 					{message.deleted ? (

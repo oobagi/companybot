@@ -18,6 +18,8 @@ import type { Requested } from "./functions";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 
 export interface Member extends Actor {
+	/** Set only by the turn runner: shared readers record sources on this reply. */
+	replyId?: Id<"chatMessages">;
 	/** The `members` row. */
 	id: Id<"members">;
 	userId: Id<"users">;

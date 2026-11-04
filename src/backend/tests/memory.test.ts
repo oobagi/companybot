@@ -25,7 +25,7 @@ async function turnIn(t: ReturnType<typeof convexTest>, as: As, chatId: Id<"chat
 	const turnId = turns.find((x) => !before.some((b) => b._id === x._id))!._id;
 	return {
 		turnId,
-		search: (query = "") => t.query(internal.memory.searchFor, { turnId, query }),
+		search: (query = "") => t.mutation(internal.memory.searchFor, { turnId, query }),
 		create: (scope: "workspace" | "personal", content: string) => t.mutation(internal.memory.createFor, { turnId, scope, content }),
 		update: (id: string, content: string) => t.mutation(internal.memory.updateFor, { turnId, id: id as Id<"memories">, content }),
 		remove: (id: string) => t.mutation(internal.memory.removeFor, { turnId, id: id as Id<"memories"> }),
@@ -218,7 +218,7 @@ describe("agent memory", () => {
 		await setMemory(false);
 		await allRefused(turn, mine.id, "turned memory off");
 		await expect(turn.create("workspace", "x")).rejects.toThrow("turned memory off");
-		expect((await t.query(internal.turns.turnContext, { turnId: turn.turnId })).memory).toBe("off");
+		expect((await t.mutation(internal.turns.turnContext, { turnId: turn.turnId })).memory).toBe("off");
 		expect(await member.query(api.memory.list)).toHaveLength(2);
 		await member.mutation(api.memory.update, { id: mine.id as Id<"memories">, content: "Likes coffee.", expectedVersion: 1 });
 		const temporary = await member.mutation(api.memory.create, { agentId: companybot, scope: "personal", content: "Temporary" });
@@ -226,7 +226,7 @@ describe("agent memory", () => {
 
 		await setMemory(true);
 		expect((await turn.search()).map((m) => m.content)).toEqual(["Likes coffee.", "We close at 5."]);
-		expect((await t.query(internal.turns.turnContext, { turnId: turn.turnId })).memory).toBe("personal");
+		expect((await t.mutation(internal.turns.turnContext, { turnId: turn.turnId })).memory).toBe("personal");
 	});
 
 	it("keeps the switch scoped to the turn's workspace after the person switches away", async () => {
@@ -245,9 +245,9 @@ describe("agent memory", () => {
 		await owner.mutation(api.workspace.switchTo, { to: otherWorkspace });
 		await allRefused(turn, team.id, "turned memory off");
 		await expect(turn.create("workspace", "x")).rejects.toThrow("turned memory off");
-		expect((await t.query(internal.turns.turnContext, { turnId: turn.turnId })).memory).toBe("off");
+		expect((await t.mutation(internal.turns.turnContext, { turnId: turn.turnId })).memory).toBe("off");
 		expect((await otherTurn.search()).map((m) => m.id)).toEqual([otherMemory.id]);
-		expect((await t.query(internal.turns.turnContext, { turnId: otherTurn.turnId })).memory).toBe("personal");
+		expect((await t.mutation(internal.turns.turnContext, { turnId: otherTurn.turnId })).memory).toBe("personal");
 	});
 
 	it("searches by every word and returns the newest when there are many", async () => {
