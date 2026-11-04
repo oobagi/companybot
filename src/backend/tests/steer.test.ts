@@ -1,3 +1,4 @@
+import { AGENT_DEBOUNCE_MS } from "@companybot/core";
 import type { convexTest } from "convex-test";
 import type { ModelMessage } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -43,8 +44,13 @@ async function nextStep(o: Options, step: number, messages: ModelMessage[]) {
 const finishStep = { type: "finish-step", usage: { inputTokens: 100, outputTokens: 20 }, providerMetadata: { gateway: { cost: "0.001" } } };
 const toolCall = (id: string) => ({ type: "tool-call", toolCallId: id, toolName: "memory_search", input: { query: "Acme" } });
 const toolResult = (id: string) => ({ type: "tool-result", toolCallId: id, toolName: "memory_search", input: { query: "Acme" }, output: [] });
-/** Moves the clock past FLUSH_MS, so the runner's next part flushes (and hears what's new). Timers don't fire: the scheduled runs stay put. */
-const later = async () => vi.setSystemTime(Date.now() + 1_100);
+/**
+ * Moves the clock past FLUSH_MS, so the runner's next part flushes (and hears what's new), and past the
+ * person's quiet window, so a reply cut off then starts over at once. Timers don't fire: the scheduled runs stay put.
+ */
+const later = async () => vi.setSystemTime(Date.now() + AGENT_DEBOUNCE_MS + 100);
+/** Real time, for a reply that waits for the person to pause (the fake clock doesn't move by itself). */
+const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
 beforeEach(() => void vi.useFakeTimers());
 afterEach(() => {
@@ -179,6 +185,81 @@ describe("steering a running turn", () => {
 		expect(await agentMessages(t, chatId)).toHaveLength(1);
 		expect(await turnFor(t, sent)).toMatchObject({ status: "done", mergedInto: turnId });
 		expect((await turnOf(t, turnId))!.stopping).toBeUndefined();
+	});
+
+	it("a burst while it writes: waits for the person to pause, starts over once with all of it, and shows below it", async () => {
+		const { t, owner, chatId, turnId } = await dm();
+		// Real time from here: the runner sleeps until the person pauses.
+		vi.useRealTimers();
+		const sent: Id<"chatMessages">[] = [];
+		let cutOff = false;
+		let rest: Promise<void> = Promise.resolve();
+		scripted(async function* (o) {
+			yield { type: "start-step" };
+			yield { type: "text-delta", text: "Sure" };
+			sent.push(await say(owner, chatId, "with something?"));
+			// The next part flushes (every 200ms) and hears it.
+			await pause(250);
+			yield { type: "text-delta", text: ", what" };
+			cutOff = o.abortSignal.aborted;
+			// The rest of the burst lands while it waits.
+			rest = (async () => {
+				await pause(300);
+				sent.push(await say(owner, chatId, "pl;llllease?"));
+				await pause(300);
+				sent.push(await say(owner, chatId, ":)"));
+			})();
+			yield { type: "text-delta", text: " do you need?" };
+			yield finishStep;
+		});
+		let restarted: ModelMessage[] = [];
+		scripted(async function* (o) {
+			restarted = o.messages;
+			yield { type: "start-step" };
+			yield { type: "text-delta", text: "Sure, what do you need help with?" };
+			yield finishStep;
+		});
+		await t.action(internal.agent.respond, { turnId });
+		await rest;
+
+		expect(cutOff).toBe(true);
+		// One restart for the whole burst, with all three in its note, in order.
+		expect(streamText).toHaveBeenCalledTimes(2);
+		expect(restarted).toHaveLength(2);
+		expect(lastContent(restarted).text).toMatch(/"with something\?"[\s\S]*"pl;llllease\?"[\s\S]*":\)"/);
+		expect((await turnOf(t, turnId))!.steered).toEqual(sent);
+		for (const id of sent) expect(await turnFor(t, id)).toMatchObject({ status: "done", mergedInto: turnId });
+		// No follow-up: nothing is left to answer.
+		expect((await turnsOf(t)).filter((x) => x.status === "queued" || x.status === "running")).toHaveLength(0);
+		expect(await agentMessages(t, chatId)).toHaveLength(1);
+		// The reply shows below everything it read, though it began before them.
+		expect((await owner.query(api.messages.list, { chatId })).map((m) => m.text)).toEqual(["do X", "with something?", "pl;llllease?", ":)", "Sure, what do you need help with?"]);
+	});
+
+	it("Stop pressed while it waits for the person to pause ends the turn", async () => {
+		const { t, owner, chatId, turnId } = await dm();
+		vi.useRealTimers();
+		let sent!: Id<"chatMessages">;
+		let stopping: Promise<unknown> = Promise.resolve();
+		scripted(async function* () {
+			yield { type: "start-step" };
+			yield { type: "text-delta", text: "Sure" };
+			sent = await say(owner, chatId, "with something?");
+			await pause(250);
+			yield { type: "text-delta", text: ", what" };
+			stopping = pause(300).then(() => owner.mutation(api.turns.stop, { turnId }));
+			yield { type: "text-delta", text: " do you need?" };
+		});
+		await t.action(internal.agent.respond, { turnId });
+		await stopping;
+
+		// It never started over, and the cut-off text is gone.
+		expect(streamText).toHaveBeenCalledTimes(1);
+		expect((await turnOf(t, turnId))!).toMatchObject({ status: "done" });
+		expect((await turnOf(t, turnId))!.steered).toBeUndefined();
+		expect(await replyOf(t, turnId)).toMatchObject({ status: "done", text: "", stoppedBy: expect.anything() });
+		// The message wasn't taken in: it gets its own turn, as after any Stop.
+		expect(await turnFor(t, sent)).toMatchObject({ status: "running" });
 	});
 
 	it(`starts over at most ${STEER_RESTARTS} times; a message after that gets the usual follow-up`, async () => {
@@ -349,6 +430,27 @@ describe("steering a dispatcher's pick in a channel", () => {
 		const turns = (await turnsOf(t)).filter((x) => x.triggerId === sent);
 		expect(turns.find((x) => x.agentId === scribe._id)).toMatchObject({ status: "running", person: true });
 		expect(turns.find((x) => x.agentId !== scribe._id)).toMatchObject({ status: "done", mergedInto: turnId });
+	});
+
+	it("a reply it posts shows below the messages it took in", async () => {
+		const { t, owner, chatId, turnId } = await picked();
+		const posts = { new_point: "offer help", post: true, to: "room", message: "Sure, what do you need help with?" };
+		scripted(async function* (o) {
+			yield { type: "start-step" };
+			yield toolCall("c1");
+			await say(owner, chatId, "with something?");
+			yield toolResult("c1");
+			yield finishStep;
+			await nextStep(o, 1, o.messages);
+			await later();
+			yield { type: "start-step" };
+			yield { type: "text-delta", text: JSON.stringify(posts) };
+			yield finishStep;
+		}, posts);
+		await t.action(internal.agent.respond, { turnId });
+
+		const texts = (await owner.query(api.messages.list, { chatId })).map((m) => m.text);
+		expect(texts.slice(-2)).toEqual(["with something?", "Sure, what do you need help with?"]);
 	});
 
 	it("missed, it runs as a quiet follow-up like the pick; one that covers a direct ask answers", async () => {

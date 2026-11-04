@@ -12,9 +12,11 @@ import {
 	countMessage,
 	insertMessage,
 	label,
+	moveBelow,
 	requireChat,
 	namer,
 	replyForModel,
+	shownAt,
 	textForModel,
 } from "./chatOps";
 import { previewMessage } from "./linkPreviews";
@@ -501,6 +503,22 @@ export const isStopping = internalQuery({
 });
 
 /**
+ * A reply cut off to take in its person's messages waits for them to pause (agent.ts `turnStop`), so a
+ * burst is taken in at once: `waitMs` until their newest one here is AGENT_DEBOUNCE_MS old, 0 to go on.
+ * `stopped`: end the turn instead.
+ */
+export const steerWait = internalQuery({
+	args: { turnId: v.id("agentTurns") },
+	handler: async (ctx, { turnId }) => {
+		const turn = await ctx.db.get(turnId);
+		if (!turn || turn.status !== "running" || turn.stopping) return { stopped: true, waitMs: 0 };
+		// A person turn is queued with its message, in the same mutation (messages.send).
+		const newest = Math.max(0, ...(await steering(ctx, turn)).map((t) => t._creationTime));
+		return { stopped: false, waitMs: Math.max(0, newest + AGENT_DEBOUNCE_MS - Date.now()) };
+	},
+});
+
+/**
  * Whether a running turn takes in its person's new messages here (steering): one acting for someone who
  * is waiting on it, asked or picked for them (their DM, an @mention, a dispatcher pick, a hop or handoff,
  * an approval's follow-up). Not a wake (nobody asked; an ask's answer goes to an agent), not an automation
@@ -593,6 +611,9 @@ export const steer = internalMutation({
 			steered: [...(turn.steered ?? []), ...messages.map((m) => m._id)],
 			...(turn.prompt !== undefined && { prompt: `${turn.prompt}\n\n${note}` }),
 		});
+		// It answers them now, so it shows below them. A quiet reply is placed when it's shown (finishReply).
+		const reply = await ctx.db.get(turn.replyId!);
+		if (reply && !reply.quiet) await moveBelow(ctx, (await ctx.db.get(turn.chatId))!, reply);
 		return { note, asked: messages.map((m) => m.text) };
 	},
 });
@@ -710,7 +731,7 @@ async function shown(ctx: QueryCtx, turn: Doc<"agentTurns">, reply: Doc<"chatMes
 		.withIndex("by_chat_thread", (q) => q.eq("chatId", turn.chatId).eq("threadId", turn.threadId).gt("_creationTime", reply._creationTime - STALE_TURN_MS))
 		.filter((q) => q.and(q.neq(q.field("authorAgentId"), undefined), q.neq(q.field("authorAgentId"), turn.agentId), q.neq(q.field("quiet"), true), q.neq(q.field("deleted"), true)))
 		.take(50);
-	return !recent.some((m) => (m.publishedAt ?? m._creationTime) > reply._creationTime);
+	return !recent.some((m) => shownAt(m) > reply._creationTime);
 }
 
 /** After each finished model call (agent.ts), so its cost is recorded even if the action dies before finishReply. */

@@ -18,6 +18,7 @@ import {
 	reactionsOf,
 	replyAuthorsOf,
 	requireChat,
+	shownAt,
 	toggleReaction,
 	visibleChat,
 } from "./chatOps";
@@ -84,7 +85,10 @@ export type Message = {
 
 const LIST_LIMIT = 200;
 
-/** The newest 200 of the main timeline, or of a thread (parent first), oldest first. */
+/**
+ * The newest 200 of the main timeline, or of a thread (parent first), in the order they were shown
+ * (chatOps `shownAt`): a reply sits below every message it took in.
+ */
 export const list = query({
 	args: { chatId: v.id("chats"), threadId: v.optional(v.id("chatMessages")) },
 	handler: async (ctx, { chatId, threadId }): Promise<Message[]> => {
@@ -100,7 +104,7 @@ export const list = query({
 				// Wake turns' own replies are never shown (wakeups.ts).
 				.filter((q) => q.neq(q.field("quiet"), true))
 				.take(LIST_LIMIT)
-		).reverse();
+		).sort((a, b) => shownAt(a) - shownAt(b));
 		const names = namer(ctx, { images: true });
 		return Promise.all((parent ? [parent, ...docs] : docs).map((m) => toMessage(ctx, m, visible.member, names)));
 	},

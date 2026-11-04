@@ -70,8 +70,9 @@ const FLUSH_MS = 200;
 /** How often a turn checks for Stop when it hasn't flushed lately (a long think streams reasoning, not text). */
 const STOP_CHECK_MS = 1_000;
 /**
- * Times a reply starts its answer over to take in the person's new message (turnStop): past this, one
- * that arrives while it writes waits for the follow-up, so a chatty person can't keep it from finishing.
+ * Times a reply starts its answer over to take in the person's new messages (turnStop). Each time takes
+ * in a whole burst (it waits for them to pause), so this counts bursts. Past it, a message that arrives
+ * while it writes waits for the follow-up, so a chatty person can't keep it from finishing.
  */
 export const STEER_RESTARTS = 2;
 /** A connector that doesn't connect this fast is skipped for the turn, not waited on. */
@@ -505,16 +506,19 @@ async function streamReply(
 				}
 			}
 			// The person wrote while the model was writing its answer, with no step boundary left to add it at
-			// (turnStop cut it off): what it wrote this step goes, and it starts again from what that step was
-			// sent, plus their message. Steps before it (tool calls, their results) stand and aren't redone.
+			// (turnStop cut it off): what it wrote this step goes, and once they pause it starts again from what
+			// that step was sent, plus everything they sent. Steps before it (tool calls, their results) stand
+			// and aren't redone. The typing line says it's thinking meanwhile.
 			if (!stop.steered) break;
 			parts.splice(stepStart);
 			writing = false;
 			showStep();
+			await flush();
+			// Stopped while waiting: it ends here.
+			if (!(await stop.settle())) break;
 			const note = await steer();
 			if (note) sent = [...sent, { role: "user", content: note }];
 			stop.restart();
-			await flush();
 			result = run();
 		}
 	} finally {
@@ -540,8 +544,9 @@ async function streamReply(
  *
  * Steering (#189) hears the person's new message the same way (turns.steering). A step that called a tool
  * is left alone: the next step takes the message in (core agentPrepareStep). A step only writing (the
- * answer: no boundary left) is cut off with the same abort, `steered`, and the runner starts it again with
- * the message (`restart`), at most STEER_RESTARTS times a reply; past that the message waits for its follow-up.
+ * answer: no boundary left) is cut off with the same abort, `steered`; the runner waits for the person to
+ * pause (`settle`) and starts it again with all they sent (`restart`), at most STEER_RESTARTS times a reply;
+ * past that the message waits for its follow-up.
  */
 export function turnStop(ctx: Pick<ActionCtx, "runQuery">, turnId: Id<"agentTurns">) {
 	let controller = new AbortController();
@@ -584,6 +589,21 @@ export function turnStop(ctx: Pick<ActionCtx, "runQuery">, turnId: Id<"agentTurn
 		/** The run was cut off to take in a message (and not stopped): start it again. */
 		get steered() {
 			return steered && !requested;
+		},
+		/**
+		 * After a cut-off: waits until the person's newest message here is AGENT_DEBOUNCE_MS old
+		 * (turns.steerWait), so a burst is one restart. False if the turn was stopped meanwhile (heard
+		 * within STOP_CHECK_MS). One short timeout at a time, and it ends: never an interval.
+		 */
+		async settle() {
+			for (;;) {
+				const { stopped, waitMs } = await ctx.runQuery(internal.turns.steerWait, { turnId });
+				lastHeard = Date.now();
+				if (stopped) request();
+				if (requested) return false;
+				if (waitMs <= 0) return true;
+				await new Promise((wake) => setTimeout(wake, Math.min(waitMs, STOP_CHECK_MS)));
+			}
 		},
 		/** A new run after a steer. */
 		restart() {

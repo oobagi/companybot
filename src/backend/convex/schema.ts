@@ -513,7 +513,10 @@ export default defineSchema({
 		automation: v.optional(v.object({ id: v.string(), name: v.string(), foreign: v.optional(v.boolean()) })),
 		/** A quiet turn's own reply (a wake, a dispatcher pick, a hop): hidden unless its decision posts it (turns.finishReply). */
 		quiet: v.optional(v.boolean()),
-		/** When a quiet reply was shown, if it was: later than it was made. */
+		/**
+		 * Where it sits in the timeline, if not where it was made (chatOps `shownAt`): when a quiet reply was
+		 * shown, or when a reply took in messages sent after it began (turns.steer), so it shows below them.
+		 */
 		publishedAt: v.optional(v.number()),
 		/**
 		 * A chain of agents paused here (chains.ts): the line "Agents paused after 10 turns · Continue · Stop",
