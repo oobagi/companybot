@@ -20,6 +20,8 @@ export const permissions = {
 	"workspace.manage": { label: "change workspace settings", member: false },
 	/** Delete the workspace and everything in it. */
 	"workspace.delete": { label: "delete the workspace", ownerOnly: true },
+	/** Erase everything in the workspace and start it again like new; its members, roles and settings stay. */
+	"workspace.reset": { label: "reset the workspace", ownerOnly: true },
 	/** Make, rename and delete roles and choose their switches. Owner-only, so nobody can give themselves more than an owner chose. */
 	"roles.manage": { label: "change roles", ownerOnly: true },
 	/** Invite and remove people and give them roles. Only owners give or take the Owner role, or remove an owner. */

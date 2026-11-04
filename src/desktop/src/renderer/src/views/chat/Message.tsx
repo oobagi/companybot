@@ -1,6 +1,6 @@
 import { actionLabel, toolLine } from "@companybot/core/action-words";
 import { splitLinks } from "@companybot/core/link-preview";
-import { routerDecisionModels } from "@companybot/core/router";
+import { routerActions, routerDecisionModels } from "@companybot/core/router";
 import { Fragment, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
@@ -8,7 +8,7 @@ import { Markdown } from "../../markdown";
 import { Notice, timeAgo, useTip } from "../../ui";
 import { WidgetView } from "../../widgets";
 import { CallDetails } from "../Activity";
-import { ApprovalMessages } from "./Approval";
+import { HeldCall } from "./Approval";
 import { AutomationIcon, EditIcon, MoreIcon, ReactIcon, ReplyIcon, TrashIcon } from "../../icons";
 import { AgentBadge, Avatar, AvatarStack, EmojiPicker, IconButton, MenuItem, PairAvatar, Popover, PopoverPanel, clock, useConfirm, useDismiss } from "./common";
 import type { Message, TokenNames } from "./data";
@@ -54,13 +54,12 @@ export function MessageRow({
 	const sending = message.sending;
 	const toggle = (emoji: string) => react({ messageId: message._id, emoji }).catch(onError);
 
-	const held = isAgent && !message.deleted ? message.parts.filter((p) => p.type === "approval") : [];
+	const asking = isAgent && !message.deleted && message.parts.some((p) => p.type === "approval");
 
 	// A reply shows whole once it's written; meanwhile the line under the composer says what the agent is
 	// doing. A card asking permission shows at once, since the reply waits on it.
-	if (message.status === "streaming" && held.length === 0) return null;
+	if (message.status === "streaming" && !asking) return null;
 	if (message.pause && !message.deleted) return <PausedLine message={message} pause={message.pause} onError={onError} />;
-	if (held.length > 0 && held.length === message.parts.length && !message.text) return <ApprovalMessages message={message} parts={held} />;
 
 	return (
 		<>
@@ -202,8 +201,6 @@ export function MessageRow({
 					</div>
 				)}
 			</div>
-			{/* Calls held for permission read as their own messages from the agent, after its reply. */}
-			{held.length > 0 && <ApprovalMessages message={message} parts={held} />}
 			{dialog}
 		</>
 	);
@@ -344,6 +341,8 @@ function AgentBody({ message, tokens }: { message: Message; tokens: TokenNames }
 						</Markdown>
 					) : run.part.type === "widget" ? (
 						<WidgetView key={run.part.id} widget={run.part.widget} />
+					) : run.part.type === "approval" ? (
+						<HeldCall key={run.part.id} replyId={message._id} part={run.part} />
 					) : null,
 				)}
 				{message.status === "error" && <Notice>{message.error ?? "Something went wrong."}</Notice>}
@@ -463,9 +462,9 @@ const usd = (n: number) => `$${n.toFixed(n < 0.01 ? 4 : n < 1 ? 3 : 2)}`;
 /** A dispatcher call costs a few hundredths of a cent. */
 const tinyUsd = (n: number) => (n < 0.001 ? `$${n.toFixed(5)}` : usd(n));
 const percent = (p: number) => `${Math.round(p * 100)}%`;
-/** Jev's chance of each choice ("84% reply · 1% react · 15% quiet"); a hop's, of going next; none from a language model. */
+/** Jev's chance of each choice ("84% reply · 16% quiet"); a hop's, of going next; none from a language model. */
 function confidence({ probability, probabilities }: NonNullable<Stats["dispatch"]>) {
-	if (probabilities) return ["reply", "react", "quiet"].filter((c) => probabilities[c] !== undefined).map((c) => `${percent(probabilities[c]!)} ${c}`).join(" · ");
+	if (probabilities) return routerActions.filter((c) => probabilities[c] !== undefined).map((c) => `${percent(probabilities[c]!)} ${c}`).join(" · ");
 	return probability !== undefined ? `${percent(probability)} go next` : "—";
 }
 /** "Jev" for TypeSafe's decision model, else the model's short id. */

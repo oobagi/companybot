@@ -45,9 +45,12 @@ afterEach(async () => {
 	vi.unstubAllGlobals();
 });
 
-it.each(["general", "preferences"] as const)("guards confirmation and retries after failure on %s", async (tab) => {
+it.each([
+	{ tab: "general", action: "Delete workspace", pending: "Deleting…" },
+	{ tab: "general", action: "Reset workspace", pending: "Resetting…" },
+	{ tab: "preferences", action: "Delete account", pending: "Deleting…" },
+] as const)("guards confirmation and retries after failure: $action", async ({ tab, action, pending }) => {
 	const account = tab === "preferences";
-	const action = account ? "Delete account" : "Delete workspace";
 	await act(async () => {
 		root = create(createElement(SettingsView, { access: { roles: ["owner"], owner: true, permissions: [] }, tab }));
 	});
@@ -68,7 +71,7 @@ it.each(["general", "preferences"] as const)("guards confirmation and retries af
 	const form = root.root.findAllByType("form").find((f) => f.findAllByProps({ autoFocus: true }).length)!;
 	await act(async () => form.props.onSubmit({ preventDefault() {} }));
 	expect(confirm().props.disabled).toBe(true);
-	expect(confirm().children).toEqual(["Deleting…"]);
+	expect(confirm().children).toEqual([pending]);
 	// Repeated submits and dismissal cannot reopen an enabled dialog while it's running.
 	await act(async () => {
 		form.props.onSubmit({ preventDefault() {} });
@@ -90,5 +93,15 @@ it("signs out an erased account in any window instead of leaving it blank or pro
 	state.queries["workspace:mine"] = null; // Erased on this or another device; JWT still valid.
 	await act(async () => root.update(createElement(App)));
 	expect(state.signOut).toHaveBeenCalledOnce();
+	expect(state.mutate).not.toHaveBeenCalled();
+});
+
+it("waits on a workspace being reset instead of switching away, then opens #general", async () => {
+	vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn() });
+	state.queries["workspace:mine"] = { workspaces: [{ id: "w1", name: "My company", role: "member", image: null, resetting: true }], invitations: [], lastUsed: "w1" };
+	await act(async () => { root = create(createElement(App)); });
+	expect(JSON.stringify(root.toJSON())).toContain("Resetting");
+	expect(navigate).toHaveBeenCalledWith("chat");
+	// Not onboarding: it's still theirs.
 	expect(state.mutate).not.toHaveBeenCalled();
 });

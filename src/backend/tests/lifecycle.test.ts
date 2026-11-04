@@ -8,6 +8,7 @@ import schema from "../convex/schema";
 import { agentTurn, generalOf, newTest, noMentions, settle, ownerAndMember, sideWorkspace, signIn, turnsOf, workspaceOf, identityOf, addMember, builtInRoleIn } from "./helpers";
 import "./connectorFixtures";
 import { person } from "./person";
+import { defaultAgents } from "@companybot/core";
 
 afterEach(() => void vi.useRealTimers());
 
@@ -288,6 +289,93 @@ describe("deleting a workspace", () => {
 		const fresh = (await a.query(api.workspace.mine))!.workspaces.map((w) => w.id);
 		expect(fresh).toHaveLength(1);
 		expect(fresh).not.toContain(A);
+	});
+});
+
+describe("resetting a workspace", () => {
+	it("closes it at once, deletes its content, keeps its people, roles, invites and bill, and starts it again like new", { timeout: 60_000 }, async () => {
+		const { t, a, b, m, A, B } = await world();
+		// A custom role someone holds (configuration: kept), a channel only it can see (its access list goes with
+		// the channel), and the member's personal skill (content: deleted).
+		const crew = await t.run(async (ctx) => {
+			const crew = await ctx.db.insert("roles", { workspaceId: A, name: "Crew", switches: [{ permission: "records.edit", on: true }] });
+			const row = (await ctx.db.query("members").collect()).find((r) => r.userId === m.userId && r.workspaceId === A)!;
+			await ctx.db.patch(row._id, { roles: [...(row.roles ?? []), crew] });
+			const board = (await ctx.db.query("chats").collect()).find((c) => c.workspaceId === A && c.name === "board")!;
+			await ctx.db.patch(board._id, { access: [{ role: crew, level: "edit" }] });
+			return crew;
+		});
+		await m.in(A).mutation(api.skills.create, { config: { name: "Mine", description: "d", instructions: "i" }, audience: "personal" });
+		const before = await dump(t);
+		await expect(a.mutation(api.workspace.resetWorkspace, { name: "Nope" })).rejects.toThrow("Type the workspace's name");
+		await expect(m.in(A).mutation(api.workspace.resetWorkspace, { name: "My company" })).rejects.toThrow("Only people with the Owner role can reset the workspace");
+		// Owner-only, like deleting: no role can be given it.
+		await expect(a.mutation(api.roles.setPermission, { id: crew, permission: "workspace.reset", on: true })).rejects.toThrow("isn't a switch");
+		vi.useFakeTimers();
+		await a.mutation(api.workspace.resetWorkspace, { name: "My company" });
+		// Before any cleanup has run: closed to everyone, nothing new can land in it, but it stays on their lists.
+		expect(await m.in(A).query(api.workspace.me)).toMatchObject({ workspaceId: null, role: null });
+		await expect(m.in(A).mutation(api.chats.createChannel, { name: "x", private: false })).rejects.toThrow();
+		await expect(a.mutation(api.workspace.resetWorkspace, { name: "My company" })).rejects.toThrow();
+		expect((await m.query(api.workspace.mine))!.workspaces.find((w) => w.id === A)).toMatchObject({ resetting: true });
+
+		await settle(t);
+		const after = await dump(t);
+		const keptOnReset = (table: TableNames) => keptWhenWorkspaceGoes(table) || !!(lifecycle[table] as Lifecycle<TableNames>).keepOnReset || table === "workspaces";
+		for (const id of rowsOf(before, A)) expect(after.has(id), `${before.get(id)!.table} row`).toBe(keptOnReset(before.get(id)!.table));
+		// Of what's left, only its members (a fresh tutorial each) and itself (who reset it) changed; nothing of B's.
+		const { changed } = diff(before, after);
+		expect([...changed].every((id) => ["members", "workspaces"].includes(before.get(id)!.table) && rowsOf(before, A).has(id))).toBe(true);
+		for (const row of [...after.values()].filter((r) => r.table === "members" && r.row.workspaceId === A)) expect(row.row.tutorial).toEqual({ done: [] });
+		const ownerRole = await t.run((ctx) => builtInRoleIn(ctx, A, "owner"));
+		const owner = [...after.values()].find((r) => r.table === "members" && r.row.workspaceId === A && (r.row.roles as string[]).includes(ownerRole))!.row.userId;
+		// Roles and who holds which stay; the personal skill and the restricted channel went with everything else.
+		expect(after.get(crew)).toEqual(before.get(crew));
+		expect((await memberRow(t, A, m.userId)).roles).toContain(crew);
+		expect([...after.values()].filter((r) => r.table === "skillInstalls" && r.row.workspaceId === A)).toEqual([]);
+		expect(after.get(A)!.row).toMatchObject({ name: "My company", lastReset: { by: owner } });
+		expect(after.get(A)!.row).not.toHaveProperty("resetting");
+		expect(await t.run((ctx) => ctx.db.query("cascades").collect())).toEqual([]);
+
+		// Like new: the default agents, #general alone with everyone in it and the welcome, a tutorial each.
+		expect((await a.query(api.agents.list)).map((x) => x.name)).toEqual(defaultAgents.map((x) => x.name));
+		const chats = (await m.in(A).query(api.chats.list))!;
+		expect(chats.channels.map((c) => c.name)).toEqual(["general"]);
+		expect(chats.dms).toEqual([]);
+		const general = await generalOf(a);
+		expect(general.members.filter((x) => x.type === "user").map((x) => x.id).sort()).toEqual([owner, m.userId].sort());
+		expect(await a.query(api.messages.list, { chatId: general._id })).toHaveLength(1);
+		for (const who of [a, m.in(A)]) expect(await who.query(api.onboarding.tutorial)).not.toBeNull();
+		expect((await a.query(api.workspace.team))!.invites.map((i) => i.email)).toEqual(["next@co.com"]);
+		expect(await a.query(api.workspace.settings)).toMatchObject({ lastReset: { by: expect.any(String), at: expect.any(Number) } });
+		expect(await b.query(api.workspace.me)).toMatchObject({ workspaceId: B, role: "owner" });
+	});
+
+	it("deletes in batches, staying closed until it's started again", { timeout: 60_000 }, async () => {
+		const t = newTest();
+		const owner = await signIn(t, "owner@co.com");
+		const workspaceId = await workspaceOf(owner);
+		const chatId = (await generalOf(owner))._id;
+		await t.run(async (ctx) => {
+			for (let i = 0; i < 1_000; i++)
+				await ctx.db.insert("chatMessages", { chatId, workspaceId, authorUserId: owner.userId, text: "hi", parts: [], mentions: { userIds: [], agentIds: [] }, status: "done" });
+		});
+		vi.useFakeTimers();
+		await owner.mutation(api.workspace.resetWorkspace, { name: "My company" });
+		// Run by run, until the messages' first page has gone: the rest wait for later runs.
+		const messages = () => t.run(async (ctx) => (await ctx.db.query("chatMessages").collect()).length);
+		let left = await messages();
+		for (let run = 0; run < 100 && left === 1_000; run++) {
+			vi.runOnlyPendingTimers();
+			await t.finishInProgressScheduledFunctions();
+			left = await messages();
+		}
+		expect(left).toBeGreaterThan(0);
+		expect(left).toBeLessThan(1_000);
+		expect(await owner.query(api.workspace.me)).toMatchObject({ role: null });
+		await settle(t);
+		expect(await owner.query(api.workspace.me)).toMatchObject({ workspaceId, role: "owner" });
+		expect(await t.run(async (ctx) => (await ctx.db.query("chatMessages").collect()).length)).toBe(1);
 	});
 });
 

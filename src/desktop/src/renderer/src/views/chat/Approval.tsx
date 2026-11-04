@@ -4,34 +4,19 @@ import { useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { Notice, descriptionClass, hintClass, primaryButton, secondaryButton, timeAgo, useRun } from "../../ui";
-import { AgentBadge, Avatar, clock } from "./common";
 import type { Message } from "./data";
 
 type ApprovalPart = Extract<Message["parts"][number], { type: "approval" }>;
 type Approval = FunctionReturnType<typeof api.approvals.forReply>[number];
 
 /**
- * Calls the agent held for permission, each shown as its own message from the agent
- * right after its reply: what it wants to do, in its voice, the exact input, and the
- * answers. It stays in the timeline after a decision, showing the outcome.
+ * A call the agent held for permission, in its reply where it made it: what it wants to do,
+ * in its voice, the exact input, and the answers. It stays after a decision, showing the outcome.
  */
-export function ApprovalMessages({ message, parts }: { message: Message; parts: ApprovalPart[] }) {
-	const approvals = useQuery(api.approvals.forReply, { replyId: message._id });
-	return parts.map((part) => (
-		<div key={part.id} className="flex gap-3 px-5 pt-2 pb-0.5">
-			<div className="flex w-9 shrink-0 justify-center">
-				<Avatar name={message.author.name} image={message.author.image} agent />
-			</div>
-			<div className="flex min-w-0 flex-1 flex-col gap-1">
-				<div className="flex items-baseline gap-2">
-					<span className="font-semibold">{message.author.name}</span>
-					<AgentBadge />
-					<span className="text-xs text-neutral-400 tabular-nums">{clock(message._creationTime)}</span>
-				</div>
-				<ApprovalCard part={part} approval={approvals?.find((a) => a.callId === part.id)} />
-			</div>
-		</div>
-	));
+export function HeldCall({ replyId, part }: { replyId: Message["_id"]; part: ApprovalPart }) {
+	// One subscription per reply, however many cards it holds: the client shares identical queries.
+	const approvals = useQuery(api.approvals.forReply, { replyId });
+	return <ApprovalCard part={part} approval={approvals?.find((a) => a.callId === part.id)} />;
 }
 
 /**
