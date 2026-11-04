@@ -26,6 +26,15 @@ type List = FunctionReturnType<typeof api.records.list>;
 const titles = async (as: As, args: Omit<FunctionArgs<typeof api.records.list>, "paginationOpts">) =>
 	(await as.query(api.records.list, { ...args, paginationOpts: page })).page.map((r) => r.title);
 
+/** Many records in one transaction, through the same code the mutations use. */
+const seed = async (t: ReturnType<typeof convexTest>, userId: Id<"users">, typeId: Id<"recordTypes">, values: Record<string, unknown>[]) =>
+	t.run(async (ctx) => {
+		const who = { member: (await memberOf(ctx, userId, (await ctx.db.get(typeId))!.workspaceId))! };
+		const ids = [];
+		for (const v of values) ids.push((await createRecord(ctx, who, typeId, v)).id);
+		return ids;
+	});
+
 describe("databases", () => {
 	it("keeps existing databases and their links usable without a catalog", async () => {
 		const { client, deal, task, call } = await setup();
@@ -437,11 +446,12 @@ describe("records: limits and edge cases", () => {
 	});
 
 	it("lists a full page of records with many links inside transaction limits", async () => {
-		const { owner, client, deal } = await setup();
+		const { t, owner, client, deal } = await setup();
 		await owner.mutation(api.fields.create, { typeId: deal._id, label: "Contacts", kind: "link", multiple: true, linkTypeId: client._id });
-		const ids: Id<"records">[] = [];
-		for (let n = 0; n < 50; n++) ids.push(await owner.mutation(api.records.create, { typeId: client._id, values: { name: `C${n}` } }));
-		for (let n = 0; n < 82; n++) await owner.mutation(api.records.create, { typeId: deal._id, values: { name: `D${n}`, contacts: ids } });
+		const ids = await seed(t, owner.userId, client._id, Array.from({ length: 50 }, (_, n) => ({ name: `C${n}` })));
+		// A few transactions: each deal checks its 50 links.
+		for (let from = 0; from < 82; from += 20)
+			await seed(t, owner.userId, deal._id, Array.from({ length: Math.min(20, 82 - from) }, (_, n) => ({ name: `D${from + n}`, contacts: ids })));
 		const first = await owner.query(api.records.list, { typeId: deal._id, paginationOpts: { numItems: 100, cursor: null } });
 		expect(first.page).toHaveLength(50);
 		expect(Object.keys(first.page[0]!.refs)).toHaveLength(50);
@@ -450,12 +460,10 @@ describe("records: limits and edge cases", () => {
 	});
 
 	it("leaves names past a page's read budget for records.refs", async () => {
-		const { owner, client, deal } = await setup();
+		const { t, owner, client, deal } = await setup();
 		await owner.mutation(api.fields.create, { typeId: deal._id, label: "Contacts", kind: "link", multiple: true, linkTypeId: client._id });
-		const ids: Id<"records">[] = [];
-		for (let n = 0; n < 250; n++) ids.push(await owner.mutation(api.records.create, { typeId: client._id, values: { name: `C${n}` } }));
-		for (let n = 0; n < 5; n++)
-			await owner.mutation(api.records.create, { typeId: deal._id, values: { name: `D${n}`, contacts: ids.slice(n * 50, n * 50 + 50) } });
+		const ids = await seed(t, owner.userId, client._id, Array.from({ length: 250 }, (_, n) => ({ name: `C${n}` })));
+		await seed(t, owner.userId, deal._id, Array.from({ length: 5 }, (_, n) => ({ name: `D${n}`, contacts: ids.slice(n * 50, n * 50 + 50) })));
 		const rows = (await owner.query(api.records.list, { typeId: deal._id, paginationOpts: page })).page;
 		const unresolved = rows.flatMap((r) => r.unresolved);
 		expect(unresolved).toHaveLength(50);
@@ -557,13 +565,6 @@ describe("records: list edge cases", () => {
 		for (let i = 0; i < 3; i++) keys.push((await owner.mutation(api.fields.create, { typeId, label: `Big ${i}`, kind: "text" })).key);
 		return { name: "界".repeat(10_000), ...Object.fromEntries(keys.map((k) => [k, "界".repeat(10_000)])) };
 	}
-	const seed = async (t: ReturnType<typeof convexTest>, userId: Id<"users">, typeId: Id<"recordTypes">, values: Record<string, unknown>[]) =>
-		t.run(async (ctx) => {
-			const who = { member: (await memberOf(ctx, userId, (await ctx.db.get(typeId))!.workspaceId))! };
-			const ids = [];
-			for (const v of values) ids.push((await createRecord(ctx, who, typeId, v)).id);
-			return ids;
-		});
 
 	it("keeps an older match from a short 'any of' stream behind a full one", async () => {
 		const { t, owner, task } = await setup();
