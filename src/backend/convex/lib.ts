@@ -56,8 +56,14 @@ export async function hasLiveOwner(ctx: QueryCtx, workspaceId: Id<"workspaces">,
 	return false;
 }
 
-/** A workspace that exists and isn't being deleted. Deleting one ends every access to it at once. */
+/** A workspace that exists and isn't being deleted or reset. Either ends every access to it at once. */
 export async function liveWorkspace(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
+	const workspace = await keptWorkspace(ctx, workspaceId);
+	return workspace && !workspace.resetting ? workspace : null;
+}
+
+/** A workspace that exists and isn't being deleted. One being reset counts: it's still yours, just closed until it's done. */
+export async function keptWorkspace(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
 	const workspace = await ctx.db.get(workspaceId);
 	return workspace && !workspace.deleting ? workspace : null;
 }

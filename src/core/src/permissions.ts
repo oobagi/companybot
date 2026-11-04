@@ -13,6 +13,8 @@ export const permissions = {
 	"workspace.manage": { roles: ["owner"], label: "change workspace settings" },
 	/** Delete the workspace and everything in it. */
 	"workspace.delete": { roles: ["owner"], label: "delete the workspace" },
+	/** Erase everything in the workspace and start it again like new; its members stay. */
+	"workspace.reset": { roles: ["owner"], label: "reset the workspace" },
 	"members.manage": { roles: ["owner"], label: "manage members" },
 	"agents.manage": { roles: ["owner"], label: "change agents" },
 	"connectors.manage": { roles: ["owner"], label: "manage connectors" },

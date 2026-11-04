@@ -106,20 +106,39 @@ export function SettingsNav({ tab }: { tab: SettingsTab }) {
 function GeneralTab({ role }: { role: Role }) {
 	const settings = useQuery(api.workspace.settings);
 	const remove = useMutation(api.workspace.deleteWorkspace);
+	const reset = useMutation(api.workspace.resetWorkspace);
 	if (!settings) return <Loading />;
+	const { lastReset } = settings;
 	return (
 		<>
 			<GeneralForm settings={settings} isOwner={can(role, "workspace.manage")} />
-			{can(role, "workspace.delete") && (
-				<DangerZone
-					action="Delete workspace"
-					hint="Deletes this workspace and everything in it, for everyone."
-					confirm={settings.name}
-					onDelete={(name) => remove({ name }).then(() => navigate("chat"))}
-				>
-					Everyone in {settings.name} loses access at once, and its chats, records, agents, memory and connections are deleted. This
-					can't be undone.
-				</DangerZone>
+			{(can(role, "workspace.reset") || can(role, "workspace.delete")) && (
+				<Settings title="Danger zone">
+					{can(role, "workspace.reset") && (
+						<DangerAction
+							action="Reset workspace"
+							pending="Resetting…"
+							hint={`Puts this workspace back to how it was when it was made. Members stay.${lastReset ? ` Last reset by ${lastReset.by} on ${new Date(lastReset.at).toLocaleDateString()}.` : ""}`}
+							confirm={settings.name}
+							// Everyone's app waits while it resets, then opens #general (App).
+							onConfirm={(name) => reset({ name }).then(() => navigate("chat"))}
+						>
+							Permanently deletes every message, chat, memory, database, page and automation in this workspace, and puts back the
+							starting agents and channels. Members stay. This can't be undone.
+						</DangerAction>
+					)}
+					{can(role, "workspace.delete") && (
+						<DangerAction
+							action="Delete workspace"
+							hint="Deletes this workspace and everything in it, for everyone."
+							confirm={settings.name}
+							onConfirm={(name) => remove({ name }).then(() => navigate("chat"))}
+						>
+							Everyone in {settings.name} loses access at once, and its chats, records, agents, memory and connections are deleted. This
+							can't be undone.
+						</DangerAction>
+					)}
+				</Settings>
 			)}
 		</>
 	);
@@ -150,20 +169,23 @@ function AppVersion() {
 	);
 }
 
-/** Deletes something for good, once you've typed `confirm` (its name, or your email). */
-function DangerZone({
+/** A danger zone's row: does something that can't be undone, once you've typed `confirm` (its name, or your email). */
+function DangerAction({
 	action,
+	pending = "Deleting…",
 	hint,
 	confirm,
 	ignoreCase = false,
-	onDelete,
+	onConfirm,
 	children,
 }: {
 	action: string;
+	/** The button while it runs. */
+	pending?: string;
 	hint: string;
 	confirm: string;
 	ignoreCase?: boolean;
-	onDelete: (typed: string) => Promise<unknown>;
+	onConfirm: (typed: string) => Promise<unknown>;
 	children: React.ReactNode;
 }) {
 	const [open, setOpen] = useState(false);
@@ -172,7 +194,7 @@ function DangerZone({
 	const matches = ignoreCase ? typed.trim().toLowerCase() === confirm.toLowerCase() : typed.trim() === confirm;
 	const close = () => !busy && (setOpen(false), setTyped(""));
 	return (
-		<Settings title="Danger zone">
+		<>
 			<Setting label={action} hint={hint}>
 				<button type="button" onClick={() => setOpen(true)} className={`${secondaryButton} text-red-600`}>
 					{action}
@@ -184,7 +206,7 @@ function DangerZone({
 						className="flex flex-col gap-4 text-sm"
 						onSubmit={() => {
 							if (busy || !matches) return;
-							run(onDelete(typed.trim()));
+							run(onConfirm(typed.trim()));
 						}}
 					>
 						<p className="text-neutral-600">{children}</p>
@@ -197,13 +219,13 @@ function DangerZone({
 								Cancel
 							</button>
 							<button type="submit" disabled={busy || !matches} className={dangerButton}>
-								{busy ? "Deleting…" : action}
+								{busy ? pending : action}
 							</button>
 						</div>
 					</Form>
 				</Modal>
 			)}
-		</Settings>
+		</>
 	);
 }
 
@@ -400,17 +422,19 @@ function ProfileTab() {
 			</Settings>
 			<AppVersion />
 			{me && (
-				<DangerZone
-					action="Delete account"
-					hint="Deletes your account and takes you out of every workspace."
-					confirm={me.email}
-					ignoreCase
-					onDelete={() => erase()}
-				>
-					You'll leave every workspace and be signed out. Workspaces only you are in are deleted with everything in them. Your name,
-					preferences and connected accounts are deleted; what you said in shared chats stays, as a former member's. If you're the only
-					owner of a workspace with other people in it, make someone else an owner first. This can't be undone.
-				</DangerZone>
+				<Settings title="Danger zone">
+					<DangerAction
+						action="Delete account"
+						hint="Deletes your account and takes you out of every workspace."
+						confirm={me.email}
+						ignoreCase
+						onConfirm={() => erase()}
+					>
+						You'll leave every workspace and be signed out. Workspaces only you are in are deleted with everything in them. Your name,
+						preferences and connected accounts are deleted; what you said in shared chats stays, as a former member's. If you're the only
+						owner of a workspace with other people in it, make someone else an owner first. This can't be undone.
+					</DangerAction>
+				</Settings>
 			)}
 		</>
 	);

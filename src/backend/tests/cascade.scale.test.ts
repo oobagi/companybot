@@ -27,6 +27,30 @@ it("deletes a workspace with 17,000 messages and 2,500 reactions on one without 
 	for (const table of ["chatMessages", "reactions", "cascades"] as const) expect(await t.run((ctx) => ctx.db.query(table).first())).toBeNull();
 });
 
+// Resetting deletes the same way, then seats every member in the new #general in one transaction.
+it("resets a workspace with 17,000 messages and 4,100 members without exceeding transaction limits", { timeout: 600_000 }, async () => {
+	const t = newTest();
+	const owner = await signIn(t, "owner@co.com");
+	const workspaceId = await workspaceOf(owner);
+	const chatId = (await owner.query(api.chats.list))!.channels[0]!._id;
+	const message = { chatId, workspaceId, authorUserId: owner.userId, text: "hi", parts: [], mentions: { userIds: [], agentIds: [] }, status: "done" as const };
+	for (let start = 0; start < 17_000; start += 2_000) {
+		await t.run(async (ctx) => {
+			for (let i = start; i < start + 2_000; i++) await ctx.db.insert("chatMessages", message);
+		});
+	}
+	await t.run(async (ctx) => {
+		for (let i = 0; i < 4_100; i++) await ctx.db.insert("members", { workspaceId, userId: await ctx.db.insert("users", { email: `p${i}@co.com` }), role: "member" });
+	});
+	await owner.mutation(api.workspace.resetWorkspace, { name: "My company" });
+	await settle(t);
+	expect(await owner.query(api.workspace.me)).toMatchObject({ workspaceId, role: "owner" });
+	const general = (await owner.query(api.chats.list))!.channels[0]!._id;
+	expect(await t.run(async (ctx) => (await ctx.db.query("chatMembers").withIndex("by_chat", (q) => q.eq("chatId", general)).collect()).length)).toBe(4_102);
+	expect(await t.run(async (ctx) => (await ctx.db.query("chatMessages").collect()).length)).toBe(1);
+	expect(await t.run((ctx) => ctx.db.query("cascades").first())).toBeNull();
+});
+
 // Removing someone takes one small transaction however much was theirs alone: the rest is the cascade's.
 it("removes a member at once when their just-me automation has 16,000 subscribers and grants, then deletes them in batches", { timeout: 600_000 }, async () => {
 	const t = newTest();

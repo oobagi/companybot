@@ -82,6 +82,7 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"workspace.declineInvite": { humanOnly: "Direct signed-in person decides their account invitations." },
 	"workspace.leave": { humanOnly: "Direct person revokes their own access and personal workspace data." },
 	"workspace.deleteWorkspace": { humanOnly: "Irreversible workspace erasure requires direct owner confirmation." },
+	"workspace.resetWorkspace": { humanOnly: "Irreversible workspace reset requires direct owner confirmation." },
 	"workspace.eraseAccount": { humanOnly: "Irreversible account-wide erasure requires the account holder directly." },
 	"workspace.invite": { agent: ["members.invite:invite"], humanOnly: "Inviting an owner grants administrative authority; only a direct owner can do it." },
 	"workspace.resendInvite": { agent: ["members.invite:resend"] },

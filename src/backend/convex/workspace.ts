@@ -9,12 +9,12 @@ import { seedAgents } from "./agents";
 import { fieldsOf, typesOf } from "./recordOps";
 import { addToChat, ensureGeneral, latestMentionSince } from "./chatOps";
 import { sendInviteEmail } from "./invites";
-import { type Member, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, liveWorkspace, memberOf, nameOf, normalizeEmail, personOf, preferencesOf, requireMember, requirePermission, requireUserId, timeZoneOf } from "./lib";
+import { type Member, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, keptWorkspace, liveWorkspace, memberOf, nameOf, normalizeEmail, personOf, preferencesOf, requireMember, requirePermission, requireUserId, timeZoneOf } from "./lib";
 import { cascading, startCascade } from "./cascade";
 import { imageUrl } from "./images";
 import { catalogImageModels, catalogModels, findImageModel, workspaceImageModel } from "./modelCatalog";
 import { imageSpent } from "./usage";
-import { removeWorkspace } from "./lifecycle";
+import { removeWorkspace, startReset } from "./lifecycle";
 import { updatePreferences } from "./preferences";
 import { completeSteps, freshTutorial, welcome } from "./onboarding";
 import { role } from "./schema";
@@ -53,7 +53,7 @@ export const ensure = mutation({
 		if (!userId) throw new ConvexError("This account was erased.");
 		let joined = false;
 		for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId)))
-			if (await liveWorkspace(ctx, row.workspaceId)) joined = true;
+			if (await keptWorkspace(ctx, row.workspaceId)) joined = true;
 		if (joined) return;
 		for (const invite of await invitesFor(ctx, userId)) await join(ctx, invite, userId);
 	},
@@ -97,7 +97,7 @@ async function startOwned(ctx: MutationCtx, userId: Id<"users">, name: string, c
 	if (!name.trim()) throw new ConvexError("Name can't be empty.");
 	let owned = 0;
 	for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId)))
-		if (row.role === "owner" && (await liveWorkspace(ctx, row.workspaceId))) owned++;
+		if (row.role === "owner" && (await keptWorkspace(ctx, row.workspaceId))) owned++;
 	if (owned >= MAX_OWNED_WORKSPACES) throw new ConvexError(`You can own up to ${MAX_OWNED_WORKSPACES} workspaces. Delete or leave one first.`);
 	return startWorkspace(ctx, userId, name.trim(), currency);
 }
@@ -130,15 +130,30 @@ export const activity = query({
 	},
 });
 
-/** A new workspace with `userId` as its owner: the default agents, #general, and a welcome there. */
+/** A new workspace with `userId` as its owner, started as `startAgain` says. */
 async function startWorkspace(ctx: MutationCtx, userId: Id<"users">, name: string, currency?: string) {
 	const workspaceId = await ctx.db.insert("workspaces", { name, version: 1, ...(currency && { currency }) });
-	await ctx.db.insert("members", { workspaceId, userId, role: "owner", email: normalizeEmail((await ctx.db.get(userId))?.email ?? ""), tutorial: freshTutorial() });
+	await ctx.db.insert("members", { workspaceId, userId, role: "owner", email: normalizeEmail((await ctx.db.get(userId))?.email ?? "") });
+	await startAgain(ctx, workspaceId, userId);
+	return workspaceId;
+}
+
+/**
+ * What a workspace starts with: the default agents, #general with everyone in it and a fresh
+ * tutorial each, and the main agent's welcome there, from `userId` (who made it, or reset it).
+ * A reset cascade ends with this too (cascade.ts), and opens the workspace again. Two writes a
+ * member and no per-member reads, so it fits one transaction up to ~7,000 members.
+ */
+export async function startAgain(ctx: MutationCtx, workspaceId: Id<"workspaces">, userId: Id<"users">) {
 	await seedAgents(ctx, workspaceId, userId);
 	const general = await ensureGeneral(ctx, workspaceId, userId);
-	await addToChat(ctx, general, { userId });
+	for await (const row of ctx.db.query("members").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))) {
+		await ctx.db.patch(row._id, { tutorial: freshTutorial() });
+		// #general is new, so nobody's in it yet (addToChat would look, a read per member).
+		await ctx.db.insert("chatMembers", { chatId: general._id, workspaceId, userId: row.userId, lastReadAt: Date.now() });
+	}
 	await welcome(ctx, general, userId, "new_workspace");
-	return workspaceId;
+	await ctx.db.patch(workspaceId, { resetting: undefined });
 }
 
 /**
@@ -193,8 +208,10 @@ export const mine = query({
 			.collect();
 		const workspaces = [];
 		for (const row of rows) {
-			const workspace = await liveWorkspace(ctx, row.workspaceId);
-			if (workspace) workspaces.push({ id: workspace._id, name: workspace.name, role: row.role, image: await imageUrl(ctx, workspace.image) });
+			const workspace = await keptWorkspace(ctx, row.workspaceId);
+			// One being reset stays listed, so apps that have it open wait (resetting) instead of switching away.
+			if (workspace)
+				workspaces.push({ id: workspace._id, name: workspace.name, role: row.role, image: await imageUrl(ctx, workspace.image), resetting: !!workspace.resetting });
 		}
 		const invitations = [];
 		for (const invite of await invitesFor(ctx, userId)) {
@@ -393,6 +410,21 @@ export const deleteWorkspace = mutation({
 });
 
 /**
+ * Resets the open workspace (owners): `name` must match, as for deleting. Everything in it goes,
+ * as when deleting it (lifecycle.ts, scope "reset"), except its members, invites, settings and
+ * bill; then it starts again like new (startAgain). Closed meanwhile for everyone (memberOf
+ * refuses it), so nothing new lands in a half-reset workspace. Who reset it, and when, stays on it.
+ */
+export const resetWorkspace = mutation({
+	args: { name: v.string() },
+	handler: async (ctx, { name }) => {
+		const { workspaceId, userId } = await requirePermission(ctx, "workspace.reset");
+		if ((await ctx.db.get(workspaceId))!.name !== name.trim()) throw new ConvexError("Type the workspace's name to reset it.");
+		await startReset(ctx, workspaceId, userId);
+	},
+});
+
+/**
  * Erases your account. You leave every workspace (one you're alone in is deleted), and your
  * sign-in, preferences, connected accounts, private agent results and everything personal go
  * (lifecycle.ts, scope "user"). The `users` row stays as `{ erasedAt }`, since ~20 tables point
@@ -406,7 +438,7 @@ export const eraseAccount = mutation({
 		// A few indexed reads per workspace however big it is. Leaving them is the cascade's (memberOf refuses an erased account until then).
 		for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId))) {
 			// One being deleted is going anyway, however many memberships its cascade has left to delete.
-			if (row.role !== "owner" || !(await liveWorkspace(ctx, row.workspaceId)) || (await hasLiveOwner(ctx, row.workspaceId, userId))) continue;
+			if (row.role !== "owner" || !(await keptWorkspace(ctx, row.workspaceId)) || (await hasLiveOwner(ctx, row.workspaceId, userId))) continue;
 			const others = await ctx.db
 				.query("members")
 				.withIndex("by_workspace", (q) => q.eq("workspaceId", row.workspaceId))
@@ -520,6 +552,8 @@ export const settings = query({
 		routerModels: await routerModels(ctx),
 			/** Hours a thread stays under its channel in the sidebar after its last reply. */
 			threadHours: workspace.threadHours ?? THREAD_HOURS_DEFAULT,
+			/** Who last reset it, and when, or null. */
+			lastReset: workspace.lastReset ? { by: await nameOf(ctx, workspace.lastReset.by), at: workspace.lastReset.at } : null,
 			version: workspace.version ?? 0,
 		};
 	},
