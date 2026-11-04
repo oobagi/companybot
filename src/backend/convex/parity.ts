@@ -1,6 +1,8 @@
 // Public mutations must name their agent path or explain why only a person can call them.
 // Mixed entries name the covered subset and the authority decision that stays human-only.
 export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = {
+	"arrangements.set": { humanOnly: "People arrange their navigation and database display directly in the app." },
+	"arrangements.migrate": { humanOnly: "Imports this computer's navigation once, without replacing saved arrangements." },
 	"agents.create": { agent: ["agents.manage:create"], humanOnly: "Default tool grants require direct owner review; agents create without tools." },
 	"agents.update": { agent: ["agents.manage:update"], humanOnly: "Direct owner reviews tool grants and the acting agent's own instructions/model; metadata and other agents' config are covered." },
 	"agents.rename": { agent: ["agents.manage:update"] },

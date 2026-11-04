@@ -4,7 +4,7 @@ import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery, useWorkspace } from "../../convex";
 import { ArchiveIcon, ArrowRightIcon, ArrowUpIcon, PageIcon, PlusIcon } from "../../icons";
 import { navigate } from "../../router";
-import { type DragProps, useSortable } from "../../sortable";
+import { type DragProps, useSortable, useStoredIds } from "../../sortable";
 import { LoadMore, Notice, inputClass, useDebounced, useRun } from "../../ui";
 import { AddButton, Group, Item, type SectionProps, trailingAction } from "../chat/Sidebar";
 import { MenuItem, Modal, archiveQuestion, useConfirm } from "../chat/common";
@@ -18,13 +18,11 @@ export function PagesNav({ openId, canEdit, section }: { openId: string | undefi
 	return <PageNavTree key={workspace?.id} openId={openId} canEdit={canEdit} section={section} workspaceId={workspace?.id ?? ""} />;
 }
 function PageNavTree({ openId, canEdit, section, workspaceId }: { openId?: string; canEdit: boolean; section?: SectionProps; workspaceId: string }) {
-	const storageKey = `pages-expanded:${workspaceId}`;
-	const [expanded, setExpanded] = useState<Set<string>>(() => {
-		try { const saved = JSON.parse(localStorage.getItem(storageKey) ?? "[]"); return new Set(Array.isArray(saved) ? saved.filter((id): id is string => typeof id === "string") : []); } catch { return new Set(); }
-	});
-	useEffect(() => {
-		try { localStorage.setItem(storageKey, JSON.stringify([...expanded])); } catch { /* Storage may be unavailable. */ }
-	}, [expanded, storageKey]);
+	const [expandedIds, saveExpanded] = useStoredIds(`pages-expanded:${workspaceId}`);
+	const expanded = useMemo(() => new Set(expandedIds), [expandedIds]);
+	const setExpanded = useCallback((change: (before: Set<string>) => Set<string>) => {
+		saveExpanded((before) => [...change(new Set(before))]);
+	}, [saveExpanded]);
 	const batches = useMemo(() => {
 		const ids = [...expanded];
 		return Array.from({ length: Math.ceil(ids.length / 100) }, (_, i) => ids.slice(i * 100, (i + 1) * 100));
@@ -36,7 +34,7 @@ function PageNavTree({ openId, canEdit, section, workspaceId }: { openId?: strin
 			for (const id of ids) next.delete(id);
 			return next.size === before.size ? before : next;
 		});
-	}, []);
+	}, [setExpanded]);
 	const [moving, setMoving] = useState<Row>();
 	const create = useMutation(api.pages.create);
 	const remove = useMutation(api.trash.move);
@@ -92,7 +90,7 @@ function PruneExpanded({ ids, onPrune }: { ids: string[]; onPrune: (ids: string[
 	return null;
 }
 
-/** One level of the tree. With `sortKey`, drag rows to reorder them within the level; the order is yours, kept on this computer (`useSortable`). */
+/** One level of the tree. With `sortKey`, drag rows to reorder them within the level; the sibling order is shared with the workspace. */
 export function PageLevel({ parentId, sortKey = "", render, empty }: { parentId?: PageId; sortKey?: string; render: (row: Row, drag: DragProps | undefined, last: boolean) => React.ReactNode; empty?: React.ReactNode }) {
 	const { results, status, loadMore } = usePaginatedQuery(api.pages.children, { parentId }, { initialNumItems: 30 });
 	const { sorted, drag } = useSortable(sortKey, results, rowId);

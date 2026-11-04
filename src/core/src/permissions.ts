@@ -13,6 +13,7 @@ export const permissions = {
 	"workspace.manage": { roles: ["owner"], label: "change workspace settings" },
 	/** Delete the workspace and everything in it. */
 	"workspace.delete": { roles: ["owner"], label: "delete the workspace" },
+	"sidebar.arrange": { roles: ["owner", "member"], label: "arrange the sidebar" },
 	"members.manage": { roles: ["owner"], label: "manage members" },
 	"agents.manage": { roles: ["owner"], label: "change agents" },
 	"connectors.manage": { roles: ["owner"], label: "manage connectors" },

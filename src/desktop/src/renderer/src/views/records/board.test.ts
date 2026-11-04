@@ -1,3 +1,4 @@
+import { getFunctionName } from "convex/server";
 import { act, createElement } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -5,6 +6,7 @@ import type { RecordType, Row } from "./data";
 import { RecordList } from "./RecordList";
 
 const state = vi.hoisted(() => ({
+	layout: "board",
 	rows: [] as Row[],
 	overview: { results: [{ refs: {}, unresolved: [] }] as unknown as Row[], status: "Exhausted", loadMore: vi.fn() },
 	status: "CanLoadMore",
@@ -13,7 +15,7 @@ const state = vi.hoisted(() => ({
 	lists: [] as { filters: unknown[]; group?: unknown }[],
 }));
 vi.mock("../../convex", () => ({
-	useQuery: () => undefined,
+	useQuery: (fn: Parameters<typeof getFunctionName>[0], args: { key?: string }) => getFunctionName(fn) === "arrangements:get" ? { ids: args.key?.startsWith("records.layout.") ? [state.layout, "status"] : [], writable: true } : undefined,
 	useMutation: () => state.update,
 	usePaginatedQuery: (_fn: unknown, args: { filters: unknown[]; group?: { option: string | null } }) => !args.group ? state.overview : (state.lists.push(args), args.group?.option === "old")
 		? { results: state.rows, status: state.status, loadMore: state.loadMore }
@@ -31,6 +33,7 @@ let root: ReactTestRenderer;
 let intersect: IntersectionObserverCallback;
 beforeEach(() => {
 	vi.clearAllMocks();
+	state.layout = "board";
 	state.rows = [];
 	state.overview = { results: [{ refs: {}, unresolved: [] }] as unknown as Row[], status: "Exhausted", loadMore: vi.fn() };
 	state.status = "CanLoadMore";
@@ -59,6 +62,7 @@ it("continues an empty first page before deciding a retired column has no cards"
 	state.status = "Exhausted";
 	await act(async () => root.update(tree()));
 	expect(JSON.stringify(root.toJSON())).toContain("Still here");
+	state.layout = "board";
 	state.rows = [];
 	await act(async () => root.update(tree()));
 	expect(root.root.findAllByType("section")).toHaveLength(2);
@@ -91,7 +95,7 @@ it("ignores drops within the same column, into removed options, or from a differ
 });
 
 it.each(["table", "board"])("shows the whole-screen empty state only after %s pagination ends", async (layout) => {
-	vi.stubGlobal("localStorage", { getItem: (key: string) => key.startsWith("records.layout.") ? JSON.stringify({ layout }) : null });
+	state.layout = layout;
 	state.overview.results = [];
 	state.overview.status = "CanLoadMore";
 	await act(async () => { root = create(tree(), { createNodeMock: () => ({}) }); });

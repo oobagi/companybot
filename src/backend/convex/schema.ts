@@ -320,7 +320,16 @@ export default defineSchema({
 		savedAt: v.number(),
 	}).index("by_memory", ["memoryId", "version"]),
 
-	// Personal preferences: only the person sees them; they follow them across devices.
+	// Navigation lists: absent user = shared; absent workspace = account-wide workspace order.
+	arrangements: defineTable({
+		workspaceId: v.optional(v.id("workspaces")),
+		userId: v.optional(v.id("users")),
+		key: v.string(),
+		ids: v.array(v.string()),
+	}).index("by_key", ["workspaceId", "userId", "key"])
+		.index("by_user", ["userId", "workspaceId"]),
+
+	// Personal preferences follow the person across devices.
 	preferences: defineTable({
 		userId: v.id("users"),
 		/** What agents and teammates call you. */

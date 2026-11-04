@@ -30,7 +30,7 @@ const typing = (target: EventTarget | null) =>
  * Press G then the tab's letter to open it. `workspace` (the workspace switcher, named
  * `workspaceName`) sits at the top and `youMenu` (your avatar and its menu, named `you`) at the
  * bottom. `below` (pins and recents) goes under the tabs, with the rail's tips. Drag a tab to
- * reorder them; the order stays on this computer. In Settings no tab is lit.
+ * reorder them; the order syncs with your account in this workspace. In Settings no tab is lit.
  */
 export function AppRail({
 	tab,

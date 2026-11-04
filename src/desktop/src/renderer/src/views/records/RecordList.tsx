@@ -5,7 +5,7 @@ import { api } from "../../api";
 import { Checkbox, Segmented, Select } from "../../controls";
 import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { useSortable } from "../../sortable";
+import { useSortable, useStoredIds } from "../../sortable";
 import { ArrowDownIcon, ArrowUpIcon, CloseIcon, DatabaseIcon, EditIcon, FilterIcon, PlusIcon, PropertiesIcon, TrashIcon } from "../../icons";
 import { ConflictNotice, EmptyState, ErrorBoundary, Field, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Tabs, barButton, compactButton, compactControlClass, inputClass, primaryButton, timeAgo, toolbarClass, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
 import { MenuItem, Modal, Popover, useConfirm } from "../chat/common";
@@ -39,18 +39,12 @@ type Layout = "table" | "board";
 /** Filters carry an id while in the bar, so each row keeps its own state as others come and go. */
 type Settings = { filters: (Filter & { id: string })[]; sort?: Sort; columns: string[]; layout: Layout; groupBy?: string };
 
-/** A value this computer keeps in localStorage: read once, written through. */
-function useStored<T>(key: string) {
-	const [value, setValue] = useState<T | undefined>(() => JSON.parse(localStorage.getItem(key) ?? "null") ?? undefined);
-	return [value, (next: T) => (localStorage.setItem(key, JSON.stringify(next)), setValue(next))] as const;
-}
-
 const noViews: never[] = [];
 const viewKey = (v: { _id: string }) => v._id;
 
 export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 	const views = useQuery(api.databaseViews.list, { typeId: type._id });
-	// Saved views are shared; their order is yours (drag a tab). "All" stays first.
+	// View tabs follow the workspace order. "All" stays first.
 	const tabs = useSortable(`views.order:${type._id}`, views ?? noViews, viewKey, "x");
 	const saveView = useMutation(api.databaseViews.save);
 	const removeView = useMutation(api.databaseViews.remove);
@@ -58,9 +52,10 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 	const selected = views?.find((v) => v._id === viewId);
 	const fields = type.fields.filter((f) => !f.archived) as TypeField[];
 	const live = (key: string) => ["createdAt", "updatedAt", ...fields.map((f) => f.key)].includes(key);
-	// "All" keeps the columns and layout people picked on this computer; a view's settings skip fields archived since.
-	const [storedColumns, storeColumns] = useStored<string[]>(`records.columns.${type.key}`);
-	const [storedLayout, storeLayout] = useStored<{ layout: Layout; groupBy?: string }>(`records.layout.${type.key}`);
+	// "All" follows the workspace display; saved views keep their own settings.
+	const [storedColumns, storeColumns] = useStoredIds(`records.columns.${type.key}`);
+	const [storedLayout, storeLayout] = useStoredIds(`records.layout.${type.key}`);
+	const canArrange = can(role, "sidebar.arrange");
 	const saved: Settings | undefined = selected && {
 		filters: fromConditions(selected.filters.filter((c) => live(c.field)), fields).map((f, i) => ({ ...f, id: String(i) })),
 		sort: selected.sort && live(selected.sort.field) ? selected.sort : undefined,
@@ -69,19 +64,20 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 		groupBy: selected.groupBy,
 	};
 	const draft = useDraft<Settings>(
-		saved ?? { filters: [], columns: storedColumns ?? defaultColumns(type.fields), layout: "table", ...storedLayout },
+		saved ?? { filters: [], columns: storedColumns.length ? storedColumns : defaultColumns(type.fields), layout: storedLayout[0] === "board" ? "board" : "table", groupBy: storedLayout[1] },
 		selected?.version ?? 0,
 	);
-	const { filters, sort, layout } = draft.value;
-	const columns = draft.value.columns.filter(live);
+	const { filters, sort } = draft.value;
+	const layout = selected ? draft.value.layout : storedLayout[0] === "board" ? "board" : "table";
+	const columns = (selected ? draft.value.columns : storedColumns.length ? storedColumns : defaultColumns(type.fields)).filter(live);
 	// Like Notion, a board without a saved grouping uses the first field it can group by.
 	const groupFields = fields.filter(groupable);
-	const group = groupFields.find((f) => f.key === draft.value.groupBy) ?? groupFields[0];
+	const group = groupFields.find((f) => f.key === (selected ? draft.value.groupBy : storedLayout[1])) ?? groupFields[0];
 	const change = (next: Partial<Settings>) => {
-		const value = { ...draft.value, ...next };
+		const value = { ...draft.value, columns, layout, groupBy: selected ? draft.value.groupBy : storedLayout[1], ...next };
 		draft.set(value);
-		if (!selected && next.columns) storeColumns(next.columns);
-		if (!selected && (next.layout || next.groupBy)) storeLayout({ layout: value.layout, groupBy: value.groupBy });
+		if (!selected && canArrange && next.columns) storeColumns(next.columns);
+		if (!selected && canArrange && (next.layout || next.groupBy)) storeLayout([value.layout, ...(value.groupBy ? [value.groupBy] : [])]);
 	};
 	const setFilters = (filters: Settings["filters"]) => change({ filters });
 	const setSort = (sort: Sort | undefined) => change({ sort });
@@ -188,20 +184,20 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 				<button type="button" onClick={() => setFilters([...filters, { id: crypto.randomUUID(), field: fields[0]!.key, op: opsFor(fields[0]!)[0]!, value: "" }])} className={compactButton}>
 					<FilterIcon className="text-neutral-400" /> Filter
 				</button>
-				<ColumnsPicker
+				{(selected || canArrange) && <ColumnsPicker
 					label={layout === "board" ? "Properties" : "Columns"}
 					fields={fields}
 					columns={columns}
 					onChange={setColumns}
 					onNewField={can(role, "fields.create") ? () => setAddingField("text") : undefined}
-				/>
-				{layout === "board" && group && (
+				/>}
+				{(selected || canArrange) && layout === "board" && group && (
 					<label className="flex items-center gap-2 text-neutral-600">
 						Group by
 						<Select value={group.key} options={groupFields.map((f) => ({ value: f.key, label: f.label }))} onChange={(groupBy) => change({ groupBy })} />
 					</label>
 				)}
-				<span className="ml-auto">
+				{(selected || canArrange) && <span className="ml-auto">
 					<Segmented
 						label="Layout"
 						value={layout}
@@ -211,7 +207,7 @@ export function RecordList({ type, role }: { type: RecordType; role: Role }) {
 						]}
 						onChange={(l) => change({ layout: l })}
 					/>
-				</span>
+				</span>}
 			</div>
 			{filters.length > 0 && (
 				<div className="-mt-2 flex flex-col gap-2">

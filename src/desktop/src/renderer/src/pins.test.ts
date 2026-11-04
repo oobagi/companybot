@@ -4,7 +4,27 @@ import { create } from "react-test-renderer";
 import { beforeEach, expect, it, vi } from "vitest";
 import { pathOf, pinOf, usePins } from "./pins";
 
-vi.mock("./convex", () => ({ useWorkspace: () => ({ id: "w1" }) }));
+// A live query cache: usePins exercises the real arrangement hook and optimistic update.
+vi.mock("./convex", async () => {
+	const { useCallback, useSyncExternalStore } = await import("react");
+	const values = new Map<string, { ids: string[] | null; writable: boolean }>();
+	const listeners = new Set<() => void>();
+	const read = (key: string) => {
+		if (!values.has(key)) values.set(key, { ids: null, writable: true });
+		return values.get(key)!;
+	};
+	return {
+		useWorkspace: () => ({ id: "w1" }),
+		useQuery: (_fn: unknown, { key }: { key: string }) => useSyncExternalStore((l) => (listeners.add(l), () => { listeners.delete(l); }), () => read(key)),
+		useMutation: (_fn: unknown, optimistic: (cache: unknown, args: unknown) => void) => useCallback(async (args: { key: string; ids: string[] }) => {
+			optimistic({
+				getAllQueries: () => [...values].map(([key, value]) => ({ args: { key, workspaceId: "w1" }, value })),
+				setQuery: (_fn: unknown, { key }: { key: string }, value: { ids: string[]; writable: boolean }) => { values.set(key, value); },
+			}, { ...args, workspaceId: "w1" });
+			for (const listener of listeners) listener();
+		}, [optimistic]),
+	};
+});
 
 const store = new Map<string, string>();
 beforeEach(() => {
@@ -35,7 +55,7 @@ it("shares pins and recents between readers, and keeps recents newest first with
 
 	act(() => a.toggle("page:p1"));
 	expect(b.pins).toEqual(["page:p1"]);
-	expect(JSON.parse(store.get("rail.pins:w1")!)).toEqual(["page:p1"]);
+	expect(store.has("rail.pins:w1")).toBe(false);
 	act(() => b.toggle("page:p1"));
 	expect(a.pins).toEqual([]);
 

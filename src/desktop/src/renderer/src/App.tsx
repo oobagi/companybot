@@ -3,7 +3,8 @@ import { type Role, can } from "@companybot/core/permissions";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvexAuth } from "convex/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api } from "./api";
+import { api, errorMessage } from "./api";
+import { useArrangementMigration } from "./arrangements";
 import { WorkspaceContext, useMutation, useQuery, useWorkspace } from "./convex";
 import { desktop, useUpdates } from "./desktop";
 import { useAlerts } from "./notifications";
@@ -113,7 +114,9 @@ function Workspace() {
 
 function Opened() {
 	const me = useQuery(api.workspace.me);
-	if (!me?.role) return null;
+	const migration = useArrangementMigration(me?.userId);
+	if (migration.error) return <Notice>{errorMessage(migration.error)}</Notice>;
+	if (!me?.role || !migration.done) return null;
 	return <Shell email={me.email} role={me.role} workspace={me.workspace ?? ""} />;
 }
 
@@ -170,14 +173,14 @@ function Shell({ email, role, workspace }: { email: string; role: Role; workspac
 	useAlerts();
 	// What's on screen, as a pin: lit in the rail, and added to its recents.
 	const here: PinKey | undefined = view === "chat" ? (openId ? `chat:${openId}` : undefined) : pinOf(route);
-	const { visit } = usePins();
+	const { visit, ready } = usePins();
 	useEffect(() => {
-		if (here) visit(here);
-	}, [here, visit]);
+		if (here && ready) visit(here);
+	}, [here, visit, ready]);
 	// What's waiting in Chat: chats with an unread @mention or DM, else any unread one.
 	const waiting = chats ? [...chats.channels, ...chats.dms, ...chats.agents] : [];
 	const badges: Partial<Record<AppTab, TabBadge>> = { chat: { mentions: waiting.filter((c) => c.mentioned).length, unread: waiting.some((c) => c.unread) } };
-	// The sidebar's sections: drag a title to move one, click it to fold it. Both stay on this computer.
+	// The sidebar's sections: drag a title to move one, click it to fold it. Both sync with your account in this workspace.
 	const sections = useSortable("sidebar.sections", sectionIds, sectionKey);
 	const [folded, setFolded] = useStoredIds("sidebar.folded");
 	const fold = (id: string) => setFolded(folded.includes(id) ? folded.filter((f) => f !== id) : [...folded, id]);

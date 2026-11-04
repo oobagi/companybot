@@ -45,7 +45,7 @@ Notion saves a version every 10 minutes while you edit, and another 2 minutes af
 Research: [Notion sub-pages](https://www.notion.com/help/create-a-subpage), [Notion deletion](https://www.notion.com/help/duplicate-delete-and-restore-content), [BlockNote custom blocks](https://www.blocknotejs.org/docs/features/custom-schemas/custom-blocks) (checked October 27, 2026).
 - Like Notion: sidebar toggles and hover +, slash-created children, ancestor breadcrumbs, and restoring subtrees.
 - Like Notion, removing a child page block archives the child; Companybot asks first and keeps archived content indefinitely. References to pages owned elsewhere can be removed without archiving the target.
-- Drag reorders pages within a level; like sections, channels and DMs, the order is yours and stays on this computer (see Architecture). Nesting is only through Move to… (dragging into another page would hide where it went). Nesting/deeper-move bounds above are product limits for bounded server work. Record bodies are excluded from hierarchy in this release.
+- Drag reorders pages within a level; the sibling order is shared with the workspace and requires `sidebar.arrange` (see Architecture). Expanded pages sync per person and workspace. Nesting is only through Move to… (dragging into another page would hide where it went). Nesting/deeper-move bounds above are product limits for bounded server work. Record bodies are excluded from hierarchy in this release.
 - Page blocks show live titles everywhere. Legacy link marks still parse, export, and follow the existing rename behavior until promoted. Historical snapshots keep their original schema content and render with the shared extended schema.
 
 ## Not built yet
