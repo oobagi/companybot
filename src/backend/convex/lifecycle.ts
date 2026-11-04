@@ -262,6 +262,12 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		role: roleAccess<"chats">(),
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 	},
+	// Goes with its chat wherever a chat row is deleted (a workspace's), and in a channel's own cascade, whose
+	// last step deletes the chat itself without its children. Archive and restore leave it, like the chat.
+	chatActivity: {
+		childOf: { table: "chats", index: "by_chat", field: "chatId" },
+		channel: { index: "by_chat", eq: ["chatId"] },
+	},
 	chatMembers: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		channel: { index: "by_chat", eq: ["chatId"] },
@@ -270,7 +276,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	},
 	chatMessages: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
-		channel: { index: "by_chat_thread", eq: ["chatId"] },
+		channel: { index: "by_chat_thread_quiet", eq: ["chatId"] },
 		// Deleting a message clears it but keeps the row (messages.remove), and deletes its files. What agents
 		// already saw of a deleted or edited message stays in their sessions: a product decision is pending.
 		keep: "Team history: what someone said stays when they leave; once their account is erased it shows as a former member's.",

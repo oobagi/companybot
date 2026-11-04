@@ -84,7 +84,13 @@ export async function ownerAndMember() {
 }
 
 export type As = ReturnType<typeof person>;
+/** A chat's or a thread's messages as the app first shows them: its newest page, in the order shown. */
+export const messagesIn = async (as: Pick<As, "query">, args: Omit<FunctionArgs<typeof api.messages.page>, "paginationOpts">) =>
+	(await as.query(api.messages.page, { ...args, paginationOpts: { numItems: 200, cursor: null } })).page;
 export const noMentions = { userIds: [], agentIds: [] };
+/** A chat's activity row: its last message time and running cost (chatOps `activityOf`). */
+export const chatActivityOf = (t: ReturnType<typeof newTest>, chatId: Id<"chats">) =>
+	t.run(async (ctx) => (await ctx.db.query("chatActivity").withIndex("by_chat", (q) => q.eq("chatId", chatId)).unique())!);
 /** Read times are in ms; let the clock move so "after" means after. */
 export const tick = () => new Promise((r) => setTimeout(r, 3));
 /** #general with its members (chats.get: the list leaves channel members out). */

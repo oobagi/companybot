@@ -1,12 +1,12 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { api } from "../../api";
-import { useMutation, useQuery, useWorkspace } from "../../convex";
+import { useMutation, useWorkspace } from "../../convex";
 import { Loading, Notice, ResizeHandle, useRun, useStoredWidth } from "../../ui";
 import { CloseIcon } from "../../icons";
 import { FileDrop, useAttachments } from "./Attachments";
 import { IconButton } from "./common";
 import { Composer, type SendWith } from "./Composer";
-import { type ChatDetails, type TokenNames, chatTitle, showSending } from "./data";
+import { type ChatDetails, type TokenNames, chatTitle, showSending, useMessages } from "./data";
 import { draftKey } from "./drafts";
 import type { Sources } from "./editor";
 import { MessageList } from "./MessageList";
@@ -28,7 +28,7 @@ export function ThreadPanel({
 	onClose: () => void;
 }) {
 	const size = useStoredWidth("thread.width", 416, 280, 800);
-	const messages = useQuery(api.messages.list, { chatId: chat._id, threadId });
+	const { messages, more } = useMessages(chat._id, threadId);
 	const send = useMutation(api.messages.send, showSending);
 	const typing = useTypingPing(chat._id, threadId);
 	const workspace = useWorkspace();
@@ -94,6 +94,7 @@ export function ThreadPanel({
 					chatId={chat._id}
 					threadId={threadId}
 					messages={messages}
+					onLoadMore={more}
 					tokens={tokens}
 					summaryLabel="Agents"
 					readOnly={!!ask || !chat.canPost}

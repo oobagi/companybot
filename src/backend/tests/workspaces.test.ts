@@ -1,5 +1,5 @@
 import { seedLegacyRecords } from "./legacyFixtures";
-import { addMember, newTest, identityOf } from "./helpers";
+import { addMember, newTest, identityOf, messagesIn } from "./helpers";
 import { connectorCatalog, defineConnector } from "@companybot/core";
 import { describe, expect, it } from "vitest";
 import { api } from "../convex/_generated/api";
@@ -146,7 +146,7 @@ describe("requests naming a workspace", () => {
 		expect(after.members.map((m) => m.id)).toContain(deputy.id);
 		// Reads show nothing.
 		expect(await B.query(api.chats.get, { chatId: general })).toBeNull();
-		expect(await B.query(api.messages.list, { chatId: general })).toEqual([]);
+		expect(await messagesIn(B, { chatId: general })).toEqual([]);
 		expect(await B.query(api.records.get, { recordId })).toBeNull();
 		await expect(B.query(api.agents.history, { agentId })).rejects.toThrow("Agent not found");
 		// And nothing in A changed.
@@ -179,7 +179,7 @@ describe("unread mentions", () => {
 		await A.mutation(api.chats.leave, { chatId });
 		expect(await A.query(api.chats.alerts)).toEqual([]);
 		expect(await A.query(api.chats.get, { chatId })).toBeNull();
-		expect(await A.query(api.messages.list, { chatId })).toEqual([]);
+		expect(await messagesIn(A, { chatId })).toEqual([]);
 		await A.mutation(api.workspace.leave);
 		expect(await A.query(api.chats.alerts)).toBeNull();
 		expect(await B.query(api.chats.alerts)).toEqual([]);
@@ -215,7 +215,7 @@ it("refuses ids from the other workspace in reads, restores and nested ids", asy
 	await expect(B.mutation(api.chats.openDm, { userIds: [], agentIds: [agent._id] })).rejects.toThrow(/available/);
 
 	const bChat = await B.mutation(api.chats.createChannel, { name: "b-chat", private: false });
-	expect(await B.query(api.messages.list, { chatId: bChat, threadId: message })).toEqual([]);
+	expect(await messagesIn(B, { chatId: bChat, threadId: message })).toEqual([]);
 	expect(await B.query(api.chats.place, { chatId: bChat, threadId: message })).toBeNull();
 	await expect(
 		B.mutation(api.messages.send, { chatId: bChat, threadId: message, text: "x", mentions: { userIds: [], agentIds: [] } }),

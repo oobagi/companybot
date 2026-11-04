@@ -7,7 +7,7 @@ import { type MutationCtx, type QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { seedAgents } from "./agents";
 import { fieldsOf, typesOf } from "./recordOps";
-import { addToChat, canSee, ensureGeneral, latestMentionSince } from "./chatOps";
+import { activityOf, addToChat, canSee, ensureGeneral, latestMentionSince } from "./chatOps";
 import { sendInviteEmail } from "./invites";
 import { type Member, accessOf, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, keptWorkspace, liveWorkspace, FORMER_MEMBER, memberOf, memberProfile, nameOf, normalizeEmail, profileOf, requireMember, requirePermission, requireUserId, rolesOf } from "./lib";
 import { cascading, startCascade } from "./cascade";
@@ -132,7 +132,7 @@ export const activity = query({
 			const since = seat.lastReadAt ?? 0;
 			const chat = await ctx.db.get(seat.chatId);
 			const entry = chat && byWorkspace.get(chat.workspaceId);
-			if (!chat || !entry || chat.archived || chat.lastMessageAt <= since || !(await canSee(ctx, chat, members.get(chat.workspaceId)!))) continue;
+			if (!chat || !entry || chat.archived || (await activityOf(ctx, chat)).lastMessageAt <= since || !(await canSee(ctx, chat, members.get(chat.workspaceId)!))) continue;
 			entry.unread = true;
 			if (chat.kind === "dm" || (await latestMentionSince(ctx, chat._id, userId, since))) entry.mentions++;
 		}

@@ -5,7 +5,7 @@ import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { wake } from "../convex/wakeups";
 import { savePreferences } from "../convex/preferences";
-import { type As, addMember, agentTurn, agentsOf, finishTurn, generalOf, ownerAndMember } from "./helpers";
+import { type As, addMember, agentTurn, agentsOf, finishTurn, generalOf, ownerAndMember, messagesIn } from "./helpers";
 
 // Wakeups (wakeups.ts): follow-ups an agent sets, and the one path from a wakeup to a turn.
 // See wiki/architecture.md (Automations).
@@ -39,7 +39,7 @@ async function fire(t: T, id: string) {
 	const row = (await rowOf(t, id))!;
 	await t.mutation(internal.wakeups.fire, { id: row._id, at: row.at! });
 }
-const shown = async (as: As, chatId: Id<"chats">) => (await as.query(api.messages.list, { chatId })).map((m) => [m.author.type, m.text]);
+const shown = async (as: As, chatId: Id<"chats">) => (await messagesIn(as, { chatId })).map((m) => [m.author.type, m.text]);
 
 it.each([{ms: 7 * 86_400_000, repeat: {days: 7}}, {ms: 6 * 3_600_000, repeat: {hours: 6}}])("migrates numeric intervals once: $ms", async ({ms, repeat}) => {
 	const {t, turnId} = await setup();

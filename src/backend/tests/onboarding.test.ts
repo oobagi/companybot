@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
-import { agentsOf, generalOf, identityOf, newTest, noMentions, ownerAndMember, signIn, turnsOf } from "./helpers";
+import { agentsOf, generalOf, identityOf, newTest, noMentions, ownerAndMember, signIn, turnsOf, messagesIn } from "./helpers";
 import { person } from "./person";
 
 afterEach(() => void vi.useRealTimers());
@@ -17,7 +17,7 @@ describe("onboarding", () => {
 		expect(general.members.some((m) => m.id === companybot._id)).toBe(true);
 		expect(await turnsOf(t)).toEqual([]);
 
-		const [hello, ...rest] = await owner.query(api.messages.list, { chatId: general._id });
+		const [hello, ...rest] = await messagesIn(owner, { chatId: general._id });
 		expect(rest).toEqual([]);
 		expect(hello).toMatchObject({ author: { type: "agent", id: companybot._id }, status: "done", stats: null });
 		expect(hello!.text).toContain("I'm Companybot");
@@ -48,7 +48,7 @@ describe("onboarding", () => {
 		// Inviting counts as the tutorial's invite step, and the welcome knows their name.
 		expect((await inAcme.query(api.onboarding.tutorial))!.find((s) => s.id === "invite")).toMatchObject({ done: true });
 		const general = await generalOf(inAcme);
-		const [hello] = await inAcme.query(api.messages.list, { chatId: general._id });
+		const [hello] = await messagesIn(inAcme, { chatId: general._id });
 		expect(hello!.text).toMatch(/^Hi Ada, I'm Companybot\./);
 		expect(await turnsOf(t)).toEqual([]);
 	});
@@ -64,7 +64,7 @@ describe("onboarding", () => {
 		const joiner = person(identityOf(t, userId), await t.run(async (ctx) => (await ctx.db.query("members").collect()).find((m) => m.userId === userId)!.workspaceId));
 		const dm = (await joiner.query(api.chats.list))!.agents.find((a) => a._id === companybot._id)!.dmId;
 		expect(dm).not.toBeNull();
-		const [hello] = await joiner.query(api.messages.list, { chatId: dm! });
+		const [hello] = await messagesIn(joiner, { chatId: dm! });
 		expect(hello!.text).toMatch(/^Welcome, Ada! I'm Companybot\./);
 		expect(hello!.text).toContain("I'll remember it");
 		expect(await turnsOf(t)).toEqual([]);
