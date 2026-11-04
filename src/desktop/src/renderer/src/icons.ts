@@ -30,6 +30,7 @@ export {
 	FunnelSimpleIcon as FilterIcon,
 	GearIcon as SettingsIcon,
 	HashIcon as ChannelIcon,
+	IdentificationCardIcon as RecordIcon,
 	LightningIcon as AutomationIcon,
 	LockSimpleIcon as PrivateIcon,
 	PaperclipIcon as AttachIcon,

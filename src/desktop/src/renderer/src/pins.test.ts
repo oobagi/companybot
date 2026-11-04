@@ -16,12 +16,14 @@ beforeEach(() => {
 it("knows which screens are pinnable and where each pin opens", () => {
 	expect(pinOf(["chat", "c1"])).toBe("chat:c1");
 	expect(pinOf(["pages", "p1"])).toBe("page:p1");
-	expect(pinOf(["records", "client", "r1"])).toBe("db:client");
+	expect(pinOf(["records", "client", "r1"])).toBe("rec:r1");
+	expect(pinOf(["records", "client"])).toBe("db:client");
 	expect(pinOf(["chat"])).toBeUndefined();
 	expect(pinOf(["settings", "agents"])).toBeUndefined();
 	expect(pathOf("chat:c1")).toEqual(["chat", "c1"]);
 	expect(pathOf("page:p1")).toEqual(["pages", "p1"]);
 	expect(pathOf("db:client")).toEqual(["records", "client"]);
+	expect(pathOf("rec:r1", "client")).toEqual(["records", "client", "r1"]);
 });
 
 it("shares pins and recents between readers, and keeps recents newest first without repeats", () => {

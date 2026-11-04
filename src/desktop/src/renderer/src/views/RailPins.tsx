@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { api } from "../api";
 import { useQuery, useWorkspace } from "../convex";
-import { ChannelIcon, ChatIcon, DatabaseIcon, PageIcon, PinIcon, PrivateIcon, UnpinIcon } from "../icons";
+import { ChannelIcon, ChatIcon, DatabaseIcon, PageIcon, PinIcon, PrivateIcon, RecordIcon, UnpinIcon } from "../icons";
 import { type PinKey, RECENT_SHOWN, pathOf, splitPin, usePins } from "../pins";
 import { navigate } from "../router";
 import { type DragProps, useSortable } from "../sortable";
@@ -12,18 +12,24 @@ import { useTypes } from "./records/data";
 type TipFor = ReturnType<typeof useTip>["tipFor"];
 
 /** A pin or recent, as the rail shows it. Gone ones (left, archived, deleted) aren't shown. */
-type Entry = { key: PinKey; label: string; icon: React.ReactNode; unread: boolean; mentioned: boolean };
+type Entry = { key: PinKey; label: string; icon: React.ReactNode; path: string[]; unread: boolean; mentioned: boolean };
 
 const entryKey = (e: Entry) => e.key;
 
 /** Turns pins into what they are now, so renames show and deleted things drop out. */
-function useEntries() {
+function useEntries(keys: PinKey[]) {
 	const chats = useQuery(api.chats.list);
 	const pages = useQuery(api.pages.list);
 	const types = useTypes();
+	const recordIds = keys.flatMap((k) => (k.startsWith("rec:") ? [splitPin(k)[1]] : []));
+	const records = useQuery(api.records.titles, recordIds.length ? { recordIds } : "skip");
 	return (key: PinKey): Entry | undefined => {
 		const [kind, id] = splitPin(key);
-		const plain = { key, unread: false, mentioned: false };
+		const plain = { key, path: pathOf(key), unread: false, mentioned: false };
+		if (kind === "rec") {
+			const record = records?.find((r) => r._id === id);
+			return record && { ...plain, path: pathOf(key, record.typeKey), label: record.title || "Untitled", icon: <RecordIcon size={20} /> };
+		}
 		if (kind === "page") {
 			const page = pages?.find((p) => p._id === id);
 			return page && { ...plain, label: page.title || "Untitled", icon: <PageIcon size={20} /> };
@@ -34,28 +40,28 @@ function useEntries() {
 		}
 		if (!chats) return undefined;
 		const channel = chats.channels.find((c) => c._id === id);
-		if (channel) return { key, label: `#${channel.name}`, icon: channel.private ? <PrivateIcon size={20} /> : <ChannelIcon size={20} />, unread: channel.unread, mentioned: channel.mentioned };
+		if (channel) return { ...plain, label: `#${channel.name}`, icon: channel.private ? <PrivateIcon size={20} /> : <ChannelIcon size={20} />, unread: channel.unread, mentioned: channel.mentioned };
 		const agent = chats.agents.find((a) => a.dmId === id);
-		if (agent) return { key, label: agent.name, icon: <Avatar name={agent.name} image={agent.image} agent size="sm" />, unread: agent.unread, mentioned: agent.mentioned };
+		if (agent) return { ...plain, label: agent.name, icon: <Avatar name={agent.name} image={agent.image} agent size="sm" />, unread: agent.unread, mentioned: agent.mentioned };
 		const dm = chats.dms.find((d) => d._id === id);
 		if (!dm) return undefined;
 		const state = { unread: dm.unread, mentioned: dm.mentioned };
 		// A side chat with an agent, under its DM.
-		if (dm.parentId) return { key, ...state, label: dm.label ?? "New chat", icon: <ChatIcon size={20} /> };
+		if (dm.parentId) return { ...plain, ...state, label: dm.label ?? "New chat", icon: <ChatIcon size={20} /> };
 		const others = dm.members.filter((m) => m.id !== chats.me);
-		return { key, ...state, label: dm.title, icon: <Avatar name={dm.title} image={others.length === 1 ? others[0]!.image : undefined} size="sm" /> };
+		return { ...plain, ...state, label: dm.title, icon: <Avatar name={dm.title} image={others.length === 1 ? others[0]!.image : undefined} size="sm" /> };
 	};
 }
 
 /**
- * Under the rail's tabs: your pins (any chat, DM, page or database; drag to reorder), then what
+ * Under the rail's tabs: your pins (any chat, DM, page, database or record; drag to reorder), then what
  * you opened lately that isn't pinned. Pin from a sidebar row's menu, or right-click one here.
  * `open` is what's on screen, lit like a tab.
  */
 export function RailPins({ open, tipFor, hideTip }: { open: PinKey | undefined; tipFor: TipFor; hideTip: () => void }) {
 	const workspace = useWorkspace();
 	const { pins, recent, toggle } = usePins();
-	const resolve = useEntries();
+	const resolve = useEntries([...pins, ...recent]);
 	const pinned = pins.map(resolve).filter((e): e is Entry => !!e);
 	const { sorted, drag } = useSortable(`rail.pins.order:${workspace?.id}`, pinned, entryKey);
 	const lately = recent
@@ -108,7 +114,7 @@ function RailItem({
 					type="button"
 					aria-label={entry.mentioned ? `${entry.label}, unread mention` : entry.label}
 					aria-current={active ? "page" : undefined}
-					onClick={() => (hideTip(), navigate(...pathOf(entry.key)))}
+					onClick={() => (hideTip(), navigate(...entry.path))}
 					className={`no-drag flex size-9 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`}
 				>
 					{entry.icon}

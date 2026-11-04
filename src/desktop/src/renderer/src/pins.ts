@@ -2,11 +2,11 @@ import { useCallback, useSyncExternalStore } from "react";
 import { useWorkspace } from "./convex";
 
 // Pins and recents: what you keep at hand in the rail, under its tabs. Each is a key, "kind:id":
-// a chat (channel, DM, agent DM or side chat), a page, or a database. Per workspace, on this
+// a chat (channel, DM, agent DM or side chat), a page, a database, or one record. Per workspace, on this
 // computer (localStorage), like the sidebar's order. Every component reading a list sees a change
 // at once: one store, shared.
 
-export type PinKind = "chat" | "page" | "db";
+export type PinKind = "chat" | "page" | "db" | "rec";
 export type PinKey = `${PinKind}:${string}`;
 
 /** Recents kept, so a few can be pinned or deleted and some still show. The rail shows `RECENT_SHOWN`. */
@@ -16,7 +16,7 @@ export const RECENT_SHOWN = 5;
 const lists = new Map<string, PinKey[]>();
 const listeners = new Set<() => void>();
 
-const isKey = (k: unknown): k is PinKey => typeof k === "string" && /^(chat|page|db):./.test(k);
+const isKey = (k: unknown): k is PinKey => typeof k === "string" && /^(chat|page|db|rec):./.test(k);
 
 function read(storeKey: string): PinKey[] {
 	let list = lists.get(storeKey);
@@ -68,13 +68,13 @@ export function usePins() {
 	return { pins, recent, toggle, visit };
 }
 
-/** What a screen's path shows, if it's something you can pin. A record opens inside its database. */
+/** What a screen's path shows, if it's something you can pin: a record's page is the record. */
 export function pinOf(route: string[]): PinKey | undefined {
-	const [view, id] = route;
+	const [view, id, recordId] = route;
 	if (!id) return undefined;
 	if (view === "chat") return `chat:${id}`;
 	if (view === "pages") return `page:${id}`;
-	if (view === "records") return `db:${id}`;
+	if (view === "records") return recordId ? `rec:${recordId}` : `db:${id}`;
 	return undefined;
 }
 
@@ -84,8 +84,11 @@ export function splitPin(key: PinKey): [PinKind, string] {
 	return [key.slice(0, at) as PinKind, key.slice(at + 1)];
 }
 
-/** Where a pin opens. */
-export function pathOf(key: PinKey): string[] {
+/** Where a pin opens. A record's path needs its database, which `typeKey` gives. */
+export function pathOf(key: PinKey, typeKey?: string): string[] {
 	const [kind, id] = splitPin(key);
-	return kind === "chat" ? ["chat", id] : kind === "page" ? ["pages", id] : ["records", id];
+	if (kind === "chat") return ["chat", id];
+	if (kind === "page") return ["pages", id];
+	if (kind === "rec") return ["records", typeKey ?? "", id];
+	return ["records", id];
 }
