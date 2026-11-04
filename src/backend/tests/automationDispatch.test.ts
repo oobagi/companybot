@@ -50,3 +50,25 @@ it.each([false, true])("skips a deleted triggering message (subscriber fan-out: 
 	await automationJobs(t);
 	expect((await t.run(ctx => ctx.db.query("chatMessages").collect())).filter(m => m.automation)).toHaveLength(0);
 });
+
+it("retains private-channel provenance when an any-channel watcher posts in another channel", async () => {
+	vi.useFakeTimers();
+	const t = newTest();
+	const owner = await signIn(t, "any-source@co.com");
+	const chatId = (await generalOf(owner))._id;
+	const privateChat = await owner.mutation(api.chats.createChannel, { name: "private", private: true });
+	const agentId = (await owner.query(api.agents.list))[0]!._id;
+	await owner.mutation(api.automations.create, { config: { name: "Any", prompt: "Read", trigger: { type: "event", event: "message.posted", channelId: chatId } }, agentId, audience: "channel", channelId: chatId, timeZone: "UTC" });
+	await t.run(async ctx => {
+		const install = (await ctx.db.query("automationInstalls").first())!;
+		const definition = (await definitionOf(ctx, install, null))!;
+		definition.trigger = { type: "event", event: "message.posted", label: "Any message" };
+		const updated = { ...install, custom: undefined, definition };
+		await ctx.db.patch(install._id, { custom: undefined, definition, ...triggerIndexes(updated, Date.now()) });
+	});
+	await owner.mutation(api.messages.send, { chatId: privateChat, text: "Private event", mentions: noMentions });
+	await automationJobs(t);
+	const posted = (await t.run(ctx => ctx.db.query("chatMessages").collect())).find(m => m.automation)!;
+	expect(posted.chatId).toBe(chatId);
+	expect(posted.usedPlaces).toContain(privateChat);
+});

@@ -205,7 +205,10 @@ async function runFor(
 	target: { person?: Id<"users">; visibleIn?: Id<"chats">; thread?: { chatId: Id<"chats">; messageId: Id<"chatMessages"> } },
 ): Promise<Run> {
 	const audience = install.audience;
-	if (audience === "channel") return runInChannel(ctx, install, automation, prompt, target.thread);
+	if (audience === "channel") {
+		const sourceChat = target.visibleIn && await ctx.db.get(target.visibleIn);
+		return runInChannel(ctx, install, automation, prompt, target.thread, sourceChat ? chatSources(sourceChat) : []);
+	}
 
 	if (audience === "subscribers" && !target.person) {
 		const sourceChat = target.visibleIn && await ctx.db.get(target.visibleIn);
@@ -348,6 +351,7 @@ async function runInChannel(
 	automation: Automation,
 	prompt: string,
 	thread?: { chatId: Id<"chats">; messageId: Id<"chatMessages"> },
+	sources: UsedPlace[] = [],
 ): Promise<Run> {
 	const agent = await activeAgent(ctx, install);
 	if (!agent) return { ran: false, outcome: await finish(ctx, install, noAgent) };
@@ -371,7 +375,7 @@ async function runInChannel(
 	for (const userId of [preferred, ...owners.map((m) => m.userId)]) {
 		const member = await memberOf(ctx, userId, install.workspaceId);
 		// It posts there as them, so they need Post in it, not just View.
-		if (member && await canReadSources(ctx, member, install.usedPlaces) && (await canSee(ctx, chat, member)) && canPost(member, chat)) {
+		if (member && await canReadSources(ctx, member, [...(install.usedPlaces ?? []), ...sources]) && (await canSee(ctx, chat, member)) && canPost(member, chat)) {
 			actorId = userId;
 			break;
 		}
@@ -384,7 +388,7 @@ async function runInChannel(
 	await addToChat(ctx, chat, { agentId: agent._id });
 	const triggerId = await insertMessage(ctx, chat, {
 		threadId,
-		usedPlaces: artifactSources(install, privateTo(install)),
+		usedPlaces: [...new Set([...artifactSources(install, privateTo(install)), ...sources])],
 		authorUserId: actorId,
 		text: prompt,
 		parts: [{ type: "text", text: prompt }],
