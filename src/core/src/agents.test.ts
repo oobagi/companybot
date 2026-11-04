@@ -25,7 +25,6 @@ describe("tool visibility", () => {
 			"widgets.table",
 			"widgets.stats",
 			"widgets.card",
-			"chat.react",
 			"chat.read",
 			"chat.search",
 			"chat.read_file",
@@ -77,7 +76,6 @@ describe("tool visibility", () => {
 			"widgets.table",
 			"widgets.stats",
 			"widgets.card",
-			"chat.react",
 			"chat.read",
 		]);
 	});
@@ -97,7 +95,6 @@ describe("tool visibility", () => {
 			"widgets_table",
 			"widgets_stats",
 			"widgets_card",
-			"chat_react",
 			"chat_read",
 			"chat_search",
 			"chat_read_file",

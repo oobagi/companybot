@@ -20,20 +20,40 @@ type Options = {
 	stopWhen: ((o: { steps: unknown[] }) => boolean | PromiseLike<boolean>)[];
 	prepareStep: (o: { stepNumber: number; messages: ModelMessage[] }) => Promise<{ messages?: ModelMessage[] }>;
 };
-/** Scripts one run: `script` yields stream parts; the stub ends the stream on abort, like the SDK. `output`: a quiet reply's decision. */
+/**
+ * Scripts one run: `script` yields stream parts; the stub ends the stream on abort, like the SDK. Its
+ * `output` (the decision) is the last step's text as JSON, as the SDK parses it, unless given.
+ */
 function scripted(script: (o: Options) => AsyncGenerator<object>, output?: object) {
-	streamText.mockImplementationOnce((o: Options) => ({
-		...(output && { output: Promise.resolve(output) }),
-		stream: (async function* (): AsyncGenerator<object> {
-			for await (const part of script(o)) {
-				if (o.abortSignal.aborted) {
-					yield { type: "abort" };
-					return;
+	streamText.mockImplementationOnce((o: Options) => {
+		let stepText = "";
+		return {
+			get output() {
+				return output ? Promise.resolve(output) : Promise.resolve().then(() => JSON.parse(stepText));
+			},
+			stream: (async function* (): AsyncGenerator<object> {
+				for await (const part of script(o)) {
+					if (o.abortSignal.aborted) {
+						yield { type: "abort" };
+						return;
+					}
+					const p = part as { type: string; text?: string };
+					if (p.type === "start-step") stepText = "";
+					if (p.type === "text-delta") stepText += p.text;
+					yield part;
 				}
-				yield part;
-			}
-		})(),
-	}));
+			})(),
+		};
+	});
+}
+/** An asked reply's decision as the model streams it: its JSON, the message in pieces (`words`) between. */
+const opens = { type: "text-delta", text: '{"new_point":"An answer","respond":"post","emoji":null,"to":"Ada","message":"' };
+const words = (text: string) => ({ type: "text-delta", text: JSON.stringify(text).slice(1, -1) });
+const closes = { type: "text-delta", text: '"}' };
+function* answer(message: string) {
+	yield opens;
+	yield words(message);
+	yield closes;
 }
 /** The boundary after a step that called tools: the stop conditions, then the next step's prepareStep. */
 async function nextStep(o: Options, step: number, messages: ModelMessage[]) {
@@ -97,7 +117,7 @@ describe("steering a running turn", () => {
 			yield finishStep;
 			steered = await nextStep(o, 1, o.messages);
 			yield { type: "start-step" };
-			yield { type: "text-delta", text: "Switching to Y. Done." };
+			yield* answer("Switching to Y. Done.");
 			yield finishStep;
 		});
 		await t.action(internal.agent.respond, { turnId });
@@ -133,7 +153,7 @@ describe("steering a running turn", () => {
 			yield { type: "start-step" };
 			// The model reads it and decides: no more tools, a short acknowledgement.
 			if (lastContent(messages!).text.includes("stop, never mind")) {
-				yield { type: "text-delta", text: "Okay, stopped." };
+				yield* answer("Okay, stopped.");
 				yield finishStep;
 				return;
 			}
@@ -157,11 +177,13 @@ describe("steering a running turn", () => {
 		let cutOff = true;
 		scripted(async function* () {
 			yield { type: "start-step" };
-			yield { type: "text-delta", text: "Roses are" };
+			yield opens;
+			yield words("Roses are");
 			sent = await say(owner, chatId, "make it about cats");
 			await later();
-			yield { type: "text-delta", text: " red" };
-			yield { type: "text-delta", text: ", violets are blue" };
+			yield words(" red");
+			yield words(", violets are blue");
+			yield closes;
 			yield finishStep;
 			cutOff = false;
 		});
@@ -169,7 +191,7 @@ describe("steering a running turn", () => {
 		scripted(async function* (o) {
 			restarted = o.messages;
 			yield { type: "start-step" };
-			yield { type: "text-delta", text: "Switching to cats: cats are soft." };
+			yield* answer("Switching to cats: cats are soft.");
 			yield finishStep;
 		});
 		await t.action(internal.agent.respond, { turnId });
@@ -196,11 +218,12 @@ describe("steering a running turn", () => {
 		let rest: Promise<void> = Promise.resolve();
 		scripted(async function* (o) {
 			yield { type: "start-step" };
-			yield { type: "text-delta", text: "Sure" };
+			yield opens;
+			yield words("Sure");
 			sent.push(await say(owner, chatId, "with something?"));
 			// The next part flushes (every 200ms) and hears it.
 			await pause(250);
-			yield { type: "text-delta", text: ", what" };
+			yield words(", what");
 			cutOff = o.abortSignal.aborted;
 			// The rest of the burst lands while it waits.
 			rest = (async () => {
@@ -209,14 +232,15 @@ describe("steering a running turn", () => {
 				await pause(300);
 				sent.push(await say(owner, chatId, ":)"));
 			})();
-			yield { type: "text-delta", text: " do you need?" };
+			yield words(" do you need?");
+			yield closes;
 			yield finishStep;
 		});
 		let restarted: ModelMessage[] = [];
 		scripted(async function* (o) {
 			restarted = o.messages;
 			yield { type: "start-step" };
-			yield { type: "text-delta", text: "Sure, what do you need help with?" };
+			yield* answer("Sure, what do you need help with?");
 			yield finishStep;
 		});
 		await t.action(internal.agent.respond, { turnId });
@@ -243,12 +267,13 @@ describe("steering a running turn", () => {
 		let stopping: Promise<unknown> = Promise.resolve();
 		scripted(async function* () {
 			yield { type: "start-step" };
-			yield { type: "text-delta", text: "Sure" };
+			yield opens;
+			yield words("Sure");
 			sent = await say(owner, chatId, "with something?");
 			await pause(250);
-			yield { type: "text-delta", text: ", what" };
+			yield words(", what");
 			stopping = pause(300).then(() => owner.mutation(api.turns.stop, { turnId }));
-			yield { type: "text-delta", text: " do you need?" };
+			yield words(" do you need?");
 		});
 		await t.action(internal.agent.respond, { turnId });
 		await stopping;
@@ -270,11 +295,13 @@ describe("steering a running turn", () => {
 		for (let run = 0; run <= restarts; run++) {
 			scripted(async function* () {
 				yield { type: "start-step" };
-				yield { type: "text-delta", text: `Answer ${run}` };
+				yield opens;
+				yield words(`Answer ${run}`);
 				if (run === restarts) vi.setSystemTime(Date.now() + STEER_WINDOW_MS);
 				sent.push(await say(owner, chatId, `more ${run}`));
 				await later();
-				yield { type: "text-delta", text: "." };
+				yield words(".");
+				yield closes;
 				yield finishStep;
 			});
 		}
@@ -308,7 +335,7 @@ describe("steering a running turn", () => {
 			yield finishStep;
 			next = await nextStep(o, 1, o.messages);
 			yield { type: "start-step" };
-			yield { type: "text-delta", text: "Here's X." };
+			yield* answer("Here's X.");
 			yield finishStep;
 		});
 		await t.action(internal.agent.respond, { turnId });
@@ -324,7 +351,7 @@ describe("steering a running turn", () => {
 
 // A channel set to "When relevant": the dispatcher's pick is a quiet reply, ending with a decision.
 describe("steering a dispatcher's pick in a channel", () => {
-	const quietly = { new_point: "", post: false, to: "room", message: "" };
+	const quietly = { new_point: "", respond: "nothing", emoji: null, to: "room", message: "" };
 	/** Lets an un-awaited check (turnStop's, on a stream part) land before the script goes on. */
 	const settled = async (o: Options) => {
 		for (let i = 0; i < 500 && !o.abortSignal.aborted; i++) await Promise.resolve();
@@ -338,7 +365,7 @@ describe("steering a dispatcher's pick in a channel", () => {
 		const chatId = await owner.mutation(api.chats.createChannel, { name: "ops", private: false });
 		await owner.mutation(api.chats.addMembers, { chatId, userIds: [member.userId], agentIds: [companybot._id, scribe._id] });
 		const asked = await say(owner, chatId, "Can you do this problem for me: 5 / 10");
-		await t.mutation(internal.router.apply, { messageId: asked, decisions: [{ agentId: companybot._id, action: "reply", probability: 0.4 }], model: "jev", costUsd: 0.0002 });
+		await t.mutation(internal.router.apply, { messageId: asked, replies: [{ agentId: companybot._id, probability: 0.4 }], model: "jev", costUsd: 0.0002 });
 		const turn = await turnFor(t, asked);
 		expect(turn).toMatchObject({ status: "running", routed: true, dispatch: { band: "might" } });
 		expect((await replyOf(t, turn._id))!.quiet).toBe(true);
@@ -373,11 +400,8 @@ describe("steering a dispatcher's pick in a channel", () => {
 		expect((await turnsOf(t)).filter((x) => x.status === "queued" || x.status === "running")).toHaveLength(0);
 		// The router still weighs "nvm" for the others, but doesn't pick Companybot for it again.
 		expect(await routerRuns(t)).toContainEqual({ messageId: nvm });
-		await t.mutation(internal.router.apply, { messageId: nvm, decisions: [{ agentId: companybot._id, action: "reply", probability: 0.4 }], model: "jev", costUsd: 0.0002 });
+		await t.mutation(internal.router.apply, { messageId: nvm, replies: [{ agentId: companybot._id, probability: 0.4 }], model: "jev", costUsd: 0.0002 });
 		expect((await turnsOf(t)).filter((x) => x.triggerId === nvm)).toHaveLength(1);
-		// Nor reacts to it for Companybot: its reply already took it in.
-		await t.mutation(internal.router.apply, { messageId: nvm, decisions: [{ agentId: companybot._id, action: "react", emoji: "👍" }], model: "jev", costUsd: 0.0002 });
-		expect(await t.run((ctx) => ctx.db.query("reactions").collect())).toHaveLength(0);
 	});
 
 	it("while it writes its decision: starts over with your message, and still ends with a decision", async () => {
@@ -390,12 +414,12 @@ describe("steering a dispatcher's pick in a channel", () => {
 			nvm = await say(owner, chatId, "nvm");
 			await later();
 			// The next part's check hears it and cuts the step off.
-			yield { type: "text-delta", text: ',"post":true' };
+			yield { type: "text-delta", text: ',"respond":"post","emoji":null' };
 			await settled(o);
 			yield { type: "text-delta", text: ',"to":"room","message":"5 ÷ 10 = 0.5"}' };
 			yield finishStep;
 			cutOff = false;
-		}, { new_point: "5 ÷ 10 = 0.5", post: true, to: "room", message: "5 ÷ 10 = 0.5" });
+		}, { new_point: "5 ÷ 10 = 0.5", respond: "post", emoji: null, to: "room", message: "5 ÷ 10 = 0.5" });
 		let restarted: ModelMessage[] = [];
 		scripted(async function* (o) {
 			restarted = o.messages;
@@ -440,7 +464,7 @@ describe("steering a dispatcher's pick in a channel", () => {
 
 	it("a reply it posts shows below the messages it took in", async () => {
 		const { t, owner, chatId, turnId } = await picked();
-		const posts = { new_point: "offer help", post: true, to: "room", message: "Sure, what do you need help with?" };
+		const posts = { new_point: "offer help", respond: "post", emoji: null, to: "room", message: "Sure, what do you need help with?" };
 		scripted(async function* (o) {
 			yield { type: "start-step" };
 			yield toolCall("c1");
@@ -471,7 +495,7 @@ describe("steering a dispatcher's pick in a channel", () => {
 
 		// Again, but they also @mention it meanwhile: asked directly, it answers (not quiet).
 		const again = await say(owner, chatId, "and 6 / 3?");
-		await t.mutation(internal.router.apply, { messageId: again, decisions: [{ agentId: companybot._id, action: "reply", probability: 0.9 }], model: "jev", costUsd: 0.0002 });
+		await t.mutation(internal.router.apply, { messageId: again, replies: [{ agentId: companybot._id, probability: 0.9 }], model: "jev", costUsd: 0.0002 });
 		const pick = await turnFor(t, again);
 		const quiet = await say(owner, chatId, "hm");
 		const direct = await say(owner, chatId, "@Companybot answer it", [companybot._id]);

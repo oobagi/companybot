@@ -23,6 +23,12 @@ export interface Participant {
 	name: string;
 }
 
+/** One emoji on a message and who added it, in the order they did: chat tools and turn prompts both show these. */
+export interface ReactionGroup {
+	emoji: string;
+	by: string[];
+}
+
 /** A message as chat tools return it. */
 export interface ChatLine {
 	id: string;
@@ -36,8 +42,7 @@ export interface ChatLine {
 	text: string;
 	/** Thread parents only. */
 	replies?: number;
-	/** Emoji and who added each. */
-	reactions?: { emoji: string; by: string[] }[];
+	reactions?: ReactionGroup[];
 	/** Attached files. `id` is what chat.read_file takes. */
 	files?: { id: string; name: string; type: string; size: number }[];
 }
@@ -60,8 +65,6 @@ export type FileResult = { name: string; type: string; page: number; pages: numb
  * visibility on every call (re-reading membership); tools rely on that.
  */
 export interface ChatStore {
-	/** Toggles a reaction on the message this turn answers. */
-	react(emoji: string): Promise<{ reacted: boolean } | { error: string }>;
 	read(input: ChatReadInput): Promise<ChatResult>;
 	search(input: { query: string; chat?: string }): Promise<ChatResult>;
 	/** A file attached to a message in a chat they can see. */
@@ -75,16 +78,23 @@ export type AskResult = { asked: string; thread: { chatId: string; messageId: st
 /** Longest question one ask carries. */
 export const ASK_TEXT_MAX = 4000;
 
+/**
+ * Exactly one emoji, any of them, checked by its structure (Unicode's emoji sequences: one emoji with
+ * an optional variation selector or skin tone, joined into a ZWJ sequence or ending in a subdivision
+ * flag's tags; a two-letter flag; a keycap), never against a list or as text. The one rule for an
+ * agent's reaction (its decision's `emoji`) and for a person's.
+ */
+const EMOJI_PART = String.raw`(?!\p{Regional_Indicator})(?:\p{Extended_Pictographic}|\p{Emoji_Presentation})(?:\uFE0F|\p{Emoji_Modifier})?`;
+const ONE_EMOJI = new RegExp(String.raw`^(?:\p{Regional_Indicator}{2}|[#*0-9]\uFE0F?\u20E3|${EMOJI_PART}(?:\u200D${EMOJI_PART})*[\u{E0020}-\u{E007E}]*\u{E007F}?)$`, "u");
+export const isEmoji = (s: unknown): s is string => typeof s === "string" && ONE_EMOJI.test(s);
+/**
+ * The one emoji in `s`, fully qualified (Unicode's form, and the picker's), or null: "❤" and "❤️" are the
+ * same reaction, stored once. Each part shown as text by default gets U+FE0F, and no other part keeps one.
+ */
+export const emojiOf = (s: unknown) =>
+	isEmoji(s) ? s.replace(/\uFE0F/g, "").replace(/[#*0-9](?=\u20E3)|(?=\p{Extended_Pictographic})(?!\p{Emoji_Presentation})\p{Emoji}(?!\p{Emoji_Modifier})/gu, "$&\uFE0F") : null;
+
 export const chatTools: ToolDef[] = [
-	defineTool({
-		id: "chat.react",
-		title: "React",
-		description: "React with one emoji to the message you're answering. The same emoji again removes it.",
-		input: z.object({ emoji: z.string().min(1).max(16) }),
-		// Only on the message it answers, as the agent: nothing to ask about.
-		risk: "none",
-		execute: ({ emoji }, { chat }) => chat.react(emoji),
-	}),
 	defineTool({
 		id: "chat.read",
 		title: "Read the chat",

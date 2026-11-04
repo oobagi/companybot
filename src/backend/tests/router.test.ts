@@ -3,22 +3,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { STALE_TURN_MS } from "../convex/turns";
-import { agentsOf, finishQuiet, noMentions, ownerAndMember, turnsOf, workspaceOf } from "./helpers";
+import { agentsOf, finishQuiet, generalOf, noMentions, ownerAndMember, turnsOf, workspaceOf } from "./helpers";
 
-// No network: the AI SDK's decide (Jev) is stubbed, so nothing is billed. Fake timers hold the
-// scheduled decision (and any reply it queues) back; tests run `router.decide` themselves.
+// No network: the AI SDK's decide (Jev) and the agents' calls are stubbed, so nothing is billed. Fake timers
+// hold the scheduled decision (and any reply it queues) back; tests run `router.decide` themselves.
 const decideWith = vi.hoisted(() => vi.fn());
 const generateText = vi.hoisted(() => vi.fn());
-vi.mock("ai", async (original) => ({ ...(await original<typeof import("ai")>()), experimental_decide: decideWith, generateText }));
+const streamText = vi.hoisted(() => vi.fn());
+vi.mock("ai", async (original) => ({ ...(await original<typeof import("ai")>()), experimental_decide: decideWith, generateText, streamText }));
 
-/** Jev's answer: per agent its action, and for a reaction which one, by choice name. */
-type Decision = { agent: string; action: "reply" | "react" | "quiet"; emoji: string | null };
-const EMOJI_NAMES: Record<string, string> = { "👍": "thumbs_up", "❤️": "heart", "🎉": "party", "😂": "laugh", "👀": "eyes", "🙏": "pray", "✅": "check", "🔥": "fire" };
+/** Jev's answer: per agent its action. */
+type Decision = { agent: string; action: "reply" | "quiet" };
 const answer = (...decisions: Decision[]) =>
 	decideWith.mockResolvedValue({
-		answers: Object.fromEntries(
-			decisions.flatMap((d) => [[d.agent, { type: "choice", choice: d.action }], ...(d.emoji ? [[`${d.agent}_emoji`, { type: "choice", choice: EMOJI_NAMES[d.emoji] ?? d.emoji }]] : [])]),
-		),
+		answers: Object.fromEntries(decisions.map((d) => [d.agent, { type: "choice", choice: d.action }])),
 		providerMetadata: { gateway: { cost: "0.0002" } },
 	});
 
@@ -26,6 +24,7 @@ beforeEach(() => {
 	vi.useFakeTimers();
 	decideWith.mockReset();
 	generateText.mockReset();
+	streamText.mockReset();
 	answer();
 });
 afterEach(() => void vi.useRealTimers());
@@ -69,7 +68,7 @@ describe("reply router", () => {
 		const { t, member, companybot, chatId, send, decide, scheduled } = await setUp();
 		const messageId = await send(member, "What's on the calendar for Friday?");
 		expect((await scheduled()).map((f) => f.args[0])).toEqual([{ messageId }]);
-		answer({ agent: "a1", action: "reply", emoji: null }, { agent: "a2", action: "quiet", emoji: null });
+		answer({ agent: "a1", action: "reply" }, { agent: "a2", action: "quiet" });
 		await decide(messageId);
 
 		const call = decideWith.mock.calls[0]![0];
@@ -89,15 +88,26 @@ describe("reply router", () => {
 		expect(context.routed).toEqual({ band: "probably" });
 	});
 
-	it("reacts for the agent it picks, and a second decision doesn't take the reaction back", async () => {
-		const { t, member, scribe, send, decide } = await setUp();
+	it("wakes the agent a thanks is for, and its decision reacts on the message: no message, no separate call", async () => {
+		const { t, member, scribe, chatId, send, decide } = await setUp();
 		const messageId = await send(member, "thanks Scribe!");
-		answer({ agent: "a2", action: "react", emoji: "🙏" });
+		answer({ agent: "a2", action: "reply" });
 		await decide(messageId);
-		await decide(messageId);
-		const reactions = await t.run((ctx) => ctx.db.query("reactions").collect());
-		expect(reactions).toEqual([expect.objectContaining({ messageId, emoji: "🙏", agentId: scribe._id })]);
+		const [turn] = await turnsOf(t);
+		expect(turn).toMatchObject({ agentId: scribe._id, routed: true, status: "running" });
+		expect(generateText).not.toHaveBeenCalled();
+		await t.mutation(internal.turns.finishReply, { turnId: turn!._id, decision: { new_point: "", respond: "react", emoji: "🙏", to: "room", message: "" } });
+		expect(await t.run((ctx) => ctx.db.query("reactions").collect())).toEqual([expect.objectContaining({ messageId, emoji: "🙏", agentId: scribe._id })]);
+		expect((await member.query(api.messages.list, { chatId })).filter((m) => m.author.type === "agent")).toEqual([]);
+	});
+
+	it("only wakes or leaves quiet: an answer of react from the model wakes nobody and reacts nothing", async () => {
+		const { t, member, send, decide } = await setUp();
+		decideWith.mockResolvedValue({ answers: { a1: { type: "choice", choice: "react" }, a2: { type: "choice", choice: "quiet" } }, providerMetadata: {} });
+		await decide(await send(member, "thanks!"));
 		expect(await turnsOf(t)).toEqual([]);
+		expect(await t.run((ctx) => ctx.db.query("reactions").collect())).toEqual([]);
+		expect(generateText).not.toHaveBeenCalled();
 	});
 
 	it("does nothing when it picks quiet for everyone, but still records the call", async () => {
@@ -158,7 +168,7 @@ describe("reply router", () => {
 		const { t, owner, member, companybot, send, decide } = await setUp();
 		const parent = await send(owner, "Q3 plan draft is up");
 		const reply = await send(member, "can you list the open tasks for it?", parent);
-		answer({ agent: "a1", action: "reply", emoji: null });
+		answer({ agent: "a1", action: "reply" });
 		await decide(reply);
 		expect(decideWith.mock.calls[0]![0].state).toMatch(/In a thread under this message:\n\[[^\]]+\] "Q3 plan draft is up"/);
 		expect(await turnsOf(t)).toEqual([expect.objectContaining({ agentId: companybot._id, threadId: parent, triggerId: reply })]);
@@ -183,16 +193,6 @@ describe("reply router", () => {
 		expect(await turnsOf(t)).toEqual([]);
 	});
 
-	it("doesn't let an agent without chat.react react", async () => {
-		const { t, member, scribe, send, decide } = await setUp();
-		await t.run((ctx) => ctx.db.patch(scribe._id, { tools: ["memory.search"] }));
-		const messageId = await send(member, "thanks Scribe!");
-		answer({ agent: "a2", action: "react", emoji: "🙏" });
-		await decide(messageId);
-		expect(await t.run((ctx) => ctx.db.query("reactions").collect())).toEqual([]);
-		expect(decideWith.mock.calls[0]![0].state).toContain("Can't react.");
-	});
-
 	it("uses the workspace's pick: a language model answers the same rules as JSON", async () => {
 		const { t, owner, member, companybot, send, decide } = await setUp();
 		const settings = (await owner.query(api.workspace.settings))!;
@@ -202,7 +202,7 @@ describe("reply router", () => {
 		await owner.mutation(api.workspace.updateSettings, { name: settings.name, routerModel: defaultModel, expectedVersion: settings.version });
 
 		const messageId = await send(member, "What's on the calendar for Friday?");
-		generateText.mockResolvedValue({ output: { decisions: [{ agent: "a1", action: "reply", emoji: null }] }, providerMetadata: {} });
+		generateText.mockResolvedValue({ output: { decisions: [{ agent: "a1", action: "reply" }] }, providerMetadata: {} });
 		await decide(messageId);
 		expect(decideWith).not.toHaveBeenCalled();
 		expect(generateText.mock.calls[0]![0].model).toBe(defaultModel);
@@ -216,7 +216,7 @@ describe("reply router", () => {
 		withProbabilities({ a1: ["reply", 0.84] });
 		await decide(messageId);
 		const [turn] = await turnsOf(t);
-		expect(turn!.dispatch).toEqual({ model: ROUTER_MODEL, band: "probably", probability: 0.84, probabilities: { reply: 0.84, react: 0, quiet: 1 - 0.84 }, costUsd: 0.0002 });
+		expect(turn!.dispatch).toEqual({ model: ROUTER_MODEL, band: "probably", probability: 0.84, probabilities: { reply: 0.84, quiet: 1 - 0.84 }, costUsd: 0.0002 });
 		const reply = await t.run((ctx) => ctx.db.get(turn!.replyId as Id<"chatMessages">));
 		expect(reply!.quiet).toBe(true);
 		// It shows working, but never as typing: it may well say nothing.
@@ -260,7 +260,7 @@ describe("reply router", () => {
 		const { t, member, chatId, send, decide } = await setUp();
 		const agentPosts = async () => (await member.query(api.messages.list, { chatId })).filter((m) => m.author.type === "agent");
 		for (const [say, decision] of [
-			["(No reply.)", { post: false }],
+			["(No reply.)", { respond: "nothing" }],
 			["Nothing to add.", { new_point: "" }],
 			["(No reply.)", { new_point: "   " }],
 		] as const) {
@@ -270,7 +270,7 @@ describe("reply router", () => {
 			// What it wrote doesn't matter: the decision does. Stored as written, for its session.
 			const replyId = turn.replyId as Id<"chatMessages">;
 			await t.mutation(internal.turns.updateReply, { turnId: turn._id, text: say, parts: [{ type: "text", text: say }] });
-			await t.mutation(internal.turns.finishReply, { turnId: turn._id, decision: { new_point: "x", post: true, to: "room", message: say, ...decision } });
+			await t.mutation(internal.turns.finishReply, { turnId: turn._id, decision: { new_point: "x", respond: "post", emoji: null, to: "room", message: say, ...decision } });
 			expect((await t.run((ctx) => ctx.db.get(replyId)))!.quiet).toBe(true);
 		}
 		// No decision at all (it failed to write one): hidden too.
@@ -278,6 +278,89 @@ describe("reply router", () => {
 		await decide(await send(member, "and?"));
 		await t.mutation(internal.turns.finishReply, { turnId: (await turnsOf(t)).find((x) => x.status === "running")!._id });
 		expect(await agentPosts()).toEqual([]);
+	});
+
+	it("never shows an empty post: tool lines with no text are nothing", async () => {
+		const { t, member, chatId, send, decide } = await setUp();
+		withProbabilities({ a1: ["reply", 0.9] });
+		await decide(await send(member, "Everyone pick their favorite emoji"));
+		const [turn] = await turnsOf(t);
+		const replyId = turn!.replyId as Id<"chatMessages">;
+		await t.mutation(internal.turns.updateReply, { turnId: turn!._id, text: "", parts: [{ type: "tool", id: "c1", name: "memory.search", label: "Searched memory", status: "done" }, { type: "text", text: "" }] });
+		for (const message of ["", "  \n "]) {
+			await t.mutation(internal.turns.finishReply, { turnId: turn!._id, decision: { new_point: "My pick", respond: "post", emoji: null, to: "room", message } });
+		}
+		expect((await t.run((ctx) => ctx.db.get(replyId)))!.quiet).toBe(true);
+		expect((await member.query(api.messages.list, { chatId })).filter((m) => m.author.type === "agent")).toEqual([]);
+	});
+
+	it("lets a woken agent respond with a reaction instead: added, no message", async () => {
+		const { t, member, companybot, chatId, send, decide } = await setUp();
+		const messageId = await send(member, "Can everyone vote yes or no via reaction");
+		withProbabilities({ a1: ["reply", 0.9] });
+		await decide(messageId);
+		const [turn] = await turnsOf(t);
+		vi.useRealTimers();
+		streamText.mockReturnValue({
+			stream: (async function* () {
+				yield { type: "start-step" };
+				yield { type: "text-delta", text: '{"new_point":"","respond":"react","emoji":"👍","to":"room","message":"👍"}' };
+			})(),
+			output: Promise.resolve({ new_point: "", respond: "react", emoji: "👍", to: "room", message: "👍" }),
+		});
+		await t.action(internal.agent.respond, { turnId: turn!._id });
+		expect(await t.run((ctx) => ctx.db.query("reactions").collect())).toEqual([expect.objectContaining({ messageId, emoji: "👍", agentId: companybot._id })]);
+		expect((await member.query(api.messages.list, { chatId })).filter((m) => m.author.type === "agent")).toEqual([]);
+		expect((await t.run((ctx) => ctx.db.get(turn!.replyId as Id<"chatMessages">)))!.quiet).toBe(true);
+	});
+
+	it("answers here only through its decision: chat_manage can't post into this chat, only elsewhere", async () => {
+		const { t, owner, member, companybot, chatId, send, decide } = await setUp();
+		const ask = await send(member, "Give me a reaction");
+		withProbabilities({ a1: ["reply", 0.9] });
+		await decide(ask);
+		const [turn] = await turnsOf(t);
+		vi.useRealTimers();
+		const general = (await generalOf(owner))._id;
+		const tried = await runQuiet(t, turn!._id, { new_point: "", respond: "react", emoji: "👀", to: "room", message: "" }, [
+			{ action: "send", chat: chatId, text: "👀" },
+			{ action: "send", chat: "#general", text: "Heads up: #ops wants reactions." },
+		]);
+		expect(tried).toMatchObject([{ error: expect.stringContaining("another chat") }, { messageId: expect.any(String) }]);
+		// One response here, from the decision: the reaction, and no message.
+		expect(await t.run((ctx) => ctx.db.query("reactions").collect())).toEqual([expect.objectContaining({ messageId: ask, emoji: "👀", agentId: companybot._id })]);
+		expect((await member.query(api.messages.list, { chatId })).filter((m) => m.author.type === "agent")).toEqual([]);
+		expect((await member.query(api.messages.list, { chatId: general })).map((m) => m.text)).toContain("Heads up: #ops wants reactions.");
+		// The decision is kept on the turn, to debug what it chose.
+		expect((await turnsOf(t))[0]!.decision).toEqual({ new_point: "", respond: "react", emoji: "👀", to: "room", message: "" });
+	});
+
+	it("shows one emoji as one reaction, however it was written", async () => {
+		const { t, member, chatId, send, decide } = await setUp();
+		const messageId = await send(member, "Everyone give me a heart");
+		await member.mutation(api.messages.react, { messageId, emoji: "❤️" });
+		withProbabilities({ a1: ["reply", 0.9] });
+		await decide(messageId);
+		const turn = (await turnsOf(t)).find((x) => x.status === "running")!;
+		// Without U+FE0F: the same heart, so the same row.
+		await t.mutation(internal.turns.finishReply, { turnId: turn._id, decision: { new_point: "", respond: "react", emoji: "❤", to: "room", message: "" } });
+		const message = (await member.query(api.messages.list, { chatId })).find((m) => m._id === messageId)!;
+		expect(message.reactions).toMatchObject([{ emoji: "❤️", count: 2, mine: true, people: expect.arrayContaining([expect.objectContaining({ type: "agent", name: "Companybot" })]) }]);
+	});
+
+	it("reacts with any one emoji the decision picks, and never with text or two", async () => {
+		const { t, member, companybot, send, decide } = await setUp();
+		const react = async (text: string, emoji: string) => {
+			const messageId = await send(member, text);
+			withProbabilities({ a1: ["reply", 0.9] });
+			await decide(messageId);
+			const turn = (await turnsOf(t)).find((x) => x.status === "running")!;
+			await t.mutation(internal.turns.finishReply, { turnId: turn._id, decision: { new_point: "", respond: "react", emoji, to: "room", message: "" } });
+			return messageId;
+		};
+		const unicorn = await react("Everyone give me a reaction", "🦄");
+		for (const [text, emoji] of [["again!", "unicorn"], ["and again!", "🦄🦄"], ["once more", ""]] as const) await react(text, emoji);
+		expect(await t.run((ctx) => ctx.db.query("reactions").collect())).toEqual([expect.objectContaining({ messageId: unicorn, emoji: "🦄", agentId: companybot._id })]);
 	});
 
 	it("shows a quiet pick that held a call for approval, so the person can decide", async () => {
@@ -387,10 +470,34 @@ describe("reply router", () => {
 	});
 });
 
+/**
+ * Runs a quiet turn (agent.respond) on a stubbed model that first calls chat_manage with each request,
+ * one step each, then ends with `decision`. Returns what each call got back.
+ */
+async function runQuiet(t: Awaited<ReturnType<typeof setUp>>["t"], turnId: Id<"agentTurns">, decision: Record<string, unknown>, requests: Record<string, unknown>[]) {
+	const results: unknown[] = [];
+	streamText.mockImplementation(({ tools }) => ({
+		stream: (async function* () {
+			for (const [i, request] of requests.entries()) {
+				yield { type: "start-step" };
+				yield { type: "tool-call", toolCallId: `c${i}`, toolName: "chat_manage", input: { request } };
+				const output = await tools.chat_manage.execute({ request }, { toolCallId: `c${i}`, messages: [] });
+				results.push(output);
+				yield { type: "tool-result", toolCallId: `c${i}`, toolName: "chat_manage", output };
+			}
+			yield { type: "start-step" };
+			yield { type: "text-delta", text: JSON.stringify(decision) };
+		})(),
+		output: Promise.resolve(decision),
+	}));
+	await t.action(internal.agent.respond, { turnId });
+	return results;
+}
+
 /** Jev's answer with how sure it was: per agent its choice and the chance of "reply". */
-const withProbabilities = (picks: Record<string, ["reply" | "react" | "quiet", number]>) =>
+const withProbabilities = (picks: Record<string, ["reply" | "quiet", number]>) =>
 	decideWith.mockResolvedValue({
-		answers: Object.fromEntries(Object.entries(picks).map(([key, [choice, reply]]) => [key, { type: "choice", choice, probabilities: { reply, react: 0, quiet: 1 - reply } }])),
+		answers: Object.fromEntries(Object.entries(picks).map(([key, [choice, reply]]) => [key, { type: "choice", choice, probabilities: { reply, quiet: 1 - reply } }])),
 		providerMetadata: { gateway: { cost: "0.0002" } },
 	});
 

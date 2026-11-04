@@ -1,4 +1,4 @@
-import { canManageChannel, describeWidget } from "@companybot/core";
+import { type ReactionGroup, canManageChannel, describeWidget, emojiOf } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -333,23 +333,43 @@ export const reactionsOf = (ctx: QueryCtx, messageId: Id<"chatMessages">) =>
 		.withIndex("by_message", (q) => q.eq("messageId", messageId))
 		.collect();
 
-/** Toggles one person's or agent's reaction. Returns whether it's now on. */
-export async function toggleReaction(
-	ctx: MutationCtx,
-	message: Doc<"chatMessages">,
-	emoji: string,
-	who: { userId: Id<"users"> } | { agentId: Id<"agents"> },
-) {
-	const existing = await ctx.db.query("reactions")
+/** A message's reactions for a model, by emoji, named as its lines name people and agents: chat.read and turn prompts. */
+export async function reactionGroups(ctx: QueryCtx, messageId: Id<"chatMessages">, names: Namer): Promise<ReactionGroup[]> {
+	const groups: ReactionGroup[] = [];
+	for (const r of (await reactionsOf(ctx, messageId)).sort((a, b) => a._creationTime - b._creationTime)) {
+		const name = (await names.of(r)).name;
+		const group = groups.find((g) => g.emoji === r.emoji);
+		if (group) group.by.push(name);
+		else groups.push({ emoji: r.emoji, by: [name] });
+	}
+	return groups;
+}
+
+const findReaction = (ctx: QueryCtx, message: Doc<"chatMessages">, emoji: string, who: { userId: Id<"users"> } | { agentId: Id<"agents"> }) =>
+	ctx.db.query("reactions")
 		.withIndex("by_message", (q) => q.eq("messageId", message._id).eq("emoji", emoji)
 			.eq("userId", "userId" in who ? who.userId : undefined).eq("agentId", "agentId" in who ? who.agentId : undefined))
 		.first();
+
+/** Toggles one person's reaction. Returns whether it's now on. */
+export async function toggleReaction(ctx: MutationCtx, message: Doc<"chatMessages">, emoji: string, userId: Id<"users">) {
+	const existing = await findReaction(ctx, message, emoji, { userId });
 	if (existing) {
 		await ctx.db.delete(existing._id);
 		return false;
 	}
-	await ctx.db.insert("reactions", { messageId: message._id, chatId: message.chatId, emoji, ...who });
+	await ctx.db.insert("reactions", { messageId: message._id, chatId: message.chatId, emoji, userId });
 	return true;
+}
+
+/**
+ * The reaction an agent's decision chose, on the message it answers (turns.finishReply): one emoji
+ * (`emojiOf`), added, never toggled off.
+ */
+export async function reactOnce(ctx: MutationCtx, message: Doc<"chatMessages">, agent: Doc<"agents">, emoji: string) {
+	const one = emojiOf(emoji);
+	if (message.deleted || !one) return;
+	if (!(await findReaction(ctx, message, one, { agentId: agent._id }))) await ctx.db.insert("reactions", { messageId: message._id, chatId: message.chatId, emoji: one, agentId: agent._id });
 }
 
 /** Display names (and with `images`, picture URLs) for people and agents, cached for one query. */

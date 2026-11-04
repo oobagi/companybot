@@ -171,4 +171,41 @@ describe("migrations", () => {
 		await t.run(ctx => ctx.db.patch(membership!._id, { email: undefined }));
 		await expect(owner.mutation(api.workspace.invite, { email: "next@co.com", role: "member" })).rejects.toThrow("being updated");
 	});
+
+	it("strips the retired chat.react from agents and their versions, and drops rules and locks on it", async () => {
+		const t = convexTest({ schema, modules, transactionLimits: true });
+		migrationsTest.register(t);
+		const owner = await signIn(t, "owner@co.com");
+		const { companybot } = await agentsOf(owner);
+		const tools = ["memory.search", "chat.react", "chat.read"];
+		await t.run(async (ctx) => {
+			const agent = (await ctx.db.get(companybot._id))!;
+			await ctx.db.patch(agent._id, { tools });
+			const version = (await ctx.db.query("agentVersions").withIndex("by_agent", (q) => q.eq("agentId", agent._id)).first())!;
+			await ctx.db.patch(version._id, { config: { ...version.config, tools } });
+			const rule = { workspaceId: agent.workspaceId, userId: owner.userId, setting: "never" as const, setAt: 1 };
+			await ctx.db.insert("permissionRules", { ...rule, action: "chat.react" });
+			await ctx.db.insert("permissionRules", { ...rule, action: "chat.read" });
+			await ctx.db.insert("permissionLocks", { workspaceId: agent.workspaceId, action: "chat.react", lock: "block", setBy: owner.userId, setAt: 1 });
+		});
+		vi.useFakeTimers();
+		try {
+			await t.mutation(internal.migrations.runAll);
+			await t.finishAllScheduledFunctions(vi.runAllTimers);
+		} finally {
+			vi.useRealTimers();
+		}
+		const after = await t.run(async (ctx) => ({
+			agent: (await ctx.db.get(companybot._id))!,
+			versions: await ctx.db.query("agentVersions").withIndex("by_agent", (q) => q.eq("agentId", companybot._id)).collect(),
+			rules: await ctx.db.query("permissionRules").collect(),
+			locks: await ctx.db.query("permissionLocks").collect(),
+		}));
+		expect(after.agent.tools).toEqual(["memory.search", "chat.read"]);
+		// Not a new version: nothing it can do changed.
+		expect(after.agent.version).toBe(companybot.version);
+		expect(after.versions.map((v) => v.config.tools)).toEqual([["memory.search", "chat.read"]]);
+		expect(after.rules.map((r) => r.action)).toEqual(["chat.read"]);
+		expect(after.locks).toEqual([]);
+	});
 });

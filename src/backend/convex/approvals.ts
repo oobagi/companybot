@@ -183,7 +183,7 @@ export const decide = mutation({
 			agentId: row.agentId,
 			chatId: row.chatId,
 			threadId: row.threadId,
-			// The message that started it all, so chat.react still reacts to the person's message.
+			// The message that started it all, so the decision's reaction lands on the person's message.
 			// An old welcome turn had none: then there's nothing to react to.
 			triggerId: asked ? asked.triggerId : row.replyId,
 			actorId: row.actorId,

@@ -59,6 +59,7 @@ describe("wakeups", () => {
 			messages: [],
 			triggerId: null,
 			now,
+			quiet: true,
 			wake: {
 				id: "w1",
 				note: "Chase the invoice if it's still unpaid.",

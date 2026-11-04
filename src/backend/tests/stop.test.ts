@@ -9,7 +9,7 @@ const streamText = vi.hoisted(() => vi.fn());
 vi.mock("ai", async (original) => ({ ...(await original<typeof import("ai")>()), streamText }));
 
 type Options = { abortSignal: AbortSignal; stopWhen: ((o: { steps: unknown[] }) => boolean | PromiseLike<boolean>)[] };
-/** Scripts one run: `script` yields stream parts; the stub ends the stream on abort, like the SDK. */
+/** Scripts one run: `script` yields stream parts; the stub ends the stream on abort, like the SDK. A stopped run has no decision. */
 function scripted(script: (o: Options) => AsyncGenerator<object>) {
 	streamText.mockImplementationOnce((o: Options) => ({
 		stream: (async function* (): AsyncGenerator<object> {
@@ -25,6 +25,9 @@ function scripted(script: (o: Options) => AsyncGenerator<object>) {
 }
 /** After a step that called tools, the SDK's loop asks every stop condition before the next one. */
 const stopsAfter = async (o: Options, steps: number) => (await Promise.all(o.stopWhen.map((c) => c({ steps: Array(steps).fill({}) })))).some(Boolean);
+/** An asked reply's decision as the model streams it: its JSON, the message in pieces (`words`) between. */
+const opens = { type: "text-delta", text: '{"new_point":"An answer","respond":"post","emoji":null,"to":"Ada","message":"' };
+const words = (text: string) => ({ type: "text-delta", text: JSON.stringify(text).slice(1, -1) });
 const finishStep = { type: "finish-step", usage: { inputTokens: 100, outputTokens: 20 }, providerMetadata: { gateway: { cost: "0.001" } } };
 
 afterEach(() => {
@@ -49,13 +52,14 @@ describe("stopping an agent mid-reply", () => {
 		let aborted = false;
 		scripted(async function* (o) {
 			yield { type: "start-step" };
-			yield { type: "text-delta", text: "Hello" };
+			yield opens;
+			yield words("Hello");
 			await owner.mutation(api.turns.stop, { turnId });
 			// The next flush (every 200ms) hears it.
 			await new Promise((r) => setTimeout(r, 250));
-			yield { type: "text-delta", text: " there" };
+			yield words(" there");
 			aborted = o.abortSignal.aborted;
-			yield { type: "text-delta", text: " and more" };
+			yield words(" and more");
 		});
 		await t.action(internal.agent.respond, { turnId });
 		expect(aborted).toBe(true);
@@ -103,7 +107,8 @@ describe("stopping an agent mid-reply", () => {
 		// Stopped before it wrote anything: the first flush hears it.
 		scripted(async function* () {
 			yield { type: "start-step" };
-			yield { type: "text-delta", text: "Never shown" };
+			yield opens;
+			yield words("Never shown");
 		});
 		await t.action(internal.agent.respond, { turnId: first });
 		expect(await replyOf(t, first)).toMatchObject({ text: "", stoppedBy: owner.userId });

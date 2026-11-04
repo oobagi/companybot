@@ -133,6 +133,39 @@ export const cronSchedules = migrations.define({
 	},
 });
 
+// chat_react is gone: an agent reacts only through its turn's decision (core postDecision). These strip
+// its grant from agents and their saved versions (a save or a restore would refuse the unknown tool) and
+// drop any rule or lock on it. Not a new version: nothing the agent can do changes.
+const CHAT_REACT = "chat.react";
+export const dropChatReact = migrations.define({
+	table: "agents",
+	batchSize: 20,
+	migrateOne: async (ctx, agent) => {
+		if (agent.tools.includes(CHAT_REACT)) await ctx.db.patch(agent._id, { tools: agent.tools.filter((t) => t !== CHAT_REACT) });
+	},
+});
+export const dropChatReactVersions = migrations.define({
+	table: "agentVersions",
+	batchSize: 20,
+	migrateOne: async (ctx, { _id, config }) => {
+		if (config.tools.includes(CHAT_REACT)) await ctx.db.patch(_id, { config: { ...config, tools: config.tools.filter((t) => t !== CHAT_REACT) } });
+	},
+});
+export const dropChatReactRules = migrations.define({
+	table: "permissionRules",
+	batchSize: 50,
+	migrateOne: async (ctx, rule) => {
+		if (rule.action === CHAT_REACT) await ctx.db.delete(rule._id);
+	},
+});
+export const dropChatReactLocks = migrations.define({
+	table: "permissionLocks",
+	batchSize: 50,
+	migrateOne: async (ctx, lock) => {
+		if (lock.action === CHAT_REACT) await ctx.db.delete(lock._id);
+	},
+});
+
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
@@ -143,6 +176,10 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.clearTurnWelcome,
 	internal.migrations.companybotFollowupTools,
 	internal.migrations.cronSchedules,
+	internal.migrations.dropChatReact,
+	internal.migrations.dropChatReactVersions,
+	internal.migrations.dropChatReactRules,
+	internal.migrations.dropChatReactLocks,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

@@ -49,7 +49,7 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"messages.edit": { agent: ["chat.manage:edit"] },
 	"messages.remove": { agent: ["chat.manage:delete"] },
 	"messages.hidePreview": { agent: ["chat.manage:hide_preview"] },
-	"messages.react": { agent: ["chat.react", "chat.manage:react"] },
+	"messages.react": { humanOnly: "A person's toggle. An agent reacts only to the message it answers, through its turn's decision, never with a tool." },
 	"pages.create": { agent: ["pages.write"] },
 	"pages.addImage": { humanOnly: "Agents can't make image files: a person uploads one from their device. Agents read pictures as Markdown image links." },
 	"pages.move": { agent: ["pages.write:move"] },

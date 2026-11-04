@@ -105,12 +105,21 @@ export const dispatchInfo = v.object({
 	model: v.string(),
 	band: v.union(v.literal("clearly"), v.literal("probably"), v.literal("might")),
 	probability: v.optional(v.number()),
-	/** Jev's chance of each choice for this agent ({ reply, react, quiet }), for the reply's stats. */
+	/** Jev's chance of each choice for this agent ({ reply, quiet }), for the reply's stats. */
 	probabilities: v.optional(v.record(v.string(), v.number())),
 	/** The whole decision call's, which covers every agent in the channel. Recorded once, as kind "router". */
 	costUsd: v.number(),
 	/** Set when another agent named it in its decision (`to`), in place of a dispatcher: that agent's name. */
 	by: v.optional(v.string()),
+});
+
+/** How a turn ended (core `postDecision`): what it would add, how it responds (post, react, nothing), with what, to whom. */
+export const postDecision = v.object({
+	new_point: v.string(),
+	respond: v.union(v.literal("post"), v.literal("react"), v.literal("nothing")),
+	emoji: v.union(v.string(), v.null()),
+	to: v.string(),
+	message: v.string(),
 });
 
 export const replyStats = v.object({
@@ -578,7 +587,10 @@ export default defineSchema({
 		emoji: v.string(),
 		userId: v.optional(v.id("users")),
 		agentId: v.optional(v.id("agents")),
-	}).index("by_message", ["messageId", "emoji", "userId", "agentId"]),
+	})
+		.index("by_message", ["messageId", "emoji", "userId", "agentId"])
+		// Newest in a chat: what was reacted to since an agent's last reply (turns.turnContext).
+		.index("by_chat", ["chatId"]),
 
 	// A person @mentioned in a message (main timeline or a thread), so unread mentions are found
 	// by index however much else was said since. `at`: the message's _creationTime. Gone when it's deleted.
@@ -620,15 +632,12 @@ export default defineSchema({
 		dispatch: v.optional(
 			v.object({
 				...dispatchInfo.fields,
-				// Retired with chat.notify: routed turns are all quiet now. Old turns have them.
-				quiet: v.optional(v.literal(true)),
 				after: v.optional(v.id("agentTurns")),
 				then: v.optional(v.id("agentTurns")),
 			}),
 		),
-		// Retired with chat.notify (no longer written). Old turns have them.
-		notifiedId: v.optional(v.id("chatMessages")),
-		claimSeen: v.optional(v.literal(true)),
+		/** The turn's decision, as it made it; unset if it made none (it failed, was stopped, or stopped for an approval). */
+		decision: v.optional(postDecision),
 		/** Another agent handed it this (chains.ts): its chain, how deep in asks, and the agents from the chain's start to this one. */
 		chain: v.optional(chainRef),
 		/** Answering another agent's private ask (chat.ask_agent): when it ends, this wakeup gives the asker the answer. */

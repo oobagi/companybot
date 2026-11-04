@@ -95,6 +95,7 @@ export async function agentTurn(t: ReturnType<typeof convexTest>, as: As, chatId
 	await as.mutation(api.messages.send, { chatId, text: "hi", mentions: { userIds: [], agentIds: [agentId] } });
 	return (await turnsOf(t)).find((x) => !before.some((b) => b._id === x._id))!._id;
 }
+type Decision = NonNullable<FunctionArgs<typeof internal.turns.finishReply>["decision"]>;
 /**
  * Ends a quiet turn (a pick, a hop, a wake) as the runner does (agent.ts): `say` is the message its
  * decision posts; "" decides not to (new_point empty). Its message goes last in the reply, after `parts`.
@@ -103,9 +104,9 @@ export async function finishQuiet(
 	t: ReturnType<typeof convexTest>,
 	turnId: Id<"agentTurns">,
 	say: string,
-	{ parts = [], usage, ...decision }: { parts?: FunctionArgs<typeof internal.turns.updateReply>["parts"]; usage?: FunctionArgs<typeof internal.turns.finishReply>["usage"]; new_point?: string; post?: boolean; to?: string } = {},
+	{ parts = [], usage, ...decision }: { parts?: FunctionArgs<typeof internal.turns.updateReply>["parts"]; usage?: FunctionArgs<typeof internal.turns.finishReply>["usage"] } & Partial<Decision> = {},
 ) {
-	const decided = { new_point: say ? "Something new" : "", post: !!say, to: "room", message: say, ...decision };
+	const decided: Decision = { new_point: say ? "Something new" : "", respond: say ? "post" : "nothing", emoji: null, to: "room", message: say, ...decision };
 	const text = publishes(decided) ? say : "";
 	await t.mutation(internal.turns.updateReply, { turnId, text, parts: [...parts, ...(text ? [{ type: "text" as const, text }] : [])] });
 	await t.mutation(internal.turns.finishReply, { turnId, usage, decision: decided });

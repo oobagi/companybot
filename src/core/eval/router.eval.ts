@@ -11,8 +11,7 @@ import { routerCases } from "./router-cases";
 // agent decides). full-path.eval.ts scores what actually gets posted. Costs real money, a few cents a
 // run, so it's not part of `pnpm test`:
 //   AI_GATEWAY_API_KEY=… pnpm --filter @companybot/core eval:router
-// Jev (ROUTER_MODEL) runs the exact production call (routerQuestions: a choice per agent, plus its
-// reaction): through AI Gateway, and also through OpenRouter's Decisions API when OPENROUTER_API_KEY
+// Jev (ROUTER_MODEL) runs the exact production call (routerQuestions: wake or quiet per agent): through AI Gateway, and also through OpenRouter's Decisions API when OPENROUTER_API_KEY
 // is set. Language models, for comparison, answer the same rules as JSON (routerSchema).
 // ROUTER_EVAL_MODELS (comma-separated) picks models; ROUTER_EVAL_RUNS repeats the set.
 
@@ -102,7 +101,7 @@ it("scores reply-router models", { timeout: 20 * 60_000 }, async () => {
 				return { c, answer: new Map<string, RouterAction>(), costUsd: 0, ms: Date.now() - started, error: e instanceof Error ? e.message : String(e) };
 			}
 		});
-		let decisions = 0, right = 0, woke = 0, missed = 0, reacts = 0, reactsRight = 0;
+		let decisions = 0, right = 0, woke = 0, missed = 0;
 		const misses: string[] = [];
 		for (const { c, answer, error } of results) {
 			for (const [key, expected] of Object.entries(c.expect)) {
@@ -112,7 +111,6 @@ it("scores reply-router models", { timeout: 20 * 60_000 }, async () => {
 				else misses.push(`  ${c.name}: ${key} expected ${expected}, got ${error ? `error (${error.slice(0, 80)})` : got}`);
 				if (got === "reply" && expected !== "reply") woke++;
 				if (expected === "reply" && got !== "reply") missed++;
-				if (expected === "react") (reacts++, got === "react" && reactsRight++);
 			}
 		}
 		const exact = results.filter(({ c, answer }) => Object.entries(c.expect).every(([k, e]) => (answer.get(k) ?? "quiet") === e)).length;
@@ -120,7 +118,7 @@ it("scores reply-router models", { timeout: 20 * 60_000 }, async () => {
 		const cost = results.reduce((s, r) => s + r.costUsd, 0) / results.length;
 		const errors = results.filter((r) => r.error).length;
 		rows.push(
-			`| ${model.id} | ${((100 * right) / decisions).toFixed(0)}% | ${exact}/${results.length} | ${woke} | ${missed} | ${reactsRight}/${reacts} | ${percentile(ms, 0.5)} | ${percentile(ms, 0.9)} | $${cost.toFixed(5)} | ${errors} |`,
+			`| ${model.id} | ${((100 * right) / decisions).toFixed(0)}% | ${exact}/${results.length} | ${woke} | ${missed} | ${percentile(ms, 0.5)} | ${percentile(ms, 0.9)} | $${cost.toFixed(5)} | ${errors} |`,
 		);
 		print(`\n${model.id}: ${right}/${decisions} decisions right${misses.length ? `. Misses:\n${misses.join("\n")}` : ""}`);
 	}
@@ -128,8 +126,8 @@ it("scores reply-router models", { timeout: 20 * 60_000 }, async () => {
 		[
 			"",
 			`${routerCases.length} moments × ${runs} run(s), ${new Date().toISOString().slice(0, 10)}`,
-			"| Model | Decisions right | Moments all right | Woke extra | Missed replies | Reactions | p50 ms | p90 ms | $/call | Errors |",
-			"|---|---|---|---|---|---|---|---|---|---|",
+			"| Model | Decisions right | Moments all right | Woke extra | Missed replies | p50 ms | p90 ms | $/call | Errors |",
+			"|---|---|---|---|---|---|---|---|---|",
 			...rows,
 		].join("\n"),
 	);

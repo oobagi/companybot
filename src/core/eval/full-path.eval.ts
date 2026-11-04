@@ -23,13 +23,14 @@ import {
 	routerRequest,
 } from "../src/router";
 import { modelToolName } from "../src/tools";
-import { type PlaceMessage, type PostDecision, type TurnPlace, buildTurnPrompt, postDecision, publishes, systemPrompt } from "../src/turn-input";
+import { type PlaceMessage, type PostDecision, type TurnPlace, buildTurnPrompt, postDecision, responseOf, systemPrompt } from "../src/turn-input";
 import { gatewayCost } from "../src/usage";
+import type { ReactionGroup } from "../src/chat";
 import { type Outcome, type Transcript, anchors, fullPathCases, handBacks, transcripts } from "./router-cases";
 
 // Scores what actually gets posted: the dispatcher (Jev, the production call) wakes agents, and each
 // woken agent runs its quiet turn (the production prompt, system prompt and final decision, on its
-// model) and posts only if its decision does (core `publishes`). A post whose decision names another
+// model) and posts or reacts only if its decision does (core `responseOf`). A post whose decision names another
 // agent (`to`) wakes it next, as production does. Misses: "butted in" (posted when it shouldn't) and
 // "silent" (should have answered, didn't). Hand-backs run "who goes next" (also production) on an
 // agent's result in a handoff's thread, then the quiet hop. Costs a turn per woken agent, a few cents a run:
@@ -50,7 +51,8 @@ function configOf(agent: RouterAgent): Pick<AgentConfig, "instructions" | "tools
 	return { instructions: `You are ${agent.name}. ${agent.description}`, tools: blankAgent.tools, model: blankAgent.model };
 }
 
-type Said = RouterMessage & { id: string };
+/** `reactions`: agents' reactions on it, which later turns see on its line, as in production. */
+type Said = RouterMessage & { id: string; reactions?: ReactionGroup[] };
 type Woken = { agent: RouterAgent; band: ConfidenceBand; probability?: number };
 
 /** The dispatcher's production call: which agents it wakes, and how sure it was. */
@@ -76,7 +78,7 @@ async function next(input: NextInput, agents: RouterAgent[]) {
 }
 
 const participant = (m: RouterMessage) => (m.agent ? { type: "agent" as const, id: m.agent, name: m.author } : { type: "user" as const, id: `u-${m.author}`, name: m.author });
-const placeMessage = (m: Said, i: number, n: number): PlaceMessage => ({ id: m.id, author: participant(m), text: m.text, time: NOW - (n - i) * 60_000 });
+const placeMessage = (m: Said, i: number, n: number): PlaceMessage => ({ id: m.id, author: participant(m), text: m.text, time: NOW - (n - i) * 60_000, ...(m.reactions && { reactions: m.reactions }) });
 
 /** One woken agent's quiet turn: what it posted, if its decision posts it, and to whom. */
 async function quietTurn(turn: {
@@ -101,19 +103,8 @@ async function quietTurn(turn: {
 	const { agent } = turn.woken;
 	const config = configOf(agent);
 	const available = resolveTools(config, { userId: "u", role: "member" });
-	let reacted = false;
 	const tools = Object.fromEntries(
-		available.map((t) => [
-			modelToolName(t.id),
-			tool({
-				description: t.description,
-				inputSchema: t.input,
-				execute: async (input: unknown) => {
-					if (t.id === "chat.react") return ((reacted = true), { reacted: true });
-					return { error: "Not available right now." };
-				},
-			}),
-		]),
+		available.map((t) => [modelToolName(t.id), tool({ description: t.description, inputSchema: t.input, execute: async () => ({ error: "Not available right now." }) })]),
 	);
 	const message = turn.said.find((m) => m.id === turn.triggerId) ?? turn.said.at(-1)!;
 	const person = turn.person ?? message.author;
@@ -137,6 +128,7 @@ async function quietTurn(turn: {
 		connectors: { connected: [], unavailable: [] },
 		messages: turn.said.map((m, i) => placeMessage(m, i, turn.said.length)),
 		triggerId: message.id,
+		quiet: true,
 		routed: { band: turn.woken.band, ...(turn.by && { by: turn.by }), ...(turn.before?.length && { before: turn.before }) },
 		...(turn.from && { handoff: { from: turn.from, ask: false } }),
 	});
@@ -151,7 +143,9 @@ async function quietTurn(turn: {
 		maxRetries: 1,
 	});
 	const decision = await Promise.resolve(result.output).then((d) => d as PostDecision, () => null);
-	const posted = publishes(decision) ? [decision!.message] : [];
+	const { message: post, emoji } = responseOf(decision, true);
+	const posted = post ? [post] : [];
+	const reacted = emoji ?? undefined;
 	// What it did, for a miss: its tool calls and its decision (shown only if it posts).
 	const did = [...result.steps.flatMap((s) => s.toolCalls.map((c) => c.toolName)), decision ? `decided ${JSON.stringify(decision).slice(0, 160)}` : "no decision"].join(", ");
 	TOKENS.input += result.totalUsage.inputTokens ?? 0;
@@ -181,6 +175,8 @@ type Tally = {
 	turns: number;
 	ms: number[];
 	woken: Record<ConfidenceBand, number>;
+	/** Turns that reacted. */
+	reactions: number;
 	misses: string[];
 };
 type Turn = Woken & Awaited<ReturnType<typeof quietTurn>>;
@@ -223,7 +219,7 @@ function score(tally: Tally, label: string, agents: RouterAgent[], turns: Turn[]
 
 function count(tally: Tally, turns: Turn[]) {
 	tally.turns += turns.length;
-	for (const t of turns) (tally.woken[t.band]++, (tally.costUsd += t.costUsd), tally.ms.push(t.ms));
+	for (const t of turns) (tally.woken[t.band]++, (tally.costUsd += t.costUsd), tally.ms.push(t.ms), t.reacted && tally.reactions++);
 }
 
 /** Eval-only: a post that says nothing. The product never matches text; its decision gate keeps these hidden. */
@@ -289,21 +285,30 @@ async function step(tally: Tally, label: string, input: RouterInput, said: Said[
 		for (const text of answer.posted) seen.push({ author: named.name, agent: named.key, text, id: `${said.at(-1)!.id}-${seen.length}` });
 	}
 	count(tally, turns);
+	const trigger = said.at(-1)!;
+	for (const t of turns.filter((x) => x.reacted)) {
+		const group = trigger.reactions?.find((g) => g.emoji === t.reacted);
+		if (group) group.by.push(t.agent.name);
+		else (trigger.reactions ??= []).push({ emoji: t.reacted!, by: [t.agent.name] });
+	}
 	score(tally, label, input.agents, turns, expect);
 	const posts = turns.flatMap((t) => t.posted.map((text) => ({ agent: t.agent, text })));
 	await checkPosts(tally, label, input.message.author, input.message.text, posts, checks);
-	return { posts, reacted: turns.filter((t) => t.reacted).map((t) => t.agent) };
+	return { posts, turns, costUsd };
 }
 
 it("scores the full path: dispatcher, then the agent's quiet turn", { timeout: 20 * 60_000 }, async () => {
 	if (!process.env.AI_GATEWAY_API_KEY) throw new Error("Set AI_GATEWAY_API_KEY: the eval calls real models.");
 	const runs = Number(process.env.FULL_EVAL_RUNS ?? 1);
-	const tally: Tally = { errors: 0, decisions: 0, right: 0, butted: 0, duplicates: 0, silent: 0, filler: 0, long: 0, together: { built: 0, pairs: 0 }, costUsd: 0, messages: 0, turns: 0, ms: [], woken: { clearly: 0, probably: 0, might: 0 }, misses: [] };
+	const tally: Tally = { errors: 0, decisions: 0, right: 0, butted: 0, duplicates: 0, silent: 0, filler: 0, long: 0, together: { built: 0, pairs: 0 }, costUsd: 0, messages: 0, turns: 0, ms: [], woken: { clearly: 0, probably: 0, might: 0 }, reactions: 0, misses: [] };
 	for (let run = 0; run < runs; run++) {
 		const moments = fullPathCases.map(async (c) => {
 			const said = [...(c.input.parent ? [c.input.parent] : []), ...c.input.before, c.input.message].map((m, i) => ({ ...m, id: `m${i}` }));
-			const expect = Object.fromEntries(Object.entries(c.expect).map(([k, action]) => [k, action === "reply" ? "post" : "silent"])) as Record<string, Outcome>;
-			await step(tally, c.name, c.input, said, expect);
+			const expect = Object.fromEntries(Object.entries(c.expect).map(([k, action]) => [k, action === "reply" && !c.reacts?.includes(k) ? "post" : "silent"])) as Record<string, Outcome>;
+			const { turns, costUsd } = await step(tally, c.name, c.input, said, expect);
+			// Each moment's turns, with what they cost and took: the dispatcher's call plus each woken agent's turn.
+			const did = turns.map((t) => `${t.agent.name} ${t.posted.length ? `posted ${JSON.stringify(t.posted[0]!.slice(0, 60))}` : t.reacted ? `reacted ${t.reacted}` : "did nothing"} (${(t.ms / 1000).toFixed(1)}s, $${t.costUsd.toFixed(5)})`);
+			print(`${c.name}: ${did.join("; ") || "nobody woken"}, $${(costUsd + turns.reduce((n, t) => n + t.costUsd, 0)).toFixed(5)} in all`);
 		});
 		// Each step's posts feed the next, as in the chat.
 		const conversations = transcripts.map(async (transcript) => {
@@ -321,10 +326,11 @@ it("scores the full path: dispatcher, then the agent's quiet turn", { timeout: 2
 					before: said.slice(-9, -1),
 					message: s.message,
 				};
-				const { posts, reacted } = await step(tally, `${transcript.name}, step ${i + 1} ${JSON.stringify(s.message.text)}`, input, said, s.expect(posted, responded), s);
+				const { posts, turns } = await step(tally, `${transcript.name}, step ${i + 1} ${JSON.stringify(s.message.text)}`, input, said, s.expect(posted, responded), s);
 				for (const p of posts) (said.push({ author: p.agent.name, agent: p.agent.key, text: p.text, id: `t${said.length}` }), posted.push(p.agent.key), responded.push(p.agent.key));
-				responded.push(...reacted.map((a) => a.key));
-				const shown = [...posts.map((p) => `${p.agent.name}: ${JSON.stringify(p.text.slice(0, 80))}`), ...reacted.map((a) => `${a.name} reacted`)];
+				const reacted = turns.filter((t) => t.reacted);
+				responded.push(...reacted.map((t) => t.agent.key));
+				const shown = [...posts.map((p) => `${p.agent.name}: ${JSON.stringify(p.text.slice(0, 80))}`), ...reacted.map((t) => `${t.agent.name} reacted ${t.reacted}`)];
 				lines.push(`  ${JSON.stringify(s.message.text)} → ${shown.join("; ") || "(nothing posted)"}`);
 			}
 			print(`${transcript.name}:\n${lines.join("\n")}`);
@@ -362,8 +368,11 @@ it("scores the full path: dispatcher, then the agent's quiet turn", { timeout: 2
 	}
 	print(`\n${tally.misses.length ? `Misses:\n${tally.misses.join("\n")}` : "No misses."}`);
 	const steps = transcripts.reduce((n, t) => n + t.steps.length, 0) + anchors.length;
-	const ms = [...tally.ms].sort((a, b) => a - b);
-	const p = (q: number) => `${((ms[Math.min(ms.length - 1, Math.floor(q * ms.length))] ?? 0) / 1000).toFixed(1)}s`;
+	const pct = (list: number[], q: number) => {
+		const ms = [...list].sort((a, b) => a - b);
+		return `${((ms[Math.min(ms.length - 1, Math.floor(q * ms.length))] ?? 0) / 1000).toFixed(1)}s`;
+	};
+	const p = (q: number) => pct(tally.ms, q);
 	print(
 		[
 			"",
@@ -371,6 +380,7 @@ it("scores the full path: dispatcher, then the agent's quiet turn", { timeout: 2
 			"| Decisions right | Butted in (duplicates) | Silent misses | Filler posted | Too long | Built on earlier | Agent turns (clearly / probably / might) | Turn p50 / p90 | Tokens per turn in (cached) / out | $ per message | $ total | Errors |",
 			"|---|---|---|---|---|---|---|---|---|---|---|---|",
 			`| ${tally.right}/${tally.decisions} (${((100 * tally.right) / tally.decisions).toFixed(0)}%) | ${tally.butted} (${tally.duplicates}) | ${tally.silent} | ${tally.filler} | ${tally.long} | ${tally.together.built}/${tally.together.pairs} | ${tally.turns} (${tally.woken.clearly} / ${tally.woken.probably} / ${tally.woken.might}) | ${p(0.5)} / ${p(0.9)} | ${Math.round(TOKENS.input / tally.turns)} (${Math.round((100 * TOKENS.cached) / TOKENS.input)}%) / ${Math.round(TOKENS.output / tally.turns)} | $${(tally.costUsd / tally.messages).toFixed(5)} | $${tally.costUsd.toFixed(4)} | ${tally.errors} |`,
+			`Reactions: ${tally.reactions} of ${tally.turns} agent turns`,
 		].join("\n"),
 	);
 });

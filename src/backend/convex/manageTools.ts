@@ -7,7 +7,7 @@ import { chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
 import { automationName, automationScope, canView, definitionOf, installOf } from "./automationOps";
 import { removeAutomation, saveAutomation, updateAutomation } from "./automations";
 import { installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
-import { editMessage, hideMessagePreview, removeMessage, reactMessage, sendMessage } from "./messages";
+import { editMessage, hideMessagePreview, removeMessage, sendMessage } from "./messages";
 import { cancelMemberInvite, imageSettings, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
 import { asToolResult, checkPermission, type Member, nameOf, normalizeEmail, preferencesOf, requireAgent, skillOf, timeZoneOf } from "./lib";
 import { createAgent, setAgentTrashed, updateAgent } from "./agents";
@@ -89,11 +89,10 @@ export const runFor = internalMutation({
 						await markReadAs(ctx, member, await chatId(ctx, member, r.chat));
 						return { done: r.action };
 					}
-					if (r.action === "edit" || r.action === "delete" || r.action === "react" || r.action === "hide_preview") {
+					if (r.action === "edit" || r.action === "delete" || r.action === "hide_preview") {
 						const id = rowId(ctx, "chatMessages", r.messageId);
 						if (r.action === "edit") await editMessage(ctx, who, id, r.text);
 						if (r.action === "delete") await removeMessage(ctx, who, id);
-						if (r.action === "react") await reactMessage(ctx, who, id, r.emoji);
 						if (r.action === "hide_preview") await hideMessagePreview(ctx, who, id, r.url);
 						return { done: r.action, messageId: id };
 					}
@@ -106,7 +105,7 @@ export const runFor = internalMutation({
 					}
 					const to = { chatId: await chatId(ctx, member, r.chat), threadId: r.threadId ? rowId(ctx, "chatMessages", r.threadId) : undefined };
 					// The reply is how an agent speaks where it is; sending there too posts it twice.
-					if (to.chatId === turn.chatId && to.threadId === turn.threadId) throw new ConvexError("Your reply already posts here: put this in your reply instead.");
+					if (to.chatId === turn.chatId && to.threadId === turn.threadId) throw new ConvexError("Your reply already posts here, so put this in it. Send is for another chat or thread.");
 					const messageId = await sendMessage(ctx, who, { ...to, text: r.text, mentions: participants(ctx, r) });
 					return { messageId, ...to };
 				}
