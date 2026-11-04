@@ -66,7 +66,7 @@ export const list = query({
 			running
 				.filter((t) => now - (t.startedAt ?? t._creationTime) < STALE_TURN_MS)
 				// A dispatcher pick or hop may well post nothing: it shows what it's doing, never "typing".
-				// Stop (turns.stop): for the person it works for, or an owner.
+				// Stop (turns.stop): for the person it works for, or anyone with turns.stopAny.
 				.map(async (t) => ({
 					...(await names.agent(t.agentId)),
 					step: t.step?.label ?? (t.routed ? "Thinking…" : null),

@@ -1,4 +1,4 @@
-import { type ReplyMode, THREAD_HOURS_DEFAULT, canManageChannel, replyModeOf, replyModes } from "@companybot/core";
+import { type ReplyMode, THREAD_HOURS_DEFAULT, can, replyModeOf, replyModes } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx } from "./_generated/server";
@@ -28,7 +28,7 @@ export type ChatItem = {
 	/** A message since you last read the chat mentions you, in its main timeline or a thread. */
 	mentioned: boolean;
 	lastMessageAt: number;
-	/** Channels: you can rename it, delete it and manage its members (`canManageChannel`). */
+	/** Channels: you can rename it, delete it and manage its members (`channels.edit`). */
 	canManage: boolean;
 	/** When agents answer without an @mention: always "mentions" outside channels (core router.ts). */
 	replyMode: ReplyMode;
@@ -77,7 +77,7 @@ async function toChatItem(
 		// Not gated on `unread`: a thread reply doesn't move the chat's lastMessageAt.
 		mentioned: !!mine && !!(await latestMentionSince(ctx, chat._id, member.userId, mine.lastReadAt ?? 0)),
 		lastMessageAt: chat.lastMessageAt,
-		canManage: chat.kind === "channel" && canManageChannel(toActor(member), chat),
+		canManage: chat.kind === "channel" && can(member, "channels.edit"),
 		replyMode: replyModeOf(chat),
 		parentId: chat.parentId ?? null,
 		label: chat.parentId ? sideChatTitle(chat) : null,
@@ -285,7 +285,7 @@ export const createChannel = mutation({
 });
 
 export async function createChannelAs(ctx: MutationCtx, member: Member, args: Infer<typeof createChannelArgs>): Promise<Id<"chats">> {
-	checkPermission(member, "channels.create");
+	checkPermission(member, "channels.edit");
 	const name = await availableName(ctx, member, args.name);
 	const chatId = await ctx.db.insert("chats", {
 		workspaceId: member.workspaceId,
@@ -364,7 +364,7 @@ export const addMembers = mutation({
 export async function addChannelMembers(ctx: MutationCtx, member: Member, { chatId, userIds, agentIds }: Infer<typeof addChannelMembersArgs>) {
 	const chat = await requireChat(ctx, member, chatId);
 	if (chat.kind !== "channel" || chat.archived) throw new ConvexError("You can only add people to channels.");
-	if (!(await membership(ctx, chatId, member.userId)) && !canManageChannel(toActor(member), chat)) {
+	if (!(await membership(ctx, chatId, member.userId)) && !can(member, "channels.edit")) {
 		throw new ConvexError("Join the channel first.");
 	}
 	await requireWorkspaceUsers(ctx, member.workspaceId, userIds);

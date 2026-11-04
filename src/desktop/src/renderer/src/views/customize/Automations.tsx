@@ -2,7 +2,7 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Segmented, Select } from "../../controls";
 import { type AutomationAudience as Audience, CUSTOM_NAME_MAX, type CustomAutomationConfig, scheduleCron } from "@companybot/core/automations";
 import { DEFAULT_CRON } from "@companybot/core/schedules";
-import { type Role, can } from "@companybot/core/permissions";
+import { type Access, can } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { agentOptions } from "../../agent-options";
@@ -87,13 +87,13 @@ function SubscribeButton({ automation: a, onError }: { automation: AutomationIte
 	);
 }
 
-export function AutomationScreen({ role, id }: { role: Role; id: string }) {
+export function AutomationScreen({ access, id }: { access: Access; id: string }) {
 	const automations = useQuery(api.automations.list);
 	if (id === "new") return <NewAutomation />;
 	const automation = automations?.find((a) => a.id === id);
 	if (!automation) return <Missing tab="automations" loaded={!!automations} />;
 	if (automation.custom) return <CustomAutomationDetail automation={automation} custom={automation.custom} />;
-	return <AutomationDetail automation={automation} canManage={can(role, "automations.manage")} />;
+	return <AutomationDetail automation={automation} canManage={can(access, "automations.edit")} />;
 }
 
 const defaultSchedule = { type: "schedule" as const, cron: DEFAULT_CRON };

@@ -1,9 +1,9 @@
-import { canManageChannel, describeWidget } from "@companybot/core";
+import { describeWidget } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { imageUrls } from "./images";
-import { type Member, type Who, getMember, memberOf, memo, nameOf, personOf, toActor } from "./lib";
+import { type Member, type Who, checkPermission, getMember, memberOf, memo, nameOf, personOf } from "./lib";
 import { putInTrash, takeFromTrash } from "./trashOps";
 
 // Shared by the app's chat functions (chats.ts, messages.ts) and the agent runner
@@ -152,11 +152,11 @@ export async function availableName(ctx: QueryCtx, member: Member, raw: string, 
 	return name;
 }
 
-/** A channel you can see and manage (`channels.manage`, or you created it). */
+/** A channel you can see and manage (`channels.edit`). Making it gives no extra rights: roles decide. */
 export async function requireManagedChannel(ctx: QueryCtx, member: Member, chatId: Id<"chats">) {
 	const chat = await requireChat(ctx, member, chatId);
 	if (chat.kind !== "channel") throw new ConvexError("That's not a channel.");
-	if (!canManageChannel(toActor(member), chat)) throw new ConvexError("Only the channel's creator or an owner can change it.");
+	checkPermission(member, "channels.edit");
 	return chat;
 }
 

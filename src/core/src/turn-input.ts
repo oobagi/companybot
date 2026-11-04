@@ -9,7 +9,6 @@ import { platformGuide } from "./guide";
 import { type Skill, skillsIndex } from "./skills";
 import { formatLocalTime, shortStamp } from "./time";
 import { isGranted } from "./tools";
-import type { Role } from "./types";
 
 // What the model is fed each turn, built for prompt caching (wiki/chat.md):
 // 1. `instructions`: the same for every chat and turn, so it caches everywhere.
@@ -70,7 +69,8 @@ export interface TurnPromptInput {
 	agentId: string;
 	place: TurnPlace;
 	/** The person the agent acts for. `timeZone` is resolved (see resolveTimeZone). */
-	actor: { id: string; name: string; email: string; role: Role; timeZone: string };
+	/** `roles`: the names of their workspace roles. */
+	actor: { id: string; name: string; email: string; roles: string[]; timeZone: string };
 	/** When the turn runs, epoch ms. Chat lines carry no year, so this says what "now" is. */
 	now: number;
 	/** "personal" only in a DM with exactly one person; "off" when an owner turned memory off. */
@@ -122,7 +122,7 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 		`Here: ${here}.${team ? " This is a team chat: talk to your coworkers, people and agents, by name." : ""}`,
 		// An @mention hands off only to an agent in the place (backend chains.ts reachable): in a DM, the other agents aren't.
 		place.kind !== "channel" && agents.length === 0 && "No other agent is in this DM, so @mentioning one reaches nobody. To involve one, ask it with chat_ask_agent.",
-		`${clean(actor.name)} <${clean(actor.email)}>, a workspace ${actor.role}, asked for you. Their messages are marked (asker). You act with their access. Their time zone: ${actor.timeZone}.`,
+		`${clean(actor.name)} <${clean(actor.email)}>, with the ${listed(actor.roles.map(clean))} role${actor.roles.length === 1 ? "" : "s"}, asked for you. Their messages are marked (asker). You act with their access. Their time zone: ${actor.timeZone}.`,
 		`Now: ${formatLocalTime(input.now, actor.timeZone)}.`,
 		input.memory === "personal"
 			? "Memory: personal and team memories."

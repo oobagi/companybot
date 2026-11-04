@@ -9,7 +9,7 @@ import { recordPath } from "./records/logic";
 
 // Pending wakeups (backend wakeups.ts): follow-ups agents set, check-ins and job callbacks. Shown
 // in Settings → Automations and on the record they're about, each cancellable by its person,
-// whoever set it up, or an owner, so what's going to run is always visible.
+// whoever set it up, or anyone whose roles can change agents, so what's going to run is always visible.
 
 type Wakeup = FunctionReturnType<typeof api.wakeups.list>[number];
 

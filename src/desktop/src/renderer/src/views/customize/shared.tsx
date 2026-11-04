@@ -189,7 +189,7 @@ export function MadeItemDetail<T>({
 	tab: MadeTab;
 	name: string;
 	createdByName: string | null | undefined;
-	/** From the server: the maker or an owner. */
+	/** From the server: whether one of your roles can change it (personal automations: only their maker). */
 	canEdit: boolean;
 	custom: { version: number; updatedByName: string; updatedAt: number };
 	/** Set while it's in Trash. */

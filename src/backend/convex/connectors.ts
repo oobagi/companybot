@@ -2,9 +2,9 @@ import {
 	type Connector,
 	type ConnectorState,
 	can,
+	canUseConnector,
 	findConnector,
 	connectorCatalog,
-	connectorRoles,
 	startSignIn,
 	validateCredentials,
 } from "@companybot/core";
@@ -15,11 +15,11 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
 import { action, mutation, query } from "./functions";
 import { encrypt } from "./crypto";
-import { type Member, checkPermission, getMember, memberFor, memberOf, requireMember, requirePermission, sweepExpired } from "./lib";
+import { type Member, checkPermission, getMember, memberFor, memberOf, requireMember, requirePermission, rolesOf, sweepExpired } from "./lib";
 import { cascading, startCascade } from "./cascade";
-import { role } from "./schema";
+import { builtInId } from "./roles";
 
-// Install → choose roles → connect an account → agents granted "<connector>.*" use it.
+// Install → choose roles (owners always can) → connect an account → agents granted "<connector>.*" use it.
 // Credentials are encrypted in actions (crypto.ts) and only decrypted by the agent runner.
 
 function requireConnector(connectorId: string): Connector {
@@ -67,6 +67,7 @@ export const list = query({
 		const member = await getMember(ctx);
 		if (!member) return [];
 		const states = await connectorStates(ctx, member);
+		const memberRole = await builtInId(ctx, member.workspaceId, "member");
 		return Promise.all(
 			connectorCatalog.map(async (connector) => {
 				const state = states.find((s) => s.id === connector.id);
@@ -82,12 +83,13 @@ export const list = query({
 					// Labels only; nothing secret lives in the catalog.
 					auth: connector.auth,
 					installed: !!state,
-					roles: state?.roles ?? connectorRoles(connector),
-					canUse: !!state && state.roles.includes(member.role),
+					/** Ids of the roles allowed to use it; before it's installed, the ones that would be. */
+					roles: state?.roles ?? defaultRoles(connector, memberRole),
+					canUse: !!state && canUseConnector(member, state.roles),
 					connected: state?.connected ?? false,
 					error: connection?.error ?? null,
 					canConnect:
-						connector.connection === "workspace" ? can(member.role, "connectors.manage") : can(member.role, "connectors.connect"),
+						connector.connection === "workspace" ? can(member, "connectors.manage") : can(member, "connectors.connect"),
 				};
 			}),
 		);
@@ -106,7 +108,7 @@ export const setInstalled = mutation({
 			await ctx.db.insert("connectorInstalls", {
 				workspaceId: member.workspaceId,
 				connectorId,
-				roles: connectorRoles(connector),
+				roles: defaultRoles(connector, await builtInId(ctx, member.workspaceId, "member")),
 				installedBy: member.userId,
 			});
 		}
@@ -118,14 +120,22 @@ export const setInstalled = mutation({
 	},
 });
 
-/** Which roles may use an installed connector. Applies at once, including mid-reply. */
+/** Who may use a connector when it's installed: Member's people, unless it's for owners only. Owners always can. */
+const defaultRoles = (connector: Connector, memberRole: Id<"roles">): Id<"roles">[] => (connector.ownersOnly ? [] : [memberRole]);
+
+/** Which of the workspace's roles may use an installed connector. Owners always can. Applies at once, including mid-reply. */
 export const setRoles = mutation({
-	args: { connectorId: v.string(), roles: v.array(role) },
+	// COMPAT(0.1.0-alpha.10): alpha.9 apps send "owner" or "member"; narrow this to role ids and delete the mapping below.
+	args: { connectorId: v.string(), roles: v.array(v.union(v.id("roles"), v.literal("owner"), v.literal("member"))) },
 	handler: async (ctx, { connectorId, roles }) => {
 		const member = await requirePermission(ctx, "connectors.manage");
 		const install = await installOf(ctx, member.workspaceId, connectorId);
 		if (!install) throw new ConvexError("Install the connector first.");
-		await ctx.db.patch(install._id, { roles: [...new Set(roles)] });
+		const memberRole = await builtInId(ctx, member.workspaceId, "member");
+		const ids = roles.flatMap((r) => (r === "owner" ? [] : r === "member" ? [memberRole] : [r]));
+		const here = new Set((await rolesOf(ctx, member.workspaceId)).map((r) => r._id));
+		if (ids.some((id) => !here.has(id))) throw new ConvexError("Role not found.");
+		await ctx.db.patch(install._id, { roles: [...new Set(ids)] });
 	},
 });
 
@@ -237,7 +247,7 @@ async function requireConnectTarget(
 	const connector = requireConnector(connectorId);
 	const install = await installOf(ctx, member.workspaceId, connectorId);
 	if (!install) throw new ConvexError("Install the connector first.");
-	if (!install.roles.includes(member.role)) throw new ConvexError("Your role can't use this connector.");
+	if (!canUseConnector(member, install.roles)) throw new ConvexError("None of your roles can use this connector. Ask an owner.");
 	const permission = connector.connection === "workspace" ? "connectors.manage" : "connectors.connect";
 	checkPermission(member, permission);
 	if (bound && (bound.memberId !== member.id || bound.connectorInstallId !== install._id))
@@ -292,7 +302,7 @@ export const disconnect = mutation({
 // ---- Internal: used by the agent runner ----
 
 /**
- * The connectors one turn may load: installed, allowed for the person's role (read
+ * The connectors one turn may load: installed, allowed for one of the person's roles (read
  * fresh), and connected. Credentials stay encrypted until the runner needs them.
  */
 export const forTurn = internalQuery({
@@ -304,7 +314,7 @@ export const forTurn = internalQuery({
 		for (const connectorId of connectorIds) {
 			const connector = findConnector(connectorId);
 			const install = connector && (await installOf(ctx, member.workspaceId, connectorId));
-			if (!connector || !install || !install.roles.includes(member.role)) continue;
+			if (!connector || !install || !canUseConnector(member, install.roles)) continue;
 			if (connector.auth.type === "none") {
 				usable.push({ connectorId, installId: install._id, connectionId: null, credentials: null });
 				continue;

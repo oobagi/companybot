@@ -1,0 +1,223 @@
+import migrationsTest from "@convex-dev/migrations/test";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { api, internal } from "../convex/_generated/api";
+import type { Id } from "../convex/_generated/dataModel";
+import { type As, agentTurn, agentsOf, newTest, ownerAndMember, signIn } from "./helpers";
+
+type Person = As & { userId: Id<"users"> };
+import "./connectorFixtures";
+
+afterEach(() => void vi.useRealTimers());
+
+/** Owner, member, and the workspace's roles by name. */
+async function setup() {
+	const ctx = await ownerAndMember();
+	const roles = async () => (await ctx.owner.query(api.roles.list))!;
+	const id = async (name: string) => (await roles()).find((r) => r.name === name)!.id;
+	const membership = async (as: Person) => (await ctx.owner.query(api.workspace.team))!.members.find((m) => m.userId === as.userId)!;
+	return { ...ctx, roles, id, membership };
+}
+
+describe("roles", () => {
+	it("gives Owner and Member to every workspace, and new roles only from owners", async () => {
+		const { owner, member, roles } = await setup();
+		expect((await roles()).map((r) => [r.name, r.builtIn, r.people])).toEqual([
+			["Owner", "owner", 1],
+			["Member", "member", 1],
+		]);
+		await expect(member.mutation(api.roles.create, { name: "Office" })).rejects.toThrow("Only people with the Owner role can change roles.");
+		await owner.mutation(api.roles.create, { name: " Office " });
+		await expect(owner.mutation(api.roles.create, { name: "office" })).rejects.toThrow("already a role called office");
+		expect((await member.query(api.roles.list))!.map((r) => r.name)).toEqual(["Owner", "Member", "Office"]);
+	});
+
+	it("gives someone every switch any of their roles has", async () => {
+		const { owner, member, id, membership } = await setup();
+		const office = await owner.mutation(api.roles.create, { name: "Office" });
+		await owner.mutation(api.roles.setPermission, { id: office, permission: "usage.view", on: true });
+		expect((await member.query(api.workspace.me))!.access).toMatchObject({ owner: false });
+		expect((await member.query(api.workspace.me))!.access!.permissions).not.toContain("usage.view");
+		await owner.mutation(api.workspace.setRoles, { id: (await membership(member)).id, roles: [await id("Member"), office] });
+		const { access } = (await member.query(api.workspace.me))!;
+		expect(access!.permissions).toEqual(expect.arrayContaining(["usage.view", "records.edit", "skills.edit"]));
+		expect((await member.query(api.usage.report, {}))!.scope).toBe("workspace");
+		// Member alone is the default for new people: it has no say over the workspace.
+		await owner.mutation(api.roles.setPermission, { id: office, permission: "usage.view", on: false });
+		expect((await member.query(api.usage.report, {}))!.scope).toBe("mine");
+	});
+
+	it("refuses a member without the switch, naming the roles that have it", async () => {
+		const { owner, member } = await setup();
+		await expect(member.mutation(api.workspace.updateSettings, { name: "X", expectedVersion: 1 })).rejects.toThrow(
+			"Only people with the Owner role can change workspace settings. Ask someone who has it.",
+		);
+		const office = await owner.mutation(api.roles.create, { name: "Office" });
+		await owner.mutation(api.roles.setPermission, { id: office, permission: "workspace.manage", on: true });
+		await expect(member.mutation(api.workspace.updateSettings, { name: "X", expectedVersion: 1 })).rejects.toThrow(
+			"Only people with the Office or Owner role can change workspace settings. Ask someone who has one of them.",
+		);
+	});
+
+	it("keeps Owner as it is, and Member as the default that can't be deleted", async () => {
+		const { owner, id } = await setup();
+		const ownerRole = await id("Owner");
+		await expect(owner.mutation(api.roles.rename, { id: ownerRole, name: "Boss" })).rejects.toThrow("can't be changed");
+		await expect(owner.mutation(api.roles.setPermission, { id: ownerRole, permission: "records.edit", on: false })).rejects.toThrow("can't be changed");
+		await expect(owner.mutation(api.roles.remove, { id: ownerRole })).rejects.toThrow("can't be changed");
+		await owner.mutation(api.roles.rename, { id: await id("Member"), name: "Crew" });
+		await expect(owner.mutation(api.roles.remove, { id: await id("Crew") })).rejects.toThrow("can't be deleted");
+		await expect(owner.mutation(api.roles.setPermission, { id: await id("Crew"), permission: "workspace.delete", on: true })).rejects.toThrow("isn't a switch");
+	});
+
+	it("never takes Owner from the last owner, and only owners give or take it", async () => {
+		const { t, owner, member, id, membership } = await setup();
+		const [ownerRole, memberRole] = [await id("Owner"), await id("Member")];
+		const me = await membership(owner);
+		await expect(owner.mutation(api.workspace.setRoles, { id: me.id, roles: [memberRole] })).rejects.toThrow("at least one owner");
+		await expect(owner.mutation(api.workspace.leave, {})).rejects.toThrow("only owner");
+		// Someone who manages members can't make anyone an owner, or touch an owner.
+		const admins = await owner.mutation(api.roles.create, { name: "Admins" });
+		await owner.mutation(api.roles.setPermission, { id: admins, permission: "members.manage", on: true });
+		const them = await membership(member);
+		await owner.mutation(api.workspace.setRoles, { id: them.id, roles: [memberRole, admins] });
+		await expect(member.mutation(api.workspace.setRoles, { id: them.id, roles: [ownerRole] })).rejects.toThrow("Only owners can make someone an owner.");
+		await expect(member.mutation(api.workspace.setRoles, { id: me.id, roles: [memberRole] })).rejects.toThrow("Only owners can change an owner's roles.");
+		await expect(member.mutation(api.workspace.removeMember, { id: me.id })).rejects.toThrow("Only owners can remove an owner.");
+		await expect(member.mutation(api.workspace.invite, { email: "boss@co.com", roles: [ownerRole] })).rejects.toThrow("Only owners can make someone an owner.");
+		await member.mutation(api.workspace.invite, { email: "crew@co.com", roles: [admins] });
+		expect((await membership(owner)).roles).toEqual([ownerRole]);
+		// With a second owner, the first can step down.
+		await owner.mutation(api.workspace.setRoles, { id: them.id, roles: [ownerRole] });
+		await owner.mutation(api.workspace.setRoles, { id: me.id, roles: [memberRole] });
+		expect((await owner.query(api.workspace.me))!.access).toMatchObject({ owner: false });
+		await expect(member.mutation(api.workspace.setRoles, { id: them.id, roles: [] })).rejects.toThrow("Pick at least one role.");
+		const crew = await signIn(t, "crew@co.com");
+		expect((await crew.query(api.workspace.me))!.access!.roles).toEqual([admins]);
+	});
+
+	it("moves people and invites off a deleted role, to Member if it was their only one, and stops connectors allowing it", async () => {
+		const { owner, member, id, membership } = await setup();
+		const [office, crew] = [await owner.mutation(api.roles.create, { name: "Office" }), await owner.mutation(api.roles.create, { name: "Crew" })];
+		const them = await membership(member);
+		await owner.mutation(api.workspace.setRoles, { id: them.id, roles: [office] });
+		await owner.mutation(api.workspace.setRoles, { id: (await membership(owner)).id, roles: [await id("Owner"), office, crew] });
+		await owner.mutation(api.workspace.invite, { email: "new@co.com", roles: [office] });
+		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
+		await owner.mutation(api.connectors.setRoles, { connectorId: "crm", roles: [office, crew] });
+		await owner.mutation(api.roles.remove, { id: office });
+		expect((await membership(member)).roles).toEqual([await id("Member")]);
+		expect((await membership(owner)).roles).toEqual([await id("Owner"), crew]);
+		expect((await owner.query(api.workspace.team))!.invites[0]!.roles).toEqual([await id("Member")]);
+		expect((await owner.query(api.connectors.list)).find((c) => c.id === "crm")!.roles).toEqual([crew]);
+		expect((await owner.query(api.roles.list))!.map((r) => r.name)).toEqual(["Owner", "Member", "Crew"]);
+	});
+
+	it("lets connectors be used by the roles picked for them; owners always", async () => {
+		const { t, owner, member, id, membership } = await setup();
+		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
+		await owner.action(api.connectors.connect, { connectorId: "crm", credentials: { type: "api_key", key: "k" } });
+		const workspaceId = (await owner.query(api.workspace.me))!.workspaceId!;
+		const usable = (as: Person) => t.query(internal.connectors.forTurn, { userId: as.userId, workspaceId, connectorIds: ["crm"] });
+		const canUse = async (as: As) => (await as.query(api.connectors.list)).find((c) => c.id === "crm")!.canUse;
+		expect((await owner.query(api.connectors.list)).find((c) => c.id === "crm")!.roles).toEqual([await id("Member")]);
+		const office = await owner.mutation(api.roles.create, { name: "Office" });
+		await owner.mutation(api.connectors.setRoles, { connectorId: "crm", roles: [office] });
+		expect([await canUse(member), await usable(member)]).toEqual([false, []]);
+		expect(await canUse(owner)).toBe(true);
+		expect(await usable(owner)).toHaveLength(1);
+		await owner.mutation(api.workspace.setRoles, { id: (await membership(member)).id, roles: [await id("Member"), office] });
+		expect(await canUse(member)).toBe(true);
+		expect(await usable(member)).toHaveLength(1);
+		const elsewhere = await newTest().run(async (ctx) => ctx.db.insert("roles", { workspaceId: (await ctx.db.insert("workspaces", { name: "x", version: 1 })), name: "x", permissions: [] }));
+		await expect(owner.mutation(api.connectors.setRoles, { connectorId: "crm", roles: [elsewhere as Id<"roles">] })).rejects.toThrow();
+	});
+
+	it("tells the agent which roles can, when the person it acts for can't", async () => {
+		const { t, owner, member, id } = await setup();
+		const office = await owner.mutation(api.roles.create, { name: "Office" });
+		await owner.mutation(api.roles.setPermission, { id: office, permission: "fields.edit", on: true });
+		await owner.mutation(api.roles.setPermission, { id: await id("Member"), permission: "fields.edit", on: false });
+		const { companybot } = await agentsOf(member);
+		const dm = (as: As) => as.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
+		const turnId = await agentTurn(t, member, await dm(member), companybot._id);
+		expect(await t.query(internal.permissions.check, { turnId, action: "records.save_database", risk: "inside" })).toEqual({
+			decision: {
+				type: "deny",
+				by: "role",
+				message: "Only people with the Office or Owner role can add and change databases and fields. Ask someone who has one of them.",
+			},
+		});
+		// The same refusal comes back from the call itself, whatever path it takes.
+		expect(await t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input: { name: "Deals 2" } })).toEqual({
+			error: "Only people with the Office or Owner role can add and change databases and fields. Ask someone who has one of them.",
+		});
+		const ownerTurn = await agentTurn(t, owner, await dm(owner), companybot._id);
+		expect((await t.query(internal.permissions.check, { turnId: ownerTurn, action: "records.save_database", risk: "inside" })).decision.type).toBe("run");
+	});
+
+	it("keeps older apps' owner/member calls working on top of roles", async () => {
+		const { owner, member, id, membership } = await setup();
+		expect(await member.query(api.workspace.me)).toMatchObject({ role: "member" });
+		const office = await owner.mutation(api.roles.create, { name: "Office" });
+		const them = await membership(member);
+		await owner.mutation(api.workspace.setRoles, { id: them.id, roles: [await id("Member"), office] });
+		await owner.mutation(api.workspace.setRole, { id: them.id, role: "owner" });
+		expect((await membership(member)).roles).toEqual([await id("Owner"), await id("Member"), office]);
+		expect(await member.query(api.workspace.me)).toMatchObject({ role: "owner" });
+		await owner.mutation(api.workspace.setRole, { id: them.id, role: "member" });
+		expect((await membership(member)).roles).toEqual([await id("Member"), office]);
+		await owner.mutation(api.workspace.invite, { email: "old@co.com", role: "owner" });
+		expect((await owner.query(api.workspace.team))!.invites).toMatchObject([{ email: "old@co.com", role: "owner", roles: [await id("Owner")] }]);
+		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
+		await owner.mutation(api.connectors.setRoles, { connectorId: "crm", roles: ["owner", "member"] });
+		expect((await owner.query(api.connectors.list)).find((c) => c.id === "crm")!.roles).toEqual([await id("Member")]);
+	});
+});
+
+describe("the custom roles migration", () => {
+	it("gives old workspaces Owner and Member, moves people, invites and connectors to them, and clears the old field", async () => {
+		const t = newTest();
+		migrationsTest.register(t);
+		const { workspaceId, ownerId, memberId } = await t.run(async (ctx) => {
+			const workspaceId = await ctx.db.insert("workspaces", { name: "Old Co", version: 1 });
+			const ownerId = await ctx.db.insert("users", { email: "owner@old.co" });
+			const memberId = await ctx.db.insert("users", { email: "member@old.co" });
+			await ctx.db.insert("members", { workspaceId, userId: ownerId, role: "owner", email: "owner@old.co" });
+			await ctx.db.insert("members", { workspaceId, userId: memberId, role: "member", email: "member@old.co" });
+			await ctx.db.insert("invites", { workspaceId, email: "next@old.co", role: "owner", invitedBy: ownerId });
+			await ctx.db.insert("connectorInstalls", { workspaceId, connectorId: "crm", roles: ["owner", "member"], installedBy: ownerId });
+			await ctx.db.insert("connectorInstalls", { workspaceId, connectorId: "notes", roles: ["owner"], installedBy: ownerId });
+			return { workspaceId, ownerId, memberId };
+		});
+		vi.useFakeTimers();
+		try {
+			await t.mutation(internal.migrations.runAll);
+			await t.finishAllScheduledFunctions(vi.runAllTimers);
+			// Safe to run again: nothing changes.
+			await t.mutation(internal.migrations.runAll);
+			await t.finishAllScheduledFunctions(vi.runAllTimers);
+		} finally {
+			vi.useRealTimers();
+		}
+		const after = await t.run(async (ctx) => ({
+			roles: await ctx.db.query("roles").collect(),
+			members: await ctx.db.query("members").collect(),
+			invites: await ctx.db.query("invites").collect(),
+			installs: await ctx.db.query("connectorInstalls").collect(),
+		}));
+		const role = (which: string) => after.roles.find((r) => r.builtIn === which)!._id;
+		expect(after.roles.map((r) => [r.workspaceId, r.name, r.builtIn])).toEqual([
+			[workspaceId, "Owner", "owner"],
+			[workspaceId, "Member", "member"],
+		]);
+		expect(after.members.map((m) => [m.userId, m.roles, m.role])).toEqual([
+			[ownerId, [role("owner")], undefined],
+			[memberId, [role("member")], undefined],
+		]);
+		expect(after.invites.map((i) => [i.roles, i.role])).toEqual([[[role("owner")], undefined]]);
+		expect(after.installs.map((i) => [i.connectorId, i.roles])).toEqual([
+			["crm", [role("member")]],
+			["notes", []],
+		]);
+	});
+});

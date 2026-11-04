@@ -31,7 +31,7 @@ export interface ImageStore {
 
 /** Why a workspace can't make a picture now, or null. `month` is "2026-10". */
 export function imageBudgetError(budgetUsd: number, spentUsd: number, month: string) {
-	const where = "an owner can change it in Settings → General ([General](#/settings/general))";
+	const where = "someone who can change workspace settings can change it in Settings → General ([General](#/settings/general))";
 	if (budgetUsd <= 0) return `Pictures are turned off in this workspace (its monthly image budget is $0); ${where}.`;
 	if (spentUsd >= budgetUsd) return `This workspace's image budget for ${monthLabel(month)} (${formatUsd(budgetUsd)}) is used up; ${where}.`;
 	return null;

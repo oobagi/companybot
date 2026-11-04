@@ -1,10 +1,10 @@
-import { canEditMade } from "@companybot/core";
+import { can } from "@companybot/core";
 import { v } from "convex/values";
 import { mutation, query } from "./functions";
-import { getMember, requireMember, toActor } from "./lib";
+import { getMember, requireMember } from "./lib";
 import { createType, fieldsOf, toField, typesOf, updateType } from "./recordOps";
 
-// Databases: the workspace's data model. Owners add types (`fields.manage`); fields
+// Databases: the workspace's data model. People with `fields.edit` add types; fields
 // are in fields.ts. See wiki/data.md.
 
 /** Every live type, oldest first, with its fields in order, ones in Archive last and marked `archived`. */
@@ -13,7 +13,6 @@ export const list = query({
 	handler: async (ctx) => {
 		const member = await getMember(ctx);
 		if (!member) return [];
-		const actor = toActor(member);
 		const types = (await typesOf(ctx, member.workspaceId)).filter((t) => !t.archived).sort((a, b) => a._creationTime - b._creationTime);
 		return Promise.all(
 			types.map(async (t) => {
@@ -28,7 +27,7 @@ export const list = query({
 						_id: f._id,
 						...toField(f),
 						archived: f.archived,
-						canEdit: canEditMade(actor, "fields.manage", f.createdBy),
+						canEdit: can(member, "fields.edit"),
 					})),
 				};
 			}),

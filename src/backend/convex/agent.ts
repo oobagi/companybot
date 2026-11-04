@@ -255,7 +255,7 @@ async function streamReply(
 	const available = [...builtinTools, ...connectorTools];
 	const services = connectors.sessions.map((s) => s.connector);
 	const toolCtx: ToolContext = {
-		actor: { userId: member.userId, role: member.role },
+		actor: { userId: member.userId, roles: member.roles, owner: member.owner, permissions: member.permissions },
 		timeZone: turn.actor.timeZone,
 		agentId: agent.id,
 		memory: memoryStore(ctx, turnId),
@@ -290,7 +290,7 @@ async function streamReply(
 		connectors.sessions.map((s) => ({ ...s.connector, instructions: s.instructions })),
 	);
 	/** What this person can run now; calls that ask are held (approvals.ts). */
-	const usable = resolveTools(agent, toolCtx.actor, available);
+	const usable = resolveTools(agent, available);
 	// Each call is decided from the rules in force right then (permissions.check), never cached.
 	// Remembered per call so the activity log says how it was allowed, or why it was blocked.
 	const allowedCalls = new Map<string, FunctionReturnType<typeof internal.permissions.check>["allowed"] & {}>();
@@ -300,7 +300,7 @@ async function streamReply(
 	const check = async (t: ToolDef, callId: string) => {
 		const { decision, allowed } = await ctx.runQuery(internal.permissions.check, { turnId, action: t.id, risk: toolRisk(t) });
 		if (allowed) allowedCalls.set(callId, allowed);
-		if (decision.type === "deny") deniedCalls.set(callId, deniedReason(decision.by, t.id));
+		if (decision.type === "deny") deniedCalls.set(callId, deniedReason(decision, t.id));
 		if (decision.type === "ask" && decision.waitFor) heldCalls.add(callId);
 		return decision;
 	};

@@ -2,7 +2,7 @@ import {
 	type AgentConfig,
 	blankAgent,
 	builtinTools,
-	canUseTool,
+	permissions,
 	defaultAgents,
 	describeToolAccess,
 	defaultModel,
@@ -108,7 +108,8 @@ export const options = query({
 			connector: false,
 			tools: builtinTools
 				.filter((t) => toolGroup(t.id) === group)
-				.map((t) => ({ id: t.id, description: t.description, ownersOnly: !canUseTool("member", t) })),
+				// What a role needs for the agent to use it for someone (permissions.ts label), or null for everyone.
+				.map((t) => ({ id: t.id, description: t.description, needs: t.permission ? permissions[t.permission].label : null })),
 		}));
 		const installed = member ? await connectorStates(ctx, member) : [];
 		const connectors = installed.flatMap((state) => {

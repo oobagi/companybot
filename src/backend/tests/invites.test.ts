@@ -17,7 +17,7 @@ describe("invites", () => {
 		await owner.mutation(api.workspace.invite, { email: "Pal@Co.com", role: "member" });
 		expect((await sent(t)).map((e) => e.email)).toEqual(["member@co.com", "pal@co.com"]);
 		const invite = (await owner.query(api.workspace.team))!.invites[0]!;
-		await expect(member.mutation(api.workspace.resendInvite, { id: invite.id })).rejects.toThrow("permission");
+		await expect(member.mutation(api.workspace.resendInvite, { id: invite.id })).rejects.toThrow("Only people with the");
 
 		// The same address can't be emailed again right away.
 		await expect(owner.mutation(api.workspace.resendInvite, { id: invite.id })).rejects.toThrow("a moment ago");

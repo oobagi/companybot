@@ -129,6 +129,10 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		keep: "Invites are for an email, not an account: they outlive the person who sent them.",
 	},
 	inviteEmails: { workspace: { index: "by_workspace", eq: ["workspaceId"] } },
+	roles: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		keep: "Roles belong to the workspace, not to whoever made them or holds them. Deleting one moves its people off first (roles.remove).",
+	},
 	// Uploads not yet attached to anything (images.ts); unclaimed ones also go after a day (images.sweepUploads).
 	uploads: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },

@@ -196,22 +196,22 @@ async function visibleTo(ctx: QueryCtx, member: Member, row: Doc<"wakeups">) {
 	return !!chat && !chat.archived && (await canSee(ctx, chat, member));
 }
 
-/** Its person, whoever set it up, or an owner (`automations.manage`). */
+/** Its person, whoever set it up, or someone who oversees agents (`agents.manage`). */
 const canCancel = (member: Member, row: Doc<"wakeups">) =>
-	row.actorId === member.userId || row.createdBy === member.userId || can(member, "automations.manage");
+	row.actorId === member.userId || row.createdBy === member.userId || can(member, "agents.manage");
 
 async function requireCancellable(ctx: QueryCtx, member: Member, id: string) {
 	const wakeupId = ctx.db.normalizeId("wakeups", id);
 	const row = wakeupId && (await ctx.db.get(wakeupId));
 	if (!row || row.workspaceId !== member.workspaceId || row.status !== "pending") throw new ConvexError("No pending follow-up with that id.");
-	// Owners cancel ones they can't see too: Settings lists them without their note.
-	if (!canCancel(member, row) || (!can(member, "automations.manage") && !(await visibleTo(ctx, member, row))))
-		throw new ConvexError("Only its person, whoever set it up, or an owner can cancel it.");
+	// People who oversee agents cancel ones they can't see too: Settings lists them without their note.
+	if (!canCancel(member, row) || (!can(member, "agents.manage") && !(await visibleTo(ctx, member, row))))
+		throw new ConvexError("Only its person, whoever set it up, or someone who can change agents can cancel it.");
 	return row;
 }
 
 /**
- * Pending wakeups, soonest first: ones in chats `member` can see, and for owners the rest too,
+ * Pending wakeups, soonest first: ones in chats `member` can see, and for people who can change agents the rest too,
  * without their note, so what's running is always visible and can be stopped.
  */
 async function pendingFor(ctx: QueryCtx, member: Member, recordId?: Id<"records">) {
@@ -228,7 +228,7 @@ async function pendingFor(ctx: QueryCtx, member: Member, recordId?: Id<"records"
 	for (const row of rows) {
 		if (row.workspaceId !== member.workspaceId) continue;
 		const visible = await visibleTo(ctx, member, row);
-		if (visible || can(member, "automations.manage")) out.push({ row, visible });
+		if (visible || can(member, "agents.manage")) out.push({ row, visible });
 	}
 	return out.sort((a, b) => (a.row.at ?? Infinity) - (b.row.at ?? Infinity));
 }

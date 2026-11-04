@@ -1,7 +1,7 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Select } from "../controls";
 import type { MemoryScope } from "@companybot/core/memory";
-import { type Role, can } from "@companybot/core/permissions";
+import { type Access, can } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { agentLabel, agentOptions } from "../agent-options";
@@ -15,7 +15,7 @@ import { archiveQuestion, useConfirm } from "./chat/common";
 type MemoryItem = FunctionReturnType<typeof api.memory.list>[number];
 type Agent = { _id: Id<"agents">; name: string; archived: boolean };
 
-export function MemoryTab({ role }: { role: Role }) {
+export function MemoryTab({ access }: { access: Access }) {
 	const memories = useQuery(api.memory.list);
 	const agents = useQuery(api.agents.list);
 	const settings = useQuery(api.workspace.settings);
@@ -41,7 +41,7 @@ export function MemoryTab({ role }: { role: Role }) {
 			<Notice>{error}</Notice>
 			<AddMemory
 				agents={agents.filter((a) => !a.archived)}
-				canAddTeam={can(role, "memory.team.write")}
+				canAddTeam={can(access, "memory.team.write")}
 				onAdd={(agentId, scope, content) => run(create({ agentId, scope, content }))}
 			/>
 			<div className={toolbarClass}>

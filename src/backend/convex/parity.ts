@@ -89,6 +89,11 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"workspace.cancelInvite": { agent: ["members.invite:cancel"] },
 	"workspace.removeMember": { agent: ["members.remove:remove"] },
 	"workspace.setRole": { humanOnly: "Direct owner changes security authority, including their own effective role." },
+	"workspace.setRoles": { humanOnly: "Giving or taking roles changes who can do what, including the person's own access: a direct person decides." },
+	"roles.create": { humanOnly: "Owners shape who can do what in the workspace; a direct owner decision." },
+	"roles.rename": { humanOnly: "Owners shape who can do what in the workspace; a direct owner decision." },
+	"roles.setPermission": { humanOnly: "Turning a switch on or off changes what everyone with the role can do; a direct owner decision." },
+	"roles.remove": { humanOnly: "Deleting a role takes access from everyone who holds it; a direct owner decision." },
 	"workspace.updateSettings": { agent: ["workspace.settings:update"] },
 };
 

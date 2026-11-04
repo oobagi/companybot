@@ -1,7 +1,7 @@
 import { viewConfig } from "./recordValidators";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
-import { fieldKinds, fileTypes, reasonings, replyModes, risks, roles, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
+import { builtInRoles, fieldKinds, fileTypes, permissions, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
 import { v } from "convex/values";
 
 /** One of `values`, each a literal. */
@@ -9,7 +9,11 @@ const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map(
 
 export const notify = v.union(v.literal("all"), v.literal("mentions"), v.literal("off"));
 
-export const role = oneOf(roles);
+// Retired: one of "owner" or "member" per person, before roles were workspace data. migrations.customRoles moves them.
+// COMPAT(0.1.0-alpha.10): once that has run on prod, drop the fields that use it, then this.
+const legacyRole = v.union(v.literal("owner"), v.literal("member"));
+
+export const permission = oneOf(Object.keys(permissions) as (keyof typeof permissions)[]);
 
 export const wakeOutcome = oneOf(wakeOutcomes);
 
@@ -231,10 +235,24 @@ export default defineSchema({
 		image: v.optional(v.id("_storage")),
 	}),
 
+	// A workspace's roles (core permissions.ts). Owner and Member are built in: Owner has every
+	// permission and can't change; Member is what new people get. Owners make the rest.
+	roles: defineTable({
+		workspaceId: v.id("workspaces"),
+		name: v.string(),
+		/** Its switches. Ignored for Owner, which has every permission. */
+		permissions: v.array(permission),
+		builtIn: v.optional(oneOf(builtInRoles)),
+	}).index("by_workspace", ["workspaceId"]),
+
 	members: defineTable({
 		workspaceId: v.id("workspaces"),
 		userId: v.id("users"),
-		role,
+		/** Their roles; they get every switch any of them has. Every row has at least one once migrations.customRoles ran; optional only until then. */
+		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, make this required.
+		roles: v.optional(v.array(v.id("roles"))),
+		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, drop this field. Nothing reads it.
+		role: v.optional(legacyRole),
 		/** Normalized for bounded invitation checks. Every row has it; optional only in the type. */
 		email: v.optional(v.string()),
 		/** The tutorial above the composer (onboarding.ts): steps done, or hidden. Unset for people who joined before it: they get none. */
@@ -242,14 +260,17 @@ export default defineSchema({
 	})
 		.index("by_user", ["userId", "workspaceId"])
 		.index("by_workspace", ["workspaceId"])
-		.index("by_role", ["workspaceId", "role"])
 		.index("by_email", ["workspaceId", "email"]),
 
 	// One per email per workspace. Only someone signed in with that email can accept it.
 	invites: defineTable({
 		workspaceId: v.id("workspaces"),
 		email: v.string(),
-		role,
+		/** What they'll have when they join. Every row has some once migrations.customRoles ran. */
+		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, make this required.
+		roles: v.optional(v.array(v.id("roles"))),
+		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, drop this field. Nothing reads it.
+		role: v.optional(legacyRole),
 		/** Missing on invites from before invite emails. */
 		invitedBy: v.optional(v.id("users")),
 	})
@@ -360,11 +381,13 @@ export default defineSchema({
 		.index("by_workspace", ["workspaceId"])
 		.index("by_created", ["createdAt"]),
 
-	// Connectors: an owner installs one and picks which roles may use it.
+	// Connectors: an owner installs one and picks which roles may use it. Owners always can.
 	connectorInstalls: defineTable({
 		workspaceId: v.id("workspaces"),
 		connectorId: v.string(),
-		roles: v.array(role),
+		/** The roles that may use it. Owners always can. */
+		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, drop the legacy "owner"/"member" names.
+		roles: v.array(v.union(v.id("roles"), legacyRole)),
 		installedBy: v.id("users"),
 	}).index("by_workspace", ["workspaceId", "connectorId"]),
 
@@ -413,7 +436,7 @@ export default defineSchema({
 		custom: v.optional(
 			v.object({
 				name: v.string(),
-				/** Who made it; they can always edit it (`canEditMade`). Missing on skills owners made before members could. */
+				/** Who made it. Missing on skills owners made before members could. */
 				createdBy: v.optional(v.id("users")),
 				description: v.string(),
 				instructions: v.string(),

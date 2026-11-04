@@ -1,4 +1,4 @@
-import { type Role, can } from "@companybot/core/permissions";
+import { type Access, can } from "@companybot/core/permissions";
 import { Select } from "../controls";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
@@ -37,7 +37,7 @@ function pathOf(e: TrashRow): string[] | undefined {
 	if ((e.kind === "skill" || e.kind === "automation") && e.screenId) return ["settings", `${e.kind}s`, e.screenId];
 }
 
-export function TrashView({ role }: { role: Role }) {
+export function TrashView({ access }: { access: Access }) {
 	const [search, setSearch] = useState("");
 	const query = useDebounced(search);
 	const [kind, setKind] = useState<Kind | "">("");
@@ -47,7 +47,7 @@ export function TrashView({ role }: { role: Role }) {
 	const purge = useMutation(api.trash.purge);
 	const { error, run } = useRun();
 	const { confirm, dialog } = useConfirm();
-	const canPurge = can(role, "trash.manage");
+	const canPurge = can(access, "trash.manage");
 	return (
 		<Page title="Archive" description="Archived items are kept here until you restore them or explicitly delete them forever.">
 			<div className={toolbarClass}>

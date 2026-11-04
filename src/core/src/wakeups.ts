@@ -210,7 +210,7 @@ export const wakeupTools: ToolDef[] = [
 	defineTool({
 		id: "followups.cancel",
 		title: "Cancel a follow-up",
-		description: "Cancel a pending follow-up by id (from followups_list), so nothing runs. Its person, its maker or an owner can.",
+		description: "Cancel a pending follow-up by id (from followups_list), so nothing runs. Its person, whoever made it, or someone who can change agents can.",
 		input: z.object({ id: z.string() }),
 		execute: (input, { wakeups }) => wakeups.cancel(input),
 	}),

@@ -167,7 +167,7 @@ describe("approvals", () => {
 		const next = (await turnsOf(t)).at(-1)!;
 		expect(next).toMatchObject({ status: "running", approvalId, workspaceId: acme });
 		const context = await t.query(internal.turns.turnContext, { turnId: next._id });
-		expect(context.member).toMatchObject({ userId, workspaceId: acme, role: "member" });
+		expect(context.member).toMatchObject({ userId, workspaceId: acme, owner: false });
 		expect(await t.query(internal.connectors.forTurn, { userId, workspaceId: context.member.workspaceId, connectorIds: ["crm"] })).toHaveLength(1);
 		expect(await t.mutation(internal.approvals.claim, { approvalId, turnId: next._id })).toEqual(call);
 		expect(turn.workspaceId).toBe(acme);

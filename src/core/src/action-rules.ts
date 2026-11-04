@@ -43,7 +43,9 @@ export type PermissionDecision =
 	 * automation's run, where only this call waits and the rest of the run goes on.
 	 */
 	| { type: "ask"; canAlways: boolean; waitFor?: string }
-	| { type: "deny"; by: "owner" | "person" };
+	| { type: "deny"; by: "owner" | "person" }
+	/** The person's roles lack the tool's permission; `message` names the roles that have it (permissions.ts `deniedMessage`). */
+	| { type: "deny"; by: "role"; message: string };
 
 /**
  * Whether a call runs, asks, or is blocked. Strictest wins: an owner's lock beats a
@@ -76,10 +78,12 @@ export function permissionFor({
 }
 
 /** What the agent hears when a call is blocked. */
-export const deniedReason = (by: "owner" | "person", tool: string) =>
-	by === "owner"
-		? `A workspace owner blocked ${tool}, so it didn't run. Tell the person; don't try it again.`
-		: `The person you act for set ${tool} to Never, so it didn't run. Tell them; they can change it in Settings.`;
+export const deniedReason = (decision: Extract<PermissionDecision, { type: "deny" }>, tool: string) =>
+	decision.by === "role"
+		? `The person you act for can't do this, so ${tool} didn't run. ${decision.message} Tell them that; don't try it again.`
+		: decision.by === "owner"
+			? `A workspace owner blocked ${tool}, so it didn't run. Tell the person; don't try it again.`
+			: `The person you act for set ${tool} to Never, so it didn't run. Tell them; they can change it in Settings.`;
 
 /** What the agent hears when a call in an automation's run waits for the person while the run goes on. */
 export const heldReason = (person: string, tool: string) =>

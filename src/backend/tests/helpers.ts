@@ -3,10 +3,13 @@ import prosemirrorSync from "@convex-dev/prosemirror-sync/test";
 import { convexTest } from "convex-test";
 import type { FunctionArgs } from "convex/server";
 import { vi } from "vitest";
-import { publishes } from "@companybot/core";
+import { type Permission, publishes } from "@companybot/core";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import schema from "../convex/schema";
+import type { MutationCtx } from "../convex/_generated/server";
+import { rolesOf } from "../convex/lib";
+import { seedRoles } from "../convex/roles";
 import { person } from "./person";
 
 export const modules = import.meta.glob(["../convex/**/*.ts", "../convex/_generated/*.js"]);
@@ -47,7 +50,7 @@ export async function sideWorkspace(t: ReturnType<typeof convexTest>, email: str
 	return t.run(async (ctx) => {
 		const userId = (await ctx.db.query("users").collect()).find((u) => u.email === email)!._id;
 		const workspaceId = await ctx.db.insert("workspaces", { name, version: 1 });
-		await ctx.db.insert("members", { workspaceId, userId, role: "owner", email: email.trim().toLowerCase() });
+		await addMember(ctx, { workspaceId, userId, role: "owner", email: email.trim().toLowerCase() });
 		return { userId, workspaceId };
 	});
 }
@@ -119,4 +122,21 @@ export async function settle(t: ReturnType<typeof convexTest>) {
 	} finally {
 		if (!fake) vi.useRealTimers();
 	}
+}
+
+/** One of a workspace's built-in roles, seeding Owner and Member first if it has no roles (a bare test workspace). */
+export async function builtInRoleIn(ctx: MutationCtx, workspaceId: Id<"workspaces">, which: "owner" | "member") {
+	if ((await rolesOf(ctx, workspaceId)).length === 0) await seedRoles(ctx, workspaceId);
+	return (await rolesOf(ctx, workspaceId)).find((r) => r.builtIn === which)!._id;
+}
+
+/** A membership row holding one built-in role. */
+export async function addMember(ctx: MutationCtx, { role, ...row }: { workspaceId: Id<"workspaces">; userId: Id<"users">; role: "owner" | "member"; email?: string }) {
+	return ctx.db.insert("members", { ...row, roles: [await builtInRoleIn(ctx, row.workspaceId, role)] });
+}
+
+/** Turns one of the Member role's switches on or off, as an owner (roles.setPermission). */
+export async function setMemberSwitch(owner: As, permission: Permission, on: boolean) {
+	const member = (await owner.query(api.roles.list))!.find((r) => r.builtIn === "member")!;
+	await owner.mutation(api.roles.setPermission, { id: member.id, permission, on });
 }

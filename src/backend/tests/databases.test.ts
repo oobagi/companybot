@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import { childrenOf } from "../convex/lifecycle";
-import { agentTurn, agentsOf, generalOf, ownerAndMember, settle, signIn } from "./helpers";
+import { agentTurn, agentsOf, generalOf, ownerAndMember, settle, signIn, builtInRoleIn, setMemberSwitch } from "./helpers";
 
 afterEach(() => vi.useRealTimers());
 const page = { numItems: 20, cursor: null };
@@ -9,11 +9,12 @@ const config = { name: "By name", filters: [], columns: ["name"], sort: { field:
 
 it("owners create, rename and archive databases with stable keys and Activity history", async () => {
 	const { owner, member } = await ownerAndMember();
+	await setMemberSwitch(owner, "fields.edit", false);
 	const id = await owner.mutation(api.recordTypes.create, { plural: " Jobs " });
 	let database = (await member.query(api.recordTypes.list)).find((t) => t._id === id)!;
 	expect(database).toMatchObject({ key: "job", name: "Job", plural: "Jobs", version: 0 });
-	await expect(member.mutation(api.recordTypes.update, { typeId: id, version: 0, name: "Work", plural: "Works" })).rejects.toThrow("permission");
-	await expect(member.mutation(api.trash.move, { kind: "database", id })).rejects.toThrow("permission");
+	await expect(member.mutation(api.recordTypes.update, { typeId: id, version: 0, name: "Work", plural: "Works" })).rejects.toThrow("Only people with the");
+	await expect(member.mutation(api.trash.move, { kind: "database", id })).rejects.toThrow("Only people with the");
 	await owner.mutation(api.recordTypes.update, { typeId: id, version: 0, name: "Project", plural: "Projects" });
 	await expect(owner.mutation(api.recordTypes.update, { typeId: id, version: 0, plural: "Stale" })).rejects.toThrow("conflict");
 	database = (await owner.query(api.recordTypes.list)).find((t) => t._id === id)!;
@@ -134,11 +135,12 @@ it("gives agents database and view parity, names both actors, and rechecks roles
 	const history = await member.query(api.records.activity, { paginationOpts: page });
 	expect(history.page).toHaveLength(6);
 	for (const entry of history.page) expect(entry).toMatchObject({ user: "owner@co.com", agent: "Companybot" });
+	await setMemberSwitch(owner, "fields.edit", false);
 	await t.run(async (ctx) => {
 		const membership = await ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", owner.userId)).first();
-		await ctx.db.patch(membership!._id, { role: "member" });
+		await ctx.db.patch(membership!._id, { roles: [await builtInRoleIn(ctx, membership!.workspaceId, "member")] });
 	});
-	expect(await t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input: { name: "Others" } })).toEqual({ error: expect.stringContaining("permission") });
+	expect(await t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input: { name: "Others" } })).toEqual({ error: expect.stringContaining("Only people with the Owner role") });
 	const mine = await t.mutation(internal.recordTools.saveViewFor, { turnId, input: { type: "Deals", name: "My won deals", filters: [{ field: "Stage", in: ["Won"] }, { field: "Owner", eq: "me" }] } });
 	expect(mine).toMatchObject({ filters: [{ field: "stage", in: ["won"] }, { field: "owner", eq: owner.userId }] });
 });

@@ -1,5 +1,4 @@
 import type { OAuthState } from "./oauth";
-import type { Role } from "./types";
 
 /**
  * A connector connects the workspace to an outside service (Gmail, Calendar, …)
@@ -25,8 +24,8 @@ export interface Connector {
 	 */
 	connection: "workspace" | "personal";
 	auth: ConnectorAuth;
-	/** Roles that may use it by default. Owners can change this per workspace. */
-	defaultRoles?: Role[];
+	/** Only owners may use it until they allow other roles. Unset: the Member role may too. */
+	ownersOnly?: boolean;
 }
 
 export type ConnectorAuth =
@@ -70,5 +69,3 @@ export function connectorHeaders(connector: Connector, credentials: ConnectorCre
 	return {};
 }
 
-/** Roles that may use a connector in a workspace: the owner's choice, else the connector default, else everyone. */
-export const connectorRoles = (connector: Connector, chosen?: Role[]): Role[] => chosen ?? connector.defaultRoles ?? ["owner", "member"];
