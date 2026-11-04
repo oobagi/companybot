@@ -10,7 +10,7 @@ import { canSee, chatByRef, namer, requireChat, setChannelTrashed } from "./chat
 import { addChannelMembers, markReadAs, createChannelAs, joinChannel, leaveChannel, openDirectMessage, removeChannelMember, updateChannelAs } from "./chats";
 import { setImage } from "./images";
 import { canSeeSkill, accessOf, asToolResult, checkPermission, type Member, nameOf, rolesOf, normalizeEmail, preferencesOf, requireAgent, skillOf, timeZoneOf } from "./lib";
-import { editMessage, hideMessagePreview, removeMessage, reactMessage, sendMessage } from "./messages";
+import { editMessage, hideMessagePreview, removeMessage, sendMessage } from "./messages";
 import { catalogModels } from "./modelCatalog";
 import { chatAccess } from "./placeAccess";
 import { updatePreferences } from "./preferences";
@@ -96,11 +96,10 @@ export const runFor = internalMutation({
 						await markReadAs(ctx, member, await chatId(ctx, member, r.chat));
 						return { done: r.action };
 					}
-					if (r.action === "edit" || r.action === "delete" || r.action === "react" || r.action === "hide_preview") {
+					if (r.action === "edit" || r.action === "delete" || r.action === "hide_preview") {
 						const id = rowId(ctx, "chatMessages", r.messageId);
 						if (r.action === "edit") await editMessage(ctx, who, id, r.text);
 						if (r.action === "delete") await removeMessage(ctx, who, id);
-						if (r.action === "react") await reactMessage(ctx, who, id, r.emoji);
 						if (r.action === "hide_preview") await hideMessagePreview(ctx, who, id, r.url);
 						return { done: r.action, messageId: id };
 					}

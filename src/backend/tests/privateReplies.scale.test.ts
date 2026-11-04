@@ -40,8 +40,10 @@ it("reacts, edits a topic and adds a member in a 300-person private chat with th
 	const turn = (await t.run((ctx) => ctx.db.get("agentTurns", turnId)))!;
 	await t.run((ctx) => ctx.db.patch(turn.replyId!, { usedPlaces: sources }));
 	const call = (tool: string, request: object) => t.mutation(internal.manageTools.runFor, { turnId, tool, input: { request } });
-	expect(await call("chat.manage", { action: "react", messageId: target, emoji: "✅" })).not.toHaveProperty("error");
+	await t.run((ctx) => ctx.db.patch(turnId, { triggerId: target }));
 	expect(await call("channels.manage", { action: "set_topic", chat: chatId, topic: "Updated from the sources" })).not.toHaveProperty("error");
 	expect(await call("channels.manage", { action: "add_members", chat: chatId, userIds: [extra], agentIds: [] })).not.toHaveProperty("error");
+	await t.mutation(internal.turns.finishReply, { turnId, decision: { emoji: "✅", new_point: "", to: "room", message: "" } });
+	expect((await t.run((ctx) => ctx.db.get("agentTurns", turnId)))!.status).toBe("done");
 	expect((await owner.query(api.chats.get, { chatId }))!.topic).toBe("Updated from the sources");
 });

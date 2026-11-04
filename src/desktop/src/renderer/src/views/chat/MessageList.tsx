@@ -6,7 +6,7 @@ import { Markdown } from "../../markdown";
 import { Scroll } from "../../ui";
 import { dayLabel, sameDay } from "./common";
 import type { Message, TokenNames } from "./data";
-import { MessageRow } from "./Message";
+import { MessageRow, shows } from "./Message";
 
 /** Consecutive messages from one author within this window share a header. */
 const GROUP_MS = 5 * 60 * 1000;
@@ -82,7 +82,8 @@ export function MessageList({
 			<div ref={content} className="flex flex-1 flex-col justify-end py-4">
 				{intro}
 				{messages.map((m, i) => {
-					const prev = messages[i - 1];
+					// A reply still being written draws nothing yet, so the next message groups with the one above it.
+					const prev = messages.slice(0, i).findLast(shows);
 					const next = messages[i + 1];
 					const newDay = !prev || !sameDay(prev._creationTime, m._creationTime);
 					return (

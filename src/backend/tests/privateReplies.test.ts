@@ -13,6 +13,12 @@ import { canReadReply } from "../convex/replyPrivacy";
 import { KEEP_TOKENS } from "../convex/turns";
 import { agentsOf, agentTurn, generalOf, identityOf, noMentions, ownerAndMember, signIn, type As } from "./helpers";
 
+async function decideReaction(t: Awaited<ReturnType<typeof ownerAndMember>>["t"], turnId: Id<"agentTurns">, triggerId: Id<"chatMessages">, emoji: string) {
+	await t.run((ctx) => ctx.db.patch(turnId, { triggerId }));
+	await t.mutation(internal.turns.finishReply, { turnId, decision: { emoji, new_point: "", to: "room", message: "" } });
+	return (await t.run((ctx) => ctx.db.get("agentTurns", turnId)))!;
+}
+
 const SECRET = "Quartz contract: $91,000, margin 42%";
 beforeEach(() => void vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
@@ -198,6 +204,7 @@ describe("private agent replies", () => {
 		const id = await s.start(s.dana, dm);
 		await s.t.mutation(internal.recordTools.getFor, { turnId: id, id: s.deal });
 		const replyId = (await s.t.run((ctx) => ctx.db.get("agentTurns", id)))!.replyId!;
+		await s.t.mutation(internal.turns.updateReply, { turnId: id, text: SECRET, parts: [{ type: "text", text: SECRET }] });
 		expect((await s.dana.query(api.messages.list, { chatId: dm })).find((m) => m._id === replyId)!.privacy).toMatchObject({ hidden: false });
 		await s.owner.mutation(api.recordTypes.setAccess, { typeId: s.deals, access: [] });
 		expect((await s.dana.query(api.messages.list, { chatId: dm })).find((m) => m._id === replyId)!.privacy).toMatchObject({ hidden: true });
@@ -291,6 +298,7 @@ describe("private agent replies", () => {
 		await s.t.mutation(internal.turns.turnContext, { turnId });
 		const turn = (await s.t.run((ctx) => ctx.db.get("agentTurns", turnId)))!;
 		expect((await s.t.run((ctx) => ctx.db.get("chatMessages", turn.replyId!)))!.usedPlaces).toContain(room);
+		await s.t.mutation(internal.turns.updateReply, { turnId, text: "Checked.", parts: [{ type: "text", text: "Checked." }] });
 		expect((await s.dana.query(api.messages.list, { chatId: room })).find((m) => m._id === turn.replyId)!.privacy).toBeNull();
 		await expect(s.t.mutation(internal.memory.createFor, { turnId, scope: "workspace", content: "The team meets every Monday." })).rejects.toThrow("wider audience");
 	});
@@ -652,7 +660,8 @@ describe("private agent replies", () => {
 		const turnId = await s.start(s.owner, writer);
 		await s.t.mutation(internal.recordTools.getFor, { turnId, id: s.deal });
 		// Neither role alone reads the target; someone holding both reads it but cannot read Deals.
-		expect(await s.t.mutation(internal.manageTools.runFor, { turnId, tool: "chat.manage", input: { request: { action: "react", messageId: target, emoji: "✅" } } })).toMatchObject({ error: expect.stringContaining("Only Office and Owners") });
+		await decideReaction(s.t, turnId, target, "✅");
+		expect((await s.t.run(async (ctx) => ctx.db.get((await ctx.db.get("agentTurns", turnId))!.replyId!)))!.error).toContain("Only Office and Owners");
 	});
 
 	it("personal-memory reads keep display privacy while allowing the asker to save team memory", async () => {
@@ -857,6 +866,21 @@ describe("private agent replies", () => {
 		expect(JSON.stringify(await s.t.mutation(internal.turns.turnContext, { turnId: next }))).not.toContain(SECRET);
 	});
 
+	it("leaves hidden reacted-to messages out of the next turn's context", async () => {
+		const s = await setup();
+		await s.read();
+		await s.finish();
+		const previous = await s.start(s.crew);
+		await s.t.mutation(internal.turns.savePrompt, { turnId: previous, prompt: "Public question" });
+		await s.t.mutation(internal.turns.finishReply, { turnId: previous });
+		vi.setSystemTime(Date.now() + 1000);
+		await s.dana.mutation(api.messages.react, { messageId: s.replyId, emoji: "👍" });
+		const next = await s.start(s.crew);
+		const context = await s.t.mutation(internal.turns.turnContext, { turnId: next });
+		expect(context.reacted).toEqual([]);
+		expect(JSON.stringify(context)).not.toContain(SECRET);
+	});
+
 	it("rejects hidden emoji tags while allowing the three real subdivision flags", async () => {
 		const s = await setup();
 		const messageId = await s.owner.mutation(api.messages.send, { chatId: s.chat._id, text: "Public note", mentions: noMentions });
@@ -930,13 +954,14 @@ describe("central write audience review probes", () => {
 		expect((await s.crew.query(api.workspace.me))!.workspace).not.toBe(SECRET);
 	});
 
-	it("restricted-turn reaction must not publish secret text on a public message", async () => {
+	it("a restricted turn's decision cannot react on a wider public message", async () => {
 		const s = await probeSetup();
 		const { turnId } = await s.restrict();
 		const target = await s.owner.mutation(api.messages.send, { chatId: s.general._id, text: "Public note", mentions: noMentions });
-		const result = await s.t.mutation(internal.manageTools.runFor, { turnId, tool: "chat.manage", input: { request: { action: "react", messageId: target, emoji: SECRET } } });
-		expect(result).toMatchObject({ error: expect.stringContaining("Only Owners") });
-		expect(JSON.stringify(await s.crew.query(api.messages.list, { chatId: s.general._id }))).not.toContain(SECRET);
+		const turn = await decideReaction(s.t, turnId, target, "✅");
+		expect(turn.status).toBe("error");
+		expect((await s.t.run((ctx) => ctx.db.get(turn.replyId!)))!.error).toContain("Only Owners");
+		expect(await s.t.run((ctx) => ctx.db.query("reactions").collect())).toEqual([]);
 	});
 
 	it("private automation must retain source taint across turns before publishing", async () => {
@@ -995,25 +1020,19 @@ describe("central write audience review probes", () => {
 			expect(JSON.stringify(await s.crew.query(api.memory.list))).not.toContain(SECRET);
 		}
 	});
-	it("requires one real emoji and checks the reaction's actual readers", async () => {
+	it("requires one real emoji and checks the decision reaction's actual readers", async () => {
 		const s = await probeSetup();
 		const { turnId } = await s.restrict();
-		const target = await s.owner.mutation(api.messages.send, { chatId: s.general._id, text: "Public note", mentions: noMentions });
-		const react = (emoji: string) => s.t.mutation(internal.manageTools.runFor, { turnId, tool: "chat.manage", input: { request: { action: "react", messageId: target, emoji } } });
-		expect(await react("👍")).toMatchObject({ error: expect.stringContaining("Only Owners") });
 		const privateReply = (await s.t.run((ctx) => ctx.db.get("agentTurns", turnId)))!.replyId!;
-		expect(await s.t.mutation(internal.manageTools.runFor, { turnId, tool: "chat.manage", input: { request: { action: "react", messageId: privateReply, emoji: "👍" } } })).not.toHaveProperty("error");
-		await s.t.mutation(internal.turns.finishReply, { turnId });
-		const publicChat = await s.owner.mutation(api.chats.createChannel, { name: "reaction-control", private: false });
-		const publicTurn = await s.start(publicChat);
-		// Use the app endpoint too: validation is in the shared writer, not only the tool schema.
+		expect((await decideReaction(s.t, turnId, privateReply, "👍")).status).toBe("done");
+		const target = await s.owner.mutation(api.messages.send, { chatId: s.general._id, text: "Public note", mentions: noMentions });
 		for (const emoji of ["secret", "a", "1", "👍👍", "👍a", "🇺", "👍\u200d"]) {
 			await expect(s.owner.mutation(api.messages.react, { messageId: target, emoji })).rejects.toThrow("Pick one emoji");
 		}
-		for (const emoji of ["👍🏽", "👩‍💻", "🇺🇸", "1️⃣", "❤️", "👨‍👩‍👧‍👦"]) {
-			await expect(s.owner.mutation(api.messages.react, { messageId: target, emoji })).resolves.toBeDefined();
-		}
-		expect(await s.t.mutation(internal.manageTools.runFor, { turnId: publicTurn, tool: "chat.manage", input: { request: { action: "react", messageId: target, emoji: "👍" } } })).not.toHaveProperty("error");
+		for (const emoji of ["👍🏽", "👩‍💻", "🇺🇸", "1️⃣", "❤️", "👨‍👩‍👧‍👦"]) await expect(s.owner.mutation(api.messages.react, { messageId: target, emoji })).resolves.toBeDefined();
+		const publicTurn = await s.start();
+		expect((await decideReaction(s.t, publicTurn, target, "👍")).status).toBe("done");
+		expect((await s.crew.query(api.messages.list, { chatId: s.general._id })).find((m) => m._id === target)!.reactions).toContainEqual(expect.objectContaining({ emoji: "👍", count: 1 }));
 	});
 
 	it("private memory carries its sources into another turn and disappears after revocation", async () => {

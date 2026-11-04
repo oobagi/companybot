@@ -6,7 +6,7 @@ import { api, components, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { pageSchema } from "../convex/pageOps";
 import { wake } from "../convex/wakeups";
-import { type As, agentsOf, finishQuiet, identityOf, ownerAndMember, sideWorkspace, signIn, settle } from "./helpers";
+import { type As, agentsOf, finishTurn, identityOf, ownerAndMember, sideWorkspace, signIn, settle } from "./helpers";
 
 // Who can access each channel, database and page (placeAccess.ts): every read path and agent tool
 // follows the list, and refusals name the roles that have access.
@@ -271,7 +271,7 @@ describe("restored, woken, queued and background paths", () => {
 		expect((await turnOfWake(t, second))!.status).toBe("queued");
 		await owner.mutation(api.chats.setAccess, { chatId: general, access: [{ role: "everyone", level: "view" }, { role: officeRole, level: "edit" }] });
 		await expect(t.mutation(internal.turns.turnContext, { turnId: running._id })).rejects.toThrow("This person can no longer post in this chat.");
-		await finishQuiet(t, running._id, "Posting anyway");
+		await finishTurn(t, running._id, "Posting anyway");
 		expect((await crew.query(api.messages.list, { chatId: general })).map((m) => m.text)).not.toContain("Posting anyway");
 		expect((await turnOfWake(t, second))!.status).toBe("error");
 		// A new one stops before any turn.

@@ -37,7 +37,7 @@ Each role is a list of switches, each one thing a person may do:
 | Delete things forever from Archive | no |
 | See the whole workspace's AI usage | no |
 
-Everyone can read what's shared with them, chat, and keep personal memories and personal automations. Only owners edit the roles themselves or delete the workspace. Agents work as the person they help: if that person's roles can't do something, the agent says which roles can.
+Everyone can read what's shared with them, chat, and keep personal memories and personal automations. Only owners edit the roles themselves, or reset or delete the workspace. Agents work as the person they help: if that person's roles can't do something, the agent says which roles can.
 
 ## Changing roles, removing, leaving
 Click the roles beside a name to change them, or press Remove; it takes effect at once. To leave, open the workspace logo's menu (top of the rail) → Leave. The last owner can't leave. Removed or leaving people lose their personal memories and automations only they could see; what they said in chats stays.

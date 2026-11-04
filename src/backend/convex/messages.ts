@@ -1,3 +1,4 @@
+import { emojiOf } from "@companybot/core";
 import { previewUrl } from "@companybot/core/link-preview";
 import { ConvexError, type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
@@ -21,6 +22,7 @@ import {
 	replyAuthorsOf,
 	requireChat,
 	requirePost,
+	requireReactionAudience,
 	shownAt,
 	toggleReaction,
 	visibleChat,
@@ -105,7 +107,7 @@ export const list = query({
 				.query("chatMessages")
 				.withIndex("by_chat_thread", (q) => q.eq("chatId", chatId).eq("threadId", threadId))
 				.order("desc")
-				// Wake turns' own replies are never shown (wakeups.ts).
+				// Replies not shown yet (turns.ts `show`), and asks.
 				.filter((q) => q.neq(q.field("quiet"), true))
 				.take(LIST_LIMIT)
 		).sort((a, b) => shownAt(a) - shownAt(b));
@@ -339,9 +341,18 @@ export const hidePreview = mutation({
 	handler: async (ctx, { messageId, url }) => hideMessagePreview(ctx, { member: await requireMember(ctx) }, messageId, url),
 });
 
+/** Toggles your reaction. Agents react only through their turn's decision (turns.finishReply). */
 export const react = mutation({
 	args: { messageId: v.id("chatMessages"), emoji: v.string() },
-	handler: async (ctx, { messageId, emoji }) => reactMessage(ctx, { member: await requireMember(ctx) }, messageId, emoji),
+	handler: async (ctx, { messageId, emoji }) => {
+		const member = await requireMember(ctx);
+		const message = await ctx.db.get(messageId);
+		if (!message || message.deleted) throw new ConvexError("Message not found.");
+		await requireReactionAudience(ctx, member, message);
+		const one = emojiOf(emoji.trim());
+		if (!one) throw new ConvexError("Pick one emoji.");
+		return toggleReaction(ctx, message, one, member.userId);
+	},
 });
 
 export async function editMessage(ctx: MutationCtx, who: Who, messageId: Id<"chatMessages">, text: string) {
@@ -369,20 +380,6 @@ export async function removeMessage(ctx: MutationCtx, who: Who, messageId: Id<"c
 	await deleteAttachments(ctx, message);
 	await ctx.db.patch(message._id, { text: "", parts: [], attachments: undefined, linkPreviews: undefined, deleted: true });
 	await clearMessageLinks(ctx, messageId);
-}
-
-export async function reactMessage(ctx: MutationCtx, who: Who, messageId: Id<"chatMessages">, emoji: string) {
-	const { member } = who;
-	const message = await ctx.db.get(messageId);
-	if (!message || message.deleted || !(await canReadReply(ctx, member, message))) throw new ConvexError("Message not found.");
-	requirePost(member, await requireChat(ctx, member, message.chatId));
-	await writeSources(ctx, member, { places: [message.chatId, ...(message.sharedBy ? [] : message.usedPlaces ?? [])] });
-	emoji = emoji.trim();
-	const tagged = [...emoji].some((c) => { const point = c.codePointAt(0)!; return point >= 0xe0020 && point <= 0xe007f; });
-	const subdivision = (tag: string) => "🏴" + [...tag].map((c) => String.fromCodePoint(0xe0000 + c.charCodeAt(0))).join("") + "\u{e007f}";
-	if (tagged && !["gbeng", "gbsct", "gbwls"].some((tag) => emoji === subdivision(tag))) throw new ConvexError("Pick one emoji.");
-	if ([...new Intl.Segmenter().segment(emoji)].length !== 1 || !/^(?:\p{Regional_Indicator}{2}|[#*0-9]\uFE0F?\u20E3|\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier}|[\u{E0020}-\u{E007F}])*(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})*)*)$/u.test(emoji)) throw new ConvexError("Pick one emoji.");
-	return toggleReaction(ctx, message, emoji, who.agentId ? { agentId: who.agentId } : { userId: member.userId });
 }
 
 /** Deleted content disappears immediately; mentions and reactions drain in bounded batches. */

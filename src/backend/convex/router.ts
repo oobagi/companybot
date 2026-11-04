@@ -1,7 +1,6 @@
 import {
 	ROUTER_CONTEXT_MESSAGES,
 	ROUTER_DEBOUNCE_MS,
-	ROUTER_EMOJI,
 	ROUTER_MAX_AGENTS,
 	ROUTER_MODEL,
 	NEXT_MIN_PROBABILITY,
@@ -11,7 +10,6 @@ import {
 	type RouterInput,
 	type RouterMessage,
 	gatewayCost,
-	isGranted,
 	replyModeOf,
 	isDecisionModel,
 	justAnsweredKey,
@@ -42,8 +40,8 @@ import { recordUsage } from "./usage";
 // Agents that answer without an @mention, in channels set to "When relevant" (wiki/chat.md, When
 // agents reply). A person's un-mentioned message schedules a decision; it waits ROUTER_DEBOUNCE_MS
 // and gives up if a newer person's message came in the place meanwhile (that one decides), so a
-// burst makes one call. The answer queues replies (enqueueTurn) and adds reactions. It's a wide net:
-// a reply it queues is a quiet turn, where the agent reads the conversation and decides whether to post
+// burst makes one call. The answer wakes agents (enqueueTurn). It's a wide net: each is a turn like any
+// other, where the agent reads the conversation and answers with a post, a reaction, both or nothing
 // (core postDecision), told how sure the dispatcher was in words (core confidenceBand).
 
 /** From messages.send, for a person's message that @mentions no agent. */
@@ -99,14 +97,14 @@ export const context = internalQuery({
 		const people = (await chatMembersOf(ctx, chat._id)).filter((r) => r.userId && r.userId !== message.authorUserId);
 		const input: RouterInput = {
 			place: { name: chat.name ?? "", topic: chat.topic ?? null },
-			agents: agents.map((a) => ({ key: keys.get(a._id)!, name: a.name, description: a.description, canReact: isGranted(a.tools, "chat.react") })),
+			agents: agents.map((a) => ({ key: keys.get(a._id)!, name: a.name, description: a.description })),
 			people: await Promise.all(people.slice(0, 30).map(async (r) => (await names.of(r)).name)),
 			parent: parent && !parent.deleted ? await toRouter(parent) : null,
 			before: await Promise.all(before.map(toRouter)),
 			message: await toRouter(message),
 		};
 		const model = (await ctx.db.get(chat.workspaceId))?.routerModel ?? ROUTER_MODEL;
-		return { input, agentIds: agents.map((a) => a._id), workspaceId: chat.workspaceId, model };
+		return { input, agentIds: agents.map((a) => a._id), model };
 	},
 });
 
@@ -137,7 +135,7 @@ async function around(ctx: QueryCtx, message: Doc<"chatMessages">, member: Membe
 	return { before: visible, parent: parent && await canReadReply(ctx, member, parent) ? parent : null };
 }
 
-/** Asks the model, then acts on its answer. Scheduled by routeLater. */
+/** Asks the model, then wakes the agents it picked. Scheduled by routeLater. */
 export const decide = internalAction({
 	args: { messageId: v.id("chatMessages") },
 	handler: async (ctx, { messageId }) => {
@@ -159,32 +157,23 @@ export const decide = internalAction({
 					providerOptions: { gateway: { caching: "auto" } },
 					maxRetries: 1,
 				}).then((r) => ({ picked: routerDecisions(r.output, input.agents), providerMetadata: r.providerMetadata }));
-		const decisions = input.agents.flatMap((a, i) => {
+		const replies = input.agents.flatMap((a, i) => {
 			const d = picked.get(a.key)!;
-			if (d.action === "quiet") return [];
-			return [{ agentId: agentIds[i]!, action: d.action, ...(d.action === "react" && { emoji: d.emoji }), ...(d.action === "reply" && d.probability !== undefined && { probability: d.probability }), ...(d.action === "reply" && d.probabilities && { probabilities: d.probabilities }) }];
+			return d.action === "reply" ? [{ agentId: agentIds[i]!, ...(d.probability !== undefined && { probability: d.probability }), ...(d.probabilities && { probabilities: d.probabilities }) }] : [];
 		});
-		await ctx.runMutation(internal.router.apply, { messageId, decisions, model, costUsd: gatewayCost(providerMetadata) });
+		await ctx.runMutation(internal.router.apply, { messageId, replies, model, costUsd: gatewayCost(providerMetadata) });
 	},
 });
 
-/** Records the call's cost, then queues replies and adds reactions for agents still here. */
+/** Records the call's cost, then queues replies for agents still here. */
 export const apply = internalMutation({
 	args: {
 		messageId: v.id("chatMessages"),
-		decisions: v.array(
-			v.object({
-				agentId: v.id("agents"),
-				action: v.union(v.literal("reply"), v.literal("react")),
-				emoji: v.optional(v.string()),
-				probability: v.optional(v.number()),
-				probabilities: v.optional(v.record(v.string(), v.number())),
-			}),
-		),
+		replies: v.array(v.object({ agentId: v.id("agents"), probability: v.optional(v.number()), probabilities: v.optional(v.record(v.string(), v.number())) })),
 		model: v.string(),
 		costUsd: v.number(),
 	},
-	handler: async (ctx, { messageId, decisions, model, costUsd }) => {
+	handler: async (ctx, { messageId, replies: picks, model, costUsd }) => {
 		const message = await ctx.db.get(messageId);
 		if (!message?.authorUserId) return;
 		// The person whose message it decided on, like a reply counts for its asker.
@@ -196,8 +185,8 @@ export const apply = internalMutation({
 		// One after another, best fit first, so each sees what the ones before posted. A "might" past the hour's cap is dropped.
 		const replies: { agent: Doc<"agents">; dispatch: Infer<typeof dispatchInfo> }[] = [];
 		let might = await mightThisHour(ctx, chat._id);
-		for (const d of [...decisions].sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0))) {
-			const agent = d.action === "reply" && (await ctx.db.get(d.agentId));
+		for (const d of [...picks].sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0))) {
+			const agent = await ctx.db.get(d.agentId);
 			if (!agent || !here.has(agent._id) || (await hasTurnFor(ctx, agent._id, message))) continue;
 			const dispatch = { ...dispatchOf(model, d.probability, costUsd), ...(d.probabilities && { probabilities: d.probabilities }) };
 			if (dispatch.band === "might" && might++ >= ROUTER_MIGHT_PER_HOUR) continue;
@@ -219,17 +208,6 @@ export const apply = internalMutation({
 		}
 		// In case one before it never finishes: a waiting pick starts anyway once that one is stale.
 		if (replies.length > 1) await ctx.scheduler.runAfter(STALE_TURN_MS + 1_000, internal.turns.startWaiting, { triggerId: messageId });
-		for (const d of decisions) {
-			const agent = d.action === "react" && (await ctx.db.get(d.agentId));
-			if (!agent || !here.has(agent._id) || !d.emoji || !(ROUTER_EMOJI as readonly string[]).includes(d.emoji) || !isGranted(agent.tools, "chat.react")) continue;
-			// Already folded into this agent's reply (or queued for it): the reply answers it, no reaction on top.
-			if (await hasTurnFor(ctx, agent._id, message)) continue;
-			const existing = await ctx.db
-				.query("reactions")
-				.withIndex("by_message", (q) => q.eq("messageId", messageId).eq("emoji", d.emoji!).eq("userId", undefined).eq("agentId", agent._id))
-				.first();
-			if (!existing) await ctx.db.insert("reactions", { messageId, chatId: chat._id, emoji: d.emoji, agentId: agent._id });
-		}
 	},
 });
 

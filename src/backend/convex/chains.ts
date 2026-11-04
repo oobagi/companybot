@@ -72,7 +72,7 @@ async function reachable(ctx: QueryCtx, chat: Doc<"chats">, self: Id<"agents">) 
 	return (agents as Doc<"agents">[]).filter((a) => a._id !== self);
 }
 
-/** Agents' messages in a place since a person last wrote there (pause lines and quiet replies aside), up to the limit's worth. */
+/** Agents' messages in a place since a person last wrote there (pause lines, asks and unshown replies aside), up to the limit's worth. */
 async function agentPostsIn(ctx: QueryCtx, chatId: Id<"chats">, threadId: Id<"chatMessages"> | undefined) {
 	const recent = await ctx.db
 		.query("chatMessages")
@@ -86,7 +86,7 @@ async function agentPostsIn(ctx: QueryCtx, chatId: Id<"chats">, threadId: Id<"ch
 
 /**
  * After a turn's reply is done (turns.finishReply): its @mentions of other agents hand them the
- * work, in a chain. A quiet turn's decision may name an agent here (`to`): it answers next, as a hop.
+ * work, in a chain. A turn's answer may name an agent here (`to`): it answers next, as a hop.
  * One that mentions or names nobody, in a chain in a "When relevant" channel, asks the dispatcher who
  * goes next (router.next), unless it was talking to a person.
  */
@@ -119,7 +119,7 @@ export async function handOff(ctx: MutationCtx, turn: Doc<"agentTurns">, to?: st
 	if (turn.chain && replyModeOf(chat) === "relevant" && !toPerson) await ctx.scheduler.runAfter(0, internal.router.next, { turnId: turn._id });
 }
 
-/** What a turn said where people see it: its reply, unless it's quiet (hidden). Handoffs and "who goes next" read this. */
+/** What a turn said where people see it: its reply, unless it was never shown. Handoffs and "who goes next" read this. */
 export async function shownReply(ctx: QueryCtx, turn: Doc<"agentTurns">) {
 	const reply = turn.replyId && (await ctx.db.get(turn.replyId));
 	return reply && !reply.quiet ? reply : null;
@@ -168,7 +168,7 @@ async function startHanded(ctx: MutationCtx, chain: Doc<"agentChains">, h: Held,
 		triggerId: h.triggerId,
 		actorId: chain.actorId,
 		chain: { id: chain._id, depth: h.depth, path, epoch: chain.epoch },
-		// Not asked directly, so quiet like a pick for a person's message: shown only if its decision posts it.
+		// Not asked directly: its prompt says so, like a pick for a person's message.
 		...(h.dispatched && { routed: true as const }),
 		...(h.dispatch && { dispatch: h.dispatch }),
 	});

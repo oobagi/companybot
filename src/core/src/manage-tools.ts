@@ -28,7 +28,6 @@ export const manageInputs = {
 			z.strictObject({ action: z.literal("mark_read"), chat: id }),
 			z.strictObject({ action: z.literal("edit"), messageId: id, text: z.string().min(1).max(20_000) }),
 			z.strictObject({ action: z.literal("delete"), messageId: id }),
-			z.strictObject({ action: z.literal("react"), messageId: id, emoji: z.string().min(1) }),
 			z.strictObject({ action: z.literal("hide_preview"), messageId: id, url: z.string().min(1).max(2048).describe("The link whose preview card to take down") }),
 			z.strictObject({ action: z.literal("open_dm"), userIds: userIds.describe("Others in the DM; your person is always added. With nobody else, it's your own DM with them"), agentIds }),
 			z.strictObject({
@@ -48,7 +47,7 @@ export const manageInputs = {
 			z.strictObject({ action: z.literal("create"), name: z.string().min(1).max(80), topic: z.string().max(2000).optional(), private: z.boolean() }),
 			z.strictObject({ action: z.literal("rename"), chat: id, name: z.string().min(1).max(80) }),
 			z.strictObject({ action: z.literal("set_topic"), chat: id, topic: z.string().max(2000) }),
-			z.strictObject({ action: z.literal("set_replies"), chat: id, replies: z.enum(replyModes).describe('"mentions": agents answer only @mentions. "relevant": they also answer, or react to, messages that look meant for them') }),
+			z.strictObject({ action: z.literal("set_replies"), chat: id, replies: z.enum(replyModes).describe('"mentions": agents answer only @mentions. "relevant": they also answer messages that look meant for them') }),
 			z.strictObject({ action: z.literal("add_members"), chat: id, userIds, agentIds }),
 			z
 				.strictObject({ action: z.literal("remove_member"), chat: id, userId: id.optional(), agentId: id.optional() })
@@ -133,7 +132,7 @@ export interface ManageStore {
 }
 /** Each tool's title and description. */
 const about: Record<ManageTool, { title: string; description: string }> = {
-	"chat.manage": { title: "Manage messages and DMs", description: "Find people (paged directory, including agent ids), list your chats, open a DM with exact participant ids, post a message for your person in a chat or thread (this one too: when they ask you to post something for them, send it here rather than writing it as your reply, which is from you), edit your person's own messages, delete them with locked approval, react to an exact message, hide the link preview card on your person's own message, or explicitly mark a chat read when asked. Sent as you for the person (\"Companybot, for Dana\"); to your person alone (your DM with them) it's simply from you. Never triggers agents or automations. Only send when asked; do not copy private information to a wider audience without their request." },
+	"chat.manage": { title: "Manage messages and DMs", description: "Find people (paged directory, including agent ids), list your chats, open a DM with exact participant ids, post a message for your person in a chat or thread (this one too: when they ask you to post something for them, send it here rather than writing it as your reply, which is from you), edit your person's own messages, delete them with locked approval, hide the link preview card on your person's own message, or explicitly mark a chat read when asked. Sent as you for the person (\"Companybot, for Dana\"); to your person alone (your DM with them) it's simply from you. Never triggers agents or automations. Only send when asked; do not copy private information to a wider audience without their request." },
 	"channels.manage": { title: "Manage channels", description: "Browse public channels, inspect a visible channel and paged participants, create, rename, set/clear topic, set when agents reply (mentions only or when relevant), add/remove members, join or leave. Use chat ids or #names. Creating, changing, removing members, deleting and restoring take the person's channel switch; everyone stays in general. Delete moves a channel to Archive and waits for approval. Restore by its exact id. Never deletes forever." },
 	"automations.manage": { title: "Manage automations", description: "List or inspect visible automations (prompt, version, agent, state), edit custom config using its current expectedVersion, pause/resume globally, change agent/audience, or run a sample once just for the person. Runs cannot start other runs. Confirm changes first. Resuming grants no consent: future outside actions still ask. Webhook secrets are omitted." },
 	"automations.remove": { title: "Archive an automation", description: "Move an automation to Archive, including retained library installs. It stops running; opt-ins and grants stay for restoration. Whoever can change it can restore it. The exact call waits for approval." },

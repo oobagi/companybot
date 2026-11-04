@@ -1,11 +1,12 @@
-import { describeWidget } from "@companybot/core";
+import { type ReactionGroup, describeWidget, emojiOf } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { imageUrls } from "./images";
 import { type Member, type Who, checkPermission, getMember, memberOf, memo, nameOf, personOf } from "./lib";
 import { channelName, chatAccess, reach, requireAccess } from "./placeAccess";
-import { notePlace, readArtifact } from "./replySources";
+import { notePlace, readArtifact, writeSources } from "./replySources";
+import { canReadReply } from "./replyPrivacy";
 import { putInTrash, takeFromTrash } from "./trashOps";
 
 // Shared by the app's chat functions (chats.ts, messages.ts) and the agent runner
@@ -294,7 +295,7 @@ export async function insertMessage(
 	return id;
 }
 
-/** A message people now see: on its thread's reply count and authors, or the chat's last message time. A quiet reply that's shown, too. */
+/** A message people now see: on its thread's reply count and authors, or the chat's last message time. An agent's reply once it's shown, too. */
 export async function countMessage(ctx: MutationCtx, chat: Doc<"chats">, message: Pick<Doc<"chatMessages">, "threadId" | "authorUserId" | "authorAgentId">) {
 	const now = Date.now();
 	if (message.threadId) {
@@ -308,8 +309,8 @@ export async function countMessage(ctx: MutationCtx, chat: Doc<"chats">, message
 }
 
 /**
- * Where a message sits in its timeline: when it was shown. A quiet reply is shown when its decision posts
- * it, and a reply that took in messages sent after it began moves below them (`publishedAt`); the rest
+ * Where a message sits in its timeline: when it was shown. An agent's reply is shown when its message
+ * starts, and a reply that took in messages sent after it began moves below them (`publishedAt`); the rest
  * sit where they were made. Never before that (`publishedAt` is whole ms; `_creationTime` isn't). Lists
  * put messages in this order.
  */
@@ -378,23 +379,50 @@ export const reactionsOf = (ctx: QueryCtx, messageId: Id<"chatMessages">) =>
 		.withIndex("by_message", (q) => q.eq("messageId", messageId))
 		.collect();
 
-/** Toggles one person's or agent's reaction. Returns whether it's now on. */
-export async function toggleReaction(
-	ctx: MutationCtx,
-	message: Doc<"chatMessages">,
-	emoji: string,
-	who: { userId: Id<"users"> } | { agentId: Id<"agents"> },
-) {
-	const existing = await ctx.db.query("reactions")
+/** A message's reactions for a model, by emoji, named as its lines name people and agents: chat.read and turn prompts. */
+export async function reactionGroups(ctx: QueryCtx, messageId: Id<"chatMessages">, names: Namer): Promise<ReactionGroup[]> {
+	const groups: ReactionGroup[] = [];
+	for (const r of (await reactionsOf(ctx, messageId)).sort((a, b) => a._creationTime - b._creationTime)) {
+		const name = (await names.of(r)).name;
+		const group = groups.find((g) => g.emoji === r.emoji);
+		if (group) group.by.push(name);
+		else groups.push({ emoji: r.emoji, by: [name] });
+	}
+	return groups;
+}
+
+const findReaction = (ctx: QueryCtx, message: Doc<"chatMessages">, emoji: string, who: { userId: Id<"users"> } | { agentId: Id<"agents"> }) =>
+	ctx.db.query("reactions")
 		.withIndex("by_message", (q) => q.eq("messageId", message._id).eq("emoji", emoji)
 			.eq("userId", "userId" in who ? who.userId : undefined).eq("agentId", "agentId" in who ? who.agentId : undefined))
 		.first();
+
+/** Reactions publish to the message's readers, just like other turn writes. */
+export async function requireReactionAudience(ctx: MutationCtx, member: Member, message: Doc<"chatMessages">) {
+	if (message.deleted || !(await canReadReply(ctx, member, message))) throw new ConvexError("Message not found.");
+	requirePost(member, await requireChat(ctx, member, message.chatId));
+	await writeSources(ctx, member, { places: [message.chatId, ...(message.sharedBy ? [] : message.usedPlaces ?? [])] });
+}
+
+/** Toggles one person's reaction. Returns whether it's now on. */
+export async function toggleReaction(ctx: MutationCtx, message: Doc<"chatMessages">, emoji: string, userId: Id<"users">) {
+	const existing = await findReaction(ctx, message, emoji, { userId });
 	if (existing) {
 		await ctx.db.delete(existing._id);
 		return false;
 	}
-	await ctx.db.insert("reactions", { messageId: message._id, chatId: message.chatId, emoji, ...who });
+	await ctx.db.insert("reactions", { messageId: message._id, chatId: message.chatId, emoji, userId });
 	return true;
+}
+
+/**
+ * The reaction an agent's decision chose, on the message it answers (turns.finishReply): one emoji
+ * (`emojiOf`), added, never toggled off.
+ */
+export async function reactOnce(ctx: MutationCtx, message: Doc<"chatMessages">, agent: Doc<"agents">, emoji: string) {
+	const one = emojiOf(emoji);
+	if (message.deleted || !one) return;
+	if (!(await findReaction(ctx, message, one, { agentId: agent._id }))) await ctx.db.insert("reactions", { messageId: message._id, chatId: message.chatId, emoji: one, agentId: agent._id });
 }
 
 /** Display names (and with `images`, picture URLs) for people and agents, cached for one query. */

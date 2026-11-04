@@ -1,5 +1,5 @@
 import type { PlaceMessage, Skill } from "@companybot/core";
-import { AGENT_DEBOUNCE_MS, PROMPT_MESSAGE_CAP, approxTokens, can, defaultReasoning, deniedMessage, fallbackModels, publishes, steerNote } from "@companybot/core";
+import { AGENT_DEBOUNCE_MS, PROMPT_MESSAGE_CAP, THINKING_STEP, approxTokens, can, defaultReasoning, deniedMessage, fallbackModels, replayOf, responseOf, steerNote } from "@companybot/core";
 import { ConvexError, getDocumentSize, type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -14,13 +14,14 @@ import {
 	canSee,
 	chatMembersOf,
 	countMessage,
-	insertMessage,
 	label,
 	moveBelow,
 	requireChat,
 	namer,
+	reactOnce,
+	requireReactionAudience,
+	reactionGroups,
 	replyForModel,
-	shownAt,
 	textForModel,
 } from "./chatOps";
 import { filesForModel, turnImages } from "./files";
@@ -29,9 +30,9 @@ import { previewMessage } from "./linkPreviews";
 import { catalogModels } from "./modelCatalog";
 import { chatAccess } from "./placeAccess";
 import { recordOut } from "./recordTools";
-import { canReadReplyDetails, canReadReply, readReply, canReadSources } from "./replyPrivacy";
+import { canReadReplyDetails, readReplyDetails, canReadReply, readReply, canReadSources } from "./replyPrivacy";
 import { inheritPlaces, notePlace, turnSources, writeSources } from "./replySources";
-import { messagePart, replyStats, replyUsage } from "./schema";
+import { messagePart, postDecision, replyStats, replyUsage } from "./schema";
 import { recordUsage } from "./usage";
 import { setWakeOutcome } from "./wakeups";
 
@@ -56,7 +57,7 @@ export async function enqueueTurn(
 			// After an approval, the original turn's trigger: none if it followed an old welcome turn.
 			| { triggerId: Id<"chatMessages">; approvalId?: Id<"approvals"> }
 			| { triggerId: Id<"chatMessages"> | undefined; approvalId: Id<"approvals">; wakeupId?: Id<"wakeups"> }
-			// A wake (wakeups.ts): no message asked, and its reply is quiet.
+			// A wake (wakeups.ts): no message asked.
 			| { wakeupId: Id<"wakeups">; wakeLogId: Id<"agentActivity"> }
 		),
 ) {
@@ -164,8 +165,10 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 		await answerAsk(ctx, running, "it timed out");
 		const reply = running.replyId && (await ctx.db.get(running.replyId));
 		// Its finished model calls were saved as they finished (saveUsage), so it keeps their stats.
-		if (reply?.status === "streaming")
+		if (reply?.status === "streaming") {
 			await endStream(ctx, reply, { status: "error", error: "Reply timed out.", ...(running.usage && { stats: await statsOf(ctx, running, running.usage) }) });
+			await show(ctx, reply);
+		}
 	}
 	let next = await turnsAt(ctx, place, "queued").first();
 	if (!next || (await waiting(ctx, next))) return;
@@ -176,7 +179,7 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 		// Its timer (startQueued) starts it; past STALE_TURN_MS, whatever runs next does.
 		if (newest.debouncing && Date.now() - newest._creationTime < STALE_TURN_MS) return;
 		next = newest;
-		// A follow-up to a quiet reply is quiet too (queueFollowUps), unless one of the messages it covers asked the agent directly.
+		// A follow-up to a pick is a pick too (queueFollowUps), unless one of the messages it covers asked the agent directly.
 		if (next.routed && theirs.some((t) => !t.routed)) {
 			await ctx.db.patch(next._id, { routed: undefined, dispatch: undefined });
 			next = { ...next, routed: undefined, dispatch: undefined };
@@ -212,14 +215,10 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 		mentions: { userIds: [], agentIds: [] },
 		status: "streaming" as const,
 	};
-	// Nobody asked a wake, a dispatcher pick (router.ts) or a hop (chains.ts): its reply is quiet, hidden (it
-	// doesn't touch the chat's unread or the thread's replies) unless its decision posts it (finishReply).
-	// An ask's answer (chains.ts) is the exception: that wake finishes a reply someone is waiting for.
-	const quiet = next.routed || (next.wakeupId && !(await ctx.db.get(next.wakeupId))?.answer);
-	const replyId = quiet
-		? await ctx.db.insert("chatMessages", { chatId: chat._id, workspaceId: chat.workspaceId, ...reply, quiet: true })
-		: await insertMessage(ctx, chat, reply);
-	await ctx.db.patch(next._id, { status: "running", replyId, sessionId: session._id, startedAt: Date.now(), debouncing: undefined });
+	// Every reply starts hidden (quiet: not in the timeline, unread or the thread's replies) while the
+	// typing line shows the agent working, and shows once its message starts (show).
+	const replyId = await ctx.db.insert("chatMessages", { chatId: chat._id, workspaceId: chat.workspaceId, ...reply, quiet: true });
+	await ctx.db.patch(next._id, { status: "running", replyId, sessionId: session._id, startedAt: Date.now(), step: { label: THINKING_STEP, at: Date.now() }, debouncing: undefined });
 	await ctx.scheduler.runAfter(0, internal.agent.respond, { turnId: next._id });
 }
 
@@ -241,7 +240,7 @@ async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">, member
 		if (hiddenSummary && bytes > 4 * 1024 * 1024) break;
 		if (member && reply && !(await canReadReply(ctx, member, reply))) continue;
 		const details = !member || await canReadReplyDetails(ctx, member, reply);
-		const text = reply ? replyForModel(reply, details) : "";
+		const text = replayOf(reply ? replyForModel(reply, details) : "", turn.triggerId ? responseOf(turn.decision).emoji : null);
 		const prompt = turn.promptPlaces !== undefined && (!member || await canReadSources(ctx, member, turn.promptPlaces)) ? turn.prompt : "";
 		const size = approxTokens(prompt + text);
 		if (hiddenSummary && tokens + size > KEEP_TOKENS) break;
@@ -329,7 +328,7 @@ export const turnContext = internalMutation({
 					q.eq("chatId", chat._id).eq("threadId", turn.threadId).gt("_creationTime", since).lt("_creationTime", reply._creationTime),
 				)
 				.order("desc")
-				// Quiet replies are wake turns' own, never shown.
+				// Quiet: replies not shown (yet), and asks.
 				.filter((q) => q.and(q.neq(q.field("deleted"), true), q.neq(q.field("quiet"), true)))
 				// The prompt shows PROMPT_MESSAGE_CAP; one more says there are earlier ones, one more for the trigger.
 				.take(PROMPT_MESSAGE_CAP + 2)
@@ -338,19 +337,20 @@ export const turnContext = internalMutation({
 		for (const m of window) if (!steered.has(m._id) && await readReply(ctx, member, m)) recent.push(m);
 		// A turn after an approval answers the decision, not a message.
 		const approval = turn.approvalId && (await ctx.db.get(turn.approvalId));
-		if (approval && !(await readReply(ctx, member, await ctx.db.get(approval.replyId)))) throw new Error("This approval uses places you can no longer see.");
+		if (approval && !(await readReplyDetails(ctx, member, await ctx.db.get(approval.replyId)))) throw new Error("This approval uses places you can no longer see.");
 		if (!approval && turn.triggerId && !recent.some((m) => m._id === turn.triggerId)) {
 			const trigger = await ctx.db.get(turn.triggerId);
 			if (trigger && await readReply(ctx, member, trigger)) recent.push(trigger);
 		}
 		const skills = await installedSkills(ctx, chat.workspaceId, turn.actorId, member);
+		const reacted = foreign || !last ? [] : await reactedSince(ctx, member, chat._id, turn.threadId, since);
 		const messages = await Promise.all(
 			recent
 				.filter((m) => !m.deleted)
 				// Another agent's reply still streaming keeps its text so far apart from the message.
 				.map(async (m) => {
 					const stream = m.status === "streaming" && (await streamOf(ctx, m._id));
-					return toPlaceMessage(stream ? { ...m, text: stream.text, parts: stream.parts } : m, names, agent._id, skills);
+					return toPlaceMessage(ctx, stream ? { ...m, text: stream.text, parts: stream.parts } : m, names, agent._id, skills);
 				}),
 		);
 
@@ -369,11 +369,8 @@ export const turnContext = internalMutation({
 		const user = await ctx.db.get(member.userId);
 		// Deleted: null. Its database hidden from them since: recordOut refuses, and the turn ends with why.
 		const about = wakeup?.recordId ? await ctx.db.get(wakeup.recordId) : undefined;
-		const answering = turn.routed ? await answeringHere(ctx, turn, names) : [];
 		return {
 			replyId: turn.replyId,
-			/** Nobody asked (a pick, a hop, a wake): it ends with a decision whether to post (core postDecision). */
-			quiet: !!reply.quiet,
 			member,
 			agent: { id: agent._id, name: agent.name, instructions: agent.instructions, model: agent.model, reasoning: agent.reasoning ?? defaultReasoning, tools: agent.tools },
 			skills,
@@ -393,20 +390,20 @@ export const turnContext = internalMutation({
 				private: chat.private,
 				topic: chat.topic ?? null,
 				thread: parent
-					? { parent: await toPlaceMessage(parent, names, agent._id), first }
+					? { parent: await toPlaceMessage(ctx, parent, names, agent._id), first }
 					: null,
 				members: await Promise.all(rows.map(async (r) => ({ ...(await names.of(r)), ...(r.agentId && { role: (await ctx.db.get(r.agentId))?.description }) }))),
 			},
 			messages,
+			reacted: await Promise.all(reacted.map((m) => toPlaceMessage(ctx, m, names, agent._id))),
 			asked,
 			triggerId: turn.triggerId ?? null,
-			/** Nobody @mentioned it: how sure the dispatcher was (or which agent named it), and who else is at it. Its reply is quiet. */
+			/** Nobody @mentioned it: how sure the dispatcher was, or which agent named it. */
 			routed: turn.routed
 				? {
 						band: turn.dispatch?.band ?? ("probably" as const),
 						...(turn.dispatch?.by && { by: turn.dispatch.by }),
 						...(turn.dispatch?.after && { before: await picksBefore(ctx, turn, names) }),
-						...(answering.length > 0 && { answering }),
 					}
 				: undefined,
 			/** Set when another agent handed it the trigger message (chains.ts). */
@@ -443,16 +440,6 @@ export const turnContext = internalMutation({
 	},
 });
 
-/** Other agents' un-asked turns (quiet: a pick, a hop, a wake) running in the turn's place now. */
-async function answeringHere(ctx: QueryCtx, turn: Doc<"agentTurns">, names: Namer) {
-	const running = await ctx.db
-		.query("agentTurns")
-		.withIndex("by_chat", (q) => q.eq("chatId", turn.chatId).eq("threadId", turn.threadId).eq("status", "running"))
-		.take(10);
-	const others = running.filter((t) => t.agentId !== turn.agentId && (t.routed || t.wakeupId) && Date.now() - (t.startedAt ?? t._creationTime) < STALE_TURN_MS);
-	return Promise.all([...new Set(others.map((t) => t.agentId))].map(async (id) => (await names.agent(id)).name));
-}
-
 /** The agents one message went to before this pick, first first (router.apply runs them in turn). */
 async function picksBefore(ctx: QueryCtx, turn: Doc<"agentTurns">, names: Namer) {
 	const before: string[] = [];
@@ -472,9 +459,29 @@ async function handoffOf(ctx: QueryCtx, turn: Doc<"agentTurns">) {
 	return from ? { from: from.name, ask: !!turn.ask } : undefined;
 }
 
-async function toPlaceMessage(m: Doc<"chatMessages">, names: Namer, self: Id<"agents">, skills: Skill[] = []): Promise<PlaceMessage> {
+/** Messages reacted to most recently. */
+const REACTED_MAX = 10;
+
+/** Messages in a place from `since` or before, reacted to after it, oldest first. */
+async function reactedSince(ctx: QueryCtx, member: Member, chatId: Id<"chats">, threadId: Id<"chatMessages"> | undefined, since: number) {
+	const rows = await ctx.db
+		.query("reactions")
+		.withIndex("by_chat", (q) => q.eq("chatId", chatId).gt("_creationTime", since))
+		.order("desc")
+		.take(100);
+	const found: Doc<"chatMessages">[] = [];
+	for (const id of new Set(rows.map((r) => r.messageId))) {
+		const m = await ctx.db.get(id);
+		if (m && !m.deleted && !m.quiet && m.threadId === threadId && m._creationTime <= since && await readReply(ctx, member, m)) found.push(m);
+		if (found.length === REACTED_MAX) break;
+	}
+	return found.sort((a, b) => a._creationTime - b._creationTime);
+}
+
+async function toPlaceMessage(ctx: QueryCtx, m: Doc<"chatMessages">, names: Namer, self: Id<"agents">, skills: Skill[] = []): Promise<PlaceMessage> {
 	const { for: person, ...who } = await names.of(m);
 	const author = { ...who, name: label({ ...who, for: person }) };
+	const reactions = await reactionGroups(ctx, m._id, names);
 	// Skills named with /, still installed. Gone ones are left out: the text still shows what was typed.
 	const named = (m.mentions.skillIds ?? []).flatMap((id) => {
 		const skill = skills.find((s) => s.id === id);
@@ -489,6 +496,7 @@ async function toPlaceMessage(m: Doc<"chatMessages">, names: Namer, self: Id<"ag
 		...(!m.threadId && m.replyCount && { replyCount: m.replyCount }),
 		...(named.length > 0 && { skills: named }),
 		...(m.attachments?.length && { files: filesForModel(m) }),
+		...(reactions.length > 0 && { reactions }),
 	};
 }
 
@@ -520,22 +528,42 @@ export const streamOf = (ctx: QueryCtx, messageId: Id<"chatMessages">) =>
 		.withIndex("by_message", (q) => q.eq("messageId", messageId))
 		.first();
 
-/** Writes a streaming reply's content so far (~5×/s). `stopped`: someone pressed Stop on its turn (turns.stop), so the runner ends it; `steer`: its person wrote meanwhile (steering). */
+/**
+ * Writes a streaming reply's content so far (~5×/s), and shows it once there's something to show.
+ * `stopped`: someone pressed Stop on its turn (turns.stop), so the runner ends it; `steer`: its person
+ * wrote meanwhile (steering).
+ */
 export const updateReply = internalMutation({
 	args: { turnId: v.id("agentTurns"), text: v.string(), parts: v.array(messagePart) },
 	handler: async (ctx, { turnId, text, parts }) => {
 		const { lost, ...heard } = await turnState(ctx, turnId);
 		const replyId = (await ctx.db.get(turnId))?.replyId;
+		const reply = replyId && (await ctx.db.get(replyId));
 		// Nothing more goes out as a person who can no longer post there; finishReply ends it.
-		if (lost || !replyId || (await ctx.db.get(replyId))?.status !== "streaming") return heard;
+		if (lost || !reply || reply.status !== "streaming") return heard;
 		const { member } = await runningTurn(ctx, turnId);
 		await inheritPlaces(ctx, member, await writeSources(ctx, member, { filtered: true, preserveOwn: true }));
-		const stream = await streamOf(ctx, replyId);
+		const stream = await streamOf(ctx, reply._id);
 		if (stream) await ctx.db.patch(stream._id, { text, parts });
-		else await ctx.db.insert("replyStreams", { messageId: replyId, text, parts });
+		else await ctx.db.insert("replyStreams", { messageId: reply._id, text, parts });
+		if (showable(parts)) await show(ctx, reply);
 		return heard;
 	},
 });
+
+/** Whether a reply has something to show: its message, or a card the person must decide on. Its tool lines alone don't: the typing line shows the work. */
+const showable = (parts: Doc<"chatMessages">["parts"]) => parts.some((p) => (p.type === "text" && !!p.text.trim()) || p.type === "approval");
+
+/**
+ * The one way an agent's reply appears: once it has something to show (updateReply), or when its turn
+ * ends with an error. Placed where it's shown (`publishedAt`, so it sorts below what came in while it
+ * worked) and counted then (unread, thread replies). Already shown: nothing changes.
+ */
+async function show(ctx: MutationCtx, reply: Doc<"chatMessages">) {
+	if (!reply.quiet) return;
+	await ctx.db.patch(reply._id, { quiet: undefined, publishedAt: Date.now() });
+	await countMessage(ctx, (await ctx.db.get(reply.chatId))!, reply);
+}
 
 /**
  * Whether a turn's person lost what its reply needs since it began: to see the chat and post in it
@@ -618,8 +646,8 @@ async function steering(ctx: QueryCtx, turn: Doc<"agentTurns">) {
  * not. For each running turn of theirs here (steerable) whose agent the message didn't already queue
  * (`queued`: their DM's agent, the ones @mentioned), this queues a person turn on it, which the running
  * turn takes in (steer). If it misses every chance (the reply ends first, or it restarted too often), it
- * runs as the follow-up, like the turn it was for: a quiet reply that decides whether to post, after a
- * pick or a hop. It isn't a dispatcher pick (no cost, not counted in mightThisHour, no `after`/`then`).
+ * runs as the follow-up, like the turn it was for: told it was a pick, after a pick or a hop. It isn't a
+ * dispatcher pick (no cost, not counted in mightThisHour, no `after`/`then`).
  * Returns the agents it queued for.
  */
 export async function queueFollowUps(ctx: MutationCtx, chat: Doc<"chats">, message: Doc<"chatMessages">, queued: Id<"agents">[]) {
@@ -648,7 +676,7 @@ export async function queueFollowUps(ctx: MutationCtx, chat: Doc<"chats">, messa
 }
 
 /** How sure the pick was, for a follow-up's prompt; not the pick itself (its call's cost, its place in line). */
-const followUpDispatch = ({ quiet: _, after: __, then: ___, costUsd: ____, ...rest }: NonNullable<Doc<"agentTurns">["dispatch"]>) => ({ ...rest, costUsd: 0 });
+const followUpDispatch = ({ after: _, then: __, costUsd: ___, ...rest }: NonNullable<Doc<"agentTurns">["dispatch"]>) => ({ ...rest, costUsd: 0 });
 
 /**
  * Takes the person's new messages into the running turn (agent.ts, at a step boundary or a restart):
@@ -674,12 +702,12 @@ export const steer = internalMutation({
 		const names = namer(ctx);
 		const skills = await installedSkills(ctx, turn.workspaceId, turn.actorId, member);
 		const actor = { id: turn.actorId, name: (await names.user(turn.actorId)).name, timeZone: await timeZoneOf(ctx, turn.actorId) };
-		const note = steerNote(await Promise.all(messages.map((m) => toPlaceMessage(m, names, turn.agentId, skills))), actor);
+		const note = steerNote(await Promise.all(messages.map((m) => toPlaceMessage(ctx, m, names, turn.agentId, skills))), actor);
 		await ctx.db.patch(turnId, {
 			steered: [...(turn.steered ?? []), ...messages.map((m) => m._id)],
 			...(turn.prompt !== undefined && { prompt: `${turn.prompt}\n\n${note}`, ...(turn.promptPlaces !== undefined && { promptPlaces: [...new Set([...turn.promptPlaces, ...await turnSources(ctx, member)])] }) }),
 		});
-		// It answers them now, so it shows below them. A quiet reply is placed when it's shown (finishReply).
+		// It answers them now, so it shows below them. One not shown yet is placed when it's shown (show).
 		const reply = await ctx.db.get(turn.replyId!);
 		if (reply && !reply.quiet) await moveBelow(ctx, (await ctx.db.get(turn.chatId))!, reply);
 		return { note, asked: messages.map((m) => m.text) };
@@ -775,32 +803,11 @@ async function statsOf(ctx: QueryCtx, turn: Doc<"agentTurns">, usage: SavedUsage
 		conversationCostUsd: place?.costUsd ?? 0,
 		...(turn.imageCostUsd && { imageCostUsd: turn.imageCostUsd }),
 		...(turn.searchCostUsd && { searchCostUsd: turn.searchCostUsd }),
-		...(turn.dispatch && { dispatch: withoutQuiet(turn.dispatch) }),
+		...(turn.dispatch && { dispatch: pickOf(turn.dispatch) }),
 	};
 }
 
-const withoutQuiet = ({ quiet: _, after: __, then: ___, ...dispatch }: NonNullable<Doc<"agentTurns">["dispatch"]>) => dispatch;
-
-/** How a quiet turn ended (core `postDecision`): what it would add, whether to post, to whom, and the message. */
-const postDecision = v.object({ new_point: v.string(), post: v.boolean(), to: v.string(), message: v.string() });
-
-/**
- * Whether a quiet reply is shown, as it is (its widgets, cards and stats with it): its decision posts it
- * (core `publishes`) and no other agent took the place while it worked; or it held a call the person must
- * decide on. The claim: another agent's post here it couldn't see, made or shown after this reply began.
- * Ones before it were in its prompt, and its decision weighed them.
- */
-async function shown(ctx: QueryCtx, turn: Doc<"agentTurns">, reply: Doc<"chatMessages">, decision?: Infer<typeof postDecision>) {
-	const parts = (await streamOf(ctx, reply._id))?.parts ?? reply.parts;
-	if (parts.some((p) => p.type === "approval")) return true;
-	if (!publishes(decision)) return false;
-	const recent = await ctx.db
-		.query("chatMessages")
-		.withIndex("by_chat_thread", (q) => q.eq("chatId", turn.chatId).eq("threadId", turn.threadId).gt("_creationTime", reply._creationTime - STALE_TURN_MS))
-		.filter((q) => q.and(q.neq(q.field("authorAgentId"), undefined), q.neq(q.field("authorAgentId"), turn.agentId), q.neq(q.field("quiet"), true), q.neq(q.field("deleted"), true)))
-		.take(50);
-	return !recent.some((m) => shownAt(m) > reply._creationTime);
-}
+const pickOf = ({ after: _, then: __, ...dispatch }: NonNullable<Doc<"agentTurns">["dispatch"]>) => dispatch;
 
 /** After each finished model call (agent.ts), so its cost is recorded even if the action dies before finishReply. */
 export const saveUsage = internalMutation({
@@ -818,10 +825,10 @@ export const finishReply = internalMutation({
 		error: v.optional(v.string()),
 		/** Left out when no model call finished. */
 		usage: v.optional(replyUsage),
-		/** A quiet turn's decision; left out when it made none (it failed, or stopped for an approval). */
+		/** What it posts and reacts (core postDecision); left out when it made none (it failed, was stopped, or stopped for an approval). */
 		decision: v.optional(postDecision),
 	},
-	handler: async (ctx, { turnId, error, usage, decision }) => {
+	handler: async (ctx, { turnId, error: failed, usage, decision }) => {
 		const turn = await ctx.db.get(turnId);
 		if (!turn) return;
 		const saved = usage ? await saveTurnUsage(ctx, turn, usage) : turn.usage;
@@ -833,27 +840,47 @@ export const finishReply = internalMutation({
 			return;
 		}
 		// Stopped (turns.stop): what it wrote and did stays, marked stopped, and it ends like a failure, minus the
-		// error: no handoff, no decision, and an ask's asker hears it was stopped.
+		// error: no handoff, no answer, no reaction, and an ask's asker hears it was stopped.
 		// Aborting can surface as an error; the stop is what happened.
 		const stopped = turn.stopping;
-		if (stopped) error = undefined;
-		// Its person may have lost the chat, or Post in it, while it ran: then it fails, quiet or not, and
-		// nothing it wrote since (updateReply) goes out; no handoff, nothing shown.
-		if (await lostReply(ctx, turn)) error = "This person can no longer post in this chat.";
-		// A stopped quiet reply has no decision; it's shown only if it holds a card the person must decide on.
-		const chat = await ctx.db.get(turn.chatId);
-		const show = !!reply && !!reply.quiet && !error && !!chat && (await shown(ctx, turn, reply, stopped ? undefined : decision));
+		// Its person may have lost the chat, or Post in it, while it ran: then it fails, nothing it wrote since
+		// (updateReply) goes out, and it makes no decision: no reaction, no handoff.
+		const lost = await lostReply(ctx, turn);
+		let decided = stopped || lost ? undefined : decision;
+		let error = lost ? "This person can no longer post in this chat." : stopped ? undefined : failed;
+		// The decision can follow restricted tool reads. Its reaction must fit the trigger's audience.
+		if (!error && responseOf(decided).emoji && turn.triggerId) {
+			const trigger = await ctx.db.get(turn.triggerId);
+			if (trigger) try {
+				const { member } = await runningTurn(ctx, turnId);
+				await requireReactionAudience(ctx, member, trigger);
+			} catch (e) {
+				if (!(e instanceof ConvexError)) throw e;
+				error = String(e.data);
+				decided = undefined;
+			}
+		}
+		const { emoji } = responseOf(decided);
+		const parts = reply ? ((await streamOf(ctx, reply._id))?.parts ?? reply.parts) : [];
+		// Shown if it has something to show (its message, a card, a stopped reply's message so far) or failed;
+		// with nothing, it stays hidden (or goes again: a restart dropped its draft and it ended with no message).
+		// A lost one stays as it was: shown only if it already was.
+		const shown = !!reply && (lost ? !reply.quiet : !!error || showable(parts));
 		if (reply) {
 			const end = error ? { status: "error" as const, error } : { status: "done" as const, ...(stopped && { stoppedBy: stopped.by }) };
-			await endStream(ctx, reply, { ...end, stats, ...(show && { quiet: undefined, publishedAt: Date.now() }) });
-			if (show) await countMessage(ctx, chat!, reply);
-			if (!error) await previewMessage(ctx, (await ctx.db.get(reply._id))!);
+			await endStream(ctx, reply, { ...end, stats, ...(!shown && { quiet: true as const }) });
+			if (shown) await show(ctx, reply);
+			if (shown && !error) await previewMessage(ctx, (await ctx.db.get(reply._id))!);
 		}
-		await ctx.db.patch(turnId, { status: error ? "error" : "done", step: undefined });
-		await setWakeOutcome(ctx, turn, error || stopped ? "failed" : show ? "notified" : "ran");
+		await ctx.db.patch(turnId, { status: error ? "error" : "done", step: undefined, decision: decided });
+		// Its reaction: on the message it answers (a wake has none), as the agent.
+		const trigger = !error && emoji && turn.triggerId && (await ctx.db.get(turn.triggerId));
+		const agent = trigger && (await ctx.db.get(turn.agentId));
+		if (emoji && trigger && agent) await reactOnce(ctx, trigger, agent, emoji);
+		await setWakeOutcome(ctx, turn, error || stopped ? "failed" : shown ? "notified" : "ran");
 		await settleApproval(ctx, turn);
 		// Agents it @mentioned or named take the work on (chains.ts); an asked agent's answer goes back to the asker.
-		if (!error && !stopped) await handOff(ctx, (await ctx.db.get(turnId))!, decision?.to);
+		if (!error && !stopped) await handOff(ctx, (await ctx.db.get(turnId))!, decided?.to);
 		await answerAsk(ctx, turn, error ?? (stopped ? "it was stopped" : undefined));
 		await startNext(ctx, turn);
 		await startThen(ctx, turn);

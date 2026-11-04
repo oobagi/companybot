@@ -15,7 +15,7 @@ Open settings from your avatar (account) or the workspace logo at the top of the
 ## Workspace settings
 | Tab | What | Who can change |
 |---|---|---|
-| [General](#/settings/general) | Logo, name, currency, memory on/off, picture model and monthly image budget, delete workspace | Roles that can change workspace settings (everyone can look) |
+| [General](#/settings/general) | Logo, name, currency, memory on/off, picture model and monthly image budget, reset or delete workspace | Roles that can change workspace settings (everyone can look); owners reset or delete it |
 | [Members](#/settings/members) | Invite, roles, remove | Roles that can invite and change people's roles; owners edit the roles themselves |
 | [Permissions](#/settings/permissions) | Your Always/Never rules; action locks | You (rules); roles that can lock (locks) |
 | [Memory](#/settings/memory) | Team and personal memories | Everyone (personal: only you) |
