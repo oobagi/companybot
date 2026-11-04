@@ -629,6 +629,16 @@ export default defineSchema({
 		/** Answering another agent's private ask (chat.ask_agent): when it ends, this wakeup gives the asker the answer. */
 		ask: v.optional(v.object({ wakeupId: v.id("wakeups") })),
 		status: v.union(v.literal("queued"), v.literal("running"), v.literal("done"), v.literal("error")),
+		/**
+		 * A person's own message asked (their agent DM, an @mention: messages.send). It waits a quiet
+		 * window (core AGENT_DEBOUNCE_MS) before it starts, and starting folds that person's other such
+		 * turns queued here into it (turns.mergeQueued), so a burst gets one reply.
+		 */
+		person: v.optional(v.literal(true)),
+		/** A person turn still in its quiet window: it doesn't start until its timer (turns.startQueued) clears this. */
+		debouncing: v.optional(v.literal(true)),
+		/** Folded into this turn before it ran (turns.mergeQueued): its message was in that turn's prompt, so it never ran (status `done`, no reply). */
+		mergedInto: v.optional(v.id("agentTurns")),
 		startedAt: v.optional(v.number()),
 		/** Set when the turn follows a decision on this approval: it runs the call if approved, then tells the agent. */
 		approvalId: v.optional(v.id("approvals")),
