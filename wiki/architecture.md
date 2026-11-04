@@ -116,6 +116,7 @@ pnpm test && pnpm typecheck
 pnpm test:scale         # slow list tests over thousands of records; CI runs them as their own step
 ```
 Desktop tests cover the renderer (`*.test.ts`, e.g. `views/records/logic.ts`), on a stand-in page (happy-dom); a piece of UI renders inside `inApp` (`testing.ts`), as `main.tsx` wraps the app.
+What to test and where: [Testing](testing.md).
 `pnpm dev` (`scripts/dev.mjs`, the `/dev` skill) gives each checkout its own local Convex backend and data, so worktrees never fight over the cloud dev deployment. Outside the team (no access to the Convex project) it's an anonymous local backend (`CONVEX_AGENT_MODE=anonymous`, no account), with `AI_GATEWAY_API_KEY` taken from the shell. Sign in with any email; local backends send no code (`auth.ts`). `--reset` wipes local data. Local backends have no public URL, so connector OAuth only works on cloud dev (`npx convex dev` against `exciting-guanaco-266`, `pnpm dev:desktop`).
 
 The app's screens are hash paths (`router.ts`): `#/chat[/<chat>[/thread|message/<id>]]`, `#/records/<key>[/<record>]` (old `#/clients`-style links redirect), `#/customize/<tab>[/<item>]`, `#/settings/<tab>`. Opening an item pushes its own screen; back returns to the list.

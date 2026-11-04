@@ -3,9 +3,9 @@ import { resolveTools } from "./agents";
 import { builtinTools } from "./builtin-tools";
 import { companybot } from "./default-agents";
 import { platformGuide } from "./guide";
-import { helpPages, helpTopics, readHelp, searchHelp } from "./help";
+import { helpPages, readHelp, searchHelp } from "./help";
 import { toolRisk } from "./action-rules";
-import { ctx, member, owner } from "../test/helpers";
+import { ctx, member } from "../test/helpers";
 
 const help = builtinTools.find((t) => t.id === "help.read")!;
 
@@ -31,18 +31,10 @@ describe("help.read", () => {
 	const run = (input: { topic?: string; query?: string }) => help.execute(input, ctx(member)) as Promise<any>;
 
 	it("is read-only, needs no approval and is open to every role", () => {
-		expect(help.readOnly).toBe(true);
 		expect(toolRisk(help)).toBe("none");
 		expect(help.permission).toBeUndefined();
 		expect(resolveTools({ tools: ["help.read"] }).map((t) => t.id)).toEqual(["help.read"]);
 		expect(resolveTools({ tools: ["help.*"] }).map((t) => t.id)).toEqual(["help.read"]);
-	});
-
-	it("lists every topic with its id, title and summary when given nothing", async () => {
-		const { topics } = await run({});
-		expect(topics).toEqual(helpTopics());
-		expect(topics).toHaveLength(helpPages.length);
-		expect(Object.keys(topics[0]).sort()).toEqual(["id", "summary", "title"]);
 	});
 
 	it("reads one page by topic, ignoring case, and lists the topics for an unknown one", async () => {

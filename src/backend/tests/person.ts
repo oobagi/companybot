@@ -13,7 +13,7 @@ type Rest<F extends Fn> = keyof Own<F> extends never ? [args?: Own<F>] : [args: 
  * A signed-in person's calls. With `workspaceId`, each carries it, as the app does; without,
  * they name none, as before a workspace is open: only workspace-free calls (ensure, mine) work.
  *
- * A message they send to an agent (its DM, an @mention) has its quiet window (core AGENT_DEBOUNCE_MS)
+ * A message they send to an agent (its DM, an @mention) has its quiet window (core QUIET_WINDOW_MS)
  * ended at once, as its timer would, so tests see its turn start as before. `debounced()` leaves it to
  * the timer, for tests of bursts.
  */

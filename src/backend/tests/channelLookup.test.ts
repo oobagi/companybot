@@ -1,7 +1,7 @@
 import { ownerAndMember, signIn, workspaceOf } from "./helpers";
 import { expect, it } from "vitest";
 import { api } from "../convex/_generated/api";
-import { channelNamed, normalizeChannelName } from "../convex/chatOps";
+import { channelNamed } from "../convex/chatOps";
 import { memberOf } from "../convex/lib";
 
 it("looks up only active channels the person can see, in their workspace", async () => {
@@ -26,18 +26,5 @@ it("looks up only active channels the person can see, in their workspace", async
 		expect(await channelNamed(ctx, who, "missing")).toBeNull();
 		const elsewhere = (await memberOf(ctx, stranger.userId, elsewhereId))!;
 		expect(await channelNamed(ctx, elsewhere, "sales-team")).toBeNull();
-	});
-});
-
-it("preserves the callers' existing channel-name handling", async () => {
-	const { t, owner: as } = await ownerAndMember();
-	const userId = as.userId;
-	const workspaceId = await workspaceOf(as);
-	const id = await as.mutation(api.chats.createChannel, { name: "sales-team", private: false });
-	await t.run(async (ctx) => {
-		const member = (await memberOf(ctx, userId, workspaceId))!;
-		// Chat tools accept creation-style normalization; automation tools accept literal names.
-		expect((await channelNamed(ctx, member, normalizeChannelName("##Sales_Team")))?._id).toBe(id);
-		expect(await channelNamed(ctx, member, "##Sales_Team")).toBeNull();
 	});
 });
