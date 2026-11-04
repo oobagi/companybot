@@ -104,7 +104,7 @@ export interface ToolDef<Input = any> {
 	 */
 	label?(input: Input, output?: unknown): string | undefined;
 	/** A thread a finished call made, for its tool line to open (chat.ask_agent's). */
-	opens?(output: unknown): { chatId: string; messageId: string } | undefined;
+	opens?(output: unknown): { chatId: string; messageId: string; kind?: "message" } | undefined;
 }
 
 /** `toModelOutput` for a result the model reads as JSON. Tool results are plain data already. */

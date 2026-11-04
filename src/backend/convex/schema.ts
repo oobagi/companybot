@@ -38,14 +38,14 @@ export const toolStatus = v.union(v.literal("running"), v.literal("done"), v.lit
 export const messagePart = v.union(
 	v.object({ type: v.literal("text"), text: v.string() }),
 	/** `label`: what it did, for people ("Send SMS with Fake CRM"; core `callLabel`). Older parts lack it. */
-	/** `opens`: a thread the call made, that its line opens (chat.ask_agent's "Scout asked Quill →"). */
+	/** `opens`: what its line opens: a thread the call made (chat.ask_agent's "Scout asked Quill →"), or with `kind: "message"` a message it sent (chat.manage's "Companybot posted in #sales →"). */
 	v.object({
 		type: v.literal("tool"),
 		id: v.string(),
 		name: v.string(),
 		label: v.optional(v.string()),
 		status: toolStatus,
-		opens: v.optional(v.object({ chatId: v.id("chats"), messageId: v.id("chatMessages") })),
+		opens: v.optional(v.object({ chatId: v.id("chats"), messageId: v.id("chatMessages"), kind: v.optional(v.literal("message")) })),
 	}),
 	/** Props were validated against the widget's schema when the agent placed it. */
 	v.object({ type: v.literal("widget"), id: v.string(), widget: v.object({ type: v.string(), props: v.any() }) }),
@@ -631,6 +631,16 @@ export default defineSchema({
 		/** Answering another agent's private ask (chat.ask_agent): when it ends, this wakeup gives the asker the answer. */
 		ask: v.optional(v.object({ wakeupId: v.id("wakeups") })),
 		status: v.union(v.literal("queued"), v.literal("running"), v.literal("done"), v.literal("error")),
+		/**
+		 * A person's own message asked (their agent DM, an @mention: messages.send). It waits a quiet
+		 * window (core AGENT_DEBOUNCE_MS) before it starts, and starting folds that person's other such
+		 * turns queued here into it (turns.mergeQueued), so a burst gets one reply.
+		 */
+		person: v.optional(v.literal(true)),
+		/** A person turn still in its quiet window: it doesn't start until its timer (turns.startQueued) clears this. */
+		debouncing: v.optional(v.literal(true)),
+		/** Folded into this turn before it ran (turns.mergeQueued): its message was in that turn's prompt, so it never ran (status `done`, no reply). */
+		mergedInto: v.optional(v.id("agentTurns")),
 		startedAt: v.optional(v.number()),
 		/** Set when the turn follows a decision on this approval: it runs the call if approved, then tells the agent. */
 		approvalId: v.optional(v.id("approvals")),

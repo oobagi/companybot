@@ -265,7 +265,7 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 		responders = agentIds.filter((id) => inDm.has(`a:${id}`));
 	}
 	for (const agentId of responders) {
-		await enqueueTurn(ctx, chat, { agentId, chatId, threadId, triggerId: messageId, actorId: member.userId });
+		await enqueueTurn(ctx, chat, { agentId, chatId, threadId, triggerId: messageId, actorId: member.userId, person: true });
 	}
 	if (agentIds.length === 0) await routeLater(ctx, chat, sent);
 	// The tutorial: steps count only when they did what the step teaches (an agent answers a mention).
