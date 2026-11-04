@@ -26,7 +26,7 @@ import { customizeTabs } from "./views/customize";
 import { ChatView } from "./views/chat/ChatView";
 import { GettingStarted } from "./views/chat/Tutorial";
 import { Avatar, MenuItem, Popover, archiveQuestion, deviceTimeZone, useConfirm } from "./views/chat/common";
-import { AddButton, ChannelsNav, DmsNav, Group, Item, type SectionProps } from "./views/chat/Sidebar";
+import { AddButton, ChannelsNav, DmsNav, Group, Item, type SectionProps, SidebarList } from "./views/chat/Sidebar";
 import { useSortable } from "./sortable";
 import { PagesNav, PagesView } from "./views/Pages";
 import { DatabaseDialog } from "./views/records/DatabaseDialog";
@@ -258,7 +258,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 									</>
 								}
 							>
-								<div className="flex flex-col gap-4 px-3 pb-2">
+								<SidebarList>
 									{!tab && <SettingsNav tab={settingsTab} />}
 									{tab === "chat" &&
 										chats &&
@@ -270,7 +270,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 									{tab === "drive" && <PagesNav openId={route[1]} canEdit={can(access, "pages.edit")} />}
 									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} canCreate={can(access, "fields.edit")} onCreate={() => setNewDatabase(true)} />}
 									{tab === "customize" && <CustomizeNav open={settingsTab} />}
-								</div>
+								</SidebarList>
 							</Scroll>
 							<ResizeHandle side="right" label="Resize sidebar" size={sidebarWidth} />
 						</aside>
@@ -360,7 +360,7 @@ function DatabasesNav({
 			{editing && <DatabaseDialog type={editing} onClose={() => setEditing(undefined)} />}
 			{dialog}
 			{!types.length && canCreate && !section?.collapsed && (
-				<Item icon={<PlusIcon />} muted onClick={onCreate}>
+				<Item icon={<PlusIcon />} muted create onClick={onCreate}>
 					New database
 				</Item>
 			)}
