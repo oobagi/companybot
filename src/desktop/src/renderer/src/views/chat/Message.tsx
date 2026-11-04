@@ -19,6 +19,12 @@ import { LinkPreviews } from "./LinkPreviews";
 import { TokenChip } from "./TokenChip";
 import { splitTokens } from "./tokens";
 
+/**
+ * Whether a row draws anything yet. A reply shows whole once it's written; meanwhile the line under
+ * the composer says what the agent is doing. A card asking permission shows at once, since the reply waits on it.
+ */
+export const shows = (m: Message) => m.status !== "streaming" || (!m.deleted && m.parts.some((p) => p.type === "approval"));
+
 export function MessageRow({
 	message: row,
 	grouped,
@@ -54,11 +60,7 @@ export function MessageRow({
 	const sending = message.sending;
 	const toggle = (emoji: string) => react({ messageId: message._id, emoji }).catch(onError);
 
-	const asking = isAgent && !message.deleted && message.parts.some((p) => p.type === "approval");
-
-	// A reply shows whole once it's written; meanwhile the line under the composer says what the agent is
-	// doing. A card asking permission shows at once, since the reply waits on it.
-	if (message.status === "streaming" && !asking) return null;
+	if (!shows(message)) return null;
 	if (message.pause && !message.deleted) return <PausedLine message={message} pause={message.pause} onError={onError} />;
 
 	return (
