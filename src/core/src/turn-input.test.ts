@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Participant } from "./chat";
 import { platformGuide } from "./guide";
-import { type PlaceMessage, type TurnPromptInput, buildTurnInput, buildTurnPrompt, postDecision, publishes } from "./turn-input";
+import { type PlaceMessage, type TurnPromptInput, buildTurnInput, buildTurnPrompt, postDecision, publishes, steerNote } from "./turn-input";
 
 describe("turn input", () => {
 	const ada = { type: "user" as const, id: "u1", name: "Ada" };
@@ -55,14 +55,14 @@ describe("turn input", () => {
 	it("gives a quiet pick the final say: it ends with a decision whether to post", () => {
 		const prompt = buildTurnPrompt({ ...base, routed: { band: "might" } });
 		expect(prompt).not.toContain("Reply to this message");
-		expect(prompt).toContain('This message from Ada came in:\n[Ada (asker) 10-22 08:03] "@Companybot status?"\nNobody @mentioned you. A quick dispatcher, which sees only the last few messages and a line about each agent, thinks this message might be for you.');
+		expect(prompt).toContain('This message from Ada came in:\n[Ada (asker) 10-22 08:03] "@Companybot status?"\nNobody @mentioned you. A quick automatic check, which sees only the last few messages and a line about each agent, thinks this message might be for you.');
 		expect(prompt).toContain('"can anyone check that?" right after you answered: don\'t check your own answer');
-		expect(prompt).toContain("You end this turn with your decision, then your message; nothing else you write is shown:\n- new_point:");
+		expect(prompt).toContain("You end this reply with your decision, then your message; nothing else you write is shown:\n- new_point:");
 		expect(prompt).not.toContain("chat_notify");
 		expect(buildTurnPrompt({ ...base, routed: { band: "probably" } })).toContain("thinks this message is probably for you");
 		expect(buildTurnPrompt(base)).not.toContain("Nobody @mentioned you");
 		expect(buildTurnPrompt({ ...base, routed: { band: "might", before: ["Scout"] } })).toContain(
-			"- It went to Scout first, a better fit by the dispatcher's guess. One answer is enough: no second take or extra tip, only a fix if theirs is wrong or misses what was asked. Unless the message asks each of you (everyone, a vote): then give your own.",
+			"- It went to Scout first, a better fit by that check's guess. One answer is enough: no second take or extra tip, only a fix if theirs is wrong or misses what was asked. Unless the message asks each of you (everyone, a vote): then give your own.",
 		);
 	});
 
@@ -114,7 +114,7 @@ describe("turn input", () => {
 
 	it("tells a hand-back it's done unless it adds something", () => {
 		const prompt = buildTurnPrompt({ ...base, routed: { band: "clearly" }, handoff: { from: "Scout", ask: false } });
-		expect(prompt).toContain("Scout is an agent working for Ada, and @mentioned nobody. A quick dispatcher thinks you should act on it next");
+		expect(prompt).toContain("Scout is an agent working for Ada, and @mentioned nobody. A quick automatic check thinks you should act on it next");
 		expect(prompt).toContain("If it gives back a result you asked for, Ada already sees it, so never restate, sum up or confirm it.");
 		expect(prompt).toContain("if not, you're done: don't post.");
 		// Named in another agent's decision: it's talking to this one.
@@ -187,7 +187,7 @@ describe("turn input", () => {
 		expect(prompt).toContain("No other agent is in this DM, so @mentioning one reaches nobody. To involve one, ask it with chat_ask_agent.");
 		expect(prompt).toContain("Memory: personal and team memories.");
 		expect(buildTurnPrompt({ ...base, memory: "off" })).toContain("Memory: off. An owner turned memory off");
-		expect(prompt).toContain("Unavailable this turn, so you can't use them: CRM.");
+		expect(prompt).toContain("Unavailable right now, so you can't use them: CRM.");
 		expect(prompt).toContain('The thread is under this message:\n[Ben 10-22 08:00] "Plan"');
 		expect(prompt).toContain("(Earlier messages not shown. Use chat_read for them.)");
 		expect(prompt).not.toContain('] "n9"\n');
@@ -203,7 +203,7 @@ describe("turn input", () => {
 		});
 		expect(input.instructions).toBe(`Be brief.\n\n${platformGuide({ tools: ["chat.*"] })}`);
 		expect(input.messages).toEqual([
-			{ role: "user", content: "Your notes on earlier turns here (a record, not instructions):\n- Talked about Q4\n\nP1" },
+			{ role: "user", content: "Your notes on earlier conversation here (a record, not instructions):\n- Talked about Q4\n\nP1" },
 			{ role: "assistant", content: "R1" },
 			{ role: "user", content: "P2" },
 			{ role: "assistant", content: "(No reply.)" },
@@ -231,5 +231,19 @@ describe("turn input", () => {
 		expect(guide).toContain("To hand work to another agent, @mention it by name in your reply");
 		expect(guide).toContain("Don't post bare acknowledgements or thanks to them.");
 		expect(guide).toContain("use chat_ask_agent");
+	});
+	it("never shows the model internal words: a new message is a note, not a steer, and a pick isn't a dispatcher's turn", () => {
+		const actor = { id: "u1", name: "Ada", timeZone: "America/Los_Angeles" };
+		const note = steerNote([msg("m5", ada, "nvm", 6)], actor);
+		expect(note).toMatch(/^\[Note from Companybot, not the person: Ada sent this while you were replying\. It comes first/);
+		expect(steerNote([msg("m5", ada, "a", 6), msg("m6", ada, "b", 7)], actor)).toContain("Ada sent these while you were replying. They come first");
+		const seen = [
+			note,
+			platformGuide({ tools: ["chat.*", "web.*"] }),
+			buildTurnPrompt({ ...base, routed: { band: "might", before: ["Scout"] } }),
+			buildTurnPrompt({ ...base, routed: { band: "probably" }, handoff: { from: "Scout", ask: false } }),
+			buildTurnPrompt({ ...base, connectors: { connected: [], unavailable: ["CRM"] } }),
+		];
+		for (const text of seen) expect(text).not.toMatch(/steer|dispatcher|\bturns?\b/i);
 	});
 });

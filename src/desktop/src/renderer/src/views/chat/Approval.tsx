@@ -50,7 +50,14 @@ function ApprovalCard({ part, approval }: { part: ApprovalPart; approval: Approv
 
 	return (
 		<div className="flex max-w-xl flex-col gap-3 rounded-2xl rounded-tl-sm border border-neutral-200 bg-neutral-50 px-4 py-3">
-			<p className="leading-relaxed">{approval?.ask ?? `I'd like to run ${part.tool}.`}</p>
+			{part.why ? (
+				<div className="flex flex-col gap-0.5">
+					<p className="leading-relaxed">{part.why}</p>
+					{approval?.automation && <p className={hintClass}>From the automation {approval.automation}.</p>}
+				</div>
+			) : (
+				<p className="leading-relaxed">{approval?.ask ?? `I'd like to run ${part.tool}.`}</p>
+			)}
 			<div className="flex flex-col gap-2 rounded-xl bg-white px-3 py-2">
 				<div className="flex items-baseline justify-between gap-3 text-xs text-neutral-500">
 					<span>{service}</span>
@@ -85,8 +92,10 @@ function Status({
 		case "pending":
 			return approval.canDecide ? (
 				<div className="flex flex-col gap-2">
-					<p className="text-xs text-neutral-500">Acting for {approval.approver}. Only they can answer.</p>
-					<div className="flex flex-wrap items-center gap-2">
+					<div
+						className="flex flex-wrap items-center gap-2"
+						title={`Expires ${timeAgo(approval.expiresAt)}. Locked to this exact content (SHA-256 ${approval.hash}).`}
+					>
 						<button type="button" disabled={busy} onClick={() => onDecide(true)} className={`${primaryButton} py-1.5`}>
 							Allow once
 						</button>
@@ -99,10 +108,8 @@ function Status({
 							Deny
 						</button>
 					</div>
-					{/* Said plainly, so nobody reads "always" as "still ask me at key steps". */}
-					<p className="text-xs text-neutral-500" title={`Locked to this exact content (SHA-256 ${approval.hash})`}>
-						{approval.alwaysText ?? "This action asks every time."} Expires {timeAgo(approval.expiresAt)}.
-					</p>
+					{/* Only when "Always" is offered, said plainly, so nobody reads it as "still ask me at key steps". */}
+					{approval.alwaysText && <p className="text-xs text-neutral-500">{approval.alwaysText}</p>}
 				</div>
 			) : (
 				<p className="text-xs text-neutral-500">

@@ -167,17 +167,37 @@ describe("a reply's steps", () => {
 		expect(await result.text).toBe("Here's what I found.");
 	});
 
-	it("end with an answer: the last step offers only widgets, or no tools, and says to answer now", () => {
+	it("end with an answer: the last step offers only widgets, or no tools, and says to answer now", async () => {
 		const web = { left: () => ({ searches: 2, fetches: 2 }) };
 		const messages = [{ role: "user" as const, content: "biggest US cities?" }];
 		const tools = buildToolSet({ tools: ["web.*", "widgets.*"] }, { ...ctx(owner), web: createWebTurn(client(), []) });
 		const prepare = agentPrepareStep(tools, web);
-		expect(prepare({ stepNumber: AGENT_STEPS - 2, messages })).toEqual({});
-		const last = prepare({ stepNumber: AGENT_STEPS - 1, messages });
+		expect(await prepare({ stepNumber: AGENT_STEPS - 2, messages })).toEqual({});
+		const last = await prepare({ stepNumber: AGENT_STEPS - 1, messages });
 		expect(last.activeTools?.length).toBeGreaterThan(0);
 		expect(last.activeTools!.every((name) => name.startsWith("widgets_"))).toBe(true);
 		expect(last.messages).toEqual([...messages, { role: "user", content: expect.stringMatching(/last step of your reply.*Answer now.*in text or a widget/) }]);
 		const plain = buildToolSet({ tools: ["web.*"] }, { ...ctx(owner), web: createWebTurn(client(), []) });
-		expect(agentPrepareStep(plain, web)({ stepNumber: AGENT_STEPS - 1, messages })).toMatchObject({ toolChoice: "none", messages: [messages[0], { content: expect.not.stringContaining("widget") }] });
+		expect(await agentPrepareStep(plain, web)({ stepNumber: AGENT_STEPS - 1, messages })).toMatchObject({ toolChoice: "none", messages: [messages[0], { content: expect.not.stringContaining("widget") }] });
+		// A run restarted after steps already taken: the limit is per reply.
+		expect((await agentPrepareStep(plain, web, { done: AGENT_STEPS - 3 })({ stepNumber: 2, messages })).toolChoice).toBe("none");
+	});
+
+	it("adds the person's new messages at each step after the first, at the end, once", async () => {
+		const web = { left: () => ({ searches: 2, fetches: 2 }) };
+		const tools = buildToolSet({ tools: ["web.*"] }, { ...ctx(owner), web: createWebTurn(client(), []) });
+		const news = ["[Note] actually do Y", null];
+		const steer = vi.fn(async () => news.shift() ?? null);
+		const sent: unknown[] = [];
+		const prepare = agentPrepareStep(tools, web, { steer, sent: (m) => sent.push(m) });
+		const messages = [{ role: "user" as const, content: "do X" }];
+		// The first step was just built from everything there was: nothing is asked.
+		expect(await prepare({ stepNumber: 0, messages })).toEqual({});
+		expect(steer).not.toHaveBeenCalled();
+		const steered = await prepare({ stepNumber: 1, messages });
+		expect(steered.messages).toEqual([...messages, { role: "user", content: "[Note] actually do Y" }]);
+		// The SDK carries those messages into the next step; nothing new: left as is.
+		expect(await prepare({ stepNumber: 2, messages: steered.messages! })).toEqual({});
+		expect(sent.at(-1)).toEqual(steered.messages);
 	});
 });

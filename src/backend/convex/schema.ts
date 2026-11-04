@@ -38,19 +38,23 @@ export const toolStatus = v.union(v.literal("running"), v.literal("done"), v.lit
 export const messagePart = v.union(
 	v.object({ type: v.literal("text"), text: v.string() }),
 	/** `label`: what it did, for people ("Send SMS with Fake CRM"; core `callLabel`). Older parts lack it. */
-	/** `opens`: a thread the call made, that its line opens (chat.ask_agent's "Scout asked Quill →"). */
+	/** `opens`: what its line opens: a thread the call made (chat.ask_agent's "Scout asked Quill →"), or with `kind: "message"` a message it sent (chat.manage's "Companybot posted in #sales →"). */
 	v.object({
 		type: v.literal("tool"),
 		id: v.string(),
 		name: v.string(),
 		label: v.optional(v.string()),
 		status: toolStatus,
-		opens: v.optional(v.object({ chatId: v.id("chats"), messageId: v.id("chatMessages") })),
+		opens: v.optional(v.object({ chatId: v.id("chats"), messageId: v.id("chatMessages"), kind: v.optional(v.literal("message")) })),
 	}),
 	/** Props were validated against the widget's schema when the agent placed it. */
 	v.object({ type: v.literal("widget"), id: v.string(), widget: v.object({ type: v.string(), props: v.any() }) }),
-	/** A tool call held for approval (`id` is the tool call's id). The app reads its state from `approvals`. */
-	v.object({ type: v.literal("approval"), id: v.string(), approvalId: v.id("approvals"), tool: v.string() }),
+	/**
+	 * A tool call held for approval (`id` is the tool call's id). The app reads its state from `approvals`.
+	 * `why`: the agent's words at the top of the card, what it will do and why (core whyPrompt). Unset if
+	 * writing them failed, and on cards from before them: the card says the ask instead.
+	 */
+	v.object({ type: v.literal("approval"), id: v.string(), approvalId: v.id("approvals"), tool: v.string(), why: v.optional(v.string()) }),
 );
 
 /** A turn's place in a chain of agents (chains.ts). */
@@ -495,6 +499,8 @@ export default defineSchema({
 		}),
 		status: v.union(v.literal("streaming"), v.literal("done"), v.literal("error")),
 		error: v.optional(v.string()),
+		/** An agent reply someone stopped partway (turns.stop): who. What it wrote and did so far stays. */
+		stoppedBy: v.optional(v.id("users")),
 		/** Agent replies only, once finished. `conversationCostUsd` is the chat's (or thread's) running total. */
 		stats: v.optional(replyStats),
 		editedAt: v.optional(v.number()),
@@ -511,7 +517,10 @@ export default defineSchema({
 		automation: v.optional(v.object({ id: v.string(), name: v.string(), foreign: v.optional(v.boolean()) })),
 		/** A quiet turn's own reply (a wake, a dispatcher pick, a hop): hidden unless its decision posts it (turns.finishReply). */
 		quiet: v.optional(v.boolean()),
-		/** When a quiet reply was shown, if it was: later than it was made. */
+		/**
+		 * Where it sits in the timeline, if not where it was made (chatOps `shownAt`): when a quiet reply was
+		 * shown, or when a reply took in messages sent after it began (turns.steer), so it shows below them.
+		 */
 		publishedAt: v.optional(v.number()),
 		/**
 		 * A chain of agents paused here (chains.ts): the line "Agents paused after 10 turns · Continue · Stop",
@@ -629,6 +638,24 @@ export default defineSchema({
 		/** Answering another agent's private ask (chat.ask_agent): when it ends, this wakeup gives the asker the answer. */
 		ask: v.optional(v.object({ wakeupId: v.id("wakeups") })),
 		status: v.union(v.literal("queued"), v.literal("running"), v.literal("done"), v.literal("error")),
+		/**
+		 * A person's own message asked (their agent DM, an @mention: messages.send). It waits a quiet
+		 * window (core AGENT_DEBOUNCE_MS) before it starts, and starting folds that person's other such
+		 * turns queued here into it (turns.mergeQueued), so a burst gets one reply.
+		 */
+		person: v.optional(v.literal(true)),
+		/** A person turn still in its quiet window: it doesn't start until its timer (turns.startQueued) clears this. */
+		debouncing: v.optional(v.literal(true)),
+		/**
+		 * Folded into this turn (status `done`, no reply): before it ran (turns.mergeQueued), its message was
+		 * in that turn's window; or while it ran (turns.steer), its message reached it as a steer.
+		 */
+		mergedInto: v.optional(v.id("agentTurns")),
+		/**
+		 * Its person's messages that reached it while it ran (turns.steer), appended to its prompt. They're
+		 * after its reply began, so the next turn's window leaves them out: nothing is answered twice.
+		 */
+		steered: v.optional(v.array(v.id("chatMessages"))),
 		startedAt: v.optional(v.number()),
 		/** Set when the turn follows a decision on this approval: it runs the call if approved, then tells the agent. */
 		approvalId: v.optional(v.id("approvals")),
@@ -649,6 +676,11 @@ export default defineSchema({
 		 * under the composer (typing.ts). Unset while it writes, and once it ends. Never model reasoning.
 		 */
 		step: v.optional(v.object({ label: v.string(), at: v.number() })),
+		/**
+		 * Someone pressed Stop while it ran (turns.stop): the runner ends it at the next chance (agent.ts
+		 * `turnStop`), and finishReply marks its reply stopped. Stays `running` until then, so the queue waits.
+		 */
+		stopping: v.optional(v.object({ by: v.id("users"), at: v.number() })),
 	})
 		.index("by_place", ["agentId", "chatId", "threadId", "status"])
 		.index("by_session", ["sessionId"])

@@ -111,16 +111,10 @@ export const runFor = internalMutation({
 						return { chatId: await openDirectMessage(ctx, member, alone ? { userIds: [], agentIds: [turn.agentId] } : others) };
 					}
 					const to = { chatId: await chatId(ctx, member, r.chat), threadId: r.threadId ? rowId(ctx, "chatMessages", r.threadId) : undefined };
-					// The reply is how an agent speaks where it is; sending there too posts it twice.
-					if (to.chatId === turn.chatId && to.threadId === turn.threadId) throw new ConvexError("Your reply already posts here: put this in your reply instead.");
-					return {
-						messageId: await sendMessage(ctx, who, {
-							...to,
-							text: r.text ?? "",
-							mentions: participants(ctx, r),
-							attachments: r.files?.map(copyOf),
-						}),
-					};
+					const messageId = await sendMessage(ctx, who, { ...to, text: r.text ?? "", mentions: participants(ctx, r), attachments: r.files?.map(copyOf) });
+					// Posted right where the agent is replying: its reply shouldn't say it again.
+					const here = to.chatId === turn.chatId && to.threadId === turn.threadId;
+					return { messageId, ...to, ...(here && { note: "Posted here, above your reply. Don't repeat it." }) };
 				}
 				case "channels.manage": {
 					const r = manageInputs[tool].parse(input).request;

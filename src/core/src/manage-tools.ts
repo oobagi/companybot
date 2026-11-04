@@ -39,7 +39,7 @@ export const manageInputs = {
 			z.strictObject({ action: z.literal("open_dm"), userIds: userIds.describe("Others in the DM; your person is always added. With nobody else, it's your own DM with them"), agentIds }),
 			z.strictObject({
 				action: z.literal("send"),
-				chat: id.describe("Chat id or #channel"),
+				chat: id.describe("Chat id or #channel, this one too: \"post X here for me\" is a send here, since your reply would be from you, not them"),
 				threadId: id.optional().describe("Top-level message id, to reply in its thread"),
 				text: z.string().max(20_000).optional().describe("Can be left out when sending files"),
 				files: z.array(fileRef).min(1).max(FILES_PER_MESSAGE).optional().describe("Files from the chat to attach, by file id; each is copied"),
@@ -148,7 +148,7 @@ export interface ManageStore {
 }
 /** Each tool's title and description. */
 const about: Record<ManageTool, { title: string; description: string }> = {
-	"chat.manage": { title: "Manage messages and DMs", description: "Find people (paged directory, including agent ids), list your chats, open a DM with exact participant ids, deliver a message (and files from the chat, by file id) to another chat or thread (never the one you are replying in: your reply posts there), edit your person's own messages, delete them with locked approval, react to an exact message, hide the link preview card on your person's own message, or explicitly mark a chat read when asked. Sent as you for the person (\"Companybot, for Dana\"); to your person alone (your DM with them) it's simply from you. Never triggers agents or automations. Only send when asked; do not copy private information to a wider audience without their request." },
+	"chat.manage": { title: "Manage messages and DMs", description: "Find people (paged directory, including agent ids), list your chats, open a DM with exact participant ids, post a message (and files from the chat, by file id) for your person in a chat or thread (this one too: when they ask you to post something for them, send it here rather than writing it as your reply, which is from you), edit your person's own messages, delete them with locked approval, react to an exact message, hide the link preview card on your person's own message, or explicitly mark a chat read when asked. Sent as you for the person (\"Companybot, for Dana\"); to your person alone (your DM with them) it's simply from you. Never triggers agents or automations. Only send when asked; do not copy private information to a wider audience without their request." },
 	"channels.manage": { title: "Manage channels", description: "Browse public channels, inspect a visible channel and paged participants, create, rename, set/clear topic, set when agents reply (mentions only or when relevant), add/remove members, join or leave. Use chat ids or #names. Managers remove members; everyone stays in general. Delete moves a channel to Archive and waits for approval; only its creator or an owner can do it. Restore by its exact id as the deleter or an owner. Never deletes forever." },
 	"automations.manage": { title: "Manage automations", description: "List or inspect visible automations (prompt, version, agent, state), edit custom config using its current expectedVersion, pause/resume globally, change agent/audience, or run a sample once just for the person. Runs cannot start other runs. Confirm changes first. Resuming grants no consent: future outside actions still ask. Webhook secrets are omitted." },
 	"automations.remove": { title: "Archive an automation", description: "Move an automation to Archive, including retained library installs. It stops running; opt-ins and grants stay for restoration. The maker or an owner can restore custom automations; owners restore retained library installs. The exact call waits for approval." },
@@ -186,6 +186,12 @@ function manageLabel(input: unknown): string | undefined {
 	}
 }
 
+function sentMessage(output: unknown): { chatId: string; messageId: string; kind?: "message" } | undefined {
+	const o = output && typeof output === "object" ? (output as { messageId?: unknown; chatId?: unknown; threadId?: unknown }) : {};
+	if (typeof o.messageId !== "string" || typeof o.chatId !== "string") return undefined;
+	return typeof o.threadId === "string" ? { chatId: o.chatId, messageId: o.threadId } : { chatId: o.chatId, messageId: o.messageId, kind: "message" };
+}
+
 export const manageTools: ToolDef[] = (Object.keys(manageInputs) as ManageTool[]).map((id) =>
 	defineTool<unknown>({
 		id,
@@ -203,5 +209,7 @@ export const manageTools: ToolDef[] = (Object.keys(manageInputs) as ManageTool[]
 		}),
 		execute: (input, { manage }) => manage.run(id, input),
 		label: manageLabel,
+		// A sent message: its line jumps to it (in its thread, when it went in one).
+		...(id === "chat.manage" && { opens: sentMessage }),
 	}),
 );

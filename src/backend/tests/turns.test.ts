@@ -85,7 +85,7 @@ describe("agent turns", () => {
 		// Streaming writes go to the reply's own stream, not the message the timeline reads; ending moves them over.
 		const replyId = turn!.replyId!;
 		const parts = [{ type: "text" as const, text: "Hello" }];
-		await t.mutation(internal.turns.updateReply, { replyId, text: "Hello", parts });
+		await t.mutation(internal.turns.updateReply, { turnId: turn!._id, text: "Hello", parts });
 		expect(await owner.query(api.messages.stream, { messageId: replyId })).toEqual({ text: "Hello", parts });
 		expect((await owner.query(api.messages.list, { chatId })).at(-1)).toMatchObject({ text: "", parts: [] });
 		await t.mutation(internal.turns.finishReply, { turnId: turn!._id });
@@ -119,7 +119,7 @@ describe("agent turns", () => {
 		await member.mutation(api.messages.send, { chatId, text: "@Companybot", mentions: { userIds: [], agentIds: [companybot._id] } });
 		const [turn] = await turnsOf(t);
 		const text = "@Companybot noted. @Scribe help";
-		await t.mutation(internal.turns.updateReply, { replyId: turn!.replyId!, text, parts: [{ type: "text", text }] });
+		await t.mutation(internal.turns.updateReply, { turnId: turn!._id, text, parts: [{ type: "text", text }] });
 		await t.mutation(internal.turns.finishReply, { turnId: turn!._id });
 		const [, handed] = await turnsOf(t);
 		// A new thread under the reply, so the top level stays the people's; as the person who asked.
@@ -213,7 +213,7 @@ describe("agent turns", () => {
 		expect(context.messages.map((m) => m.text)).toEqual(["first"]);
 		await t.mutation(internal.turns.savePrompt, { turnId: turn!._id, prompt: "PROMPT 1" });
 		await t.mutation(internal.turns.updateReply, {
-			replyId: turn!.replyId!,
+			turnId: turn!._id,
 			text: "answer",
 			parts: [
 				{ type: "tool", id: "c1", name: "chat_react", status: "done" },

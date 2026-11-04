@@ -2,7 +2,7 @@ import type { ChatLine, ChatResult } from "@companybot/core";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
-import { type Namer, canSee, label as authorLabel, chatByRef, chatLabel, namer, reactionsOf, textForModel } from "./chatOps";
+import { type Namer, canSee, label as authorLabel, chatByRef, chatLabel, namer, reactionsOf, shownAt, textForModel } from "./chatOps";
 import { filesForModel } from "./files";
 import { asToolResult } from "./lib";
 import { reactMessage } from "./messages";
@@ -73,7 +73,7 @@ export const readFor = internalQuery({
 				// Wake turns' quiet replies were never said in the chat.
 				.filter((q) => q.and(q.neq(q.field("deleted"), true), q.neq(q.field("status"), "streaming"), q.neq(q.field("quiet"), true)))
 				.take(limit)
-		).reverse();
+		).sort((a, b) => shownAt(a) - shownAt(b));
 		const parent = threadId && (await ctx.db.get(threadId));
 		const names = namer(ctx);
 		const label = await chatLabel(ctx, chat, names, turn.agentId);

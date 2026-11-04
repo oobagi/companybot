@@ -92,6 +92,7 @@ describe("messaging and channels as the person", () => {
 		const elsewhere = await agentTurn(t, owner, chat._id, companybot._id);
 		const fromGeneral = (request: unknown): Promise<any> => t.mutation(internal.manageTools.runFor, { turnId: elsewhere, tool: "chat.manage", input: { request } });
 		const { messageId: toYou } = await fromGeneral({ action: "send", chat: own.chatId, text: "Surprise" });
+		expect(await fromGeneral({ action: "send", chat: own.chatId, text: "Again" })).toMatchObject({ chatId: own.chatId, messageId: expect.any(String) });
 		const sent = await t.run((ctx) => ctx.db.get(toYou as Id<"chatMessages">));
 		expect(sent).toMatchObject({ authorAgentId: companybot._id, text: "Surprise" });
 		expect(sent!.actingFor).toBeUndefined();
@@ -101,12 +102,13 @@ describe("messaging and channels as the person", () => {
 		expect(await call("chat.manage", { action: "send", chat: chatId, threadId: parent, text: "Wrong parent" })).toHaveProperty("error");
 	});
 
-	it("won't send where the turn is replying: the reply already posts there", async () => {
+	it("posts for the person where the turn is replying, and says so, so the reply doesn't repeat it", async () => {
 		const { t, call, owner, turnId } = await ready();
 		const { chatId } = (await t.run((ctx) => ctx.db.get(turnId as Id<"agentTurns">)))!;
-		expect(await call("chat.manage", { action: "send", chat: chatId, text: "Twice" })).toMatchObject({ error: expect.stringContaining("reply") });
+		const sent = await call("chat.manage", { action: "send", chat: chatId, text: "Here" });
+		expect(sent).toMatchObject({ messageId: expect.any(String), note: expect.stringContaining("Don't repeat") });
 		const parent = await owner.mutation(api.messages.send, { chatId, text: "Parent", mentions: noMentions });
-		expect(await call("chat.manage", { action: "send", chat: chatId, threadId: parent, text: "In its thread" })).toHaveProperty("messageId");
+		expect(await call("chat.manage", { action: "send", chat: chatId, threadId: parent, text: "In its thread" })).not.toHaveProperty("note");
 	});
 
 	it("creates, renames, clears topic, adds/removes members and joins/leaves via the UI's rules", async () => {
