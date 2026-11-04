@@ -66,6 +66,7 @@ export const builtinTools: ToolDef[] = [
 		title: "Update a memory",
 		description: "Correct any accessible memory found with memory_search, including another agent's. Replaces its content.",
 		input: z.object({ id: z.string(), content: z.string() }),
+		binds: ({ id }) => [{ kind: "memory", id }],
 		async execute({ id, content }, { memory }) {
 			const saved = await memory.update(id, content);
 			return { updated: saved.id };
@@ -77,6 +78,7 @@ export const builtinTools: ToolDef[] = [
 		title: "Forget a memory",
 		description: "Delete any accessible memory found with memory_search, when it's wrong or the person asks you to forget it.",
 		input: z.object({ id: z.string() }),
+		binds: ({ id }) => [{ kind: "memory", id }],
 		async execute({ id }, { memory }) {
 			await memory.remove(id);
 			return { forgotten: id };

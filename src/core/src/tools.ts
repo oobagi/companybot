@@ -65,6 +65,9 @@ export function createResultStore(): ResultStore {
 
 export type ToolSource = { type: "builtin" } | { type: "connector"; connectorId: string };
 
+/** Something a call's effect depends on as it is now, by id (`ToolDef.binds`). */
+export type Bound = { kind: "page" | "recordPage" | "pageVersion" | "record" | "memory" | "message" | "agent" | "skill" | "automation"; id: string };
+
 /**
  * A tool an agent can call. Built-in tools are defined in code; connector tools are
  * discovered from the connector's MCP server each turn (see mcp.ts). Both go through
@@ -92,6 +95,17 @@ export interface ToolDef<Input = any> {
 	risk?: Risk;
 	/** Per-call risk for grouped built-ins whose actions need different consent. */
 	riskFor?(input: Input): Risk;
+	/**
+	 * What this call's effect depends on as it is now (a page it overwrites or archives, a memory it
+	 * rewrites). A held call's approval binds their current revisions too (backend approvals.ts), so a
+	 * change made after the person saw the card stops it instead of running on what they didn't see.
+	 */
+	binds?(input: Input): Bound[];
+	/**
+	 * Its input leaves the workspace (a search query, a link to open): when the turn has read something not
+	 * everyone in the chat may see, the call asks first, showing exactly what goes out (backend permissions.check).
+	 */
+	sendsOut?: boolean;
 	/** Returns data worth showing. Results get a ref widgets can point at; see ResultStore. */
 	returnsData?: boolean;
 	source: ToolSource;

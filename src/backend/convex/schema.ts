@@ -90,6 +90,8 @@ export const approvalStatus = v.union(
 	v.literal("running"),
 	v.literal("done"),
 	v.literal("failed"),
+	/** An outside call cut off or failed in transit: it may or may not have happened (core ApprovalStatus). */
+	v.literal("unknown"),
 	v.literal("denied"),
 );
 
@@ -916,6 +918,11 @@ export default defineSchema({
 		tool: v.string(),
 		/** Canonical JSON (approvals.canonicalJson) of the exact input. Never clipped: this is what runs. */
 		input: v.string(),
+		/**
+		 * The revisions of what the call's effect depends on when it was held (core `ToolDef.binds`), as canonical
+		 * JSON, hashed with the input; unset when it depends on nothing. `claim` refuses a call whose targets changed since.
+		 */
+		bound: v.optional(v.string()),
 		hash: v.string(),
 		status: approvalStatus,
 		expiresAt: v.number(),

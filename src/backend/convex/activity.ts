@@ -1,8 +1,8 @@
 import { actionLabel, findConnector, toolGroup } from "@companybot/core";
-import type { PaginationOptions } from "convex/server";
+import type { ObjectType, PaginationOptions } from "convex/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type QueryCtx, internalMutation } from "./_generated/server";
+import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { query } from "./functions";
 import { type Namer, canSee, chatLabel, namer } from "./chatOps";
 import { type Member, capped, erased, getMember, liveWorkspace } from "./lib";
@@ -19,39 +19,44 @@ const LIST_LIMIT = 100;
 const SCAN_LIMIT = 1_000;
 
 /** Written by the runner (agent.ts) as each tool call finishes. */
+const logArgs = {
+	turnId: v.id("agentTurns"),
+	callId: v.string(),
+	tool: v.string(),
+	changes: v.boolean(),
+	input: v.string(),
+	output: v.optional(v.string()),
+	error: v.optional(v.string()),
+	allowed: v.optional(allowedHow),
+};
+
 export const log = internalMutation({
-	args: {
-		turnId: v.id("agentTurns"),
-		callId: v.string(),
-		tool: v.string(),
-		changes: v.boolean(),
-		input: v.string(),
-		output: v.optional(v.string()),
-		error: v.optional(v.string()),
-		allowed: v.optional(allowedHow),
-	},
-	handler: async (ctx, { turnId, error, allowed, output, ...call }) => {
-		const turn = await ctx.db.get(turnId);
-		// Not into a workspace being deleted: its cascade may be past this table.
-		if (!turn?.replyId || !(await liveWorkspace(ctx, turn.workspaceId))) return;
-		// Only the actor sees the output: once their account is erased, the call is logged without it.
-		const keep = output !== undefined && !(await erased(ctx, turn.actorId));
-		await ctx.db.insert("agentActivity", {
-			workspaceId: turn.workspaceId,
-			agentId: turn.agentId,
-			actorId: turn.actorId,
-			turnId,
-			chatId: turn.chatId,
-			threadId: turn.threadId,
-			replyId: turn.replyId,
-			...call,
-			...(keep && { output }),
-			...(error !== undefined && { error }),
-			...(allowed && { allowed }),
-			status: error === undefined ? "done" : "error",
-		});
-	},
+	args: logArgs,
+	handler: (ctx, args) => logCall(ctx, args),
 });
+
+/** Logs one finished call. Also run inside an approved call's own write (approvals.ts `withReceipt`), so the line can't go missing. */
+export async function logCall(ctx: MutationCtx, { turnId, error, allowed, output, ...call }: ObjectType<typeof logArgs>) {
+	const turn = await ctx.db.get(turnId);
+	// Not into a workspace being deleted: its cascade may be past this table.
+	if (!turn?.replyId || !(await liveWorkspace(ctx, turn.workspaceId))) return;
+	// Only the actor sees the output: once their account is erased, the call is logged without it.
+	const keep = output !== undefined && !(await erased(ctx, turn.actorId));
+	await ctx.db.insert("agentActivity", {
+		workspaceId: turn.workspaceId,
+		agentId: turn.agentId,
+		actorId: turn.actorId,
+		turnId,
+		chatId: turn.chatId,
+		threadId: turn.threadId,
+		replyId: turn.replyId,
+		...call,
+		...(keep && { output }),
+		...(error !== undefined && { error }),
+		...(allowed && { allowed }),
+		status: error === undefined ? "done" : "error",
+	});
+}
 
 /** Recent agent activity the person can see, newest first, optionally for one agent. */
 export const list = query({

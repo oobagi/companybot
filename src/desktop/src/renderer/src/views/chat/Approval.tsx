@@ -113,6 +113,8 @@ function Status({
 			);
 		case "failed":
 			return <p className="text-xs text-red-700">{by}, but it failed: {approval.error}</p>;
+		case "unknown":
+			return <p className="text-xs text-amber-700">{by}, but it may or may not have happened: {approval.error}</p>;
 		case "denied":
 			return <p className="text-xs text-neutral-500">Denied by {approval.approver}. Nothing ran.</p>;
 		case "expired":
