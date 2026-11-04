@@ -1,4 +1,4 @@
-import { FILE_MAX_BYTES, FILES_PER_MESSAGE, TURN_IMAGES_MAX, cleanFileName, imageMaxBytes, imageSize, isFileType, isImageType, modelTakesImage, sniffFile } from "@companybot/core";
+import { FILE_MAX_BYTES, FILES_PER_MESSAGE, TURN_IMAGES_MAX, cleanFileName, imageMaxBytes, imageMaxMb, imageSize, isFileType, isImageType, modelTakesImage, sniffFile } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
@@ -147,7 +147,7 @@ export const copyFor = internalAction({
 			if (!found) return fail(`No file "${id}" in a chat you can see.`);
 			const { storageId: source, ...file } = found;
 			if (picture && !isImageType(file.type)) return fail(`${file.name} isn't a picture (PNG, JPEG, WebP or GIF).`);
-			if (picture && file.size > imageMaxBytes) return fail(`${file.name} is ${(file.size / 1024 / 1024).toFixed(1)} MB; pictures here can be up to ${imageMaxBytes / 1024 / 1024} MB.`);
+			if (picture && file.size > imageMaxBytes) return fail(`${file.name} is ${(file.size / 1024 / 1024).toFixed(1)} MB; pictures here can be up to ${imageMaxMb} MB.`);
 			const blob = await ctx.storage.get(source);
 			if (!blob) return fail(`${file.name} was deleted.`);
 			const storageId = await ctx.storage.store(blob);

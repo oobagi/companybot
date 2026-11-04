@@ -78,7 +78,7 @@ describe("agents using chat files", () => {
 		const { turnId } = await turnOf(t, owner);
 		const logo = (file: string) => run(t, turnId, "workspace.settings", { action: "set_image", of: "workspace", file }, [file], true);
 		expect(await logo(ids[0]!)).toEqual({ error: "quote.docx isn't a picture (PNG, JPEG, WebP or GIF)." });
-		expect(await logo(ids[1]!)).toEqual({ error: "huge.png is 2.0 MB; pictures here can be up to 2 MB." });
+		expect(await logo(ids[1]!)).toEqual({ error: "huge.png is 10.0 MB; pictures here can be up to 10 MB." });
 		expect(await logo("nonsense/0")).toEqual({ error: 'No file "nonsense/0" in a chat you can see.' });
 
 		// A member's agent copies it, but the owner-only logo is refused: the copy goes.

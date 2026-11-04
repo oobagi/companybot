@@ -1,3 +1,4 @@
+import { imageMaxBytes } from "@companybot/core/images";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
@@ -65,7 +66,7 @@ describe("pictures", () => {
 		// Labeled a PNG, but its bytes are SVG: refused whatever the header says.
 		expect((await post(owner, svg, "image/png", workspaceId)).status).toBe(415);
 		expect((await post(owner, new TextEncoder().encode("<html></html>"), "image/gif", workspaceId)).status).toBe(415);
-		expect((await post(owner, png(2 * 1024 * 1024 + 1), "image/png", workspaceId)).status).toBe(413);
+		expect((await post(owner, png(imageMaxBytes + 1), "image/png", workspaceId)).status).toBe(413);
 		expect((await t.fetch("/images/upload", { method: "POST", body: png() })).status).toBe(401);
 		const outsider = await signIn(t, "outsider@elsewhere.com");
 		expect((await post(outsider, png(), "image/png", workspaceId)).status).toBe(403);
@@ -97,7 +98,8 @@ describe("pictures", () => {
 		const body = new ReadableStream({
 			pull(controller) {
 				reads++;
-				if (reads <= 8) controller.enqueue(png(1024 * 1024));
+				// Four chunks past the limit: reading must stop at the first one over.
+				if (reads <= imageMaxBytes / (1024 * 1024) + 4) controller.enqueue(png(1024 * 1024));
 				else controller.close();
 			},
 			cancel,
@@ -110,13 +112,13 @@ describe("pictures", () => {
 		} as RequestInit & { duplex: "half" });
 		expect(response.status).toBe(413);
 		expect(cancel).toHaveBeenCalledOnce();
-		expect(reads).toBeLessThan(8);
+		expect(reads).toBeLessThan(imageMaxBytes / (1024 * 1024) + 4);
 		expect(await files(t)).toBe(0);
 	});
 
 	it("accepts the exact limit and signatures split across chunks, using the sniffed type", async () => {
 		const { t, owner } = await ownerAndMember();
-		const bytes = png(2 * 1024 * 1024);
+		const bytes = png(imageMaxBytes);
 		const response = await owner.fetch("/images/upload", {
 			method: "POST",
 			headers: { "Content-Type": "text/html" },

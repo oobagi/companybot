@@ -3,6 +3,7 @@ import { reasonings } from "./agent-config";
 import { cronHelp } from "./automation-tools";
 import { CUSTOM_NAME_MAX, CUSTOM_PROMPT_MAX } from "./automations";
 import { FILES_PER_MESSAGE } from "./files";
+import { pictureLimits } from "./images";
 import { replyModes } from "./router";
 import { SKILL_DESCRIPTION_MAX, SKILL_INSTRUCTIONS_MAX, SKILL_NAME_MAX } from "./skills";
 import { defineTool, type ToolDef } from "./tools";
@@ -16,7 +17,7 @@ const page = { cursor: z.string().optional() };
 /** A file on a chat message, as agents name it. Copied when used, so the message can go and the copy stays. */
 const fileRef = z.string().min(1).describe('A file id from the chat ("<message id>/<n>"): one someone attached, or one you made or saved this reply');
 /** A picture to use, or null to go back to initials. */
-const pictureRef = fileRef.nullable().describe('A picture\'s file id from the chat ("<message id>/<n>"), PNG, JPEG, WebP or GIF up to 2 MB; null goes back to initials');
+const pictureRef = fileRef.nullable().describe(`A picture's file id from the chat ("<message id>/<n>"), ${pictureLimits}; null goes back to initials`);
 const skillConfig = z.object({ name: z.string().max(SKILL_NAME_MAX), description: z.string().max(SKILL_DESCRIPTION_MAX), instructions: z.string().max(SKILL_INSTRUCTIONS_MAX) });
 const trigger = z.union([
 	z.object({ type: z.literal("schedule"), cron: z.string().describe(cronHelp) }),
