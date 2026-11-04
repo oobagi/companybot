@@ -831,10 +831,10 @@ export default defineSchema({
 		 * forever), or a job finishing (`jobId`, #114).
 		 */
 		at: v.optional(v.number()),
-		// COMPAT(0.1.0-alpha.10): drop every after wakeupDurations migrates numeric intervals. Nothing reads it outside the migration.
+		// COMPAT(0.1.0-alpha.10): drop every after wakeupDurations migrates numeric intervals. The fire fallback reads it until migration finishes; remove both together.
 		every: v.optional(v.number()),
 		repeat: v.optional(v.object({ years: v.optional(v.number()), months: v.optional(v.number()), weeks: v.optional(v.number()), days: v.optional(v.number()), hours: v.optional(v.number()), minutes: v.optional(v.number()) })),
-		repeatAt: v.optional(v.number()),
+		anchor: v.optional(v.object({local: v.string(), timeZone: v.string()})),
 		times: v.optional(v.number()),
 		/** Wakes so far. */
 		wakes: v.optional(v.number()),

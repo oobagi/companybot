@@ -1,11 +1,12 @@
+import { fromLegacy } from "./wakeups";
 import { type MigrationFunctionReference, Migrations } from "@convex-dev/migrations";
 import { components, internal } from "./_generated/api";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, internalMutation, internalQuery } from "./_generated/server";
-import { defaultModel, scheduleCron, usageMonth } from "@companybot/core";
+import { defaultModel, scheduleCron, usageMonth, wakeAnchor } from "@companybot/core";
 import { recordUsage } from "./usage";
 import { scheduleCursor } from "./automationOps";
-import { rolesOf } from "./lib";
+import { timeZoneOf, rolesOf } from "./lib";
 import { seedRoles } from "./roles";
 
 // Data migrations. Deploys never change stored rows; these do, once per deployment.
@@ -182,10 +183,9 @@ export const skillAudience = migrations.define({
 // COMPAT(0.1.0-alpha.10): retire after numeric wakeup intervals have been converted.
 export const wakeupDurations = migrations.define({
 	table: "wakeups",
-	migrateOne: async (_ctx, row) => {
+	migrateOne: async (ctx, row) => {
 		if (row.every === undefined) return;
-		const day = 86_400_000;
-		return { repeat: row.every % day === 0 ? { days: row.every / day } : { minutes: row.every / 60_000 }, repeatAt: row.at, every: undefined };
+		return { repeat: row.repeat ?? fromLegacy(row.every), anchor: row.anchor ?? (row.at === undefined ? undefined : wakeAnchor(row.at, await timeZoneOf(ctx, row.actorId))), every: undefined };
 	},
 });
 

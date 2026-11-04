@@ -1,3 +1,4 @@
+import { wakeAnchor, repeatLabel } from "@companybot/core";
 import migrationsTest from "@convex-dev/migrations/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
@@ -39,21 +40,62 @@ async function fire(t: T, id: string) {
 }
 const shown = async (as: As, chatId: Id<"chats">) => (await as.query(api.messages.list, { chatId })).map((m) => [m.author.type, m.text]);
 
-it("migrates numeric intervals once, retaining their pending time", async () => {
+it.each([{ms: 7 * 86_400_000, repeat: {days: 7}}, {ms: 6 * 3_600_000, repeat: {hours: 6}}])("migrates numeric intervals once: $ms", async ({ms, repeat}) => {
 	const {t, turnId} = await setup();
 	migrationsTest.register(t);
 	const {created} = await create(t, turnId, {note: "legacy", in: {days: 1}}) as {created: string};
 	const id = created as Id<"wakeups">;
-	await t.run(async ctx => { const row = (await ctx.db.get(id))!; await ctx.scheduler.cancel(row.scheduledId!); await ctx.db.patch(id, {every: 7 * 86_400_000, scheduledId: undefined}); });
+	await t.run(async ctx => { const row = (await ctx.db.get(id))!; await ctx.scheduler.cancel(row.scheduledId!); await ctx.db.patch(id, {every: ms, scheduledId: undefined}); });
 	await t.run(async ctx => { for (const job of await ctx.db.system.query("_scheduled_functions").collect()) if (job.state.kind === "pending") await ctx.scheduler.cancel(job._id); });
 	const before = (await rowOf(t, id))!;
 	await t.mutation(internal.migrations.runAll);
 	await t.finishAllScheduledFunctions(vi.runAllTimers);
-	expect(await rowOf(t, id)).toMatchObject({repeat: {days: 7}, repeatAt: before.at, at: before.at, status: "pending"});
+	expect(await rowOf(t, id)).toMatchObject({repeat, anchor: expect.objectContaining({local: expect.any(String), timeZone: expect.any(String)}), at: before.at, status: "pending"});
 	expect((await rowOf(t, id))!.every).toBeUndefined();
 	await t.mutation(internal.migrations.runAll);
 	await t.finishAllScheduledFunctions(vi.runAllTimers);
-	expect((await rowOf(t, id))!.repeatAt).toBe(before.at);
+	expect((await rowOf(t, id))!.anchor).toEqual(wakeAnchor(before.at!, (await rowOf(t, id))!.anchor!.timeZone));
+});
+
+it("fires an unmigrated legacy row and carries on repeating", async () => {
+	const {t, turnId, member} = await setup();
+	const {created} = await create(t, turnId, {note: "old", in: {days: 1}}) as {created: string};
+	await t.run(ctx => ctx.db.patch(created as Id<"wakeups">, {every: 6 * 3_600_000, repeat: undefined, anchor: undefined}));
+	const before = (await rowOf(t, created))!;
+	await fire(t, created);
+	const after = (await rowOf(t, created))!;
+	expect(after).toMatchObject({status: "pending", wakes: 1, repeat: {hours: 6}});
+	expect(after.at).toBe(before.at! + 6 * 3_600_000);
+	const listed = (await member.query(api.wakeups.list, {}))[0]!;
+	expect(listed.repeat).toEqual({hours: 6});
+	expect(listed).not.toHaveProperty("every");
+	expect(repeatLabel(listed.repeat!)).toBe("every 6 hours");
+ migrationsTest.register(t);
+ await t.run(async ctx => {
+  for (const job of await ctx.db.system.query("_scheduled_functions").collect()) if (job.state.kind === "pending") await ctx.scheduler.cancel(job._id);
+  const prefs = await ctx.db.query("preferences").withIndex("by_user", q => q.eq("userId", after.actorId)).unique();
+  await ctx.db.patch(prefs!._id, {timeZone: "Asia/Tokyo"});
+ });
+ await t.mutation(internal.migrations.runAll);
+ await t.finishAllScheduledFunctions(vi.runAllTimers);
+ expect((await rowOf(t, created))!.anchor).toEqual(after.anchor);
+});
+it("a broken next-repeat calculation cannot block the current wake", async () => {
+	const {t, turnId} = await setup();
+	const {created} = await create(t, turnId, {note: "broken", in: {days: 1}, every: {days: 1}}) as {created: string};
+	await t.run(ctx => ctx.db.patch(created as Id<"wakeups">, {anchor: {local: "invalid", timeZone: "UTC"}}));
+	await fire(t, created);
+	expect(await turnsFor(t, created)).toHaveLength(1);
+	expect(await rowOf(t, created)).toMatchObject({status: "fired", wakes: 1, reason: "Could not schedule the next repeat."});
+});
+it("repeats in its original zone after the person changes zones", async () => {
+	const {t, turnId} = await setup();
+	const {created} = await create(t, turnId, {note: "ET", at: {year: 2027, month: 1, day: 31, hour: 9, timeZone: "America/New_York"}, every: {months: 1}}) as {created: string};
+	const before = (await rowOf(t, created))!;
+	expect(before.anchor).toEqual({local: "2027-01-31T09:00:00", timeZone: "America/New_York"});
+	await t.run(async ctx => { const prefs = await ctx.db.query("preferences").withIndex("by_user", q => q.eq("userId", before.actorId)).unique(); await ctx.db.patch(prefs!._id, {timeZone: "Asia/Tokyo"}); });
+	await fire(t, created);
+	expect((await rowOf(t, created))!.at).toBe(Date.UTC(2027, 1, 28, 14));
 });
 
 describe("follow-ups", () => {
@@ -124,7 +166,7 @@ describe("follow-ups", () => {
 		const { t, turnId, record } = await setup();
 		expect(await create(t, turnId, { note: " ", in: {days: 1} })).toEqual({ error: "Say what to check when it's time." });
 		expect(await create(t, turnId, { note: "x", in: { minutes: 0 } })).toMatchObject({ error: expect.stringMatching(/valid/) });
-		expect(await create(t, turnId, { note: "x", in: {years: 3} })).toEqual({ error: "Pick a time within 2 years." });
+		expect(await create(t, turnId, { note: "x", in: {years: 3} })).toMatchObject({ error: expect.stringMatching(/within 2 years/) });
 		expect(await create(t, turnId, { note: "x", in: {days: 1}, times: 3 })).toEqual({ error: 'Give "every" with "times".' });
 		expect(await create(t, turnId, { note: "x", in: {days: 1}, recordId: "nope" })).toMatchObject({ error: expect.any(String) });
 		for (let i = 0; i < 10; i++) expect(await create(t, turnId, { note: `n${i}`, in: {days: 1}, recordId: record._id })).toHaveProperty("created");
@@ -134,7 +176,7 @@ describe("follow-ups", () => {
 	it("repeats every week for a month, then stops", async () => {
 		const { t, turnId } = await setup();
 		const made = await create(t, turnId, { note: "Check this deal", in: {hours: 1}, every: {weeks: 1}, times: 3 });
-		expect(made).toMatchObject({ when: expect.stringMatching(/, then every 1 weeks, 3 times in all$/) });
+		expect(made).toMatchObject({ when: expect.stringMatching(/, then every week, 3 times in all$/) });
 		const id = (made as { created: string }).created;
 		const first = (await rowOf(t, id))!.at!;
 		for (let i = 1; i <= 3; i++) {
@@ -145,7 +187,10 @@ describe("follow-ups", () => {
 			if (i < 3) expect(row.at).toBeGreaterThan(first + (i - 1) * 7 * 86_400_000);
 			// Its turn finishes so the next can start in the same place.
 			const turns = (await turnsFor(t, id)).filter((x) => x.status === "running");
-			for (const turn of turns) await t.mutation(internal.turns.finishReply, { turnId: turn._id });
+			for (const turn of turns) {
+				expect((await t.query(internal.turns.turnContext, {turnId: turn._id})).wake?.repeats).toEqual({left: 3 - i});
+				await t.mutation(internal.turns.finishReply, { turnId: turn._id });
+			}
 		}
 		expect(await turnsFor(t, id)).toHaveLength(3);
 		const context = await t.run((ctx) => ctx.db.query("agentTurns").collect());

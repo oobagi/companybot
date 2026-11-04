@@ -115,5 +115,3 @@ Every screen has the same shell (`ui.tsx`): a **top bar** (`TopBar`) with where 
 ## Before launch
 - Sign-in emails send from `signin@callnightowl.com` and AI bills to the Night Owl Vercel team ($25/mo cap). Swap both to Companybot accounts.
 - Convex Auth is beta — re-check before real customers.
-
-Follow-up times and durations are structured tool inputs. Temporal ZonedDateTime uses explicit `compatible` DST disambiguation and rejects invalid dates; calendar additions clamp month ends. Recurrences use `repeatAt` as their original anchor. `migrations.wakeupDurations` converts stored numeric `every` intervals; no English parser or offset guessing remains. Automation cron schedules are unchanged.

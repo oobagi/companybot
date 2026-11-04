@@ -1,3 +1,4 @@
+import { repeatLabel } from "@companybot/core/wakeups";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "../api";
@@ -18,9 +19,8 @@ const when = (ms: number) =>
 
 /** "every week, 2 more times", "every 6 hours". */
 function repeats(w: Wakeup) {
-	if (!w.every) return null;
-	const every = Object.entries(w.every).map(([unit, n]) => `${n} ${unit}`).join(", ");
-	const often = `every ${every}`;
+	if (!w.repeat) return null;
+	const often = repeatLabel(w.repeat);
 	return w.left === null ? often : `${often}, ${w.left} ${w.left === 1 ? "time" : "times"} left`;
 }
 

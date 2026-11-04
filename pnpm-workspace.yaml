@@ -5,6 +5,3 @@ allowBuilds:
   # Windows installer helper; not needed for macOS builds.
   electron-winstaller: false
   esbuild: true
-minimumReleaseAgeExclude:
-  - temporal-polyfill@1.0.7
-  - temporal-utils@1.0.4
