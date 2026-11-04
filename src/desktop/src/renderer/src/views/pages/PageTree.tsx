@@ -41,7 +41,7 @@ function PageNavTree({ openId, canEdit, section }: { openId?: string; canEdit: b
 	const add = (parentId?: PageId) => run(create({ title: "Untitled", parentId }).then((id) => { if (parentId) toggle(parentId, true); navigate("pages", id); }));
 	/** `above`: for each level above this one, whether its line continues past these rows. */
 	const level = (parentId?: PageId, above: boolean[] = []): React.ReactNode => (
-		<PageLevel parentId={parentId} sortable empty={!above.length && canEdit && <Item icon={<PlusIcon />} onClick={() => add()} muted>New page</Item>} render={(p, drag, last) => {
+		<PageLevel parentId={parentId} sortable empty={!above.length && canEdit && <Item icon={<PlusIcon />} onClick={() => add()} muted create>New page</Item>} render={(p, drag, last) => {
 			const open = p.hasChildren && expanded.has(p._id);
 			const guides = parentId ? [...above, !last] : [];
 			return (
