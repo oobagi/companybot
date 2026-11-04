@@ -19,8 +19,8 @@ const targetArgs = { list: arrangementList, entityId: v.optional(v.string()) };
 export const PAGE_LEVEL_MAX = 500;
 /** Page docs one call reads in all, levels, parents and their ancestors alike, so it stays under 4,096 index ranges. */
 export const PAGE_READS_MAX = 2_000;
-/** Channel docs `get` reads to know which ones someone sees; past either cap the rest of the order is left out. */
-export const CHANNEL_READS_MAX = 1_000;
+/** Channel ids one list resolves (each read directly, never a scan of the workspace); past either cap the rest are left out. */
+export const CHANNEL_READS_MAX = 2_000;
 const CHANNEL_BYTES_MAX = 8 * 1024 * 1024;
 
 /** Thrown when a call has read `PAGE_READS_MAX` pages: `get` leaves that level out. */
@@ -32,19 +32,28 @@ class OutOfPageReads extends Error {}
  * budgeted reader shared by levels, parents and ancestors. Personal lists pass through.
  */
 function viewer(ctx: QueryCtx, member: Member) {
-	const channels = once(async () => {
-		const seats = await ctx.db.query("chatMembers").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("userId", member.userId)).collect();
-		const mine = new Set<string>(seats.map((s) => s.chatId));
-		const seen = new Set<string>();
-		let count = 0;
-		let bytes = 0;
-		for await (const c of ctx.db.query("chats").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("kind", "channel"))) {
-			if (!c.archived && (!c.private || mine.has(c._id)) && reach(member, chatAccess(c))) seen.add(c._id);
-			bytes += getDocumentSize(c);
-			if (++count >= CHANNEL_READS_MAX || bytes >= CHANNEL_BYTES_MAX) break;
-		}
+	// Channels: each stored id read directly (cached, ~8 MiB in all), checked against the caller's seats
+	// (one indexed read) and the channel's own privacy and Who can access list. `get`, commands and `fill` share it.
+	const seats = once(async () => new Set<string>((await ctx.db.query("chatMembers").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("userId", member.userId)).collect()).map((s) => s.chatId)));
+	const channelSeen = new Map<string, Promise<boolean>>();
+	let channelBytes = CHANNEL_BYTES_MAX;
+	const channel = (id: string) => {
+		let seen = channelSeen.get(id);
+		if (!seen) channelSeen.set(id, (seen = (async () => {
+			const chatId = ctx.db.normalizeId("chats", id);
+			if (!chatId || channelBytes <= 0) return false;
+			const c = await ctx.db.get(chatId);
+			if (!c) return false;
+			channelBytes -= getDocumentSize(c);
+			return c.workspaceId === member.workspaceId && c.kind === "channel" && !c.archived && (!c.private || (await seats()).has(c._id)) && !!reach(member, chatAccess(c));
+		})()));
 		return seen;
-	});
+	};
+	const channels = async (ids: string[]) => {
+		const kept: string[] = [];
+		for (const id of ids.slice(0, CHANNEL_READS_MAX)) if (await channel(id)) kept.push(id);
+		return kept;
+	};
 	const types = once(async () => new Set<string>((await typesOf(ctx, member.workspaceId)).filter((t) => !t.archived && reach(member, t.access)).map((t) => t._id)));
 	const pages = new Map<string, Promise<Doc<"pages"> | null>>();
 	let pageReads = PAGE_READS_MAX;
@@ -70,13 +79,14 @@ function viewer(ctx: QueryCtx, member: Member) {
 	};
 	return {
 		page,
+		channel,
 		/** Whether a page level's parent is visible; a call out of page reads can't tell, so it leaves the level out. */
 		pageLevel: async (parentId: string) => { try { return !!(await page(parentId)); } catch (e) { if (e instanceof OutOfPageReads) return false; throw e; } },
 		database: async (id: string) => (await types()).has(id),
 		/** The ids of a list this person may see, in order. Null: the whole list is hidden from them (or out of reads). */
 		filter: async (list: ArrangementList, entityId: string | undefined, ids: string[]): Promise<string[] | null> => {
 			switch (list) {
-				case "channels": case "channelFolds": { const seen = await channels(); return ids.filter((id) => seen.has(id)); }
+				case "channels": case "channelFolds": return channels(ids);
 				case "databases": { const seen = await types(); return ids.filter((id) => seen.has(id)); }
 				case "views": case "columns": return (await types()).has(entityId!) ? ids : null;
 				case "pages": {
@@ -144,8 +154,8 @@ const reader = (ctx: QueryCtx, budget?: { bytes: number }): Read => async (table
 async function live(ctx: QueryCtx, member: Member, target: Target, id: string, seen: Viewer, columns?: Set<string>, read = reader(ctx)) {
 	switch (target.list) {
 		case "channels": case "channelFolds": {
-			const chat = await read("chats", id);
-			return !!chat && !chat.archived && chat.workspaceId === member.workspaceId && chat.kind === "channel" && await canSee(ctx, chat, member);
+			// The shared resolver, with its own ~8 MiB budget (the import's included).
+			return seen.channel(id);
 		}
 		case "pages": case "expanded": {
 			const page = await read("pages", id);

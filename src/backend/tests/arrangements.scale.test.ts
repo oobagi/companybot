@@ -4,7 +4,7 @@ import type { Id } from "../convex/_generated/dataModel";
 import { CHANNEL_READS_MAX, IMPORT_IDS_MAX, PAGE_LEVEL_MAX, PAGE_READS_MAX } from "../convex/arrangements";
 import { generalOf, ownerAndMember, workspaceOf } from "./helpers";
 
-// A command reads only the ids it names, and `get` reads channel docs in one capped range,
+// A command reads only the ids it names, and `get` reads each stored channel id directly,
 // so a 2,000-channel order stays under Convex's per-transaction limits for both.
 it("saves and loads a 2,000-channel order without exceeding transaction limits", { timeout: 600_000 }, async () => {
 	const { t, owner, member } = await ownerAndMember();
@@ -12,22 +12,20 @@ it("saves and loads a 2,000-channel order without exceeding transaction limits",
 	const general = await generalOf(owner);
 	const ids: Id<"chats">[] = [];
 	for (let start = 0; start < 2_000; start += 200) await t.run(async (ctx) => {
-		for (let i = start; i < start + 200; i++) ids.push(await ctx.db.insert("chats", { workspaceId, kind: "channel", name: `c${i}`, private: false, archived: false, createdBy: owner.userId, lastMessageAt: 0 }));
+		// 1,999 plus #general: a full list of `CHANNEL_READS_MAX`.
+		for (let i = start; i < Math.min(start + 200, CHANNEL_READS_MAX - 1); i++) ids.push(await ctx.db.insert("chats", { workspaceId, kind: "channel", name: `c${i}`, private: false, archived: false, createdBy: owner.userId, lastMessageAt: 0 }));
 	});
 	// The first drag of a never-saved list fills it with every channel shown before the drop.
 	await owner.mutation(api.arrangements.change, { list: "channels", command: { op: "move", id: general._id, beforeId: null, fill: ids } });
-	await member.mutation(api.arrangements.change, { list: "channels", command: { op: "move", id: ids[1_999]!, beforeId: ids[0]! } });
+	await member.mutation(api.arrangements.change, { list: "channels", command: { op: "move", id: ids[1_998]!, beforeId: ids[0]! } });
 	await owner.mutation(api.arrangements.change, { list: "pins", command: { op: "add", id: `chat:${ids[5]}` } });
 	const rows = (await member.query(api.arrangements.get))!.rows;
 	const order = rows.find((r) => r.list === "channels")!.ids;
-	// `get` reads at most 1,000 channel docs (#general and the first 999); the rest of the order is left out.
 	expect(order).toHaveLength(CHANNEL_READS_MAX);
-	expect(order.slice(0, 2)).toEqual([ids[0], ids[1]]);
+	expect(order.slice(0, 2)).toEqual([ids[1_998], ids[0]]);
 	expect(order.at(-1)).toBe(general._id);
 	const saved = await t.run(async (ctx) => (await ctx.db.query("arrangements").withIndex("by_list", (q) => q.eq("workspaceId", workspaceId).eq("userId", undefined).eq("list", "channels")).unique())!.ids);
-	// `fill` is cut to the same 1,000-channel view; the member's move adds the 2,000th channel back in.
-	expect(saved).toHaveLength(CHANNEL_READS_MAX + 1);
-	expect(saved.slice(0, 2)).toEqual([ids[1_999], ids[0]]);
+	expect(saved).toEqual(order);
 });
 
 it("returns at most 500 of a 600-page level, and still moves one", { timeout: 600_000 }, async () => {
@@ -98,4 +96,20 @@ it("BUG get survives 1500 saved parent-child levels", { timeout: 600_000 }, asyn
 	const shown = await levels(1_500);
 	expect(shown.length).toBeGreaterThan(0);
 	expect(shown.length).toBeLessThanOrEqual(PAGE_READS_MAX / 2);
+});
+
+it("keeps a private channel's saved place past 1,000 other channels", { timeout: 600_000 }, async () => {
+	const { t, owner } = await ownerAndMember();
+	const workspaceId = await workspaceOf(owner);
+	const general = await generalOf(owner);
+	const ids: Id<"chats">[] = [];
+	for (let start = 0; start < 1_000; start += 200) await t.run(async (ctx) => {
+		for (let i = start; i < start + 200; i++) ids.push(await ctx.db.insert("chats", { workspaceId, kind: "channel", name: `c${i}`, private: false, archived: false, createdBy: owner.userId, lastMessageAt: 0 }));
+	});
+	const mine = await owner.mutation(api.chats.createChannel, { name: "mine", private: true });
+	await owner.mutation(api.arrangements.change, { list: "channels", command: { op: "move", id: general._id, beforeId: null, fill: ids } });
+	await owner.mutation(api.arrangements.change, { list: "channels", command: { op: "move", id: mine, beforeId: ids[0]! } });
+	const order = (await owner.query(api.arrangements.get))!.rows.find((r) => r.list === "channels")!.ids;
+	expect(order).toHaveLength(1_002);
+	expect(order[0]).toBe(mine);
 });
