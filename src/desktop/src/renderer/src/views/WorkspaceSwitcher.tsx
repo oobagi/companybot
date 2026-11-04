@@ -2,7 +2,7 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery, useWorkspace } from "../convex";
-import { CaretDownIcon, CheckIcon, PlusIcon, SettingsIcon } from "../icons";
+import { CaretDownIcon, CheckIcon, PlusIcon, SettingsIcon, SignOutIcon } from "../icons";
 import { navigate } from "../router";
 import { useSortable } from "../sortable";
 import { Field, Form, MenuDivider, Notice, inputClass, primaryButton, useRun } from "../ui";
@@ -21,6 +21,11 @@ function Mentions({ count }: { count: number }) {
 			{count > 9 ? "9+" : count}
 		</span>
 	);
+}
+
+/** Every row's leading picture or icon sits in the same 22px slot as the sidebar's (`Item`), so labels line up. */
+function Slot({ danger, children }: { danger?: boolean; children: React.ReactNode }) {
+	return <span className={`flex size-[22px] shrink-0 items-center justify-center text-lg ${danger ? "" : "text-neutral-500"}`}>{children}</span>;
 }
 
 /** Something new: an unread chat or an invite. */
@@ -98,7 +103,9 @@ export function WorkspaceSwitcher({ name, onSettings }: { name: string; onSettin
 										onClick={() => (close(), !active && goTo(w.id))}
 										className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-neutral-100"
 									>
-										<Avatar name={w.name} image={w.image} agent size="row" className="pointer-events-none" />
+										<Slot>
+											<Avatar name={w.name} image={w.image} agent size="row" className="pointer-events-none" />
+										</Slot>
 										<span className={`min-w-0 flex-1 truncate ${active ? "font-medium" : ""}`}>{w.name}</span>
 										{waiting?.mentions ? <Mentions count={waiting.mentions} /> : waiting?.unread && dot}
 										{active ? <CheckIcon className="shrink-0 text-neutral-500" /> : i < 9 && <span className="shrink-0 text-xs text-neutral-400">{`${mod}${i + 1}`}</span>}
@@ -108,11 +115,17 @@ export function WorkspaceSwitcher({ name, onSettings }: { name: string; onSettin
 						})}
 						{mine?.invitations.map((i) => <Invite key={i.id} invite={i} onJoined={setJoined} />)}
 						<MenuItem onClick={() => (close(), setCreating(true))}>
-							<PlusIcon className="text-neutral-500" /> New workspace
+							<Slot>
+								<PlusIcon />
+							</Slot>
+							New workspace
 						</MenuItem>
 						<MenuDivider />
 						<MenuItem onClick={() => (close(), onSettings())}>
-							<SettingsIcon className="text-neutral-500" /> Workspace settings
+							<Slot>
+								<SettingsIcon />
+							</Slot>
+							Workspace settings
 						</MenuItem>
 						<MenuItem
 							danger
@@ -121,6 +134,9 @@ export function WorkspaceSwitcher({ name, onSettings }: { name: string; onSettin
 								confirm({ title: `Leave ${name}?`, action: "Leave", body: "You'll need a new invite to come back.", onConfirm: () => leave().then(() => navigate("chat")) })
 							)}
 						>
+							<Slot danger>
+								<SignOutIcon />
+							</Slot>
 							Leave {name}
 						</MenuItem>
 					</>
@@ -142,9 +158,11 @@ function Invite({ invite, onJoined }: { invite: Invitation; onJoined: (id: Id<"w
 	return (
 		<div className="flex flex-col gap-1 rounded-lg px-2 py-1.5">
 			<div className="flex items-center gap-2">
-				<span className="flex size-[22px] shrink-0 items-center justify-center rounded-md border border-dashed border-neutral-300 text-[10px] font-medium text-neutral-500">
-					{invite.workspace.slice(0, 1).toUpperCase()}
-				</span>
+				<Slot>
+					<span className="flex size-[22px] items-center justify-center rounded-md border border-dashed border-neutral-300 text-[10px] font-medium">
+						{invite.workspace.slice(0, 1).toUpperCase()}
+					</span>
+				</Slot>
 				<span className="min-w-0 flex-1 truncate text-neutral-700">
 					{invite.invitedBy ? `${invite.invitedBy} invited you to ` : "You're invited to "}
 					<span className="font-medium">{invite.workspace}</span>
