@@ -52,7 +52,7 @@ it.each([
 ] as const)("guards confirmation and retries after failure: $action", async ({ tab, action, pending }) => {
 	const account = tab === "preferences";
 	await act(async () => {
-		root = create(createElement(SettingsView, { role: "owner", tab }));
+		root = create(createElement(SettingsView, { access: { roles: ["owner"], owner: true, permissions: [] }, tab }));
 	});
 	await act(async () => root.root.findAllByType("button").find((b) => b.children[0] === action)!.props.onClick());
 	const field = () => root.root.findByProps({ autoFocus: true });

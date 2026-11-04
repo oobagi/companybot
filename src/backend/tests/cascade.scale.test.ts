@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { api } from "../convex/_generated/api";
-import { settle, signIn, newTest, workspaceOf, identityOf } from "./helpers";
+import { settle, signIn, newTest, workspaceOf, identityOf, addMember } from "./helpers";
 import { person } from "./person";
 
 // Deleting a workspace bigger than one transaction may write (16,000), with a message whose
@@ -40,7 +40,7 @@ it("resets a workspace with 17,000 messages and 4,100 members without exceeding 
 		});
 	}
 	await t.run(async (ctx) => {
-		for (let i = 0; i < 4_100; i++) await ctx.db.insert("members", { workspaceId, userId: await ctx.db.insert("users", { email: `p${i}@co.com` }), role: "member" });
+		for (let i = 0; i < 4_100; i++) await addMember(ctx, { workspaceId, userId: await ctx.db.insert("users", { email: `p${i}@co.com` }), role: "member" });
 	});
 	await owner.mutation(api.workspace.resetWorkspace, { name: "My company" });
 	await settle(t);
@@ -113,8 +113,8 @@ it("deletes a workspace with 4,100 members at once, and old apps of those also e
 		for (let i = 0; i < 4_100; i++) {
 			const userId = await ctx.db.insert("users", { email: `p${i}@co.com` });
 			// Joined here first, then elsewhere, before old apps' pins existed: their first workspace is this one.
-			await ctx.db.insert("members", { workspaceId, userId, role: "member" });
-			if (i < 50) await ctx.db.insert("members", { workspaceId: elsewhere, userId, role: "member" });
+			await addMember(ctx, { workspaceId, userId, role: "member" });
+			if (i < 50) await addMember(ctx, { workspaceId: elsewhere, userId, role: "member" });
 			ids.push(userId);
 		}
 		return ids;
@@ -140,7 +140,7 @@ it("removes a member subscribed to many near-1 MiB automations elsewhere without
 	const here = await workspaceOf(owner);
 	const { elsewhere, agentId } = await t.run(async (ctx) => {
 		const elsewhere = await ctx.db.insert("workspaces", { name: "Elsewhere", version: 1 });
-		await ctx.db.insert("members", { workspaceId: elsewhere, userId: member.userId, role: "owner" });
+		await addMember(ctx, { workspaceId: elsewhere, userId: member.userId, role: "owner" });
 		const config = { name: "A", description: "", instructions: "", model: "m", tools: [] };
 		const agentId = await ctx.db.insert("agents", { workspaceId: elsewhere, ...config, archived: false, version: 1, updatedAt: 0, updatedBy: member.userId });
 		return { elsewhere, agentId };
@@ -175,7 +175,7 @@ it("erases an account in 331 workspaces of 100 people, then deletes one whose me
 		const ids = [];
 		for (let i = 0; i < 100; i++) {
 			const userId = await ctx.db.insert("users", { email: `p${i}@co.com` });
-			await ctx.db.insert("members", { workspaceId: A, userId, role: "member" });
+			await addMember(ctx, { workspaceId: A, userId, role: "member" });
 			ids.push(userId);
 		}
 		return ids;
@@ -187,7 +187,7 @@ it("erases an account in 331 workspaces of 100 people, then deletes one whose me
 	});
 	for (let start = 0; start < users.length; start += 10)
 		await t.run(async (ctx) => {
-			for (const userId of users.slice(start, start + 10)) for (const workspaceId of others) await ctx.db.insert("members", { workspaceId, userId, role: "member" });
+			for (const userId of users.slice(start, start + 10)) for (const workspaceId of others) await addMember(ctx, { workspaceId, userId, role: "member" });
 		});
 	const erased = person(identityOf(t, users[0]!));
 	await erased.mutation(api.workspace.eraseAccount);

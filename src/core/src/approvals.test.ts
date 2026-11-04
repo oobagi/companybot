@@ -3,7 +3,7 @@ import { permissionFor, toolRisk } from "./action-rules";
 import { describe, expect, it } from "vitest";
 import { simulateReadableStream, streamText } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
-import { APPROVAL_TTL_MS, approvalHash, approvalStatus, canDecideApproval, canonicalJson } from "./approvals";
+import { APPROVAL_TTL_MS, WHY_MAX, approvalHash, approvalStatus, canDecideApproval, canonicalJson, cleanWhy, whyPrompt } from "./approvals";
 import { actionOf, buildToolSet, resolveTools, toolApprovalPolicy } from "./agents";
 import { builtinTools } from "./builtin-tools";
 
@@ -155,7 +155,7 @@ describe("approvals", () => {
 			model,
 			prompt: "text Bob and find leads",
 			tools,
-			toolApproval: toolApprovalPolicy(resolveTools(agent, owner, available)),
+			toolApproval: toolApprovalPolicy(resolveTools(agent, available)),
 		});
 		const parts: { type: string; toolCallId?: string; toolCall?: { toolCallId: string } }[] = [];
 		for await (const part of result.stream) parts.push(part as never);
@@ -171,7 +171,7 @@ describe("approvals", () => {
 		const available = [...builtinTools, track(send), track(find)];
 		const agent = { tools: ["crm.*"] };
 		const tools = buildToolSet(agent, ctx(owner), available, [{ id: "crm", name: "CRM" }]);
-		const usable = resolveTools(agent, owner, available);
+		const usable = resolveTools(agent, available);
 		const usage = { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } };
 		const call = (id: string, tool: string, input: unknown) => ({
 			type: "tool-call" as const,
@@ -234,7 +234,7 @@ describe("approvals", () => {
 			},
 		});
 		const check = async (t: ToolDef) => (t.id === "crm.send_sms" ? ({ type: "ask", canAlways: true, waitFor: "Ada" } as const) : permissionFor({ risk: toolRisk(t) }));
-		const result = streamText({ model, prompt: "go", tools, stopWhen: () => false, toolApproval: toolApprovalPolicy(resolveTools(agent, owner, available), check) });
+		const result = streamText({ model, prompt: "go", tools, stopWhen: () => false, toolApproval: toolApprovalPolicy(resolveTools(agent, available), check) });
 		const parts: { type: string; toolCallId?: string; isAutomatic?: boolean }[] = [];
 		for await (const part of result.stream) parts.push(part as never);
 		expect(parts.filter((p) => p.type === "tool-output-denied").map((p) => p.toolCallId)).toEqual(["c1"]);
@@ -250,7 +250,7 @@ describe("approvals", () => {
 		const input: TurnPromptInput = {
 			agentId: "a1",
 			place: { kind: "dm", name: null, private: true, topic: null, thread: null, members: [] },
-			actor: { id: "u1", name: "Ada", email: "ada@co.com", role: "member", timeZone: "UTC" },
+			actor: { id: "u1", name: "Ada", email: "ada@co.com", roles: ["Member"], timeZone: "UTC" },
 			now: Date.UTC(2026, 9, 22),
 			memory: "personal",
 			connectors: { connected: [], unavailable: [] },
@@ -277,5 +277,16 @@ describe("approvals", () => {
 			expect(platformGuide({ tools: ["notes.*"] })).toContain("approve them in the chat");
 		} finally { connectorCatalog.pop(); }
 		expect(platformGuide({ tools: ["memory.*"] })).not.toContain("approve");
+	});
+
+	it("asks the agent for the card's top line and tidies what it writes", () => {
+		const prompt = whyPrompt("pages.write", '{"page":"p1","trash":true}');
+		expect(prompt).toContain('{"page":"p1","trash":true}');
+		expect(prompt).toContain("why you want to do it");
+		expect(cleanWhy('  "I\'ll archive Old pricing notes,\n  since it\'s outdated."  ')).toBe("I'll archive Old pricing notes, since it's outdated.");
+		expect(cleanWhy("   ")).toBeUndefined();
+		const long = cleanWhy("x".repeat(WHY_MAX + 50))!;
+		expect(long).toHaveLength(WHY_MAX);
+		expect(long.endsWith("…")).toBe(true);
 	});
 });

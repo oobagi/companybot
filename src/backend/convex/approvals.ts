@@ -32,8 +32,8 @@ import { enqueueTurn, runningTurn } from "./turns";
  * Written by the runner when the model makes a call that needs approval. `input` is canonical JSON.
  */
 export const request = internalMutation({
-	args: { turnId: v.id("agentTurns"), callId: v.string(), tool: v.string(), input: v.string(), risk },
-	handler: async (ctx, { turnId, callId, tool, input, risk }) => {
+	args: { turnId: v.id("agentTurns"), callId: v.string(), tool: v.string(), input: v.string(), risk, why: v.optional(v.string()) },
+	handler: async (ctx, { turnId, callId, tool, input, risk, why }) => {
 		const { turn } = await runningTurn(ctx, turnId);
 		const { automation, trigger } = await automationScope(ctx, turn);
 		// Automation and wake cards belong only in the acting person's DM, even for channel/thread runs.
@@ -61,13 +61,13 @@ export const request = internalMutation({
 			risk,
 			automationInstallId: automation?._id,
 		});
-		if (separate) await ctx.db.patch(replyId, { parts: [{ type: "approval", id: callId, approvalId, tool }] });
+		if (separate) await ctx.db.patch(replyId, { parts: [{ type: "approval", id: callId, approvalId, tool, ...(why && { why }) }] });
 		return { approvalId, separate };
 	},
 });
 
 /**
- * Whether the card may offer "Always allow", read live (an owner may have locked it
+ * Whether the card may offer "Always allow", read live (someone with actions.lock may have locked it
  * since), and the automation a grant would be scoped to. Old rows without a risk: no.
  */
 async function alwaysFor(ctx: QueryCtx, row: Doc<"approvals">) {
@@ -107,7 +107,10 @@ export const forReply = query({
 				const connector = findConnector(group) ?? null;
 				const always = mine && approvalStatus(row) === "pending" ? await alwaysFor(ctx, row) : null;
 				const title = await titleOf(ctx, row.workspaceId, row.tool);
-				const input: unknown = JSON.parse(row.input);
+				// A skill proposal may be private even when its write is later refused.
+				const privateInput = row.actorId !== member.userId && (row.tool === "skills.create" || row.tool === "skills.edit");
+				const shownInput = privateInput ? "{}" : row.input;
+				const input: unknown = JSON.parse(shownInput);
 				const automation = row.automationInstallId && (await ctx.db.get(row.automationInstallId));
 
 				return {
@@ -124,6 +127,8 @@ export const forReply = query({
 						said: builtinTools.find((t) => t.id === row.tool)?.label?.(input),
 						automation: automation ? automationName(automation) : undefined,
 					}),
+					/** The automation whose run made the call, so the card says where the agent's words came from. */
+					automation: automation ? automationName(automation) : null,
 					/** Set when "Always allow" would cover only this automation's runs. */
 					alwaysAutomation: always?.automation ? automationName(always.automation) : null,
 					/** Null when "Always allow" isn't offered (locked, or not yours to decide). */
@@ -133,7 +138,7 @@ export const forReply = query({
 					/** Set when "Always allow" saved a rule. */
 					always: row.always ?? false,
 					/** The exact input that will run, as canonical JSON. */
-					input: row.input,
+					input: shownInput,
 					hash: row.hash,
 					status: approvalStatus(row),
 					approver: (await names.user(row.actorId)).name,
@@ -141,7 +146,7 @@ export const forReply = query({
 					expiresAt: row.expiresAt,
 					decidedAt: row.decidedAt ?? null,
 					result: mine ? (row.result ?? null) : null,
-					error: row.error ?? null,
+					error: privateInput ? null : row.error ?? null,
 				};
 			}),
 		);

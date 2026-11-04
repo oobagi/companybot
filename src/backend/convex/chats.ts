@@ -1,12 +1,14 @@
-import { type ReplyMode, THREAD_HOURS_DEFAULT, canManageChannel, replyModeOf, replyModes } from "@companybot/core";
+import { type ReplyMode, THREAD_HOURS_DEFAULT, can, replyModeOf, replyModes } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
-import { addToChat, agentOfDm, availableName, chatMembersOf, findOrCreateDm, latestMentionSince, markChatRead, membership, namer, requireActiveAgents, requireChat, requireManagedChannel, requireWorkspaceUsers, sideChatTitle, titleFrom, type Namer, type Participant, visibleChat } from "./chatOps";
+import { addToChat, agentOfDm, availableName, chatMembersOf, findOrCreateDm, label, latestMentionSince, markChatRead, membership, namer, requireActiveAgents, requireChat, requireManagedChannel, requireWorkspaceUsers, shownAt, sideChatTitle, titleFrom, type Namer, type Participant, visibleChat } from "./chatOps";
 import { type Member, checkPermission, getMember, preferencesOf, requireMember, toActor } from "./lib";
+import { type AccessList, accessInfo, chatAccess, reach, savedAccess } from "./placeAccess";
+import { accessArg } from "./schema";
 import { trashInfo } from "./trashOps";
-import { sessionAt } from "./turns";
+import { STALE_TURN_MS, sessionAt } from "./turns";
 
 // Channels and DMs. Queries return display-ready data so the app never joins tables.
 // See wiki/chat.md.
@@ -28,8 +30,12 @@ export type ChatItem = {
 	/** A message since you last read the chat mentions you, in its main timeline or a thread. */
 	mentioned: boolean;
 	lastMessageAt: number;
-	/** Channels: you can rename it, delete it and manage its members (`canManageChannel`). */
+	/** Channels: you can rename it, delete it, manage its members and choose who can access it (`channels.edit`, and Post in it). */
 	canManage: boolean;
+	/** You can post here; false in a channel you can only view. */
+	canPost: boolean;
+	/** Restricted channels: who can see it ("Office and Owners"), or who can post (`edit`) in one everyone sees. The sidebar's lock. */
+	lock: { who: string; edit: boolean } | null;
 	/** When agents answer without an @mention: always "mentions" outside channels (core router.ts). */
 	replyMode: ReplyMode;
 	/** Side chats: the agent DM they sit under. Else null. */
@@ -63,6 +69,7 @@ async function toChatItem(
 	const members = await Promise.all(rows.map(names.of));
 	const unread = !!mine && chat.lastMessageAt > (mine.lastReadAt ?? 0);
 	const others = members.filter((m) => m.id !== member.userId).map((m) => m.name);
+	const access = accessInfo(member, chatAccess(chat));
 	return {
 		_id: chat._id,
 		kind: chat.kind,
@@ -77,7 +84,9 @@ async function toChatItem(
 		// Not gated on `unread`: a thread reply doesn't move the chat's lastMessageAt.
 		mentioned: !!mine && !!(await latestMentionSince(ctx, chat._id, member.userId, mine.lastReadAt ?? 0)),
 		lastMessageAt: chat.lastMessageAt,
-		canManage: chat.kind === "channel" && canManageChannel(toActor(member), chat),
+		canManage: chat.kind === "channel" && can(member, "channels.edit") && access.level === "edit",
+		canPost: access.level === "edit",
+		lock: access.lock,
 		replyMode: replyModeOf(chat),
 		parentId: chat.parentId ?? null,
 		label: chat.parentId ? sideChatTitle(chat) : null,
@@ -101,7 +110,7 @@ export const list = query({
 		const createdAt = new Map<Id<"chats">, number>();
 		for (const row of rows) {
 			const chat = await ctx.db.get(row.chatId);
-			if (!chat || chat.archived || chat.workspaceId !== member.workspaceId) continue;
+			if (!chat || chat.archived || chat.workspaceId !== member.workspaceId || !reach(member, chatAccess(chat))) continue;
 			createdAt.set(chat._id, chat._creationTime);
 			const item = await toChatItem(ctx, chat, member, names, row, chat.kind === "dm" ? await chatMembersOf(ctx, chat._id) : []);
 			// Closed (closeDm): back once something new arrives there.
@@ -159,7 +168,7 @@ export const activeThreads = query({
 		const threads: ActiveThread[] = [];
 		for (const row of rows) {
 			const chat = await ctx.db.get(row.chatId);
-			if (chat?.kind !== "channel" || chat.archived || chat.workspaceId !== member.workspaceId) continue;
+			if (chat?.kind !== "channel" || chat.archived || chat.workspaceId !== member.workspaceId || !reach(member, chatAccess(chat))) continue;
 			const parents = await ctx.db
 				.query("chatMessages")
 				.withIndex("by_chat_lastReply", (q) => q.eq("chatId", chat._id).gt("lastReplyAt", since))
@@ -206,7 +215,8 @@ export const alerts = query({
 			.collect()) {
 			const since = row.lastReadAt ?? 0;
 			const chat = await ctx.db.get(row.chatId);
-			if (!chat || chat.archived || chat.workspaceId !== member.workspaceId) continue;
+			// Off a channel's access list, it says nothing: no alert, no badge.
+			if (!chat || chat.archived || chat.workspaceId !== member.workspaceId || !reach(member, chatAccess(chat))) continue;
 			const fromOthers = (m: Doc<"chatMessages"> | null) => (m && !m.deleted && !m.quiet && m.authorUserId !== member.userId ? m : null);
 			// Mentions come from their index, so any number of newer messages can't hide one,
 			// and a thread reply (which doesn't move lastMessageAt) is found all the same.
@@ -214,17 +224,21 @@ export const alerts = query({
 			let message = fromOthers(mention && (await ctx.db.get(mention.messageId)));
 			if (chat.kind === "dm" && notify === "all" && chat.lastMessageAt > since) {
 				// Your own posts mark the chat read, so what's unread here is others'. Agent replies
-				// still streaming are skipped until they finish.
+				// still streaming are skipped until they finish. A reply begun before you last read can be
+				// shown after it (chatOps `shownAt`): replies run at most STALE_TURN_MS.
 				const recent = await ctx.db
 					.query("chatMessages")
-					.withIndex("by_chat_thread", (q) => q.eq("chatId", chat._id).eq("threadId", undefined).gt("_creationTime", since))
+					.withIndex("by_chat_thread", (q) => q.eq("chatId", chat._id).eq("threadId", undefined).gt("_creationTime", since - STALE_TURN_MS))
 					.order("desc")
 					.take(20);
-				const newest = recent.map(fromOthers).find((m) => m?.status === "done");
-				if (newest && (!message || newest._creationTime > message._creationTime)) message = newest;
+				const newest = recent
+					.map(fromOthers)
+					.filter((m) => m?.status === "done" && shownAt(m) > since)
+					.reduce<Doc<"chatMessages"> | null>((a, m) => (a && shownAt(a) >= shownAt(m!) ? a : m), null);
+				if (newest && (!message || shownAt(newest) > shownAt(message))) message = newest;
 			}
 			if (!message) continue;
-			const author = (await names.of(message)).name;
+			const author = label(await names.of(message));
 			alerts.push({
 				workspaceId: chat.workspaceId,
 				chatId: chat._id,
@@ -251,7 +265,7 @@ export const browse = query({
 			.collect();
 		const result = [];
 		for (const c of channels) {
-			if (await membership(ctx, c._id, member.userId)) continue;
+			if (!reach(member, chatAccess(c)) || (await membership(ctx, c._id, member.userId))) continue;
 			const memberCount = (await chatMembersOf(ctx, c._id)).length;
 			result.push({ _id: c._id, name: c.name ?? "", topic: c.topic ?? null, memberCount });
 		}
@@ -269,6 +283,8 @@ export const get = query({
 		return {
 			...(await toChatItem(ctx, chat, member, namer(ctx, { images: true }), rows.find((r) => r.userId === member.userId), rows)),
 			trash: chat.archived ? await trashInfo(ctx, member, chat._id) : null,
+			/** Channels: its Who can access list, as the details panel shows it. */
+			access: chat.kind === "channel" ? accessInfo(member, chatAccess(chat)).access : null,
 		};
 	},
 });
@@ -281,7 +297,7 @@ export const createChannel = mutation({
 });
 
 export async function createChannelAs(ctx: MutationCtx, member: Member, args: Infer<typeof createChannelArgs>): Promise<Id<"chats">> {
-	checkPermission(member, "channels.create");
+	checkPermission(member, "channels.edit");
 	const name = await availableName(ctx, member, args.name);
 	const chatId = await ctx.db.insert("chats", {
 		workspaceId: member.workspaceId,
@@ -320,6 +336,24 @@ export async function updateChannelAs(ctx: MutationCtx, member: Member, { chatId
 		...(replyMode !== undefined && { replyMode: replyMode === "relevant" ? undefined : replyMode }),
 	});
 }
+
+/**
+ * Who can access a channel: Everyone or roles, each at View or Post. People with `channels.edit` who
+ * can post there choose it. #general stays open to everyone (at least to view): everyone is in it.
+ */
+export const setAccess = mutation({
+	args: { chatId: v.id("chats"), access: accessArg },
+	handler: async (ctx, { chatId, access }) => {
+		const member = await requireMember(ctx);
+		const chat = await requireManagedChannel(ctx, member, chatId);
+		if (chat.archived) throw new ConvexError("This channel is in Archive.");
+		const list: AccessList = await savedAccess(ctx, member, access);
+		if (chat.isDefault && !list.some((e) => e.role === "everyone")) throw new ConvexError(`Everyone is in #${chat.name}, so everyone keeps at least View.`);
+		// Everyone at Post is the default: store nothing, as for a channel nobody restricted.
+		const open = list.length === 1 && list[0]!.role === "everyone" && list[0]!.level === "edit";
+		await ctx.db.patch(chat._id, { access: open ? undefined : list });
+	},
+});
 
 const joinChannelArgs = v.object({ chatId: v.id("chats") });
 
@@ -360,7 +394,7 @@ export const addMembers = mutation({
 export async function addChannelMembers(ctx: MutationCtx, member: Member, { chatId, userIds, agentIds }: Infer<typeof addChannelMembersArgs>) {
 	const chat = await requireChat(ctx, member, chatId);
 	if (chat.kind !== "channel" || chat.archived) throw new ConvexError("You can only add people to channels.");
-	if (!(await membership(ctx, chatId, member.userId)) && !canManageChannel(toActor(member), chat)) {
+	if (!(await membership(ctx, chatId, member.userId)) && !can(member, "channels.edit")) {
 		throw new ConvexError("Join the channel first.");
 	}
 	await requireWorkspaceUsers(ctx, member.workspaceId, userIds);

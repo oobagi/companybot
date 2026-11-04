@@ -11,7 +11,7 @@ describe("connectors", () => {
 	it("lets only owners install, and members connect their own account", async () => {
 		const { t, owner, member } = await ownerAndMember();
 		await expect(member.mutation(api.connectors.setInstalled, { connectorId: "notes", installed: true })).rejects.toThrow(
-			"permission",
+			"Only people with the",
 		);
 		await expect(
 			member.action(api.connectors.connect, { connectorId: "notes", credentials: { type: "api_key", key: "k" } }),
@@ -34,7 +34,7 @@ describe("connectors", () => {
 		const { owner, member } = await ownerAndMember();
 		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
 		const creds = { type: "api_key" as const, key: "k" };
-		await expect(member.action(api.connectors.connect, { connectorId: "crm", credentials: creds })).rejects.toThrow("permission");
+		await expect(member.action(api.connectors.connect, { connectorId: "crm", credentials: creds })).rejects.toThrow("Only people with the");
 		await owner.action(api.connectors.connect, { connectorId: "crm", credentials: creds });
 		// One shared connection covers everyone.
 		expect((await member.query(api.connectors.list)).find((p) => p.id === "crm")?.connected).toBe(true);
@@ -54,9 +54,11 @@ describe("connectors", () => {
 		expect(await forTurn()).toHaveLength(1);
 		expect((await agentsOf(member)).scribe.access).toEqual([{ id: "crm.*", visible: true }]);
 
-		await owner.mutation(api.connectors.setRoles, { connectorId: "crm", roles: ["owner"] });
+		await owner.mutation(api.connectors.setRoles, { connectorId: "crm", roles: [] });
 		expect(await forTurn()).toHaveLength(0);
 		expect((await agentsOf(member)).scribe.access).toEqual([{ id: "crm.*", visible: false, reason: "role" }]);
+		// Owners always can, whatever's picked.
+		expect(await t.query(internal.connectors.forTurn, { userId: owner.userId, workspaceId, connectorIds: ["crm"] })).toHaveLength(1);
 	});
 
 	it("forgets connections when uninstalled", async () => {

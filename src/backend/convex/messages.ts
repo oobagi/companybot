@@ -10,6 +10,7 @@ import {
 	addToChat,
 	addUserMentions,
 	agentOfDm,
+	chatMembersOf,
 	titleFrom,
 	insertMessage,
 	markChatRead,
@@ -17,15 +18,17 @@ import {
 	reactionsOf,
 	replyAuthorsOf,
 	requireChat,
+	requirePost,
+	shownAt,
 	toggleReaction,
 	visibleChat,
 } from "./chatOps";
-import { type Who, type Member, memberOf, nameOf, requireMember } from "./lib";
+import { type Who, type Member, canSeeSkill, memberOf, nameOf, requireMember } from "./lib";
 import { noteMentions, workspaceRecords } from "./recordOps";
 import { installOf } from "./skills";
 import type { messagePart, replyStats } from "./schema";
 import { internal } from "./_generated/api";
-import { enqueueTurn, streamOf } from "./turns";
+import { enqueueTurn, queueFollowUps, streamOf } from "./turns";
 import { routeLater } from "./router";
 import { resetChains } from "./chains";
 import { stopTyping } from "./typing";
@@ -47,6 +50,8 @@ export type Message = {
 	parts: Infer<typeof messagePart>[];
 	status: "streaming" | "done" | "error";
 	error: string | null;
+	/** An agent reply someone stopped partway (turns.stop): who. */
+	stoppedBy: string | null;
 	stats: Infer<typeof replyStats> | null;
 	editedAt: number | null;
 	deleted: boolean;
@@ -55,7 +60,15 @@ export type Message = {
 	lastReplyAt: number | null;
 	/** Up to 3 people or agents who replied in the thread, most recent first. */
 	replyAuthors: Participant[];
-	reactions: { emoji: string; count: number; mine: boolean; names: string[] }[];
+	/** Grouped by emoji, in the order first used. `people`: who reacted, oldest first. */
+	reactions: {
+		emoji: string;
+		count: number;
+		mine: boolean;
+		people: Participant[];
+		/** COMPAT(0.1.0-alpha.10): alpha.9 apps read `names` (their chips' title); delete it. */
+		names: string[];
+	}[];
 	/** Set when an automation posted this for its author. */
 	automation: { id: string; name: string } | null;
 	/** Attached files, with URLs to show or download them (null if the file is gone). */
@@ -73,7 +86,10 @@ export type Message = {
 
 const LIST_LIMIT = 200;
 
-/** The newest 200 of the main timeline, or of a thread (parent first), oldest first. */
+/**
+ * The newest 200 of the main timeline, or of a thread (parent first), in the order they were shown
+ * (chatOps `shownAt`): a reply sits below every message it took in.
+ */
 export const list = query({
 	args: { chatId: v.id("chats"), threadId: v.optional(v.id("chatMessages")) },
 	handler: async (ctx, { chatId, threadId }): Promise<Message[]> => {
@@ -89,7 +105,7 @@ export const list = query({
 				// Wake turns' own replies are never shown (wakeups.ts).
 				.filter((q) => q.neq(q.field("quiet"), true))
 				.take(LIST_LIMIT)
-		).reverse();
+		).sort((a, b) => shownAt(a) - shownAt(b));
 		const names = namer(ctx, { images: true });
 		return Promise.all((parent ? [parent, ...docs] : docs).map((m) => toMessage(ctx, m, visible.member, names)));
 	},
@@ -110,10 +126,12 @@ async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, 
 	const reactions: Message["reactions"] = [];
 	for (const r of await reactionsOf(ctx, m._id)) {
 		let group = reactions.find((g) => g.emoji === r.emoji);
-		if (!group) reactions.push((group = { emoji: r.emoji, count: 0, mine: false, names: [] }));
+		if (!group) reactions.push((group = { emoji: r.emoji, count: 0, mine: false, people: [], names: [] }));
 		group.count++;
 		group.mine ||= r.userId === member.userId;
-		group.names.push((await names.of(r)).name);
+		const who = await names.of(r);
+		group.people.push(who);
+		group.names.push(who.name);
 	}
 	const replyAuthors: Participant[] = m.threadId ? [] : await Promise.all((await replyAuthorsOf(ctx, m)).map(names.of));
 	return {
@@ -126,6 +144,7 @@ async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, 
 		parts: m.parts,
 		status: m.status,
 		error: m.error ?? null,
+		stoppedBy: m.stoppedBy ? await nameOf(ctx, m.stoppedBy) : null,
 		stats: m.stats ?? null,
 		editedAt: m.editedAt ?? null,
 		deleted: m.deleted ?? false,
@@ -185,6 +204,7 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	const { member } = who;
 	const chat = await requireChat(ctx, member, chatId);
 	if (chat.archived) throw new ConvexError("This chat is in Archive.");
+	requirePost(member, chat);
 	text = text.trim();
 	if (!text && files.length === 0) throw new ConvexError("Write something first.");
 	if (threadId) {
@@ -204,13 +224,16 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 		if (agent?.workspaceId === member.workspaceId && !agent.archived) agentIds.push(id);
 	}
 
-	const recordIds = await workspaceRecords(ctx, member.workspaceId, mentions.recordIds ?? []);
+	const recordIds = await workspaceRecords(ctx, member, mentions.recordIds ?? []);
 	// Only skills installed here (and not in Archive), so a message can't point agents at a made-up one.
 	const skillIds: string[] = [];
 	for (const id of new Set(mentions.skillIds ?? [])) {
-		if (await installOf(ctx, member.workspaceId, id)) skillIds.push(id);
+		const install = await installOf(ctx, member.workspaceId, id);
+		if (install && canSeeSkill(member.userId, install)) skillIds.push(id);
 	}
 
+	// An agent writes as its person (`actingFor`), except to that person alone: there it's just the agent talking.
+	const actingFor = who.agentId && !(await onlyPerson(ctx, chat, member.userId)) ? member.userId : undefined;
 	const dmAgent = agentOfDm(chat);
 	if (dmAgent && (await ctx.db.get(dmAgent))?.archived) throw new ConvexError("This agent is in Archive.");
 	// A side chat takes its name from the person's first message.
@@ -220,7 +243,7 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 
 	const messageId = await insertMessage(ctx, chat, {
 		threadId,
-		...(who.agentId ? { authorAgentId: who.agentId, actingFor: member.userId } : { authorUserId: member.userId }),
+		...(who.agentId ? { authorAgentId: who.agentId, ...(actingFor && { actingFor }) } : { authorUserId: member.userId }),
 		text,
 		parts: text ? [{ type: "text", text }] : [],
 		...(attachments.length > 0 && { attachments }),
@@ -249,8 +272,11 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 		responders = agentIds.filter((id) => inDm.has(`a:${id}`));
 	}
 	for (const agentId of responders) {
-		await enqueueTurn(ctx, chat, { agentId, chatId, threadId, triggerId: messageId, actorId: member.userId });
+		await enqueueTurn(ctx, chat, { agentId, chatId, threadId, triggerId: messageId, actorId: member.userId, person: true });
 	}
+	// Any message you send here reaches an agent already replying to you here, @mention or not.
+	await queueFollowUps(ctx, chat, sent, responders);
+	// The router still weighs it for the other agents (router.apply skips the ones it already reached).
 	if (agentIds.length === 0) await routeLater(ctx, chat, sent);
 	// The tutorial: steps count only when they did what the step teaches (an agent answers a mention).
 	await completeSteps(ctx, member, [threadId && "thread", dmAgent ? "dm" : responders.length > 0 && "mention"]);
@@ -265,13 +291,22 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	}
 	return messageId;
 }
-/** Your own message, not deleted. */
+/** A DM whose only person is `userId` (with agents, or nobody else). */
+async function onlyPerson(ctx: QueryCtx, chat: Doc<"chats">, userId: Id<"users">) {
+	return chat.kind === "dm" && (await chatMembersOf(ctx, chat._id)).every((m) => !m.userId || m.userId === userId);
+}
+
+/** Your own message, not deleted: an agent's own too, if it wrote it as you or to you alone. */
 async function requireOwn(ctx: QueryCtx, who: Who, messageId: Id<"chatMessages">) {
 	const { member } = who;
 	const message = await ctx.db.get(messageId);
 	if (!message || message.workspaceId !== member.workspaceId || message.deleted) throw new ConvexError("Message not found.");
-	await requireChat(ctx, member, message.chatId);
-	if (message.authorUserId !== member.userId && !(who.agentId && message.authorAgentId === who.agentId && message.actingFor === member.userId)) throw new ConvexError("You can only change your own messages.");
+	const chat = await requireChat(ctx, member, message.chatId);
+	const agents = who.agentId !== undefined && message.authorAgentId === who.agentId;
+	const allowed =
+		message.authorUserId === member.userId ||
+		(agents && (message.actingFor === member.userId || (!message.actingFor && (await onlyPerson(ctx, chat, member.userId)))));
+	if (!allowed) throw new ConvexError("You can only change your own messages.");
 	return message;
 }
 
@@ -299,6 +334,8 @@ export const react = mutation({
 
 export async function editMessage(ctx: MutationCtx, who: Who, messageId: Id<"chatMessages">, text: string) {
 	const message = await requireOwn(ctx, who, messageId);
+	// Deleting your own message stays open in a channel that turned read-only; changing it doesn't.
+	requirePost(who.member, (await ctx.db.get(message.chatId))!);
 	text = text.trim();
 	if (!text && !message.attachments?.length) throw new ConvexError("Write something first, or delete the message.");
 	await ctx.db.patch(message._id, { text, parts: text ? [{ type: "text", text }] : [], editedAt: Date.now() });
@@ -325,7 +362,7 @@ export async function reactMessage(ctx: MutationCtx, who: Who, messageId: Id<"ch
 	const { member } = who;
 	const message = await ctx.db.get(messageId);
 	if (!message || message.deleted) throw new ConvexError("Message not found.");
-	await requireChat(ctx, member, message.chatId);
+	requirePost(member, await requireChat(ctx, member, message.chatId));
 	emoji = emoji.trim();
 	if (!emoji || emoji.length > 16) throw new ConvexError("Pick one emoji.");
 	return toggleReaction(ctx, message, emoji, who.agentId ? { agentId: who.agentId } : { userId: member.userId });

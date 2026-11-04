@@ -386,7 +386,8 @@ export function searchTextOf(fields: Field[], values: Record<string, FieldValue>
 }
 
 /** A record's name for a person or record id in its values: `{ name, archived? }` (`archived`: in Archive or deleted). */
-export type RefName = { name: string; archived?: true };
+/** `locked`: a record in a database the person can't see (place-access.ts); its name isn't sent. */
+export type RefName = { name: string; archived?: true; locked?: true };
 
 /**
  * Values as people read them, by field key: option labels, names for people and links,
@@ -399,6 +400,7 @@ export function displayValues(fields: Field[], values: Record<string, FieldValue
 	const one = (field: Field, v: string) => {
 		if (field.kind === "choice") return field.options?.find((o) => o.id === v)?.label ?? v;
 		const ref = refs[v];
+		if (ref?.locked) return "Locked record";
 		return ref ? `${ref.name}${ref.archived ? " (deleted)" : ""}` : v;
 	};
 	for (const field of fields) {

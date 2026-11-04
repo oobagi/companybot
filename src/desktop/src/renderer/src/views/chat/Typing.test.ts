@@ -34,6 +34,14 @@ describe("the line under the composer", () => {
 		expect(words(render({ people: [ada], agents: [agent("Companybot", null)] }))).toBe("Companybot and Ada are typing…");
 	});
 
+	it("offers Stop on a working agent only to who may stop it, and says when it's stopping", () => {
+		const stoppable = { ...agent("Companybot", "Thinking…"), turnId: "t1", canStop: true, stopping: false };
+		expect(render({ people: [], agents: [agent("Companybot", "Thinking…")] })).not.toContain(">Stop<");
+		expect(render({ people: [], agents: [{ ...stoppable, canStop: false }] as never })).not.toContain(">Stop<");
+		expect(render({ people: [], agents: [stoppable] as never })).toMatch(/Companybot: Thinking….*>Stop<\/button>/);
+		expect(render({ people: [], agents: [{ ...stoppable, stopping: true }] as never })).toMatch(/disabled="".*>Stopping…<\/button>/);
+	});
+
 	it("counts several agents, listing each one's step on hover", () => {
 		const html = render({ people: [ada], agents: [agent("Companybot", "Thinking…"), agent("Scribe", null)] });
 		expect(html.match(/title="(Companybot|Scribe)"/g)).toHaveLength(2);

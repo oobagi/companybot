@@ -31,7 +31,7 @@ import { type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalAction, internalMutation, internalQuery } from "./_generated/server";
-import { type Namer, canSee, chatMembersOf, namer, textForModel } from "./chatOps";
+import { type Namer, canSee, chatMembersOf, label, namer, textForModel } from "./chatOps";
 import { dispatchTo, shownReply } from "./chains";
 import { liveWorkspace, memberOf } from "./lib";
 import { STALE_TURN_MS, enqueueTurn } from "./turns";
@@ -110,7 +110,7 @@ export const context = internalQuery({
 /** A message as the router reads it: its author (an agent by key), text, and files by name. */
 const routerMessage = (names: Namer, keys: Map<Id<"agents">, string>) => async (m: Doc<"chatMessages">): Promise<RouterMessage> => {
 	const files = m.attachments?.length ? `(${m.attachments.length === 1 ? "a file" : `${m.attachments.length} files`}: ${m.attachments.map((f) => f.name).join(", ")})` : "";
-	const author = (await names.of(m)).name;
+	const author = label(await names.of(m));
 	return {
 		author,
 		...(m.authorAgentId && { agent: keys.get(m.authorAgentId) ?? "agent" }),
@@ -193,7 +193,7 @@ export const apply = internalMutation({
 		let might = await mightThisHour(ctx, chat._id);
 		for (const d of [...decisions].sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0))) {
 			const agent = d.action === "reply" && (await ctx.db.get(d.agentId));
-			if (!agent || !here.has(agent._id)) continue;
+			if (!agent || !here.has(agent._id) || (await hasTurnFor(ctx, agent._id, message))) continue;
 			const dispatch = { ...dispatchOf(model, d.probability, costUsd), ...(d.probabilities && { probabilities: d.probabilities }) };
 			if (dispatch.band === "might" && might++ >= ROUTER_MIGHT_PER_HOUR) continue;
 			replies.push({ agent, dispatch });
@@ -217,6 +217,8 @@ export const apply = internalMutation({
 		for (const d of decisions) {
 			const agent = d.action === "react" && (await ctx.db.get(d.agentId));
 			if (!agent || !here.has(agent._id) || !d.emoji || !(ROUTER_EMOJI as readonly string[]).includes(d.emoji) || !isGranted(agent.tools, "chat.react")) continue;
+			// Already folded into this agent's reply (or queued for it): the reply answers it, no reaction on top.
+			if (await hasTurnFor(ctx, agent._id, message)) continue;
 			const existing = await ctx.db
 				.query("reactions")
 				.withIndex("by_message", (q) => q.eq("messageId", messageId).eq("emoji", d.emoji!).eq("userId", undefined).eq("agentId", agent._id))
@@ -234,12 +236,31 @@ export const dispatchOf = (model: string, probability: number | undefined, costU
 	costUsd,
 });
 
-/** "Might be for you" turns queued in the channel in the last hour, up to the cap. */
+/**
+ * Whether the message already went to this agent: it reached a reply the agent was writing for its
+ * person (turns.queueFollowUps), so a pick would answer it twice.
+ */
+async function hasTurnFor(ctx: QueryCtx, agentId: Id<"agents">, message: Doc<"chatMessages">) {
+	for (const status of ["queued", "running", "done", "error"] as const) {
+		const found = await ctx.db
+			.query("agentTurns")
+			.withIndex("by_place", (q) =>
+				q.eq("agentId", agentId).eq("chatId", message.chatId).eq("threadId", message.threadId).eq("status", status).gte("_creationTime", message._creationTime),
+			)
+			.filter((q) => q.eq(q.field("triggerId"), message._id))
+			.first();
+		if (found) return true;
+	}
+	return false;
+}
+
+/** "Might be for you" picks queued in the channel in the last hour, up to the cap. A person's follow-up to one (turns.queueFollowUps) isn't a pick. */
 async function mightThisHour(ctx: QueryCtx, chatId: Id<"chats">) {
 	const since = Date.now() - 60 * 60_000;
 	const turns = await ctx.db
 		.query("agentTurns")
 		.withIndex("by_chat_dispatch", (q) => q.eq("chatId", chatId).eq("dispatch.band", "might").gt("_creationTime", since))
+		.filter((q) => q.neq(q.field("person"), true))
 		.take(ROUTER_MIGHT_PER_HOUR);
 	return turns.length;
 }

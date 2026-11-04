@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
 
-import { agentsOf, ownerAndMember, noMentions, tick, generalOf, turnsOf } from "./helpers";
+import { agentsOf, ownerAndMember, noMentions, tick, generalOf, turnsOf, setMemberSwitch } from "./helpers";
 
 afterEach(() => void vi.useRealTimers());
 
@@ -38,15 +38,19 @@ describe("chats", () => {
 		);
 	});
 
-	it("lets members manage only channels they created", async () => {
+	it("gives a channel's creator no extra rights: the channel switch decides", async () => {
 		const { owner, member } = await ownerAndMember();
 		const theirs = await member.mutation(api.chats.createChannel, { name: "design", private: false });
 		const ours = await owner.mutation(api.chats.createChannel, { name: "ops", private: false });
-		await member.mutation(api.chats.updateChannel, { chatId: theirs, topic: "Pixels" });
-		expect((await member.query(api.chats.get, { chatId: theirs }))?.canManage).toBe(true);
-		expect((await member.query(api.chats.get, { chatId: ours }))?.canManage).toBe(false);
-		await expect(member.mutation(api.chats.updateChannel, { chatId: ours, name: "x" })).rejects.toThrow("creator or an owner");
-		await owner.mutation(api.chats.updateChannel, { chatId: theirs, name: "Design Team" });
+		await member.mutation(api.chats.updateChannel, { chatId: ours, topic: "Runbooks" });
+		expect((await member.query(api.chats.get, { chatId: ours }))?.canManage).toBe(true);
+		await setMemberSwitch(owner, "channels.edit", false);
+		expect((await member.query(api.chats.get, { chatId: theirs }))?.canManage).toBe(false);
+		await expect(member.mutation(api.chats.updateChannel, { chatId: theirs, name: "x" })).rejects.toThrow(
+			"Only people with the Owner role can make and change channels.",
+		);
+		await expect(member.mutation(api.chats.createChannel, { name: "more", private: false })).rejects.toThrow("Only people with the Owner role");
+		await owner.mutation(api.chats.updateChannel, { chatId: theirs, name: "Design Team", topic: "Pixels" });
 		expect(await member.query(api.chats.get, { chatId: theirs })).toMatchObject({ name: "design-team", topic: "Pixels" });
 	});
 
@@ -58,10 +62,12 @@ describe("chats", () => {
 		const theirs = await member.mutation(api.chats.createChannel, { name: "design", private: false });
 		await owner.mutation(api.chats.join, { chatId: theirs });
 		const people = async (chatId: typeof ops) => (await owner.query(api.chats.get, { chatId }))!.members.map((m) => m.id);
-		// Not their channel: refused, and nothing changes.
-		await expect(member.mutation(api.chats.removeMember, { chatId: ops, userId: ownerId })).rejects.toThrow("creator or an owner");
-		expect(await people(ops)).toContain(ownerId);
-		// The creator removes from theirs; owners from any.
+		// Without the channel switch: refused, even from the channel they made, and nothing changes.
+		await setMemberSwitch(owner, "channels.edit", false);
+		await expect(member.mutation(api.chats.removeMember, { chatId: theirs, userId: ownerId })).rejects.toThrow("Only people with the");
+		expect(await people(theirs)).toContain(ownerId);
+		// With it, from any channel.
+		await setMemberSwitch(owner, "channels.edit", true);
 		await member.mutation(api.chats.removeMember, { chatId: theirs, userId: ownerId });
 		expect(await people(theirs)).not.toContain(ownerId);
 		await owner.mutation(api.chats.removeMember, { chatId: ops, userId: memberId });
@@ -308,10 +314,11 @@ describe("messages", () => {
 		await owner.mutation(api.messages.react, { messageId: parent, emoji: "👍" });
 		await member.mutation(api.messages.react, { messageId: parent, emoji: "👍" });
 		let [m] = await member.query(api.messages.list, { chatId });
-		expect(m!.reactions).toEqual([{ emoji: "👍", count: 2, mine: true, names: ["owner@co.com", "member@co.com"] }]);
+		expect(m!.reactions).toMatchObject([{ emoji: "👍", count: 2, mine: true, people: [{ type: "user", name: "owner@co.com" }, { type: "user", name: "member@co.com" }] }]);
 		await member.mutation(api.messages.react, { messageId: parent, emoji: "👍" });
 		[m] = await member.query(api.messages.list, { chatId });
-		expect(m!.reactions).toEqual([{ emoji: "👍", count: 1, mine: false, names: ["owner@co.com"] }]);
+		expect(m!.reactions).toMatchObject([{ emoji: "👍", count: 1, mine: false, people: [{ name: "owner@co.com" }] }]);
+		expect(m!.reactions[0]!.people).toHaveLength(1);
 
 		await expect(member.mutation(api.messages.edit, { messageId: parent, text: "x" })).rejects.toThrow("your own");
 		await owner.mutation(api.messages.edit, { messageId: parent, text: "Plan!" });

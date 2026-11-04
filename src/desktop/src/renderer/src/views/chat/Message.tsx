@@ -1,21 +1,23 @@
 import { actionLabel, toolLine } from "@companybot/core/action-words";
 import { splitLinks } from "@companybot/core/link-preview";
 import { routerDecisionModels } from "@companybot/core/router";
-import { Fragment, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { Markdown } from "../../markdown";
-import { Notice, timeAgo } from "../../ui";
+import { Notice, timeAgo, useTip } from "../../ui";
 import { WidgetView } from "../../widgets";
 import { CallDetails } from "../Activity";
 import { ApprovalMessages } from "./Approval";
-import { AutomationIcon, EditIcon, ReactIcon, ReplyIcon, TrashIcon } from "../../icons";
-import { AgentBadge, Avatar, AvatarStack, EmojiPicker, IconButton, Popover, clock, useConfirm, useDismiss } from "./common";
+import { AutomationIcon, EditIcon, MoreIcon, ReactIcon, ReplyIcon, TrashIcon } from "../../icons";
+import { AgentBadge, Avatar, AvatarStack, EmojiPicker, IconButton, MenuItem, PairAvatar, Popover, PopoverPanel, clock, useConfirm, useDismiss } from "./common";
 import type { Message, TokenNames } from "./data";
 import { navigate } from "../../router";
 import { ProfileLink } from "./Profile";
 import { MessageFiles } from "./Attachments";
 import { LinkPreviews } from "./LinkPreviews";
+import { TokenChip } from "./TokenChip";
+import { splitTokens } from "./tokens";
 
 export function MessageRow({
 	message: row,
@@ -43,6 +45,9 @@ export function MessageRow({
 	const remove = useMutation(api.messages.remove);
 	const [picker, setPicker] = useState(false);
 	const [editing, setEditing] = useState(false);
+	// The ⋯ menu, then what it opened in its place.
+	const [more, setMore] = useState<{ at: DOMRect; view: "menu" | "reactions" }>();
+	const moreButton = useRef<HTMLSpanElement>(null);
 	const toolbar = useDismiss<HTMLDivElement>(() => setPicker(false), picker);
 	const { confirm, dialog } = useConfirm();
 	const isAgent = message.author.type === "agent";
@@ -70,16 +75,33 @@ export function MessageRow({
 						</span>
 					) : (
 						<ProfileLink who={message.author}>
-							<Avatar name={message.author.name} image={message.author.image} agent={isAgent} />
+							{message.author.for ? (
+								<PairAvatar agent={message.author} person={message.author.for} />
+							) : (
+								<Avatar name={message.author.name} image={message.author.image} agent={isAgent} />
+							)}
 						</ProfileLink>
 					)}
 				</div>
 				<div className={`flex min-w-0 flex-1 flex-col gap-1 ${sending ? "opacity-50" : ""}`}>
 					{!grouped && (
 						<div className="flex items-baseline gap-2">
-							<ProfileLink who={message.author} className="font-semibold hover:underline">
-								{message.author.name}
-							</ProfileLink>
+							{message.author.for ? (
+								// An agent sending as a person: each name opens its own card.
+								<span className="font-semibold">
+									<ProfileLink who={{ ...message.author, for: undefined }} className="hover:underline">
+										{message.author.name}
+									</ProfileLink>
+									{", for "}
+									<ProfileLink who={message.author.for} className="hover:underline">
+										{message.author.for.name}
+									</ProfileLink>
+								</span>
+							) : (
+								<ProfileLink who={message.author} className="font-semibold hover:underline">
+									{message.author.name}
+								</ProfileLink>
+							)}
 							{isAgent && <AgentBadge />}
 							{message.automation && (
 								<span className="flex items-center gap-1 self-center rounded bg-amber-50 px-1.5 text-xs text-amber-800">
@@ -96,7 +118,7 @@ export function MessageRow({
 					) : message.automation ? (
 						<AutomationPrompt prompt={message.text} />
 					) : isAgent ? (
-						<AgentBody message={message} />
+						<AgentBody message={message} tokens={tokens} />
 					) : (
 						(message.text || message.editedAt) && (
 							<p className="leading-relaxed break-words whitespace-pre-wrap">
@@ -112,24 +134,7 @@ export function MessageRow({
 						</p>
 					)}
 					{!message.deleted && message.linkPreviews.length > 0 && <LinkPreviews message={message} onError={onError} />}
-					{message.reactions.length > 0 && (
-						<div className="flex flex-wrap gap-1 pt-0.5">
-							{message.reactions.map((r) => (
-								<button
-									type="button"
-									key={r.emoji}
-									title={r.names.join(", ")}
-									onClick={readOnly ? undefined : () => toggle(r.emoji)}
-									className={`flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-sm tabular-nums ${
-										r.mine ? "border-neutral-400 bg-neutral-100 text-neutral-900" : "border-neutral-200 text-neutral-600 hover:border-neutral-300"
-									}`}
-								>
-									<span className="text-base leading-none">{r.emoji}</span>
-									{r.count}
-								</button>
-							))}
-						</div>
-					)}
+					{message.reactions.length > 0 && <Reactions reactions={message.reactions} onToggle={readOnly ? undefined : toggle} />}
 					{onOpenThread && message.replyCount ? (
 						<button
 							type="button"
@@ -148,7 +153,7 @@ export function MessageRow({
 					<div
 						ref={toolbar}
 						className={`absolute -top-3 right-5 z-10 items-center rounded-lg border border-neutral-200 bg-white p-0.5 shadow-sm ${
-							picker ? "flex" : "hidden group-hover:flex"
+							picker || more ? "flex" : "hidden group-hover:flex"
 						}`}
 					>
 						<IconButton label="Add reaction" onClick={() => setPicker(!picker)}>
@@ -172,6 +177,27 @@ export function MessageRow({
 								</IconButton>
 							</>
 						)}
+						{message.reactions.length > 0 && (
+							<span ref={moreButton} className="flex">
+								<IconButton
+									label="More"
+									onClick={() => setMore(more ? undefined : { at: moreButton.current!.getBoundingClientRect(), view: "menu" })}
+								>
+									<MoreIcon weight="bold" />
+								</IconButton>
+							</span>
+						)}
+						{more && (
+							<PopoverPanel anchor={more.at} ignore={moreButton} className={more.view === "menu" ? "w-52 p-1" : "w-64 p-1"} onClose={() => setMore(undefined)}>
+								{more.view === "menu" ? (
+									<MenuItem onClick={() => setMore({ ...more, view: "reactions" })}>
+										<ReactIcon /> Reactions
+									</MenuItem>
+								) : (
+									<ReactionList reactions={message.reactions} />
+								)}
+							</PopoverPanel>
+						)}
 						{picker && <EmojiPicker className="absolute top-full right-0 mt-1" onPick={toggle} onClose={() => setPicker(false)} />}
 					</div>
 				)}
@@ -183,44 +209,82 @@ export function MessageRow({
 	);
 }
 
-const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const alternation = (names: string[]) => [...names].sort((a, b) => b.length - a.length).map(escape).join("|");
+type Reaction = Message["reactions"][number];
 
-/** `@Ada`, `#sales` (opens the channel) and `/Proposal` as chips, like in the composer. */
-/** A person's message: its links open in the browser; @names, #channels and /skills stand out. */
+/** Names in a hover tip before "and N others"; ⋯ → Reactions has everyone. */
+const TIP_NAMES = 6;
+
+/** "Ada", "Ada and Bo", "Ada, Bo and Cy", "Ada, Bo, … and 4 others". */
+function whoReacted(people: Reaction["people"]) {
+	const names = people.map((p) => p.name);
+	if (names.length > TIP_NAMES) return `${names.slice(0, TIP_NAMES - 1).join(", ")} and ${names.length - TIP_NAMES + 1} others`;
+	return names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : (names[0] ?? "");
+}
+
+/**
+ * The chips under a message: click one to add or take back yours (`onToggle`; absent read-only).
+ * Hover one for who reacted with it; the message's ⋯ → Reactions lists everyone.
+ */
+function Reactions({ reactions, onToggle }: { reactions: Reaction[]; onToggle?: (emoji: string) => void }) {
+	const { tipFor, tip } = useTip("below");
+	return (
+		<>
+			<div className="flex flex-wrap gap-1 pt-0.5">
+				{reactions.map((r) => (
+					<button
+						type="button"
+						key={r.emoji}
+						aria-label={`${r.emoji} ${whoReacted(r.people)}`}
+						{...tipFor(whoReacted(r.people))}
+						onClick={onToggle && (() => onToggle(r.emoji))}
+						className={`flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-sm tabular-nums ${
+							r.mine ? "border-neutral-400 bg-neutral-100 text-neutral-900" : "border-neutral-200 text-neutral-600 hover:border-neutral-300"
+						}`}
+					>
+						<span className="text-base leading-none">{r.emoji}</span>
+						{r.count}
+					</button>
+				))}
+			</div>
+			{tip}
+		</>
+	);
+}
+
+/** Everyone who reacted, under each emoji. */
+function ReactionList({ reactions }: { reactions: Reaction[] }) {
+	return (
+		<div className="flex flex-col gap-1">
+			{reactions.map((r) => (
+				<section key={r.emoji} className="flex flex-col">
+					<h3 className="flex items-center gap-1.5 px-2 pt-1.5 pb-0.5 text-xs text-neutral-500 tabular-nums">
+						<span className="text-base leading-none">{r.emoji}</span>
+						{r.count}
+					</h3>
+					{r.people.map((p) => (
+						<ProfileLink key={`${p.type}:${p.id}`} who={p} className="flex items-center gap-2 rounded-lg px-2 py-1 text-left hover:bg-neutral-100">
+							<Avatar name={p.name} image={p.image} agent={p.type === "agent"} size="xs" />
+							<span className="truncate">{p.name}</span>
+							{p.type === "agent" && <AgentBadge />}
+						</ProfileLink>
+					))}
+				</section>
+			))}
+		</div>
+	);
+}
+
+/** A person's message: its links open in the browser; @names, #channels and /skills are chips, like in the composer. */
 function TokenText({ text, tokens }: { text: string; tokens: TokenNames }) {
 	return splitLinks(text).map((part, i) =>
 		typeof part === "string" ? (
-			<Tokens key={i} text={part} tokens={tokens} />
+			splitTokens(part, tokens).map((t, j) => (typeof t === "string" ? <Fragment key={`${i}.${j}`}>{t}</Fragment> : <TokenChip key={`${i}.${j}`} token={t} />))
 		) : (
 			<a key={i} href={part.url} target="_blank" rel="noreferrer noopener" className="wrap-anywhere text-link hover:underline">
 				{part.url}
 			</a>
 		),
 	);
-}
-
-function Tokens({ text, tokens }: { text: string; tokens: TokenNames }) {
-	const parts = [
-		tokens.names.length > 0 && `@(?:${alternation(tokens.names)})(?!\\w)`,
-		tokens.channels.length > 0 && `#(?:${alternation(tokens.channels.map((c) => c.name))})(?![\\w-])`,
-		tokens.skills.length > 0 && `\\/(?:${alternation(tokens.skills)})(?!\\w)`,
-	].filter(Boolean);
-	if (parts.length === 0) return text;
-	const pattern = new RegExp(`(${parts.join("|")})`, "g");
-	return text.split(pattern).map((chunk, i) => {
-		if (i % 2 === 0) return <Fragment key={i}>{chunk}</Fragment>;
-		const channel = chunk.startsWith("#") ? tokens.channels.find((c) => c.name === chunk.slice(1)) : undefined;
-		return channel ? (
-			<button type="button" key={i} onClick={() => navigate("chat", channel.id)} className="token hover:underline">
-				{chunk}
-			</button>
-		) : (
-			<span key={i} className="token">
-				{chunk}
-			</span>
-		);
-	});
 }
 
 function EditForm({ message, onDone, onError }: { message: Message; onDone: () => void; onError: (e: unknown) => void }) {
@@ -259,7 +323,7 @@ function EditForm({ message, onDone, onError }: { message: Message; onDone: () =
 	);
 }
 
-function AgentBody({ message }: { message: Message }) {
+function AgentBody({ message, tokens }: { message: Message; tokens: TokenNames }) {
 	const streaming = message.status === "streaming";
 	const lastText = message.parts.findLastIndex((p) => p.type === "text");
 	return (
@@ -275,7 +339,7 @@ function AgentBody({ message }: { message: Message }) {
 							))}
 						</div>
 					) : run.part.type === "text" ? (
-						<Markdown key={run.i} className="leading-relaxed" isAnimating={streaming && run.i === lastText}>
+						<Markdown key={run.i} tokens={tokens} className="leading-relaxed" isAnimating={streaming && run.i === lastText}>
 							{run.part.text}
 						</Markdown>
 					) : run.part.type === "widget" ? (
@@ -283,6 +347,7 @@ function AgentBody({ message }: { message: Message }) {
 					) : null,
 				)}
 				{message.status === "error" && <Notice>{message.error ?? "Something went wrong."}</Notice>}
+				{message.stoppedBy && <p className="text-xs text-neutral-400">Stopped by {message.stoppedBy}</p>}
 			</div>
 			{message.stats && <ReplyDetails stats={message.stats} />}
 		</div>
@@ -310,13 +375,14 @@ function ToolPart({ replyId, part, author }: { replyId: Message["_id"]; part: To
 	const label = toolLine(part.label ?? (part.name === "connectors_search" ? "Look up connected actions" : actionLabel(part.name)), part.status);
 	if (part.status === "running") return <p className="text-xs text-neutral-400">{label}</p>;
 	// A call that made a thread (an ask to another agent) is a chip that opens it, read-only: "Scout asked Quill →".
+	// One that sent a message jumps to it: "Companybot posted in #sales →".
 	if (part.opens) {
-		const { chatId, messageId } = part.opens;
+		const { chatId, messageId, kind } = part.opens;
 		return (
 			<div className="flex">
 				<button
 					type="button"
-					onClick={() => navigate("chat", chatId, "thread", messageId)}
+					onClick={() => navigate("chat", chatId, kind ?? "thread", messageId)}
 					className="rounded-full border border-neutral-200 px-2 py-0.5 text-xs text-neutral-600 hover:border-neutral-300 hover:text-neutral-900"
 				>
 					{author} {label.charAt(0).toLowerCase() + label.slice(1)} →

@@ -29,6 +29,11 @@ export const isDecisionModel = (id: string) => routerDecisionModels.some((m) => 
 export const ROUTER_MODEL = routerDecisionModels[0]!.id;
 /** Wait this long after a message: a burst of messages gets one decision, on the newest. */
 export const ROUTER_DEBOUNCE_MS = 2_500;
+/**
+ * A person's message to an agent (its DM, an @mention) starts its turn after this quiet window:
+ * a burst from one person in one place gets one reply, on the newest, seeing all of it.
+ */
+export const AGENT_DEBOUNCE_MS = 1_500;
 /** Messages before the newest one that the router sees. */
 export const ROUTER_CONTEXT_MESSAGES = 8;
 /** Agents it decides for at most; past that, the channel's oldest members. */

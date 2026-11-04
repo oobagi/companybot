@@ -77,7 +77,7 @@ Keep it dead simple: the model gets a shell and files, not a menu of libraries. 
 2. **One sandbox per workspace and chat.** Never shared across workspaces or people. Kill on member removal and on workspace delete ([Architecture](architecture.md) data lifecycle).
 3. **Egress off by default.** Create with a package-registry allowlist (PyPI, npm) only. `network: open` is `outside` and asks. For data work: install, then lock to deny-all before touching workspace data.
 4. **Treat output as untrusted text.** Browser pages and file contents can carry instructions; results come back as data, not instructions, and never raise a tool's permission.
-5. **Approvals follow the usual order** (strictest wins). Owner locks can set `sandbox.*` to Ask or Blocked per workspace. Always allow is allowed for `run` with network off; never for `open` network or `browse`.
+5. **Approvals follow the usual order** (strictest wins). Workspace locks (`actions.lock`) can set `sandbox.*` to Ask or Blocked per workspace. Always allow is allowed for `run` with network off; never for `open` network or `browse`.
 6. **No inbound.** Don't expose ports or public URLs. Previews, if ever wanted, are separate and approved.
 7. **Limits (suggested):** 2 vCPU / 4 GiB default, 8 commands in flight per workspace, 60 s default and 8 min max per command, 50 MB per file, 1 GB disk written, 1 h idle → pause. Per-workspace monthly sandbox minutes tied to the AI allowance on Cloud.
 8. **Log every run:** command, exit code, network mode, files in and out, in Activity. No command text in notifications.

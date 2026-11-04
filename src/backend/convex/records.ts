@@ -1,3 +1,4 @@
+import type { Id } from "./_generated/dataModel";
 import { condition, recordGroup, recordSort } from "./recordValidators";
 import { type PaginationResult, paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
@@ -6,19 +7,21 @@ import { canSee } from "./chatOps";
 import { emptyPage, getMember, nameOf, requireMember } from "./lib";
 import { trashInfo } from "./trashOps";
 import { activityAs, historyAs, linkingRecords, listRecords, searchRecords } from "./recordReads";
+import { reach } from "./placeAccess";
 import {
 	createRecord,
 	fieldsOf,
 	inTrash,
 	resolveRefs,
-	toField,
+	typeVisible,
+	fieldsShown,
 	toRows,
 	undoChange,
 	updateRecord,
 } from "./recordOps";
 
-// Records: the app's API. Every workspace member can read every record; changing them
-// takes `records.edit`. Lists page through indexes only, so they stay fast at any size.
+// Records: the app's API. Reading a database's records takes View in it (its Who can access
+// list); changing them takes `records.edit` and Edit in it. Lists page through indexes only, so they stay fast at any size.
 // See wiki/data.md.
 
 type Row = Awaited<ReturnType<typeof toRows>>[number];
@@ -45,14 +48,17 @@ export const list = query({
 	handler: async (ctx, { typeId, filters = [], group, sort, paginationOpts }): Promise<PaginationResult<Row>> => {
 		const member = await getMember(ctx);
 		const type = member && (await ctx.db.get(typeId));
-		if (!member || type?.workspaceId !== member.workspaceId || type.archived) return emptyPage();
+		if (!member || type?.workspaceId !== member.workspaceId || type.archived || !reach(member, type.access)) return emptyPage();
 		const fields = await fieldsOf(ctx, typeId);
 		const result = await listRecords(ctx, member.workspaceId, { typeId, fields }, { archived: false, conditions: filters, group, sort, paginationOpts });
-		return { ...result, page: await toRows(ctx, member.workspaceId, result.page.map((record) => ({ record, fields }))) };
+		return { ...result, page: await toRows(ctx, member, result.page.map((record) => ({ record, fields }))) };
 	},
 });
 
-/** One record with its type and fields, or null if it isn't in your workspace. `archived`: in Archive, on its own or with its database. */
+/**
+ * One record with its type and fields, or null if it isn't in your workspace or you can't see its
+ * database. `archived`: in Archive, on its own or with its database. `canEdit`: Edit in its database.
+ */
 export const get = query({
 	args: { recordId: v.id("records") },
 	handler: async (ctx, { recordId }) => {
@@ -60,15 +66,40 @@ export const get = query({
 		const record = member && (await ctx.db.get(recordId));
 		if (!member || record?.workspaceId !== member.workspaceId) return null;
 		const type = (await ctx.db.get(record.typeId))!;
+		const level = reach(member, type.access);
+		if (!level) return null;
 		const fields = await fieldsOf(ctx, record.typeId);
-		const [row] = await toRows(ctx, member.workspaceId, [{ record, fields }]);
+		const shown = fieldsShown(ctx, member);
+		const [row] = await toRows(ctx, member, [{ record, fields }]);
 		return {
 			...row!,
+			canEdit: level === "edit",
 			archived: await inTrash(ctx, record),
 			trash: await trashInfo(ctx, member, record._id),
 			type: { _id: type._id, key: type.key, name: type.name, plural: type.plural },
-			fields: fields.filter((f) => !f.archived).map((f) => ({ _id: f._id, ...toField(f) })),
+			fields: await Promise.all(fields.filter((f) => !f.archived).map(async (f) => ({ _id: f._id, ...(await shown(f)) }))),
 		};
+	},
+});
+
+/**
+ * The names of a few records you keep at hand (the rail's pins and recents), with where each
+ * opens. Ones you can't see, archived or gone are left out, so the rail drops them.
+ */
+export const titles = query({
+	args: { recordIds: v.array(v.string()) },
+	handler: async (ctx, { recordIds }) => {
+		const member = await getMember(ctx);
+		if (!member) return [];
+		const out: { _id: Id<"records">; title: string; typeKey: string }[] = [];
+		for (const raw of recordIds.slice(0, 50)) {
+			const id = ctx.db.normalizeId("records", raw);
+			const record = id && (await ctx.db.get(id));
+			if (!record || record.workspaceId !== member.workspaceId || (await inTrash(ctx, record))) continue;
+			const type = await ctx.db.get(record.typeId);
+			if (type) out.push({ _id: record._id, title: record.title, typeKey: type.key });
+		}
+		return out;
 	},
 });
 
@@ -78,9 +109,9 @@ export const linked = query({
 	handler: async (ctx, { recordId, fieldId, paginationOpts }) => {
 		const member = await getMember(ctx);
 		const record = member && (await ctx.db.get(recordId));
-		if (!member || record?.workspaceId !== member.workspaceId || (await inTrash(ctx, record))) return emptyPage();
-		const result = await linkingRecords(ctx, recordId, { fieldId, paginationOpts });
-		const rows = await toRows(ctx, member.workspaceId, result.page);
+		if (!member || record?.workspaceId !== member.workspaceId || (await inTrash(ctx, record)) || !(await typeVisible(ctx, member)(record.typeId))) return emptyPage();
+		const result = await linkingRecords(ctx, member, recordId, { fieldId, paginationOpts });
+		const rows = await toRows(ctx, member, result.page);
 		return { ...result, page: rows.map((row, i) => ({ ...row, fieldId: result.page[i]!.fieldId })) };
 	},
 });
@@ -91,7 +122,7 @@ export const search = query({
 	handler: async (ctx, { query: text, typeId }): Promise<Row[]> => {
 		const member = await getMember(ctx);
 		if (!member || !text.trim()) return [];
-		return toRows(ctx, member.workspaceId, await searchRecords(ctx, member.workspaceId, text, { typeId, limit: 20 }));
+		return toRows(ctx, member, (await searchRecords(ctx, member, text, { typeId, limit: 20 })).items);
 	},
 });
 
@@ -101,7 +132,7 @@ export const history = query({
 	handler: async (ctx, { recordId, paginationOpts }) => {
 		const member = await getMember(ctx);
 		const record = member && (await ctx.db.get(recordId));
-		if (!member || record?.workspaceId !== member.workspaceId) return emptyPage();
+		if (!member || record?.workspaceId !== member.workspaceId || !(await typeVisible(ctx, member)(record.typeId))) return emptyPage();
 		return historyAs(ctx, member, record, paginationOpts);
 	},
 });
@@ -123,7 +154,7 @@ export const refs = query({
 		const member = await getMember(ctx);
 		if (!member) return {};
 		if (ids.length > 200) throw new ConvexError("Ask for up to 200 at a time.");
-		return (await resolveRefs(ctx, member.workspaceId, ids)).refs;
+		return (await resolveRefs(ctx, member, ids)).refs;
 	},
 });
 
@@ -133,7 +164,7 @@ export const discussion = query({
 	handler: async (ctx, { recordId }) => {
 		const member = await getMember(ctx);
 		const record = member && (await ctx.db.get(recordId));
-		if (!member || record?.workspaceId !== member.workspaceId) return [];
+		if (!member || record?.workspaceId !== member.workspaceId || !(await typeVisible(ctx, member)(record.typeId))) return [];
 		const mentions = await ctx.db
 			.query("recordMentions")
 			.withIndex("by_record", (q) => q.eq("recordId", recordId))

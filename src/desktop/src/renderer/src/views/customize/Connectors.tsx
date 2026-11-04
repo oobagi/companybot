@@ -1,5 +1,6 @@
-import { Select } from "../../controls";
-import { type Role, can } from "@companybot/core/permissions";
+import { Checkbox } from "../../controls";
+import type { Id } from "@companybot/backend/convex/_generated/dataModel";
+import { type Access, can } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../../api";
@@ -14,13 +15,13 @@ import { useConfirm } from "../chat/common";
 
 type ConnectorItem = FunctionReturnType<typeof api.connectors.list>[number];
 
-export function ConnectorsTab({ role }: { role: Role }) {
+export function ConnectorsTab({ access }: { access: Access }) {
 	const connectors = useQuery(api.connectors.list);
 	const setInstalled = useMutation(api.connectors.setInstalled);
 	const { confirm, dialog } = useConfirm();
 	const { error, run } = useRun();
 	if (!connectors) return <Loading />;
-	const isOwner = can(role, "connectors.manage");
+	const canManage = can(access, "connectors.manage");
 	const toggle = (p: ConnectorItem) => p.installed ? confirm({ title: `Remove ${p.name}?`, action: "Remove connector", body: "This disconnects it for everyone and deletes its saved connections and permissions. Reinstalling will require connecting it again.", onConfirm: () => setInstalled({ connectorId: p.id, installed: false }) }) : run(setInstalled({ connectorId: p.id, installed: true }));
 
 	return (
@@ -35,7 +36,7 @@ export function ConnectorsTab({ role }: { role: Role }) {
 					meta={`${p.publisher} · v${p.version}`}
 					description={p.description}
 					status={p.installed ? connectorStatus(p) : undefined}
-					install={{ installed: p.installed, canManage: isOwner, onToggle: () => toggle(p) }}
+					install={{ installed: p.installed, canManage: canManage, onToggle: () => toggle(p) }}
 					onOpen={() => navigate("settings", "connectors", p.id)}
 				/>
 			))}
@@ -44,20 +45,20 @@ export function ConnectorsTab({ role }: { role: Role }) {
 }
 
 function connectorStatus(p: ConnectorItem) {
-	if (!p.canUse) return "Your role can't use it";
+	if (!p.canUse) return "None of your roles can use it";
 	if (p.auth.type === "none") return "Ready";
 	if (p.error) return "Connection failing";
 	return p.connected ? "Connected" : "Not connected";
 }
 
-export function ConnectorScreen({ role, id }: { role: Role; id: string }) {
+export function ConnectorScreen({ access, id }: { access: Access; id: string }) {
 	const connectors = useQuery(api.connectors.list);
 	const connector = connectors?.find((p) => p.id === id);
 	if (!connector) return <Missing tab="connectors" loaded={!!connectors} />;
-	return <ConnectorDetail connector={connector} isOwner={can(role, "connectors.manage")} />;
+	return <ConnectorDetail connector={connector} canManage={can(access, "connectors.manage")} />;
 }
 
-function ConnectorDetail({ connector, isOwner }: { connector: ConnectorItem; isOwner: boolean }) {
+function ConnectorDetail({ connector, canManage }: { connector: ConnectorItem; canManage: boolean }) {
 	const setInstalled = useMutation(api.connectors.setInstalled);
 	const { confirm, dialog } = useConfirm();
 	const setRoles = useMutation(api.connectors.setRoles);
@@ -71,7 +72,7 @@ function ConnectorDetail({ connector, isOwner }: { connector: ConnectorItem; isO
 			meta={`${connector.publisher} · v${connector.version}`}
 			description={connector.description}
 			installed={connector.installed}
-			canManage={isOwner}
+			canManage={canManage}
 			onToggle={() => connector.installed ? confirm({ title: `Remove ${connector.name}?`, action: "Remove connector", body: "This disconnects it for everyone and deletes its saved connections and permissions. Reinstalling will require connecting it again.", onConfirm: () => setInstalled({ connectorId: connector.id, installed: false }) }) : run(setInstalled({ connectorId: connector.id, installed: true }))}
 		>
 			{dialog}
@@ -87,24 +88,36 @@ function ConnectorDetail({ connector, isOwner }: { connector: ConnectorItem; isO
 			/>
 			{connector.installed && (
 				<Section title="Access" flush>
-					<label className="flex items-center gap-2 text-sm">
-						<span className="text-neutral-500">Who can use it</span>
-						<Select
-							label="Who can use it"
-							disabled={!isOwner}
-							value={connector.roles.includes("member") ? "everyone" : "owners"}
-							options={[
-								{ value: "everyone", label: "Everyone" },
-								{ value: "owners", label: "Owners only" },
-							]}
-							onChange={(v) => run(setRoles({ connectorId: connector.id, roles: v === "everyone" ? ["owner", "member"] : ["owner"] }))}
-						/>
-					</label>
+					<ConnectorRoles connector={connector} canManage={canManage} onChange={(roles) => run(setRoles({ connectorId: connector.id, roles }))} />
 					<Connection connector={connector} />
 				</Section>
 			)}
 			{connector.installed && connector.canUse && <ConnectorActions connectorId={connector.id} connected={connector.connected} />}
 		</Detail>
+	);
+}
+
+/** Which roles may use the connector. Owners always can, so Owner shows checked and fixed. */
+function ConnectorRoles({ connector, canManage, onChange }: { connector: ConnectorItem; canManage: boolean; onChange: (roles: Id<"roles">[]) => void }) {
+	const roles = useQuery(api.roles.list);
+	if (!roles) return null;
+	const allowed = connector.roles as Id<"roles">[];
+	return (
+		<div role="group" aria-label="Who can use it" className="flex flex-col gap-1.5 text-sm">
+			<span className="text-neutral-500">Who can use it</span>
+			<div className="flex flex-wrap gap-x-4 gap-y-1.5">
+				{roles.map((r) => {
+					const owner = r.builtIn === "owner";
+					const on = owner || allowed.includes(r.id);
+					return (
+						<label key={r.id} className="flex items-center gap-2 has-disabled:text-neutral-400">
+							<Checkbox checked={on} disabled={!canManage || owner} onChange={(checked) => onChange(checked ? [...allowed, r.id] : allowed.filter((id) => id !== r.id))} />
+							{r.name}
+						</label>
+					);
+				})}
+			</div>
+		</div>
 	);
 }
 
@@ -164,7 +177,7 @@ function Connection({ connector }: { connector: ConnectorItem }) {
 					</button>
 				</Form>
 			) : (
-				<p className="text-neutral-400">{connector.canUse ? "An owner needs to connect it." : "Your role can't use this connector."}</p>
+				<p className="text-neutral-400">{connector.canUse ? "An owner needs to connect it." : "None of your roles can use this connector."}</p>
 			)}
 			{connector.auth.type === "api_key" && connector.auth.help && !connector.connected && (
 				<p className={metadataClass}>{connector.auth.help}</p>

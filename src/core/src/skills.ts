@@ -61,7 +61,7 @@ export function customSkillError(config: CustomSkillConfig): string | null {
 /** Agents make skills for the person they're helping, with the same rules as the app. */
 export interface SkillStore {
 	list: Skill[];
-	create(config: CustomSkillConfig): Promise<{ created: string; name: string } | { error: string }>;
+	create(config: CustomSkillConfig & { audience: "personal" | "team" }): Promise<{ created: string; name: string; audience: "personal" | "team"; note?: string } | { error: string }>;
 }
 
 /** A custom skill as the same shape the catalog uses, so agents load both the same way. */

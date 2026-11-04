@@ -1,4 +1,4 @@
-import { ownerAndMember, signIn, newTest } from "./helpers";
+import { ownerAndMember, signIn, newTest, setMemberSwitch } from "./helpers";
 import migrationsTest from "@convex-dev/migrations/test";
 import { convexTest } from "convex-test";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
@@ -36,9 +36,10 @@ describe("databases", () => {
 		expect(task.fields.find((f) => f.key === "status")?.options?.map((o) => o.id)).toEqual(["to_do", "doing", "done"]);
 	});
 
-	it("lets only owners add databases, each starting with a name field", async () => {
+	it("lets only people with the databases switch add databases, each starting with a name field", async () => {
 		const { owner, member } = await setup();
-		await expect(member.mutation(api.recordTypes.create, { plural: "Jobs" })).rejects.toThrow("permission");
+		await setMemberSwitch(owner, "fields.edit", false);
+		await expect(member.mutation(api.recordTypes.create, { plural: "Jobs" })).rejects.toThrow("Only people with the");
 		await owner.mutation(api.recordTypes.create, { plural: "Jobs" });
 		await expect(owner.mutation(api.recordTypes.create, { plural: "jobs" })).rejects.toThrow("already");
 		const jobs = (await member.query(api.recordTypes.list)).find((t) => t.key === "job")!;
@@ -305,15 +306,16 @@ describe("fields", () => {
 		await expect(member.mutation(api.fields.create, { typeId: client._id, label: "Parent", kind: "link" })).rejects.toThrow("Pick the database");
 	});
 
-	it("lets people change fields they added; owners change any", async () => {
+	it("lets the databases switch decide who changes a field, not who added it", async () => {
 		const { owner, member, client } = await setup();
 		const status = client.fields.find((f) => f.key === "status")!;
-		await expect(member.mutation(api.fields.update, { fieldId: status._id, label: "Stage" })).rejects.toThrow("Only the person who made this");
 		const mine = await member.mutation(api.fields.create, { typeId: client._id, label: "Gate code", kind: "text" });
-		await member.mutation(api.fields.update, { fieldId: mine._id, label: "Gate" });
-		await owner.mutation(api.fields.update, { fieldId: status._id, label: "Stage" });
+		await member.mutation(api.fields.update, { fieldId: status._id, label: "Stage" });
+		await setMemberSwitch(owner, "fields.edit", false);
+		await expect(member.mutation(api.fields.update, { fieldId: mine._id, label: "Gate" })).rejects.toThrow("Only people with the Owner role");
+		await owner.mutation(api.fields.update, { fieldId: mine._id, label: "Gate" });
 		const fields = (await member.query(api.recordTypes.list)).find((t) => t.key === "client")!.fields;
-		expect(fields.find((f) => f._id === mine._id)).toMatchObject({ key: "gate_code", label: "Gate", canEdit: true });
+		expect(fields.find((f) => f._id === mine._id)).toMatchObject({ key: "gate_code", label: "Gate", canEdit: false });
 		expect(fields.find((f) => f._id === status._id)).toMatchObject({ label: "Stage", canEdit: false });
 	});
 
@@ -499,7 +501,7 @@ describe("records: limits and edge cases", () => {
 				"currency code",
 			);
 		await expect(member.mutation(api.workspace.updateSettings, { name: next.name, currency: "GBP", expectedVersion: next.version })).rejects.toThrow(
-			"permission",
+			"Only people with the",
 		);
 	});
 
@@ -723,5 +725,18 @@ describe("records: list edge cases", () => {
 		expect(await list("client", false)).toEqual(["Mixed"]);
 		expect(await list("partners", true)).toEqual(["To gone"]);
 		expect(await list("partners", false)).toEqual(["Mixed"]);
+	});
+});
+
+describe("record titles (the rail's pins and recents)", () => {
+	it("names live records with their database, and drops archived, unknown and other workspaces' ones", async () => {
+		const { t, owner, client } = await setup();
+		const acme = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Acme" } });
+		const gone = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Gone" } });
+		await owner.mutation(api.trash.move, { kind: "record", id: gone });
+		const outsider = await signIn(t, "outsider@example.com");
+		const recordIds = [acme, gone, "not-an-id"];
+		expect(await owner.query(api.records.titles, { recordIds })).toEqual([{ _id: acme, title: "Acme", typeKey: "client" }]);
+		expect(await outsider.query(api.records.titles, { recordIds })).toEqual([]);
 	});
 });

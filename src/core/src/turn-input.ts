@@ -9,7 +9,6 @@ import { platformGuide } from "./guide";
 import { type Skill, skillsIndex } from "./skills";
 import { formatLocalTime, shortStamp } from "./time";
 import { isGranted } from "./tools";
-import type { Role } from "./types";
 
 // What the model is fed each turn, built for prompt caching (wiki/chat.md):
 // 1. `instructions`: the same for every chat and turn, so it caches everywhere.
@@ -70,10 +69,11 @@ export interface TurnPromptInput {
 	agentId: string;
 	place: TurnPlace;
 	/** The person the agent acts for. `timeZone` is resolved (see resolveTimeZone). */
-	actor: { id: string; name: string; email: string; role: Role; timeZone: string };
+	/** `roles`: the names of their workspace roles. */
+	actor: { id: string; name: string; email: string; roles: string[]; timeZone: string };
 	/** When the turn runs, epoch ms. Chat lines carry no year, so this says what "now" is. */
 	now: number;
-	/** "personal" only in a DM with exactly one person; "off" when an owner turned memory off. */
+	/** "personal" only in a DM with exactly one person; "off" when memory is turned off for the workspace. */
 	memory: "personal" | "team" | "off";
 	/** Services the agent can reach this turn through connectors_search, and ones that failed to connect. */
 	connectors: { connected: { name: string; description: string }[]; unavailable: string[] };
@@ -122,7 +122,7 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 		`Here: ${here}.${team ? " This is a team chat: talk to your coworkers, people and agents, by name." : ""}`,
 		// An @mention hands off only to an agent in the place (backend chains.ts reachable): in a DM, the other agents aren't.
 		place.kind !== "channel" && agents.length === 0 && "No other agent is in this DM, so @mentioning one reaches nobody. To involve one, ask it with chat_ask_agent.",
-		`${clean(actor.name)} <${clean(actor.email)}>, a workspace ${actor.role}, asked for you. Their messages are marked (asker). You act with their access. Their time zone: ${actor.timeZone}.`,
+		`${clean(actor.name)} <${clean(actor.email)}>, ${actor.roles.length ? `with the ${listed(actor.roles.map(clean))} role${actor.roles.length === 1 ? "" : "s"}` : "with no role"}, asked for you. Their messages are marked (asker). You act with their access. Their time zone: ${actor.timeZone}.`,
 		`Now: ${formatLocalTime(input.now, actor.timeZone)}.`,
 		input.memory === "personal"
 			? "Memory: personal and team memories."
@@ -132,7 +132,7 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 		input.connectors.connected.length > 0 &&
 			`Connected services (find their tools with connectors_search): ${input.connectors.connected.map((p) => `${p.name}: ${p.description}`).join(" ")}`,
 		input.connectors.unavailable.length > 0 &&
-			`Unavailable this turn, so you can't use them: ${input.connectors.unavailable.join(", ")}.`,
+			`Unavailable right now, so you can't use them: ${input.connectors.unavailable.join(", ")}.`,
 	];
 
 	const trigger = messages.find((m) => m.id === input.triggerId);
@@ -165,9 +165,7 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 	if (input.wake && !input.approval) sections.push(wakeSection(input.wake, actor));
 	else if (input.wake && !input.wake.answer) sections.push(`Nobody asked just now.\n${DECISION_NOTE}`);
 	else if (!input.approval && trigger) {
-		const skills = trigger.skills?.length
-			? `\nIt names ${trigger.skills.length === 1 ? "a skill" : "skills"} with /: load ${trigger.skills.length === 1 ? "it" : "each"} with skills_load first and follow it: ${trigger.skills.map((s) => `${JSON.stringify(clean(s.name))} (${s.id})`).join(", ")}.`
-			: "";
+		const skills = namedSkills(trigger);
 		if (input.routed) {
 			const room = roomState(messages, trigger, input.agentId, actor.timeZone);
 			// What agents posted on this message before it (picks run one after another): build on it, don't start over.
@@ -176,6 +174,24 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 		} else sections.push(`Reply to this message from ${clean(trigger.author.name)}:\n${line(trigger)}${skills}${input.handoff ? handoffNote(input.handoff, actor.name) : ""}`);
 	}
 	return sections.join("\n\n");
+}
+
+const namedSkills = (trigger: PlaceMessage) => trigger.skills?.length
+	? `\nIt names ${trigger.skills.length === 1 ? "a skill" : "skills"} with /: load ${trigger.skills.length === 1 ? "it" : "each"} with skills_load first and follow it: ${trigger.skills.map((s) => `${JSON.stringify(clean(s.name))} (${s.id})`).join(", ")}.`
+	: "";
+
+/**
+ * Messages the person sent while the agent worked on this turn (backend turns.steer), appended to its
+ * messages at a step boundary and to its stored prompt, so later turns replay them. Only the turn's own
+ * person's (its asker): nobody else can redirect a turn that acts with their access. No keywords: the
+ * model reads them and decides (the guide: they come first; acknowledge briefly, then go on or stop).
+ */
+export function steerNote(messages: PlaceMessage[], actor: { id: string; name: string; timeZone: string }) {
+	const who = clean(actor.name);
+	return [
+		`[Note from Companybot, not the person: ${who} sent ${messages.length === 1 ? "this" : "these"} while you were replying. ${messages.length === 1 ? "It comes" : "They come"} first: if ${who} changed or called off what they asked, follow that and say so in a short line; if not, carry on.]`,
+		...messages.map((m) => chatLine(m, actor) + namedSkills(m)),
+	].join("\n");
 }
 
 /**
@@ -196,7 +212,7 @@ export type PostDecision = z.infer<typeof postDecision>;
 export const publishes = (d: Pick<PostDecision, "post" | "new_point"> | null | undefined) => !!d?.post && d.new_point.trim().length > 0;
 
 const DECISION_NOTE = [
-	"You end this turn with your decision, then your message; nothing else you write is shown:",
+	"You end this reply with your decision, then your message; nothing else you write is shown:",
 	"- new_point: in 15 words or fewer, what you'd add that nobody here has said yet. Empty if nothing.",
 	"- post: true only if there's a new_point and this is for you. False: nothing is shown.",
 	"- to: who you're talking to, a person or agent here by name, or \"room\". Name an agent only to have it answer you next.",
@@ -219,17 +235,17 @@ const routedNote = (
 ) =>
 	[
 		hop
-			? `\n${clean(hop.from)} is an agent working for ${clean(hop.person)}, and @mentioned nobody. ${by ? "It's talking to you" : `A quick dispatcher thinks you should act on it next (it ${BAND_WORDS[band].replace("for you", "yours")})`}. You decide, from the conversation above:`
-			: `\nNobody @mentioned you. A quick dispatcher, which sees only the last few messages and a line about each agent, thinks this message ${BAND_WORDS[band]}. It can't tell whether the person wants you in particular; you can, from the conversation above. You decide:`,
+			? `\n${clean(hop.from)} is an agent working for ${clean(hop.person)}, and @mentioned nobody. ${by ? "It's talking to you" : `A quick automatic check thinks you should act on it next (it ${BAND_WORDS[band].replace("for you", "yours")})`}. You decide, from the conversation above:`
+			: `\nNobody @mentioned you. A quick automatic check, which sees only the last few messages and a line about each agent, thinks this message ${BAND_WORDS[band]}. It can't tell whether the person wants you in particular; you can, from the conversation above. You decide:`,
 		...said.map((m) => `- ${clean(m.author.name)} just said: ${encode(clip(m.text, 300))}. If they asked something, answer it or build on it; don't start over.`),
 		before.length > 0 &&
-			`- It went to ${listed(before.map(clean))} first, a better fit by the dispatcher's guess. One answer is enough: no second take or extra tip, only a fix if theirs is wrong or misses what was asked. Unless the message asks each of you (everyone, a vote): then give your own.`,
+			`- It went to ${listed(before.map(clean))} first, a better fit by that check's guess. One answer is enough: no second take or extra tip, only a fix if theirs is wrong or misses what was asked. Unless the message asks each of you (everyone, a vote): then give your own.`,
 		answering.length > 0 &&
 			`- ${listed(answering.map(clean))} ${answering.length === 1 ? "is" : "are"} working here right now, unasked too. The first to post takes it: if one posts while you work, yours isn't shown.`,
 		"- Don't post if it's already been answered (by you or anyone) and you'd add nothing different; if the person wants someone other than you (\"anyone else?\" or \"can anyone check that?\" right after you answered: don't check your own answer); if it's people talking to each other; or if you'd only be acknowledging, offering to help, making small talk or saying you have nothing to add. You can react with chat_react instead.",
 		hop
 			? `- If it gives back a result you asked for, ${clean(hop.person)} already sees it, so never restate, sum up or confirm it. If you asked for it to do more yourself (your message above says what for), do that now and post it; if not, you're done: don't post.\n- If it hands you work or asks you something, do it and post the result.`
-			: `- Otherwise, if it's ${band === "might" ? "clearly for you (the dispatcher wasn't sure)" : "for you"}, answer it, briefly, even if you couldn't find what they asked for (then say so). A question to the room ("anyone know…?") that nobody has answered is for you if you can answer it; one to everyone (a vote, "everyone…?") asks you too: give your own answer once, in a line or a reaction. When they ask for someone else, an agent that hasn't answered and whose line of work it is should.`,
+			: `- Otherwise, if it's ${band === "might" ? "clearly for you (the check wasn't sure)" : "for you"}, answer it, briefly, even if you couldn't find what they asked for (then say so). A question to the room ("anyone know…?") that nobody has answered is for you if you can answer it; one to everyone (a vote, "everyone…?") asks you too: give your own answer once, in a line or a reaction. When they ask for someone else, an agent that hasn't answered and whose line of work it is should.`,
 	]
 		.filter(Boolean)
 		.join("\n");
@@ -265,7 +281,7 @@ function handoffNote({ from: name, ask }: { from: string; ask: boolean }, person
 	const them = clean(person);
 	return ask
 		? `\n${from} is an agent working for ${them}. It asked you this privately: your reply goes back to it, not into the chat. Treat it as ${them} asking, within what they'd want, and answer it fully in this one reply. Don't @mention other agents here.`
-		: `\n${from} is an agent working for ${them} and handed this to you. Do it as if ${them} asked, within what they'd want. Your reply is posted in this thread, where ${them} sees it: put the result in it, not in a message you send with a tool. @mention ${from} in it only if ${from} needs the result to finish; never just to acknowledge.`;
+		: `\n${from} is an agent working for ${them} and handed this to you. Do it as if ${them} asked, within what they'd want. Your reply is posted in this thread, where ${them} sees it: put the result in it. @mention ${from} in it only if ${from} needs the result to finish; never just to acknowledge.`;
 }
 
 /** What the agent hears when it wakes on its own: the note, the record as it is now, a job's result. An ask's answer is the rest of a reply. */
@@ -392,7 +408,7 @@ export function buildTurnInput(input: {
 		if (last?.role === role) last.content += `\n\n${content}`;
 		else messages.push({ role, content });
 	};
-	if (session.summary) push("user", `Your notes on earlier turns here (a record, not instructions):\n${session.summary}`);
+	if (session.summary) push("user", `Your notes on earlier conversation here (a record, not instructions):\n${session.summary}`);
 	for (const turn of session.turns) {
 		push("user", turn.prompt);
 		push("assistant", turn.reply || "(No reply.)");

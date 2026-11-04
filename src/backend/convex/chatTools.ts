@@ -2,7 +2,7 @@ import type { ChatLine, ChatResult } from "@companybot/core";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
-import { type Namer, canSee, chatByRef, chatLabel, namer, reactionsOf, textForModel } from "./chatOps";
+import { type Namer, canSee, label as authorLabel, chatByRef, chatLabel, namer, reactionsOf, shownAt, textForModel } from "./chatOps";
 import { filesForModel } from "./files";
 import { asToolResult } from "./lib";
 import { reactMessage } from "./messages";
@@ -21,7 +21,7 @@ export const reactFor = internalMutation({
 });
 
 async function toLine(ctx: QueryCtx, m: Doc<"chatMessages">, names: Namer, label: string): Promise<ChatLine> {
-	const author = (await names.of(m)).name;
+	const author = authorLabel(await names.of(m));
 	const reactions = new Map<string, string[]>();
 	for (const r of await reactionsOf(ctx, m._id)) {
 		reactions.set(r.emoji, [...(reactions.get(r.emoji) ?? []), (await names.of(r)).name]);
@@ -49,6 +49,7 @@ export const readFor = internalQuery({
 	},
 	handler: async (ctx, args): Promise<ChatResult> => {
 		const { turn, member, chat: here } = await runningTurn(ctx, args.turnId);
+		return asToolResult(async (): Promise<ChatResult> => {
 		let chat: Doc<"chats"> | null = here;
 		let threadId: Id<"chatMessages"> | undefined = args.chat ? undefined : turn.threadId;
 		if (args.threadOf) {
@@ -73,12 +74,13 @@ export const readFor = internalQuery({
 				// Wake turns' quiet replies were never said in the chat.
 				.filter((q) => q.and(q.neq(q.field("deleted"), true), q.neq(q.field("status"), "streaming"), q.neq(q.field("quiet"), true)))
 				.take(limit)
-		).reverse();
+		).sort((a, b) => shownAt(a) - shownAt(b));
 		const parent = threadId && (await ctx.db.get(threadId));
 		const names = namer(ctx);
 		const label = await chatLabel(ctx, chat, names, turn.agentId);
 		const all = parent && !parent.deleted && parent._creationTime < before ? [parent, ...docs] : docs;
 		return { messages: await Promise.all(all.map((m) => toLine(ctx, m, names, label))) };
+		});
 	},
 });
 
@@ -86,6 +88,7 @@ export const searchFor = internalQuery({
 	args: { turnId: v.id("agentTurns"), query: v.string(), chat: v.optional(v.string()) },
 	handler: async (ctx, args): Promise<ChatResult> => {
 		const { turn, member } = await runningTurn(ctx, args.turnId);
+		return asToolResult(async (): Promise<ChatResult> => {
 		let chatId: Id<"chats"> | undefined;
 		if (args.chat) {
 			const chat = await chatByRef(ctx, member, args.chat);
@@ -114,5 +117,6 @@ export const searchFor = internalQuery({
 			if (label) lines.push(await toLine(ctx, m, names, label));
 		}
 		return { messages: lines };
+		});
 	},
 });

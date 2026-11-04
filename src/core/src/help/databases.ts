@@ -7,13 +7,12 @@ export default {
 	text: `# Databases and records
 A **database** is a collection of records the team tracks: clients, deals, jobs, anything. A **record** is one row. A **field** is one piece of info on it ("Stage", "Monthly retainer"). New workspaces start with none: create what you need.
 
-Each database has its own entry under Databases in the sidebar; its address is #/records/<key>. Older shortcuts like #/clients still open too.
+Each database has its own entry in Databases' sidebar (Databases in the rail); its address is #/records/<key>. Older shortcuts like #/clients still open too.
 
 ## Who can do what
-- **Create, rename or delete databases**: owners (the + beside Databases).
-- **Add and edit records, undo changes**: owners and members.
-- **Add fields**: owners and members. You can rename, change or delete your own; owners can change anyone's.
-- Everyone can read every record.
+- **Create, rename or delete databases, and add or change fields**: people whose role can add and change databases and fields (Member, to start). The + is beside Databases.
+- **Add and edit records, undo changes**: people whose role can add and change records (Member, to start).
+- **Who can access**: each database's settings has a Who can access list (Everyone, or chosen roles, at View or Edit). Its records and their pages follow it. People not on it don't see the database at all, and links to its records show as locked chips. See **help: permissions**.
 
 ## Using a database
 - **List**: pick columns, click a header to sort, and filter by any field. Search by name and text.

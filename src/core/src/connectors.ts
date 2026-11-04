@@ -1,5 +1,4 @@
 import type { OAuthState } from "./oauth";
-import type { Role } from "./types";
 
 /**
  * A connector connects the workspace to an outside service (Gmail, Calendar, …)
@@ -7,7 +6,7 @@ import type { Role } from "./types";
  * turn, named "<connector id>.<tool name>", and pass the same grant and role checks
  * as built-in tools.
  *
- * Lifecycle: an owner installs it (and picks which roles may use it) → someone
+ * Lifecycle: someone with connectors.manage installs it (and picks which roles may use it) → someone
  * connects an account → agents granted "<connector id>.*" (or single tools) can use it.
  */
 export interface Connector {
@@ -19,14 +18,14 @@ export interface Connector {
 	publisher: string;
 	mcp: { url: string; transport: "http" | "sse" };
 	/**
-	 * Whose account agents use. "workspace": one shared connection, set by an owner
+	 * Whose account agents use. "workspace": one shared connection, set by someone with connectors.manage
 	 * (e.g. the company's Stripe). "personal": each person connects their own
 	 * (e.g. their Gmail); agents use the account of the person they're helping.
 	 */
 	connection: "workspace" | "personal";
 	auth: ConnectorAuth;
-	/** Roles that may use it by default. Owners can change this per workspace. */
-	defaultRoles?: Role[];
+	/** Only owners may use it until another role is allowed. Unset: the Member role may too. */
+	ownersOnly?: boolean;
 }
 
 export type ConnectorAuth =
@@ -69,6 +68,3 @@ export function connectorHeaders(connector: Connector, credentials: ConnectorCre
 	}
 	return {};
 }
-
-/** Roles that may use a connector in a workspace: the owner's choice, else the connector default, else everyone. */
-export const connectorRoles = (connector: Connector, chosen?: Role[]): Role[] => chosen ?? connector.defaultRoles ?? ["owner", "member"];

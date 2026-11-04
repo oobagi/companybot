@@ -2,7 +2,7 @@ import { seedSkill } from "./legacyFixtures";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ManageTool } from "@companybot/core";
 import { api, internal } from "../convex/_generated/api";
-import { agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, sideWorkspace } from "./helpers";
+import { agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, sideWorkspace, setMemberSwitch } from "./helpers";
 import type { Id } from "../convex/_generated/dataModel";
 
 afterEach(() => vi.useRealTimers());
@@ -30,7 +30,9 @@ describe("messaging and channels as the person", () => {
 		expect(await call("channels.manage", { action: "delete", chat: id }, true)).toMatchObject({ done: "delete", chatId: id });
 		expect((await member.query(api.trash.list, { paginationOpts: { numItems: 50, cursor: null } })).page[0]).toMatchObject({ itemId: id, agent: "Companybot" });
 		const other = await owner.mutation(api.chats.createChannel, { name: "owner-channel", private: false });
-		expect(await call("channels.manage", { action: "delete", chat: other }, true)).toHaveProperty("error");
+		await setMemberSwitch(owner, "channels.edit", false);
+		expect(await call("channels.manage", { action: "delete", chat: other }, true)).toMatchObject({ error: expect.stringContaining("Only people with the Owner role") });
+		await setMemberSwitch(owner, "channels.edit", true);
 		expect(await call("channels.manage", { action: "delete", chat: chat._id })).toHaveProperty("error");
 		const dm = await member.mutation(api.chats.openDm, { userIds: [], agentIds: [] });
 		expect(await call("channels.manage", { action: "delete", chat: dm }, true)).toHaveProperty("error");
@@ -45,7 +47,7 @@ describe("messaging and channels as the person", () => {
 	it("discovers people/agents/invites, chats and channel metadata with paging", async () => {
 		const { call, owner, companybot, chat } = await ready();
 		expect((await call("chat.manage", { action: "find_people" })).page).toEqual(
-			expect.arrayContaining([expect.objectContaining({ userId: owner.userId, role: "owner" })]),
+			expect.arrayContaining([expect.objectContaining({ userId: owner.userId, roles: ["Owner"] })]),
 		);
 		expect((await call("chat.manage", { action: "find_people", kind: "agents" })).page).toEqual(
 			expect.arrayContaining([expect.objectContaining({ id: companybot._id })]),
@@ -80,9 +82,35 @@ describe("messaging and channels as the person", () => {
 		}
 		expect(await t.run((ctx) => ctx.db.query("agentTurns").collect())).toHaveLength(before.length);
 		const lines = await owner.query(api.messages.list, { chatId });
-		expect(lines.at(-1)!.author.name).toContain("Companybot, for");
+		expect(lines.at(-1)!.author).toMatchObject({ name: "Companybot", for: { type: "user", id: owner.userId } });
+		// "DM me": with nobody but the person, it's the agent's own DM with them, not a DM with themselves.
+		for (const userIds of [[], [owner.userId]]) {
+			const own = await call("chat.manage", { action: "open_dm", userIds, agentIds: [] });
+			expect(await t.run((ctx) => ctx.db.get(own.chatId as Id<"chats">))).toMatchObject({ dmKey: `a:${companybot._id},u:${owner.userId}` });
+		}
+		// To the person alone, it's the agent talking, not the agent as them; it can still edit what it wrote.
+		const own = await call("chat.manage", { action: "open_dm", userIds: [], agentIds: [] });
+		// From a turn in #general: the DM's own turn replies instead (it can't send where it's replying).
+		const elsewhere = await agentTurn(t, owner, chat._id, companybot._id);
+		const fromGeneral = (request: unknown): Promise<any> => t.mutation(internal.manageTools.runFor, { turnId: elsewhere, tool: "chat.manage", input: { request } });
+		const { messageId: toYou } = await fromGeneral({ action: "send", chat: own.chatId, text: "Surprise" });
+		expect(await fromGeneral({ action: "send", chat: own.chatId, text: "Again" })).toMatchObject({ chatId: own.chatId, messageId: expect.any(String) });
+		const sent = await t.run((ctx) => ctx.db.get(toYou as Id<"chatMessages">));
+		expect(sent).toMatchObject({ authorAgentId: companybot._id, text: "Surprise" });
+		expect(sent!.actingFor).toBeUndefined();
+		expect(await fromGeneral({ action: "edit", messageId: toYou, text: "Surprise!" })).toMatchObject({ done: "edit" });
+		expect((await owner.query(api.messages.list, { chatId: own.chatId as Id<"chats"> })).at(-1)!.author).toEqual(expect.not.objectContaining({ for: expect.anything() }));
 		expect(await t.query(internal.chatTools.readFor, { turnId, chat: chatId })).toHaveProperty("messages");
 		expect(await call("chat.manage", { action: "send", chat: chatId, threadId: parent, text: "Wrong parent" })).toHaveProperty("error");
+	});
+
+	it("posts for the person where the turn is replying, and says so, so the reply doesn't repeat it", async () => {
+		const { t, call, owner, turnId } = await ready();
+		const { chatId } = (await t.run((ctx) => ctx.db.get(turnId as Id<"agentTurns">)))!;
+		const sent = await call("chat.manage", { action: "send", chat: chatId, text: "Here" });
+		expect(sent).toMatchObject({ messageId: expect.any(String), note: expect.stringContaining("Don't repeat") });
+		const parent = await owner.mutation(api.messages.send, { chatId, text: "Parent", mentions: noMentions });
+		expect(await call("chat.manage", { action: "send", chat: chatId, threadId: parent, text: "In its thread" })).not.toHaveProperty("note");
 	});
 
 	it("creates, renames, clears topic, adds/removes members and joins/leaves via the UI's rules", async () => {
@@ -104,6 +132,7 @@ describe("messaging and channels as the person", () => {
 		const { t, call, owner, member, chat } = await ready();
 		const privateId = await owner.mutation(api.chats.createChannel, { name: "secret", private: true });
 		const publicId = await owner.mutation(api.chats.createChannel, { name: "public", private: false });
+		await setMemberSwitch(owner, "channels.edit", false);
 		for (const request of [
 			{ action: "get" },
 			{ action: "join" },
@@ -151,9 +180,10 @@ describe("automation management", () => {
 		expect(await call("automations.manage", { action: "get", id }, true)).toHaveProperty("error");
 	});
 
-	it("denies another maker's edits and even an owner's read of a creator-only automation", async () => {
+	it("denies team automation edits without the switch, and even an owner's read of a creator-only automation", async () => {
 		const { call, owner, member, companybot, t } = await ready();
 		const id = await owner.mutation(api.automations.create, { config, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
+		await setMemberSwitch(owner, "automations.edit", false);
 		for (const r of [
 			{ action: "edit", expectedVersion: 1, config },
 			{ action: "pause" },
@@ -192,9 +222,10 @@ describe("skills, members and settings", () => {
 		expect(await call("skills.manage", { action: "get", id }, true)).toHaveProperty("error");
 	});
 
-	it("denies another maker's skill changes, nonowner install/removal and settings writes", async () => {
+	it("denies skill changes and removal without the switch, and settings writes", async () => {
 		const { call, owner } = await ready();
 		const id = await owner.mutation(api.skills.create, { config: skill });
+		await setMemberSwitch(owner, "skills.edit", false);
 		expect(await call("skills.edit", { action: "edit", id, expectedVersion: 1, config: skill }, true)).toHaveProperty("error");
 		expect(await call("skills.remove", { action: "delete", id }, true)).toHaveProperty("error");
 		expect(await call("skills.remove", { action: "delete", id: "meeting-notes" }, true)).toHaveProperty("error");

@@ -1,6 +1,6 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { type AgentConfig, type Reasoning, agentConfigKeys, defaultReasoning, pickAgentConfig } from "@companybot/core/agent-config";
-import { type Role, can } from "@companybot/core/permissions";
+import { type Access, can } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../api";
@@ -58,15 +58,15 @@ function AgentRow({ agent, onOpen }: { agent: Agent; onOpen: () => void }) {
 }
 
 /** One agent's own screen, pushed over the agents list. */
-export function AgentScreen({ role, agentId }: { role: Role; agentId: Id<"agents"> }) {
+export function AgentScreen({ access, agentId }: { access: Access; agentId: Id<"agents"> }) {
 	const agents = useQuery(api.agents.list);
 	const agent = agents?.find((a) => a._id === agentId);
 	const back = customizeCrumbs("agents");
 	if (!agent) return <Missing tab="agents" loaded={!!agents} />;
-	return <AgentEditor key={agent._id} agent={agent} isOwner={can(role, "agents.manage")} back={back} />;
+	return <AgentEditor key={agent._id} agent={agent} canManage={can(access, "agents.manage")} back={back} />;
 }
 
-function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean; back: Crumb[] }) {
+function AgentEditor({ agent, canManage, back }: { agent: Agent; canManage: boolean; back: Crumb[] }) {
 	const options = useQuery(api.agents.options);
 	const update = useMutation(api.agents.update);
 	const remove = useMutation(api.trash.move);
@@ -91,7 +91,7 @@ function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean;
 			description={`v${agent.version} · edited by ${agent.updatedByName} ${timeAgo(agent.updatedAt)}`}
 			crumbs={back}
 			actions={
-				isOwner && !agent.archived && (
+				canManage && !agent.archived && (
 					<button
 						type="button"
 						onClick={() => confirm(archiveQuestion(agent.name, () => remove({ kind: "agent", id: agent._id }).then(() => navigate("settings", "agents")), "The agent will stop responding."))}
@@ -107,11 +107,11 @@ function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean;
 			<ConflictNotice draft={draft} who={agent.updatedByName} />
 			<Notice>{error}</Notice>
 
-			<fieldset disabled={!isOwner || agent.archived} className="flex flex-col gap-5">
+			<fieldset disabled={!canManage || agent.archived} className="flex flex-col gap-5">
 				{/* Not a Field: its <label> would name the picker's buttons. */}
 				<div className="flex flex-col gap-1.5">
 					<span className="text-sm font-medium">Picture</span>
-					<ImagePicker of={agent._id} name={agent.name} image={agent.image} agent disabled={!isOwner || agent.archived} />
+					<ImagePicker of={agent._id} name={agent.name} image={agent.image} agent disabled={!canManage || agent.archived} />
 					<span className="text-xs text-neutral-500">PNG, JPEG, WebP or GIF, up to 2 MB.</span>
 				</div>
 				<Field label="Name">
@@ -136,7 +136,7 @@ function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean;
 				<div className="flex flex-col gap-1.5">
 					<span className="text-sm font-medium">Tools</span>
 					{options.groups.map((g) => (
-						<ToolGroup key={g.id} group={g} grants={config.tools} isOwner={isOwner} access={access} onChange={(tools) => edit({ tools })} />
+						<ToolGroup key={g.id} group={g} grants={config.tools} canManage={canManage} access={access} onChange={(tools) => edit({ tools })} />
 					))}
 				</div>
 				<Field label="Instructions" hint="Changes apply from the agent's next reply.">
@@ -149,7 +149,7 @@ function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean;
 				</Field>
 			</fieldset>
 
-			{isOwner && !agent.archived && (
+			{canManage && !agent.archived && (
 				<SaveBar
 					dirty={draft.dirty}
 					onDiscard={draft.discard}
@@ -157,7 +157,7 @@ function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean;
 				/>
 			)}
 
-			<History agent={agent} isOwner={isOwner && !agent.archived} />
+			<History agent={agent} canManage={canManage && !agent.archived} />
 		</Page>
 	);
 }
@@ -165,7 +165,7 @@ function AgentEditor({ agent, isOwner, back }: { agent: Agent; isOwner: boolean;
 type Options = FunctionReturnType<typeof api.agents.options>;
 
 const hiddenReasons: Record<string, string> = {
-	role: "Hidden from your role",
+	role: "None of your roles can use it",
 	not_installed: "Connector not installed",
 	not_connected: "Not connected",
 	not_found: "Missing",
@@ -178,13 +178,13 @@ const hiddenReasons: Record<string, string> = {
 function ToolGroup({
 	group,
 	grants,
-	isOwner,
+	canManage,
 	access,
 	onChange,
 }: {
 	group: Options["groups"][number];
 	grants: string[];
-	isOwner: boolean;
+	canManage: boolean;
 	access: Map<string, Agent["access"][number]>;
 	onChange: (tools: string[]) => void;
 }) {
@@ -195,7 +195,7 @@ function ToolGroup({
 	const inGroup = (id: string) => id === all || id.startsWith(`${group.id}.`);
 	const status = (id: string) => {
 		const a = access.get(id);
-		if (!a || isOwner) return null;
+		if (!a || canManage) return null;
 		return <span className={metadataClass}>{a.visible ? "You can use" : hiddenReasons[a.reason]}</span>;
 	};
 	return (
@@ -217,7 +217,7 @@ function ToolGroup({
 							<span className="flex flex-1 flex-col">
 								<span className="text-sm">
 									<code>{t.id}</code>
-									{t.ownersOnly && <span className="ml-2 text-xs text-neutral-400">owners only</span>}
+									{t.needs && <span className="ml-2 text-xs text-neutral-400">needs a role that can {t.needs}</span>}
 								</span>
 								<span className="text-xs text-neutral-500">{t.description}</span>
 							</span>
@@ -229,7 +229,7 @@ function ToolGroup({
 	);
 }
 
-function History({ agent, isOwner }: { agent: Agent; isOwner: boolean }) {
+function History({ agent, canManage }: { agent: Agent; canManage: boolean }) {
 	const versions = useQuery(api.agents.history, { agentId: agent._id });
 	const restore = useMutation(api.agents.restore);
 	const [openVersion, setOpenVersion] = useState<number>();
@@ -267,7 +267,7 @@ function History({ agent, isOwner }: { agent: Agent; isOwner: boolean }) {
 							{v.version === agent.version ? (
 								<span className="text-neutral-400">Current</span>
 							) : (
-								isOwner && (
+								canManage && (
 									<button
 										type="button"
 										onClick={() =>

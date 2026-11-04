@@ -100,7 +100,7 @@ async function quietTurn(turn: {
 	const started = Date.now();
 	const { agent } = turn.woken;
 	const config = configOf(agent);
-	const available = resolveTools(config, { userId: "u", role: "member" });
+	const available = resolveTools(config);
 	let reacted = false;
 	const tools = Object.fromEntries(
 		available.map((t) => [
@@ -131,7 +131,7 @@ async function quietTurn(turn: {
 	const prompt = buildTurnPrompt({
 		agentId: agent.key,
 		place,
-		actor: { id: `u-${person}`, name: person, email: `${person.toLowerCase()}@roofco.com`, role: "member", timeZone: TIME_ZONE },
+		actor: { id: `u-${person}`, name: person, email: `${person.toLowerCase()}@roofco.com`, roles: ["Member"], timeZone: TIME_ZONE },
 		now: NOW,
 		memory: "team",
 		connectors: { connected: [], unavailable: [] },
