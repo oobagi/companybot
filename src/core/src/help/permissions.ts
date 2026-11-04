@@ -3,7 +3,7 @@ import type { HelpPage } from "./index";
 export default {
 	id: "permissions",
 	title: "Permissions and approvals",
-	summary: "When agents ask first, Allow once / Always allow / Deny, and action locks.",
+	summary: "Who can access each channel, database and page; when agents ask first, Allow once / Always allow / Deny, and action locks.",
 	text: `# Permissions and approvals
 Agents act as the person who asked. Anything that leaves Companybot (a send, a call, a payment, a change in another app) **asks first**. Companybot's own work (records, pages, memory) runs right away and is logged in [Activity](#/settings/activity).
 
@@ -22,6 +22,16 @@ In an automation someone else wrote, or one fed by outside text, acting as you a
 [Permissions](#/settings/permissions):
 - **Yours**: your Always and Never rules and automation grants. Change or remove them any time.
 - **Action locks** (people whose role can lock agent actions): make an action Always ask or Blocked for everyone, or lift a default lock. Strictest wins: a block beats your Always.
+
+## Who can access
+Each channel, database and page has a **Who can access** list: **Everyone**, or chosen roles, each at **View** or **Edit** (**Post**, for a channel). Like sharing in Google Drive or Notion.
+- Not on the list means no access: they don't see it in the sidebar, search, links, Activity, history, Archive or unread counts, and their agents can't read it. A link to a record they can't see shows as a locked chip, without its name; a sub-page they can't open shows as "Page". What people typed stays as written, so a message can still mention it.
+- **View** reads; **Edit** (or **Post**) also changes it. Owners always have Edit.
+- Every place starts at Everyone, Edit, so nothing changes until someone restricts it. Examples: a read-only channel (Everyone: View, Office: Post), a read-only page, a private database (Deals: Office only).
+- **Change it**: a channel's details (click its name), a database's settings, or a page's ⋯ menu. It takes the switch to change that kind of place, and Edit in it. A lock in the sidebar marks a restricted place; hover it for who can.
+- **Sub-pages** follow their parent's list unless they set their own. A record's page follows its database. Moving a page never opens it to more people.
+- **Private channels** keep their members; the list applies on top.
+- **Agents** use the access of the person who asked. When that person can't see something, the agent says who can: "Only Office and Owners can see Deals." It names the place only if they asked for it by that name; otherwise it's "this database". In a channel they can only view, agents don't reply or follow up for them, and a reply already under way stops when they lose Post.
 
 ## Roles
 What else a person can do comes from their roles (managing members, agents, connectors, locks and more). See **help: members**.

@@ -263,7 +263,7 @@ async function streamReply(
 		manage: { run: (tool, input) => ctx.runMutation(internal.manageTools.runFor, { turnId, tool, input }) },
 		skills: {
 			list: turn.skills,
-			create: (config) => ctx.runMutation(internal.skills.createFor, { turnId, config }),
+			create: ({ audience, ...config }) => ctx.runMutation(internal.skills.createFor, { turnId, config, audience }),
 		},
 		automations: {
 			list: () => ctx.runQuery(internal.automationTools.listFor, { turnId }),

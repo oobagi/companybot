@@ -49,6 +49,7 @@ export const readFor = internalQuery({
 	},
 	handler: async (ctx, args): Promise<ChatResult> => {
 		const { turn, member, chat: here } = await runningTurn(ctx, args.turnId);
+		return asToolResult(async (): Promise<ChatResult> => {
 		let chat: Doc<"chats"> | null = here;
 		let threadId: Id<"chatMessages"> | undefined = args.chat ? undefined : turn.threadId;
 		if (args.threadOf) {
@@ -79,6 +80,7 @@ export const readFor = internalQuery({
 		const label = await chatLabel(ctx, chat, names, turn.agentId);
 		const all = parent && !parent.deleted && parent._creationTime < before ? [parent, ...docs] : docs;
 		return { messages: await Promise.all(all.map((m) => toLine(ctx, m, names, label))) };
+		});
 	},
 });
 
@@ -86,6 +88,7 @@ export const searchFor = internalQuery({
 	args: { turnId: v.id("agentTurns"), query: v.string(), chat: v.optional(v.string()) },
 	handler: async (ctx, args): Promise<ChatResult> => {
 		const { turn, member } = await runningTurn(ctx, args.turnId);
+		return asToolResult(async (): Promise<ChatResult> => {
 		let chatId: Id<"chats"> | undefined;
 		if (args.chat) {
 			const chat = await chatByRef(ctx, member, args.chat);
@@ -114,5 +117,6 @@ export const searchFor = internalQuery({
 			if (label) lines.push(await toLine(ctx, m, names, label));
 		}
 		return { messages: lines };
+		});
 	},
 });

@@ -9,6 +9,7 @@ import { deleteFile } from "./images";
 import { hasLiveOwner, liveWorkspace } from "./lib";
 import { deletePage, pageOfRecord } from "./pageOps";
 import { forgetTrashEntry } from "./memoryOps";
+import { trashEntry } from "./trashOps";
 import { toField } from "./recordOps";
 
 // What happens to every table's rows when what they belong to goes: a workspace is deleted,
@@ -204,7 +205,13 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 
 	skillInstalls: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
-		keep: "Skills people made are the workspace's: they stay when their maker leaves. Deleting one forever from Archive deletes its row.",
+		member: {
+			index: "by_owner", eq: [["ownerId", "userId"], "workspaceId"],
+			onDelete: async (ctx, row) => {
+				const entry = await trashEntry(ctx, row._id);
+				if (entry) await ctx.db.delete(entry._id);
+			},
+		},
 	},
 
 	// ---- Chat ----

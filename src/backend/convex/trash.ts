@@ -9,10 +9,11 @@ import { startCascade } from "./cascade";
 import { canSee, setChannelTrashed } from "./chatOps";
 import { mutation, query } from "./functions";
 import { type Member, type Who, capped, checkPermission, emptyPage, getMember, requireMember } from "./lib";
-import { deletePage, requirePage, setPageTrashed } from "./pageOps";
-import { setFieldTrashed, setRecordTrashed, setTypeTrashed } from "./recordOps";
+import { deletePage, pageVisible, requirePage, setPageTrashed } from "./pageOps";
+import { setFieldTrashed, setRecordTrashed, setTypeTrashed, typeVisible } from "./recordOps";
 import { trashKind } from "./schema";
 import { deleteMemory, setMemoryTrashed } from "./memoryOps";
+import { canSeeSkill } from "./lib";
 import { setSkillTrashed } from "./skills";
 import { type TrashKind, describeTrash, trashEntry } from "./trashOps";
 
@@ -77,12 +78,29 @@ async function deleteEntry(ctx: MutationCtx, entry: Doc<"trash">) {
 	if (entry.kind === "memory") await deleteMemory(ctx, idOf(ctx, "memory", entry.itemId));
 }
 
-/** Trash never widens a private channel's or just-them automation's audience, including for workspace owners. */
+/**
+ * Trash never widens a private channel's or just-them automation's audience, including for workspace
+ * owners, nor a channel's, database's or page's Who can access list.
+ */
 async function visibleEntry(ctx: QueryCtx, member: Member, entry: Doc<"trash">) {
+	if (entry.kind === "skill") {
+		const id = ctx.db.normalizeId("skillInstalls", entry.itemId);
+		const install = id && await ctx.db.get(id);
+		return !!install && canSeeSkill(member.userId, install);
+	}
 	if (entry.kind === "automation") {
 		const id = ctx.db.normalizeId("automationInstalls", entry.itemId);
 		const install = id && (await ctx.db.get(id));
 		return !!install && canView(member, install);
+	}
+	if (entry.kind === "database" || entry.typeId) {
+		const typeId = entry.typeId ?? ctx.db.normalizeId("recordTypes", entry.itemId);
+		return !!typeId && (await typeVisible(ctx, member)(typeId));
+	}
+	if (entry.kind === "page") {
+		const id = ctx.db.normalizeId("pages", entry.itemId);
+		const page = id && (await ctx.db.get(id));
+		return !!page && (await pageVisible(ctx, member)(page));
 	}
 	if (entry.kind !== "channel") return true;
 	const id = ctx.db.normalizeId("chats", entry.itemId);

@@ -42,7 +42,13 @@ export const toggleTrash = (ctx: MutationCtx, who: Who, archived: boolean, item:
 
 /** Anyone who could delete it can restore it, whoever deleted it (core `canTrash`). */
 export async function canRestore(ctx: QueryCtx, member: Member, entry: Doc<"trash">) {
-	return canTrash(member, entry.kind, entry.kind === "automation" ? await personalTo(ctx, entry) : null);
+	return canTrash(member, entry.kind, entry.kind === "skill" ? await skillOwner(ctx, entry) : entry.kind === "automation" ? await personalTo(ctx, entry) : null);
+}
+
+async function skillOwner(ctx: QueryCtx, entry: Doc<"trash">) {
+	const id = ctx.db.normalizeId("skillInstalls", entry.itemId);
+	const install = id && await ctx.db.get(id);
+	return install?.audience === "personal" ? install.ownerId : null;
 }
 
 /** Who a trashed personal automation belongs to: only they can see it, so only they can restore it. */

@@ -119,10 +119,11 @@ async function toEntry(ctx: QueryCtx, row: Doc<"agentActivity">, member: Member,
 		wake: row.wake ? { outcome: row.wake.outcome, reason: row.wake.reason ?? null } : null,
 		changes: row.changes,
 		status: row.status,
-		input: row.input,
+		// Skill proposals may contain private instructions, even before the write is refused.
+		input: !mine && (row.tool === "skills.create" || row.tool === "skills.edit") ? "{}" : row.input,
 		/** Only for the person the agent acted for; see the note at the top. */
 		output: mine ? row.output : undefined,
-		error: row.error,
+		error: !mine && (row.tool === "skills.create" || row.tool === "skills.edit") ? undefined : row.error,
 		/** Calls that would have asked: who allowed it and how, and whether that rule still stands. */
 		allowed: row.allowed
 			? {

@@ -115,7 +115,8 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	const naming = useRun();
 	const shown = columns.map((k) => fields.find((f) => f.key === k)!);
 	const conditions = filters.map(toCondition).filter((c) => c !== null);
-	const canEdit = can(access, "records.edit");
+	// The server says: the switch, and Edit in this database's Who can access list.
+	const canEdit = type.canEdit;
 	const sortField = sort && fields.find((f) => f.key === sort.field);
 	const args = { typeId: type._id, filters: conditions, sort };
 	const config = { filters: conditions, sort, columns, layout, groupBy: group?.key };
@@ -128,7 +129,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 			title={type.plural}
 			actions={
 				<>
-					{can(access, "fields.edit") && (
+					{type.canManage && (
 						<button type="button" className={barButton} onClick={() => setEditingDatabase(true)}>
 							<EditIcon /> Edit database
 						</button>
@@ -204,7 +205,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 					fields={fields}
 					columns={columns}
 					onChange={setColumns}
-					onNewField={can(access, "fields.edit") ? () => setAddingField("text") : undefined}
+					onNewField={type.canManage ? () => setAddingField("text") : undefined}
 				/>}
 				{(selected || writable) && layout === "board" && group && (
 					<label className="flex items-center gap-2 text-neutral-600">
@@ -436,8 +437,8 @@ function FilterValue({ field, filter, onChange }: { field: TypeField; filter: Fi
 					<Chip key={id} onRemove={() => onChange(ids.filter((i) => i !== id))}>{label(id)}</Chip>
 				))}
 				{field.kind === "link" ? (
-					<RecordPicker
-						typeId={field.linkType!}
+					field.linkType && <RecordPicker
+						typeId={field.linkType}
 						exclude={ids}
 						label="Pick"
 						onPick={(id, name) => {

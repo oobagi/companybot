@@ -4,9 +4,10 @@ import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, internalMutation, internalQuery } from "./_generated/server";
 import { defaultModel, scheduleCron, usageMonth } from "@companybot/core";
 import { recordUsage } from "./usage";
-import { scheduleCursor } from "./automationOps";
+import { type RunOutcome, scheduleCursor } from "./automationOps";
 import { rolesOf } from "./lib";
 import { seedRoles } from "./roles";
+import { withoutPageTitles } from "./pageBlocks";
 
 // Data migrations. Deploys never change stored rows; these do, once per deployment.
 // `pnpm release` runs every pending one on prod right after deploying, and the
@@ -173,6 +174,93 @@ export const customRolesConnectors = migrations.define({
 	},
 });
 
+// Page move history held the titles of the places a page moved between, which named pages some people
+// can't see (Who can access). Rows now hold ids, named to each reader by what they can see (pages.moves).
+// "Pages" is the top level; any other title becomes the one standalone page in the workspace with exactly
+// that title, or stays unknown ("another page") when none or several match.
+// COMPAT(0.1.0-alpha.10): once this has run on prod, delete it, its entry in `all` and its test, and the legacy fields (schema.ts).
+export const pageMoveIds = migrations.define({
+	table: "pageMoves",
+	batchSize: 20,
+	migrateOne: async (ctx, row) => {
+		if (row.from === undefined && row.to === undefined) return;
+		const idOf = async (title: string | undefined) => {
+			if (title === undefined || title === "Pages") return title === undefined ? undefined : null;
+			// Exact title, live or archived, by index: the second match settles it as ambiguous.
+			const exact: Id<"pages">[] = [];
+			for (const archived of [false, true]) {
+				const found = await ctx.db
+					.query("pages")
+					.withIndex("by_workspace", (q) => q.eq("workspaceId", row.workspaceId).eq("recordId", undefined).eq("archived", archived).eq("title", title))
+					.take(2 - exact.length);
+				exact.push(...found.map((p) => p._id));
+				if (exact.length > 1) return undefined;
+			}
+			return exact[0];
+		};
+		await ctx.db.patch(row._id, { fromId: await idOf(row.from), toId: await idOf(row.to), from: undefined, to: undefined });
+	},
+});
+
+// Page blocks held their sub-page's title, so a page's history (and its sync) named sub-pages some
+// readers can't see. Blocks hold only the id now (pageBlocks.ts); this strips the titles from every kept
+// version's snapshot. Old steps keep theirs, but every read strips them on the way out (pageSync.ts).
+// COMPAT(0.1.0-alpha.10): once this has run on prod, delete it, its entry in `all` and its test.
+export const pageBlockTitles = migrations.define({
+	table: "pageVersions",
+	batchSize: 10,
+	migrateOne: async (ctx, row) => {
+		const { getSnapshot, deleteSnapshots, submitSnapshot } = components.prosemirrorSync.lib;
+		const snapshot = await ctx.runQuery(getSnapshot, { id: row.pageId, version: row.version });
+		if (snapshot.content === null || snapshot.version !== row.version) return;
+		const content = withoutPageTitles(snapshot.content);
+		if (content === snapshot.content) return;
+		// The component never overwrites a version's snapshot with different content, so replace it.
+		await ctx.runMutation(deleteSnapshots, { id: row.pageId, afterVersion: row.version - 1, beforeVersion: row.version + 1 });
+		await ctx.runMutation(submitSnapshot, { id: row.pageId, version: row.version, content });
+	},
+});
+
+// An automation's last run was stored as its line, naming channels to everyone who could see the automation,
+// some of whom can't see those channels. Runs store the channel's id now (automationOps.RunOutcome); this
+// turns each old line into that, finding the channel it names, or drops the line when it can't.
+// COMPAT(0.1.0-alpha.10): once this has run on prod, delete it, its entry in `all` and its test, and `lastResult` (schema.ts).
+export const automationOutcomes = migrations.define({
+	table: "automationInstalls",
+	batchSize: 50,
+	migrateOne: async (ctx, install) => {
+		const line = install.lastResult;
+		if (line === undefined) return;
+		const channel = async (name: string) => {
+			const found = [];
+			for (const archived of [false, true])
+				found.push(...(await ctx.db.query("chats").withIndex("by_name", (q) => q.eq("workspaceId", install.workspaceId).eq("name", name).eq("archived", archived)).take(2)));
+			return found.length === 1 && found[0]!.kind === "channel" ? found[0]!._id : undefined;
+		};
+		const trigger = install.custom?.trigger;
+		const watched = trigger?.type === "event" && trigger.event === "message.posted" ? ctx.db.normalizeId("chats", trigger.channelId) : null;
+		const posted = /^Posted in #(.+)\.$/.exec(line);
+		const missing = /^(Didn't run: .+) in #(.+)\. Pick another channel\.$/.exec(line);
+		const watches = /^(Didn't run: It watches )#.+?(, which .+)$/.exec(line);
+		let outcome: RunOutcome | undefined;
+		if (!line.includes("#")) outcome = { text: line };
+		else if (posted) {
+			const channelId = await channel(posted[1]!);
+			if (channelId) outcome = { text: "Posted in {channel}.", channelId };
+		} else if (missing) {
+			const channelId = await channel(missing[2]!);
+			if (channelId) outcome = { text: `${missing[1]} in {channel}. Pick another channel.`, channelId };
+		} else if (watches && watched) outcome = { text: `${watches[1]}{watched}${watches[2]}`, watchedId: watched };
+		await ctx.db.patch(install._id, { lastResult: undefined, ...(outcome && { lastOutcome: outcome }) });
+	},
+});
+
+// COMPAT(0.1.0-alpha.10): once this has run on prod, delete it and its test, and make audience required.
+export const skillAudience = migrations.define({
+	table: "skillInstalls",
+	migrateOne: async (ctx, row) => { if (!row.audience) await ctx.db.patch(row._id, { audience: "team" }); },
+});
+
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
@@ -187,6 +275,11 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.customRolesMembers,
 	internal.migrations.customRolesInvites,
 	internal.migrations.customRolesConnectors,
+	// COMPAT(0.1.0-alpha.10): retire these with their migrations above.
+	internal.migrations.pageMoveIds,
+	internal.migrations.pageBlockTitles,
+	internal.migrations.automationOutcomes,
+	internal.migrations.skillAudience,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */
