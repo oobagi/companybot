@@ -32,6 +32,7 @@ import {
 	cleanWhy,
 	createResultStore,
 	createWebTurn,
+	keptStep,
 	emptyUsage,
 	findConnector,
 	gatewayCost,
@@ -360,7 +361,8 @@ async function streamReply(
 	// Later turns replay what's stored. They can act for someone else, so an approved call's
 	// result stays out of it (only its approver may see it); this turn alone gets it.
 	await ctx.runMutation(internal.turns.savePrompt, { turnId, prompt: approval ? buildTurnPrompt({ ...promptInput, forReplay: true }) : prompt });
-	const input = buildTurnInput({ agent, skills: turn.skills, session: turn.session, prompt, available: usable, images: await loadImages(ctx, turn.images) });
+	const session = { summary: turn.session.summary, turns: turn.session.turns.map((t) => ({ ...t, steps: JSON.parse(t.steps) as ModelMessage[] })) };
+	const input = buildTurnInput({ agent, skills: turn.skills, session, prompt, available: usable, images: await loadImages(ctx, turn.images) });
 	// Every turn ends with its decision (core postDecision): what it posts and reacts, the final step's
 	// structured output, so tools still run first. Its text is that JSON; only `message` is shown.
 	const output = Output.object({ schema: postDecision, name: "decision" });
@@ -378,6 +380,13 @@ async function streamReply(
 	let sent: ModelMessage[] = input.messages;
 	/** Steps this reply finished, over all its runs: the step limit is per reply. */
 	let done = 0;
+	// Each finished step that called tools is kept as the model had it, for later turns to replay
+	// (turns.keepStep). A step cut off to take in a message never finishes, so it isn't.
+	let keeping: Promise<unknown> = Promise.resolve();
+	const keepStep = ({ response }: { response: { messages: ModelMessage[] } }) => {
+		const kept = keptStep(response.messages);
+		if (kept.length) keeping = keeping.then(() => ctx.runMutation(internal.turns.keepStep, { turnId, messages: JSON.stringify(kept) }));
+	};
 	const run = () =>
 		streamText({
 			model: agent.model,
@@ -394,6 +403,7 @@ async function streamReply(
 			providerOptions: { gateway: { caching: "auto" } },
 			// Calls that need approval stop the run there, unexecuted; we hold them below.
 			toolApproval: toolApprovalPolicy(usable, check),
+			onStepEnd: keepStep,
 			output,
 		});
 	let result = run();
@@ -561,6 +571,7 @@ async function streamReply(
 	} finally {
 		for (const callId of [...calls.keys()]) await logCall(callId, { error: "The reply stopped before this finished." });
 		await stepWrites;
+		await keeping;
 	}
 	// None if it stopped before deciding (a call held for approval) or wrote no valid decision. The draft
 	// gives way to what the decision posts, last, after its tool lines. Stopped: no decision; the reply
@@ -853,7 +864,7 @@ async function compact(ctx: ActionCtx, sessionId: Id<"agentSessions">, turnId: I
 	if (!input) return;
 	let result: { summary: string; upTo: number; costUsd: number; model: string } | undefined;
 	try {
-		const transcript = input.turns.map((t) => `Sent to you:\n${t.prompt}\n\nYou replied:\n${t.reply}`).join("\n\n---\n\n");
+		const transcript = input.turns.map((t) => `Sent to you:\n${t.prompt}\n\n${t.calls.length ? `Tools you called: ${t.calls.join(", ")}\n\n` : ""}You answered:\n${t.answer || "(nothing)"}`).join("\n\n---\n\n");
 		const { text, providerMetadata } = await generateText({
 			model: SUMMARY_MODEL,
 			instructions:

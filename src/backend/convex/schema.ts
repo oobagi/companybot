@@ -774,6 +774,18 @@ export default defineSchema({
 		// A channel's recent "might be for you" picks, for their hourly cap (router.ts).
 		.index("by_chat_dispatch", ["chatId", "dispatch.band"]),
 
+	// A turn's tool steps as its model had them (core replay.ts keptStep): its calls and their results,
+	// as JSON ModelMessage[] (a call's input can have any keys). Later turns in its session replay them
+	// (turns.ts sessionTurns); results only to the person it acted for, as in the activity log.
+	turnSteps: defineTable({
+		workspaceId: v.id("workspaces"),
+		turnId: v.id("agentTurns"),
+		actorId: v.id("users"),
+		messages: v.string(),
+	})
+		.index("by_turn", ["turnId"])
+		.index("by_actor", ["actorId"]),
+
 	// Agents handing work to each other for one person (chains.ts, core handoffs.ts): the budget its
 	// handoffs spend, reset when that person writes in it or presses Continue. Made at the first handoff.
 	agentChains: defineTable({
