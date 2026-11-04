@@ -13,7 +13,7 @@ import { canReadReply } from "../convex/replyPrivacy";
 import { KEEP_TOKENS, runningTurn } from "../convex/turns";
 import { createWakeup, wake } from "../convex/wakeups";
 import "./connectorFixtures";
-import { agentsOf, agentTurn, generalOf, identityOf, noMentions, ownerAndMember, signIn, turnsOf, type As } from "./helpers";
+import { agentsOf, agentTurn, generalOf, identityOf, noMentions, ownerAndMember, signIn, turnsOf, type As, setMemberSwitch } from "./helpers";
 
 async function decideReaction(t: Awaited<ReturnType<typeof ownerAndMember>>["t"], turnId: Id<"agentTurns">, triggerId: Id<"chatMessages">, emoji: string) {
 	await t.run((ctx) => ctx.db.patch(turnId, { triggerId }));
@@ -1081,6 +1081,7 @@ describe("own-data authority and chat-file provenance", () => {
 	afterEach(() => { expect(network).not.toHaveBeenCalled(); vi.restoreAllMocks(); });
 	it("a foreign subscriber automation with Always cannot publish the runner's personal connector data", async () => {
 		const { t, owner, member: ben } = await ownerAndMember();
+		await setMemberSwitch(owner, "automations.edit", true);
 		const { companybot } = await agentsOf(owner);
 		await owner.mutation(api.connectors.setInstalled, { connectorId: "notes", installed: true });
 		await owner.action(api.connectors.connect, { connectorId: "notes", credentials: { type: "api_key", key: "local-fixture" } });
