@@ -58,7 +58,7 @@ const readInput = z.object({
 });
 export type ChatReadInput = z.infer<typeof readInput>;
 
-export type ChatResult = { messages: ChatLine[] } | { error: string };
+export type ChatResult = { messages: ChatLine[]; notice?: string } | { error: string };
 
 /** One page of an attached file's text. */
 export type FileResult = { name: string; type: string; page: number; pages: number; text: string } | { error: string };

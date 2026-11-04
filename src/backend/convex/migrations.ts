@@ -1,3 +1,4 @@
+import { publicSearchChat } from "./chatDiscovery";
 import { fromLegacy } from "./wakeups";
 import { type MigrationFunctionReference, Migrations } from "@convex-dev/migrations";
 import { components, internal } from "./_generated/api";
@@ -313,6 +314,28 @@ export const dropChatReactLocks = migrations.define({
 	},
 });
 
+// COMPAT(0.1.0-alpha.10): populate indexed search audiences and activity-ordered seats.
+export const searchAudience = migrations.define({
+	table: "chatMessages", batchSize: 50,
+	migrateOne: async (ctx, row) => {
+		const chat = await ctx.db.get(row.chatId);
+		return { searchPublic: !!chat && publicSearchChat(chat) };
+	},
+});
+// COMPAT(0.1.0-alpha.10): backfill chat discovery audiences.
+export const searchChats = migrations.define({
+	table: "chats", batchSize: 50,
+	migrateOne: async (_ctx, chat) => ({ searchPublic: publicSearchChat(chat) }),
+});
+// COMPAT(0.1.0-alpha.10): backfill seat activity and restricted-chat discovery.
+export const searchSeats = migrations.define({
+	table: "chatMembers", batchSize: 50,
+	migrateOne: async (ctx, seat) => {
+		const chat = await ctx.db.get(seat.chatId);
+		if (chat) return { activityAt: chat.lastMessageAt, restricted: !publicSearchChat(chat) };
+	},
+});
+
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
@@ -338,6 +361,9 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.dropChatReactRules,
 	internal.migrations.dropChatReactLocks,
 	internal.migrations.channelTopics,
+	internal.migrations.searchAudience,
+	internal.migrations.searchChats,
+	internal.migrations.searchSeats,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

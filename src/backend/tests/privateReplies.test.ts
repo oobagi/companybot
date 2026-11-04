@@ -427,7 +427,7 @@ describe("private agent replies", () => {
 	it("does not record a search hit beyond the output cap", async () => {
 		const s = await setup();
 		const last = await s.t.run(async (ctx) => {
-			for (let i = 0; i < 21; i++) await ctx.db.insert("chatMessages", { workspaceId: s.turn.workspaceId, chatId: s.chat._id, authorUserId: s.dana.userId, text: "Captest quartz", parts: [], status: "done", mentions: noMentions });
+			for (let i = 0; i < 21; i++) await ctx.db.insert("chatMessages", { workspaceId: s.turn.workspaceId, chatId: s.chat._id, authorUserId: s.dana.userId, text: "Captest quartz", parts: [], status: "done", mentions: noMentions, searchPublic: true });
 			const hits = await ctx.db.query("chatMessages").withSearchIndex("search_text", (q) => q.search("text", "Captest").eq("workspaceId", s.turn.workspaceId)).take(21);
 			const last = hits[20]!._id;
 			await ctx.db.patch(last, { usedPlaces: [s.deals] });

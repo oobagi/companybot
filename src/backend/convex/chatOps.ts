@@ -2,6 +2,7 @@ import { type ReactionGroup, describeWidget, emojiOf, withoutFileImages } from "
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { publicSearchChat, touchSeats, refreshAudience } from "./chatDiscovery";
 import { imageUrls } from "./images";
 import { type Member, type Who, checkPermission, getMember, memberOf, memo, nameOf, personOf } from "./lib";
 import { channelName, chatAccess, reach, requireAccess } from "./placeAccess";
@@ -151,6 +152,8 @@ export async function addToChat(ctx: MutationCtx, chat: Doc<"chats">, who: { use
 		chatId: chat._id,
 		workspaceId: chat.workspaceId,
 		...who,
+		activityAt: chat.lastMessageAt,
+		restricted: !publicSearchChat(chat),
 		...(who.userId && { lastReadAt: Date.now() }),
 	});
 }
@@ -223,6 +226,7 @@ export async function setChannelTrashed(ctx: MutationCtx, who: Who, chatId: Id<"
 		await takeFromTrash(ctx, who, chatId);
 	}
 	await ctx.db.patch(chatId, { archived });
+	await refreshAudience(ctx, { ...chat, archived });
 }
 
 /** A side chat's label: its title, or a stand-in until its first message names it. */
@@ -290,7 +294,7 @@ export async function insertMessage(
 	chat: Doc<"chats">,
 	message: Omit<Doc<"chatMessages">, "_id" | "_creationTime" | "chatId" | "workspaceId">,
 ) {
-	const id = await ctx.db.insert("chatMessages", { chatId: chat._id, workspaceId: chat.workspaceId, ...message });
+	const id = await ctx.db.insert("chatMessages", { chatId: chat._id, workspaceId: chat.workspaceId, ...message, searchPublic: publicSearchChat(chat) });
 	await countMessage(ctx, chat, message);
 	return id;
 }
@@ -305,7 +309,10 @@ export async function countMessage(ctx: MutationCtx, chat: Doc<"chats">, message
 			const others = (await replyAuthorsOf(ctx, parent)).filter((a) => a.userId !== author.userId || a.agentId !== author.agentId);
 			await ctx.db.patch(parent._id, { replyCount: (parent.replyCount ?? 0) + 1, lastReplyAt: now, replyAuthors: [author, ...others].slice(0, 3) });
 		}
-	} else await ctx.db.patch(chat._id, { lastMessageAt: now });
+	} else {
+		await ctx.db.patch(chat._id, { lastMessageAt: now });
+		await touchSeats(ctx, { ...chat, lastMessageAt: now });
+	}
 }
 
 /**
@@ -324,7 +331,11 @@ export const shownAt = (m: Pick<Doc<"chatMessages">, "_creationTime" | "publishe
 export async function moveBelow(ctx: MutationCtx, chat: Doc<"chats">, reply: Doc<"chatMessages">) {
 	const now = Date.now();
 	await ctx.db.patch(reply._id, { publishedAt: now });
-	if (!reply.threadId) return ctx.db.patch(chat._id, { lastMessageAt: now });
+	if (!reply.threadId) {
+		await ctx.db.patch(chat._id, { lastMessageAt: now });
+		await touchSeats(ctx, { ...chat, lastMessageAt: now });
+		return;
+	}
 	const parent = await ctx.db.get(reply.threadId);
 	if (parent && !parent.quiet) await ctx.db.patch(parent._id, { lastReplyAt: now });
 }
@@ -491,16 +502,24 @@ export function textForModel(m: Doc<"chatMessages">, who = "You") {
 	return [m.text, ...widgets].filter(Boolean).join("\n");
 }
 
-/** Recent accessible chats, without scanning other people's DMs. */
-export async function recentVisibleChats(ctx: QueryCtx, member: Member, limit = 20) {
-	const joined = await ctx.db.query("chatMembers").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("userId", member.userId)).collect();
-	const channels = await ctx.db.query("chats").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("kind", "channel")).collect();
-	const chats = new Map(channels.map((c) => [c._id, c]));
-	for (const row of joined) {
-		const chat = await ctx.db.get(row.chatId);
-		if (chat) chats.set(chat._id, chat);
+/** Bounded activity-ordered discovery; checking permissions never scans every seat. */
+export async function recentVisibleChats(ctx: QueryCtx, member: Member, limit = 50, restrictedOnly = false) {
+	const seats = await (restrictedOnly
+		? ctx.db.query("chatMembers").withIndex("by_private_activity", (q) => q.eq("workspaceId", member.workspaceId).eq("userId", member.userId).eq("restricted", true))
+		: ctx.db.query("chatMembers").withIndex("by_activity", (q) => q.eq("workspaceId", member.workspaceId).eq("userId", member.userId))
+	).order("desc").take(limit + 1);
+	// Role-limited channels may be readable without joining them. Public channels need no discovery for search.
+	const channels = await ctx.db.query("chats").withIndex("by_search_activity", (q) => q.eq("workspaceId", member.workspaceId).eq("kind", "channel").eq("searchPublic", false)).order("desc").take(limit + 1);
+	if (!restrictedOnly) channels.push(...await ctx.db.query("chats").withIndex("by_search_activity", (q) => q.eq("workspaceId", member.workspaceId).eq("kind", "channel").eq("searchPublic", true)).order("desc").take(limit + 1));
+	const candidates = new Map(channels.map((c) => [c._id, { chat: c, at: c.lastMessageAt }]));
+	for (const seat of seats.slice(0, limit)) {
+		const chat = await ctx.db.get(seat.chatId);
+		if (chat) candidates.set(chat._id, { chat, at: seat.activityAt ?? 0 });
 	}
 	const visible = [];
-	for (const chat of chats.values()) if (!chat.archived && await canSee(ctx, chat, { ...member, replyId: undefined })) visible.push(chat);
-	return visible.sort((a, b) => b.lastMessageAt - a.lastMessageAt).slice(0, limit);
+	for (const { chat, at } of candidates.values()) {
+		if (!chat.archived && (!restrictedOnly || !publicSearchChat(chat)) && await canSee(ctx, chat, { ...member, replyId: undefined })) visible.push({ chat, at });
+	}
+	visible.sort((a, b) => b.at - a.at);
+	return { chats: visible.slice(0, limit).map((c) => c.chat), truncated: seats.length > limit || channels.length > limit || visible.length > limit };
 }

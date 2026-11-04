@@ -523,6 +523,8 @@ export default defineSchema({
 		archived: v.boolean(),
 		createdBy: v.id("users"),
 		lastMessageAt: v.number(),
+		/** Search discovery; maintained with chat visibility. */
+		searchPublic: v.optional(v.boolean()),
 		/** USD spent on agent replies and summaries here (main timeline). */
 		costUsd: v.optional(v.number()),
 		/** Channels: when agents answer without an @mention (core router.ts). Unset is "mentions", so no migration. */
@@ -531,6 +533,7 @@ export default defineSchema({
 		access,
 	})
 		.index("by_workspace", ["workspaceId", "kind"])
+		.index("by_search_activity", ["workspaceId", "kind", "searchPublic", "lastMessageAt"])
 		.index("by_dm_key", ["workspaceId", "dmKey"])
 		.index("by_name", ["workspaceId", "name", "archived"]),
 
@@ -542,12 +545,17 @@ export default defineSchema({
 		agentId: v.optional(v.id("agents")),
 		/** People only: newest message time they've seen in the main timeline. */
 		lastReadAt: v.optional(v.number()),
+		/** Denormalized activity for bounded discovery (backfilled for alpha.10). */
+		activityAt: v.optional(v.number()),
+		restricted: v.optional(v.boolean()),
 		/** People only: when they closed this DM (chats.closeDm). Out of their sidebar until a newer message, or they open it again. */
 		closedAt: v.optional(v.number()),
 	})
 		.index("by_chat", ["chatId"])
 		.index("by_workspace", ["workspaceId", "userId"])
 		.index("by_user", ["userId", "chatId"])
+		.index("by_activity", ["workspaceId", "userId", "activityAt"])
+		.index("by_private_activity", ["workspaceId", "userId", "restricted", "activityAt"])
 		.index("by_agent", ["agentId", "chatId"]),
 
 	// A message in a chat's main timeline, or in a thread (threadId = the parent message).
@@ -566,6 +574,8 @@ export default defineSchema({
 		/** A delivered message from an agent, on this person's behalf. */
 		actingFor: v.optional(v.id("users")),
 		text: v.string(),
+		/** COMPAT(0.1.0-alpha.10): old messages are backfilled by searchAudience. */
+		searchPublic: v.optional(v.boolean()),
 		parts: v.array(messagePart),
 		/** Files attached to it (files.ts), in order. Deleted with the message, or when it is. */
 		attachments: v.optional(v.array(attachment)),
@@ -619,7 +629,7 @@ export default defineSchema({
 		/** Thread parents, newest reply first: the sidebar's active threads. Messages without replies have no `lastReplyAt` and sort first. */
 		.index("by_chat_lastReply", ["chatId", "lastReplyAt"])
 		.index("by_workspace", ["workspaceId"])
-		.searchIndex("search_text", { searchField: "text", filterFields: ["workspaceId", "chatId"] }),
+		.searchIndex("search_text", { searchField: "text", filterFields: ["workspaceId", "chatId", "searchPublic"] }),
 
 	// What a link looked like when we fetched it (linkUnfurl.ts), one row per URL per workspace, shared
 	// by every message that posts it and refetched when a day old. The picture is our own copy.

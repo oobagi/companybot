@@ -1,3 +1,4 @@
+import { refreshAudience } from "./chatDiscovery";
 import { type ReplyMode, THREAD_HOURS_DEFAULT, TOPIC_MAX, can, replyModeOf, replyModes } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -316,6 +317,7 @@ export async function createChannelAs(ctx: MutationCtx, member: Member, args: In
 		name,
 		...(args.topic?.trim() && { topic: checkedTopic(args.topic) }),
 		private: args.private,
+		searchPublic: !args.private,
 		archived: false,
 		createdBy: member.userId,
 		lastMessageAt: Date.now(),
@@ -366,6 +368,7 @@ export const setAccess = mutation({
 		const users = chat.private ? (await chatMembersOf(ctx, chat._id)).flatMap((m) => m.userId ? [m.userId] : []) : undefined;
 		await writeSources(ctx, member, { place: chat._id, access: list, users }, chat);
 		await ctx.db.patch(chat._id, { access: open ? undefined : list });
+		await refreshAudience(ctx, { ...chat, access: open ? undefined : list });
 	},
 });
 
