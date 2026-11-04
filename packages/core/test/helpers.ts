@@ -23,7 +23,12 @@ export const ctx = (actor: Actor) => ({
 	agentId: "companybot",
 	memory: {} as MemoryStore,
 	chat: {} as ChatStore,
-	skills: { list: skills } as SkillStore,
+	skills: {
+		load: async (id: string) => {
+			const skill = skills.find((s) => s.id === id);
+			return skill ? { instructions: skill.instructions } : { error: `No installed skill "${id}".` };
+		},
+	} as SkillStore,
 	results: createResultStore(),
 	automations: {} as AutomationStore,
 	wakeups: {} as WakeupStore,

@@ -58,3 +58,5 @@ Mobile consumes `me.access` and server-provided posting/editing/manage flags. Ch
 Existing local data was upgraded through retained migrations, all reporting success. Native Settings and role-management sheets were inspected on the merged iOS app. These checks do not replace restricted-role, multi-device or physical-device acceptance.
 
 Saved channel, database, page-sibling and view order is consumed from shared arrangements; All records follows the shared display and columns. Mobile reorder controls remain outstanding. Remote notification delivery, authenticated Android navigation, restricted-role device flows, keyboard/Dynamic Type coverage and physical devices still need acceptance testing.
+
+The subsequent personal-skill private-reply update from main also passes repository-wide typecheck, 98 affected backend tests and 3 core skill tests.

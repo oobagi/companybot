@@ -268,7 +268,7 @@ async function streamReply(
 		chat: chatStore(ctx, turnId),
 		manage: { run: (tool, input) => runManage(ctx, turnId, tool, input) },
 		skills: {
-			list: turn.skills,
+			load: (id) => ctx.runMutation(internal.skills.loadFor, { turnId, id }),
 			create: ({ audience, ...config }) => ctx.runMutation(internal.skills.createFor, { turnId, config, audience }),
 		},
 		automations: {
