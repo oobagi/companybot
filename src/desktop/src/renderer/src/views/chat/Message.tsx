@@ -49,12 +49,14 @@ export function MessageRow({
 	const message = live ? { ...row, ...live } : row;
 	const react = useMutation(api.messages.react);
 	const remove = useMutation(api.messages.remove);
+	const share = useMutation(api.messages.share);
 	const [editing, setEditing] = useState(false);
 	const { confirm, dialog } = useConfirm();
 	const isAgent = message.author.type === "agent";
 	const sending = message.sending;
 	const toggle = (emoji: string) => react({ messageId: message._id, emoji }).catch(onError);
 
+	if (message.privacy?.hidden) return <p id={`message-${message._id}`} className="px-5 py-2 text-sm text-neutral-500 italic">🔒 {message.privacy.label}</p>;
 	if (!shows(message)) return null;
 	if (message.pause && !message.deleted) return <PausedLine message={message} pause={message.pause} onError={onError} />;
 
@@ -105,6 +107,12 @@ export function MessageRow({
 								</span>
 							)}
 							<span className="text-xs text-neutral-400 tabular-nums">{clock(message._creationTime)}</span>
+						</div>
+					)}
+					{message.privacy && (
+						<div className="flex items-center gap-3 text-xs text-neutral-500">
+							<span title={message.privacy.why ?? undefined} className="italic">{message.privacy.sharedBy ? "" : "🔒 "}{message.privacy.label}</span>
+							{message.privacy.share && message.status !== "streaming" && <button type="button" className="hover:underline" onClick={() => confirm({ title: message.privacy!.share!, action: "Share to channel", onConfirm: () => share({ messageId: message._id }) })}>Share to channel</button>}
 						</div>
 					)}
 					{message.deleted ? (

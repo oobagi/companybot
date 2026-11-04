@@ -19,6 +19,7 @@ import {
 } from "./pageOps";
 import { accessInfo, savedAccess } from "./placeAccess";
 import { withoutPageTitles } from "./pageBlocks";
+import { writeSources } from "./replySources";
 import { accessArg } from "./schema";
 import { can } from "@companybot/core";
 import { movePage, pageRow, pageState, pageStates } from "./pageTree";
@@ -29,6 +30,7 @@ import { trashInfo } from "./trashOps";
 /** Pages the sidebar lists, by title. */
 const LIST_MAX = 200;
 const HISTORY_PAGE_MAX = 20;
+const AUDIENCE_SCAN_MAX = 1_000;
 
 const canEdit = async (ctx: QueryCtx, member: Member, page: Doc<"pages">) =>
 	requireEditable(ctx, member, page).then(
@@ -253,7 +255,20 @@ export const setAccess = mutation({
 		const page = await requirePage(ctx, member, pageId);
 		if (page.recordId) throw new ConvexError("A record's page follows its database. Change who can access the database instead.");
 		await requireEditable(ctx, member, page);
-		await ctx.db.patch(page._id, { access: access ? await savedAccess(ctx, member, access) : undefined });
+		const next = access ? await savedAccess(ctx, member, access) : undefined;
+		const inherited = page.parentId ? (await pageState(ctx, (await ctx.db.get(page.parentId))!)).access : undefined;
+		// A child following this list can retain facts from another source too. Check before widening.
+		const queue = [page];
+		let scanned = 0;
+		for (let i = 0; i < queue.length; i++) {
+			const row = queue[i]!;
+			await writeSources(ctx, member, { access: next ?? inherited }, row);
+			const children = await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", row._id)).take(AUDIENCE_SCAN_MAX - scanned + 1);
+			scanned += children.length;
+			if (scanned > AUDIENCE_SCAN_MAX) throw new ConvexError("Change access on smaller branches first.");
+			queue.push(...children.filter((p) => !p.access));
+		}
+		await ctx.db.patch(page._id, { access: next });
 	},
 });
 

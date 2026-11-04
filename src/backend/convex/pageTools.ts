@@ -2,7 +2,7 @@ import { findInput, readInput, writeInput } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { type QueryCtx, internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { type QueryCtx, internalAction, internalMutation } from "./_generated/server";
 import { type Member, asToolResult } from "./lib";
 import {
 	createPage,
@@ -20,8 +20,9 @@ import {
 } from "./pageOps";
 import { movePage, pageState, pageStates } from "./pageTree";
 import { claimUpload } from "./images";
-import { inTrash, recordById } from "./recordOps";
 import { pageHistory, requireVersion, versionContent } from "./pages";
+import { inTrash, recordById } from "./recordOps";
+import { writeSources } from "./replySources";
 import { runningTurn } from "./turns";
 
 // PageStore as the turn's person; conversion runs separately in pageMarkdown.ts.
@@ -54,7 +55,7 @@ const recordNamed = (ctx: QueryCtx, member: Member, id: string) => recordById(ct
 /** What the page is called: its title, or its record's name. */
 const titleOf = async (ctx: QueryCtx, page: Doc<"pages">) => (page.recordId ? ((await ctx.db.get(page.recordId))?.title ?? "") : page.title);
 
-export const findFor = internalQuery({
+export const findFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), input: v.any() },
 	handler: async (ctx, { turnId, input }) => {
 		const { member } = await runningTurn(ctx, turnId);
@@ -81,7 +82,7 @@ export const findFor = internalQuery({
 	},
 });
 
-export const readFor = internalQuery({
+export const readFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), page: v.optional(v.string()), record: v.optional(v.string()), version: v.optional(v.string()), history: v.optional(v.boolean()), cursor: v.optional(v.string()), format: v.optional(v.string()) },
 	handler: async (ctx, { turnId, ...input }) => {
 		const { member } = await runningTurn(ctx, turnId);
@@ -221,7 +222,10 @@ export const writeChecked = internalMutation({
 		if (trash !== undefined) await setPageTrashed(ctx, who, page, trash);
 		if (title !== undefined && (name || record)) await renamePage(ctx, who, page, title);
 		// Pictures from the chat, copied as the person's uploads: claimed as pages.addImage claims one.
-		if (pictures.length) await requireEditable(ctx, member, page);
+		if (pictures.length) {
+			await requireEditable(ctx, member, page);
+			await writeSources(ctx, member, (await pageState(ctx, page)).type?._id ?? page._id);
+		}
 		for (const { storageId, url } of pictures) {
 			await claimUpload(ctx, member, storageId);
 			await ctx.db.insert("pageImages", { workspaceId: page.workspaceId, pageId: page._id, storageId, url });

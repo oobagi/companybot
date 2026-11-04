@@ -175,7 +175,7 @@ describe("the dispatcher after an agent's message", () => {
 		const hop = await running(t, companybot);
 		expect(hop).toMatchObject({ threadId: first.replyId, routed: true, actorId: member.userId, dispatch: { model: ROUTER_MODEL, band: "clearly", probability: 0.9, costUsd: 0.0001 } });
 		expect((await t.run((ctx) => ctx.db.get(hop.replyId as Id<"chatMessages">)))!.quiet).toBe(true);
-		const prompt = await t.query(internal.turns.turnContext, { turnId: hop._id });
+		const prompt = await t.mutation(internal.turns.turnContext, { turnId: hop._id });
 		expect(prompt.routed).toEqual({ band: "clearly" });
 		expect(prompt.handoff).toEqual({ from: "Scribe", ask: false });
 		const chain = await t.run(async (ctx) => (await ctx.db.query("agentChains").collect())[0]!);
@@ -248,7 +248,7 @@ describe("asking privately (chat.ask_agent)", () => {
 
 		const answering = await running(t, scribe);
 		expect(answering).toMatchObject({ chatId, threadId: askId, triggerId: askId, actorId: member.userId, chain: { depth: 1 } });
-		expect((await t.query(internal.turns.turnContext, { turnId: answering._id })).handoff).toEqual({ from: "Companybot", ask: true });
+		expect((await t.mutation(internal.turns.turnContext, { turnId: answering._id })).handoff).toEqual({ from: "Companybot", ask: true });
 		// Its answer, even with an @mention, wakes nobody else; it goes back to the asker.
 		await say(t, scribe, "30 days, @Companybot.");
 		// The answer is in the ask's thread, read-only for whoever sees the chat, and not among the sidebar's threads.
@@ -261,7 +261,7 @@ describe("asking privately (chat.ask_agent)", () => {
 		const answer = await running(t, companybot);
 		expect(answer).toMatchObject({ chatId, wakeupId: expect.any(String) });
 		expect(answer.threadId).toBeUndefined();
-		const context = await t.query(internal.turns.turnContext, { turnId: answer._id });
+		const context = await t.mutation(internal.turns.turnContext, { turnId: answer._id });
 		expect(context.wake).toMatchObject({ answer: { from: "Scribe" }, result: JSON.stringify("30 days, @Companybot.") });
 		await say(t, companybot, "Refunds are within 30 days. @Scribe thanks");
 		// This reply finishes the one they were waiting for: shown like any other.

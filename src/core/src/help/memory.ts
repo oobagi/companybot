@@ -14,6 +14,8 @@ Agents remember facts so people don't repeat themselves. Each agent has its own 
 ## How memories get made
 Ask an agent to remember something, or add one yourself in Memory. Whenever an agent saves one, its tool line says what it saved. Say "forget that" to delete one.
 
+A turn keeps every restricted source it read, including its own private or role-limited chat. A save can reach only people who can open all those sources, except when your own turn in your 1:1 DM with agents publishes your own one-person data. Foreign automation runs, foreign wakeups and turns in shared chats keep the full rule. To share personal data widely, ask from your DM. Those sources still keep the reply private and restrict other people’s turns. Reading a personal memory counts as just that person, even for Owners. Personal memories keep their saved sources across edits and pass them into later agent turns. Losing a source hides that memory; a team save with a wider audience is refused, naming who can see it.
+
 ## The switch
 People who can change workspace settings can turn memory off for the workspace in [General](#/settings/general). Agents then read and save nothing; existing memories are kept, and you can still edit them.
 

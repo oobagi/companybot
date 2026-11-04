@@ -89,7 +89,9 @@ export const ASK_TEXT_MAX = 4000;
  */
 const EMOJI_PART = String.raw`(?!\p{Regional_Indicator})(?:\p{Extended_Pictographic}|\p{Emoji_Presentation})(?:\uFE0F|\p{Emoji_Modifier})?`;
 const ONE_EMOJI = new RegExp(String.raw`^(?:\p{Regional_Indicator}{2}|[#*0-9]\uFE0F?\u20E3|${EMOJI_PART}(?:\u200D${EMOJI_PART})*[\u{E0020}-\u{E007E}]*\u{E007F}?)$`, "u");
-export const isEmoji = (s: unknown): s is string => typeof s === "string" && ONE_EMOJI.test(s);
+// Unicode tag text is invisible. Only the three standardized subdivision flags may carry it.
+const SUBDIVISIONS = ["gbeng", "gbsct", "gbwls"].map((tag) => "🏴" + [...tag].map((c) => String.fromCodePoint(0xe0000 + c.charCodeAt(0))).join("") + "\u{e007f}");
+export const isEmoji = (s: unknown): s is string => typeof s === "string" && ONE_EMOJI.test(s) && (!/[\u{E0020}-\u{E007F}]/u.test(s) || SUBDIVISIONS.includes(s));
 /**
  * The one emoji in `s`, fully qualified (Unicode's form, and the picker's), or null: "❤" and "❤️" are the
  * same reaction, stored once. Each part shown as text by default gets U+FE0F, and no other part keeps one.
