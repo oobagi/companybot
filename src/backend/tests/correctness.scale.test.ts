@@ -1,5 +1,6 @@
 import { expect, it, vi } from "vitest";
 import { usageMonth } from "@companybot/core";
+import type { Id } from "../convex/_generated/dataModel";
 import { api, internal } from "../convex/_generated/api";
 import { addToChat, insertMessage } from "../convex/chatOps";
 import { activityPage } from "../convex/activity";
@@ -206,7 +207,7 @@ it("finds a target DM after a message at T+20s among 51 DMs", async () => {
 	vi.useFakeTimers();
 	try {
 		const chats = await t.run(async (ctx) => {
-			const ids = [];
+			const ids: Id<"chats">[] = [];
 			for (let i = 0; i < 51; i++) {
 				const chatId = await ctx.db.insert("chats", { workspaceId, kind: "dm", private: true, dmKey: `a:${agentId},u:${owner.userId}`, ...(i > 0 && { parentId: ids[0] }), searchPublic: false, archived: false, createdBy: owner.userId, lastMessageAt: start + (i ? 10000 + i : 0) });
 				const chat = (await ctx.db.get("chats", chatId))!;
