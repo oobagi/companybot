@@ -33,7 +33,7 @@ async function setup() {
 	await t.run((ctx) => seedLegacyRecords(ctx, a, userId));
 	const b = await t.run(async (ctx) => {
 		const id = await ctx.db.insert("workspaces", { name: "B", version: 1 });
-		await addMember(ctx, { userId, workspaceId: id, role: "owner" });
+		await addMember(ctx, { userId, workspaceId: id, role: "owner", email: "two@co.com" });
 		return id;
 	});
 	return { t, userId, a, b, A: as.in(a), B: as.in(b) };
@@ -55,7 +55,7 @@ const removeFromA = ({ t, userId, a }: Setup) =>
 const deputyIn = ({ t }: Setup, workspaceId: Id<"workspaces">) =>
 	t.run(async (ctx) => {
 		const deputy = await ctx.db.insert("users", { email: "deputy@co.com" });
-		await addMember(ctx, { userId: deputy, workspaceId, role: "owner" });
+		await addMember(ctx, { userId: deputy, workspaceId, role: "owner", email: "deputy@co.com" });
 	});
 
 describe("requests naming a workspace", () => {
@@ -160,7 +160,7 @@ describe("unread mentions", () => {
 		const { t, userId, a, A, B } = await setup();
 		const otherId = await t.run(async (ctx) => {
 			const id = await ctx.db.insert("users", { email: "other@co.com" });
-			await addMember(ctx, { userId: id, workspaceId: a, role: "owner" });
+			await addMember(ctx, { userId: id, workspaceId: a, role: "owner", email: "other@co.com" });
 			return id;
 		});
 		const other = person(identityOf(t, otherId)).in(a);
@@ -256,7 +256,7 @@ describe("the rail's activity", () => {
 		const { t, userId, a, b, A } = await setup();
 		const otherId = await t.run(async (ctx) => {
 			const id = await ctx.db.insert("users", { email: "other@co.com" });
-			await addMember(ctx, { userId: id, workspaceId: a, role: "owner" });
+			await addMember(ctx, { userId: id, workspaceId: a, role: "owner", email: "other@co.com" });
 			return id;
 		});
 		const other = person(t.withIdentity({ subject: `${otherId}|session` })).in(a);

@@ -141,10 +141,13 @@ export async function builtInRoleIn(ctx: MutationCtx, workspaceId: Id<"workspace
 	return ids[which];
 }
 
-/** A membership row holding one built-in role, with their email and profile as joining writes them (no preferences yet: named by email). */
-export async function addMember(ctx: MutationCtx, { role, ...row }: { workspaceId: Id<"workspaces">; userId: Id<"users">; role: "owner" | "member"; email?: string }) {
-	const email = row.email ?? (await ctx.db.get(row.userId))?.email?.trim().toLowerCase() ?? "";
-	return ctx.db.insert("members", { ...row, email, name: email || "Former member", timeZone: "UTC", roles: [await builtInRoleIn(ctx, row.workspaceId, role)] });
+/**
+ * A membership row holding one built-in role, with the profile joining writes for someone with no preferences yet
+ * (named by `email`). No reads but the cached roles, so thousands fit one transaction: pass the email they signed in with.
+ */
+export async function addMember(ctx: MutationCtx, { role, email = "", ...row }: { workspaceId: Id<"workspaces">; userId: Id<"users">; role: "owner" | "member"; email?: string }) {
+	const normalized = email.trim().toLowerCase();
+	return ctx.db.insert("members", { ...row, email: normalized, name: normalized || "Former member", timeZone: "UTC", roles: [await builtInRoleIn(ctx, row.workspaceId, role)] });
 }
 
 /** Turns one of the Member role's switches on or off, as an owner (roles.setPermission). */

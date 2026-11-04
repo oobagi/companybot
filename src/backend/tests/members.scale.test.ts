@@ -20,7 +20,7 @@ async function seedPeople(t: ReturnType<typeof newTest>, workspaceId: Id<"worksp
 				const batch: Id<"users">[] = [];
 				for (let i = start; i < Math.min(start + 500, n); i++) {
 					const userId = await ctx.db.insert("users", { email: `person${i}@co.com` });
-					await addMember(ctx, { workspaceId, userId, role: "member" });
+					await addMember(ctx, { workspaceId, userId, role: "member", email: `person${i}@co.com` });
 					if (chatId) await addToChat(ctx, (await ctx.db.get(chatId))!, { userId });
 					batch.push(userId);
 				}
@@ -77,7 +77,7 @@ it("browses 50 channels of 1,000 people each, with their counts", { timeout: 600
 	const owner = await signIn(t, "owner@co.com");
 	const workspaceId = await workspaceOf(owner);
 	const newcomer = await signIn(t, "new@co.com");
-	await t.run((ctx) => addMember(ctx, { workspaceId, userId: newcomer.userId, role: "member" }));
+	await t.run((ctx) => addMember(ctx, { workspaceId, userId: newcomer.userId, role: "member", email: "new@co.com" }));
 	const people = await seedPeople(t, workspaceId, 1_000);
 	for (let c = 0; c < 50; c++) {
 		const chatId = await owner.mutation(api.chats.createChannel, { name: `team-${c}`, private: false });
