@@ -299,9 +299,14 @@ export async function readDoc(ctx: QueryCtx, pageId: Id<"pages">) {
 
 const tooMuch = () => new ConvexError("That's too much to add at once. Split it into smaller pieces.");
 
-/** Validate and save steps (in deltas of at most DELTA_MAX_BYTES), their canonical snapshot and history in one transaction. */
+/**
+ * Validate and save steps (in deltas of at most DELTA_MAX_BYTES), their canonical snapshot and history in one
+ * transaction. Returns whether the content changed: steps that change nothing are still saved, since the
+ * editor that sent them counts them in its version (an old one setting a page block's title, which the
+ * schema no longer has); dropping them would refuse its next edit. They get no snapshot or history.
+ */
 export async function saveTransform(ctx: MutationCtx, who: Who, page: Doc<"pages">, version: number, tr: Transform, clientId: string | number = "transform", restored?: number) {
-	if (!tr.docChanged || tr.doc.eq(tr.before)) return false;
+	if (!tr.docChanged) return false;
 	const content = JSON.stringify(tr.doc.toJSON());
 	// The schema has no page titles, but an old app's step can still try to set one (pageBlocks.ts).
 	const steps = tr.steps.map((s) => withoutPageTitles(JSON.stringify(s.toJSON())));
@@ -329,6 +334,7 @@ export async function saveTransform(ctx: MutationCtx, who: Who, page: Doc<"pages
 		size += bytes;
 	}
 	await flush();
+	if (tr.doc.eq(tr.before)) return false;
 	await adoptImages(ctx, page, tr);
 	await ctx.runMutation(lib.submitSnapshot, { id: page._id, version: at, content });
 	await recordVersion(ctx, who, page, at, restored);

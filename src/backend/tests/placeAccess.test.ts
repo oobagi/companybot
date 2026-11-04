@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, components, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { wake } from "../convex/wakeups";
+import { Transform } from "@tiptap/pm/transform";
 import { pageSchema } from "../convex/pageOps";
 import { type As, agentsOf, finishQuiet, identityOf, ownerAndMember, sideWorkspace, signIn } from "./helpers";
 
@@ -296,6 +297,17 @@ describe("restored, woken, queued and background paths", () => {
 		expect(JSON.stringify(await crew.query(api.messages.list, { chatId: general }))).not.toContain("After the change");
 	});
 
+	it("cancels a follow-up whose record's database was hidden since, without naming it in Activity", async () => {
+		const { t, owner, crew, officeRole, deals, deal, restrict } = await setup();
+		await restrict([{ role: officeRole, level: "edit" }]);
+		const id = await wakeIn(t, crew, await generalOf(owner), { recordId: deal, typeId: deals });
+		expect(await t.run((ctx) => ctx.db.get(id))).toMatchObject({ status: "cancelled", reason: "Its person can no longer see this record." });
+		// The line shows to everyone in the chat, Crew included.
+		const lines = JSON.stringify(await owner.query(api.activity.list, {}));
+		expect(lines).toContain("Its person can no longer see this record.");
+		expect(lines).not.toMatch(/Deals/);
+	});
+
 	it("stops a queued wake from reading a record whose database was hidden since", async () => {
 		const { t, owner, crew, officeRole, deals, deal, restrict } = await setup();
 		const id = await wakeIn(t, crew, await generalOf(owner), { recordId: deal, typeId: deals });
@@ -372,6 +384,33 @@ describe("restored, woken, queued and background paths", () => {
 		expect(stored.content).toContain(salaries);
 		expect(stored.content).not.toMatch(/Salaries/);
 		expect((await office.query(api.pages.get, { pageId: salaries }))!.title).toBe("Salaries");
+	});
+
+	it("keeps an old editor's title step, sanitized, so its version stays in step and its next edit lands", async () => {
+		const { t, owner } = await setup();
+		const handbook = await owner.mutation(api.pages.create, { title: "Handbook" });
+		const child = await owner.mutation(api.pages.create, { title: "Salaries", parentId: handbook });
+		const sync = identityOf(t, owner.userId);
+		const at = (await sync.query(api.pageSync.latestVersion, { id: handbook }))!;
+		const doc = pageSchema().nodeFromJSON(JSON.parse((await sync.query(api.pageSync.getSnapshot, { id: handbook })).content!));
+		let blockAt = -1;
+		let textAt = -1;
+		doc.descendants((node, pos) => {
+			if (node.type.name === "page") blockAt = pos;
+			if (node.type.name === "paragraph" && textAt < 0) textAt = pos + 1;
+		});
+		// What an alpha.9 editor sends when a sub-page is renamed: a title the schema no longer has.
+		const titleStep = JSON.stringify({ stepType: "attr", pos: blockAt, attr: "title", value: "Salaries" });
+		expect(await sync.mutation(api.pageSync.submitSteps, { id: handbook, version: at, clientId: "old", steps: [titleStep] })).toEqual({ status: "synced" });
+		expect(await sync.query(api.pageSync.latestVersion, { id: handbook })).toBe(at + 1);
+		// Its next edit, from the version it now holds, lands.
+		const edit = new Transform(doc).insert(textAt, doc.type.schema.text("Hello")).steps.map((step) => JSON.stringify(step.toJSON()));
+		expect(await sync.mutation(api.pageSync.submitSteps, { id: handbook, version: at + 1, clientId: "old", steps: edit })).toEqual({ status: "synced" });
+		const after = await sync.query(api.pageSync.getSnapshot, { id: handbook });
+		expect(after.content).toContain("Hello");
+		expect(after.content).toContain(child);
+		// The stored step keeps no title.
+		expect(JSON.stringify(await t.run((ctx) => ctx.runQuery(components.prosemirrorSync.lib.getSteps, { id: handbook, version: at })))).not.toMatch(/Salaries/);
 	});
 
 	it("drops a channel someone lost from their chat list and their workspace badges", async () => {
@@ -483,6 +522,51 @@ describe("restored, woken, queued and background paths", () => {
 			cursor = page.cursor as string;
 		}
 		expect(found).toEqual([zebra]);
+	});
+
+	// Each seeds hidden matches through the app's own mutations, then pages through them.
+	const pageThrough = async (find: (cursor?: string) => Promise<{ rows?: unknown; more?: unknown; cursor?: unknown; error?: string }>) => {
+		const found: string[] = [];
+		let cursor: string | undefined;
+		for (let calls = 1; calls <= 50; calls++) {
+			const page = await find(cursor);
+			expect(page.error).toBeUndefined();
+			found.push(...(page.rows as { _id: string }[]).map((r) => r._id));
+			if (!page.more) return { found, calls };
+			cursor = page.cursor as string;
+		}
+		throw new Error("Never finished.");
+	};
+
+	it("keeps each search call within its read budget past many large hidden matches", { timeout: 120_000 }, async () => {
+		const { t, owner, crew, officeRole } = await setup();
+		const vault = await owner.mutation(api.recordTypes.create, { plural: "Dossiers" });
+		const keys: string[] = [];
+		for (let i = 0; i < 10; i++) keys.push((await owner.mutation(api.fields.create, { typeId: vault, label: `Part ${i}`, kind: "text" })).key);
+		const long = (i: number) => Object.fromEntries(keys.map((k, j) => [k, `quokka ${i} ${j} ${"x".repeat(9_900)}`]));
+		// About 110 KB each, 180 of them: rereading them all would pass the 16 MiB a query may read.
+		for (let i = 0; i < 180; i++) await owner.mutation(api.records.create, { typeId: vault, values: { name: `Dossier quokka ${i}`, ...long(i) } });
+		await owner.mutation(api.recordTypes.setAccess, { typeId: vault, access: [{ role: officeRole, level: "edit" }] });
+		const clients = (await owner.query(api.recordTypes.list)).find((x) => x.key === "client")!._id;
+		const seen = await owner.mutation(api.records.create, { typeId: clients, values: { name: "Quokka Roofing" } });
+		await crew.query(api.records.search, { query: "quokka" });
+		const tools = await turnFor(t, crew);
+		const { found, calls } = await pageThrough((cursor) => tools.find({ search: "quokka", numItems: 20, ...(cursor && { cursor }) }));
+		expect(found).toEqual([seen]);
+		expect(calls).toBeGreaterThan(1);
+	});
+
+	it("never runs a search past the index's 1,024 candidates, however many hidden matches come first", { timeout: 120_000 }, async () => {
+		const { t, owner, crew, officeRole, deals, restrict } = await setup();
+		for (let i = 0; i < 1_100; i++) await owner.mutation(api.records.create, { typeId: deals, values: { name: `Wombat deal ${i}` } });
+		await restrict([{ role: officeRole, level: "edit" }]);
+		const clients = (await owner.query(api.recordTypes.list)).find((x) => x.key === "client")!._id;
+		const seen = await owner.mutation(api.records.create, { typeId: clients, values: { name: "Wombat Co" } });
+		// The app's search reads one budget's worth and stops; it doesn't fail.
+		expect(await crew.query(api.records.search, { query: "wombat" })).toEqual([]);
+		const tools = await turnFor(t, crew);
+		const { found } = await pageThrough((cursor) => tools.find({ search: "wombat", numItems: 20, ...(cursor && { cursor }) }));
+		expect(found).toEqual([seen]);
 	});
 
 	it("never trades a hidden place's id for its name: refusals by id are generic, field schemas don't point at it", async () => {

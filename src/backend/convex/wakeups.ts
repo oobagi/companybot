@@ -150,7 +150,8 @@ export async function wake(ctx: MutationCtx, id: Id<"wakeups">, outcome?: { resu
 	if (!(await canSee(ctx, chat, member))) return stop("Its person can no longer see the chat.");
 	// Its turn replies there as them (turns.ts checks again when it starts and before it's shown).
 	if (!canPost(member, chat)) return stop("Its person can no longer post in the chat.");
-	if (type && !reach(member, type.access)) return stop(`Its person can no longer see ${type.plural}.`);
+	// Not the database's name: everyone in the chat reads this line in Activity, and some may not see it.
+	if (type && !reach(member, type.access)) return stop("Its person can no longer see this record.");
 	if (row.threadId && !(await ctx.db.get(row.threadId))) return stop("Its thread was deleted.");
 
 	// Its last wake settles it; a repeating one stays pending (`fire` already armed the next).

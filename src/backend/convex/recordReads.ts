@@ -1,9 +1,8 @@
 import type { PaginationOptions, PaginationResult } from "convex/server";
-import { getDocumentSize } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { type Member, capped, memo, nameOf } from "./lib";
-import { currencyOf, fieldsOf, idsIn, resolveRefs, typeTrashed, typeVisible } from "./recordOps";
+import { currencyOf, fieldsOf, idsIn, resolveRefs, typeTrashed, typeVisible, typesOf } from "./recordOps";
 import { type Condition, type Group, type Sort, findRecords } from "./recordQuery";
 
 // Reads the app (records.ts) and agents (recordTools.ts) share, so their lists, search and
@@ -33,16 +32,18 @@ export async function listRecords(
 }
 
 /**
- * What one search reads walking past hits in databases the person can't see or in Archive, leaving the
- * query room to resolve its rows' links (recordOps REFS_BYTES). Search indexes return at most 1,024 hits.
+ * What one search call may read: hits it walks past (in databases the person can't see) count too.
+ * Under the search index's 1,024-candidate cap, and leaving the query room to resolve its rows' links
+ * (recordOps REFS_BYTES).
  */
+const SEARCH_ROWS = 500;
 const SEARCH_BYTES = 2 * 1024 * 1024;
 
 /**
- * Live records whose title or text matches, best first, leaving out databases in Archive and ones the person
- * can't see. Optionally one type. A walk goes on past hidden hits until it has `limit` results, runs out of
- * hits, or has read SEARCH_BYTES; `cursor` (hits walked so far) continues it from there. Null when there's
- * nothing more.
+ * Live records whose title or text matches, best first, in live databases the person can see. Optionally
+ * one type. One page of the search index, filtered to those databases there, so it reads past hidden hits
+ * until it has `limit` results, runs out, or reaches SEARCH_ROWS or SEARCH_BYTES; `cursor` is the index's
+ * own, continuing right after what it read. Null when there's nothing more.
  */
 export async function searchRecords(
 	ctx: QueryCtx,
@@ -51,30 +52,21 @@ export async function searchRecords(
 	{ typeId, limit, cursor }: { typeId?: Id<"recordTypes">; limit: number; cursor?: string | null },
 ): Promise<{ items: RecordItem[]; cursor: string | null }> {
 	const fields = fieldsByType(ctx);
-	const trashed = typeTrashed(ctx);
 	const visible = typeVisible(ctx, member);
-	if (typeId && !(await visible(typeId))) return { items: [], cursor: null };
-	const skip = Math.max(0, Math.floor(Number(cursor ?? 0)) || 0);
-	const items = [];
-	let read = 0;
-	let bytes = 0;
-	for await (const record of ctx.db
+	const typeIds: Id<"recordTypes">[] = [];
+	for (const t of await typesOf(ctx, member.workspaceId)) if (!t.archived && (!typeId || t._id === typeId) && (await visible(t._id))) typeIds.push(t._id);
+	if (typeIds.length === 0) return { items: [], cursor: null };
+	const result = await ctx.db
 		.query("records")
 		.withSearchIndex("search", (q) => {
 			const s = q.search("searchText", text).eq("workspaceId", member.workspaceId).eq("archived", false);
 			return typeId ? s.eq("typeId", typeId) : s;
-		})) {
-		if (read < skip) {
-			read++;
-			continue;
-		}
-		// Another hit is here: say there's more rather than stopping silently.
-		if (items.length >= limit || bytes >= SEARCH_BYTES) return { items, cursor: String(read) };
-		read++;
-		bytes += getDocumentSize(record);
-		if (!(await trashed(record.typeId)) && (await visible(record.typeId))) items.push({ record, fields: await fields(record.typeId) });
-	}
-	return { items, cursor: null };
+		})
+		.filter((q) => q.or(...typeIds.map((id) => q.eq(q.field("typeId"), id))))
+		.paginate({ numItems: limit, cursor: cursor ?? null, maximumRowsRead: SEARCH_ROWS, maximumBytesRead: SEARCH_BYTES });
+	const items = [];
+	for (const record of result.page) items.push({ record, fields: await fields(record.typeId) });
+	return { items, cursor: result.isDone ? null : result.continueCursor };
 }
 
 /**
