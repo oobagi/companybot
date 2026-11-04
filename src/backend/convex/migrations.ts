@@ -6,7 +6,7 @@ import { type MutationCtx, internalMutation, internalQuery } from "./_generated/
 import { TOPIC_MAX, defaultModel, scheduleCron, usageMonth, wakeAnchor } from "@companybot/core";
 import { recordUsage } from "./usage";
 import { type RunOutcome, scheduleCursor } from "./automationOps";
-import { rolesOf, timeZoneOf } from "./lib";
+import { memberProfile, rolesOf, timeZoneOf } from "./lib";
 import { seedRoles } from "./roles";
 import { withoutPageTitles } from "./pageBlocks";
 
@@ -313,6 +313,43 @@ export const dropChatReactLocks = migrations.define({
 	},
 });
 
+// COMPAT(0.1.0-alpha.10): member lists read only `members` (workspace.team), so each row copies its person's
+// profile. Once these have run on prod, delete them, their entries in `all` and their test, make
+// `members.name`, `members.timeZone` and `chats.memberCount` required, and drop `preferences.workspaceId` (schema.ts).
+export const memberProfiles = migrations.define({
+	table: "members",
+	batchSize: 50,
+	migrateOne: async (ctx, row) => {
+		const profile = await memberProfile(ctx, row.userId);
+		if (row.name !== profile.name || row.image !== profile.image || row.timeZone !== profile.timeZone) await ctx.db.patch(row._id, profile);
+	},
+});
+
+// The last used workspace moved out of `preferences`, so switching touches nothing member lists read.
+// One saved since (`lastWorkspaces`) is newer and stays.
+export const lastWorkspaces = migrations.define({
+	table: "preferences",
+	batchSize: 50,
+	migrateOne: async (ctx, row) => {
+		if (row.workspaceId === undefined) return;
+		const saved = await ctx.db.query("lastWorkspaces").withIndex("by_user", (q) => q.eq("userId", row.userId)).first();
+		if (!saved && (await ctx.db.get(row.workspaceId))) await ctx.db.insert("lastWorkspaces", { userId: row.userId, workspaceId: row.workspaceId });
+		await ctx.db.patch(row._id, { workspaceId: undefined });
+	},
+});
+
+// Each chat counts its seats, so channel browsing doesn't read them. Chats made since start at 0 and count live.
+export const chatMemberCounts = migrations.define({
+	table: "chats",
+	batchSize: 5,
+	migrateOne: async (ctx, chat) => {
+		if (chat.memberCount !== undefined) return;
+		let memberCount = 0;
+		for await (const _ of ctx.db.query("chatMembers").withIndex("by_chat", (q) => q.eq("chatId", chat._id))) memberCount++;
+		await ctx.db.patch(chat._id, { memberCount });
+	},
+});
+
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
@@ -338,6 +375,9 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.dropChatReactRules,
 	internal.migrations.dropChatReactLocks,
 	internal.migrations.channelTopics,
+	internal.migrations.memberProfiles,
+	internal.migrations.lastWorkspaces,
+	internal.migrations.chatMemberCounts,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

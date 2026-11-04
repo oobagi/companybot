@@ -315,6 +315,22 @@ export async function timeZoneOf(ctx: QueryCtx, userId: Id<"users">) {
 	return resolveTimeZone(prefs?.timeZone, prefs?.deviceTimeZone);
 }
 
+/** What lists of members show of someone. Every `members` row keeps a copy (`syncMemberProfiles`). */
+export async function memberProfile(ctx: QueryCtx, userId: Id<"users">) {
+	const { name, image } = await personOf(ctx, userId);
+	return { name, image, timeZone: await timeZoneOf(ctx, userId) };
+}
+
+/**
+ * Copies someone's profile to each of their memberships: one row per workspace they're in. Rows already
+ * in step aren't written, so a save that changes nothing shown (a device reporting the same zone) reruns no list.
+ */
+export async function syncMemberProfiles(ctx: MutationCtx, userId: Id<"users">) {
+	const profile = await memberProfile(ctx, userId);
+	for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId)))
+		if (row.name !== profile.name || row.image !== profile.image || row.timeZone !== profile.timeZone) await ctx.db.patch(row._id, profile);
+}
+
 export const normalizeEmail = (email: string) => email.trim().toLowerCase();
 
 /** `bytes` random bytes as hex. */

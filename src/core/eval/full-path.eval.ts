@@ -138,6 +138,7 @@ async function agentTurn(turn: {
 			...[person, ...turn.people.filter((p) => p !== person)].map((name) => ({ type: "user" as const, id: `u-${name}`, name })),
 			...turn.agents.map((a) => ({ type: "agent" as const, id: a.key, name: a.name, role: a.description })),
 		],
+		others: 0,
 	};
 	// What's new since its last turn began, its own replies aside; older messages reacted to since then.
 	const { session } = turn;

@@ -60,7 +60,7 @@ describe("wakeups", () => {
 	it("feeds a wake in place of a message", () => {
 		const input: TurnPromptInput = {
 			agentId: "a1",
-			place: { kind: "dm", name: null, private: true, topic: null, thread: null, members: [{ type: "user", id: "u1", name: "Ada" }] },
+			place: { kind: "dm", name: null, private: true, topic: null, thread: null, others: 0, members: [{ type: "user", id: "u1", name: "Ada" }] },
 			actor: { id: "u1", name: "Ada", email: "ada@co.com", roles: ["Owner"], timeZone: la },
 			memory: "personal",
 			connectors: { connected: [], unavailable: [] },

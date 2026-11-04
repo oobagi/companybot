@@ -13,7 +13,9 @@ import {
 	chatMembersOf,
 	countMessage,
 	label,
+	membership,
 	moveBelow,
+	type Participant,
 	requireChat,
 	namer,
 	reactOnce,
@@ -39,6 +41,8 @@ import { answerAsk, handOff } from "./chains";
 export const STALE_TURN_MS = 5 * 60_000;
 /** Newest turns kept verbatim when a session is compacted. */
 const KEEP_TOKENS = 15_000;
+/** Unsummarized turns a session replays at most, newest kept: summaries that keep failing can't grow it without end. */
+const SESSION_TURNS_MAX = 200;
 
 type Place = { agentId: Id<"agents">; chatId: Id<"chats">; threadId?: Id<"chatMessages"> };
 
@@ -222,8 +226,9 @@ async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">) {
 	const turns = await ctx.db
 		.query("agentTurns")
 		.withIndex("by_session", (q) => q.eq("sessionId", session._id).gt("_creationTime", session.summarizedUpTo ?? 0))
-		.collect();
-	const finished = turns.filter((t) => (t.status === "done" || t.status === "error") && t.prompt !== undefined);
+		.order("desc")
+		.take(SESSION_TURNS_MAX);
+	const finished = turns.reverse().filter((t) => (t.status === "done" || t.status === "error") && t.prompt !== undefined);
 	return Promise.all(
 		finished.map(async (t) => {
 			const reply = t.replyId && (await ctx.db.get(t.replyId));
@@ -330,7 +335,6 @@ export const turnContext = internalQuery({
 		const asked = [...recent, parent, origin].filter(own).map((m) => m.text);
 		/** A thread's first turn starts with its parent. */
 		const first = turns.length === 0 && (foreign || !session.summary);
-		const rows = await chatMembersOf(ctx, chat._id);
 		const { models } = await catalogModels(ctx);
 		const vision = [models, fallbackModels].some((list) => list.find((m) => m.id === agent.model)?.vision);
 		const user = await ctx.db.get(member.userId);
@@ -359,7 +363,7 @@ export const turnContext = internalQuery({
 				thread: parent
 					? { parent: await toPlaceMessage(ctx, parent, names, agent._id), first }
 					: null,
-				members: await Promise.all(rows.map(async (r) => ({ ...(await names.of(r)), ...(r.agentId && { role: (await ctx.db.get(r.agentId))?.description }) }))),
+				...(await placeMembers(ctx, chat, [member.userId, ...[parent, ...recent].flatMap((m) => (m ? [m.authorUserId, m.actingFor] : []))], names)),
 			},
 			messages,
 			reacted: await Promise.all(reacted.map((m) => toPlaceMessage(ctx, m, names, agent._id))),
@@ -882,3 +886,21 @@ export const finishCompaction = internalMutation({
 		await recordUsage(ctx, { workspaceId: session.workspaceId, userId: turn ? turn.actorId : undefined, agentId: session.agentId, kind: "summary", model: result.model, costUsd: result.costUsd });
 	},
 });
+
+/**
+ * Who a turn's prompt names in its chat: its live agents, and `people` still in it (the asker, the
+ * authors in view), with the rest counted. A few indexed reads, however big the channel is.
+ */
+async function placeMembers(ctx: QueryCtx, chat: Doc<"chats">, people: (Id<"users"> | undefined)[], names: Namer) {
+	const members: (Participant & { role?: string })[] = [];
+	for (const id of new Set(people)) if (id && (await membership(ctx, chat._id, id))) members.push(await names.user(id));
+	let seated = members.length;
+	// Archived agents keep their seats: counted, not named.
+	for (const agent of await ctx.db.query("agents").withIndex("by_workspace", (q) => q.eq("workspaceId", chat.workspaceId)).collect()) {
+		if (!(await ctx.db.query("chatMembers").withIndex("by_agent", (q) => q.eq("agentId", agent._id).eq("chatId", chat._id)).first())) continue;
+		seated++;
+		if (!agent.archived) members.push({ ...(await names.agent(agent._id)), role: agent.description });
+	}
+	// COMPAT(0.1.0-alpha.10): an uncounted chat (before migrations.chatMemberCounts) counts none; drop `?? 0` with it.
+	return { members, others: Math.max((chat.memberCount ?? 0) - seated, 0) };
+}

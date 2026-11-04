@@ -6,6 +6,7 @@ import type { DataModel, Doc, Id, TableNames } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { privateTo } from "./automationOps";
 import { startCascade } from "./cascade";
+import { countSeats } from "./chatOps";
 import { deleteFile } from "./images";
 import { hasLiveOwner, keptWorkspace } from "./lib";
 import { deletePage, pageOfRecord } from "./pageOps";
@@ -182,8 +183,13 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		user: { index: "by_user", eq: ["userId"] },
 		// Their photo goes with their account.
 		files: ["image"],
+		keep: "Personal, not a workspace's: they go with the account.",
+	},
+	lastWorkspaces: {
+		user: { index: "by_user", eq: ["userId"] },
 		// "Last used" pointing at a deleted workspace: the app opens another.
-		workspace: { index: "by_workspace", eq: ["workspaceId"], scrub: () => ({ workspaceId: undefined }) },
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		keep: "Someone who left a workspace keeps it as last used: the app opens another, as for a deleted one.",
 		keepOnReset: "The workspace is still there to open.",
 	},
 
@@ -255,8 +261,8 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	chatMembers: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		channel: { index: "by_chat", eq: ["chatId"] },
-		member: { index: "by_workspace", eq: ["workspaceId", "userId"], where: inChannel },
-		agent: { index: "by_agent", eq: ["agentId"], where: inChannel },
+		member: { index: "by_workspace", eq: ["workspaceId", "userId"], where: inChannel, onDelete: (ctx, row) => countSeats(ctx, row.chatId, -1) },
+		agent: { index: "by_agent", eq: ["agentId"], where: inChannel, onDelete: (ctx, row) => countSeats(ctx, row.chatId, -1) },
 	},
 	chatMessages: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },

@@ -40,22 +40,35 @@ async function connectorInstallOf(ctx: QueryCtx, workspaceId: Id<"workspaces">, 
 	return (await installOf(ctx, workspaceId, connectorId)) ?? null;
 }
 
-const lockOf = async (ctx: QueryCtx, workspaceId: Id<"workspaces">, action: string, scope?: Id<"connectorInstalls">) =>
-	(
-		await ctx.db
-			.query("permissionLocks")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId).eq("action", action))
-			.collect()
-	).find((l) => l.connectorInstallId === scope);
+/** The workspace's locks on one action, on any install. */
+const locksOf = (ctx: QueryCtx, workspaceId: Id<"workspaces">, action: string) =>
+	ctx.db
+		.query("permissionLocks")
+		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId).eq("action", action))
+		.collect();
 
-/** One person's rules for one action on this install: their own, and grants for automations. */
-const rulesOf = async (ctx: QueryCtx, member: Member, action: string, scope?: Id<"connectorInstalls">) =>
+/** One person's rules for one action here, on any install: their own, and grants for automations. */
+const rulesOf = async (ctx: QueryCtx, member: Member, action: string) =>
 	(
 		await ctx.db
 			.query("permissionRules")
 			.withIndex("by_user", (q) => q.eq("userId", member.userId).eq("action", action))
 			.collect()
-	).filter((r) => r.workspaceId === member.workspaceId && r.connectorInstallId === scope);
+	).filter((r) => r.workspaceId === member.workspaceId);
+
+type Settings = { locks: Map<string, Doc<"permissionLocks">[]>; rules: Map<string, Doc<"permissionRules">[]> };
+
+/** All of `member`'s rules here and all the workspace's locks, by action: two ranges for a whole settings list. */
+async function settingsOf(ctx: QueryCtx, member: Member): Promise<Settings> {
+	const byAction = <T extends { action: string }>(rows: T[]) => {
+		const map = new Map<string, T[]>();
+		for (const row of rows) map.set(row.action, [...(map.get(row.action) ?? []), row]);
+		return map;
+	};
+	const locks = await ctx.db.query("permissionLocks").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId)).collect();
+	const rules = await ctx.db.query("permissionRules").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("userId", member.userId)).collect();
+	return { locks: byAction(locks), rules: byAction(rules) };
+}
 
 /** One call to decide. `automationInstallId`: the automation this run belongs to; `foreign`: its words aren't the person's (`followsOthers`). */
 type Call = { action: string; risk: Risk; automationInstallId?: Id<"automationInstalls">; foreign?: boolean };
@@ -80,12 +93,15 @@ async function decideWith(
 	member: Member,
 	install: Doc<"connectorInstalls"> | null | undefined,
 	{ action, risk, automationInstallId, foreign }: Call,
+	/** Everything `member` set and every lock, read once for many actions (`settingsOf`). */
+	settings?: Settings,
 ): Promise<Decided> {
 	// Not installed: its tools can't load anyway. Fall back to the tool's own risk.
 	if (install === null) return { decision: permissionFor({ risk }) };
 	const scope = install?._id;
-	const lock = (await lockOf(ctx, member.workspaceId, action, scope))?.lock;
-	const rules = await rulesOf(ctx, member, action, scope);
+	const locks = settings ? (settings.locks.get(action) ?? []) : await locksOf(ctx, member.workspaceId, action);
+	const lock = locks.find((l) => l.connectorInstallId === scope)?.lock;
+	const rules = (settings ? (settings.rules.get(action) ?? []) : await rulesOf(ctx, member, action)).filter((r) => r.connectorInstallId === scope);
 	const own = rules.find((r) => !r.automationInstallId);
 	const grant = automationInstallId ? rules.find((r) => r.automationInstallId === automationInstallId && r.setting === "always") : undefined;
 	const decision = permissionFor({ risk, lock, rule: own?.setting, automation: !!grant, foreign });
@@ -149,7 +165,7 @@ export async function setRule(
 		if (decision.type === "ask" && !decision.canAlways) throw new ConvexError("This action always asks, so it can't be set to Always.");
 		if (decision.type === "deny") throw new ConvexError(decision.by === "owner" ? "An owner blocked this action." : "Clear Never first.");
 	}
-	const existing = (await rulesOf(ctx, member, action, scope)).find((r) => r.automationInstallId === automationInstallId);
+	const existing = (await rulesOf(ctx, member, action)).find((r) => r.connectorInstallId === scope && r.automationInstallId === automationInstallId);
 	if (existing) await ctx.db.delete(existing._id);
 	if (setting !== "ask")
 		await ctx.db.insert("permissionRules", {
@@ -215,10 +231,11 @@ async function actionsFor(ctx: QueryCtx, member: Member): Promise<Action[]> {
 		for (const t of await toolsOf(ctx, member.workspaceId, install.connectorId))
 			defs.push({ action: `${install.connectorId}.${t.name}`, title: t.title, description: t.description, risk: t.risk, install });
 	}
+	const settings = await settingsOf(ctx, member);
 	return Promise.all(
 		defs.map(async ({ install, ...d }) => {
 			const connector = findConnector(toolGroup(d.action)) ?? null;
-			const { decision, lock, own } = await decideWith(ctx, member, install, { action: d.action, risk: d.risk });
+			const { decision, lock, own } = await decideWith(ctx, member, install, { action: d.action, risk: d.risk }, settings);
 			const forced = lock === "ask" || lock === "block" || (d.risk === "locked" && lock !== "none");
 			const action: Action = {
 				...d,
@@ -309,7 +326,7 @@ export const setLock = mutation({
 		const install = await connectorInstallOf(ctx, member.workspaceId, action);
 		if (install === null) throw new ConvexError("Install the connector first.");
 		if (install === undefined && !builtinTools.some((t) => t.id === action)) throw new ConvexError("Unknown action.");
-		const existing = await lockOf(ctx, member.workspaceId, action, install?._id);
+		const existing = (await locksOf(ctx, member.workspaceId, action)).find((l) => l.connectorInstallId === install?._id);
 		if (existing) await ctx.db.delete(existing._id);
 		if (lock)
 			await ctx.db.insert("permissionLocks", {
