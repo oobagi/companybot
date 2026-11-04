@@ -1,3 +1,4 @@
+import { TOPIC_MAX } from "@companybot/core/chat";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useState } from "react";
 import { api } from "../../api";
@@ -24,7 +25,7 @@ export function CreateChannel({ onClose, onOpen }: { onClose: () => void; onOpen
 					<input value={name} autoFocus onChange={(e) => setName(e.target.value)} placeholder="e.g. sales" className={inputClass} />
 				</Field>
 				<Field label="Topic">
-					<input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Optional. What's this channel about?" className={inputClass} />
+					<input value={topic} maxLength={TOPIC_MAX} onChange={(e) => setTopic(e.target.value)} placeholder="Optional. What's this channel about?" className={inputClass} />
 				</Field>
 				<label className="flex items-start gap-2 text-sm">
 					<Checkbox checked={isPrivate} onChange={setPrivate} className="mt-0.5" />
@@ -240,7 +241,7 @@ function EditChannel({ chat }: { chat: ChatDetails }) {
 				<input value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
 			</Field>
 			<Field label="Topic">
-				<input value={topic} onChange={(e) => setTopic(e.target.value)} className={inputClass} />
+				<input value={topic} maxLength={TOPIC_MAX} onChange={(e) => setTopic(e.target.value)} className={inputClass} />
 			</Field>
 			<Field label="Agents reply" hint={replyHints[replyMode]}>
 				<Select className={inputClass} value={replyMode} options={replyModes.map((m) => ({ value: m, label: replyModeLabels[m] }))} onChange={setReplyMode} />

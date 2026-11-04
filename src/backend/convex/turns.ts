@@ -265,10 +265,13 @@ export async function runningTurn(ctx: QueryCtx, turnId: Id<"agentTurns">) {
 	if (!chat || chat.archived || !(await canSee(ctx, chat, member))) throw new Error("This person can no longer see this chat.");
 	// Its reply posts there as them: a read-only channel ends it (chatOps.canReplyAs).
 	if (!canPost(member, chat)) throw new Error("This person can no longer post in this chat.");
+	const scope = await automationScope(ctx, turn);
+	const seats = !scope.foreign && chat.kind === "dm" ? await chatMembersOf(ctx, chat._id) : [];
+	member.ownWrites = seats.filter((seat) => seat.userId).length === 1 && seats.some((seat) => seat.userId === member.userId) && seats.some((seat) => seat.agentId);
 	member.replyId = turn.replyId;
 	await notePlace(ctx, member, chat._id, chatAccess(chat), chat.kind !== "channel" || !!chat.private);
 	const who: Who = { member, agentId: turn.agentId };
-	return { turn: turn as Doc<"agentTurns"> & { replyId: Id<"chatMessages">; sessionId: Id<"agentSessions"> }, member, chat, who };
+	return { turn: turn as Doc<"agentTurns"> & { replyId: Id<"chatMessages">; sessionId: Id<"agentSessions"> }, member, chat, who, scope };
 }
 
 /** Whether agents use memories here: people with workspace.manage can turn it off for the workspace (Settings → General). */
@@ -289,13 +292,12 @@ export async function personalMemoryHere(ctx: QueryCtx, chat: Doc<"chats">) {
 export const turnContext = internalMutation({
 	args: { turnId: v.id("agentTurns") },
 	handler: async (ctx, { turnId }) => {
-		const { turn, member, chat } = await runningTurn(ctx, turnId);
+		const { turn, member, chat, scope: { trigger, foreign, wakeup } } = await runningTurn(ctx, turnId);
 		const agent = await ctx.db.get(turn.agentId);
 		if (!agent || agent.archived) throw new Error("This agent is in Archive.");
 		const session = (await ctx.db.get(turn.sessionId))!;
 		const reply = (await ctx.db.get(turn.replyId))!;
 		const names = namer(ctx);
-		const { trigger, foreign, wakeup } = await automationScope(ctx, turn);
 		const summary = !foreign && session.summaryPrivacy === 1 && await canReadSources(ctx, member, session.summaryPlaces) ? session.summary ?? null : null;
 		if (summary) await inheritPlaces(ctx, member, session.summaryPlaces);
 		if (wakeup) {

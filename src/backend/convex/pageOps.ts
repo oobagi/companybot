@@ -67,8 +67,8 @@ export async function requirePageAccess(ctx: QueryCtx, member: Member, page: Doc
 }
 
 /** How far someone reaches in each page ("edit", "view" or null), sharing reads across a list. */
-export function pageReach(ctx: QueryCtx, member: Member) {
-	const state = pageStates(ctx);
+export function pageReach(ctx: QueryCtx, member: Member, get?: (id: Id<"pages">) => Promise<Doc<"pages"> | null>) {
+	const state = pageStates(ctx, get);
 	return async (page: Doc<"pages">) => {
 		const { access, type } = await state(page);
 		const level = await readArtifact(ctx, { ...member, replyId: undefined }, type ?? page) ? reach(member, access) : null;
@@ -78,8 +78,8 @@ export function pageReach(ctx: QueryCtx, member: Member) {
 }
 
 /** Whether someone can see a page (`pageReach`). */
-export function pageVisible(ctx: QueryCtx, member: Member) {
-	const level = pageReach(ctx, member);
+export function pageVisible(ctx: QueryCtx, member: Member, get?: (id: Id<"pages">) => Promise<Doc<"pages"> | null>) {
+	const level = pageReach(ctx, member, get);
 	return async (page: Doc<"pages">) => reaches(await level(page), "view");
 }
 

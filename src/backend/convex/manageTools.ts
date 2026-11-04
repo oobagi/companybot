@@ -40,8 +40,14 @@ const participants = (ctx: MutationCtx, r: { userIds?: string[]; agentIds?: stri
 });
 
 export const runFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), tool: v.string(), input: v.any() },
-	handler: async (ctx, { turnId, tool, input }): Promise<unknown> => {
+	args: { turnId: v.id("agentTurns"), tool: v.string(), input: v.any(), uploads: v.optional(v.record(v.string(), v.id("_storage"))) },
+	handler: async (ctx, { turnId, tool, input, uploads = {} }): Promise<unknown> => {
+		/** The copy of a chat file this call made. */
+		const copyOf = (id: string) => {
+			const copy = uploads[id];
+			if (!copy) throw new ConvexError(`No file "${id}" in a chat you can see.`);
+			return copy;
+		};
 		const { who, turn, chat } = await runningTurn(ctx, turnId);
 		const { member } = who;
 		const agent = await ctx.db.get(turn.agentId);
@@ -111,7 +117,7 @@ export const runFor = internalMutation({
 						return { chatId: await openDirectMessage(ctx, member, alone ? { userIds: [], agentIds: [turn.agentId] } : others) };
 					}
 					const to = { chatId: await chatId(ctx, member, r.chat), threadId: r.threadId ? rowId(ctx, "chatMessages", r.threadId) : undefined };
-					const messageId = await sendMessage(ctx, who, { ...to, text: r.text, mentions: participants(ctx, r) });
+					const messageId = await sendMessage(ctx, who, { ...to, text: r.text ?? "", mentions: participants(ctx, r), attachments: r.files?.map(copyOf) });
 					// Posted right where the agent is replying: its reply shouldn't say it again.
 					const here = to.chatId === turn.chatId && to.threadId === turn.threadId;
 					return { messageId, ...to, ...(here && { note: "Posted here, above your reply. Don't repeat it." }) };
@@ -276,7 +282,7 @@ export const runFor = internalMutation({
 					if (r.action === "get") return { id, ...pickAgentConfig(agent), version: agent.version, inTrash: agent.archived };
 					if (r.action === "history") return ctx.db.query("agentVersions").withIndex("by_agent", (q) => q.eq("agentId", id)).order("desc").paginate(paging(r.cursor));
 					if (r.action === "delete") await setAgentTrashed(ctx, who, id, true);
-					if (r.action === "remove_image") await setImage(ctx, member, id, null);
+					if (r.action === "set_image") await setImage(ctx, member, id, r.file === null ? null : copyOf(r.file));
 					if (r.action === "update") {
 						if (id === turn.agentId && (r.instructions !== undefined || r.model !== undefined || r.reasoning !== undefined)) throw new ConvexError("Only a person can change your instructions, model or reasoning.");
 						const { action, id: _, expectedVersion, ...changes } = r;
@@ -291,8 +297,8 @@ export const runFor = internalMutation({
 						const prefs = await preferencesOf(ctx, member.userId);
 						return { displayName: prefs?.displayName ?? "", sendWith: prefs?.sendWith ?? "enter", notify: prefs?.notify ?? "all", timeZone: prefs?.timeZone ?? null };
 					}
-					if (r.action === "remove_image") {
-						await setImage(ctx, member, r.of, null);
+					if (r.action === "set_image") {
+						await setImage(ctx, member, r.of, r.file === null ? null : copyOf(r.file));
 						return { done: r.action };
 					}
 					if (r.action === "update_preferences") {

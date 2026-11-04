@@ -1,6 +1,9 @@
+import { useStoredIds } from "../../arrangements";
 import type { FieldKind } from "@companybot/core/records";
 import { type Access, can } from "@companybot/core/permissions";
 import { useEffect, useState } from "react";
+import type { OptimisticUpdate } from "convex/browser";
+import type { FunctionArgs } from "convex/server";
 import { api } from "../../api";
 import { Checkbox, Segmented, Select } from "../../controls";
 import { useMutation, useQuery } from "../../convex";
@@ -39,28 +42,28 @@ type Layout = "table" | "board";
 /** Filters carry an id while in the bar, so each row keeps its own state as others come and go. */
 type Settings = { filters: (Filter & { id: string })[]; sort?: Sort; columns: string[]; layout: Layout; groupBy?: string };
 
-/** A value this computer keeps in localStorage: read once, written through. */
-function useStored<T>(key: string) {
-	const [value, setValue] = useState<T | undefined>(() => JSON.parse(localStorage.getItem(key) ?? "null") ?? undefined);
-	return [value, (next: T) => (localStorage.setItem(key, JSON.stringify(next)), setValue(next))] as const;
-}
-
+const optimisticDisplay: OptimisticUpdate<FunctionArgs<typeof api.recordTypes.setDisplay>> = (store, args) => {
+	const queryArgs = { workspaceId: args.workspaceId };
+	const types = store.getQuery(api.recordTypes.list, queryArgs);
+	if (types) store.setQuery(api.recordTypes.list, queryArgs, types.map((type) => type._id === args.typeId ? { ...type, display: { layout: args.display.layout ?? type.display?.layout ?? "table", groupBy: args.display.groupBy ?? type.display?.groupBy } } : type));
+};
 const noViews: never[] = [];
 const viewKey = (v: { _id: string }) => v._id;
 
 export function RecordList({ type, access }: { type: RecordType; access: Access }) {
 	const views = useQuery(api.databaseViews.list, { typeId: type._id });
-	// Saved views are shared; their order is yours (drag a tab). "All" stays first.
-	const tabs = useSortable(`views.order:${type._id}`, views ?? noViews, viewKey, "x");
+	// View tabs follow the workspace order. "All" stays first.
+	const tabs = useSortable("views", views ?? noViews, viewKey, "x", type._id);
 	const saveView = useMutation(api.databaseViews.save);
 	const removeView = useMutation(api.databaseViews.remove);
 	const [viewId, setViewId] = useState("all");
 	const selected = views?.find((v) => v._id === viewId);
 	const fields = type.fields.filter((f) => !f.archived) as TypeField[];
 	const live = (key: string) => ["createdAt", "updatedAt", ...fields.map((f) => f.key)].includes(key);
-	// "All" keeps the columns and layout people picked on this computer; a view's settings skip fields archived since.
-	const [storedColumns, storeColumns] = useStored<string[]>(`records.columns.${type.key}`);
-	const [storedLayout, storeLayout] = useStored<{ layout: Layout; groupBy?: string }>(`records.layout.${type.key}`);
+	// "All" follows the workspace display; saved views keep their own settings.
+	const [storedColumns, changeColumns, writable] = useStoredIds("columns", type._id);
+	const setDisplay = useMutation(api.recordTypes.setDisplay, optimisticDisplay);
+	const display = type.display ?? { layout: "table" as const };
 	const saved: Settings | undefined = selected && {
 		filters: fromConditions(selected.filters.filter((c) => live(c.field)), fields).map((f, i) => ({ ...f, id: String(i) })),
 		sort: selected.sort && live(selected.sort.field) ? selected.sort : undefined,
@@ -69,19 +72,27 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 		groupBy: selected.groupBy,
 	};
 	const draft = useDraft<Settings>(
-		saved ?? { filters: [], columns: storedColumns ?? defaultColumns(type.fields), layout: "table", ...storedLayout },
+		saved ?? { filters: [], columns: storedColumns.length ? storedColumns : defaultColumns(type.fields), layout: display.layout, groupBy: display.groupBy },
 		selected?.version ?? 0,
 	);
-	const { filters, sort, layout } = draft.value;
-	const columns = draft.value.columns.filter(live);
+	const { filters, sort } = draft.value;
+	const layout = selected ? draft.value.layout : display.layout;
+	const columns = (selected ? draft.value.columns : storedColumns.length ? storedColumns : defaultColumns(type.fields)).filter(live);
 	// Like Notion, a board without a saved grouping uses the first field it can group by.
 	const groupFields = fields.filter(groupable);
-	const group = groupFields.find((f) => f.key === draft.value.groupBy) ?? groupFields[0];
+	const group = groupFields.find((f) => f.key === (selected ? draft.value.groupBy : display.groupBy)) ?? groupFields[0];
 	const change = (next: Partial<Settings>) => {
-		const value = { ...draft.value, ...next };
+		const value = { ...draft.value, columns, layout, groupBy: selected ? draft.value.groupBy : display.groupBy, ...next };
 		draft.set(value);
-		if (!selected && next.columns) storeColumns(next.columns);
-		if (!selected && (next.layout || next.groupBy)) storeLayout({ layout: value.layout, groupBy: value.groupBy });
+		if (!selected && writable && next.columns) {
+			// One command per column shown or hidden, starting from what's on screen if nothing's saved.
+			const shown = next.columns;
+			const seed = storedColumns.length ? undefined : columns;
+			for (const id of shown.filter((k) => !columns.includes(k))) changeColumns({ op: "add", id, seed });
+			for (const id of columns.filter((k) => !shown.includes(k))) changeColumns({ op: "remove", id, seed });
+		}
+		// Send only what changed, so someone else's layout or grouping change isn't overwritten.
+		if (!selected && writable && (next.layout || next.groupBy)) run(setDisplay({ typeId: type._id, display: { layout: next.layout, groupBy: next.groupBy } }));
 	};
 	const setFilters = (filters: Settings["filters"]) => change({ filters });
 	const setSort = (sort: Sort | undefined) => change({ sort });
@@ -189,20 +200,20 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 				<button type="button" onClick={() => setFilters([...filters, { id: crypto.randomUUID(), field: fields[0]!.key, op: opsFor(fields[0]!)[0]!, value: "" }])} className={compactButton}>
 					<FilterIcon className="text-neutral-400" /> Filter
 				</button>
-				<ColumnsPicker
+				{(selected || writable) && <ColumnsPicker
 					label={layout === "board" ? "Properties" : "Columns"}
 					fields={fields}
 					columns={columns}
 					onChange={setColumns}
 					onNewField={type.canManage ? () => setAddingField("text") : undefined}
-				/>
-				{layout === "board" && group && (
+				/>}
+				{(selected || writable) && layout === "board" && group && (
 					<label className="flex items-center gap-2 text-neutral-600">
 						Group by
 						<Select value={group.key} options={groupFields.map((f) => ({ value: f.key, label: f.label }))} onChange={(groupBy) => change({ groupBy })} />
 					</label>
 				)}
-				<span className="ml-auto">
+				{(selected || writable) && <span className="ml-auto">
 					<Segmented
 						label="Layout"
 						value={layout}
@@ -212,7 +223,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 						]}
 						onChange={(l) => change({ layout: l })}
 					/>
-				</span>
+				</span>}
 			</div>
 			{filters.length > 0 && (
 				<div className="-mt-2 flex flex-col gap-2">

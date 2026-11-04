@@ -44,7 +44,7 @@ export function WorkspaceSwitcher({ name, onSettings }: { name: string; onSettin
 	const current = useWorkspace();
 	const leave = useMutation(api.workspace.leave);
 	const { confirm, dialog } = useConfirm();
-	const { sorted: workspaces, drag } = useSortable("rail.order", mine?.workspaces ?? none, workspaceKey);
+	const { sorted: workspaces, drag } = useSortable("workspaces", mine?.workspaces ?? none, workspaceKey);
 	// Chats and records belong to one workspace, so a switch starts from the chat list.
 	const goTo = (workspaceId: Id<"workspaces">) => (current?.open(workspaceId), navigate("chat"));
 	// A join or create resolves before the list shows the workspace, and opening one you're not in is

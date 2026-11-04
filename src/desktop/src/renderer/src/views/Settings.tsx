@@ -1,4 +1,5 @@
 import { threadWindows } from "@companybot/core/chat";
+import { pictureLimits } from "@companybot/core/images";
 import { type ImageModelInfo, type ModelInfo, defaultImageModel, imageModelNote, modelNote } from "@companybot/core/models";
 import { ROUTER_MODEL, isDecisionModel } from "@companybot/core/router";
 import { type Access, can } from "@companybot/core/permissions";
@@ -289,7 +290,7 @@ function GeneralForm({
 			<ConflictNotice draft={draft} />
 			<Notice>{error}</Notice>
 			<Settings title="Workspace" hint={ownerOnly}>
-				<Setting label="Logo" hint="Its icon in the workspace rail at the far left. PNG, JPEG, WebP or GIF, up to 2 MB.">
+				<Setting label="Logo" hint={`Its icon in the workspace rail at the far left. ${pictureLimits}.`}>
 					<ImagePicker of="workspace" name={settings.name} image={settings.image} agent disabled={!canManage} />
 				</Setting>
 				<Setting label="Name">
@@ -378,7 +379,7 @@ function ProfileTab() {
 		<>
 			<Notice>{error}</Notice>
 			<Settings title="You" hint="Only you see these, except your photo, name and time zone. They follow you to every device.">
-				<Setting label="Photo" hint="Shown to your team in every workspace. PNG, JPEG, WebP or GIF, up to 2 MB.">
+				<Setting label="Photo" hint={`Shown to your team in every workspace. ${pictureLimits}.`}>
 					<ImagePicker of="me" name={prefs.displayName || me?.email || ""} image={prefs.image} />
 				</Setting>
 				<Setting label="Name" hint="What agents and teammates call you.">

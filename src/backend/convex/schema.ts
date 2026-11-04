@@ -1,4 +1,5 @@
 import { accessLevels, builtInRoles, fieldKinds, fileTypes, permissions, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
+import { arrangementLists, type ArrangementList } from "@companybot/core/arrangements";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
@@ -8,6 +9,8 @@ import { viewConfig } from "./recordValidators";
 const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map((value) => v.literal(value)));
 
 const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats"), v.id("users"))));
+export const arrangementList = oneOf(Object.keys(arrangementLists) as ArrangementList[]);
+export const databaseDisplay = v.object({ layout: v.union(v.literal("table"), v.literal("board")), groupBy: v.optional(v.string()) });
 
 export const notify = v.union(v.literal("all"), v.literal("mentions"), v.literal("off"));
 
@@ -374,7 +377,18 @@ export default defineSchema({
 		savedAt: v.number(),
 	}).index("by_memory", ["memoryId", "version"]),
 
-	// Personal preferences: only the person sees them; they follow them across devices.
+	// Navigation lists: absent user = shared; absent workspace = account-wide workspace order.
+	arrangements: defineTable({
+		workspaceId: v.optional(v.id("workspaces")),
+		userId: v.optional(v.id("users")),
+		list: arrangementList,
+		entityId: v.optional(v.union(v.id("pages"), v.id("recordTypes"))),
+		ids: v.array(v.string()),
+	}).index("by_list", ["workspaceId", "userId", "list", "entityId"])
+		.index("by_user", ["userId", "workspaceId"])
+		.index("by_entity", ["entityId"]),
+
+	// Personal preferences follow the person across devices.
 	preferences: defineTable({
 		userId: v.id("users"),
 		/** What agents and teammates call you. */
@@ -1055,6 +1069,7 @@ export default defineSchema({
 	recordTypes: defineTable({
 		/** Sources retained across edits and later audience changes. Older rows have none. */
 		usedPlaces,
+		display: v.optional(databaseDisplay),
 		version: v.optional(v.number()),
 		workspaceId: v.id("workspaces"),
 		/** Stable, unique per workspace. */

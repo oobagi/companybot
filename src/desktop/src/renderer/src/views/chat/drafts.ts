@@ -4,7 +4,7 @@ import { pendingFiles, pendingKey } from "./composerFiles";
 import { plainText } from "./editor";
 
 // Drafts: what you've typed in a composer and not sent, per person, per chat and per thread. They
-// stay on this computer (localStorage, like the sidebar's order), chips and all, under the person's
+// stay on this computer (localStorage), chips and all, under the person's
 // id, so another account signed in here never sees them and yours are there when you switch back.
 // They go when you send. A draft nobody came back to expires after a month.
 

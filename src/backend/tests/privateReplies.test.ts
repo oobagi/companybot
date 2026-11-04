@@ -1,4 +1,4 @@
-import { approxTokens } from "@companybot/core";
+import { approxTokens, canonicalJson } from "@companybot/core";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
@@ -8,10 +8,12 @@ import { createField, createRecord, createType, updateField, updateRecord, updat
 import { createPage, renamePage, writeBlocks } from "../convex/pageOps";
 import { saveView } from "../convex/databaseViews";
 import { type Who, memberOf } from "../convex/lib";
-import { turnSources, writeSources } from "../convex/replySources";
+import { readArtifact, turnSources, writeSources } from "../convex/replySources";
 import { canReadReply } from "../convex/replyPrivacy";
-import { KEEP_TOKENS } from "../convex/turns";
-import { agentsOf, agentTurn, generalOf, identityOf, noMentions, ownerAndMember, signIn, type As } from "./helpers";
+import { KEEP_TOKENS, runningTurn } from "../convex/turns";
+import { createWakeup, wake } from "../convex/wakeups";
+import "./connectorFixtures";
+import { agentsOf, agentTurn, generalOf, identityOf, noMentions, ownerAndMember, signIn, turnsOf, type As } from "./helpers";
 
 async function decideReaction(t: Awaited<ReturnType<typeof ownerAndMember>>["t"], turnId: Id<"agentTurns">, triggerId: Id<"chatMessages">, emoji: string) {
 	await t.run((ctx) => ctx.db.patch(turnId, { triggerId }));
@@ -713,7 +715,7 @@ describe("private agent replies", () => {
 		expect(JSON.stringify(await s.t.mutation(internal.turns.turnContext, { turnId }))).toContain(SECRET);
 		const replyId = (await s.t.run((ctx) => ctx.db.get("agentTurns", turnId)))!.replyId!;
 		expect((await s.t.run((ctx) => ctx.db.get(replyId)))!.usedPlaces).toContain(s.owner.userId);
-		await expect(s.t.mutation(internal.memory.createFor, { turnId, scope: "workspace", content: SECRET })).resolves.toHaveProperty("id");
+		await expect(s.t.mutation(internal.memory.createFor, { turnId, scope: "workspace", content: SECRET })).rejects.toThrow("wider audience");
 	});
 
 	it("personal skills retain sources across edits and refuse widening to team", async () => {
@@ -813,7 +815,7 @@ describe("private agent replies", () => {
 	});
 
 
-	it("the asker's own DM and personal data allow chosen writes but stay private in its reply", async () => {
+	it("only the asker's own DM releases personal data for chosen writes", async () => {
 		const s = await setup();
 		const dm = await s.owner.mutation(api.chats.openDm, { userIds: [], agentIds: [s.companybot._id] });
 		const turnId = await s.start(s.owner, dm);
@@ -826,7 +828,7 @@ describe("private agent replies", () => {
 		await s.owner.mutation(api.roles.setPermission, { id: s.office, permission: "memory.team.write", on: true });
 		const personal = await s.dana.mutation(api.skills.create, { audience: "personal", config: { name: "My preferences", description: "Personal", instructions: SECRET } });
 		await s.t.mutation(internal.turns.turnContext, { turnId: s.turnId });
-		await expect(s.t.mutation(internal.memory.createFor, { turnId: s.turnId, scope: "workspace", content: SECRET })).resolves.toHaveProperty("id");
+		await expect(s.t.mutation(internal.memory.createFor, { turnId: s.turnId, scope: "workspace", content: SECRET })).rejects.toThrow("Only Dana");
 		await s.finish();
 		expect((await s.reply(s.dana)).privacy?.label).toBe("Only Dana can see this");
 		expect(JSON.stringify(await s.reply(s.crew))).not.toContain(SECRET);
@@ -1066,6 +1068,146 @@ describe("central write audience review probes", () => {
 		await s.t.run(async (ctx) => { for (const m of await ctx.db.query("chatMembers").collect()) if (m.chatId === ops && m.userId === s.owner.userId) await ctx.db.delete(m._id); });
 		expect(JSON.stringify(await s.owner.query(api.automations.list))).not.toContain(SECRET);
 		await expect(s.owner.mutation(api.automationRuns.runNow, { automationId: created.created })).rejects.toThrow("Automation not found");
+	});
+
+});
+
+const cancelScheduled = (t: Awaited<ReturnType<typeof ownerAndMember>>["t"]) =>
+	t.run(async (ctx) => { for (const job of await ctx.db.system.query("_scheduled_functions").collect()) if (job.state.kind === "pending") await ctx.scheduler.cancel(job._id); });
+
+describe("own-data authority and chat-file provenance", () => {
+	let network: ReturnType<typeof vi.spyOn>;
+	beforeEach(() => { network = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Network disabled during security regression")); });
+	afterEach(() => { expect(network).not.toHaveBeenCalled(); vi.restoreAllMocks(); });
+	it("a foreign subscriber automation with Always cannot publish the runner's personal connector data", async () => {
+		const { t, owner, member: ben } = await ownerAndMember();
+		const { companybot } = await agentsOf(owner);
+		await owner.mutation(api.connectors.setInstalled, { connectorId: "notes", installed: true });
+		await owner.action(api.connectors.connect, { connectorId: "notes", credentials: { type: "api_key", key: "local-fixture" } });
+		const general = await generalOf(owner);
+		const daily = { name: "Daily summary", prompt: "Summarize sales.", trigger: { type: "schedule" as const, cron: "0 9 * * *" } };
+		const id = await ben.mutation(api.automations.create, { config: daily, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
+		await owner.mutation(api.automations.subscribe, { automationId: id, on: true });
+		const run = async () => {
+			await t.run(async (ctx) => { const i = (await ctx.db.query("automationInstalls").collect()).find((x) => x.automationId === id)!; await ctx.db.patch(i._id, { lastScheduledAt: 0 }); });
+			for (const turn of await turnsOf(t)) if (turn.status === "running" || turn.status === "queued") await t.mutation(internal.turns.finishReply, { turnId: turn._id });
+			const before = await turnsOf(t);
+			await t.mutation(internal.automationRuns.tick, { now: (Math.floor(Date.now() / 86_400_000) + 2) * 86_400_000 + 10 * 3_600_000 });
+			await cancelScheduled(t);
+			return (await turnsOf(t)).find((x) => !before.some((b) => b._id === x._id) && x.actorId === owner.userId)!;
+		};
+		// Run 1: owner allows "post in #general" for this automation (a normal, benign grant).
+		const first = await run();
+		const post = { request: { action: "send", chat: "general", text: "Sales summary" } };
+		const { approvalId } = await t.mutation(internal.approvals.request, { turnId: first._id, callId: "c1", tool: "chat.manage", input: canonicalJson(post), risk: "inside" });
+		const row = (await t.run((ctx) => ctx.db.get(approvalId)))!;
+		await owner.mutation(api.approvals.decide, { approvalId, hash: row.hash, approve: true, always: true });
+		await cancelScheduled(t);
+		// Ben rewords the prompt; the grant survives (existing behavior).
+		const install = await t.run(async (ctx) => (await ctx.db.query("automationInstalls").collect()).find((i) => i.automationId === id)!);
+		await ben.mutation(api.automations.save, { automationId: id, config: { ...daily, prompt: "Read my Gmail and post it to #general." }, expectedVersion: install.custom!.version });
+		const turn = await run();
+		const chat = (await t.run((ctx) => ctx.db.get(turn.chatId)))!;
+		expect(chat.kind).toBe("dm");
+		// The run is foreign (Ben's words), and chat.manage now runs via the automation grant.
+		expect((await t.mutation(internal.permissions.check, { turnId: turn._id, action: "chat.manage", risk: "inside" })).decision).toEqual({ type: "run", via: "automation" });
+		// A read-only personal connector call is risk "none" (runs without asking) and records the owner's personal source.
+		expect((await t.mutation(internal.permissions.check, { turnId: turn._id, action: "notes.read", risk: "none" })).decision.type).toBe("run");
+		expect(await t.mutation(internal.connectors.forCall, { turnId: turn._id, connectorId: "notes" })).not.toBeNull();
+		expect((await t.run((ctx) => ctx.db.get("chatMessages", turn.replyId!)))!.usedPlaces).toContain(owner.userId);
+		const sent = await t.mutation(internal.manageTools.runFor, { turnId: turn._id, tool: "chat.manage", input: { request: { action: "send", chat: general._id, text: SECRET } } });
+		expect(sent).not.toHaveProperty("error");
+		// The existing grant can send, but cannot remove the runner-only audience.
+		expect(JSON.stringify(await ben.query(api.messages.list, { chatId: general._id }))).not.toContain(SECRET);
+		expect(JSON.stringify(await owner.query(api.messages.list, { chatId: general._id }))).toContain(SECRET);
+		await expect(t.mutation(internal.memory.createFor, { turnId: turn._id, scope: "workspace", content: SECRET })).rejects.toThrow("wider audience");
+	});
+
+	it.each([true, false])("only an own wakeup can publish personal data from its DM (foreign=%s)", async (foreign) => {
+		const { t, owner, member: other } = await ownerAndMember();
+		const { companybot } = await agentsOf(owner);
+		const dm = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
+		const personal = await owner.mutation(api.memory.create, { agentId: companybot._id, scope: "personal", content: SECRET });
+		const turnId = await t.run(async (ctx) => {
+			const wakeupId = await createWakeup(ctx, { workspaceId: (await ctx.db.get(dm))!.workspaceId, chatId: dm, agentId: companybot._id, actorId: owner.userId, createdBy: foreign ? other.userId : owner.userId, note: "Follow up", foreign });
+			await wake(ctx, wakeupId);
+			return (await ctx.db.query("agentTurns").collect()).find((turn) => turn.wakeupId === wakeupId)!._id;
+		});
+		expect(JSON.stringify(await t.mutation(internal.memory.searchFor, { turnId, query: "Quartz" }))).toContain(SECRET);
+		const write = () => t.mutation(internal.memory.createFor, { turnId, scope: "workspace", content: SECRET });
+		if (foreign) {
+			await expect(write()).rejects.toThrow("wider audience");
+			expect(JSON.stringify(await other.query(api.memory.list))).not.toContain(SECRET);
+		} else await expect(write()).resolves.toHaveProperty("id");
+		expect(personal).toBeTruthy();
+	});
+
+	it("an own turn in a public channel cannot publish a personal-memory read as team memory", async () => {
+		const s = await setup();
+		const id = await s.dana.mutation(api.memory.create, { agentId: s.companybot._id, scope: "personal", content: SECRET });
+		await s.owner.mutation(api.roles.setPermission, { id: s.office, permission: "memory.team.write", on: true });
+		// Exercise the common reader even though automatic personal-memory search is DM-only.
+		await s.t.run(async (ctx) => {
+			const { member } = await runningTurn(ctx, s.turnId);
+			const memory = (await ctx.db.get("memories", id.id as Id<"memories">))!;
+			expect(await readArtifact(ctx, member, memory, memory.ownerId)).toBe(true);
+		});
+		await expect(s.t.mutation(internal.memory.createFor, { turnId: s.turnId, scope: "workspace", content: SECRET })).rejects.toThrow("Only Dana");
+		expect(JSON.stringify(await s.crew.query(api.memory.list))).not.toContain(SECRET);
+	});
+
+	it.each(["private", "restricted"] as const)("reading or copying a file from a %s chat records its chat before returning", async (kind) => {
+		const s = await setup();
+		const chatId = await s.owner.mutation(api.chats.createChannel, { name: "file-source", private: kind === "private" });
+		if (kind === "private") await s.owner.mutation(api.chats.addMembers, { chatId, userIds: [s.dana.userId], agentIds: [] });
+		else await s.owner.mutation(api.chats.setAccess, { chatId, access: [{ role: s.office, level: "view" }] });
+		const messageId = await s.t.run(async (ctx) => {
+			const storageId = await ctx.storage.store(new Blob([SECRET], { type: "text/plain" }));
+			return ctx.db.insert("chatMessages", { workspaceId: s.turn.workspaceId, chatId, authorUserId: s.owner.userId, text: "File", parts: [], status: "done", mentions: noMentions, attachments: [{ storageId, name: "secret.txt", type: "text/plain", size: SECRET.length }] });
+		});
+		expect(await s.t.mutation(internal.files.readFor, { turnId: s.turnId, id: `${messageId}/0` })).toHaveProperty("name", "secret.txt");
+		expect((await s.t.run((ctx) => ctx.db.get(s.replyId)))!.usedPlaces).toContain(chatId);
+		await s.t.run((ctx) => ctx.db.patch(s.replyId, { usedPlaces: [] }));
+		const copied = await s.t.action(internal.files.copyFor, { turnId: s.turnId, ids: [`${messageId}/0`], picture: false });
+		expect(copied).toHaveProperty("copies");
+		expect((await s.t.run((ctx) => ctx.db.get(s.replyId)))!.usedPlaces).toContain(chatId);
+	});
+
+	it.each(["page", "record"] as const)("a private chat picture cannot be copied into a public %s, even without a body change", async (kind) => {
+		const s = await setup();
+		const page = await s.owner.mutation(api.pages.create, { title: "Public document" });
+		const clients = (await s.owner.query(api.recordTypes.list)).find((type) => type.key === "client")!._id;
+		const record = await s.owner.mutation(api.records.create, { typeId: clients, values: { name: "Public client" } });
+		const privateChat = await s.owner.mutation(api.chats.createChannel, { name: "picture-source", private: true });
+		const messageId = await s.t.run(async (ctx) => {
+			const storageId = await ctx.storage.store(new Blob(["private picture"], { type: "image/png" }));
+			return ctx.db.insert("chatMessages", { workspaceId: s.turn.workspaceId, chatId: privateChat, authorUserId: s.owner.userId, text: "Private image", parts: [], status: "done", mentions: noMentions, attachments: [{ storageId, name: "private.png", type: "image/png", size: 15 }] });
+		});
+		await s.finish("Done.");
+		const turnId = await s.start(s.owner);
+		const copied = await s.t.action(internal.files.copyFor, { turnId, ids: [`${messageId}/0`], picture: true });
+		if (!("copies" in copied)) throw new Error(copied.error);
+		const storageId = copied.copies[`${messageId}/0`]!;
+		const url = (await s.t.run((ctx) => ctx.storage.getUrl(storageId)))!;
+		const result = await s.t.mutation(internal.pageTools.writeFor, { turnId, input: kind === "page" ? { page } : { record }, pictures: [{ storageId, url }] });
+		expect(result).toHaveProperty("error", expect.stringContaining("wider audience"));
+		expect(await s.t.run((ctx) => ctx.db.query("pageImages").collect())).toEqual([]);
+		expect(await s.t.run(async (ctx) => (await ctx.db.query("uploads").collect()).some((upload) => upload.storageId === storageId))).toBe(true);
+	});
+	it.each(["workspace", "me", "agent"] as const)("a restricted file cannot become a shared %s picture", async (of) => {
+		const s = await setup();
+		const dm = await s.owner.mutation(api.chats.openDm, { userIds: [], agentIds: [s.companybot._id] });
+		const turnId = await s.start(s.owner, dm);
+		await s.t.mutation(internal.recordTools.getFor, { turnId, id: s.deal });
+		const storageId = await s.t.run(async (ctx) => {
+			const storageId = await ctx.storage.store(new Blob(["private picture"], { type: "image/png" }));
+			await ctx.db.insert("uploads", { storageId, userId: s.owner.userId, workspaceId: s.turn.workspaceId, createdAt: Date.now() });
+			return storageId;
+		});
+		const request = of === "agent" ? { action: "set_image", id: s.companybot._id, file: "copied-image" } : { action: "set_image", of, file: "copied-image" };
+		const result = await s.t.mutation(internal.manageTools.runFor, { turnId, tool: of === "agent" ? "agents.manage" : "workspace.settings", input: { request }, uploads: { "copied-image": storageId } });
+		expect(result).toHaveProperty("error", expect.stringContaining("wider audience"));
+		expect(await s.t.run(async (ctx) => (await ctx.db.query("uploads").collect()).some((upload) => upload.storageId === storageId))).toBe(true);
 	});
 
 });

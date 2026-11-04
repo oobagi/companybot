@@ -1,3 +1,4 @@
+import { getFunctionName } from "convex/server";
 import { act, createElement } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -5,8 +6,10 @@ import { inApp } from "../../testing";
 import type { RecordType, Row } from "./data";
 import { memberDefaults } from "@companybot/core/permissions";
 import { RecordList } from "./RecordList";
+import { ArrangementProvider } from "../../arrangements";
 
 const state = vi.hoisted(() => ({
+	layout: "board" as "board" | "table",	writable: true,
 	rows: [] as Row[],
 	overview: { results: [{ refs: {}, unresolved: [] }] as unknown as Row[], status: "Exhausted", loadMore: vi.fn() },
 	status: "CanLoadMore",
@@ -33,6 +36,8 @@ let root: ReactTestRenderer;
 let intersect: IntersectionObserverCallback;
 beforeEach(() => {
 	vi.clearAllMocks();
+	state.layout = "board";
+	state.writable = true;
 	state.rows = [];
 	state.overview = { results: [{ refs: {}, unresolved: [] }] as unknown as Row[], status: "Exhausted", loadMore: vi.fn() };
 	state.status = "CanLoadMore";
@@ -50,7 +55,7 @@ afterEach(async () => {
 	await act(async () => root?.unmount());
 	vi.unstubAllGlobals();
 });
-const tree = () => inApp(createElement(RecordList, { type, access: { roles: ["owner"], owner: true, permissions: [] } }));
+const tree = () => inApp(createElement(ArrangementProvider, { data: { rows: [], writable: state.writable }, children: createElement(RecordList, { type: { ...type, display: { layout: state.layout, groupBy: "status" } }, access: { roles: ["owner"], owner: true, permissions: [] } }) }));
 
 it("continues an empty first page before deciding a retired column has no cards", async () => {
 	await act(async () => { root = create(tree(), { createNodeMock: () => ({}) }); });
@@ -61,6 +66,8 @@ it("continues an empty first page before deciding a retired column has no cards"
 	state.status = "Exhausted";
 	await act(async () => root.update(tree()));
 	expect(JSON.stringify(root.toJSON())).toContain("Still here");
+	state.layout = "board";
+	state.writable = true;
 	state.rows = [];
 	await act(async () => root.update(tree()));
 	expect(root.root.findAllByType("section")).toHaveLength(2);
@@ -92,8 +99,8 @@ it("ignores drops within the same column, into removed options, or from a differ
 	expect(state.update).toHaveBeenCalledExactlyOnceWith({ recordId: "record", values: { status: null } });
 });
 
-it.each(["table", "board"])("shows the whole-screen empty state only after %s pagination ends", async (layout) => {
-	vi.stubGlobal("localStorage", { getItem: (key: string) => key.startsWith("records.layout.") ? JSON.stringify({ layout }) : null });
+it.each(["table", "board"] as const)("shows the whole-screen empty state only after %s pagination ends", async (layout) => {
+	state.layout = layout;
 	state.overview.results = [];
 	state.overview.status = "CanLoadMore";
 	await act(async () => { root = create(tree(), { createNodeMock: () => ({}) }); });
@@ -107,7 +114,20 @@ it.each(["table", "board"])("shows the whole-screen empty state only after %s pa
 	expect(JSON.stringify(root.toJSON())).toContain("No jobs yet");
 	expect(root.root.findAllByType("section")).toHaveLength(0);
 	expect(root.root.findAllByType("table")).toHaveLength(0);
-	await act(async () => root.update(inApp(createElement(RecordList, { type, access: { roles: ["member"], owner: false, permissions: memberDefaults } }))));
+	await act(async () => root.update(inApp(createElement(ArrangementProvider, { data: { rows: [], writable: true }, children: createElement(RecordList, { type, access: { roles: ["member"], owner: false, permissions: memberDefaults } }) }))));
 	// The empty state has no button; New stays in the top bar, for members too (records.edit).
 	expect(root.root.findAllByType("button").filter((b) => b.children.includes("New job"))).toHaveLength(1);
+});
+
+it("uses the loaded display on its first render and hides shared controls when the hook is read-only", async () => {
+	state.writable = false;
+	await act(async () => { root = create(tree(), { createNodeMock: () => ({}) }); });
+	expect(root.root.findAllByType("table")).toHaveLength(0);
+	expect(root.root.findAllByType("section")).toHaveLength(3);
+	expect(root.root.findAllByType("button").some((b) => b.props["aria-label"] === "Layout")).toBe(false);
+	expect(JSON.stringify(root.toJSON())).not.toContain('"Columns"');
+	expect(JSON.stringify(root.toJSON())).not.toContain('"Properties"');
+	expect(JSON.stringify(root.toJSON())).not.toContain('"Group by"');
+	expect(root.root.findAllByType("button").filter((b) => b.children.includes("New job"))).toHaveLength(1);
+	expect(state.update).not.toHaveBeenCalled();
 });

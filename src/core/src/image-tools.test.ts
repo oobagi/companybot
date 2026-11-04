@@ -13,7 +13,7 @@ describe("images.generate", () => {
 		expect(generate).toHaveBeenCalledWith({ prompt: "A logo", aspectRatio: "1:1" });
 		const receipt = (await tool.toModelOutput!({ toolCallId: "1", input: {}, output } as never)) as { type: string; value: string };
 		expect(receipt).toEqual({ type: "text", value: expect.stringContaining("Attached to your reply: picture.png (m1/0)") });
-		expect(tool.label!({ prompt: "x" }, output)).toBe("Made a picture");
+		expect(tool.label!({ prompt: "x" }, output)).toBe("Make a picture");
 		expect(tool.label!({ prompt: "x", editFiles: ["m1/0"] })).toBe("Edit a picture");
 		const refused = (await tool.toModelOutput!({ toolCallId: "1", input: {}, output: { error: "Budget used up." } } as never)) as { value: string };
 		expect(refused.value).toBe("Budget used up.");

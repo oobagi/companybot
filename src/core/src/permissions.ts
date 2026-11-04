@@ -25,6 +25,7 @@ export const permissions = {
 	/** Make, rename and delete roles and choose their switches. Owner-only, so nobody can give themselves more than an owner chose. */
 	"roles.manage": { label: "change roles", ownerOnly: true },
 	/** Invite and remove people and give them roles. Only owners give or take the Owner role, or remove an owner. */
+	"sidebar.arrange": { label: "rearrange shared sidebar lists", member: true },
 	"members.manage": { label: "invite and remove people and change their roles", member: false },
 	"agents.manage": { label: "change agents", member: false },
 	"connectors.manage": { label: "install connectors and choose who can use them", member: false },

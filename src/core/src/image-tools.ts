@@ -51,10 +51,8 @@ export const imageTools: ToolDef[] = [
 		// Nothing leaves the workspace, but it spends money and can read pictures from the person's
 		// private chats: a run following someone else's words asks first, like other `inside` tools.
 		risk: "inside",
-		label: (input, output) => {
-			const done = output && typeof output === "object" && "attached" in output;
-			return input.editFiles?.length ? (done ? "Edited a picture" : "Edit a picture") : done ? "Made a picture" : "Make a picture";
-		},
+		// Present tense: toolLine says "Making…" and "Made…".
+		label: (input) => (input.editFiles?.length ? "Edit a picture" : "Make a picture"),
 		execute: (input, { images }) => images.generate(input),
 		// A receipt, never the picture: the person sees it on the reply.
 		toModelOutput: ({ output }) => ({

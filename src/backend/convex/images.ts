@@ -1,4 +1,4 @@
-import { imageMaxBytes, sniffImage } from "@companybot/core/images";
+import { imageMaxBytes, imageMaxMb, sniffImage } from "@companybot/core/images";
 import { ConvexError, type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -6,6 +6,7 @@ import { type ActionCtx, type MutationCtx, type QueryCtx, httpAction, internalMu
 import { mutation, query } from "./functions";
 import { type Member, authUserId, checkPermission, memberOf, memo, preferencesOf, requireLiveAgent, requireMember, sweepExpired } from "./lib";
 import { savePreferences } from "./preferences";
+import { writeSources } from "./replySources";
 import { fileInfo } from "./schema";
 
 // Pictures people upload, on Convex file storage. The app POSTs the file to `upload` (an HTTP
@@ -86,7 +87,7 @@ export async function storeUpload(ctx: ActionCtx, request: Request, bytes: Uint8
 export const upload = httpAction(async (ctx, request) => {
 	if (!(await ctx.auth.getUserIdentity())) return reply(401, { error: "Sign in to upload." });
 	const bytes = await readBody(request, imageMaxBytes);
-	if (!bytes) return reply(413, { error: "Pick an image under 2 MB." });
+	if (!bytes) return reply(413, { error: `Pick an image under ${imageMaxMb} MB.` });
 	const type = sniffImage(bytes);
 	if (!type) return reply(415, { error: "Pick a PNG, JPEG, WebP or GIF image." });
 	return storeUpload(ctx, request, bytes, type);
@@ -127,6 +128,7 @@ export async function setImage(ctx: MutationCtx, member: Member, of: Infer<typeo
 				? await preferencesOf(ctx, member.userId)
 				: await requireLiveAgent(ctx, checkPermission(member, "agents.manage"), of);
 	if (file && file === row?.image) return;
+	if (file) await writeSources(ctx, member);
 	if (file) await claimUpload(ctx, member, file);
 	if (row?.image) await deleteFile(ctx, row.image);
 	const image = file ?? undefined;

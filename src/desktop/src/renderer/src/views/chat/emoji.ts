@@ -128,7 +128,7 @@ export const emojiForShortcode = (index: EmojiIndex, name: string) => index.bySh
 /** A `:name:` just completed at the end of the text, at the start or after a space. */
 export const COMPLETED_SHORTCODE = /(?:^|\s):([a-z0-9_+-]+):$/i;
 
-// Recents and the skin tone stay on this computer, like the sidebar's order.
+// Recents and the skin tone stay on this computer, like the sidebar's width.
 
 type Store = Pick<Storage, "getItem" | "setItem">;
 export const RECENT_KEY = "emoji.recent";

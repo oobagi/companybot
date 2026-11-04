@@ -63,7 +63,7 @@ export async function readArtifact(ctx: QueryCtx, member: Member, artifact: Sour
 }
 
 /**
- * Writes can publish the asker's own one-person data. Every other source must fit the
+ * Only the asker's own turn in their agent DM may publish their one-person data. Every other source must fit the
  * destination audience. The original reply keeps all sources for display and context privacy.
  */
 export async function writeSources(ctx: MutationCtx, member: Member, audience?: Audience, artifact: Sourced = {}): Promise<UsedPlace[]> {
@@ -73,7 +73,7 @@ export async function writeSources(ctx: MutationCtx, member: Member, audience?: 
 	if (audience && typeof audience === "object" && "filtered" in audience && audience.preserveOwn) return all;
 	const readSource = writeSourceReader(ctx, member);
 	const sources = await Promise.all(all.map(async (id) => ({ id, policy: await readSource(id) })));
-	const retained = sources.filter(({ policy }) => !policy.visible || policy.exclusiveTo !== member.userId);
+	const retained = sources.filter(({ policy }) => !member.ownWrites || !policy.visible || policy.exclusiveTo !== member.userId);
 	const usedPlaces = retained.map(({ id }) => id);
 	if (audience && typeof audience === "object" && "filtered" in audience) return usedPlaces;
 	const policies = typeof audience === "string" ? [await readSource(audience)] : audience && "places" in audience ? await Promise.all(audience.places.map(readSource)) : [audience];

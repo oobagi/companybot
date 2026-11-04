@@ -294,3 +294,21 @@ describe("migrations", () => {
 		]);
 	});
 });
+
+// COMPAT(0.1.0-alpha.10): delete with migrations.channelTopics.
+it("cuts channel topics from before the 250-character cap", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	migrationsTest.register(t);
+	prosemirrorSync.register(t);
+	const owner = await signIn(t, "owner@co.com");
+	const id = await owner.mutation(api.chats.createChannel, { name: "long", private: false });
+	await t.run((ctx) => ctx.db.patch(id, { topic: "y".repeat(18_000) }));
+	vi.useFakeTimers();
+	try {
+		await t.mutation(internal.migrations.runAll);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+	} finally {
+		vi.useRealTimers();
+	}
+	expect((await t.run((ctx) => ctx.db.get(id)))!.topic).toBe("y".repeat(250));
+});

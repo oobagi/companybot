@@ -95,7 +95,12 @@ it("personal connector data records a one-person source before results or metada
 	const shown = (await member.query(api.messages.list, { chatId: chat._id })).find((m) => m._id === replyId)!;
 	expect(shown.privacy?.hidden).toBe(true);
 	expect(JSON.stringify(shown)).not.toContain("PERSONAL_NOTES_SECRET");
-	await expect(t.mutation(internal.memory.createFor, { turnId, scope: "workspace", content: "PERSONAL_NOTES_SECRET" })).resolves.toHaveProperty("id");
+	await expect(t.mutation(internal.memory.createFor, { turnId, scope: "workspace", content: "PERSONAL_NOTES_SECRET" })).rejects.toThrow("wider audience");
+	expect(JSON.stringify(await member.query(api.memory.list))).not.toContain("PERSONAL_NOTES_SECRET");
+	const dm = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
+	const ownTurn = await agentTurn(t, owner, dm, companybot._id);
+	expect(await t.mutation(internal.connectors.forCall, { turnId: ownTurn, connectorId: "notes" })).not.toBeNull();
+	await expect(t.mutation(internal.memory.createFor, { turnId: ownTurn, scope: "workspace", content: "PERSONAL_NOTES_SECRET" })).resolves.toHaveProperty("id");
 	expect(JSON.stringify(await member.query(api.memory.list))).toContain("PERSONAL_NOTES_SECRET");
 	await owner.mutation(api.connectors.disconnect, { connectorId: "notes" });
 	expect(await t.mutation(internal.connectors.forCall, { turnId, connectorId: "notes" })).toBeNull();

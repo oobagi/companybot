@@ -17,7 +17,7 @@ describe("sniffImage", () => {
 		expect(sniffImage(bytes("RIFF", [0, 0, 0, 0], "WAVE"))).toBeUndefined();
 		expect(sniffImage(bytes([0x89, 0x50]))).toBeUndefined();
 		expect(imageError(bytes("<html>"), 10)).toMatch(/PNG/);
-		expect(imageError(bytes("GIF89a"), imageMaxBytes + 1)).toMatch(/2 MB/);
+		expect(imageError(bytes("GIF89a"), imageMaxBytes + 1)).toMatch(/10 MB/);
 		expect(imageError(bytes("GIF89a"), imageMaxBytes)).toBeUndefined();
 	});
 
