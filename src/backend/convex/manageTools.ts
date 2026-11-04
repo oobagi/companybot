@@ -97,10 +97,13 @@ export const runFor = internalMutation({
 						if (r.action === "hide_preview") await hideMessagePreview(ctx, who, id, r.url);
 						return { done: r.action, messageId: id };
 					}
-					if (r.action === "open_dm")
-						return {
-							chatId: await openDirectMessage(ctx, member, participants(ctx, r)),
-						};
+					if (r.action === "open_dm") {
+						// Nobody but the person (they're always added): a DM with themselves isn't what
+						// "DM me" means. It's this agent's own DM with them.
+						const others = participants(ctx, r);
+						const alone = others.agentIds.length === 0 && others.userIds.every((id) => id === member.userId);
+						return { chatId: await openDirectMessage(ctx, member, alone ? { userIds: [], agentIds: [turn.agentId] } : others) };
+					}
 					const to = { chatId: await chatId(ctx, member, r.chat), threadId: r.threadId ? rowId(ctx, "chatMessages", r.threadId) : undefined };
 					// The reply is how an agent speaks where it is; sending there too posts it twice.
 					if (to.chatId === turn.chatId && to.threadId === turn.threadId) throw new ConvexError("Your reply already posts here: put this in your reply instead.");

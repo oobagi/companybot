@@ -14,6 +14,8 @@ export type Participant = ({ type: "user"; id: Id<"users"> } | { type: "agent"; 
 	name: string;
 	/** Their picture's URL, or null for initials. Only from `namer(ctx, { images: true })`: what the app shows, never what agents read. */
 	image?: string | null;
+	/** On a message an agent sent as a person ("Companybot, for Jaden"): that person. */
+	for?: Participant;
 };
 
 /** Finds a DM by who's in it: sorted "u:<id>" / "a:<id>" keys joined by ",". */
@@ -348,12 +350,17 @@ export function namer(ctx: QueryCtx, { images = false } = {}) {
 		const userId = "authorUserId" in row ? row.authorUserId : "userId" in row ? row.userId : undefined;
 		const agentId = "authorAgentId" in row ? row.authorAgentId : "agentId" in row ? row.agentId : undefined;
 		const author = await (userId ? user(userId) : agent(agentId!));
-		return "actingFor" in row && row.actingFor ? { ...author, name: `${author.name}, for ${await nameOf(ctx, row.actingFor)}` } : author;
+		if (!("actingFor" in row) || !row.actingFor) return author;
+		const person = await user(row.actingFor);
+		return { ...author, for: person };
 	};
 	return { user, agent, of, imageUrl: url };
 }
 
 export type Namer = ReturnType<typeof namer>;
+
+/** How an author reads in text (agents' prompts, notifications): "Companybot, for Jaden" for an agent sending as a person. */
+export const label = (p: Participant) => (p.for ? `${p.name}, for ${p.for.name}` : p.name);
 
 /** "#sales", or "DM with Ada, Ben" (everyone but `except`). */
 export async function chatLabel(ctx: QueryCtx, chat: Doc<"chats">, names: Namer, except?: string) {

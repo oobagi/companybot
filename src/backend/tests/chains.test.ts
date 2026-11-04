@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { scribe } from "../../core/test/fixtures";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
+import { label } from "../convex/chatOps";
 import { enqueueTurn } from "../convex/turns";
 import { wake } from "../convex/wakeups";
 import { agentsOf, finishQuiet, generalOf, noMentions, ownerAndMember, turnsOf } from "./helpers";
@@ -250,7 +251,7 @@ describe("asking privately (chat.ask_agent)", () => {
 		// Its answer, even with an @mention, wakes nobody else; it goes back to the asker.
 		await say(t, scribe, "30 days, @Companybot.");
 		// The answer is in the ask's thread, read-only for whoever sees the chat, and not among the sidebar's threads.
-		expect((await owner.query(api.messages.list, { chatId, threadId: askId })).map((m) => [m.author.name, m.text])).toEqual([
+		expect((await owner.query(api.messages.list, { chatId, threadId: askId })).map((m) => [label(m.author), m.text])).toEqual([
 			["Companybot, for member@co.com", "@Scribe What's our refund policy?"],
 			["Scribe", "30 days, @Companybot."],
 		]);
