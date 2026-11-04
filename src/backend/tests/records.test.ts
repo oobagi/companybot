@@ -450,8 +450,8 @@ describe("records: limits and edge cases", () => {
 		await owner.mutation(api.fields.create, { typeId: deal._id, label: "Contacts", kind: "link", multiple: true, linkTypeId: client._id });
 		const ids = await seed(t, owner.userId, client._id, Array.from({ length: 50 }, (_, n) => ({ name: `C${n}` })));
 		// A few transactions: each deal checks its 50 links.
-		for (let from = 0; from < 82; from += 20)
-			await seed(t, owner.userId, deal._id, Array.from({ length: Math.min(20, 82 - from) }, (_, n) => ({ name: `D${from + n}`, contacts: ids })));
+		for (let from = 0; from < 82; from += 5)
+			await seed(t, owner.userId, deal._id, Array.from({ length: Math.min(5, 82 - from) }, (_, n) => ({ name: `D${from + n}`, contacts: ids })));
 		const first = await owner.query(api.records.list, { typeId: deal._id, paginationOpts: { numItems: 100, cursor: null } });
 		expect(first.page).toHaveLength(50);
 		expect(Object.keys(first.page[0]!.refs)).toHaveLength(50);
