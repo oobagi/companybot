@@ -10,7 +10,7 @@ A skill is a saved way of doing something: "how we write proposals". Agents see 
 ## Making one
 - In [Skills](#/settings/skills): New skill → name, a one-line description of when to use it, and the instructions in Markdown.
 - Or tell Companybot "here's how we write proposals". It shows what it will save and asks you to confirm.
-- Choose **Just me** or **Team**. Just me is visible only to you, including in Archive, and agents use it only when acting for you. Team is the default if your role can edit team skills; otherwise Just me is the default.
+- Choose **Just me** or **Team**. Just me is visible only to you, including in Archive, and agents use it only when acting for you. Just me is the default. Agents create or edit personal skills only in your DM; use Settings from anywhere.
 - **Share with team** publishes a personal skill after you confirm, if your role can edit team skills.
 
 ## Using one

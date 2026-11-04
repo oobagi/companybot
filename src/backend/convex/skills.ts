@@ -23,7 +23,7 @@ import {
 	skillOf,
 } from "./lib";
 import { toggleTrash, trashInfo } from "./trashOps";
-import { runningTurn } from "./turns";
+import { personalMemoryHere, runningTurn } from "./turns";
 
 // Skills live on their install. Personal installs are visible only to their owner.
 
@@ -90,7 +90,7 @@ export const create = mutation({
 	handler: async (ctx, { config, audience }) => createSkill(ctx, await requireMember(ctx), config, audience),
 });
 
-/** A skill someone made, if `member` can change skills (`skills.edit`). */
+/** Personal skills belong only to their maker; team edits need the switch. */
 async function editableSkill(ctx: QueryCtx, member: Member, skillId: string) {
 	const install = await installOf(ctx, member.workspaceId, skillId);
 	if (!install?.custom || !canSeeSkill(member.userId, install)) throw new ConvexError("Skill not found.");
@@ -121,7 +121,7 @@ export async function saveSkill(ctx: MutationCtx, member: Member, { skillId, con
 	});
 }
 
-/** Moves a skill to Archive. Retained library installs have the same 30-day recovery. */
+/** Moves a skill to Archive, where it stays until explicitly deleted forever. */
 export async function removeSkill(ctx: MutationCtx, who: Who, skillId: string) {
 	const { member } = who;
 	const install = await installOf(ctx, member.workspaceId, skillId);
@@ -135,7 +135,7 @@ export const remove = mutation({
 	handler: async (ctx, { skillId }) => removeSkill(ctx, { member: await requireMember(ctx) }, skillId),
 });
 
-/** Moves a skill to Archive, or back: whoever can change skills (`skills.edit`). In Trash, agents don't see it. */
+/** Only the maker restores a personal skill; team skills need the switch. Archived skills never load. */
 export async function setSkillTrashed(ctx: MutationCtx, who: Who, installId: Id<"skillInstalls">, archived: boolean) {
 	const install = await ctx.db.get(installId);
 	if (!install || install.workspaceId !== who.member.workspaceId || !canSeeSkill(who.member.userId, install)) throw new ConvexError("Skill not found.");
@@ -147,12 +147,16 @@ export async function setSkillTrashed(ctx: MutationCtx, who: Who, installId: Id<
 
 /** The `skills.create` tool from chat: makes a skill as the person the agent is helping. */
 export const createFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), config: customConfig, audience: audienceArg },
+	args: { turnId: v.id("agentTurns"), config: customConfig, audience: v.union(v.literal("personal"), v.literal("team")) },
 	handler: async (ctx, { turnId, config, audience }) => {
-		const { member } = await runningTurn(ctx, turnId);
+		const { member, chat } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
-			const created = await createSkill(ctx, member, config, can(member, "skills.edit") ? audience : "personal");
-			return { created, name: normalizeCustomSkill(config).name };
+			const used = can(member, "skills.edit") ? audience : "personal";
+			if (used === "personal") await requirePersonalSkillChat(ctx, chat);
+			const created = await createSkill(ctx, member, config, used);
+			return { created, name: normalizeCustomSkill(config).name, audience: used,
+				...(audience === "team" && used === "personal" && { note: "Saved as Just me because your roles cannot edit team skills. Only you can see or use it." }),
+			};
 		});
 	},
 });
@@ -168,3 +172,8 @@ export const share = mutation({
 		await ctx.db.patch(install._id, { audience: "team", ownerId: undefined });
 	},
 });
+
+/** Personal write proposals must stay out of shared conversations. */
+export async function requirePersonalSkillChat(ctx: QueryCtx, chat: Doc<"chats">) {
+	if (!(await personalMemoryHere(ctx, chat))) throw new ConvexError("Create or edit personal skills in your DM with the agent, or in Settings → Skills. This chat is shared.");
+}

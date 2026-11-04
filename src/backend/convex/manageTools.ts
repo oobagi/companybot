@@ -6,7 +6,7 @@ import { addChannelMembers, markReadAs, createChannelAs, joinChannel, leaveChann
 import { chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
 import { automationName, automationScope, canView, definitionOf, installOf } from "./automationOps";
 import { removeAutomation, saveAutomation, updateAutomation } from "./automations";
-import { installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
+import { requirePersonalSkillChat, installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
 import { editMessage, hideMessagePreview, removeMessage, reactMessage, sendMessage } from "./messages";
 import { cancelMemberInvite, imageSettings, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
 import { canSeeSkill, accessOf, asToolResult, checkPermission, type Member, nameOf, rolesOf, normalizeEmail, preferencesOf, requireAgent, skillOf, timeZoneOf } from "./lib";
@@ -40,7 +40,7 @@ const participants = (ctx: MutationCtx, r: { userIds?: string[]; agentIds?: stri
 export const runFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), tool: v.string(), input: v.any() },
 	handler: async (ctx, { turnId, tool, input }): Promise<unknown> => {
-		const { who, turn } = await runningTurn(ctx, turnId);
+		const { who, turn, chat } = await runningTurn(ctx, turnId);
 		const { member } = who;
 		const agent = await ctx.db.get(turn.agentId);
 		if (!agent || agent.archived || !isGranted(agent.tools, tool)) throw new ConvexError("This agent no longer has that tool.");
@@ -218,6 +218,8 @@ export const runFor = internalMutation({
 				}
 				case "skills.edit": {
 					const r = manageInputs[tool].parse(input).request;
+					const install = await skillInstallOf(ctx, member.workspaceId, r.id);
+					if (install?.audience === "personal") await requirePersonalSkillChat(ctx, chat);
 					await saveSkill(ctx, member, { skillId: r.id, config: r.config, expectedVersion: r.expectedVersion });
 					return { done: r.action, id: r.id };
 				}

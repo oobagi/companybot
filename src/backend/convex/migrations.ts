@@ -173,6 +173,7 @@ export const customRolesConnectors = migrations.define({
 	},
 });
 
+// COMPAT(0.1.0-alpha.10): once this has run on prod, delete it and its test, and make audience required.
 export const skillAudience = migrations.define({
 	table: "skillInstalls",
 	migrateOne: async (ctx, row) => { if (!row.audience) await ctx.db.patch(row._id, { audience: "team" }); },

@@ -9,6 +9,7 @@ import { deleteFile } from "./images";
 import { hasLiveOwner, liveWorkspace } from "./lib";
 import { deletePage, pageOfRecord } from "./pageOps";
 import { forgetTrashEntry } from "./memoryOps";
+import { trashEntry } from "./trashOps";
 import { toField } from "./recordOps";
 
 // What happens to every table's rows when what they belong to goes: a workspace is deleted,
@@ -200,7 +201,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		member: {
 			index: "by_owner", eq: [["ownerId", "userId"], "workspaceId"],
 			onDelete: async (ctx, row) => {
-				const entry = await ctx.db.query("trash").withIndex("by_item", (q) => q.eq("itemId", row._id)).first();
+				const entry = await trashEntry(ctx, row._id);
 				if (entry) await ctx.db.delete(entry._id);
 			},
 		},

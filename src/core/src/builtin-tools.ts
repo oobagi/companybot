@@ -122,16 +122,16 @@ export const builtinTools: ToolDef[] = [
 		id: "skills.create",
 		title: "Create a skill",
 		description:
-			"Save a personal or team skill (defaults to personal without team edit access): instructions any agent here loads when a task calls for it. Only after the person confirmed the name, description, and instructions you showed them.",
+			"Save a personal or team skill. Ask the person which audience they want and confirm its name, description and instructions first. Personal creation requires a DM with only that person; in shared chats send them to their DM or Settings → Skills. Team requests become personal if their roles lack team editing; report the returned audience and note.",
 		input: z.object({
-			audience: z.enum(["personal", "team"]).optional().describe("Just me or Team"),
+			audience: z.enum(["personal", "team"]).describe("Just me or Team"),
 			name: z.string().describe(`Short display name, under ${SKILL_NAME_MAX} characters`),
 			description: z
 				.string()
 				.describe(`What it does and when to use it, in one line under ${SKILL_DESCRIPTION_MAX} characters. Agents see only this until they load it.`),
 			instructions: z.string().describe("The steps, rules, and examples, in Markdown, written to an agent"),
 		}),
-		// Every agent here reads skills, so a new one is checked by a person first.
+		// The person confirms the instructions before they become a reusable skill.
 		risk: "outside",
 		execute: (input, { skills }) => skills.create(input),
 	}),

@@ -77,7 +77,7 @@ function SkillFields({ value, onChange }: { value: SkillConfig; onChange: (value
 }
 
 function NewSkill({ access }: { access: Access }) {
-	const [audience, setAudience] = useState<"team" | "personal">(can(access, "skills.edit") ? "team" : "personal");
+	const [audience, setAudience] = useState<"team" | "personal">("personal");
 	const create = useMutation(api.skills.create);
 	const { error, run } = useRun();
 	const [config, setConfig] = useState<SkillConfig>({ name: "", description: "", instructions: "" });
@@ -89,8 +89,8 @@ function NewSkill({ access }: { access: Access }) {
 			error={error}
 			onCreate={() => run(create({ config, audience }).then((id) => navigate("settings", "skills", id)))}
 		>
-			<Field label="Who can use it">
-				<Select label="Who can use it" className={inputClass} value={audience}
+			<Field label="Runs for" hint={!can(access, "skills.edit") ? "This skill is just for you. Sharing with the team needs a role that can make and change team skills." : undefined}>
+				<Select label="Runs for" className={inputClass} value={audience}
 					options={[{ value: "personal", label: "Just me" }, ...(can(access, "skills.edit") ? [{ value: "team", label: "Team" }] : [])]}
 					onChange={(value) => setAudience(value as "personal" | "team")} />
 			</Field>
@@ -118,7 +118,7 @@ function CustomSkillDetail({ skill: s, custom, access }: { access: Access; skill
 			onSave={(config, expectedVersion) => save({ skillId: s.id, config, expectedVersion })}
 			fields={(value, onChange) => <SkillFields value={value} onChange={onChange} />}
 		>
-			<Facts rows={[["Audience", s.audience === "personal" ? "Just me" : "Team"]]} />
+			<Facts rows={[["Runs for", s.audience === "personal" ? "Just me" : "Team"]]} />
 			{s.audience === "personal" && !s.trash && can(access, "skills.edit") && (
 				<button className={secondaryButton} onClick={() => confirm({
 					title: "Share with team?", action: "Share with team", danger: false,
@@ -144,7 +144,7 @@ export function SkillScreen({ access, id }: { access: Access; id: string }) {
 		<Detail
 			tab="skills"
 			title={open.name}
-			meta="Team"
+			meta={`v${open.version}`}
 			description={open.description}
 			installed={open.installed}
 			trash={open.trash}
