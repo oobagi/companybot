@@ -8,7 +8,7 @@ import { api } from '@/lib/api';
 import { useMutation, useQuery } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
 import { useDraftGuard } from '@/lib/useDraftGuard';
-import { DirectoryHeader } from '@/components/navigation/DirectoryHeader';
+import { DirectoryHeader } from '@/features/session/DirectoryHeader';
 
 type Skill = FunctionReturnType<typeof api.skills.list>[number];
 export default function Skills() {

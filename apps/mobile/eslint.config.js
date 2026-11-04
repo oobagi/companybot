@@ -18,4 +18,15 @@ module.exports = defineConfig([
       }],
     },
   },
+  {
+    files: ['src/components/ui/**/*.{ts,tsx}', 'src/components/navigation/**/*.{ts,tsx}', 'src/design/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [{
+          group: ['@/features/*', '@/lib/api', '@/lib/convex', '@companybot/*', 'convex', 'convex/*'],
+          message: 'The component library accepts data and callbacks. Keep product features and server queries in feature adapters.',
+        }],
+      }],
+    },
+  },
 ]);

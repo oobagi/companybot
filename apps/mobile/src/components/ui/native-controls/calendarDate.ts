@@ -1,4 +1,4 @@
-/** Record dates are calendar days, never UTC instants. Local noon avoids DST midnight gaps. */
+/** Calendar days are not UTC instants. Local noon avoids DST midnight gaps. */
 export function calendarDateToLocal(value: string): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) return null;

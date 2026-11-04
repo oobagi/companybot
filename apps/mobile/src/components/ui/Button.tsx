@@ -1,16 +1,18 @@
 import type { ReactNode } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, type PressableProps, type StyleProp, type ViewStyle } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, type AccessibilityState, type PressableProps, type StyleProp, type ViewStyle } from 'react-native';
 import { useTheme } from '@/design';
 import { Text } from './Text';
 import { NativeButton } from './native-controls/NativeButton';
 
-export type ButtonProps = Omit<PressableProps, 'children' | 'style' | 'onPress'> & {
+/** Shared capabilities supported by SwiftUI, Compose and the web fallback. */
+export type ButtonProps = Pick<PressableProps, 'disabled' | 'accessibilityLabel' | 'accessibilityHint' | 'testID'> & {
   label: string;
   onPress?: () => void;
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
   loading?: boolean;
   leading?: ReactNode;
   style?: StyleProp<ViewStyle>;
+  accessibilityState?: Pick<AccessibilityState, 'busy' | 'selected'>;
 };
 
 export function Button({ label, variant = 'primary', loading = false, disabled, leading, style, accessibilityState, ...props }: ButtonProps) {

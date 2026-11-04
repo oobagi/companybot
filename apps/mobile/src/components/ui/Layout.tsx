@@ -31,27 +31,32 @@ export function Screen({ children, scroll = false, nativeScroll = false, keyboar
     top: overlay ? Math.max(0, Math.max(headerHeight, safe.top) - (edges.includes('top') ? safe.top : 0)) : 0,
     bottom: overlay && !edges.includes('bottom') ? safe.bottom : 0,
   };
-  const viewport = useScrollViewport(insets);
+  const { ref: viewportRef, onLayout: measureViewport, contentStyle: viewportContent } = useScrollViewport(insets);
   const scrolling = scroll || nativeScroll;
-  const content = [!scroll && styles.fill, padded && { padding: spacing.lg }, contentStyle, scroll && viewport.contentStyle];
+  const content = [!scroll && styles.fill, padded && { padding: spacing.lg }, contentStyle, scroll && viewportContent];
   return (
     <SafeAreaView collapsable={false} edges={edges} style={[styles.fill, { backgroundColor: colors.background }, style]}>
       <KeyboardAvoidingView collapsable={false} enabled={keyboard} behavior="padding" keyboardVerticalOffset={keyboardOffset ?? headerHeight} style={[styles.fill, !scrolling && { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <OverlayChromeContext.Provider value={false}><ScrollInsetsContext.Provider value={scrolling ? insets : { top: 0, bottom: 0 }}>
-          {scroll ? <ScrollView style={styles.fill} onLayout={viewport.onLayout} contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={content}>{children}</ScrollView> : <View collapsable={false} style={content}>{children}</View>}
+          {scroll ? <View ref={viewportRef} collapsable={false} style={styles.fill} onLayout={measureViewport}><ScrollView style={styles.fill} contentInsetAdjustmentBehavior="automatic" automaticallyAdjustContentInsets={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={content}>{children}</ScrollView></View> : <View collapsable={false} style={content}>{children}</View>}
         </ScrollInsetsContext.Provider></OverlayChromeContext.Provider>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
-/** A virtualized body using the same measured visible area as Screen scroll. */
-export function ScreenList<Item>({ contentContainerStyle, style, ...props }: FlatListProps<Item>) {
-  const viewport = useScrollViewport(useContext(ScrollInsetsContext));
+/** Screen owns overlay measurements; this list owns native inset adjustment. */
+export type ScreenListProps<Item> = Omit<FlatListProps<Item>, 'contentInset' | 'contentInsetAdjustmentBehavior' | 'automaticallyAdjustContentInsets' | 'automaticallyAdjustsScrollIndicatorInsets' | 'scrollIndicatorInsets'>;
+
+/** A virtualized body using the same measured visible area as Screen scroll.
+ * Use FlatList directly for custom/manual insets instead of mixing inset owners. */
+export function ScreenList<Item>({ contentContainerStyle, style, ...props }: ScreenListProps<Item>) {
+  const insets = useContext(ScrollInsetsContext);
+  const { ref: viewportRef, onLayout: measureViewport, contentStyle: viewportContent } = useScrollViewport(insets);
   // RN 0.88 also calls FlatList's onLayout for its empty child. Measure a separate
   // native container so child sizing cannot feed back into the viewport height.
-  return <View collapsable={false} style={styles.fill} onLayout={viewport.onLayout}>
-    <FlatList contentInsetAdjustmentBehavior="automatic" {...props} style={[styles.fill, style]} contentContainerStyle={[contentContainerStyle, viewport.contentStyle]} />
+  return <View ref={viewportRef} collapsable={false} style={styles.fill} onLayout={measureViewport}>
+    <FlatList {...props} contentInsetAdjustmentBehavior="automatic" automaticallyAdjustContentInsets={false} automaticallyAdjustsScrollIndicatorInsets contentInset={undefined} scrollIndicatorInsets={undefined} style={[styles.fill, style]} contentContainerStyle={[contentContainerStyle, viewportContent]} />
   </View>;
 }
 

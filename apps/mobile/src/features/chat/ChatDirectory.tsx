@@ -10,7 +10,7 @@ import { api } from '@/lib/api';
 import { useMutation, useQuery } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
 import { useDraftGuard } from '@/lib/useDraftGuard';
-import { DirectoryHeader } from '@/components/navigation/DirectoryHeader';
+import { DirectoryHeader } from '@/features/session/DirectoryHeader';
 import { ActiveThreads } from './ActiveThreads';
 import { Dialog } from './Dialog';
 import { chatTitle } from './types';

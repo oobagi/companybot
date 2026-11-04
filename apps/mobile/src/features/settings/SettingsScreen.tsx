@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { DirectoryHeader } from '@/components/navigation/DirectoryHeader';
+import { DirectoryHeader } from '@/features/session/DirectoryHeader';
 import { NativeSettings } from './NativeSettings';
 import { useAuthActions } from '@convex-dev/auth/react';
 import { useNotifications } from '@/lib/notifications/NotificationsProvider';

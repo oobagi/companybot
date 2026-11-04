@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Platform } from 'react-native';
 import { router, Stack as RouterStack } from 'expo-router';
-import { DirectoryHeader } from '@/components/navigation/DirectoryHeader';
+import { DirectoryHeader } from '@/features/session/DirectoryHeader';
 import { Badge, Button, EmptyState, ErrorState, ListRow, Loading, Screen, ScreenList, Stack, Text } from '@/components/ui';
 import { ActionMenu } from '@/components/ui/ActionMenu';
 import { OverlayChromeContext } from '@/components/ui/scrollViewport';

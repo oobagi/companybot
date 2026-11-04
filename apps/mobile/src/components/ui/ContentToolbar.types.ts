@@ -13,8 +13,10 @@ export type ContentToolbarAction = {
   disabled?: boolean;
 };
 
-/** A small set of editing actions. The containing screen owns keyboard and safe-area placement. */
+/** Native platforms show the first three actions directly and the rest in a menu.
+ * The containing screen owns keyboard and safe-area placement. */
 export type ContentToolbarProps = {
+  /** Ordered by priority; ids must be unique. Web renders wrapping text buttons. */
   actions: readonly ContentToolbarAction[];
   status?: string;
   busy?: boolean;

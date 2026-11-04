@@ -1,6 +1,6 @@
 import { ReorderSheet } from '@/features/arrangements/ReorderSheet';
 import { useArrangements } from '@/features/arrangements/useArrangements';
-import { DirectoryHeader } from '@/components/navigation/DirectoryHeader';
+import { DirectoryHeader } from '@/features/session/DirectoryHeader';
 import { can } from '@companybot/core/permissions';
 import type { Id } from '@companybot/backend/convex/_generated/dataModel';
 import { router } from 'expo-router';

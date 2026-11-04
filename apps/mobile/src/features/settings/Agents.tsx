@@ -10,7 +10,7 @@ import { useMutation, useQuery } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
 import { useDraftGuard } from '@/lib/useDraftGuard';
 import { ImageControl } from './customize/ImageControl';
-import { DirectoryHeader } from '@/components/navigation/DirectoryHeader';
+import { DirectoryHeader } from '@/features/session/DirectoryHeader';
 
 type Agent = FunctionReturnType<typeof api.agents.list>[number];
 export default function Agents() {

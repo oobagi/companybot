@@ -13,7 +13,7 @@ import { useTask } from '@/lib/useTask';
 import { useDraftGuard } from '@/lib/useDraftGuard';
 import { PendingWakeups } from './customize/PendingWakeups';
 import { ScheduleEditor } from './customize/ScheduleEditor';
-import { DirectoryHeader } from '@/components/navigation/DirectoryHeader';
+import { DirectoryHeader } from '@/features/session/DirectoryHeader';
 
 type Automation = FunctionReturnType<typeof api.automations.list>[number];
 type Channel = { _id: Id<'chats'>; title: string };

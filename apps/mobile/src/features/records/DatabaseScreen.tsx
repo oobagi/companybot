@@ -2,7 +2,7 @@ import { ReorderSheet } from '@/features/arrangements/ReorderSheet';
 import { usePinAction } from '@/features/pins/usePins';
 import { useDraftGuard } from '@/lib/useDraftGuard';
 import { useArrangements } from '@/features/arrangements/useArrangements';
-import { DirectoryHeader } from '@/components/navigation/DirectoryHeader';
+import { DirectoryHeader } from '@/features/session/DirectoryHeader';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { Board } from './Board';

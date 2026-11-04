@@ -2,6 +2,7 @@ import { createContext, useContext, useState, type ReactNode } from 'react';
 import { Platform, Pressable, ScrollView, Switch, View, useWindowDimensions } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import { BottomSheet } from '@expo/ui/community/bottom-sheet';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from './Button';
 import { Field } from './Field';
 import { Screen, Stack } from './Layout';
@@ -15,11 +16,16 @@ const SheetContext = createContext<{ busy: boolean } | null>(null);
 
 export function EditorSheet({ title, children, onClose, onDismiss, open = true, busy = false, dismissible = true, size = 'large', scroll = true }: { title: string; children: ReactNode; onClose: () => void; onDismiss?: () => void; open?: boolean; busy?: boolean; dismissible?: boolean; size?: 'large' | 'content'; scroll?: boolean }) {
   const { colors, spacing } = useTheme();
+  const { height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const header = <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.sm }}><SheetHeader title={title} onClose={onClose} busy={busy} /></View>;
   // Native onClose fires after dismissal. Guarded drafts must use the Close button so their
   // confirmation runs while the sheet is still visible, and cancelling keeps their edits intact.
   return <BottomSheet index={open ? 0 : -1} snapPoints={size === 'large' ? ['90%'] : undefined} enableDynamicSizing={size === 'content'} enablePanDownToClose={dismissible && !busy} backgroundStyle={{ backgroundColor: colors.background }} onClose={() => { if (!busy) onClose(); }} onDismiss={onDismiss}><SheetContext.Provider value={{ busy }}>
-    {size === 'content' ? <View>{header}<Stack style={{ padding: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.xl }}>{children}</Stack></View> : <Screen padded={false} edges={['left', 'right', 'bottom']}>
+    {size === 'content' ? <View style={{ maxHeight: Math.max(0, height - insets.top - insets.bottom - spacing.xl) }}>{header}
+      {scroll ? <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} nestedScrollEnabled keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets contentContainerStyle={{ padding: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.xl }}><Stack>{children}</Stack></ScrollView>
+        : <Stack style={{ padding: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.xl }}>{children}</Stack>}
+    </View> : <Screen padded={false} edges={['left', 'right', 'bottom']}>
       {header}
       {scroll ? <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets contentContainerStyle={{ flexGrow: 1, padding: spacing.lg, paddingTop: spacing.sm }}>
         <Stack style={{ flexGrow: 1 }}>{children}</Stack>

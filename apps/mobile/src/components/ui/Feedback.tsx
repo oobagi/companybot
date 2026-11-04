@@ -24,9 +24,10 @@ export function Loading({ label = 'Loading…', layout = 'screen', style, ...pro
   return <View {...props} accessibilityState={{ busy: true }} accessibilityLabel={label} accessible style={[{ flexGrow: layout === 'screen' ? 1 : 0, flexDirection: layout === 'screen' ? 'column' : 'row', alignItems: 'center', justifyContent: 'center', padding: layout === 'screen' ? spacing.xl : spacing.md, gap: spacing.sm }, style]}><ActivityIndicator color={colors.muted} /><Text variant="caption" tone="muted" style={{ textAlign: 'center', flexShrink: 1 }}>{label}</Text></View>;
 }
 
-export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+export function ErrorState({ message, onRetry, layout = 'inline', style, ...props }: FeedbackProps & { message: string; onRetry?: () => void }) {
   const { colors, radii, spacing } = useTheme();
-  return <View style={{ gap: spacing.md, padding: spacing.lg, borderRadius: radii.md, backgroundColor: colors.dangerSurface }}>
+  if (layout === 'screen') return <EmptyState {...props} title="Something went wrong" description={message} style={style} accessibilityRole="alert" accessibilityLiveRegion="polite" action={onRetry && <Button label="Try again" variant="secondary" onPress={onRetry} />} />;
+  return <View {...props} style={[{ gap: spacing.md, padding: spacing.lg, borderRadius: radii.md, backgroundColor: colors.dangerSurface }, style]}>
     <Text accessibilityRole="alert" accessibilityLiveRegion="polite" tone="danger">{message}</Text>
     {onRetry && <Button label="Try again" variant="secondary" onPress={onRetry} />}
   </View>;
