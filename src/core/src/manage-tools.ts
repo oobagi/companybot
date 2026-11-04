@@ -33,7 +33,7 @@ export const manageInputs = {
 			z.strictObject({ action: z.literal("open_dm"), userIds: userIds.describe("Others in the DM; your person is always added. With nobody else, it's your own DM with them"), agentIds }),
 			z.strictObject({
 				action: z.literal("send"),
-				chat: id.describe("Chat id or #channel"),
+				chat: id.describe("Chat id or #channel: another one, never the one you're replying in (your reply posts there)"),
 				threadId: id.optional().describe("Top-level message id, to reply in its thread"),
 				text: z.string().min(1).max(20_000),
 				userIds: userIds.optional().describe("People to @mention"),
@@ -169,6 +169,12 @@ function manageLabel(input: unknown): string | undefined {
 	}
 }
 
+function sentMessage(output: unknown): { chatId: string; messageId: string; kind?: "message" } | undefined {
+	const o = output && typeof output === "object" ? (output as { messageId?: unknown; chatId?: unknown; threadId?: unknown }) : {};
+	if (typeof o.messageId !== "string" || typeof o.chatId !== "string") return undefined;
+	return typeof o.threadId === "string" ? { chatId: o.chatId, messageId: o.threadId } : { chatId: o.chatId, messageId: o.messageId, kind: "message" };
+}
+
 export const manageTools: ToolDef[] = (Object.keys(manageInputs) as ManageTool[]).map((id) =>
 	defineTool<unknown>({
 		id,
@@ -186,5 +192,7 @@ export const manageTools: ToolDef[] = (Object.keys(manageInputs) as ManageTool[]
 		}),
 		execute: (input, { manage }) => manage.run(id, input),
 		label: manageLabel,
+		// A sent message: its line jumps to it (in its thread, when it went in one).
+		...(id === "chat.manage" && { opens: sentMessage }),
 	}),
 );
