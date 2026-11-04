@@ -13,12 +13,12 @@ People whose role can invite enter an email, pick one or more roles (Member to s
 ## Roles
 Each workspace has its own roles, listed under Roles in [Members](#/settings/members). A person can hold several and can do anything **any** of their roles allows.
 - **Owner**: can do everything, always. It can't be changed or deleted, and every workspace keeps at least one owner. Only owners give or take Owner.
-- **Member**: what new people get. Owners can change its switches.
+- **Member**: what new people get. Owners can change its switches; anything they leave alone follows the default below, including switches added in later updates.
 - **Your own roles**: owners can add more (like Office or Crew), rename them and delete them. Deleting one takes it from everyone; anyone left without a role gets Member.
 
 Each role is a list of switches, each one thing a person may do:
 
-| Switch | Member starts with it |
+| Switch | Member, unless an owner changed it |
 |---|---|
 | Change workspace settings (name, logo, currency, memory) | no |
 | Invite and remove people and change their roles | no |
@@ -33,6 +33,7 @@ Each role is a list of switches, each one thing a person may do:
 | Write and change pages | yes |
 | Add and change databases and fields | yes |
 | Make and change channels | yes |
+| Stop agents working for someone else | no |
 | Delete things forever from Archive | no |
 | See the whole workspace's AI usage | no |
 

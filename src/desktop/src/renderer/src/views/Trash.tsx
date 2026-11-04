@@ -10,7 +10,7 @@ import { useConfirm } from "./chat/common";
 import { EmptyState, LoadMore, NoMatches, Notice, Page, listClass, metadataClass, timeAgo, toolbarClass, useDebounced, useRun, wideControlClass } from "../ui";
 import { recordPath, whoLabel } from "./records/logic";
 
-// Archive keeps content indefinitely. Owners can explicitly delete forever.
+// Archive keeps content indefinitely. Roles with trash.manage can explicitly delete forever.
 // The existing trash API/storage remains compatible with installed clients.
 
 type TrashRow = FunctionReturnType<typeof api.trash.list>["page"][number];

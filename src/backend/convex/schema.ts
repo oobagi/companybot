@@ -240,8 +240,12 @@ export default defineSchema({
 	roles: defineTable({
 		workspaceId: v.id("workspaces"),
 		name: v.string(),
-		/** Its switches. Ignored for Owner, which has every permission. */
-		permissions: v.array(permission),
+		/**
+		 * Stored switches (core `roleSwitches`). Member: only what an owner flipped from each
+		 * permission's default, so new permissions arrive as their default. Custom roles: what's on
+		 * (absent is off). Owner: none; it has everything.
+		 */
+		switches: v.array(v.object({ permission, on: v.boolean() })),
 		builtIn: v.optional(oneOf(builtInRoles)),
 	}).index("by_workspace", ["workspaceId"]),
 
@@ -381,7 +385,7 @@ export default defineSchema({
 		.index("by_workspace", ["workspaceId"])
 		.index("by_created", ["createdAt"]),
 
-	// Connectors: an owner installs one and picks which roles may use it. Owners always can.
+	// Connectors: someone with connectors.manage installs one and picks which roles may use it. Owners always can.
 	connectorInstalls: defineTable({
 		workspaceId: v.id("workspaces"),
 		connectorId: v.string(),
@@ -629,7 +633,7 @@ export default defineSchema({
 		// Retired: welcomes were agent turns; now they're fixed text (onboarding.ts). migrations.clearTurnWelcome clears it.
 		// COMPAT(0.1.0-alpha.9): once that has run on prod, drop this field, the migration and its test.
 		welcome: v.optional(v.union(v.literal("new_workspace"), v.literal("joined"))),
-		/** The agent acts as this person: their role, connector connections, and access. */
+		/** The agent acts as this person: their roles, connector connections, and access. */
 		actorId: v.id("users"),
 		/** The streaming reply, once running. */
 		replyId: v.optional(v.id("chatMessages")),
@@ -1180,7 +1184,7 @@ export default defineSchema({
 		.index("by_chat", ["chatId"]),
 
 	// What's in Archive: one row per deleted record, database, field, page, channel, agent, or skill or automation people made (trash.ts).
-	// The item itself stays, `archived`, until it's restored or deleted for good: by an owner,
+	// The item itself stays, `archived`, until it's restored or deleted for good: by `trash.manage`,
 	// or after TRASH_DAYS by `trash.sweep`. See wiki/data.md#trash.
 	trash: defineTable({
 		workspaceId: v.id("workspaces"),

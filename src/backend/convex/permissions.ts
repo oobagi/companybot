@@ -20,7 +20,7 @@ import { type MutationCtx, type QueryCtx, internalQuery } from "./_generated/ser
 import { mutation, query } from "./functions";
 import { type Member, getMember, memberFor, nameOf, requireInWorkspace, requireMember, requirePermission } from "./lib";
 import { automationName, automationScope } from "./automationOps";
-import { installOf } from "./connectors";
+import { allowedRoles, installOf } from "./connectors";
 import { riskOf, titleOf, toolsOf } from "./connectorTools";
 import { risk } from "./schema";
 import { runningTurn } from "./turns";
@@ -138,7 +138,7 @@ export async function setRule(
 ) {
 	const install = await connectorInstallOf(ctx, member.workspaceId, action);
 	if (install === null) throw new ConvexError("Install the connector first.");
-	if (install && !canUseConnector(member, install.roles)) throw new ConvexError("None of your roles can use this connector. Ask an owner.");
+	if (install && !canUseConnector(member, allowedRoles(member, install))) throw new ConvexError("None of your roles can use this connector. Ask someone who installs connectors to allow one.");
 	if (install === undefined && !builtinTools.some((t) => t.id === action)) throw new ConvexError("Unknown action.");
 	const scope = install?._id;
 	const risk = callRisk ?? (await riskOf(ctx, member.workspaceId, action));

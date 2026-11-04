@@ -509,7 +509,7 @@ async function streamReply(
 					await logCall(part.toolCallId, { error: part.error instanceof Error ? part.error.message : String(part.error) });
 				} else if (part.type === "tool-output-denied") {
 					// Held in an automation's run: a card, while the run goes on. Otherwise blocked by a
-					// Never or an owner's lock: it didn't run, and the model was told why.
+					// Never or a workspace lock: it didn't run, and the model was told why.
 					if (heldCalls.has(part.toolCallId)) await hold(part.toolCallId, part.toolName, callInputs.get(part.toolCallId));
 					else {
 						setTool(part.toolCallId, part.toolName, "error");

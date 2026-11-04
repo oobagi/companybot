@@ -73,7 +73,7 @@ export interface TurnPromptInput {
 	actor: { id: string; name: string; email: string; roles: string[]; timeZone: string };
 	/** When the turn runs, epoch ms. Chat lines carry no year, so this says what "now" is. */
 	now: number;
-	/** "personal" only in a DM with exactly one person; "off" when an owner turned memory off. */
+	/** "personal" only in a DM with exactly one person; "off" when memory is turned off for the workspace. */
 	memory: "personal" | "team" | "off";
 	/** Services the agent can reach this turn through connectors_search, and ones that failed to connect. */
 	connectors: { connected: { name: string; description: string }[]; unavailable: string[] };

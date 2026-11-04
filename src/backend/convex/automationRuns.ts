@@ -5,7 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { mutation } from "./functions";
 import { addToChat, canSee, findOrCreateDm, insertMessage } from "./chatOps";
-import { type Member, liveWorkspace, memberOf, nameOf, normalizeEmail, requireMember, rolesOf, sweepExpired } from "./lib";
+import { type Member, accessOf, liveWorkspace, memberOf, nameOf, normalizeEmail, requireMember, rolesOf, sweepExpired } from "./lib";
 import { definitionOf, followsOthers, postingProblem, requireEditable, scheduleCursor, subscribersOf } from "./automationOps";
 import { enqueueTurn } from "./turns";
 
@@ -245,15 +245,15 @@ async function runInChannel(
 	const problem = await postingProblem(ctx, install.custom?.trigger, chat._id);
 	if (problem) return { ran: false, summary: await finish(ctx, install, `Didn't run: ${problem}`) };
 	const preferred = install.custom ? install.installedBy : (install.channelSetBy ?? install.installedBy);
-	const ownerRole = install.custom ? null : (await rolesOf(ctx, install.workspaceId)).find((r) => r.builtIn === "owner");
-	const owners = !ownerRole
+	const roles = await rolesOf(ctx, install.workspaceId);
+	const owners = install.custom
 		? []
 		: (
 				await ctx.db
 					.query("members")
 					.withIndex("by_workspace", (q) => q.eq("workspaceId", install.workspaceId))
 					.collect()
-			).filter((m) => m.roles?.includes(ownerRole._id) && m.userId !== preferred);
+			).filter((m) => accessOf(roles, m).owner && m.userId !== preferred);
 	// Each read through memberOf, so a workspace being deleted has nobody to act as.
 	let actorId: Id<"users"> | null = null;
 	for (const userId of [preferred, ...owners.map((m) => m.userId)]) {

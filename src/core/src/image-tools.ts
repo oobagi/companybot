@@ -2,9 +2,9 @@ import { z } from "zod";
 import { monthLabel, formatUsd } from "./usage";
 import { type ToolDef, defineTool, resultText } from "./tools";
 
-/** What a workspace may spend on pictures a month, in USD, until an owner sets it. 0 turns pictures off. */
+/** What a workspace may spend on pictures a month, in USD, until someone with workspace.manage sets it. 0 turns pictures off. */
 export const IMAGE_BUDGET_DEFAULT_USD = 20;
-/** The most an owner can set: a typo shouldn't open the tap. */
+/** The most anyone can set: a typo shouldn't open the tap. */
 export const IMAGE_BUDGET_MAX_USD = 10_000;
 /**
  * What one picture is counted as when the gateway reports no cost and the model lists no price (token-priced

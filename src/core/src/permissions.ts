@@ -1,18 +1,20 @@
-import type { Access } from "./types";
+import type { Access, BuiltInRole } from "./types";
 
 export type { Access, BuiltInRole, RoleInfo } from "./types";
 
 /**
  * Every workspace-level action. Roles are workspace data (`roles` table): the built-in Owner can
- * do everything; every other role is a list of these switches, and someone holding several roles
+ * do everything; every other role is a set of these switches, and someone holding several roles
  * gets every switch any of them has. The backend checks with `requirePermission`.
  *
  * `label` finishes "Only people with … can …" and names the switch in Settings → Members → Roles.
- * `member`: whether the built-in Member role starts with it (new workspaces and the migration).
+ * `member`: the built-in Member role's default. Member stores only the switches an owner flipped
+ * (`roleSwitches`), so a new permission reaches every workspace's Member as its default, with no
+ * migration. Default anything sensitive (money, people, settings, deleting for good) to false.
+ * Custom roles store what's on; a new permission starts off for them.
  * `ownerOnly`: never a switch; only the Owner role has it.
  *
- * Add a permission here before adding a feature that needs one. Existing workspaces' roles don't
- * get a new switch on their own: if Member should start with it, add a migration (wiki/extending.md).
+ * Add a permission here before adding a feature that needs one (wiki/extending.md).
  */
 export const permissions = {
 	"workspace.manage": { label: "change workspace settings", member: false },
@@ -55,8 +57,26 @@ export type Permission = keyof typeof permissions;
 /** Switches a role can have, in the order Settings shows them. */
 export const switches = (Object.keys(permissions) as Permission[]).filter((p) => !("ownerOnly" in permissions[p]));
 
-/** What the built-in Member role starts with. */
+/** What the built-in Member role has until an owner flips something. */
 export const memberDefaults: Permission[] = switches.filter((p) => (permissions[p] as { member: boolean }).member);
+
+/** Switches a role stores: Member's flips from its defaults, a custom role's own (absent is off). */
+export type StoredSwitches = readonly { permission: Permission; on: boolean }[];
+
+/** A role's switch when it stores nothing for it: Member's default, otherwise off. */
+const baseline = (kind: BuiltInRole | undefined, p: Permission) => kind === "member" && memberDefaults.includes(p);
+
+/** What a role allows: Owner everything; others each switch's stored value, else its baseline. */
+export function roleSwitches(kind: BuiltInRole | undefined, stored: StoredSwitches): Permission[] {
+	if (kind === "owner") return [...switches];
+	return switches.filter((p) => stored.find((s) => s.permission === p)?.on ?? baseline(kind, p));
+}
+
+/** A role's stored switches after turning one on or off: only what differs from the baseline is kept. */
+export function flipSwitch(kind: BuiltInRole | undefined, stored: StoredSwitches, permission: Permission, on: boolean) {
+	const rest = stored.filter((s) => s.permission !== permission);
+	return on === baseline(kind, permission) ? rest : [...rest, { permission, on }];
+}
 
 export function can(who: Access, permission: Permission): boolean {
 	return who.owner || (!("ownerOnly" in permissions[permission]) && who.permissions.includes(permission));

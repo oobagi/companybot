@@ -1,24 +1,25 @@
-import { type BuiltInRole, memberDefaults, switches } from "@companybot/core";
+import { type BuiltInRole, flipSwitch, roleSwitches, switches } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
-import { type Member, builtInRole, getMember, hasLiveOwner, requireInWorkspace, requirePermission, rolesOf } from "./lib";
+import { type Member, accessOf, builtInRole, getMember, hasLiveOwner, requireInWorkspace, requirePermission, rolesOf } from "./lib";
 import { permission } from "./schema";
 
 // Roles (core permissions.ts): workspace data, so each company names its own ("Office", "Crew").
 // Owner and Member are built in. Owner has every permission and can't change; Member is what new
 // people get, and owners choose its switches like any other role's. Someone holding several roles
-// gets every switch any of them has. Only owners shape roles (`roles.manage`); people with
-// `members.manage` hand them out, except Owner.
+// gets every switch any of them has. Member stores only an owner's changes from each permission's
+// default, so new permissions reach it with no migration; custom roles store what's on. Only owners
+// shape roles (`roles.manage`); people with `members.manage` hand them out, except Owner.
 
 /** Bounded, since every permission check reads them all (lib.ts memberOf). */
 export const MAX_ROLES = 30;
 
 /** Owner and Member, for a new workspace (and migrations.customRoles for old ones). */
 export async function seedRoles(ctx: MutationCtx, workspaceId: Id<"workspaces">) {
-	const owner = await ctx.db.insert("roles", { workspaceId, name: "Owner", permissions: [], builtIn: "owner" });
-	const member = await ctx.db.insert("roles", { workspaceId, name: "Member", permissions: memberDefaults, builtIn: "member" });
+	const owner = await ctx.db.insert("roles", { workspaceId, name: "Owner", switches: [], builtIn: "owner" });
+	const member = await ctx.db.insert("roles", { workspaceId, name: "Member", switches: [], builtIn: "member" });
 	return { owner, member };
 }
 
@@ -28,14 +29,15 @@ export const list = query({
 	handler: async (ctx) => {
 		const member = await getMember(ctx);
 		if (!member) return null;
+		const roles = await rolesOf(ctx, member.workspaceId);
 		const held = new Map<Id<"roles">, number>();
 		for await (const row of ctx.db.query("members").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId)))
-			for (const id of row.roles ?? []) held.set(id, (held.get(id) ?? 0) + 1);
-		return (await rolesOf(ctx, member.workspaceId)).map((r) => ({
+			for (const id of accessOf(roles, row).roles) held.set(id, (held.get(id) ?? 0) + 1);
+		return roles.map((r) => ({
 			id: r._id,
 			name: r.name,
 			builtIn: r.builtIn ?? null,
-			permissions: r.builtIn === "owner" ? switches : r.permissions,
+			permissions: roleSwitches(r.builtIn, r.switches),
 			people: held.get(r._id) ?? 0,
 		}));
 	},
@@ -63,7 +65,7 @@ export const create = mutation({
 	handler: async (ctx, { name }): Promise<Id<"roles">> => {
 		const member = await requirePermission(ctx, "roles.manage");
 		if ((await rolesOf(ctx, member.workspaceId)).length >= MAX_ROLES) throw new ConvexError(`A workspace can have up to ${MAX_ROLES} roles.`);
-		return ctx.db.insert("roles", { workspaceId: member.workspaceId, name: await checkName(ctx, member.workspaceId, name), permissions: [] });
+		return ctx.db.insert("roles", { workspaceId: member.workspaceId, name: await checkName(ctx, member.workspaceId, name), switches: [] });
 	},
 });
 
@@ -76,15 +78,17 @@ export const rename = mutation({
 	},
 });
 
-/** Turns one switch on or off. One at a time, so two owners editing at once never undo each other. Applies at once, mid-reply too. */
+/**
+ * Turns one switch on or off. One at a time, so two owners editing at once never undo each other.
+ * Applies at once, mid-reply too. Member keeps only differences from the defaults (core `flipSwitch`).
+ */
 export const setPermission = mutation({
 	args: { id: v.id("roles"), permission, on: v.boolean() },
 	handler: async (ctx, args) => {
 		const member = await requirePermission(ctx, "roles.manage");
 		const role = await requireEditable(ctx, member, args.id);
 		if (!switches.includes(args.permission)) throw new ConvexError("Only owners can do that; it isn't a switch.");
-		const rest = role.permissions.filter((p) => p !== args.permission);
-		await ctx.db.patch(role._id, { permissions: args.on ? [...rest, args.permission] : rest });
+		await ctx.db.patch(role._id, { switches: flipSwitch(role.builtIn, role.switches, args.permission, args.on) });
 	},
 });
 
@@ -136,7 +140,7 @@ export const builtInId = async (ctx: QueryCtx, workspaceId: Id<"workspaces">, wh
  */
 export async function setMemberRoles(ctx: MutationCtx, member: Member, row: Doc<"members">, ids: Id<"roles">[]) {
 	const owner = await builtInId(ctx, member.workspaceId, "owner");
-	const wasOwner = !!row.roles?.includes(owner);
+	const wasOwner = accessOf(await rolesOf(ctx, member.workspaceId), row).owner;
 	if (wasOwner && !member.owner) throw new ConvexError("Only owners can change an owner's roles.");
 	const picked = await checkRoles(ctx, member, ids);
 	if (wasOwner && !picked.includes(owner) && !(await hasLiveOwner(ctx, member.workspaceId, row.userId))) throw new ConvexError("A workspace needs at least one owner.");

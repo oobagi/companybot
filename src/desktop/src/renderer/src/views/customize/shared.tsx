@@ -1,4 +1,7 @@
+import { deniedMessage } from "@companybot/core/permissions";
 import { Fragment, useState } from "react";
+import { api } from "../../api";
+import { useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { AgentIcon, AutomationIcon, ConnectorIcon, SkillIcon, ArchiveIcon } from "../../icons";
 import { ConflictNotice, type Crumb, EmptyState, NotFound, Notice, Page, SaveBar, barButton, cardClass, descriptionClass, disabledButtonClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
@@ -7,7 +10,7 @@ import { Confirm, archiveQuestion, useConfirm } from "../chat/common";
 
 /** Each tab's description shows in the top bar. */
 export const customizeTabs = [
-	{ id: "agents", label: "Agents", one: "Agent", icon: AgentIcon, description: "What each agent knows and can do. Only owners can change agents." },
+	{ id: "agents", label: "Agents", one: "Agent", icon: AgentIcon, description: "What each agent knows and can do. Changing them takes a role that can change agents." },
 	{ id: "connectors", label: "Connectors", one: "Connector", icon: ConnectorIcon, description: "Connect outside services like Gmail or Calendar. Agents granted a connector use it for the person they're helping." },
 	{ id: "skills", label: "Skills", one: "Skill", icon: SkillIcon, description: "Instructions your agents load when a task calls for them. Agents see each skill's description, and read the rest only when they need it." },
 	{ id: "automations", label: "Automations", one: "Automation", icon: AutomationIcon, description: "Jobs that run on their own: on a schedule, when something happens here, or when another app sends a webhook. Each one asks an agent to do something." },
@@ -101,7 +104,7 @@ function InstallButton({
 		<button
 			type="button"
 			disabled={!canManage || busy}
-			title={canManage ? (installed ? "Remove" : undefined) : "Only owners can install"}
+			title={canManage ? (installed ? "Remove" : undefined) : "None of your roles can install this"}
 			onClick={onToggle}
 			className={`shrink-0 rounded-full px-3 py-1 text-sm ${disabledButtonClass} ${
 				installed ? "border border-neutral-200 text-neutral-600" : "bg-neutral-900 text-white"
@@ -227,7 +230,7 @@ export function MadeItemDetail<T>({
 			{trash && <TrashNotice trash={trash} />}
 			<ConflictNotice draft={draft} who={custom.updatedByName} />
 			<Notice>{error}</Notice>
-			{!canEdit && <p className={descriptionClass}>Only the person who made it or an owner can change it.</p>}
+			{!canEdit && <CantEdit tab={tab} />}
 			<fieldset disabled={!editable} className="flex flex-col gap-5">
 				{fields(draft.value, draft.set)}
 			</fieldset>
@@ -259,4 +262,12 @@ export function Facts({ rows }: { rows: [string, string][] }) {
 			))}
 		</dl>
 	);
+}
+
+/** Why you can't change a skill or team automation, naming the roles that can (personal automations never show here: only their maker sees them). */
+function CantEdit({ tab }: { tab: MadeTab }) {
+	const roles = useQuery(api.roles.list);
+	if (!roles) return null;
+	const message = deniedMessage(tab === "skills" ? "skills.edit" : "automations.edit", roles.map((r) => ({ name: r.name, owner: r.builtIn === "owner", permissions: r.permissions })));
+	return <p className={descriptionClass}>{message}</p>;
 }

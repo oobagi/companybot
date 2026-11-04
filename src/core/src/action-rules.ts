@@ -6,7 +6,7 @@
  *   write (`permissionFor`'s `foreign`), where it asks like "outside".
  * - "outside": asks first (sends, calls, connector writes). A person can set it to Always.
  * - "locked": always asks; "Always allow" isn't offered (payments, deleting records, bulk sends).
- *   Owners can lift the lock (see `permissionFor`).
+ *   People with actions.lock can lift the lock (see `permissionFor`).
  */
 export const risks = ["none", "inside", "outside", "locked"] as const;
 export type Risk = (typeof risks)[number];
@@ -48,7 +48,7 @@ export type PermissionDecision =
 	| { type: "deny"; by: "role"; message: string };
 
 /**
- * Whether a call runs, asks, or is blocked. Strictest wins: an owner's lock beats a
+ * Whether a call runs, asks, or is blocked. Strictest wins: a workspace lock beats a
  * person's rule, and Never beats Ask, which beats Always. `rule` is the person's own; `automation`
  * is set when the person allowed this action for the automation this run belongs to.
  * `foreign`: the run follows instructions the person didn't write (see `Risk` "inside"); there,

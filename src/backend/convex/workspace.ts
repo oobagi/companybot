@@ -9,7 +9,7 @@ import { seedAgents } from "./agents";
 import { fieldsOf, typesOf } from "./recordOps";
 import { addToChat, ensureGeneral, latestMentionSince } from "./chatOps";
 import { sendInviteEmail } from "./invites";
-import { type Member, accessFrom, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, liveWorkspace, memberOf, nameOf, normalizeEmail, personOf, preferencesOf, requireMember, requirePermission, requireUserId, rolesOf, timeZoneOf } from "./lib";
+import { type Member, accessOf, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, liveWorkspace, memberOf, nameOf, normalizeEmail, personOf, preferencesOf, requireMember, requirePermission, requireUserId, rolesOf, timeZoneOf } from "./lib";
 import { cascading, startCascade } from "./cascade";
 import { imageUrl } from "./images";
 import { catalogImageModels, catalogModels, findImageModel, workspaceImageModel } from "./modelCatalog";
@@ -166,8 +166,11 @@ async function join(ctx: MutationCtx, invite: Doc<"invites">, userId: Id<"users"
 		throw new ConvexError("What you had in this workspace before is still being cleaned up. Try again in a few minutes.");
 	await ctx.db.delete(invite._id);
 	if (await memberOf(ctx, userId, invite.workspaceId)) return;
-	// An invite made before its workspace's roles moved (migrations.customRoles) gets Member.
-	const roles = invite.roles ?? [await builtInId(ctx, invite.workspaceId, "member")];
+	// Through `accessOf`, so an Owner invite made before the migration still makes an owner.
+	// COMPAT(0.1.0-alpha.10): a workspace migrations.customRoles hasn't reached yet gets its roles
+	// here (the migration skips it after); delete this line with that migration.
+	if ((await rolesOf(ctx, invite.workspaceId)).length === 0) await seedRoles(ctx, invite.workspaceId);
+	const roles = accessOf(await rolesOf(ctx, invite.workspaceId), invite).roles;
 	await ctx.db.insert("members", { workspaceId: invite.workspaceId, userId, roles, email: invite.email, tutorial: freshTutorial() });
 	const general = await ensureGeneral(ctx, invite.workspaceId, userId);
 	await addToChat(ctx, general, { userId });
@@ -214,9 +217,9 @@ export const mine = query({
 				id: invite._id,
 				workspace: workspace.name,
 				/** The names of the roles they'll have. */
-				roles: await roleNames(ctx, invite.workspaceId, invite.roles ?? []),
+				roles: await roleNames(ctx, invite.workspaceId, accessOf(roles, invite).roles),
 				// COMPAT(0.1.0-alpha.10): alpha.9 apps read `role`; delete it.
-				role: accessFrom(roles, invite.roles ?? []).owner ? ("owner" as const) : ("member" as const),
+				role: accessOf(roles, invite).owner ? ("owner" as const) : ("member" as const),
 				invitedBy: invite.invitedBy ? await nameOf(ctx, invite.invitedBy) : null,
 			});
 		}
@@ -271,7 +274,7 @@ export const team = query({
 		const members = await Promise.all(
 			rows.map(async (r) => {
 				const person = await personOf(ctx, r.userId);
-				const access = accessFrom(roles, r.roles ?? []);
+				const access = accessOf(roles, r);
 				return {
 					id: r._id,
 					userId: r.userId,
@@ -297,7 +300,7 @@ export const team = query({
 							.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
 							.collect()
 					).map((i) => {
-						const access = accessFrom(roles, i.roles ?? []);
+						const access = accessOf(roles, i);
 						// COMPAT(0.1.0-alpha.10): alpha.9 apps read `role`; delete it.
 						return { id: i._id, email: i.email, roles: access.roles, role: access.owner ? ("owner" as const) : ("member" as const) };
 					})
@@ -486,7 +489,7 @@ export const setRole = mutation({
 		const row = await ctx.db.get(id);
 		if (!row || row.workspaceId !== member.workspaceId) throw new ConvexError("Member not found.");
 		const owner = await builtInId(ctx, member.workspaceId, "owner");
-		const rest = (row.roles ?? []).filter((r) => r !== owner);
+		const rest = accessOf(await rolesOf(ctx, member.workspaceId), row).roles.filter((r) => r !== owner);
 		const roles = role === "owner" ? [owner, ...rest] : rest.length > 0 ? rest : [await builtInId(ctx, member.workspaceId, "member")];
 		await setMemberRoles(ctx, member, row, roles);
 	},
@@ -494,7 +497,7 @@ export const setRole = mutation({
 
 /** Whether this membership holds the Owner role. */
 export async function ownsIn(ctx: QueryCtx, row: Doc<"members">) {
-	return accessFrom(await rolesOf(ctx, row.workspaceId), row.roles ?? []).owner;
+	return accessOf(await rolesOf(ctx, row.workspaceId), row).owner;
 }
 
 /** The names of these roles, in the workspace's order. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type Permission, can, canEditAutomation, canTrash, canUseConnector, deniedMessage, memberDefaults, permissions, switches } from "./permissions";
+import { type Permission, can, canEditAutomation, canTrash, canUseConnector, deniedMessage, flipSwitch, memberDefaults, permissions, roleSwitches, switches } from "./permissions";
 
 import { owner, member } from "../test/helpers";
 
@@ -17,6 +17,27 @@ describe("permissions", () => {
 		const both = { ...member, permissions: [...memberDefaults, "agents.manage" as const] };
 		expect(can(both, "agents.manage")).toBe(true);
 		expect(can(both, "records.edit")).toBe(true);
+	});
+
+	it("reads Member as each switch's default unless an owner flipped it, and custom roles as only what's on", () => {
+		expect(roleSwitches("owner", [])).toEqual(switches);
+		expect(roleSwitches("member", [])).toEqual(memberDefaults);
+		expect(roleSwitches(undefined, [])).toEqual([]);
+		const flipped = roleSwitches("member", [{ permission: "records.edit", on: false }, { permission: "usage.view", on: true }]);
+		expect(flipped).toContain("usage.view");
+		expect(flipped).not.toContain("records.edit");
+		expect(roleSwitches(undefined, [{ permission: "usage.view", on: true }])).toEqual(["usage.view"]);
+		// Only differences from the baseline are stored, so a default changed later still applies.
+		expect(flipSwitch("member", [], "records.edit", true)).toEqual([]);
+		expect(flipSwitch("member", [], "records.edit", false)).toEqual([{ permission: "records.edit", on: false }]);
+		expect(flipSwitch("member", [{ permission: "records.edit", on: false }], "records.edit", true)).toEqual([]);
+		expect(flipSwitch(undefined, [], "records.edit", false)).toEqual([]);
+		expect(flipSwitch(undefined, [], "records.edit", true)).toEqual([{ permission: "records.edit", on: true }]);
+	});
+
+	it("keeps sensitive switches off for Member by default", () => {
+		for (const p of ["workspace.manage", "members.manage", "agents.manage", "connectors.manage", "actions.lock", "trash.manage", "usage.view", "turns.stopAny"] as const)
+			expect(memberDefaults, p).not.toContain(p);
 	});
 
 	it("keeps owner-only actions out of the switches, even if a role lists one", () => {

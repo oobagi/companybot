@@ -79,7 +79,7 @@ export interface ImageModelInfo {
 	use?: string;
 }
 
-/** What workspaces make pictures with until an owner picks another. */
+/** What workspaces make pictures with until someone picks another in Settings → General. */
 export const defaultImageModel = "openai/gpt-image-2.5-flare";
 
 /**

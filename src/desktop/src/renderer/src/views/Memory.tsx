@@ -34,7 +34,7 @@ export function MemoryTab({ access }: { access: Access }) {
 		<>
 			{!settings.memory && (
 				<p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
-					Memory is turned off by an owner. Agents don't read or save memories until it's back on. Yours are kept, and you can
+					Memory is turned off for this workspace. Agents don't read or save memories until it's back on. Yours are kept, and you can
 					still edit or delete them here.
 				</p>
 			)}

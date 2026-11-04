@@ -89,11 +89,13 @@ function SubscribeButton({ automation: a, onError }: { automation: AutomationIte
 
 export function AutomationScreen({ access, id }: { access: Access; id: string }) {
 	const automations = useQuery(api.automations.list);
-	if (id === "new") return <NewAutomation />;
+	// Anyone can make one just for themselves; sharing it with the team takes the switch.
+	const team = can(access, "automations.edit");
+	if (id === "new") return <NewAutomation team={team} />;
 	const automation = automations?.find((a) => a.id === id);
 	if (!automation) return <Missing tab="automations" loaded={!!automations} />;
-	if (automation.custom) return <CustomAutomationDetail automation={automation} custom={automation.custom} />;
-	return <AutomationDetail automation={automation} canManage={can(access, "automations.edit")} />;
+	if (automation.custom) return <CustomAutomationDetail automation={automation} custom={automation.custom} team={team} />;
+	return <AutomationDetail automation={automation} canManage={team} />;
 }
 
 const defaultSchedule = { type: "schedule" as const, cron: DEFAULT_CRON };
@@ -165,7 +167,7 @@ function AutomationFields({
 									label="Channel"
 									value={trigger.channelId}
 									options={[
-										// One it already watches that you can't see (an owner editing someone's): keep it selectable.
+										// One it already watches that you can't see (someone with automations.edit editing another's): keep it selectable.
 										...(channels.some((c) => c._id === trigger.channelId) ? [] : [{ value: trigger.channelId, label: "a channel you're not in" }]),
 										...channels.map((c) => ({ value: c._id as string, label: `#${c.title}` })),
 									]}
@@ -193,12 +195,13 @@ function AutomationFields({
 	);
 }
 
-/** Who it runs for: just its creator, people who turn it on, or a channel. */
+/** Who it runs for: just its creator, people who turn it on, or a channel. `team`: whether the last two are offered. */
 function RunsForSelect({
 	audience,
 	channelId,
 	channels,
 	allowCreator,
+	team,
 	disabled,
 	onChange,
 	extraChannel,
@@ -207,12 +210,15 @@ function RunsForSelect({
 	channelId: string | null;
 	channels: Channel[];
 	allowCreator: boolean;
+	team: boolean;
 	disabled?: boolean;
 	onChange: (audience: Audience, channelId?: Id<"chats">) => void;
 	/** The current channel if it isn't in the list (deleted, or you left it). */
 	extraChannel?: { id: string; label: string };
 }) {
 	const value = audience === "channel" ? (channelId ?? "") : audience;
+	// One that's already shared keeps showing where it goes, even to someone who can't change it.
+	const shared = team || audience !== "creator";
 	return (
 		<Select
 			label="Runs for"
@@ -221,16 +227,20 @@ function RunsForSelect({
 			value={value}
 			options={[
 				...(allowCreator ? [{ value: "creator", label: "Just me" }] : []),
-				{ value: "subscribers", label: "Anyone who turns it on" },
-				...(extraChannel ? [{ value: extraChannel.id, label: extraChannel.label, group: "Post in a channel" }] : []),
-				...channels.map((c) => ({ value: c._id as string, label: `#${c.title}`, group: "Post in a channel" })),
+				...(shared
+					? [
+							{ value: "subscribers", label: "Anyone who turns it on" },
+							...(extraChannel ? [{ value: extraChannel.id, label: extraChannel.label, group: "Post in a channel" }] : []),
+							...channels.map((c) => ({ value: c._id as string, label: `#${c.title}`, group: "Post in a channel" })),
+						]
+					: []),
 			]}
 			onChange={(v) => (v === "creator" || v === "subscribers" ? onChange(v) : onChange("channel", v as Id<"chats">))}
 		/>
 	);
 }
 
-function NewAutomation() {
+function NewAutomation({ team }: { team: boolean }) {
 	const create = useMutation(api.automations.create);
 	const agents = useQuery(api.agents.list)?.filter((x) => !x.archived);
 	const channels = useQuery(api.chats.list)?.channels ?? [];
@@ -243,7 +253,7 @@ function NewAutomation() {
 	if (!agent)
 		return (
 			<Page title="New automation" crumbs={customizeCrumbs("automations")}>
-				<Notice>Automations need an agent to run them. Ask an owner to create one in Agents.</Notice>
+				<Notice>Automations need an agent to run them. Ask someone whose role can change agents to create one in Agents.</Notice>
 			</Page>
 		);
 
@@ -261,12 +271,20 @@ function NewAutomation() {
 			<Field label="Agent">
 				<Select className={inputClass} value={agent} options={agentOptions(agents)} onChange={setAgentId} />
 			</Field>
-			<Field label="Runs for" hint="Nobody gets messages they didn't ask for: others choose whether to turn it on.">
+			<Field
+				label="Runs for"
+				hint={
+					team
+						? "Nobody gets messages they didn't ask for: others choose whether to turn it on."
+						: "Just for you. Sharing it with the team needs a role that can make and change team automations."
+				}
+			>
 				<RunsForSelect
 					audience={audience.audience}
 					channelId={audience.channelId ?? null}
 					channels={channels}
 					allowCreator
+					team={team}
 					onChange={(a, channelId) => setAudience({ audience: a, channelId })}
 				/>
 			</Field>
@@ -274,7 +292,7 @@ function NewAutomation() {
 	);
 }
 
-function CustomAutomationDetail({ automation: a, custom }: { automation: AutomationItem; custom: NonNullable<AutomationItem["custom"]> }) {
+function CustomAutomationDetail({ automation: a, custom, team }: { automation: AutomationItem; custom: NonNullable<AutomationItem["custom"]>; team: boolean }) {
 	const save = useMutation(api.automations.save);
 	const remove = useMutation(api.automations.remove);
 	const channels = useQuery(api.chats.list)?.channels ?? [];
@@ -292,7 +310,7 @@ function CustomAutomationDetail({ automation: a, custom }: { automation: Automat
 			onSave={(config, expectedVersion) => save({ automationId: a.id, config, expectedVersion })}
 			fields={(value, onChange) => <AutomationFields value={value} onChange={onChange} channels={channels} timeZone={a.timeZone} />}
 		>
-			{!a.trash && <AutomationSettings automation={a} />}
+			{!a.trash && <AutomationSettings automation={a} team={team} />}
 		</MadeItemDetail>
 	);
 }
@@ -322,7 +340,7 @@ function AutomationDetail({ automation: a, canManage }: { automation: Automation
 					...(a.runsFor ? [["Runs for", a.runsFor] as [string, string]] : []),
 				]}
 			/>
-			{a.installed && !a.trash && <AutomationSettings automation={a} />}
+			{a.installed && !a.trash && <AutomationSettings automation={a} team={canManage} />}
 			<Section title="What the agent is asked" hint="Sent to the agent each run, as if the person it runs for asked it.">
 				<Markdown className="rounded-xl bg-neutral-50 px-4 py-3 text-sm leading-relaxed">{a.prompt}</Markdown>
 			</Section>
@@ -331,7 +349,7 @@ function AutomationDetail({ automation: a, canManage }: { automation: Automation
 }
 
 /** Turning it on for yourself, and (for people who can change it) on/off, agent, who it runs for, webhook URL, and Run now. */
-function AutomationSettings({ automation: a }: { automation: AutomationItem }) {
+function AutomationSettings({ automation: a, team }: { automation: AutomationItem; team: boolean }) {
 	const agents = useQuery(api.agents.list);
 	const update = useMutation(api.automations.update);
 	const runNow = useMutation(api.automationRuns.runNow);
@@ -388,6 +406,7 @@ function AutomationSettings({ automation: a }: { automation: AutomationItem }) {
 								channelId={a.channelId}
 								channels={channels}
 								allowCreator={!!a.custom}
+								team={team}
 								extraChannel={
 									a.channelId && !channels.some((c) => c._id === a.channelId)
 										? { id: a.channelId, label: `#${a.channelName}${a.channelArchived ? " (deleted)" : ""}` }

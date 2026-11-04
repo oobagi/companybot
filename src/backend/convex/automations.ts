@@ -126,7 +126,7 @@ async function requireVisibleChannel(ctx: QueryCtx, member: Member, channelId: I
 
 /**
  * Checks an automation someone wrote, including that they can see any channel its trigger
- * watches. A channel it already watched (`before`) isn't re-checked, so an owner who isn't
+ * watches. A channel it already watched (`before`) isn't re-checked, so someone with automations.edit who isn't
  * in it can still rename it.
  */
 async function checkConfig(ctx: QueryCtx, member: Member, config: CustomAutomationConfig, before?: CustomAutomationConfig["trigger"]) {

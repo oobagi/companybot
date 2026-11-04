@@ -3,6 +3,7 @@ import {
 	type BuiltInRole,
 	type Permission,
 	type RoleInfo,
+	roleSwitches,
 	type Skill,
 	can,
 	customSkill,
@@ -23,7 +24,7 @@ export interface Member extends Actor {
 	workspaceId: Id<"workspaces">;
 	roles: Id<"roles">[];
 	/** Every role in the workspace, so a refusal can name the ones that would do (core `deniedMessage`). */
-	workspaceRoles: RoleInfo[];
+	workspaceRoles: (RoleInfo & { id: Id<"roles">; builtIn: BuiltInRole | null })[];
 }
 
 export const toActor = (m: Member): Actor => ({ userId: m.userId, roles: m.roles, owner: m.owner, permissions: m.permissions });
@@ -38,7 +39,7 @@ export async function rolesOf(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
 	return rows.sort((a, b) => rank(a) - rank(b) || a._creationTime - b._creationTime);
 }
 
-export const roleInfo = (r: Doc<"roles">): RoleInfo => ({ id: r._id, name: r.name, owner: r.builtIn === "owner", permissions: r.permissions });
+export const roleInfo = (r: Doc<"roles">) => ({ id: r._id, name: r.name, owner: r.builtIn === "owner", builtIn: r.builtIn ?? null, permissions: roleSwitches(r.builtIn, r.switches) });
 
 /** One of the two roles every workspace has. */
 export async function builtInRole(ctx: QueryCtx, workspaceId: Id<"workspaces">, which: BuiltInRole) {
@@ -53,8 +54,25 @@ export function accessFrom(roles: Doc<"roles">[], held: Id<"roles">[]) {
 	return {
 		roles: mine.map((r) => r._id),
 		owner: mine.some((r) => r.builtIn === "owner"),
-		permissions: [...new Set(mine.flatMap((r) => r.permissions))],
+		permissions: [...new Set(mine.flatMap((r) => roleSwitches(r.builtIn, r.switches)))],
 	};
+}
+
+/**
+ * What a membership or invite lets its person do, and the role ids it holds. Every access and
+ * ownership check reads rows through this: membership, last owner, leaving, erasing, invites.
+ */
+export function accessOf(roles: Doc<"roles">[], row: { roles?: Id<"roles">[]; role?: BuiltInRole }) {
+	if (row.roles) return accessFrom(roles, row.roles);
+	// COMPAT(0.1.0-alpha.10): rows from before custom roles keep the old `role` until
+	// migrations.customRolesMembers/Invites backfill `roles`, and a workspace has no roles until
+	// migrations.customRoles seeds them. Read the old value as the built-in role it becomes, so
+	// nobody gains, loses or orphans anything mid-migration. Once those have run on prod, delete
+	// from here down and read `row.roles` (required by then).
+	if (!row.role) return accessFrom(roles, []);
+	const role = roles.find((r) => r.builtIn === row.role);
+	if (role) return accessFrom(roles, [role._id]);
+	return { roles: [], owner: row.role === "owner", permissions: roleSwitches(row.role, []) };
 }
 
 /**
@@ -78,7 +96,7 @@ export async function memberOf(ctx: QueryCtx, userId: Id<"users">, workspaceId: 
 	// An erased account's memberships go in its cascade; until then it acts nowhere.
 	if (!row || (await erased(ctx, userId)) || !(await liveWorkspace(ctx, workspaceId))) return null;
 	const roles = await rolesOf(ctx, workspaceId);
-	return { id: row._id, userId, workspaceId, ...accessFrom(roles, row.roles ?? []), workspaceRoles: roles.map(roleInfo) };
+	return { id: row._id, userId, workspaceId, ...accessOf(roles, row), workspaceRoles: roles.map(roleInfo) };
 }
 
 /** Whether their account was erased (workspace.eraseAccount). */
@@ -90,10 +108,9 @@ export const erased = async (ctx: QueryCtx, userId: Id<"users">) => !!(await ctx
  * owner: the first is nearly always the one who made the workspace.
  */
 export async function hasLiveOwner(ctx: QueryCtx, workspaceId: Id<"workspaces">, except?: Id<"users">) {
-	const owner = (await rolesOf(ctx, workspaceId)).find((r) => r.builtIn === "owner");
-	if (!owner) return false;
+	const roles = await rolesOf(ctx, workspaceId);
 	for await (const row of ctx.db.query("members").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)))
-		if (row.roles?.includes(owner._id) && row.userId !== except && !(await erased(ctx, row.userId))) return true;
+		if (accessOf(roles, row).owner && row.userId !== except && !(await erased(ctx, row.userId))) return true;
 	return false;
 }
 

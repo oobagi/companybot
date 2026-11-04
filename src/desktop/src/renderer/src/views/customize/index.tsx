@@ -28,7 +28,8 @@ export function CustomizeView({ access, tab, itemId }: { access: Access; tab: Cu
 			agents: can(access, "agents.manage") && <NewButton label="New agent" onClick={() => run(createAgent().then((id) => navigate("settings", "agents", id)))} />,
 			connectors: null,
 			skills: can(access, "skills.edit") && <NewButton label="New skill" onClick={() => navigate("settings", "skills", "new")} />,
-			automations: can(access, "automations.edit") && <NewButton label="New automation" onClick={() => navigate("settings", "automations", "new")} />,
+			// Everyone: a personal one needs no switch (the form offers sharing only to those who can).
+			automations: <NewButton label="New automation" onClick={() => navigate("settings", "automations", "new")} />,
 		}[tab]}>
 			<Notice>{error}</Notice>
 			{tab === "agents" && <AgentsTab />}

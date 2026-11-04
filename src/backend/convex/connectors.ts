@@ -45,6 +45,14 @@ async function connectionFor(ctx: QueryCtx, connector: Connector, member: Member
 		.first();
 }
 
+/** The role ids an install allows. Owners always can, so they're never listed. */
+export function allowedRoles(member: Member, install: Doc<"connectorInstalls">): Id<"roles">[] {
+	// COMPAT(0.1.0-alpha.10): installs list "owner"/"member" until migrations.customRolesConnectors
+	// runs; read "member" as the Member role so nobody loses a connector mid-migration. Delete with it.
+	const memberRole = member.workspaceRoles.find((r) => r.builtIn === "member")?.id;
+	return install.roles.flatMap((r) => (r === "owner" ? [] : r === "member" ? (memberRole ? [memberRole] : []) : [r]));
+}
+
 /** Where each installed connector stands for this person. Feeds `describeToolAccess`. */
 export async function connectorStates(ctx: QueryCtx, member: Member): Promise<ConnectorState[]> {
 	const installs = await ctx.db
@@ -56,7 +64,7 @@ export async function connectorStates(ctx: QueryCtx, member: Member): Promise<Co
 		const connector = findConnector(install.connectorId);
 		if (!connector) continue;
 		const connected = connector.auth.type === "none" || !!(await connectionFor(ctx, connector, member));
-		states.push({ id: connector.id, roles: install.roles, connected });
+		states.push({ id: connector.id, roles: allowedRoles(member, install), connected });
 	}
 	return states;
 }
@@ -67,7 +75,7 @@ export const list = query({
 		const member = await getMember(ctx);
 		if (!member) return [];
 		const states = await connectorStates(ctx, member);
-		const memberRole = await builtInId(ctx, member.workspaceId, "member");
+		const memberRole = member.workspaceRoles.find((r) => r.builtIn === "member")?.id;
 		return Promise.all(
 			connectorCatalog.map(async (connector) => {
 				const state = states.find((s) => s.id === connector.id);
@@ -121,7 +129,7 @@ export const setInstalled = mutation({
 });
 
 /** Who may use a connector when it's installed: Member's people, unless it's for owners only. Owners always can. */
-const defaultRoles = (connector: Connector, memberRole: Id<"roles">): Id<"roles">[] => (connector.ownersOnly ? [] : [memberRole]);
+const defaultRoles = (connector: Connector, memberRole: Id<"roles"> | undefined): Id<"roles">[] => (connector.ownersOnly || !memberRole ? [] : [memberRole]);
 
 /** Which of the workspace's roles may use an installed connector. Owners always can. Applies at once, including mid-reply. */
 export const setRoles = mutation({
@@ -247,7 +255,7 @@ async function requireConnectTarget(
 	const connector = requireConnector(connectorId);
 	const install = await installOf(ctx, member.workspaceId, connectorId);
 	if (!install) throw new ConvexError("Install the connector first.");
-	if (!canUseConnector(member, install.roles)) throw new ConvexError("None of your roles can use this connector. Ask an owner.");
+	if (!canUseConnector(member, allowedRoles(member, install))) throw new ConvexError("None of your roles can use this connector. Ask someone who installs connectors to allow one.");
 	const permission = connector.connection === "workspace" ? "connectors.manage" : "connectors.connect";
 	checkPermission(member, permission);
 	if (bound && (bound.memberId !== member.id || bound.connectorInstallId !== install._id))
@@ -314,7 +322,7 @@ export const forTurn = internalQuery({
 		for (const connectorId of connectorIds) {
 			const connector = findConnector(connectorId);
 			const install = connector && (await installOf(ctx, member.workspaceId, connectorId));
-			if (!connector || !install || !canUseConnector(member, install.roles)) continue;
+			if (!connector || !install || !canUseConnector(member, allowedRoles(member, install))) continue;
 			if (connector.auth.type === "none") {
 				usable.push({ connectorId, installId: install._id, connectionId: null, credentials: null });
 				continue;

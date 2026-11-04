@@ -333,7 +333,7 @@ export const turnContext = internalQuery({
 			agent: { id: agent._id, name: agent.name, instructions: agent.instructions, model: agent.model, reasoning: agent.reasoning ?? defaultReasoning, tools: agent.tools },
 			skills,
 			session: { id: session._id, summary: foreign ? null : (session.summary ?? null), turns },
-			/** Off when an owner turned it off; personal only in a DM with exactly one person. memory.ts checks again on every call. */
+			/** Off when it's turned off for the workspace; personal only in a DM with exactly one person. memory.ts checks again on every call. */
 			memory: !(await memoryOn(ctx, chat.workspaceId)) ? ("off" as const) : (await personalMemoryHere(ctx, chat)) ? ("personal" as const) : ("team" as const),
 			actor: {
 				id: member.userId,
@@ -618,7 +618,7 @@ export const steer = internalMutation({
 	},
 });
 
-/** Who may stop a running turn: the person it runs for, or someone allowed to stop anyone's (an owner). */
+/** Who may stop a running turn: the person it runs for, or someone allowed to stop anyone's (`turns.stopAny`). */
 export const canStopTurn = (member: Member, turn: Doc<"agentTurns">) => turn.actorId === member.userId || can(member, "turns.stopAny");
 
 /**
