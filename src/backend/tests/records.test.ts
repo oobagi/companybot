@@ -727,3 +727,16 @@ describe("records: list edge cases", () => {
 		expect(await list("partners", false)).toEqual(["Mixed"]);
 	});
 });
+
+describe("record titles (the rail's pins and recents)", () => {
+	it("names live records with their database, and drops archived, unknown and other workspaces' ones", async () => {
+		const { t, owner, client } = await setup();
+		const acme = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Acme" } });
+		const gone = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Gone" } });
+		await owner.mutation(api.trash.move, { kind: "record", id: gone });
+		const outsider = await signIn(t, "outsider@example.com");
+		const recordIds = [acme, gone, "not-an-id"];
+		expect(await owner.query(api.records.titles, { recordIds })).toEqual([{ _id: acme, title: "Acme", typeKey: "client" }]);
+		expect(await outsider.query(api.records.titles, { recordIds })).toEqual([]);
+	});
+});

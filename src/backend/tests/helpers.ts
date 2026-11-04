@@ -124,10 +124,21 @@ export async function settle(t: ReturnType<typeof convexTest>) {
 	}
 }
 
+/** Built-in role ids per transaction and workspace, so seeding thousands of members in one `t.run` reads the roles once. */
+const builtInIds = new WeakMap<MutationCtx, Map<Id<"workspaces">, Record<"owner" | "member", Id<"roles">>>>();
+
 /** One of a workspace's built-in roles, seeding Owner and Member first if it has no roles (a bare test workspace). */
 export async function builtInRoleIn(ctx: MutationCtx, workspaceId: Id<"workspaces">, which: "owner" | "member") {
-	if ((await rolesOf(ctx, workspaceId)).length === 0) await seedRoles(ctx, workspaceId);
-	return (await rolesOf(ctx, workspaceId)).find((r) => r.builtIn === which)!._id;
+	const cache = builtInIds.get(ctx) ?? new Map();
+	builtInIds.set(ctx, cache);
+	let ids = cache.get(workspaceId);
+	if (!ids) {
+		if ((await rolesOf(ctx, workspaceId)).length === 0) await seedRoles(ctx, workspaceId);
+		const roles = await rolesOf(ctx, workspaceId);
+		ids = { owner: roles.find((r) => r.builtIn === "owner")!._id, member: roles.find((r) => r.builtIn === "member")!._id };
+		cache.set(workspaceId, ids);
+	}
+	return ids[which];
 }
 
 /** A membership row holding one built-in role. */
