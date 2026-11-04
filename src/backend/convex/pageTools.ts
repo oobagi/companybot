@@ -43,7 +43,7 @@ async function pageNamed(ctx: QueryCtx, member: Member, name: string, trashed = 
 	if (candidates.length > FIND_MAX || rows.length > 1) throw new ConvexError(`Several pages are titled “${name}”. Find them with pages_find and use an id.`);
 	if (!rows[0]) throw new ConvexError(`No page titled “${name}”. Find it with pages_find, or use its id.`);
 	// Found by title but kept from them: say who can see it, so the agent can tell its person whom to ask.
-	await requirePageAccess(ctx, member, rows[0], "view");
+	await requirePageAccess(ctx, member, rows[0], "view", undefined, name.trim());
 	return rows[0];
 }
 
@@ -109,7 +109,8 @@ export const readFor = internalQuery({
 			const ancestors = [];
 			for (const p of state?.ancestors.slice().reverse() ?? []) if (await seen(p)) ancestors.push({ id: p._id, title: p.title });
 			// Page blocks titled as this person may see them, never as the document stores them.
-			const doc = old ? await versionContent(ctx, member, old.page, old.row) : page ? await withPageTitles(ctx, member, JSON.stringify((await readDoc(ctx, page._id)).toJSON())) : null;
+			const stored = old ? await versionContent(ctx, old.page, old.row) : page ? JSON.stringify((await readDoc(ctx, page._id)).toJSON()) : null;
+			const doc = stored === null ? null : await withPageTitles(ctx, member, stored);
 			if (old && doc === null) throw new ConvexError("This version is no longer available.");
 			return {
 				...(page && { id: page._id, parentId: state?.ancestors[0] && (await seen(state.ancestors[0])) ? state.ancestors[0]._id : null }),

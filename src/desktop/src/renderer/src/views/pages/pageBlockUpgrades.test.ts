@@ -10,12 +10,12 @@ it("turns old page links into atomic blocks without losing adjacent text or form
 	const after = { type: "text", text: " notes", styles: {} };
 	expect(promotePageLinks(paragraph([before, link, after]))).toEqual([
 		{ id: "original", type: "paragraph", props: {}, content: [before] },
-		{ type: "page", props: { pageId: "abc123", title: "Untitled" } },
+		{ type: "page", props: { pageId: "abc123" } },
 		{ type: "paragraph", props: {}, content: [after], children: [] },
 	]);
 });
 
 it("keeps the original block id when a link is the whole paragraph and leaves ordinary links alone", () => {
-	expect(promotePageLinks(paragraph([link]))).toEqual([{ id: "original", type: "page", props: { pageId: "abc123", title: "Untitled" }, children: [] }]);
+	expect(promotePageLinks(paragraph([link]))).toEqual([{ id: "original", type: "page", props: { pageId: "abc123" }, children: [] }]);
 	expect(promotePageLinks(paragraph([{ ...link, href: "https://example.com" }]))).toBeUndefined();
 });

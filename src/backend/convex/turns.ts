@@ -488,9 +488,10 @@ export const streamOf = (ctx: QueryCtx, messageId: Id<"chatMessages">) =>
 export const updateReply = internalMutation({
 	args: { turnId: v.id("agentTurns"), text: v.string(), parts: v.array(messagePart) },
 	handler: async (ctx, { turnId, text, parts }) => {
-		const heard = await stopRequested(ctx, turnId);
+		const { lost, ...heard } = await turnState(ctx, turnId);
 		const replyId = (await ctx.db.get(turnId))?.replyId;
-		if (!replyId || (await ctx.db.get(replyId))?.status !== "streaming") return heard;
+		// Nothing more goes out as a person who can no longer post there; finishReply ends it.
+		if (lost || !replyId || (await ctx.db.get(replyId))?.status !== "streaming") return heard;
 		const stream = await streamOf(ctx, replyId);
 		if (stream) await ctx.db.patch(stream._id, { text, parts });
 		else await ctx.db.insert("replyStreams", { messageId: replyId, text, parts });
@@ -499,19 +500,33 @@ export const updateReply = internalMutation({
 });
 
 /**
- * What the runner should do now (agent.ts `turnStop`). `stopped`: end now (someone pressed Stop, or it
- * isn't running anymore, failed as stale). `steer`: its person sent a message here meanwhile (steer).
+ * Whether a turn's person lost what its reply needs since it began: to see the chat and post in it
+ * (chatOps.canReplyAs). Its reply posts as them, so it stops where they'd be refused.
  */
-async function stopRequested(ctx: QueryCtx, turnId: Id<"agentTurns">) {
+async function lostReply(ctx: QueryCtx, turn: Doc<"agentTurns">) {
+	const chat = await ctx.db.get(turn.chatId);
+	return !chat || !(await canReplyAs(ctx, chat, await memberOf(ctx, turn.actorId, turn.workspaceId)));
+}
+
+/**
+ * What the runner should do now (agent.ts `turnStop`). `stopped`: end now (someone pressed Stop, it
+ * isn't running anymore, failed as stale, or its person can no longer post there: `lost`). `steer`: its
+ * person sent a message here meanwhile (steer).
+ */
+async function turnState(ctx: QueryCtx, turnId: Id<"agentTurns">) {
 	const turn = await ctx.db.get(turnId);
-	const stopped = !turn || turn.status !== "running" || !!turn.stopping;
-	return { stopped, steer: !stopped && (await steering(ctx, turn)).length > 0 };
+	const lost = !!turn && turn.status === "running" && (await lostReply(ctx, turn));
+	const stopped = !turn || turn.status !== "running" || !!turn.stopping || lost;
+	return { stopped, steer: !stopped && (await steering(ctx, turn)).length > 0, lost };
 }
 
 /** For the runner between flushes and at each step (agent.ts `turnStop`). */
 export const isStopping = internalQuery({
 	args: { turnId: v.id("agentTurns") },
-	handler: (ctx, { turnId }) => stopRequested(ctx, turnId),
+	handler: async (ctx, { turnId }) => {
+		const { stopped, steer } = await turnState(ctx, turnId);
+		return { stopped, steer };
+	},
 });
 
 /**
@@ -523,7 +538,7 @@ export const steerWait = internalQuery({
 	args: { turnId: v.id("agentTurns") },
 	handler: async (ctx, { turnId }) => {
 		const turn = await ctx.db.get(turnId);
-		if (!turn || turn.status !== "running" || turn.stopping) return { stopped: true, waitMs: 0 };
+		if (!turn || turn.status !== "running" || turn.stopping || (await lostReply(ctx, turn))) return { stopped: true, waitMs: 0 };
 		// A person turn is queued with its message, in the same mutation (messages.send).
 		const newest = Math.max(0, ...(await steering(ctx, turn)).map((t) => t._creationTime));
 		return { stopped: false, waitMs: Math.max(0, newest + AGENT_DEBOUNCE_MS - Date.now()) };
@@ -781,10 +796,12 @@ export const finishReply = internalMutation({
 		// Aborting can surface as an error; the stop is what happened.
 		const stopped = turn.stopping;
 		if (stopped) error = undefined;
+		// Its person may have lost the chat, or Post in it, while it ran: then it fails, quiet or not, and
+		// nothing it wrote since (updateReply) goes out; no handoff, nothing shown.
+		if (await lostReply(ctx, turn)) error = "This person can no longer post in this chat.";
 		// A stopped quiet reply has no decision; it's shown only if it holds a card the person must decide on.
 		const chat = await ctx.db.get(turn.chatId);
-		// Shown only if its person can still post there: they may have lost it while it ran.
-		const show = !!reply && !!reply.quiet && !error && !!chat && (await canReplyAs(ctx, chat, await memberOf(ctx, turn.actorId, turn.workspaceId))) && (await shown(ctx, turn, reply, stopped ? undefined : decision));
+		const show = !!reply && !!reply.quiet && !error && !!chat && (await shown(ctx, turn, reply, stopped ? undefined : decision));
 		if (reply) {
 			const end = error ? { status: "error" as const, error } : { status: "done" as const, ...(stopped && { stoppedBy: stopped.by }) };
 			await endStream(ctx, reply, { ...end, stats, ...(show && { quiet: undefined, publishedAt: Date.now() }) });

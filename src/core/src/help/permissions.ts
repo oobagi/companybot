@@ -31,7 +31,7 @@ Each channel, database and page has a **Who can access** list: **Everyone**, or 
 - **Change it**: a channel's details (click its name), a database's settings, or a page's ⋯ menu. It takes the switch to change that kind of place, and Edit in it. A lock in the sidebar marks a restricted place; hover it for who can.
 - **Sub-pages** follow their parent's list unless they set their own. A record's page follows its database. Moving a page never opens it to more people.
 - **Private channels** keep their members; the list applies on top.
-- **Agents** use the access of the person who asked. When that person can't see something, the agent says who can: "Only Office and Owners can see Deals." In a channel they can only view, agents don't reply or follow up for them.
+- **Agents** use the access of the person who asked. When that person can't see something, the agent says who can: "Only Office and Owners can see Deals." It names the place only if they asked for it by that name; otherwise it's "this database". In a channel they can only view, agents don't reply or follow up for them, and a reply already under way stops when they lose Post.
 
 ## Roles
 What else a person can do comes from their roles (managing members, agents, connectors, locks and more). See **help: members**.

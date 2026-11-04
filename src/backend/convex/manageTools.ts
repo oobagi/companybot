@@ -5,7 +5,7 @@ import { internalMutation, type MutationCtx } from "./_generated/server";
 import { addChannelMembers, markReadAs, createChannelAs, joinChannel, leaveChannel, openDirectMessage, removeChannelMember, updateChannelAs } from "./chats";
 import { canSee, chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
 import { chatAccess, reach } from "./placeAccess";
-import { automationName, automationScope, canView, definitionOf, installOf, seenChannel, shownTrigger } from "./automationOps";
+import { automationName, automationScope, canView, definitionOf, installOf, outcomeText, seenChannel, shownTrigger } from "./automationOps";
 import { removeAutomation, saveAutomation, updateAutomation } from "./automations";
 import { installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
 import { editMessage, hideMessagePreview, removeMessage, reactMessage, sendMessage } from "./messages";
@@ -182,7 +182,7 @@ export const runFor = internalMutation({
 							channelId: (await seenChannel(ctx, member, install.channelId))?._id,
 							timeZone: install.timeZone,
 							lastRunAt: install.lastRunAt,
-							lastResult: install.lastResult,
+							lastResult: install.lastOutcome && (await outcomeText(ctx, install.lastOutcome, member)),
 						};
 					if (r.action === "run") {
 						if ((await automationScope(ctx, turn)).trigger?.automation) throw new ConvexError("An automation run cannot start another run.");

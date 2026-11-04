@@ -28,7 +28,7 @@ import {
 	requireMember,
 	saveMade,
 } from "./lib";
-import { automationName, canView, definitionOf, installOf, postingProblem, privateTo, requireEditable, runsForLabel, seenChannel, shownTrigger, subscribersOf, visibleInstalls, webhookUrl } from "./automationOps";
+import { automationName, canView, definitionOf, installOf, outcomeText, postingProblem, privateTo, requireEditable, runsForLabel, seenChannel, shownTrigger, subscribersOf, visibleInstalls, webhookUrl } from "./automationOps";
 import { forgetAutomationGrants } from "./permissions";
 import { startCascade } from "./cascade";
 import { audience, customTrigger } from "./schema";
@@ -108,7 +108,8 @@ export const list = query({
 					webhookUrl: canEdit && install.webhookToken ? webhookUrl(install.webhookToken) : null,
 					timeZone: install.timeZone,
 					lastRunAt: install.lastRunAt ?? null,
-					lastResult: install.lastResult ?? null,
+					/** The last run's line, its channels named only if you can see them. */
+					lastResult: install.lastOutcome ? await outcomeText(ctx, install.lastOutcome, member) : null,
 					/** Set while it's in Archive. */
 					trash: install.archived ? await trashInfo(ctx, member, install._id) : null,
 				};
@@ -142,9 +143,9 @@ async function checkConfig(ctx: QueryCtx, member: Member, config: CustomAutomati
 	}
 }
 
-async function checkPosting(ctx: QueryCtx, trigger: CustomAutomationConfig["trigger"] | undefined, destination?: Id<"chats">) {
+async function checkPosting(ctx: QueryCtx, member: Member, trigger: CustomAutomationConfig["trigger"] | undefined, destination?: Id<"chats">) {
 	const problem = destination && (await postingProblem(ctx, trigger, destination));
-	if (problem) throw new ConvexError(problem);
+	if (problem) throw new ConvexError(await outcomeText(ctx, problem, member));
 }
 
 /** A schedule with the time and days alpha.9 apps' editor reads. */
@@ -184,7 +185,7 @@ export async function createAutomation(
 	if (audience === "channel") {
 		if (!channelId) throw new ConvexError("Pick a channel to post in.");
 		await requireVisibleChannel(ctx, member, channelId);
-		await checkPosting(ctx, config.trigger, channelId);
+		await checkPosting(ctx, member, config.trigger, channelId);
 	}
 	const automationId = newCustomId();
 	const { trigger } = config;
@@ -226,7 +227,7 @@ export async function saveAutomation(ctx: MutationCtx, member: Member, { automat
 		userId: member.userId,
 		validate: async () => {
 			await checkConfig(ctx, member, config, install.custom!.trigger);
-			if (install.audience === "channel") await checkPosting(ctx, config.trigger, install.channelId);
+			if (install.audience === "channel") await checkPosting(ctx, member, config.trigger, install.channelId);
 		},
 		patch: (custom) => ctx.db.patch(install._id, {
 			// A new schedule starts from its next time, never one already past.
@@ -293,7 +294,7 @@ export async function updateAutomation(ctx: MutationCtx, member: Member, { autom
 	if (audience === "channel") {
 		if (!channelId) throw new ConvexError("Pick a channel to post in.");
 		await requireVisibleChannel(ctx, member, channelId);
-		await checkPosting(ctx, install.custom?.trigger, channelId);
+		await checkPosting(ctx, member, install.custom?.trigger, channelId);
 		// Ones people make run as their maker, so the maker has to be able to see it too.
 		const maker = install.custom && (await memberOf(ctx, install.installedBy, install.workspaceId));
 		const chat = (await ctx.db.get(channelId))!;

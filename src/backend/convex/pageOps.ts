@@ -14,7 +14,7 @@ import { type PageState, keptAccess, pageState, pageStates, parentFor } from "./
 import { type AccessLevel, reaches } from "@companybot/core";
 import { reach, requireAccess } from "./placeAccess";
 import { toggleTrash } from "./trashOps";
-import { pageBlockSchema } from "./pageBlocks";
+import { pageBlockSchema, withoutPageTitles } from "./pageBlocks";
 
 // Shared rules for standalone pages and record bodies. See wiki/pages.md.
 
@@ -57,10 +57,10 @@ export async function requirePage(ctx: QueryCtx, member: Member, pageId: Id<"pag
  * Refuses someone without `need` in a page, naming who has it: a standalone page by the list that
  * rules it (its own or an ancestor's), a record's page by its database's.
  */
-export async function requirePageAccess(ctx: QueryCtx, member: Member, page: Doc<"pages">, need: AccessLevel, state?: PageState) {
+export async function requirePageAccess(ctx: QueryCtx, member: Member, page: Doc<"pages">, need: AccessLevel, state?: PageState, asked?: string) {
 	const { access, type } = state ?? (await pageState(ctx, page));
 	if (type) requireAccess(member, "database", type.plural, access, need);
-	else requireAccess(member, "page", page.title, access, need);
+	else requireAccess(member, "page", page.title, access, need, asked);
 }
 
 /** How far someone reaches in each page ("edit", "view" or null), sharing reads across a list. */
@@ -76,15 +76,8 @@ export function pageVisible(ctx: QueryCtx, member: Member) {
 }
 
 /**
- * The title a page block in its parent's document stores. Documents sync whole to everyone who can see
- * them, so a sub-page with its own Who can access list is stored untitled: readers get its title through
- * the access check (`pages.get`, `withPageTitles`), never from the parent.
- */
-export const blockTitle = (page: Pick<Doc<"pages">, "title" | "access">) => (page.access ? "" : page.title);
-
-/**
- * A document's page blocks titled as `member` may see them: the page's current title, or none for a page
- * they can't see (or one deleted). Agents' reads and history go through this, so a stored title never reaches them.
+ * A document's page blocks titled for `member`, for agents (who read JSON, not the app's live blocks): the
+ * page's current title, or none for a page they can't see (or one deleted). Blocks store no title (pageBlocks.ts).
  */
 export async function withPageTitles(ctx: QueryCtx, member: Member, content: string) {
 	const seen = pageVisible(ctx, member);
@@ -106,17 +99,6 @@ export async function withPageTitles(ctx: QueryCtx, member: Member, content: str
 	const doc = JSON.parse(content) as Json;
 	await walk(doc);
 	return JSON.stringify(doc);
-}
-
-/**
- * Keeps a sub-page's block in its parent's document titled by `blockTitle`, after its list changes.
- * It's a label the app keeps, not an edit: whoever changed the list may not be able to edit the parent.
- */
-export async function relabelInParent(ctx: MutationCtx, who: Who, page: Doc<"pages">) {
-	const parent = page.parentId && (await ctx.db.get(page.parentId));
-	if (!parent) return;
-	const { doc, version } = await sync.getDoc(ctx, parent._id, pageSchema());
-	await saveTransform(ctx, who, parent, version, relabelLinks(doc, pageHref(page._id), page.title, blockTitle(page), false));
 }
 
 /** A record's body, if it has one yet. */
@@ -171,13 +153,13 @@ export async function createPage(ctx: MutationCtx, who: Who, to: { title: string
 	});
 	await sync.create(ctx, pageId, { type: "doc", content: [{ type: "blockGroup", content: [emptyBlock()] }] });
 	if (parentId && "title" in to && to.insertInParent !== false) {
-		await appendPageBlock(ctx, who, await requirePage(ctx, member, parentId), pageId, cleanTitle(to.title));
+		await appendPageBlock(ctx, who, await requirePage(ctx, member, parentId), pageId);
 	}
 	return pageId;
 }
 
 /** Sidebar/agent-created children occupy real document blocks too. */
-export async function appendPageBlock(ctx: MutationCtx, who: Who, parent: Doc<"pages">, pageId: Id<"pages">, title: string) {
+export async function appendPageBlock(ctx: MutationCtx, who: Who, parent: Doc<"pages">, pageId: Id<"pages">) {
 	return writeDoc(ctx, who, parent, (doc) => {
 		const tr = new Transform(doc);
 		let exists = false;
@@ -186,7 +168,7 @@ export async function appendPageBlock(ctx: MutationCtx, who: Who, parent: Doc<"p
 		const last = doc.firstChild!.lastChild!;
 		const empty = last.childCount === 1 && last.firstChild?.type.name === "paragraph" && last.firstChild.content.size === 0;
 		const pos = doc.content.size - 1 - (empty ? last.nodeSize : 0);
-		return tr.insert(pos, pageSchema().nodeFromJSON({ type: "blockContainer", attrs: { id: crypto.randomUUID() }, content: [{ type: "page", attrs: { pageId, title } }] }));
+		return tr.insert(pos, pageSchema().nodeFromJSON({ type: "blockContainer", attrs: { id: crypto.randomUUID() }, content: [{ type: "page", attrs: { pageId } }] }));
 	});
 }
 
@@ -211,18 +193,16 @@ export async function renamePage(ctx: MutationCtx, who: Who, page: Doc<"pages">,
 	await ctx.db.patch(page._id, { title: clean, updatedAt: Date.now(), updatedBy: who.member.userId });
 	// Page links are plain link marks whose text is the title when inserted (alpha.7 can't render live titles),
 	// so keep the parent's links in step, as an edit by whoever renamed. Reworded links and other pages' links stay.
-	// A sub-page with its own list keeps its block untitled and its link text as written (`blockTitle`).
-	const parent = page.parentId && clean !== page.title && (await ctx.db.get(page.parentId));
-	if (parent) await writeDoc(ctx, who, parent, (doc) => relabelLinks(doc, pageHref(page._id), page.title, blockTitle({ ...page, title: clean }), !page.access));
+	// A sub-page with its own list keeps its link text as written: the parent may be open to people it isn't.
+	const parent = !page.access && page.parentId && clean !== page.title && (await ctx.db.get(page.parentId));
+	if (parent) await writeDoc(ctx, who, parent, (doc) => relabelLinks(doc, pageHref(page._id), page.title, clean));
 }
 
-/** Sets the page's blocks to `to`, and (`links`) link text that still reads `from`. */
-function relabelLinks(doc: Node, href: string, from: string, to: string, links: boolean) {
+/** Link text that still reads `from`, linking to `href`, now reads `to`. */
+function relabelLinks(doc: Node, href: string, from: string, to: string) {
 	const tr = new Transform(doc);
 	doc.descendants((node, pos) => {
-		if (node.type.name === "page" && pageHref(node.attrs.pageId) === href) {
-			if (node.attrs.title !== to) tr.setNodeMarkup(tr.mapping.map(pos), undefined, { ...node.attrs, title: to });
-		} else if (links && node.text === from && node.marks.some((m) => m.type.name === "link" && m.attrs.href === href))
+		if (node.text === from && node.marks.some((m) => m.type.name === "link" && m.attrs.href === href))
 			tr.replaceWith(tr.mapping.map(pos), tr.mapping.map(pos + node.nodeSize), doc.type.schema.text(to, node.marks));
 	});
 	return tr;
@@ -251,7 +231,7 @@ export async function setPageTrashed(ctx: MutationCtx, who: Who, page: Doc<"page
 	const parent = parentId && await ctx.db.get(parentId);
 	if (parent) {
 		if (archived) await removePageBlock(ctx, who, parent, page._id);
-		else await appendPageBlock(ctx, who, parent, page._id, blockTitle(restored));
+		else await appendPageBlock(ctx, who, parent, page._id);
 	}
 }
 
@@ -323,7 +303,8 @@ const tooMuch = () => new ConvexError("That's too much to add at once. Split it 
 export async function saveTransform(ctx: MutationCtx, who: Who, page: Doc<"pages">, version: number, tr: Transform, clientId: string | number = "transform", restored?: number) {
 	if (!tr.docChanged || tr.doc.eq(tr.before)) return false;
 	const content = JSON.stringify(tr.doc.toJSON());
-	const steps = tr.steps.map((s) => JSON.stringify(s.toJSON()));
+	// The schema has no page titles, but an old app's step can still try to set one (pageBlocks.ts).
+	const steps = tr.steps.map((s) => withoutPageTitles(JSON.stringify(s.toJSON())));
 	const bytes = getDocumentSize({ content });
 	if (bytes > PAGE_MAX_BYTES || getDocumentSize({ steps }) > PAGE_MAX_BYTES)
 		throw new ConvexError("That would make the page too long. Split it into several pages.");

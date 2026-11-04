@@ -1,9 +1,11 @@
+import migrationsTest from "@convex-dev/migrations/test";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, components, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { wake } from "../convex/wakeups";
-import { type As, agentsOf, finishQuiet, ownerAndMember, sideWorkspace, signIn } from "./helpers";
+import { pageSchema } from "../convex/pageOps";
+import { type As, agentsOf, finishQuiet, identityOf, ownerAndMember, sideWorkspace, signIn } from "./helpers";
 
 // Who can access each channel, database and page (placeAccess.ts): every read path and agent tool
 // follows the list, and refusals name the roles that have access.
@@ -90,7 +92,7 @@ describe("who can access a database", () => {
 		expect((await tools.types()).types.map((x) => x.type)).not.toContain("deal");
 		expect((await tools.types()).types.find((x) => x.type === "call")!.fields.find((f) => f.key === "deal")!.linksTo).toBe("(a database you can't see)");
 		expect((await tools.find({ type: "Deals" })).error).toBe("Only Office and Owners can see Deals.");
-		expect((await tools.get(deal)).error).toBe("Only Office and Owners can see Deals.");
+		expect((await tools.get(deal)).error).toBe("Only Office and Owners can see this database.");
 		expect(((await tools.find({ search: "Big roof" })).rows as { _id: string }[]).map((r) => r._id)).not.toContain(deal);
 		expect((await tools.get(call)).values).toMatchObject({ deal: "Locked record" });
 		expect((await tools.save({ type: "Deals", values: { name: "Sneaky" } })).error).toBe("Only Office and Owners can see Deals.");
@@ -162,7 +164,7 @@ describe("who can access a channel", () => {
 		expect(await crew.query(api.chats.get, { chatId: deals })).toBeNull();
 		expect(await crew.query(api.messages.list, { chatId: deals })).toEqual([]);
 		expect((await crew.query(api.chats.alerts))!.some((a) => a.chatId === deals)).toBe(false);
-		await expect(crew.mutation(api.messages.send, { chatId: deals, text: "hi", mentions: { userIds: [], agentIds: [] } })).rejects.toThrow("Only Office and Owners can see #deals.");
+		await expect(crew.mutation(api.messages.send, { chatId: deals, text: "hi", mentions: { userIds: [], agentIds: [] } })).rejects.toThrow("Only Office and Owners can see this channel.");
 		expect((await office.query(api.chats.browse)).map((c) => c.name)).toContain("deals");
 		expect((await owner.query(api.chats.list))!.channels.find((c) => c.name === "deals")!.lock).toEqual({ who: "Office and Owners", edit: false });
 		const tools = await turnFor(t, crew);
@@ -274,37 +276,102 @@ describe("restored, woken, queued and background paths", () => {
 		expect(await turnOfWake(t, third)).toBeUndefined();
 	});
 
+	it("stops an ordinary reply mid-stream when its person loses Post, and posts nothing it writes after", async () => {
+		const { t, owner, crew, officeRole } = await setup();
+		const general = await generalOf(owner);
+		const turnId: Id<"agentTurns"> = (await turnFor(t, crew)).turnId;
+		const write = (text: string) => t.mutation(internal.turns.updateReply, { turnId, text, parts: [{ type: "text", text }] });
+		expect(await write("Before the change")).toEqual({ stopped: false, steer: false });
+		await owner.mutation(api.chats.setAccess, { chatId: general, access: [{ role: "everyone", level: "view" }, { role: officeRole, level: "edit" }] });
+		// The runner's checks all see it, and nothing more is written.
+		expect(await write("After the change")).toEqual({ stopped: true, steer: false });
+		expect(await t.query(internal.turns.isStopping, { turnId })).toEqual({ stopped: true, steer: false });
+		expect((await t.query(internal.turns.steerWait, { turnId })).stopped).toBe(true);
+		await t.mutation(internal.turns.finishReply, { turnId });
+		const turn = (await t.run((ctx) => ctx.db.get(turnId)))!;
+		const reply = (await t.run((ctx) => ctx.db.get(turn.replyId!)))!;
+		expect(turn.status).toBe("error");
+		expect(reply).toMatchObject({ status: "error", error: "This person can no longer post in this chat." });
+		expect(JSON.stringify(reply)).not.toContain("After the change");
+		expect(JSON.stringify(await crew.query(api.messages.list, { chatId: general }))).not.toContain("After the change");
+	});
+
 	it("stops a queued wake from reading a record whose database was hidden since", async () => {
 		const { t, owner, crew, officeRole, deals, deal, restrict } = await setup();
 		const id = await wakeIn(t, crew, await generalOf(owner), { recordId: deal, typeId: deals });
 		const turn = (await turnOfWake(t, id))!;
 		expect((await t.query(internal.turns.turnContext, { turnId: turn._id })).wake).toMatchObject({ record: { id: deal, name: "Big roof deal" } });
 		await restrict([{ role: officeRole, level: "edit" }]);
-		await expect(t.query(internal.turns.turnContext, { turnId: turn._id })).rejects.toThrow("Only Office and Owners can see Deals.");
-		expect(await t.query(internal.recordTools.getFor, { turnId: turn._id, id: deal })).toEqual({ error: "Only Office and Owners can see Deals." });
+		await expect(t.query(internal.turns.turnContext, { turnId: turn._id })).rejects.toThrow("Only Office and Owners can see this database.");
+		expect(await t.query(internal.recordTools.getFor, { turnId: turn._id, id: deal })).toEqual({ error: "Only Office and Owners can see this database." });
 	});
 
-	it("keeps a sub-page's title out of its parent's document, history and agents' reads for people who can't see it", async () => {
+	it("stores no sub-page's title in its parent: sync, history, a restore and agents name a hidden one to nobody", async () => {
 		const { t, owner, crew, office, officeRole } = await setup();
+		migrationsTest.register(t);
 		vi.useFakeTimers();
 		const handbook = await owner.mutation(api.pages.create, { title: "Handbook" });
 		const salaries = await owner.mutation(api.pages.create, { title: "Salaries", parentId: handbook });
-		// Past a version's idle time, so the version that added its block keeps the title it was added with.
-		vi.advanceTimersByTime(15 * 60_000);
 		await owner.mutation(api.pages.setAccess, { pageId: salaries, access: [{ role: officeRole, level: "edit" }] });
-		await office.mutation(api.pages.rename, { pageId: salaries, title: "Salaries 2027" });
-		// The document the editor syncs whole to everyone who can see it, as stored: its block has no title.
-		const synced = (await t.run((ctx) => ctx.runQuery(components.prosemirrorSync.lib.getSnapshot, { id: handbook }))) as { content: string };
-		expect(synced.content).toContain(salaries);
-		expect(synced.content).not.toMatch(/Salaries/);
+		vi.advanceTimersByTime(15 * 60_000);
+		// What an older app stored: the block's title, in a step, in a snapshot and so in a version.
+		const lib = components.prosemirrorSync.lib;
+		const legacy = await t.run(async (ctx) => {
+			const at = (await ctx.runQuery(lib.latestVersion, { id: handbook }))!;
+			const json = JSON.parse((await ctx.runQuery(lib.getSnapshot, { id: handbook })).content!);
+			let pos = -1;
+			pageSchema().nodeFromJSON(json).descendants((node, p) => void (node.type.name === "page" && (pos = p)));
+			const tag = (x: unknown): void => {
+				if (Array.isArray(x)) return x.forEach(tag);
+				if (!x || typeof x !== "object") return;
+				const o = x as { type?: string; attrs?: Record<string, unknown> };
+				if (o.type === "page") o.attrs!.title = "Salaries";
+				Object.values(o).forEach(tag);
+			};
+			tag(json);
+			await ctx.runMutation(lib.submitSteps, { id: handbook, version: at, clientId: "old app", steps: [JSON.stringify({ stepType: "attr", pos, attr: "title", value: "Salaries" })] });
+			await ctx.runMutation(lib.submitSnapshot, { id: handbook, version: at + 1, content: JSON.stringify(json) });
+			const last = (await ctx.db.query("pageVersions").withIndex("by_page", (q) => q.eq("pageId", handbook)).order("desc").first())!;
+			const versionId = await ctx.db.insert("pageVersions", { pageId: handbook, n: last.n + 1, version: at + 1, userId: last.userId, editedAt: Date.now() });
+			return { at, versionId };
+		});
+		expect(JSON.stringify(await t.run((ctx) => ctx.runQuery(lib.getSteps, { id: handbook, version: 1 })))).toMatch(/Salaries/);
+		// The editor's own reads, as Crew: the latest document, an older one and every step.
+		const sync = identityOf(t, crew.userId);
+		for (const version of [undefined, legacy.at, legacy.at + 1]) {
+			const doc = await sync.query(api.pageSync.getSnapshot, { id: handbook, version });
+			expect(doc.content).toContain(salaries);
+			expect(doc.content).not.toMatch(/Salaries/);
+		}
+		const steps = await sync.query(api.pageSync.getSteps, { id: handbook, version: 1 });
+		expect(steps.steps.length).toBeGreaterThan(1);
+		expect(JSON.stringify(steps)).not.toMatch(/Salaries/);
+		// History and agents, as Crew; and since no block holds a title, Office's history has none either.
 		const read = await (await turnFor(t, crew)).readPage("Handbook");
 		expect(read.doc).toContain(salaries);
 		expect(JSON.stringify(read)).not.toMatch(/Salaries/);
 		const versions = (await crew.query(api.pages.history, { pageId: handbook, ...PAGE })).page;
-		// The first version still held the title it was created with: history shows it as the reader may see it.
-		expect(versions.length).toBeGreaterThan(1);
-		for (const v of versions) expect(await crew.query(api.pages.version, { versionId: v._id })).not.toMatch(/Salaries/);
-		expect(await office.query(api.pages.version, { versionId: versions.at(-1)!._id })).toContain("Salaries 2027");
+		for (const v of versions) {
+			expect(await crew.query(api.pages.version, { versionId: v._id })).not.toMatch(/Salaries/);
+			expect(await office.query(api.pages.version, { versionId: v._id })).not.toMatch(/Salaries/);
+		}
+		// Crew, who can't see it, changes the page and then puts the old version back: nothing brings the title back.
+		vi.advanceTimersByTime(15 * 60_000);
+		await crew.mutation(api.pages.create, { title: "Notes", parentId: handbook });
+		vi.advanceTimersByTime(15 * 60_000);
+		await crew.mutation(api.pages.restore, { versionId: legacy.versionId });
+		const latest = (await t.run((ctx) => ctx.runQuery(lib.getSnapshot, { id: handbook }))) as { content: string; version: number };
+		expect(latest.version).toBeGreaterThan(legacy.at + 1);
+		expect(latest.content).toContain(salaries);
+		expect(latest.content).not.toMatch(/Salaries/);
+		// The migration takes it out of the stored version too.
+		await t.mutation(internal.migrations.runAll);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		const stored = (await t.run((ctx) => ctx.runQuery(lib.getSnapshot, { id: handbook, version: legacy.at + 1 }))) as { content: string; version: number };
+		expect(stored).toMatchObject({ version: legacy.at + 1 });
+		expect(stored.content).toContain(salaries);
+		expect(stored.content).not.toMatch(/Salaries/);
+		expect((await office.query(api.pages.get, { pageId: salaries }))!.title).toBe("Salaries");
 	});
 
 	it("drops a channel someone lost from their chat list and their workspace badges", async () => {
@@ -321,7 +388,7 @@ describe("restored, woken, queued and background paths", () => {
 		expect(await crew.query(api.workspace.activity)).toEqual(before);
 	});
 
-	it("doesn't name or point at a hidden channel in automation listings", async () => {
+	it("doesn't name or point at a hidden channel in automation listings or their last runs", async () => {
 		const { t, owner, crew, office, officeRole } = await setup();
 		const vault = await owner.mutation(api.chats.createChannel, { name: "vault", private: false });
 		await owner.mutation(api.chats.setAccess, { chatId: vault, access: [{ role: officeRole, level: "edit" }] });
@@ -329,15 +396,26 @@ describe("restored, woken, queued and background paths", () => {
 		const make = (name: string, trigger: object, audience: "subscribers" | "channel", channelId?: Id<"chats">) =>
 			owner.mutation(api.automations.create, { config: { name, prompt: "Sum it up.", trigger: trigger as never }, agentId: companybot._id, audience, channelId, timeZone: "UTC" });
 		const watcher = await make("Watcher", { type: "event", event: "message.posted", channelId: vault }, "subscribers");
-		await make("Poster", { type: "schedule", cron: "0 9 * * *" }, "channel", vault);
+		const poster = await make("Poster", { type: "schedule", cron: "0 9 * * *" }, "channel", vault);
+		// Last runs naming a channel: one that posted there, and one refused for watching it. Its turn never runs.
+		vi.useFakeTimers();
+		await t.mutation(internal.automationRuns.tick, { now: Date.now() + 2 * 86_400_000 });
+		await t.run(async (ctx) => {
+			const install = (await ctx.db.query("automationInstalls").collect()).find((i) => i.automationId === watcher)!;
+			await ctx.db.patch(install._id, { lastRunAt: Date.now(), lastOutcome: { text: "Didn't run: It watches {watched}, which is private.", watchedId: vault } });
+		});
 		const seen = await crew.query(api.automations.list);
-		expect(seen.find((a) => a.name === "Watcher")).toMatchObject({ trigger: "When someone posts in #a channel", channelId: null, channelName: null });
-		expect(seen.find((a) => a.name === "Poster")).toMatchObject({ runsFor: "Posts once in a channel", channelId: null, channelName: null });
+		expect(seen.find((a) => a.name === "Watcher")).toMatchObject({ trigger: "When someone posts in #a channel", channelId: null, channelName: null, lastResult: "Didn't run: It watches a channel, which is private." });
+		expect(seen.find((a) => a.name === "Poster")).toMatchObject({ runsFor: "Posts once in a channel", channelId: null, channelName: null, lastResult: "Posted in a channel." });
 		const tools = await turnFor(t, crew);
-		const text = JSON.stringify([seen, await tools.automations(), await tools.manage("automations.manage", { action: "list" }), await tools.manage("automations.manage", { action: "get", id: watcher })]);
+		const got = await tools.manage("automations.manage", { action: "get", id: poster });
+		expect(JSON.stringify(got)).toContain("Posted in a channel.");
+		const text = JSON.stringify([seen, got, await tools.automations(), await tools.manage("automations.manage", { action: "list" }), await tools.manage("automations.manage", { action: "get", id: watcher })]);
 		expect(text).not.toMatch(/vault/);
 		expect(text).not.toContain(vault);
-		expect(JSON.stringify(await office.query(api.automations.list))).toContain("#vault");
+		const theirs = await office.query(api.automations.list);
+		expect(theirs.find((a) => a.name === "Poster")!.lastResult).toBe("Posted in #vault.");
+		expect(theirs.find((a) => a.name === "Watcher")!.lastResult).toBe("Didn't run: It watches #vault, which is private.");
 	});
 
 	it("names neither a hidden page a sub-page moved from nor a hidden ancestor that holds it in Archive", async () => {
@@ -383,13 +461,17 @@ describe("restored, woken, queued and background paths", () => {
 		for (const id of hidden) expect(refs[id]).toEqual({ name: "", locked: true });
 	});
 
-	it("searches past hidden matches instead of stopping short, and says when there's more", async () => {
+	it("searches past hidden matches instead of stopping short, in the app and for agents, and says when there's more", async () => {
 		const { t, owner, crew, officeRole, deals, client, restrict } = await setup();
 		for (let i = 0; i < 12; i++) await owner.mutation(api.records.create, { typeId: deals, values: { name: `Zebra deal ${i}` } });
 		const clients = (await t.run((ctx) => ctx.db.get(client)))!.typeId;
-		const zebra = await owner.mutation(api.records.create, { typeId: clients, values: { name: "Zebra Co" } });
+		const zebra = await owner.mutation(api.records.create, { typeId: clients, values: { name: "Zebra Co, the striped roofing company in town" } });
 		await restrict([{ role: officeRole, level: "edit" }]);
+		// The app's search keeps going past them to fill its results.
+		expect((await crew.query(api.records.search, { query: "Zebra" })).map((r) => r._id)).toEqual([zebra]);
 		const tools = await turnFor(t, crew);
+		// So does an agent's: its first page has the one match it can see.
+		expect(((await tools.find({ search: "Zebra", numItems: 1 })).rows as { _id: string }[]).map((r) => r._id)).toEqual([zebra]);
 		const found: string[] = [];
 		let cursor: string | undefined;
 		for (let i = 0; i < 30; i++) {
@@ -401,6 +483,28 @@ describe("restored, woken, queued and background paths", () => {
 			cursor = page.cursor as string;
 		}
 		expect(found).toEqual([zebra]);
+	});
+
+	it("never trades a hidden place's id for its name: refusals by id are generic, field schemas don't point at it", async () => {
+		const { t, owner, crew, office, officeRole, deals, call, restrict } = await setup();
+		await restrict([{ role: officeRole, level: "edit" }]);
+		const salaries = await owner.mutation(api.pages.create, { title: "Secret salaries" });
+		await owner.mutation(api.pages.setAccess, { pageId: salaries, access: [{ role: officeRole, level: "edit" }] });
+		const tools = await turnFor(t, crew);
+		// By id: nothing they didn't already know. By name: only what they typed.
+		expect((await tools.readPage(salaries)).error).toBe("Only Office and Owners can see this page.");
+		expect((await tools.readPage("Secret salaries")).error).toBe("Only Office and Owners can see Secret salaries.");
+		expect((await tools.find({ type: deals })).error).toBe("Only Office and Owners can see this database.");
+		expect((await tools.find({ type: "deal" })).error).toBe("Only Office and Owners can see deal.");
+		// A visible database's link field to a hidden one carries no id to ask about.
+		const callFields = async (as: As) => (await as.query(api.recordTypes.list)).find((x) => x.key === "call")!.fields.find((f) => f.key === "deal")!;
+		expect(await callFields(crew)).toMatchObject({ kind: "link", linksHidden: true });
+		expect(await callFields(crew)).not.toHaveProperty("linkType");
+		expect(JSON.stringify(await crew.query(api.recordTypes.list))).not.toContain(deals);
+		const record = (await crew.query(api.records.get, { recordId: call }))!;
+		expect(JSON.stringify(record.fields)).not.toContain(deals);
+		expect(record.fields.find((f) => f.key === "deal")).toMatchObject({ linksHidden: true });
+		expect(await callFields(office)).toMatchObject({ linkType: deals });
 	});
 
 	it("doesn't list hidden databases when a name isn't found", async () => {
@@ -427,7 +531,9 @@ describe("restored, woken, queued and background paths", () => {
 
 describe("a restricted place, as someone not on its list", () => {
 	it("never shows in a listing or an agent tool, by name or id", async () => {
-		const { t, owner, crew, officeRole } = await setup();
+		const { t, owner, crew, office: officeMember, officeRole } = await setup();
+		// Agent turns start here but never run: no model calls.
+		vi.useFakeTimers();
 		const office = [{ role: officeRole, level: "edit" as const }];
 		// A database, a channel and a page only Office can see, each with something in it, some in Archive.
 		const vaultType = await owner.mutation(api.recordTypes.create, { plural: "Vaultbids" });
@@ -444,6 +550,27 @@ describe("a restricted place, as someone not on its list", () => {
 		await owner.mutation(api.pages.setAccess, { pageId: plan, access: office });
 		const { companybot } = await agentsOf(owner);
 		await owner.mutation(api.automations.create, { config: { name: "Digest", prompt: "Sum it up.", trigger: { type: "event", event: "message.posted", channelId: room } }, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
+		// More of what's in them: a saved view, links both ways, a mention of a record they can see, someone
+		// typing, an agent's call, an automation's last run there, and a page they can see holding one they can't.
+		const clients = (await owner.query(api.recordTypes.list)).find((x) => x.key === "client")!._id;
+		const acme = await owner.mutation(api.records.create, { typeId: clients, values: { name: "Acme" } });
+		const toClient = await owner.mutation(api.fields.create, { typeId: vaultType, label: "Client", kind: "link", linkTypeId: clients });
+		await owner.mutation(api.records.update, { recordId: bid, values: { [toClient.key]: acme } });
+		await owner.mutation(api.fields.create, { typeId: clients, label: "Bid", kind: "link", linkTypeId: vaultType });
+		await owner.mutation(api.databaseViews.save, { typeId: vaultType, name: "Vaultview", filters: [], columns: ["name"], sort: { field: "name", order: "asc" } });
+		await owner.mutation(api.messages.send, { chatId: room, text: "Vault talk about Acme", mentions: { userIds: [], agentIds: [], recordIds: [acme] } });
+		await owner.mutation(api.messages.send, { chatId: room, text: "@Companybot vault check", mentions: { userIds: [], agentIds: [companybot._id] } });
+		const ownersTurn = (await t.run((ctx) => ctx.db.query("agentTurns").collect())).find((x) => x.chatId === room)!;
+		await t.mutation(internal.activity.log, { turnId: ownersTurn._id, callId: "c1", tool: "records.find", changes: false, input: JSON.stringify({ type: "Vaultbids" }), output: "Vaultbid quartz" });
+		await owner.mutation(api.automations.create, { config: { name: "Poster", prompt: "Sum it up.", trigger: { type: "schedule", cron: "0 9 * * *" } }, agentId: companybot._id, audience: "channel", channelId: room, timeZone: "UTC" });
+		await t.mutation(internal.automationRuns.tick, { now: Date.now() + 2 * 86_400_000 });
+		expect((await owner.query(api.automations.list)).find((a) => a.name === "Poster")!.lastResult).toBe("Posted in #vaultroom.");
+		await owner.mutation(api.typing.ping, { chatId: room });
+		const lobby = await owner.mutation(api.pages.create, { title: "Lobby" });
+		const kid = await owner.mutation(api.pages.create, { title: "Vaultplan kid", parentId: lobby });
+		await owner.mutation(api.pages.setAccess, { pageId: kid, access: office });
+		const sync = identityOf(t, crew.userId);
+		const refused = (p: Promise<unknown>) => p.then(() => "allowed", (e: Error) => e.message);
 
 		const tools = await turnFor(t, crew);
 		const seen = {
@@ -474,7 +601,36 @@ describe("a restricted place, as someone not on its list", () => {
 			toolAutomations: await tools.automations(),
 			toolAutomationList: await tools.manage("automations.manage", { action: "list" }),
 			toolFollowups: await tools.followups(),
+			agentActivity: await crew.query(api.activity.list, {}),
+			toolAgentActivity: await t.query(internal.recordTools.historyFor, { turnId: tools.turnId, source: "agents" }),
+			views: await crew.query(api.databaseViews.list, { typeId: vaultType }),
+			toolViews: await tools.views(vaultType),
+			linked: await crew.query(api.records.linked, { recordId: acme, ...PAGE }),
+			acme: await crew.query(api.records.get, { recordId: acme }),
+			discussion: await crew.query(api.records.discussion, { recordId: acme }),
+			typing: await crew.query(api.typing.list, { chatId: room }),
+			lobby: await sync.query(api.pageSync.getSnapshot, { id: lobby }),
+			lobbyFirst: await sync.query(api.pageSync.getSnapshot, { id: lobby, version: 1 }),
+			lobbySteps: await sync.query(api.pageSync.getSteps, { id: lobby, version: 1 }),
+			planSync: await refused(sync.query(api.pageSync.getSnapshot, { id: plan })),
+			planSteps: await refused(sync.query(api.pageSync.getSteps, { id: plan, version: 1 })),
+			lobbyHistory: await Promise.all((await crew.query(api.pages.history, { pageId: lobby, ...PAGE })).page.map((v) => crew.query(api.pages.version, { versionId: v._id }))),
+			lobbyRead: await tools.readPage("Lobby"),
 		};
+		// Each was found, so nothing passes for being empty.
+		expect(JSON.stringify(seen.lobbySteps)).toContain(kid);
+		expect(seen.planSync).toBe("Only Office and Owners can see this page.");
+		expect(seen.acme!.fields.find((f) => f.label === "Bid")).toMatchObject({ linksHidden: true });
+		expect(seen.toolViews.error).toBe("Only Office and Owners can see this database.");
+		const ownerSees = JSON.stringify([
+			await owner.query(api.activity.list, {}),
+			await owner.query(api.databaseViews.list, { typeId: vaultType }),
+			await owner.query(api.records.linked, { recordId: acme, ...PAGE }),
+			await owner.query(api.records.discussion, { recordId: acme }),
+			await crew.query(api.typing.list, { chatId: await generalOf(owner) }),
+		]);
+		for (const there of ["Vaultbids", "Vaultview", "Vaultbid quartz", "Vault talk about Acme"]) expect(ownerSees).toContain(there);
+		expect((await officeMember.query(api.typing.list, { chatId: room })).people.length).toBe(1);
 		const text = JSON.stringify(seen);
 		expect(text).not.toMatch(/vault/i);
 		for (const id of [vaultType, bid, old, room, plan]) expect(text).not.toContain(id);

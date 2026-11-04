@@ -191,7 +191,8 @@ function OneEditor({ field, id, refs, onSave }: { field: TypeField; id: string |
 		return (
 			<span className={`${cell} gap-2`}>
 				{id && <LinkChips field={field} ids={[id]} refs={refs} onRemove={() => onSave(null)} />}
-				<RecordPicker typeId={field.linkType!} exclude={id ? [id] : []} label={id ? "Change" : "Pick"} onPick={(picked) => onSave(picked)} />
+				{/* No database to pick from when it links to one you can't see (linksHidden). */}
+				{field.linkType && <RecordPicker typeId={field.linkType} exclude={id ? [id] : []} label={id ? "Change" : "Pick"} onPick={(picked) => onSave(picked)} />}
 			</span>
 		);
 	}
@@ -229,7 +230,7 @@ function MultiEditor({ field, ids, refs, onSave }: { field: TypeField; ids: stri
 				))
 			)}
 			{field.kind === "link" ? (
-				<RecordPicker typeId={field.linkType!} exclude={ids} label="Add" onPick={(picked) => add(picked)} />
+				field.linkType && <RecordPicker typeId={field.linkType} exclude={ids} label="Add" onPick={(picked) => add(picked)} />
 			) : (
 				options.length > 0 && (
 					<Select

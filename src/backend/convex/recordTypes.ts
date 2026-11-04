@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./functions";
 import { checkPermission, getMember, requireMember } from "./lib";
 import { accessInfo, reach, savedAccess } from "./placeAccess";
-import { createType, fieldsOf, requireType, toField, typesOf, updateType } from "./recordOps";
+import { createType, fieldsOf, fieldsShown, requireType, typesOf, updateType } from "./recordOps";
 import { accessArg } from "./schema";
 
 // Databases: the workspace's data model. People with `fields.edit` add types; fields
@@ -19,6 +19,7 @@ export const list = query({
 		const member = await getMember(ctx);
 		if (!member) return [];
 		const types = (await typesOf(ctx, member.workspaceId)).filter((t) => !t.archived && reach(member, t.access)).sort((a, b) => a._creationTime - b._creationTime);
+		const shown = fieldsShown(ctx, member);
 		return Promise.all(
 			types.map(async (t) => {
 				const fields = await fieldsOf(ctx, t._id);
@@ -33,12 +34,14 @@ export const list = query({
 					...access,
 					canEdit: level === "edit" && can(member, "records.edit"),
 					canManage: manage,
-					fields: [...fields.filter((f) => !f.archived), ...fields.filter((f) => f.archived)].map((f) => ({
-						_id: f._id,
-						...toField(f),
-						archived: f.archived,
-						canEdit: manage,
-					})),
+					fields: await Promise.all(
+						[...fields.filter((f) => !f.archived), ...fields.filter((f) => f.archived)].map(async (f) => ({
+							_id: f._id,
+							...(await shown(f)),
+							archived: f.archived,
+							canEdit: manage,
+						})),
+					),
 				};
 			}),
 		);

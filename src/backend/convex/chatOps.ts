@@ -93,7 +93,7 @@ export async function channelNamed(ctx: QueryCtx, member: Member, name: string) 
 		.query("chats")
 		.withIndex("by_name", (q) => q.eq("workspaceId", member.workspaceId).eq("name", clean).eq("archived", false))
 		.first();
-	return chat && chat.kind === "channel" && !chat.archived ? seenOrRefused(ctx, chat, member) : null;
+	return chat && chat.kind === "channel" && !chat.archived ? seenOrRefused(ctx, chat, member, `#${clean}`) : null;
 }
 
 /** A chat by id, or a channel by name, that the person can see (as `channelNamed`). */
@@ -104,9 +104,10 @@ export async function chatByRef(ctx: QueryCtx, member: Member, ref: string) {
 	return chat ? seenOrRefused(ctx, chat, member) : null;
 }
 
-async function seenOrRefused(ctx: QueryCtx, chat: Doc<"chats">, member: Member) {
+/** `asked`: the name they found it by, which a refusal may say back (requireAccess). */
+async function seenOrRefused(ctx: QueryCtx, chat: Doc<"chats">, member: Member, asked?: string) {
 	const seen = await reachOf(ctx, chat, member);
-	if (seen === "access") requireAccess(member, "channel", channelName(chat), chatAccess(chat), "view");
+	if (seen === "access") requireAccess(member, "channel", channelName(chat), chatAccess(chat), "view", asked);
 	return seen === "ok" ? chat : null;
 }
 

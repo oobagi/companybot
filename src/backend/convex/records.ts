@@ -13,7 +13,7 @@ import {
 	inTrash,
 	resolveRefs,
 	typeVisible,
-	toField,
+	fieldsShown,
 	toRows,
 	undoChange,
 	updateRecord,
@@ -68,6 +68,7 @@ export const get = query({
 		const level = reach(member, type.access);
 		if (!level) return null;
 		const fields = await fieldsOf(ctx, record.typeId);
+		const shown = fieldsShown(ctx, member);
 		const [row] = await toRows(ctx, member, [{ record, fields }]);
 		return {
 			...row!,
@@ -75,7 +76,7 @@ export const get = query({
 			archived: await inTrash(ctx, record),
 			trash: await trashInfo(ctx, member, record._id),
 			type: { _id: type._id, key: type.key, name: type.name, plural: type.plural },
-			fields: fields.filter((f) => !f.archived).map((f) => ({ _id: f._id, ...toField(f) })),
+			fields: await Promise.all(fields.filter((f) => !f.archived).map(async (f) => ({ _id: f._id, ...(await shown(f)) }))),
 		};
 	},
 });

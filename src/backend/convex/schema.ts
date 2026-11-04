@@ -916,7 +916,13 @@ export default defineSchema({
 		// COMPAT(0.1.0-alpha.10): once that has run on prod, drop this field.
 		lastRunDate: v.optional(v.string()),
 		lastRunAt: v.optional(v.number()),
-		/** What the last run did, in a line, e.g. "Sent to 3 people". */
+		/**
+		 * What the last run did (automationOps.RunOutcome): a line, e.g. "Posted in {channel}.", and the channels
+		 * it names, which each reader sees by name only if they can see them (automationOps.outcomeText).
+		 */
+		lastOutcome: v.optional(v.object({ text: v.string(), channelId: v.optional(v.id("chats")), watchedId: v.optional(v.id("chats")) })),
+		// COMPAT(0.1.0-alpha.10): the line as it was stored, channel names and all. Once migrations.automationOutcomes
+		// has run on prod, drop this. Nothing reads it.
 		lastResult: v.optional(v.string()),
 		/** Who it runs for; automationAudiences backfilled existing installs in alpha.6. */
 		audience,
@@ -1100,7 +1106,7 @@ export default defineSchema({
 		/** Where it moved from and to: a page, or null for the top level. Unset only on an old row no page matched. */
 		fromId: v.optional(v.union(v.id("pages"), v.null())),
 		toId: v.optional(v.union(v.id("pages"), v.null())),
-		// COMPAT: titles, as rows held them before ids. migrations.pageMoveIds turns them into ids; nothing reads them.
+		// COMPAT(0.1.0-alpha.10): titles, as rows held them before ids. Once migrations.pageMoveIds has run on prod, drop these. Nothing reads them.
 		from: v.optional(v.string()),
 		to: v.optional(v.string()),
 	}).index("by_page", ["pageId", "n"]).index("by_workspace", ["workspaceId"]),

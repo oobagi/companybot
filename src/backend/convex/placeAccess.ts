@@ -20,9 +20,12 @@ export const reach = (member: Member, list: AccessList) => levelIn(member, list)
 /**
  * Refuses someone without `need` in a place, naming who has it: "Only Office and Owners can see
  * Deals." Agents get this line as their tool result, so they can tell their person whom to ask.
+ * The place's own name only goes to someone who can see it; anyone else gets back just what they
+ * asked by (`asked`, the name they typed), or "this page" when they asked by id.
  */
-export function requireAccess(member: Member, kind: PlaceKind, name: string, list: AccessList, need: AccessLevel) {
-	if (!reaches(reach(member, list), need)) throw new ConvexError(placeDeniedMessage(kind, name, list, member.workspaceRoles, need));
+export function requireAccess(member: Member, kind: PlaceKind, name: string, list: AccessList, need: AccessLevel, asked?: string) {
+	const level = reach(member, list);
+	if (!reaches(level, need)) throw new ConvexError(placeDeniedMessage(kind, level ? name : (asked ?? `this ${kind}`), list, member.workspaceRoles, need));
 }
 
 /** A channel's list. DMs and side chats are their members' alone, so they have none. */

@@ -12,14 +12,13 @@ import {
 	pageOfRecord,
 	pageReach,
 	pageVisible,
-	relabelInParent,
 	renamePage,
 	requireEditable,
 	requirePage,
 	restoreVersion,
-	withPageTitles,
 } from "./pageOps";
 import { accessInfo, savedAccess } from "./placeAccess";
+import { withoutPageTitles } from "./pageBlocks";
 import { accessArg } from "./schema";
 import { can } from "@companybot/core";
 import { movePage, pageRow, pageState, pageStates } from "./pageTree";
@@ -255,7 +254,6 @@ export const setAccess = mutation({
 		if (page.recordId) throw new ConvexError("A record's page follows its database. Change who can access the database instead.");
 		await requireEditable(ctx, member, page);
 		await ctx.db.patch(page._id, { access: access ? await savedAccess(ctx, member, access) : undefined });
-		await relabelInParent(ctx, { member }, (await ctx.db.get(page._id))!);
 	},
 });
 
@@ -292,7 +290,7 @@ export const version = query({
 	handler: async (ctx, { versionId }) => {
 		const member = await requireMember(ctx);
 		const { row, page } = await requireVersion(ctx, member, versionId);
-		return versionContent(ctx, member, page, row);
+		return versionContent(ctx, page, row);
 	},
 });
 
@@ -323,8 +321,8 @@ export async function pageHistory(ctx: QueryCtx, pageId: Id<"pages">, pagination
 	};
 }
 
-/** A version's content for `member`, page blocks titled as they may see them (`withPageTitles`). */
-export async function versionContent(ctx: QueryCtx, member: Member, page: Doc<"pages">, row: Doc<"pageVersions">) {
+/** A version's content, without the page titles old versions stored (pageBlocks.ts). Null once it's gone. */
+export async function versionContent(ctx: QueryCtx, page: Doc<"pages">, row: Doc<"pageVersions">) {
 	const snapshot = await ctx.runQuery(components.prosemirrorSync.lib.getSnapshot, { id: page._id, version: row.version });
-	return snapshot.content !== null && snapshot.version === row.version ? withPageTitles(ctx, member, snapshot.content) : null;
+	return snapshot.content !== null && snapshot.version === row.version ? withoutPageTitles(snapshot.content) : null;
 }

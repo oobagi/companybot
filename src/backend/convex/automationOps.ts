@@ -123,14 +123,30 @@ export const runsForLabel = (audience: AutomationAudience, channel: Doc<"chats">
 				: "Each person who turns it on (or just the person a webhook names), in their chat with the agent";
 
 /**
- * Why an automation can't post in `destination`, or null. One that watches a private
- * channel posts only back into it: anywhere else would show its messages to people
- * who can't see that channel.
+ * What a run did, as stored: its line, with `{channel}` (where it posted) and `{watched}` (the channel
+ * its trigger watches) for `outcomeText` to name to each reader. Never a channel's name: the last run's
+ * line shows to everyone who can see the automation, and not all of them can see its channels.
  */
-export async function postingProblem(ctx: QueryCtx, trigger: CustomAutomationConfig["trigger"] | undefined, destination: Id<"chats">) {
+export type RunOutcome = { text: string; channelId?: Id<"chats">; watchedId?: Id<"chats"> };
+
+/** A run's line for `viewer` (null: someone outside, like a webhook's sender): a channel by name only to someone who can see it. */
+export async function outcomeText(ctx: QueryCtx, outcome: RunOutcome, viewer: Member | null) {
+	const name = async (id: Id<"chats"> | undefined) => {
+		const chat = viewer && (await seenChannel(ctx, viewer, id));
+		return chat ? `#${chat.name}` : "a channel";
+	};
+	return outcome.text.replace("{channel}", await name(outcome.channelId)).replace("{watched}", await name(outcome.watchedId));
+}
+
+/**
+ * Why an automation can't post in `destination`, or null (an outcome: `outcomeText` names its channel).
+ * One that watches a private channel posts only back into it: anywhere else would show its messages
+ * to people who can't see that channel.
+ */
+export async function postingProblem(ctx: QueryCtx, trigger: CustomAutomationConfig["trigger"] | undefined, destination: Id<"chats">): Promise<RunOutcome | null> {
 	if (trigger?.type !== "event" || trigger.event !== "message.posted" || trigger.channelId === destination) return null;
 	const source = await ctx.db.get(trigger.channelId as Id<"chats">);
-	if (source?.private) return `It watches #${source.name}, which is private, so it can only post there or to people who turn it on.`;
+	if (source?.private) return { text: "It watches {watched}, which is private, so it can only post there or to people who turn it on.", watchedId: source._id };
 	// Same for one only some roles can see: posting elsewhere would show its messages to people they're kept from.
-	return source && isRestricted(source.access) ? `It watches #${source.name}, which only some roles can see, so it can only post there or to people who turn it on.` : null;
+	return source && isRestricted(source.access) ? { text: "It watches {watched}, which only some roles can see, so it can only post there or to people who turn it on.", watchedId: source._id } : null;
 }

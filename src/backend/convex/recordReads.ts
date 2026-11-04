@@ -1,4 +1,5 @@
 import type { PaginationOptions, PaginationResult } from "convex/server";
+import { getDocumentSize } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { type Member, capped, memo, nameOf } from "./lib";
@@ -31,13 +32,17 @@ export async function listRecords(
 	return findRecords(ctx, { workspaceId, ...type, ...opts, currency: await currencyOf(ctx, workspaceId), pageMax: PAGE_MAX });
 }
 
-/** Hits one search walks per result it can return, past ones in databases the person can't see or in Archive. */
-const SEARCH_SCAN = 5;
+/**
+ * What one search reads walking past hits in databases the person can't see or in Archive, leaving the
+ * query room to resolve its rows' links (recordOps REFS_BYTES). Search indexes return at most 1,024 hits.
+ */
+const SEARCH_BYTES = 2 * 1024 * 1024;
 
 /**
  * Live records whose title or text matches, best first, leaving out databases in Archive and ones the person
- * can't see. Optionally one type. A walk stops after `limit` results or `limit * SEARCH_SCAN` hits; `cursor`
- * (hits walked so far) continues it, so hidden hits never end a search early. Null when there's nothing more.
+ * can't see. Optionally one type. A walk goes on past hidden hits until it has `limit` results, runs out of
+ * hits, or has read SEARCH_BYTES; `cursor` (hits walked so far) continues it from there. Null when there's
+ * nothing more.
  */
 export async function searchRecords(
 	ctx: QueryCtx,
@@ -52,6 +57,7 @@ export async function searchRecords(
 	const skip = Math.max(0, Math.floor(Number(cursor ?? 0)) || 0);
 	const items = [];
 	let read = 0;
+	let bytes = 0;
 	for await (const record of ctx.db
 		.query("records")
 		.withSearchIndex("search", (q) => {
@@ -63,8 +69,9 @@ export async function searchRecords(
 			continue;
 		}
 		// Another hit is here: say there's more rather than stopping silently.
-		if (items.length >= limit || read - skip >= limit * SEARCH_SCAN) return { items, cursor: String(read) };
+		if (items.length >= limit || bytes >= SEARCH_BYTES) return { items, cursor: String(read) };
 		read++;
+		bytes += getDocumentSize(record);
 		if (!(await trashed(record.typeId)) && (await visible(record.typeId))) items.push({ record, fields: await fields(record.typeId) });
 	}
 	return { items, cursor: null };

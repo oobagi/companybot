@@ -37,9 +37,9 @@ type Change = Doc<"recordHistory">["changes"][number];
  * Other workspaces' look like they don't exist; one kept from them names who can see or change it.
  * `edit` is for changes, so it also refuses a database in Archive.
  */
-export async function requireType(ctx: QueryCtx, member: Member, typeId: Id<"recordTypes">, need: AccessLevel = "view") {
+export async function requireType(ctx: QueryCtx, member: Member, typeId: Id<"recordTypes">, need: AccessLevel = "view", asked?: string) {
 	const type = requireInWorkspace(member, await ctx.db.get(typeId), "Database");
-	requireAccess(member, "database", type.plural, type.access, need);
+	requireAccess(member, "database", type.plural, type.access, need, asked);
 	if (need === "edit" && type.archived) throw new ConvexError("This database is in Archive. Restore it to make changes.");
 	return type;
 }
@@ -103,6 +103,19 @@ export const toField = (f: Doc<"recordFields">): Field => ({
 	...(f.linkTypeId && { linkType: f.linkTypeId }),
 	...(f.multiple && { multiple: true }),
 });
+
+/**
+ * Fields as this person's app shows them. A link to a database they can't see keeps no id of it, which
+ * agents' tools would take and name: `linksHidden` instead, and its values show as locked records.
+ */
+export function fieldsShown(ctx: QueryCtx, member: Member) {
+	const visible = typeVisible(ctx, member);
+	return async (f: Doc<"recordFields">) => {
+		const { linkType, ...field } = toField(f);
+		if (!linkType) return field;
+		return (await visible(f.linkTypeId!)) ? { ...field, linkType } : { ...field, linksHidden: true as const };
+	};
+}
 
 /** Changes go through here, so this is where record automations will hook in (`fireEvent`). */
 export async function logChange(ctx: MutationCtx, who: Who, entry: Omit<Doc<"recordHistory">, "_id" | "_creationTime" | "workspaceId" | "userId" | "agentId">) {

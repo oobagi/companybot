@@ -426,8 +426,8 @@ function FilterValue({ field, filter, onChange }: { field: TypeField; filter: Fi
 					<Chip key={id} onRemove={() => onChange(ids.filter((i) => i !== id))}>{label(id)}</Chip>
 				))}
 				{field.kind === "link" ? (
-					<RecordPicker
-						typeId={field.linkType!}
+					field.linkType && <RecordPicker
+						typeId={field.linkType}
 						exclude={ids}
 						label="Pick"
 						onPick={(id, name) => {

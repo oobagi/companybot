@@ -4,7 +4,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { type AccessLevel, can, widens } from "@companybot/core";
 import { type Member, type Who, memo } from "./lib";
 import { type AccessList, accessInfo } from "./placeAccess";
-import { appendPageBlock, blockTitle, removePageBlock, requireEditable, requirePage } from "./pageOps";
+import { appendPageBlock, removePageBlock, requireEditable, requirePage } from "./pageOps";
 
 // A deleted ancestor gates the whole subtree immediately; no fan-out on trash/restore.
 export const PAGE_DEPTH_MAX = 32;
@@ -111,7 +111,7 @@ export async function movePage(ctx: MutationCtx, who: Who, page: Doc<"pages">, p
 	const kept = keptAccess(who.member, page, before.access, destination ? destination.access : undefined);
 	await ctx.db.patch(page._id, { parentId, updatedAt: Date.now(), updatedBy: who.member.userId, ...kept });
 	if (before.ancestors[0]) await removePageBlock(ctx, who, before.ancestors[0], page._id);
-	if (destination) await appendPageBlock(ctx, who, destination.parent, page._id, blockTitle({ ...page, ...kept }));
+	if (destination) await appendPageBlock(ctx, who, destination.parent, page._id);
 	const latest = await ctx.db.query("pageMoves").withIndex("by_page", (q) => q.eq("pageId", page._id)).order("desc").first();
 	const n = (latest?.n ?? 0) + 1;
 	// Ids, not titles: history names each place only to people who can see it (pages.moves).

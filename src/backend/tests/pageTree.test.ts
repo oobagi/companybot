@@ -12,21 +12,22 @@ afterEach(() => void vi.useRealTimers());
 const opts = { paginationOpts: { numItems: 50, cursor: null } };
 
 describe("nested pages", () => {
-	it("stores child pages as real blocks, exports them, and keeps their titles and archive lifecycle in step", async () => {
+	it("stores child pages as real blocks of their id alone, exports them, and keeps their archive lifecycle in step", async () => {
 		const { t, owner } = await ownerAndMember();
 		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
 		const child = await owner.mutation(api.pages.create, { title: "Guide", parentId: root });
 		const blocks = () => t.run(async (ctx) => (await readDoc(ctx, root)).firstChild!.content.content.map((b) => b.firstChild!.toJSON()));
-		expect(await blocks()).toEqual([expect.objectContaining({ type: "page", attrs: { pageId: child, title: "Guide" } }), expect.objectContaining({ type: "paragraph" })]);
+		expect(await blocks()).toEqual([expect.objectContaining({ type: "page", attrs: { pageId: child } }), expect.objectContaining({ type: "paragraph" })]);
 		const doc = await t.run(async (ctx) => JSON.stringify((await readDoc(ctx, root)).toJSON()));
-		expect(await t.action(internal.pageMarkdown.toMarkdown, { doc })).toContain(`[Guide](companybot://page/${child})`);
+		expect(await t.action(internal.pageMarkdown.toMarkdown, { doc })).toContain(`[Page](companybot://page/${child})`);
 		await owner.mutation(api.pages.rename, { pageId: child, title: "Handbook" });
-		expect((await blocks())[0]).toMatchObject({ type: "page", attrs: { pageId: child, title: "Handbook" } });
+		// Titles resolve per reader when read (pageOps.withPageTitles), so a rename never touches the parent.
+		expect((await blocks())[0]).toEqual({ type: "page", attrs: { pageId: child } });
 		await owner.mutation(api.trash.move, { kind: "page", id: child });
 		expect((await blocks()).some((b) => b.type === "page")).toBe(false);
 		expect(await owner.query(api.pages.get, { pageId: child })).toMatchObject({ archived: true });
 		await owner.mutation(api.trash.restore, { kind: "page", id: child });
-		expect((await blocks()).filter((b) => b.type === "page")).toEqual([expect.objectContaining({ attrs: { pageId: child, title: "Handbook" } })]);
+		expect((await blocks()).filter((b) => b.type === "page")).toEqual([expect.objectContaining({ attrs: { pageId: child } })]);
 	});
 
 	it("moves page blocks between parents without leaving duplicates or changing child content", async () => {

@@ -93,7 +93,8 @@ async function typeNamed(ctx: QueryCtx, member: Member, name: string, trashed = 
 		exact(hidden) ??
 		(named(hidden).length === 1 ? named(hidden)[0] : undefined);
 	if (!type) throw new ConvexError(`There's no database “${name}”. Types: ${types.map((t) => t.key).join(", ")}.`);
-	return requireType(ctx, member, type._id);
+	// Refused by id, the refusal can't name it; by its key or name, it says back only what they typed.
+	return requireType(ctx, member, type._id, "view", type._id === raw ? undefined : raw);
 }
 
 /** A live field (or, `trashed`, one in Archive) by exact key, else by label. A label two fields could match is refused. */
