@@ -23,7 +23,7 @@ export interface ToolContext {
 	memory: MemoryStore;
 	/** The chats the actor can see, and the message this turn answers. */
 	chat: ChatStore;
-	/** Installed skills, and creation as the actor. */
+	/** Loading installed skills, and creation, as the actor. */
 	skills: SkillStore;
 	/** Automations, as the actor can see and make them. */
 	automations: AutomationStore;
