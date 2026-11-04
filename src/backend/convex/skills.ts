@@ -166,6 +166,17 @@ export const createFor = internalMutation({
 	}),
 });
 
+/** `skills_load`: reading the body is the read, so a personal skill records its person here (the reply goes private), not when it's listed. */
+export const loadFor = internalMutation({
+	args: { turnId: v.id("agentTurns"), id: v.string() },
+	handler: async (ctx, { turnId, id }) => {
+		const { member } = await runningTurn(ctx, turnId);
+		const install = await installOf(ctx, member.workspaceId, id);
+		const skill = install && canSeeSkill(member.userId, install) && await readArtifact(ctx, member, install, install.audience === "personal" ? install.ownerId : undefined) && skillOf(install);
+		return skill ? { instructions: skill.instructions } : { error: `No installed skill "${id}".` };
+	},
+});
+
 /** The maker explicitly confirms sharing in the app before calling this. */
 export const share = mutation({
 	args: { skillId: v.string() },

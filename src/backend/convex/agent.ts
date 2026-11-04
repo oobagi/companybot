@@ -266,7 +266,7 @@ async function streamReply(
 		actor: { userId: member.userId, roles: member.roles, owner: member.owner, permissions: member.permissions },
 		timeZone: turn.actor.timeZone,
 		agentId: agent.id,
-		...stores(ctx, turnId, turn.skills),
+		...stores(ctx, turnId),
 		results: createResultStore(),
 		// Links the person wrote (turns.ts `asked`) are the only ones web.fetch opens before searching.
 		web: createWebTurn(webClient(ctx, turnId), turn.asked),
@@ -694,7 +694,7 @@ async function runApproval(
 	const callId = `approval-${approvalId}`;
 	setTool(callId, tool, "running", { input: call.input });
 	// The approval id is the call's operation key: built-in writes commit their receipt with their effect.
-	const opCtx: ToolContext = { ...toolCtx, ...stores(ctx, turnId, toolCtx.skills.list, approvalId) };
+	const opCtx: ToolContext = { ...toolCtx, ...stores(ctx, turnId, approvalId) };
 	let end: { output: unknown } | { error: string };
 	let unknown = false;
 	try {
@@ -717,13 +717,13 @@ async function runApproval(
  * The stores tools write through, as the turn's person. `op` is an approved call's operation key (its
  * approval id): each write commits its effect and the approval's receipt together (approvals.withReceipt).
  */
-function stores(ctx: ActionCtx, turnId: Id<"agentTurns">, skills: Turn["skills"], op?: Id<"approvals">) {
+function stores(ctx: ActionCtx, turnId: Id<"agentTurns">, op?: Id<"approvals">) {
 	return {
 		memory: memoryStore(ctx, turnId, op),
 		chat: chatStore(ctx, turnId, op),
 		manage: { run: (tool: string, input: unknown) => runManage(ctx, turnId, tool, input, op) },
 		skills: {
-			list: skills,
+			load: (id: string) => ctx.runMutation(internal.skills.loadFor, { turnId, id }),
 			create: ({ audience, ...config }) => ctx.runMutation(internal.skills.createFor, { turnId, op, config, audience }),
 		},
 		automations: {

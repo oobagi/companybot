@@ -1,7 +1,7 @@
 import { seedSkill } from "./legacyFixtures";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
-import { builtinTools, systemPrompt } from "@companybot/core";
+import { systemPrompt } from "@companybot/core";
 import { installedSkills } from "../convex/lib";
 
 import { agentsOf, ownerAndMember, noMentions, generalOf, turnsOf, setMemberSwitch } from "./helpers";
@@ -34,6 +34,7 @@ describe("customize", () => {
 
 		it("lets anyone with the skills switch make one, on for the whole workspace", async () => {
 			const { owner, member, skillId, find } = await made();
+			await setMemberSwitch(owner, "skills.edit", true);
 			expect(skillId).toMatch(/^custom-[0-9a-f]{12}$/);
 			const list = await member.query(api.skills.list);
 			expect(list[0]).toMatchObject({ id: skillId, name: "Quote follow-up", installed: true, version: "1", canEdit: true });
@@ -45,12 +46,13 @@ describe("customize", () => {
 				createdByName: "member@co.com",
 			});
 			await setMemberSwitch(owner, "skills.edit", false);
-			await expect(member.mutation(api.skills.create, { config: quote, audience: "team" })).rejects.toThrow("Only people with the Owner role can make and change skills.");
+			await expect(member.mutation(api.skills.create, { config: quote, audience: "team" })).rejects.toThrow("Only people with the Owner role can make and change team skills.");
 			expect((await member.query(api.skills.list)).find((s) => s.id === mine)).toMatchObject({ canEdit: false });
 		});
 
 		it("lets anyone with the switch change or delete it, whoever made it", async () => {
 			const { owner, member } = await made();
+			await setMemberSwitch(owner, "skills.edit", true);
 			const skillId = await member.mutation(api.skills.create, { config: quote });
 			const config = { ...quote, description: "Mine now." };
 			await member.mutation(api.skills.save, { skillId, config, expectedVersion: 1 });
@@ -63,6 +65,7 @@ describe("customize", () => {
 
 		it("removes skills, made or from the library, for people with the switch", async () => {
 			const { t, owner, member, skillId, find } = await made();
+			await setMemberSwitch(owner, "skills.edit", true);
 			const mine = await member.mutation(api.skills.create, { config: quote });
 			await setMemberSwitch(owner, "skills.edit", false);
 			await expect(member.mutation(api.skills.remove, { skillId: mine })).rejects.toThrow("Only people with the");
@@ -142,6 +145,7 @@ describe("customize", () => {
 
 		it("lets an agent save one from chat as the person it's helping", async () => {
 			const { t, owner, member } = await ownerAndMember();
+			await setMemberSwitch(owner, "skills.edit", true);
 			const { companybot } = await agentsOf(owner);
 			await member.mutation(api.messages.send, {
 				chatId: (await generalOf(member))._id,
@@ -168,8 +172,8 @@ describe("customize", () => {
 			const context = await t.mutation(internal.turns.turnContext, { turnId: turn!._id });
 			expect(context.skills.map((s) => s.id)).toEqual(["meeting-notes", skillId]);
 			expect(systemPrompt(context.agent, context.skills)).toContain(`- ${skillId}: ${quote.description}`);
-			const load = builtinTools.find((x) => x.id === "skills.load")!;
-			expect(await load.execute({ id: skillId }, { skills: { list: context.skills } } as never)).toEqual({ instructions: quote.instructions });
+			expect(await t.mutation(internal.skills.loadFor, { turnId: turn!._id, id: skillId })).toEqual({ instructions: quote.instructions });
+			expect(await t.mutation(internal.skills.loadFor, { turnId: turn!._id, id: "custom-000000000000" })).toHaveProperty("error");
 		});
 	});
 

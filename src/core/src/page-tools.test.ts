@@ -39,7 +39,7 @@ describe("pages tools", () => {
 			expect(permissionFor({ risk: toolRisk(call!.tool), foreign: true })).toEqual({ type: "ask", canAlways: true });
 			expect(permissionFor({ risk: toolRisk(call!.tool), rule: "never" })).toMatchObject({ type: "deny" });
 			// Checked on every call now, so a Never rule or an owner lock stops it.
-			expect(await toolApprovalPolicy(tools, async () => ({ type: "deny", by: "rule" }))({ toolCall: { toolCallId: "page", toolName: "pages_write", input } })).toMatchObject({ type: "denied" });
+			expect(await toolApprovalPolicy(tools, async () => ({ type: "deny" as const, by: "person" as const }))({ toolCall: { toolCallId: "page", toolName: "pages_write", input } })).toMatchObject({ type: "denied" });
 		}
 		expect(toolRisk((await actionOf("pages_write", { page: "p1", trash: true }, tools))!.tool)).toBe("locked");
 	});
