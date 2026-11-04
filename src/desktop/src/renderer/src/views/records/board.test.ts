@@ -22,7 +22,7 @@ vi.mock("../../convex", () => ({
 }));
 
 const type = {
-	_id: "jobs", key: "job", name: "Job", plural: "Jobs",
+	_id: "jobs", key: "job", name: "Job", plural: "Jobs", canEdit: true, canManage: true,
 	fields: [
 		{ key: "name", label: "Name", kind: "text" },
 		{ key: "status", label: "Status", kind: "choice", options: [{ id: "todo", label: "To do" }, { id: "old", label: "Old", retired: true }] },

@@ -108,7 +108,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 					))}
 				</div>
 			)}
-			{chat.trash ? <TrashNotice trash={chat.trash} /> : composer}
+			{chat.trash ? <TrashNotice trash={chat.trash} /> : chat.canPost ? composer : <ReadOnlyNotice chat={chat} />}
 		</div>
 	);
 
@@ -160,6 +160,8 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 						tokens={directory.tokens}
 						summaryLabel={agent?.name ?? "Agents"}
 						onOpenThread={openThread}
+						// A channel they can only view: no reacting or editing (the server refuses those too).
+						readOnly={!chat.canPost}
 						onError={fail}
 						intro={messages.length < 200 && <Intro title={title} channel={chat.kind === "channel"} />}
 						header={bar}
@@ -258,5 +260,15 @@ function SideChatTabs({ chat }: { chat: ChatDetails }) {
 			<Notice>{error}</Notice>
 			{dialog}
 		</nav>
+	);
+}
+
+/** In place of the composer, where someone can only view: who can post, so they know whom to ask. */
+function ReadOnlyNotice({ chat }: { chat: ChatDetails }) {
+	return (
+		<p className="flex items-center gap-2 rounded-xl border border-neutral-200 px-4 py-3 text-sm text-neutral-500">
+			<PrivateIcon className="shrink-0 text-neutral-400" />
+			Only {chat.lock?.who ?? "some roles"} can post in #{chat.name}.
+		</p>
 	);
 }

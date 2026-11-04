@@ -7,7 +7,8 @@ import { formatDate, formatMoney, minorToDecimal } from "@companybot/core/record
 /** A field as the app gets it from `recordTypes.list` (key, kind, options…), plus its id. */
 export type TypeField = Field & { _id: string; archived?: boolean; canEdit?: boolean };
 /** Names for user and record ids in a row's values. */
-export type Refs = Record<string, { name: string; archived?: true }>;
+/** `locked`: a record in a database you can't see; its name isn't sent (backend `resolveRefs`). */
+export type Refs = Record<string, { name: string; archived?: true; locked?: true }>;
 
 /** Built-in types have their own tab; types owners add live under /records/<key>. */
 /** The route of a type's list, or of one record. */
@@ -129,6 +130,7 @@ export function valueText(field: Field | undefined, value: FieldValue | null | u
 		case "link": {
 			const ref = refs[String(value)];
 			if (!ref) return field.kind === "user" ? "Someone" : "…";
+			if (ref.locked) return "Locked record";
 			return ref.archived ? `${ref.name} (archived)` : ref.name;
 		}
 		default:

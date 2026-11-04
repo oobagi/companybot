@@ -21,6 +21,7 @@ export * from "./memory";
 export * from "./models";
 export * from "./oauth";
 export * from "./permissions";
+export * from "./place-access";
 export * from "./records";
 export * from "./router";
 export * from "./record-tools";

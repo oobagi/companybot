@@ -7,6 +7,7 @@ Rules each system relies on. Break one and something leaks or breaks silently.
 - Backend mutations call `requirePermission(ctx, "x.y")` (or `checkPermission(member, …)`); the app calls `can(access, "x.y")` with `me.access`. Never check for the Owner role directly; use `can` (Owner passes everything).
 - New feature that needs a gate → add a switch first, with its Member default. That's all: every workspace's Member gets the default at once, because Member stores only what an owner flipped (`roleSwitches`, `flipSwitch`); custom roles start with it off; Owner has it. No migration. Default anything sensitive (money, people, settings, deleting for good, acting for others) to `member: false`.
 - Don't give makers extra rights. If something private needs its owner, write it as a visibility rule (like `canEditAutomation` for personal automations).
+- **Places (channels, databases, pages) have Who can access lists** ([Permissions](permissions.md#who-can-access)). A new read of one goes through its gate: `canSee`/`requireChat` (channels), `requireType`/`requireRecord`/`typeVisible` (databases and records), `requirePage`/`pageVisible` (pages); a new write asks for `"edit"` (`requirePost` for channels). A read across places (search, a list, a feed) drops the ones the person can't see, never just the workspace check. A new place kind adds an `access` field and its gate, not a new rule.
 
 ## Tools — `core/src/tools.ts`, `builtin-tools.ts`
 - One shape (`ToolDef`) for built-ins and connector tools. Ids are `group.name`; model names come from `modelToolName`.

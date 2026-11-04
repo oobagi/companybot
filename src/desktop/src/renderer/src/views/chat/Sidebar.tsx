@@ -8,6 +8,7 @@ import { navigate } from "../../router";
 import { type DragProps, useSortable, useStoredIds } from "../../sortable";
 import { Notice, RenameInput, useClock, useRun } from "../../ui";
 import { AgentBadge, Avatar, MenuItem, Popover, PopoverPanel, archiveQuestion, useConfirm } from "./common";
+import { AccessLock } from "../access";
 import type { ChatList, Participant } from "./data";
 import { BrowseChannels, ChannelDetailsFor, CreateChannel, NewMessage } from "./dialogs";
 import { useDraftChats } from "./drafts";
@@ -103,6 +104,7 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 					)}
 				>
 					<span className="truncate">{c.name}</span>
+					<AccessLock lock={c.lock} verb="post in" />
 				</Item>
 				{open && own.map((t, i) => (
 					<Item key={t.messageId} icon={<ThreadIcon />} guides={[i < own.length - 1]} title={t.title} active={c._id === openId && t.messageId === openThread} onClick={() => navigate("chat", c._id, "thread", t.messageId)}>

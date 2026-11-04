@@ -1,27 +1,49 @@
 import { BlockNoteSchema, createBlockSpec, defaultBlockSpecs } from "@blocknote/core";
 import { linkedPageId, pageHref } from "@companybot/core/page-links";
 
-/** Shared by sync, history, agent conversion and the React editor. */
+/**
+ * Shared by sync, history, agent conversion and the React editor. A page block holds only the page's id,
+ * never its title: documents sync whole to everyone who can see them, and a sub-page can be hidden from
+ * some of them (Who can access). Each reader gets the title through the access check (`pages.get`,
+ * pageOps.withPageTitles). Titles stored before this are stripped wherever content is served (`withoutPageTitles`).
+ */
 export const pageBlockConfig = {
 	type: "page",
-	propSchema: { pageId: { default: "" }, title: { default: "Untitled" } },
+	propSchema: { pageId: { default: "" } },
 	content: "none",
 } as const;
 
+const pageLink = (pageId: string) => {
+	const dom = document.createElement("a");
+	dom.href = pageHref(pageId);
+	dom.textContent = "Page";
+	return { dom };
+};
+
 export const pageBlockSpec = createBlockSpec(pageBlockConfig, {
-	render: (block) => {
-		const dom = document.createElement("a");
-		dom.href = pageHref(block.props.pageId);
-		dom.textContent = block.props.title;
-		return { dom };
-	},
-	toExternalHTML: (block) => {
-		const dom = document.createElement("a");
-		dom.href = pageHref(block.props.pageId);
-		dom.textContent = block.props.title;
-		return { dom };
-	},
+	render: (block) => pageLink(block.props.pageId),
+	toExternalHTML: (block) => pageLink(block.props.pageId),
 })();
+
+/**
+ * Content (a document, a snapshot or a step, as JSON) without page titles: ones stored before page blocks
+ * dropped them. Everything sync, history and restore hand out goes through this.
+ */
+export function withoutPageTitles(json: string) {
+	if (!json.includes('"title"')) return json;
+	const walk = (x: unknown): void => {
+		if (Array.isArray(x)) return x.forEach(walk);
+		if (!x || typeof x !== "object") return;
+		const o = x as Record<string, unknown>;
+		if (o.type === "page" && o.attrs && typeof o.attrs === "object") delete (o.attrs as Record<string, unknown>).title;
+		// A step setting a page block's title (AttrStep): kept, so step counts match, but empty.
+		if (o.stepType === "attr" && o.attr === "title") o.value = null;
+		Object.values(o).forEach(walk);
+	};
+	const parsed: unknown = JSON.parse(json);
+	walk(parsed);
+	return JSON.stringify(parsed);
+}
 
 export const pageBlockSchema = BlockNoteSchema.create({ blockSpecs: { ...defaultBlockSpecs, page: pageBlockSpec } });
 
@@ -38,7 +60,7 @@ export function promotePageLinks(block: (typeof pageBlockSchema.BlockNoteEditor)
 		const pageId = part.type === "link" && linkedPageId(part.href);
 		if (pageId && part.type === "link") {
 			flush();
-			blocks.push({ type: "page", props: { pageId, title: part.content.map((span) => span.text).join("") || "Untitled" } });
+			blocks.push({ type: "page", props: { pageId } });
 		} else text.push(part);
 	}
 	flush();

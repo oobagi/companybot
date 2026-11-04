@@ -39,6 +39,6 @@ Open [Chat](#/chat) from the rail (or press G then C).
 You get a desktop notification and a dock count for DMs and @mentions while the app isn't in front. Change it in [Your preferences](#/settings/preferences).
 
 ## Who can do what
-People whose role can make and change channels (Member, to start) create, rename and delete them; making a channel gives no extra rights over it. A deleted channel goes to [Archive](#/settings/archive).
+People whose role can make and change channels (Member, to start) create, rename and delete them; making a channel gives no extra rights over it. A channel's details also have **Who can access**: Everyone, or chosen roles, at View or Post. Make a read-only channel with Everyone at View and the roles that announce at Post: everyone else reads it but can't post or react. People not on the list don't see it at all. #general always stays open to everyone, at least to read. See **help: permissions**. A deleted channel goes to [Archive](#/settings/archive).
 `,
 } satisfies HelpPage;
