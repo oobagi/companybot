@@ -6,7 +6,7 @@ import type { Id } from "../convex/_generated/dataModel";
 import { wake } from "../convex/wakeups";
 import { Transform } from "@tiptap/pm/transform";
 import { pageSchema } from "../convex/pageOps";
-import { type As, agentsOf, finishQuiet, identityOf, ownerAndMember, sideWorkspace, signIn } from "./helpers";
+import { type As, agentsOf, finishQuiet, identityOf, ownerAndMember, sideWorkspace, signIn, settle } from "./helpers";
 
 // Who can access each channel, database and page (placeAccess.ts): every read path and agent tool
 // follows the list, and refusals name the roles that have access.
@@ -131,6 +131,9 @@ describe("who can access a database", () => {
 		await restrict([{ role: officeRole, level: "edit" }]);
 		expect((await office.query(api.records.get, { recordId: deal }))!.title).toBe("Big roof deal");
 		await owner.mutation(api.roles.remove, { id: officeRole });
+		expect(await office.query(api.records.get, { recordId: deal })).toBeNull();
+		expect(await owner.query(api.records.get, { recordId: deal })).not.toBeNull();
+		await settle(t);
 		expect(await t.run(async (ctx) => (await ctx.db.get(deals))!.access)).toEqual([]);
 		expect(await office.query(api.records.get, { recordId: deal })).toBeNull();
 	});

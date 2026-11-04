@@ -1261,8 +1261,9 @@ export default defineSchema({
 	// edge of lifecycle.ts per run, resumed from `edge` and `cursor`. `key` names what's going,
 	// so rejoining or reinstalling waits until its old rows are gone.
 	cascades: defineTable({
-		scope: v.union(v.literal("workspace"), v.literal("member"), v.literal("user"), v.literal("connectorInstall"), v.literal("automationInstall"), trashKind),
+		scope: v.union(v.literal("role"), v.literal("workspace"), v.literal("member"), v.literal("user"), v.literal("connectorInstall"), v.literal("automationInstall"), trashKind),
 		root: v.object({
+			roleId: v.optional(v.id("roles")),
 			workspaceId: v.optional(v.id("workspaces")),
 			userId: v.optional(v.id("users")),
 			connectorId: v.optional(v.string()),

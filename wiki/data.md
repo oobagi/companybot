@@ -128,3 +128,5 @@ One place for archived content: records, databases, fields, pages, channels, age
 - Per-database access by role; required fields; sorting that includes empty values; OR across filters.
 - Exchange rates (see Money).
 - Contacts (people at a client) as their own type, linked to clients.
+
+Role deletion revokes access immediately by deleting the role row. The existing resumable lifecycle cascade scrubs members, invites, connector installs and channel, database and page access lists in bounded batches. Empty access lists stay Owners only; no replacement role is assigned.
