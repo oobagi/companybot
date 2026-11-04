@@ -450,11 +450,11 @@ describe("erasing an account", () => {
 		}
 		for (const id of rowsOf(before, solo)) if (!keptWhenWorkspaceGoes(before.get(id)!.table)) theirs.add(id);
 		expect([...deleted].sort()).toEqual([...theirs].sort());
-		// The account row stays for history, with nothing that names them; what agents got back for them is cleared.
-		const scrubbed = [...after.values()].filter(({ table, row }) => ["agentActivity", "approvals"].includes(table) && row.actorId === m.userId).map(({ row }) => row._id);
-		expect(scrubbed).toHaveLength(4);
+		// The account row stays for history, with nothing that names them; what agents got back for them (Activity, approvals, call receipts) is cleared.
+		const scrubbed = [...after.values()].filter(({ table, row }) => ["agentActivity", "approvals", "toolReceipts"].includes(table) && row.actorId === m.userId).map(({ row }) => row._id);
+		expect(scrubbed).toHaveLength(6);
 		expect([...changed].sort()).toEqual([m.userId, ...scrubbed].sort());
-		for (const id of scrubbed) expect(after.get(id)!.row).not.toHaveProperty(before.get(id)!.table === "agentActivity" ? "output" : "result");
+		for (const id of scrubbed) expect(after.get(id)!.row).not.toHaveProperty(before.get(id)!.table === "approvals" ? "result" : "output");
 		expect(after.get(m.userId)!.row).toEqual({ _id: m.userId, _creationTime: before.get(m.userId)!.row._creationTime, erasedAt: expect.any(Number) });
 		expect((await a.query(api.workspace.team))!.members.map((x) => x.email)).toEqual(["a@co.com"]);
 	});
