@@ -2,11 +2,13 @@ import { FILE_MAX_BYTES, FILES_PER_MESSAGE, TURN_IMAGES_MAX, cleanFileName, imag
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { type MutationCtx, type QueryCtx, httpAction, internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { type MutationCtx, type QueryCtx, httpAction, internalAction, internalMutation } from "./_generated/server";
 import { canSee } from "./chatOps";
 import { mutation, query } from "./functions";
 import { deleteFile, readBody, reply, storeUpload, uploadOf } from "./images";
 import { type Member, requireMember } from "./lib";
+import { readReply } from "./replyPrivacy";
+import { writeSources } from "./replySources";
 import { type attachment, fileInfo } from "./schema";
 import { runningTurn } from "./turns";
 
@@ -89,7 +91,7 @@ export const attachToReply = internalMutation({
 		const attachments = reply?.attachments ?? [];
 		if (!reply || reply.deleted || attachments.length >= FILES_PER_MESSAGE) return refuse(`A reply holds up to ${FILES_PER_MESSAGE} files.`);
 		const size = width && height ? { width, height } : {};
-		await ctx.db.patch(reply._id, { attachments: [...attachments, { storageId, name: cleanFileName(name), type, size: file.size, ...size }] });
+		await ctx.db.patch(reply._id, { usedPlaces: await writeSources(ctx, running.member, { filtered: true, preserveOwn: true }, reply), attachments: [...attachments, { storageId, name: cleanFileName(name), type, size: file.size, ...size }] });
 		return { attached: true, id: fileId(reply._id, attachments.length) };
 	},
 });
@@ -113,12 +115,12 @@ export async function visibleFile(ctx: QueryCtx, member: Member, id: string) {
 	const normalized = messageId && ctx.db.normalizeId("chatMessages", messageId);
 	const message = normalized && (await ctx.db.get(normalized));
 	const chat = message && !message.deleted && message.workspaceId === member.workspaceId && (await ctx.db.get(message.chatId));
-	if (!chat || chat.archived || !(await canSee(ctx, chat, member))) return null;
+	if (!chat || chat.archived || !(await canSee(ctx, chat, member)) || !(await readReply(ctx, member, message!))) return null;
 	return message.attachments?.[Number(index)] ?? null;
 }
 
 /** chat.read_file's lookup, as the turn's person now: null if they can't see it. */
-export const readFor = internalQuery({
+export const readFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), id: v.string() },
 	handler: async (ctx, { turnId, id }) => {
 		const { member } = await runningTurn(ctx, turnId);
@@ -143,7 +145,7 @@ export const copyFor = internalAction({
 			return { error };
 		};
 		for (const id of new Set(ids)) {
-			const found = await ctx.runQuery(internal.files.readFor, { turnId, id });
+			const found = await ctx.runMutation(internal.files.readFor, { turnId, id });
 			if (!found) return fail(`No file "${id}" in a chat you can see.`);
 			const { storageId: source, ...file } = found;
 			if (picture && !isImageType(file.type)) return fail(`${file.name} isn't a picture (PNG, JPEG, WebP or GIF).`);

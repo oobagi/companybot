@@ -1,4 +1,3 @@
-import { deleteView, saveView, viewsOf } from "./databaseViews";
 import {
 	type RecordFindInput,
 	type RecordPage,
@@ -15,7 +14,9 @@ import {
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
+import { type QueryCtx, internalMutation } from "./_generated/server";
+import { activityPage } from "./activity";
+import { deleteView, saveView, viewsOf } from "./databaseViews";
 import { type Member, asToolResult, nameOf, normalizeEmail, requireInWorkspace } from "./lib";
 import {
 	createType,
@@ -43,7 +44,7 @@ import {
 } from "./recordOps";
 import { ANY_OF_MAX, CONDITIONS_MAX, type Condition } from "./recordQuery";
 import { PAGE_MAX, activityAs, historyAs, linkingRecords, listRecords, searchRecords, toEntries } from "./recordReads";
-import { activityPage } from "./activity";
+import { notePlace } from "./replySources";
 import { runningTurn } from "./turns";
 
 // Records tools (core's RecordStore), acting as the turn's person: their role, read fresh
@@ -58,7 +59,7 @@ const CHANGES_MAX = 5;
 
 /** Live databases the person can see, oldest first. */
 async function liveTypes(ctx: QueryCtx, member: Member) {
-	const visible = typeVisible(ctx, member);
+	const visible = typeVisible(ctx, { ...member, replyId: undefined });
 	const types = [];
 	for (const t of await typesOf(ctx, member.workspaceId)) if (!t.archived && (await visible(t._id))) types.push(t);
 	return types.sort((a, b) => a._creationTime - b._creationTime);
@@ -77,7 +78,7 @@ function pickOne<T>(matches: T[], what: string, describe: (m: T) => string) {
  */
 async function typeNamed(ctx: QueryCtx, member: Member, name: string, trashed = false) {
 	const all = (await typesOf(ctx, member.workspaceId)).filter((t) => t.archived === trashed).sort((a, b) => a._creationTime - b._creationTime);
-	const visible = typeVisible(ctx, member);
+	const visible = typeVisible(ctx, { ...member, replyId: undefined });
 	const types: Doc<"recordTypes">[] = [];
 	const hidden: Doc<"recordTypes">[] = [];
 	for (const t of all) ((await visible(t._id)) ? types : hidden).push(t);
@@ -87,12 +88,17 @@ async function typeNamed(ctx: QueryCtx, member: Member, name: string, trashed = 
 	const named = (among: Doc<"recordTypes">[]) => among.filter((t) => [t.name, t.plural].some((x) => x.toLowerCase() === n));
 	// Ones they can see first, so suggestions and "could be" lists never name the rest. One they can't see,
 	// named unambiguously, is refused naming who can (requireType), so they know whom to ask.
+	if (!exact(types) && named(types).length > 1) for (const t of named(types)) await notePlace(ctx, member, t._id, t.access);
 	const type =
 		exact(types) ??
 		pickOne(named(types), raw, (t) => `${t.plural} (${t.key})`) ??
 		exact(hidden) ??
 		(named(hidden).length === 1 ? named(hidden)[0] : undefined);
-	if (!type) throw new ConvexError(`There's no database “${name}”. Types: ${types.map((t) => t.key).join(", ")}.`);
+	if (!type) {
+		// Suggestions are returned text too, unlike candidates examined during a successful lookup.
+		for (const t of types) await notePlace(ctx, member, t._id, t.access);
+		throw new ConvexError(`There's no database “${name}”. Types: ${types.map((t) => t.key).join(", ")}.`);
+	}
 	// Refused by id, the refusal can't name it; by its key or name, it says back only what they typed.
 	return requireType(ctx, member, type._id, "view", type._id === raw ? undefined : raw);
 }
@@ -261,34 +267,37 @@ const fieldOut = (f: Doc<"recordFields">, linksTo?: string) => ({
 	...(f.multiple && { multiple: true as const }),
 });
 
-export const typesFor = internalQuery({
+export const typesFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), trashed: v.optional(v.boolean()) },
 	handler: async (ctx, { turnId, trashed = false }): Promise<RecordTypesResult> => {
 		const { member } = await runningTurn(ctx, turnId);
-		const visible = typeVisible(ctx, member);
+		const visible = typeVisible(ctx, { ...member, replyId: undefined });
 		const all = await typesOf(ctx, member.workspaceId);
 		const types = [];
 		for (const t of all) if (t.archived === trashed && (await visible(t._id))) types.push(t);
 		// A link into a database they can't see names no key, so the agent can't go looking.
 		const keys = new Map<Id<"recordTypes">, string>();
-		for (const t of all) keys.set(t._id, (await visible(t._id)) ? t.key : "(a database you can't see)");
+		const rows = [];
+		for (const t of types) {
+			await notePlace(ctx, member, t._id, t.access);
+			const fields = await fieldsOf(ctx, t._id);
+			for (const field of fields) {
+				if (!field.linkTypeId || keys.has(field.linkTypeId)) continue;
+				const linked = all.find((t) => t._id === field.linkTypeId);
+				const seen = linked && await visible(linked._id);
+				keys.set(field.linkTypeId, seen ? linked.key : "(a database you can't see)");
+				if (seen) await notePlace(ctx, member, linked._id, linked.access);
+			}
+			rows.push({ type: t.key, name: t.name, plural: t.plural, version: t.version ?? 0, ...(t.archived && { inTrash: true }), fields: fields.map((f) => fieldOut(f, f.linkTypeId && (keys.get(f.linkTypeId) ?? "(a deleted database)"))) });
+		}
 		return {
 			currency: await currencyOf(ctx, member.workspaceId),
-			types: await Promise.all(
-				types.map(async (t) => ({
-					type: t.key,
-					name: t.name,
-					plural: t.plural,
-					version: t.version ?? 0,
-					...(t.archived && { inTrash: true }),
-					fields: (await fieldsOf(ctx, t._id)).map((f) => fieldOut(f, f.linkTypeId && (keys.get(f.linkTypeId) ?? "(a deleted database)"))),
-				})),
-			),
+			types: rows,
 		};
 	},
 });
 
-export const findFor = internalQuery({
+export const findFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), input: v.any() },
 	handler: async (ctx, { turnId, input }) => {
 		const { member } = await runningTurn(ctx, turnId);
@@ -322,7 +331,7 @@ export const findFor = internalQuery({
 	},
 });
 
-export const getFor = internalQuery({
+export const getFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), id: v.string() },
 	handler: async (ctx, { turnId, id }) => {
 		const { member } = await runningTurn(ctx, turnId);
@@ -473,7 +482,7 @@ export const saveDatabaseFor = internalMutation({
 	},
 });
 
-export const viewsFor = internalQuery({
+export const viewsFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), type: v.string() },
 	handler: async (ctx, { turnId, type: name }) => {
 		const { member } = await runningTurn(ctx, turnId);
@@ -516,7 +525,7 @@ export const saveViewFor = internalMutation({
 	},
 });
 
-export const historyFor = internalQuery({
+export const historyFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), id: v.optional(v.string()), source: v.optional(v.union(v.literal("records"), v.literal("agents"))), cursor: v.optional(v.string()), change: v.optional(v.string()), limit: v.optional(v.number()) },
 	handler: async (ctx, { turnId, id, source, cursor, change, limit }) => {
 		const { member, turn } = await runningTurn(ctx, turnId);

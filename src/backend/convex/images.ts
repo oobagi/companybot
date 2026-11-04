@@ -6,6 +6,7 @@ import { type ActionCtx, type MutationCtx, type QueryCtx, httpAction, internalMu
 import { mutation, query } from "./functions";
 import { type Member, authUserId, checkPermission, memberOf, memo, preferencesOf, requireLiveAgent, requireMember, sweepExpired } from "./lib";
 import { savePreferences } from "./preferences";
+import { writeSources } from "./replySources";
 import { fileInfo } from "./schema";
 
 // Pictures people upload, on Convex file storage. The app POSTs the file to `upload` (an HTTP
@@ -127,6 +128,7 @@ export async function setImage(ctx: MutationCtx, member: Member, of: Infer<typeo
 				? await preferencesOf(ctx, member.userId)
 				: await requireLiveAgent(ctx, checkPermission(member, "agents.manage"), of);
 	if (file && file === row?.image) return;
+	if (file) await writeSources(ctx, member);
 	if (file) await claimUpload(ctx, member, file);
 	if (row?.image) await deleteFile(ctx, row.image);
 	const image = file ?? undefined;

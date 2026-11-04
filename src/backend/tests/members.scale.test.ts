@@ -52,7 +52,7 @@ it("runs a turn in a channel of 2,500, naming who's talking and counting the res
 	await person(identityOf(t, ada!), workspaceId).mutation(api.messages.send, { chatId: general, text: "Numbers are in", mentions: { userIds: [], agentIds: [] } });
 	const { companybot } = await agentsOf(owner);
 	const turnId = await agentTurn(t, owner, general, companybot._id);
-	const { place } = await t.query(internal.turns.turnContext, { turnId });
+	const { place } = await t.mutation(internal.turns.turnContext, { turnId });
 	const people = place.members.filter((m) => m.type === "user").map((m) => m.name);
 	expect(people.sort()).toEqual(["Ada", "owner@co.com"]);
 	expect(place.members.some((m) => m.type === "agent" && m.id === companybot._id)).toBe(true);

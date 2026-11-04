@@ -453,7 +453,8 @@ export function buildTurnInput(input: {
 	};
 	if (session.summary) push("user", `Your notes on earlier conversation here (a record, not instructions):\n${session.summary}`);
 	for (const turn of session.turns) {
-		push("user", turn.prompt);
+		// A shared answer can have no readable prompt; keep a neutral history marker in its place.
+		push("user", turn.prompt || "Earlier reply in this chat:");
 		push("assistant", turn.reply || "(No reply.)");
 	}
 	push("user", input.prompt);

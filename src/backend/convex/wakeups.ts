@@ -16,13 +16,15 @@ import {
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type MutationCtx, type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
+import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { mutation, query } from "./functions";
+import { automationScope } from "./automationOps";
 import { addToChat, canPost, canSee, chatLabel, namer } from "./chatOps";
 import { type Member, asToolResult, getMember, liveWorkspace, memberOf, nameOf, requireMember, sweepExpired, timeZoneOf } from "./lib";
-import { automationScope } from "./automationOps";
-import { recordById } from "./recordOps";
 import { reach } from "./placeAccess";
+import { recordById } from "./recordOps";
+import { canReadSources } from "./replyPrivacy";
+import { inheritPlaces, notePlace, writeSources } from "./replySources";
 import { enqueueTurn, runningTurn } from "./turns";
 
 // Wakeups: an agent wakes later in a place (chat + thread), acting for a person. A wakeup is when
@@ -44,7 +46,7 @@ type Gate = (ctx: MutationCtx, row: Doc<"wakeups">) => Promise<string | null>;
  */
 const lookAroundGate: Gate | undefined = undefined;
 
-type NewWakeup = Pick<Doc<"wakeups">, "workspaceId" | "agentId" | "chatId" | "threadId" | "actorId" | "createdBy" | "note" | "recordId" | "typeId" | "foreign" | "at" | "repeat" | "anchor" | "times" | "jobId" | "answer">;
+type NewWakeup = Pick<Doc<"wakeups">, "workspaceId" | "agentId" | "chatId" | "threadId" | "actorId" | "createdBy" | "usedPlaces" | "note" | "recordId" | "typeId" | "foreign" | "at" | "repeat" | "anchor" | "times" | "jobId" | "answer">;
 
 /** Stores a wakeup and, if it has a time, schedules it. #114 makes `{ jobId }` ones; #162 note-less `{ at, repeat }` ones. */
 export async function createWakeup(ctx: MutationCtx, wakeup: NewWakeup) {
@@ -209,18 +211,21 @@ export async function setWakeOutcome(ctx: MutationCtx, turn: Doc<"agentTurns">, 
 	if (!line?.wake) return;
 	// Once it spoke up, it stays "notified".
 	if (line.wake.outcome === "notified" && outcome !== "notified") return;
-	await ctx.db.patch(line._id, { turnId: turn._id, status: outcome === "failed" ? "error" : "done", wake: { ...line.wake, outcome } });
+	await ctx.db.patch(line._id, { turnId: turn._id, replyId: turn.replyId, status: outcome === "failed" ? "error" : "done", wake: { ...line.wake, outcome } });
 }
 
 // ---- Who sees and cancels them ----
 
 /** Whether `member` can see a wakeup: it's as private as its chat, and its record's database. */
 async function visibleTo(ctx: QueryCtx, member: Member, row: Doc<"wakeups">) {
+	if (!(await canReadSources(ctx, member, row.usedPlaces))) return false;
 	const chat = await ctx.db.get(row.chatId);
 	// Its record's database, read from the record when the row doesn't hold it.
 	const typeId = row.typeId ?? (row.recordId && (await ctx.db.get(row.recordId))?.typeId);
 	const type = typeId && (await ctx.db.get(typeId));
 	if (type && !reach(member, type.access)) return false;
+	if (type) await notePlace(ctx, member, type._id, type.access);
+	await inheritPlaces(ctx, member, row.usedPlaces);
 	return !!chat && !chat.archived && (await canSee(ctx, chat, member));
 }
 
@@ -346,6 +351,7 @@ export const createFor = internalMutation({
 				actorId: member.userId,
 				createdBy: member.userId,
 				note: note.trim(),
+				usedPlaces: await writeSources(ctx, member, { filtered: true, preserveOwn: true }),
 				...(record && { recordId: record._id, typeId: record.typeId }),
 				foreign,
 				at: time,
@@ -365,7 +371,7 @@ async function pendingCount(ctx: QueryCtx, index: "by_record" | "by_agent", id: 
 	return rows.length;
 }
 
-export const listFor = internalQuery({
+export const listFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), recordId: v.optional(v.string()) },
 	handler: async (ctx, { turnId, recordId }) => {
 		const { member } = await runningTurn(ctx, turnId);
