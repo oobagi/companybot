@@ -1,6 +1,6 @@
 import { BlockNoteSchema, defaultBlockSpecs } from "@blocknote/core";
 import { createReactBlockSpec } from "@blocknote/react";
-import { pageBlockConfig } from "@companybot/backend/page-blocks";
+import { pageBlockConfig } from "@companybot/core/page-block-config";
 import { pageHref } from "@companybot/core/page-links";
 import { createContext, useContext, useEffect, useState } from "react";
 import type { FunctionReturnType } from "convex/server";

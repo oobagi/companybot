@@ -25,7 +25,7 @@ export function CustomizeView({ role, tab, itemId }: { role: Role; tab: Customiz
 	}
 	return (
 		<Page title={current.label} description={current.description} actions={{
-			agents: can(role, "agents.manage") && <NewButton label="New agent" onClick={() => run(createAgent().then((id) => navigate("settings", "agents", id)))} />,
+			agents: can(role, "agents.manage") && <NewButton label="New agent" onClick={() => run(createAgent({}).then((id) => navigate("settings", "agents", id)))} />,
 			connectors: null,
 			skills: can(role, "skills.create") && <NewButton label="New skill" onClick={() => navigate("settings", "skills", "new")} />,
 			automations: can(role, "automations.create") && <NewButton label="New automation" onClick={() => navigate("settings", "automations", "new")} />,

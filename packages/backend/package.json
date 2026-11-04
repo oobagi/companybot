@@ -21,6 +21,7 @@
     "ai": "^7.0.162",
     "convex": "1.49.0",
     "convex-helpers": "^0.1.133",
+    "expo-server-sdk": "^8.0.0",
     "happy-dom": "^21.0.4",
     "linkedom": "^0.18.15",
     "resend": "^6.37.0",
@@ -32,7 +33,9 @@
     "@edge-runtime/vm": "^5.0.0",
     "@types/turndown": "^5.0.6",
     "convex-test": "^0.0.67",
-    "fflate": "^0.8.3"
+    "fflate": "^0.8.3",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
   },
   "exports": {
     "./page-blocks": "./convex/pageBlocks.ts",

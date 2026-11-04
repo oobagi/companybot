@@ -142,8 +142,15 @@ export const history = query({
 });
 
 export const create = mutation({
-	args: {},
-	handler: async (ctx) => createAgent(ctx, await requirePermission(ctx, "agents.manage")),
+	args: { name: v.optional(v.string()) },
+	handler: async (ctx, { name }) => {
+		const member = await requirePermission(ctx, "agents.manage");
+		if (name === undefined) return createAgent(ctx, member);
+		const config = { ...blankAgent, name: name.trim() };
+		const problem = validateAgentConfig(config);
+		if (problem) throw new ConvexError(problem);
+		return insertAgent(ctx, member.workspaceId, member.userId, config);
+	},
 });
 
 export const update = mutation({

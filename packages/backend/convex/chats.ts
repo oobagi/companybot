@@ -3,10 +3,12 @@ import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
-import { addToChat, agentOfDm, availableName, chatMembersOf, findOrCreateDm, label, latestMentionSince, markChatRead, membership, namer, requireActiveAgents, requireChat, requireManagedChannel, requireWorkspaceUsers, shownAt, sideChatTitle, titleFrom, type Namer, type Participant, visibleChat } from "./chatOps";
-import { type Member, checkPermission, getMember, preferencesOf, requireMember, toActor } from "./lib";
+import { addToChat, agentOfDm, availableName, chatMembersOf, findOrCreateDm, label, latestMentionSince, markChatRead, membership, namer, requireActiveAgents, requireChat, requireManagedChannel, requireWorkspaceUsers, sideChatTitle, titleFrom, type Namer, type Participant, visibleChat } from "./chatOps";
+import { type Member, checkPermission, getMember, requireMember, toActor } from "./lib";
 import { trashInfo } from "./trashOps";
-import { STALE_TURN_MS, sessionAt } from "./turns";
+import { sessionAt } from "./turns";
+
+import { alertMessages } from "./alertOps";
 
 // Channels and DMs. Queries return display-ready data so the app never joins tables.
 // See wiki/chat.md.
@@ -195,39 +197,9 @@ export const alerts = query({
 	handler: async (ctx): Promise<Alert[] | null> => {
 		const member = await getMember(ctx);
 		if (!member) return null;
-		const prefs = await preferencesOf(ctx, member.userId);
-		const notify = prefs?.notify ?? "all";
-		if (notify === "off") return [];
 		const names = namer(ctx);
 		const alerts: Alert[] = [];
-		for (const row of await ctx.db
-			.query("chatMembers")
-			.withIndex("by_user", (q) => q.eq("userId", member.userId))
-			.collect()) {
-			const since = row.lastReadAt ?? 0;
-			const chat = await ctx.db.get(row.chatId);
-			if (!chat || chat.archived || chat.workspaceId !== member.workspaceId) continue;
-			const fromOthers = (m: Doc<"chatMessages"> | null) => (m && !m.deleted && !m.quiet && m.authorUserId !== member.userId ? m : null);
-			// Mentions come from their index, so any number of newer messages can't hide one,
-			// and a thread reply (which doesn't move lastMessageAt) is found all the same.
-			const mention = await latestMentionSince(ctx, chat._id, member.userId, since);
-			let message = fromOthers(mention && (await ctx.db.get(mention.messageId)));
-			if (chat.kind === "dm" && notify === "all" && chat.lastMessageAt > since) {
-				// Your own posts mark the chat read, so what's unread here is others'. Agent replies
-				// still streaming are skipped until they finish. A reply begun before you last read can be
-				// shown after it (chatOps `shownAt`): replies run at most STALE_TURN_MS.
-				const recent = await ctx.db
-					.query("chatMessages")
-					.withIndex("by_chat_thread", (q) => q.eq("chatId", chat._id).eq("threadId", undefined).gt("_creationTime", since - STALE_TURN_MS))
-					.order("desc")
-					.take(20);
-				const newest = recent
-					.map(fromOthers)
-					.filter((m) => m?.status === "done" && shownAt(m) > since)
-					.reduce<Doc<"chatMessages"> | null>((a, m) => (a && shownAt(a) >= shownAt(m!) ? a : m), null);
-				if (newest && (!message || shownAt(newest) > shownAt(message))) message = newest;
-			}
-			if (!message) continue;
+		for (const { chat, message } of await alertMessages(ctx, member.userId, member.workspaceId)) {
 			const author = label(await names.of(message));
 			alerts.push({
 				workspaceId: chat.workspaceId,

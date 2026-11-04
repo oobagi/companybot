@@ -160,7 +160,7 @@ it("manages safe agent config with version/owner checks and never expands tools 
 	expect(await call("agents.manage", { action: "get", id })).toMatchObject({ inTrash: true });
 	expect(await call("agents.manage", { action: "update", id, expectedVersion: 2, name: "Back" })).toHaveProperty("error");
 	const side = await sideWorkspace(t, "owner@co.com");
-	const foreign = await owner.in(side.workspaceId).mutation(api.agents.create);
+	const foreign = await owner.in(side.workspaceId).mutation(api.agents.create, {});
 	expect(await call("agents.manage", { action: "get", id: foreign })).toHaveProperty("error");
 });
 
@@ -230,7 +230,7 @@ it("targets another agent's memories while preserving personal privacy, team rig
 	const saved = await t.mutation(internal.memory.createFor, { turnId: generalTurn, agentId: scribe._id, scope: "personal", content: "Prefers tea" });
 	await expect(t.mutation(internal.memory.removeFor, { turnId: generalTurn, id: saved.id as Id<"memories"> })).rejects.toThrow("2+ people");
 	const side = await sideWorkspace(t, "owner@co.com");
-	const foreign = await owner.in(side.workspaceId).mutation(api.agents.create);
+	const foreign = await owner.in(side.workspaceId).mutation(api.agents.create, {});
 	await expect(t.query(internal.memory.searchFor, { turnId, agentId: foreign, query: "" })).rejects.toThrow("not found");
 	const settings = (await owner.query(api.workspace.settings))!;
 	await owner.mutation(api.workspace.updateSettings, { name: settings.name, expectedVersion: settings.version, memory: false });

@@ -11,6 +11,7 @@
 import type * as activity from "../activity.js";
 import type * as agent from "../agent.js";
 import type * as agents from "../agents.js";
+import type * as alertOps from "../alertOps.js";
 import type * as approvals from "../approvals.js";
 import type * as auth from "../auth.js";
 import type * as automationOps from "../automationOps.js";
@@ -45,6 +46,8 @@ import type * as memory from "../memory.js";
 import type * as memoryOps from "../memoryOps.js";
 import type * as messages from "../messages.js";
 import type * as migrations from "../migrations.js";
+import type * as mobileNotifications from "../mobileNotifications.js";
+import type * as mobilePush from "../mobilePush.js";
 import type * as modelCatalog from "../modelCatalog.js";
 import type * as oauth from "../oauth.js";
 import type * as onboarding from "../onboarding.js";
@@ -86,6 +89,7 @@ declare const fullApi: ApiFromModules<{
   activity: typeof activity;
   agent: typeof agent;
   agents: typeof agents;
+  alertOps: typeof alertOps;
   approvals: typeof approvals;
   auth: typeof auth;
   automationOps: typeof automationOps;
@@ -120,6 +124,8 @@ declare const fullApi: ApiFromModules<{
   memoryOps: typeof memoryOps;
   messages: typeof messages;
   migrations: typeof migrations;
+  mobileNotifications: typeof mobileNotifications;
+  mobilePush: typeof mobilePush;
   modelCatalog: typeof modelCatalog;
   oauth: typeof oauth;
   onboarding: typeof onboarding;

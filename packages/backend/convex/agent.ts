@@ -779,7 +779,7 @@ function pageStore(ctx: ActionCtx, turnId: Id<"agentTurns">): PageStore {
  * finishes, as kind "search" (turns.addSearchCost); pages through webFetch.ts, in Node for its DNS checks.
  */
 function webClient(ctx: ActionCtx, turnId: Id<"agentTurns">): WebClient {
-	const provider = searchProvider(process.env, { onCost: (costUsd, model) => ctx.runMutation(internal.turns.addSearchCost, { turnId, model, costUsd }) });
+	const provider = searchProvider({ SEARCH_PROVIDER: process.env.SEARCH_PROVIDER, BRAVE_API_KEY: process.env.BRAVE_API_KEY, SEARXNG_URL: process.env.SEARXNG_URL }, { onCost: (costUsd, model) => ctx.runMutation(internal.turns.addSearchCost, { turnId, model, costUsd }) });
 	return {
 		search: (query, options) => provider.search(query, options),
 		fetch: (url) => ctx.runAction(internal.webFetch.fetchPage, { url }),

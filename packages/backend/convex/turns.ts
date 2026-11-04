@@ -776,6 +776,7 @@ export const finishReply = internalMutation({
 			await endStream(ctx, reply, { ...end, stats, ...(show && { quiet: undefined, publishedAt: Date.now() }) });
 			if (show) await countMessage(ctx, (await ctx.db.get(turn.chatId))!, reply);
 			if (!error) await previewMessage(ctx, (await ctx.db.get(reply._id))!);
+			if (!error && (!reply.quiet || show)) await ctx.scheduler.runAfter(1000, internal.mobileNotifications.enqueue, { messageId: reply._id });
 		}
 		await ctx.db.patch(turnId, { status: error ? "error" : "done", step: undefined });
 		await setWakeOutcome(ctx, turn, error || stopped ? "failed" : show ? "notified" : "ran");

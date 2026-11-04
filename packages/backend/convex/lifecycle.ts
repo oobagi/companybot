@@ -144,6 +144,18 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		workspace: { index: "by_workspace", eq: ["workspaceId"], scrub: () => ({ workspaceId: undefined }) },
 	},
 
+	// Mobile notification payloads contain only an opaque delivery id. Every send and tap rechecks access.
+	mobilePushDevices: { user: { index: "by_user", eq: ["userId"] }, keep: "Account-wide installations; inactive devices expire after 30 days; session revocation is checked before every send and tap." },
+	mobilePushLimits: { user: { index: "by_user", eq: ["userId"] } },
+	mobilePushWorkers: { keep: "Two global dispatch leases, with no account or content data." },
+	mobilePushDeliveries: {
+		user: { index: "by_user", eq: ["userId"] },
+		member: { index: "by_user", eq: ["userId", "workspaceId"] },
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		channel: { index: "by_chat", eq: ["chatId"] },
+		keep: "Delivery routes expire after one day; device/session/message removal also blocks sends and taps immediately.",
+	},
+
 	// ---- Agents and memory ----
 	// An agent deleted from Archive goes last in its own cascade, after its versions, memories, sessions and channel seats.
 	// What it said and did stays (messages, activity, history), shown as "Agent".

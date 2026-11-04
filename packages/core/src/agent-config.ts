@@ -19,6 +19,14 @@ export const reasonings = ["none", "low", "medium", "high"] as const;
 export type Reasoning = (typeof reasonings)[number];
 export const defaultReasoning: Reasoning = "medium";
 
+/** Shared form validation without importing the agent/tool runtime. */
+export function agentNameError(value: string): string | null {
+	const name = value.trim();
+	if (!name) return "Give the agent a name.";
+	if (name.length > 40) return "Keep the name under 40 characters.";
+	return null;
+}
+
 export const agentConfigKeys = ["name", "description", "instructions", "model", "reasoning", "tools"] as const satisfies readonly (keyof AgentConfig)[];
 
 /** Just the config fields, from a stored agent row or anything else that carries extra ones. */

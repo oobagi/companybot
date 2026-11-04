@@ -458,6 +458,25 @@ export default defineSchema({
 		.index("by_dm_key", ["workspaceId", "dmKey"])
 		.index("by_name", ["workspaceId", "name", "archived"]),
 
+	// Native push registrations are installation- and auth-session-bound, never client-selected users.
+	mobilePushDevices: defineTable({
+		userId: v.id("users"), sessionId: v.id("authSessions"), installationId: v.string(),
+		token: v.string(), platform: v.union(v.literal("ios"), v.literal("android")), updatedAt: v.number(),
+	}).index("by_user", ["userId"]).index("by_installation", ["installationId"]).index("by_token", ["token"]).index("by_updated", ["updatedAt"]),
+	mobilePushLimits: defineTable({ userId: v.id("users"), windowAt: v.number(), count: v.number() }).index("by_user", ["userId"]).index("by_window", ["windowAt"]),
+	// Two global worker leases bound concurrency even if a previous action is still running.
+	mobilePushWorkers: defineTable({ kind: v.union(v.literal("send"), v.literal("receipt")), leaseUntil: v.number() }).index("by_kind", ["kind"]),
+	mobilePushDeliveries: defineTable({
+		deviceId: v.id("mobilePushDevices"), userId: v.id("users"), sessionId: v.id("authSessions"),
+		workspaceId: v.id("workspaces"), chatId: v.id("chats"), messageId: v.id("chatMessages"),
+		// Token snapshot: rotation/account switching must never retarget an already queued message.
+		token: v.string(), state: v.union(v.literal("pending"), v.literal("sending"), v.literal("receipt"), v.literal("done")),
+		attempts: v.number(), nextAttemptAt: v.number(), expiresAt: v.number(), ticketId: v.optional(v.string()),
+	}).index("by_state_time", ["state", "nextAttemptAt"])
+		.index("by_message_device", ["messageId", "deviceId"])
+		.index("by_device", ["deviceId"]).index("by_user", ["userId", "workspaceId"])
+		.index("by_workspace", ["workspaceId"]).index("by_chat", ["chatId"]).index("by_expiry", ["expiresAt"]),
+
 	// Who's in a chat: one person or one agent per row.
 	chatMembers: defineTable({
 		chatId: v.id("chats"),

@@ -158,6 +158,8 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		await ctx.db.insert("recordValues", { recordId, fieldId, str: "roof", at: now });
 		await ctx.db.insert("recordHistory", { workspaceId, typeId, recordId, action: "created", changes: [], userId: memberId });
 		await ctx.db.insert("recordMentions", { recordId, messageId: said, chatId: channel });
+		const device = (await ctx.db.query("mobilePushDevices").collect()).find((row) => row.userId === memberId)!;
+		mine.push(await ctx.db.insert("mobilePushDeliveries", { deviceId: device._id, userId: memberId, sessionId: device.sessionId, token: device.token, workspaceId, chatId: channel, messageId: said, state: "done", attempts: 1, nextAttemptAt: now, expiresAt: now + 86_400_000 }));
 		mine.push(await ctx.db.insert("wakeups", { workspaceId, agentId, chatId: channel, actorId: memberId, createdBy: memberId, note: "Chase it", recordId, typeId, foreign: false, status: "pending", at: now + 60_000 }));
 		const pageId = await ctx.db.insert("pages", { workspaceId, recordId, title: "", archived: false, createdBy: memberId, updatedAt: now, updatedBy: memberId });
 		await ctx.db.insert("pageVersions", { pageId, n: 1, version: 2, userId: memberId, editedAt: now });
@@ -179,6 +181,9 @@ async function seedAuth(t: T, userId: Id<"users">, email: string) {
 		await ctx.db.insert("authVerifiers", { signature: email });
 		await ctx.db.insert("authRateLimits", { identifier: email, lastAttemptTime: Date.now(), attemptsLeft: 3 });
 		await ctx.db.insert("localSignInCodes", { email, code: "123456" });
+		await ctx.db.insert("mobilePushDevices", { userId, sessionId, installationId: `install-${userId}`, token: `ExpoPushToken[${userId}]`, platform: "ios", updatedAt: Date.now() });
+		await ctx.db.insert("mobilePushLimits", { userId, windowAt: Date.now(), count: 1 });
+		if (!(await ctx.db.query("mobilePushWorkers").first())) await ctx.db.insert("mobilePushWorkers", { kind: "send", leaseUntil: 0 });
 	});
 }
 
@@ -347,7 +352,7 @@ describe("erasing an account", () => {
 
 		const theirs = new Set<string>([...mineIn[A]!, ...mineIn[B]!, ...seatsIn(before, A, m.userId), ...seatsIn(before, B, m.userId), leftBehind]);
 		for (const [id, { table, row }] of before) {
-			const own = row.userId === m.userId && ["members", "preferences", "authAccounts", "authSessions", "connectorOAuthFlows", "uploads"].includes(table);
+			const own = row.userId === m.userId && ["members", "preferences", "authAccounts", "authSessions", "connectorOAuthFlows", "uploads", "mobilePushDevices", "mobilePushLimits"].includes(table);
 			const email = (table === "authRateLimits" && row.identifier === "m@co.com") || (table === "localSignInCodes" && row.email === "m@co.com");
 			if (email) theirs.add(id);
 			const child = (table === "authVerificationCodes" && !after.has(row.accountId as string)) || (table === "authRefreshTokens" && sessions.has(row.sessionId as string));
@@ -641,7 +646,7 @@ describe("a cascade that keeps failing", () => {
 		// Left alone from now on, not retried every 15 minutes.
 		await t.run(async (ctx) => ctx.db.patch((await ctx.db.query("cascades").first())!._id, { updatedAt: 0 }));
 		await t.mutation(internal.cascade.resume);
-		expect((await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())).filter((f) => f.state.kind === "pending")).toEqual([]);
+		expect((await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())).filter((f) => f.state.kind === "pending" && f.name.startsWith("cascade:"))).toEqual([]);
 		await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
 		await expect(member.mutation(api.workspace.ensure)).rejects.toThrow("still being cleaned up");
 

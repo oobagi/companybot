@@ -46,6 +46,8 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"onboarding.dismissTutorial": { humanOnly: "Hides the person's own tutorial in the app; agents have no tutorial." },
 	"turns.stop": { humanOnly: "The Stop button on a running reply; an agent ends its own turn by finishing it." },
 	"typing.ping": { humanOnly: "Comes from a keyboard; agents show as typing while their turn runs." },
+	"mobileNotifications.register": { humanOnly: "A signed-in person grants notification permission on their device; agents cannot register push destinations." },
+	"mobileNotifications.unregister": { humanOnly: "Device-specific notification consent belongs to the signed-in person." },
 	"messages.edit": { agent: ["chat.manage:edit"] },
 	"messages.remove": { agent: ["chat.manage:delete"] },
 	"messages.hidePreview": { agent: ["chat.manage:hide_preview"] },

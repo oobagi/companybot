@@ -1,6 +1,7 @@
 import { canManageChannel, describeWidget } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { imageUrls } from "./images";
 import { type Member, type Who, getMember, memberOf, memo, nameOf, personOf, toActor } from "./lib";
@@ -246,6 +247,7 @@ export async function insertMessage(
 ) {
 	const id = await ctx.db.insert("chatMessages", { chatId: chat._id, workspaceId: chat.workspaceId, ...message });
 	await countMessage(ctx, chat, message);
+	if (message.status === "done" && !message.quiet) await ctx.scheduler.runAfter(1000, internal.mobileNotifications.enqueue, { messageId: id });
 	return id;
 }
 

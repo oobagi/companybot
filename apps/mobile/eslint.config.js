@@ -5,6 +5,14 @@ const expoConfig = require('eslint-config-expo/flat');
 module.exports = defineConfig([
   expoConfig,
   {
-    ignores: ['dist/*'],
+    ignores: ['dist/**', 'ios/**', 'android/**', '.expo/**'],
+  },
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        paths: [{ name: '@companybot/core', message: 'Use a browser-safe core subpath; the barrel imports the server agent runtime.' }],
+      }],
+    },
   },
 ]);

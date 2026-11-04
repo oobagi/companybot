@@ -1,6 +1,6 @@
 import { type ModelMessage, type ToolSet, asSchema, isStepCount, tool } from "ai";
 import { callEnd } from "./activity";
-import { type AgentConfig, reasonings } from "./agent-config";
+import { type AgentConfig, agentNameError, reasonings } from "./agent-config";
 import { type PermissionDecision, deniedReason, heldReason, permissionFor, toolRisk } from "./action-rules";
 import { builtinTools } from "./builtin-tools";
 import { type ModelInfo, fallbackModels } from "./models";
@@ -28,9 +28,8 @@ function isKnownGrant(grant: string) {
  * save may pick: the backend passes the gateway catalog plus the agent's current model.
  */
 export function validateAgentConfig(config: AgentConfig, models: readonly Pick<ModelInfo, "id">[] = fallbackModels): string | null {
-	const name = config.name.trim();
-	if (!name) return "Give the agent a name.";
-	if (name.length > 40) return "Keep the name under 40 characters.";
+	const nameError = agentNameError(config.name);
+	if (nameError) return nameError;
 	if (config.description.length > 200) return "Keep the description under 200 characters.";
 	if (config.instructions.length > 20_000) return "Instructions are too long (20,000 characters max).";
 	if (!models.some((m) => m.id === config.model)) return "Pick a model from the list.";

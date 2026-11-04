@@ -12,6 +12,7 @@
     "./models": "./src/models.ts",
     "./help": "./src/help/index.ts",
     "./page-links": "./src/page-links.ts",
+    "./page-block-config": "./src/page-block-config.ts",
     "./permissions": "./src/permissions.ts",
     "./records": "./src/records.ts",
     "./router": "./src/router.ts",

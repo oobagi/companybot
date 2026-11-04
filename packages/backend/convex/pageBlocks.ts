@@ -1,12 +1,9 @@
 import { BlockNoteSchema, createBlockSpec, defaultBlockSpecs } from "@blocknote/core";
 import { linkedPageId, pageHref } from "@companybot/core/page-links";
+import { pageBlockConfig } from "@companybot/core/page-block-config";
 
 /** Shared by sync, history, agent conversion and the React editor. */
-export const pageBlockConfig = {
-	type: "page",
-	propSchema: { pageId: { default: "" }, title: { default: "Untitled" } },
-	content: "none",
-} as const;
+export { pageBlockConfig };
 
 export const pageBlockSpec = createBlockSpec(pageBlockConfig, {
 	render: (block) => {

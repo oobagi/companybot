@@ -12,8 +12,9 @@
     }
   },
   "include": [
-    "**/*.ts",
-    "**/*.tsx",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "vitest.config.mts",
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
   ]

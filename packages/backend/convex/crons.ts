@@ -20,4 +20,9 @@ crons.interval("cascades", { minutes: 15 }, internal.cascade.resume);
 // AI Gateway's model list, for the agent model picker (modelCatalog.ts).
 crons.interval("model catalog", { hours: 24 }, internal.modelCatalog.refresh);
 
+// Native push: one bounded batch per tick, with durable leases, receipt checks and retention.
+crons.interval("mobile push", { seconds: 10 }, internal.mobilePush.send);
+crons.interval("mobile push receipts", { minutes: 1 }, internal.mobilePush.receipts);
+crons.interval("mobile push retention", { minutes: 5 }, internal.mobileNotifications.sweep);
+
 export default crons;
