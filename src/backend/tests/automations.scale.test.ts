@@ -77,6 +77,9 @@ it.each(["tick", "send"] as const)("batches %s with 1,500 subscribers and 300 du
 		expect(await t.run(ctx => ctx.db.query("agentTurns").collect())).toHaveLength(0);
 		await automationJobs(t);
 		expect(await t.run(ctx => ctx.db.query("agentTurns").collect())).toHaveLength(1500);
+		const prompts = await t.run(async ctx => (await ctx.db.query("chatMessages").collect()).filter(m => m.automation));
+		expect(prompts).toHaveLength(1500);
+		expect(prompts.every(m => typeof m.publishedAt === "number")).toBe(true);
 		expect((await t.run(ctx => ctx.db.get(install._id)))!.lastOutcome?.text).toBe("Sent to 1500 people.");
 		if (kind === "tick") expect(await t.run(ctx => ctx.db.query("automationInstalls").withIndex("by_due", q => q.gt("nextRunAt", undefined).lte("nextRunAt", Date.UTC(2026, 10, 4, 10))).collect())).toHaveLength(0);
 	} finally { vi.useRealTimers(); }

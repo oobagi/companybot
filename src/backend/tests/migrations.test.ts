@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import schema from "../convex/schema";
 
-import { agentTurn, agentsOf, generalOf, modules, signIn } from "./helpers";
+import { agentTurn, agentsOf, generalOf, modules, signIn, messagesIn } from "./helpers";
 import { seedAutomation } from "./legacyFixtures";
 import "./connectorFixtures";
 
@@ -350,4 +350,97 @@ it("backfills channel-specific event keys and leaves channel-less triggers inact
 	const rows = await t.run(ctx => ctx.db.query("automationInstalls").collect());
 	expect(rows.find(i => i._id === install._id)!.eventKey).toBe(`message.posted:${chatId}`);
 	expect(rows.find(i => i.automationId === "legacy-any")!.eventKey).toBeUndefined();
+});
+
+// COMPAT(0.1.0-alpha.10): delete with migrations.chatActivity.
+it("moves each chat's last message time and running cost onto its activity, read from the chat until then", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	migrationsTest.register(t);
+	prosemirrorSync.register(t);
+	const owner = await signIn(t, "owner@co.com");
+	const chatId = (await generalOf(owner))._id;
+	await owner.mutation(api.chats.markRead, { chatId });
+	const later = Date.now() + 60_000;
+	// As a chat from before stored them: on itself, with no activity row.
+	await t.run(async (ctx) => {
+		for (const row of await ctx.db.query("chatActivity").collect()) await ctx.db.delete(row._id);
+		await ctx.db.patch(chatId, { lastMessageAt: later, costUsd: 0.25 });
+	});
+	const shown = async () => ({
+		unread: (await owner.query(api.chats.list))!.channels.find((c) => c._id === chatId)!.unread,
+		costUsd: (await owner.query(api.chats.place, { chatId }))!.costUsd,
+	});
+	expect(await shown()).toEqual({ unread: true, costUsd: 0.25 });
+	vi.useFakeTimers();
+	try {
+		await t.mutation(internal.migrations.runAll);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+	} finally {
+		vi.useRealTimers();
+	}
+	const chat = (await t.run((ctx) => ctx.db.get(chatId)))!;
+	expect([chat.lastMessageAt, chat.costUsd]).toEqual([undefined, undefined]);
+	const activity = await t.run((ctx) => ctx.db.query("chatActivity").withIndex("by_chat", (q) => q.eq("chatId", chatId)).unique());
+	expect(activity).toMatchObject({ lastMessageAt: later, costUsd: 0.25 });
+	expect(await shown()).toEqual({ unread: true, costUsd: 0.25 });
+});
+
+// COMPAT(0.1.0-alpha.10): delete with migrations.messageShownAt.
+it("gives messages from before it the time they're shown at, so they page in order; quiet ones wait to be shown", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	migrationsTest.register(t);
+	prosemirrorSync.register(t);
+	const owner = await signIn(t, "owner@co.com");
+	const chatId = (await generalOf(owner))._id;
+	const old = await owner.mutation(api.messages.send, { chatId, text: "From before", mentions: { userIds: [], agentIds: [] } });
+	const steered = await owner.mutation(api.messages.send, { chatId, text: "Moved below", mentions: { userIds: [], agentIds: [] } });
+	const quiet = await t.run(async (ctx) => {
+		await ctx.db.patch(old, { publishedAt: undefined });
+		await ctx.db.patch(steered, { publishedAt: 9e15 });
+		const m = (await ctx.db.get(old))!;
+		return ctx.db.insert("chatMessages", { chatId, workspaceId: m.workspaceId, authorUserId: m.authorUserId, text: "Unshown", parts: [], mentions: m.mentions, status: "done", quiet: true });
+	});
+	vi.useFakeTimers();
+	try {
+		await t.mutation(internal.migrations.runAll);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+	} finally {
+		vi.useRealTimers();
+	}
+	const [a, b, c] = await t.run(async (ctx) => Promise.all([old, steered, quiet].map((id) => ctx.db.get(id))));
+	expect(a!.publishedAt).toBe(a!._creationTime);
+	expect(b!.publishedAt).toBe(9e15);
+	expect(c!.publishedAt).toBeUndefined();
+});
+
+// COMPAT(0.1.0-alpha.10): delete with migrations.messageShownAt and the fallback in messages.ts `timeline`.
+it("shows a chat's newest messages before the backfill gives them a shown time, then pages by it", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	migrationsTest.register(t);
+	prosemirrorSync.register(t);
+	const owner = await signIn(t, "owner@co.com");
+	const chatId = (await generalOf(owner))._id;
+	const { workspaceId, createdBy: authorUserId } = (await t.run((ctx) => ctx.db.get(chatId)))!;
+	const base = { chatId, workspaceId, authorUserId, parts: [], mentions: { userIds: [], agentIds: [] }, status: "done" as const };
+	// 220 that already have one (one of them shown much later than made), then 70 newer from before it was kept.
+	const { late, newer } = await t.run(async (ctx) => {
+		const placed = [];
+		for (let i = 0; i < 220; i++) placed.push(await ctx.db.insert("chatMessages", { ...base, text: `placed ${i}`, publishedAt: i }));
+		await ctx.db.patch(placed[0]!, { publishedAt: 9e15 });
+		const newer = [];
+		for (let i = 0; i < 70; i++) newer.push(await ctx.db.insert("chatMessages", { ...base, text: `newer ${i}` }));
+		return { late: placed[0]!, newer };
+	});
+	const newest = async () => (await owner.query(api.messages.page, { chatId, paginationOpts: { numItems: 50, cursor: null } })).page.map((m) => m._id);
+	expect(await newest()).toEqual(newer.slice(-50));
+	expect((await messagesIn(owner, { chatId })).slice(-70).map((m) => m._id)).toEqual(newer);
+	vi.useFakeTimers();
+	try {
+		await t.mutation(internal.migrations.runAll);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+	} finally {
+		vi.useRealTimers();
+	}
+	// By when each was shown now: the late one last, after the 70.
+	expect(await newest()).toEqual([...newer.slice(-49), late]);
 });

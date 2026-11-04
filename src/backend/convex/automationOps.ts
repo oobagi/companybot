@@ -129,7 +129,7 @@ export const runsForLabel = (audience: AutomationAudience, channel: Doc<"chats">
  * its trigger watches) for `outcomeText` to name to each reader. Never a channel's name: the last run's
  * line shows to everyone who can see the automation, and not all of them can see its channels.
  */
-export type RunOutcome = { text: string; channelId?: Id<"chats">; watchedId?: Id<"chats"> };
+export type RunOutcome = { text: string; failed?: boolean; channelId?: Id<"chats">; watchedId?: Id<"chats"> };
 
 /** A run's line for `viewer` (null: someone outside, like a webhook's sender): a channel by name only to someone who can see it. */
 export async function outcomeText(ctx: QueryCtx, outcome: RunOutcome, viewer: Member | null) {

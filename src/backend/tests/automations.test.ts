@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 
-import { signIn, agentsOf, ownerAndMember, generalOf, turnsOf, settle, setMemberSwitch } from "./helpers";
+import { signIn, agentsOf, ownerAndMember, generalOf, turnsOf, settle, setMemberSwitch, messagesIn } from "./helpers";
 
 afterEach(() => void vi.useRealTimers());
 
@@ -18,7 +18,7 @@ describe("automations", () => {
 	/** Who wrote each message in this person's DM with the agent, and which automation sent it. */
 	const dmWith = async (as: As, agentId: Id<"agents">) => {
 		const dmId = (await as.query(api.chats.list))?.agents.find((a) => a._id === agentId)?.dmId;
-		const messages = dmId ? await as.query(api.messages.list, { chatId: dmId }) : [];
+		const messages = dmId ? await messagesIn(as, { chatId: dmId }) : [];
 		return messages.map((m) => [m.author.type, m.automation?.name ?? null]);
 	};
 	const find = async (as: As, id: string) => (await as.query(api.automations.list)).find((a) => a.id === id);
@@ -82,7 +82,8 @@ describe("automations", () => {
 				"isn't one people turn on",
 			);
 			await tickThursday(t);
-			const messages = await member.query(api.messages.list, { chatId: sales });
+			const messages = await messagesIn(member, { chatId: sales });
+			expect((await t.run(async ctx => (await ctx.db.query("chatMessages").collect()).find(m => m.chatId === sales && m.automation)))!.publishedAt).toBeTypeOf("number");
 			expect(messages.map((m) => [m.author.type, m.author.name, m.automation?.name ?? null])).toEqual([
 				["user", "owner@co.com", "Morning brief"],
 			]);
@@ -152,7 +153,7 @@ describe("automations", () => {
 				["user", "After-call summary"],
 			]);
 			const dmId = (await member.query(api.chats.list))!.agents.find((a) => a._id === companybot._id)!.dmId!;
-			expect((await member.query(api.messages.list, { chatId: dmId }))[0]!.text).toContain("Leaky water heater.");
+			expect((await messagesIn(member, { chatId: dmId }))[0]!.text).toContain("Leaky water heater.");
 			expect(await post(call("c3", { person: { email: "nobody@co.com" } }))).toEqual([
 				200,
 				"Didn't run: nobody here has the email nobody@co.com.",
@@ -170,7 +171,7 @@ describe("automations", () => {
 			// The sender is outside the workspace, so the reply names no channel; the automation's page does.
 			expect(await post(call("c1"))).toEqual([200, "Posted in a channel."]);
 			expect((await owner.query(api.automations.list)).find((a) => a.id === "after-call-summary")!.lastResult).toBe("Posted in #calls.");
-			expect(await member.query(api.messages.list, { chatId: calls })).toHaveLength(1);
+			expect(await messagesIn(member, { chatId: calls })).toHaveLength(1);
 		});
 
 		it("forgets event ids after a week and on purge, preserving them through Trash", async () => {
@@ -453,7 +454,7 @@ describe("automations", () => {
 			const post = async (body: object) => (await t.fetch(path, { method: "POST", body: JSON.stringify(body) })).status;
 			expect(await post({ id: "f1", data: { email: "a@b.com" } })).toBe(200);
 			expect(await post({ event: "form.submitted", id: "f2" })).toBe(200);
-			const posted = (await owner.query(api.messages.list, { chatId: sales })).filter((m) => m.automation);
+			const posted = (await messagesIn(owner, { chatId: sales })).filter((m) => m.automation);
 			expect(posted.map((m) => m.automation!.name)).toEqual(["Forms", "Forms"]);
 		});
 	});
@@ -513,9 +514,9 @@ describe("automations", () => {
 			await send(other, "unrelated");
 			const messageId = await send(support, "My invoice is wrong");
 			await automationJobs(t);
-			const top = await member.query(api.messages.list, { chatId: support });
+			const top = await messagesIn(member, { chatId: support });
 			expect(top.map((m) => m.text)).toEqual(["My invoice is wrong"]);
-			const [, ...replies] = await member.query(api.messages.list, { chatId: support, threadId: messageId });
+			const [, ...replies] = await messagesIn(member, { chatId: support, threadId: messageId });
 			expect(replies.map((m) => [m.author.type, m.automation?.name ?? null])).toEqual([
 				["user", "Triage"],
 			]);
@@ -558,7 +559,7 @@ describe("automations", () => {
 			// It names the private channel only to someone still in it.
 			expect((await find(member, id))!.lastResult).toBe("Didn't run: member@co.com, who made it, isn't in a channel. Pick another channel.");
 			expect((await find(owner, id))!.lastResult).toBe("Didn't run: member@co.com, who made it, isn't in #ops. Pick another channel.");
-			expect((await owner.query(api.messages.list, { chatId: ops })).some((m) => m.automation)).toBe(false);
+			expect((await messagesIn(owner, { chatId: ops })).some((m) => m.automation)).toBe(false);
 		});
 
 		it("gives people only events from chats they can see", async () => {

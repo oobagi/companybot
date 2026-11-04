@@ -6,7 +6,7 @@ import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { fetchPreview, previewFrom } from "../convex/linkUnfurl";
 import { fetchBody } from "../convex/webFetch";
-import { type As, agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, settle, workspaceOf } from "./helpers";
+import { type As, agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, settle, workspaceOf, messagesIn } from "./helpers";
 
 afterEach(() => void vi.useRealTimers());
 
@@ -121,7 +121,7 @@ const fetches = (t: T) =>
 		return out;
 	});
 const post = async (as: As, text: string) => as.mutation(api.messages.send, { chatId: (await generalOf(as))._id, text, mentions: noMentions });
-const cards = async (as: As, id: Id<"chatMessages">) => (await as.query(api.messages.list, { chatId: (await generalOf(as))._id })).find((m) => m._id === id)!.linkPreviews;
+const cards = async (as: As, id: Id<"chatMessages">) => (await messagesIn(as, { chatId: (await generalOf(as))._id })).find((m) => m._id === id)!.linkPreviews;
 const store = (t: T, id: Id<"chatMessages">, ...results: (Partial<typeof found> & { url: string; image?: Id<"_storage"> })[]) => t.mutation(internal.linkPreviews.save, { messageId: id, results });
 const picture = (t: T) => t.run((ctx) => ctx.storage.store(new Blob([new Uint8Array(pngOf(8, 8))], { type: "image/png" })));
 const exists = (t: T, id: Id<"_storage">) => t.run(async (ctx) => !!(await ctx.db.system.get(id)));
@@ -281,7 +281,7 @@ describe("hiding a preview", () => {
 		await member.mutation(api.messages.hidePreview, { messageId: id, url: `${link}#section` });
 		expect(await cards(owner, id)).toEqual([]);
 		expect(await cards(member, id)).toEqual([]);
-		expect((await member.query(api.messages.list, { chatId: (await generalOf(member))._id })).find((m) => m._id === id)!.text).toBe(`see ${link}`);
+		expect((await messagesIn(member, { chatId: (await generalOf(member))._id })).find((m) => m._id === id)!.text).toBe(`see ${link}`);
 	});
 
 	it("stays hidden when the message is edited or the page is refreshed, and refuses a link with no card", async () => {

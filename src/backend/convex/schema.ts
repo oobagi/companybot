@@ -8,7 +8,7 @@ import { viewConfig } from "./recordValidators";
 /** One of `values`, each a literal. */
 const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map((value) => v.literal(value)));
 
-const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats"), v.id("users"))));
+const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats"), v.id("users"), v.id("connectorInstalls"))));
 export const arrangementList = oneOf(Object.keys(arrangementLists) as ArrangementList[]);
 export const databaseDisplay = v.object({ layout: v.union(v.literal("table"), v.literal("board")), groupBy: v.optional(v.string()) });
 
@@ -434,6 +434,13 @@ export default defineSchema({
 		installedBy: v.id("users"),
 	}).index("by_workspace", ["workspaceId", "connectorId"]),
 
+	// Display labels for deleted source ids; no credentials or connector data. Kept until workspace deletion/reset.
+	connectorSourceLabels: defineTable({
+		workspaceId: v.id("workspaces"),
+		installId: v.id("connectorInstalls"),
+		name: v.string(),
+	}).index("by_install", ["installId"]).index("by_workspace", ["workspaceId"]),
+
 	// An account connected to a connector: the workspace's (userId null) or one person's.
 	// Credentials are AES-GCM encrypted with CONNECTIONS_KEY and never leave the server.
 	connectorConnections: defineTable({
@@ -521,8 +528,8 @@ export default defineSchema({
 		/** In Trash (the `trash` table says who deleted it, and when). */
 		archived: v.boolean(),
 		createdBy: v.id("users"),
-		lastMessageAt: v.number(),
-		/** USD spent on agent replies and summaries here (main timeline). */
+		// COMPAT(0.1.0-alpha.10): moved to `chatActivity`. Once migrations.chatActivity has run on prod, drop these two and the fallback in chatOps `activityOf`.
+		lastMessageAt: v.optional(v.number()),
 		costUsd: v.optional(v.number()),
 		/** Channels: when agents answer without an @mention (core router.ts). Unset is "mentions", so no migration. */
 		replyMode: v.optional(oneOf(replyModes)),
@@ -532,6 +539,16 @@ export default defineSchema({
 		.index("by_workspace", ["workspaceId", "kind"])
 		.index("by_dm_key", ["workspaceId", "dmKey"])
 		.index("by_name", ["workspaceId", "name", "archived"]),
+
+	// What changes with every message in a chat, apart from it, so the many queries that read a chat's
+	// name, members or access don't re-run on each one (chatOps `activityOf`). Made with the chat.
+	chatActivity: defineTable({
+		chatId: v.id("chats"),
+		/** The main timeline's newest shown message. */
+		lastMessageAt: v.number(),
+		/** USD spent on agent replies and summaries here (main timeline). */
+		costUsd: v.optional(v.number()),
+	}).index("by_chat", ["chatId"]),
 
 	// Who's in a chat: one person or one agent per row.
 	chatMembers: defineTable({
@@ -598,8 +615,9 @@ export default defineSchema({
 		/** Not in the timeline: an agent's reply until it has something to show (turns.ts `show`), and an ask (chains.ts). */
 		quiet: v.optional(v.boolean()),
 		/**
-		 * Where it sits in the timeline, if not where it was made (chatOps `shownAt`): when an agent's reply was
-		 * shown, or when a reply took in messages sent after it began (turns.steer), so it shows below them.
+		 * When it was shown in the timeline (chatOps `shownAt`), what lists page and sort by: when it was sent, when an
+		 * agent's reply was shown, or when a reply took in messages sent after it began (turns.steer), so it shows below
+		 * them. Unset while quiet. COMPAT(0.1.0-alpha.10): older rows have none until migrations.messageShownAt.
 		 */
 		publishedAt: v.optional(v.number()),
 		/**
@@ -614,7 +632,10 @@ export default defineSchema({
 			}),
 		),
 	})
-		.index("by_chat_thread", ["chatId", "threadId"])
+		/** A timeline or thread without its quiet rows (`quiet` unset), or only them: lists never step over hidden replies. */
+		.index("by_chat_thread_quiet", ["chatId", "threadId", "quiet"])
+		/** The same, in the order shown: what the app pages by, so a reply shown late is on the newest page. */
+		.index("by_chat_shown", ["chatId", "threadId", "quiet", "publishedAt"])
 		/** Thread parents, newest reply first: the sidebar's active threads. Messages without replies have no `lastReplyAt` and sort first. */
 		.index("by_chat_lastReply", ["chatId", "lastReplyAt"])
 		.index("by_workspace", ["workspaceId"])
@@ -991,7 +1012,7 @@ export default defineSchema({
 		 * What the last run did (automationOps.RunOutcome): a line, e.g. "Posted in {channel}.", and the channels
 		 * it names, which each reader sees by name only if they can see them (automationOps.outcomeText).
 		 */
-		lastOutcome: v.optional(v.object({ text: v.string(), channelId: v.optional(v.id("chats")), watchedId: v.optional(v.id("chats")) })),
+		lastOutcome: v.optional(v.object({ text: v.string(), failed: v.optional(v.boolean()), channelId: v.optional(v.id("chats")), watchedId: v.optional(v.id("chats")) })),
 		// COMPAT(0.1.0-alpha.10): the line as it was stored, channel names and all. Once migrations.automationOutcomes
 		// has run on prod, drop this. Nothing reads it.
 		lastResult: v.optional(v.string()),

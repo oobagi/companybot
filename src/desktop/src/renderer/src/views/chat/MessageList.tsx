@@ -1,5 +1,5 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { Fragment, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import { useQuery } from "../../convex";
 import { Markdown } from "../../markdown";
@@ -24,6 +24,7 @@ export function MessageList({
 	chatId,
 	threadId,
 	messages,
+	onLoadMore,
 	tokens,
 	summaryLabel,
 	onOpenThread,
@@ -36,6 +37,8 @@ export function MessageList({
 	chatId: Id<"chats">;
 	threadId?: Id<"chatMessages">;
 	messages: Message[];
+	/** Loads the page before the oldest shown; unset once there's none (or while one loads). */
+	onLoadMore?: () => void;
 	tokens: TokenNames;
 	/** Who sees the summary, e.g. "Agents" or "Sales Bot". */
 	summaryLabel: string;
@@ -66,7 +69,31 @@ export function MessageList({
 		return () => observer.disconnect();
 	}, []);
 
+	// Older messages land above: keep what you're reading where it is (distance from the bottom).
+	const fromBottom = useRef<number | null>(null);
+	// A thread's parent stays first: its oldest loaded reply is what changes.
+	const oldest = messages[threadId ? 1 : 0]?._id;
+	useLayoutEffect(() => {
+		const el = scroller.current;
+		if (el && fromBottom.current !== null) el.scrollTop = el.scrollHeight - fromBottom.current;
+		fromBottom.current = null;
+	}, [oldest]);
+	const loadOlder = () => {
+		const el = scroller.current;
+		if (!el || !onLoadMore) return;
+		fromBottom.current = el.scrollHeight - el.scrollTop;
+		onLoadMore();
+	};
+	// Near the top, or a page too short to scroll: the next older page.
+	const NEAR_TOP = 400;
+	useEffect(() => {
+		const el = scroller.current;
+		if (el && onLoadMore && el.scrollTop < NEAR_TOP) loadOlder();
+	});
+
 	const upTo = place?.summarizedUpTo ?? null;
+	// A thread's parent counts its replies, loaded or not (an ask's doesn't: count what's here).
+	const replies = Math.max(messages[0]?.replyCount ?? 0, messages.length - 1);
 
 	return (
 		<Scroll
@@ -77,6 +104,7 @@ export function MessageList({
 			onScroll={(e) => {
 				const el = e.currentTarget;
 				nearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+				if (el.scrollTop < NEAR_TOP) loadOlder();
 			}}
 		>
 			<div ref={content} className="flex flex-1 flex-col justify-end py-4">
@@ -99,7 +127,7 @@ export function MessageList({
 							/>
 							{threadId && i === 0 && messages.length > 1 && (
 								<Divider>
-									{messages.length - 1} {messages.length === 2 ? "reply" : "replies"}
+									{replies} {replies === 1 ? "reply" : "replies"}
 								</Divider>
 							)}
 							{place?.summary && upTo !== null && next && m._creationTime <= upTo && next._creationTime > upTo && (

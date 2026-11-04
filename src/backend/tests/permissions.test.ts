@@ -5,7 +5,7 @@ import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { approvalHash, canonicalJson, findConnector, openConnector, toolApprovalPolicy, toolRisk } from "@companybot/core";
 
-import { type As, agentsOf, ownerAndMember, generalOf, turnsOf, settle, setMemberSwitch } from "./helpers";
+import { type As, agentsOf, ownerAndMember, generalOf, turnsOf, settle, setMemberSwitch, messagesIn } from "./helpers";
 import "./connectorFixtures";
 import { fakeMcpServer } from "../../core/test/test-mcp-server";
 
@@ -408,7 +408,7 @@ describe("permissions", () => {
 		const reply = (await t.run(ctx => ctx.db.get(row.replyId)))!;
 		expect(reply.chatId).not.toBe(chatId);
 		expect(reply.parts).toMatchObject([{ type: "approval", approvalId }]);
-		expect(await owner.query(api.messages.list, { chatId: reply.chatId })).toEqual([]);
+		expect(await messagesIn(owner, { chatId: reply.chatId })).toEqual([]);
 		expect(await owner.query(api.approvals.forReply, { replyId: row.replyId })).toEqual([]);
 		expect(await member.query(api.approvals.forReply, { replyId: run.replyId! })).toEqual([]);
 		const [card] = await member.query(api.approvals.forReply, { replyId: row.replyId });

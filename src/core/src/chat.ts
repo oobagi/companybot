@@ -16,6 +16,8 @@ export const threadWindows = [
 export const THREAD_HOURS_DEFAULT = 72;
 /** Longest channel topic, in characters, like Slack. Every writer (app, agents, tools) holds to it. */
 export const TOPIC_MAX = 250;
+/** Messages per page of a chat or thread: the app loads this many at a time, older ones as you scroll up. */
+export const MESSAGE_PAGE = 50;
 
 export const isThreadWindow = (hours: number) => threadWindows.some((w) => w.hours === hours);
 

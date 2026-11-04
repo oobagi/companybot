@@ -4,6 +4,9 @@ import { useSyncExternalStore } from "react";
 // navigate() pushes a history entry, so back (button, mouse, swipe) returns to the
 // screen before. Hash-based so it works from the packaged app's file:// page.
 
+/** The app's top-level screens, the first segment of a path. */
+export const views = ["chat", "records", "pages", "settings"] as const;
+
 const read = () => window.location.hash.slice(1) || "/chat";
 
 const subscribe = (onChange: () => void) => {
