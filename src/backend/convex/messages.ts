@@ -56,7 +56,15 @@ export type Message = {
 	lastReplyAt: number | null;
 	/** Up to 3 people or agents who replied in the thread, most recent first. */
 	replyAuthors: Participant[];
-	reactions: { emoji: string; count: number; mine: boolean; names: string[] }[];
+	/** Grouped by emoji, in the order first used. `people`: who reacted, oldest first. */
+	reactions: {
+		emoji: string;
+		count: number;
+		mine: boolean;
+		people: Participant[];
+		/** COMPAT(0.1.0-alpha.10): alpha.9 apps read `names` (their chips' title); delete it. */
+		names: string[];
+	}[];
 	/** Set when an automation posted this for its author. */
 	automation: { id: string; name: string } | null;
 	/** Attached files, with URLs to show or download them (null if the file is gone). */
@@ -111,10 +119,12 @@ async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, 
 	const reactions: Message["reactions"] = [];
 	for (const r of await reactionsOf(ctx, m._id)) {
 		let group = reactions.find((g) => g.emoji === r.emoji);
-		if (!group) reactions.push((group = { emoji: r.emoji, count: 0, mine: false, names: [] }));
+		if (!group) reactions.push((group = { emoji: r.emoji, count: 0, mine: false, people: [], names: [] }));
 		group.count++;
 		group.mine ||= r.userId === member.userId;
-		group.names.push((await names.of(r)).name);
+		const who = await names.of(r);
+		group.people.push(who);
+		group.names.push(who.name);
 	}
 	const replyAuthors: Participant[] = m.threadId ? [] : await Promise.all((await replyAuthorsOf(ctx, m)).map(names.of));
 	return {

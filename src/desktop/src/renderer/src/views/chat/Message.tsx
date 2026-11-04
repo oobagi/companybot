@@ -1,16 +1,16 @@
 import { actionLabel, toolLine } from "@companybot/core/action-words";
 import { splitLinks } from "@companybot/core/link-preview";
 import { routerDecisionModels } from "@companybot/core/router";
-import { Fragment, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { Markdown } from "../../markdown";
-import { Notice, timeAgo } from "../../ui";
+import { Notice, timeAgo, useTip } from "../../ui";
 import { WidgetView } from "../../widgets";
 import { CallDetails } from "../Activity";
 import { ApprovalMessages } from "./Approval";
-import { AutomationIcon, EditIcon, ReactIcon, ReplyIcon, TrashIcon } from "../../icons";
-import { AgentBadge, Avatar, AvatarStack, EmojiPicker, PairAvatar, IconButton, Popover, clock, useConfirm, useDismiss } from "./common";
+import { AutomationIcon, EditIcon, MoreIcon, ReactIcon, ReplyIcon, TrashIcon } from "../../icons";
+import { AgentBadge, Avatar, AvatarStack, EmojiPicker, IconButton, MenuItem, PairAvatar, Popover, PopoverPanel, clock, useConfirm, useDismiss } from "./common";
 import type { Message, TokenNames } from "./data";
 import { navigate } from "../../router";
 import { ProfileLink } from "./Profile";
@@ -43,6 +43,9 @@ export function MessageRow({
 	const remove = useMutation(api.messages.remove);
 	const [picker, setPicker] = useState(false);
 	const [editing, setEditing] = useState(false);
+	// The ⋯ menu, then what it opened in its place.
+	const [more, setMore] = useState<{ at: DOMRect; view: "menu" | "reactions" }>();
+	const moreButton = useRef<HTMLSpanElement>(null);
 	const toolbar = useDismiss<HTMLDivElement>(() => setPicker(false), picker);
 	const { confirm, dialog } = useConfirm();
 	const isAgent = message.author.type === "agent";
@@ -129,24 +132,7 @@ export function MessageRow({
 						</p>
 					)}
 					{!message.deleted && message.linkPreviews.length > 0 && <LinkPreviews message={message} onError={onError} />}
-					{message.reactions.length > 0 && (
-						<div className="flex flex-wrap gap-1 pt-0.5">
-							{message.reactions.map((r) => (
-								<button
-									type="button"
-									key={r.emoji}
-									title={r.names.join(", ")}
-									onClick={readOnly ? undefined : () => toggle(r.emoji)}
-									className={`flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-sm tabular-nums ${
-										r.mine ? "border-neutral-400 bg-neutral-100 text-neutral-900" : "border-neutral-200 text-neutral-600 hover:border-neutral-300"
-									}`}
-								>
-									<span className="text-base leading-none">{r.emoji}</span>
-									{r.count}
-								</button>
-							))}
-						</div>
-					)}
+					{message.reactions.length > 0 && <Reactions reactions={message.reactions} onToggle={readOnly ? undefined : toggle} />}
 					{onOpenThread && message.replyCount ? (
 						<button
 							type="button"
@@ -165,7 +151,7 @@ export function MessageRow({
 					<div
 						ref={toolbar}
 						className={`absolute -top-3 right-5 z-10 items-center rounded-lg border border-neutral-200 bg-white p-0.5 shadow-sm ${
-							picker ? "flex" : "hidden group-hover:flex"
+							picker || more ? "flex" : "hidden group-hover:flex"
 						}`}
 					>
 						<IconButton label="Add reaction" onClick={() => setPicker(!picker)}>
@@ -189,6 +175,27 @@ export function MessageRow({
 								</IconButton>
 							</>
 						)}
+						{message.reactions.length > 0 && (
+							<span ref={moreButton} className="flex">
+								<IconButton
+									label="More"
+									onClick={() => setMore(more ? undefined : { at: moreButton.current!.getBoundingClientRect(), view: "menu" })}
+								>
+									<MoreIcon weight="bold" />
+								</IconButton>
+							</span>
+						)}
+						{more && (
+							<PopoverPanel anchor={more.at} ignore={moreButton} className={more.view === "menu" ? "w-52 p-1" : "w-64 p-1"} onClose={() => setMore(undefined)}>
+								{more.view === "menu" ? (
+									<MenuItem onClick={() => setMore({ ...more, view: "reactions" })}>
+										<ReactIcon /> Reactions
+									</MenuItem>
+								) : (
+									<ReactionList reactions={message.reactions} />
+								)}
+							</PopoverPanel>
+						)}
 						{picker && <EmojiPicker className="absolute top-full right-0 mt-1" onPick={toggle} onClose={() => setPicker(false)} />}
 					</div>
 				)}
@@ -197,6 +204,71 @@ export function MessageRow({
 			{held.length > 0 && <ApprovalMessages message={message} parts={held} />}
 			{dialog}
 		</>
+	);
+}
+
+type Reaction = Message["reactions"][number];
+
+/** Names in a hover tip before "and N others"; ⋯ → Reactions has everyone. */
+const TIP_NAMES = 6;
+
+/** "Ada", "Ada and Bo", "Ada, Bo and Cy", "Ada, Bo, … and 4 others". */
+function whoReacted(people: Reaction["people"]) {
+	const names = people.map((p) => p.name);
+	if (names.length > TIP_NAMES) return `${names.slice(0, TIP_NAMES - 1).join(", ")} and ${names.length - TIP_NAMES + 1} others`;
+	return names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : (names[0] ?? "");
+}
+
+/**
+ * The chips under a message: click one to add or take back yours (`onToggle`; absent read-only).
+ * Hover one for who reacted with it; the message's ⋯ → Reactions lists everyone.
+ */
+function Reactions({ reactions, onToggle }: { reactions: Reaction[]; onToggle?: (emoji: string) => void }) {
+	const { tipFor, tip } = useTip("below");
+	return (
+		<>
+			<div className="flex flex-wrap gap-1 pt-0.5">
+				{reactions.map((r) => (
+					<button
+						type="button"
+						key={r.emoji}
+						aria-label={`${r.emoji} ${whoReacted(r.people)}`}
+						{...tipFor(whoReacted(r.people))}
+						onClick={onToggle && (() => onToggle(r.emoji))}
+						className={`flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-sm tabular-nums ${
+							r.mine ? "border-neutral-400 bg-neutral-100 text-neutral-900" : "border-neutral-200 text-neutral-600 hover:border-neutral-300"
+						}`}
+					>
+						<span className="text-base leading-none">{r.emoji}</span>
+						{r.count}
+					</button>
+				))}
+			</div>
+			{tip}
+		</>
+	);
+}
+
+/** Everyone who reacted, under each emoji. */
+function ReactionList({ reactions }: { reactions: Reaction[] }) {
+	return (
+		<div className="flex flex-col gap-1">
+			{reactions.map((r) => (
+				<section key={r.emoji} className="flex flex-col">
+					<h3 className="flex items-center gap-1.5 px-2 pt-1.5 pb-0.5 text-xs text-neutral-500 tabular-nums">
+						<span className="text-base leading-none">{r.emoji}</span>
+						{r.count}
+					</h3>
+					{r.people.map((p) => (
+						<ProfileLink key={`${p.type}:${p.id}`} who={p} className="flex items-center gap-2 rounded-lg px-2 py-1 text-left hover:bg-neutral-100">
+							<Avatar name={p.name} image={p.image} agent={p.type === "agent"} size="xs" />
+							<span className="truncate">{p.name}</span>
+							{p.type === "agent" && <AgentBadge />}
+						</ProfileLink>
+					))}
+				</section>
+			))}
+		</div>
 	);
 }
 

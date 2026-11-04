@@ -277,7 +277,7 @@ describe("agent turns", () => {
 		]);
 		expect(await t.mutation(internal.chatTools.reactFor, { turnId: turn!._id, emoji: "👀" })).toEqual({ reacted: true });
 		const [m] = (await member.query(api.messages.list, { chatId })).filter((x) => x._id === trigger);
-		expect(m!.reactions).toEqual([{ emoji: "👀", count: 1, mine: false, names: ["Companybot"] }]);
+		expect(m!.reactions).toMatchObject([{ emoji: "👀", count: 1, mine: false, people: [{ type: "agent", name: "Companybot" }] }]);
 		const after = await t.query(internal.chatTools.readFor, { turnId: turn!._id });
 		expect("messages" in after && after.messages[0]?.reactions).toEqual([{ emoji: "👀", by: ["Companybot"] }]);
 	});

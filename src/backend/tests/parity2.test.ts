@@ -191,7 +191,7 @@ it("edits/deletes only own visible messages, reacts to chosen messages and marks
 	expect(await call("chat.manage", { action: "hide_preview", messageId: linked, url: "https://news.example.com/story" })).toHaveProperty("done", "hide_preview");
 	expect((await owner.query(api.messages.list, { chatId })).find((m) => m._id === linked)!.linkPreviews).toEqual([]);
 	expect(await call("chat.manage", { action: "hide_preview", messageId: theirs, url: "https://news.example.com/story" })).toHaveProperty("error");
-	expect((await owner.query(api.messages.list, { chatId })).find((m) => m._id === theirs)!.reactions[0]!.names).toContain(companybot.name);
+	expect((await owner.query(api.messages.list, { chatId })).find((m) => m._id === theirs)!.reactions[0]!.people.map((p) => p.name)).toContain(companybot.name);
 	expect(await call("chat.manage", { action: "mark_read", chat: chatId })).toHaveProperty("done", "mark_read");
 	const { messageId } = await call("chat.manage", { action: "send", chat: chatId, text: "Agent delivery" });
 	expect(await call("chat.manage", { action: "edit", messageId, text: "Corrected" })).toHaveProperty("done", "edit");
