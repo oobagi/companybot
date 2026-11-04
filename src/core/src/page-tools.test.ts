@@ -47,6 +47,17 @@ describe("pages tools", () => {
 		expect(await toolApprovalPolicy(tools)({ toolCall: { toolCallId: "page", toolName: "pages_write", input } })).toBe("user-approval");
 	});
 
+	it("asks before copying a chat picture into a page in runs following someone else's words", async () => {
+		const tools = [tool("pages.write")];
+		const id = "k57abcdefghijklmnopqrstuvwxyz123/0";
+		for (const input of [{ page: "p1", markdown: `![Logo](${id})` }, { page: "p1", blocks: JSON.stringify([{ type: "image", attrs: { url: id } }]) }]) {
+			const call = await actionOf("pages_write", input, tools);
+			expect(toolRisk(call!.tool)).toBe("inside");
+			expect(permissionFor({ risk: toolRisk(call!.tool), foreign: true })).toEqual({ type: "ask", canAlways: true });
+		}
+		expect(toolRisk((await actionOf("pages_write", { page: "p1", markdown: "![Logo](https://acme.com/logo.png)" }, tools))!.tool)).toBe("none");
+	});
+
 	it("say what each write did", () => {
 		const label = (input: object, output: object) => tool("pages.write").label!(input, output);
 		expect(label({ action: "move", page: "p1", parent: "p2" }, { title: "SOP" })).toBe("Move page SOP");

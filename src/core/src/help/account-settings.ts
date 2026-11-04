@@ -1,3 +1,4 @@
+import { pictureLimits } from "../images";
 import type { HelpPage } from "./index";
 
 export default {
@@ -7,7 +8,7 @@ export default {
 	text: `# Your preferences
 [Your preferences](#/settings/preferences): open your avatar at the bottom of the rail → Account settings. Only you see these, except your photo, name and time zone. They follow you to every device and workspace.
 
-- **Photo**: PNG, JPEG, WebP or GIF, up to 2 MB.
+- **Photo**: ${pictureLimits}.
 - **Name**: what agents and teammates call you.
 - **Time zone**: automatic (your computer's) or one you pick. Agents use it for dates and times.
 - **Send messages with**: Enter (Shift+Enter for a new line) or ⌘ Enter.

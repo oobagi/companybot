@@ -1,8 +1,8 @@
 import { findInput, readInput, writeInput } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
+import { type QueryCtx, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { type Member, asToolResult } from "./lib";
 import {
 	createPage,
@@ -11,6 +11,7 @@ import {
 	readDoc,
 	requirePageAccess,
 	renamePage,
+	requireEditable,
 	requirePage,
 	restoreVersion,
 	setPageTrashed,
@@ -18,6 +19,7 @@ import {
 	writeBlocks,
 } from "./pageOps";
 import { movePage, pageState, pageStates } from "./pageTree";
+import { claimUpload } from "./images";
 import { inTrash, recordById } from "./recordOps";
 import { pageHistory, requireVersion, versionContent } from "./pages";
 import { runningTurn } from "./turns";
@@ -128,7 +130,52 @@ export const readFor = internalQuery({
 	},
 });
 
-const writeArgs = { turnId: v.id("agentTurns"), input: v.any(), blocks: v.optional(v.string()) };
+/** A chat file id, as an image's URL in a page ("![caption](<file id>)"). */
+const FILE_ID = /^[a-z0-9]{20,}\/\d+$/i;
+
+/**
+ * Pictures from the chat that page blocks point at by file id: copied (files.copyFor) and pointed at
+ * the copies, which writeChecked makes the page's own. Blocks that don't parse go on as they are, to be refused there.
+ */
+export const copyPictures = internalAction({
+	args: { turnId: v.id("agentTurns"), blocks: v.string() },
+	handler: async (ctx, { turnId, blocks }): Promise<{ blocks: string; pictures: { storageId: Id<"_storage">; url: string }[] } | { error: string }> => {
+		let doc: unknown;
+		try {
+			doc = JSON.parse(blocks);
+		} catch {
+			return { blocks, pictures: [] };
+		}
+		const images: { attrs: { url: string } }[] = [];
+		const walk = (node: unknown): void => {
+			if (!node || typeof node !== "object") return;
+			if (Array.isArray(node)) return node.forEach(walk);
+			const { type, attrs, content } = node as { type?: string; attrs?: { url?: unknown }; content?: unknown };
+			if (type === "image" && typeof attrs?.url === "string" && FILE_ID.test(attrs.url)) images.push(node as { attrs: { url: string } });
+			walk(content);
+		};
+		walk(doc);
+		if (images.length === 0) return { blocks, pictures: [] };
+		const copied = await ctx.runAction(internal.files.copyFor, { turnId, ids: images.map((i) => i.attrs.url), picture: true });
+		if ("error" in copied) return copied;
+		const urls: Record<string, string> = {};
+		const pictures = [];
+		for (const [id, storageId] of Object.entries(copied.copies)) {
+			urls[id] = (await ctx.storage.getUrl(storageId))!;
+			pictures.push({ storageId, url: urls[id] });
+		}
+		for (const image of images) image.attrs.url = urls[image.attrs.url]!;
+		return { blocks: JSON.stringify(doc), pictures };
+	},
+});
+
+/** `blocks`: the content to write, from the Markdown or with `pictures` (agent.ts pagePictures) pointed at their copies. */
+const writeArgs = {
+	turnId: v.id("agentTurns"),
+	input: v.any(),
+	blocks: v.optional(v.string()),
+	pictures: v.optional(v.array(v.object({ storageId: v.id("_storage"), url: v.string() }))),
+};
 
 // Catch expected errors outside the write transaction, so a refused edit saves nothing.
 export const writeFor = internalMutation({
@@ -138,7 +185,7 @@ export const writeFor = internalMutation({
 
 export const writeChecked = internalMutation({
 	args: writeArgs,
-	handler: async (ctx, { turnId, input, blocks }) => {
+	handler: async (ctx, { turnId, input, blocks, pictures = [] }) => {
 		const { member, who } = await runningTurn(ctx, turnId);
 		const { page: name, record, title, markdown, blocks: rich, mode = "append", trash, restore, parent, action = "write" } = writeInput.parse(input);
 		if (record && parent !== undefined) throw new ConvexError("Record bodies can't be nested.");
@@ -151,7 +198,7 @@ export const writeChecked = internalMutation({
 		}
 		if (name && parent !== undefined) throw new ConvexError("Use action move to change a page's parent.");
 		if (rich !== undefined && markdown !== undefined) throw new ConvexError("Use blocks or markdown, not both.");
-		const content = rich ?? blocks;
+		const content = blocks ?? rich;
 		const changes = [title, markdown, rich, trash, restore, parent].filter((x) => x !== undefined).length;
 		if ((trash !== undefined || restore) && changes > 1) throw new ConvexError("Delete, restore or bring back a version on its own.");
 		let page: Doc<"pages">;
@@ -173,6 +220,12 @@ export const writeChecked = internalMutation({
 		}
 		if (trash !== undefined) await setPageTrashed(ctx, who, page, trash);
 		if (title !== undefined && (name || record)) await renamePage(ctx, who, page, title);
+		// Pictures from the chat, copied as the person's uploads: claimed as pages.addImage claims one.
+		if (pictures.length) await requireEditable(ctx, member, page);
+		for (const { storageId, url } of pictures) {
+			await claimUpload(ctx, member, storageId);
+			await ctx.db.insert("pageImages", { workspaceId: page.workspaceId, pageId: page._id, storageId, url });
+		}
 		const wrote = content !== undefined && (await writeBlocks(ctx, who, page, content, mode));
 		const after = (await ctx.db.get(page._id))!;
 		return { id: page._id, title: await titleOf(ctx, after), ...((markdown !== undefined || rich !== undefined) && !wrote && { unchanged: true }) };

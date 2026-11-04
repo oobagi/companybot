@@ -9,6 +9,7 @@ import { Checkbox, Segmented } from "../controls";
 import { navigate } from "../router";
 import { ItemList, Missing, customizeCrumbs } from "./customize/shared";
 import { ImagePicker } from "./ImagePicker";
+import { pictureLimits } from "@companybot/core/images";
 import { modelNote } from "@companybot/core/models";
 import { ModelPicker } from "./ModelPicker";
 import { archiveQuestion, useConfirm } from "./chat/common";
@@ -112,7 +113,7 @@ function AgentEditor({ agent, canManage, back }: { agent: Agent; canManage: bool
 				<div className="flex flex-col gap-1.5">
 					<span className="text-sm font-medium">Picture</span>
 					<ImagePicker of={agent._id} name={agent.name} image={agent.image} agent disabled={!canManage || agent.archived} />
-					<span className="text-xs text-neutral-500">PNG, JPEG, WebP or GIF, up to 2 MB.</span>
+					<span className="text-xs text-neutral-500">{pictureLimits}.</span>
 				</div>
 				<Field label="Name">
 					<input className={inputClass} value={config.name} onChange={(e) => edit({ name: e.target.value })} />

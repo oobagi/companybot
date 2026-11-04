@@ -9,6 +9,7 @@ import { ctx, owner } from "../test/helpers";
 const client = (over: Partial<WebClient> = {}): WebClient => ({
 	search: async () => [{ title: "Acme", url: "https://acme.com/pricing", snippet: "Plans" }],
 	fetch: async (url) => ({ url, title: "Page", content: "See https://acme.com/about and [docs](https://docs.acme.com/start).", truncated: false }),
+	save: async (url) => ({ id: "m1/0", name: url.split("/").pop()!, type: "image/png" }),
 	...over,
 });
 
@@ -91,6 +92,16 @@ describe("createWebTurn", () => {
 		expect(web.left()).toEqual({ searches: SEARCHES_PER_TURN - 1, fetches: FETCHES_PER_TURN });
 	});
 
+	it("saves only links fetch could open, from the same allowance", async () => {
+		const save = vi.fn(client().save);
+		const web = createWebTurn(client({ save }), ["https://acme.com/pricing"]);
+		expect(await web.save("https://made-up.example/logo.png")).toMatchObject({ error: expect.stringMatching(/Search for the page first/) });
+		expect(save).not.toHaveBeenCalled();
+		await web.fetch("https://acme.com/pricing");
+		expect(await web.save("https://acme.com/about")).toEqual({ id: "m1/0", name: "about", type: "image/png" });
+		expect(web.left().fetches).toBe(FETCHES_PER_TURN - 2);
+	});
+
 	it("turns failures into errors the model can read", async () => {
 		const web = createWebTurn(client({ search: async () => { throw new Error("rate limited"); }, fetch: async () => ({ error: "Not a page." }) }), ["https://a.io"]);
 		expect(await web.search("q", 5)).toEqual({ error: "Search failed: rate limited" });
@@ -150,7 +161,7 @@ describe("a reply's steps", () => {
 		for await (const part of result.stream) if (part.type === "tool-result" && "error" in (part.output as object)) errors.push(part.output);
 		expect(errors).toEqual([]);
 		const calls = model.doStreamCalls;
-		expect(calls.map(offered).slice(0, SEARCHES_PER_TURN + 1)).toEqual([...Array(SEARCHES_PER_TURN).fill(["web_search", "web_fetch"]), ["web_fetch"]]);
+		expect(calls.map(offered).slice(0, SEARCHES_PER_TURN + 1)).toEqual([...Array(SEARCHES_PER_TURN).fill(["web_search", "web_fetch", "web_save"]), ["web_fetch", "web_save"]]);
 		expect(calls).toHaveLength(SEARCHES_PER_TURN + FETCHES_PER_TURN + 1);
 		expect(calls.at(-1)!.toolChoice).toEqual({ type: "none" });
 		expect(await result.text).toBe("Here's what I found.");

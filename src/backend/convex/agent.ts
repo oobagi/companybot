@@ -48,6 +48,7 @@ import {
 	searchProvider,
 	deniedReason,
 	isImageType,
+	manageFiles,
 	toolApprovalPolicy,
 	toolLine,
 	toolRisk,
@@ -260,7 +261,7 @@ async function streamReply(
 		agentId: agent.id,
 		memory: memoryStore(ctx, turnId),
 		chat: chatStore(ctx, turnId),
-		manage: { run: (tool, input) => ctx.runMutation(internal.manageTools.runFor, { turnId, tool, input }) },
+		manage: { run: (tool, input) => runManage(ctx, turnId, tool, input) },
 		skills: {
 			list: turn.skills,
 			create: ({ audience, ...config }) => ctx.runMutation(internal.skills.createFor, { turnId, config, audience }),
@@ -739,6 +740,17 @@ async function loadImages(ctx: ActionCtx, images: Turn["images"]): Promise<TurnI
 	return loaded.flat();
 }
 
+/** A manage tool call. Chat files it uses are copied first (files.copyFor), and dropped if the call fails. */
+async function runManage(ctx: ActionCtx, turnId: Id<"agentTurns">, tool: string, input: unknown) {
+	const files = manageFiles(tool, input);
+	if (!files) return ctx.runMutation(internal.manageTools.runFor, { turnId, tool, input });
+	const copied = await ctx.runAction(internal.files.copyFor, { turnId, ...files });
+	if ("error" in copied) return copied;
+	const result = await ctx.runMutation(internal.manageTools.runFor, { turnId, tool, input, uploads: copied.copies });
+	if (result && typeof result === "object" && "error" in result) await ctx.runMutation(internal.files.dropCopies, { turnId, storageIds: Object.values(copied.copies) });
+	return result;
+}
+
 /** Chats as the turn's person sees them; chatTools.ts and files.ts re-check access on every call. */
 function chatStore(ctx: ActionCtx, turnId: Id<"agentTurns">): ChatStore {
 	return {
@@ -782,12 +794,15 @@ function pageStore(ctx: ActionCtx, turnId: Id<"agentTurns">): PageStore {
 			if (input.format === "blocks" && doc) return { ...rest, markdown: "", blocks: JSON.stringify(JSON.parse(doc).content[0].content) };
 			return { ...rest, markdown: doc === null ? "" : await ctx.runAction(internal.pageMarkdown.toMarkdown, { doc }) };
 		},
-		write: async (input) =>
-			ctx.runMutation(internal.pageTools.writeFor, {
-				turnId,
-				input,
-				...(input.markdown !== undefined && { blocks: await ctx.runAction(internal.pageMarkdown.fromMarkdown, { markdown: input.markdown }) }),
-			}),
+		async write(input) {
+			const blocks = input.markdown !== undefined ? await ctx.runAction(internal.pageMarkdown.fromMarkdown, { markdown: input.markdown }) : input.blocks;
+			const found = blocks === undefined ? undefined : await ctx.runAction(internal.pageTools.copyPictures, { turnId, blocks });
+			if (found && "error" in found) return found;
+			const result = await ctx.runMutation(internal.pageTools.writeFor, { turnId, input, ...found });
+			if (found?.pictures.length && result && typeof result === "object" && "error" in result)
+				await ctx.runMutation(internal.files.dropCopies, { turnId, storageIds: found.pictures.map((p) => p.storageId) });
+			return result;
+		},
 	};
 }
 
@@ -800,6 +815,7 @@ function webClient(ctx: ActionCtx, turnId: Id<"agentTurns">): WebClient {
 	return {
 		search: (query, options) => provider.search(query, options),
 		fetch: (url) => ctx.runAction(internal.webFetch.fetchPage, { url }),
+		save: (url) => ctx.runAction(internal.webFetch.saveFile, { turnId, url }),
 	};
 }
 

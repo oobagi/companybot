@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { pdf, xlsx } from "../../core/test/files";
-import { pageFrom, readable } from "../convex/webFetch";
+import { docx, pdf, pngOf, xlsx } from "../../core/test/files";
+import { pageFrom, readable, savedFrom } from "../convex/webFetch";
 
 const article = `<!doctype html>
 <html><head><title>Acme Roofing | Blog</title><script>window.track = 1</script><style>p { color: red }</style></head>
@@ -91,5 +91,47 @@ describe("web pages", () => {
 		expect(await page({ charset: "windows-1252" })).toMatchObject({ title: "Café – naïve", content: expect.stringContaining("Café") });
 		const meta = new Uint8Array([...bytes('<meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1">'), ...cp1252]);
 		expect(await page({ bytes: meta })).toMatchObject({ title: "Café – naïve" });
+	});
+});
+
+describe("pictures on a page, for web.save", () => {
+	it("lists icons, pictures named logo and the preview image, as absolute links it can save", () => {
+		const home = `<!doctype html><html><head><title>Acme</title>
+			<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+			<link rel="icon" href="/favicon.ico">
+			<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+			<meta property="og:image" content="https://cdn.acme.com/share.jpg">
+		</head><body><header><img src="/img/acme-logo.webp" alt="Acme Roofing"><img src="/brand/logo.svg" alt="logo"></header>
+		<main><p>We fix roofs.</p><img src="/team.jpg" alt="Our team"></main></body></html>`;
+		expect(readable(home, "https://acme.com/").files).toBe(
+			"\n\n## Pictures on this page\n" +
+				"- [Icon (apple-touch-icon)](https://acme.com/apple-touch-icon.png)\n" +
+				"- [Logo: Acme Roofing](https://acme.com/img/acme-logo.webp)\n" +
+				"- [Icon (32x32)](https://acme.com/favicon-32.png)\n" +
+				"- [Preview image](https://cdn.acme.com/share.jpg)",
+		);
+		expect(readable(article, "https://acme.com/blog/metal-roofs").files).toBe("");
+	});
+});
+
+describe("saving a file from the web", () => {
+	const body = (url: string, data: Uint8Array, extra: object = {}) => ({ url, status: 200, contentType: "application/octet-stream", bytes: data, cut: false, ...extra });
+	it("keeps pictures and documents by their bytes, named with a matching extension", () => {
+		expect(savedFrom(body("https://acme.com/apple-touch-icon.png", pngOf(180, 180)))).toEqual({ name: "apple-touch-icon.png", type: "image/png" });
+		expect(savedFrom(body("https://acme.com/brand/logo?v=2", pngOf(64, 64)))).toEqual({ name: "logo.png", type: "image/png" });
+		expect(savedFrom(body("https://acme.com/quote%20final", docx("Quote")))).toMatchObject({ name: "quote final.docx" });
+		expect(savedFrom(body("https://acme.com/report.pdf", pdf("Q3")))).toEqual({ name: "report.pdf", type: "application/pdf" });
+		// Named for what it is: Wikimedia serves "….svg.png" thumbnails as WebP.
+		const webp = new Uint8Array(16);
+		webp.set([...new TextEncoder().encode("RIFF"), 0, 0, 0, 0, ...new TextEncoder().encode("WEBP")]);
+		expect(savedFrom(body("https://upload.wikimedia.org/250px-Vercel_logo.svg.png", webp))).toEqual({ name: "250px-Vercel_logo.svg.webp", type: "image/webp" });
+		expect(savedFrom(body("https://acme.com/photo.jpeg", new Uint8Array([0xff, 0xd8, 0xff, 0xe0])))).toMatchObject({ name: "photo.jpeg" });
+	});
+
+	it("refuses pages, SVG, errors and cut-off files", () => {
+		expect(savedFrom(body("https://acme.com/", bytes("<!doctype html><p>Hi</p>")))).toMatchObject({ error: expect.stringMatching(/web_fetch/) });
+		expect(savedFrom(body("https://acme.com/logo.svg", bytes('<svg xmlns="http://www.w3.org/2000/svg"/>')))).toHaveProperty("error");
+		expect(savedFrom(body("https://acme.com/logo.png", pngOf(1, 1), { status: 404 }))).toEqual({ error: "The link answered 404." });
+		expect(savedFrom(body("https://acme.com/big.png", pngOf(1, 1), { cut: true }))).toHaveProperty("error");
 	});
 });

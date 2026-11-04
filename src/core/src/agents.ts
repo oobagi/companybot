@@ -138,7 +138,8 @@ export function agentPrepareStep(tools: ToolSet, web: Pick<WebTurn, "left">, { s
 		const steered: ModelMessage[] = news ? [...messages, { role: "user", content: news }] : messages;
 		sent?.(steered);
 		const left = web.left();
-		const spent = new Set([left.searches <= 0 && modelToolName("web.search"), left.fetches <= 0 && modelToolName("web.fetch")]);
+		// web.save draws on the same allowance as web.fetch.
+		const spent = new Set([left.searches <= 0 && modelToolName("web.search"), ...(left.fetches <= 0 ? [modelToolName("web.fetch"), modelToolName("web.save")] : [])]);
 		const last = done + stepNumber >= AGENT_STEPS - 1;
 		const active = last ? widgets : names.filter((name) => !spent.has(name));
 		const narrowed = active.length === names.length ? {} : active.length > 0 ? { activeTools: active } : { toolChoice: "none" as const };

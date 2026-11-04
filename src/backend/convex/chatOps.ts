@@ -1,4 +1,4 @@
-import { type ReactionGroup, describeWidget, emojiOf } from "@companybot/core";
+import { type ReactionGroup, describeWidget, emojiOf, withoutFileImages } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -459,11 +459,13 @@ export function replyForModel(m: Doc<"chatMessages">) {
 	// Held calls are noted without their outcome, so this text never changes once the reply is done (prompt caching).
 	const held = m.parts.flatMap((p) => (p.type === "approval" ? [p.why ? `${p.tool} (the card said: ${JSON.stringify(p.why)})` : p.tool] : []));
 	return [
-		textForModel(m),
+		// Pictures pointed at file ids don't show in a message; replaying them teaches the model to write more.
+		withoutFileImages(textForModel(m)),
 		tools.length > 0 && `[Tools you used: ${tools.join(", ")}]`,
 		held.length > 0 && `[Held for approval: ${held.join(", ")}]`,
 		m.stoppedBy && "[Stopped by the person before you finished]",
-		m.attachments?.length && `[Files you attached: ${m.attachments.map((f) => JSON.stringify(f.name)).join(", ")}]`,
+		// With ids, so a later turn can use a picture it made or saved (set it as a logo, put it in a page).
+		m.attachments?.length && `[Files you attached: ${m.attachments.map((f, i) => `${JSON.stringify(f.name)} (${m._id}/${i})`).join(", ")}]`,
 	]
 		.filter(Boolean)
 		.join("\n");

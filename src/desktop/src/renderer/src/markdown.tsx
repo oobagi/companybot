@@ -1,3 +1,4 @@
+import { withoutFileImages } from "@companybot/core/files";
 import { linkedPageId } from "@companybot/core/page-links";
 import { code } from "@streamdown/code";
 import { type ComponentProps, type MouseEvent, useMemo, useState } from "react";
@@ -80,7 +81,7 @@ const components: Components = {
  * No `allowedTags`: Streamdown only applies it to its own default plugin list. Paragraphs, lists
  * and code are 12px apart. With `tokens` (a chat reply), @names, #channels and /skills are chips.
  */
-export function Markdown({ className = "", tokens, ...props }: Omit<ComponentProps<typeof Streamdown>, "plugins" | "components" | "rehypePlugins" | "allowedTags"> & { tokens?: TokenNames }) {
+export function Markdown({ className = "", tokens, children, ...props }: Omit<ComponentProps<typeof Streamdown>, "plugins" | "components" | "rehypePlugins" | "allowedTags"> & { tokens?: TokenNames }) {
 	// Keyed on the names, not the object: the directory makes a new one every render.
 	const key = tokens && JSON.stringify(tokens);
 	const withTokens = useMemo(() => {
@@ -93,5 +94,16 @@ export function Markdown({ className = "", tokens, ...props }: Omit<ComponentPro
 		return { components: { ...components, [TOKEN_TAG]: chip } as Components, rehypePlugins: [...(rehypePlugins ?? []), [rehypeTokens, tokens]] as typeof rehypePlugins };
 	}, [key]);
 	// Remounted when the names change: Streamdown re-renders only when the text changes, not its plugins.
-	return <Streamdown key={key} plugins={plugins} components={withTokens.components} rehypePlugins={withTokens.rehypePlugins} linkSafety={linkSafety} className={`space-y-3 ${className}`} {...props} />;
+	return (
+		<Streamdown key={key} plugins={plugins} components={withTokens.components} rehypePlugins={withTokens.rehypePlugins} linkSafety={linkSafety} className={`space-y-3 ${className}`} {...props}>
+			{typeof children === "string" ? imagesAsLinks(children) : children}
+		</Streamdown>
+	);
 }
+
+/**
+ * Images in text never load (the app fetches nothing from outside; pictures come as files), and
+ * Streamdown would show "[Image blocked: …]". They read as links instead: ![Logo](url) → [Logo](url).
+ * Ones pointed at a chat file id go: the file shows on the message already.
+ */
+export const imagesAsLinks = (markdown: string) => withoutFileImages(markdown).replace(/!\[([^\]]*)\]\(/g, (_, alt: string) => `[${alt || "Picture"}](`);

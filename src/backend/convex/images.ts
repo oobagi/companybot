@@ -1,4 +1,4 @@
-import { imageMaxBytes, sniffImage } from "@companybot/core/images";
+import { imageMaxBytes, imageMaxMb, sniffImage } from "@companybot/core/images";
 import { ConvexError, type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -86,7 +86,7 @@ export async function storeUpload(ctx: ActionCtx, request: Request, bytes: Uint8
 export const upload = httpAction(async (ctx, request) => {
 	if (!(await ctx.auth.getUserIdentity())) return reply(401, { error: "Sign in to upload." });
 	const bytes = await readBody(request, imageMaxBytes);
-	if (!bytes) return reply(413, { error: "Pick an image under 2 MB." });
+	if (!bytes) return reply(413, { error: `Pick an image under ${imageMaxMb} MB.` });
 	const type = sniffImage(bytes);
 	if (!type) return reply(415, { error: "Pick a PNG, JPEG, WebP or GIF image." });
 	return storeUpload(ctx, request, bytes, type);
