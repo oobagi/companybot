@@ -119,6 +119,16 @@ export async function finishTurn(
 	await t.mutation(internal.turns.updateReply, { turnId, text: say, parts: [...parts, ...(say ? [{ type: "text" as const, text: say }] : [])] });
 	await t.mutation(internal.turns.finishReply, { turnId, usage, decision: decided });
 }
+/** Chats whose `memberCount` isn't their number of seats: none, wherever seats were made. */
+export const miscounted = (t: ReturnType<typeof convexTest>) =>
+	t.run(async (ctx) => {
+		const wrong = [];
+		for (const chat of await ctx.db.query("chats").collect()) {
+			const seats = (await ctx.db.query("chatMembers").withIndex("by_chat", (q) => q.eq("chatId", chat._id)).collect()).length;
+			if (chat.memberCount !== seats) wrong.push({ chat: chat.name ?? chat.kind, memberCount: chat.memberCount, seats });
+		}
+		return wrong;
+	});
 /** Runs everything scheduled (cascades, cleanups) until nothing is left. */
 export async function settle(t: ReturnType<typeof convexTest>) {
 	const fake = vi.isFakeTimers();

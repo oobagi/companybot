@@ -1,3 +1,4 @@
+import { automationJobs } from "./automationJobs";
 import { approxTokens, canonicalJson, systemPrompt } from "@companybot/core";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -144,6 +145,7 @@ describe("workspace connector sources", () => {
 		await s.owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: false });
 		const before = await turnsOf(s.t);
 		await s.t.mutation(internal.automationRuns.tick, { now: Date.now() + 2 * 86_400_000 });
+		await automationJobs(s.t);
 		expect(await turnsOf(s.t)).toHaveLength(before.length);
 		const install = (await s.t.run((ctx) => ctx.db.query("automationInstalls").collect())).find((i) => i.automationId === made.created)!;
 		expect(install.lastRunAt).toBeTypeOf("number");
@@ -313,6 +315,7 @@ describe("workspace connector sources", () => {
 		await s.owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: false });
 		expect((await s.owner.query(api.automations.list)).some((a) => a.id === made.created)).toBe(true);
 		await s.t.mutation(internal.automationRuns.tick, { now: Date.now() + 2 * 86_400_000 });
+		await automationJobs(s.t);
 		const run = (await s.t.run((ctx) => ctx.db.query("agentTurns").collect())).find((t) => t.chatId !== s.chat._id)!;
 		expect(run.actorId).toBe(s.owner.userId);
 		expect(JSON.stringify(await s.t.mutation(internal.turns.turnContext, { turnId: run._id }))).toContain(SECRET);
@@ -1374,6 +1377,7 @@ describe("central write audience review probes", () => {
 		const ops = await s.owner.mutation(api.chats.createChannel, { name: "ops", private: true });
 		await s.owner.mutation(api.automations.create, { config: { name: "Watch ops", prompt: "Summarize", trigger: { type: "event", event: "message.posted", channelId: ops } }, agentId: s.companybot._id, audience: "creator", timeZone: "UTC" });
 		await s.owner.mutation(api.messages.send, { chatId: ops, text: SECRET, mentions: noMentions });
+		await automationJobs(s.t);
 		const turn = (await s.t.run((ctx) => ctx.db.query("agentTurns").collect())).find((t) => t.chatId !== ops)!;
 		expect(turn).toBeDefined();
 		expect(JSON.stringify(await s.t.mutation(internal.turns.turnContext, { turnId: turn._id }))).toContain(SECRET);
@@ -1473,10 +1477,11 @@ describe("own-data authority and chat-file provenance", () => {
 		const id = await ben.mutation(api.automations.create, { config: daily, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
 		await owner.mutation(api.automations.subscribe, { automationId: id, on: true });
 		const run = async () => {
-			await t.run(async (ctx) => { const i = (await ctx.db.query("automationInstalls").collect()).find((x) => x.automationId === id)!; await ctx.db.patch(i._id, { lastScheduledAt: 0 }); });
+			await t.run(async (ctx) => { const i = (await ctx.db.query("automationInstalls").collect()).find((x) => x.automationId === id)!; await ctx.db.patch(i._id, { lastScheduledAt: 0, nextRunAt: 0 }); });
 			for (const turn of await turnsOf(t)) if (turn.status === "running" || turn.status === "queued") await t.mutation(internal.turns.finishReply, { turnId: turn._id });
 			const before = await turnsOf(t);
 			await t.mutation(internal.automationRuns.tick, { now: (Math.floor(Date.now() / 86_400_000) + 2) * 86_400_000 + 10 * 3_600_000 });
+			await automationJobs(t);
 			await cancelScheduled(t);
 			return (await turnsOf(t)).find((x) => !before.some((b) => b._id === x._id) && x.actorId === owner.userId)!;
 		};

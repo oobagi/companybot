@@ -1,3 +1,4 @@
+import { automationJobs } from "./automationJobs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 
@@ -36,6 +37,7 @@ describe("agent turns", () => {
 		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
 		await owner.mutation(api.automations.subscribe, { automationId: id, on: true });
 		await t.mutation(internal.automationRuns.tick, { now: (Math.floor(Date.now() / 86_400_000) + 2) * 86_400_000 + 10 * 3_600_000 });
+		await automationJobs(t);
 		const run = (await turnsOf(t)).find(r => r.actorId === owner.userId && r._id !== first._id)!;
 		// Model each destination while preserving a real automation's server-written provenance.
 		await t.run(async ctx => {
