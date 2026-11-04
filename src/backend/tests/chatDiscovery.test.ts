@@ -32,5 +32,19 @@ it("backfills legacy search audiences and activity seats, and reindexes access c
 	const sent = await owner.mutation(api.messages.send, { chatId, text: "new restricted message", mentions: noMentions });
 	expect((await t.run((ctx) => ctx.db.get("chatMessages", sent)))!.searchPublic).toBe(false);
 	await t.mutation(internal.chatDiscovery.refreshSeats, { chatId, cursor: null });
-	expect((await t.run((ctx) => ctx.db.get("chatMembers", seat!._id)))!.activityAt).toBe((await t.run((ctx) => ctx.db.get("chats", chatId)))!.lastMessageAt);
+	expect((await t.run((ctx) => ctx.db.get("chatMembers", seat!._id)))!.activityAt).toBe(seat!.activityAt);
+});
+
+it("sets search audiences when creating general, an agent DM and its side chat", async () => {
+	const t = newTest();
+	const owner = await signIn(t, "owner@co.com");
+	const workspaceId = await workspaceOf(owner);
+	const agentId = (await owner.query(api.agents.list))[0]!._id;
+	const dm = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [agentId] });
+	const side = await owner.mutation(api.chats.createSideChat, { parentId: dm });
+	const audiences = await t.run(async (ctx) => {
+		const general = await ctx.db.query("chats").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId).eq("kind", "channel")).filter((q) => q.eq(q.field("isDefault"), true)).first();
+		return [general!.searchPublic, (await ctx.db.get("chats", dm))!.searchPublic, (await ctx.db.get("chats", side))!.searchPublic];
+	});
+	expect(audiences).toEqual([true, false, false]);
 });

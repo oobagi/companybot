@@ -1,6 +1,7 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { usageMonth } from "@companybot/core";
 import { api, internal } from "../convex/_generated/api";
+import { insertMessage } from "../convex/chatOps";
 import { activityPage } from "../convex/activity";
 import { memberOf } from "../convex/lib";
 import { imageSpent } from "../convex/usage";
@@ -104,7 +105,7 @@ it("continues past masked replies in a readable channel and reports when its act
 		for (let i = 0; i < 1500; i++) await ctx.db.insert("agentActivity", { workspaceId, chatId, actorId: owner.userId, agentId, replyId: hidden!.replyId, callId: `more-${i}`, tool: "chat.search", input: "{}", changes: false, status: "done" });
 	});
 	expect(await member.query(api.activity.recent, {})).toMatchObject({ entries: [], truncated: true, budgetExhausted: true });
-	await expect(member.query(api.activity.list, {})).rejects.toThrow("Recent activity read limit reached");
+	expect(await member.query(api.activity.list, {})).toEqual([]);
 
 	// Search masking remains active even in a public channel the actor can read.
 	expect(await t.mutation(internal.chatTools.searchFor, { turnId, query: "secret", chat: chatId })).toMatchObject({ messages: [] });
@@ -127,4 +128,60 @@ it("caps only the top people breakdown while preserving 30k bucket totals", { ti
 	expect(report!.byPerson).toHaveLength(100);
 	expect(report!.byPerson[0]).toMatchObject({ id: users[119], costUsd: 500 });
 	expect(report!.byKind).toEqual([{ kind: "chat", costUsd: 30250 }]);
+});
+
+it("avoids seat writes for 3 messages in a 500-member public channel and throttles restricted activity", { timeout: 600_000 }, async () => {
+	const { t, owner } = await ownerAndMember();
+	const workspaceId = await workspaceOf(owner);
+	const agentId = (await agentsOf(owner)).companybot._id;
+	const publicId = await owner.mutation(api.chats.createChannel, { name: "public-scale", private: false });
+	const privateId = await owner.mutation(api.chats.createChannel, { name: "private-scale", private: true });
+	const start = Date.now();
+	await t.run(async (ctx) => {
+		for (let i = 0; i < 499; i++) {
+			const userId = await ctx.db.insert("users", { email: `seat${i}@co.com` });
+			await addMember(ctx, { workspaceId, userId, role: "member" });
+			for (const chatId of [publicId, privateId]) await ctx.db.insert("chatMembers", { workspaceId, chatId, userId, activityAt: start - 120_000, restricted: chatId === privateId, lastReadAt: 123 });
+		}
+		for (const chatId of [publicId, privateId]) {
+			const seat = await ctx.db.query("chatMembers").withIndex("by_user", (q) => q.eq("userId", owner.userId).eq("chatId", chatId)).first();
+			await ctx.db.patch(seat!._id, { activityAt: start - 120_000 });
+		}
+	});
+	const seats = (chatId: typeof publicId) => t.run((ctx) => ctx.db.query("chatMembers").withIndex("by_chat", (q) => q.eq("chatId", chatId)).collect());
+	const post = (chatId: typeof publicId) => t.run(async (ctx) => {
+		const chat = (await ctx.db.get("chats", chatId))!;
+		const writes = vi.spyOn(ctx.db, "patch");
+		try {
+			await insertMessage(ctx, chat, { authorAgentId: agentId, text: "Team update", parts: [], mentions: { userIds: [], agentIds: [] }, status: "done" });
+			return writes.mock.calls.filter(([id]) => ctx.db.normalizeId("chatMembers", id)).length;
+		} finally { writes.mockRestore(); }
+	});
+	vi.useFakeTimers();
+	try {
+		const before = await seats(publicId);
+		expect(before).toHaveLength(500);
+		for (const elapsed of [1000, 2000, 3000]) {
+			vi.setSystemTime(start + elapsed);
+			expect(await post(publicId)).toBe(0);
+		}
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(await seats(publicId)).toEqual(before);
+		vi.setSystemTime(start + 4000);
+		expect(await post(privateId)).toBe(100);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		const updated = await seats(privateId);
+		expect(updated).toHaveLength(500);
+		expect(updated.every((seat) => seat.activityAt === start + 4000)).toBe(true);
+		for (const elapsed of [5000, 6000]) {
+			vi.setSystemTime(start + elapsed);
+			expect(await post(privateId)).toBe(0);
+		}
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(await seats(privateId)).toEqual(updated);
+		vi.setSystemTime(start + 64_000);
+		expect(await post(privateId)).toBe(100);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect((await seats(privateId)).every((seat) => seat.activityAt === start + 64_000)).toBe(true);
+	} finally { vi.useRealTimers(); }
 });

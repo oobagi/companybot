@@ -1,6 +1,6 @@
 import { actionLabel, findConnector, toolGroup } from "@companybot/core";
 import type { PaginationOptions } from "convex/server";
-import { ConvexError, v } from "convex/values";
+import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation } from "./_generated/server";
 import { query } from "./functions";
@@ -101,7 +101,6 @@ export const list = query({
 		const member = await getMember(ctx);
 		if (!member) return [];
 		const result = await recentActivity(ctx, member, agentId);
-		if (result.budgetExhausted && !result.entries.length) throw new ConvexError("Recent activity read limit reached. Open a reply to see its actions.");
 		return result.entries;
 	},
 });

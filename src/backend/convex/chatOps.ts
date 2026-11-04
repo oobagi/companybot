@@ -176,6 +176,7 @@ export async function ensureGeneral(ctx: MutationCtx, workspaceId: Id<"workspace
 		workspaceId,
 		kind: "channel",
 		name: "general",
+		searchPublic: true,
 		topic: "Everyone in the workspace.",
 		private: false,
 		isDefault: true,
@@ -272,6 +273,7 @@ export async function findOrCreateDm(
 	const chatId = await ctx.db.insert("chats", {
 		workspaceId,
 		kind: "dm",
+		searchPublic: false,
 		private: true,
 		dmKey,
 		archived: false,

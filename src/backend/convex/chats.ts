@@ -476,6 +476,7 @@ export const createSideChat = mutation({
 		const chatId = await ctx.db.insert("chats", {
 			workspaceId: member.workspaceId,
 			kind: "dm",
+			searchPublic: false,
 			private: true,
 			dmKey: parent.dmKey,
 			parentId,
