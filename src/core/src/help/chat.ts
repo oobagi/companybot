@@ -11,7 +11,7 @@ Open [Chat](#/chat) from the sidebar.
 - **Channels** (#sales): public or private. Anyone can read a public one, and posting joins you. Private ones are for their members, who can add others. **#general** is for everyone and can't be left or made private. Make one with the + beside Channels; browse public ones to join.
 - **DMs**: a fixed set of people, or a person and an agent. Every active agent is in your sidebar as a DM. Start a group DM with New message. To tidy your sidebar, pick **Close conversation** in a DM's ⋯ menu: it's hidden for you only, the messages stay, and it comes back with the next message there, or when you open it again from New message. A DM with an agent stays, since it's how you reach that agent.
 - **Threads**: reply under a message to keep a side conversation together. Threads go one level deep.
-- **Reactions**: pick an emoji on a message; click it again to remove it.
+- **Reactions**: pick an emoji on a message; click it again to remove it. Hover a reaction to see who added it; for everyone, open the message's ⋯ menu → Reactions.
 - You can edit or delete your own messages. Click a name or avatar for their profile card (role, local time, Message).
 
 ## The message box

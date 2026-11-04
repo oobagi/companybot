@@ -308,10 +308,11 @@ describe("messages", () => {
 		await owner.mutation(api.messages.react, { messageId: parent, emoji: "👍" });
 		await member.mutation(api.messages.react, { messageId: parent, emoji: "👍" });
 		let [m] = await member.query(api.messages.list, { chatId });
-		expect(m!.reactions).toEqual([{ emoji: "👍", count: 2, mine: true, names: ["owner@co.com", "member@co.com"] }]);
+		expect(m!.reactions).toMatchObject([{ emoji: "👍", count: 2, mine: true, people: [{ type: "user", name: "owner@co.com" }, { type: "user", name: "member@co.com" }] }]);
 		await member.mutation(api.messages.react, { messageId: parent, emoji: "👍" });
 		[m] = await member.query(api.messages.list, { chatId });
-		expect(m!.reactions).toEqual([{ emoji: "👍", count: 1, mine: false, names: ["owner@co.com"] }]);
+		expect(m!.reactions).toMatchObject([{ emoji: "👍", count: 1, mine: false, people: [{ name: "owner@co.com" }] }]);
+		expect(m!.reactions[0]!.people).toHaveLength(1);
 
 		await expect(member.mutation(api.messages.edit, { messageId: parent, text: "x" })).rejects.toThrow("your own");
 		await owner.mutation(api.messages.edit, { messageId: parent, text: "Plan!" });
