@@ -16,6 +16,7 @@
 | [Anytwo](https://community.anytype.io/t/anytwo-and-the-future-of-anytype/31235) (Anytype) | Rebuild of Anytype (Berlin, ~$13M Series A 2023), a Notion alternative that keeps data on your devices, encrypted end to end. Public v1 by end of 2026. Runs on [Any](https://docs.any.org) (MIT, developer preview): typed records, block docs, live queries, an agent with tools, memory and connectors, chat, and Python scripts on schedules or events. **Closest to our design.** | Personal notes first (a separate Anytype for Business); no business data (CRM, calls, pipelines); end-to-end encryption makes always-on server agents hard. Not backward compatible: Anytype users must migrate. |
 | [Baserow](https://baserow.io) | Open-source Airtable (Dutch, since 2020, ~$6M raised, claims 200k active users; 6.2k GitHub stars, Python). Views (grid, kanban, calendar, timeline, form), app builder, automations, dashboards, AI assistant (Kuma) that builds databases, formulas, automations and apps; MCP server. SOC 2, HIPAA; $10–18/user/mo | A toolkit someone has to set up; no chat, no CRM out of the box. Sells to enterprises and the EU on compliance. Open core: MIT, with paid features in `premium/` and `enterprise/` |
 | [Teable](https://teable.ai) | "AI Spreadsheet for Business" (Teable Inc., angel round Sep 2025; **21.9k GitHub stars**, TypeScript). Every table is real Postgres, millions of rows. An agent builds apps in a sandbox and deploys each to its own URL; scheduled AI routines; MCP server + CLI for Claude Code and Cursor. $13–20/seat/mo with 2–3k AI credits per seat | No chat, no CRM, no follow-up: it builds tools, it doesn't run the business. **Closest open-source rival for Databases: same license (AGPL), stack and "agents inside your data" pitch.** |
+| [Macro](https://macro.com) | "The unified workspace for your company. Replace 27+ apps" ([macro-inc/macro](https://github.com/macro-inc/macro), AGPLv3 since May 2026, ~6k stars; a16z, $30M+; claims 170k users). Email, chat, real-time docs (Loro), sheets, databases, CRM (companies and contacts made from email), calls with transcripts, calendar and booking, AI agents that join channels, MCP server, iOS app. Rust + SolidJS, desktop app on Tauri. Free / $40 / $200 per seat with AI included | Built for tech startups: tasks, pull requests, Cursor and Codex agents, not trades or local businesses. Self-hosting is impractical (about 30 services, Nix, paid licences, Dockerfile build failures in open issues). Gmail only (Outlook beta, no IMAP), calendar needs Google. Thin CRM: no deals, every contact must belong to a company. Billing still rolling out. **The best-funded version of "one workspace with agents"; outbuilds us on breadth.** |
 | ChatGPT Sites (OpenAI) | Describe a site or small web app in chat and ChatGPT builds and hosts it (public beta Jul 2026, paid plans). A small database (SQLite), file storage, custom domains. Wix also has a site builder inside ChatGPT | One-off builds: no CRM behind the forms, nobody answering leads, no upkeep. No payments; not in the EEA or UK at launch. **Makes "AI builds your website" table stakes** ([Product → Sites](product.md#sites-not-built-yet)). |
 
 ## Gaps
@@ -26,6 +27,7 @@
 - Everyone gets complaints about unpredictable credit bills.
 - Airtable's users want a home that can't be bought and squeezed ("immune from the fate of Airtable," r/Airtable). Open source + self-host is exactly that. What keeps them stuck is switching cost: an agent-run Airtable importer (bases → databases, links kept) answers it. A thread on every record would beat their weak comments; records already list the chat messages that mention them.
 - Anytwo makes the same bet we did: agents query typed records instead of rewriting whole Markdown files.
+- Macro already ships "one open-source workspace with agents" (email, docs, sheets, CRM, calls) for tech teams. Nobody does it for a business with no tech staff, where the agents answer the phone, run the site and chase leads.
 
 ## Worth copying
 - Lindy: editable memory files (personal + team); skills owned by the workspace.
@@ -38,11 +40,20 @@
 - Teable and Baserow: an MCP server of our own, so outside agents (Claude Code, Cursor) can work in a workspace. Today we only connect out to other tools' MCP servers (connectors).
 - Teable: AGPL plus a Section 7 clause that stops forks from rebranding it, with SDK packages under MIT.
 - Baserow: proof that the open-core split we planned for Enterprise works (paid features in their own folder under a commercial license; ours is `ee/`, see [Product → Open source](product.md#open-source)).
+- Macro:
+  - Anything an agent sends outside the app (email, invite) becomes an editable review card that survives a reload; only the account owner approves. Build it before per-agent email and phone.
+  - The agent always names whose account it acts as (`acting_as`), with no silent fallback to the owner's.
+  - Team memory rolled up daily → weekly → monthly → long-term as Markdown, with a privacy check before teammates see it.
+  - "Code mode": the agent writes one sandboxed script against our own SDK instead of 20 tool calls (fits the sandbox).
+  - Tools load only when needed, and the prompt is split into shared / per-session / per-turn parts so caching hits. Cheaper AI means a better margin.
+  - One discussion channel per CRM company.
 - Pricing benchmark: $10–20 per seat per month; Teable includes AI credits per seat.
 
 ## Threat
 Buzz is free and backed by Block, and Sumus is $24/mo with a free tier, so "team chat with agents" alone won't sell. Neither will "CRM + calls + email in one" (GoHighLevel has it), or "AI answers your phone and books jobs" (Sameday has ~2,000 trades businesses at $449+/mo). Sell the agency's work done for you: zero setup, AI included, agents that run the whole loop.
 
 Sameday already sells the call → book step to trades, and trades buy it as an add-on to the job software they already use (ServiceTitan, Housecall Pro), not as a replacement. What's still open is the whole loop from [Product](product.md): lead → answer and book → job → review and invoice chase → reactivation, run by one AI on records it owns. So the next features should each close a step of that loop (email, phone), and connectors to job software (Jobber, Housecall Pro) should copy their data into Companybot's records rather than reading it live, so we're an easy add-on on day one and still own the data later.
+
+Don't race Macro on breadth either. It has about 15 core engineers shipping ~500 commits a week, so better docs, sheets or calls won't win. Its openings are ours: small local businesses, self-hosting that actually works, and email and calendar beyond Google.
 
 Don't chase Airtable parity. Its loudest users are consultants building custom apps who want formulas, rollups, forms and scale, and less AI. Take the small teams using it as a homemade CRM or job tracker next to Slack and Notion. Someone who just wants an Airtable replacement will pick Teable or Baserow, and that's fine. Anytwo is the one to watch on design, but it's built for personal notes, not running a business.
