@@ -69,7 +69,7 @@ describe("stopping an agent mid-reply", () => {
 		expect(listed).toMatchObject({ status: "done", error: null, stoppedBy: "owner@co.com" });
 		// Later turns know it was cut short.
 		const next = await agentTurn(t, owner, general, companybot._id);
-		expect((await t.mutation(internal.turns.turnContext, { turnId: next })).session.turns.at(-1)!.reply).toBe("Hello there\n[Stopped by the person before you finished]");
+		expect((await t.mutation(internal.turns.turnContext, { turnId: next })).session.turns.at(-1)).toMatchObject({ answer: "Hello there", stopped: true });
 	});
 
 	it("mid-tool: the running call finishes and its cost is kept, but no later step or tool runs", async () => {
