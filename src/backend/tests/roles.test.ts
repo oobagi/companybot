@@ -156,7 +156,7 @@ describe("roles", () => {
 		expect((await membership(member)).roles).toEqual([]);
 		expect((await membership(owner)).roles).toEqual([await id("Owner"), crew]);
 		expect((await owner.query(api.workspace.team))!.invites[0]!.roles).toEqual([]);
-		expect((await owner.query(api.connectors.list)).find((c) => c.id === "crm")!.roles).toEqual([crew]);
+		expect((await owner.query(api.connectors.list)).find((c) => c.id === "crm")!.roleIds).toEqual([crew]);
 		expect((await owner.query(api.roles.list))!.map((r) => r.name)).toEqual(["Owner", "Member", "Crew"]);
 		expect((await member.query(api.workspace.me))!.access!.permissions).toEqual([]);
 		await settle(t);
@@ -184,6 +184,48 @@ describe("roles", () => {
 		expect(await t.run(async (ctx) => (await ctx.db.get(pageId))!.access)).toEqual([]);
 	});
 
+	// COMPAT(0.1.0-alpha.10): delete with the literal `roles` in connectors.list.
+	it("still tells alpha.9 apps whether Member can use a connector (roles as owner/member)", async () => {
+		const { owner, member, id } = await setup();
+		const legacy = async (as: As) => (await as.query(api.connectors.list)).find((c) => c.id === "crm")!.roles;
+		expect(await legacy(owner)).toEqual(["owner", "member"]);
+		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
+		expect([await legacy(owner), await legacy(member)]).toEqual([["owner", "member"], ["owner", "member"]]);
+		const office = await owner.mutation(api.roles.create, { name: "Office" });
+		await owner.mutation(api.connectors.setRoles, { connectorId: "crm", roles: [office] });
+		expect(await legacy(owner)).toEqual(["owner"]);
+		// What an alpha.9 app sends back for "Everyone".
+		await owner.mutation(api.connectors.setRoles, { connectorId: "crm", roles: ["owner", "member"] });
+		expect(await legacy(member)).toEqual(["owner", "member"]);
+		expect((await owner.query(api.connectors.list)).find((c) => c.id === "crm")!.roleIds).toEqual([office, await id("Member")]);
+	});
+
+	// COMPAT(0.1.0-alpha.10): delete with `legacy` in connectors.setRoles.
+	it("keeps custom roles' connector grants when an alpha.9 app saves Owners only, then Everyone", async () => {
+		const { t, owner, id } = await setup();
+		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
+		const office = await owner.mutation(api.roles.create, { name: "Office" });
+		const memberRole = await id("Member");
+		await owner.mutation(api.connectors.setRoles, { connectorId: "crm", roles: [memberRole, office] });
+		const stored = () => t.run(async (ctx) => (await ctx.db.query("connectorInstalls").collect()).find((i) => i.connectorId === "crm")!.roles);
+		await owner.mutation(api.connectors.setRoles, { connectorId: "crm", roles: ["owner"] });
+		expect(await stored()).toEqual([office]);
+		await owner.mutation(api.connectors.setRoles, { connectorId: "crm", roles: ["owner", "member"] });
+		expect(await stored()).toEqual([office, memberRole]);
+	});
+
+	it("replaces a connector's roles with the ids the app saves", async () => {
+		const { owner, id } = await setup();
+		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
+		const office = await owner.mutation(api.roles.create, { name: "Office" });
+		const roleIds = async () => (await owner.query(api.connectors.list)).find((c) => c.id === "crm")!.roleIds;
+		await owner.mutation(api.connectors.setRoles, { connectorId: "crm", roles: [await id("Member"), office] });
+		await owner.mutation(api.connectors.setRoles, { connectorId: "crm", roles: [office] });
+		expect(await roleIds()).toEqual([office]);
+		await owner.mutation(api.connectors.setRoles, { connectorId: "crm", roles: [] });
+		expect(await roleIds()).toEqual([]);
+	});
+
 	it("lets connectors be used by the roles picked for them; owners always", async () => {
 		const { t, owner, member, id, membership } = await setup();
 		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
@@ -191,7 +233,7 @@ describe("roles", () => {
 		const workspaceId = (await owner.query(api.workspace.me))!.workspaceId!;
 		const usable = (as: Person) => t.query(internal.connectors.forTurn, { userId: as.userId, workspaceId, connectorIds: ["crm"] });
 		const canUse = async (as: As) => (await as.query(api.connectors.list)).find((c) => c.id === "crm")!.canUse;
-		expect((await owner.query(api.connectors.list)).find((c) => c.id === "crm")!.roles).toEqual([await id("Member")]);
+		expect((await owner.query(api.connectors.list)).find((c) => c.id === "crm")!.roleIds).toEqual([await id("Member")]);
 		const office = await owner.mutation(api.roles.create, { name: "Office" });
 		await owner.mutation(api.connectors.setRoles, { connectorId: "crm", roles: [office] });
 		expect([await canUse(member), await usable(member)]).toEqual([false, []]);
@@ -243,7 +285,7 @@ describe("roles", () => {
 		expect((await owner.query(api.workspace.team))!.invites).toMatchObject([{ email: "old@co.com", role: "owner", roles: [await id("Owner")] }]);
 		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
 		await owner.mutation(api.connectors.setRoles, { connectorId: "crm", roles: ["owner", "member"] });
-		expect((await owner.query(api.connectors.list)).find((c) => c.id === "crm")!.roles).toEqual([await id("Member")]);
+		expect((await owner.query(api.connectors.list)).find((c) => c.id === "crm")!.roleIds).toEqual([await id("Member")]);
 	});
 });
 
@@ -333,7 +375,7 @@ describe("while the custom roles migration runs", () => {
 			await ctx.db.patch(install._id, { roles: ["owner", "member"] });
 		});
 		const workspaceId = await workspaceOf(owner);
-		expect((await member.query(api.connectors.list)).find((c) => c.id === "crm")).toMatchObject({ canUse: true, roles: [await id("Member")] });
+		expect((await member.query(api.connectors.list)).find((c) => c.id === "crm")).toMatchObject({ canUse: true, roleIds: [await id("Member")] });
 		expect(await t.query(internal.connectors.forTurn, { userId: member.userId, workspaceId, connectorIds: ["crm"] })).toHaveLength(1);
 	});
 });
