@@ -1001,6 +1001,9 @@ export default defineSchema({
 		installedBy: v.id("users"),
 		/** The schedule run it last did, or when its schedule was set or it was resumed: runs after it are due (core `scheduleDue`). */
 		lastScheduledAt: v.optional(v.number()),
+		nextRunAt: v.optional(v.number()),
+		consecutiveFailures: v.optional(v.number()),
+		eventKey: v.optional(v.string()),
 		// Retired: schedules ran once a local day. migrations.cronSchedules clears it.
 		// COMPAT(0.1.0-alpha.10): once that has run on prod, drop this field.
 		lastRunDate: v.optional(v.string()),
@@ -1036,7 +1039,8 @@ export default defineSchema({
 		archived: v.optional(v.boolean()),
 	})
 		.index("by_workspace", ["workspaceId", "automationId"])
-		.index("by_enabled", ["enabled"])
+		.index("by_due", ["nextRunAt"])
+		.index("by_event", ["workspaceId", "eventKey"])
 		.index("by_webhook", ["webhookToken"]),
 
 	// People who turned on an automation whose audience is "subscribers".
