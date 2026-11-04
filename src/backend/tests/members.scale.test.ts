@@ -67,10 +67,13 @@ it("finds a teammate by email or name among 1,500", { timeout: 300_000 }, async 
 	await t.run((ctx) => savePreferences(ctx, people[700]!, { displayName: "Grace Hopper" }));
 	const general = (await generalOf(owner))._id;
 	const turnId = await agentTurn(t, owner, general, (await agentsOf(owner)).companybot._id);
+	// Writes take an email (one index read); reads also take a name.
 	const save = (owner: string) => t.mutation(internal.recordTools.saveFor, { turnId, input: { type: "deal", values: { name: `For ${owner}`, owner } } });
+	const find = (owner: string) => t.mutation(internal.recordTools.findFor, { turnId, input: { numItems: 20, type: "deal", filters: [{ field: "owner", eq: owner }] } });
 	expect(await save("Person1200@co.com")).toMatchObject({ values: { owner: "person1200@co.com" } });
-	expect(await save("grace hopper")).toMatchObject({ values: { owner: "Grace Hopper" } });
-	expect(await save("Nobody")).toEqual({ error: expect.stringContaining("and 1482 more") });
+	expect(await save("person700@co.com")).toMatchObject({ values: { owner: "Grace Hopper" } });
+	expect(await find("grace hopper")).toMatchObject({ rows: [{ owner: "Grace Hopper" }] });
+	expect(await find("Nobody")).toEqual({ error: expect.stringContaining("and 1482 more") });
 });
 
 it("browses 50 channels of 1,000 people each, with their counts", { timeout: 600_000 }, async () => {

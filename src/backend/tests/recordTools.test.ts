@@ -104,7 +104,9 @@ describe("records tools", () => {
 		const { t, owner, member } = await ownerAndMember();
 		await member.mutation(api.preferences.update, { displayName: "owner@co.com" });
 		const tools = await turnFor(t, owner);
-		expect(await tools.save({ type: "deal", values: { name: "x", owner: "owner@co.com" } })).toEqual({ error: expect.stringContaining("Several teammates") });
+		expect(await tools.find({ type: "deal", filters: [{ field: "owner", eq: "owner@co.com" }] })).toEqual({ error: expect.stringContaining("Several teammates") });
+		// Writes take an email as that person's, never a name.
+		expect(await tools.save({ type: "deal", values: { name: "x", owner: "owner@co.com" } })).toMatchObject({ values: { owner: "owner@co.com" } });
 	});
 
 	// COMPAT(0.1.0-alpha.10): delete with migrations.memberProfiles.
@@ -115,7 +117,8 @@ describe("records tools", () => {
 			for (const row of await ctx.db.query("members").collect()) await ctx.db.patch(row._id, { name: undefined, image: undefined, timeZone: undefined });
 		});
 		const tools = await turnFor(t, owner);
-		expect(await tools.save({ type: "deal", values: { name: "x", owner: "mia" } })).toMatchObject({ values: { owner: "Mia" } });
+		await tools.save({ type: "deal", values: { name: "Mia's deal", owner: "member@co.com" } });
+		expect((await tools.find({ type: "deal", filters: [{ field: "owner", eq: "mia" }] })).rows.map((r) => [r.name, r.owner])).toEqual([["Mia's deal", "Mia"]]);
 		const team = (await owner.query(api.workspace.team))!;
 		expect(team.members.find((m) => m.email === "member@co.com")).toMatchObject({ name: "Mia", timeZone: "Asia/Tokyo" });
 	});
