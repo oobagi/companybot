@@ -1,4 +1,4 @@
-import { arrangementLists, legacyArrangement, type ArrangementList } from "@companybot/core/arrangements";
+import { applyCommand, arrangementLists, legacyArrangement, type ArrangementCommand, type ArrangementList } from "@companybot/core/arrangements";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import type { OptimisticUpdate } from "convex/browser";
 import { createContext, createElement, useCallback, useContext, useEffect, useRef, useState } from "react";
@@ -15,33 +15,39 @@ export function ArrangementProvider({ data, children }: { data: Data; children: 
 }
 export const useArrangementState = () => useContext(Context);
 
-export const optimisticArrangements: OptimisticUpdate<FunctionArgs<typeof api.arrangements.set>> = (store, args) => {
+/** The server's own change, applied to the cached list so it shows at once (core `applyCommand`). */
+export const optimisticArrangements: OptimisticUpdate<FunctionArgs<typeof api.arrangements.change>> = (store, { list, entityId, command, workspaceId }) => {
 	for (const query of store.getAllQueries(api.arrangements.get)) {
-		if (query.args.workspaceId !== args.workspaceId || !query.value) continue;
-		const rows = query.value.rows.filter((r) => r.list !== args.list || r.entityId !== args.entityId);
-		store.setQuery(api.arrangements.get, query.args, { ...query.value, rows: [...rows, { list: args.list, entityId: args.entityId, ids: args.ids }] });
+		if (query.args.workspaceId !== workspaceId || !query.value) continue;
+		const old = query.value.rows.find((r) => r.list === list && r.entityId === entityId);
+		const rows = query.value.rows.filter((r) => r !== old);
+		store.setQuery(api.arrangements.get, query.args, { ...query.value, rows: [...rows, { list, entityId, ids: applyCommand(old?.ids, command) }] });
 	}
 };
 
 const empty: string[] = [];
-/** Every list reads the loaded shell context; no per-list subscriptions or local fallback. */
+const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((id, i) => id === b[i]);
+/**
+ * A list from the loaded shell context, and `change` to send one command for it. Commands, not whole
+ * lists, so a change from another device since this one loaded is kept.
+ */
 export function useStoredIds(list: ArrangementList, entityId?: string) {
 	const state = useContext(Context);
-	const mutate = useMutation(api.arrangements.set, optimisticArrangements);
+	const mutate = useMutation(api.arrangements.change, optimisticArrangements);
 	const ids = state?.data.rows.find((r) => r.list === list && r.entityId === entityId)?.ids ?? empty;
-	const current = useRef(ids);
-	current.current = ids;
+	const saved = state?.data.rows.some((r) => r.list === list && r.entityId === entityId);
+	const current = useRef({ ids, saved });
+	current.current = { ids, saved };
 	const writable = !!state && (arrangementLists[list].scope !== "shared" || state.data.writable);
 	const fail = state?.fail;
-	const save = useCallback((next: string[] | ((before: string[]) => string[])) => {
+	const change = useCallback((command: ArrangementCommand) => {
 		if (!writable) return;
-		const ids = typeof next === "function" ? next(current.current) : next;
-		if (ids === current.current) return;
-		current.current = ids;
+		const now = current.current;
+		if (now.saved && same(applyCommand(now.ids, command), now.ids)) return;
 		fail?.();
-		void mutate({ list, entityId, ids }).catch(fail);
+		void mutate({ list, entityId, command }).catch(fail);
 	}, [list, entityId, writable, mutate, fail]);
-	return [ids, save, writable] as const;
+	return [ids, change, writable] as const;
 }
 
 type Storage = Pick<globalThis.Storage, "length" | "key" | "getItem" | "removeItem">;

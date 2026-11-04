@@ -61,7 +61,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	const fields = type.fields.filter((f) => !f.archived) as TypeField[];
 	const live = (key: string) => ["createdAt", "updatedAt", ...fields.map((f) => f.key)].includes(key);
 	// "All" follows the workspace display; saved views keep their own settings.
-	const [storedColumns, storeColumns, writable] = useStoredIds("columns", type._id);
+	const [storedColumns, changeColumns, writable] = useStoredIds("columns", type._id);
 	const setDisplay = useMutation(api.recordTypes.setDisplay, optimisticDisplay);
 	const display = type.display ?? { layout: "table" as const };
 	const saved: Settings | undefined = selected && {
@@ -84,7 +84,13 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	const change = (next: Partial<Settings>) => {
 		const value = { ...draft.value, columns, layout, groupBy: selected ? draft.value.groupBy : display.groupBy, ...next };
 		draft.set(value);
-		if (!selected && writable && next.columns) storeColumns(next.columns);
+		if (!selected && writable && next.columns) {
+			// One command per column shown or hidden, starting from what's on screen if nothing's saved.
+			const shown = next.columns;
+			const seed = storedColumns.length ? undefined : columns;
+			for (const id of shown.filter((k) => !columns.includes(k))) changeColumns({ op: "add", id, seed });
+			for (const id of columns.filter((k) => !shown.includes(k))) changeColumns({ op: "remove", id, seed });
+		}
 		// Send only what changed, so someone else's layout or grouping change isn't overwritten.
 		if (!selected && writable && (next.layout || next.groupBy)) run(setDisplay({ typeId: type._id, display: { layout: next.layout, groupBy: next.groupBy } }));
 	};

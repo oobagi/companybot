@@ -40,14 +40,14 @@ it("discards orphaned local keys and sanitizes broken local data", async () => {
 	expect(local.entries.size).toBe(0);
 });
 
-it("optimistic updates affect only the requested workspace, including workspace order", () => {
+it("optimistic updates apply the command to the requested workspace only, including workspace order", () => {
 	for (const list of ["channels", "workspaces"] as const) {
-		const queries = ["w1", "w2"].map((workspaceId) => ({ args: { workspaceId }, value: { rows: [{ list, ids: ["before"] }], writable: true } }));
+		const queries = ["w1", "w2"].map((workspaceId) => ({ args: { workspaceId }, value: { rows: [{ list, ids: ["a", "b"] }], writable: true } }));
 		const setQuery = vi.fn((_fn, args, value) => { queries.find((q) => q.args.workspaceId === args.workspaceId)!.value = value; });
 		const store = { getAllQueries: () => queries, setQuery } as unknown as OptimisticLocalStore;
-		optimisticArrangements(store, { workspaceId: "w1", list, ids: ["after"] } as FunctionArgs<typeof api.arrangements.set>);
-		expect(queries[0]!.value.rows[0]!.ids).toEqual(["after"]);
-		expect(queries[1]!.value.rows[0]!.ids).toEqual(["before"]);
+		optimisticArrangements(store, { workspaceId: "w1", list, command: { op: "move", id: "b", beforeId: "a" } } as FunctionArgs<typeof api.arrangements.change>);
+		expect(queries[0]!.value.rows[0]!.ids).toEqual(["b", "a"]);
+		expect(queries[1]!.value.rows[0]!.ids).toEqual(["a", "b"]);
 		expect(setQuery).toHaveBeenCalledTimes(1);
 	}
 });

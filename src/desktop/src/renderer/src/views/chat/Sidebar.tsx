@@ -43,7 +43,7 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 	const workspace = useWorkspace();
 	const now = useClock();
 	const threads = useQuery(api.chats.activeThreads, section.collapsed ? "skip" : { now }) ?? [];
-	const [folded, setFolded] = useStoredIds("channelFolds");
+	const [folded, changeFolded] = useStoredIds("channelFolds");
 	const [dialog, setDialog] = useState<Dialog>();
 	const [details, setDetails] = useState<Id<"chats">>();
 	const markRead = useMutation(api.chats.markRead);
@@ -83,7 +83,7 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 					icon={c.private ? <PrivateIcon /> : <ChannelIcon />}
 					label={`#${c.name}`}
 					expanded={open}
-					onToggle={own.length ? () => setFolded(open ? [...folded, c._id] : folded.filter((id) => id !== c._id)) : undefined}
+					onToggle={own.length ? () => changeFolded({ op: open ? "add" : "remove", id: c._id }) : undefined}
 					active={c._id === openId}
 					unread={c.unread}
 					mentioned={c.mentioned}
@@ -135,7 +135,7 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 	const renameChat = useMutation(api.chats.renameChat);
 	const renameAgent = useMutation(api.agents.rename);
 	const [dialog, setDialog] = useState<Dialog>();
-	const [folded, setFolded] = useStoredIds("dmFolds");
+	const [folded, changeFolded] = useStoredIds("dmFolds");
 	const { error, run } = useRun();
 	const { confirm, dialog: confirming } = useConfirm();
 	const sidesOf = (dmId: Id<"chats"> | null) => (dmId ? chats.dms.filter((d) => d.parentId === dmId) : []);
@@ -178,7 +178,7 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 					draft={!!d.dmId && drafts.has(d.dmId)}
 					title={d.title}
 					expanded={open}
-					onToggle={sides.length ? () => setFolded(open ? [...folded, d.key] : folded.filter((id) => id !== d.key)) : undefined}
+					onToggle={sides.length ? () => changeFolded({ op: open ? "add" : "remove", id: d.key }) : undefined}
 					onClick={() => (d.dmId ? onOpen(d.dmId) : d.agentId && openDm({ userIds: [], agentIds: [d.agentId] }).then(onOpen, onError))}
 					// Agents rename here (`agents.manage`); a person's name is their own, set in their preferences.
 					rename={d.agentId && canManageAgents ? { value: d.name, onSave: (name) => run(renameAgent({ agentId: d.agentId!, name })) } : undefined}

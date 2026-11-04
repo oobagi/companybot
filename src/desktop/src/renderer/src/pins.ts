@@ -4,20 +4,17 @@ import { useStoredIds } from "./arrangements";
 export type PinKind = "chat" | "page" | "db" | "rec";
 export type PinKey = `${PinKind}:${string}`;
 
-/** Recents kept, so a few can be pinned or deleted and some still show. The rail shows `RECENT_SHOWN`. */
-const RECENT_KEPT = 12;
+/** Recents the rail shows, of the `RECENT_KEPT` saved. */
 export const RECENT_SHOWN = 5;
 
 /** The open workspace's personal pins and recents, shared by every live reader. */
 export function usePins() {
-	const [pins, savePins] = useStoredIds("pins");
-	const [recent, saveRecent, canSaveRecent] = useStoredIds("recent");
+	const [pins, changePins] = useStoredIds("pins");
+	const [recent, changeRecent, canSaveRecent] = useStoredIds("recent");
 	const toggle = useCallback((key: PinKey) => {
-		savePins((now) => now.includes(key) ? now.filter((k) => k !== key) : [...now, key]);
-	}, [savePins]);
-	const visit = useCallback((key: PinKey) => {
-		saveRecent((now) => now[0] === key ? now : [key, ...now.filter((k) => k !== key)].slice(0, RECENT_KEPT));
-	}, [saveRecent]);
+		changePins({ op: pins.includes(key) ? "remove" : "add", id: key });
+	}, [changePins, pins]);
+	const visit = useCallback((key: PinKey) => changeRecent({ op: "visit", id: key }), [changeRecent]);
 	return { pins: pins as PinKey[], recent: recent as PinKey[], toggle, visit, canSaveRecent };
 }
 

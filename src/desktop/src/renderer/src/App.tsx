@@ -182,8 +182,8 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	const badges: Partial<Record<AppTab, TabBadge>> = { chat: { mentions: waiting.filter((c) => c.mentioned).length, unread: waiting.some((c) => c.unread) } };
 	// The sidebar's sections: drag a title to move one, click it to fold it. Both sync with your account in this workspace.
 	const sections = useSortable("sections", sectionIds, sectionKey);
-	const [folded, setFolded] = useStoredIds("folded");
-	const fold = (id: string) => setFolded(folded.includes(id) ? folded.filter((f) => f !== id) : [...folded, id]);
+	const [folded, changeFolded] = useStoredIds("folded");
+	const fold = (id: string) => changeFolded({ op: folded.includes(id) ? "remove" : "add", id });
 	// Hidden or shown, the sidebar stays that way on this computer.
 	const [sidebar, setSidebar] = useState(() => localStorage.getItem("sidebar.hidden") !== "true");
 	const sidebarWidth = useStoredWidth("sidebar.width", 240, 160, 600);

@@ -19,36 +19,22 @@ export function PagesNav({ openId, canEdit, section }: { openId: string | undefi
 	return <PageNavTree key={workspace?.id} openId={openId} canEdit={canEdit} section={section} />;
 }
 function PageNavTree({ openId, canEdit, section }: { openId?: string; canEdit: boolean; section?: SectionProps }) {
-	const [expandedIds, saveExpanded] = useStoredIds("expanded");
+	const [expandedIds, changeExpanded] = useStoredIds("expanded");
 	const expanded = useMemo(() => new Set(expandedIds), [expandedIds]);
-	const setExpanded = useCallback((change: (before: Set<string>) => Set<string>) => {
-		saveExpanded((before) => [...change(new Set(before))]);
-	}, [saveExpanded]);
 	const batches = useMemo(() => {
 		const ids = [...expanded];
 		return Array.from({ length: Math.ceil(ids.length / 100) }, (_, i) => ids.slice(i * 100, (i + 1) * 100));
 	}, [expanded]);
 	const prune = useCallback((ids: string[]) => {
-		if (!ids.length) return;
-		setExpanded((before) => {
-			const next = new Set(before);
-			for (const id of ids) next.delete(id);
-			return next.size === before.size ? before : next;
-		});
-	}, [setExpanded]);
+		for (const id of ids) changeExpanded({ op: "remove", id });
+	}, [changeExpanded]);
 	const [moving, setMoving] = useState<Row>();
 	const create = useMutation(api.pages.create);
 	const remove = useMutation(api.trash.move);
 	const rename = useMutation(api.pages.rename);
 	const { confirm, dialog } = useConfirm();
 	const { error, run } = useRun();
-	const toggle = (id: string, open = !expanded.has(id)) => {
-		setExpanded((before) => {
-			const next = new Set(before);
-			if (open) next.add(id); else next.delete(id);
-			return next;
-		});
-	};
+	const toggle = (id: string, open = !expanded.has(id)) => changeExpanded({ op: open ? "add" : "remove", id });
 	const add = (parentId?: PageId) => run(create({ title: "Untitled", parentId }).then((id) => { if (parentId) toggle(parentId, true); navigate("pages", id); }));
 	/** `above`: for each level above this one, whether its line continues past these rows. */
 	const level = (parentId?: PageId, above: boolean[] = []): React.ReactNode => (

@@ -1,6 +1,6 @@
 import { useCallback, useId, useMemo, useState } from "react";
 import { useStoredIds } from "./arrangements";
-import type { ArrangementList } from "@companybot/core/arrangements";
+import type { ArrangementCommand, ArrangementList } from "@companybot/core/arrangements";
 
 type Edge = "before" | "after";
 
@@ -27,14 +27,19 @@ export function applyOrder<T>(order: readonly string[], items: readonly T[], id:
 		.map((x) => x.item);
 }
 
-/** Moves `from` to just before or after `to`. */
-export function moveId(ids: readonly string[], from: string, to: string, edge: Edge): string[] {
-	if (from === to) return [...ids];
-	const rest = ids.filter((k) => k !== from);
+/**
+ * The `move` that puts `from` just before or after `to` in `shown` (the list as drawn). Ids drawn
+ * before the drop but never saved go in `fill`, so it lands where it looked; saved ones this person
+ * can't see stay where they are on the server.
+ */
+export function moveCommand(saved: readonly string[], shown: readonly string[], from: string, to: string, edge: Edge): ArrangementCommand | undefined {
+	if (from === to) return undefined;
+	const rest = shown.filter((k) => k !== from);
 	const at = rest.indexOf(to);
-	if (at < 0) return [...ids];
-	rest.splice(edge === "before" ? at : at + 1, 0, from);
-	return rest;
+	if (at < 0) return undefined;
+	const drop = edge === "before" ? at : at + 1;
+	const known = new Set(saved);
+	return { op: "move", id: from, beforeId: rest[drop] ?? null, fill: rest.slice(0, drop).filter((k) => !known.has(k)) };
 }
 
 /**
@@ -42,7 +47,7 @@ export function moveId(ids: readonly string[], from: string, to: string, edge: E
  * for the drop line. Lists are kept apart, so a row dragged over its section header does nothing.
  */
 export function useSortable<T>(list: ArrangementList, items: readonly T[], id: (item: T) => string, axis: "y" | "x" = "y", entityId?: string) {
-	const [order, setOrder, writable] = useStoredIds(list, entityId);
+	const [order, change, writable] = useStoredIds(list, entityId);
 	const instance = useId();
 	const key = `${list}:${entityId ?? ""}:${instance}`;
 	const [over, setOver] = useState<{ id: string; edge: Edge }>();
@@ -52,13 +57,10 @@ export function useSortable<T>(list: ArrangementList, items: readonly T[], id: (
 		(to: string, edge: Edge) => {
 			const from = dragging?.list === key ? dragging.id : undefined;
 			if (!from || !writable) return;
-			setOrder((before) => {
-				// Keep saved rows this person cannot see or has not loaded yet.
-				const all = [...before, ...sorted.map(id).filter((item) => !before.includes(item))];
-				return moveId(all, from, to, edge);
-			});
+			const command = moveCommand(order, sorted.map(id), from, to, edge);
+			if (command) change(command);
 		},
-		[key, sorted, id, setOrder, writable],
+		[key, sorted, id, order, change, writable],
 	);
 
 	const drag = (itemId: string): DragProps => {
