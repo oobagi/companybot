@@ -1,5 +1,5 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery, useWorkspace } from "../../convex";
 import { AgentIcon, ArchiveIcon, CaretRightIcon, ChannelIcon, ChatIcon, CheckIcon, CloseIcon, EditIcon, MembersIcon, MoreIcon, PinIcon, PlusIcon, PrivateIcon, SignOutIcon, ThreadIcon, UnpinIcon } from "../../icons";
@@ -342,6 +342,7 @@ export function Item({
 	const [menuAt, setMenuAt] = useState<"button" | { x: number; y: number }>();
 	const [renaming, setRenaming] = useState(false);
 	const closeMenu = () => setMenuAt(undefined);
+	const row = useRef<HTMLButtonElement>(null);
 	const items =
 		menu || rename || pin
 			? (close: () => void) => (
@@ -389,6 +390,7 @@ export function Item({
 				<RenameInput value={rename.value} onSave={rename.onSave} onDone={() => setRenaming(false)} className="-my-0.5 -ml-1.5 flex-1 px-1.5 py-0.5" />
 			) : (
 				<button
+					ref={row}
 					type="button"
 					title={title}
 					onClick={onClick}
@@ -426,7 +428,7 @@ export function Item({
 				</span>
 			)}
 			{items && typeof menuAt === "object" && (
-				<PopoverPanel opened at={menuAt} onClose={closeMenu} className="w-52 p-1">
+				<PopoverPanel opened at={menuAt} returnFocus={row} onClose={closeMenu} className="w-52 p-1">
 					{items(closeMenu)}
 				</PopoverPanel>
 			)}

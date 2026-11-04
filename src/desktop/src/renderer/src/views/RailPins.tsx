@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api } from "../api";
 import { useQuery, useWorkspace } from "../convex";
 import { ChannelIcon, ChatIcon, DatabaseIcon, PageIcon, PinIcon, PrivateIcon, RecordIcon, UnpinIcon } from "../icons";
@@ -103,6 +103,7 @@ function RailItem({
 	hideTip: () => void;
 }) {
 	const [menuAt, setMenuAt] = useState<{ x: number; y: number }>();
+	const button = useRef<HTMLButtonElement>(null);
 	return (
 		<div
 			{...drag}
@@ -111,6 +112,7 @@ function RailItem({
 		>
 			<span className="relative flex" {...tip}>
 				<button
+					ref={button}
 					type="button"
 					aria-label={entry.mentioned ? `${entry.label}, unread mention` : entry.label}
 					aria-current={active ? "page" : undefined}
@@ -124,7 +126,7 @@ function RailItem({
 				)}
 			</span>
 			{menuAt && (
-				<PopoverPanel opened at={menuAt} className="w-44 p-1 text-sm" onClose={() => setMenuAt(undefined)}>
+				<PopoverPanel opened at={menuAt} returnFocus={button} className="w-44 p-1 text-sm" onClose={() => setMenuAt(undefined)}>
 					<MenuItem onClick={() => (setMenuAt(undefined), onToggle())}>
 						{pinned ? (
 							<>

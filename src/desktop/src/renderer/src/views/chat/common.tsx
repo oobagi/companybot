@@ -1,5 +1,6 @@
 import { Modal as MantineModal, Popover as MantinePopover } from "@mantine/core";
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useClickOutside } from "@mantine/hooks";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { CloseIcon, PlusIcon } from "../../icons";
 import { Notice, dangerButton, primaryButton, secondaryButton, useRun } from "../../ui";
 import { EmojiPanel } from "./EmojiPanel";
@@ -92,33 +93,43 @@ export function EmojiPicker({ onPick }: { onPick: (emoji: string) => void }) {
 	);
 }
 
-/** How an open popover or dialog hears that one opened from inside it opened (1) or closed (-1). */
-const Inner = createContext<(change: 1 | -1) => void>(() => {});
+type Open = { close: () => void; node: () => HTMLElement | null; returnTo: () => HTMLElement | null; fallback?: () => HTMLElement | null };
 
 /**
- * An open popover or dialog is the newest while none opened from inside it is open. Only the newest
- * closes on Escape (`onEscape`) or a click outside, so Escape in a Confirm over a dialog closes just
- * the Confirm. `nest` goes around what's inside it.
+ * Open popovers and dialogs, in the order they opened. Escape or a click outside closes only the
+ * last: a menu before the dialog it's in, a Confirm before the dialog under it, the newer of two
+ * side by side.
  */
-function useNewest(opened: boolean, onEscape: () => void) {
-	const parent = useContext(Inner);
-	const [inner, setInner] = useState(0);
-	const report = useCallback((change: 1 | -1) => setInner((n) => n + change), []);
-	const escape = useRef(onEscape);
-	escape.current = onEscape;
-	const newest = opened && inner === 0;
-	useEffect(() => {
+const layers: Open[] = [];
+const escape = (e: KeyboardEvent) => e.key === "Escape" && !e.isComposing && layers.at(-1)?.close();
+
+/**
+ * Puts a popover or dialog on `layers` while `opened`, and says whether it's on top. As it closes,
+ * focus goes back to `returnTo` (else what had it as it opened), unless you put it somewhere else.
+ * Opened from inside another layer (a dialog from a menu item), it falls back to that one's.
+ */
+function useLayer(opened: boolean, onClose: () => void, node: () => HTMLElement | null, returnTo?: () => HTMLElement | null) {
+	const latest = useRef({ onClose, node, returnTo });
+	latest.current = { onClose, node, returnTo };
+	const [layer] = useState<Open>(() => ({ close: () => latest.current.onClose(), node: () => latest.current.node(), returnTo: () => null }));
+	if (opened && !layers.includes(layer)) {
+		const from = document.activeElement as HTMLElement | null;
+		const holder = layers.find((l) => from && l.node()?.contains(from));
+		Object.assign(layer, { returnTo: () => latest.current.returnTo?.() ?? from, fallback: holder?.returnTo });
+	}
+	useLayoutEffect(() => {
 		if (!opened) return;
-		parent(1);
-		return () => parent(-1);
-	}, [opened, parent]);
-	useEffect(() => {
-		if (!newest) return;
-		const key = (e: KeyboardEvent) => e.key === "Escape" && !e.isComposing && escape.current();
-		document.addEventListener("keydown", key);
-		return () => document.removeEventListener("keydown", key);
-	}, [newest]);
-	return { newest, nest: (children: React.ReactNode) => <Inner value={report}>{children}</Inner> };
+		layers.push(layer);
+		if (layers.length === 1) document.addEventListener("keydown", escape);
+		return () => {
+			const focused = document.activeElement;
+			const lost = !focused || focused === document.body || layers.slice(layers.indexOf(layer)).some((l) => l.node()?.contains(focused));
+			layers.splice(layers.indexOf(layer), 1);
+			if (!layers.length) document.removeEventListener("keydown", escape);
+			if (lost) [layer.returnTo(), layer.fallback?.()].find((el) => el?.isConnected)?.focus({ preventScroll: true });
+		};
+	}, [opened, layer]);
+	return () => layers.at(-1) === layer;
 }
 
 /** Mantine's focus trap takes the first field unless one is marked: keep the one `autoFocus` picked. */
@@ -140,12 +151,9 @@ const Unwrapped = ({ children }: { children?: React.ReactNode }) => children;
  * `className` is the box; `overlayClassName` the dimmed rest.
  */
 export function Layer({ onClose, className, overlayClassName, children }: { onClose: () => void; className: string; overlayClassName: string; children: React.ReactNode }) {
-	const { newest, nest } = useNewest(true, onClose);
-	// Ours, not Mantine's: dialogs unmount as they close, which Mantine's return of focus misses.
-	useLayoutEffect(() => {
-		const previous = document.activeElement as HTMLElement | null;
-		return () => { if (previous?.isConnected) previous.focus({ preventScroll: true }); };
-	}, []);
+	const content = useRef<HTMLElement>(null);
+	const onTop = useLayer(true, onClose, () => content.current);
+	const ref = useCallback((el: HTMLElement | null) => ((content.current = el), keepAutoFocus(el)), []);
 	return (
 		<MantineModal.Root
 			opened
@@ -154,8 +162,8 @@ export function Layer({ onClose, className, overlayClassName, children }: { onCl
 			closeOnEscape={false} closeOnClickOutside={false} lockScroll={false} returnFocus={false} scrollAreaComponent={Unwrapped}
 			classNames={{ overlay: `no-drag fixed inset-0 z-50 ${overlayClassName}`, inner: "no-drag pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-6", content: `pointer-events-auto ${className}` }}
 		>
-			<MantineModal.Overlay onMouseDown={() => newest && onClose()} />
-			<MantineModal.Content ref={keepAutoFocus}>{nest(children)}</MantineModal.Content>
+			<MantineModal.Overlay onMouseDown={() => onTop() && onClose()} />
+			<MantineModal.Content ref={ref}>{children}</MantineModal.Content>
 		</MantineModal.Root>
 	);
 }
@@ -238,15 +246,16 @@ export function Popover({
 /**
  * A Popover's panel on its own (Mantine's Popover), opened by you: from `target`, an element, or
  * `at` a point (a right-click) inside the nearest positioned box. It sits below, or above when
- * there's no room, inside the window, and follows its target as the page scrolls. It takes focus
- * (unless `trapFocus` is off, for one that opens on hover) and gives it back to the target as it
- * closes, unless you clicked into something else.
+ * there's no room, inside the window, and follows its target as the page scrolls; scrolled out of
+ * sight, it closes. It takes focus (unless `trapFocus` is off, for one that opens on hover) and
+ * gives it back as it closes: to `target`, or `returnFocus` (the row you right-clicked).
  */
 export function PopoverPanel({
 	opened,
 	onClose,
 	target,
 	at,
+	returnFocus,
 	matchWidth,
 	trapFocus = true,
 	className = "w-72",
@@ -256,21 +265,22 @@ export function PopoverPanel({
 	onClose: () => void;
 	target?: React.ReactElement;
 	at?: { x: number; y: number };
+	returnFocus?: React.RefObject<HTMLElement | null>;
 	matchWidth?: boolean;
 	trapFocus?: boolean;
 	className?: string;
 	children: React.ReactNode;
 }) {
 	const anchor = useRef<HTMLElement>(null);
-	const { newest, nest } = useNewest(opened, onClose);
-	const wasOpen = useRef(false);
-	useEffect(() => {
-		if (opened) return void (wasOpen.current = true);
-		if (!wasOpen.current) return;
-		wasOpen.current = false;
-		// Focus was in the panel, now gone.
-		if (document.activeElement === document.body) anchor.current?.focus({ preventScroll: true });
-	}, [opened]);
+	const [panel, setPanel] = useState<HTMLElement | null>(null);
+	const ref = useCallback((el: HTMLElement | null) => (setPanel(el), keepAutoFocus(el)), []);
+	const onTop = useLayer(opened, onClose, () => panel, () => (returnFocus ?? anchor).current);
+	useClickOutside(() => onTop() && onClose(), null, [anchor.current, panel]);
+	// Its target was in sight since it opened; once it scrolls away, the panel goes too.
+	const seen = useRef(false);
+	const close = useRef(onClose);
+	close.current = onClose;
+	if (!opened) seen.current = false;
 	const spot = useCallback((el: HTMLElement | null) => {
 		const box = el?.offsetParent?.getBoundingClientRect();
 		if (el && box && at) Object.assign(el.style, { left: `${at.x - box.left}px`, top: `${at.y - box.top}px` });
@@ -278,27 +288,28 @@ export function PopoverPanel({
 	return (
 		<MantinePopover
 			opened={opened}
-			onDismiss={onClose}
 			{...plain}
-			position="bottom-start" offset={6} width="" zIndex={50} floatingStrategy="fixed" trapFocus={trapFocus} closeOnEscape={false} closeOnClickOutside={newest}
+			position="bottom-start" offset={6} width="" zIndex={50} floatingStrategy="fixed" trapFocus={trapFocus} closeOnEscape={false} closeOnClickOutside={false}
 			middlewares={{
 				flip: true,
 				shift: { padding: 8 },
 				// Shortened to the room on its side (it scrolls); at least as wide as its button for a picker.
 				size: {
 					padding: 8,
-					apply: ({ rects, availableHeight, elements }) => {
+					apply: ({ rects, availableHeight, elements, middlewareData }) => {
 						Object.assign(elements.floating.style, { maxHeight: `${Math.min(availableHeight, window.innerHeight * 0.7)}px`, minWidth: matchWidth ? `${rects.reference.width}px` : "" });
+						if (!middlewareData.hide?.referenceHidden) seen.current = true;
+						else if (seen.current) close.current();
 					},
 				},
 			}}
 		>
 			<MantinePopover.Target ref={anchor}>{target ?? <span ref={spot} className="pointer-events-none absolute size-0" />}</MantinePopover.Target>
 			<MantinePopover.Dropdown
-				ref={keepAutoFocus}
+				ref={ref}
 				className={`no-drag fixed overflow-y-auto rounded-xl border border-neutral-200 bg-white text-left text-sm font-normal text-neutral-900 shadow-lg ${className}`}
 			>
-				{nest(children)}
+				{children}
 			</MantinePopover.Dropdown>
 		</MantinePopover>
 	);
