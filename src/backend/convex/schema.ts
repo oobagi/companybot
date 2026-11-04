@@ -91,8 +91,6 @@ export const approvalStatus = v.union(
 	v.literal("running"),
 	v.literal("done"),
 	v.literal("failed"),
-	/** An outside call cut off or failed in transit: it may or may not have happened (core ApprovalStatus). */
-	v.literal("unknown"),
 	v.literal("denied"),
 );
 
@@ -777,6 +775,13 @@ export default defineSchema({
 	// A turn's tool steps as its model had them (core replay.ts keptStep): its calls and their results,
 	// as JSON ModelMessage[] (a call's input can have any keys). Later turns in its session replay them
 	// (turns.ts sessionTurns); results only to the person it acted for, as in the activity log.
+	// A write a tool call made, keyed by the call's id (the model's, or `approval-<id>`), committed with
+	// its effect (approvals.withReceipt), so a rerun of the same call writes nothing twice. No content.
+	toolReceipts: defineTable({
+		turnId: v.id("agentTurns"),
+		callId: v.string(),
+	}).index("by_turn", ["turnId", "callId"]),
+
 	turnSteps: defineTable({
 		workspaceId: v.id("workspaces"),
 		turnId: v.id("agentTurns"),
@@ -968,9 +973,15 @@ export default defineSchema({
 		automationInstallId: v.optional(v.id("automationInstalls")),
 		/** Set when the actor chose "Always allow": a rule was saved too. */
 		always: v.optional(v.boolean()),
-		/** Running a call to an outside service (a connector's): cut off, its outcome is unknown, not failed. */
+		/**
+		 * Running a call whose effect isn't one transaction (a connector's, an async built-in's): cut off, its
+		 * outcome is unknown, not "nothing changed".
+		 */
 		outside: v.optional(v.boolean()),
+		/** With `failed`: it may or may not have happened. A field, not a status, so older apps still show the error. */
+		outcome: v.optional(v.literal("unknown")),
 	})
+		.index("by_call", ["turnId", "callId"])
 		.index("by_reply", ["replyId"])
 		.index("by_workspace", ["workspaceId"])
 		.index("by_actor", ["actorId"]),

@@ -211,6 +211,8 @@ export const webTools: ToolDef[] = [
 		// Same links as web.fetch, and the file only lands on this reply; using it elsewhere asks as that tool does.
 		risk: "none",
 		sendsOut: true,
+		// Fetches, stores, then attaches: not one transaction.
+		untransacted: true,
 		label: ({ url }) => (typeof url === "string" ? `Save ${shortLink(url)}` : undefined),
 		execute: ({ url }, { web }) => web.save(url),
 		toModelOutput: ({ output }) => ({

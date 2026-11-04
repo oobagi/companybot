@@ -14,7 +14,7 @@ import {
 	findConnector,
 	toolGroup,
 } from "@companybot/core";
-import { ConvexError, v } from "convex/values";
+import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { components } from "./_generated/api";
 import { internalMutation, type MutationCtx, type QueryCtx } from "./_generated/server";
@@ -26,6 +26,7 @@ import { titleOf } from "./connectorTools";
 import { erased, getMember, memberOf, nameOf, requireLiveAgent, requireMember, toActor } from "./lib";
 import { decideFor, setRule } from "./permissions";
 import { canReadReplyDetails, readReplyDetails } from "./replyPrivacy";
+import { fieldsOf, typesOf } from "./recordOps";
 import { writeSources } from "./replySources";
 import { risk } from "./schema";
 import { enqueueTurn, runningTurn } from "./turns";
@@ -93,8 +94,70 @@ async function revisionOf(ctx: QueryCtx, workspaceId: Id<"workspaces">, { kind, 
  */
 async function boundRevisions(ctx: QueryCtx, workspaceId: Id<"workspaces">, tool: string, input: unknown) {
 	const binds = builtinTools.find((t) => t.id === tool)?.binds?.(input) ?? [];
-	if (!binds.length) return undefined;
-	return canonicalJson(await Promise.all(binds.map(async (b) => ({ ...b, revision: await revisionOf(ctx, workspaceId, b) }))));
+	const refs = await recordRefs(ctx, workspaceId, tool, input);
+	if (!binds.length && refs === undefined) return undefined;
+	const revisions = await Promise.all(binds.map(async (b) => ({ ...b, revision: await revisionOf(ctx, workspaceId, b) })));
+	return canonicalJson(refs === undefined ? revisions : { revisions, refs });
+}
+
+const RECORD_WRITES = new Set(["records.save", "records.save_field", "records.save_database", "records.save_view"]);
+type RecordWrite = {
+	id?: string;
+	type?: string;
+	field?: string;
+	values?: Record<string, unknown>;
+	options?: (string | { id?: string; label: string })[];
+	linksTo?: string;
+	trash?: boolean;
+	sort?: { field: string } | null;
+	columns?: string[];
+	groupBy?: string | null;
+	filters?: { field?: string }[];
+};
+
+/**
+ * What a record write's changeable names mean right now: its database and fields by id, its choice values by
+ * option id. Keys and labels can come to mean something else (a field archived, purged and made again with the
+ * same key; a choice label moved to another option), and then the held call doesn't run. Archiving a field or a
+ * database also binds what it affects: the database's newest live and archived record changes, so a record added
+ * or changed after the approval stops it.
+ */
+async function recordRefs(ctx: QueryCtx, workspaceId: Id<"workspaces">, tool: string, input: unknown) {
+	if (!RECORD_WRITES.has(tool) || !input || typeof input !== "object") return undefined;
+	const i = input as RecordWrite;
+	const types = await typesOf(ctx, workspaceId);
+	const typeOf = (ref: string) => {
+		const r = ref.trim();
+		return types.find((t) => t._id === r || t.key === r) ?? types.find((t) => t.key === r.toLowerCase()) ?? null;
+	};
+	const recordId = tool === "records.save" && i.id ? ctx.db.normalizeId("records", i.id) : null;
+	const record = recordId ? await ctx.db.get(recordId) : null;
+	const type = record ? (types.find((t) => t._id === record.typeId) ?? null) : i.type !== undefined ? typeOf(i.type) : null;
+	const fields = type ? await fieldsOf(ctx, type._id) : [];
+	const fieldOf = (key: string) => fields.find((f) => f.key === key.trim()) ?? fields.find((f) => f.key === key.trim().toLowerCase()) ?? null;
+	const optionOf = (f: Doc<"recordFields">, label: unknown) =>
+		typeof label !== "string" ? label : (f.options?.find((o) => !o.retired && (o.id === label.trim() || o.label.toLowerCase() === label.trim().toLowerCase()))?.id ?? null);
+	const valueRef = (key: string, value: unknown) => {
+		const f = fieldOf(key);
+		if (!f) return null;
+		return f.kind === "choice" ? { id: f._id, options: (Array.isArray(value) ? value : [value]).map((x) => optionOf(f, x)) } : { id: f._id };
+	};
+	const refs: Record<string, unknown> = { type: type?._id ?? null };
+	if (i.values) refs.values = Object.fromEntries(Object.entries(i.values).map(([k, value]) => [k, valueRef(k, value)]));
+	const field = tool === "records.save_field" && i.field !== undefined ? fieldOf(i.field) : undefined;
+	if (field !== undefined) refs.field = field ? [field._id, field.updatedAt] : null;
+	if (tool === "records.save_field" && i.options)
+		refs.options = i.options.map((o) => (typeof o === "string" ? (field ? optionOf(field, o) : null) : (o.id ?? (field ? optionOf(field, o.label) : null))));
+	if (i.linksTo !== undefined) refs.linksTo = typeOf(i.linksTo)?._id ?? null;
+	if (tool === "records.save_view")
+		refs.fields = [i.sort?.field, i.groupBy, ...(i.columns ?? []), ...(i.filters ?? []).map((f) => f.field)].map((k) => (typeof k === "string" ? (fieldOf(k)?._id ?? null) : null));
+	if (i.trash === true && type && (tool === "records.save_field" || tool === "records.save_database")) {
+		const newest = (archived: boolean) =>
+			ctx.db.query("records").withIndex("by_type_updated", (q) => q.eq("typeId", type._id).eq("archived", archived)).order("desc").first();
+		const [live, gone] = await Promise.all([newest(false), newest(true)]);
+		refs.contents = [type.updatedAt, live?._id ?? null, live?.updatedAt ?? null, gone?._id ?? null, gone?.updatedAt ?? null];
+	}
+	return refs;
 }
 
 /**
@@ -105,6 +168,9 @@ export const request = internalMutation({
 	args: { turnId: v.id("agentTurns"), callId: v.string(), tool: v.string(), input: v.string(), risk, why: v.optional(v.string()) },
 	handler: async (ctx, { turnId, callId, tool, input, risk, why }) => {
 		const { turn, member } = await runningTurn(ctx, turnId);
+		// One call id holds one approval: a repeated request (a retried step) gets the same card, never a second one to run.
+		const held = await ctx.db.query("approvals").withIndex("by_call", (q) => q.eq("turnId", turnId).eq("callId", callId)).first();
+		if (held) return { approvalId: held._id, separate: held.replyId !== turn.replyId };
 		const bound = await boundRevisions(ctx, turn.workspaceId, tool, JSON.parse(input));
 		const { automation, trigger } = await automationScope(ctx, turn);
 		// Automation and wake cards belong only in the acting person's DM, even for channel/thread runs.
@@ -213,6 +279,8 @@ export const forReply = query({
 					input: shownInput,
 					hash: row.hash,
 					status: approvalStatus(row),
+					/** With `failed`: it may or may not have happened (older apps show only the error). */
+					outcome: row.outcome ?? null,
 					approver: (await names.user(row.actorId)).name,
 					canDecide: mine,
 					expiresAt: row.expiresAt,
@@ -300,7 +368,7 @@ export const claim = internalMutation({
 		}
 		// What it changes must still be as it was on the card: an edit since stops it rather than run on unseen content.
 		if (row.bound !== undefined && (await boundRevisions(ctx, row.workspaceId, row.tool, input)) !== row.bound) {
-			await ctx.db.patch(approvalId, { status: "failed", error: "What this changes was edited after it was approved, so it didn't run. Ask again if you still want it." });
+			await ctx.db.patch(approvalId, { status: "failed", error: EDITED });
 			return null;
 		}
 		// Rules are read fresh: a block or Never set since the approval wins.
@@ -320,31 +388,73 @@ export const claim = internalMutation({
 /** What an approved call's line in Activity says about how it was allowed. */
 const allowedOf = (row: Doc<"approvals">) => ({ how: row.always ? ("always" as const) : ("once" as const), by: row.actorId, at: row.decidedAt ?? Date.now() });
 
-/** Marks a running approval done, failed or unknown, and logs its call, once: whichever of the effect or the runner gets there first. */
+/** Marks a running approval done or failed (`unknown`: may or may not have happened), and logs its call, once: whichever of the effect or the runner gets there first. */
 async function settle(ctx: MutationCtx, row: Doc<"approvals">, turnId: Id<"agentTurns">, end: { result?: string; error?: string; unknown?: boolean }) {
-	const status = end.error === undefined ? "done" : end.unknown ? "unknown" : "failed";
+	const status = end.error === undefined ? "done" : "failed";
 	// Only the actor sees the result: once their account is erased, it's not kept.
 	const result = status === "done" && !(await erased(ctx, row.actorId)) ? end.result : undefined;
-	await ctx.db.patch(row._id, { status, ...(result !== undefined && { result }), ...(end.error !== undefined && { error: end.error }) });
+	await ctx.db.patch(row._id, { status, ...(result !== undefined && { result }), ...(end.error !== undefined && { error: end.error }), ...(end.error !== undefined && end.unknown && { outcome: "unknown" as const }) });
 	await logCall(ctx, { turnId, callId: `approval-${row._id}`, tool: row.tool, changes: true, input: clipJson(JSON.parse(row.input)), output: end.result, error: end.error, allowed: allowedOf(row) });
 }
 
 /**
- * An approved built-in call's effect and its receipt, in one transaction. `op` (the approval id, which the
- * runner passes to the store as the call's operation key) is settled in the same write as the effect,
- * so the card can never say it's running while it already happened, nor done while it didn't. A second
- * run with the same key writes nothing. Calls not run from an approval (`op` unset) just run.
+ * A tool call's operation key: the approval it runs from, or the model's call id. Every write a built-in makes
+ * for a call carries it, so the same call never writes twice (a retried step, a duplicate delivery).
  */
-export async function withReceipt<T>(ctx: MutationCtx, op: Id<"approvals"> | undefined, turnId: Id<"agentTurns">, run: () => Promise<T>): Promise<T> {
+export const opArg = v.union(v.object({ approval: v.id("approvals") }), v.object({ call: v.string() }));
+export type Op = Infer<typeof opArg>;
+const opKey = (op: Op) => ("call" in op ? op.call : `approval-${op.approval}`);
+const ALREADY_RAN = "This call already ran, or was stopped, so it didn't run again.";
+const EDITED = "What this changes was edited after it was approved, so it didn't run. Ask again if you still want it.";
+
+/**
+ * Claims `op` in the caller's transaction: refused if a write with this key already committed, or (approved
+ * calls) if the approval isn't running for this turn, or what it changes was edited since it was approved.
+ * Checked here, with the effect, not only at `claim`, so an edit in between can't slip through.
+ */
+async function claimOp(ctx: MutationCtx, op: Op, turnId: Id<"agentTurns">): Promise<{ row?: Doc<"approvals"> } | { error: string }> {
+	if (await ctx.db.query("toolReceipts").withIndex("by_turn", (q) => q.eq("turnId", turnId).eq("callId", opKey(op))).first()) return { error: ALREADY_RAN };
+	if ("call" in op) return {};
+	const [row, turn] = await Promise.all([ctx.db.get(op.approval), ctx.db.get(turnId)]);
+	if (row?.status !== "running" || turn?.approvalId !== op.approval) return { error: ALREADY_RAN };
+	if (row.bound !== undefined && (await boundRevisions(ctx, row.workspaceId, row.tool, JSON.parse(row.input))) !== row.bound) {
+		await settle(ctx, row, turnId, { error: EDITED });
+		return { error: EDITED };
+	}
+	return { row };
+}
+
+/**
+ * A built-in call's effect and its receipt, in one transaction. An approved call's approval is settled in the
+ * same write as the effect, so the card can never say it's running while it already happened, nor done while
+ * it didn't. A second run with the same key writes nothing and says so. Without `op`, it just runs.
+ */
+export async function withReceipt<T>(ctx: MutationCtx, op: Op | undefined, turnId: Id<"agentTurns">, run: () => Promise<T>): Promise<T> {
 	if (!op) return run();
-	const row = await ctx.db.get(op);
-	const turn = await ctx.db.get(turnId);
-	if (row?.status !== "running" || turn?.approvalId !== op) throw new ConvexError("This approved call already ran, or was stopped. Nothing ran again.");
+	const claimed = await claimOp(ctx, op, turnId);
+	if ("error" in claimed) return { error: claimed.error } as T;
 	const output = await run();
 	const end = callEnd(output);
-	await settle(ctx, row, turnId, "output" in end ? { result: clipJson(end.output) } : { error: end.error });
+	if (claimed.row) await settle(ctx, claimed.row, turnId, "output" in end ? { result: clipJson(end.output) } : { error: end.error });
+	// A refused write changed nothing (asToolResult), so the model may fix it and try again; an approval runs once either way.
+	if ("output" in end || claimed.row) await ctx.db.insert("toolReceipts", { turnId, callId: opKey(op) });
 	return output;
 }
+
+/**
+ * For a built-in whose effects span several transactions (making pictures: a provider call, files, attaching):
+ * claims its key before it spends or writes anything, so a rerun of the same call refuses instead of doing it
+ * twice. An approved one stays running until the runner's `finish`; cut off, it ends "may or may not have happened".
+ */
+export const startOp = internalMutation({
+	args: { turnId: v.id("agentTurns"), op: opArg },
+	handler: async (ctx, { turnId, op }): Promise<string | null> => {
+		const claimed = await claimOp(ctx, op, turnId);
+		if ("error" in claimed) return claimed.error;
+		await ctx.db.insert("toolReceipts", { turnId, callId: opKey(op) });
+		return null;
+	},
+});
 
 /**
  * Records how an approved call went, and logs it, unless its effect already did (`withReceipt`).

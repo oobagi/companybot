@@ -65,6 +65,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { type ActionCtx, internalAction } from "./_generated/server";
 import { action } from "./functions";
+import type { Op } from "./approvals";
 import { oauthRedirectUrl } from "./connectors";
 import { decrypt, encrypt } from "./crypto";
 import type { messagePart } from "./schema";
@@ -268,11 +269,11 @@ async function streamReply(
 		timeZone: turn.actor.timeZone,
 		agentId: agent.id,
 		...stores(ctx, turnId),
+		// Each call writes under its own call id, so the same call never writes twice (approvals.withReceipt).
+		forCall: (callId) => stores(ctx, turnId, { call: callId }),
 		results: createResultStore(),
 		// Links the person wrote (turns.ts `asked`) are the only ones web.fetch opens before searching.
 		web: createWebTurn(webClient(ctx, turnId), turn.asked),
-		// imageGen.ts checks the budget and edit files as this person, then attaches and records each picture.
-		images: { generate: (request) => ctx.runAction(internal.imageGen.generateFor, { turnId, ...request }) },
 	};
 	const tools = buildToolSet(
 		agent,
@@ -698,14 +699,15 @@ async function runApproval(
 	const { id: approvalId, tool, by } = approval;
 	if (approval.status === "denied") return { tool, by, decision: "denied" };
 	const t = usable.find((x) => x.id === tool);
-	// A connector's call lands outside: cut off or failed in transit, it may have happened anyway.
-	const outside = t?.source.type === "connector" && !t.readOnly;
+	// A connector's call lands outside, and an async built-in's effects take several steps: cut off or failed
+	// in transit, it may have happened anyway.
+	const outside = t?.source.type === "connector" ? !t.readOnly : !!t?.untransacted;
 	const call = await ctx.runMutation(internal.approvals.claim, { approvalId, turnId, outside });
 	if (!call) return { tool, by, decision: "approved", error: "It didn't run: it was already handled, no longer matches what was approved, or was blocked since." };
 	const callId = `approval-${approvalId}`;
 	setTool(callId, tool, "running", { input: call.input });
 	// The approval id is the call's operation key: built-in writes commit their receipt with their effect.
-	const opCtx: ToolContext = { ...toolCtx, ...stores(ctx, turnId, approvalId) };
+	const opCtx: ToolContext = { ...toolCtx, ...stores(ctx, turnId, { approval: approvalId }) };
 	let end: { output: unknown } | { error: string };
 	let unknown = false;
 	try {
@@ -728,7 +730,7 @@ async function runApproval(
  * The stores tools write through, as the turn's person. `op` is an approved call's operation key (its
  * approval id): each write commits its effect and the approval's receipt together (approvals.withReceipt).
  */
-function stores(ctx: ActionCtx, turnId: Id<"agentTurns">, op?: Id<"approvals">) {
+function stores(ctx: ActionCtx, turnId: Id<"agentTurns">, op?: Op) {
 	return {
 		memory: memoryStore(ctx, turnId, op),
 		chat: chatStore(ctx, turnId, op),
@@ -749,6 +751,8 @@ function stores(ctx: ActionCtx, turnId: Id<"agentTurns">, op?: Id<"approvals">) 
 		},
 		records: recordStore(ctx, turnId, op),
 		pages: pageStore(ctx, turnId, op),
+		// imageGen.ts checks the budget and edit files as this person, then attaches and records each picture.
+		images: { generate: (request) => ctx.runAction(internal.imageGen.generateFor, { turnId, op, ...request }) },
 	} satisfies Partial<ToolContext>;
 }
 
@@ -757,7 +761,7 @@ function stores(ctx: ActionCtx, turnId: Id<"agentTurns">, op?: Id<"approvals">) 
  * re-checks the turn, the person's role and the chat on every call, so permission changes
  * apply mid-reply, and refuses personal memories in chats with 2+ people.
  */
-function memoryStore(ctx: ActionCtx, turnId: Id<"agentTurns">, op?: Id<"approvals">): MemoryStore {
+function memoryStore(ctx: ActionCtx, turnId: Id<"agentTurns">, op?: Op): MemoryStore {
 	return {
 		search: (query, agentId) => ctx.runMutation(internal.memory.searchFor, { turnId, query, ...(agentId && { agentId: agentId as Id<"agents"> }) }),
 		create: ({ scope, content, agentId }) => ctx.runMutation(internal.memory.createFor, { turnId, op, scope, content, ...(agentId && { agentId: agentId as Id<"agents"> }) }),
@@ -780,7 +784,7 @@ async function loadImages(ctx: ActionCtx, images: Turn["images"]): Promise<TurnI
 }
 
 /** A manage tool call. Chat files it uses are copied first (files.copyFor), and dropped if the call fails. */
-async function runManage(ctx: ActionCtx, turnId: Id<"agentTurns">, tool: string, input: unknown, op?: Id<"approvals">) {
+async function runManage(ctx: ActionCtx, turnId: Id<"agentTurns">, tool: string, input: unknown, op?: Op) {
 	const files = manageFiles(tool, input);
 	if (!files) return ctx.runMutation(internal.manageTools.runFor, { turnId, op, tool, input });
 	const copied = await ctx.runAction(internal.files.copyFor, { turnId, ...files });
@@ -791,7 +795,7 @@ async function runManage(ctx: ActionCtx, turnId: Id<"agentTurns">, tool: string,
 }
 
 /** Chats as the turn's person sees them; chatTools.ts and files.ts re-check access on every call. */
-function chatStore(ctx: ActionCtx, turnId: Id<"agentTurns">, op?: Id<"approvals">): ChatStore {
+function chatStore(ctx: ActionCtx, turnId: Id<"agentTurns">, op?: Op): ChatStore {
 	return {
 		read: (input) => ctx.runMutation(internal.chatTools.readFor, { turnId, ...input }),
 		search: (input) => ctx.runMutation(internal.chatTools.searchFor, { turnId, ...input }),
@@ -807,7 +811,7 @@ function chatStore(ctx: ActionCtx, turnId: Id<"agentTurns">, op?: Id<"approvals"
 }
 
 /** Records as the turn's person may read and change them; recordTools.ts re-checks access on every call. */
-function recordStore(ctx: ActionCtx, turnId: Id<"agentTurns">, op?: Id<"approvals">): RecordStore {
+function recordStore(ctx: ActionCtx, turnId: Id<"agentTurns">, op?: Op): RecordStore {
 	return {
 		types: (input) => ctx.runMutation(internal.recordTools.typesFor, { turnId, ...input }),
 		history: (input) => ctx.runMutation(internal.recordTools.historyFor, { turnId, ...input }),
@@ -823,7 +827,7 @@ function recordStore(ctx: ActionCtx, turnId: Id<"agentTurns">, op?: Id<"approval
 }
 
 /** Convert Markdown in Node; pageTools rechecks the acting person's access. */
-function pageStore(ctx: ActionCtx, turnId: Id<"agentTurns">, op?: Id<"approvals">): PageStore {
+function pageStore(ctx: ActionCtx, turnId: Id<"agentTurns">, op?: Op): PageStore {
 	return {
 		find: (input) => ctx.runMutation(internal.pageTools.findFor, { turnId, input }),
 		async read(input) {

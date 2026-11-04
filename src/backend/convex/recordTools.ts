@@ -45,7 +45,7 @@ import {
 import { ANY_OF_MAX, CONDITIONS_MAX, type Condition } from "./recordQuery";
 import { PAGE_MAX, activityAs, historyAs, linkingRecords, listRecords, searchRecords, toEntries } from "./recordReads";
 import { notePlace } from "./replySources";
-import { withReceipt } from "./approvals";
+import { opArg, withReceipt } from "./approvals";
 import { runningTurn } from "./turns";
 
 // Records tools (core's RecordStore), acting as the turn's person: their role, read fresh
@@ -392,7 +392,7 @@ export const getFor = internalMutation({
 });
 
 export const saveFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), op: v.optional(v.id("approvals")), input: v.any() },
+	args: { turnId: v.id("agentTurns"), op: v.optional(opArg), input: v.any() },
 	handler: (ctx, { turnId, op, input }) => withReceipt(ctx, op, turnId, async () => {
 		const { member, who } = await runningTurn(ctx, turnId);
 		const { id, type: typeName, values = {}, trash } = input as RecordSaveInput;
@@ -423,7 +423,7 @@ export const saveFor = internalMutation({
 });
 
 export const undoFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), op: v.optional(v.id("approvals")), change: v.string() },
+	args: { turnId: v.id("agentTurns"), op: v.optional(opArg), change: v.string() },
 	handler: (ctx, { turnId, op, change }) => withReceipt(ctx, op, turnId, async () => {
 		const { member, who } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
@@ -437,7 +437,7 @@ export const undoFor = internalMutation({
 });
 
 export const saveFieldFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), op: v.optional(v.id("approvals")), input: v.any() },
+	args: { turnId: v.id("agentTurns"), op: v.optional(opArg), input: v.any() },
 	handler: (ctx, { turnId, op, input }) => withReceipt(ctx, op, turnId, async () => {
 		const { member, who } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
@@ -468,7 +468,7 @@ export const saveFieldFor = internalMutation({
 });
 
 export const saveDatabaseFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), op: v.optional(v.id("approvals")), input: v.any() },
+	args: { turnId: v.id("agentTurns"), op: v.optional(opArg), input: v.any() },
 	handler: (ctx, { turnId, op, input }) => withReceipt(ctx, op, turnId, async () => {
 		const { member, who } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
@@ -502,7 +502,7 @@ export const viewsFor = internalMutation({
 });
 
 export const saveViewFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), op: v.optional(v.id("approvals")), input: v.any() },
+	args: { turnId: v.id("agentTurns"), op: v.optional(opArg), input: v.any() },
 	handler: (ctx, { turnId, op, input }) => withReceipt(ctx, op, turnId, async () => {
 		const { member, who } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {

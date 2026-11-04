@@ -39,6 +39,11 @@ export interface ToolContext {
 	web: WebTurn;
 	/** Making pictures for the reply, within the workspace's image budget (image-tools.ts). */
 	images: ImageStore;
+	/**
+	 * The stores for one model call, keyed by its call id, so the runner can make each write once per call
+	 * (a retried step doesn't write twice). buildToolSet uses them for every call when given.
+	 */
+	forCall?(callId: string): Partial<ToolContext>;
 }
 
 /**
@@ -106,6 +111,11 @@ export interface ToolDef<Input = any> {
 	 * everyone in the chat may see, the call asks first, showing exactly what goes out (backend permissions.check).
 	 */
 	sendsOut?: boolean;
+	/**
+	 * Its effects take several steps outside one transaction (a provider call, then files): cut off after it was
+	 * approved, it may or may not have happened, so the card says so rather than "nothing changed".
+	 */
+	untransacted?: boolean;
 	/** Returns data worth showing. Results get a ref widgets can point at; see ResultStore. */
 	returnsData?: boolean;
 	source: ToolSource;

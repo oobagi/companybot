@@ -17,10 +17,11 @@ import type { Actor } from "./types";
 export const APPROVAL_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
- * `unknown`: an outside call (a connector's) that was cut off or failed in transit, so it may or may not
- * have happened. Built-in calls never end there: their effect commits with their receipt, or not at all.
+ * A call that may or may not have happened (an outside call cut off or failed in transit) is `failed` with
+ * `outcome: "unknown"` beside it, so apps released before it still show its error. Built-in calls that commit
+ * in one transaction never end there: their effect commits with their receipt, or not at all.
  */
-export type ApprovalStatus = "pending" | "approved" | "running" | "done" | "failed" | "unknown" | "denied" | "expired";
+export type ApprovalStatus = "pending" | "approved" | "running" | "done" | "failed" | "denied" | "expired";
 
 /** JSON with object keys sorted at every level, so equal values always give equal text. */
 export function canonicalJson(value: unknown): string {

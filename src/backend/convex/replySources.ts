@@ -76,19 +76,15 @@ export async function writeSources(ctx: MutationCtx, member: Member, audience?: 
 }
 
 /**
- * Whether what this turn has read so far is more private than its own chat: someone who can see the chat
- * couldn't see one of its sources (the same rule as `writeSources` with the chat as the audience). Then what
- * it sends outside the workspace (a web search's query, a link it opens) asks first (permissions.check).
+ * Whether anything this turn has read is restricted: then what it sends outside the workspace (a web search's
+ * query, a link it opens, a connector call) asks first (permissions.check). Outside has a wider audience than
+ * any chat, so the chat it runs in counts too (a private channel, a group DM). The one exception is #210's
+ * own-data rule: in the asker's own 1:1 agent DM, their one-person data (that DM, personal memory, skills and
+ * connector data) doesn't count; anyone else's restricted place still does.
  */
-export async function turnIsRestricted(ctx: QueryCtx, member: Member, chatId: Id<"chats">) {
+export async function turnIsRestricted(ctx: QueryCtx, member: Member) {
 	if (!member.replyId) return false;
-	try {
-		await fitSources(ctx, member, chatId);
-		return false;
-	} catch (e) {
-		if (e instanceof ConvexError) return true;
-		throw e;
-	}
+	return (await fitSources(ctx, member, { filtered: true })).usedPlaces.length > 0;
 }
 
 /** `writeSources` without saving anything: the sources a write keeps, or a refusal if they don't fit `audience`. */

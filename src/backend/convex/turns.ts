@@ -147,7 +147,7 @@ async function settleApproval(ctx: MutationCtx, turn: Doc<"agentTurns">) {
 		await ctx.db.patch(
 			approval._id,
 			approval.outside
-				? { status: "unknown", error: "The reply stopped while it was running, so it may or may not have happened. Check before trying again." }
+				? { status: "failed", outcome: "unknown", error: "The reply stopped while it was running, so it may or may not have happened. Check before trying again." }
 				: { status: "failed", error: "The reply stopped before it finished, so nothing changed. Ask again if you still want it." },
 		);
 }

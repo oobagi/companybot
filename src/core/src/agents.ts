@@ -157,13 +157,19 @@ export function buildToolSet(
 	services: ConnectorService[] = [],
 ): ToolSet {
 	const tools: ToolSet = {};
-	const run = (t: ToolDef, input: unknown) => (t.returnsData ? withRef(t.execute(input, ctx), ctx) : t.execute(input, ctx));
+	// Every call runs with its own call id: built-ins write under it once (`forCall`), and a connector that takes an
+	// idempotency key gets it, so a retry can't do the same thing twice at the service either.
+	const run = async (t: ToolDef, input: unknown, callId: string) => {
+		const c = ctx.forCall ? { ...ctx, ...ctx.forCall(callId) } : ctx;
+		const keyed = await withIdempotencyKey(t, input, callId);
+		return t.returnsData ? withRef(t.execute(keyed, c), c) : t.execute(keyed, c);
+	};
 	const resolved = resolveTools(agent, available);
 	for (const t of resolved.filter((t) => t.source.type === "builtin")) {
 		tools[modelToolName(t.id)] = tool({
 			description: t.description,
 			inputSchema: t.input,
-			execute: (input) => run(t, input),
+			execute: (input, { toolCallId }) => run(t, input, toolCallId),
 			...(t.toModelOutput && { toModelOutput: t.toModelOutput }),
 		});
 	}

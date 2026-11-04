@@ -32,6 +32,7 @@ afterEach(() => {
 });
 
 type T = Awaited<ReturnType<typeof ownerAndMember>>["t"];
+type Person = Awaited<ReturnType<typeof signIn>>;
 
 /** `as` asks Companybot in #general and its reply holds `input` for pages.write. Returns the card. */
 async function holdPageWrite(t: T, as: As, input: object, risk: "inside" | "locked") {
@@ -41,7 +42,7 @@ async function holdPageWrite(t: T, as: As, input: object, risk: "inside" | "lock
 	const { approvalId } = await t.mutation(internal.approvals.request, { turnId, callId: "c1", tool: "pages.write", input: canonicalJson(input), risk });
 	await t.mutation(internal.turns.updateReply, { turnId, text: "", parts: [{ type: "approval", id: "c1", approvalId, tool: "pages.write" }] });
 	await t.mutation(internal.turns.finishReply, { turnId });
-	const replyId = (await t.run((ctx) => ctx.db.get(turnId)))!.replyId!;
+	const replyId = (await t.run((ctx) => ctx.db.get("agentTurns", turnId)))!.replyId!;
 	const [card] = await as.query(api.approvals.forReply, { replyId });
 	return { turnId, approvalId, card: card! };
 }
@@ -50,7 +51,7 @@ const approvalOf = (t: T, id: Id<"approvals">) => t.run((ctx) => ctx.db.get(id))
 const pageOf = (t: T, id: Id<"pages">) => t.run((ctx) => ctx.db.get(id));
 
 /** Types `text` into the page as `as`'s editor does. */
-async function type(t: T, as: As, pageId: Id<"pages">, text: string) {
+async function type(t: T, as: Person, pageId: Id<"pages">, text: string) {
 	const editor = identityOf(t, as.userId);
 	const { doc, version } = await t.run(async (ctx) => {
 		const latest = await sync.getDoc(ctx, pageId, pageSchema());
@@ -166,7 +167,7 @@ describe("web calls after a restricted read", () => {
 		const { approvalId } = await s.t.mutation(internal.approvals.request, { turnId, callId: "w1", tool: "web.search", input: canonicalJson(input), risk: "locked" });
 		await s.t.mutation(internal.turns.updateReply, { turnId, text: "", parts: [{ type: "approval", id: "w1", approvalId, tool: "web.search" }] });
 		await s.t.mutation(internal.turns.finishReply, { turnId });
-		const replyId = (await s.t.run((ctx) => ctx.db.get(turnId)))!.replyId!;
+		const replyId = (await s.t.run((ctx) => ctx.db.get("agentTurns", turnId)))!.replyId!;
 		const [card] = await s.dana.query(api.approvals.forReply, { replyId });
 		expect(card).toMatchObject({ input: canonicalJson(input), hash: await approvalHash("web.search", input) });
 		await expect(approve(s.dana, approvalId, await approvalHash("web.search", { query: "something else" }))).rejects.toThrow("isn't the one you were shown");

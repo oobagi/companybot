@@ -23,7 +23,7 @@ import { claimUpload } from "./images";
 import { pageHistory, requireVersion, versionContent } from "./pages";
 import { inTrash, recordById } from "./recordOps";
 import { writeSources } from "./replySources";
-import { withReceipt } from "./approvals";
+import { opArg, withReceipt } from "./approvals";
 import { runningTurn } from "./turns";
 
 // PageStore as the turn's person; conversion runs separately in pageMarkdown.ts.
@@ -185,7 +185,7 @@ export const copyPictures = internalAction({
 const writeArgs = {
 	turnId: v.id("agentTurns"),
 	/** An approved call's operation key (approvals.withReceipt). */
-	op: v.optional(v.id("approvals")),
+	op: v.optional(opArg),
 	input: v.any(),
 	blocks: v.optional(v.string()),
 	pictures: v.optional(v.array(v.object({ storageId: v.id("_storage"), url: v.string() }))),

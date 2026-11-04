@@ -299,6 +299,7 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		channel: { index: "by_chat", eq: ["chatId"] },
 		agent: { index: "by_place", eq: ["agentId"] },
 	},
+	toolReceipts: { childOf: { table: "agentTurns", index: "by_turn", field: "turnId" } },
 	turnSteps: {
 		childOf: { table: "agentTurns", index: "by_turn", field: "turnId" },
 		// Results show only to the person it acted for: erasing them takes their turns' steps.

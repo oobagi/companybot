@@ -25,7 +25,7 @@ import { reach } from "./placeAccess";
 import { recordById } from "./recordOps";
 import { canReadSources } from "./replyPrivacy";
 import { inheritPlaces, notePlace, writeSources } from "./replySources";
-import { withReceipt } from "./approvals";
+import { opArg, withReceipt } from "./approvals";
 import { enqueueTurn, runningTurn } from "./turns";
 
 // Wakeups: an agent wakes later in a place (chat + thread), acting for a person. A wakeup is when
@@ -322,7 +322,7 @@ export const forgetSettled = internalMutation({
 // ---- Agent tools (core's WakeupStore), acting as the turn's person ----
 
 export const createFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), op: v.optional(v.id("approvals")), input: v.any() },
+	args: { turnId: v.id("agentTurns"), op: v.optional(opArg), input: v.any() },
 	handler: (ctx, { turnId, op, input }) => withReceipt(ctx, op, turnId, async () => {
 		const { turn, member } = await runningTurn(ctx, turnId);
 		const { note, at, in: after, every: often, times, recordId } = input as FollowupInput;
@@ -399,7 +399,7 @@ export const listFor = internalMutation({
 });
 
 export const cancelFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), op: v.optional(v.id("approvals")), id: v.string() },
+	args: { turnId: v.id("agentTurns"), op: v.optional(opArg), id: v.string() },
 	handler: (ctx, { turnId, op, id }) => withReceipt(ctx, op, turnId, async () => {
 		const { member } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {

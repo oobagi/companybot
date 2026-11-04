@@ -20,7 +20,7 @@ import { automationScope } from "./automationOps";
 import { addToChat, addUserMentions, chatMembersOf, insertMessage, requireChat } from "./chatOps";
 import { asToolResult, nameOf, requireMember } from "./lib";
 import { writeSources } from "./replySources";
-import { withReceipt } from "./approvals";
+import { opArg, withReceipt } from "./approvals";
 import { enqueueTurn, runningTurn } from "./turns";
 import { createWakeup, wake } from "./wakeups";
 
@@ -249,7 +249,7 @@ export const decide = mutation({
  * (`answerAsk`), whose wake turn finishes the original reply where it was.
  */
 export const askFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), op: v.optional(v.id("approvals")), agent: v.string(), message: v.string() },
+	args: { turnId: v.id("agentTurns"), op: v.optional(opArg), agent: v.string(), message: v.string() },
 	handler: (ctx, { turnId, op, agent: name, message }) => withReceipt(ctx, op, turnId, async () => {
 		const { turn, chat, member } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {

@@ -5,7 +5,7 @@ import { type QueryCtx, internalMutation } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { type Member, getMember, namesOf, requireAgent, requireMember, toActor } from "./lib";
 import { createMemory, listMemories, memoryVersions, removeMemory, restoreMemoryVersion, searchMemories, updateMemory } from "./memoryOps";
-import { withReceipt } from "./approvals";
+import { opArg, withReceipt } from "./approvals";
 import { memoryOn, personalMemoryHere, runningTurn } from "./turns";
 
 const scope = v.union(v.literal("workspace"), v.literal("personal"));
@@ -96,7 +96,7 @@ export const searchFor = internalMutation({
 });
 
 export const createFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), op: v.optional(v.id("approvals")), scope, content: v.string(), agentId: v.optional(v.id("agents")) },
+	args: { turnId: v.id("agentTurns"), op: v.optional(opArg), scope, content: v.string(), agentId: v.optional(v.id("agents")) },
 	handler: (ctx, { turnId, op, scope, content, agentId: target }) => withReceipt(ctx, op, turnId, async () => {
 		// Personal saves work in shared chats too: they go only to the person who asked, and what's
 		// saved was already said here, so nothing private leaks. Reading stays DM-only.
@@ -106,7 +106,7 @@ export const createFor = internalMutation({
 });
 
 export const updateFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), op: v.optional(v.id("approvals")), id: v.id("memories"), content: v.string() },
+	args: { turnId: v.id("agentTurns"), op: v.optional(opArg), id: v.id("memories"), content: v.string() },
 	handler: (ctx, { turnId, op, id, content }) => withReceipt(ctx, op, turnId, async () => {
 		const { who, personal } = await acting(ctx, turnId);
 		await requireChatMemory(ctx, id, who.member, personal);
@@ -115,7 +115,7 @@ export const updateFor = internalMutation({
 });
 
 export const removeFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), op: v.optional(v.id("approvals")), id: v.id("memories") },
+	args: { turnId: v.id("agentTurns"), op: v.optional(opArg), id: v.id("memories") },
 	handler: (ctx, { turnId, op, id }) => withReceipt(ctx, op, turnId, async () => {
 		const { who, personal } = await acting(ctx, turnId);
 		await requireChatMemory(ctx, id, who.member, personal);

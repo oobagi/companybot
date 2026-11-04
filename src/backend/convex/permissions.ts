@@ -107,17 +107,20 @@ export const check = internalMutation({
 	args: { turnId: v.id("agentTurns"), action: v.string(), risk, sendsOut: v.optional(v.boolean()) },
 	handler: async (ctx, { turnId, action, risk: given, sendsOut }): Promise<{ decision: PermissionDecision; allowed?: AllowedVia; risk: Risk }> => {
 		const { turn, member } = await runningTurn(ctx, turnId);
-		// After reading something not everyone in this chat may see, nothing goes outside unseen: the exact
-		// query or link waits on a card, every time (locked: no Always), even in the person's own chat.
-		const risk: Risk = sendsOut && (await turnIsRestricted(ctx, member, turn.chatId)) ? "locked" : given;
+		// After reading anything restricted, nothing goes outside unseen: the exact query, link or payload waits on
+		// a card, every time (locked: no Always). Only the person's own data in their own agent DM is exempt.
+		const gated = !!sendsOut && (await turnIsRestricted(ctx, member));
+		const risk: Risk = gated ? "locked" : given;
 		const needs = builtinTools.find((t) => t.id === action)?.permission;
 		if (needs && !canUseTool(member, { permission: needs })) return { decision: { type: "deny", by: "role", message: deniedMessage(needs, member.workspaceRoles) }, risk };
 		const { trigger, automation, foreign } = await automationScope(ctx, turn);
 		if (trigger?.automation && !automation) throw new ConvexError("This automation was removed. Nothing ran.");
 		const decided = await decideFor(ctx, member, { action, risk, automationInstallId: automation?._id, foreign });
 		const { rule } = decided;
+		// The gate is mandatory: an Unlocked lock, an Always rule or an automation grant doesn't lift it. Blocks and Never still win.
+		const held: PermissionDecision = gated && decided.decision.type === "run" ? { type: "ask", canAlways: false } : decided.decision;
 		// An automation's run, or a wake's, never stops as a whole: only this call waits for the person.
-		const decision = decided.decision.type === "ask" && (automation || turn.wakeupId) ? { ...decided.decision, waitFor: await nameOf(ctx, member.userId) } : decided.decision;
+		const decision = held.type === "ask" && (automation || turn.wakeupId) ? { ...held, waitFor: await nameOf(ctx, member.userId) } : held;
 		const allowed: AllowedVia | undefined =
 			rule && decision.type === "run" && decision.via
 				? {

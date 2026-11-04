@@ -19,6 +19,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { type QueryCtx, internalAction, internalMutation } from "./_generated/server";
+import { opArg } from "./approvals";
 import { visibleFile } from "./files";
 import { workspaceImageModel } from "./modelCatalog";
 import { addTurnCost, runningTurn } from "./turns";
@@ -128,9 +129,13 @@ export const generateFor = internalAction({
 		prompt: v.string(),
 		aspectRatio: v.optional(v.union(...aspectRatios.map((r) => v.literal(r)))),
 		editFiles: v.optional(v.array(v.string())),
+		op: v.optional(opArg),
 	},
-	handler: async (ctx, { turnId, prompt, aspectRatio, editFiles = [] }): ReturnType<ImageStore["generate"]> => {
+	handler: async (ctx, { turnId, prompt, aspectRatio, editFiles = [], op }): ReturnType<ImageStore["generate"]> => {
 		if (editFiles.length > EDIT_FILES_MAX) return { error: `Edit up to ${EDIT_FILES_MAX} pictures at once.` };
+		// Claimed before anything is spent or attached: the same call never makes and attaches pictures twice.
+		const ran = op && (await ctx.runMutation(internal.approvals.startOp, { turnId, op }));
+		if (ran) return { error: ran };
 		const ready = await ctx.runMutation(internal.imageGen.prepareFor, { turnId, editFiles });
 		if ("error" in ready) return { error: ready.error };
 		const { model, files, holdId } = ready;
