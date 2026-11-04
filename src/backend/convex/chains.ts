@@ -274,7 +274,7 @@ export const askFor = internalMutation({
 
 			const ask = `@${to.name} ${text}`;
 			const askId = await ctx.db.insert("chatMessages", {
-				usedPlaces: await writeSources(ctx, member, { filtered: true }),
+				usedPlaces: await writeSources(ctx, member, { filtered: true, preserveOwn: true }),
 				repliedTo: turn.actorId,
 				chatId: chat._id,
 				workspaceId: chat.workspaceId,

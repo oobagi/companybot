@@ -7,13 +7,12 @@ import { agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, sideWorkspa
 
 afterEach(() => vi.useRealTimers());
 
-async function ready({ privateContext = false } = {}) {
+async function ready() {
 	vi.useFakeTimers();
 	const { t, owner, member } = await ownerAndMember();
 	const { companybot, scribe } = await agentsOf(owner);
-	// Workspace writes start in public chats; privacy-specific cases opt into a DM.
-	const dm = privateContext ? await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] }) : await owner.mutation(api.chats.createChannel, { name: "owner-work", private: false });
-	const mdm = privateContext ? await member.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] }) : await member.mutation(api.chats.createChannel, { name: "member-work", private: false });
+	const dm = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
+	const mdm = await member.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
 	const turnId = await agentTurn(t, owner, dm, companybot._id);
 	const memberTurn = await agentTurn(t, member, mdm, companybot._id);
 	const call = (tool: ManageTool, request: unknown, asMember = false): Promise<any> =>
@@ -87,7 +86,7 @@ it("pages full record history and workspace Activity, with undo and cross-worksp
 });
 
 it("Activity keeps invisible chats and other people's private outputs out", async () => {
-	const { t, owner, turnId, memberTurn, companybot } = await ready({ privateContext: true });
+	const { t, owner, turnId, memberTurn, companybot } = await ready();
 	await t.mutation(internal.turns.turnContext, { turnId });
 	await t.mutation(internal.activity.log, { turnId, callId: "private", tool: "records.get", changes: false, input: "{}", output: "PRIVATE" });
 	expect((await t.mutation(internal.recordTools.historyFor, { turnId: memberTurn, source: "agents" }) as any).page).toEqual([]);
@@ -225,19 +224,15 @@ it("sample-runs automations with the same edit and dispatch rules", async () => 
 });
 
 it("targets another agent's memories while preserving personal privacy, team rights and the off switch", async () => {
-	const { t, owner, member, scribe, companybot, turnId, memberTurn } = await ready({ privateContext: true });
+	const { t, owner, member, scribe, companybot, turnId, memberTurn } = await ready();
 	const mine = await t.mutation(internal.memory.createFor, { turnId, agentId: scribe._id, scope: "personal", content: "Private preference" });
 	expect((await t.mutation(internal.memory.searchFor, { turnId, agentId: scribe._id, query: "" })).map((m) => m.id)).toEqual([mine.id]);
 	await t.mutation(internal.memory.updateFor, { turnId, id: mine.id as Id<"memories">, content: "Corrected" });
 	await expect(t.mutation(internal.memory.removeFor, { turnId: memberTurn, id: mine.id as Id<"memories"> })).rejects.toThrow("not found");
-	const ownerChannel = await owner.mutation(api.chats.createChannel, { name: "shared-memory-owner", private: false });
-	const memberChannel = await member.mutation(api.chats.createChannel, { name: "shared-memory-member", private: false });
-	const teamTurn = await agentTurn(t, owner, ownerChannel, companybot._id);
-	const memberTeamTurn = await agentTurn(t, member, memberChannel, companybot._id);
-	const team = await t.mutation(internal.memory.createFor, { turnId: teamTurn, agentId: scribe._id, scope: "workspace", content: "Shared" });
+	const team = await t.mutation(internal.memory.createFor, { turnId, agentId: scribe._id, scope: "workspace", content: "Shared" });
 	// Team memories are wiki-style: a member's agent can fix and add them too.
-	await t.mutation(internal.memory.updateFor, { turnId: memberTeamTurn, id: team.id as Id<"memories">, content: "Fixed" });
-	await t.mutation(internal.memory.createFor, { turnId: memberTeamTurn, agentId: scribe._id, scope: "workspace", content: "Also shared" });
+	await t.mutation(internal.memory.updateFor, { turnId: memberTurn, id: team.id as Id<"memories">, content: "Fixed" });
+	await t.mutation(internal.memory.createFor, { turnId: memberTurn, agentId: scribe._id, scope: "workspace", content: "Also shared" });
 	await t.mutation(internal.memory.removeFor, { turnId, id: mine.id as Id<"memories"> });
 	const generalTurn = await agentTurn(t, member, (await generalOf(member))._id, scribe._id);
 	const saved = await t.mutation(internal.memory.createFor, { turnId: generalTurn, agentId: scribe._id, scope: "personal", content: "Prefers tea" });

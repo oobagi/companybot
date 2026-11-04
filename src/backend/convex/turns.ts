@@ -29,7 +29,7 @@ import { previewMessage } from "./linkPreviews";
 import { catalogModels } from "./modelCatalog";
 import { chatAccess } from "./placeAccess";
 import { recordOut } from "./recordTools";
-import { canReadReply, readReply, canReadSources } from "./replyPrivacy";
+import { canReadReplyDetails, canReadReply, readReply, canReadSources } from "./replyPrivacy";
 import { inheritPlaces, notePlace, turnSources, writeSources } from "./replySources";
 import { messagePart, replyStats, replyUsage } from "./schema";
 import { recordUsage } from "./usage";
@@ -240,13 +240,17 @@ async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">, member
 		bytes += reply ? getDocumentSize(reply) : 0;
 		if (hiddenSummary && bytes > 4 * 1024 * 1024) break;
 		if (member && reply && !(await canReadReply(ctx, member, reply))) continue;
-		const text = reply ? replyForModel(reply) : "";
+		const details = !member || await canReadReplyDetails(ctx, member, reply);
+		const text = reply ? replyForModel(reply, details) : "";
 		const prompt = turn.promptPlaces !== undefined && (!member || await canReadSources(ctx, member, turn.promptPlaces)) ? turn.prompt : "";
 		const size = approxTokens(prompt + text);
 		if (hiddenSummary && tokens + size > KEEP_TOKENS) break;
-		if (member && reply) await readReply(ctx, member, reply);
+		if (member && reply) {
+			if (details) await readReplyDetails(ctx, member, reply);
+			else await readReply(ctx, member, reply);
+		}
 		if (member && prompt) await inheritPlaces(ctx, member, turn.promptPlaces);
-		replay.push({ prompt, reply: text, time: turn._creationTime, usedPlaces: [...new Set([...(prompt ? turn.promptPlaces ?? [] : []), ...(reply?.sharedBy ? [] : reply?.usedPlaces ?? [])])] });
+		replay.push({ prompt, reply: text, time: turn._creationTime, usedPlaces: [...new Set([...(prompt ? turn.promptPlaces ?? [] : []), ...(details ? reply?.usedPlaces ?? [] : [])])] });
 		tokens += size;
 	}
 	return hiddenSummary ? replay.reverse() : replay;
@@ -525,7 +529,7 @@ export const updateReply = internalMutation({
 		// Nothing more goes out as a person who can no longer post there; finishReply ends it.
 		if (lost || !replyId || (await ctx.db.get(replyId))?.status !== "streaming") return heard;
 		const { member } = await runningTurn(ctx, turnId);
-		await inheritPlaces(ctx, member, await writeSources(ctx, member, { filtered: true }));
+		await inheritPlaces(ctx, member, await writeSources(ctx, member, { filtered: true, preserveOwn: true }));
 		const stream = await streamOf(ctx, replyId);
 		if (stream) await ctx.db.patch(stream._id, { text, parts });
 		else await ctx.db.insert("replyStreams", { messageId: replyId, text, parts });

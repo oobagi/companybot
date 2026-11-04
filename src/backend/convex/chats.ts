@@ -357,7 +357,7 @@ export const setAccess = mutation({
 		// Everyone at Post is the default: store nothing, as for a channel nobody restricted.
 		const open = list.length === 1 && list[0]!.role === "everyone" && list[0]!.level === "edit";
 		const users = chat.private ? (await chatMembersOf(ctx, chat._id)).flatMap((m) => m.userId ? [m.userId] : []) : undefined;
-		await writeSources(ctx, member, { access: list, users }, chat);
+		await writeSources(ctx, member, { place: chat._id, access: list, users }, chat);
 		await ctx.db.patch(chat._id, { access: open ? undefined : list });
 	},
 });
@@ -408,7 +408,7 @@ export async function addChannelMembers(ctx: MutationCtx, member: Member, { chat
 	await requireActiveAgents(ctx, member.workspaceId, agentIds);
 	if (chat.private) {
 		const users = [...new Set([...(await chatMembersOf(ctx, chatId)).flatMap((m) => m.userId ? [m.userId] : []), ...userIds])];
-		await writeSources(ctx, member, { users, access: chatAccess(chat) }, chat);
+		await writeSources(ctx, member, { place: chatId, users, access: chatAccess(chat) }, chat);
 	}
 	for (const userId of userIds) await addToChat(ctx, chat, { userId });
 	for (const agentId of agentIds) await addToChat(ctx, chat, { agentId });

@@ -7,7 +7,7 @@ import { query } from "./functions";
 import { type Namer, canSee, chatLabel, namer } from "./chatOps";
 import { titleOf } from "./connectorTools";
 import { type Member, capped, erased, getMember, liveWorkspace } from "./lib";
-import { canReadReply, canReadSources, readReply } from "./replyPrivacy";
+import { canReadReplyDetails, canReadSources, readReplyDetails } from "./replyPrivacy";
 import { inheritPlaces } from "./replySources";
 import { allowedHow } from "./schema";
 
@@ -88,7 +88,7 @@ export const forReply = query({
 		const member = await getMember(ctx);
 		const reply = await ctx.db.get(replyId);
 		const chat = reply && (await ctx.db.get(reply.chatId));
-		if (!member || !chat || chat.archived || !(await canSee(ctx, chat, member)) || !(await canReadReply(ctx, member, reply!))) return [];
+		if (!member || !chat || chat.archived || !(await canSee(ctx, chat, member)) || !(await canReadReplyDetails(ctx, member, reply!))) return [];
 		const names = namer(ctx);
 		const rows = await ctx.db
 			.query("agentActivity")
@@ -155,7 +155,7 @@ export async function activityPage(ctx: QueryCtx, member: Member, opts: Paginati
 	for (const row of result.page) {
 		const chat = await visibleLabel(ctx, row.chatId, member, names);
 		if (chat && await visibleReply(ctx, row, member)) {
-			if (row.replyId) await readReply(ctx, member, await ctx.db.get(row.replyId));
+			if (row.replyId) await readReplyDetails(ctx, member, await ctx.db.get(row.replyId));
 			else if (row.wake) await inheritPlaces(ctx, member, (await ctx.db.get(row.wake.wakeupId))?.usedPlaces);
 			page.push({ ...(await toEntry(ctx, row, member, names)), chat });
 		}
@@ -165,7 +165,7 @@ export async function activityPage(ctx: QueryCtx, member: Member, opts: Paginati
 
 async function visibleReply(ctx: QueryCtx, row: Doc<"agentActivity">, member: Member) {
 	const reply = row.replyId && await ctx.db.get(row.replyId);
-	if (row.replyId) return !!reply && await canReadReply(ctx, member, reply);
+	if (row.replyId) return !!reply && await canReadReplyDetails(ctx, member, reply);
 	if (row.wake) {
 		const wakeup = await ctx.db.get(row.wake.wakeupId);
 		if (!wakeup) return row.actorId === member.userId;

@@ -351,7 +351,7 @@ export const createFor = internalMutation({
 				actorId: member.userId,
 				createdBy: member.userId,
 				note: note.trim(),
-				usedPlaces: await writeSources(ctx, member, { filtered: true }),
+				usedPlaces: await writeSources(ctx, member, { filtered: true, preserveOwn: true }),
 				...(record && { recordId: record._id, typeId: record.typeId }),
 				foreign,
 				at: time,

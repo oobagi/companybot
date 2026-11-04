@@ -90,7 +90,7 @@ export const attachToReply = internalMutation({
 		const attachments = reply?.attachments ?? [];
 		if (!reply || reply.deleted || attachments.length >= FILES_PER_MESSAGE) return refuse(`A reply holds up to ${FILES_PER_MESSAGE} files.`);
 		const size = width && height ? { width, height } : {};
-		await ctx.db.patch(reply._id, { usedPlaces: await writeSources(ctx, running.member, { filtered: true }, reply), attachments: [...attachments, { storageId, name: cleanFileName(name), type, size: file.size, ...size }] });
+		await ctx.db.patch(reply._id, { usedPlaces: await writeSources(ctx, running.member, { filtered: true, preserveOwn: true }, reply), attachments: [...attachments, { storageId, name: cleanFileName(name), type, size: file.size, ...size }] });
 		return { attached: true, id: fileId(reply._id, attachments.length) };
 	},
 });

@@ -173,8 +173,8 @@ export const share = mutation({
 		const install = await editableSkill(ctx, member, skillId);
 		if (install.audience !== "personal" || install.ownerId !== member.userId) throw new ConvexError("Personal skill not found.");
 		checkPermission(member, "skills.edit");
-		await writeSources(ctx, member, undefined, install);
-		await ctx.db.patch(install._id, { audience: "team", ownerId: undefined });
+		const usedPlaces = await writeSources(ctx, member, undefined, install);
+		await ctx.db.patch(install._id, { audience: "team", ownerId: undefined, usedPlaces });
 	},
 });
 

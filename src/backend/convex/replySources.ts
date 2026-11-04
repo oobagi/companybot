@@ -2,9 +2,9 @@ import { EVERYONE, whoCan } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { type Member, memberOf } from "./lib";
+import { type Member, accessOf, rolesOf } from "./lib";
 import { chatAccess, reach, type AccessList } from "./placeAccess";
-import { canReadSources, source } from "./replyPrivacy";
+import { canReadSources, opensSource, writeSourceReader } from "./replyPrivacy";
 
 type Place = Id<"recordTypes"> | Id<"pages"> | Id<"chats">;
 export type UsedPlace = Place | Id<"users">;
@@ -49,7 +49,7 @@ export function chatSources(chat: Doc<"chats">): UsedPlace[] {
 }
 
 export type Sourced = { usedPlaces?: UsedPlace[] };
-export type Audience = Place | { access?: AccessList; users?: Id<"users">[] } | { places: UsedPlace[] } | { filtered: true };
+export type Audience = Place | { place?: Place; access?: AccessList; users?: Id<"users">[] } | { places: UsedPlace[] } | { filtered: true; preserveOwn?: true };
 
 /** The same provenance applies when an artifact is read by a turn or copied into a scheduled trigger. */
 export const artifactSources = (artifact: Sourced, personalTo?: Id<"users"> | null): UsedPlace[] => [...new Set([...(artifact.usedPlaces ?? []), ...(personalTo ? [personalTo] : [])])];
@@ -63,30 +63,42 @@ export async function readArtifact(ctx: QueryCtx, member: Member, artifact: Sour
 }
 
 /**
- * The single write rule: the destination's audience must be able to open every source.
- * Private artifacts retain that provenance so a later turn or audience change cannot wash it away.
- * Chat messages use their recorded sources to narrow the audience at read time instead.
+ * Writes can publish the asker's own one-person data. Every other source must fit the
+ * destination audience. The original reply keeps all sources for display and context privacy.
  */
 export async function writeSources(ctx: MutationCtx, member: Member, audience?: Audience, artifact: Sourced = {}): Promise<UsedPlace[]> {
-	const place = typeof audience === "string" ? await ctx.db.get(audience) : null;
-	const usedPlaces = [...new Set([...(artifact.usedPlaces ?? []), ...(place?.usedPlaces ?? []), ...await turnSources(ctx, member)])];
+	const placeId = typeof audience === "string" ? audience : audience && "place" in audience ? audience.place : undefined;
+	const place = placeId ? await ctx.db.get(placeId) : null;
+	const all = [...new Set([...(artifact.usedPlaces ?? []), ...(place?.usedPlaces ?? []), ...await turnSources(ctx, member)])];
+	if (audience && typeof audience === "object" && "filtered" in audience && audience.preserveOwn) return all;
+	const readSource = writeSourceReader(ctx, member);
+	const sources = await Promise.all(all.map(async (id) => ({ id, policy: await readSource(id) })));
+	const retained = sources.filter(({ policy }) => !policy.visible || policy.exclusiveTo !== member.userId);
+	const usedPlaces = retained.map(({ id }) => id);
 	if (audience && typeof audience === "object" && "filtered" in audience) return usedPlaces;
-	const policies = typeof audience === "string" ? [await source(ctx, member, audience, true)] : audience && "places" in audience ? await Promise.all(audience.places.map((id) => source(ctx, member, id, true))) : [audience];
+	const policies = typeof audience === "string" ? [await readSource(audience)] : audience && "places" in audience ? await Promise.all(audience.places.map(readSource)) : [audience];
 	const memberships = policies.flatMap((p) => p?.users ? [p.users] : []);
 	const users = memberships[0]?.filter((id) => memberships.every((list) => list.includes(id)));
-	for (const id of usedPlaces) {
-		if (id === audience) continue;
-		const from = await source(ctx, member, id);
-		let allowed = true;
-		if (audience && typeof audience === "object" && "places" in audience && audience.places.includes(id)) continue;
-		else if (users) {
-			for (const userId of users) {
-				const viewer = await memberOf(ctx, userId, member.workspaceId);
-				if (!viewer || !(await canReadSources(ctx, viewer, [id]))) { allowed = false; break; }
+	// Load memberships and roles once per write, not once per source and destination member.
+	const viewers: Member[] = [];
+	if (users && retained.length) {
+		const roles = await rolesOf(ctx, member.workspaceId);
+		for (const userId of new Set(users)) {
+			const row = await ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId).eq("workspaceId", member.workspaceId)).first();
+			if (row) {
+				const viewer = { ...member, ...accessOf(roles, row), userId, id: row._id };
+				if (policies.every((p) => !p || opensSource(viewer, p))) viewers.push(viewer);
 			}
-		} else {
-			// The largest set of roles that cannot read this source is a counterexample if it
-			// can read the destination. This also covers intersections across several places.
+		}
+	}
+	for (const { id, policy: from } of retained) {
+		// The place being changed will use the proposed policy itself. Other sources must still fit.
+		if (id === placeId) continue;
+		if (audience && typeof audience === "object" && "places" in audience && audience.places.includes(id)) continue;
+		let allowed: boolean;
+		if (users) allowed = viewers.every((viewer) => opensSource(viewer, from));
+		else {
+			// The largest role set that cannot open this source is a counterexample if it opens the destination.
 			const roles = member.workspaceRoles.filter((r) => !r.owner && !reach({ ...member, owner: false, roles: [r.id] }, from.access)).map((r) => r.id);
 			const viewer = { ...member, owner: false, roles };
 			allowed = !from.membersOnly && (!policies.every((p) => !!reach(viewer, p?.access)) || !!reach(viewer, from.access));
@@ -96,8 +108,9 @@ export async function writeSources(ctx: MutationCtx, member: Member, audience?: 
 			throw new ConvexError(`This reply uses restricted places. Only ${who} can see this. It can't save it for a wider audience.`);
 		}
 	}
-	if (place && usedPlaces.some((id) => id !== place._id)) {
-		await ctx.db.patch(place._id, { usedPlaces: usedPlaces.filter((id) => id !== place._id) });
+	if (place) {
+		const saved = usedPlaces.filter((id) => id !== place._id);
+		if (saved.length !== (place.usedPlaces?.length ?? 0) || saved.some((id) => !place.usedPlaces?.includes(id))) await ctx.db.patch(place._id, { usedPlaces: saved.length ? saved : undefined });
 	}
 	return usedPlaces;
 }

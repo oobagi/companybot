@@ -30,7 +30,7 @@ import { type Who, type Member, canSeeSkill, memberOf, nameOf, requireMember } f
 import { type LinkPreview, previewMessage, previewRow, previewsOf } from "./linkPreviews";
 import { completeSteps } from "./onboarding";
 import { noteMentions, workspaceRecords } from "./recordOps";
-import { canReadReply, maskedReply, replyPrivacy, type ReplyPrivacy } from "./replyPrivacy";
+import { canReadReplyDetails, genericToolParts, canReadReply, maskedReply, replyPrivacy, type ReplyPrivacy } from "./replyPrivacy";
 import { readArtifact, writeSources } from "./replySources";
 import { routeLater } from "./router";
 import type { messagePart, replyStats } from "./schema";
@@ -151,7 +151,7 @@ async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, 
 		threadId: m.threadId ?? null,
 		author: await names.of(m),
 		text: m.text,
-		parts: m.parts,
+		parts: m.sharedBy && !(await canReadReplyDetails(ctx, member, m)) ? genericToolParts(m.parts) : m.parts,
 		status: m.status,
 		error: m.error ?? null,
 		stoppedBy: m.stoppedBy ? await nameOf(ctx, m.stoppedBy) : null,
@@ -351,7 +351,7 @@ export async function editMessage(ctx: MutationCtx, who: Who, messageId: Id<"cha
 	text = text.trim();
 	if (!text && !message.attachments?.length) throw new ConvexError("Write something first, or delete the message.");
 	const sources = await writeSources(ctx, who.member, { filtered: true }, message);
-	await ctx.db.patch(message._id, { text, parts: text ? [{ type: "text", text }] : [], editedAt: Date.now(), sharedBy: undefined, ...(sources.length && { usedPlaces: [...new Set([...(message.usedPlaces ?? []), ...sources])], repliedTo: who.member.userId }) });
+	await ctx.db.patch(message._id, { text, parts: text ? [{ type: "text", text }] : [], editedAt: Date.now(), sharedBy: undefined, usedPlaces: sources.length ? sources : undefined, ...(sources.length && { repliedTo: who.member.userId }) });
 	await previewMessage(ctx, { ...message, text }, { byAgent: !!who.agentId });
 }
 
@@ -378,6 +378,9 @@ export async function reactMessage(ctx: MutationCtx, who: Who, messageId: Id<"ch
 	requirePost(member, await requireChat(ctx, member, message.chatId));
 	await writeSources(ctx, member, { places: [message.chatId, ...(message.sharedBy ? [] : message.usedPlaces ?? [])] });
 	emoji = emoji.trim();
+	const tagged = [...emoji].some((c) => { const point = c.codePointAt(0)!; return point >= 0xe0020 && point <= 0xe007f; });
+	const subdivision = (tag: string) => "🏴" + [...tag].map((c) => String.fromCodePoint(0xe0000 + c.charCodeAt(0))).join("") + "\u{e007f}";
+	if (tagged && !["gbeng", "gbsct", "gbwls"].some((tag) => emoji === subdivision(tag))) throw new ConvexError("Pick one emoji.");
 	if ([...new Intl.Segmenter().segment(emoji)].length !== 1 || !/^(?:\p{Regional_Indicator}{2}|[#*0-9]\uFE0F?\u20E3|\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier}|[\u{E0020}-\u{E007F}])*(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})*)*)$/u.test(emoji)) throw new ConvexError("Pick one emoji.");
 	return toggleReaction(ctx, message, emoji, who.agentId ? { agentId: who.agentId } : { userId: member.userId });
 }
