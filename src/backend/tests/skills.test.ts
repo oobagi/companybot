@@ -1,7 +1,7 @@
 import { seedSkill } from "./legacyFixtures";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
-import { builtinTools, systemPrompt } from "@companybot/core";
+import { systemPrompt } from "@companybot/core";
 import { installedSkills } from "../convex/lib";
 
 import { agentsOf, ownerAndMember, noMentions, generalOf, turnsOf, setMemberSwitch } from "./helpers";
@@ -172,8 +172,8 @@ describe("customize", () => {
 			const context = await t.mutation(internal.turns.turnContext, { turnId: turn!._id });
 			expect(context.skills.map((s) => s.id)).toEqual(["meeting-notes", skillId]);
 			expect(systemPrompt(context.agent, context.skills)).toContain(`- ${skillId}: ${quote.description}`);
-			const load = builtinTools.find((x) => x.id === "skills.load")!;
-			expect(await load.execute({ id: skillId }, { skills: { list: context.skills } } as never)).toEqual({ instructions: quote.instructions });
+			expect(await t.mutation(internal.skills.loadFor, { turnId: turn!._id, id: skillId })).toEqual({ instructions: quote.instructions });
+			expect(await t.mutation(internal.skills.loadFor, { turnId: turn!._id, id: "custom-000000000000" })).toHaveProperty("error");
 		});
 	});
 
