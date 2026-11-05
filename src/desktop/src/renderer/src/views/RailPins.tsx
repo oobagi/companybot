@@ -137,15 +137,23 @@ export function RailPins({
 			if (command) changeRail(command);
 		},
 	});
-	// Recents take pins, never tabs.
+	// Recents reorder among themselves (for this session) and take pins, never tabs. A pin dropped
+	// here lands where you let go of it.
+	const [, redraw] = useState(0);
 	const { item: recentDrag, key: recentList } = useDragList({
 		group: "rail",
 		enabled: true,
 		accepts: (from) => from.id.includes(":"),
-		onDrop: (from) => {
-			if (from.list !== mainList) return;
-			toggle(from.id as PinKey);
-			visit(from.id as PinKey);
+		onDrop: (from, index) => {
+			const key = from.id as PinKey;
+			if (from.list === mainList) {
+				toggle(key);
+				visit(key);
+			} else if (from.list !== recentList) return;
+			const ws = workspace?.id ?? "";
+			const rest = (shownRecents.get(ws) ?? []).filter((k) => k !== key);
+			shownRecents.set(ws, [...rest.slice(0, index), key, ...rest.slice(index)]);
+			redraw((n) => n + 1);
 		},
 	});
 	// A drop above it pins (`endOf`), below it unpins. With no recents it stays, unseen, so a pin can still be dragged out.
@@ -163,7 +171,7 @@ export function RailPins({
 		else openEntry(to.entry!);
 	});
 
-	// Your last RECENT_SHOWN places, less the pinned ones, in the order they came in (`steadyOrder`). Pinning
+	// Your last RECENT_SHOWN places, less the pinned ones, in the order they came in (`steadyOrder`) or you dragged them. Pinning
 	// one doesn't pull in another, so the rail keeps its length. While some are still loading, the rail keeps
 	// what it showed: one arriving late would look new and jump to the top.
 	const ws = workspace?.id ?? "";
