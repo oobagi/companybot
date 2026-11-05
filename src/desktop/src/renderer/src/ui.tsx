@@ -140,7 +140,7 @@ export type Crumb = { label: string; to: string[] };
 export function TopBar({ crumbs = [], title, description, children }: { crumbs?: Crumb[]; title: React.ReactNode; description?: React.ReactNode; children?: React.ReactNode }) {
 	// Its text starts 20px in (16 here, 4 on the title or crumb), like the sidebar's workspace name.
 	return (
-		<header className="drag flex h-12 shrink-0 items-center gap-3 px-4">
+		<header className="drag flex h-12 shrink-0 items-center gap-3 px-4 select-none">
 			<nav className="flex min-w-0 items-center overflow-x-auto text-sm">
 				{crumbs.map((c) => (
 					<Fragment key={c.to.join("/")}>

@@ -57,7 +57,7 @@ export function AppRail({
 	});
 
 	return (
-		<nav aria-label="App" className="drag flex w-[60px] shrink-0 flex-col items-center pt-2 pb-3">
+		<nav aria-label="App" className="drag flex w-[60px] select-none shrink-0 flex-col items-center pt-2 pb-3">
 			{workspace && (
 				<span className="flex" {...tipFor(workspaceName ?? "")}>
 					{workspace}

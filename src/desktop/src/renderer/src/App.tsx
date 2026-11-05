@@ -236,7 +236,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 				<div className="flex min-w-0 flex-1 overflow-hidden rounded-tl-xl border-t border-l border-neutral-200 bg-white">
 					{/* The sidebar lists the open tab's things, scrolling under its name. */}
 					{sidebar && (
-						<aside style={{ width: sidebarWidth.width }} className="drag relative flex shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 [--scrim:var(--color-neutral-50)]">
+						<aside style={{ width: sidebarWidth.width }} className="drag relative flex shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 select-none [--scrim:var(--color-neutral-50)]">
 							<Scroll
 								className="no-drag"
 								header={
