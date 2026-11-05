@@ -15,7 +15,7 @@ import { imageUrl } from "./images";
 import { catalogImageModels, catalogModels, findImageModel, workspaceImageModel } from "./modelCatalog";
 import { imageSpent } from "./usage";
 import { removeWorkspace, startReset } from "./lifecycle";
-import { updatePreferences } from "./preferences";
+import { savePreferences, updatePreferences } from "./preferences";
 import { completeSteps, freshTutorial, welcome } from "./onboarding";
 import { builtInId, checkRoles, seedRoles, setMemberRoles } from "./roles";
 import { writeSources } from "./replySources";
@@ -75,7 +75,9 @@ export const setUp = mutation({
 		if (!userId) throw new ConvexError("Not signed in.");
 		currency = currency?.trim().toUpperCase();
 		if (currency !== undefined && !isCurrencyCode(currency)) throw new ConvexError("Pick a currency code like USD.");
-		await updatePreferences(ctx, userId, { displayName });
+		// Legacy setup callers may send an empty name; never clear an existing profile.
+		if (displayName.trim()) await updatePreferences(ctx, userId, { displayName });
+		else await savePreferences(ctx, userId, {});
 		const workspaceId = await startOwned(ctx, userId, name, currency);
 		const member = (await memberOf(ctx, userId, workspaceId))!;
 		for (const email of invites) await inviteMember(ctx, member, { email });

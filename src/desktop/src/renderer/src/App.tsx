@@ -15,8 +15,9 @@ import { RecordsView } from "./views/Records";
 import { roleNames } from "./views/Members";
 import { SettingsNav, SettingsView, isCustomize, settingsScope, settingsTabAliases, settingsTabs } from "./views/Settings";
 import { Landing } from "./views/Landing";
-import { Onboarding } from "./views/Onboarding";
+import { NameOnboarding, Onboarding } from "./views/Onboarding";
 import { SignIn } from "./views/SignIn";
+import { chatBadge } from "./views/chat/data";
 import { TitleBar } from "./views/TitleBar";
 import { AppRail, type AppTab, type TabBadge, appTabs } from "./views/AppRail";
 import { WorkspaceSwitcher } from "./views/WorkspaceSwitcher";
@@ -61,6 +62,7 @@ function Workspace() {
 	const ensure = useMutation(api.workspace.ensure);
 	const remember = useMutation(api.workspace.switchTo);
 	const [chosen, setChosen] = useState(() => localStorage.getItem(OPEN_KEY));
+	const profile = useQuery(api.preferences.get);
 	// Whether invites have been checked, so onboarding doesn't flash before they're joined.
 	const [ensured, setEnsured] = useState(false);
 	const { error, fail } = useRun();
@@ -110,9 +112,10 @@ function Workspace() {
 	if (error) return <div className="flex h-screen items-center justify-center p-8"><Notice>{error}</Notice></div>;
 	// The new workspace opens once `mine` lists it.
 	if (mine && ids.length === 0) return ensured ? <Onboarding onDone={(next) => (localStorage.setItem(OPEN_KEY, next), setChosen(next))} /> : null;
-	if (!workspace) return null;
+	if (!workspace || !profile) return null;
 	if (resetting)
 		return <div className="drag flex h-screen items-center justify-center p-8 text-sm text-neutral-500">Resetting {resetting.name}…</div>;
+	if (!profile.displayName.trim()) return <NameOnboarding />;
 	// Keyed by workspace: switching starts every screen fresh.
 	return (
 		<WorkspaceContext.Provider value={workspace}>
@@ -186,8 +189,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 		if (here && canSaveRecent) visit(here);
 	}, [here, visit, canSaveRecent]);
 	// What's waiting in Chat: chats with an unread @mention or DM, else any unread one.
-	const waiting = chats ? [...chats.channels, ...chats.dms, ...chats.agents] : [];
-	const badges: Partial<Record<AppTab, TabBadge>> = { chat: { mentions: waiting.filter((c) => c.mentioned).length, unread: waiting.some((c) => c.unread) } };
+	const badges: Partial<Record<AppTab, TabBadge>> = { chat: chats ? chatBadge(chats) : { mentions: 0, unread: false } };
 	// The sidebar's sections: drag a title to move one, click it to fold it. Both sync with your account in this workspace.
 	const sections = useSortable("sections", sectionIds, sectionKey);
 	const [folded, changeFolded] = useStoredIds("folded");

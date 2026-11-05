@@ -488,7 +488,7 @@ export function Notice({ children }: { children: React.ReactNode }) {
 
 /**
  * A name edited in place, where it's shown (a sidebar row, a tab), as in Finder or Figma: it opens
- * with the text selected; Enter or clicking away saves, Escape puts it back. A blank or unchanged
+ * with the text selected; Enter, clicking away, a navigation shortcut or a rail click saves; Escape puts it back. A blank or unchanged
  * name saves nothing. While a save runs it shows the new name as plain text, and `onDone` closes it
  * once the save settles: Convex resolves a mutation after the screen's queries include it, so the
  * new name never flashes back to the old one. `className` sizes and pads it so its text sits where

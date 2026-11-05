@@ -6,7 +6,7 @@ import { useMutation, useQuery, useWorkspace } from "../../convex";
 import { AgentIcon, ArchiveIcon, CaretRightIcon, ChannelIcon, ChatIcon, CheckIcon, CloseIcon, EditIcon, MembersIcon, MoreIcon, PinIcon, PlusIcon, PrivateIcon, SignOutIcon, ThreadIcon, UnpinIcon } from "../../icons";
 import { type PinKey, usePins } from "../../pins";
 import { navigate } from "../../router";
-import { sidebarRow, useJump } from "../../shortcuts";
+import { blurActiveEditable, sidebarRow, useJump } from "../../shortcuts";
 import { type DragProps, useSortable } from "../../sortable";
 import { Notice, RenameInput, useClock, useRun } from "../../ui";
 import { AgentBadge, Avatar, MenuItem, Popover, PopoverPanel, archiveQuestion, useConfirm } from "./common";
@@ -278,6 +278,7 @@ export function SidebarList({ children }: { children: React.ReactNode }) {
 	useJump("item", (n) => {
 		const row = sidebarRow(list.current, n);
 		if (!row) return false;
+		blurActiveEditable();
 		row.click();
 	});
 	return (

@@ -4,7 +4,7 @@ import { api } from "../api";
 import { useMutation, useQuery, useWorkspace } from "../convex";
 import { CheckIcon, PlusIcon, SettingsIcon, SignOutIcon } from "../icons";
 import { navigate } from "../router";
-import { shortcutLabel, useJump } from "../shortcuts";
+import { blurActiveEditable, shortcutLabel, useJump } from "../shortcuts";
 import { useSortable } from "../sortable";
 import { Field, Form, MenuDivider, Notice, inputClass, primaryButton, useRun } from "../ui";
 import { Avatar, MenuItem, Modal, Popover, useConfirm } from "./chat/common";
@@ -60,8 +60,9 @@ export function WorkspaceSwitcher({ name, onSettings }: { name: string; onSettin
 	// ⌃⌘1–9 (Ctrl+Shift+1–9 off a Mac): ⌘1–9 are the rail's tabs.
 	useJump("workspace", (n) => {
 		const w = workspaces[n - 1];
-		if (!w) return false;
-		if (w.id !== current?.id) goTo(w.id);
+		if (!w || w.id === current?.id) return false;
+		blurActiveEditable();
+		goTo(w.id);
 	});
 
 	const others = activity?.filter((a) => a.id !== current?.id) ?? [];

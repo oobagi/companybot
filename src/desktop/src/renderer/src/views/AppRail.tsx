@@ -1,5 +1,5 @@
 import { ChatIcon, CustomizeIcon, DatabaseIcon, DriveIcon } from "../icons";
-import { shortcutLabel, useJump } from "../shortcuts";
+import { blurActiveEditable, shortcutLabel, useJump } from "../shortcuts";
 import { useSortable } from "../sortable";
 import { useTip } from "../ui";
 
@@ -49,7 +49,8 @@ export function AppRail({
 
 	useJump("tab", (n) => {
 		const to = tabs[n - 1];
-		if (!to) return false;
+		if (!to || to.id === tab) return false;
+		blurActiveEditable();
 		// A rail button clicked earlier would show its keyboard focus ring once keys are pressed.
 		if (document.activeElement instanceof HTMLElement && document.activeElement.closest("nav[aria-label='App']")) document.activeElement.blur();
 		onOpen(to.id);
@@ -74,9 +75,9 @@ export function AppRail({
 								<span className="relative flex" {...tipFor(t.label, i < 9 ? shortcutLabel("tab", i + 1) : undefined)}>
 									<button
 										type="button"
-										aria-label={badge?.mentions ? `${t.label}, ${badge.mentions} unread mentions` : t.label}
+										aria-label={badge?.mentions ? `${t.label}, ${badge.mentions} unread ${badge.mentions === 1 ? "mention or DM" : "mentions or DMs"}` : t.label}
 										aria-current={active ? "page" : undefined}
-										onClick={() => (hideTip(), onOpen(t.id))}
+										onClick={() => (t.id !== tab && blurActiveEditable(), hideTip(), onOpen(t.id))}
 										className={`no-drag flex size-9 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`}
 									>
 										<t.icon size={20} weight={active ? "fill" : "regular"} />

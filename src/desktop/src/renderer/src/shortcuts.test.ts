@@ -54,8 +54,8 @@ it("opens a tab with ⌘N while typing a message, as in Slack", () => {
 	render(rail(onOpen));
 	const composer = document.body.appendChild(document.createElement("div"));
 	composer.contentEditable = "true";
-	press("Digit1", { metaKey: true }, composer);
-	expect(onOpen).toHaveBeenCalledWith("chat");
+	press("Digit2", { metaKey: true }, composer);
+	expect(onOpen).toHaveBeenCalledWith("drive");
 	composer.remove();
 });
 
@@ -108,7 +108,7 @@ it("opens the Nth top-level sidebar row with ⌥N, skipping folded sections, nes
 	expect(open).not.toHaveBeenCalled();
 });
 
-it("leaves ⌥N alone while typing", () => {
+it("opens sidebar rows while typing", () => {
 	const open = vi.fn();
 	render(sidebar(open));
 	const field = document.body.appendChild(document.createElement("input"));
@@ -116,7 +116,8 @@ it("leaves ⌥N alone while typing", () => {
 	const editor = document.body.appendChild(document.createElement("div"));
 	editor.contentEditable = "true";
 	press("Digit1", { altKey: true }, editor);
-	expect(open).not.toHaveBeenCalled();
+	expect(open).toHaveBeenCalledWith("sales");
+	expect(open).toHaveBeenCalledTimes(2);
 	field.remove();
 	editor.remove();
 });
@@ -132,4 +133,61 @@ it("shows Pin to rail, with its text, in an unpinned row's menu, including an ag
 		await act(async () => item!.click());
 	}
 	expect(startDm).toHaveBeenCalledOnce();
+});
+
+it("saves an active edit before keyboard navigation", () => {
+	const events: string[] = [];
+	render(rail(() => events.push("navigate")));
+	const input = document.body.appendChild(document.createElement("input"));
+	input.addEventListener("blur", () => events.push("save"));
+	input.focus();
+	press("Digit2", { metaKey: true }, input);
+	expect(events).toEqual(["save", "navigate"]);
+	input.remove();
+});
+
+it.each(["@", "#", "[", "]", "|", "{", "}"])("preserves printable ASCII %s while typing", (key) => {
+	const open = vi.fn();
+	render(sidebar(open));
+	const input = document.body.appendChild(document.createElement("input"));
+	input.focus();
+	const event = new KeyboardEvent("keydown", { code: "Digit2", key, altKey: true, bubbles: true, cancelable: true });
+	act(() => { input.dispatchEvent(event); });
+	expect(event.defaultPrevented).toBe(false);
+	expect(document.activeElement).toBe(input);
+	expect(open).not.toHaveBeenCalled();
+	input.remove();
+});
+
+it("leaves composing keys and missing sidebar rows alone", () => {
+	const open = vi.fn();
+	render(sidebar(open));
+	for (const options of [{ code: "Digit1", isComposing: true }, { code: "Digit9" }]) {
+		const event = new KeyboardEvent("keydown", { ...options, key: "™", altKey: true, bubbles: true, cancelable: true });
+		act(() => { document.body.dispatchEvent(event); });
+		expect(event.defaultPrevented).toBe(false);
+	}
+	expect(open).not.toHaveBeenCalled();
+});
+
+it("keeps focus for missing and already open tabs", () => {
+	render(rail(vi.fn()));
+	const input = document.body.appendChild(document.createElement("input"));
+	input.focus();
+	press("Digit7", { metaKey: true }, input);
+	expect(document.activeElement).toBe(input);
+	press("Digit1", { metaKey: true }, input);
+	expect(document.activeElement).toBe(input);
+	input.remove();
+});
+
+it("saves an edit before a rail click navigates", () => {
+	const events: string[] = [];
+	render(rail(() => events.push("navigate")));
+	const input = document.body.appendChild(document.createElement("input"));
+	input.addEventListener("blur", () => events.push("save"));
+	input.focus();
+	act(() => { host.querySelector<HTMLButtonElement>('button[aria-label="Drive"]')!.click(); });
+	expect(events).toEqual(["save", "navigate"]);
+	input.remove();
 });

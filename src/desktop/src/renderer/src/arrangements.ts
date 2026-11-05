@@ -24,6 +24,8 @@ export const optimisticArrangements: OptimisticUpdate<FunctionArgs<typeof api.ar
 		store.setQuery(api.arrangements.get, query.args, { ...query.value, rows: [...rows, { list, entityId, ids: applyCommand(old?.ids, command) }] });
 	}
 };
+/** Module-level, so `useMutation` stays stable between renders. */
+const arrangementsUpdate = () => optimisticArrangements;
 
 const empty: string[] = [];
 const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((id, i) => id === b[i]);
@@ -33,7 +35,7 @@ const same = (a: readonly string[], b: readonly string[]) => a.length === b.leng
  */
 export function useStoredIds(list: ArrangementList, entityId?: string) {
 	const state = useContext(Context);
-	const mutate = useMutation(api.arrangements.change, optimisticArrangements);
+	const mutate = useMutation(api.arrangements.change, arrangementsUpdate);
 	const ids = state?.data.rows.find((r) => r.list === list && r.entityId === entityId)?.ids ?? empty;
 	const saved = state?.data.rows.some((r) => r.list === list && r.entityId === entityId);
 	const current = useRef({ ids, saved });
