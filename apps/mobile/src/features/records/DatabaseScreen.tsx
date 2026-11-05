@@ -19,6 +19,7 @@ import { DatabaseForm, FieldForm } from './DatabaseForms';
 import { allRecordsView, changedDisplay, defaultView, groupable, type Database, type ViewConfig } from './model';
 import { ViewEditor } from './ViewEditor';
 import { useDeviceView } from './useDeviceView';
+import { normalizeViewConfig } from './deviceView';
 import { AccessSheet } from '@/features/access/AccessSheet';
 
 export function DatabaseScreen({ typeId }: { typeId: string }) {
@@ -46,7 +47,7 @@ function DatabaseContent({ database }: { database: Database }) {
   const [selectedVersion, setSelectedVersion] = useState<number>();
   const [sharedConfig, setSharedConfig] = useState<ViewConfig>(() => defaultView(database));
   const device = useDeviceView(workspace!.id, database, settings?.currency);
-  const config = selected ? sharedConfig : allRecordsView(device.config, database.display, columns);
+  const config = selected ? normalizeViewConfig(sharedConfig, database, settings?.currency ?? 'USD') : allRecordsView(device.config, database.display, columns);
   const setConfig = (next: ViewConfig) => { if (selected) setSharedConfig(next); else device.set(next); };
   const [search, setSearch] = useState('');
   const [mode, setMode] = useState<'view' | 'database' | 'create' | 'field' | 'access' | 'organize'>();

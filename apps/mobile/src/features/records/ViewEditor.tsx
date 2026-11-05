@@ -5,6 +5,8 @@ import { useMutation, useQuery } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
 import { useDraftGuard } from '@/lib/useDraftGuard';
 import { useConfirm } from '@/components/ui/useConfirm';
+import { DateInput } from '@/components/ui/native-controls/DateInput';
+import { localDateToCalendar } from '@/components/ui/native-controls/calendarDate';
 import { groupable, sortable, type Database, type SavedView, type ViewConfig } from './model';
 import { LinkPicker, UserPicker } from './ValueEditor';
 import { buildFilter, draftFilter, replaceFilter, viewIsStale, type Condition, type FilterDraft } from './filters';
@@ -33,6 +35,7 @@ export function ViewEditor({ database, value, view: selectedView, baseVersion, o
   const guard = useDraftGuard({ dirty, busy: task.busy, onClose, description: 'Your unapplied view changes will be discarded.' });
   const openFilter = (index: number | 'new') => {
     const initial = draftFilter(fields[0]?.key ?? 'name', index === 'new' ? undefined : draft.filters[index]);
+    if (fields.find(field => field.key === initial.field)?.kind === 'date' && initial.op === 'eq' && !initial.value) initial.value = localDateToCalendar(new Date());
     setFilter({ index, initial, draft: initial });
   };
   const backFromFilter = async () => {
@@ -87,14 +90,25 @@ function FilterForm({ database, draft, onChange, onSave }: { database: Database;
   const operations = [{ value: 'eq', label: 'Is' }, { value: 'empty', label: 'Is empty' }, { value: 'notEmpty', label: 'Is not empty' }, ...(field && ['choice', 'user', 'link'].includes(field.kind) ? [{ value: 'in', label: 'Is any of' }] : []), ...(field && !field.multiple && ['number', 'currency', 'date'].includes(field.kind) ? [{ value: 'range', label: 'In a range' }] : [])];
   return <>
     {error && <ErrorState message={error} />}
-    <ChoicePicker label="Field" value={draft.field} options={fields.map(f => ({ value: f.key, label: f.label }))} onChange={v => { if (typeof v === 'string' && v) { setError(undefined); onChange(draftFilter(v)); } }} />
-    <ChoicePicker label="Condition" value={draft.op} options={operations} onChange={v => { if (typeof v === 'string' && operations.some(o => o.value === v)) patch({ op: v as FilterDraft['op'] }); }} />
-    {field && draft.op === 'range' ? <Stack>
+    <ChoicePicker label="Field" value={draft.field} options={fields.map(f => ({ value: f.key, label: f.label }))} onChange={v => { if (typeof v === 'string' && v) { setError(undefined); const next = draftFilter(v); if (fields.find(field => field.key === v)?.kind === 'date') next.value = localDateToCalendar(new Date()); onChange(next); } }} />
+    <ChoicePicker label="Condition" value={draft.op} options={operations} onChange={v => { if (typeof v === 'string' && operations.some(o => o.value === v)) patch({ op: v as FilterDraft['op'], ...(v === 'eq' && field?.kind === 'date' && !draft.value ? { value: localDateToCalendar(new Date()) } : {}) }); }} />
+    {field?.kind === 'date' && draft.op === 'range' ? <Stack>
+      <ChoicePicker label="Start" value={draft.lower ? draft.lowerOp : 'none'} options={[{ value: 'none', label: 'No start date' }, { value: 'gte', label: 'On or after' }, { value: 'gt', label: 'After' }]} onChange={value => {
+        if (value === 'none') patch({ lower: '' });
+        else if (value === 'gte' || value === 'gt') patch({ lowerOp: value, lower: draft.lower || localDateToCalendar(new Date()) });
+      }} />
+      {!!draft.lower && <DateInput label="Start date" value={draft.lower} onChange={lower => patch({ lower })} />}
+      <ChoicePicker label="End" value={draft.upper ? draft.upperOp : 'none'} options={[{ value: 'none', label: 'No end date' }, { value: 'lte', label: 'On or before' }, { value: 'lt', label: 'Before' }]} onChange={value => {
+        if (value === 'none') patch({ upper: '' });
+        else if (value === 'lte' || value === 'lt') patch({ upperOp: value, upper: draft.upper || localDateToCalendar(new Date()) });
+      }} />
+      {!!draft.upper && <DateInput label="End date" value={draft.upper} onChange={upper => patch({ upper })} />}
+    </Stack> : field && draft.op === 'range' ? <Stack>
       <ChoicePicker label="Lower bound" value={draft.lowerOp} options={[{ value: 'gt', label: 'Greater than' }, { value: 'gte', label: 'At least' }]} onChange={v => { if (v === 'gt' || v === 'gte') patch({ lowerOp: v }); }} />
       <Field label="Lower value" hint="Leave empty for no lower limit." value={draft.lower} onChangeText={lower => patch({ lower })} />
       <ChoicePicker label="Upper bound" value={draft.upperOp} options={[{ value: 'lt', label: 'Less than' }, { value: 'lte', label: 'At most' }]} onChange={v => { if (v === 'lt' || v === 'lte') patch({ upperOp: v }); }} />
       <Field label="Upper value" hint="Leave empty for no upper limit." value={draft.upper} onChangeText={upper => patch({ upper })} />
-    </Stack> : field && !['empty', 'notEmpty'].includes(draft.op) && (field.kind === 'choice' ? <ChoicePicker label="Value" multiple={multiple} value={picked} options={(field.options ?? []).map(o => ({ value: o.id, label: `${o.label}${o.retired ? ' (removed)' : ''}` }))} onChange={pick} /> : field.kind === 'checkbox' ? <ChoicePicker label="Value" value={draft.value} options={[{ value: 'true', label: 'Yes' }, { value: 'false', label: 'No' }]} onChange={pick} /> : field.kind === 'user' ? <UserPicker field={{ ...field, multiple }} value={picked} onChange={pick} /> : field.kind === 'link' ? <LinkPicker field={{ ...field, multiple }} value={picked} refs={{}} onChange={pick} /> : <Field label="Value" value={draft.value} onChangeText={value => patch({ value })} hint={field.kind === 'date' ? 'YYYY-MM-DD' : field.kind === 'currency' ? 'Amount, optionally prefixed by a currency code.' : undefined} />)}
+    </Stack> : field && !['empty', 'notEmpty'].includes(draft.op) && (field.kind === 'date' ? <DateInput label="Date" value={draft.value} onChange={value => patch({ value })} /> : field.kind === 'choice' ? <ChoicePicker label="Value" multiple={multiple} value={picked} options={(field.options ?? []).map(o => ({ value: o.id, label: `${o.label}${o.retired ? ' (removed)' : ''}` }))} onChange={pick} /> : field.kind === 'checkbox' ? <ChoicePicker label="Value" value={draft.value} options={[{ value: 'true', label: 'Yes' }, { value: 'false', label: 'No' }]} onChange={pick} /> : field.kind === 'user' ? <UserPicker field={{ ...field, multiple }} value={picked} onChange={pick} /> : field.kind === 'link' ? <LinkPicker field={{ ...field, multiple }} value={picked} refs={{}} onChange={pick} /> : <Field label="Value" value={draft.value} onChangeText={value => patch({ value })} hint={field.kind === 'currency' ? 'Amount, optionally prefixed by a currency code.' : undefined} />)}
     <Button label="Save filter" disabled={!field} onPress={() => { try { if (field) onSave(buildFilter(field, draft, workspace?.currency ?? 'USD')); } catch (e) { setError(errorMessage(e)); } }} />
   </>;
 }
