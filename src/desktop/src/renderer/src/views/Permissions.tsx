@@ -3,7 +3,7 @@ import { Select } from "../controls";
 import { useState } from "react";
 import { api } from "../api";
 import { useAction, useMutation, useQuery } from "../convex";
-import { Loading, Notice, Section, Setting, Settings, cardClass, hintClass, iconDangerButton, insetClass, metadataClass, secondaryButton, useRun, wideControlClass } from "../ui";
+import { Loading, Notice, Section, Setting, Settings, cardClass, compactButton, hintClass, iconDangerButton, insetClass, metadataClass, useRun, wideControlClass } from "../ui";
 import { TrashIcon } from "../icons";
 import { Confirm, useConfirm } from "./chat/common";
 
@@ -96,7 +96,17 @@ export function ConnectorActions({ connectorId, connected }: { connectorId: stri
 	const { error, busy, run } = useRun();
 	if (!actions) return <Loading />;
 	return (
-		<Section title="Actions" note="Anything that changes something asks you first, unless you set it otherwise.">
+		<Section
+			title="Actions"
+			note="Anything that changes something asks you first, unless you set it otherwise."
+			action={
+				connected && (
+					<button type="button" disabled={busy} className={compactButton} onClick={() => run(refresh({ connectorId }))}>
+						{busy ? "Checking…" : "Refresh list"}
+					</button>
+				)
+			}
+		>
 			<Notice>{error}</Notice>
 			{actions.length === 0 && (
 				<p className={`${hintClass} ${insetClass}`}>
@@ -113,16 +123,6 @@ export function ConnectorActions({ connectorId, connected }: { connectorId: stri
 					<SettingSelect action={a} />
 				</div>
 			))}
-			{connected && (
-				<button
-					type="button"
-					disabled={busy}
-					className={`${secondaryButton} self-start`}
-					onClick={() => run(refresh({ connectorId }))}
-				>
-					{busy ? "Checking…" : "Refresh list"}
-				</button>
-			)}
 		</Section>
 	);
 }

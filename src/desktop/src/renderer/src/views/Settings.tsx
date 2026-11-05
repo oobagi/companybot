@@ -9,7 +9,7 @@ import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { describeUpdate, desktop, useUpdates } from "../desktop";
 import { navigate } from "../router";
-import { ConflictNotice, Field, Form, Loading, Notice, Page, SaveBar, Setting, Settings, dangerButton, disabledButtonClass, hintClass, insetClass, inputClass, primaryButton, secondaryButton, useDraft, useRun, versionOf, wideControlClass } from "../ui";
+import { ConflictNotice, Form, Loading, Notice, Page, SaveBar, Setting, Settings, compactButton, compactDangerButton, compactPrimaryButton, dangerButton, disabledButtonClass, hintClass, insetClass, secondaryButton, useDraft, useRun, versionOf, wideControlClass } from "../ui";
 import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, RolesIcon, SettingsIcon, ArchiveIcon, UsageIcon, UserIcon } from "../icons";
 import { CurrencySelect, Select } from "../controls";
 import { ActivityTab } from "./Activity";
@@ -158,7 +158,7 @@ function AppVersion() {
 		<Settings title="App">
 			<Setting label={`Companybot ${version}`} hint={status ? describeUpdate(status) : undefined}>
 				{status?.state === "ready" ? (
-					<button type="button" onClick={() => void desktop?.updates.install()} className={primaryButton}>
+					<button type="button" onClick={() => void desktop?.updates.install()} className={compactPrimaryButton}>
 						Restart to update
 					</button>
 				) : (
@@ -166,7 +166,7 @@ function AppVersion() {
 						type="button"
 						disabled={status?.state === "checking" || status?.state === "downloading"}
 						onClick={() => void desktop?.updates.check()}
-						className={secondaryButton}
+						className={compactButton}
 					>
 						Check for updates
 					</button>
@@ -203,7 +203,7 @@ function DangerAction({
 	return (
 		<>
 			<Setting label={action} hint={hint}>
-				<button type="button" onClick={() => setOpen(true)} className={`${secondaryButton} text-red-600`}>
+				<button type="button" onClick={() => setOpen(true)} className={compactDangerButton}>
 					{action}
 				</button>
 			</Setting>
@@ -218,9 +218,11 @@ function DangerAction({
 					>
 						<p className="text-neutral-600">{children}</p>
 						<Notice>{error}</Notice>
-						<Field label={`Type “${confirm}” to confirm`}>
-							<input className={inputClass} autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} />
-						</Field>
+						<Settings>
+							<Setting label={`Type “${confirm}” to confirm`}>
+								<input aria-label={`Type “${confirm}” to confirm`} className={wideControlClass} autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} />
+							</Setting>
+						</Settings>
 						<DialogButtons>
 							<button type="button" onClick={close} disabled={busy} className={secondaryButton}>
 								Cancel
