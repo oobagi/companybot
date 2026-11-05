@@ -1,0 +1,196 @@
+diff --git a/build/dom/injectJavaScript.d.ts b/build/dom/injectJavaScript.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..e8a78a284e40f7f3d9a9a97a8b605df2d3ae3ee4
+--- /dev/null
++++ b/build/dom/injectJavaScript.d.ts
+@@ -0,0 +1,4 @@
++type ScriptTarget = { injectJavaScript: (script: string) => unknown };
++/** Handles late native injection rejections without hiding live-view failures. */
++export declare function injectJavaScriptSafely(view: ScriptTarget, script: string, isDetached: () => boolean): void;
++export {};
+diff --git a/build/dom/injectJavaScript.js b/build/dom/injectJavaScript.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..34d548c90d248c6b414847121ad624ba01524155
+--- /dev/null
++++ b/build/dom/injectJavaScript.js
+@@ -0,0 +1,14 @@
++/** Native Expo views return a promise even though WebView's public method is typed void. */
++export function injectJavaScriptSafely(view, script, isDetached) {
++  const report = (error) => {
++    const removedView = error instanceof Error &&
++      /Unable to find the (?:class )?'?[\w.]*DomWebView'? view with tag '?\d+'?/.test(error.message);
++    if (isDetached() && removedView) return;
++    console.error(error);
++  };
++  try {
++    void Promise.resolve(view.injectJavaScript(script)).catch(report);
++  } catch (error) {
++    report(error);
++  }
++}
+diff --git a/build/dom/webview-wrapper.js b/build/dom/webview-wrapper.js
+index 02f713b7592c68e3cb6db2013b2aee0600a602a8..cae34fdcaa1cd3e912d9a0c1121a554b1e349e4f 100644
+--- a/build/dom/webview-wrapper.js
++++ b/build/dom/webview-wrapper.js
+@@ -7,6 +7,7 @@ import React from 'react';
+ import { AppState } from 'react-native';
+ import { getBaseURL } from './base';
+ import { _emitGlobalEvent } from './global-events';
++import { injectJavaScriptSafely } from './injectJavaScript';
+ import { DOM_READY, getInjectBodySizeObserverScript, getInjectEventScript, MATCH_CONTENTS_EVENT, NATIVE_ACTION, NATIVE_ACTION_RESULT, REGISTER_DOM_IMPERATIVE_HANDLE_PROPS } from './injection';
+ import ExpoDomWebView from './webview/ExpoDOMWebView';
+ import RNWebView from './webview/RNWebView';
+@@ -27,7 +28,7 @@ const RawWebView = /*#__PURE__*/ React.forwardRef((props, ref)=>{
+                 if (domImperativeHandlePropsRef.current?.includes(propName)) {
+                     return function(...args) {
+                         const serializedArgs = args.map((arg)=>JSON.stringify(arg)).join(',');
+-                        webviewRef.current?.injectJavaScript(`window._domRefProxy.${propName}(${serializedArgs})`);
++                        inject(`window._domRefProxy.${propName}(${serializedArgs})`);
+                     };
+                 }
+                 if (typeof webviewRef.current?.[propName] === 'function') {
+@@ -42,6 +43,17 @@ const RawWebView = /*#__PURE__*/ React.forwardRef((props, ref)=>{
+     const useExpoDOMWebView = dom?.useExpoDOMWebView ?? true;
+     const webView = resolveWebView(useExpoDOMWebView);
+     const webviewRef = React.useRef(null);
++    const mountedRef = React.useRef(true);
++    const readyRef = React.useRef(false);
++    React.useLayoutEffect(() => {
++        mountedRef.current = true;
++        return () => { mountedRef.current = false; };
++    }, []);
++    const inject = React.useCallback((script) => {
++        const view = webviewRef.current;
++        if (!mountedRef.current || !view) return;
++        injectJavaScriptSafely(view, script, () => !mountedRef.current || webviewRef.current !== view);
++    }, []);
+     const domImperativeHandlePropsRef = React.useRef([]);
+     const source = {
+         uri: overrideUri ?? `${getBaseURL()}/${filePath}`
+@@ -49,9 +61,9 @@ const RawWebView = /*#__PURE__*/ React.forwardRef((props, ref)=>{
+     const [containerStyle, setContainerStyle] = React.useState(null);
+     const { debugZeroHeightStyle, debugOnLayout } = useDebugZeroHeight(dom);
+     const emit = React.useCallback((detail)=>{
+-        webviewRef.current?.injectJavaScript(getInjectEventScript(detail));
++        inject(getInjectEventScript(detail));
+     }, [
+-        webviewRef
++        inject
+     ]);
+     // serializable props, action names.
+     const smartActions = Object.entries(marshalProps).reduce((acc, [key, value])=>{
+@@ -71,7 +83,7 @@ const RawWebView = /*#__PURE__*/ React.forwardRef((props, ref)=>{
+     const initialPropsRef = React.useRef(smartActions);
+     // When the `marshalProps` change, emit them to the webview.
+     React.useEffect(()=>{
+-        emit({
++        if (readyRef.current) emit({
+             type: '$$props',
+             data: smartActions
+         });
+@@ -154,6 +166,7 @@ const RawWebView = /*#__PURE__*/ React.forwardRef((props, ref)=>{
+                 return;
+             }
+             if (type === DOM_READY) {
++                readyRef.current = true;
+                 // Re-send the props the DOM side missed while the WebView was loading.
+                 emit({
+                     type: '$$props',
+diff --git a/src/dom/injectJavaScript.ts b/src/dom/injectJavaScript.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..7c5fbbb85b3214c0c46c00efa211ef3cc635deba
+--- /dev/null
++++ b/src/dom/injectJavaScript.ts
+@@ -0,0 +1,22 @@
++type ScriptTarget = { injectJavaScript: (script: string) => unknown };
++
++/** Native Expo views return a promise even though WebView's public method is typed void. */
++export function injectJavaScriptSafely(
++  view: ScriptTarget,
++  script: string,
++  isDetached: () => boolean
++) {
++  const report = (error: unknown) => {
++    // Ignore only a late call targeting the native view that has been removed.
++    // A live-view failure or any other exception still needs to be diagnosed.
++    const removedView = error instanceof Error &&
++      /Unable to find the (?:class )?'?[\w.]*DomWebView'? view with tag '?\d+'?/.test(error.message);
++    if (isDetached() && removedView) return;
++    console.error(error);
++  };
++  try {
++    void Promise.resolve(view.injectJavaScript(script)).catch(report);
++  } catch (error) {
++    report(error);
++  }
++}
+diff --git a/src/dom/webview-wrapper.tsx b/src/dom/webview-wrapper.tsx
+index c9d79a41e43da2e7e5f668bf0e2ab665bdbf5182..99aceb9897f7b1293d114d9f66f8c22210eff810 100644
+--- a/src/dom/webview-wrapper.tsx
++++ b/src/dom/webview-wrapper.tsx
+@@ -10,6 +10,7 @@ import { getBaseURL } from './base';
+ import type { DOMPropsInternal } from './dom-internal.types';
+ import type { BridgeMessage, WebViewProps, WebViewRef } from './dom.types';
+ import { _emitGlobalEvent } from './global-events';
++import { injectJavaScriptSafely } from './injectJavaScript';
+ import {
+   DOM_READY,
+   getInjectBodySizeObserverScript,
+@@ -54,7 +55,7 @@ const RawWebView = React.forwardRef<object, Props>((props, ref) => {
+           if (domImperativeHandlePropsRef.current?.includes(propName)) {
+             return function (...args: any[]) {
+               const serializedArgs = args.map((arg) => JSON.stringify(arg)).join(',');
+-              webviewRef.current?.injectJavaScript(
++              inject(
+                 `window._domRefProxy.${propName}(${serializedArgs})`
+               );
+             };
+@@ -73,6 +74,17 @@ const RawWebView = React.forwardRef<object, Props>((props, ref) => {
+   const useExpoDOMWebView = dom?.useExpoDOMWebView ?? true;
+   const webView = resolveWebView(useExpoDOMWebView);
+   const webviewRef = React.useRef<WebViewRef>(null);
++  const mountedRef = React.useRef(true);
++  const readyRef = React.useRef(false);
++  React.useLayoutEffect(() => {
++    mountedRef.current = true;
++    return () => { mountedRef.current = false; };
++  }, []);
++  const inject = React.useCallback((script: string) => {
++    const view = webviewRef.current;
++    if (!mountedRef.current || !view) return;
++    injectJavaScriptSafely(view, script, () => !mountedRef.current || webviewRef.current !== view);
++  }, []);
+   const domImperativeHandlePropsRef = React.useRef<string[]>([]);
+   const source = { uri: overrideUri ?? `${getBaseURL()}/${filePath}` };
+   const [containerStyle, setContainerStyle] = React.useState<WebViewProps['containerStyle']>(null);
+@@ -81,9 +93,9 @@ const RawWebView = React.forwardRef<object, Props>((props, ref) => {
+ 
+   const emit = React.useCallback(
+     (detail: BridgeMessage<any>) => {
+-      webviewRef.current?.injectJavaScript(getInjectEventScript(detail));
++      inject(getInjectEventScript(detail));
+     },
+-    [webviewRef]
++    [inject]
+   );
+ 
+   // serializable props, action names.
+@@ -110,7 +122,9 @@ const RawWebView = React.forwardRef<object, Props>((props, ref) => {
+ 
+   // When the `marshalProps` change, emit them to the webview.
+   React.useEffect(() => {
+-    emit({ type: '$$props', data: smartActions });
++    // Initial props are embedded in HTML. Wait for the DOM props listener and
++    // native view registration, then DOM_READY replays the latest props.
++    if (readyRef.current) emit({ type: '$$props', data: smartActions });
+   }, [emit, smartActions]);
+ 
+   return React.createElement(webView, {
+@@ -179,6 +193,7 @@ const RawWebView = React.forwardRef<object, Props>((props, ref) => {
+       }
+ 
+       if (type === DOM_READY) {
++        readyRef.current = true;
+         // Re-send the props the DOM side missed while the WebView was loading.
+         emit({ type: '$$props', data: smartActions });
+         return;

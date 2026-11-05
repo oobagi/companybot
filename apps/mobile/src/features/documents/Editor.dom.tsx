@@ -9,42 +9,48 @@ import '@blocknote/react/style.css';
 import '@blocknote/mantine/style.css';
 import { linkedPageId, pageHref, validPageHref } from '@companybot/core/page-links';
 import { sendableSteps } from 'prosemirror-collab';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { DOMProps } from 'expo/dom';
 import { api } from '@/lib/api';
-import type { Colors } from '@/design';
 import { radii, sizes, spacing, typography } from '@/design/tokens';
-import { createSyncTransport, type EditorTransport, type Snapshot } from './transport';
+import { createSyncTransport, type EditorTransport } from './transport';
 import { createEditorLifetime } from './lifetime';
 import { documentSyncExtension } from './sync';
 import './editor.css';
-import { documentSchema as schema, PageBlockActions, References, type Reference } from './schema';
+import { documentSchema as schema, PageBlockActions, References } from './schema';
 import { applyBlockAction, blockTarget, createPageAtBlock, installPageRemovalGuard, type BlockAction, type BlockTarget } from './blockActions';
 import { createBridgeNotifications } from './bridgeNotifications';
-import { createDocumentCommandReceiver, type DocumentCommand } from './commands';
+import { createDocumentCommandReceiver } from './commands';
+import { decodeDocumentPayload } from './domPayload';
 
 type Props = EditorTransport & {
   dom?: DOMProps;
-  pageId: string;
-  snapshot: Snapshot;
-  latestVersion: number | null;
-  retrySignal?: string;
-  editable: boolean;
-  canCreatePage: boolean;
+  payload: string;
   onBlockActions: (target: BlockTarget) => Promise<BlockAction | null>;
   onCreatePage: () => Promise<string | null>;
-  dark: boolean;
-  colors: Colors;
-  references: Record<string, Reference>;
   onReferences: (ids: string[]) => Promise<void>;
   onOpenLink: (href: string) => Promise<void>;
   onRemovePages: (ids: string[]) => Promise<boolean>;
   onStatus: (dirty: boolean, error: string | null) => Promise<void>;
-  image?: { url: string; request: number };
-  command?: DocumentCommand;
 };
 
-export default function DocumentDOM(props: Props) {
+export default function DocumentDOM(wire: Props) {
+  const native = process.env.EXPO_DOM_HOST_OS === 'ios' || process.env.EXPO_DOM_HOST_OS === 'android';
+  useLayoutEffect(() => {
+    if (!native) return;
+    // Expo supplies this tag in its DOM HTML. Update it instead of adding a
+    // second viewport tag; BlockNote needs the layout viewport above the keyboard.
+    const existing = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
+    const viewport = existing ?? document.createElement('meta');
+    const before = viewport.content;
+    viewport.name = 'viewport';
+    const directives = (before || 'width=device-width, initial-scale=1').split(',').map(value => value.trim()).filter(value => !/^interactive-widget\s*=/.test(value));
+    viewport.content = [...directives, 'interactive-widget=resizes-content'].join(', ');
+    if (!existing) document.head.append(viewport);
+    return () => { if (existing) viewport.content = before; else viewport.remove(); };
+  }, [native]);
+  const data = useMemo(() => decodeDocumentPayload(wire.payload), [wire.payload]);
+  const props = useMemo(() => ({ ...wire, ...data }), [wire, data]);
   const latest = useRef(props);
   useEffect(() => { latest.current = props; }, [props]);
   const [problem, setProblem] = useState<string>();
@@ -147,7 +153,7 @@ export default function DocumentDOM(props: Props) {
   if (!editor) return <p role="status">This document is unavailable.</p>;
   const baseTheme = props.dark ? darkDefaultTheme : lightDefaultTheme;
   return <References.Provider value={props.references}><PageBlockActions.Provider value={props.editable ? id => { void perform(id); } : null}>
-    <div className="mobile-document" style={{ color: props.colors.text, background: props.colors.background, '--page-border': props.colors.border, '--page-link': props.colors.link, '--space-sm': `${spacing.sm}px`, '--space-md': `${spacing.md}px`, '--space-lg': `${spacing.lg}px`, '--space-footer': `${spacing.xxxl}px`, '--radius-md': `${radii.md}px`, '--touch': `${sizes.touch}px`, '--body-size': `${typography.body.fontSize}px`, '--caption-size': `${typography.caption.fontSize}px` } as React.CSSProperties}
+    <div className={`mobile-document${native ? ' native-document bn-scroll-container' : ''}`} style={{ color: props.colors.text, background: props.colors.background, '--page-border': props.colors.border, '--page-link': props.colors.link, '--space-sm': `${spacing.sm}px`, '--space-md': `${spacing.md}px`, '--space-lg': `${spacing.lg}px`, '--space-footer': `${spacing.xxxl}px`, '--radius-md': `${radii.md}px`, '--touch': `${sizes.touch}px`, '--body-size': `${typography.body.fontSize}px`, '--caption-size': `${typography.caption.fontSize}px` } as React.CSSProperties}
       onClickCapture={(event) => {
         const anchor = event.target instanceof Element ? event.target.closest('a[href]') : null;
         if (!anchor) return;

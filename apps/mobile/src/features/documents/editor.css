@@ -1,7 +1,12 @@
 html, body, #root { margin: 0; min-height: 100%; width: 100%; }
 /* Expo's DOM root is a flex row by default. Give the document the entire viewport. */
 #root { flex-direction: column; }
-.mobile-document { flex: 1; width: 100%; min-width: 0; min-height: 100%; box-sizing: border-box; font-family: system-ui, sans-serif; overflow-wrap: anywhere; }
+.mobile-document { flex: 1; min-width: 0; min-height: 100%; box-sizing: border-box; font-family: system-ui, sans-serif; overflow-wrap: anywhere; }
+.mobile-document:not(.native-document) { width: 100%; }
+/* BlockNote tracks the visual viewport for this single native scroll container.
+   Do not force its minimum height back to the keyboard-closed viewport. */
+.mobile-document.native-document { min-height: 0; }
+body:has(.native-document) { overflow: hidden; }
 .mobile-document .bn-editor { padding: var(--space-md) var(--space-lg) var(--space-footer); font-size: var(--body-size); line-height: 1.6; }
 .mobile-document .bn-block-content[data-content-type="table"] { max-width: 100%; overflow-x: auto; }
 .mobile-document .bn-inline-content a { color: var(--page-link); }

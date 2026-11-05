@@ -27,6 +27,7 @@ import { boundDocumentSteps } from './requests';
 import { useUnsavedDocument } from '@/lib/UnsavedWork';
 import { useDocumentActions } from './DocumentActions';
 import type { DocumentCommand } from './commands';
+import { encodeDocumentPayload } from './domPayload';
 
 export function DocumentEditor({ pageId, editable }: { pageId: Id<'pages'>; editable: boolean }) {
   // pageSync resolves access from the document itself; first validate the selected workspace as well.
@@ -117,7 +118,7 @@ function ConnectedEditor({ pageId, editable, standalone }: { pageId: Id<'pages'>
     {actions.dialog}
     {(error || upload.error) && <ErrorState message={error ?? upload.error!} onRetry={error ? () => setRetry(n => n + 1) : undefined} />}
     {referenceIds.map((id) => <PageReference key={id} id={id} onChange={setReference} />)}
-    <DocumentDOM pageId={pageId} snapshot={snapshot} latestVersion={version} retrySignal={`${connection.connectionCount}:${retry}`} editable={editable} canCreatePage={standalone} onBlockActions={actions.onBlockActions} onCreatePage={actions.onCreatePage} command={command} dark={theme.dark} colors={theme.colors} image={image} references={references}
+    <DocumentDOM payload={encodeDocumentPayload({ pageId, snapshot, latestVersion: version, retrySignal: `${connection.connectionCount}:${retry}`, editable, canCreatePage: standalone, command, dark: theme.dark, colors: theme.colors, image, references })} onBlockActions={actions.onBlockActions} onCreatePage={actions.onCreatePage}
       getSteps={(atVersion) => convex.query(api.pageSync.getSteps, { id: pageId, version: atVersion })}
       submitSteps={(args: Submit) => {
         if (!editable) return Promise.reject(new Error('This document is read only.'));
@@ -146,7 +147,7 @@ function PageReference({ id, onChange }: { id: string; onChange: (id: string, va
 
 export function VersionDocument({ content, identity }: { content: string; identity: string }) {
   const theme = useTheme();
-  return <View style={{ flex: 1, minHeight: 0 }}><DocumentDOM key={identity} pageId={identity} snapshot={{ content, version: 1 }} latestVersion={1} editable={false} canCreatePage={false} onBlockActions={async () => null} onCreatePage={async () => null} dark={theme.dark} colors={theme.colors} references={{}}
+  return <View style={{ flex: 1, minHeight: 0 }}><DocumentDOM key={identity} payload={encodeDocumentPayload({ pageId: identity, snapshot: { content, version: 1 }, latestVersion: 1, editable: false, canCreatePage: false, dark: theme.dark, colors: theme.colors, references: {} })} onBlockActions={async () => null} onCreatePage={async () => null}
     getSteps={async () => ({ steps: [], clientIds: [], version: 1 })} submitSteps={async () => { throw new Error('History is read only.'); }}
     onReferences={async () => {}} onStatus={async () => {}} onRemovePages={async () => false}
     onOpenLink={async (href) => { const id = linkedPageId(href); if (id) router.push({ pathname: '/pages/[pageId]', params: { pageId: id } }); else if (/^(https?:|mailto:|tel:)/i.test(href)) await Linking.openURL(href); }}
