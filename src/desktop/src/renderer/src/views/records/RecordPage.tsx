@@ -140,6 +140,7 @@ function FieldRow({ field, record, editable, onEditField }: { field: TypeField; 
 			{/* The label opens the field's settings, for whoever may change them. */}
 			<dt className={`flex min-w-0 items-center py-1 ${descriptionClass}`}>
 				{onEditField ? (
+					// oxlint-disable-next-line ui/button-class -- a field's label opens its settings, like a clickable title
 					<button type="button" onClick={onEditField} title="Edit field" className="-mx-1.5 max-w-full truncate rounded-md px-1.5 py-0.5 text-left hover:bg-neutral-100 hover:text-neutral-900">
 						{field.label}
 					</button>
@@ -187,6 +188,7 @@ function Linked({ recordId }: { recordId: Id<"records"> }) {
 						</p>
 						<div className={listClass}>
 							{rows.map((r) => (
+								// oxlint-disable-next-line ui/button-class -- a whole list row opens its record; no shared row look yet
 								<button
 									key={r._id}
 									type="button"

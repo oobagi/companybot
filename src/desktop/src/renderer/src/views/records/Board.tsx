@@ -96,11 +96,12 @@ function Lane({
 			}}
 			className={`flex w-64 shrink-0 flex-col gap-2 rounded-xl p-2 ${over ? "bg-neutral-200/70" : "bg-neutral-100/70"}`}
 		>
-			<h3 className="flex items-center gap-2 px-1 text-sm font-medium text-neutral-700">
+			<div className="flex items-center gap-2 px-1 text-sm font-medium text-neutral-700">
 				<span className="truncate">{retired ? `${label} (removed)` : label}</span>
 				<span className="text-neutral-400">{status === "LoadingFirstPage" ? "" : `${rows.length}${status === "Exhausted" ? "" : "+"}`}</span>
-			</h3>
+			</div>
 			{rows.map((r) => (
+				// oxlint-disable-next-line ui/button-class -- a board card: the whole draggable card opens its record
 				<button
 					key={r._id}
 					type="button"

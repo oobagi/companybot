@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation } from "../../convex";
 import { navigate } from "../../router";
-import { ConflictNotice, Field, Form, Notice, Setting, Settings, compactButton, compactPrimaryButton, inputClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../../ui";
+import { ConflictNotice, Form, Notice, Setting, Settings, compactButton, compactPrimaryButton, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../../ui";
 import { ArchiveIcon } from "../../icons";
 import { DialogButtons, MenuItem, Modal, archiveQuestion, useConfirm } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
@@ -34,9 +34,11 @@ export function DatabaseDialog({ type, onClose }: { type?: RecordType; onClose: 
 			<Modal title="New database" onClose={close}>
 				<Form onSubmit={() => run(create({ plural: draft.value.plural }).then((id) => { draft.discard(); setCreated(id); }))}>
 					<Notice>{error}</Notice>
-					<Field label="Name">
-						<input autoFocus required maxLength={120} placeholder="e.g. Projects" className={inputClass} value={draft.value.plural} onChange={set("plural")} />
-					</Field>
+					<Settings>
+						<Setting label="Name">
+							<input autoFocus aria-label="Name" required maxLength={120} placeholder="e.g. Projects" className={wideControlClass} value={draft.value.plural} onChange={set("plural")} />
+						</Setting>
+					</Settings>
 					<DialogButtons>
 						<button type="button" onClick={close} className={secondaryButton}>Cancel</button>
 						<button type="submit" disabled={busy} className={primaryButton}>Create database</button>
