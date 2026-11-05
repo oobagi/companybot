@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { scribe } from "../test/fixtures";
 import { grantedConnectorIds, validateAgentConfig } from "./agents";
-import { type CustomConnectorInput, type PinnedNetwork, connectorFetch, customConnector, customConnectorId, customUrlProblem, validateConnector, validateCustomConnector } from "./connectors";
+import { type CustomConnectorInput, type PinnedNetwork, connectLimitMs, connectorFetch, customConnector, customConnectorId, customUrlProblem, validateConnector, validateCustomConnector } from "./connectors";
 import { openConnector } from "./mcp";
 import { startSignIn } from "./oauth";
 
@@ -42,6 +42,9 @@ describe("custom connectors", () => {
 	it("checks the sign-in fields", () => {
 		expect(validateCustomConnector(input)).toBeNull();
 		expect(validateCustomConnector({ ...input, name: " " })).toMatch("name");
+		expect(validateCustomConnector({ ...input, url: "https://mcp.tickets.example/sse" })).toMatch("Streamable HTTP only");
+		expect(validateCustomConnector({ ...input, url: "https://mcp.tickets.example/v1/SSE/" })).toMatch("Streamable HTTP only");
+		expect(validateCustomConnector({ ...input, url: "https://sse.tickets.example/mcp" })).toBeNull();
 		expect(validateCustomConnector({ ...input, auth: { ...input.auth, header: "Bad Header" } as CustomConnectorInput["auth"] })).toMatch("header name");
 		expect(validateCustomConnector({ ...input, auth: { type: "api_key", header: "Host", label: "Key" } })).toMatch("set by the connection");
 		expect(validateCustomConnector({ ...input, auth: { type: "api_key", header: "Authorization", prefix: "Bearer\r\nX: y", label: "Key" } })).toMatch("one line");
@@ -65,6 +68,11 @@ describe("custom connectors", () => {
 		expect(validateAgentConfig(agent)).toMatch("Unknown tool");
 		expect(validateAgentConfig(agent, undefined, [tickets])).toBeNull();
 		expect(grantedConnectorIds(agent)).toEqual(["custom-tickets"]);
+	});
+
+	it("gets longer to connect than a catalog connector", () => {
+		expect(connectLimitMs(customConnector("custom-tickets-abc123", input))).toBe(20_000);
+		expect(connectLimitMs({ custom: undefined })).toBe(10_000);
 	});
 
 	it("never connects without the checked fetch", async () => {

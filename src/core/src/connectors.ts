@@ -132,6 +132,16 @@ export function customConnectorId(name: string, taken: readonly string[], random
 	}
 }
 
+/**
+ * How long a connection may take to open before the turn goes on without it. Custom connectors get
+ * longer: each of their requests is a round trip through the pinned Node network (`connectorFetch`),
+ * and opening a session takes several.
+ */
+export const connectLimitMs = (connector: Pick<Connector, "custom">) => (connector.custom ? 20_000 : 10_000);
+
+/** Why a URL looks like a legacy SSE endpoint, which custom connectors don't speak. */
+const SSE_PATH = /\/sse\/?$/i;
+
 // Headers the transport sets itself, or that would change what the request is.
 const reservedHeaders = new Set(["host", "content-length", "content-type", "accept", "connection", "transfer-encoding", "mcp-session-id", "mcp-protocol-version", "last-event-id", "cookie"]);
 
@@ -143,6 +153,9 @@ export function validateCustomConnector(input: CustomConnectorInput): string | n
 	if (input.description.trim().length > CUSTOM_CONNECTOR_DESCRIPTION_MAX) return `Keep the description under ${CUSTOM_CONNECTOR_DESCRIPTION_MAX} characters.`;
 	const problem = customUrlProblem(input.url.trim());
 	if (problem) return problem;
+	if (SSE_PATH.test(new URL(input.url.trim()).pathname)) {
+		return "That looks like an SSE server address. Custom connectors use Streamable HTTP only (SSE is deprecated in MCP); use the server's Streamable HTTP URL, often ending in /mcp.";
+	}
 	if (input.auth.type === "api_key") {
 		const header = input.auth.header.trim();
 		if (!/^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,64}$/.test(header)) return "The header must be a header name, like Authorization or X-API-Key.";

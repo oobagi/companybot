@@ -254,7 +254,7 @@ function ConnectorFields({ value, onChange }: { value: ConnectorForm; onChange: 
 			<Field label="Description" hint="Optional. What it’s for; agents see it when it’s connected.">
 				<input className={inputClass} value={value.description} maxLength={CUSTOM_CONNECTOR_DESCRIPTION_MAX} placeholder="e.g. Tickets and customer conversations" onChange={(e) => onChange({ ...value, description: e.target.value })} />
 			</Field>
-			<Field label="Server URL" hint="The MCP server’s Streamable HTTP address. It must be https and on the public internet.">
+			<Field label="Server URL" hint="Streamable HTTP only (often ends in /mcp); SSE servers can’t be added. It must be https and on the public internet.">
 				<input className={inputClass} value={value.url} inputMode="url" spellCheck={false} placeholder="https://example.com/mcp" onChange={(e) => onChange({ ...value, url: e.target.value })} />
 			</Field>
 			<div className="flex flex-col gap-1.5">

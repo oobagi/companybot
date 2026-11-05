@@ -10,7 +10,7 @@ A connector links an outside service so agents can use it for you. They live in 
 ## Adding your own (custom connectors)
 People whose role can install connectors add any service with an **MCP server**: **New connector** in the Connectors top bar. Fill in:
 - **Name** and an optional description.
-- **Server URL**: the server's https address. It must use Streamable HTTP, which most MCP servers do; servers that only speak the older SSE transport can't be added. Local and private addresses (localhost, 10.x, 192.168.x, cloud metadata) are refused, when you save and again before every connection. Each connection goes only to the address that was checked, and redirects aren't followed.
+- **Server URL**: the server's https address. **Streamable HTTP only**, which most MCP servers use (often a URL ending in /mcp). The older SSE transport is deprecated in MCP and can't be added. Local and private addresses (localhost, 10.x, 192.168.x, cloud metadata) are refused, when you save and again before every connection. Each connection goes only to the address that was checked, and redirects aren't followed.
 - **Account**: one shared account, or each person's own.
 - **Sign-in**: none, an API key (which header it goes in, an optional prefix such as "Bearer ", and what to call the key), or OAuth (sign in through the browser).
 

@@ -29,6 +29,7 @@ import {
 	buildTurnPrompt,
 	builtinTools,
 	canonicalJson,
+	connectLimitMs,
 	cleanWhy,
 	createResultStore,
 	createWebTurn,
@@ -83,8 +84,6 @@ const STOP_CHECK_MS = 1_000;
  * that arrives while it writes waits for the follow-up.
  */
 export const STEER_WINDOW_MS = 60_000;
-/** A connector that doesn't connect this fast is skipped for the turn, not waited on. */
-const CONNECTOR_CONNECT_MS = 10_000;
 
 /** Runs one agent turn (see turns.ts): streams the reply into the database, then starts the next queued turn. */
 export const respond = internalAction({
@@ -205,7 +204,7 @@ async function loadConnectors(
 					oauth.push({ connectionId, provider: authProvider });
 				}
 				// Custom connectors resolve and check their server's addresses on every connection (connectors.fetchFor).
-				const opened = await openWithTimeout(openConnector(connector, { credentials: creds, authProvider, fetch: fetchFor(ctx, connector) }));
+				const opened = await openWithTimeout(openConnector(connector, { credentials: creds, authProvider, fetch: fetchFor(ctx, connector) }), connectLimitMs(connector));
 				if (connectionId) await ctx.runMutation(internal.connectors.setConnectionError, { connectionId });
 				// Access is read fresh before every call, so a role change or disconnect applies mid-reply.
 				const stillAllowed = async () =>
@@ -241,14 +240,17 @@ async function loadConnectors(
 	};
 }
 
-/** Gives up after CONNECTOR_CONNECT_MS. A session that connects later anyway is closed, not leaked. */
-function openWithTimeout(opening: Promise<ConnectorSession>): Promise<ConnectorSession> {
+/**
+ * Gives up after `limitMs` (core `connectLimitMs`): a connector that doesn't connect this fast is
+ * skipped for the turn, not waited on. A session that connects later anyway is closed, not leaked.
+ */
+function openWithTimeout(opening: Promise<ConnectorSession>, limitMs: number): Promise<ConnectorSession> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const timeout = new Promise<never>((_, reject) => {
 		timer = setTimeout(() => {
 			reject(new Error("Timed out connecting."));
 			opening.then((s) => s.close()).catch(() => {});
-		}, CONNECTOR_CONNECT_MS);
+		}, limitMs);
 	});
 	return Promise.race([opening, timeout]).finally(() => clearTimeout(timer));
 }
