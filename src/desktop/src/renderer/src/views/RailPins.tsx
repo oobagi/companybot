@@ -1,7 +1,8 @@
 import { useRef, useState } from "react";
 import { api } from "../api";
 import { useQuery } from "../convex";
-import { ChannelIcon, ChatIcon, DatabaseIcon, PageIcon, PinIcon, PrivateIcon, RecordIcon, UnpinIcon } from "../icons";
+import { ChannelIcon, ChatIcon, DatabaseIcon, FolderIcon, PageIcon, PinIcon, PrivateIcon, RecordIcon, UnpinIcon } from "../icons";
+import { FileKindIcon } from "./drive/FileIcon";
 import { type PinKey, RECENT_SHOWN, pathOf, splitPin, usePins } from "../pins";
 import { navigate } from "../router";
 import { type DragProps, useSortable } from "../sortable";
@@ -23,6 +24,8 @@ function useEntries(keys: PinKey[]) {
 	const types = useTypes();
 	const recordIds = keys.flatMap((k) => (k.startsWith("rec:") ? [splitPin(k)[1]] : []));
 	const records = useQuery(api.records.titles, recordIds.length ? { recordIds } : "skip");
+	const fileIds = keys.flatMap((k) => (k.startsWith("file:") ? [splitPin(k)[1]] : []));
+	const files = useQuery(api.driveFiles.titles, fileIds.length ? { ids: fileIds } : "skip");
 	return (key: PinKey): Entry | undefined => {
 		const [kind, id] = splitPin(key);
 		const plain = { key, path: pathOf(key), unread: false, mentioned: false };
@@ -32,7 +35,11 @@ function useEntries(keys: PinKey[]) {
 		}
 		if (kind === "page") {
 			const page = pages?.find((p) => p._id === id);
-			return page && { ...plain, label: page.title || "Untitled", icon: <PageIcon size={20} /> };
+			return page && { ...plain, label: page.title || "Untitled", icon: page.kind === "folder" ? <FolderIcon size={20} /> : <PageIcon size={20} /> };
+		}
+		if (kind === "file") {
+			const file = files?.find((f) => f._id === id);
+			return file && { ...plain, label: file.name, icon: <FileKindIcon type={file.type} name={file.name} size={20} /> };
 		}
 		if (kind === "db") {
 			const type = types?.find((t) => t.key === id);
@@ -54,7 +61,7 @@ function useEntries(keys: PinKey[]) {
 }
 
 /**
- * Under the rail's tabs: your pins (any chat, DM, page, database or record; drag to reorder), then what
+ * Under the rail's tabs: your pins (any chat, DM, page, folder, file, database or record; drag to reorder), then what
  * you opened lately that isn't pinned. Pin from a sidebar row's menu, or right-click one here.
  * `open` is what's on screen, lit like a tab.
  */

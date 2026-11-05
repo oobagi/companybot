@@ -1,7 +1,8 @@
-import { DOCX, FILES_PER_MESSAGE, XLSX, fileKind, formatFileSize, isImageType } from "@companybot/core/files";
+import { FILES_PER_MESSAGE, fileKind, formatFileSize, isImageType } from "@companybot/core/files";
 import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useMutation, useQuery } from "../../convex";
-import { AttachIcon, CloseIcon, FileCsvIcon, FileDocIcon, FileIcon, FilePdfIcon, FileXlsIcon, PageIcon } from "../../icons";
+import { AttachIcon, CloseIcon } from "../../icons";
+import { FileKindIcon } from "../drive/FileIcon";
 import { useFileUpload } from "../../upload";
 import { api } from "../../api";
 import { Layer } from "./common";
@@ -194,17 +195,9 @@ export function FileDrop({ attachments, className, children }: { attachments?: A
 	);
 }
 
-/** An icon for a file's kind, by its type or (pending, untyped) its name. */
+/** A file's kind, in a chip. */
 function KindIcon({ type, name }: { type?: string; name: string }) {
-	const ext = name.toLowerCase().split(".").pop();
-	const icon =
-		type === "application/pdf" || ext === "pdf" ? <FilePdfIcon /> :
-		type === DOCX || ext === "docx" ? <FileDocIcon /> :
-		type === XLSX || ext === "xlsx" ? <FileXlsIcon /> :
-		type === "text/csv" || ext === "csv" ? <FileCsvIcon /> :
-		type?.startsWith("text/") || ext === "txt" || ext === "md" ? <PageIcon /> :
-		<FileIcon />;
-	return <span className="flex size-9 shrink-0 items-center justify-center rounded bg-neutral-100 text-xl text-neutral-500">{icon}</span>;
+	return <span className="flex size-9 shrink-0 items-center justify-center rounded bg-neutral-100 text-xl text-neutral-500"><FileKindIcon type={type} name={name} /></span>;
 }
 
 /** A message's files: pictures as thumbnails that open larger, the rest as chips that open the file. */

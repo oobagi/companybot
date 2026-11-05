@@ -166,6 +166,8 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		await ctx.db.insert("pageVersions", { pageId, n: 1, version: 2, userId: memberId, editedAt: now });
 		await ctx.db.insert("pageImages", { workspaceId, pageId, storageId: await ctx.storage.store(new Blob(["x"])), url: `https://x.convex.cloud/api/storage/${pageId}` });
 		await ctx.db.insert("pageMoves", { workspaceId, pageId, n: 1, userId: memberId, from: "Pages", to: "Wiki" });
+		const folderId = await ctx.db.insert("pages", { workspaceId, kind: "folder", title: "Contracts", archived: false, createdBy: memberId, updatedAt: now, updatedBy: memberId });
+		await ctx.db.insert("driveFiles", { workspaceId, parentId: folderId, name: "msa.pdf", type: "application/pdf", size: 1, storageId: await ctx.storage.store(new Blob(["%PDF-"])), archived: false, createdBy: memberId, updatedAt: now, updatedBy: memberId });
 		const trashedId = await ctx.db.insert("records", { workspaceId, typeId, title: "Old", values: { name: "Old" }, searchText: "old", archived: true, createdBy: memberId, updatedAt: now, updatedBy: memberId });
 		await ctx.db.insert("trash", { workspaceId, kind: "record", itemId: trashedId, name: "Old", typeId, deletedBy: memberId, deletedAt: now });
 		return mine;

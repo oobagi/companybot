@@ -124,7 +124,7 @@ export const chatTools: ToolDef[] = [
 	defineTool({
 		id: "chat.read_file",
 		title: "Read a file",
-		description: "Read the text of a file attached to a message (PDF, Word, Excel, CSV, text), by the file id shown with it. Long files come in pages: ask for the next with page.",
+		description: "Read the text of a file attached to a message (PDF, Word, Excel, PowerPoint, CSV, text), by the file id shown with it. Long files come in pages: ask for the next with page.",
 		input: z.object({
 			id: z.string().describe('The file id, like "<message id>/0"'),
 			page: z.number().int().min(1).optional().describe("Default 1"),

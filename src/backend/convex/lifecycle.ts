@@ -62,7 +62,7 @@ const roleRefs = <T extends "members" | "invites" | "connectorInstalls">(): Edge
 	where: (_get, row, root) => !!row.roles?.includes(root.roleId!),
 	scrub: (row, _get, root) => ({ roles: row.roles!.filter((id: string) => id !== root.roleId) }) as unknown as Partial<Doc<T>>,
 });
-const roleAccess = <T extends "chats" | "recordTypes" | "pages">(): Edge<T> => ({
+const roleAccess = <T extends "chats" | "recordTypes" | "pages" | "driveFiles">(): Edge<T> => ({
 	index: "by_workspace", eq: ["workspaceId"],
 	where: (_get, row, root) => !!row.access?.some((e: { role: string }) => e.role === root.roleId),
 	scrub: (row, _get, root) => ({ access: withoutRole(row.access as NonNullable<AccessList>, root.roleId!) }) as unknown as Partial<Doc<T>>,
@@ -82,13 +82,21 @@ async function deleteBody(ctx: MutationCtx, row: Doc<"records">) {
 	if (page) await deletePage(ctx, page._id);
 }
 
-/** A page's content is the prosemirrorSync component's, deleted by the component a little at a time. */
-const deleteContent = (ctx: MutationCtx, row: Doc<"pages">) => ctx.scheduler.runAfter(0, internal.pageSync.deleteDoc, { id: row._id });
+/** A page's content is the prosemirrorSync component's, deleted by the component a little at a time. Folders have none. */
+const deleteContent = async (ctx: MutationCtx, row: Doc<"pages">) => {
+	if (row.kind !== "folder") await ctx.scheduler.runAfter(0, internal.pageSync.deleteDoc, { id: row._id });
+};
 
-/** A page going inside another cascade: its content, then a page cascade for its versions, moves and images. */
+/** A page going inside another cascade: its content, then a page cascade for its versions, moves and images (a folder's: what it held). */
 async function deleteContentAndRest(ctx: MutationCtx, row: Doc<"pages">) {
 	await deleteContent(ctx, row);
 	await startCascade(ctx, "page", { workspaceId: row.workspaceId, pageId: row._id });
+}
+
+/** A file in Archive on its own, going with its folder: its Archive entry goes too. */
+async function forgetFileTrashEntry(ctx: MutationCtx, row: Doc<"driveFiles">) {
+	const entry = row.archived && (await trashEntry(ctx, row._id));
+	if (entry) await ctx.db.delete(entry._id);
 }
 
 /** A page image's file goes with the last page that has it (copies share it). */
@@ -431,6 +439,14 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	pageImages: {
 		workspace: { index: "by_url", eq: ["workspaceId"], onDelete: deleteImageFile },
 		page: { index: "by_page", eq: ["pageId"], onDelete: deleteImageFile },
+	},
+	// Files in Drive (driveFiles.ts): the workspace's, like pages; a folder's go with it, their Archive entries too.
+	driveFiles: {
+		role: roleAccess<"driveFiles">(),
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		page: { index: "by_parent", eq: ["workspaceId", ["parentId", "pageId"]], onDelete: forgetFileTrashEntry },
+		keep: "Files are the workspace's, like pages. Deleting one forever (trash.ts) deletes its row and its stored file at once.",
+		files: ["storageId"],
 	},
 
 	trash: {

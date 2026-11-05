@@ -11,7 +11,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { cascading, startCascade } from "./cascade";
 import { type Member, type Who, checkPermission, nameOf, requireInWorkspace } from "./lib";
 import { pageBlockSchema, withoutPageTitles } from "./pageBlocks";
-import { type PageState, keptAccess, pageState, pageStates, parentFor } from "./pageTree";
+import { type PageState, keptAccess, kindOf, pageState, pageStates, parentFor } from "./pageTree";
 import { reach, requireAccess } from "./placeAccess";
 import { inTrash, requireRecord } from "./recordOps";
 import { notePlace, readArtifact, writeSources } from "./replySources";
@@ -60,9 +60,9 @@ export async function requirePage(ctx: QueryCtx, member: Member, pageId: Id<"pag
  */
 export async function requirePageAccess(ctx: QueryCtx, member: Member, page: Doc<"pages">, need: AccessLevel, state?: PageState, asked?: string) {
 	const { access, type } = state ?? (await pageState(ctx, page));
-	if (!(await readArtifact(ctx, member, type ?? page))) throw new ConvexError("Page not found.");
+	if (!(await readArtifact(ctx, member, type ?? page))) throw new ConvexError(`${kindOf(page) === "folder" ? "Folder" : "Page"} not found.`);
 	if (type) requireAccess(member, "database", type.plural, access, need);
-	else requireAccess(member, "page", page.title, access, need, asked);
+	else requireAccess(member, kindOf(page), page.title, access, need, asked);
 	await notePlace(ctx, member, type?._id ?? page._id, access);
 }
 
@@ -124,23 +124,29 @@ export async function requireEditable(ctx: QueryCtx, member: Member, page: Doc<"
 	checkPermission(member, "pages.edit");
 	const state = await pageState(ctx, page);
 	await requirePageAccess(ctx, member, page, "edit", state);
-	if (state.archived) throw new ConvexError("This page is in Archive. Restore it to make changes.");
+	if (state.archived) throw new ConvexError(`This ${kindOf(page)} is in Archive. Restore it to make changes.`);
 	if (page.recordId && (await inTrash(ctx, await requireRecord(ctx, member, page.recordId)))) throw new ConvexError("This record is in Archive. Restore it to make changes.");
 }
 
-function cleanTitle(title: string) {
+export function cleanTitle(title: string, kind: "page" | "folder" | "file" = "page") {
 	const clean = title.replace(/\s+/g, " ").trim();
-	if (!clean) throw new ConvexError("Give the page a title.");
-	if (clean.length > TITLE_MAX) throw new ConvexError(`Keep titles under ${TITLE_MAX} characters.`);
+	if (!clean) throw new ConvexError(kind === "page" ? "Give the page a title." : `Give the ${kind} a name.`);
+	if (clean.length > TITLE_MAX) throw new ConvexError(`Keep ${kind === "page" ? "titles" : "names"} under ${TITLE_MAX} characters.`);
 	return clean;
 }
 
-/** A standalone page, or a record's body (returned if it already has one). Starts empty. */
-export async function createPage(ctx: MutationCtx, who: Who, to: { title: string; parentId?: Id<"pages">; insertInParent?: boolean } | { recordId: Id<"records"> }) {
+/** A folder has no content: nothing to sync, version or write in. */
+export function requireContent(page: Doc<"pages">) {
+	if (kindOf(page) === "folder") throw new ConvexError("A folder has no content. Put pages and files in it instead.");
+}
+
+/** A standalone page or folder, or a record's body (returned if it already has one). Pages start empty. */
+export async function createPage(ctx: MutationCtx, who: Who, to: { title: string; parentId?: Id<"pages">; insertInParent?: boolean; kind?: "folder" } | { recordId: Id<"records"> }) {
 	const { member } = who;
 	checkPermission(member, "pages.edit");
 	const parentId = "parentId" in to ? to.parentId : undefined;
-	if (parentId) await parentFor(ctx, member, parentId);
+	const kind = "kind" in to ? to.kind : undefined;
+	if (parentId) await parentFor(ctx, member, parentId, kind ?? "page");
 	let recordId: Id<"records"> | undefined;
 	if ("recordId" in to) {
 		const record = await requireRecord(ctx, member, to.recordId, "edit");
@@ -155,12 +161,14 @@ export async function createPage(ctx: MutationCtx, who: Who, to: { title: string
 		workspaceId: member.workspaceId,
 		...(recordId && { recordId }),
 		...(parentId && { parentId }),
-		title: "title" in to ? cleanTitle(to.title) : "",
+		...(kind && { kind }),
+		title: "title" in to ? cleanTitle(to.title, kind) : "",
 		archived: false,
 		createdBy: member.userId,
 		updatedAt: Date.now(),
 		updatedBy: member.userId,
 	});
+	if (kind === "folder") return pageId;
 	await sync.create(ctx, pageId, { type: "doc", content: [{ type: "blockGroup", content: [emptyBlock()] }] });
 	if (parentId && "title" in to && to.insertInParent !== false) {
 		await appendPageBlock(ctx, who, await requirePage(ctx, member, parentId), pageId);
@@ -168,8 +176,9 @@ export async function createPage(ctx: MutationCtx, who: Who, to: { title: string
 	return pageId;
 }
 
-/** Sidebar/agent-created children occupy real document blocks too. */
+/** Sidebar/agent-created children occupy real document blocks too. A folder has no document to hold one. */
 export async function appendPageBlock(ctx: MutationCtx, who: Who, parent: Doc<"pages">, pageId: Id<"pages">) {
+	if (kindOf(parent) === "folder") return;
 	return writeDoc(ctx, who, parent, (doc) => {
 		const tr = new Transform(doc);
 		let exists = false;
@@ -184,7 +193,7 @@ export async function appendPageBlock(ctx: MutationCtx, who: Who, parent: Doc<"p
 
 /** Moving or archiving a child removes its page block, while ordinary inline references stay. */
 export async function removePageBlock(ctx: MutationCtx, who: Who, parent: Doc<"pages">, pageId: Id<"pages">) {
-	if ((await pageState(ctx, parent)).archived) return;
+	if (kindOf(parent) === "folder" || (await pageState(ctx, parent)).archived) return;
 	return writeDoc(ctx, who, parent, (doc) => {
 		const tr = new Transform(doc);
 		doc.descendants((node, pos) => {
@@ -200,13 +209,13 @@ export async function renamePage(ctx: MutationCtx, who: Who, page: Doc<"pages">,
 	await requireEditable(ctx, who.member, page);
 	if (page.recordId) throw new ConvexError("A record's page takes the record's name. Rename the record instead.");
 	await writeSources(ctx, who.member, page._id);
-	const clean = cleanTitle(title);
+	const clean = cleanTitle(title, kindOf(page));
 	await ctx.db.patch(page._id, { title: clean, updatedAt: Date.now(), updatedBy: who.member.userId });
 	// Page links are plain link marks whose text is the title when inserted (alpha.7 can't render live titles),
 	// so keep the parent's links in step, as an edit by whoever renamed. Reworded links and other pages' links stay.
 	// A sub-page with its own list keeps its link text as written: the parent may be open to people it isn't.
 	const parent = !page.access && page.parentId && clean !== page.title && (await ctx.db.get(page.parentId));
-	if (parent) await writeDoc(ctx, who, parent, (doc) => relabelLinks(doc, pageHref(page._id), page.title, clean));
+	if (parent && kindOf(parent) !== "folder") await writeDoc(ctx, who, parent, (doc) => relabelLinks(doc, pageHref(page._id), page.title, clean));
 }
 
 /** Link text that still reads `from`, linking to `href`, now reads `to`. */
@@ -219,20 +228,21 @@ function relabelLinks(doc: Node, href: string, from: string, to: string) {
 	return tr;
 }
 
-/** Moves a standalone page to Archive or back. A record's page goes with its record. */
+/** Moves a standalone page or folder to Archive or back, with what's inside it. A record's page goes with its record. */
 export async function setPageTrashed(ctx: MutationCtx, who: Who, page: Doc<"pages">, archived: boolean) {
 	checkPermission(who.member, "pages.edit");
 	if (page.recordId) throw new ConvexError("A record's page goes to Archive with its record.");
 	if (page.archived === archived) return;
 	if (archived) await requireEditable(ctx, who.member, page);
 	else await requirePageAccess(ctx, who.member, page, "edit");
-	const child = archived && await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", page.workspaceId).eq("parentId", page._id).eq("recordId", undefined).eq("archived", false)).first();
-	await toggleTrash(ctx, who, archived, { kind: "page", id: page._id, name: page.title, includesSubpages: !!child });
+	const child = archived && ((await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", page.workspaceId).eq("parentId", page._id).eq("recordId", undefined).eq("archived", false)).first())
+		|| (await ctx.db.query("driveFiles").withIndex("by_parent", (q) => q.eq("workspaceId", page.workspaceId).eq("parentId", page._id).eq("archived", false)).first()));
+	await toggleTrash(ctx, who, archived, { kind: kindOf(page), id: page._id, name: page.title, includesSubpages: !!child });
 	if (!archived && page.parentId) {
 		const parent = await ctx.db.get(page.parentId);
 		const state = parent ? await pageState(ctx, parent) : null;
 		const missingId = state?.missingId ?? (!parent ? page.parentId : undefined);
-		if (missingId && await cascading(ctx, "page", { workspaceId: page.workspaceId, pageId: missingId })) throw new ConvexError("This page is being deleted forever.");
+		if (missingId && await cascading(ctx, "page", { workspaceId: page.workspaceId, pageId: missingId })) throw new ConvexError(`This ${kindOf(page)} is being deleted forever.`);
 		// Back at the top level, it keeps the list it had under its parent (as a move would), never Everyone's.
 		if (!parent || state?.archived) await ctx.db.patch(page._id, { parentId: undefined, ...keptAccess(who.member, page, (await pageState(ctx, page)).access, undefined) });
 	}
@@ -246,11 +256,11 @@ export async function setPageTrashed(ctx: MutationCtx, who: Who, page: Doc<"page
 	}
 }
 
-/** Deletes a page for good: its row at once, then its content (a little at a time) and its versions. */
+/** Deletes a page or folder for good: its row at once, then its content (a little at a time), versions, and what a folder held. */
 export async function deletePage(ctx: MutationCtx, pageId: Id<"pages">) {
 	const page = await ctx.db.get(pageId);
 	await ctx.db.delete(pageId);
-	await ctx.scheduler.runAfter(0, internal.pageSync.deleteDoc, { id: pageId });
+	if (page?.kind !== "folder") await ctx.scheduler.runAfter(0, internal.pageSync.deleteDoc, { id: pageId });
 	await startCascade(ctx, "page", { pageId, ...(page && { workspaceId: page.workspaceId }) });
 }
 
@@ -302,7 +312,7 @@ export async function recordVersion(ctx: MutationCtx, who: Who, page: Doc<"pages
 	}
 }
 
-/** The page's content now. */
+/** The page's content now (never a folder's: `requireContent` first). */
 export async function readDoc(ctx: QueryCtx, pageId: Id<"pages">) {
 	// getDoc only reads; its type asks for a mutation ctx.
 	return (await sync.getDoc(ctx as unknown as MutationCtx, pageId, pageSchema())).doc;
@@ -391,6 +401,7 @@ function replaceBlocks(doc: Node, blocks: readonly Node[]) {
 }
 
 export async function writeDoc(ctx: MutationCtx, who: Who, page: Doc<"pages">, change: (doc: Node) => Transform, restored?: number) {
+	requireContent(page);
 	await requireEditable(ctx, who.member, page);
 	const { doc, version } = await sync.getDoc(ctx, page._id, pageSchema());
 	return saveTransform(ctx, who, page, version, change(doc), "transform", restored);

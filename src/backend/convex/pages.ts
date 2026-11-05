@@ -22,7 +22,7 @@ import { withoutPageTitles } from "./pageBlocks";
 import { writeSources } from "./replySources";
 import { accessArg } from "./schema";
 import { can } from "@companybot/core";
-import { movePage, pageRow, pageState, pageStates } from "./pageTree";
+import { kindOf, movePage, pageRow, pageState, pageStates } from "./pageTree";
 import { trashInfo } from "./trashOps";
 
 // Pages metadata and history; content syncs through pageSync.ts. See wiki/pages.md.
@@ -82,6 +82,7 @@ export const get = query({
 		const trashPage = state.trashPage && state.trashPage._id !== page._id && !(await reach(state.trashPage)) ? null : (state.trashPage ?? page);
 		return {
 			_id: page._id,
+			kind: kindOf(page),
 			title: page.title,
 			archived: state.archived,
 			// A parent they can't see stays unnamed and unlinked: the page reads as top-level to them.
@@ -109,17 +110,17 @@ export const forRecord = query({
 	},
 });
 
-/** A standalone page, or a record's body (its existing one, if any). */
+/** A standalone page or folder (`kind`), or a record's body (its existing one, if any). */
 export const create = mutation({
-	args: { title: v.optional(v.string()), recordId: v.optional(v.id("records")), parentId: v.optional(v.id("pages")), insertInParent: v.optional(v.boolean()) },
-	handler: async (ctx, { title, recordId, parentId, insertInParent }) => {
-		if (recordId && parentId) throw new ConvexError("Record bodies can't be nested.");
+	args: { title: v.optional(v.string()), recordId: v.optional(v.id("records")), parentId: v.optional(v.id("pages")), insertInParent: v.optional(v.boolean()), kind: v.optional(v.literal("folder")) },
+	handler: async (ctx, { title, recordId, parentId, insertInParent, kind }) => {
+		if (recordId && (parentId || kind)) throw new ConvexError("Record bodies can't be nested.");
 		const who = { member: await requireMember(ctx) };
-		return createPage(ctx, who, recordId ? { recordId } : { title: title ?? "", parentId, insertInParent });
+		return createPage(ctx, who, recordId ? { recordId } : { title: title ?? "", parentId, insertInParent, kind });
 	},
 });
 
-/** A paged level of the tree; the sidebar and Move dialog share it. */
+/** A paged level of the tree, pages and folders together (`kind`); the sidebar and Move dialog share it. Files are driveFiles.children. */
 export const children = query({
 	args: { parentId: v.optional(v.id("pages")), paginationOpts: paginationOptsValidator },
 	handler: async (ctx, { parentId, paginationOpts }) => {
@@ -132,7 +133,9 @@ export const children = query({
 		}
 		const result = await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", parentId).eq("recordId", undefined).eq("archived", false))
 			.paginate(capped(paginationOpts, 50));
-		const hasChildren = async (p: Doc<"pages">) => !!(await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", p._id).eq("recordId", undefined).eq("archived", false)).first());
+		const hasChildren = async (p: Doc<"pages">) =>
+			!!(await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", p._id).eq("recordId", undefined).eq("archived", false)).first()) ||
+			(kindOf(p) === "folder" && !!(await ctx.db.query("driveFiles").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", p._id).eq("archived", false)).first()));
 		const page = [];
 		// Pages kept from them are left out; a page can come back short.
 		for (const p of result.page) {
@@ -244,9 +247,9 @@ export const addImage = mutation({
 });
 
 /**
- * Who can access a standalone page and the sub-pages that follow it: Everyone or roles, each at View or
- * Edit, or `null` to follow its parent's again. People with `pages.edit` and Edit in it choose. A
- * record's page follows its database.
+ * Who can access a standalone page or folder and the sub-pages, folders and files that follow it: Everyone or
+ * roles, each at View or Edit, or `null` to follow its parent's again. People with `pages.edit` and Edit in
+ * it choose. A record's page follows its database.
  */
 export const setAccess = mutation({
 	args: { pageId: v.id("pages"), access: v.union(accessArg, v.null()) },
@@ -267,6 +270,11 @@ export const setAccess = mutation({
 			scanned += children.length;
 			if (scanned > AUDIENCE_SCAN_MAX) throw new ConvexError("Change access on smaller branches first.");
 			queue.push(...children.filter((p) => !p.access));
+			if (kindOf(row) !== "folder") continue;
+			const files = await ctx.db.query("driveFiles").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", row._id)).take(AUDIENCE_SCAN_MAX - scanned + 1);
+			scanned += files.length;
+			if (scanned > AUDIENCE_SCAN_MAX) throw new ConvexError("Change access on smaller branches first.");
+			for (const f of files) if (!f.access) await writeSources(ctx, member, { access: next ?? inherited }, f);
 		}
 		await ctx.db.patch(page._id, { access: next });
 	},

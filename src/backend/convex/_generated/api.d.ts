@@ -29,6 +29,8 @@ import type * as crons from "../crons.js";
 import type * as crypto from "../crypto.js";
 import type * as databaseViews from "../databaseViews.js";
 import type * as dictation from "../dictation.js";
+import type * as driveFiles from "../driveFiles.js";
+import type * as driveTools from "../driveTools.js";
 import type * as fields from "../fields.js";
 import type * as fileText from "../fileText.js";
 import type * as files from "../files.js";
@@ -109,6 +111,8 @@ declare const fullApi: ApiFromModules<{
   crypto: typeof crypto;
   databaseViews: typeof databaseViews;
   dictation: typeof dictation;
+  driveFiles: typeof driveFiles;
+  driveTools: typeof driveTools;
   fields: typeof fields;
   fileText: typeof fileText;
   files: typeof files;

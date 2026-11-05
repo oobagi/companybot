@@ -28,13 +28,14 @@ import { GettingStarted } from "./views/chat/Tutorial";
 import { Avatar, MenuItem, Popover, archiveQuestion, deviceTimeZone, useConfirm } from "./views/chat/common";
 import { AddButton, ChannelsNav, DmsNav, Group, Item, type SectionProps } from "./views/chat/Sidebar";
 import { useSortable } from "./sortable";
-import { PagesNav, PagesView } from "./views/Pages";
+import { DriveNav, PagesView } from "./views/Pages";
+import { FileView } from "./views/Files";
 import { DatabaseDialog } from "./views/records/DatabaseDialog";
 import { AccessLock } from "./views/access";
 import { type RecordType, useTypes } from "./views/records/data";
 import { recordPath } from "./views/records/logic";
 
-export const views = ["chat", "records", "pages", "settings"] as const;
+export const views = ["chat", "records", "pages", "files", "settings"] as const;
 // The first databases used to have their own screens (#/clients …). Links to them in old messages still open.
 const oldRecordTabs: Record<string, string> = { clients: "client", deals: "deal", tasks: "task", calls: "call" };
 type View = (typeof views)[number];
@@ -139,7 +140,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	useEffect(() => {
 		if (prefs && prefs.deviceTimeZone !== timeZone) updatePrefs({ deviceTimeZone: timeZone }).catch(() => {});
 	}, [prefs, timeZone, updatePrefs]);
-	// Screens are paths: /chat[/<chat>[/thread|message/<id>]], /records/<type>[/<record>], /pages[/<page>], /settings/<tab>[/<item>] (Archive, Agents, Connectors, Skills and Automations included).
+	// Screens are paths: /chat[/<chat>[/thread|message/<id>]], /records/<type>[/<record>], /pages[/<page or folder>], /files/<file>, /settings/<tab>[/<item>] (Archive, Agents, Connectors, Skills and Automations included).
 	const route = useRoute();
 	// Trash (now Archive) and Customize used to be their own screens.
 	useEffect(() => {
@@ -152,7 +153,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	const settingsTab = settingsTabs.find((t) => t.id === (settingsTabAliases[route[1] ?? ""] ?? route[1]))?.id ?? "general";
 	// The rail's tab on screen. Customize's tabs (Agents, Connectors, Skills, Automations) keep their /settings/<tab> addresses; the rest of Settings lights none.
 	const tab: AppTab | undefined =
-		view === "chat" ? "chat" : view === "pages" ? "drive" : view === "records" ? "databases" : isCustomize(settingsTab) ? "customize" : undefined;
+		view === "chat" ? "chat" : view === "pages" || view === "files" ? "drive" : view === "records" ? "databases" : isCustomize(settingsTab) ? "customize" : undefined;
 	const types = useTypes();
 	const [newDatabase, setNewDatabase] = useState(false);
 	// The database on screen, by key, and the record open in it.
@@ -267,7 +268,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 											const props = { chats, openId, openThread: route[2] === "thread" ? route[3] : undefined, onOpen: open, onError: fail, canManageAgents: can(access, "agents.manage"), section };
 											return id === "channels" ? <ChannelsNav key={id} {...props} /> : <DmsNav key={id} {...props} />;
 										})}
-									{tab === "drive" && <PagesNav openId={route[1]} canEdit={can(access, "pages.edit")} />}
+									{tab === "drive" && <DriveNav openId={view === "pages" ? route[1] : undefined} openFileId={view === "files" ? route[1] : undefined} canEdit={can(access, "pages.edit")} />}
 									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} canCreate={can(access, "fields.edit")} onCreate={() => setNewDatabase(true)} />}
 									{tab === "customize" && <CustomizeNav open={settingsTab} />}
 								</div>
@@ -292,7 +293,8 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 								<TopBar title="" />
 							))}
 						{view === "records" && <RecordsView key={typeKey} typeKey={typeKey} recordId={recordId} access={access} />}
-						{view === "pages" && <PagesView pageId={route[1]} />}
+						{view === "pages" && <PagesView pageId={route[1]} canEdit={can(access, "pages.edit")} />}
+						{view === "files" && <FileView fileId={route[1]} />}
 						{view === "settings" && <SettingsView access={access} tab={settingsTab} itemId={route[2]} />}
 					</main>
 				</div>

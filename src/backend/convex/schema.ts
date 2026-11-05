@@ -8,7 +8,7 @@ import { viewConfig } from "./recordValidators";
 /** One of `values`, each a literal. */
 const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map((value) => v.literal(value)));
 
-const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats"), v.id("users"))));
+const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("driveFiles"), v.id("chats"), v.id("users"))));
 export const arrangementList = oneOf(Object.keys(arrangementLists) as ArrangementList[]);
 export const databaseDisplay = v.object({ layout: v.union(v.literal("table"), v.literal("board")), groupBy: v.optional(v.string()) });
 
@@ -1142,9 +1142,14 @@ export default defineSchema({
 		workspaceId: v.id("workspaces"),
 		/** Set for a record's body; standalone pages have none. */
 		recordId: v.optional(v.id("records")),
-		/** Only standalone pages can be nested. */
+		/**
+		 * A folder in Drive: a page row with no content, holding pages, files and other folders (driveFiles.ts).
+		 * Unset is a page. Folders sit in folders or at the top level; pages hold sub-pages only.
+		 */
+		kind: v.optional(v.literal("folder")),
+		/** Only standalone pages can be nested: in a page (sub-pages) or a folder. */
 		parentId: v.optional(v.id("pages")),
-		/** Standalone pages only: a record's body shows the record's name. */
+		/** Standalone pages only: a record's body shows the record's name. A folder's name. */
 		title: v.string(),
 		/** In Trash (the `trash` table says who deleted it, and when). */
 		archived: v.boolean(),
@@ -1192,6 +1197,29 @@ export default defineSchema({
 	// Pictures in a page: uploaded (pages.addImage), or pasted from another page in the workspace
 	// (pageOps.adoptImages). Kept while the page is, even once out of its content, so restoring an
 	// older version brings them back. The file goes with the last page that has it.
+	// A file in Drive (driveFiles.ts): uploaded like a chat file (files.upload), then put in a folder or at the
+	// top level. Its type is what its bytes said. Who can access follows its folder unless it sets its own.
+	driveFiles: defineTable({
+		/** Sources retained across edits and later audience changes. */
+		usedPlaces,
+		workspaceId: v.id("workspaces"),
+		/** The folder it's in; unset at Drive's top level. Never a page. */
+		parentId: v.optional(v.id("pages")),
+		...fileInfo.fields,
+		storageId: v.id("_storage"),
+		/** In Archive (the `trash` table says who deleted it, and when). */
+		archived: v.boolean(),
+		createdBy: v.id("users"),
+		updatedAt: v.number(),
+		updatedBy: v.id("users"),
+		/** Who can see and change it. Unset follows its folder; a top-level file's is Everyone at Edit. */
+		access,
+	})
+		.index("by_workspace", ["workspaceId", "archived", "name"])
+		.index("by_parent", ["workspaceId", "parentId", "archived", "name"])
+		.index("by_storage", ["storageId"])
+		.searchIndex("search_name", { searchField: "name", filterFields: ["workspaceId", "archived"] }),
+
 	pageImages: defineTable({ workspaceId: v.id("workspaces"), pageId: v.id("pages"), storageId: v.id("_storage"), url: v.string() })
 		.index("by_page", ["pageId", "url"])
 		.index("by_url", ["workspaceId", "url"])
@@ -1275,11 +1303,11 @@ export default defineSchema({
 	trash: defineTable({
 		workspaceId: v.id("workspaces"),
 		kind: trashKind,
-		/** The item's row id: record, database, field, page, chat, agent, or skill or automation install. */
+		/** The item's row id: record, database, field, page or folder, file, chat, agent, or skill or automation install. */
 		itemId: v.string(),
 		/** Its name when deleted, for listing and search. */
 		name: v.string(),
-		/** Page deletion included live children, captured when it entered Trash. */
+		/** Page or folder deletion included live children (sub-pages, or a folder's contents), captured when it entered Trash. */
 		includesSubpages: v.optional(v.boolean()),
 		/** Records and fields: their database. */
 		typeId: v.optional(v.id("recordTypes")),

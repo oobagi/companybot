@@ -6,7 +6,7 @@ import { type Member, accessOf, rolesOf } from "./lib";
 import { chatAccess, reach, type AccessList } from "./placeAccess";
 import { canReadSources, opensSource, writeSourceReader } from "./replyPrivacy";
 
-type Place = Id<"recordTypes"> | Id<"pages"> | Id<"chats">;
+type Place = Id<"recordTypes"> | Id<"pages"> | Id<"driveFiles"> | Id<"chats">;
 export type UsedPlace = Place | Id<"users">;
 const writes = new WeakMap<Member, Promise<void>>();
 

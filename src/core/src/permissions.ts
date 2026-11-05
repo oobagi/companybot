@@ -43,7 +43,7 @@ export const permissions = {
 	/** Add, change, delete (to Archive) and restore records (clients, deals, tasks…), and undo changes. */
 	"records.edit": { label: "add and change records", member: true },
 	/** Write, rename, delete (to Archive) and restore pages, and restore old versions (wiki/pages.md). */
-	"pages.edit": { label: "write and change pages", member: true },
+	"pages.edit": { label: "write and change pages, folders and files", member: true },
 	/** Add, change and delete (to Archive) databases and their fields. */
 	"fields.edit": { label: "add and change databases and fields", member: false },
 	/** Make channels, and rename, delete and add people to any channel. */
@@ -112,12 +112,14 @@ export const deniedMessage = (permission: Permission, roles: readonly RoleLike[]
 export const canEditAutomation = (who: Access & { userId: string }, privateTo: string | null) =>
 	privateTo ? privateTo === who.userId : can(who, "automations.edit");
 
-export const trashKinds = ["record", "database", "field", "page", "channel", "agent", "skill", "automation", "memory"] as const;
+export const trashKinds = ["record", "database", "field", "page", "folder", "file", "channel", "agent", "skill", "automation", "memory"] as const;
 export type TrashKind = (typeof trashKinds)[number];
 
 const trashPermission: Record<TrashKind, Permission> = {
 	record: "records.edit",
 	page: "pages.edit",
+	folder: "pages.edit",
+	file: "pages.edit",
 	memory: "memory.team.write",
 	database: "fields.edit",
 	field: "fields.edit",

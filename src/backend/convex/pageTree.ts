@@ -9,13 +9,19 @@ import { appendPageBlock, removePageBlock, requireEditable, requirePage } from "
 // A deleted ancestor gates the whole subtree immediately; no fan-out on trash/restore.
 export const PAGE_DEPTH_MAX = 32;
 const MOVE_SCAN_MAX = 1_000;
+/** What a page row is: a page, or a folder (wiki/drive.md). */
+export const kindOf = (p: Pick<Doc<"pages">, "kind">): "page" | "folder" => p.kind ?? "page";
+/** What can go in a page row: pages hold sub-pages only; folders hold pages, folders and files. */
+export type ChildKind = "page" | "folder" | "file";
+
 /**
- * A page as lists show it, given how far the person reaches in it (`pageReach`). `lock`: who its own list lets
+ * A page or folder as lists show it, given how far the person reaches in it (`pageReach`). `lock`: who its own list lets
  * in, for the sidebar's lock ("Office and Owners"); sub-pages following it show none. `canEdit`: Rename, Move,
  * New page inside and Archive (`pages.edit` and Edit in it); lists show live pages only.
  */
 export const pageRow = (p: Doc<"pages">, member: Member, level: AccessLevel, parentSeen = true) => ({
 	_id: p._id,
+	kind: kindOf(p),
 	title: p.title,
 	/** Null at the top level, and under a parent they can't see. */
 	parentId: parentSeen ? (p.parentId ?? null) : null,
@@ -25,10 +31,10 @@ export const pageRow = (p: Doc<"pages">, member: Member, level: AccessLevel, par
 });
 
 /**
- * What a page leaving its parent's list keeps (a move, or a restore to the top level): never more people.
+ * What a page or file leaving its parent's list keeps (a move, or a restore to the top level): never more people.
  * One following its parent's list keeps that list if `after` would let anyone further in; one with its own keeps it.
  */
-export const keptAccess = (member: Member, page: Doc<"pages">, before: AccessList, after: AccessList) => {
+export const keptAccess = (member: Member, page: Pick<Doc<"pages">, "access">, before: AccessList, after: AccessList) => {
 	const live = member.workspaceRoles.map((r) => r.id as string);
 	// A deleted role's id is copied nowhere: it matches nobody, and the role cleanup may have passed this page already.
 	return !page.access && widens(before, after, live) ? { access: (before ?? []).filter((e) => e.role === EVERYONE || live.includes(e.role)) } : {};
@@ -78,10 +84,11 @@ export type PageState = {
 };
 export const pageState = (ctx: QueryCtx, page: Doc<"pages">) => pageStates(ctx)(page);
 
-/** Record bodies are neither parents nor children. */
-export async function parentFor(ctx: QueryCtx, member: Member, parentId: Id<"pages">) {
+/** Record bodies are neither parents nor children. Folders go in folders; files go in folders; pages go in either. */
+export async function parentFor(ctx: QueryCtx, member: Member, parentId: Id<"pages">, child: ChildKind = "page") {
 	const parent = await requirePage(ctx, member, parentId);
 	if (parent.recordId) throw new ConvexError("Record bodies can't contain sub-pages.");
+	if (child !== "page" && kindOf(parent) !== "folder") throw new ConvexError(`${child === "file" ? "Files" : "Folders"} go in folders, or at the top level of Drive.`);
 	await requireEditable(ctx, member, parent);
 	const state = await pageState(ctx, parent);
 	if (state.ancestors.length + 1 >= PAGE_DEPTH_MAX) throw new ConvexError(`Keep pages under ${PAGE_DEPTH_MAX} levels deep.`);
@@ -94,8 +101,8 @@ export async function movePage(ctx: MutationCtx, who: Who, page: Doc<"pages">, p
 	if (page.recordId) throw new ConvexError("Record bodies can't be nested.");
 	if (page.parentId === parentId) return;
 	const before = await pageState(ctx, page);
-	const destination = parentId ? await parentFor(ctx, who.member, parentId) : null;
-	if (parentId === page._id || destination?.ancestors.some((p) => p._id === page._id)) throw new ConvexError("A page can't move inside itself or its descendants.");
+	const destination = parentId ? await parentFor(ctx, who.member, parentId, kindOf(page)) : null;
+	if (parentId === page._id || destination?.ancestors.some((p) => p._id === page._id)) throw new ConvexError(`A ${kindOf(page)} can't move inside itself or its descendants.`);
 	const depth = destination ? destination.ancestors.length + 1 : 0;
 	// Shallower moves cannot violate the depth limit. Deeper moves inspect at most 1,000 descendants.
 	if (depth > before.ancestors.length) {
@@ -121,3 +128,29 @@ export async function movePage(ctx: MutationCtx, who: Who, page: Doc<"pages">, p
 	await ctx.db.insert("pageMoves", { workspaceId: page.workspaceId, pageId: page._id, n, userId: who.member.userId, ...(who.agentId && { agentId: who.agentId }), fromId: before.ancestors[0]?._id ?? null, toId: destination?.parent._id ?? null });
 	for (const old of await ctx.db.query("pageMoves").withIndex("by_page", (q) => q.eq("pageId", page._id).lte("n", n - 100)).take(2)) await ctx.db.delete(old._id);
 }
+
+export type FileState = {
+	/** Its folder's ancestors, nearest first: the folder, then the folder's. */
+	ancestors: Doc<"pages">[];
+	archived: boolean;
+	/** What put it in Archive: itself, or a folder above it. */
+	trashItem?: Doc<"driveFiles"> | Doc<"pages">;
+	missingId?: Id<"pages">;
+	access: AccessList;
+};
+
+/**
+ * A file's state, like `pageStates`: in Archive if it or a folder above it is; its own Who can access
+ * list, else its folder's (`pageStates`). Share one reader across a list.
+ */
+export function fileStates(ctx: QueryCtx, pages = pageStates(ctx)) {
+	return async (file: Doc<"driveFiles">): Promise<FileState> => {
+		const folder = file.parentId ? await ctx.db.get(file.parentId) : null;
+		if (file.parentId && (!folder || folder.workspaceId !== file.workspaceId)) return { ancestors: [], archived: true, trashItem: file.archived ? file : undefined, missingId: file.parentId, access: [] };
+		const above = folder ? await pages(folder) : null;
+		if (above?.missingId) return { ancestors: [folder!, ...above.ancestors], archived: true, trashItem: file.archived ? file : undefined, missingId: above.missingId, access: [] };
+		const trashItem = file.archived ? file : above?.trashPage;
+		return { ancestors: folder ? [folder, ...above!.ancestors] : [], archived: !!trashItem, trashItem, access: file.access ?? above?.access };
+	};
+}
+export const fileState = (ctx: QueryCtx, file: Doc<"driveFiles">) => fileStates(ctx)(file);

@@ -46,6 +46,7 @@
     "@vitejs/plugin-react": "^6.1.2",
     "convex": "1.47.0",
     "convex-helpers": "^0.1.128",
+    "docx-preview": "^0.4.1",
     "electron": "^45.0.0",
     "electron-builder": "^26.15.3",
     "electron-updater": "^6.8.9",

@@ -1,17 +1,18 @@
 import { strToU8, zipSync } from "fflate";
 import { describe, expect, it } from "vitest";
-import { docx, pdf, pngOf, xlsx } from "../test/files";
+import { docx, pdf, pngOf, pptx, xlsx } from "../test/files";
 import { PAGE_CHARS, fileText, textPage } from "./file-text";
-import { DOCX, FILE_MAX_BYTES, XLSX, cleanFileName, fileError, formatFileSize, imageSize, sniffFile, toBase64 } from "./files";
+import { DOCX, FILE_MAX_BYTES, PPTX, XLSX, cleanFileName, fileError, formatFileSize, imageSize, sniffFile, toBase64 } from "./files";
 
 const text = (s: string) => new TextEncoder().encode(s);
 
 describe("sniffFile", () => {
-	it("reads pictures, PDFs, Word and Excel files by their bytes, whatever they're called", () => {
+	it("reads pictures, PDFs, Word, Excel and PowerPoint files by their bytes, whatever they're called", () => {
 		expect(sniffFile(pngOf(1, 1), "notes.txt")).toBe("image/png");
 		expect(sniffFile(pdf("Hi"), "a.docx")).toBe("application/pdf");
 		expect(sniffFile(docx("Hi"), "report.pdf")).toBe(DOCX);
 		expect(sniffFile(xlsx("S", [["a"]]), "x")).toBe(XLSX);
+		expect(sniffFile(pptx(["Hi"]), "deck.zip")).toBe(PPTX);
 	});
 
 	it("refuses other ZIPs, and ZIPs that only look like Office files", () => {
@@ -104,7 +105,12 @@ describe("fileText", () => {
 		expect(await fileText(book, XLSX)).toBe('## Leads\nName,Deal\n"Acme, Inc.",1200\n"Bob ""B""",5');
 	});
 
-	it("won't unpack more than 50 MB of a Word or Excel file (zip bombs)", async () => {
+	it("reads a deck's slides in presentation order, a line per paragraph", async () => {
+		const deck = pptx(["Q3 review", "Revenue &amp; costs"], ["Thanks"]);
+		expect(await fileText(deck, PPTX)).toBe("--- Slide 1 ---\nQ3 review\nRevenue & costs\n\n--- Slide 2 ---\nThanks");
+	});
+
+	it("won't unpack more than 50 MB of an Office file (zip bombs)", async () => {
 		// Nine 6 MB sheets of zeros pack to a few KB each, and would unpack to 54 MB together.
 		const zeros = new Uint8Array(6 * 1024 * 1024);
 		const sheets = Array.from({ length: 9 }, (_, i) => i + 1);

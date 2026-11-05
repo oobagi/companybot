@@ -12,7 +12,7 @@ export type AccessEntry = { role: string; level: "view" | "edit" };
 
 /**
  * The list, editable when `onSave` is given: each change saves at once (the server checks who may).
- * `follow`: a page that can follow its parent's list instead ("Same as parent page").
+ * `follow`: a page, folder or file that can follow its parent's list instead ("Same as parent page", or `follow.label`).
  */
 export function WhoCanAccess({
 	access,
@@ -23,7 +23,7 @@ export function WhoCanAccess({
 	access: AccessEntry[];
 	onSave?: (access: AccessEntry[]) => Promise<unknown>;
 	editLabel?: "Edit" | "Post";
-	follow?: { following: boolean; onFollow: () => Promise<unknown> };
+	follow?: { following: boolean; onFollow: () => Promise<unknown>; label?: string };
 }) {
 	const roles = useQuery(api.roles.list);
 	const { error, run } = useRun();
@@ -42,7 +42,7 @@ export function WhoCanAccess({
 					label="Whose list"
 					value={follow.following ? "parent" : "own"}
 					options={[
-						{ value: "parent", label: "Same as parent page" },
+						{ value: "parent", label: follow.label ?? "Same as parent page" },
 						{ value: "own", label: "Its own" },
 					]}
 					onChange={(v) => (v === "parent" ? !follow.following && run(follow.onFollow()) : follow.following && save(access))}

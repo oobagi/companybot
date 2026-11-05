@@ -1,4 +1,4 @@
-import { FILE_MAX_BYTES, FILES_PER_MESSAGE, TURN_IMAGES_MAX, cleanFileName, imageMaxBytes, imageMaxMb, imageSize, isFileType, isImageType, modelTakesImage, sniffFile } from "@companybot/core";
+import { FILE_KINDS_LABEL, FILE_MAX_BYTES, FILES_PER_MESSAGE, TURN_IMAGES_MAX, cleanFileName, imageMaxBytes, imageMaxMb, imageSize, isFileType, isImageType, modelTakesImage, sniffFile } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
@@ -33,7 +33,7 @@ export const upload = httpAction(async (ctx, request) => {
 	if (!bytes) return reply(413, { error: `Pick a file under ${FILE_MAX_BYTES / 1024 / 1024} MB.` });
 	const name = cleanFileName(new URL(request.url).searchParams.get("name") ?? "");
 	const type = sniffFile(bytes, name);
-	if (!type) return reply(415, { error: "Attach a picture, PDF, Word or Excel file, or plain text (Markdown, CSV, JSON)." });
+	if (!type) return reply(415, { error: `Attach ${FILE_KINDS_LABEL}.` });
 	return storeUpload(ctx, request, bytes, type, { name, type, size: bytes.length, ...(isImageType(type) && imageSize(bytes, type)) });
 });
 
